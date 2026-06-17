@@ -13,6 +13,7 @@ import (
 
 	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -513,6 +514,10 @@ type RPCConfig struct {
 
 	// Timeout for any read request
 	TimeoutRead time.Duration `mapstructure:"timeout-read"`
+
+	// HTTP write timeout. Acts as a hard backstop for all handlers.
+	// 0 disables the timeout, not recommended
+	TimeoutWrite time.Duration `mapstructure:"timeout-write"`
 }
 
 // DefaultRPCConfig returns a default configuration for the RPC server
@@ -542,7 +547,8 @@ func DefaultRPCConfig() *RPCConfig {
 		TLSKeyFile:   "",
 		LagThreshold: 300,
 
-		TimeoutRead: 10 * time.Second,
+		TimeoutRead:  10 * time.Second,
+		TimeoutWrite: 30 * time.Second,
 	}
 }
 
@@ -584,6 +590,13 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	}
 	if cfg.LagThreshold < 0 {
 		return errors.New("lag-threshold can't be negative")
+	}
+	if cfg.TimeoutWrite < 0 {
+		return errors.New("timeout-write can't be negative")
+	}
+	if cfg.TimeoutWrite > 0 && cfg.TimeoutWrite <= cfg.TimeoutBroadcastTxCommit {
+		return fmt.Errorf("timeout-write (%s) must be greater than timeout-broadcast-tx-commit (%s)",
+			cfg.TimeoutWrite, cfg.TimeoutBroadcastTxCommit)
 	}
 	return nil
 }
@@ -806,14 +819,14 @@ type MempoolConfig struct {
 	CheckTxErrorBlacklistEnabled bool `mapstructure:"check-tx-error-blacklist-enabled"`
 	CheckTxErrorThreshold        int  `mapstructure:"check-tx-error-threshold"`
 
-	// Maximum number of transactions in the pending set
 	PendingSize int `mapstructure:"pending-size"`
 
-	// Limit the total size of all txs in the pending set.
 	MaxPendingTxsBytes int64 `mapstructure:"max-pending-txs-bytes"`
 
+	// Deprecated: pending TTL is not used and this field has no effect.
 	PendingTTLDuration time.Duration `mapstructure:"pending-ttl-duration"`
 
+	// Deprecated: pending TTL is not used and this field has no effect.
 	PendingTTLNumBlocks int64 `mapstructure:"pending-ttl-num-blocks"`
 
 	RemoveExpiredTxsFromQueue bool `mapstructure:"remove-expired-txs-from-queue"`
@@ -860,15 +873,13 @@ type MempoolConfig struct {
 }
 
 func (cfg *MempoolConfig) ToMempoolConfig() *mempoolcfg.Config {
-	return &mempoolcfg.Config{
+	mcfg := &mempoolcfg.Config{
 		Size:                      cfg.Size,
 		MaxTxsBytes:               cfg.MaxTxsBytes,
 		CacheSize:                 cfg.CacheSize,
 		DuplicateTxsCacheSize:     cfg.DuplicateTxsCacheSize,
 		KeepInvalidTxsInCache:     cfg.KeepInvalidTxsInCache,
 		MaxTxBytes:                cfg.MaxTxBytes,
-		TTLDuration:               cfg.TTLDuration,
-		TTLNumBlocks:              cfg.TTLNumBlocks,
 		TxNotifyThreshold:         cfg.TxNotifyThreshold,
 		PendingSize:               cfg.PendingSize,
 		MaxPendingTxsBytes:        cfg.MaxPendingTxsBytes,
@@ -877,6 +888,13 @@ func (cfg *MempoolConfig) ToMempoolConfig() *mempoolcfg.Config {
 		DropUtilisationThreshold:  cfg.DropUtilisationThreshold,
 		DropPriorityReservoirSize: cfg.DropPriorityReservoirSize,
 	}
+	if cfg.TTLDuration != 0 {
+		mcfg.TTLDuration = utils.Some(cfg.TTLDuration)
+	}
+	if cfg.TTLNumBlocks != 0 {
+		mcfg.TTLNumBlocks = utils.Some(cfg.TTLNumBlocks)
+	}
+	return mcfg
 }
 
 // DefaultMempoolConfig returns a default configuration for the Tendermint mempool.
@@ -891,8 +909,8 @@ func DefaultMempoolConfig() *MempoolConfig {
 		KeepInvalidTxsInCache:        cfg.KeepInvalidTxsInCache,
 		MaxTxBytes:                   cfg.MaxTxBytes,
 		MaxBatchBytes:                0,
-		TTLDuration:                  cfg.TTLDuration,
-		TTLNumBlocks:                 cfg.TTLNumBlocks,
+		TTLDuration:                  cfg.TTLDuration.Or(0),
+		TTLNumBlocks:                 cfg.TTLNumBlocks.Or(0),
 		TxNotifyThreshold:            cfg.TxNotifyThreshold,
 		CheckTxErrorBlacklistEnabled: true,
 		CheckTxErrorThreshold:        50,

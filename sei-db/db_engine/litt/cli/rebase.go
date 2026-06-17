@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package main
 
 import (
@@ -162,11 +160,6 @@ func countSegmentFiles(sources []string) (count int64, symlinkFound bool, err er
 				return nil
 			}
 
-			// Ignore "table.metadata" files, as they are not segment files.
-			if d.Name() == disktable.TableMetadataFileName {
-				return nil
-			}
-
 			// Check if the file is a segment file.
 			extension := filepath.Ext(path)
 			if extension == segment.MetadataFileExtension ||
@@ -280,11 +273,6 @@ func transferDataInTable(
 	err = transferKeymap(source, tableName, destinations, preserveOriginal, fsync, verbose)
 	if err != nil {
 		return fmt.Errorf("failed to transfer keymap for table %s: %w", tableName, err)
-	}
-
-	err = transferTableMetadata(source, tableName, destinations, preserveOriginal, fsync, verbose)
-	if err != nil {
-		return fmt.Errorf("failed to transfer table metadata for table %s: %w", tableName, err)
 	}
 
 	err = transferSegmentData(
@@ -525,51 +513,6 @@ func transferSegmentFile(
 	if err != nil {
 		return fmt.Errorf("failed to copy segment file from %s to %s: %w",
 			segmentFilePath, destinationSegmentPath, err)
-	}
-
-	return nil
-}
-
-// transfers the table metadata file, if it is present.
-func transferTableMetadata(
-	source string,
-	tableName string,
-	destinations []string,
-	preserveOriginal bool,
-	fsync bool,
-	verbose bool,
-) error {
-
-	sourceTableDir := filepath.Join(source, tableName)
-
-	sourceMetadataPath := filepath.Join(sourceTableDir, disktable.TableMetadataFileName)
-	exists, err := util.Exists(sourceMetadataPath)
-	if err != nil {
-		return fmt.Errorf("failed to check if table metadata file %s exists: %w", sourceMetadataPath, err)
-	}
-
-	if !exists {
-		return nil
-	}
-
-	destination, err := determineDestination(sourceTableDir, destinations)
-	if err != nil {
-		return fmt.Errorf("failed to determine destination for table metadata %s: %w", sourceMetadataPath, err)
-	}
-
-	destinationMetadataPath := filepath.Join(destination, tableName, disktable.TableMetadataFileName)
-
-	if verbose {
-		text := fmt.Sprintf("Transferring table '%s' metadata", tableName)
-		writer := bufio.NewWriter(os.Stdout)
-		_, _ = fmt.Fprintf(writer, "\r%-100s", text)
-		_ = writer.Flush()
-	}
-
-	err = util.RecursiveMove(sourceMetadataPath, destinationMetadataPath, preserveOriginal, fsync)
-	if err != nil {
-		return fmt.Errorf("failed to copy table metadata from %s to %s: %w",
-			sourceMetadataPath, destinationMetadataPath, err)
 	}
 
 	return nil

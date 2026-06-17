@@ -55,10 +55,10 @@ type Context struct {
 	evmNonce                            uint64 // EVM Transaction nonce
 	evmSenderAddress                    common.Address
 	seiSenderAddress                    AccAddress
-	evmTxHash                           string // EVM TX hash
-	evmVmError                          string // EVM VM error during execution
-	evmEntryViaWasmdPrecompile          bool   // EVM is entered via wasmd precompile directly
-	evmPrecompileCalledFromDelegateCall bool   // EVM precompile is called from a delegate call
+	evmTxHash                           common.Hash // EVM TX hash
+	evmVmError                          string      // EVM VM error during execution
+	evmEntryViaWasmdPrecompile          bool        // EVM is entered via wasmd precompile directly
+	evmPrecompileCalledFromDelegateCall bool        // EVM precompile is called from a delegate call
 
 	messageIndex int // Used to track current message being processed
 	txIndex      int
@@ -67,8 +67,9 @@ type Context struct {
 
 	traceSpanContext context.Context
 
-	isTracing   bool
-	storeTracer gaskv.IStoreTracer
+	isTracing    bool
+	isSimulation bool
+	storeTracer  gaskv.IStoreTracer
 }
 
 // Proposed rename, not done to avoid API breakage
@@ -163,7 +164,7 @@ func (c Context) SeiSenderAddress() AccAddress {
 	return c.seiSenderAddress
 }
 
-func (c Context) EVMTxHash() string {
+func (c Context) EVMTxHash() common.Hash {
 	return c.evmTxHash
 }
 
@@ -214,6 +215,12 @@ func (c Context) TraceSpanContext() context.Context {
 
 func (c Context) IsTracing() bool {
 	return c.isTracing
+}
+
+// IsSimulation reports whether the context is being run in transaction
+// simulation mode.
+func (c Context) IsSimulation() bool {
+	return c.isSimulation
 }
 
 func (c Context) StoreTracer() gaskv.IStoreTracer {
@@ -432,7 +439,7 @@ func (c Context) WithIsEVM(isEVM bool) Context {
 	return c
 }
 
-func (c Context) WithEVMTxHash(txHash string) Context {
+func (c Context) WithEVMTxHash(txHash common.Hash) Context {
 	c.evmTxHash = txHash
 	return c
 }
@@ -473,6 +480,12 @@ func (c Context) WithIsTracing(it bool) Context {
 	} else {
 		c.storeTracer = nil
 	}
+	return c
+}
+
+// WithIsSimulation sets the simulation flag on the context.
+func (c Context) WithIsSimulation(isSimulation bool) Context {
+	c.isSimulation = isSimulation
 	return c
 }
 

@@ -10,7 +10,7 @@
       env: BEFORE_STAKED_TOKENS
 
     # staking tx
-    - cmd: printf "12345678\n" | seid tx staking delegate $ADMIN_VAL_ADDR 10sei --fees 2000usei --from admin -b block -y --output json | jq -r ".code"
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin staking delegate $ADMIN_VAL_ADDR 10sei --fees 2000usei
       env: DELEGATE_RESPONSE_CODE
 
     # state after staking
@@ -46,7 +46,7 @@
       env: SEI_NODE_1_BEFORE_STAKED_TOKENS
 
     # staking tx
-    - cmd: printf "12345678\n" | seid tx staking redelegate $SEI_NODE_0_VAL_ADDR $SEI_NODE_1_VAL_ADDR 10sei --fees 20000usei --gas 2000000 --from admin -b block -y --output json | jq -r ".code"
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin staking redelegate $SEI_NODE_0_VAL_ADDR $SEI_NODE_1_VAL_ADDR 10sei --fees 20000usei --gas 2000000
       env: REDELEGATE_RESPONSE_CODE
 
     # state after staking
@@ -83,7 +83,7 @@
     - cmd: seid q staking validator $SEI_NODE_1_VAL_ADDR --output json | jq -r ".tokens"
       env: BEFORE_STAKED_TOKENS
 
-    - cmd: printf "12345678\n" | seid tx staking unbond $SEI_NODE_1_VAL_ADDR 1sei --fees 2000usei --from admin -b block -y --output json | jq -r ".code"
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin staking unbond $SEI_NODE_1_VAL_ADDR 1sei --fees 2000usei
       env: DELEGATE_RESPONSE_CODE
 
     # state after staking

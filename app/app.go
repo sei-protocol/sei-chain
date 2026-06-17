@@ -67,9 +67,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
 	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis"
-	crisiskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/keeper"
-	crisistypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/types"
 	distr "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
 	distrclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/client"
 	distrkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
@@ -103,6 +100,7 @@ import (
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/seilog"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
 	"github.com/gogo/protobuf/proto"
@@ -137,6 +135,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -165,7 +164,6 @@ import (
 	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
-	"github.com/spf13/cast"
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -180,6 +178,7 @@ import (
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
+	gigastore "github.com/sei-protocol/sei-chain/giga/deps/store"
 	gigabankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
@@ -228,7 +227,6 @@ var (
 		distr.AppModuleBasic{},
 		gov.NewAppModuleBasic(getGovProposalHandlers()...),
 		params.AppModuleBasic{},
-		crisis.AppModuleBasic{},
 		slashing.AppModuleBasic{},
 		feegrantmodule.AppModuleBasic{},
 		ibc.AppModuleBasic{},
@@ -310,6 +308,14 @@ var (
 
 const (
 	MinGasEVMTx = 21000
+
+	// NewHeadsNotifierCapacity bounds the in-process eth_newHeads
+	// notifier buffer. Capacity 1 pairs with the notifier's
+	// overwrite-on-full semantics: if a consumer lags, the latest head
+	// always wins and stale heads are dropped. Anything larger only
+	// buffers staleness — newHeads subscribers care about the current
+	// head, not a backlog.
+	NewHeadsNotifierCapacity = 1
 )
 
 func init() {
@@ -380,8 +386,6 @@ type App struct {
 	appCodec          codec.Codec
 	interfaceRegistry types.InterfaceRegistry
 
-	invCheckPeriod uint
-
 	// keys to access the substores
 	keys    map[string]*sdk.KVStoreKey
 	tkeys   map[string]*sdk.TransientStoreKey
@@ -398,7 +402,6 @@ type App struct {
 	MintKeeper       mintkeeper.Keeper
 	DistrKeeper      distrkeeper.Keeper
 	GovKeeper        govkeeper.Keeper
-	CrisisKeeper     crisiskeeper.Keeper
 	UpgradeKeeper    upgradekeeper.Keeper
 	ParamsKeeper     paramskeeper.Keeper
 	IBCKeeper        *ibckeeper.Keeper // IBC Keeper must be a pointer in the app, so we can SetRouter on it correctly
@@ -448,9 +451,17 @@ type App struct {
 
 	HardForkManager *upgrades.HardForkManager
 
-	encodingConfig        appparams.EncodingConfig
-	legacyEncodingConfig  appparams.EncodingConfig
-	evmRPCConfig          evmrpcconfig.Config
+	encodingConfig       appparams.EncodingConfig
+	legacyEncodingConfig appparams.EncodingConfig
+	evmRPCConfig         evmrpcconfig.Config
+	// blockHeaderNotifier is non-nil only when Autobahn is enabled. It
+	// owns the FinalizeBlock→Commit pairing for eth_subscribe("newHeads"):
+	// FinalizeBlocker calls Stash with the (hash, header, response)
+	// tuple, App.Commit calls PublishStashed after a successful
+	// BaseApp.Commit, and FinalizeBlocker entry calls ClearStash to
+	// defend against stale tuples from prior failed commits or
+	// non-stashing return paths (EthReplay/EthBlockTest).
+	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
 	lightInvarianceConfig LightInvarianceConfig
@@ -471,8 +482,7 @@ type App struct {
 
 	benchmarkManager *benchmark.Manager
 
-	// GigaExecutorEnabled controls whether to use the Giga executor (evmone-based)
-	// instead of geth's interpreter for EVM execution. Experimental feature.
+	// GigaExecutorEnabled controls whether to use the Giga executor.
 	GigaExecutorEnabled bool
 	// GigaOCCEnabled controls whether to use OCC with the Giga executor
 	GigaOCCEnabled bool
@@ -487,7 +497,7 @@ func New(
 	_ bool,
 	skipUpgradeHeights map[int64]bool,
 	homePath string,
-	invCheckPeriod uint,
+	_ uint,
 	enableCustomEVMPrecompiles bool,
 	tmConfig *tmcfg.Config,
 	encodingConfig appparams.EncodingConfig,
@@ -522,7 +532,6 @@ func New(
 		cdc:                   cdc,
 		appCodec:              appCodec,
 		interfaceRegistry:     interfaceRegistry,
-		invCheckPeriod:        invCheckPeriod,
 		keys:                  keys,
 		tkeys:                 tkeys,
 		memKeys:               memKeys,
@@ -579,9 +588,6 @@ func New(
 	)
 	app.SlashingKeeper = slashingkeeper.NewKeeper(
 		appCodec, keys[slashingtypes.StoreKey], &stakingKeeper, app.GetSubspace(slashingtypes.ModuleName),
-	)
-	app.CrisisKeeper = crisiskeeper.NewKeeper(
-		app.GetSubspace(crisistypes.ModuleName), invCheckPeriod, app.BankKeeper, authtypes.FeeCollectorName,
 	)
 
 	app.FeeGrantKeeper = feegrantkeeper.NewKeeper(appCodec, keys[feegrant.StoreKey], app.AccountKeeper)
@@ -717,6 +723,21 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
 	}
+	// TODO: remove the mode gate and always construct the notifier once
+	// non-Autobahn is also producer-wired to feed it (i.e. a listener
+	// invocation in sei-tendermint/internal/state/execution.go next to
+	// PublishEventNewBlockHeader). That switch is blocked on parity work:
+	// the legacy event-bus path encodes a real Tendermint Header (real
+	// parentHash/receiptsRoot/transactionsRoot, pre-execution stateRoot)
+	// while encodeCommittedBlock zeroes those fields and uses
+	// post-execution stateRoot. We need to either verify both encoders
+	// produce identical headers for the same block under legacy, or
+	// reconcile the encoder so swapping the consumer is a no-op for
+	// non-Autobahn subscribers. Until that's verified, keep this gate
+	// so non-Autobahn newHeads semantics are unchanged by this PR.
+	if tmConfig != nil && tmConfig.AutobahnConfigFile != "" {
+		app.blockHeaderNotifier = tmutils.Some(evmrpc.NewBlockHeaderNotifier(NewHeadsNotifierCapacity))
+	}
 	if app.evmRPCConfig.TraceBakeEnabled {
 		traceDB, dbErr := evmkeeper.NewTraceDB(homePath)
 		if dbErr != nil {
@@ -776,11 +797,12 @@ func New(
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
 	if gigaExecutorConfig.Enabled {
-		evmoneVM, err := gigalib.InitEvmoneVM()
-		if err != nil {
-			panic(fmt.Sprintf("failed to load evmone: %s", err))
+		// evmone is loaded best-effort
+		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
+			app.GigaEvmKeeper.EvmoneVM = evmoneVM
+		} else {
+			logger.Debug("failed to load evmone VM", "error", err)
 		}
-		app.GigaEvmKeeper.EvmoneVM = evmoneVM
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
 		} else {
@@ -837,12 +859,6 @@ func New(
 		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
 	}
 
-	/****  Module Options ****/
-
-	// NOTE: we may consider parsing `appOpts` inside module constructors. For the moment
-	// we prefer to be more strict in what arguments the modules expect.
-	skipGenesisInvariants := cast.ToBool(appOpts.Get(crisis.FlagSkipGenesisInvariants))
-
 	// NOTE: Any module instantiated in the module manager that is later modified
 	// must be passed by reference here.
 
@@ -856,7 +872,6 @@ func New(
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
 		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
-		crisis.NewAppModule(&app.CrisisKeeper, skipGenesisInvariants),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
 		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
@@ -888,7 +903,6 @@ func New(
 		EvmKeeper:        &app.EvmKeeper,
 	}
 	app.EndBlockKeepers = legacyabci.EndBlockKeepers{
-		CrisisKeeper:  &app.CrisisKeeper,
 		GovKeeper:     &app.GovKeeper,
 		StakingKeeper: &app.StakingKeeper,
 		OracleKeeper:  &app.OracleKeeper,
@@ -935,7 +949,6 @@ func New(
 		govtypes.ModuleName,
 		minttypes.ModuleName,
 		vestingtypes.ModuleName,
-		crisistypes.ModuleName,
 		ibchost.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
@@ -950,7 +963,6 @@ func New(
 		// this line is used by starport scaffolding # stargate/app/initGenesis
 	)
 
-	app.mm.RegisterInvariants(&app.CrisisKeeper)
 	app.mm.RegisterRoutes(app.Router(), app.QueryRouter(), encodingConfig.Amino)
 	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
 	app.mm.RegisterServices(app.configurator)
@@ -1247,7 +1259,15 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// Start block processing timing (ends at FinalizeBlock)
 	app.StartBenchmarkBlockProcessing()
 
-	typedTxs := app.DecodeTxBytesConcurrently(req.Txs)
+	typedTxs, err := app.DecodeTxBytesConcurrently(ctx.Context(), req.Txs)
+	if err != nil {
+		utilmetrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
+		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
+			otelmetric.WithAttributes(attribute.String("proposer", hex.EncodeToString(req.Header.ProposerAddress))))
+		return &abci.ResponseProcessProposal{
+			Status: abci.ResponseProcessProposal_REJECT,
+		}, nil
+	}
 
 	// Use the clean context for gas validation only. We cannot reassign
 	// ctx because ProcessBlock writes to ctx's store downstream.
@@ -1330,6 +1350,13 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	// Drop any leftover stash so only the current FinalizeBlock can be
+	// published by the next Commit. Defends against return paths that
+	// don't Stash (EthReplay/EthBlockTest) and prior Commit failures.
+	headNotifier, hasHeadNotifier := app.blockHeaderNotifier.Get()
+	if hasHeadNotifier {
+		headNotifier.ClearStash()
+	}
 	startTime := time.Now()
 	defer func() {
 		app.ClearOptimisticProcessingInfo()
@@ -1366,10 +1393,14 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 				return &abci.ResponseFinalizeBlock{}, nil
 			}
+			consensusParamUpdates := app.GetConsensusParamsForStateToCommit()
 			cms := app.WriteState()
 			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
-			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
+			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp, consensusParamUpdates)
+			if hasHeadNotifier {
+				headNotifier.Stash(req, &resp)
+			}
 			return &resp, nil
 		}
 	}
@@ -1393,10 +1424,14 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
+	consensusParamUpdates := app.GetConsensusParamsForStateToCommit()
 	cms := app.WriteState()
 	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
-	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
+	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp, consensusParamUpdates)
+	if hasHeadNotifier {
+		headNotifier.Stash(req, &resp)
+	}
 	return &resp, nil
 }
 
@@ -1505,6 +1540,8 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		// Matches V2's recover behavior in legacyabci/deliver_tx.go.
 		var result *abci.ExecTxResult
 		var execErr error
+		// fallbackToV2: store-iteration panic; re-run this tx via v2 to match v2.
+		var fallbackToV2 bool
 		// IIFE (immediately-invoked function) to scope defer/recover to this tx only,
 		// allowing the loop to continue processing subsequent transactions after a panic.
 		func() {
@@ -1517,6 +1554,11 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 							Code:      sdkerrors.ErrOutOfGas.ABCICode(),
 							Log:       fmt.Sprintf("out of gas in location: %v", oogErr.Descriptor),
 						}
+						return
+					}
+					// Store-iteration panic: giga can't handle this tx; fall back to v2 (mirrors makeGigaDeliverTx).
+					if err, ok := r.(error); ok && errors.Is(err, gigastore.ErrIteratorUnsupported) {
+						fallbackToV2 = true
 						return
 					}
 					// For other panics (e.g., nil deref from malformed protobuf), log and return ErrPanic
@@ -1544,6 +1586,16 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			result, execErr = app.executeEVMTxWithGigaExecutor(ctx, evmMsg, cache)
 		}()
 
+		// Store-iteration panic: re-run via v2 so the result matches v2 exactly.
+		if fallbackToV2 {
+			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
+			appMetrics.gigaFallback.Add(ctx.Context(), 1)
+			res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
+			txResults[i] = res
+			ms.Write()
+			continue
+		}
+
 		if execErr != nil {
 			// Check if this is a fail-fast error (Cosmos precompile interop detected)
 			if gigautils.ShouldExecutionAbort(execErr) {
@@ -1569,6 +1621,35 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 	return txResults
 }
 
+func (app *App) shouldProcessSingleRecipientEVMTransfersSynchronously(typedTxs []sdk.Tx) bool {
+	const minSingleRecipientEVMTransfers = 64
+
+	if len(typedTxs) < minSingleRecipientEVMTransfers {
+		return false
+	}
+
+	var recipient common.Address
+	for i, tx := range typedTxs {
+		msg := app.GetEVMMsg(tx)
+		if msg == nil {
+			return false
+		}
+		etx, _ := msg.AsTransaction()
+		if etx == nil || etx.To() == nil || len(etx.Data()) != 0 || etx.Value().Sign() <= 0 {
+			return false
+		}
+		if i == 0 {
+			recipient = *etx.To()
+			continue
+		}
+		if *etx.To() != recipient {
+			return false
+		}
+	}
+
+	return true
+}
+
 // cacheContext returns a new context based off of the provided context with
 // a branched multi-store.
 func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
@@ -1579,12 +1660,15 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 
 // ExecuteTxsConcurrently calls the appropriate function for processing transacitons
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
-	// Giga only supports synchronous execution for now
-	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
+	processSynchronously := app.shouldProcessSingleRecipientEVMTransfersSynchronously(typedTxs)
+	if app.GigaExecutorEnabled && app.GigaOCCEnabled && !processSynchronously {
 		return app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs)
 	} else if app.GigaExecutorEnabled {
 		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs), ctx
 	} else if !ctx.IsOCCEnabled() {
+		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs), ctx
+	}
+	if processSynchronously {
 		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs), ctx
 	}
 
@@ -1968,6 +2052,12 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 
 	// Execute with feeAlreadyCharged=true — matching V2's msg_server behavior
 	execResult, execErr := gigaExecutor.ExecuteTransactionFeeCharged(ethTx, sender, cache.baseFee, &gp)
+
+	// Self-destruct requires iterating the store, unsupported by giga. Fallback to v2.
+	if stateDB.AnySelfDestructed() {
+		return nil, gigaprecompiles.ErrSelfDestructUnsupported
+	}
+
 	if execErr != nil {
 		// Match V2 error handling: bump nonce, commit fee deduction, track surplus
 		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
@@ -2161,6 +2251,16 @@ func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.
 					}
 					return
 				}
+				// Any store-iteration panic means giga can't handle this tx: fall back to v2.
+				if err, ok := r.(error); ok && errors.Is(err, gigastore.ErrIteratorUnsupported) {
+					resp = abci.ResponseDeliverTx{
+						Code:      gigautils.GigaAbortCode,
+						Codespace: gigautils.GigaAbortCodespace,
+						Info:      gigautils.GigaAbortInfo,
+						Log:       "giga executor abort: store iteration unsupported, fall back to v2",
+					}
+					return
+				}
 				// For other panics (e.g., nil deref from malformed protobuf), log and return ErrPanic
 				logger.Error("panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
 				resp = abci.ResponseDeliverTx{
@@ -2232,32 +2332,36 @@ func (app *App) GetEVMMsg(tx sdk.Tx) (res *evmtypes.MsgEVMTransaction) {
 	}
 }
 
-// DecodeTxBytesConcurrently decodes raw transaction bytes to sdk.Tx values in parallel.
-// Failed decodes and decode panics clear the slot (nil), matching prior DecodeTransactionsConcurrently behavior.
-func (app *App) DecodeTxBytesConcurrently(txs [][]byte) []sdk.Tx {
+func (app *App) DecodeTxBytesConcurrently(ctx context.Context, txs [][]byte) ([]sdk.Tx, error) {
 	typedTxs := make([]sdk.Tx, len(txs))
-	wg := sync.WaitGroup{}
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(app.ConcurrencyWorkers())
 	for i, tx := range txs {
-		wg.Add(1)
-		go func(idx int, encodedTx []byte) {
-			defer wg.Done()
+		i, tx := i, tx // not needed on Go 1.22+
+		eg.Go(func() (err error) {
 			defer func() {
-				if err := recover(); err != nil {
-					logger.Error("encountered panic during transaction decoding", "err", err)
-					typedTxs[idx] = nil
+				if r := recover(); r != nil {
+					logger.Error("encountered panic during transaction decoding", "err", r)
+					err = fmt.Errorf("panic decoding tx at index %d: %v", i, r)
 				}
 			}()
-			typedTx, err := app.txDecoder(encodedTx)
-			if err != nil {
-				logger.Error("error decoding transaction at index", "index", idx, "error", err)
-				typedTxs[idx] = nil
-			} else {
-				typedTxs[idx] = typedTx
+			// Bail early if another goroutine already failed.
+			if err := ctx.Err(); err != nil {
+				return err
 			}
-		}(i, tx)
+			typedTx, decodeErr := app.txDecoder(tx)
+			if decodeErr != nil {
+				logger.Error("error decoding transaction at index", "index", i, "error", decodeErr)
+				return decodeErr
+			}
+			typedTxs[i] = typedTx
+			return nil
+		})
 	}
-	wg.Wait()
-	return typedTxs
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	return typedTxs, nil
 }
 
 // finalizeDecodedEVMSlot runs EVM Preprocess for a decoded tx at idx. typedTx must be non-nil EVM.
@@ -2340,7 +2444,13 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 	return typedTxs
 }
 
-func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock) abci.ResponseFinalizeBlock {
+func (app *App) getFinalizeBlockResponse(
+	appHash []byte,
+	events []abci.Event,
+	txResults []*abci.ExecTxResult,
+	endBlockResp abci.ResponseEndBlock,
+	consensusParamUpdates *tmproto.ConsensusParams,
+) abci.ResponseFinalizeBlock {
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return abci.ResponseFinalizeBlock{}
 	}
@@ -2353,27 +2463,74 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 				Power:  v.Power,
 			}
 		}),
-		ConsensusParamUpdates: &tmproto.ConsensusParams{
-			Block: &tmproto.BlockParams{
-				MaxBytes:      endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
-				MaxGas:        endBlockResp.ConsensusParamUpdates.Block.MaxGas,
-				MinTxsInBlock: endBlockResp.ConsensusParamUpdates.Block.MinTxsInBlock,
-				MaxGasWanted:  endBlockResp.ConsensusParamUpdates.Block.MaxGasWanted,
-			},
-			Evidence: &tmproto.EvidenceParams{
-				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
-				MaxAgeDuration:  endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeDuration,
-				MaxBytes:        endBlockResp.ConsensusParamUpdates.Evidence.MaxBytes,
-			},
-			Validator: &tmproto.ValidatorParams{
-				PubKeyTypes: endBlockResp.ConsensusParamUpdates.Validator.PubKeyTypes,
-			},
-			Version: &tmproto.VersionParams{
-				AppVersion: endBlockResp.ConsensusParamUpdates.Version.AppVersion,
-			},
-		},
-		AppHash: appHash,
+		ConsensusParamUpdates: cloneConsensusParams(consensusParamUpdates),
+		AppHash:               appHash,
 	}
+}
+
+func cloneConsensusParams(params *tmproto.ConsensusParams) *tmproto.ConsensusParams {
+	if params == nil {
+		return nil
+	}
+
+	cp := &tmproto.ConsensusParams{}
+	if params.Block != nil {
+		cp.Block = &tmproto.BlockParams{
+			MaxBytes:      params.Block.MaxBytes,
+			MaxGas:        params.Block.MaxGas,
+			MinTxsInBlock: params.Block.MinTxsInBlock,
+			MaxGasWanted:  params.Block.MaxGasWanted,
+		}
+	}
+	if params.Evidence != nil {
+		cp.Evidence = &tmproto.EvidenceParams{
+			MaxAgeNumBlocks: params.Evidence.MaxAgeNumBlocks,
+			MaxAgeDuration:  params.Evidence.MaxAgeDuration,
+			MaxBytes:        params.Evidence.MaxBytes,
+		}
+	}
+	if params.Validator != nil {
+		cp.Validator = &tmproto.ValidatorParams{
+			PubKeyTypes: append([]string(nil), params.Validator.PubKeyTypes...),
+		}
+	}
+	if params.Version != nil {
+		cp.Version = &tmproto.VersionParams{
+			AppVersion: params.Version.AppVersion,
+		}
+	}
+	if params.Synchrony != nil {
+		cp.Synchrony = &tmproto.SynchronyParams{
+			Precision:    cloneDuration(params.Synchrony.Precision),
+			MessageDelay: cloneDuration(params.Synchrony.MessageDelay),
+		}
+	}
+	if params.Timeout != nil {
+		cp.Timeout = &tmproto.TimeoutParams{
+			Propose:             cloneDuration(params.Timeout.Propose),
+			ProposeDelta:        cloneDuration(params.Timeout.ProposeDelta),
+			Vote:                cloneDuration(params.Timeout.Vote),
+			VoteDelta:           cloneDuration(params.Timeout.VoteDelta),
+			Commit:              cloneDuration(params.Timeout.Commit),
+			BypassCommitTimeout: params.Timeout.BypassCommitTimeout,
+		}
+	}
+	if params.Abci != nil {
+		cp.Abci = &tmproto.ABCIParams{
+			VoteExtensionsEnableHeight: params.Abci.VoteExtensionsEnableHeight,
+			RecheckTx:                  params.Abci.RecheckTx,
+		}
+	}
+
+	return cp
+}
+
+func cloneDuration(duration *time.Duration) *time.Duration {
+	if duration == nil {
+		return nil
+	}
+	cloned := *duration
+	return &cloned
 }
 
 // LoadHeight loads a particular height
@@ -2578,7 +2735,8 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
+		headNotifier, _ := app.blockHeaderNotifier.Get()
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), headNotifier)
 		if err != nil {
 			panic(err)
 		}
@@ -2615,22 +2773,22 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
 // the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
 // or the gas wanted if it's a Cosmos tx. typedTxs must align with proposal order (nil = decode failure).
-func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result bool) {
+func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error("panic recovered in checkTotalBlockGas", "panic", r)
-			result = false // Reject proposal if panic occurs
+			_result = false
 		}
 	}()
 
-	totalGas, totalGasWanted := uint64(0), uint64(0)
-	nonzeroTxsCnt := 0
+	var totalGas, totalGasWanted uint64
 	for _, decodedTx := range typedTxs {
 		if decodedTx == nil {
-			// such tx will not be processed and thus won't consume gas. Skipping
-			continue
+			return false
 		}
+
 		isEVM, evmErr := evmante.IsEVMMessage(decodedTx)
+
 		// MsgEVMTransaction cannot be gasless under IsTxGasless (only oracle vote / MsgAssociate).
 		// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
 		// is not EVM or EVM classification failed (e.g. multi-msg with an EVM message).
@@ -2639,23 +2797,25 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
 			if err != nil {
 				if strings.Contains(err.Error(), "panic in IsTxGasless") {
-					// This is a unexpected panic, reject the entire proposal
+					// Unexpected panic: reject the entire proposal.
 					logger.Error("malicious transaction detected in gasless check", "err", err)
 					return false
 				}
-				// Other business logic errors (like duplicate votes) - continue processing but tx is not gasless
+				// Business-logic errors (e.g. duplicate votes): keep going, tx is treated as non-gasless.
 				logger.Info("transaction failed gasless check but not malicious", "err", err)
-				continue
 			}
 			if isGasless {
 				continue
 			}
 		}
-		// Check whether it's associate tx
-		gasWanted := uint64(0)
+
+		// EVM classification failed (e.g. multi-msg containing an EVM message); such a tx won't be
+		// processed and so contributes no gas to the block.
 		if evmErr != nil {
 			continue
 		}
+
+		var gasWanted uint64
 		if isEVM {
 			msg := evmtypes.MustGetEVMTransactionMessage(decodedTx)
 			if msg.IsAssociateTx() {
@@ -2666,94 +2826,75 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 		} else {
 			feeTx, ok := decodedTx.(sdk.FeeTx)
 			if !ok {
-				// such tx will not be processed and thus won't consume gas. Skipping
+				// Non-fee tx won't be processed and thus won't consume gas. Skipping.
 				continue
 			}
-
-			// Check for overflow before adding
 			gasWanted = feeTx.GetGas()
 		}
 
-		if int64(gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(gasWanted) { // nolint:gosec
+		// Overflow guards: gasWanted must fit in int64, and adding it to either accumulator
+		// must not wrap uint64.
+		if int64(gasWanted) < 0 || //nolint:gosec
+			totalGasWanted > math.MaxUint64-gasWanted ||
+			totalGas > math.MaxUint64-gasWanted {
 			return false
-		}
-
-		if gasWanted > 0 {
-			nonzeroTxsCnt++
 		}
 
 		totalGasWanted += gasWanted
 
-		// If the gas estimate is set and at least 21k (the minimum gas needed for an EVM tx)
-		// and less than or equal to the tx gas limit, use the gas estimate. Otherwise, use gasWanted.
-		useEstimate := false
-		if decodedTx.GetGasEstimate() >= MinGasEVMTx {
-			if decodedTx.GetGasEstimate() <= gasWanted {
-				useEstimate = true
-			}
-		}
-		if useEstimate {
-			totalGas += decodedTx.GetGasEstimate()
+		// Prefer the gas estimate when it's a valid EVM estimate (>= MinGasEVMTx) and not
+		// inflated above gasWanted; otherwise charge full gasWanted.
+		if est := decodedTx.GetGasEstimate(); est >= MinGasEVMTx && est <= gasWanted {
+			totalGas += est
 		} else {
 			totalGas += gasWanted
 		}
 
-		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGasWanted) { //nolint:gosec
-			return false
-		}
-
-		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) { //nolint:gosec
+		blockParams := ctx.ConsensusParams().Block
+		maxGasWanted := uint64(blockParams.MaxGasWanted) //nolint:gosec
+		maxGas := uint64(blockParams.MaxGas)             //nolint:gosec
+		if totalGasWanted > maxGasWanted || totalGas > maxGas {
 			return false
 		}
 	}
 
+	appMetrics.blockGasWanted.Record(ctx.Context(), int64(totalGasWanted)) //nolint:gosec
+	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil && cp.Block.MaxGasWanted > 0 {
+		appMetrics.blockGasWantedRatio.Record(ctx.Context(), float64(totalGasWanted)/float64(cp.Block.MaxGasWanted))
+	}
 	return true
 }
 
+// isExpectedGaslessMetricsError reports whether err is the well-known oracle
+// duplicate-vote error that we deliberately tolerate when collecting
+// gasless-tx metrics. errors.Is handles properly-wrapped chains; the substring
+// fallback covers chains that lost sentinel identity via %s/%v wrapping.
 func isExpectedGaslessMetricsError(err error) bool {
 	if err == nil {
 		return false
 	}
-
 	if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
 		return true
 	}
-
-	// Some wrapped error chains can lose sentinel identity while preserving
-	// the canonical oracle error text.
 	return strings.Contains(err.Error(), oracletypes.ErrAggregateVoteExist.Error())
 }
 
-// couldBeGaslessTransaction performs a fast heuristic check to identify potentially
-// gasless transactions, avoiding expensive keeper queries for performance.
-//
-// Returns true if the transaction COULD be gasless (needs expensive check).
-// Returns false only if DEFINITELY not gasless.
-// False negatives are unacceptable as they cause incorrect gas metrics.
+// couldBeGaslessTransaction is a fast heuristic that returns true when tx
+// might be gasless and a full IsTxGasless keeper check is therefore worth
+// running. It MUST be a conservative over-approximation: returning false for
+// a tx that is actually gasless would cause its gas to be counted against
+// the block limit, producing incorrect gas accounting (and in the worst case
+// rejecting an otherwise-valid block).
 func (app *App) couldBeGaslessTransaction(tx sdk.Tx) bool {
 	if tx == nil {
 		return false
 	}
-
-	msgs := tx.GetMsgs()
-	if len(msgs) == 0 {
-		// Empty transactions are definitely not gasless
-		return false
-	}
-
-	// Check if ANY message could potentially be gasless
-	for _, msg := range msgs {
+	for _, msg := range tx.GetMsgs() {
 		switch msg.(type) {
-		case *evmtypes.MsgAssociate:
-			// Associate txs can be gasless, so we need to check
-			return true
-		case *oracletypes.MsgAggregateExchangeRateVote:
-			// Oracle vote txs can be gasless, so we need to check
+		case *evmtypes.MsgAssociate, *oracletypes.MsgAggregateExchangeRateVote:
 			return true
 		}
 	}
-
-	// If none of the messages are known gasless types, it's definitely not gasless
 	return false
 }
 
@@ -2785,7 +2926,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(distrtypes.ModuleName)
 	paramsKeeper.Subspace(slashingtypes.ModuleName)
 	paramsKeeper.Subspace(govtypes.ModuleName).WithKeyTable(govtypes.ParamKeyTable())
-	paramsKeeper.Subspace(crisistypes.ModuleName)
 	paramsKeeper.Subspace(ibctransfertypes.ModuleName)
 	paramsKeeper.Subspace(ibchost.ModuleName)
 	paramsKeeper.Subspace(oracletypes.ModuleName)

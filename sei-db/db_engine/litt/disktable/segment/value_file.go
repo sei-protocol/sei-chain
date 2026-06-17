@@ -1,10 +1,7 @@
-//go:build littdb_wip
-
 package segment
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"log/slog"
@@ -31,7 +28,7 @@ type valueFile struct {
 	index uint32
 
 	// The shard number of this value file.
-	shard uint32
+	shard uint8
 
 	// Path data for the segment file.
 	segmentPath *SegmentPath
@@ -60,7 +57,7 @@ type valueFile struct {
 func createValueFile(
 	logger *slog.Logger,
 	index uint32,
-	shard uint32,
+	shard uint8,
 	segmentPath *SegmentPath,
 	fsync bool,
 ) (*valueFile, error) {
@@ -84,7 +81,7 @@ func createValueFile(
 	}
 
 	// Open the file for writing.
-	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
+	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0600) //nolint:gosec // path validated by segment manager
 	if err != nil {
 		return nil, fmt.Errorf("failed to open value file %s: %v", filePath, err)
 	}
@@ -100,7 +97,7 @@ func createValueFile(
 func loadValueFile(
 	logger *slog.Logger,
 	index uint32,
-	shard uint32,
+	shard uint8,
 	segmentPaths []*SegmentPath) (*valueFile, error) {
 
 	valuesFileName := fmt.Sprintf("%d-%d%s", index, shard, ValuesFileExtension)
@@ -130,7 +127,7 @@ func loadValueFile(
 		return nil, fmt.Errorf("value file %s does not exist", filePath)
 	}
 
-	values.size = uint64(size)
+	values.size = uint64(size) //nolint:gosec // file size is non-negative
 	values.flushedSize.Store(values.size)
 
 	return values, nil
@@ -153,12 +150,12 @@ func getValueFileIndex(fileName string) (uint32, error) {
 		return 0, fmt.Errorf("failed to parse index from file name %s: %v", fileName, err)
 	}
 
-	return uint32(index), nil
+	return uint32(index), nil //nolint:gosec // segment index fits uint32
 }
 
 // getValueFileShard returns the shard number of the value file from the file name. Value file names have the form
 // "X-Y.values", where X is the segment index and Y is the shard number.
-func getValueFileShard(fileName string) (uint32, error) {
+func getValueFileShard(fileName string) (uint8, error) {
 	baseName := path.Base(fileName)
 	strippedName := baseName[:len(baseName)-len(ValuesFileExtension)]
 
@@ -172,8 +169,11 @@ func getValueFileShard(fileName string) (uint32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse shard from file name %s: %v", fileName, err)
 	}
+	if shard < 0 || shard > 255 {
+		return 0, fmt.Errorf("shard index %d out of range for file name %s", shard, fileName)
+	}
 
-	return uint32(shard), nil
+	return uint8(shard), nil
 }
 
 // Size returns the size of the value file in bytes.
@@ -191,15 +191,16 @@ func (v *valueFile) path() string {
 	return path.Join(v.segmentPath.SegmentDirectory(), v.name())
 }
 
-// read reads a value from the value file.
-func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
+// read reads a length-byte range from the value file. The length is supplied by the caller (it lives in the
+// Address that points at this value) so the value file itself stores no length prefix.
+func (v *valueFile) read(firstByteIndex uint32, length uint32) ([]byte, error) {
 	flushedSize := v.flushedSize.Load()
-	if uint64(firstByteIndex) >= flushedSize {
-		return nil, fmt.Errorf("index %d is out of bounds (current flushed size is %d)",
-			firstByteIndex, flushedSize)
+	if uint64(firstByteIndex)+uint64(length) > flushedSize {
+		return nil, fmt.Errorf("range [%d, %d) is out of bounds (current flushed size is %d)",
+			firstByteIndex, uint64(firstByteIndex)+uint64(length), flushedSize)
 	}
 
-	file, err := os.OpenFile(v.path(), os.O_RDONLY, 0644)
+	file, err := os.OpenFile(v.path(), os.O_RDONLY, 0600) //nolint:gosec // path validated by segment manager
 	if err != nil {
 		return nil, fmt.Errorf("failed to open value file: %v", err)
 	}
@@ -211,23 +212,17 @@ func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
 	}()
 
 	_, err = file.Seek(int64(firstByteIndex), 0)
-	reader := bufio.NewReader(file)
-
-	// Read the length of the value.
-	var length uint32
-	err = binary.Read(reader, binary.BigEndian, &length)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read value length from value file: %v", err)
+		return nil, fmt.Errorf("failed to seek value file: %v", err)
 	}
 
-	// Read the value itself.
 	value := make([]byte, length)
-	bytesRead, err := io.ReadFull(reader, value)
+	bytesRead, err := io.ReadFull(file, value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read value from value file: %v", err)
 	}
 
-	if uint32(bytesRead) != length {
+	if uint32(bytesRead) != length { //nolint:gosec // bytesRead bounded by length
 		return nil, fmt.Errorf("failed to read value from value file: read %d bytes, expected %d", bytesRead, length)
 	}
 
@@ -235,6 +230,9 @@ func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
 }
 
 // write writes a value to the value file, returning the index of the first byte written.
+//
+// Values are written without a length prefix; the length is recorded in the Address returned by the
+// owning segment, which lets secondary keys point at sub-ranges of a value without duplicating data.
 func (v *valueFile) write(value []byte) (uint32, error) {
 	if v.writer == nil {
 		return 0, fmt.Errorf("value file is sealed")
@@ -248,19 +246,12 @@ func (v *valueFile) write(value []byte) (uint32, error) {
 
 	firstByteIndex := uint32(v.size)
 
-	// First, write the length of the value.
-	err := binary.Write(v.writer, binary.BigEndian, uint32(len(value)))
-	if err != nil {
-		return 0, fmt.Errorf("failed to write value length to value file: %v", err)
-	}
-
-	// Then, write the value itself.
-	_, err = v.writer.Write(value)
+	_, err := v.writer.Write(value)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write value to value file: %v", err)
 	}
 
-	v.size += uint64(len(value) + 4)
+	v.size += uint64(len(value)) //nolint:gosec // value length non-negative
 
 	return firstByteIndex, nil
 }

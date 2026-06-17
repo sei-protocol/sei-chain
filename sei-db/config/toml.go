@@ -51,16 +51,17 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchT
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
 # WriteMode defines the write routing mode for EVM data in the SC layer.
-# Valid values: cosmos_only, dual_write, split_write
+# Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
+# all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write
 sc-write-mode = "{{ .StateCommit.WriteMode }}"
 
-# ReadMode defines the read routing mode for EVM data in the SC layer.
-# Valid values: cosmos_only, evm_first, split_read
-sc-read-mode = "{{ .StateCommit.ReadMode }}"
-
-# EnableLatticeHash controls whether lattice hash participates in the final app hash.
-# Must be enabled when using split_write mode.
-sc-enable-lattice-hash = {{ .StateCommit.EnableLatticeHash }}
+# KeysToMigratePerBlock controls how many EVM keys the in-flight migration
+# (sc-write-mode = migrate_evm / migrate_bank / migrate_all_but_bank) drains
+# from memiavl into flatkv per block. Default 1024 is appropriate for
+# production drains; lower it (e.g. 256) to spread the migration across more
+# blocks for test runs that need to observe the resume / hybrid-read path.
+# Must be > 0; ignored entirely when not in a migration mode.
+sc-keys-to-migrate-per-block = {{ .StateCommit.KeysToMigratePerBlock }}
 
 ###############################################################################
 ###                        FlatKV (EVM) Configuration                       ###
@@ -149,7 +150,7 @@ const ReceiptStoreConfigTemplate = `
 
 [receipt-store]
 # Backend defines the receipt store backend.
-# Supported backends: pebble (aka pebbledb), parquet
+# Supported backends: pebble (aka pebbledb)
 # defaults to pebbledb
 rs-backend = "{{ .ReceiptStore.Backend }}"
 
@@ -157,7 +158,7 @@ rs-backend = "{{ .ReceiptStore.Backend }}"
 db-directory = "{{ .ReceiptStore.DBDirectory }}"
 
 # AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store.
-# Applies only when rs-backend = "pebbledb"; parquet ignores this setting.
+# Applies only when rs-backend = "pebbledb".
 # Set <= 0 for synchronous writes.
 # defaults to 100
 async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
@@ -166,11 +167,6 @@ async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
 # Receipt retention is controlled by the global min-retain-blocks flag.
 # defaults to 600 seconds
 prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
-
-# TxIndexBackend selects the tx-hash index implementation for parquet receipts.
-# Set to "pebbledb" to enable the index, or "" to disable it.
-# Ignored unless rs-backend = "parquet".
-tx-index-backend = "{{ .ReceiptStore.TxIndexBackend }}"
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility

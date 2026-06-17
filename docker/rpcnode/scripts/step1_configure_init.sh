@@ -18,31 +18,32 @@ cp build/generated/genesis.json ~/.sei/config/genesis.json
 
 # Apply Giga Storage overrides so the RPC node's app hash matches the validators.
 GIGA_STORAGE=${GIGA_STORAGE:-false}
-if [ "$GIGA_STORAGE" = "true" ]; then
-  # Default receipt backend to parquet when giga storage is on; callers may
+GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY:-false}
+if [ "$GIGA_STORAGE" = "true" ] && [ "$GIGA_FLATKV_ONLY" != "true" ]; then
+  # Default receipt backend to pebble when giga storage is on; callers may
   # still override via an explicit RECEIPT_BACKEND env var.
-  RECEIPT_BACKEND=${RECEIPT_BACKEND:-parquet}
+  RECEIPT_BACKEND=${RECEIPT_BACKEND:-pebble}
   echo "Enabling Giga Storage for RPC node..."
 
-  # SC layer: must match validators (dual_write + split_read + lattice hash)
-  if grep -q "sc-write-mode" ~/.sei/config/app.toml; then
-    sed -i 's/sc-write-mode = .*/sc-write-mode = "dual_write"/' ~/.sei/config/app.toml
+  # SC layer: must match validators (test_only_dual_write)
+  if grep -q '^sc-write-mode[[:space:]]*=' ~/.sei/config/app.toml; then
+    sed -i 's/^sc-write-mode[[:space:]]*=.*/sc-write-mode = "test_only_dual_write"/' ~/.sei/config/app.toml
   else
-    sed -i '/^\[state-store\]/i sc-write-mode = "dual_write"' ~/.sei/config/app.toml
-  fi
-  if grep -q "sc-read-mode" ~/.sei/config/app.toml; then
-    sed -i 's/sc-read-mode = .*/sc-read-mode = "split_read"/' ~/.sei/config/app.toml
-  else
-    sed -i '/^\[state-store\]/i sc-read-mode = "split_read"' ~/.sei/config/app.toml
-  fi
-  if grep -q "sc-enable-lattice-hash" ~/.sei/config/app.toml; then
-    sed -i 's/sc-enable-lattice-hash = .*/sc-enable-lattice-hash = true/' ~/.sei/config/app.toml
-  else
-    sed -i '/^\[state-store\]/i sc-enable-lattice-hash = true' ~/.sei/config/app.toml
+    sed -i '/^\[state-store\]/i sc-write-mode = "test_only_dual_write"' ~/.sei/config/app.toml
   fi
 
   # SS layer: enable EVM split
-  sed -i 's/evm-ss-split = .*/evm-ss-split = true/' ~/.sei/config/app.toml
+  sed -i 's/^evm-ss-split[[:space:]]*=.*/evm-ss-split = true/' ~/.sei/config/app.toml
+fi
+
+if [ "$GIGA_FLATKV_ONLY" = "true" ]; then
+  echo "Booting RPC node in flatkv_only mode..."
+  if grep -q '^sc-write-mode[[:space:]]*=' ~/.sei/config/app.toml; then
+    sed -i 's/^sc-write-mode[[:space:]]*=.*/sc-write-mode = "flatkv_only"/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-write-mode = "flatkv_only"' ~/.sei/config/app.toml
+  fi
+  sed -i 's/^evm-ss-split[[:space:]]*=.*/evm-ss-split = false/' ~/.sei/config/app.toml
 fi
 
 # Apply receipt backend override if requested

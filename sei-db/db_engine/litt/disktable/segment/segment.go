@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package segment
 
 import (
@@ -103,7 +101,7 @@ type Segment struct {
 	//
 	// Write is only ever invoked from the disk_table control loop, which is single-threaded with respect to
 	// any given segment, so we do not guard nextShard with atomics or a lock.
-	nextShard uint32
+	nextShard uint8
 }
 
 // CreateSegment creates a new data segment.
@@ -113,7 +111,7 @@ func CreateSegment(
 	index uint32,
 	segmentPaths []*SegmentPath,
 	snapshottingEnabled bool,
-	shardingFactor uint32,
+	shardingFactor uint8,
 	fsync bool) (*Segment, error) {
 
 	if len(segmentPaths) == 0 {
@@ -133,7 +131,7 @@ func CreateSegment(
 	keyFileSize := keys.Size()
 
 	shards := make([]*valueFile, metadata.shardingFactor)
-	for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		// Assign value files to available segment paths in a round-robin fashion.
 		// Assign the first shard to the directory at index 1. The first directory
 		// is used by the keymap, so if we have enough directories we don't want to
@@ -150,14 +148,15 @@ func CreateSegment(
 	shardSizes := make([]uint64, metadata.shardingFactor)
 
 	shardChannels := make([]chan any, metadata.shardingFactor)
-	for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		shardChannels[shard] = make(chan any, shardControlChannelCapacity)
 	}
 
 	// If at all possible, we want to size this channel so that the goroutines writing data to the sharded value files
 	// do not block on insertion into this channel. Scale the size of this channel by the number of shards, as more
-	// shards mean there may be a higher rate of writes to this channel.
-	keyFileChannel := make(chan any, shardControlChannelCapacity*metadata.shardingFactor)
+	// shards mean there may be a higher rate of writes to this channel. Widen to int before multiplying so that the
+	// product does not wrap at 256 (metadata.shardingFactor is a uint8).
+	keyFileChannel := make(chan any, int(shardControlChannelCapacity)*int(metadata.shardingFactor))
 
 	segment := &Segment{
 		logger:              logger,
@@ -180,7 +179,7 @@ func CreateSegment(
 	segment.reservationCount.Store(1)
 
 	// Start up the control loops.
-	for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		go segment.shardControlLoop(shard)
 	}
 
@@ -218,7 +217,7 @@ func LoadSegment(logger *slog.Logger,
 
 	// Look for the value files. There should be one for each shard.
 	shards := make([]*valueFile, metadata.shardingFactor)
-	for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		values, err := loadValueFile(logger, index, shard, segmentPaths)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open value file: %v", err)
@@ -262,39 +261,99 @@ func (s *Segment) SegmentIndex() uint32 {
 // sealLoadedSegment is responsible for sealing a segment loaded from disk that is not already sealed.
 // While doing this, it is responsible for making the key file consistent with the values present in the
 // value files.
+//
+// Recovery is "group-atomic": every Put that wrote 1+N key file records (one primary + N secondaries)
+// is either kept whole or dropped whole. A group is kept iff (1) its closing record
+// (KeyKindStandalone for a 0-secondary Put, or KeyKindFinalSecondary for an N>=1 Put) is present in
+// the key file, and (2) every address in the group fits within the flushed bytes of its value file.
+// Any other state (partial keyfile record, primary without a closing terminator, stray secondary not
+// preceded by a primary, value-file truncated mid-group) results in the entire group being discarded.
 func (s *Segment) sealLoadedSegment(now time.Time) error {
 	scopedKeys, err := s.keys.readKeys()
 	if err != nil {
 		return fmt.Errorf("failed to read keys: %w", err)
 	}
 
-	// keys with values that are not present in the value files
+	// keys belonging to groups that passed both key-file and value-file completeness checks
 	goodKeys := make([]*types.ScopedKey, 0, len(scopedKeys))
 
-	// keys with values that weren't flushed out to the value files before the DB crashed
+	// keys belonging to groups that were torn (either mid-key-file or mid-value-file)
 	badKeys := make([]*types.ScopedKey, 0, len(scopedKeys))
 
+	// commitGroup applies the all-or-nothing value-file completeness check to a group's keys and
+	// routes them to goodKeys or badKeys accordingly. A group survives only if every address in it
+	// is fully present in its shard's value file.
+	commitGroup := func(group []*types.ScopedKey) {
+		if len(group) == 0 {
+			return
+		}
+		for _, sk := range group {
+			shard := sk.Address.ShardID()
+			end := uint64(sk.Address.Offset()) + uint64(sk.Address.ValueSize())
+			if s.shards[shard].Size() < end {
+				badKeys = append(badKeys, group...)
+				return
+			}
+		}
+		goodKeys = append(goodKeys, group...)
+	}
+
+	// Validate shard IDs up front: a shard ID beyond the segment's sharding factor cannot come from
+	// normal operation, so we treat it as disk corruption and refuse to seal the segment rather
+	// than risk silently dropping data.
 	for _, scopedKey := range scopedKeys {
 		shard := scopedKey.Address.ShardID()
-
 		if int(shard) >= len(s.shards) {
-			// A shard ID that exceeds the segment's sharding factor cannot be the result of normal
-			// operation, so treat it as disk corruption and refuse to seal the segment. Recovery here
-			// would risk silently dropping data; require human intervention instead.
 			return fmt.Errorf(
 				"segment %d has key with shard ID %d outside sharding factor %d: data corruption detected",
 				s.index, shard, len(s.shards))
 		}
+	}
 
-		requiredValueFileLength := uint64(scopedKey.Address.Offset()) +
-			4 /* value size uint32 */ +
-			uint64(scopedKey.Address.ValueSize())
-
-		if s.shards[shard].Size() < requiredValueFileLength {
-			badKeys = append(badKeys, scopedKey)
-		} else {
-			goodKeys = append(goodKeys, scopedKey)
+	// Walk records in order, accumulating a group buffer that we commit on each terminator.
+	var currentGroup []*types.ScopedKey
+	for _, scopedKey := range scopedKeys {
+		switch scopedKey.Kind {
+		case types.KeyKindStandalone:
+			// A standalone primary closes its group immediately. Any in-flight group (which would
+			// indicate a torn primary-with-secondaries write that was followed by a fresh
+			// standalone) is dropped.
+			if len(currentGroup) > 0 {
+				badKeys = append(badKeys, currentGroup...)
+				currentGroup = nil
+			}
+			commitGroup([]*types.ScopedKey{scopedKey})
+		case types.KeyKindPrimary:
+			// Starting a new group. Any in-flight group is torn.
+			if len(currentGroup) > 0 {
+				badKeys = append(badKeys, currentGroup...)
+				currentGroup = nil
+			}
+			currentGroup = append(currentGroup, scopedKey)
+		case types.KeyKindSecondary:
+			// A secondary that is not preceded by a primary is a stray record (its primary was torn
+			// off the front of the file or never written). Drop it. Otherwise, accumulate.
+			if len(currentGroup) == 0 {
+				badKeys = append(badKeys, scopedKey)
+			} else {
+				currentGroup = append(currentGroup, scopedKey)
+			}
+		case types.KeyKindFinalSecondary:
+			if len(currentGroup) == 0 {
+				badKeys = append(badKeys, scopedKey)
+			} else {
+				currentGroup = append(currentGroup, scopedKey)
+				commitGroup(currentGroup)
+				currentGroup = nil
+			}
+		default:
+			return fmt.Errorf("segment %d has key file record with unknown kind %d: data corruption detected",
+				s.index, scopedKey.Kind)
 		}
+	}
+	// A group that was never closed (the file ended before its FinalSecondary was written) is torn.
+	if len(currentGroup) > 0 {
+		badKeys = append(badKeys, currentGroup...)
 	}
 
 	if len(badKeys) > 0 {
@@ -328,11 +387,11 @@ func (s *Segment) sealLoadedSegment(now time.Time) error {
 		s.keys = swapFile
 	}
 
-	err = s.metadata.seal(now, uint32(len(goodKeys)))
+	err = s.metadata.seal(now, uint32(len(goodKeys))) //nolint:gosec // key count fits uint32
 	if err != nil {
 		return fmt.Errorf("failed to seal metadata file: %w", err)
 	}
-	s.keyCount = uint32(len(goodKeys))
+	s.keyCount = uint32(len(goodKeys)) //nolint:gosec // key count fits uint32
 
 	return nil
 }
@@ -396,18 +455,25 @@ func (s *Segment) SetNextSegment(nextSegment *Segment) {
 	s.nextSegment = nextSegment
 }
 
-// Write records a key-value pair in the data segment, returning the maximum size of all shards within this segment.
+// Write records a key-value pair (with optional secondary keys) in the data segment, returning the
+// running key count and key-file size of the segment.
 //
-// This method does not ensure that the key-value pair is actually written to disk, only that it will eventually be
-// written to disk. Flush must be called to ensure that all data previously passed to Write is written to disk.
-func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64, err error) {
+// This method does not ensure that the key-value pair is actually written to disk, only that it will
+// eventually be written to disk. Flush must be called to ensure that all data previously passed to
+// Write is written to disk.
+//
+// The primary key and all of its secondary keys are written contiguously to the key file in a single
+// "group": the primary first, followed by each secondary in order. The kind tag on the primary
+// (KeyKindStandalone vs. KeyKindPrimary) and on the last secondary (KeyKindFinalSecondary) is what
+// lets recovery distinguish a fully-written group from a torn write.
+func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize uint64, err error) {
 	if s.metadata.sealed {
 		return 0, 0, fmt.Errorf("segment is sealed, cannot write data")
 	}
 
-	// Shard assignment is round-robin: each successive call deposits the value into the next shard, wrapping around
-	// after metadata.shardingFactor calls. This is safe to do without locking because Write is invoked exclusively
-	// from the disk_table control loop goroutine.
+	// Shard assignment is round-robin: each successive call deposits the value into the next shard,
+	// wrapping around after metadata.shardingFactor calls. This is safe to do without locking
+	// because Write is invoked exclusively from the disk_table control loop goroutine.
 	shard := s.nextShard
 	s.nextShard++
 	if s.nextShard == s.metadata.shardingFactor {
@@ -422,15 +488,45 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 		return 0, 0,
 			fmt.Errorf("value file already contains %d bytes, cannot add a new value", currentSize)
 	}
-	s.unflushedKeyCount.Add(1)
 	firstByteIndex := uint32(currentSize)
+	valueLen := uint64(len(data.Value))
+	if uint64(firstByteIndex)+valueLen > math.MaxUint32 {
+		return 0, 0,
+			fmt.Errorf("value of length %d would push value file past 2^32 bytes (current size %d)",
+				valueLen, currentSize)
+	}
 
-	s.shardSizes[shard] += uint64(len(data.Value)) + 4 /* uint32 length */
+	// Validate every secondary key's address fits in uint32 *before* sending anything, so we never
+	// produce a partial write.
+	for _, sk := range data.SecondaryKeys {
+		end := uint64(firstByteIndex) + uint64(sk.Offset) + uint64(sk.Length)
+		if end > math.MaxUint32 {
+			return 0, 0,
+				fmt.Errorf("secondary key range [%d, %d) would exceed 2^32 byte addressable range",
+					uint64(firstByteIndex)+uint64(sk.Offset), end)
+		}
+	}
+
+	n := len(data.SecondaryKeys)
+	totalKeys := uint32(1 + n) //nolint:gosec // n bounded by caller validation
+
+	// Determine kind of the primary key based on whether secondaries follow it.
+	primaryKind := types.KeyKindStandalone
+	if n > 0 {
+		primaryKind = types.KeyKindPrimary
+	}
+
+	// Update accounting before sending so that callers observe consistent state.
+	s.unflushedKeyCount.Add(int64(totalKeys))
+	s.shardSizes[shard] += valueLen
 	if s.shardSizes[shard] > s.maxShardSize {
 		s.maxShardSize = s.shardSizes[shard]
 	}
-	s.keyCount++
-	s.keyFileSize += uint64(len(data.Key)) + 4 /* uint32 length */ + types.AddressSerializedSize
+	s.keyCount += totalKeys
+	s.keyFileSize += keyRecordSize(data.Key)
+	for _, sk := range data.SecondaryKeys {
+		s.keyFileSize += keyRecordSize(sk.Key)
+	}
 
 	// Forward the value to the shard control loop, which asynchronously writes it to the value file.
 	shardRequest := &valueToWrite{
@@ -443,19 +539,43 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 			fmt.Errorf("failed to send value to shard control loop: %v", err)
 	}
 
-	// Forward the value to the key and its address file control loop, which asynchronously writes it to the key file.
-	keyRequest := &types.ScopedKey{
+	// Forward the primary key to the key file control loop, which asynchronously writes it to the
+	// key file. Primary always goes first; recovery relies on this ordering.
+	primaryRequest := &types.ScopedKey{
 		Key:     data.Key,
-		Address: types.NewAddress(s.index, firstByteIndex, uint8(shard), uint32(len(data.Value))),
+		Address: types.NewAddress(s.index, firstByteIndex, shard, uint32(valueLen)), //nolint:gosec // bounded above
+		Kind:    primaryKind,
 	}
-
-	err = util.Send(s.errorMonitor, s.keyFileChannel, keyRequest)
+	err = util.Send(s.errorMonitor, s.keyFileChannel, primaryRequest)
 	if err != nil {
 		return 0, 0,
 			fmt.Errorf("failed to send key to key file control loop: %v", err)
 	}
 
+	for i, sk := range data.SecondaryKeys {
+		kind := types.KeyKindSecondary
+		if i == n-1 {
+			kind = types.KeyKindFinalSecondary
+		}
+		secondaryRequest := &types.ScopedKey{
+			Key:     sk.Key,
+			Address: types.NewAddress(s.index, firstByteIndex+sk.Offset, shard, sk.Length),
+			Kind:    kind,
+		}
+		err = util.Send(s.errorMonitor, s.keyFileChannel, secondaryRequest)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to send secondary key to key file control loop: %v", err)
+		}
+	}
+
 	return s.keyCount, s.keyFileSize, nil
+}
+
+// keyRecordSize returns the number of bytes a key file record consumes given a key of the supplied
+// length. Includes the kind byte (1), the uint16 key-length prefix (2), the key bytes, and the
+// fixed-width serialized address.
+func keyRecordSize(key []byte) uint64 {
+	return uint64(KeyRecordHeaderSize) + uint64(len(key)) + uint64(types.AddressSerializedSize) //nolint:gosec // sizes non-negative
 }
 
 // GetMaxShardSize returns the maximum size of all shards in this segment.
@@ -483,7 +603,7 @@ func (s *Segment) Read(key []byte, dataAddress types.Address) ([]byte, error) {
 		return nil, fmt.Errorf("failed to resolve shard for read: %w", err)
 	}
 
-	value, err := values.read(dataAddress.Offset())
+	value, err := values.read(dataAddress.Offset(), dataAddress.ValueSize())
 	if err != nil {
 		return nil, fmt.Errorf("failed to read value: %w", err)
 	}
@@ -634,7 +754,7 @@ func (s *Segment) IsSealed() bool {
 // GetSealTime returns the time at which the segment was sealed. If the file is not sealed, this method will return
 // the zero time.
 func (s *Segment) GetSealTime() time.Time {
-	return time.Unix(0, int64(s.metadata.lastValueTimestamp))
+	return time.Unix(0, int64(s.metadata.lastValueTimestamp)) //nolint:gosec // wall-clock nanos fit int64
 }
 
 // Reserve reserves the segment, preventing it from being deleted. Returns true if the reservation was successful, and
@@ -728,7 +848,7 @@ func (s *Segment) String() string {
 }
 
 // handleShardFlushRequest handles a request to flush a shard to disk.
-func (s *Segment) handleShardFlushRequest(shard uint32, request *shardFlushRequest) {
+func (s *Segment) handleShardFlushRequest(shard uint8, request *shardFlushRequest) {
 	if request.seal {
 		err := s.shards[shard].seal()
 		if err != nil {
@@ -744,7 +864,7 @@ func (s *Segment) handleShardFlushRequest(shard uint32, request *shardFlushReque
 }
 
 // handleShardWrite applies a single write operation to a shard.
-func (s *Segment) handleShardWrite(shard uint32, data *valueToWrite) {
+func (s *Segment) handleShardWrite(shard uint8, data *valueToWrite) {
 	firstByteIndex, err := s.shards[shard].write(data.value)
 	if err != nil {
 		s.errorMonitor.Panic(fmt.Errorf("failed to write value to value file: %w", err))
@@ -803,7 +923,7 @@ type valueToWrite struct {
 
 // shardControlLoop is the main loop for performing modifications to a particular shard. Each shard is managed
 // by its own goroutine, which is running this function.
-func (s *Segment) shardControlLoop(shard uint32) {
+func (s *Segment) shardControlLoop(shard uint8) {
 	for {
 		select {
 		case <-s.errorMonitor.ImmediateShutdownRequired():

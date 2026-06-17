@@ -3,9 +3,11 @@ vue/dist
 release/
 .idea/
 .vscode/
+.cursor/
 .DS_Store
 build/
 cache/
+./evm_stress
 *.iml
 
 # Local .terraform directories

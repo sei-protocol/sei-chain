@@ -106,7 +106,13 @@ func (c *Local) CheckTx(ctx context.Context, tx types.Tx) (*coretypes.ResultChec
 }
 
 func (c *Local) EvmNextPendingNonce(addr common.Address) uint64 {
-	return c.Mempool.EvmNextPendingNonce(addr)
+	if giga, ok := c.Environment.Router.Giga().Get(); ok {
+		return giga.Mempool().EvmNextPendingNonce(addr)
+	}
+	if mp, ok := c.Mempool.Get(); ok {
+		return mp.EvmNextPendingNonce(addr)
+	}
+	return 0
 }
 
 func (c *Local) ConsensusState(ctx context.Context) (*coretypes.ResultConsensusState, error) {

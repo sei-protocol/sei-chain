@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package main
 
 import (
@@ -38,8 +36,10 @@ func TestPrune(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
+
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
@@ -48,7 +48,8 @@ func TestPrune(t *testing.T) {
 	tables := make(map[string]litt.Table, tableCount)
 	for i := uint64(0); i < tableCount; i++ {
 		tableName := fmt.Sprintf("table-%d", i)
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables[tableName] = table
 	}
@@ -114,10 +115,11 @@ func TestPrune(t *testing.T) {
 			seg := segments[i]
 			metadataPath := seg.GetMetadataFilePath()
 
-			// Overwrite the old metadata file. The timestamp is encoded at [8:16] in nanoseconds since the epoch.
+			// Overwrite the old metadata file. The timestamp is encoded at [5:13] in nanoseconds since the epoch
+			// (immediately after the 4-byte version and 1-byte sharding factor).
 			data, err := os.ReadFile(metadataPath)
 			require.NoError(t, err)
-			binary.BigEndian.PutUint64(data[8:16], sixHoursAgo)
+			binary.BigEndian.PutUint64(data[5:13], sixHoursAgo)
 
 			// write the modified metadata file back to disk.
 			err = os.WriteFile(metadataPath, data, 0644)
@@ -146,7 +148,8 @@ func TestPrune(t *testing.T) {
 	require.NoError(t, err)
 
 	for tableName := range tables {
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables[tableName] = table
 	}
@@ -194,8 +197,10 @@ func TestPruneSubset(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
+
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
@@ -207,7 +212,8 @@ func TestPruneSubset(t *testing.T) {
 	tablesToPruneSet := make(map[string]struct{}, tableCount/2)
 	for i := uint64(0); i < tableCount; i++ {
 		tableName := fmt.Sprintf("table-%d", i)
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables[tableName] = table
 		if i%2 == 0 {
@@ -278,10 +284,11 @@ func TestPruneSubset(t *testing.T) {
 			seg := segments[i]
 			metadataPath := seg.GetMetadataFilePath()
 
-			// Overwrite the old metadata file. The timestamp is encoded at [8:16] in nanoseconds since the epoch.
+			// Overwrite the old metadata file. The timestamp is encoded at [5:13] in nanoseconds since the epoch
+			// (immediately after the 4-byte version and 1-byte sharding factor).
 			data, err := os.ReadFile(metadataPath)
 			require.NoError(t, err)
-			binary.BigEndian.PutUint64(data[8:16], sixHoursAgo)
+			binary.BigEndian.PutUint64(data[5:13], sixHoursAgo)
 
 			// write the modified metadata file back to disk.
 			err = os.WriteFile(metadataPath, data, 0644)
@@ -313,7 +320,8 @@ func TestPruneSubset(t *testing.T) {
 	require.NoError(t, err)
 
 	for tableName := range tables {
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables[tableName] = table
 	}

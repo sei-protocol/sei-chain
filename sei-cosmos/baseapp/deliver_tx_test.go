@@ -286,11 +286,11 @@ func TestQuery(t *testing.T) {
 
 	app.InitChain(context.Background(), &abci.RequestInitChain{})
 
-	// NOTE: "/store/key1" tells us KVStore
+	// NOTE: "/store/bank" tells us KVStore
 	// and the final "/key" says to use the data as the
 	// key in the given KVStore ...
 	query := abci.RequestQuery{
-		Path: "/store/key1/key",
+		Path: "/store/bank/key",
 		Data: key,
 	}
 	tx := newTxCounter(0, 0)
@@ -1473,7 +1473,7 @@ func TestDeliverTx(t *testing.T) {
 			if isEvm {
 				ctx = ctx.WithIsEVM(true)
 				ctx = ctx.WithEVMNonce(12345)
-				ctx = ctx.WithEVMTxHash("hash")
+				ctx = ctx.WithEVMTxHash(common.HexToHash("0x1234"))
 				ctx = ctx.WithEVMSenderAddress(common.HexToAddress("0x00000000000000000000000000000000000000aa"))
 			}
 
@@ -1486,7 +1486,7 @@ func TestDeliverTx(t *testing.T) {
 
 			if isEvm {
 				require.Equal(t, uint64(12345), res.EvmTxInfo.Nonce)
-				require.Equal(t, "hash", res.EvmTxInfo.TxHash)
+				require.Equal(t, common.HexToHash("0x1234").Hex(), res.EvmTxInfo.TxHash)
 				require.Equal(t, "0x00000000000000000000000000000000000000AA", res.EvmTxInfo.SenderAddress)
 			} else {
 				require.Nil(t, res.EvmTxInfo)

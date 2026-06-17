@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package main
 
 import (
@@ -12,6 +10,20 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
+
+// buildTables builds the named tables once (BuildTable errors if a table is opened more than once) and returns
+// a map of name to handle.
+func buildTables(t *testing.T, db litt.DB, tableConfig litt.TableConfig, names []string) map[string]litt.Table {
+	tables := make(map[string]litt.Table, len(names))
+	for _, name := range names {
+		cfg := tableConfig
+		cfg.Name = name
+		table, err := db.BuildTable(cfg)
+		require.NoError(t, err)
+		tables[name] = table
+	}
+	return tables
+}
 
 func rebaseTest(
 	t *testing.T,
@@ -73,12 +85,16 @@ func rebaseTest(
 	config, err := litt.DefaultConfig(sourceDirList...)
 	require.NoError(t, err)
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(shardingFactor)
 	config.Fsync = false
 	config.TargetSegmentFileSize = 100
 
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = uint8(shardingFactor)
+
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
+
+	tables := buildTables(t, db, tableConfig, tableNames)
 
 	expectedData := make(map[string] /*table*/ map[string] /*value*/ []byte)
 	for _, tableName := range tableNames {
@@ -89,8 +105,7 @@ func rebaseTest(
 	keyCount := uint64(1024)
 	for i := uint64(0); i < keyCount; i++ {
 		tableIndex := rand.Uint64Range(0, tableCount)
-		table, err := db.GetTable(tableNames[tableIndex])
-		require.NoError(t, err)
+		table := tables[tableNames[tableIndex]]
 		key := rand.PrintableBytes(32)
 		value := rand.PrintableVariableBytes(10, 100)
 
@@ -101,16 +116,14 @@ func rebaseTest(
 
 	// Flush all tables.
 	for _, tableName := range tableNames {
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err)
+		table := tables[tableName]
 		err = table.Flush()
 		require.NoError(t, err, "failed to flush table %s", table.Name())
 	}
 
 	// Verify the data in the DB.
 	for tableName := range expectedData {
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err, "failed to get table %s", tableName)
+		table := tables[tableName]
 		for key := range expectedData[tableName] {
 			value, ok, err := table.Get([]byte(key))
 			require.NoError(t, err, "failed to get key %s in table %s", key, tableName)
@@ -152,8 +165,7 @@ func rebaseTest(
 
 	// The failed rebase should not have changed the data in the DB.
 	for tableName := range expectedData {
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err, "failed to get table %s", tableName)
+		table := tables[tableName]
 		for key := range expectedData[tableName] {
 			value, ok, err := table.Get([]byte(key))
 			require.NoError(t, err, "failed to get key %s in table %s", key, tableName)
@@ -199,10 +211,11 @@ func rebaseTest(
 	db, err = littbuilder.NewDB(config)
 	require.NoError(t, err, "failed to open DB after rebase")
 
+	tables = buildTables(t, db, tableConfig, tableNames)
+
 	// Verify the data in the DB.
 	for tableName := range expectedData {
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err, "failed to get table %s", tableName)
+		table := tables[tableName]
 		for key := range expectedData[tableName] {
 			value, ok, err := table.Get([]byte(key))
 			require.NoError(t, err, "failed to get key %s in table %s", key, tableName)
@@ -307,9 +320,9 @@ func TestRebaseSnapshot(t *testing.T) {
 		tableNames = append(tableNames, rand.String(32))
 	}
 
-	shardingFactor := rand.Uint32Range(1, 4)
+	shardingFactor := uint8(rand.Uint32Range(1, 4))
 	roots := make([]string, 0, shardingFactor)
-	for i := uint32(0); i < shardingFactor; i++ {
+	for i := uint8(0); i < shardingFactor; i++ {
 		roots = append(roots, path.Join(testDir, rand.String(32)))
 	}
 
@@ -318,13 +331,17 @@ func TestRebaseSnapshot(t *testing.T) {
 	config, err := litt.DefaultConfig(roots...)
 	require.NoError(t, err)
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = shardingFactor
 	config.Fsync = false
 	config.SnapshotDirectory = snapshotDir
 	config.TargetSegmentFileSize = 100
 
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = shardingFactor
+
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
+
+	tables := buildTables(t, db, tableConfig, tableNames)
 
 	expectedData := make(map[string] /*table*/ map[string] /*value*/ []byte)
 	for _, tableName := range tableNames {
@@ -335,8 +352,7 @@ func TestRebaseSnapshot(t *testing.T) {
 	keyCount := uint64(1024)
 	for i := uint64(0); i < keyCount; i++ {
 		tableIndex := rand.Uint64Range(0, tableCount)
-		table, err := db.GetTable(tableNames[tableIndex])
-		require.NoError(t, err)
+		table := tables[tableNames[tableIndex]]
 		key := rand.PrintableBytes(32)
 		value := rand.PrintableVariableBytes(10, 100)
 
@@ -347,16 +363,14 @@ func TestRebaseSnapshot(t *testing.T) {
 
 	// Flush all tables.
 	for _, tableName := range tableNames {
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err)
+		table := tables[tableName]
 		err = table.Flush()
 		require.NoError(t, err, "failed to flush table %s", table.Name())
 	}
 
 	// Verify the data in the DB.
 	for tableName := range expectedData {
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err, "failed to get table %s", tableName)
+		table := tables[tableName]
 		for key := range expectedData[tableName] {
 			value, ok, err := table.Get([]byte(key))
 			require.NoError(t, err, "failed to get key %s in table %s", key, tableName)

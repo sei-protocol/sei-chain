@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -15,6 +16,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
@@ -26,6 +28,8 @@ type Client = rpcclient.Client
 type LocalClient interface {
 	Client
 	EvmNextPendingNonce(addr common.Address) uint64
+	EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool)
+	EvmProxy(sender common.Address) (*url.URL, bool)
 }
 
 type Context struct {

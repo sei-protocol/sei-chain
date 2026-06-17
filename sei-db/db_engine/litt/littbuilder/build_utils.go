@@ -1,18 +1,13 @@
-//go:build littdb_wip
-
 package littbuilder
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"path"
-	"strings"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
@@ -30,7 +25,7 @@ var keymapBuilders = map[keymap.KeymapType]keymap.BuildKeymap{
 
 // cacheWeight is a function that calculates the weight of a cache entry.
 func cacheWeight(key string, value []byte) uint64 {
-	return uint64(len(key) + len(value))
+	return uint64(len(key) + len(value)) //nolint:gosec // lengths non-negative
 }
 
 // Look for a table's keymap directory in the provided segment paths.
@@ -126,7 +121,7 @@ func buildKeymap(
 		keymapTypeFile = keymap.NewKeymapTypeFile(keymapDirectory, config.KeymapType)
 
 		// create the keymap directory
-		err := os.MkdirAll(keymapDirectory, 0755)
+		err := os.MkdirAll(keymapDirectory, 0750)
 		if err != nil {
 			return nil, "", nil, false,
 				fmt.Errorf("error creating keymap directory: %w", err)
@@ -154,7 +149,7 @@ func buildKeymap(
 			}
 
 			// write the new keymap type file
-			err = os.MkdirAll(keymapDirectory, 0755)
+			err = os.MkdirAll(keymapDirectory, 0750)
 			if err != nil {
 				return nil, "", nil, false,
 					fmt.Errorf("error creating keymap directory: %w", err)
@@ -178,7 +173,7 @@ func buildKeymap(
 	if !requiresReload {
 		// If the keymap does not need to be reloaded, then it is already fully initialized.
 		keymapInitializedFile := path.Join(keymapDirectory, keymap.KeymapInitializedFileName)
-		f, err := os.Create(keymapInitializedFile)
+		f, err := os.Create(keymapInitializedFile) //nolint:gosec // path within keymap directory
 		if err != nil {
 			return nil, "", nil, false,
 				fmt.Errorf("failed to create keymap initialized file: %v", err)
@@ -196,28 +191,27 @@ func buildKeymap(
 // buildTable creates a new table based on the configuration.
 func buildTable(
 	config *litt.Config,
-	logger *slog.Logger,
+	runtimeConfig *litt.RuntimeConfig,
 	name string,
+	tableConfig litt.TableConfig,
 	metrics *metrics.LittDBMetrics) (litt.ManagedTable, error) {
 
 	var table litt.ManagedTable
 
-	if config.ShardingFactor < 1 {
-		return nil, fmt.Errorf("sharding factor must be at least 1")
-	}
-	if config.ShardingFactor > litt.MaxShardingFactor {
-		return nil, fmt.Errorf("sharding factor must be at most %d, got %d",
-			litt.MaxShardingFactor, config.ShardingFactor)
+	if err := tableConfig.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid table config: %w", err)
 	}
 
-	kmap, keymapDirectory, keymapTypeFile, requiresReload, err := buildKeymap(config, logger, name)
+	kmap, keymapDirectory, keymapTypeFile, requiresReload, err := buildKeymap(config, runtimeConfig.Logger, name)
 	if err != nil {
 		return nil, fmt.Errorf("error creating keymap: %w", err)
 	}
 
 	table, err = disktable.NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
+		tableConfig,
 		kmap,
 		keymapDirectory,
 		keymapTypeFile,
@@ -229,10 +223,12 @@ func buildTable(
 		return nil, fmt.Errorf("error creating table: %w", err)
 	}
 
-	writeCache := util.NewFIFOCache[string, []byte](config.WriteCacheSize, cacheWeight, metrics.GetWriteCacheMetrics())
+	writeCache := util.NewFIFOCache[string, []byte](
+		tableConfig.WriteCacheSize, cacheWeight, metrics.GetWriteCacheMetrics())
 	writeCache = util.NewThreadSafeCache(writeCache)
 
-	readCache := util.NewFIFOCache[string, []byte](config.ReadCacheSize, cacheWeight, metrics.GetReadCacheMetrics())
+	readCache := util.NewFIFOCache[string, []byte](
+		tableConfig.ReadCacheSize, cacheWeight, metrics.GetReadCacheMetrics())
 	readCache = util.NewThreadSafeCache(readCache)
 
 	cachedTable := dbcache.NewCachedTable(table, writeCache, readCache, metrics)
@@ -240,52 +236,29 @@ func buildTable(
 	return cachedTable, nil
 }
 
-// buildLogger returns the configured logger or slog.Default() if none was provided.
-func buildLogger(config *litt.Config) *slog.Logger {
-	if config.Logger != nil {
-		return config.Logger
-	}
-	return slog.Default()
-}
-
-// buildMetrics creates a new metrics object based on the configuration. If the returned server is not nil,
-// then it is the responsibility of the caller to eventually call server.Shutdown().
-func buildMetrics(config *litt.Config, logger *slog.Logger) (*metrics.LittDBMetrics, *http.Server) {
+// buildMetrics creates a new metrics object backed by the global OTel
+// MeterProvider. When MetricsEnabled is true, this configures the global
+// provider with a Prometheus exporter and starts an HTTP server on
+// MetricsPort that serves /metrics. The returned shutdown function flushes
+// the provider; it is the responsibility of the caller to invoke it during
+// teardown.
+func buildMetrics(
+	config *litt.Config,
+	runtimeConfig *litt.RuntimeConfig,
+) (*metrics.LittDBMetrics, func(context.Context) error) {
 	if !config.MetricsEnabled {
 		return nil, nil
 	}
 
-	var registry *prometheus.Registry
-	var server *http.Server
-
-	if config.MetricsEnabled {
-		if config.MetricsRegistry == nil {
-			registry = prometheus.NewRegistry()
-			registry.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-			registry.MustRegister(collectors.NewGoCollector())
-
-			logger.Info("Starting metrics server", "port", config.MetricsPort)
-			addr := fmt.Sprintf(":%d", config.MetricsPort)
-			mux := http.NewServeMux()
-			mux.Handle("/metrics", promhttp.HandlerFor(
-				registry,
-				promhttp.HandlerOpts{},
-			))
-			server = &http.Server{
-				Addr:    addr,
-				Handler: mux,
-			}
-
-			go func() {
-				err := server.ListenAndServe()
-				if err != nil && !strings.Contains(err.Error(), "http: Server closed") {
-					logger.Error("metrics server error", "error", err)
-				}
-			}()
-		} else {
-			registry = config.MetricsRegistry
-		}
+	reg, shutdown, err := commonmetrics.SetupOtelPrometheus()
+	if err != nil {
+		runtimeConfig.Logger.Error("failed to set up OTel Prometheus exporter", "error", err)
+		return nil, nil
 	}
 
-	return metrics.NewLittDBMetrics(registry, config.MetricsNamespace), server
+	addr := fmt.Sprintf(":%d", config.MetricsPort)
+	runtimeConfig.Logger.Info("Starting metrics server", "port", config.MetricsPort)
+	commonmetrics.StartMetricsServer(runtimeConfig.CTX, reg, addr)
+
+	return metrics.NewLittDBMetrics(), shutdown
 }

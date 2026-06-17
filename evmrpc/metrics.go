@@ -40,8 +40,10 @@ var (
 	rpcTelemetryMeter = otel.Meter("evmrpc")
 
 	metrics = struct {
-		requestLatencySeconds metric.Float64Histogram
-		wsConnectionCount     metric.Int64Counter
+		requestLatencySeconds            metric.Float64Histogram
+		wsConnectionCount                metric.Int64Counter
+		redirectedRequestCount           metric.Int64Counter
+		historicalDebugTraceAttemptCount metric.Int64Counter
 	}{
 		requestLatencySeconds: must(rpcTelemetryMeter.Float64Histogram(
 			"evmrpc_request_latency_seconds",
@@ -55,6 +57,16 @@ var (
 		wsConnectionCount: must(rpcTelemetryMeter.Int64Counter(
 			"evmrpc_websocket_connects_total",
 			metric.WithDescription("Number of new websocket connections"),
+			metric.WithUnit("{count}"),
+		)),
+		redirectedRequestCount: must(rpcTelemetryMeter.Int64Counter(
+			"evmrpc_redirected_requests_total",
+			metric.WithDescription("Number of EVM RPC requests forwarded to another validator"),
+			metric.WithUnit("{count}"),
+		)),
+		historicalDebugTraceAttemptCount: must(rpcTelemetryMeter.Int64Counter(
+			"evmrpc_historical_debug_trace_attempts_total",
+			metric.WithDescription("Number of debug_trace* requests targeting historical blocks"),
 			metric.WithUnit("{count}"),
 		)),
 	}
@@ -124,4 +136,22 @@ func recordRPCLatency(ctx context.Context, endpoint, connection string, success 
 
 func recordWebsocketConnect(ctx context.Context) {
 	metrics.wsConnectionCount.Add(ctx, 1)
+}
+
+func recordRedirectedRequest(ctx context.Context, endpoint, connection string) {
+	metrics.redirectedRequestCount.Add(ctx, 1,
+		metric.WithAttributes(
+			attribute.String(endpointKey, endpoint),
+			attribute.String(connectionKey, connection),
+		),
+	)
+}
+
+func recordHistoricalDebugTraceAttempt(ctx context.Context, endpoint, connection string) {
+	metrics.historicalDebugTraceAttemptCount.Add(ctx, 1,
+		metric.WithAttributes(
+			attribute.String(endpointKey, endpoint),
+			attribute.String(connectionKey, connection),
+		),
+	)
 }

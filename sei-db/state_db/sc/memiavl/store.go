@@ -36,8 +36,9 @@ func NewCommitStore(homeDir string, config Config) *CommitStore {
 	return commitStore
 }
 
-func (cs *CommitStore) Initialize(initialStores []string) {
+func (cs *CommitStore) Initialize(initialStores []string) error {
 	cs.opts.InitialStores = initialStores
+	return nil
 }
 
 func (cs *CommitStore) SetInitialVersion(initialVersion int64) error {
@@ -127,12 +128,19 @@ func (cs *CommitStore) Version() int64 {
 	return cs.db.Version()
 }
 
+// GetLatestVersion returns the highest version durably written to the
+// changelog WAL on disk. Note that with AsyncCommitBuffer > 0,
+// wal.Write returns before the entry is durable (see sei-db/wal/wal.go,
+// "Do not wait for the write to be durable"), so this value can lag the
+// in-memory MultiTree by one or more commits while async writes drain.
+// Callers that need the just-committed version should use cs.Version()
+// or cs.LastCommitInfo().Version, both of which read the in-memory
+// tree. The lag is harmless for current production callers
+// (rootmulti.NewStore and rootmulti.LastCommitID), which only invoke
+// GetLatestVersion before LoadVersion has opened the DB; in that
+// pre-load state nothing is in memory anyway.
 func (cs *CommitStore) GetLatestVersion() (int64, error) {
 	return GetLatestVersion(cs.opts.Dir)
-}
-
-func (cs *CommitStore) GetEarliestVersion() (int64, error) {
-	return GetEarliestVersion(cs.opts.Dir)
 }
 
 func (cs *CommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
@@ -162,6 +170,13 @@ func (cs *CommitStore) LastCommitInfo() *proto.CommitInfo {
 }
 
 func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
+	// The underlying DB is opened lazily via LoadVersion / Rollback. Reads can
+	// arrive before that happens (for example, the mempool reactor invokes
+	// CheckTx during state-sync while the snapshot is still being applied),
+	// so a typed nil return must be safe.
+	if cs == nil || cs.db == nil {
+		return nil
+	}
 	tree := cs.db.TreeByName(name)
 	if tree == nil {
 		// Return an explicitly nil interface (not a typed-nil *Tree wrapped in an
@@ -169,6 +184,14 @@ func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
 		return nil
 	}
 	return tree
+}
+
+// IsLoaded reports whether the underlying memiavl DB has been opened. It is
+// safe to call on a nil receiver. Callers built on top of CommitStore use this
+// to distinguish "store has no committed data yet" (during state-sync, before
+// LoadVersion) from "store name is misregistered" (a real config error).
+func (cs *CommitStore) IsLoaded() bool {
+	return cs != nil && cs.db != nil
 }
 
 func (cs *CommitStore) Exporter(version int64) (types.Exporter, error) {
@@ -243,12 +266,6 @@ func (cs *CommitStore) Has(store string, key []byte) (bool, error) {
 func (cs *CommitStore) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
 	if store == "" {
 		return nil, fmt.Errorf("store name cannot be empty")
-	}
-	if start == nil {
-		return nil, fmt.Errorf("start cannot be nil")
-	}
-	if end == nil {
-		return nil, fmt.Errorf("end cannot be nil")
 	}
 
 	childStore := cs.GetChildStoreByName(store)

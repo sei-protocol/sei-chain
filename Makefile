@@ -228,6 +228,47 @@ build-rpc-node:
 	@cd docker && docker build --tag sei-chain/rpcnode rpcnode --platform linux/x86_64
 .PHONY: build-rpc-node
 
+# Integration-test CI: verify images loaded from prepare-cluster artifacts.
+ensure-integration-ci-images:
+	@docker image inspect sei-chain/localnode >/dev/null 2>&1 || (echo "sei-chain/localnode image missing; load integration-docker-images.tar.zst from prepare-cluster" && exit 1)
+	@docker image inspect sei-chain/rpcnode >/dev/null 2>&1 || (echo "sei-chain/rpcnode image missing; load integration-docker-images.tar.zst from prepare-cluster" && exit 1)
+.PHONY: ensure-integration-ci-images
+
+# Build seid once inside the localnode image (integration-test prepare job).
+build-seid-in-localnode: build-docker-node
+	@mkdir -p build $(shell go env GOPATH)/pkg/mod $(shell go env GOCACHE)
+	@docker run --rm \
+		--user="$(shell id -u):$(shell id -g)" \
+		-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
+		-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+		-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
+		--platform $(DOCKER_PLATFORM) \
+		-w /sei-protocol/sei-chain \
+		-e LEDGER_ENABLED=false \
+		sei-chain/localnode \
+		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && mkdir -p build/generated && echo DONE > build/generated/build.complete'
+.PHONY: build-seid-in-localnode
+
+# CI variant: assumes localnode image already built by Buildx in prepare-cluster (skips docker build).
+build-seid-in-localnode-ci: ensure-integration-ci-images
+	@mkdir -p build $(shell go env GOPATH)/pkg/mod $(shell go env GOCACHE)
+	@docker run --rm \
+		--user="$(shell id -u):$(shell id -g)" \
+		-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
+		-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+		-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
+		--platform $(DOCKER_PLATFORM) \
+		-w /sei-protocol/sei-chain \
+		-e LEDGER_ENABLED=false \
+		sei-chain/localnode \
+		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && mkdir -p build/generated && echo DONE > build/generated/build.complete'
+.PHONY: build-seid-in-localnode-ci
+
+# Images + seid binary for integration-test CI (see .github/workflows/integration-test.yml).
+# build-seid-in-localnode already depends on build-docker-node, so omit it here to avoid building localnode twice.
+build-integration-ci-artifacts: build-rpc-node build-seid-in-localnode
+.PHONY: build-integration-ci-artifacts
+
 # Run a single node docker container
 run-local-node: kill-sei-node build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
@@ -250,13 +291,14 @@ run-rpc-node: build-rpc-node
 	--user="$(shell id -u):$(shell id -g)" \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
-    -v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
-    -v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
+	-v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
+	-v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
@@ -268,23 +310,67 @@ run-rpc-node-skipbuild: build-rpc-node
 	--user="$(shell id -u):$(shell id -g)" \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
-    -v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
-    -v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
+	-v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
+	-v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
 	--env SKIP_BUILD=true \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
+
+# Integration-test CI: RPC node with prebuilt image and seid (see .github/workflows/integration-test.yml).
+# Wait for the localnode cluster to produce block 100 (the first snapshot-interval) before
+# starting the rpc node. Without this, SKIP_BUILD=true causes step1_configure_init.sh to
+# read a trust-height of ~10-20, find no snapshot during discovery-time, and crash.
+run-rpc-node-integration-ci: kill-rpc-node ensure-integration-ci-images
+	@echo "Waiting for cluster to reach block 100 (first snapshot)..."
+	@# 192.168.10.10 is the node0 address defined in docker/localnet/; timeout after 15 × 20s = 5 min.
+	@n=0; until [ "$$(curl -sf http://192.168.10.10:26657/block | jq -r '.block.header.height // 0')" -ge 100 ] 2>/dev/null; do \
+		n=$$((n+1)); if [ $$n -ge 15 ]; then echo "Timed out waiting for block 100"; exit 1; fi; \
+		sleep 20; \
+	done
+	docker run --rm \
+	--name sei-rpc-node \
+	--network docker_localnet \
+	--user="$(shell id -u):$(shell id -g)" \
+	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
+	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
+	-v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
+	-v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
+	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
+	-p 26668-26670:26656-26658 \
+	--platform linux/x86_64 \
+	--env SKIP_BUILD=true \
+	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
+	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
+	sei-chain/rpcnode
+.PHONY: run-rpc-node-integration-ci
 
 kill-sei-node:
 	docker ps --filter name=sei-node --filter status=running -aq | xargs docker kill 2> /dev/null || true
 
 kill-rpc-node:
 	docker ps --filter name=sei-rpc-node --filter status=running -aq | xargs docker kill 2> /dev/null || true
+
+CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) \
+	GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 \
+	INVARIANT_CHECK_INTERVAL=$(INVARIANT_CHECK_INTERVAL) \
+	UPGRADE_VERSION_LIST=$(UPGRADE_VERSION_LIST) \
+	MOCK_BALANCES=$(MOCK_BALANCES) \
+	GIGA_EXECUTOR=$(GIGA_EXECUTOR) \
+	GIGA_OCC=$(GIGA_OCC) \
+	RECEIPT_BACKEND=$(RECEIPT_BACKEND) \
+	AUTOBAHN=$(AUTOBAHN) \
+	GIGA_STORAGE=$(GIGA_STORAGE) \
+	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL) \
+	GIGA_FLATKV_ONLY=$(GIGA_FLATKV_ONLY)
 
 # Run a 4-node docker containers
 docker-cluster-start: docker-cluster-stop build-docker-node
@@ -297,7 +383,7 @@ docker-cluster-start: docker-cluster-stop build-docker-node
 		else \
 			DETACH_FLAG=""; \
 		fi; \
-		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} GIGA_EXECUTOR=${GIGA_EXECUTOR} GIGA_OCC=${GIGA_OCC} RECEIPT_BACKEND=${RECEIPT_BACKEND} AUTOBAHN=${AUTOBAHN} GIGA_STORAGE=${GIGA_STORAGE} docker compose up $$DETACH_FLAG
+		$(CLUSTER_ENV_VARS) docker compose up $$DETACH_FLAG
 
 .PHONY: localnet-start
 
@@ -310,13 +396,47 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 		else \
 			DETACH_FLAG=""; \
 		fi; \
-		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true docker compose up $$DETACH_FLAG
+		$(CLUSTER_ENV_VARS) SKIP_BUILD=true docker compose up $$DETACH_FLAG
 .PHONY: localnet-start
+
+# Integration-test matrix jobs: reuse prebuilt images and build/seid from prepare-cluster.
+docker-cluster-start-ci: docker-cluster-stop ensure-integration-ci-images
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@test -f $(PROJECT_HOME)/build/seid || (echo "build/seid missing; download integration-build.tar.gz from prepare-cluster" && exit 1)
+	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOCACHE)
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		$(CLUSTER_ENV_VARS) SKIP_BUILD=true docker compose up $$DETACH_FLAG
+.PHONY: docker-cluster-start-ci
 
 # Stop 4-node docker containers
 docker-cluster-stop:
 	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
 .PHONY: localnet-stop
+
+# Start 4-node cluster with Prometheus and Grafana monitoring
+docker-cluster-start-monitoring: docker-cluster-stop-monitoring build-docker-node
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOCACHE)
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		$(CLUSTER_ENV_VARS) docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up --no-attach grafana --no-attach prometheus $$DETACH_FLAG
+.PHONY: docker-cluster-start-monitoring
+
+# Stop monitoring containers (Prometheus and Grafana) and cluster
+docker-cluster-stop-monitoring:
+	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose -f docker-compose.yml -f docker-compose.monitoring.yml down
+.PHONY: docker-cluster-stop-monitoring
 
 # Run GIGA EVM integration tests with a GIGA-enabled cluster
 # This starts a fresh cluster with GIGA_EXECUTOR and GIGA_OCC enabled,
@@ -359,7 +479,8 @@ autobahn-integration-test:
 	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/...
 .PHONY: autobahn-integration-test
 
-# Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR, nodes 1-3 use standard V2.
+# Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR with OCC, nodes 1-3 use standard V2.
+# (node-level GIGA_EXECUTOR/GIGA_OCC values are pinned in docker-compose.giga-mixed.yml)
 # Any determinism divergence between giga and V2 will cause the giga node to halt.
 docker-cluster-start-giga-mixed: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
@@ -376,11 +497,11 @@ docker-cluster-start-giga-mixed: docker-cluster-stop build-docker-node
 .PHONY: docker-cluster-start-giga-mixed
 
 # Run the giga mixed-mode integration test.
-# Starts a cluster where only node 0 runs giga (sequential), nodes 1-3 run standard V2.
+# Starts a cluster where only node 0 runs giga (concurrent, OCC), nodes 1-3 run standard V2.
 # Then runs hardhat tests. If giga produces different results, node 0 will halt.
 giga-mixed-integration-test:
 	@echo "=== Starting GIGA Mixed-Mode Integration Tests ==="
-	@echo "=== Node 0: GIGA_EXECUTOR=true, Nodes 1-3: standard V2 ==="
+	@echo "=== Node 0: GIGA_EXECUTOR=true GIGA_OCC=true, Nodes 1-3: standard V2 ==="
 	@$(MAKE) docker-cluster-stop || true
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@DOCKER_DETACH=true $(MAKE) docker-cluster-start-giga-mixed
@@ -409,53 +530,6 @@ giga-mixed-integration-test:
 	@echo "=== GIGA Mixed-Mode Integration Tests Complete ==="
 .PHONY: giga-mixed-integration-test
 
-# Start a 4-node cluster with parquet receipt store backend.
-docker-cluster-start-parquet: docker-cluster-stop build-docker-node
-	@rm -rf $(PROJECT_HOME)/build/generated
-	@mkdir -p $(shell go env GOPATH)/pkg/mod
-	@mkdir -p $(shell go env GOCACHE)
-	@cd docker && \
-		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
-			DETACH_FLAG="-d"; \
-		else \
-			DETACH_FLAG=""; \
-		fi; \
-		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} GIGA_EXECUTOR=${GIGA_EXECUTOR} GIGA_OCC=${GIGA_OCC} RECEIPT_BACKEND=${RECEIPT_BACKEND} AUTOBAHN=${AUTOBAHN} GIGA_STORAGE=${GIGA_STORAGE} \
-		docker compose -f docker-compose.yml -f docker-compose.parquet.yml up $$DETACH_FLAG
-.PHONY: docker-cluster-start-parquet
-
-# Run parquet receipt store integration tests.
-# Starts a cluster with all nodes using the parquet receipt store backend,
-# runs EVM receipt/log tests, then stops the cluster.
-parquet-integration-test:
-	@echo "=== Starting Parquet Receipt Store Integration Tests ==="
-	@$(MAKE) docker-cluster-stop || true
-	@rm -rf $(PROJECT_HOME)/build/generated
-	@DOCKER_DETACH=true $(MAKE) docker-cluster-start-parquet
-	@echo "Waiting for cluster to be ready..."
-	@timeout=300; elapsed=0; \
-	while [ $$elapsed -lt $$timeout ]; do \
-		if [ -f "build/generated/launch.complete" ] && [ $$(cat build/generated/launch.complete | wc -l) -ge 4 ]; then \
-			echo "All 4 nodes are ready (took $${elapsed}s)"; \
-			break; \
-		fi; \
-		sleep 5; \
-		elapsed=$$((elapsed + 5)); \
-		echo "  Waiting... ($${elapsed}s elapsed)"; \
-	done; \
-	if [ $$elapsed -ge $$timeout ]; then \
-		echo "ERROR: Cluster failed to start within $${timeout}s"; \
-		$(MAKE) docker-cluster-stop; \
-		exit 1; \
-	fi
-	@echo "Waiting 10s for nodes to stabilize..."
-	@sleep 10
-	@echo "=== Running Parquet Receipt Store EVM Tests ==="
-	@./integration_test/evm_module/scripts/evm_parquet_tests.sh || ($(MAKE) docker-cluster-stop && exit 1)
-	@echo "=== Stopping cluster ==="
-	@$(MAKE) docker-cluster-stop
-	@echo "=== Parquet Receipt Store Integration Tests Complete ==="
-.PHONY: parquet-integration-test
 
 # Implements test splitting and running. This is pulled directly from
 # the github action workflows for better local reproducibility.

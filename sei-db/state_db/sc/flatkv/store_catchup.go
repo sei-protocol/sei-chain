@@ -100,10 +100,14 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 	// Replayed blocks are reported regardless of catchup outcome: even on a
 	// later error, the blocks that did replay are real progress that moved
 	// committedVersion forward.
+	//
+	// CurrentVersion is intentionally NOT recorded here: the write-mode
+	// callers (LoadVersion, Rollback) record it on success themselves, and
+	// recording it from catchup would pollute the gauge when openReadOnly
+	// invokes catchup during a read-only historical load.
 	defer func() {
 		if replayed > 0 {
 			otelMetrics.CatchupReplayNumBlocks.Add(s.ctx, int64(replayed))
-			otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
 		}
 		obs.done(&err, nil,
 			"startOffset", startOff,
@@ -204,6 +208,10 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 		s.committedVersion = entry.Version
 		s.committedLtHash = s.workingLtHash.Clone()
 		s.clearPendingWrites()
+		recordPendingWrites(s.ctx, accountDBDir, 0)
+		recordPendingWrites(s.ctx, codeDBDir, 0)
+		recordPendingWrites(s.ctx, storageDBDir, 0)
+		recordPendingWrites(s.ctx, legacyDBDir, 0)
 		expectedNext = entry.Version + 1
 
 		replayed++

@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package benchmark
 
 import (
@@ -12,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/docker/go-units"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
@@ -64,31 +62,30 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 		return nil, fmt.Errorf("failed to load config file %s: %w", configPath, err)
 	}
 
-	if cfg.LittConfig.Logger == nil {
-		cfg.LittConfig.Logger = slog.Default()
+	runtimeConfig := litt.DefaultRuntimeConfig()
+
+	if len(cfg.LittConfig.Paths) > litt.MaxShardingFactor {
+		return nil, fmt.Errorf("too many paths configured (%d), max is %d",
+			len(cfg.LittConfig.Paths), litt.MaxShardingFactor)
 	}
 
-	cfg.LittConfig.ShardingFactor = uint32(len(cfg.LittConfig.Paths))
-
-	db, err := littbuilder.NewDB(cfg.LittConfig)
+	db, err := littbuilder.NewDB(cfg.LittConfig, runtimeConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create db: %w", err)
 	}
 
-	table, err := db.GetTable("benchmark")
+	tableConfig := litt.DefaultTableConfig("benchmark")
+	tableConfig.ShardingFactor = uint8(len(cfg.LittConfig.Paths)) //nolint:gosec // bounded above by MaxShardingFactor
+	tableConfig.TTL = time.Duration(cfg.TTLHours * float64(time.Hour))
+
+	table, err := db.BuildTable(tableConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create table: %w", err)
 	}
 
-	ttl := time.Duration(cfg.TTLHours * float64(time.Hour))
-	err = table.SetTTL(ttl)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set TTL for table: %w", err)
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 
-	errorMonitor := util.NewErrorMonitor(ctx, cfg.LittConfig.Logger, nil)
+	errorMonitor := util.NewErrorMonitor(ctx, runtimeConfig.Logger, nil)
 
 	dataTracker, err := NewDataTracker(ctx, cfg, errorMonitor)
 	if err != nil {
@@ -96,17 +93,17 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 		return nil, fmt.Errorf("failed to create data tracker: %w", err)
 	}
 
-	writeBytesPerSecond := uint64(cfg.MaximumWriteThroughputMB * float64(units.MiB))
-	writeBytesPerSecondPerThread := writeBytesPerSecond / uint64(cfg.WriterParallelism)
+	writeBytesPerSecond := uint64(cfg.MaximumWriteThroughputMB * float64(unit.MB))
+	writeBytesPerSecondPerThread := writeBytesPerSecond / uint64(cfg.WriterParallelism) //nolint:gosec // parallelism positive
 
 	// If we set the write burst size smaller than an individual value, then the rate limiter will never
 	// permit any writes. Ideally, we'd just set the burst size to 0 since we don't want bursty/volatile writes,
 	// but since we are using the rate.Limiter utility, we are required to set a burst size, and a burst size
 	// smaller than an individual value will cause the rate limiter to never permit writes.
-	writeBurstSize := uint64(cfg.ValueSizeMB * float64(units.MiB))
+	writeBurstSize := uint64(cfg.ValueSizeMB * float64(unit.MB))
 
-	readBytesPerSecond := uint64(cfg.MaximumReadThroughputMB * float64(units.MiB))
-	readBytesPerSecondPerThread := readBytesPerSecond / uint64(cfg.ReaderParallelism)
+	readBytesPerSecond := uint64(cfg.MaximumReadThroughputMB * float64(unit.MB))
+	readBytesPerSecondPerThread := readBytesPerSecond / uint64(cfg.ReaderParallelism) //nolint:gosec // parallelism positive
 
 	// If we set the read burst size smaller than an individual value we need to read, then the rate limiter will
 	// never permit us to read that value.
@@ -115,7 +112,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 	return &BenchmarkEngine{
 		ctx:                          ctx,
 		cancel:                       cancel,
-		logger:                       cfg.LittConfig.Logger,
+		logger:                       runtimeConfig.Logger,
 		config:                       cfg,
 		db:                           db,
 		table:                        table,
@@ -124,7 +121,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 		readBytesPerSecondPerThread:  readBytesPerSecondPerThread,
 		writeBurstSize:               writeBurstSize,
 		readBurstSize:                readBurstSize,
-		metrics:                      newMetrics(ctx, cfg.LittConfig.Logger, cfg),
+		metrics:                      newMetrics(ctx, runtimeConfig.Logger, cfg),
 		errorMonitor:                 errorMonitor,
 	}, nil
 }
@@ -192,8 +189,8 @@ func (b *BenchmarkEngine) Run() error {
 
 // writer runs on a goroutine and writes data to the database.
 func (b *BenchmarkEngine) writer() {
-	maxBatchSize := uint64(b.config.BatchSizeMB * float64(units.MiB))
-	throttle := rate.NewLimiter(rate.Limit(b.writeBytesPerSecondPerThread), int(b.writeBurstSize))
+	maxBatchSize := uint64(b.config.BatchSizeMB * float64(unit.MB))
+	throttle := rate.NewLimiter(rate.Limit(b.writeBytesPerSecondPerThread), int(b.writeBurstSize)) //nolint:gosec // burst sized by config
 
 	for {
 		select {
@@ -262,7 +259,7 @@ func (b *BenchmarkEngine) verifyValue(expected *ReadInfo, actual []byte) error {
 
 // reader runs on a goroutine and reads data from the database.
 func (b *BenchmarkEngine) reader() {
-	throttle := rate.NewLimiter(rate.Limit(b.readBytesPerSecondPerThread), int(b.readBurstSize))
+	throttle := rate.NewLimiter(rate.Limit(b.readBytesPerSecondPerThread), int(b.readBurstSize)) //nolint:gosec // burst sized by config
 
 	for {
 		select {

@@ -13,8 +13,9 @@ echo
 # Create a backup directory for keys
 mkdir -p $HOME/key_backup
 
-# Backup the validator key and state files
+# Backup the validator key, node key, and state files
 cp $HOME/.sei/config/priv_validator_key.json $HOME/key_backup
+cp $HOME/.sei/config/node_key.json $HOME/key_backup
 cp $HOME/.sei/data/priv_validator_state.json $HOME/key_backup
 
 # Create a backup directory for the entire .sei configuration
@@ -28,10 +29,11 @@ mv $HOME/.sei/wasm $HOME/.sei_backup
 # Remove the data and wasm folder
 cd $HOME/.sei && ls | grep -xv "cosmovisor" | xargs rm -rf
 
-# Restore the validator key and state files from the backup
+# Restore the validator key, node key, and state files from the backup
 mkdir -p $HOME/.sei/config
 mkdir -p $HOME/.sei/data
 cp $HOME/key_backup/priv_validator_key.json $HOME/.sei/config/
+cp $HOME/key_backup/node_key.json $HOME/.sei/config/
 cp $HOME/key_backup/priv_validator_state.json $HOME/.sei/data/
 
 # Set up /tmp as a 12G RAM disk to allow for more than 400 state sync chunks

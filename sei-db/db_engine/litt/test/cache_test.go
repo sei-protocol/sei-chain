@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package test
 
 import (
@@ -20,15 +18,17 @@ func TestCache(t *testing.T) {
 	config, err := litt.DefaultConfig(directory)
 	require.NoError(t, err)
 
-	config.WriteCacheSize = rand.Uint64Range(1000, 2000)
-	config.ReadCacheSize = rand.Uint64Range(1000, 2000)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
+
+	tableConfig := litt.DefaultTableConfig("test_table")
+	tableConfig.WriteCacheSize = rand.Uint64Range(1000, 2000)
+	tableConfig.ReadCacheSize = rand.Uint64Range(1000, 2000)
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
 
-	table, err := db.GetTable("test_table")
+	table, err := db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	expectedValues := make(map[string][]byte)
@@ -41,7 +41,7 @@ func TestCache(t *testing.T) {
 
 	// Write some values to the table. Stop before any values are evicted from the write cache.
 	bytesWritten := uint64(0)
-	for bytesWritten <= config.WriteCacheSize-keySize-maxValueSize {
+	for bytesWritten <= tableConfig.WriteCacheSize-keySize-maxValueSize {
 		nextValueSize := rand.Uint64Range(1, maxValueSize)
 		kvSize := keySize + nextValueSize
 
@@ -132,7 +132,7 @@ func TestCache(t *testing.T) {
 
 	// At this moment in time, the number of bytes in the cache should be less than the write cache size, plus that
 	// of the first key which will be in the read cache. Verify that fact.
-	maxCacheSize := config.WriteCacheSize + keySize + firstValueSize
+	maxCacheSize := tableConfig.WriteCacheSize + keySize + firstValueSize
 	hotBytes := uint64(0)
 	for key, expectedValue := range expectedValues {
 		value, ok, hot, err = table.CacheAwareGet([]byte(key), true)
@@ -166,7 +166,7 @@ func TestCache(t *testing.T) {
 	}
 
 	// Do a final scan of the values in the DB. The number of hot bytes should not exceed the sizes of the caches.
-	maxCacheSize = config.WriteCacheSize + config.ReadCacheSize
+	maxCacheSize = tableConfig.WriteCacheSize + tableConfig.ReadCacheSize
 	hotBytes = uint64(0)
 	for key, expectedValue := range expectedValues {
 		value, ok, hot, err = table.CacheAwareGet([]byte(key), true)

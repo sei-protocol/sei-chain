@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
@@ -122,13 +123,13 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	// Fetch a limited amount of valid txs
 	maxDataBytes := types.MaxDataBytes(maxBytes, evSize, state.Validators.Size())
 
-	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxDataBytes, maxGasWanted, maxGas)
+	txs, _ := blockExec.mempool.ReapTxs(mempool.ReapLimits{
+		MaxBytes:        utils.Some(maxDataBytes),
+		MaxGasWanted:    utils.Some(maxGasWanted),
+		MaxGasEstimated: utils.Some(maxGas),
+	}, false)
 	block = state.MakeBlock(height, txs, lastCommit, evidence, proposerAddr)
 	return block, nil
-}
-
-func (blockExec *BlockExecutor) GetTxsForHashes(txHashes []types.TxHash) types.Txs {
-	return blockExec.mempool.GetTxsForHashes(txHashes)
 }
 
 func (blockExec *BlockExecutor) ProcessProposal(
@@ -484,22 +485,12 @@ func (blockExec *BlockExecutor) Commit(
 		block.Height,
 		block.Txs,
 		txResults,
-		TxConstraintsFetcherForState(state),
+		TxConstraintsForState(state),
 		state.ConsensusParams.ABCI.RecheckTx,
 	)
 	blockExec.metrics.UpdateMempoolTime.Observe(float64(time.Since(start)))
 
 	return res.RetainHeight, err
-}
-
-func (blockExec *BlockExecutor) GetMissingTxs(txHashes []types.TxHash) []types.TxHash {
-	var missingTxHashes []types.TxHash
-	for _, txHash := range txHashes {
-		if !blockExec.mempool.HasTx(txHash) {
-			missingTxHashes = append(missingTxHashes, txHash)
-		}
-	}
-	return missingTxHashes
 }
 
 func (blockExec *BlockExecutor) SafeGetTxsByHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {

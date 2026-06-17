@@ -216,7 +216,7 @@ func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
 		Height: 1,
 	}
 
-	resp := handleQueryStore(app, path, req)
+	resp := handleQueryStore(context.Background(), app, path, req)
 	require.True(t, resp.IsErr())
 	require.Contains(t, resp.Log, "multistore doesn't support queries")
 }

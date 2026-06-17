@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
@@ -19,7 +21,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -93,8 +94,9 @@ func (a *testApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseIn
 func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
 	return &abci.ResponseCheckTxV2{
 		ResponseCheckTx: &abci.ResponseCheckTx{
-			Code:      abci.CodeTypeOK,
-			GasWanted: 1,
+			Code:         abci.CodeTypeOK,
+			GasWanted:    1,
+			GasEstimated: 1,
 		},
 	}
 }
@@ -285,9 +287,6 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
 			proxyApp := proxy.New(app, proxy.NopMetrics())
-			// In giga mode the CometBFT handshaker is skipped; the router's
-			// runExecute calls InitChain itself on fresh start.
-			txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 			router, err := NewRouter(
 				NopMetrics(),
 				cfg.nodeKey,
@@ -310,15 +309,14 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 							PersistentStateDir: utils.None[string](),
 						},
 						Producer: &producer.Config{
-							MaxGasPerBlock:   txGasUsed * maxTxsPerBlock,
-							MaxTxsPerBlock:   maxTxsPerBlock,
-							MaxTxsPerSecond:  utils.None[uint64](),
-							MempoolSize:      100,
-							BlockInterval:    100 * time.Millisecond,
-							AllowEmptyBlocks: false,
+							App:                     proxyApp,
+							MaxGasWantedPerBlock:    txGasUsed * maxTxsPerBlock,
+							MaxGasEstimatedPerBlock: txGasUsed * maxTxsPerBlock,
+							MaxTxsPerBlock:          maxTxsPerBlock,
+							MaxTxsPerSecond:         utils.None[uint64](),
+							BlockInterval:           100 * time.Millisecond,
 						},
-						TxMempool: txMempool,
-						GenDoc:    genDoc,
+						GenDoc: genDoc,
 					}),
 				},
 			)
@@ -333,8 +331,9 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				allTxs = append(allTxs, tx)
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
-				for _, payload := range txs {
-					if _, err := txMempool.CheckTx(ctx, payload, mempool.TxInfo{}); err != nil {
+				giga := router.Giga().OrPanic("non-giga router")
+				for _, tx := range txs {
+					if _, err := giga.InsertTx(ctx, tx); err != nil {
 						return fmt.Errorf("txMempool.CheckTx(): %w", err)
 					}
 				}
@@ -357,8 +356,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		// blocks have been finalized every node should report a non-zero
 		// consensus-committed height through the new accessors used by /status.
 		for i, r := range routers {
-			giga, ok := r.Giga().Get()
-			require.True(t, ok, "router[%v].Giga()", i)
+			giga := r.Giga().OrPanic("non-giga router")
 			committed := giga.LastCommittedBlockNumber()
 			require.Positive(t, committed, "router[%v].LastCommittedBlockNumber()", i)
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
@@ -414,4 +412,91 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestGigaRouter_EvmProxy(t *testing.T) {
+	rng := utils.TestRng()
+	_, validatorKeys := atypes.GenCommittee(rng, 10)
+	var nodeKeys []NodeSecretKey
+	addrs := map[atypes.PublicKey]GigaNodeAddr{}
+	urlByValidator := map[atypes.PublicKey]*url.URL{}
+	for i, validatorKey := range validatorKeys {
+		nodeKey := makeKey(rng)
+		nodeKeys = append(nodeKeys, nodeKey)
+		addr := GigaNodeAddr{
+			Key:      nodeKey.Public(),
+			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
+		}
+		if i < 7 {
+			rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
+			require.NoError(t, err)
+			addr.EVMRPC = utils.Some(rpcURL)
+			urlByValidator[validatorKey.Public()] = rpcURL
+		}
+		addrs[validatorKey.Public()] = addr
+	}
+	genDoc := &types.GenesisDoc{
+		ChainID:       "giga-router-proxy-test",
+		InitialHeight: 1,
+		AppState:      testAppStateJSON(rng),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	router, err := NewGigaRouter(&GigaRouterConfig{
+		DialInterval:   time.Second,
+		ValidatorAddrs: addrs,
+		Consensus: &consensus.Config{
+			Key:                validatorKeys[0],
+			ViewTimeout:        func(atypes.View) time.Duration { return time.Second },
+			PersistentStateDir: utils.None[string](),
+		},
+		Producer: &producer.Config{
+			App:                     proxy.New(newTestApp(), proxy.NopMetrics()),
+			MaxGasWantedPerBlock:    1,
+			MaxGasEstimatedPerBlock: 1,
+			MaxTxsPerBlock:          1,
+			MaxTxsPerSecond:         utils.None[uint64](),
+			BlockInterval:           time.Second,
+		},
+		GenDoc: genDoc,
+	}, nodeKeys[0])
+	require.NoError(t, err)
+
+	localValidator := validatorKeys[0].Public()
+	localURL, ok := urlByValidator[localValidator]
+	require.True(t, ok)
+
+	expectedRemoteURLs := map[string]struct{}{}
+	for validator, rpcURL := range urlByValidator {
+		if validator == localValidator {
+			continue
+		}
+		expectedRemoteURLs[rpcURL.String()] = struct{}{}
+	}
+	returnedRemoteURLs := map[string]struct{}{}
+
+	for range 200 {
+		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+		shardValidator := router.data.Committee().EvmShard(sender)
+
+		proxyURL, ok := router.EvmProxy(sender)
+		expectedURL, hasURL := urlByValidator[shardValidator]
+
+		switch {
+		case shardValidator == localValidator:
+			require.False(t, ok)
+			require.Nil(t, proxyURL)
+		case hasURL:
+			require.True(t, ok)
+			require.NotNil(t, proxyURL)
+			require.Equal(t, expectedURL.String(), proxyURL.String())
+			require.NotEqual(t, localURL.String(), proxyURL.String())
+			returnedRemoteURLs[proxyURL.String()] = struct{}{}
+		default:
+			require.False(t, ok)
+			require.Nil(t, proxyURL)
+		}
+	}
+
+	require.Equal(t, expectedRemoteURLs, returnedRemoteURLs)
 }

@@ -19,6 +19,8 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
 
+	dbm "github.com/tendermint/tm-db"
+
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -489,7 +491,7 @@ func (db *Database) Prune(version int64) error {
 
 // Iterator dispatches between descending- and ascending-mode implementations
 // depending on the on-disk encoding detected at open time.
-func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if db.descending {
 		return db.iteratorDescending(storeKey, version, start, end)
 	}
@@ -498,7 +500,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 
 // ReverseIterator dispatches between descending- and ascending-mode
 // implementations depending on the on-disk encoding detected at open time.
-func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if db.descending {
 		return db.reverseIteratorDescending(storeKey, version, start, end)
 	}
@@ -685,7 +687,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	return db.SetEarliestVersion(earliestVersion, false)
 }
 
-func (db *Database) iteratorDescending(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (db *Database) iteratorDescending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -711,7 +713,7 @@ func (db *Database) iteratorDescending(storeKey string, version int64, start, en
 	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, db.config.UseDefaultComparer, storeKey), nil
 }
 
-func (db *Database) reverseIteratorDescending(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (db *Database) reverseIteratorDescending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}

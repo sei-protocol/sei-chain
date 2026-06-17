@@ -1,6 +1,6 @@
 package rootmulti
 
-// Crash / rollback / reopen recovery under DualWrite and SplitWrite.
+// Crash / rollback / reopen recovery under TestOnlyDualWrite and EVMMigrated.
 
 import (
 	"testing"
@@ -83,10 +83,10 @@ func TestFlatKVCrashRecoveryThroughRootMulti(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Crash recovery in SplitWrite — FlatKV behind cosmos
+// Crash recovery in EVMMigrated — FlatKV behind cosmos
 //
-// TestFlatKVCrashRecoveryThroughRootMulti covers DualWrite where both
-// backends hold the EVM changeset. In SplitWrite the "evm" memiavl tree is
+// TestFlatKVCrashRecoveryThroughRootMulti covers TestOnlyDualWrite where both
+// backends hold the EVM changeset. In EVMMigrated the "evm" memiavl tree is
 // intentionally empty, so after the reconciliation rolls both backends to v3
 // the only surviving copy of the historical EVM state lives in FlatKV. This
 // test asserts that:
@@ -99,9 +99,9 @@ func TestFlatKVCrashRecoveryThroughRootMulti(t *testing.T) {
 //     are only stored in FlatKV.
 // ---------------------------------------------------------------------------
 
-func TestFlatKVSplitWriteCrashRecovery(t *testing.T) {
+func TestFlatKVEVMMigratedCrashRecovery(t *testing.T) {
 	dir := t.TempDir()
-	cfg := splitWriteConfig()
+	cfg := evmMigratedConfig()
 	evmData := newEVMTestData(0x33)
 
 	store1, keys1 := newTestRootMulti(t, dir, cfg)
@@ -117,18 +117,18 @@ func TestFlatKVSplitWriteCrashRecovery(t *testing.T) {
 	store2, _ := newTestRootMulti(t, dir, cfg)
 
 	require.Equal(t, int64(3), store2.LastCommitID().Version,
-		"after SplitWrite crash recovery, version should reconcile to 3")
+		"after EVMMigrated crash recovery, version should reconcile to 3")
 	require.Equal(t, records[2].hash, store2.lastCommitInfo.Hash(),
-		"after SplitWrite crash recovery, app hash must match original v3")
+		"after EVMMigrated crash recovery, app hash must match original v3")
 
 	lattice := findStoreInfo(store2.lastCommitInfo.StoreInfos, "evm_lattice")
 	origLattice := findStoreInfo(records[2].infos, "evm_lattice")
 	require.NotNil(t, lattice)
 	require.NotNil(t, origLattice)
 	require.Equal(t, origLattice.CommitId.Hash, lattice.CommitId.Hash,
-		"lattice hash must match original v3 after SplitWrite crash recovery")
+		"lattice hash must match original v3 after EVMMigrated crash recovery")
 
-	// SplitWrite-specific: EVM data lives only in FlatKV. After recovery the
+	// EVMMigrated-specific: EVM data lives only in FlatKV. After recovery the
 	// v3 value must still be reachable; memiavl never held it.
 	require.NoError(t, store2.Close())
 	ro := openFlatKVReadOnly(t, dir, cfg, 0)
@@ -140,7 +140,7 @@ func TestFlatKVSplitWriteCrashRecovery(t *testing.T) {
 	require.NoError(t, ro.Close())
 
 	// Chain must continue making progress on the reconciled stores. In
-	// SplitWrite the "evm" memiavl subtree receives no writes, so its hash
+	// EVMMigrated the "evm" memiavl subtree receives no writes, so its hash
 	// must stay stable across the newly-committed blocks (equal to the
 	// reconciled v3 hash).
 	store3, keys3 := newTestRootMulti(t, dir, cfg)
@@ -153,7 +153,7 @@ func TestFlatKVSplitWriteCrashRecovery(t *testing.T) {
 		evmInfo := findStoreInfo(rec.infos, "evm")
 		require.NotNil(t, evmInfo)
 		require.Equalf(t, stableEVMHash, evmInfo.CommitId.Hash,
-			"evm memiavl hash must stay stable in SplitWrite (block %d)", block)
+			"evm memiavl hash must stay stable in EVMMigrated (block %d)", block)
 	}
 	require.NoError(t, store3.Close())
 }
@@ -200,17 +200,17 @@ func TestFlatKVReverseCrashRecoveryFlatKVAhead(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Reverse crash recovery in SplitWrite — FlatKV ahead of cosmos
+// Reverse crash recovery in EVMMigrated — FlatKV ahead of cosmos
 //
-// Symmetric to TestFlatKVReverseCrashRecoveryFlatKVAhead but for SplitWrite.
+// Symmetric to TestFlatKVReverseCrashRecoveryFlatKVAhead but for EVMMigrated.
 // Because memiavl "evm" never held the EVM changeset in the first place,
 // reconciling cosmos up to v5 and rewinding FlatKV back to v3 has to land
 // the chain at v3 with the v3 EVM value still readable from FlatKV.
 // ---------------------------------------------------------------------------
 
-func TestFlatKVSplitWriteReverseCrashRecovery(t *testing.T) {
+func TestFlatKVEVMMigratedReverseCrashRecovery(t *testing.T) {
 	dir := t.TempDir()
-	cfg := splitWriteConfig()
+	cfg := evmMigratedConfig()
 	evmData := newEVMTestData(0x78)
 
 	store1, keys1 := newTestRootMulti(t, dir, cfg)
@@ -225,16 +225,16 @@ func TestFlatKVSplitWriteReverseCrashRecovery(t *testing.T) {
 
 	store2, _ := newTestRootMulti(t, dir, cfg)
 	require.Equal(t, int64(3), store2.LastCommitID().Version,
-		"after SplitWrite reverse crash recovery, version should reconcile to 3")
+		"after EVMMigrated reverse crash recovery, version should reconcile to 3")
 	require.Equal(t, records[2].hash, store2.lastCommitInfo.Hash(),
-		"after SplitWrite reverse crash recovery, app hash must match original v3")
+		"after EVMMigrated reverse crash recovery, app hash must match original v3")
 
 	lattice := findStoreInfo(store2.lastCommitInfo.StoreInfos, "evm_lattice")
 	origLattice := findStoreInfo(records[2].infos, "evm_lattice")
 	require.NotNil(t, lattice)
 	require.NotNil(t, origLattice)
 	require.Equal(t, origLattice.CommitId.Hash, lattice.CommitId.Hash,
-		"lattice hash must match original v3 after SplitWrite reverse crash recovery")
+		"lattice hash must match original v3 after EVMMigrated reverse crash recovery")
 
 	require.NoError(t, store2.Close())
 
@@ -256,7 +256,7 @@ func TestFlatKVSplitWriteReverseCrashRecovery(t *testing.T) {
 		evmInfo := findStoreInfo(rec.infos, "evm")
 		require.NotNil(t, evmInfo)
 		require.Equalf(t, stableEVMHash, evmInfo.CommitId.Hash,
-			"evm memiavl hash must stay stable in SplitWrite (block %d)", block)
+			"evm memiavl hash must stay stable in EVMMigrated (block %d)", block)
 	}
 	require.NoError(t, store3.Close())
 }

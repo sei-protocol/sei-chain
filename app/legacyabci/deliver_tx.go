@@ -21,6 +21,7 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -51,13 +52,18 @@ func DeliverTx(
 	txCtx sdk.Context,
 	err error,
 ) {
-	defer telemetry.MeasureThroughputSinceWithLabels(
-		telemetry.TxCount,
-		[]metrics.Label{
-			telemetry.NewLabel("mode", "deliver"),
-		},
-		time.Now(),
-	)
+	txStart := time.Now()
+	defer func() {
+		legacyAbciMetrics.txDuration.Record(ctx.Context(), time.Since(txStart).Seconds(), otelmetric.WithAttributes(attribute.String("mode", "deliver")))
+		// TODO(PLT-343): remove once tx_duration verified
+		telemetry.MeasureThroughputSinceWithLabels(
+			telemetry.TxCount,
+			[]metrics.Label{
+				telemetry.NewLabel("mode", "deliver"),
+			},
+			txStart,
+		)
+	}()
 	// check for existing parent tracer, and if applicable, use it
 	spanCtx, span := tracingInfo.StartWithContext("DeliverTx", ctx.TraceSpanContext())
 	defer span.End()
@@ -136,7 +142,7 @@ func DeliverTx(
 			evmTxInfo = &abci.EvmTxInfo{
 				SenderAddress: ctx.EVMSenderAddress().Hex(),
 				Nonce:         ctx.EVMNonce(),
-				TxHash:        ctx.EVMTxHash(),
+				TxHash:        ctx.EVMTxHash().Hex(),
 				VmError:       result.EvmError,
 			}
 		}

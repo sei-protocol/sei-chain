@@ -25,7 +25,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -91,6 +90,80 @@ func (api *DebugAPI) prepareTraceContext(ctx context.Context) (context.Context, 
 		release()
 		cancel()
 	}, nil
+}
+
+func (api *DebugAPI) guardHistoricalDebugTraceByTxHash(ctx context.Context, endpoint string, hash common.Hash) error {
+	if api.keeper == nil {
+		return nil
+	}
+	receipt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
+	if err != nil || receipt == nil {
+		return nil
+	}
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, int64(receipt.BlockNumber)) //nolint:gosec
+}
+
+func (api *DebugAPI) guardHistoricalDebugTraceByNumber(ctx context.Context, endpoint string, number rpc.BlockNumber) error {
+	height, err := api.resolveDebugTraceBlockNumber(ctx, number)
+	if err != nil {
+		return err
+	}
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, height)
+}
+
+func (api *DebugAPI) guardHistoricalDebugTraceByHash(ctx context.Context, endpoint string, hash common.Hash) error {
+	if api.backend == nil || api.tmClient == nil {
+		return nil
+	}
+	block, err := blockByHashRespectingWatermarks(ctx, api.tmClient, api.backend.watermarks, hash.Bytes(), 1)
+	if err != nil || block == nil || block.Block == nil {
+		return nil
+	}
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, block.Block.Height)
+}
+
+func (api *DebugAPI) guardHistoricalDebugTraceByNumberOrHash(ctx context.Context, endpoint string, blockNrOrHash rpc.BlockNumberOrHash) error {
+	if number, ok := blockNrOrHash.Number(); ok {
+		return api.guardHistoricalDebugTraceByNumber(ctx, endpoint, number)
+	}
+	if hash, ok := blockNrOrHash.Hash(); ok {
+		return api.guardHistoricalDebugTraceByHash(ctx, endpoint, hash)
+	}
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, api.ctxProvider(LatestCtxHeight).BlockHeight())
+}
+
+func (api *DebugAPI) resolveDebugTraceBlockNumber(ctx context.Context, number rpc.BlockNumber) (int64, error) {
+	switch number {
+	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
+		return api.ctxProvider(LatestCtxHeight).BlockHeight(), nil
+	case rpc.EarliestBlockNumber:
+		if api.tmClient == nil {
+			return 0, errors.New("tendermint client is not configured")
+		}
+		genesisRes, err := api.tmClient.Genesis(ctx)
+		if err != nil {
+			return 0, err
+		}
+		return genesisRes.Genesis.InitialHeight, nil
+	default:
+		return number.Int64(), nil
+	}
+}
+
+func (api *DebugAPI) guardHistoricalDebugTraceHeight(ctx context.Context, endpoint string, blockHeight int64) error {
+	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
+	if !isHistoricalDebugTraceBlock(blockHeight, latest, api.maxBlockLookback) {
+		return nil
+	}
+	recordHistoricalDebugTraceAttempt(ctx, endpoint, string(api.connectionType))
+	return fmt.Errorf("block number %d is beyond max lookback of %d", blockHeight, api.maxBlockLookback)
+}
+
+func isHistoricalDebugTraceBlock(blockHeight, latestHeight, maxBlockLookback int64) bool {
+	if maxBlockLookback < 0 || blockHeight < 0 || latestHeight < blockHeight {
+		return false
+	}
+	return blockHeight < latestHeight-maxBlockLookback
 }
 
 type SeiDebugAPI struct {
@@ -187,6 +260,10 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	defer func() {
 		recordMetricsWithError(ctx, "debug_traceTransaction", api.connectionType, startTime, returnErr, recover())
 	}()
+
+	if returnErr = api.guardHistoricalDebugTraceByTxHash(ctx, "debug_traceTransaction", hash); returnErr != nil {
+		return nil, returnErr
+	}
 
 	if cached, ok := api.tryTraceCache(hash, config); ok {
 		return cached, nil
@@ -299,7 +376,7 @@ func (api *DebugAPI) tryExcludeFailBlockTraceCacheByNumber(ctx context.Context, 
 	if err != nil || block == nil {
 		return nil, false
 	}
-	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name) //nolint:gosec
+	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name, api.keeper, api.ctxProvider(LatestCtxHeight)) //nolint:gosec
 }
 
 func (api *DebugAPI) tryExcludeFailBlockTraceCacheByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
@@ -312,10 +389,18 @@ func (api *DebugAPI) tryExcludeFailBlockTraceCacheByHash(ctx context.Context, ha
 	if err != nil || block == nil {
 		return nil, false
 	}
-	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name) //nolint:gosec
+	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name, api.keeper, api.ctxProvider(LatestCtxHeight)) //nolint:gosec
 }
 
-func filterExcludeFailFromBlockCache(cache *keeper.TraceDB, height int64, tracer string) ([]*tracers.TxTraceResult, bool) {
+// filterExcludeFailFromBlockCache is the cached counterpart to the fresh
+// trace path in TraceBlockBy{Number,Hash}ExcludeTraceFail. Any change to
+// what *ExcludeTraceFail filters out must keep these two in sync —
+// delegate the per-trace decision to dropUntraceableTraces here just
+// as the fresh path does, so the discriminator stays single-sourced.
+// (TestTraceBlockByNumberExcludeTraceFail_AnteStub exercises the fresh
+// path with TraceBakeEnabled=false; the cache path's filtering is
+// covered transitively via the shared helper.)
+func filterExcludeFailFromBlockCache(cache *keeper.TraceDB, height int64, tracer string, k *keeper.Keeper, sdkctx sdk.Context) ([]*tracers.TxTraceResult, bool) {
 	bz, ok, err := cache.GetBlock(height, tracer)
 	if err != nil || !ok {
 		return nil, false
@@ -324,14 +409,46 @@ func filterExcludeFailFromBlockCache(cache *keeper.TraceDB, height int64, tracer
 	if err := json.Unmarshal(bz, &traces); err != nil {
 		return nil, false
 	}
+	return dropUntraceableTraces(traces, k, sdkctx), true
+}
+
+// dropUntraceableTraces filters out trace results that shouldn't surface from
+// the *ExcludeTraceFail trace endpoints. With a non-nil keeper, every
+// surviving trace must have a receipt that isReceiptUntraceable rejects —
+// matching the receipt-side semantic at isPanicOrSyntheticTx (missing
+// receipt → exclude, untraceable receipt → exclude). Drops are:
+//
+//   - trace.Error != "": tracer-level failure (timeout, internal error, etc.).
+//   - GetReceipt errors: no receipt for the tx hash. Unreachable in practice
+//     (the trace path's pre-filter in Backend.BlockByNumber drops no-receipt
+//     txs before they get traced, and the baker only caches traces for
+//     txs with receipts), but excluded here for parity with the tx-side
+//     check so isReceiptUntraceable's "shared discriminator" promise holds
+//     across every site.
+//   - isReceiptUntraceable(receipt): synthetic (TxType==ShellEVMTxType) or
+//     ante-deferred stub (EffectiveGasPrice==0 && GasUsed==0). For
+//     callTracer / flatCallTracer (and the default-tracer insufficient-funds
+//     path) errorTrace embeds the underlying error in the JSON and leaves
+//     TxTraceResult.Error empty, so the trace.Error check alone can't catch
+//     this — the receipt-shape check does.
+//
+// A nil keeper disables the receipt branch (used by the cache-filter unit
+// test in isolation); the trace.Error check still applies.
+func dropUntraceableTraces(traces []*tracers.TxTraceResult, k *keeper.Keeper, sdkctx sdk.Context) []*tracers.TxTraceResult {
 	out := make([]*tracers.TxTraceResult, 0, len(traces))
-	for _, t := range traces {
-		if t == nil || len(t.Error) > 0 {
+	for _, trace := range traces {
+		if trace == nil || len(trace.Error) > 0 {
 			continue
 		}
-		out = append(out, t)
+		if k != nil {
+			receipt, err := k.GetReceipt(sdkctx, trace.TxHash)
+			if err != nil || isReceiptUntraceable(receipt) {
+				continue
+			}
+		}
+		out = append(out, trace)
 	}
-	return out, true
+	return out
 }
 
 func txHashesOf(txs gethtypes.Transactions) []common.Hash {
@@ -409,14 +526,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
-	finalTraces := make([]*tracers.TxTraceResult, 0, len(traces))
-	for _, trace := range traces {
-		if len(trace.Error) > 0 {
-			continue
-		}
-		finalTraces = append(finalTraces, trace)
-	}
-	return finalTraces, nil
+	return dropUntraceableTraces(traces, api.keeper, api.ctxProvider(LatestCtxHeight)), nil
 }
 
 func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
@@ -447,33 +557,38 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
-	finalTraces := make([]*tracers.TxTraceResult, 0, len(traces))
-	for _, trace := range traces {
-		if len(trace.Error) > 0 {
-			continue
-		}
-		finalTraces = append(finalTraces, trace)
-	}
-	return finalTraces, nil
+	return dropUntraceableTraces(traces, api.keeper, api.ctxProvider(LatestCtxHeight)), nil
 }
 
-// isPanicOrSyntheticTx returns true if the tx is a panic tx or a synthetic tx, used
-// in the *ExcludeTraceFail endpoints. Both classes are excluded because their traces
-// would be empty or meaningless.
+// isPanicOrSyntheticTx returns true if the tx isn't traceable — used by the
+// *ExcludeTraceFail endpoints to filter out txs whose trace would be empty
+// or meaningless.
 //
-// Decision is made from the receipt store alone, decoupling this check from the
-// block-level trace path. Background: under Autobahn, BlockResults.TxsResults is
-// not yet wired (sei-tendermint/internal/rpc/core/blocks.go BlockResults stub),
-// so debug_traceBlockByNumber returns []. The previous implementation re-traced
-// the block and used trace.Error to identify panic txs and trace-list absence to
-// identify synthetic txs — under Autobahn the trace list is always empty, so
-// every tx looked synthetic.
+// Per evmrpc/README.md ("Tracing Failure Management Endpoints"), the target
+// is txs "included in blocks but not executed" — pre-state-check failures
+// (nonce mismatch, insufficient funds, etc.) and chain-generated synthetic
+// txs. Reverts, OOG, and other in-VM failures all ran and produced traces;
+// they stay in.
 //
-// Receipt-store mapping (works under both Autobahn and legacy):
-//   - GetReceipt error  → no receipt (ante-rejected, unknown hash, etc.)  → exclude
+// Discriminator: receipts are written in two paths. WriteReceipt
+// (x/evm/keeper/receipt.go) covers executed txs and sets EffectiveGasPrice
+// from msg.GasPrice (>0 on chains with positive min gas price) and GasUsed
+// > 0 (intrinsic gas at minimum). The ante-deferred stub path
+// (x/evm/keeper/abci.go) writes EffectiveGasPrice=0 and GasUsed=0 for any
+// nonce-bumping ante failure — regardless of which check failed (insufficient
+// funds, fee, mempool admission, etc.). Both fields zero is the signal that
+// the tx never reached the VM.
+//
+// (This does NOT use filterTransactions's isReceiptFromAnteError. That
+// helper's post-v5.8.0 branch is intentionally narrow — PR #2343's
+// TestAnteFailureOthers explicitly requires insufficient-funds receipts to
+// be *included* in regular eth_getBlockBy* responses. *ExcludeTraceFail has
+// the opposite semantic per the README, so it needs its own check.)
+//
+//   - GetReceipt error                          → no receipt yet           → exclude
 //   - TxType == ShellEVMTxType (math.MaxUint32) → chain-generated synthetic → exclude
-//   - Status == 0 (failed receipt)              → panic-like                → exclude
-//   - Status == 1 (success)                    → real, traceable          → include
+//   - EffectiveGasPrice==0 && GasUsed==0        → ante-deferred stub        → exclude
+//   - anything else (success / revert / OOG)    → executed, has a trace    → include
 func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
 	if api.isPanicCache != nil {
 		if cached, ok := api.isPanicCache.Get(hash); ok {
@@ -490,7 +605,7 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 		return true, nil
 	}
 
-	exclude := receipt.TxType == evmtypes.ShellEVMTxType || receipt.Status == 0
+	exclude := isReceiptUntraceable(receipt)
 	if api.isPanicCache != nil {
 		api.isPanicCache.Add(hash, exclude)
 	}
@@ -503,16 +618,15 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 		recordMetricsWithError(ctx, "debug_traceBlockByNumber", api.connectionType, startTime, returnErr, recover())
 	}()
 
+	if returnErr = api.guardHistoricalDebugTraceByNumber(ctx, "debug_traceBlockByNumber", number); returnErr != nil {
+		return nil, returnErr
+	}
+
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
-
-	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
-	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
-		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
-	}
 
 	if cached, ok := api.tryBlockTraceCacheByNumber(ctx, number, config); ok {
 		return cached, nil
@@ -538,6 +652,10 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
+	if returnErr = api.guardHistoricalDebugTraceByHash(ctx, "debug_traceBlockByHash", hash); returnErr != nil {
+		return nil, returnErr
+	}
+
 	if cached, ok := api.tryBlockTraceCacheByHash(ctx, hash, config); ok {
 		return cached, nil
 	}
@@ -561,6 +679,10 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		return nil, err
 	}
 	defer done()
+
+	if returnErr = api.guardHistoricalDebugTraceByNumberOrHash(ctx, "debug_traceCall", blockNrOrHash); returnErr != nil {
+		return nil, returnErr
+	}
 
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
@@ -612,6 +734,9 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 			returnErr = fmt.Errorf("panic occurred: %v, could not trace tx state: %s", r, hash.Hex())
 		}
 	}()
+	if returnErr = api.guardHistoricalDebugTraceByTxHash(ctx, "debug_traceStateAccess", hash); returnErr != nil {
+		return nil, returnErr
+	}
 	tendermintTraces := &TendermintTraces{Traces: []TendermintTrace{}}
 	ctx = WithTendermintTraces(ctx, tendermintTraces)
 	receiptTraces := &ReceiptTraces{Traces: []RawResponseReceipt{}}

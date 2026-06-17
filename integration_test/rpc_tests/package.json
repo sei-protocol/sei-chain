@@ -1,0 +1,43 @@
+{
+  "name": "sei-rpc-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-contained suite that verifies Sei's EVM JSON-RPC against a local geth reference node.",
+  "license": "MIT",
+  "scripts": {
+    "compile": "hardhat compile",
+    "rpc:geth": "geth --dev --http --http.addr 127.0.0.1 --http.port 9547 --http.api eth,net,web3,debug,txpool --dev.period 0",
+    "rpc:fork": "hardhat --config hardhat/hardhat.config.ts node --port 9546",
+    "rpc:bootstrap": "mocha --config .mocharc.bootstrap.json",
+    "rpc:run": "mocha --config .mocharc.run.json",
+    "test:rpc": "npm run rpc:bootstrap && npm run rpc:run",
+    "report:merge": "mochawesome-merge \"reports/new_rpc/*.json\" > reports/merged.json && marge reports/merged.json -o reports/merged -f rpc-tests --reportTitle \"Sei RPC Tests\" --charts",
+    "rpc:ci": "bash scripts/run-ci.sh"
+  },
+  "dependencies": {
+    "@cosmjs/amino": "^0.32.4",
+    "@cosmjs/cosmwasm-stargate": "^0.32.4",
+    "@cosmjs/crypto": "^0.32.4",
+    "@cosmjs/encoding": "^0.32.4",
+    "@cosmjs/proto-signing": "^0.32.4",
+    "@cosmjs/stargate": "^0.32.4",
+    "@cosmjs/tendermint-rpc": "^0.32.4",
+    "@sei-js/cosmos": "^1.0.6",
+    "cosmjs-types": "^0.9.0",
+    "ethers": "^6.14.0"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@types/chai": "^4.3.16",
+    "@types/mocha": "^10.0.7",
+    "@types/node": "^22.5.0",
+    "chai": "^4.4.1",
+    "hardhat": "^2.22.10",
+    "mocha": "^10.7.3",
+    "mochawesome": "^7.1.3",
+    "mochawesome-merge": "^4.3.0",
+    "mochawesome-report-generator": "^6.2.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}
