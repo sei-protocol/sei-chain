@@ -6,31 +6,20 @@ import "autobahn/autobahn.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb";
 
-message LaneReq {
-  autobahn.SignedMsg lane_proposal = 1;
-}
-
-message LaneResp {
-  autobahn.SignedMsg lane_vote = 1;
-}
-
-message LaneQCsResp {}
-
 message ConsensusResp {}
 
 message PingReq {}
 message PingResp {}
-
 message LaneVote {
-  autobahn.SignedMsg lane_vote = 1;
+  autobahn.SignedBlockHeader lane_vote = 1;
 }
 
 message LaneProposal {
-  autobahn.SignedMsg lane_proposal = 1;
+  autobahn.SignedBlockHeader lane_proposal = 1;
 }
 
 message AppVote {
-  autobahn.SignedMsg app_vote = 1;
+  autobahn.SignedAppProposal app_vote = 1;
 }
 
 message StreamLaneProposalsReq {
@@ -39,8 +28,8 @@ message StreamLaneProposalsReq {
 
 message StreamAppQCsReq {}
 message StreamAppQCsResp {
-  autobahn.AppQC app_qc = 1;
-  autobahn.CommitQC commit_qc = 2;
+  autobahn.AppQC app_qc = 1; // required
+  autobahn.CommitQC commit_qc = 2; // required
 }
 
 message StreamCommitQCsReq {}

@@ -95,7 +95,7 @@ message Proposal {
 }
 
 message FullProposal {
-  SignedMsg proposal = 1;
+  SignedProposal proposal = 1;
   repeated LaneQC lane_qcs = 2;
   optional AppQC app_qc = 3;
   optional TimeoutQC timeout_qc = 4; // justifies the proposal.
@@ -123,12 +123,12 @@ message TimeoutVote {
 }
 
 message TimeoutQC {
-  repeated SignedMsg votes = 1;
+  repeated SignedTimeoutVote votes = 1;
   optional PrepareQC latest_prepare_qc = 2;
 }
 
 message FullTimeoutVote {
-  SignedMsg vote = 1;
+  SignedTimeoutVote vote = 1;
   optional PrepareQC latest_prepare_qc = 2;
 }
 
@@ -141,8 +141,8 @@ message PersistedInner {
   optional PrepareQC prepare_qc = 2;
   optional TimeoutQC timeout_qc = 3;
 
-  optional SignedMsg commit_vote = 4;
-  optional SignedMsg prepare_vote = 5;
+  optional SignedProposal commit_vote = 4;
+  optional SignedProposal prepare_vote = 5;
   optional FullTimeoutVote timeout_vote = 6;
 }
 
@@ -188,8 +188,28 @@ message Msg {
   }
 }
 
-message SignedMsg {
-  Msg msg = 1;
+message SignedProposal {
+  Proposal msg = 1;
+  Signature sig = 2;
+}
+
+message SignedTimeoutVote {
+  TimeoutVote msg = 1;
+  Signature sig = 2;
+}
+
+message SignedAppVote {
+  AppProposal msg = 1;
+  Signature sig = 2;
+}
+
+message SignedBlockHeader {
+  BlockHeader msg = 1;
+  Signature sig = 2;
+}
+
+message SignedAppProposal {
+  AppProposal msg = 1;
   Signature sig = 2;
 }
 
@@ -197,8 +217,8 @@ message SignedMsg {
 message ConsensusReq {
   oneof t {
     FullProposal proposal = 1;
-    SignedMsg prepare_vote = 2;
-    SignedMsg commit_vote = 3;
+    SignedProposal prepare_vote = 2;
+    SignedProposal commit_vote = 3;
     FullTimeoutVote timeout_vote = 4;
     TimeoutQC timeout_qc = 5;
   }
