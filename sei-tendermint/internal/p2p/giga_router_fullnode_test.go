@@ -61,14 +61,12 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	// reads PersistentStateDir = None (in-memory) for this construction-
 	// shape check; App is required for executeBlock but isn't exercised by
 	// this test.
-	router, err := NewGigaFullnodeRouter(&GigaFullnodeConfig{
-		GigaRouterCommonConfig: GigaRouterCommonConfig{
-			DialInterval:       time.Second,
-			ValidatorAddrs:     addrs,
-			PersistentStateDir: utils.None[string](),
-			App:                proxyApp,
-			GenDoc:             genDoc,
-		},
+	router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     addrs,
+		PersistentStateDir: utils.None[string](),
+		App:                proxyApp,
+		GenDoc:             genDoc,
 	}, makeKey(rng))
 	require.NoError(t, err)
 

@@ -59,13 +59,6 @@ type GigaRouterCommonConfig struct {
 	GenDoc *types.GenesisDoc
 }
 
-// GigaFullnodeConfig configures a non-validator GigaRouter (pulls
-// finalized blocks from committee members, executes locally, forwards EVM
-// writes to the shard owner via EvmProxy — no consensus, no producer).
-type GigaFullnodeConfig struct {
-	GigaRouterCommonConfig
-}
-
 // GigaValidatorConfig configures a committee-member GigaRouter.
 type GigaValidatorConfig struct {
 	GigaRouterCommonConfig
@@ -195,15 +188,15 @@ func validateCommonAndBuildData(cfg *GigaRouterCommonConfig) (*data.State, error
 	return dataState, nil
 }
 
-func NewGigaFullnodeRouter(cfg *GigaFullnodeConfig, key NodeSecretKey) (*gigaFullnodeRouter, error) {
-	dataState, err := validateCommonAndBuildData(&cfg.GigaRouterCommonConfig)
+func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gigaFullnodeRouter, error) {
+	dataState, err := validateCommonAndBuildData(cfg)
 	if err != nil {
 		return nil, err
 	}
 	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs))
 	return &gigaFullnodeRouter{
 		gigaRouterCommon: &gigaRouterCommon{
-			cfg:     &cfg.GigaRouterCommonConfig,
+			cfg:     cfg,
 			key:     key,
 			data:    dataState,
 			service: giga.NewBlockSyncService(dataState),

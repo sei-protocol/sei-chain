@@ -314,7 +314,7 @@ func buildAndStartGigaRouter(
 	if err != nil {
 		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
-	rootifyPersistentStateDir(cfg.RootDir, &fnCfg.GigaRouterCommonConfig)
+	rootifyPersistentStateDir(cfg.RootDir, fnCfg)
 	return p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey))
 }
 
@@ -347,14 +347,14 @@ func genesisMaxGas(genDoc *types.GenesisDoc) (uint64, error) {
 	return uint64(genDoc.ConsensusParams.Block.MaxGas), nil //nolint:gosec // validated > 0 above
 }
 
-// buildFullnodeGigaConfig assembles a GigaFullnodeConfig. No
-// consensus/producer/mempool — fullnodes pull blocks rather than
-// producing them and forward every EVM tx to the shard owner.
+// buildFullnodeGigaConfig assembles the common config for a fullnode
+// GigaRouter. No consensus/producer/mempool — fullnodes pull blocks rather
+// than producing them and forward every EVM tx to the shard owner.
 func buildFullnodeGigaConfig(
 	autobahnConfigFile string,
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
-) (*p2p.GigaFullnodeConfig, error) {
+) (*p2p.GigaRouterCommonConfig, error) {
 	fc, validatorAddrs, err := loadAutobahnCommittee(autobahnConfigFile)
 	if err != nil {
 		return nil, err
@@ -364,14 +364,12 @@ func buildFullnodeGigaConfig(
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
-	return &p2p.GigaFullnodeConfig{
-		GigaRouterCommonConfig: p2p.GigaRouterCommonConfig{
-			DialInterval:       time.Duration(fc.DialInterval),
-			ValidatorAddrs:     validatorAddrs,
-			PersistentStateDir: fc.PersistentStateDir,
-			App:                app,
-			GenDoc:             genDoc,
-		},
+	return &p2p.GigaRouterCommonConfig{
+		DialInterval:       time.Duration(fc.DialInterval),
+		ValidatorAddrs:     validatorAddrs,
+		PersistentStateDir: fc.PersistentStateDir,
+		App:                app,
+		GenDoc:             genDoc,
 	}, nil
 }
 
