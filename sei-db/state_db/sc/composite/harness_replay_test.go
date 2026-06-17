@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -109,10 +108,5 @@ func TestHarness_ReplayWindowStraddling(t *testing.T) {
 	cs, oracle := replayCorpus(t, c)
 	defer func() { _ = cs.Close() }()
 
-	// TRUTH (routing): every composite read matches the fold of the same changesets.
-	verifyOracle(t, cs, oracle)
-	// TRUTH (independent): the fold equals corpus-gen's v0 expected_state.
-	requireOracleMatchesExpected(t, oracle, c)
-	// CONSISTENCY: on-disk flatkv content matches its own committed lattice root.
-	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+	assertHarnessVerdict(t, cs, oracle, c)
 }
