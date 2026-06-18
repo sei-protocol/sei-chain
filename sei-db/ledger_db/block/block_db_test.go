@@ -59,6 +59,9 @@ func TestBlockDB(t *testing.T) {
 			t.Run("PruneStraddleRetainsQC", func(t *testing.T) { testPruneStraddleRetainsQC(t, impl.build) })
 			t.Run("PruneIdempotentMonotonic", func(t *testing.T) { testPruneIdempotentMonotonic(t, impl.build) })
 			t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, impl.build) })
+			t.Run("WriteOrderRejectedAfterRestart", func(t *testing.T) {
+				testWriteOrderRejectedAfterRestart(t, impl.build)
+			})
 			t.Run("WriteBlockGaps", func(t *testing.T) { testWriteBlockGaps(t, impl.build) })
 		})
 	}
@@ -354,6 +357,53 @@ func testWriteOrderRejected(t *testing.T, build builder) {
 	opt, err := db.ReadBlockByNumber(b0.first)
 	require.NoError(t, err)
 	require.True(t, opt.IsPresent())
+}
+
+// testWriteOrderRejectedAfterRestart asserts the write-order cursors are
+// reloaded from persisted state on reopen. After a restart a freshly opened DB
+// must still reject an out-of-order block and a non-contiguous QC, and must
+// accept the contiguous continuation. A DB that forgot its cursors on restart
+// would treat itself as empty and silently accept writes that overwrite or gap
+// existing data. (For memblock a "restart" returns the same in-memory instance,
+// so its cursors are inherently preserved; this pins the durable reload path.)
+func testWriteOrderRejectedAfterRestart(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	require.GreaterOrEqual(t, len(batches), 2, "need pre-restart data plus a continuation batch")
+
+	db, o := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+
+	// Persist everything except the final batch, then restart.
+	head := batches[:len(batches)-1]
+	tail := batches[len(batches)-1]
+	writeAll(t, db, head)
+	db = restart(t, o, db)
+
+	last := head[len(head)-1]
+
+	// Re-writing the last persisted block number is still an ordering violation:
+	// only true if lastBlockNumber/hasBlocks were recovered from disk.
+	err := db.WriteBlock(last.next-1, last.blocks[len(last.blocks)-1])
+	require.ErrorIs(t, err, types.ErrBlockOutOfOrder,
+		"reopened DB must reject a non-ascending block (lastBlockNumber not recovered)")
+
+	// Re-writing an already-persisted QC is still a contiguity violation: only
+	// true if lastQCNext/hasQC were recovered from disk.
+	err = db.WriteQC(last.first, last.next, last.qc)
+	require.ErrorIs(t, err, types.ErrQCNonContiguous,
+		"reopened DB must reject a non-contiguous QC (lastQCNext not recovered)")
+
+	// The contiguous continuation is accepted — this succeeds only if the cursors
+	// were recovered to their exact pre-restart values.
+	for i, blk := range tail.blocks {
+		require.NoError(t, db.WriteBlock(tail.first+gbn(i), blk))
+	}
+	require.NoError(t, db.WriteQC(tail.first, tail.next, tail.qc))
+
+	// All data, written on both sides of the restart, reads back.
+	assertBlocksReadable(t, db, batches)
+	assertQCsReadable(t, db, committee, batches)
 }
 
 // testWriteBlockGaps asserts that block numbers need only be strictly

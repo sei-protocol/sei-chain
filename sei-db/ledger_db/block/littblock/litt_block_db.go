@@ -73,7 +73,56 @@ func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
 
 	s.blocks = blocksTable
 	s.qcs = qcsTable
+
+	if err := s.recoverCursors(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to recover write cursors: %w", err)
+	}
 	return s, nil
+}
+
+// recoverCursors reloads the write-order cursors (lastBlockNumber, lastQCNext,
+// and their presence flags) from on-disk state. Without this, a reopened DB
+// would treat itself as empty and let WriteBlock/WriteQC silently accept
+// out-of-order or non-contiguous writes that overwrite or gap persisted data.
+//
+// Blocks are written in strictly ascending number order, so the newest primary
+// key is the highest block number (block hash aliases are secondary keys and
+// are skipped by GetNewestKey). QCs are written contiguously, so the newest
+// primary key is the last QC's lowerBound; its upperBound — which is what
+// lastQCNext tracks — is lowerBound + len(headers), since a QC's header count
+// equals the size of the half-open range it finalizes (see types.WriteQC).
+func (s *blockDB) recoverCursors() error {
+	blockKey, exists, err := s.blocks.GetNewestKey()
+	if err != nil {
+		return fmt.Errorf("failed to read newest block key: %w", err)
+	}
+	if exists {
+		s.lastBlockNumber = decodeKey(blockKey)
+		s.hasBlocks = true
+	}
+
+	qcKey, exists, err := s.qcs.GetNewestKey()
+	if err != nil {
+		return fmt.Errorf("failed to read newest qc key: %w", err)
+	}
+	if exists {
+		lowerBound := decodeKey(qcKey)
+		value, ok, err := s.qcs.Get(qcKey)
+		if err != nil {
+			return fmt.Errorf("failed to read newest qc value: %w", err)
+		}
+		if !ok {
+			return fmt.Errorf("newest qc key %d has no value", lowerBound)
+		}
+		qc, err := decodeQC(value)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal newest qc: %w", err)
+		}
+		s.lastQCNext = lowerBound + types.GlobalBlockNumber(len(qc.Headers()))
+		s.hasQC = true
+	}
+	return nil
 }
 
 func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error {
