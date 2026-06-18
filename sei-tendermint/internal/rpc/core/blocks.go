@@ -324,11 +324,7 @@ func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestB
 		return nil, err
 	}
 
-	if max := env.Config.MaxTxSearchResults; max > 0 && len(results) > max {
-		results = results[:max]
-	}
-
-	// sort results (must be done before pagination)
+	// sort results (must be done before cap and pagination)
 	switch req.OrderBy {
 	case "desc", "":
 		sort.Slice(results, func(i, j int) bool { return results[i] > results[j] })
@@ -338,6 +334,10 @@ func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestB
 
 	default:
 		return nil, fmt.Errorf("expected order_by to be either `asc` or `desc` or empty: %w", coretypes.ErrInvalidRequest)
+	}
+
+	if max := env.Config.MaxTxSearchResults; max > 0 && len(results) > max {
+		results = results[:max]
 	}
 
 	// paginate results
