@@ -1393,10 +1393,11 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 				return &abci.ResponseFinalizeBlock{}, nil
 			}
+			consensusParamUpdates := app.GetConsensusParamsForStateToCommit()
 			cms := app.WriteState()
 			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
-			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
+			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp, consensusParamUpdates)
 			if hasHeadNotifier {
 				headNotifier.Stash(req, &resp)
 			}
@@ -1423,10 +1424,11 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
+	consensusParamUpdates := app.GetConsensusParamsForStateToCommit()
 	cms := app.WriteState()
 	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
-	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
+	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp, consensusParamUpdates)
 	if hasHeadNotifier {
 		headNotifier.Stash(req, &resp)
 	}
@@ -2442,7 +2444,13 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 	return typedTxs
 }
 
-func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock) abci.ResponseFinalizeBlock {
+func (app *App) getFinalizeBlockResponse(
+	appHash []byte,
+	events []abci.Event,
+	txResults []*abci.ExecTxResult,
+	endBlockResp abci.ResponseEndBlock,
+	consensusParamUpdates *tmproto.ConsensusParams,
+) abci.ResponseFinalizeBlock {
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return abci.ResponseFinalizeBlock{}
 	}
@@ -2455,27 +2463,74 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 				Power:  v.Power,
 			}
 		}),
-		ConsensusParamUpdates: &tmproto.ConsensusParams{
-			Block: &tmproto.BlockParams{
-				MaxBytes:      endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
-				MaxGas:        endBlockResp.ConsensusParamUpdates.Block.MaxGas,
-				MinTxsInBlock: endBlockResp.ConsensusParamUpdates.Block.MinTxsInBlock,
-				MaxGasWanted:  endBlockResp.ConsensusParamUpdates.Block.MaxGasWanted,
-			},
-			Evidence: &tmproto.EvidenceParams{
-				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
-				MaxAgeDuration:  endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeDuration,
-				MaxBytes:        endBlockResp.ConsensusParamUpdates.Evidence.MaxBytes,
-			},
-			Validator: &tmproto.ValidatorParams{
-				PubKeyTypes: endBlockResp.ConsensusParamUpdates.Validator.PubKeyTypes,
-			},
-			Version: &tmproto.VersionParams{
-				AppVersion: endBlockResp.ConsensusParamUpdates.Version.AppVersion,
-			},
-		},
-		AppHash: appHash,
+		ConsensusParamUpdates: cloneConsensusParams(consensusParamUpdates),
+		AppHash:               appHash,
 	}
+}
+
+func cloneConsensusParams(params *tmproto.ConsensusParams) *tmproto.ConsensusParams {
+	if params == nil {
+		return nil
+	}
+
+	cp := &tmproto.ConsensusParams{}
+	if params.Block != nil {
+		cp.Block = &tmproto.BlockParams{
+			MaxBytes:      params.Block.MaxBytes,
+			MaxGas:        params.Block.MaxGas,
+			MinTxsInBlock: params.Block.MinTxsInBlock,
+			MaxGasWanted:  params.Block.MaxGasWanted,
+		}
+	}
+	if params.Evidence != nil {
+		cp.Evidence = &tmproto.EvidenceParams{
+			MaxAgeNumBlocks: params.Evidence.MaxAgeNumBlocks,
+			MaxAgeDuration:  params.Evidence.MaxAgeDuration,
+			MaxBytes:        params.Evidence.MaxBytes,
+		}
+	}
+	if params.Validator != nil {
+		cp.Validator = &tmproto.ValidatorParams{
+			PubKeyTypes: append([]string(nil), params.Validator.PubKeyTypes...),
+		}
+	}
+	if params.Version != nil {
+		cp.Version = &tmproto.VersionParams{
+			AppVersion: params.Version.AppVersion,
+		}
+	}
+	if params.Synchrony != nil {
+		cp.Synchrony = &tmproto.SynchronyParams{
+			Precision:    cloneDuration(params.Synchrony.Precision),
+			MessageDelay: cloneDuration(params.Synchrony.MessageDelay),
+		}
+	}
+	if params.Timeout != nil {
+		cp.Timeout = &tmproto.TimeoutParams{
+			Propose:             cloneDuration(params.Timeout.Propose),
+			ProposeDelta:        cloneDuration(params.Timeout.ProposeDelta),
+			Vote:                cloneDuration(params.Timeout.Vote),
+			VoteDelta:           cloneDuration(params.Timeout.VoteDelta),
+			Commit:              cloneDuration(params.Timeout.Commit),
+			BypassCommitTimeout: params.Timeout.BypassCommitTimeout,
+		}
+	}
+	if params.Abci != nil {
+		cp.Abci = &tmproto.ABCIParams{
+			VoteExtensionsEnableHeight: params.Abci.VoteExtensionsEnableHeight,
+			RecheckTx:                  params.Abci.RecheckTx,
+		}
+	}
+
+	return cp
+}
+
+func cloneDuration(duration *time.Duration) *time.Duration {
+	if duration == nil {
+		return nil
+	}
+	cloned := *duration
+	return &cloned
 }
 
 // LoadHeight loads a particular height

@@ -697,6 +697,13 @@ func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *tmproto.ConsensusParams
 	return cp
 }
 
+func (app *BaseApp) GetConsensusParamsForStateToCommit() *tmproto.ConsensusParams {
+	if app.stateToCommit == nil {
+		return nil
+	}
+	return app.GetConsensusParams(app.stateToCommit.Context())
+}
+
 // AddRunTxRecoveryHandler adds custom app.runTx method panic handlers.
 func (app *BaseApp) AddRunTxRecoveryHandler(handlers ...RecoveryHandler) {
 	for _, h := range handlers {
