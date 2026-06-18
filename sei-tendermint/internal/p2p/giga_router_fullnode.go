@@ -28,12 +28,6 @@ func (r *gigaFullnodeRouter) Mempool() utils.Option[*producer.State] {
 	return utils.None[*producer.State]()
 }
 
-// RunInboundConn errors on fullnodes — they dial outbound to committee
-// members for block sync and don't accept inbound giga connections.
-func (r *gigaFullnodeRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
-	return fmt.Errorf("fullnode does not accept inbound giga connections")
-}
-
 func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Single-active subscriber: walk the committee in a stable order,

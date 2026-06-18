@@ -38,6 +38,11 @@ func NewBlockSyncService(d *data.State) *Service {
 	}
 }
 
+// HasConsensusState reports whether this Service was constructed with a
+// consensus.State (validator mode). Callers use this to gate dispatch
+// between RunServer (full) and RunBlockSyncServer (block-sync only).
+func (x *Service) HasConsensusState() bool { return x.state.IsPresent() }
+
 // validatorState unwraps state for the validator-only handlers. Panics if
 // called from a block-sync-only Service — which is structurally impossible
 // because those handlers are only spawned by RunServer / RunClient.

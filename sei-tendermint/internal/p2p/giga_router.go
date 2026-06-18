@@ -52,6 +52,9 @@ type GigaRouterCommonConfig struct {
 	// also copies this into cfg.Producer.App so the producer's internal
 	// mempool drives the same proxy.
 	App *proxy.Proxy
+	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
+	// peers. 0 rejects all; positive caps at n.
+	MaxInboundFullnodePeers int
 }
 
 // GigaValidatorConfig configures a committee-member GigaRouter.
@@ -61,9 +64,6 @@ type GigaValidatorConfig struct {
 	ViewTimeout  func(atypes.View) time.Duration
 	// Producer.App is filled by NewGigaValidatorRouter from common.App.
 	Producer *producer.Config
-	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
-	// peers. 0 rejects all; positive caps at n.
-	MaxInboundFullnodePeers int
 }
 
 // GigaRouter is the read-path / Run / EvmProxy surface. Implemented by
@@ -85,8 +85,15 @@ type gigaRouterCommon struct {
 	key     NodeSecretKey
 	data    *data.State
 	service *giga.Service
+	poolIn  *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 	app     *proxy.Proxy
+
+	// inboundFullnodeCount tracks live non-committee inbound block-sync
+	// connections. Optimistic Add(1) + compare against cap; over-rejects
+	// by one or two under contention but never over-accepts.
+	inboundFullnodeCount atomic.Int32
+	inboundFullnodeCap   int32
 }
 
 type gigaValidatorRouter struct {
@@ -95,16 +102,9 @@ type gigaValidatorRouter struct {
 	consensus      *consensus.State
 	producer       *producer.State
 	producerConfig *producer.Config
-	poolIn         *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	// validatorKey is the cached public form of cfg.ValidatorKey, used by
 	// EvmProxy to short-circuit self-shard sends to the local mempool.
 	validatorKey atypes.PublicKey
-
-	// inboundFullnodeCount tracks live non-committee inbound block-sync
-	// connections. Optimistic Add(1) + compare against cap; over-rejects
-	// by one or two under contention but never over-accepts.
-	inboundFullnodeCount atomic.Int32
-	inboundFullnodeCap   int32
 }
 
 // buildDataState validates the common config and constructs the data
@@ -143,15 +143,20 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gig
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs))
+	if cfg.MaxInboundFullnodePeers < 0 {
+		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want >= 0", cfg.MaxInboundFullnodePeers)
+	}
+	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaFullnodeRouter{
 		gigaRouterCommon: &gigaRouterCommon{
-			cfg:     cfg,
-			key:     key,
-			data:    dataState,
-			service: giga.NewBlockSyncService(dataState),
-			poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
-			app:     cfg.App,
+			cfg:                cfg,
+			key:                key,
+			data:               dataState,
+			service:            giga.NewBlockSyncService(dataState),
+			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			app:                cfg.App,
+			inboundFullnodeCap: int32(cfg.MaxInboundFullnodePeers), // nolint:gosec // validated >= 0 above.
 		},
 	}, nil
 }
@@ -179,24 +184,24 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 	}
 	producerState := producer.NewState(cfg.Producer, consensusState)
 	if cfg.MaxInboundFullnodePeers < 0 {
-		return nil, fmt.Errorf("GigaValidatorConfig.MaxInboundFullnodePeers = %v, want >= 0", cfg.MaxInboundFullnodePeers)
+		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want >= 0", cfg.MaxInboundFullnodePeers)
 	}
 	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
-			cfg:     &cfg.GigaRouterCommonConfig,
-			key:     key,
-			data:    dataState,
-			service: giga.NewService(consensusState),
-			poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
-			app:     cfg.App,
+			cfg:                &cfg.GigaRouterCommonConfig,
+			key:                key,
+			data:               dataState,
+			service:            giga.NewService(consensusState),
+			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			app:                cfg.App,
+			inboundFullnodeCap: int32(cfg.MaxInboundFullnodePeers), // nolint:gosec // validated >= 0 above.
 		},
-		consensus:          consensusState,
-		producer:           producerState,
-		producerConfig:     cfg.Producer,
-		poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
-		validatorKey:       cfg.ValidatorKey.Public(),
-		inboundFullnodeCap: int32(cfg.MaxInboundFullnodePeers), // nolint:gosec // validated >= 0 above.
+		consensus:      consensusState,
+		producer:       producerState,
+		producerConfig: cfg.Producer,
+		validatorKey:   cfg.ValidatorKey.Public(),
 	}, nil
 }
 
@@ -491,14 +496,16 @@ func (r *gigaRouterCommon) dialAndRunConn(
 	})
 }
 
-func (r *gigaValidatorRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
+// RunInboundConn serves an inbound giga connection. Non-committee peers
+// get the block-sync subset (StreamFullCommitQCs + GetBlock), capped at
+// inboundFullnodeCap. Committee peers get the full RunServer on
+// validators; fullnodes don't run consensus/avail so committee peers
+// (rare — validators normally dial each other, not us) also get block-sync.
+func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
 	if !hConn.msg.SeiGigaConnection {
 		return fmt.Errorf("not a SeiGiga connection")
 	}
 	key := hConn.msg.NodeAuth.Key()
-	// Committee peers get the full RunServer; non-committee peers get
-	// the block-sync subset (StreamFullCommitQCs + GetBlock) capped at
-	// inboundFullnodeCap.
 	isCommittee := false
 	for _, addr := range r.cfg.ValidatorAddrs {
 		if addr.Key == key {
@@ -518,7 +525,7 @@ func (r *gigaValidatorRouter) RunInboundConn(ctx context.Context, hConn *handsha
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			s.Spawn(func() error { return server.Run(ctx, hConn.conn) })
-			if isCommittee {
+			if isCommittee && r.service.HasConsensusState() {
 				return r.service.RunServer(ctx, server)
 			}
 			return r.service.RunBlockSyncServer(ctx, server)

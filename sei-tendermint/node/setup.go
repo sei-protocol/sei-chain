@@ -252,11 +252,12 @@ func buildValidatorGigaConfig(
 	}
 	return &p2p.GigaValidatorConfig{
 		GigaRouterCommonConfig: p2p.GigaRouterCommonConfig{
-			DialInterval:       time.Duration(fc.DialInterval),
-			ValidatorAddrs:     validatorAddrs,
-			PersistentStateDir: fc.PersistentStateDir,
-			App:                app,
-			GenDoc:             genDoc,
+			DialInterval:            time.Duration(fc.DialInterval),
+			ValidatorAddrs:          validatorAddrs,
+			PersistentStateDir:      fc.PersistentStateDir,
+			App:                     app,
+			GenDoc:                  genDoc,
+			MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(maxInboundFullnodePeers),
 		},
 		ValidatorKey: validatorKey,
 		ViewTimeout: func(atypes.View) time.Duration {
@@ -271,7 +272,6 @@ func buildValidatorGigaConfig(
 			AllowEmptyBlocks:        fc.AllowEmptyBlocks,
 			BlockInterval:           time.Duration(fc.BlockInterval),
 		},
-		MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(maxInboundFullnodePeers),
 	}, nil
 }
 
@@ -321,7 +321,7 @@ func buildGigaRouter(
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		return p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey))
 	}
-	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, app, genDoc)
+	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnMaxInboundFullnodePeers, app, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
@@ -364,6 +364,7 @@ func genesisMaxGas(genDoc *types.GenesisDoc) (uint64, error) {
 // than producing them and forward every EVM tx to the shard owner.
 func buildFullnodeGigaConfig(
 	autobahnConfigFile string,
+	maxInboundFullnodePeers *int,
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaRouterCommonConfig, error) {
@@ -377,11 +378,12 @@ func buildFullnodeGigaConfig(
 		return nil, err
 	}
 	return &p2p.GigaRouterCommonConfig{
-		DialInterval:       time.Duration(fc.DialInterval),
-		ValidatorAddrs:     validatorAddrs,
-		PersistentStateDir: fc.PersistentStateDir,
-		App:                app,
-		GenDoc:             genDoc,
+		DialInterval:            time.Duration(fc.DialInterval),
+		ValidatorAddrs:          validatorAddrs,
+		PersistentStateDir:      fc.PersistentStateDir,
+		App:                     app,
+		GenDoc:                  genDoc,
+		MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(maxInboundFullnodePeers),
 	}, nil
 }
 
