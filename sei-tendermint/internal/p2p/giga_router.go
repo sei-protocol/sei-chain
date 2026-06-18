@@ -115,12 +115,12 @@ type gigaValidatorRouter struct {
 	inboundFullnodeCap   int32
 }
 
-// validateCommonAndBuildData runs the validation and data-layer setup
-// shared by both giga constructors.
+// buildDataState validates the common config and constructs the data
+// layer (committee, WAL, State) shared by both giga constructors.
 //
 // TODO(autobahn): once sei-db/ledger_db/block.BlockDB has a writer wired
 // (see BlockByNumber's TODO), the data WAL is redundant.
-func validateCommonAndBuildData(cfg *GigaRouterCommonConfig) (*data.State, error) {
+func buildDataState(cfg *GigaRouterCommonConfig) (*data.State, error) {
 	if cfg.GenDoc == nil {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.GenDoc must be set")
 	}
@@ -163,7 +163,7 @@ func validateCommonAndBuildData(cfg *GigaRouterCommonConfig) (*data.State, error
 }
 
 func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gigaFullnodeRouter, error) {
-	dataState, err := validateCommonAndBuildData(cfg)
+	dataState, err := buildDataState(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gig
 // interface) so router.go can reach RunInboundConn in-package without a
 // runtime downcast.
 func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaValidatorRouter, error) {
-	dataState, err := validateCommonAndBuildData(&cfg.GigaRouterCommonConfig)
+	dataState, err := buildDataState(&cfg.GigaRouterCommonConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -581,7 +581,7 @@ func (r *gigaValidatorRouter) RunInboundConn(ctx context.Context, hConn *handsha
 
 // EvmProxy on the validator returns (nil, false) when the sender's shard
 // owner is us (handle locally via mempool, no HTTP round-trip to self).
-// Otherwise returns the shard owner's EVMRPC URL. validateCommonAndBuildData
+// Otherwise returns the shard owner's EVMRPC URL. buildDataState
 // rejects configs missing any URL, so .Get() never reaches the silent-drop
 // branch in production.
 func (r *gigaValidatorRouter) EvmProxy(sender common.Address) (*url.URL, bool) {

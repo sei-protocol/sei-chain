@@ -30,7 +30,7 @@ func (r *gigaFullnodeRouter) AsValidator() utils.Option[GigaValidatorRouter] {
 }
 
 // EvmProxy on a fullnode always forwards — no validator key, no local
-// mempool, no self-shard short-circuit. validateCommonAndBuildData
+// mempool, no self-shard short-circuit. buildDataState
 // rejects configs missing any URL, so .Get() never silent-drops in production.
 func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
 	shardValidator := r.data.Committee().EvmShard(sender)
