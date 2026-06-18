@@ -13,3 +13,7 @@ var SchemaForBlock = &wireguard.Schema{
 		wireguard.MustFieldNum[Block]("last_commit"): {Nested: utils.Some(SchemaForCommit)},
 	},
 }
+
+func (x *Block) WireguardScan(bz []byte) error {
+	return SchemaForBlock.Scan(bz)
+}

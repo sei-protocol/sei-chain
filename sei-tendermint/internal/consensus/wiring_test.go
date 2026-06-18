@@ -7,24 +7,40 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard/wgtest"
 	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
-// TestWiring_DataChannel asserts that DataChannel has a PreDecode hook
-// installed that rejects an over-cap Proposal payload for SchemaForMessage.
+// TestWiring_DataChannel asserts that the consensus message type implements
+// WireguardScan and rejects an over-cap Proposal payload.
 func TestWiring_DataChannel(t *testing.T) {
-	pd, ok := consensus.GetDataChannelDescriptor().PreDecode.Get()
-	require.True(t, ok, "consensus DataChannel PreDecode is not set")
 	msg := &tmcons.Message{Sum: &tmcons.Message_Proposal{
 		Proposal: &tmcons.Proposal{Proposal: tmproto.Proposal{
 			LastCommit: wgtest.CommitWith(wgtest.MaxCommitSignatures + 1),
 		}},
 	}}
-	require.Error(t, pd(wgtest.Marshal(t, msg)),
-		"consensus DataChannel PreDecode failed to reject an over-cap last_commit")
+	require.Error(t, msg.WireguardScan(wgtest.Marshal(t, msg)),
+		"consensus Message.WireguardScan failed to reject an over-cap last_commit")
+}
+
+// TestWiring_OtherChannelsAreNoOp documents that State, Vote, and VoteSet
+// messages don't reach a Commit path, so WireguardScan is a no-op for them.
+func TestWiring_OtherChannelsAreNoOp(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  *tmcons.Message
+	}{
+		{"State", &tmcons.Message{Sum: &tmcons.Message_NewRoundStep{NewRoundStep: &tmcons.NewRoundStep{}}}},
+		{"Vote", &tmcons.Message{Sum: &tmcons.Message_Vote{Vote: &tmcons.Vote{}}}},
+		{"VoteSet", &tmcons.Message{Sum: &tmcons.Message_VoteSetBits{VoteSetBits: &tmcons.VoteSetBits{}}}},
+	}
+	for _, c := range cases {
+		t.Run(strings.ReplaceAll(c.name, ".", "_"), func(t *testing.T) {
+			require.NoError(t, c.msg.WireguardScan(wgtest.Marshal(t, c.msg)),
+				"consensus %s message should be a no-op for WireguardScan", c.name)
+		})
+	}
 }
 
 // TestWiring_AssembledBlock verifies that the consensus state's block-parts
@@ -39,25 +55,4 @@ func TestWiring_AssembledBlock(t *testing.T) {
 	require.NoError(t, err, "could not read consensus/state.go to verify wiring")
 	require.Contains(t, string(bz), "tmproto.SchemaForBlock.Scan",
 		"consensus state.go does not reference tmproto.SchemaForBlock.Scan; the block-parts reassembly site lost its wireguard check")
-}
-
-// TestWiring_OtherChannelsHaveNoPreDecode documents which consensus
-// channels intentionally do NOT have a PreDecode hook. Only DataChannel
-// carries Proposal; the rest carry votes / vote-sets / round-step
-// messages that don't reach a Commit.
-func TestWiring_OtherChannelsHaveNoPreDecode(t *testing.T) {
-	cases := []struct {
-		name      string
-		getHookFn func() bool
-	}{
-		{"State", func() bool { return consensus.GetStateChannelDescriptor().PreDecode.IsPresent() }},
-		{"Vote", func() bool { return consensus.GetVoteChannelDescriptor().PreDecode.IsPresent() }},
-		{"VoteSet", func() bool { return consensus.GetVoteSetChannelDescriptor().PreDecode.IsPresent() }},
-	}
-	for _, c := range cases {
-		t.Run(strings.ReplaceAll(c.name, ".", "_"), func(t *testing.T) {
-			require.False(t, c.getHookFn(),
-				"channel consensus.%s: expected no PreDecode hook, got one", c.name)
-		})
-	}
 }
