@@ -5,38 +5,24 @@ import (
 	wireguard "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	types "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	reflect "reflect"
 )
 
-// SchemaForSignProposalRequest is the wireguard.Schema generated for tendermint.privval.SignProposalRequest.
-var SchemaForSignProposalRequest = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(types.SchemaForProposal)},
-	},
-}
+func init() {
+	// Register the wireguard.Schema generated for tendermint.privval.SignProposalRequest.
+	wireguard.MustRegister[*SignProposalRequest](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*types.Proposal]())},
+	})
 
-// SchemaForSignedProposalResponse is the wireguard.Schema generated for tendermint.privval.SignedProposalResponse.
-var SchemaForSignedProposalResponse = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(types.SchemaForProposal)},
-	},
-}
+	// Register the wireguard.Schema generated for tendermint.privval.SignedProposalResponse.
+	wireguard.MustRegister[*SignedProposalResponse](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*types.Proposal]())},
+	})
 
-// SchemaForMessage is the wireguard.Schema generated for tendermint.privval.Message.
-var SchemaForMessage = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(5): {Nested: utils.Some(SchemaForSignProposalRequest)},
-		wireguard.Number(6): {Nested: utils.Some(SchemaForSignedProposalResponse)},
-	},
-}
+	// Register the wireguard.Schema generated for tendermint.privval.Message.
+	wireguard.MustRegister[*Message](&wireguard.Schema{
+		5: {Nested: utils.Some(reflect.TypeFor[*SignProposalRequest]())},
+		6: {Nested: utils.Some(reflect.TypeFor[*SignedProposalResponse]())},
+	})
 
-func (x *SignProposalRequest) WireguardScan(bz []byte) error {
-	return SchemaForSignProposalRequest.Scan(bz)
-}
-
-func (x *SignedProposalResponse) WireguardScan(bz []byte) error {
-	return SchemaForSignedProposalResponse.Scan(bz)
-}
-
-func (x *Message) WireguardScan(bz []byte) error {
-	return SchemaForMessage.Scan(bz)
 }

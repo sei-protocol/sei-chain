@@ -4,82 +4,44 @@ package types
 import (
 	wireguard "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	reflect "reflect"
 )
 
-// SchemaForCommit is the wireguard.Schema generated for tendermint.types.Commit.
-var SchemaForCommit = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(4): {MaxCount: 10000},
-	},
-}
+func init() {
+	// Register the wireguard.Schema generated for tendermint.types.Commit.
+	wireguard.MustRegister[*Commit](&wireguard.Schema{
+		4: {MaxCount: 10000},
+	})
 
-// SchemaForProposal is the wireguard.Schema generated for tendermint.types.Proposal.
-var SchemaForProposal = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(9):  {Nested: utils.Some(SchemaForEvidenceList)},
-		wireguard.Number(10): {Nested: utils.Some(SchemaForCommit)},
-	},
-}
+	// Register the wireguard.Schema generated for tendermint.types.Proposal.
+	wireguard.MustRegister[*Proposal](&wireguard.Schema{
+		9:  {Nested: utils.Some(reflect.TypeFor[*EvidenceList]())},
+		10: {Nested: utils.Some(reflect.TypeFor[*Commit]())},
+	})
 
-// SchemaForSignedHeader is the wireguard.Schema generated for tendermint.types.SignedHeader.
-var SchemaForSignedHeader = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(2): {Nested: utils.Some(SchemaForCommit)},
-	},
-}
+	// Register the wireguard.Schema generated for tendermint.types.SignedHeader.
+	wireguard.MustRegister[*SignedHeader](&wireguard.Schema{
+		2: {Nested: utils.Some(reflect.TypeFor[*Commit]())},
+	})
 
-// SchemaForLightBlock is the wireguard.Schema generated for tendermint.types.LightBlock.
-var SchemaForLightBlock = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForSignedHeader)},
-	},
-}
+	// Register the wireguard.Schema generated for tendermint.types.LightBlock.
+	wireguard.MustRegister[*LightBlock](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*SignedHeader]())},
+	})
 
-// SchemaForEvidence is the wireguard.Schema generated for tendermint.types.Evidence.
-var SchemaForEvidence = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(2): {Nested: utils.Some(SchemaForLightClientAttackEvidence)},
-	},
-}
+	// Register the wireguard.Schema generated for tendermint.types.Evidence.
+	wireguard.MustRegister[*Evidence](&wireguard.Schema{
+		2: {Nested: utils.Some(reflect.TypeFor[*LightClientAttackEvidence]())},
+	})
 
-// SchemaForLightClientAttackEvidence is the wireguard.Schema generated for tendermint.types.LightClientAttackEvidence.
-var SchemaForLightClientAttackEvidence = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForLightBlock)},
-	},
-}
+	// Register the wireguard.Schema generated for tendermint.types.LightClientAttackEvidence.
+	wireguard.MustRegister[*LightClientAttackEvidence](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*LightBlock]())},
+	})
 
-// SchemaForEvidenceList is the wireguard.Schema generated for tendermint.types.EvidenceList.
-var SchemaForEvidenceList = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForEvidence)},
-	},
-}
+	// Register the wireguard.Schema generated for tendermint.types.EvidenceList.
+	wireguard.MustRegister[*EvidenceList](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*Evidence]())},
+	})
 
-func (x *Commit) WireguardScan(bz []byte) error {
-	return SchemaForCommit.Scan(bz)
-}
-
-func (x *Proposal) WireguardScan(bz []byte) error {
-	return SchemaForProposal.Scan(bz)
-}
-
-func (x *SignedHeader) WireguardScan(bz []byte) error {
-	return SchemaForSignedHeader.Scan(bz)
-}
-
-func (x *LightBlock) WireguardScan(bz []byte) error {
-	return SchemaForLightBlock.Scan(bz)
-}
-
-func (x *Evidence) WireguardScan(bz []byte) error {
-	return SchemaForEvidence.Scan(bz)
-}
-
-func (x *LightClientAttackEvidence) WireguardScan(bz []byte) error {
-	return SchemaForLightClientAttackEvidence.Scan(bz)
-}
-
-func (x *EvidenceList) WireguardScan(bz []byte) error {
-	return SchemaForEvidenceList.Scan(bz)
 }

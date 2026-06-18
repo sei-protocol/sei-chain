@@ -100,8 +100,8 @@ func runPlugin(t *testing.T, files []*descriptorpb.FileDescriptorProto, fileToGe
 //	  repeated int32 y = 1 [(wireguard.max_count) = 10];
 //	}
 //
-// Expected output: SchemaForA caps field_1 and descends into B via
-// field_2; SchemaForB caps y.
+// Expected output: init() registers A with field_1 capped and field_2
+// descending into B; and registers B with y capped.
 func TestPlugin_AutoDescentAndMaxCount(t *testing.T) {
 	msgA := &descriptorpb.DescriptorProto{
 		Name: proto.String("A"),
@@ -152,15 +152,16 @@ func TestPlugin_AutoDescentAndMaxCount(t *testing.T) {
 	content := out["test/test.wireguard.go"]
 	require.NotEmpty(t, content, "expected generated wireguard.go for test.proto; got files %v", keys(out))
 
-	// SchemaForA: field_1 capped, field_2 nested into B.
-	require.Contains(t, content, "var SchemaForA = &")
-	require.Contains(t, content, `Number(1): {MaxCount: 5}`)
-	require.Contains(t, content, `Number(2): {Nested: `)
-	require.Contains(t, content, "Some(SchemaForB)")
+	// A: field_1 capped, field_2 nested into B.
+	require.Contains(t, content, "func init() {")
+	require.Contains(t, content, "MustRegister[*A](&")
+	require.Contains(t, content, `1: {MaxCount: 5}`)
+	require.Contains(t, content, `2: {Nested: `)
+	require.Contains(t, content, "Some(reflect.TypeFor[*B]())")
 
-	// SchemaForB: y capped.
-	require.Contains(t, content, "var SchemaForB = &")
-	require.Contains(t, content, `Number(1): {MaxCount: 10}`)
+	// B: y capped.
+	require.Contains(t, content, "MustRegister[*B](&")
+	require.Contains(t, content, `1: {MaxCount: 10}`)
 }
 
 // TestPlugin_NoDescentWhenTargetHasNoSchema confirms the plugin skips
@@ -302,7 +303,7 @@ func TestPlugin_OneofDescentUsesConcreteFieldNumber(t *testing.T) {
 
 	content := out["test/test.wireguard.go"]
 	require.NotEmpty(t, content)
-	require.Contains(t, content, `Number(1): {Nested: `)
+	require.Contains(t, content, `1: {Nested: `)
 }
 
 // TestPlugin_RepeatedMessageWithMaxCountAndDescent verifies that a
@@ -351,14 +352,14 @@ func TestPlugin_RepeatedMessageWithMaxCountAndDescent(t *testing.T) {
 	content := out["test/test.wireguard.go"]
 	require.NotEmpty(t, content)
 	// A.bs has both MaxCount and Nested rules.
-	require.Contains(t, content, `Number(1): {MaxCount: 7, Nested: `)
-	require.Contains(t, content, "Some(SchemaForB)")
-	require.Contains(t, content, `Number(1): {MaxCount: 11}`)
+	require.Contains(t, content, `1: {MaxCount: 7, Nested: `)
+	require.Contains(t, content, "Some(reflect.TypeFor[*B]())")
+	require.Contains(t, content, `1: {MaxCount: 11}`)
 }
 
 // TestPlugin_CrossFileReference verifies that a field in one file whose
 // target type lives in a different file emits a qualified reference to
-// the other package's SchemaFor variable.
+// the other package's Go type inside reflect.TypeFor.
 func TestPlugin_CrossFileReference(t *testing.T) {
 	// File b.proto: message B with a max_count field.
 	msgB := &descriptorpb.DescriptorProto{
@@ -432,13 +433,13 @@ func TestPlugin_CrossFileReference(t *testing.T) {
 	require.NotEmpty(t, contentA, "a.wireguard.go expected; got files %v", keys(out))
 	require.NotEmpty(t, contentB, "b.wireguard.go expected")
 
-	// a.wireguard.go imports the testb package and references its
-	// SchemaForB via the import alias.
+	// a.wireguard.go imports the testb package and references B via the
+	// import alias inside reflect.TypeFor.
 	require.Contains(t, contentA, `"github.com/example/testb"`)
-	require.Contains(t, contentA, "testb.SchemaForB")
-	// b.wireguard.go declares SchemaForB.
-	require.Contains(t, contentB, "var SchemaForB = &")
-	require.Contains(t, contentB, `Number(1): {MaxCount: 3}`)
+	require.Contains(t, contentA, "reflect.TypeFor[*testb.B]()")
+	// b.wireguard.go registers B.
+	require.Contains(t, contentB, "MustRegister[*B](&")
+	require.Contains(t, contentB, `1: {MaxCount: 3}`)
 }
 
 // TestPlugin_RejectsMaxCountZero verifies that (wireguard.max_count) = 0
@@ -528,7 +529,7 @@ func TestPlugin_Proto3OptionalDoesNotEmitWrapperType(t *testing.T) {
 	require.NotEmpty(t, content)
 
 	// items must be capped normally.
-	require.Contains(t, content, `Number(2): {MaxCount: 5}`)
+	require.Contains(t, content, `2: {MaxCount: 5}`)
 	// The synthetic-oneof wrapper type Foo_Bar must NOT appear.
 	require.NotContains(t, content, "Foo_Bar")
 }

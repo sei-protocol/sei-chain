@@ -10,6 +10,8 @@ package wireguard
 
 import (
 	"fmt"
+	"reflect"
+	"sync"
 
 	"google.golang.org/protobuf/encoding/protowire"
 
@@ -22,11 +24,9 @@ type Number = protowire.Number
 
 // Schema describes the validation applied to a single proto message type.
 // Rules are keyed by proto field number; nesting is expressed by setting
-// Rule.Nested to a child Schema. Schemas are immutable after construction
+// Rule.Nested to a child schema. Schemas are immutable after construction
 // and safe for concurrent use.
-type Schema struct {
-	Rules map[Number]Rule
-}
+type Schema map[Number]Rule
 
 // Rule is the validation applied to one field of a Schema's parent message.
 // Nested and MaxCount compose: a field can both descend into a child Schema
@@ -34,7 +34,7 @@ type Schema struct {
 type Rule struct {
 	// Nested, if Some, is applied to the contents of this length-delimited
 	// field. Use for descending through wrapper layers on the way to a cap.
-	Nested utils.Option[*Schema]
+	Nested utils.Option[reflect.Type]
 	// MaxCount, if non-zero, caps how many times this field may appear in the
 	// scanned payload. The count is accumulated globally across the whole
 	// Scan call — every match of this (Schema, field) pair increments one
@@ -42,20 +42,82 @@ type Rule struct {
 	MaxCount int
 }
 
-// Scan walks bz once, applying schema. Returns nil on success, an error on
-// malformed wire bytes or a rule violation. A nil schema is a no-op.
-func Scan(bz []byte, schema *Schema) error {
+var (
+	registryMu sync.RWMutex
+	registry   = map[reflect.Type]*Schema{}
+)
+
+func normalizeType(t reflect.Type) reflect.Type {
+	if t == nil {
+		return nil
+	}
+	if t.Kind() == reflect.Pointer {
+		return t
+	}
+	return reflect.PointerTo(t)
+}
+
+// MustRegister associates T with schema in the global registry used by Scan.
+// It panics on duplicate registration or nil schema.
+func MustRegister[T any](schema *Schema) {
+	mustRegisterType(reflect.TypeFor[T](), schema)
+}
+
+// MustRegisterType associates t with schema in the global registry used by
+// Scan. t is normalized to a pointer type.
+func MustRegisterType(t reflect.Type, schema *Schema) {
+	mustRegisterType(t, schema)
+}
+
+func mustRegisterType(t reflect.Type, schema *Schema) {
+	if schema == nil {
+		panic("wireguard: cannot register nil schema")
+	}
+	t = normalizeType(t)
+	if t == nil {
+		panic("wireguard: cannot register nil type")
+	}
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	if _, exists := registry[t]; exists {
+		panic(fmt.Sprintf("wireguard: duplicate schema registration for %v", t))
+	}
+	registry[t] = schema
+}
+
+func schemaForType(t reflect.Type) *Schema {
+	t = normalizeType(t)
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	return registry[t]
+}
+
+func scanSchema(bz []byte, schema *Schema) error {
 	if schema == nil {
 		return nil
 	}
 	return scan(bz, schema, map[counterKey]int{})
 }
 
-// Scan is the method form of the package-level Scan. It's the shape a
-// ChannelDescriptor's PreDecode hook expects, so the generated SchemaForX
-// values can be wired in directly without a wrapping closure.
+// Scan walks bz once, applying the schema registered for T. Returns nil on
+// success, an error on malformed wire bytes or a rule violation. If T has no
+// registered schema, Scan is a no-op.
+func Scan[T any](bz []byte) error {
+	return scanSchema(bz, schemaForType(reflect.TypeFor[T]()))
+}
+
+// ScanValue walks bz once, applying the schema registered for msg's dynamic
+// type. A nil msg or a value with no registered schema is a no-op.
+func ScanValue(bz []byte, msg any) error {
+	if msg == nil {
+		return nil
+	}
+	return scanSchema(bz, schemaForType(reflect.TypeOf(msg)))
+}
+
+// Scan is the method form for manually constructed Schema instances.
 func (s *Schema) Scan(bz []byte) error {
-	return Scan(bz, s)
+	return scanSchema(bz, s)
 }
 
 // counterKey scopes a MaxCount accumulator by (Schema, field number) so the
@@ -73,7 +135,7 @@ func scan(bz []byte, schema *Schema, counts map[counterKey]int) error {
 			return fmt.Errorf("wireguard: malformed wire tag at field %d: %w", num, protowire.ParseError(tagLen))
 		}
 		bz = bz[tagLen:]
-		rule, hasRule := schema.Rules[num]
+		rule, hasRule := (*schema)[num]
 		if typ == protowire.BytesType {
 			val, valLen := protowire.ConsumeBytes(bz)
 			if valLen < 0 {
@@ -87,7 +149,11 @@ func scan(bz []byte, schema *Schema, counts map[counterKey]int) error {
 						return fmt.Errorf("wireguard: field %d exceeds max %d entries", num, rule.MaxCount)
 					}
 				}
-				if nested, ok := rule.Nested.Get(); ok {
+				if nestedType, ok := rule.Nested.Get(); ok {
+					nested := schemaForType(nestedType)
+					if nested == nil {
+						return fmt.Errorf("wireguard: nested schema for %v not registered", normalizeType(nestedType))
+					}
 					if err := scan(val, nested, counts); err != nil {
 						return err
 					}

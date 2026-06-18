@@ -4,201 +4,109 @@ package pb
 import (
 	wireguard "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	reflect "reflect"
 )
 
-// SchemaForPayload is the wireguard.Schema generated for autobahn.Payload.
-var SchemaForPayload = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(6): {MaxCount: 2000},
-	},
-}
+func init() {
+	// Register the wireguard.Schema generated for autobahn.Payload.
+	wireguard.MustRegister[*Payload](&wireguard.Schema{
+		6: {MaxCount: 2000},
+	})
 
-// SchemaForBlock is the wireguard.Schema generated for autobahn.Block.
-var SchemaForBlock = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(2): {Nested: utils.Some(SchemaForPayload)},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.Block.
+	wireguard.MustRegister[*Block](&wireguard.Schema{
+		2: {Nested: utils.Some(reflect.TypeFor[*Payload]())},
+	})
 
-// SchemaForLaneQC is the wireguard.Schema generated for autobahn.LaneQC.
-var SchemaForLaneQC = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(2): {MaxCount: 100},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.LaneQC.
+	wireguard.MustRegister[*LaneQC](&wireguard.Schema{
+		2: {MaxCount: 100},
+	})
 
-// SchemaForProposal is the wireguard.Schema generated for autobahn.Proposal.
-var SchemaForProposal = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(3): {MaxCount: 100},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.Proposal.
+	wireguard.MustRegister[*Proposal](&wireguard.Schema{
+		3: {MaxCount: 100},
+	})
 
-// SchemaForFullProposal is the wireguard.Schema generated for autobahn.FullProposal.
-var SchemaForFullProposal = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForSignedMsg)},
-		wireguard.Number(2): {MaxCount: 100, Nested: utils.Some(SchemaForLaneQC)},
-		wireguard.Number(3): {Nested: utils.Some(SchemaForAppQC)},
-		wireguard.Number(4): {Nested: utils.Some(SchemaForTimeoutQC)},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.FullProposal.
+	wireguard.MustRegister[*FullProposal](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*SignedMsg]())},
+		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*LaneQC]())},
+		3: {Nested: utils.Some(reflect.TypeFor[*AppQC]())},
+		4: {Nested: utils.Some(reflect.TypeFor[*TimeoutQC]())},
+	})
 
-// SchemaForPrepareQC is the wireguard.Schema generated for autobahn.PrepareQC.
-var SchemaForPrepareQC = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForProposal)},
-		wireguard.Number(2): {MaxCount: 100},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.PrepareQC.
+	wireguard.MustRegister[*PrepareQC](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
+		2: {MaxCount: 100},
+	})
 
-// SchemaForCommitQC is the wireguard.Schema generated for autobahn.CommitQC.
-var SchemaForCommitQC = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForProposal)},
-		wireguard.Number(3): {MaxCount: 100},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.CommitQC.
+	wireguard.MustRegister[*CommitQC](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
+		3: {MaxCount: 100},
+	})
 
-// SchemaForFullCommitQC is the wireguard.Schema generated for autobahn.FullCommitQC.
-var SchemaForFullCommitQC = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForCommitQC)},
-		wireguard.Number(2): {MaxCount: 100},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.FullCommitQC.
+	wireguard.MustRegister[*FullCommitQC](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*CommitQC]())},
+		2: {MaxCount: 100},
+	})
 
-// SchemaForTimeoutQC is the wireguard.Schema generated for autobahn.TimeoutQC.
-var SchemaForTimeoutQC = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {MaxCount: 100, Nested: utils.Some(SchemaForSignedMsg)},
-		wireguard.Number(2): {Nested: utils.Some(SchemaForPrepareQC)},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.TimeoutQC.
+	wireguard.MustRegister[*TimeoutQC](&wireguard.Schema{
+		1: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*SignedMsg]())},
+		2: {Nested: utils.Some(reflect.TypeFor[*PrepareQC]())},
+	})
 
-// SchemaForFullTimeoutVote is the wireguard.Schema generated for autobahn.FullTimeoutVote.
-var SchemaForFullTimeoutVote = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForSignedMsg)},
-		wireguard.Number(2): {Nested: utils.Some(SchemaForPrepareQC)},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.FullTimeoutVote.
+	wireguard.MustRegister[*FullTimeoutVote](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*SignedMsg]())},
+		2: {Nested: utils.Some(reflect.TypeFor[*PrepareQC]())},
+	})
 
-// SchemaForPersistedInner is the wireguard.Schema generated for autobahn.PersistedInner.
-var SchemaForPersistedInner = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForCommitQC)},
-		wireguard.Number(2): {Nested: utils.Some(SchemaForPrepareQC)},
-		wireguard.Number(3): {Nested: utils.Some(SchemaForTimeoutQC)},
-		wireguard.Number(4): {Nested: utils.Some(SchemaForSignedMsg)},
-		wireguard.Number(5): {Nested: utils.Some(SchemaForSignedMsg)},
-		wireguard.Number(6): {Nested: utils.Some(SchemaForFullTimeoutVote)},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.PersistedInner.
+	wireguard.MustRegister[*PersistedInner](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*CommitQC]())},
+		2: {Nested: utils.Some(reflect.TypeFor[*PrepareQC]())},
+		3: {Nested: utils.Some(reflect.TypeFor[*TimeoutQC]())},
+		4: {Nested: utils.Some(reflect.TypeFor[*SignedMsg]())},
+		5: {Nested: utils.Some(reflect.TypeFor[*SignedMsg]())},
+		6: {Nested: utils.Some(reflect.TypeFor[*FullTimeoutVote]())},
+	})
 
-// SchemaForPersistedAvailPruneAnchor is the wireguard.Schema generated for autobahn.PersistedAvailPruneAnchor.
-var SchemaForPersistedAvailPruneAnchor = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForAppQC)},
-		wireguard.Number(2): {Nested: utils.Some(SchemaForCommitQC)},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.PersistedAvailPruneAnchor.
+	wireguard.MustRegister[*PersistedAvailPruneAnchor](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*AppQC]())},
+		2: {Nested: utils.Some(reflect.TypeFor[*CommitQC]())},
+	})
 
-// SchemaForAppQC is the wireguard.Schema generated for autobahn.AppQC.
-var SchemaForAppQC = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(2): {MaxCount: 100},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.AppQC.
+	wireguard.MustRegister[*AppQC](&wireguard.Schema{
+		2: {MaxCount: 100},
+	})
 
-// SchemaForMsg is the wireguard.Schema generated for autobahn.Msg.
-var SchemaForMsg = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForBlock)},
-		wireguard.Number(3): {Nested: utils.Some(SchemaForProposal)},
-		wireguard.Number(4): {Nested: utils.Some(SchemaForProposal)},
-		wireguard.Number(5): {Nested: utils.Some(SchemaForProposal)},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.Msg.
+	wireguard.MustRegister[*Msg](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*Block]())},
+		3: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
+		4: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
+		5: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
+	})
 
-// SchemaForSignedMsg is the wireguard.Schema generated for autobahn.SignedMsg.
-var SchemaForSignedMsg = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForMsg)},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.SignedMsg.
+	wireguard.MustRegister[*SignedMsg](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*Msg]())},
+	})
 
-// SchemaForConsensusReq is the wireguard.Schema generated for autobahn.ConsensusReq.
-var SchemaForConsensusReq = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForFullProposal)},
-		wireguard.Number(2): {Nested: utils.Some(SchemaForSignedMsg)},
-		wireguard.Number(3): {Nested: utils.Some(SchemaForSignedMsg)},
-		wireguard.Number(4): {Nested: utils.Some(SchemaForFullTimeoutVote)},
-		wireguard.Number(5): {Nested: utils.Some(SchemaForTimeoutQC)},
-	},
-}
+	// Register the wireguard.Schema generated for autobahn.ConsensusReq.
+	wireguard.MustRegister[*ConsensusReq](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*FullProposal]())},
+		2: {Nested: utils.Some(reflect.TypeFor[*SignedMsg]())},
+		3: {Nested: utils.Some(reflect.TypeFor[*SignedMsg]())},
+		4: {Nested: utils.Some(reflect.TypeFor[*FullTimeoutVote]())},
+		5: {Nested: utils.Some(reflect.TypeFor[*TimeoutQC]())},
+	})
 
-func (x *Payload) WireguardScan(bz []byte) error {
-	return SchemaForPayload.Scan(bz)
-}
-
-func (x *Block) WireguardScan(bz []byte) error {
-	return SchemaForBlock.Scan(bz)
-}
-
-func (x *LaneQC) WireguardScan(bz []byte) error {
-	return SchemaForLaneQC.Scan(bz)
-}
-
-func (x *Proposal) WireguardScan(bz []byte) error {
-	return SchemaForProposal.Scan(bz)
-}
-
-func (x *FullProposal) WireguardScan(bz []byte) error {
-	return SchemaForFullProposal.Scan(bz)
-}
-
-func (x *PrepareQC) WireguardScan(bz []byte) error {
-	return SchemaForPrepareQC.Scan(bz)
-}
-
-func (x *CommitQC) WireguardScan(bz []byte) error {
-	return SchemaForCommitQC.Scan(bz)
-}
-
-func (x *FullCommitQC) WireguardScan(bz []byte) error {
-	return SchemaForFullCommitQC.Scan(bz)
-}
-
-func (x *TimeoutQC) WireguardScan(bz []byte) error {
-	return SchemaForTimeoutQC.Scan(bz)
-}
-
-func (x *FullTimeoutVote) WireguardScan(bz []byte) error {
-	return SchemaForFullTimeoutVote.Scan(bz)
-}
-
-func (x *PersistedInner) WireguardScan(bz []byte) error {
-	return SchemaForPersistedInner.Scan(bz)
-}
-
-func (x *PersistedAvailPruneAnchor) WireguardScan(bz []byte) error {
-	return SchemaForPersistedAvailPruneAnchor.Scan(bz)
-}
-
-func (x *AppQC) WireguardScan(bz []byte) error {
-	return SchemaForAppQC.Scan(bz)
-}
-
-func (x *Msg) WireguardScan(bz []byte) error {
-	return SchemaForMsg.Scan(bz)
-}
-
-func (x *SignedMsg) WireguardScan(bz []byte) error {
-	return SchemaForSignedMsg.Scan(bz)
-}
-
-func (x *ConsensusReq) WireguardScan(bz []byte) error {
-	return SchemaForConsensusReq.Scan(bz)
 }

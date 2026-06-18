@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard/wgtest"
 	bcproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -23,22 +24,22 @@ func blocksyncResponse(lastCommit *tmproto.Commit, evidenceCommits ...*tmproto.C
 }
 
 func TestSchemaForMessage_AcceptsLastCommitAtCap(t *testing.T) {
-	require.NoError(t, bcproto.SchemaForMessage.Scan(wgtest.Marshal(t,
+	require.NoError(t, wireguard.Scan[*bcproto.Message](wgtest.Marshal(t,
 		blocksyncResponse(wgtest.CommitWith(wgtest.MaxCommitSignatures)))))
 }
 
 func TestSchemaForMessage_AcceptsEvidenceCommitAtCap(t *testing.T) {
-	require.NoError(t, bcproto.SchemaForMessage.Scan(wgtest.Marshal(t,
+	require.NoError(t, wireguard.Scan[*bcproto.Message](wgtest.Marshal(t,
 		blocksyncResponse(nil, wgtest.CommitWith(wgtest.MaxCommitSignatures)))))
 }
 
 func TestSchemaForMessage_RejectsLastCommitOverCap(t *testing.T) {
-	require.Error(t, bcproto.SchemaForMessage.Scan(wgtest.Marshal(t,
+	require.Error(t, wireguard.Scan[*bcproto.Message](wgtest.Marshal(t,
 		blocksyncResponse(wgtest.CommitWith(wgtest.MaxCommitSignatures+1)))))
 }
 
 func TestSchemaForMessage_RejectsEvidenceOverCap(t *testing.T) {
-	require.Error(t, bcproto.SchemaForMessage.Scan(wgtest.Marshal(t,
+	require.Error(t, wireguard.Scan[*bcproto.Message](wgtest.Marshal(t,
 		blocksyncResponse(nil, wgtest.CommitWith(wgtest.MaxCommitSignatures+1)))))
 }
 
@@ -46,13 +47,13 @@ func TestSchemaForMessage_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) 
 	// last_commit + evidence Commit signatures share one budget — combined
 	// over cap rejects, even though each individually is under cap.
 	half := wgtest.MaxCommitSignatures/2 + 1
-	require.Error(t, bcproto.SchemaForMessage.Scan(wgtest.Marshal(t,
+	require.Error(t, wireguard.Scan[*bcproto.Message](wgtest.Marshal(t,
 		blocksyncResponse(wgtest.CommitWith(half), wgtest.CommitWith(half)))))
 }
 
 func TestSchemaForMessage_EvidenceCommitsShareBudget(t *testing.T) {
 	half := wgtest.MaxCommitSignatures/2 + 1
-	require.Error(t, bcproto.SchemaForMessage.Scan(wgtest.Marshal(t,
+	require.Error(t, wireguard.Scan[*bcproto.Message](wgtest.Marshal(t,
 		blocksyncResponse(nil, wgtest.CommitWith(half), wgtest.CommitWith(half)))))
 }
 
@@ -60,7 +61,7 @@ func TestSchemaForMessage_IgnoresBlockRequest(t *testing.T) {
 	msg := &bcproto.Message{Sum: &bcproto.Message_BlockRequest{
 		BlockRequest: &bcproto.BlockRequest{Height: 42},
 	}}
-	require.NoError(t, bcproto.SchemaForMessage.Scan(wgtest.Marshal(t, msg)))
+	require.NoError(t, wireguard.Scan[*bcproto.Message](wgtest.Marshal(t, msg)))
 }
 
 func TestSchemaForMessage_RejectsDuplicateNonRepeatedFields(t *testing.T) {
@@ -85,7 +86,7 @@ func TestSchemaForMessage_RejectsDuplicateNonRepeatedFields(t *testing.T) {
 	msg = protowire.AppendVarint(msg, uint64(len(blockResp)))
 	msg = append(msg, blockResp...)
 
-	require.Error(t, bcproto.SchemaForMessage.Scan(msg))
+	require.Error(t, wireguard.Scan[*bcproto.Message](msg))
 }
 
 // emptyCommitWire builds the wire-format bytes for a Commit with n empty

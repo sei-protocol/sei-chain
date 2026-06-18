@@ -5,26 +5,18 @@ import (
 	wireguard "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	types "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	reflect "reflect"
 )
 
-// SchemaForBlockResponse is the wireguard.Schema generated for tendermint.blocksync.BlockResponse.
-var SchemaForBlockResponse = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(types.SchemaForBlock)},
-	},
-}
+func init() {
+	// Register the wireguard.Schema generated for tendermint.blocksync.BlockResponse.
+	wireguard.MustRegister[*BlockResponse](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*types.Block]())},
+	})
 
-// SchemaForMessage is the wireguard.Schema generated for tendermint.blocksync.Message.
-var SchemaForMessage = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(3): {Nested: utils.Some(SchemaForBlockResponse)},
-	},
-}
+	// Register the wireguard.Schema generated for tendermint.blocksync.Message.
+	wireguard.MustRegister[*Message](&wireguard.Schema{
+		3: {Nested: utils.Some(reflect.TypeFor[*BlockResponse]())},
+	})
 
-func (x *BlockResponse) WireguardScan(bz []byte) error {
-	return SchemaForBlockResponse.Scan(bz)
-}
-
-func (x *Message) WireguardScan(bz []byte) error {
-	return SchemaForMessage.Scan(bz)
 }

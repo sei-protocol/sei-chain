@@ -17,7 +17,8 @@ import (
 // MaxCommitSignatures mirrors the (wireguard.max_count) annotation on
 // tmproto.Commit.signatures and the types.MaxVotesCount cap enforced by
 // Commit.ValidateBasic. Tests use it to build at-cap and over-cap payloads;
-// the live runtime cap is whatever the generated SchemaForCommit says.
+// the live runtime cap is whatever wireguard registration was generated for
+// tmproto.Commit.
 const MaxCommitSignatures = types.MaxVotesCount
 
 // Marshal wraps gogoproto.Marshal with a test-fatal error.

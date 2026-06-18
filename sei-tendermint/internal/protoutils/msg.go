@@ -1,6 +1,7 @@
 package protoutils
 
 import (
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"google.golang.org/protobuf/proto"
 )
@@ -26,19 +27,10 @@ func Marshal[T Message](t T) []byte {
 	return utils.OrPanic1(proto.Marshal(t))
 }
 
-// wireScanner is implemented by proto types whose generated *.wireguard.go
-// adds a WireguardScan method. Unmarshal calls it automatically before
-// proto.Unmarshal so no per-call wiring is needed.
-type wireScanner interface {
-	WireguardScan([]byte) error
-}
-
 func Unmarshal[T Message](bytes []byte) (T, error) {
 	t := New[T]()
-	if s, ok := any(t).(wireScanner); ok {
-		if err := s.WireguardScan(bytes); err != nil {
-			return utils.Zero[T](), err
-		}
+	if err := wireguard.Scan[T](bytes); err != nil {
+		return utils.Zero[T](), err
 	}
 	err := proto.Unmarshal(bytes, t)
 	return t, err

@@ -4,37 +4,23 @@ package consensus
 import (
 	wireguard "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	reflect "reflect"
 )
 
-// SchemaForMsgInfo is the wireguard.Schema generated for tendermint.consensus.MsgInfo.
-var SchemaForMsgInfo = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(SchemaForMessage)},
-	},
-}
+func init() {
+	// Register the wireguard.Schema generated for tendermint.consensus.MsgInfo.
+	wireguard.MustRegister[*MsgInfo](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*Message]())},
+	})
 
-// SchemaForWALMessage is the wireguard.Schema generated for tendermint.consensus.WALMessage.
-var SchemaForWALMessage = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(2): {Nested: utils.Some(SchemaForMsgInfo)},
-	},
-}
+	// Register the wireguard.Schema generated for tendermint.consensus.WALMessage.
+	wireguard.MustRegister[*WALMessage](&wireguard.Schema{
+		2: {Nested: utils.Some(reflect.TypeFor[*MsgInfo]())},
+	})
 
-// SchemaForTimedWALMessage is the wireguard.Schema generated for tendermint.consensus.TimedWALMessage.
-var SchemaForTimedWALMessage = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(2): {Nested: utils.Some(SchemaForWALMessage)},
-	},
-}
+	// Register the wireguard.Schema generated for tendermint.consensus.TimedWALMessage.
+	wireguard.MustRegister[*TimedWALMessage](&wireguard.Schema{
+		2: {Nested: utils.Some(reflect.TypeFor[*WALMessage]())},
+	})
 
-func (x *MsgInfo) WireguardScan(bz []byte) error {
-	return SchemaForMsgInfo.Scan(bz)
-}
-
-func (x *WALMessage) WireguardScan(bz []byte) error {
-	return SchemaForWALMessage.Scan(bz)
-}
-
-func (x *TimedWALMessage) WireguardScan(bz []byte) error {
-	return SchemaForTimedWALMessage.Scan(bz)
 }

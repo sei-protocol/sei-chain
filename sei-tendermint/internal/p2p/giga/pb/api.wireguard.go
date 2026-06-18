@@ -5,82 +5,44 @@ import (
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	wireguard "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	reflect "reflect"
 )
 
-// SchemaForLaneReq is the wireguard.Schema generated for p2p.giga.LaneReq.
-var SchemaForLaneReq = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForSignedMsg)},
-	},
-}
+func init() {
+	// Register the wireguard.Schema generated for p2p.giga.LaneReq.
+	wireguard.MustRegister[*LaneReq](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+	})
 
-// SchemaForLaneResp is the wireguard.Schema generated for p2p.giga.LaneResp.
-var SchemaForLaneResp = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForSignedMsg)},
-	},
-}
+	// Register the wireguard.Schema generated for p2p.giga.LaneResp.
+	wireguard.MustRegister[*LaneResp](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+	})
 
-// SchemaForLaneVote is the wireguard.Schema generated for p2p.giga.LaneVote.
-var SchemaForLaneVote = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForSignedMsg)},
-	},
-}
+	// Register the wireguard.Schema generated for p2p.giga.LaneVote.
+	wireguard.MustRegister[*LaneVote](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+	})
 
-// SchemaForLaneProposal is the wireguard.Schema generated for p2p.giga.LaneProposal.
-var SchemaForLaneProposal = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForSignedMsg)},
-	},
-}
+	// Register the wireguard.Schema generated for p2p.giga.LaneProposal.
+	wireguard.MustRegister[*LaneProposal](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+	})
 
-// SchemaForAppVote is the wireguard.Schema generated for p2p.giga.AppVote.
-var SchemaForAppVote = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForSignedMsg)},
-	},
-}
+	// Register the wireguard.Schema generated for p2p.giga.AppVote.
+	wireguard.MustRegister[*AppVote](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+	})
 
-// SchemaForStreamAppQCsResp is the wireguard.Schema generated for p2p.giga.StreamAppQCsResp.
-var SchemaForStreamAppQCsResp = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForAppQC)},
-		wireguard.Number(2): {Nested: utils.Some(pb.SchemaForCommitQC)},
-	},
-}
+	// Register the wireguard.Schema generated for p2p.giga.StreamAppQCsResp.
+	wireguard.MustRegister[*StreamAppQCsResp](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*pb.AppQC]())},
+		2: {Nested: utils.Some(reflect.TypeFor[*pb.CommitQC]())},
+	})
 
-// SchemaForGetBlockResp is the wireguard.Schema generated for p2p.giga.GetBlockResp.
-var SchemaForGetBlockResp = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForBlock)},
-	},
-}
+	// Register the wireguard.Schema generated for p2p.giga.GetBlockResp.
+	wireguard.MustRegister[*GetBlockResp](&wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*pb.Block]())},
+	})
 
-func (x *LaneReq) WireguardScan(bz []byte) error {
-	return SchemaForLaneReq.Scan(bz)
-}
-
-func (x *LaneResp) WireguardScan(bz []byte) error {
-	return SchemaForLaneResp.Scan(bz)
-}
-
-func (x *LaneVote) WireguardScan(bz []byte) error {
-	return SchemaForLaneVote.Scan(bz)
-}
-
-func (x *LaneProposal) WireguardScan(bz []byte) error {
-	return SchemaForLaneProposal.Scan(bz)
-}
-
-func (x *AppVote) WireguardScan(bz []byte) error {
-	return SchemaForAppVote.Scan(bz)
-}
-
-func (x *StreamAppQCsResp) WireguardScan(bz []byte) error {
-	return SchemaForStreamAppQCsResp.Scan(bz)
-}
-
-func (x *GetBlockResp) WireguardScan(bz []byte) error {
-	return SchemaForGetBlockResp.Scan(bz)
 }

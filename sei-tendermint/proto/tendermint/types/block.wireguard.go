@@ -4,16 +4,14 @@ package types
 import (
 	wireguard "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	reflect "reflect"
 )
 
-// SchemaForBlock is the wireguard.Schema generated for tendermint.types.Block.
-var SchemaForBlock = &wireguard.Schema{
-	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.Number(3): {Nested: utils.Some(SchemaForEvidenceList)},
-		wireguard.Number(4): {Nested: utils.Some(SchemaForCommit)},
-	},
-}
+func init() {
+	// Register the wireguard.Schema generated for tendermint.types.Block.
+	wireguard.MustRegister[*Block](&wireguard.Schema{
+		3: {Nested: utils.Some(reflect.TypeFor[*EvidenceList]())},
+		4: {Nested: utils.Some(reflect.TypeFor[*Commit]())},
+	})
 
-func (x *Block) WireguardScan(bz []byte) error {
-	return SchemaForBlock.Scan(bz)
 }

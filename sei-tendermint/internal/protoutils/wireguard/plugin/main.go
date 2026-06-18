@@ -1,6 +1,7 @@
 // Package main implements a protoc plugin that turns wireguard.proto field
-// annotations into *wireguard.Schema variables, one per annotated message
-// type. The output sits next to the .pb.go files as `<name>.wireguard.go`.
+// annotations into init()-time wireguard schema registrations, one per
+// annotated message type. The output sits next to the .pb.go files as
+// `<name>.wireguard.go`.
 //
 // Only one annotation is needed:
 //
@@ -235,7 +236,7 @@ func strictCheck(byName map[protoreflect.FullName]protoreflect.MessageDescriptor
 }
 
 // emitCtx is the read-only context threaded into per-file/per-message
-// emission. It batches the lookup tables and the wireguard / utils Go
+// emission. It batches the lookup tables and the wireguard / utils / reflect Go
 // identifier expressions that emit needs but don't change between calls.
 type emitCtx struct {
 	// byName indexes every message descriptor (including transitive
@@ -257,11 +258,11 @@ type emitCtx struct {
 }
 
 // emitIdents holds the Go identifier expressions for the wireguard /
-// utils symbols a generated file refers to. They are produced from the
+// utils / reflect symbols a generated file refers to. They are produced from the
 // current *protogen.GeneratedFile (which records the imports) and so are
 // rebuilt for every emitted file.
 type emitIdents struct {
-	schema, rule, number, utilsSome string
+	schema, mustRegister, utilsSome, reflectTypeFor string
 }
 
 func newEmitIdents(g *protogen.GeneratedFile) emitIdents {
@@ -269,15 +270,15 @@ func newEmitIdents(g *protogen.GeneratedFile) emitIdents {
 		return g.QualifiedGoIdent(protogen.GoIdent{GoName: name, GoImportPath: protogen.GoImportPath(pkg)})
 	}
 	return emitIdents{
-		schema:    q(wireguardRuntime, "Schema"),
-		rule:      q(wireguardRuntime, "Rule"),
-		number:    q(wireguardRuntime, "Number"),
-		utilsSome: q(utilsPkg, "Some"),
+		schema:         q(wireguardRuntime, "Schema"),
+		mustRegister:   q(wireguardRuntime, "MustRegister"),
+		utilsSome:      q(utilsPkg, "Some"),
+		reflectTypeFor: q("reflect", "TypeFor"),
 	}
 }
 
-// emit walks files and emits per-file <name>.wireguard.go containing Schema
-// vars for messages in the closure that are defined in that file.
+// emit walks files and emits per-file <name>.wireguard.go containing init()
+// registrations for messages in the closure that are defined in that file.
 func emit(p *protogen.Plugin, ctx emitCtx) error {
 	for _, file := range p.Files {
 		if !file.Generate {
@@ -303,22 +304,27 @@ func emit(p *protogen.Plugin, ctx emitCtx) error {
 		g.P("package ", file.GoPackageName)
 		g.P()
 		idents := newEmitIdents(g)
-		for _, m := range targets {
-			emitSchema(g, m, ctx, idents)
-		}
-		emitMethods(g, targets, ctx, idents)
+		emitRegistrations(g, targets, ctx, idents)
 	}
 	return nil
 }
 
-func emitSchema(g *protogen.GeneratedFile, m *protogen.Message, ctx emitCtx, idents emitIdents) {
+func emitRegistrations(g *protogen.GeneratedFile, targets []*protogen.Message, ctx emitCtx, idents emitIdents) {
+	g.P("func init() {")
+	for _, m := range targets {
+		emitSchemaRegistration(g, m, ctx, idents)
+	}
+	g.P("}")
+	g.P()
+}
+
+func emitSchemaRegistration(g *protogen.GeneratedFile, m *protogen.Message, ctx emitCtx, idents emitIdents) {
 	// Use the descriptor from ctx.byName (which has dynamic extension
 	// options resolved) rather than m.Desc (protogen's view, which
 	// doesn't).
 	d := ctx.byName[m.Desc.FullName()]
-	g.P("// SchemaFor", m.GoIdent.GoName, " is the wireguard.Schema generated for ", d.FullName(), ".")
-	g.P("var SchemaFor", m.GoIdent.GoName, " = &", idents.schema, "{")
-	g.P("Rules: map[", idents.number, "]", idents.rule, "{")
+	g.P("// Register the wireguard.Schema generated for ", d.FullName(), ".")
+	g.P(idents.mustRegister, "[*", m.GoIdent.GoName, "](&", idents.schema, "{")
 	for _, pf := range m.Fields {
 		f := d.Fields().Get(pf.Desc.Index())
 		opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
@@ -338,43 +344,30 @@ func emitSchema(g *protogen.GeneratedFile, m *protogen.Message, ctx emitCtx, ide
 			pieces = append(pieces, fmt.Sprintf("MaxCount: %d", maxCount))
 		}
 		if nestedTarget != nil {
-			targetExpr := schemaVarForTarget(g, ctx, nestedTarget)
+			targetExpr := typeExprForTarget(g, ctx, nestedTarget, idents)
 			pieces = append(pieces, fmt.Sprintf("Nested: %s(%s)", idents.utilsSome, targetExpr))
 		}
-		g.P(idents.number, "(", f.Number(), "): {", strings.Join(pieces, ", "), "},")
+		g.P(f.Number(), ": {", strings.Join(pieces, ", "), "},")
 	}
-	g.P("},")
-	g.P("}")
+	g.P("})")
 	g.P()
 }
 
-// emitMethods emits a WireguardScan([]byte) error method on each target type.
-// protoutils.Unmarshal[T] and the transport layer discover the schema via a
-// plain interface assertion on wireScanner — no registry, no init(), no string
-// lookup needed.
-func emitMethods(g *protogen.GeneratedFile, targets []*protogen.Message, ctx emitCtx, idents emitIdents) {
-	for _, m := range targets {
-		g.P("func (x *", m.GoIdent.GoName, ") WireguardScan(bz []byte) error {")
-		g.P("return SchemaFor", m.GoIdent.GoName, ".Scan(bz)")
-		g.P("}")
-		g.P()
-	}
-}
-
-// schemaVarForTarget returns the Go expression that references the
-// generated SchemaFor variable for the given message, qualified with
-// the right import if it lives in a different package. We reuse the
+// typeExprForTarget returns the Go expression that references the target
+// message type for the given descriptor, wrapped in reflect.TypeFor so Nested
+// can resolve it through the wireguard registry at runtime. We reuse the
 // protogen.Message.GoIdent that the standard go generator computed
 // rather than reconstructing the Go identifier from the descriptor.
-func schemaVarForTarget(g *protogen.GeneratedFile, ctx emitCtx, d protoreflect.MessageDescriptor) string {
+func typeExprForTarget(g *protogen.GeneratedFile, ctx emitCtx, d protoreflect.MessageDescriptor, idents emitIdents) string {
 	m, ok := ctx.byMsg[d.FullName()]
 	if !ok {
 		panic(fmt.Sprintf("wireguard: no protogen.Message for %s", d.FullName()))
 	}
-	return g.QualifiedGoIdent(protogen.GoIdent{
-		GoName:       "SchemaFor" + m.GoIdent.GoName,
+	target := g.QualifiedGoIdent(protogen.GoIdent{
+		GoName:       m.GoIdent.GoName,
 		GoImportPath: m.GoIdent.GoImportPath,
 	})
+	return fmt.Sprintf("%s[*%s]()", idents.reflectTypeFor, target)
 }
 
 type pm struct{ *protogen.Message }
