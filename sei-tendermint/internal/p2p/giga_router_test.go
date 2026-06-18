@@ -339,9 +339,9 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
 				giga := router.Giga().OrPanic("non-giga router")
-				v := giga.AsValidator().OrPanic("validator giga must satisfy GigaValidatorRouter")
+				v := giga.Mempool().OrPanic("validator giga must have a mempool")
 				for _, tx := range txs {
-					if _, err := v.Mempool().InsertTx(ctx, tx); err != nil {
+					if _, err := v.InsertTx(ctx, tx); err != nil {
 						return fmt.Errorf("producer.InsertTx(): %w", err)
 					}
 				}

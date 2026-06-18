@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -25,8 +26,8 @@ func (r *gigaFullnodeRouter) MaxGasEstimatedPerBlock() uint64 {
 	return 0
 }
 
-func (r *gigaFullnodeRouter) AsValidator() utils.Option[GigaValidatorRouter] {
-	return utils.None[GigaValidatorRouter]()
+func (r *gigaFullnodeRouter) Mempool() utils.Option[*producer.State] {
+	return utils.None[*producer.State]()
 }
 
 // EvmProxy on a fullnode always forwards — no validator key, no local

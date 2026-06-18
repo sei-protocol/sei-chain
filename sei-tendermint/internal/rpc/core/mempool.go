@@ -28,8 +28,8 @@ func (env *Environment) EvmProxy(sender common.Address) (*url.URL, bool) {
 
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
 	if giga, ok := env.gigaRouter().Get(); ok {
-		if v, ok := giga.AsValidator().Get(); ok {
-			return v.Mempool().EvmTxByHash(hash)
+		if v, ok := giga.Mempool().Get(); ok {
+			return v.EvmTxByHash(hash)
 		}
 		// Fullnode: no local mempool. The tx (if it exists locally at all)
 		// would be at the shard owner; we can't easily query it from here.
@@ -51,11 +51,11 @@ func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
 // Deprecated and should be removed in 0.37
 func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
 	if giga, ok := env.gigaRouter().Get(); ok {
-		v, ok := giga.AsValidator().Get()
+		v, ok := giga.Mempool().Get()
 		if !ok {
 			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
 		}
-		go func() { _, _ = v.Mempool().TryInsertTx(ctx, req.Tx) }()
+		go func() { _, _ = v.TryInsertTx(ctx, req.Tx) }()
 		return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
 	}
 	mp, err := env.requireMempool()
@@ -77,11 +77,11 @@ func (env *Environment) BroadcastTxSync(ctx context.Context, req *coretypes.Requ
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_sync
 func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
 	if giga, ok := env.gigaRouter().Get(); ok {
-		v, ok := giga.AsValidator().Get()
+		v, ok := giga.Mempool().Get()
 		if !ok {
 			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
 		}
-		r, err := v.Mempool().InsertTx(ctx, req.Tx)
+		r, err := v.InsertTx(ctx, req.Tx)
 		if err != nil {
 			return nil, err
 		}
@@ -120,11 +120,11 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 	}
 
 	if giga, ok := env.gigaRouter().Get(); ok {
-		v, ok := giga.AsValidator().Get()
+		v, ok := giga.Mempool().Get()
 		if !ok {
 			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
 		}
-		r, err := v.Mempool().InsertTx(ctx, req.Tx)
+		r, err := v.InsertTx(ctx, req.Tx)
 		if err != nil {
 			return nil, err
 		}
@@ -206,14 +206,14 @@ func (env *Environment) broadcastTxCommitFromCheckTx(ctx context.Context, req *c
 // More: https://docs.tendermint.com/master/rpc/#/Info/unconfirmed_txs
 func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.RequestUnconfirmedTxs) (*coretypes.ResultUnconfirmedTxs, error) {
 	if giga, ok := env.gigaRouter().Get(); ok {
-		v, ok := giga.AsValidator().Get()
+		v, ok := giga.Mempool().Get()
 		if !ok {
 			// Fullnode: no mempool; return empty (no pending txs locally).
 			return &coretypes.ResultUnconfirmedTxs{}, nil
 		}
 		// NOTE: this pagination seems to be useless, given that the mempool content is
 		// constantly changing and we don't have any snapshot marker in the request.
-		rawTxs := v.Mempool().UnconfirmedTxs()
+		rawTxs := v.UnconfirmedTxs()
 		perPage := env.validatePerPage(req.PerPage.IntPtr())
 		page, err := validatePage(req.Page.IntPtr(), perPage, len(rawTxs))
 		if err != nil {
@@ -266,11 +266,11 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 // More: https://docs.tendermint.com/master/rpc/#/Info/num_unconfirmed_txs
 func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.ResultUnconfirmedTxs, error) {
 	if giga, ok := env.gigaRouter().Get(); ok {
-		v, ok := giga.AsValidator().Get()
+		v, ok := giga.Mempool().Get()
 		if !ok {
 			return &coretypes.ResultUnconfirmedTxs{}, nil
 		}
-		rawTxs := v.Mempool().UnconfirmedTxs()
+		rawTxs := v.UnconfirmedTxs()
 		sizeBytes := 0
 		for _, tx := range rawTxs {
 			sizeBytes += len(tx)

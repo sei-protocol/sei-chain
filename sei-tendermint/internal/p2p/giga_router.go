@@ -67,8 +67,8 @@ type GigaValidatorConfig struct {
 }
 
 // GigaRouter is the read-path / Run / EvmProxy surface. Implemented by
-// *gigaValidatorRouter and *gigaFullnodeRouter; validator-only operations
-// are reached via AsValidator.
+// *gigaValidatorRouter and *gigaFullnodeRouter; Mempool returns Some only
+// on validators.
 type GigaRouter interface {
 	Run(ctx context.Context) error
 	LastCommittedBlockNumber() int64
@@ -76,13 +76,7 @@ type GigaRouter interface {
 	BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error)
 	BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error)
 	EvmProxy(sender common.Address) (*url.URL, bool)
-	AsValidator() utils.Option[GigaValidatorRouter]
-}
-
-// GigaValidatorRouter is the validator-only surface returned by
-// GigaRouter.AsValidator().
-type GigaValidatorRouter interface {
-	Mempool() *producer.State
+	Mempool() utils.Option[*producer.State]
 }
 
 type gigaRouterCommon struct {
@@ -219,12 +213,8 @@ func (r *gigaValidatorRouter) MaxGasEstimatedPerBlock() uint64 {
 	return r.producerConfig.MaxGasEstimatedPerBlock
 }
 
-func (r *gigaValidatorRouter) AsValidator() utils.Option[GigaValidatorRouter] {
-	return utils.Some[GigaValidatorRouter](r)
-}
-
-func (r *gigaValidatorRouter) Mempool() *producer.State {
-	return r.producer
+func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
+	return utils.Some(r.producer)
 }
 
 // BlockByNumber returns the finalized global block at height n translated
