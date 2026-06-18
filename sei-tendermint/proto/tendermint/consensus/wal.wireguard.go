@@ -9,17 +9,17 @@ import (
 
 func init() {
 	// Register the wireguard.Schema generated for tendermint.consensus.MsgInfo.
-	wireguard.MustRegister[*MsgInfo](&wireguard.Schema{
+	wireguard.MustRegister[*MsgInfo](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*Message]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.consensus.WALMessage.
-	wireguard.MustRegister[*WALMessage](&wireguard.Schema{
+	wireguard.MustRegister[*WALMessage](wireguard.Schema{
 		2: {Nested: utils.Some(reflect.TypeFor[*MsgInfo]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.consensus.TimedWALMessage.
-	wireguard.MustRegister[*TimedWALMessage](&wireguard.Schema{
+	wireguard.MustRegister[*TimedWALMessage](wireguard.Schema{
 		2: {Nested: utils.Some(reflect.TypeFor[*WALMessage]())},
 	})
 

@@ -10,38 +10,38 @@ import (
 
 func init() {
 	// Register the wireguard.Schema generated for p2p.giga.LaneReq.
-	wireguard.MustRegister[*LaneReq](&wireguard.Schema{
+	wireguard.MustRegister[*LaneReq](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneResp.
-	wireguard.MustRegister[*LaneResp](&wireguard.Schema{
+	wireguard.MustRegister[*LaneResp](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneVote.
-	wireguard.MustRegister[*LaneVote](&wireguard.Schema{
+	wireguard.MustRegister[*LaneVote](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneProposal.
-	wireguard.MustRegister[*LaneProposal](&wireguard.Schema{
+	wireguard.MustRegister[*LaneProposal](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.AppVote.
-	wireguard.MustRegister[*AppVote](&wireguard.Schema{
+	wireguard.MustRegister[*AppVote](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.StreamAppQCsResp.
-	wireguard.MustRegister[*StreamAppQCsResp](&wireguard.Schema{
+	wireguard.MustRegister[*StreamAppQCsResp](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*pb.AppQC]())},
 		2: {Nested: utils.Some(reflect.TypeFor[*pb.CommitQC]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.GetBlockResp.
-	wireguard.MustRegister[*GetBlockResp](&wireguard.Schema{
+	wireguard.MustRegister[*GetBlockResp](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*pb.Block]())},
 	})
 

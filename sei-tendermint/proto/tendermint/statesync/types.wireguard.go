@@ -10,12 +10,12 @@ import (
 
 func init() {
 	// Register the wireguard.Schema generated for tendermint.statesync.Message.
-	wireguard.MustRegister[*Message](&wireguard.Schema{
+	wireguard.MustRegister[*Message](wireguard.Schema{
 		6: {Nested: utils.Some(reflect.TypeFor[*LightBlockResponse]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.statesync.LightBlockResponse.
-	wireguard.MustRegister[*LightBlockResponse](&wireguard.Schema{
+	wireguard.MustRegister[*LightBlockResponse](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*types.LightBlock]())},
 	})
 

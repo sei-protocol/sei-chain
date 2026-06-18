@@ -44,36 +44,16 @@ type Rule struct {
 
 var (
 	registryMu sync.RWMutex
-	registry   = map[reflect.Type]*Schema{}
+	registry   = map[reflect.Type]Schema{}
 )
-
-func normalizeType(t reflect.Type) reflect.Type {
-	if t == nil {
-		return nil
-	}
-	if t.Kind() == reflect.Pointer {
-		return t
-	}
-	return reflect.PointerTo(t)
-}
 
 // MustRegister associates T with schema in the global registry used by Scan.
 // It panics on duplicate registration or nil schema.
-func MustRegister[T any](schema *Schema) {
-	mustRegisterType(reflect.TypeFor[T](), schema)
-}
-
-// MustRegisterType associates t with schema in the global registry used by
-// Scan. t is normalized to a pointer type.
-func MustRegisterType(t reflect.Type, schema *Schema) {
-	mustRegisterType(t, schema)
-}
-
-func mustRegisterType(t reflect.Type, schema *Schema) {
+func MustRegister[T any](schema Schema) {
 	if schema == nil {
 		panic("wireguard: cannot register nil schema")
 	}
-	t = normalizeType(t)
+	t := reflect.TypeFor[T]()
 	if t == nil {
 		panic("wireguard: cannot register nil type")
 	}
@@ -85,25 +65,27 @@ func mustRegisterType(t reflect.Type, schema *Schema) {
 	registry[t] = schema
 }
 
-func schemaForType(t reflect.Type) *Schema {
-	t = normalizeType(t)
+func schemaForType(t reflect.Type) Schema {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 	return registry[t]
 }
 
-func scanSchema(bz []byte, schema *Schema) error {
-	if schema == nil {
-		return nil
-	}
-	return scan(bz, schema, map[counterKey]int{})
+// counterKey scopes a MaxCount accumulator by (Schema, field number) so the
+// same Schema reached from multiple paths shares one counter, while two
+// unrelated Schemas that happen to use the same field number don't collide.
+type counterKey struct {
+	schema any
+	num    Number
 }
 
 // Scan walks bz once, applying the schema registered for T. Returns nil on
 // success, an error on malformed wire bytes or a rule violation. If T has no
 // registered schema, Scan is a no-op.
 func Scan[T any](bz []byte) error {
-	return scanSchema(bz, schemaForType(reflect.TypeFor[T]()))
+	t := reflect.TypeFor[T]()
+	schema := schemaForType(t)
+	return schema.scan(bz, t, map[counterKey]int{})
 }
 
 // ScanValue walks bz once, applying the schema registered for msg's dynamic
@@ -112,30 +94,22 @@ func ScanValue(bz []byte, msg any) error {
 	if msg == nil {
 		return nil
 	}
-	return scanSchema(bz, schemaForType(reflect.TypeOf(msg)))
+	t := reflect.TypeOf(msg)
+	schema := schemaForType(t)
+	return schema.scan(bz, t, map[counterKey]int{})
 }
 
-// Scan is the method form for manually constructed Schema instances.
-func (s *Schema) Scan(bz []byte) error {
-	return scanSchema(bz, s)
-}
-
-// counterKey scopes a MaxCount accumulator by (Schema, field number) so the
-// same Schema reached from multiple paths shares one counter, while two
-// unrelated Schemas that happen to use the same field number don't collide.
-type counterKey struct {
-	schema *Schema
-	num    Number
-}
-
-func scan(bz []byte, schema *Schema, counts map[counterKey]int) error {
+func (s Schema) scan(bz []byte, schemaID any, counts map[counterKey]int) error {
+	if s == nil {
+		return nil
+	}
 	for len(bz) > 0 {
 		num, typ, tagLen := protowire.ConsumeTag(bz)
 		if tagLen < 0 {
 			return fmt.Errorf("wireguard: malformed wire tag at field %d: %w", num, protowire.ParseError(tagLen))
 		}
 		bz = bz[tagLen:]
-		rule, hasRule := (*schema)[num]
+		rule, hasRule := s[num]
 		if typ == protowire.BytesType {
 			val, valLen := protowire.ConsumeBytes(bz)
 			if valLen < 0 {
@@ -143,7 +117,7 @@ func scan(bz []byte, schema *Schema, counts map[counterKey]int) error {
 			}
 			if hasRule {
 				if rule.MaxCount > 0 {
-					key := counterKey{schema, num}
+					key := counterKey{schemaID, num}
 					counts[key]++
 					if counts[key] > rule.MaxCount {
 						return fmt.Errorf("wireguard: field %d exceeds max %d entries", num, rule.MaxCount)
@@ -152,9 +126,9 @@ func scan(bz []byte, schema *Schema, counts map[counterKey]int) error {
 				if nestedType, ok := rule.Nested.Get(); ok {
 					nested := schemaForType(nestedType)
 					if nested == nil {
-						return fmt.Errorf("wireguard: nested schema for %v not registered", normalizeType(nestedType))
+						return fmt.Errorf("wireguard: nested schema for %v not registered", nestedType)
 					}
-					if err := scan(val, nested, counts); err != nil {
+					if err := nested.scan(val, nestedType, counts); err != nil {
 						return err
 					}
 				}

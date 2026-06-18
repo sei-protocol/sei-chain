@@ -324,7 +324,7 @@ func emitSchemaRegistration(g *protogen.GeneratedFile, m *protogen.Message, ctx 
 	// doesn't).
 	d := ctx.byName[m.Desc.FullName()]
 	g.P("// Register the wireguard.Schema generated for ", d.FullName(), ".")
-	g.P(idents.mustRegister, "[*", m.GoIdent.GoName, "](&", idents.schema, "{")
+	g.P(idents.mustRegister, "[*", m.GoIdent.GoName, "](", idents.schema, "{")
 	for _, pf := range m.Fields {
 		f := d.Fields().Get(pf.Desc.Index())
 		opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()

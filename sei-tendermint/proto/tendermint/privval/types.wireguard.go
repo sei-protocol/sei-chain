@@ -10,17 +10,17 @@ import (
 
 func init() {
 	// Register the wireguard.Schema generated for tendermint.privval.SignProposalRequest.
-	wireguard.MustRegister[*SignProposalRequest](&wireguard.Schema{
+	wireguard.MustRegister[*SignProposalRequest](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*types.Proposal]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.privval.SignedProposalResponse.
-	wireguard.MustRegister[*SignedProposalResponse](&wireguard.Schema{
+	wireguard.MustRegister[*SignedProposalResponse](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*types.Proposal]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.privval.Message.
-	wireguard.MustRegister[*Message](&wireguard.Schema{
+	wireguard.MustRegister[*Message](wireguard.Schema{
 		5: {Nested: utils.Some(reflect.TypeFor[*SignProposalRequest]())},
 		6: {Nested: utils.Some(reflect.TypeFor[*SignedProposalResponse]())},
 	})

@@ -10,12 +10,12 @@ import (
 
 func init() {
 	// Register the wireguard.Schema generated for tendermint.consensus.Proposal.
-	wireguard.MustRegister[*Proposal](&wireguard.Schema{
+	wireguard.MustRegister[*Proposal](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*types.Proposal]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.consensus.Message.
-	wireguard.MustRegister[*Message](&wireguard.Schema{
+	wireguard.MustRegister[*Message](wireguard.Schema{
 		3: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
 	})
 

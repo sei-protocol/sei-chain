@@ -10,12 +10,12 @@ import (
 
 func init() {
 	// Register the wireguard.Schema generated for tendermint.blocksync.BlockResponse.
-	wireguard.MustRegister[*BlockResponse](&wireguard.Schema{
+	wireguard.MustRegister[*BlockResponse](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*types.Block]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.blocksync.Message.
-	wireguard.MustRegister[*Message](&wireguard.Schema{
+	wireguard.MustRegister[*Message](wireguard.Schema{
 		3: {Nested: utils.Some(reflect.TypeFor[*BlockResponse]())},
 	})
 

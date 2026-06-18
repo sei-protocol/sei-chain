@@ -9,27 +9,27 @@ import (
 
 func init() {
 	// Register the wireguard.Schema generated for autobahn.Payload.
-	wireguard.MustRegister[*Payload](&wireguard.Schema{
+	wireguard.MustRegister[*Payload](wireguard.Schema{
 		6: {MaxCount: 2000},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Block.
-	wireguard.MustRegister[*Block](&wireguard.Schema{
+	wireguard.MustRegister[*Block](wireguard.Schema{
 		2: {Nested: utils.Some(reflect.TypeFor[*Payload]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.LaneQC.
-	wireguard.MustRegister[*LaneQC](&wireguard.Schema{
+	wireguard.MustRegister[*LaneQC](wireguard.Schema{
 		2: {MaxCount: 100},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Proposal.
-	wireguard.MustRegister[*Proposal](&wireguard.Schema{
+	wireguard.MustRegister[*Proposal](wireguard.Schema{
 		3: {MaxCount: 100},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.FullProposal.
-	wireguard.MustRegister[*FullProposal](&wireguard.Schema{
+	wireguard.MustRegister[*FullProposal](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*SignedMsg]())},
 		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*LaneQC]())},
 		3: {Nested: utils.Some(reflect.TypeFor[*AppQC]())},
@@ -37,37 +37,37 @@ func init() {
 	})
 
 	// Register the wireguard.Schema generated for autobahn.PrepareQC.
-	wireguard.MustRegister[*PrepareQC](&wireguard.Schema{
+	wireguard.MustRegister[*PrepareQC](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
 		2: {MaxCount: 100},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.CommitQC.
-	wireguard.MustRegister[*CommitQC](&wireguard.Schema{
+	wireguard.MustRegister[*CommitQC](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
 		3: {MaxCount: 100},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.FullCommitQC.
-	wireguard.MustRegister[*FullCommitQC](&wireguard.Schema{
+	wireguard.MustRegister[*FullCommitQC](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*CommitQC]())},
 		2: {MaxCount: 100},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.TimeoutQC.
-	wireguard.MustRegister[*TimeoutQC](&wireguard.Schema{
+	wireguard.MustRegister[*TimeoutQC](wireguard.Schema{
 		1: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*SignedMsg]())},
 		2: {Nested: utils.Some(reflect.TypeFor[*PrepareQC]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.FullTimeoutVote.
-	wireguard.MustRegister[*FullTimeoutVote](&wireguard.Schema{
+	wireguard.MustRegister[*FullTimeoutVote](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*SignedMsg]())},
 		2: {Nested: utils.Some(reflect.TypeFor[*PrepareQC]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.PersistedInner.
-	wireguard.MustRegister[*PersistedInner](&wireguard.Schema{
+	wireguard.MustRegister[*PersistedInner](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*CommitQC]())},
 		2: {Nested: utils.Some(reflect.TypeFor[*PrepareQC]())},
 		3: {Nested: utils.Some(reflect.TypeFor[*TimeoutQC]())},
@@ -77,18 +77,18 @@ func init() {
 	})
 
 	// Register the wireguard.Schema generated for autobahn.PersistedAvailPruneAnchor.
-	wireguard.MustRegister[*PersistedAvailPruneAnchor](&wireguard.Schema{
+	wireguard.MustRegister[*PersistedAvailPruneAnchor](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*AppQC]())},
 		2: {Nested: utils.Some(reflect.TypeFor[*CommitQC]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.AppQC.
-	wireguard.MustRegister[*AppQC](&wireguard.Schema{
+	wireguard.MustRegister[*AppQC](wireguard.Schema{
 		2: {MaxCount: 100},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Msg.
-	wireguard.MustRegister[*Msg](&wireguard.Schema{
+	wireguard.MustRegister[*Msg](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*Block]())},
 		3: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
 		4: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
@@ -96,12 +96,12 @@ func init() {
 	})
 
 	// Register the wireguard.Schema generated for autobahn.SignedMsg.
-	wireguard.MustRegister[*SignedMsg](&wireguard.Schema{
+	wireguard.MustRegister[*SignedMsg](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*Msg]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.ConsensusReq.
-	wireguard.MustRegister[*ConsensusReq](&wireguard.Schema{
+	wireguard.MustRegister[*ConsensusReq](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*FullProposal]())},
 		2: {Nested: utils.Some(reflect.TypeFor[*SignedMsg]())},
 		3: {Nested: utils.Some(reflect.TypeFor[*SignedMsg]())},

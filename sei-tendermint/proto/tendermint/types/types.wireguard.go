@@ -9,38 +9,38 @@ import (
 
 func init() {
 	// Register the wireguard.Schema generated for tendermint.types.Commit.
-	wireguard.MustRegister[*Commit](&wireguard.Schema{
+	wireguard.MustRegister[*Commit](wireguard.Schema{
 		4: {MaxCount: 10000},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.types.Proposal.
-	wireguard.MustRegister[*Proposal](&wireguard.Schema{
+	wireguard.MustRegister[*Proposal](wireguard.Schema{
 		9:  {Nested: utils.Some(reflect.TypeFor[*EvidenceList]())},
 		10: {Nested: utils.Some(reflect.TypeFor[*Commit]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.types.SignedHeader.
-	wireguard.MustRegister[*SignedHeader](&wireguard.Schema{
+	wireguard.MustRegister[*SignedHeader](wireguard.Schema{
 		2: {Nested: utils.Some(reflect.TypeFor[*Commit]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.types.LightBlock.
-	wireguard.MustRegister[*LightBlock](&wireguard.Schema{
+	wireguard.MustRegister[*LightBlock](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*SignedHeader]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.types.Evidence.
-	wireguard.MustRegister[*Evidence](&wireguard.Schema{
+	wireguard.MustRegister[*Evidence](wireguard.Schema{
 		2: {Nested: utils.Some(reflect.TypeFor[*LightClientAttackEvidence]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.types.LightClientAttackEvidence.
-	wireguard.MustRegister[*LightClientAttackEvidence](&wireguard.Schema{
+	wireguard.MustRegister[*LightClientAttackEvidence](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*LightBlock]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.types.EvidenceList.
-	wireguard.MustRegister[*EvidenceList](&wireguard.Schema{
+	wireguard.MustRegister[*EvidenceList](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*Evidence]())},
 	})
 

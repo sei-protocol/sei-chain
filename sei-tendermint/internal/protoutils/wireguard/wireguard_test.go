@@ -1,4 +1,4 @@
-package wireguard_test
+package wireguard
 
 import (
 	"reflect"
@@ -7,51 +7,50 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // appendBytesField is shorthand for encoding `field N: BytesType payload`.
-func appendBytesField(b []byte, num wireguard.Number, payload []byte) []byte {
+func appendBytesField(b []byte, num Number, payload []byte) []byte {
 	b = protowire.AppendTag(b, num, protowire.BytesType)
 	b = protowire.AppendVarint(b, uint64(len(payload)))
 	return append(b, payload...)
 }
 
 func TestScan_NilSchema(t *testing.T) {
-	var schema *wireguard.Schema
-	require.NoError(t, schema.Scan([]byte{0x01, 0x02}))
+	var schema Schema
+	require.NoError(t, schema.scan([]byte{0x01, 0x02}, &schema, map[counterKey]int{}))
 }
 
 func TestScan_EnforcesMaxCount(t *testing.T) {
-	schema := &wireguard.Schema{3: {MaxCount: 2}}
+	schema := Schema{3: {MaxCount: 2}}
 	var bz []byte
 	for i := 0; i < 3; i++ {
 		bz = appendBytesField(bz, 3, nil)
 	}
-	require.Error(t, schema.Scan(bz))
+	require.Error(t, schema.scan(bz, &schema, map[counterKey]int{}))
 }
 
 func TestScan_MaxCountAtBoundary(t *testing.T) {
-	schema := &wireguard.Schema{1: {MaxCount: 5}}
+	schema := Schema{1: {MaxCount: 5}}
 	var bz []byte
 	for i := 0; i < 5; i++ {
 		bz = appendBytesField(bz, 1, nil)
 	}
-	require.NoError(t, schema.Scan(bz))
+	require.NoError(t, schema.scan(bz, &schema, map[counterKey]int{}))
 }
 
 func TestScan_DescendsIntoNested(t *testing.T) {
 	type innerMsg struct{}
 	type outerMsg struct{}
-	inner := &wireguard.Schema{7: {MaxCount: 1}}
-	wireguard.MustRegister[*innerMsg](inner)
-	outer := &wireguard.Schema{2: {Nested: utils.Some(reflect.TypeFor[*innerMsg]())}}
-	wireguard.MustRegister[*outerMsg](outer)
+	inner := Schema{7: {MaxCount: 1}}
+	MustRegister[*innerMsg](inner)
+	outer := Schema{2: {Nested: utils.Some(reflect.TypeFor[*innerMsg]())}}
+	MustRegister[*outerMsg](outer)
 	innerBytes := appendBytesField(nil, 7, nil)
 	innerBytes = appendBytesField(innerBytes, 7, nil)
 	bz := appendBytesField(nil, 2, innerBytes)
-	require.Error(t, wireguard.Scan[*outerMsg](bz))
+	require.Error(t, Scan[*outerMsg](bz))
 }
 
 func TestScan_CountsAccumulateAcrossInstances(t *testing.T) {
@@ -61,43 +60,46 @@ func TestScan_CountsAccumulateAcrossInstances(t *testing.T) {
 	// schema reached during the scan — not per-instance. Two outer fields
 	// each carrying two inners hits four inner counts, which exceeds an
 	// inner cap of 3 even though no single outer carries more than two.
-	inner := &wireguard.Schema{1: {MaxCount: 3}}
-	wireguard.MustRegister[*innerMsg](inner)
-	outer := &wireguard.Schema{2: {Nested: utils.Some(reflect.TypeFor[*innerMsg]()), MaxCount: 5}}
-	wireguard.MustRegister[*outerMsg](outer)
+	inner := Schema{1: {MaxCount: 3}}
+	MustRegister[*innerMsg](inner)
+	outer := Schema{2: {Nested: utils.Some(reflect.TypeFor[*innerMsg]()), MaxCount: 5}}
+	MustRegister[*outerMsg](outer)
 	innerBytes := appendBytesField(nil, 1, nil)
 	innerBytes = appendBytesField(innerBytes, 1, nil)
 	bz := appendBytesField(nil, 2, innerBytes)
 	bz = appendBytesField(bz, 2, innerBytes)
-	require.Error(t, wireguard.Scan[*outerMsg](bz))
+	require.Error(t, Scan[*outerMsg](bz))
 }
 
 func TestScan_IgnoresUnrelatedFields(t *testing.T) {
-	schema := &wireguard.Schema{3: {MaxCount: 1}}
+	schema := Schema{3: {MaxCount: 1}}
 	var bz []byte
 	for i := 0; i < 100; i++ {
 		bz = appendBytesField(bz, 1, nil)
 	}
 	bz = appendBytesField(bz, 3, nil)
-	require.NoError(t, schema.Scan(bz))
+	require.NoError(t, schema.scan(bz, &schema, map[counterKey]int{}))
 }
 
 func TestScan_RejectsMalformedTag(t *testing.T) {
 	// 0xff alone is a truncated varint.
-	require.Error(t, (&wireguard.Schema{}).Scan([]byte{0xff}))
+	schema := Schema{}
+	require.Error(t, schema.scan([]byte{0xff}, &schema, map[counterKey]int{}))
 }
 
 func TestScan_RejectsTruncatedLengthDelimited(t *testing.T) {
 	bz := protowire.AppendTag(nil, 3, protowire.BytesType)
 	bz = protowire.AppendVarint(bz, 100) // claims 100 bytes that don't follow
-	err := (&wireguard.Schema{3: {MaxCount: 1}}).Scan(bz)
+	schema := Schema{3: {MaxCount: 1}}
+	err := schema.scan(bz, &schema, map[counterKey]int{})
 	require.Error(t, err)
 }
 
 func TestScan_SkipsNonBytesFields(t *testing.T) {
 	bz := protowire.AppendTag(nil, 5, protowire.VarintType)
 	bz = protowire.AppendVarint(bz, 42)
-	require.NoError(t, (&wireguard.Schema{}).Scan(bz))
+	schema := Schema{}
+	require.NoError(t, schema.scan(bz, &schema, map[counterKey]int{}))
 }
 
 func TestScan_DuplicateNonRepeatedMessageCaughtByLeafCap(t *testing.T) {
@@ -106,15 +108,15 @@ func TestScan_DuplicateNonRepeatedMessageCaughtByLeafCap(t *testing.T) {
 	// Two duplicate occurrences of an enclosing message, each carrying inner
 	// field-1 entries within the cap, should be caught because the inner
 	// counter accumulates across the duplicates.
-	inner := &wireguard.Schema{1: {MaxCount: 3}}
-	wireguard.MustRegister[*innerMsg](inner)
-	outer := &wireguard.Schema{2: {Nested: utils.Some(reflect.TypeFor[*innerMsg]())}}
-	wireguard.MustRegister[*outerMsg](outer)
+	inner := Schema{1: {MaxCount: 3}}
+	MustRegister[*innerMsg](inner)
+	outer := Schema{2: {Nested: utils.Some(reflect.TypeFor[*innerMsg]())}}
+	MustRegister[*outerMsg](outer)
 	innerBytes := appendBytesField(nil, 1, nil)
 	innerBytes = appendBytesField(innerBytes, 1, nil)
 	bz := appendBytesField(nil, 2, innerBytes)
 	bz = appendBytesField(bz, 2, innerBytes)
-	require.Error(t, wireguard.Scan[*outerMsg](bz))
+	require.Error(t, Scan[*outerMsg](bz))
 }
 
 func TestScan_DistinctSchemasShareNoCounter(t *testing.T) {
@@ -123,54 +125,54 @@ func TestScan_DistinctSchemasShareNoCounter(t *testing.T) {
 	type rootMsg struct{}
 	// Two different Schemas reached during the same Scan should each get
 	// their own counter, even if they happen to use the same field number.
-	leafA := &wireguard.Schema{1: {MaxCount: 2}}
-	wireguard.MustRegister[*leafAMsg](leafA)
-	leafB := &wireguard.Schema{1: {MaxCount: 2}}
-	wireguard.MustRegister[*leafBMsg](leafB)
-	root := &wireguard.Schema{
+	leafA := Schema{1: {MaxCount: 2}}
+	MustRegister[*leafAMsg](leafA)
+	leafB := Schema{1: {MaxCount: 2}}
+	MustRegister[*leafBMsg](leafB)
+	root := Schema{
 		2: {Nested: utils.Some(reflect.TypeFor[*leafAMsg]())},
 		3: {Nested: utils.Some(reflect.TypeFor[*leafBMsg]())},
 	}
-	wireguard.MustRegister[*rootMsg](root)
+	MustRegister[*rootMsg](root)
 	a := appendBytesField(nil, 1, nil)
 	a = appendBytesField(a, 1, nil)
 	b := appendBytesField(nil, 1, nil)
 	b = appendBytesField(b, 1, nil)
 	bz := appendBytesField(nil, 2, a)
 	bz = appendBytesField(bz, 3, b)
-	require.NoError(t, wireguard.Scan[*rootMsg](bz))
+	require.NoError(t, Scan[*rootMsg](bz))
 }
 
 func TestScan_NestedWithExplicitMaxCount(t *testing.T) {
 	type innerMsg struct{}
 	type outerMsg struct{}
-	inner := &wireguard.Schema{}
-	wireguard.MustRegister[*innerMsg](inner)
-	outer := &wireguard.Schema{1: {Nested: utils.Some(reflect.TypeFor[*innerMsg]()), MaxCount: 3}}
-	wireguard.MustRegister[*outerMsg](outer)
+	inner := Schema{}
+	MustRegister[*innerMsg](inner)
+	outer := Schema{1: {Nested: utils.Some(reflect.TypeFor[*innerMsg]()), MaxCount: 3}}
+	MustRegister[*outerMsg](outer)
 	var bz []byte
 	for i := 0; i < 3; i++ {
 		bz = appendBytesField(bz, 1, nil)
 	}
-	require.NoError(t, wireguard.Scan[*outerMsg](bz))
+	require.NoError(t, Scan[*outerMsg](bz))
 	bz = appendBytesField(bz, 1, nil)
-	require.Error(t, wireguard.Scan[*outerMsg](bz))
+	require.Error(t, Scan[*outerMsg](bz))
 }
 
 func TestScan_DeepNestingBoundedCorrectly(t *testing.T) {
 	type leafMsg struct{}
 	type midMsg struct{}
 	type rootMsg struct{}
-	leaf := &wireguard.Schema{1: {MaxCount: 2}}
-	wireguard.MustRegister[*leafMsg](leaf)
-	mid := &wireguard.Schema{2: {Nested: utils.Some(reflect.TypeFor[*leafMsg]())}}
-	wireguard.MustRegister[*midMsg](mid)
-	root := &wireguard.Schema{3: {Nested: utils.Some(reflect.TypeFor[*midMsg]())}}
-	wireguard.MustRegister[*rootMsg](root)
+	leaf := Schema{1: {MaxCount: 2}}
+	MustRegister[*leafMsg](leaf)
+	mid := Schema{2: {Nested: utils.Some(reflect.TypeFor[*leafMsg]())}}
+	MustRegister[*midMsg](mid)
+	root := Schema{3: {Nested: utils.Some(reflect.TypeFor[*midMsg]())}}
+	MustRegister[*rootMsg](root)
 	leafBz := appendBytesField(nil, 1, nil)
 	leafBz = appendBytesField(leafBz, 1, nil)
 	leafBz = appendBytesField(leafBz, 1, nil)
 	midBz := appendBytesField(nil, 2, leafBz)
 	bz := appendBytesField(nil, 3, midBz)
-	require.Error(t, wireguard.Scan[*rootMsg](bz))
+	require.Error(t, Scan[*rootMsg](bz))
 }

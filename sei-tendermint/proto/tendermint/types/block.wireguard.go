@@ -9,7 +9,7 @@ import (
 
 func init() {
 	// Register the wireguard.Schema generated for tendermint.types.Block.
-	wireguard.MustRegister[*Block](&wireguard.Schema{
+	wireguard.MustRegister[*Block](wireguard.Schema{
 		3: {Nested: utils.Some(reflect.TypeFor[*EvidenceList]())},
 		4: {Nested: utils.Some(reflect.TypeFor[*Commit]())},
 	})
