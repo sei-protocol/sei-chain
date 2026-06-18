@@ -38,8 +38,13 @@ export class WsClient {
             return;
         }
         if (msg.method === 'eth_subscription' && msg.params) {
-            const buf = this.buffers.get(msg.params.subscription);
-            if (buf) buf.push(msg.params.result);
+            const subId = msg.params.subscription;
+            let buf = this.buffers.get(subId);
+            if (!buf) {
+                buf = [];
+                this.buffers.set(subId, buf);
+            }
+            buf.push(msg.params.result);
         }
     }
 
@@ -54,7 +59,7 @@ export class WsClient {
     /** eth_subscribe; returns the opaque subscription id and starts buffering its notifications. */
     async subscribe(params: unknown[]): Promise<string> {
         const id: string = await this.call('eth_subscribe', params);
-        this.buffers.set(id, []);
+        if (!this.buffers.has(id)) this.buffers.set(id, []);
         return id;
     }
 
