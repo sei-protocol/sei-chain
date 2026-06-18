@@ -105,6 +105,10 @@ if [ "$AUTOBAHN" = "true" ]; then
       sleep 1
       i=$((i + 1))
     done
+    if [ ! -f "$d/evmrpc_url.txt" ]; then
+      echo "ERROR: $d/evmrpc_url.txt missing after 5 minutes; aborting." >&2
+      exit 1
+    fi
   done
 
   seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
