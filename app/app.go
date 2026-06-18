@@ -1492,6 +1492,17 @@ func (app *App) deliverTxWithV2Fallback(ctx sdk.Context, ms sdk.CacheMultiStore,
 	return res
 }
 
+type executeEVMTxWithGigaExecutorAfterValidationHookKey struct{}
+
+func runExecuteEVMTxWithGigaExecutorAfterValidationHook(ctx sdk.Context) {
+	// Tests use this unexported context hook to exercise panic recovery after
+	// Giga validation has populated the block-level cache.
+	hook, _ := ctx.Context().Value(executeEVMTxWithGigaExecutorAfterValidationHookKey{}).(func(sdk.Context))
+	if hook != nil {
+		hook(ctx)
+	}
+}
+
 func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	blockProcessStart := time.Now()
 	defer func() {
@@ -2028,6 +2039,8 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		// which giga's cachekv doesn't support. Fall back to v2 for this tx.
 		return nil, gigaprecompiles.ErrBalanceMigrationRequired
 	}
+
+	runExecuteEVMTxWithGigaExecutorAfterValidationHook(ctx)
 
 	// Create state DB for this transaction (only for valid transactions)
 	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)

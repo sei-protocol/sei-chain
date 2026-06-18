@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"math/big"
@@ -87,6 +88,67 @@ func TestDeliverTxWithV2FallbackFlushesGigaBlockCache(t *testing.T) {
 	expected := expectedGigaFallbackTestBalance(preBalance, values, gasPrice, result1, result2, result3)
 	require.Equal(t, 0, finalBalance.Cmp(expected),
 		"sender balance should include Giga tx1, V2 fallback tx2, and Giga tx3")
+}
+
+func TestProcessTxsSynchronousGigaFallsBackOnIteratorUnsupported(t *testing.T) {
+	blockTime := time.Now()
+	validator := newGigaFallbackTestSigner(t)
+	sender := newGigaFallbackTestSigner(t)
+	recipient1 := newGigaFallbackTestSigner(t)
+	recipient2 := newGigaFallbackTestSigner(t)
+	recipient3 := newGigaFallbackTestSigner(t)
+
+	wrapper := NewGigaTestWrapper(t, blockTime, validator.PublicKey, true, false, func(ba *baseapp.BaseApp) {
+		ba.SetOccEnabled(false)
+		ba.SetConcurrencyWorkers(1)
+	})
+	sei := wrapper.App
+	ctx := wrapper.Ctx.WithBlockHeader(tmproto.Header{
+		Height:  wrapper.Ctx.BlockHeader().Height,
+		ChainID: wrapper.Ctx.BlockHeader().ChainID,
+		Time:    blockTime,
+	})
+
+	initialFundingWei := new(big.Int).Mul(big.NewInt(10), big.NewInt(1_000_000_000_000_000_000))
+	gasPrice := big.NewInt(100_000_000_000)
+	values := []*big.Int{
+		big.NewInt(1_000_000_000_000),
+		big.NewInt(2_000_000_000_000),
+		big.NewInt(3_000_000_000_000),
+	}
+
+	sei.EvmKeeper.SetAddressMapping(ctx, sender.AccountAddress, sender.EvmAddress)
+	fundWeiForGigaFallbackTest(t, sei, ctx, sender.AccountAddress, initialFundingWei)
+
+	sei.GigaEvmKeeper.UseRegularStore = false
+	sei.GigaBankKeeper.UseRegularStore = false
+
+	preBalance := sei.EvmKeeper.GetBalance(ctx, sender.AccountAddress)
+	tx1Bytes, tx1 := buildGigaFallbackTestEVMTx(t, sender, &recipient1.EvmAddress, values[0], nil, 21_000, gasPrice, 0)
+	tx2Bytes, tx2 := buildGigaFallbackTestEVMTx(t, sender, &recipient2.EvmAddress, values[1], nil, 21_000, gasPrice, 1)
+	tx3Bytes, tx3 := buildGigaFallbackTestEVMTx(t, sender, &recipient3.EvmAddress, values[2], nil, 21_000, gasPrice, 2)
+
+	hookCalls := 0
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), executeEVMTxWithGigaExecutorAfterValidationHookKey{}, func(execCtx sdk.Context) {
+		if execCtx.TxIndex() != 1 {
+			return
+		}
+		hookCalls++
+		iter := execCtx.GigaKVStore(sei.GetKey(evmtypes.StoreKey)).Iterator(nil, nil)
+		require.NoError(t, iter.Close())
+	}))
+
+	results := sei.ProcessTxsSynchronousGiga(ctx, [][]byte{tx1Bytes, tx2Bytes, tx3Bytes}, []sdk.Tx{tx1, tx2, tx3})
+	require.Len(t, results, 3)
+	require.Equal(t, 1, hookCalls)
+	for i, result := range results {
+		requireGigaFallbackTestSuccess(t, result, i)
+	}
+
+	finalBalance := sei.EvmKeeper.GetBalance(ctx, sender.AccountAddress)
+	expected := expectedGigaFallbackTestBalance(preBalance, values, gasPrice, results...)
+	require.Equal(t, 0, finalBalance.Cmp(expected),
+		"sender balance should include Giga tx1, ErrIteratorUnsupported fallback tx2, and Giga tx3")
 }
 
 func buildGigaFallbackTestEVMTx(
