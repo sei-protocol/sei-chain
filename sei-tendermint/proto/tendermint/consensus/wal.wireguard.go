@@ -26,3 +26,15 @@ var SchemaForTimedWALMessage = &wireguard.Schema{
 		wireguard.Number(2): {Nested: utils.Some(SchemaForWALMessage)},
 	},
 }
+
+func (x *MsgInfo) WireguardScan(bz []byte) error {
+	return SchemaForMsgInfo.Scan(bz)
+}
+
+func (x *WALMessage) WireguardScan(bz []byte) error {
+	return SchemaForWALMessage.Scan(bz)
+}
+
+func (x *TimedWALMessage) WireguardScan(bz []byte) error {
+	return SchemaForTimedWALMessage.Scan(bz)
+}

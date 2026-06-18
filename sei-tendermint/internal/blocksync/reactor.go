@@ -61,7 +61,6 @@ func GetChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  BlockSyncChannel,
 		MessageType:         new(pb.Message),
-		PreDecode:           utils.Some(pb.SchemaForMessage.Scan),
 		Priority:            5,
 		SendQueueCapacity:   1000,
 		RecvBufferCapacity:  1024,

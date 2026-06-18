@@ -306,6 +306,7 @@ func emit(p *protogen.Plugin, ctx emitCtx) error {
 		for _, m := range targets {
 			emitSchema(g, m, ctx, idents)
 		}
+		emitMethods(g, targets, ctx, idents)
 	}
 	return nil
 }
@@ -345,6 +346,19 @@ func emitSchema(g *protogen.GeneratedFile, m *protogen.Message, ctx emitCtx, ide
 	g.P("},")
 	g.P("}")
 	g.P()
+}
+
+// emitMethods emits a WireguardScan([]byte) error method on each target type.
+// protoutils.Unmarshal[T] and the transport layer discover the schema via a
+// plain interface assertion on wireScanner — no registry, no init(), no string
+// lookup needed.
+func emitMethods(g *protogen.GeneratedFile, targets []*protogen.Message, ctx emitCtx, idents emitIdents) {
+	for _, m := range targets {
+		g.P("func (x *", m.GoIdent.GoName, ") WireguardScan(bz []byte) error {")
+		g.P("return SchemaFor", m.GoIdent.GoName, ".Scan(bz)")
+		g.P("}")
+		g.P()
+	}
 }
 
 // schemaVarForTarget returns the Go expression that references the

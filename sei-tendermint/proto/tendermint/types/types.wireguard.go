@@ -55,3 +55,31 @@ var SchemaForEvidenceList = &wireguard.Schema{
 		wireguard.Number(1): {Nested: utils.Some(SchemaForEvidence)},
 	},
 }
+
+func (x *Commit) WireguardScan(bz []byte) error {
+	return SchemaForCommit.Scan(bz)
+}
+
+func (x *Proposal) WireguardScan(bz []byte) error {
+	return SchemaForProposal.Scan(bz)
+}
+
+func (x *SignedHeader) WireguardScan(bz []byte) error {
+	return SchemaForSignedHeader.Scan(bz)
+}
+
+func (x *LightBlock) WireguardScan(bz []byte) error {
+	return SchemaForLightBlock.Scan(bz)
+}
+
+func (x *Evidence) WireguardScan(bz []byte) error {
+	return SchemaForEvidence.Scan(bz)
+}
+
+func (x *LightClientAttackEvidence) WireguardScan(bz []byte) error {
+	return SchemaForLightClientAttackEvidence.Scan(bz)
+}
+
+func (x *EvidenceList) WireguardScan(bz []byte) error {
+	return SchemaForEvidenceList.Scan(bz)
+}

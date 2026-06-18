@@ -20,3 +20,11 @@ var SchemaForMessage = &wireguard.Schema{
 		wireguard.Number(3): {Nested: utils.Some(SchemaForProposal)},
 	},
 }
+
+func (x *Proposal) WireguardScan(bz []byte) error {
+	return SchemaForProposal.Scan(bz)
+}
+
+func (x *Message) WireguardScan(bz []byte) error {
+	return SchemaForMessage.Scan(bz)
+}

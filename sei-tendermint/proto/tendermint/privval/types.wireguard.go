@@ -28,3 +28,15 @@ var SchemaForMessage = &wireguard.Schema{
 		wireguard.Number(6): {Nested: utils.Some(SchemaForSignedProposalResponse)},
 	},
 }
+
+func (x *SignProposalRequest) WireguardScan(bz []byte) error {
+	return SchemaForSignProposalRequest.Scan(bz)
+}
+
+func (x *SignedProposalResponse) WireguardScan(bz []byte) error {
+	return SchemaForSignedProposalResponse.Scan(bz)
+}
+
+func (x *Message) WireguardScan(bz []byte) error {
+	return SchemaForMessage.Scan(bz)
+}

@@ -13,3 +13,7 @@ var SchemaForBlock = &wireguard.Schema{
 		wireguard.Number(4): {Nested: utils.Some(SchemaForCommit)},
 	},
 }
+
+func (x *Block) WireguardScan(bz []byte) error {
+	return SchemaForBlock.Scan(bz)
+}
