@@ -1537,9 +1537,8 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		evmMsg := app.GetEVMMsg(typedTxs[i])
 		// If not an EVM tx, fall back to v2 processing
 		if evmMsg == nil {
-			result := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
+			result := app.deliverTxWithV2Fallback(ctx, ms, tx, typedTxs[i])
 			txResults[i] = result
-			ms.Write()
 			continue
 		}
 
