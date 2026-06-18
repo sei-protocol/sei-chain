@@ -40,6 +40,34 @@ func TestScan_MaxCountAtBoundary(t *testing.T) {
 	require.NoError(t, schema.scan(bz))
 }
 
+func TestScan_EnforcesMaxSize(t *testing.T) {
+	schema := Schema{3: {MaxSize: 2}}
+	bz := appendBytesField(nil, 3, []byte{1, 2, 3})
+	require.Error(t, schema.scan(bz))
+}
+
+func TestScan_MaxSizeAtBoundary(t *testing.T) {
+	schema := Schema{3: {MaxSize: 3}}
+	bz := appendBytesField(nil, 3, []byte{1, 2, 3})
+	require.NoError(t, schema.scan(bz))
+}
+
+func TestScan_EnforcesMaxTotalSize(t *testing.T) {
+	schema := Schema{3: {MaxTotalSize: 5}}
+	var bz []byte
+	bz = appendBytesField(bz, 3, []byte{1, 2})
+	bz = appendBytesField(bz, 3, []byte{3, 4, 5, 6})
+	require.Error(t, schema.scan(bz))
+}
+
+func TestScan_MaxTotalSizeAtBoundary(t *testing.T) {
+	schema := Schema{3: {MaxTotalSize: 5}}
+	var bz []byte
+	bz = appendBytesField(bz, 3, []byte{1, 2})
+	bz = appendBytesField(bz, 3, []byte{3, 4, 5})
+	require.NoError(t, schema.scan(bz))
+}
+
 func TestScan_DescendsIntoNested(t *testing.T) {
 	type innerMsg struct{}
 	type outerMsg struct{}
@@ -69,6 +97,20 @@ func TestScan_CountsResetAcrossInstances(t *testing.T) {
 	require.NoError(t, Scan[*outerMsg](bz))
 }
 
+func TestScan_MaxTotalSizeResetsAcrossNestedInstances(t *testing.T) {
+	type innerMsg struct{}
+	type outerMsg struct{}
+	inner := Schema{1: {MaxTotalSize: 3}}
+	MustRegister[*innerMsg](inner)
+	outer := Schema{2: {Nested: utils.Some(reflect.TypeFor[*innerMsg]())}}
+	MustRegister[*outerMsg](outer)
+	innerBytes := appendBytesField(nil, 1, []byte{1})
+	innerBytes = appendBytesField(innerBytes, 1, []byte{2, 3})
+	bz := appendBytesField(nil, 2, innerBytes)
+	bz = appendBytesField(bz, 2, innerBytes)
+	require.NoError(t, Scan[*outerMsg](bz))
+}
+
 func TestScan_IgnoresUnrelatedFields(t *testing.T) {
 	schema := Schema{3: {MaxCount: 1}}
 	var bz []byte
@@ -81,7 +123,7 @@ func TestScan_IgnoresUnrelatedFields(t *testing.T) {
 
 func TestScan_RejectsMalformedTag(t *testing.T) {
 	// 0xff alone is a truncated varint.
-	schema := Schema{}
+	schema := Schema{1: {MaxCount: 1}}
 	require.Error(t, schema.scan([]byte{0xff}))
 }
 
@@ -154,6 +196,17 @@ func TestScan_NestedWithExplicitMaxCount(t *testing.T) {
 	require.NoError(t, Scan[*outerMsg](bz))
 	bz = appendBytesField(bz, 1, nil)
 	require.Error(t, Scan[*outerMsg](bz))
+}
+
+func TestScan_NestedSizeCheckedBeforeDescent(t *testing.T) {
+	type innerMsg struct{}
+	type outerMsg struct{}
+	inner := Schema{}
+	MustRegister[*innerMsg](inner)
+	outer := Schema{1: {Nested: utils.Some(reflect.TypeFor[*innerMsg]()), MaxSize: 2}}
+	MustRegister[*outerMsg](outer)
+	innerBz := appendBytesField(nil, 7, []byte{1, 2, 3})
+	require.Error(t, Scan[*outerMsg](appendBytesField(nil, 1, innerBz)))
 }
 
 func TestScan_DeepNestingBoundedCorrectly(t *testing.T) {

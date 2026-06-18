@@ -13,22 +13,31 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-// buildFieldOptionsWithMaxCount returns a FieldOptions whose unknown-field
-// bytes carry the (wireguard.max_count) extension at the configured number.
-// Encoding the extension this way avoids depending on the gogofaster-
-// generated extension descriptor at test time — the plugin reads it via
-// dynamic types regardless.
-func buildFieldOptionsWithMaxCount(n uint32) *descriptorpb.FieldOptions {
-	bz := protowire.AppendTag(nil, 414126218, protowire.VarintType)
-	bz = protowire.AppendVarint(bz, uint64(n))
+const (
+	maxCountFieldNum     = 414126218
+	maxSizeFieldNum      = 414126219
+	maxTotalSizeFieldNum = 414126220
+)
+
+// buildFieldOptions returns a FieldOptions whose unknown-field bytes carry
+// the requested wireguard extensions at the configured numbers. Encoding the
+// extensions this way avoids depending on the gogofaster-generated extension
+// descriptors at test time — the plugin reads them via dynamic types
+// regardless.
+func buildFieldOptions(exts map[protowire.Number]uint32) *descriptorpb.FieldOptions {
+	var bz []byte
+	for fieldNum, value := range exts {
+		bz = protowire.AppendTag(bz, fieldNum, protowire.VarintType)
+		bz = protowire.AppendVarint(bz, uint64(value))
+	}
 	fo := &descriptorpb.FieldOptions{}
 	fo.ProtoReflect().SetUnknown(bz)
 	return fo
 }
 
 // wireguardFDP returns a FileDescriptorProto for a minimal wireguard.proto
-// that declares the (wireguard.max_count) FieldOptions extension. The
-// plugin needs this in its descriptor set to resolve the extension.
+// that declares the wireguard FieldOptions extensions. The plugin needs this
+// in its descriptor set to resolve them.
 func wireguardFDP() *descriptorpb.FileDescriptorProto {
 	return &descriptorpb.FileDescriptorProto{
 		Name:       proto.String("wireguard/wireguard.proto"),
@@ -38,11 +47,27 @@ func wireguardFDP() *descriptorpb.FileDescriptorProto {
 		Extension: []*descriptorpb.FieldDescriptorProto{
 			{
 				Name:     proto.String("max_count"),
-				Number:   proto.Int32(414126218),
+				Number:   proto.Int32(maxCountFieldNum),
 				Type:     descriptorpb.FieldDescriptorProto_TYPE_UINT32.Enum(),
 				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
 				Extendee: proto.String(".google.protobuf.FieldOptions"),
 				JsonName: proto.String("maxCount"),
+			},
+			{
+				Name:     proto.String("max_size"),
+				Number:   proto.Int32(maxSizeFieldNum),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_UINT32.Enum(),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Extendee: proto.String(".google.protobuf.FieldOptions"),
+				JsonName: proto.String("maxSize"),
+			},
+			{
+				Name:     proto.String("max_total_size"),
+				Number:   proto.Int32(maxTotalSizeFieldNum),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_UINT32.Enum(),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Extendee: proto.String(".google.protobuf.FieldOptions"),
+				JsonName: proto.String("maxTotalSize"),
 			},
 		},
 		Options: &descriptorpb.FileOptions{
@@ -111,7 +136,7 @@ func TestPlugin_AutoDescentAndMaxCount(t *testing.T) {
 				Number:  proto.Int32(1),
 				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
 				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-				Options: buildFieldOptionsWithMaxCount(5),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 5}),
 			},
 			{
 				Name:     proto.String("field_2"),
@@ -130,7 +155,7 @@ func TestPlugin_AutoDescentAndMaxCount(t *testing.T) {
 				Number:  proto.Int32(1),
 				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
 				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-				Options: buildFieldOptionsWithMaxCount(10),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 10}),
 			},
 		},
 	}
@@ -221,7 +246,7 @@ func TestPlugin_StrictModeRejectsUnannotatedRepeated(t *testing.T) {
 				Number:  proto.Int32(1),
 				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
 				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-				Options: buildFieldOptionsWithMaxCount(5),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 5}),
 			},
 			{
 				// repeated but no max_count — strict mode should reject.
@@ -283,7 +308,7 @@ func TestPlugin_OneofDescentUsesConcreteFieldNumber(t *testing.T) {
 				Number:  proto.Int32(1),
 				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
 				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-				Options: buildFieldOptionsWithMaxCount(3),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 3}),
 			},
 		},
 	}
@@ -319,7 +344,7 @@ func TestPlugin_RepeatedMessageWithMaxCountAndDescent(t *testing.T) {
 				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
 				TypeName: proto.String(".test.B"),
 				Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-				Options:  buildFieldOptionsWithMaxCount(7),
+				Options:  buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 7}),
 			},
 		},
 	}
@@ -331,7 +356,7 @@ func TestPlugin_RepeatedMessageWithMaxCountAndDescent(t *testing.T) {
 				Number:  proto.Int32(1),
 				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
 				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-				Options: buildFieldOptionsWithMaxCount(11),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 11}),
 			},
 		},
 	}
@@ -357,6 +382,61 @@ func TestPlugin_RepeatedMessageWithMaxCountAndDescent(t *testing.T) {
 	require.Contains(t, content, `1: {MaxCount: 11}`)
 }
 
+func TestPlugin_EmitsSizeRules(t *testing.T) {
+	msgA := &descriptorpb.DescriptorProto{
+		Name: proto.String("A"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:    proto.String("payload"),
+				Number:  proto.Int32(1),
+				Type:    descriptorpb.FieldDescriptorProto_TYPE_BYTES.Enum(),
+				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxSizeFieldNum: 8, maxTotalSizeFieldNum: 11}),
+			},
+			{
+				Name:     proto.String("child"),
+				Number:   proto.Int32(2),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+				TypeName: proto.String(".test.B"),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+			},
+		},
+	}
+	msgB := &descriptorpb.DescriptorProto{
+		Name: proto.String("B"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:    proto.String("name"),
+				Number:  proto.Int32(1),
+				Type:    descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+				Label:   descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxSizeFieldNum: 4}),
+			},
+		},
+	}
+	testFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("test.proto"),
+		Package:     proto.String("test"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msgA, msgB},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/test;testpb"),
+		},
+	}
+
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
+	out, err := runPlugin(t, files, "test.proto", "module=github.com/example")
+	require.NoError(t, err)
+
+	content := out["test/test.wireguard.go"]
+	require.NotEmpty(t, content)
+	require.Contains(t, content, `1: {MaxSize: 8, MaxTotalSize: 11}`)
+	require.Contains(t, content, `2: {Nested: `)
+	require.Contains(t, content, "MustRegister[*B](wireguard.Schema{")
+	require.Contains(t, content, `1: {MaxSize: 4}`)
+}
+
 // TestPlugin_CrossFileReference verifies that a field in one file whose
 // target type lives in a different file emits a qualified reference to
 // the other package's Go type inside reflect.TypeFor.
@@ -370,7 +450,7 @@ func TestPlugin_CrossFileReference(t *testing.T) {
 				Number:  proto.Int32(1),
 				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
 				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-				Options: buildFieldOptionsWithMaxCount(3),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 3}),
 			},
 		},
 	}
@@ -454,7 +534,7 @@ func TestPlugin_RejectsMaxCountZero(t *testing.T) {
 				Number:  proto.Int32(1),
 				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
 				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-				Options: buildFieldOptionsWithMaxCount(0),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 0}),
 			},
 		},
 	}
@@ -473,6 +553,95 @@ func TestPlugin_RejectsMaxCountZero(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "max_count")
 	require.Contains(t, err.Error(), "> 0")
+}
+
+func TestPlugin_RejectsMaxSizeZero(t *testing.T) {
+	msg := &descriptorpb.DescriptorProto{
+		Name: proto.String("A"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:    proto.String("payload"),
+				Number:  proto.Int32(1),
+				Type:    descriptorpb.FieldDescriptorProto_TYPE_BYTES.Enum(),
+				Label:   descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxSizeFieldNum: 0}),
+			},
+		},
+	}
+	testFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("test.proto"),
+		Package:     proto.String("test"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msg},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/test;testpb"),
+		},
+	}
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
+	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "max_size")
+	require.Contains(t, err.Error(), "> 0")
+}
+
+func TestPlugin_RejectsMaxTotalSizeZero(t *testing.T) {
+	msg := &descriptorpb.DescriptorProto{
+		Name: proto.String("A"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:    proto.String("payload"),
+				Number:  proto.Int32(1),
+				Type:    descriptorpb.FieldDescriptorProto_TYPE_BYTES.Enum(),
+				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxTotalSizeFieldNum: 0}),
+			},
+		},
+	}
+	testFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("test.proto"),
+		Package:     proto.String("test"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msg},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/test;testpb"),
+		},
+	}
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
+	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "max_total_size")
+	require.Contains(t, err.Error(), "> 0")
+}
+
+func TestPlugin_RejectsSizeRulesOnPackedScalarField(t *testing.T) {
+	msg := &descriptorpb.DescriptorProto{
+		Name: proto.String("A"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:    proto.String("xs"),
+				Number:  proto.Int32(1),
+				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxSizeFieldNum: 8}),
+			},
+		},
+	}
+	testFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("test.proto"),
+		Package:     proto.String("test"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msg},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/test;testpb"),
+		},
+	}
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
+	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "string, bytes, or message field")
 }
 
 // TestPlugin_Proto3OptionalDoesNotEmitWrapperType verifies the fix for the
@@ -506,7 +675,7 @@ func TestPlugin_Proto3OptionalDoesNotEmitWrapperType(t *testing.T) {
 				Number:  proto.Int32(2),
 				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
 				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-				Options: buildFieldOptionsWithMaxCount(5),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 5}),
 			},
 		},
 	}

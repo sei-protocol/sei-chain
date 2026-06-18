@@ -1,7 +1,8 @@
 // Package wireguard runs bounded checks on raw protobuf wire bytes before
 // the message is handed to Unmarshal. A caller registers a Schema describing
-// which fields to descend into and which repeated fields to cap; Scan then
-// walks the bytes once and rejects any payload that violates the rules.
+// which fields to descend into, which repeated fields to cap, and which
+// length-delimited fields to size-cap; Scan then walks the bytes once and
+// rejects any payload that violates the rules.
 //
 // The intended use is as a channel/stream PreDecode hook: any size or shape
 // invariant that must be enforced before decoding goes here, expressed
@@ -29,8 +30,7 @@ type Number = protowire.Number
 type Schema map[Number]Rule
 
 // Rule is the validation applied to one field of a Schema's parent message.
-// Nested and MaxCount compose: a field can both descend into a child Schema
-// and cap its own occurrence count.
+// Nested, MaxCount, MaxSize, and MaxTotalSize compose.
 type Rule struct {
 	// Nested, if Some, is applied to the contents of this length-delimited
 	// field. Use for descending through wrapper layers on the way to a cap.
@@ -39,6 +39,14 @@ type Rule struct {
 	// current message instance. Nested message instances get their own fresh
 	// counters, so independent children do not share one budget.
 	MaxCount int
+	// MaxSize, if non-zero, caps the raw byte length of each individual
+	// length-delimited field instance. This applies to strings, bytes, and
+	// nested messages before any nested scan runs.
+	MaxSize int
+	// MaxTotalSize, if non-zero, caps the sum of raw byte lengths across all
+	// instances of this length-delimited field within the current message
+	// instance. Nested message instances get their own fresh accumulators.
+	MaxTotalSize int
 }
 
 var registry = map[reflect.Type]Schema{}
@@ -80,6 +88,7 @@ func (s Schema) scan(bz []byte) error {
 		return nil
 	}
 	counts := map[Number]int{}
+	totalSizes := map[Number]int{}
 	for len(bz) > 0 {
 		num, typ, tagLen := protowire.ConsumeTag(bz)
 		if tagLen < 0 {
@@ -97,6 +106,15 @@ func (s Schema) scan(bz []byte) error {
 					counts[num]++
 					if counts[num] > rule.MaxCount {
 						return fmt.Errorf("wireguard: field %d exceeds max %d entries", num, rule.MaxCount)
+					}
+				}
+				if rule.MaxSize > 0 && len(val) > rule.MaxSize {
+					return fmt.Errorf("wireguard: field %d exceeds max size %d bytes", num, rule.MaxSize)
+				}
+				if rule.MaxTotalSize > 0 {
+					totalSizes[num] += len(val)
+					if totalSizes[num] > rule.MaxTotalSize {
+						return fmt.Errorf("wireguard: field %d exceeds max total size %d bytes", num, rule.MaxTotalSize)
 					}
 				}
 				if nestedType, ok := rule.Nested.Get(); ok {

@@ -3,9 +3,11 @@
 // annotated message type. The output sits next to the .pb.go files as
 // `<name>.wireguard.go`.
 //
-// Only one annotation is needed:
+// Supported annotations:
 //
 //	(wireguard.max_count) = N      // cap on a repeated field's occurrences
+//	(wireguard.max_size) = N       // cap on one string/bytes/message instance
+//	(wireguard.max_total_size) = N // cap on summed bytes across field instances
 //
 // Descent into nested message fields is automatic: if a field's target type
 // has a Schema (i.e. has annotations somewhere in its reachable subtree),
@@ -54,13 +56,31 @@ const (
 	utilsPkg         = "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-func findMaxCountExt(files *protoregistry.Files) (protoreflect.ExtensionType, error) {
+type wireguardExts struct {
+	maxCount     protoreflect.ExtensionType
+	maxSize      protoreflect.ExtensionType
+	maxTotalSize protoreflect.ExtensionType
+}
+
+func findWireguardExts(files *protoregistry.Files) (wireguardExts, error) {
 	dyn := dynamicpb.NewTypes(files)
 	mc, err := dyn.FindExtensionByName("wireguard.max_count")
 	if err != nil {
-		return nil, fmt.Errorf("max_count extension: %w", err)
+		return wireguardExts{}, fmt.Errorf("max_count extension: %w", err)
 	}
-	return mc, nil
+	ms, err := dyn.FindExtensionByName("wireguard.max_size")
+	if err != nil {
+		return wireguardExts{}, fmt.Errorf("max_size extension: %w", err)
+	}
+	mts, err := dyn.FindExtensionByName("wireguard.max_total_size")
+	if err != nil {
+		return wireguardExts{}, fmt.Errorf("max_total_size extension: %w", err)
+	}
+	return wireguardExts{
+		maxCount:     mc,
+		maxSize:      ms,
+		maxTotalSize: mts,
+	}, nil
 }
 
 func run(p *protogen.Plugin) error {
@@ -85,7 +105,7 @@ func run(p *protogen.Plugin) error {
 		return fmt.Errorf("protodesc.NewFiles() final: %w", err)
 	}
 
-	maxCountExt, err := findMaxCountExt(files)
+	exts, err := findWireguardExts(files)
 	if err != nil {
 		if errors.Is(err, protoregistry.NotFound) {
 			return nil
@@ -99,12 +119,12 @@ func run(p *protogen.Plugin) error {
 		byName[d.FullName()] = d
 	}
 
-	// A message has a Schema if it has at least one (max_count) field, or
-	// if it reaches a message with a Schema via a message-typed field. Find
-	// the closure.
+	// A message has a Schema if it has at least one wireguard-annotated field,
+	// or if it reaches a message with a Schema via a message-typed field.
+	// Find the closure.
 	inSchema := map[protoreflect.FullName]bool{}
 	for fullName, d := range byName {
-		if hasMaxCount(d, maxCountExt) {
+		if hasWireguardRule(d, exts) {
 			inSchema[fullName] = true
 		}
 	}
@@ -126,12 +146,12 @@ func run(p *protogen.Plugin) error {
 		}
 	}
 
-	if err := validateMaxCountValues(byName, inSchema, maxCountExt); err != nil {
+	if err := validateRuleValues(byName, inSchema, exts); err != nil {
 		return err
 	}
 
 	if *strictFlag {
-		if err := strictCheck(byName, inSchema, maxCountExt); err != nil {
+		if err := strictCheck(byName, inSchema, exts.maxCount); err != nil {
 			return err
 		}
 	}
@@ -148,34 +168,54 @@ func run(p *protogen.Plugin) error {
 	}
 
 	return emit(p, emitCtx{
-		byName:      byName,
-		byMsg:       byMsg,
-		inSchema:    inSchema,
-		maxCountExt: maxCountExt,
+		byName:   byName,
+		byMsg:    byMsg,
+		inSchema: inSchema,
+		exts:     exts,
 	})
 }
 
-// validateMaxCountValues rejects (wireguard.max_count) = 0, which would
-// silently mean "no cap" at runtime (the wireguard.Scan check is
-// `if rule.MaxCount > 0`). An explicit zero is almost certainly a
-// mistake; pick a positive cap or drop the annotation if the field is
-// genuinely unbounded.
-func validateMaxCountValues(byName map[protoreflect.FullName]protoreflect.MessageDescriptor, inSchema map[protoreflect.FullName]bool, ext protoreflect.ExtensionType) error {
+// validateRuleValues rejects explicit zero-valued wireguard annotations,
+// which would silently mean "no cap" at runtime. An explicit zero is almost
+// certainly a mistake; pick a positive cap or drop the annotation if the
+// field is genuinely unbounded.
+func validateRuleValues(byName map[protoreflect.FullName]protoreflect.MessageDescriptor, inSchema map[protoreflect.FullName]bool, exts wireguardExts) error {
 	for fullName := range inSchema {
 		d := byName[fullName]
 		fields := d.Fields()
 		for i := range fields.Len() {
 			f := fields.Get(i)
 			opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
-			if !opts.Has(ext.TypeDescriptor()) {
-				continue
+			for _, rule := range []struct {
+				name string
+				ext  protoreflect.ExtensionType
+			}{
+				{name: "max_count", ext: exts.maxCount},
+				{name: "max_size", ext: exts.maxSize},
+				{name: "max_total_size", ext: exts.maxTotalSize},
+			} {
+				if !opts.Has(rule.ext.TypeDescriptor()) {
+					continue
+				}
+				if opts.Get(rule.ext.TypeDescriptor()).Uint() == 0 {
+					return fmt.Errorf("%s.%s: (wireguard.%s) must be > 0", d.FullName(), f.Name(), rule.name)
+				}
 			}
-			if opts.Get(ext.TypeDescriptor()).Uint() == 0 {
-				return fmt.Errorf("%s.%s: (wireguard.max_count) must be > 0", d.FullName(), f.Name())
+			if (opts.Has(exts.maxSize.TypeDescriptor()) || opts.Has(exts.maxTotalSize.TypeDescriptor())) && !supportsSizeRules(f) {
+				return fmt.Errorf("%s.%s: max_size and max_total_size require a string, bytes, or message field", d.FullName(), f.Name())
 			}
 		}
 	}
 	return nil
+}
+
+func supportsSizeRules(f protoreflect.FieldDescriptor) bool {
+	switch f.Kind() {
+	case protoreflect.StringKind, protoreflect.BytesKind, protoreflect.MessageKind:
+		return true
+	default:
+		return false
+	}
 }
 
 func allMDs(files *protoregistry.Files) iter.Seq[protoreflect.MessageDescriptor] {
@@ -206,11 +246,11 @@ func walkMsgs(mds protoreflect.MessageDescriptors) iter.Seq[protoreflect.Message
 	}
 }
 
-func hasMaxCount(d protoreflect.MessageDescriptor, ext protoreflect.ExtensionType) bool {
+func hasWireguardRule(d protoreflect.MessageDescriptor, exts wireguardExts) bool {
 	fields := d.Fields()
 	for i := range fields.Len() {
 		opts := fields.Get(i).Options().(*descriptorpb.FieldOptions).ProtoReflect()
-		if opts.Has(ext.TypeDescriptor()) {
+		if opts.Has(exts.maxCount.TypeDescriptor()) || opts.Has(exts.maxSize.TypeDescriptor()) || opts.Has(exts.maxTotalSize.TypeDescriptor()) {
 			return true
 		}
 	}
@@ -253,8 +293,9 @@ type emitCtx struct {
 	// inSchema is the set of message types we emit schemas for.
 	inSchema map[protoreflect.FullName]bool
 
-	// maxCountExt is the (wireguard.max_count) ExtensionType.
-	maxCountExt protoreflect.ExtensionType
+	// exts are the wireguard FieldOptions extensions resolved against the
+	// rebuilt descriptor graph.
+	exts wireguardExts
 }
 
 // emitIdents holds the Go identifier expressions for the wireguard /
@@ -328,20 +369,30 @@ func emitSchemaRegistration(g *protogen.GeneratedFile, m *protogen.Message, ctx 
 	for _, pf := range m.Fields {
 		f := d.Fields().Get(pf.Desc.Index())
 		opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
-		hasMax := opts.Has(ctx.maxCountExt.TypeDescriptor())
+		hasMaxCount := opts.Has(ctx.exts.maxCount.TypeDescriptor())
+		hasMaxSize := opts.Has(ctx.exts.maxSize.TypeDescriptor())
+		hasMaxTotalSize := opts.Has(ctx.exts.maxTotalSize.TypeDescriptor())
 
 		var nestedTarget protoreflect.MessageDescriptor
 		if target := f.Message(); target != nil && ctx.inSchema[target.FullName()] {
 			nestedTarget = target
 		}
-		if !hasMax && nestedTarget == nil {
+		if !hasMaxCount && !hasMaxSize && !hasMaxTotalSize && nestedTarget == nil {
 			continue
 		}
 
 		var pieces []string
-		if hasMax {
-			maxCount := opts.Get(ctx.maxCountExt.TypeDescriptor()).Uint()
+		if hasMaxCount {
+			maxCount := opts.Get(ctx.exts.maxCount.TypeDescriptor()).Uint()
 			pieces = append(pieces, fmt.Sprintf("MaxCount: %d", maxCount))
+		}
+		if hasMaxSize {
+			maxSize := opts.Get(ctx.exts.maxSize.TypeDescriptor()).Uint()
+			pieces = append(pieces, fmt.Sprintf("MaxSize: %d", maxSize))
+		}
+		if hasMaxTotalSize {
+			maxTotalSize := opts.Get(ctx.exts.maxTotalSize.TypeDescriptor()).Uint()
+			pieces = append(pieces, fmt.Sprintf("MaxTotalSize: %d", maxTotalSize))
 		}
 		if nestedTarget != nil {
 			targetExpr := typeExprForTarget(g, ctx, nestedTarget, idents)
