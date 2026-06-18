@@ -8,9 +8,11 @@ echo "Configure and initialize environment"
 seid version # Uncomment the below line if there are any dependency issues
 # ldd build/seid
 
-# Initialize validator node
+# Initialize validator node. --overwrite so this is safe to re-run inside
+# a recycled container; the script writes new configs over whatever was
+# already on the previous run.
 MONIKER="sei-rpc-node"
-seid init --chain-id sei "$MONIKER"
+seid init --overwrite --chain-id sei "$MONIKER"
 
 # Wait for the chain genesis.json (validator step3 writes it). The test
 # setup may spawn the rpc node in parallel with the cluster, so this can
