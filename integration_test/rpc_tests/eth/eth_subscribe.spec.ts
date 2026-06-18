@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { ethers } from 'ethers';
 import { Endpoints } from '../config/endpoints';
-import { seiRpc } from '../utils/chainUtils';
+import { seiRpc, waitUntil } from '../utils/chainUtils';
 import { readRuntimeState, claimPool } from '../utils/testUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import { deployLogToken, expectLogShape, TRANSFER_TOPIC } from '../utils/logsUtils';
@@ -11,13 +11,9 @@ import {
     assertNewHeadSchema,
     assertNewHeadInapplicableZeros,
     assertNewHeadMatchesBlock,
+    assertNewHeadBaseFeeTracksChain,
 } from '../utils/subscribeUtils';
 
-/**
- * eth_subscribe is push-only over a bidirectional transport, so these tests drive Sei's WebSocket
- * endpoint directly (no geth comparison). Sei supports `newHeads` and `logs`; every notification
- * field is asserted strictly and cross-checked against the canonical HTTP RPC (eth_getBlockByNumber / eth_getLogs).
- */
 describe('eth_subscribe (WebSocket)', function () {
     this.timeout(120 * 1000);
 
@@ -52,6 +48,7 @@ describe('eth_subscribe (WebSocket)', function () {
                 const block = await sei.send('eth_getBlockByNumber', [head.number, false]);
                 expect(block, `canonical block exists for ${head.number}`).to.not.equal(null);
                 assertNewHeadMatchesBlock(head, block);
+                await assertNewHeadBaseFeeTracksChain(head, sei);
             }
 
             await ws.unsubscribe(subId);
@@ -138,6 +135,14 @@ describe('eth_subscribe (WebSocket)', function () {
             const mint = await (await token.mint(emitter.address, ethers.parseEther('5'))).wait();
             const blockHash: string = mint!.blockHash;
 
+            await waitUntil(
+                async () => {
+                    const seen = await sei.send('eth_getLogs', [{ blockHash, address }]);
+                    return seen.length >= 1 ? seen : null;
+                },
+                { timeoutMs: 30_000, label: `eth_getLogs indexes the mint block ${blockHash}` },
+            );
+
             const subId = await ws.subscribe(['logs', { blockHash, address }]);
             const logs = await ws.waitFor(subId, 1);
 
@@ -147,6 +152,22 @@ describe('eth_subscribe (WebSocket)', function () {
             expect(logs[0].address, 'log is from the requested token').to.equal(address.toLowerCase());
 
             await ws.unsubscribe(subId);
+        });
+    });
+
+    describe('subscription type support matrix (divergence from geth)', () => {
+        it('rejects an unknown subscription type identically (-32601)', async () => {
+            let err: any;
+            try {
+                await ws.subscribe(['definitelyNotARealSubscription']);
+            } catch (e) {
+                err = e;
+            }
+            expect(err, 'unknown type is rejected').to.not.equal(undefined);
+            expect(err.code, 'JSON-RPC method-not-found code').to.equal(-32601);
+            expect(err.message, 'namespaced "no subscription" message').to.match(
+                /no "definitelyNotARealSubscription" subscription in eth namespace/,
+            );
         });
     });
 });

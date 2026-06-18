@@ -1,5 +1,6 @@
 import { expect } from 'chai';
-import { sleep } from './chainUtils';
+import { ethers } from 'ethers';
+import { sleep, waitUntil } from './chainUtils';
 import { ADDRESS, HASH32, HEX_QUANTITY, HEX_DATA, BLOOM256, NONCE8, OPAQUE_HEX_ID } from './format';
 import { ZERO_HASH, ZERO_NONCE } from './constants';
 
@@ -154,8 +155,9 @@ export function assertNewHeadInapplicableZeros(head: any): void {
 
 /**
  * Cross-check a pushed head against the canonical block the node reports for the same height:
- * the deterministic fields (identity, proposer, fee market, time) must agree exactly. gasUsed is
- * intentionally excluded — newHeads sums TxResult gas while eth_getBlockByNumber sums receipt gas.
+ * the deterministic identity/proposer/time fields must agree exactly. gasUsed is intentionally
+ * excluded — newHeads sums TxResult gas while eth_getBlockByNumber sums receipt gas. baseFeePerGas
+ * is checked separately by assertNewHeadBaseFeeTracksChain, which tolerates a commit-boundary race.
  */
 export function assertNewHeadMatchesBlock(head: any, block: any): void {
     expect(BigInt(head.number), 'number matches the canonical block').to.equal(BigInt(block.number));
@@ -169,7 +171,34 @@ export function assertNewHeadMatchesBlock(head: any, block: any): void {
     expect(BigInt(head.gasLimit), 'gasLimit matches the canonical block').to.equal(
         BigInt(block.gasLimit),
     );
-    expect(BigInt(head.baseFeePerGas), 'baseFeePerGas matches the canonical block').to.equal(
-        BigInt(block.baseFeePerGas),
+}
+
+/**
+ * Verify a live head's baseFeePerGas against canonical state, tolerating a one-block commit-boundary
+ * race. Both the newHeads notifier and eth_getBlockByNumber derive the fee for height H from the
+ * single, non-height-prefixed NextBaseFeePerGas key via GetNextBaseFeePerGas(ctx(H-1)). At the instant
+ * H commits, the notifier's historical context can momentarily resolve to H's freshly-written value —
+ * i.e. the fee for H+1 — so the pushed head can legitimately run exactly one block ahead. Accept the
+ * canonical fee for the head's own height or its immediate successor, and nothing else.
+ */
+export async function assertNewHeadBaseFeeTracksChain(
+    head: any,
+    provider: ethers.JsonRpcProvider,
+): Promise<void> {
+    const headBase = BigInt(head.baseFeePerGas);
+    const num = BigInt(head.number);
+
+    const canonical = await provider.send('eth_getBlockByNumber', [head.number, false]);
+    expect(canonical, `canonical block exists for ${head.number}`).to.not.equal(null);
+    if (BigInt(canonical.baseFeePerGas) === headBase) return; // exact: the overwhelmingly common case
+
+    // Off by exactly one block — confirm the head carries the successor's canonical base fee.
+    const successor = await waitUntil(
+        () => provider.send('eth_getBlockByNumber', [ethers.toQuantity(num + 1n), false]),
+        { timeoutMs: 15_000, label: `block ${num + 1n} for newHead base-fee cross-check` },
     );
+    expect(
+        BigInt(successor.baseFeePerGas),
+        `newHead.baseFeePerGas ${headBase} equals the canonical fee for height ${num} (${canonical.baseFeePerGas}) or its successor`,
+    ).to.equal(headBase);
 }

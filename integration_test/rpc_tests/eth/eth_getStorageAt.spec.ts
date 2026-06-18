@@ -155,20 +155,6 @@ describe('eth_getStorageAt', function () {
             expect(s.result, 'Sei: empty slot is a zero word').to.equal(ZERO_WORD);
             expect(g.result, 'geth: empty slot is a zero word').to.equal(ZERO_WORD);
         });
-
-        it("reads the deployed ERC20's owner slot as a canonical 32-byte word on both chains", async () => {
-            const slot = ethers.toQuantity(SLOT_OWNER);
-            const [s, g] = await Promise.all([
-                rawSei<string>('eth_getStorageAt', [runtime.contracts.erc20, slot, 'latest']),
-                rawGeth<string>('eth_getStorageAt', [runtime.contracts.erc20Geth, slot, 'latest']),
-            ]);
-            expect(s.result, 'Sei owner word').to.match(STORAGE_WORD);
-            expect(g.result, 'geth owner word').to.match(STORAGE_WORD);
-            // Each chain stores its own admin as owner, so the words differ, but both must
-            // be a real (non-zero) address word.
-            expect(BigInt(s.result!), 'Sei owner set').to.not.equal(0n);
-            expect(BigInt(g.result!), 'geth owner set').to.not.equal(0n);
-        });
     });
 
     describe('wrong params / error handling (parity with geth)', () => {

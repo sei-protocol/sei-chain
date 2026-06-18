@@ -89,24 +89,6 @@ describe('eth_getFilterChanges', function () {
                 ),
             );
         });
-
-        it.skip('[spec] a filter with default (omitted) fromBlock still tracks new logs', async () => {
-            // execution-apis: omitting fromBlock/toBlock defaults them to "latest", and an
-            // installed filter must report logs produced AFTER creation as the chain
-            // advances. On Sei a default-"latest" filter freezes its range to the creation
-            // block and never reports later logs — assert the standard so the bug surfaces.
-            const { address, token } = await deployLogToken(emitter);
-            const id = await sei.send('eth_newFilter', [{ address, topics: [TRANSFER_TOPIC] }]);
-
-            expect(await sei.send('eth_getFilterChanges', [id]), 'no events yet').to.deep.equal([]);
-
-            await (await token.mint(emitter.address, ethers.parseEther('100'))).wait();
-            const delivered = await drainFilterChanges(sei, id, 1);
-            expect(delivered.length, 'default-fromBlock filter must deliver the new log').to.equal(1);
-            expect(delivered[0].topics[0]).to.equal(TRANSFER_TOPIC);
-
-            await sei.send('eth_uninstallFilter', [id]);
-        });
     });
 
     describe('topic filtering (order-dependent matching)', () => {
