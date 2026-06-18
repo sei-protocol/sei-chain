@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package protoutils;
 
+import "wireguard/wireguard.proto";
+
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/pb";
 
 message TestonlyMsg {
@@ -14,4 +16,40 @@ message TestonlyMsg {
 
 message TestonlyChild {
   string value = 1;
+}
+
+message TestonlyCountedLeaf {
+  repeated string items = 1 [(wireguard.max_count) = 3];
+}
+
+message TestonlySizedLeaf {
+  repeated bytes items = 1 [(wireguard.max_total_size) = 3];
+}
+
+message TestonlyOuter {
+  TestonlyCountedLeaf child = 1;
+  repeated TestonlyCountedLeaf children = 2 [(wireguard.max_count) = 5];
+  TestonlySizedLeaf sized_child = 3;
+  repeated TestonlySizedLeaf sized_children = 4 [(wireguard.max_count) = 5];
+}
+
+message TestonlyMid {
+  TestonlyCountedLeaf child = 1;
+}
+
+message TestonlyRoot {
+  TestonlyMid mid = 1;
+}
+
+message TestonlyLeafA {
+  repeated string items = 1 [(wireguard.max_count) = 2];
+}
+
+message TestonlyLeafB {
+  repeated string items = 1 [(wireguard.max_count) = 2];
+}
+
+message TestonlyDistinct {
+  TestonlyLeafA a = 1;
+  TestonlyLeafB b = 2;
 }

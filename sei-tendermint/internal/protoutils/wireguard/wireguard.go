@@ -51,7 +51,7 @@ type Rule struct {
 	MaxSize int
 	// MaxTotalSize, if non-zero, caps the sum of raw byte lengths across all
 	// instances of this length-delimited field within the current message
-	// instance. Nested message instances get their own fresh accumulators.
+	// instance.
 	MaxTotalSize int
 }
 
@@ -60,13 +60,7 @@ var registry = map[reflect.Type]Schema{}
 // MustRegister associates T with schema in the global registry used by Scan.
 // It panics on duplicate registration or nil schema.
 func MustRegister[T any](schema Schema) {
-	if schema == nil {
-		panic("wireguard: cannot register nil schema")
-	}
 	t := reflect.TypeFor[T]()
-	if t == nil {
-		panic("wireguard: cannot register nil type")
-	}
 	if _, exists := registry[t]; exists {
 		panic(fmt.Sprintf("wireguard: duplicate schema registration for %v", t))
 	}
@@ -83,9 +77,6 @@ func Scan[T any](bz []byte) error {
 // ScanAny walks bz once, applying the schema registered for msg's dynamic
 // type. A nil msg or a value with no registered schema is a no-op.
 func ScanAny(bz []byte, msg gogoproto.Message) error {
-	if msg == nil {
-		return nil
-	}
 	return registry[reflect.TypeOf(msg)].scan(bz)
 }
 

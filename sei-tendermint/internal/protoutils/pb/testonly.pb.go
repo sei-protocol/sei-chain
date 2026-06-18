@@ -7,6 +7,7 @@
 package pb
 
 import (
+	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -141,12 +142,396 @@ func (x *TestonlyChild) GetValue() string {
 	return ""
 }
 
+type TestonlyCountedLeaf struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []string               `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestonlyCountedLeaf) Reset() {
+	*x = TestonlyCountedLeaf{}
+	mi := &file_protoutils_testonly_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestonlyCountedLeaf) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestonlyCountedLeaf) ProtoMessage() {}
+
+func (x *TestonlyCountedLeaf) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_testonly_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestonlyCountedLeaf.ProtoReflect.Descriptor instead.
+func (*TestonlyCountedLeaf) Descriptor() ([]byte, []int) {
+	return file_protoutils_testonly_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *TestonlyCountedLeaf) GetItems() []string {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+type TestonlySizedLeaf struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         [][]byte               `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestonlySizedLeaf) Reset() {
+	*x = TestonlySizedLeaf{}
+	mi := &file_protoutils_testonly_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestonlySizedLeaf) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestonlySizedLeaf) ProtoMessage() {}
+
+func (x *TestonlySizedLeaf) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_testonly_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestonlySizedLeaf.ProtoReflect.Descriptor instead.
+func (*TestonlySizedLeaf) Descriptor() ([]byte, []int) {
+	return file_protoutils_testonly_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *TestonlySizedLeaf) GetItems() [][]byte {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+type TestonlyOuter struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Child         *TestonlyCountedLeaf   `protobuf:"bytes,1,opt,name=child,proto3" json:"child,omitempty"`
+	Children      []*TestonlyCountedLeaf `protobuf:"bytes,2,rep,name=children,proto3" json:"children,omitempty"`
+	SizedChild    *TestonlySizedLeaf     `protobuf:"bytes,3,opt,name=sized_child,json=sizedChild,proto3" json:"sized_child,omitempty"`
+	SizedChildren []*TestonlySizedLeaf   `protobuf:"bytes,4,rep,name=sized_children,json=sizedChildren,proto3" json:"sized_children,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestonlyOuter) Reset() {
+	*x = TestonlyOuter{}
+	mi := &file_protoutils_testonly_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestonlyOuter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestonlyOuter) ProtoMessage() {}
+
+func (x *TestonlyOuter) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_testonly_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestonlyOuter.ProtoReflect.Descriptor instead.
+func (*TestonlyOuter) Descriptor() ([]byte, []int) {
+	return file_protoutils_testonly_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *TestonlyOuter) GetChild() *TestonlyCountedLeaf {
+	if x != nil {
+		return x.Child
+	}
+	return nil
+}
+
+func (x *TestonlyOuter) GetChildren() []*TestonlyCountedLeaf {
+	if x != nil {
+		return x.Children
+	}
+	return nil
+}
+
+func (x *TestonlyOuter) GetSizedChild() *TestonlySizedLeaf {
+	if x != nil {
+		return x.SizedChild
+	}
+	return nil
+}
+
+func (x *TestonlyOuter) GetSizedChildren() []*TestonlySizedLeaf {
+	if x != nil {
+		return x.SizedChildren
+	}
+	return nil
+}
+
+type TestonlyMid struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Child         *TestonlyCountedLeaf   `protobuf:"bytes,1,opt,name=child,proto3" json:"child,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestonlyMid) Reset() {
+	*x = TestonlyMid{}
+	mi := &file_protoutils_testonly_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestonlyMid) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestonlyMid) ProtoMessage() {}
+
+func (x *TestonlyMid) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_testonly_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestonlyMid.ProtoReflect.Descriptor instead.
+func (*TestonlyMid) Descriptor() ([]byte, []int) {
+	return file_protoutils_testonly_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *TestonlyMid) GetChild() *TestonlyCountedLeaf {
+	if x != nil {
+		return x.Child
+	}
+	return nil
+}
+
+type TestonlyRoot struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Mid           *TestonlyMid           `protobuf:"bytes,1,opt,name=mid,proto3" json:"mid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestonlyRoot) Reset() {
+	*x = TestonlyRoot{}
+	mi := &file_protoutils_testonly_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestonlyRoot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestonlyRoot) ProtoMessage() {}
+
+func (x *TestonlyRoot) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_testonly_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestonlyRoot.ProtoReflect.Descriptor instead.
+func (*TestonlyRoot) Descriptor() ([]byte, []int) {
+	return file_protoutils_testonly_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *TestonlyRoot) GetMid() *TestonlyMid {
+	if x != nil {
+		return x.Mid
+	}
+	return nil
+}
+
+type TestonlyLeafA struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []string               `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestonlyLeafA) Reset() {
+	*x = TestonlyLeafA{}
+	mi := &file_protoutils_testonly_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestonlyLeafA) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestonlyLeafA) ProtoMessage() {}
+
+func (x *TestonlyLeafA) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_testonly_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestonlyLeafA.ProtoReflect.Descriptor instead.
+func (*TestonlyLeafA) Descriptor() ([]byte, []int) {
+	return file_protoutils_testonly_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *TestonlyLeafA) GetItems() []string {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+type TestonlyLeafB struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []string               `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestonlyLeafB) Reset() {
+	*x = TestonlyLeafB{}
+	mi := &file_protoutils_testonly_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestonlyLeafB) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestonlyLeafB) ProtoMessage() {}
+
+func (x *TestonlyLeafB) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_testonly_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestonlyLeafB.ProtoReflect.Descriptor instead.
+func (*TestonlyLeafB) Descriptor() ([]byte, []int) {
+	return file_protoutils_testonly_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *TestonlyLeafB) GetItems() []string {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+type TestonlyDistinct struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	A             *TestonlyLeafA         `protobuf:"bytes,1,opt,name=a,proto3" json:"a,omitempty"`
+	B             *TestonlyLeafB         `protobuf:"bytes,2,opt,name=b,proto3" json:"b,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestonlyDistinct) Reset() {
+	*x = TestonlyDistinct{}
+	mi := &file_protoutils_testonly_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestonlyDistinct) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestonlyDistinct) ProtoMessage() {}
+
+func (x *TestonlyDistinct) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_testonly_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestonlyDistinct.ProtoReflect.Descriptor instead.
+func (*TestonlyDistinct) Descriptor() ([]byte, []int) {
+	return file_protoutils_testonly_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *TestonlyDistinct) GetA() *TestonlyLeafA {
+	if x != nil {
+		return x.A
+	}
+	return nil
+}
+
+func (x *TestonlyDistinct) GetB() *TestonlyLeafB {
+	if x != nil {
+		return x.B
+	}
+	return nil
+}
+
 var File_protoutils_testonly_proto protoreflect.FileDescriptor
 
 const file_protoutils_testonly_proto_rawDesc = "" +
 	"\n" +
 	"\x19protoutils/testonly.proto\x12\n" +
-	"protoutils\"\xe2\x03\n" +
+	"protoutils\x1a\x19wireguard/wireguard.proto\"\xe2\x03\n" +
 	"\vTestonlyMsg\x12!\n" +
 	"\fstring_value\x18\x01 \x01(\tR\vstringValue\x12%\n" +
 	"\x0erepeated_value\x18\x02 \x03(\tR\rrepeatedValue\x12B\n" +
@@ -160,7 +545,28 @@ const file_protoutils_testonly_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12/\n" +
 	"\x05value\x18\x02 \x01(\v2\x19.protoutils.TestonlyChildR\x05value:\x028\x01\"%\n" +
 	"\rTestonlyChild\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\tR\x05valueBIZGgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/pbb\x06proto3"
+	"\x05value\x18\x01 \x01(\tR\x05value\"3\n" +
+	"\x13TestonlyCountedLeaf\x12\x1c\n" +
+	"\x05items\x18\x01 \x03(\tB\x06Ј\xe2\xab\f\x03R\x05items\"1\n" +
+	"\x11TestonlySizedLeaf\x12\x1c\n" +
+	"\x05items\x18\x01 \x03(\fB\x06\xe0\x88\xe2\xab\f\x03R\x05items\"\x99\x02\n" +
+	"\rTestonlyOuter\x125\n" +
+	"\x05child\x18\x01 \x01(\v2\x1f.protoutils.TestonlyCountedLeafR\x05child\x12C\n" +
+	"\bchildren\x18\x02 \x03(\v2\x1f.protoutils.TestonlyCountedLeafB\x06Ј\xe2\xab\f\x05R\bchildren\x12>\n" +
+	"\vsized_child\x18\x03 \x01(\v2\x1d.protoutils.TestonlySizedLeafR\n" +
+	"sizedChild\x12L\n" +
+	"\x0esized_children\x18\x04 \x03(\v2\x1d.protoutils.TestonlySizedLeafB\x06Ј\xe2\xab\f\x05R\rsizedChildren\"D\n" +
+	"\vTestonlyMid\x125\n" +
+	"\x05child\x18\x01 \x01(\v2\x1f.protoutils.TestonlyCountedLeafR\x05child\"9\n" +
+	"\fTestonlyRoot\x12)\n" +
+	"\x03mid\x18\x01 \x01(\v2\x17.protoutils.TestonlyMidR\x03mid\"-\n" +
+	"\rTestonlyLeafA\x12\x1c\n" +
+	"\x05items\x18\x01 \x03(\tB\x06Ј\xe2\xab\f\x02R\x05items\"-\n" +
+	"\rTestonlyLeafB\x12\x1c\n" +
+	"\x05items\x18\x01 \x03(\tB\x06Ј\xe2\xab\f\x02R\x05items\"d\n" +
+	"\x10TestonlyDistinct\x12'\n" +
+	"\x01a\x18\x01 \x01(\v2\x19.protoutils.TestonlyLeafAR\x01a\x12'\n" +
+	"\x01b\x18\x02 \x01(\v2\x19.protoutils.TestonlyLeafBR\x01bBIZGgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/pbb\x06proto3"
 
 var (
 	file_protoutils_testonly_proto_rawDescOnce sync.Once
@@ -174,23 +580,39 @@ func file_protoutils_testonly_proto_rawDescGZIP() []byte {
 	return file_protoutils_testonly_proto_rawDescData
 }
 
-var file_protoutils_testonly_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_protoutils_testonly_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_protoutils_testonly_proto_goTypes = []any{
-	(*TestonlyMsg)(nil),   // 0: protoutils.TestonlyMsg
-	(*TestonlyChild)(nil), // 1: protoutils.TestonlyChild
-	nil,                   // 2: protoutils.TestonlyMsg.MapValueEntry
-	nil,                   // 3: protoutils.TestonlyMsg.MapMessageValueEntry
+	(*TestonlyMsg)(nil),         // 0: protoutils.TestonlyMsg
+	(*TestonlyChild)(nil),       // 1: protoutils.TestonlyChild
+	(*TestonlyCountedLeaf)(nil), // 2: protoutils.TestonlyCountedLeaf
+	(*TestonlySizedLeaf)(nil),   // 3: protoutils.TestonlySizedLeaf
+	(*TestonlyOuter)(nil),       // 4: protoutils.TestonlyOuter
+	(*TestonlyMid)(nil),         // 5: protoutils.TestonlyMid
+	(*TestonlyRoot)(nil),        // 6: protoutils.TestonlyRoot
+	(*TestonlyLeafA)(nil),       // 7: protoutils.TestonlyLeafA
+	(*TestonlyLeafB)(nil),       // 8: protoutils.TestonlyLeafB
+	(*TestonlyDistinct)(nil),    // 9: protoutils.TestonlyDistinct
+	nil,                         // 10: protoutils.TestonlyMsg.MapValueEntry
+	nil,                         // 11: protoutils.TestonlyMsg.MapMessageValueEntry
 }
 var file_protoutils_testonly_proto_depIdxs = []int32{
-	2, // 0: protoutils.TestonlyMsg.map_value:type_name -> protoutils.TestonlyMsg.MapValueEntry
-	1, // 1: protoutils.TestonlyMsg.repeated_message_value:type_name -> protoutils.TestonlyChild
-	3, // 2: protoutils.TestonlyMsg.map_message_value:type_name -> protoutils.TestonlyMsg.MapMessageValueEntry
-	1, // 3: protoutils.TestonlyMsg.MapMessageValueEntry.value:type_name -> protoutils.TestonlyChild
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	10, // 0: protoutils.TestonlyMsg.map_value:type_name -> protoutils.TestonlyMsg.MapValueEntry
+	1,  // 1: protoutils.TestonlyMsg.repeated_message_value:type_name -> protoutils.TestonlyChild
+	11, // 2: protoutils.TestonlyMsg.map_message_value:type_name -> protoutils.TestonlyMsg.MapMessageValueEntry
+	2,  // 3: protoutils.TestonlyOuter.child:type_name -> protoutils.TestonlyCountedLeaf
+	2,  // 4: protoutils.TestonlyOuter.children:type_name -> protoutils.TestonlyCountedLeaf
+	3,  // 5: protoutils.TestonlyOuter.sized_child:type_name -> protoutils.TestonlySizedLeaf
+	3,  // 6: protoutils.TestonlyOuter.sized_children:type_name -> protoutils.TestonlySizedLeaf
+	2,  // 7: protoutils.TestonlyMid.child:type_name -> protoutils.TestonlyCountedLeaf
+	5,  // 8: protoutils.TestonlyRoot.mid:type_name -> protoutils.TestonlyMid
+	7,  // 9: protoutils.TestonlyDistinct.a:type_name -> protoutils.TestonlyLeafA
+	8,  // 10: protoutils.TestonlyDistinct.b:type_name -> protoutils.TestonlyLeafB
+	1,  // 11: protoutils.TestonlyMsg.MapMessageValueEntry.value:type_name -> protoutils.TestonlyChild
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_protoutils_testonly_proto_init() }
@@ -204,7 +626,7 @@ func file_protoutils_testonly_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_protoutils_testonly_proto_rawDesc), len(file_protoutils_testonly_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
