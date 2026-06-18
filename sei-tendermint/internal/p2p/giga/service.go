@@ -6,25 +6,26 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 // Service serves the giga RPC API. NewService builds a full validator
 // service (all streams); NewBlockSyncService builds a block-sync-only
-// service (StreamFullCommitQCs + GetBlock) for fullnodes. state is nil on
-// block-sync-only services and is only dereferenced by handlers spawned
-// from the validator-only RunServer / RunClient entry points.
+// service (StreamFullCommitQCs + GetBlock) for fullnodes. state is None
+// on block-sync-only services; the consensus / avail handlers reach it
+// via validatorState() and panic if invoked outside RunServer / RunClient.
 type Service struct {
 	getBlockReqs chan req
 	data         *data.State
-	state        *consensus.State
+	state        utils.Option[*consensus.State]
 }
 
 func NewService(state *consensus.State) *Service {
 	return &Service{
 		getBlockReqs: make(chan req),
 		data:         state.Data(),
-		state:        state,
+		state:        utils.Some(state),
 	}
 }
 
@@ -35,6 +36,13 @@ func NewBlockSyncService(d *data.State) *Service {
 		getBlockReqs: make(chan req),
 		data:         d,
 	}
+}
+
+// validatorState unwraps state for the validator-only handlers. Panics if
+// called from a block-sync-only Service — which is structurally impossible
+// because those handlers are only spawned by RunServer / RunClient.
+func (x *Service) validatorState() *consensus.State {
+	return x.state.OrPanic("Service.state called from block-sync-only mode")
 }
 
 func (x *Service) Run(ctx context.Context) error {
