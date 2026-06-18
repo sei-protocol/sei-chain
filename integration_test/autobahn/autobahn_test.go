@@ -345,8 +345,18 @@ func setupFullnodeNode() error {
 	fmt.Println("=== Starting fullnode sidecar ===")
 	_ = runMake(nil, "kill-rpc-node") // best-effort cleanup
 
+	// Discover the cluster size from docker so the rpc-node's autobahn config
+	// covers exactly the validators that came up — non-four-node test runs
+	// would otherwise produce a mismatched committee.
+	clusterSize, err := countSeiContainers()
+	if err != nil {
+		return fmt.Errorf("count cluster containers: %w", err)
+	}
+	if clusterSize == 0 {
+		return fmt.Errorf("no sei-node-* containers found; setupCluster must run first")
+	}
 	cmd := exec.Command("make", "run-rpc-node-skipbuild")
-	cmd.Env = append(os.Environ(), "AUTOBAHN=true", "CLUSTER_SIZE=4")
+	cmd.Env = append(os.Environ(), "AUTOBAHN=true", fmt.Sprintf("CLUSTER_SIZE=%d", clusterSize))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {

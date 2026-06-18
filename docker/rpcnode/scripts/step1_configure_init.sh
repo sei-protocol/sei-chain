@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
+set -e
 
 # Set up GO PATH
 echo "Configure and initialize environment"
@@ -20,6 +21,10 @@ while [ ! -f "$GENESIS_SRC" ] && [ "$i" -lt 300 ]; do
   sleep 1
   i=$((i + 1))
 done
+if [ ! -f "$GENESIS_SRC" ]; then
+  echo "ERROR: $GENESIS_SRC missing after 5 minutes; aborting." >&2
+  exit 1
+fi
 
 # Copy configs
 cp docker/rpcnode/config/app.toml ~/.sei/config/app.toml
