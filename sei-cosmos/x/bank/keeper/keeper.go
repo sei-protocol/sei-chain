@@ -106,6 +106,28 @@ func (k BaseKeeper) GetPaginatedTotalSupply(ctx sdk.Context, pagination *query.P
 	return supply, pageRes, nil
 }
 
+// CollectAllTotalSupply returns the full supply by paging with MaxLimit.
+func CollectAllTotalSupply(ctx sdk.Context, k Keeper) (sdk.Coins, error) {
+	totalSupply := sdk.NewCoins()
+	pageReq := &query.PageRequest{Limit: query.MaxLimit}
+
+	for {
+		page, pageRes, err := k.GetPaginatedTotalSupply(ctx, pageReq)
+		if err != nil {
+			return nil, err
+		}
+		totalSupply = totalSupply.Add(page...)
+
+		if pageRes == nil || len(pageRes.NextKey) == 0 {
+			return totalSupply, nil
+		}
+		pageReq = &query.PageRequest{
+			Key:   pageRes.NextKey,
+			Limit: query.MaxLimit,
+		}
+	}
+}
+
 // NewBaseKeeper returns a new BaseKeeper object with a given codec, dedicated
 // store key, an AccountKeeper implementation, and a parameter Subspace used to
 // store and fetch module parameters. The BaseKeeper also accepts a
