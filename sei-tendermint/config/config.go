@@ -76,10 +76,11 @@ type Config struct {
 	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
 
 	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
-	// configuration. Leave empty to disable Autobahn. When set, the node's
-	// Mode (validator|full) determines the autobahn role: validator-mode
-	// nodes must have their key in the committee; full-mode nodes load the
-	// committee as a routing table only (fullnode).
+	// configuration. Leave empty to disable Autobahn. The autobahn role
+	// follows the top-level `mode` field: "validator" runs the validator
+	// path; any other mode runs as a fullnode (loads the committee as a
+	// routing table and pulls blocks from committee members). A warning is
+	// logged at startup if mode disagrees with committee membership.
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 
 	// AutobahnMaxInboundFullnodePeers caps concurrent inbound block-sync
@@ -87,7 +88,7 @@ type Config struct {
 	// tell absent ("use DefaultAutobahnMaxInboundFullnodePeers") from
 	// explicit 0 ("reject all inbound fullnode block-sync from this
 	// validator"). Positive values override the default. Only meaningful
-	// on validator-mode nodes; ignored otherwise.
+	// on validator-mode nodes; ignored on fullnodes.
 	AutobahnMaxInboundFullnodePeers *int `mapstructure:"autobahn-max-inbound-fullnode-peers"`
 }
 

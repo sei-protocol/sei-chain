@@ -194,8 +194,8 @@ func makeNode(
 
 	gigaEnabled := cfg.AutobahnConfigFile != ""
 	// Pass the local key when autobahn is on; setup.go's
-	// buildAndStartGigaRouter picks validator-vs-fullnode based on whether
-	// the key is in the committee.
+	// buildAndStartGigaRouter picks validator-vs-fullnode by cfg.Mode and
+	// uses the key to check that a validator-mode node is in the committee.
 	gigaValidatorKey := utils.None[atypes.SecretKey]()
 	if gigaEnabled {
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))

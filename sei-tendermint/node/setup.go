@@ -275,9 +275,13 @@ func buildValidatorGigaConfig(
 	}, nil
 }
 
-// buildAndStartGigaRouter picks validator-vs-fullnode by checking whether
-// the local validator key is in the committee — cfg.Mode is not consulted,
-// the autobahn role follows on-chain committee membership.
+// buildAndStartGigaRouter picks validator-vs-fullnode by cfg.Mode:
+// "validator" runs the validator path, any other mode runs as a fullnode.
+// Mode is the operator's explicit role declaration, kept separate from
+// committee membership so a newly-joined committee member can finish
+// catch-up as a fullnode before the operator flips to mode = "validator".
+// A warning is logged if mode and committee membership disagree so an
+// operator misconfiguration is visible at startup.
 func buildAndStartGigaRouter(
 	cfg *config.Config,
 	nodeKey types.NodeKey,
@@ -290,31 +294,39 @@ func buildAndStartGigaRouter(
 		return nil, err
 	}
 	if valKey, ok := validatorKey.Get(); ok {
-		if _, inCommittee := validatorAddrs[valKey.Public()]; inCommittee {
-			// Remote signers aren't supported on the validator path —
-			// autobahn signs in-process. Checked here so a fullnode
-			// (key not in committee) isn't penalised for having
-			// priv-validator.laddr set.
-			if cfg.PrivValidator.ListenAddr != "" {
-				return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
-			}
-			valCfg, err := buildValidatorGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnMaxInboundFullnodePeers, nodeKey, valKey, app, genDoc)
-			if err != nil {
-				return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
-			}
-			rootifyPersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig)
-			logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
-			return p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey))
+		_, inCommittee := validatorAddrs[valKey.Public()]
+		switch {
+		case cfg.Mode == config.ModeValidator && !inCommittee:
+			logger.Error("Autobahn: mode is \"validator\" but local validator key is not in the committee", "valKey", valKey.Public())
+		case cfg.Mode != config.ModeValidator && inCommittee:
+			logger.Error("Autobahn: local validator key is in the committee but mode is not \"validator\"; starting as fullnode", "mode", cfg.Mode)
 		}
-		logger.Info("Autobahn: local validator key is not in the committee, starting as fullnode", "validators", len(validatorAddrs))
-	} else {
-		logger.Info("Autobahn: no local validator key, starting as fullnode", "validators", len(validatorAddrs))
+	}
+	if cfg.Mode == config.ModeValidator {
+		valKey, ok := validatorKey.Get()
+		if !ok {
+			return nil, fmt.Errorf("autobahn: mode = %q requires a local validator key", cfg.Mode)
+		}
+		// Remote signers aren't supported on the validator path —
+		// autobahn signs in-process. Fullnodes don't sign and aren't
+		// penalised for having priv-validator.laddr set.
+		if cfg.PrivValidator.ListenAddr != "" {
+			return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
+		}
+		valCfg, err := buildValidatorGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnMaxInboundFullnodePeers, nodeKey, valKey, app, genDoc)
+		if err != nil {
+			return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
+		}
+		rootifyPersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig)
+		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
+		return p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey))
 	}
 	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, app, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
 	rootifyPersistentStateDir(cfg.RootDir, fnCfg)
+	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	return p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey))
 }
 
@@ -464,7 +476,7 @@ func createRouter(
 		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
 	}
 	// Wire up Autobahn if enabled. Role dispatch (validator vs fullnode)
-	// happens inside buildAndStartGigaRouter based on committee membership.
+	// happens inside buildAndStartGigaRouter based on cfg.Mode.
 	if cfg.AutobahnConfigFile != "" {
 		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile, "mode", cfg.Mode)
 		proxyApp, ok := app.Get()

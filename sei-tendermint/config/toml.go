@@ -146,10 +146,11 @@ node-key-file = "{{ js .BaseConfig.NodeKey }}"
 #######################################################################
 
 # Path to a JSON file containing the Autobahn (GigaRouter) configuration.
-# Leave empty to disable Autobahn. When set, the node's role is derived
-# from the top-level "mode" field: validator-mode nodes must be in the
-# committee; full-mode nodes load the committee for routing only and
-# forward eth_sendRawTransaction to the shard owner.
+# Leave empty to disable Autobahn. The autobahn role follows the top-level
+# "mode" field: mode = "validator" runs the validator path; any other mode
+# runs as a fullnode that loads the committee for routing only and
+# forwards eth_sendRawTransaction to the shard owner. A warning is logged
+# at startup if mode disagrees with committee membership.
 #
 # Placed here (as a top-level key, before any [section] header) so the
 # TOML parser sees it at root scope where mapstructure expects it — viper
@@ -159,7 +160,8 @@ autobahn-config-file = "{{ .AutobahnConfigFile }}"
 # Concurrent inbound block-sync connections from non-committee (fullnode)
 # peers this validator will accept. Absent/commented-out means use the
 # built-in default (10). Set to 0 to reject all inbound fullnode block-sync.
-# Positive values override the default. Validator-only knob.
+# Positive values override the default. Validator-only knob (ignored on
+# fullnodes).
 # autobahn-max-inbound-fullnode-peers = 10
 
 #######################################################################
