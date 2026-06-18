@@ -45,10 +45,10 @@ func TestRecoverResumeState(t *testing.T) {
 	var last *generatedBatch
 	for i := 0; i < 2; i++ {
 		b := gen.buildBatch()
+		require.NoError(t, db.WriteQC(b.first, b.next, b.qc))
 		for j, blk := range b.blocks {
 			require.NoError(t, db.WriteBlock(b.first+types.GlobalBlockNumber(j), blk)) //nolint:gosec // small index
 		}
-		require.NoError(t, db.WriteQC(b.first, b.next, b.qc))
 		last = b
 	}
 	require.NoError(t, db.Flush())
@@ -59,8 +59,10 @@ func TestRecoverResumeState(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db2.Close() }()
 
-	prev, highest, err := recoverResumeState(db2)
+	prev, highestOpt, err := recoverResumeState(db2)
 	require.NoError(t, err)
+	highest, ok := highestOpt.Get()
+	require.True(t, ok, "recovered highest must be present after a clean write")
 	require.Equal(t, uint64(last.next-1), highest, "recovered highest must be the last persisted block number")
 
 	prevQC, ok := prev.Get()
@@ -75,5 +77,5 @@ func TestRecoverResumeState(t *testing.T) {
 	prev0, highest0, err := recoverResumeState(empty)
 	require.NoError(t, err)
 	require.False(t, prev0.IsPresent(), "empty store must recover no QC")
-	require.Zero(t, highest0, "empty store must recover highest 0")
+	require.False(t, highest0.IsPresent(), "empty store must recover no highest block")
 }

@@ -12,8 +12,9 @@ var (
 	_ types.QCIterator    = (*qcIterator)(nil)
 )
 
-// blockIterator wraps a litt iterator, skipping secondary (hash-alias) keys so
-// it yields one entry per block.
+// blockIterator wraps a litt iterator over the shared ledger table, yielding one
+// entry per block: it skips QC keys and the secondary (hash-alias) keys, keeping
+// only primary block-number keys.
 type blockIterator struct {
 	it littdb.Iterator
 }
@@ -27,7 +28,7 @@ func (b *blockIterator) Next() (bool, error) {
 		if !ok {
 			return false, nil
 		}
-		if _, isPrimary := b.it.GetKey(); isPrimary {
+		if key, isPrimary := b.it.GetKey(); isPrimary && keyKind(key) == kindBlock {
 			return true, nil
 		}
 	}
@@ -35,7 +36,7 @@ func (b *blockIterator) Next() (bool, error) {
 
 func (b *blockIterator) Number() types.GlobalBlockNumber {
 	key, _ := b.it.GetKey()
-	return decodeKey(key)
+	return decodeNumberKey(key)
 }
 
 func (b *blockIterator) Block() (*types.Block, error) {
@@ -57,8 +58,9 @@ func (b *blockIterator) Close() error {
 	return nil
 }
 
-// qcIterator wraps a litt iterator, skipping secondary (covered-number) keys so
-// it yields one entry per QC.
+// qcIterator wraps a litt iterator over the shared ledger table, yielding one
+// entry per QC: it skips block keys and the secondary (covered-number) keys,
+// keeping only primary QC keys.
 type qcIterator struct {
 	it littdb.Iterator
 }
@@ -72,7 +74,7 @@ func (q *qcIterator) Next() (bool, error) {
 		if !ok {
 			return false, nil
 		}
-		if _, isPrimary := q.it.GetKey(); isPrimary {
+		if key, isPrimary := q.it.GetKey(); isPrimary && keyKind(key) == kindQC {
 			return true, nil
 		}
 	}

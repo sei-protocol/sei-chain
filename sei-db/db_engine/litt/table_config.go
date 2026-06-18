@@ -28,7 +28,7 @@ type TableConfig struct {
 	// impossible to configure more shards than the on-disk format can address. May be changed at runtime via
 	// Table.SetShardingFactor().
 	//
-	// Normally, writes to to a table are individually atomic but not atomic in aggregate. That is to say, if a caller
+	// Normally, writes to a table are individually atomic but not atomic in aggregate. That is to say, if a caller
 	// writes A and then B and the DB crashes before flushing, it may be the case that B is persisted but A is not.
 	// However, if the sharding factor is 1, then all writes are made crash durable in the order they were issued.
 	ShardingFactor uint8

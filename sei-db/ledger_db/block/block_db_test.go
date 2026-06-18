@@ -63,6 +63,7 @@ func TestBlockDB(t *testing.T) {
 				testWriteOrderRejectedAfterRestart(t, impl.build)
 			})
 			t.Run("WriteBlockGaps", func(t *testing.T) { testWriteBlockGaps(t, impl.build) })
+			t.Run("WriteBlockRequiresQC", func(t *testing.T) { testWriteBlockRequiresQC(t, impl.build) })
 			t.Run("ReverseIteratorEmpty", func(t *testing.T) { testReverseIteratorEmpty(t, impl.build) })
 			t.Run("ReverseIteratorOrdering", func(t *testing.T) { testReverseIteratorOrdering(t, impl.build) })
 			t.Run("ResumeAfterRestart", func(t *testing.T) { testResumeAfterRestart(t, impl.build) })
@@ -297,10 +298,10 @@ func testIteratorSnapshot(t *testing.T, build builder) {
 
 	// Write only the first batch, then snapshot iterators over it.
 	first := batches[0]
+	require.NoError(t, db.WriteQC(first.first, first.next, first.qc))
 	for i, blk := range first.blocks {
 		require.NoError(t, db.WriteBlock(first.first+gbn(i), blk))
 	}
-	require.NoError(t, db.WriteQC(first.first, first.next, first.qc))
 
 	blockIt, err := db.Blocks(false)
 	require.NoError(t, err)
@@ -341,12 +342,12 @@ func testWriteOrderRejected(t *testing.T, build builder) {
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 
-	// Write the first batch normally.
+	// Write the first batch normally (QC before its blocks).
 	b0 := batches[0]
+	require.NoError(t, db.WriteQC(b0.first, b0.next, b0.qc))
 	for i, blk := range b0.blocks {
 		require.NoError(t, db.WriteBlock(b0.first+gbn(i), blk))
 	}
-	require.NoError(t, db.WriteQC(b0.first, b0.next, b0.qc))
 
 	// Re-writing an already-written block number is rejected (not idempotent).
 	err := db.WriteBlock(b0.first, b0.blocks[0])
@@ -399,10 +400,10 @@ func testWriteOrderRejectedAfterRestart(t *testing.T, build builder) {
 
 	// The contiguous continuation is accepted — this succeeds only if the cursors
 	// were recovered to their exact pre-restart values.
+	require.NoError(t, db.WriteQC(tail.first, tail.next, tail.qc))
 	for i, blk := range tail.blocks {
 		require.NoError(t, db.WriteBlock(tail.first+gbn(i), blk))
 	}
-	require.NoError(t, db.WriteQC(tail.first, tail.next, tail.qc))
 
 	// All data, written on both sides of the restart, reads back.
 	assertBlocksReadable(t, db, batches)
@@ -529,10 +530,10 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 
 	// The recovered QC's upper bound is exactly where the continuation begins;
 	// writing the next contiguous batch must be accepted.
+	require.NoError(t, db.WriteQC(tail.first, tail.next, tail.qc))
 	for i, blk := range tail.blocks {
 		require.NoError(t, db.WriteBlock(tail.first+gbn(i), blk))
 	}
-	require.NoError(t, db.WriteQC(tail.first, tail.next, tail.qc))
 
 	assertBlocksReadable(t, db, batches)
 	assertQCsReadable(t, db, committee, batches)
@@ -568,23 +569,61 @@ func recoverLastQC(t *testing.T, db types.BlockDB) (*types.CommitQC, bool) {
 	return fqc.QC(), true
 }
 
-// testWriteBlockGaps asserts that block numbers need only be strictly
-// ascending, not contiguous: gaps are permitted, reads resolve only the written
-// numbers, and the iterator surfaces exactly those numbers in ascending order.
-func testWriteBlockGaps(t *testing.T, build builder) {
+// testWriteBlockRequiresQC asserts the QC-before-block contract: a block may
+// only be written once a QC covering its number has been written, otherwise
+// WriteBlock returns ErrBlockMissingQC. This also pins the genesis rule — the
+// first write to an empty store must be a QC, never a block.
+func testWriteBlockRequiresQC(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 
-	rng := utils.TestRngFromSeed(testSeed + 2)
-	nums := []types.GlobalBlockNumber{0, 5, 100, 1000}
-	blocks := make(map[types.GlobalBlockNumber]*types.Block, len(nums))
-	for _, n := range nums {
-		blk := types.GenBlock(rng)
+	b := batches[0]
+
+	// No QC has been written yet: any block is rejected (genesis must be a QC).
+	err := db.WriteBlock(b.first, b.blocks[0])
+	require.ErrorIs(t, err, types.ErrBlockMissingQC, "block before any QC must be rejected")
+
+	// After the covering QC, every block in its range is accepted.
+	require.NoError(t, db.WriteQC(b.first, b.next, b.qc))
+	for i, blk := range b.blocks {
+		require.NoError(t, db.WriteBlock(b.first+gbn(i), blk))
+	}
+
+	// A block at next (just past the covered range) has no covering QC yet.
+	err = db.WriteBlock(b.next, batches[1].blocks[0])
+	require.ErrorIs(t, err, types.ErrBlockMissingQC, "block past the covered range must be rejected")
+}
+
+// testWriteBlockGaps asserts that block numbers need only be strictly
+// ascending, not contiguous: within a covering QC's range, gaps are permitted,
+// reads resolve only the written numbers, and the iterator surfaces exactly
+// those numbers in ascending order. (Every written block still needs a covering
+// QC, so the gap numbers are ones the QC covers but no block was written for —
+// the same shape a hard crash leaves behind.)
+func testWriteBlockGaps(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+
+	// A single QC covers the contiguous range [first, next); write blocks at a
+	// gapped subset of that range.
+	b := batches[0]
+	require.NoError(t, db.WriteQC(b.first, b.next, b.qc))
+	require.GreaterOrEqual(t, len(b.blocks), 5, "need at least 5 covered numbers to leave gaps")
+
+	written := []types.GlobalBlockNumber{b.first, b.first + 2, b.first + 4}
+	gaps := []types.GlobalBlockNumber{b.first + 1, b.first + 3}
+	blocks := make(map[types.GlobalBlockNumber]*types.Block, len(written))
+	for _, n := range written {
+		blk := types.GenBlock(utils.TestRngFromSeed(testSeed + 2 + int64(n)))
 		blocks[n] = blk
 		require.NoError(t, db.WriteBlock(n, blk))
 	}
 
-	for _, n := range nums {
+	for _, n := range written {
 		byNum, err := db.ReadBlockByNumber(n)
 		require.NoError(t, err)
 		got, ok := byNum.Get()
@@ -599,7 +638,7 @@ func testWriteBlockGaps(t *testing.T, build builder) {
 	}
 
 	// Numbers in the gaps were never written and must miss.
-	for _, gap := range []types.GlobalBlockNumber{1, 4, 50, 999, 1001} {
+	for _, gap := range gaps {
 		opt, err := db.ReadBlockByNumber(gap)
 		require.NoError(t, err)
 		require.False(t, opt.IsPresent(), "gap number %d must not be present", gap)
@@ -618,7 +657,7 @@ func testWriteBlockGaps(t *testing.T, build builder) {
 		}
 		got = append(got, blockIt.Number())
 	}
-	require.Equal(t, nums, got, "iterator must surface exactly the gapped numbers in ascending order")
+	require.Equal(t, written, got, "iterator must surface exactly the gapped numbers in ascending order")
 }
 
 // TestMemblockPruneRemovesBelowWatermark verifies the in-memory store's
@@ -900,13 +939,14 @@ func gbn(i int) types.GlobalBlockNumber {
 	return types.GlobalBlockNumber(i) //nolint:gosec // i is a non-negative slice index
 }
 
-// writeAll writes every batch's blocks (at first+i) followed by its QC.
+// writeAll writes every batch's QC followed by its blocks (at first+i). The QC
+// is written first because WriteBlock rejects a block with no covering QC.
 func writeAll(t *testing.T, db types.BlockDB, batches []batch) {
 	for _, b := range batches {
+		require.NoError(t, db.WriteQC(b.first, b.next, b.qc))
 		for i, blk := range b.blocks {
 			require.NoError(t, db.WriteBlock(b.first+gbn(i), blk))
 		}
-		require.NoError(t, db.WriteQC(b.first, b.next, b.qc))
 	}
 }
 

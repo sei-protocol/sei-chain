@@ -51,6 +51,12 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 		return fmt.Errorf("block number %d not greater than last written %d: %w",
 			n, s.lastBlockNumber, types.ErrBlockOutOfOrder)
 	}
+	// A covering QC must already be written. QCs are contiguous and blocks
+	// strictly ascending, so n is covered iff n < lastQCNext.
+	if !s.hasQC || n >= s.lastQCNext {
+		return fmt.Errorf("block number %d not covered by any written QC (next QC bound %d): %w",
+			n, s.lastQCNext, types.ErrBlockMissingQC)
+	}
 	s.byNumber[n] = blk
 	s.byHash[blk.Header().Hash()] = blk
 	s.lastBlockNumber = n
