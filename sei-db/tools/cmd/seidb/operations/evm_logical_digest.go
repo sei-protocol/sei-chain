@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/spf13/cobra"
@@ -43,35 +44,44 @@ var migrationVersionPhysKey = []byte(migration.MigrationStore + "/" + migration.
 //
 // Both sides are normalized to FlatKV physical keys:
 //   - FlatKV: keys come straight from RawGlobalIterator.
-//   - memIAVL: each evm leaf is fed through flatkv.ImportTranslator, which
-//     applies the exact same classifyAndPrefix + account-merge logic FlatKV
-//     uses, so the emitted physical keys match by construction.
+//   - memIAVL semantic mode (default): raw EVM leaves are independently decoded
+//     into the same logical account / code / storage / legacy buckets.
+//   - memIAVL translator mode: each EVM leaf is fed through
+//     flatkv.ImportTranslator, which applies the same classifyAndPrefix +
+//     account-merge logic FlatKV uses.
 //
 // The per-bucket accumulator is an XOR of sha256(len(key)||key||len(val)||val),
 // which is order-independent: it does not matter that FlatKV iterates in pebble
 // global order while memIAVL is scanned by leaf index, nor that merged accounts
 // are flushed out of order at Finalize.
 //
-// The legacy bucket is intentionally excluded: it is a fallback path for
-// non-EVM module-prefixed rows and can carry validator-local dual-write noise.
+// The primary comparison is account+code+storage. The legacy bucket is printed
+// separately, plus a marker-adjusted comparison line, because FlatKV can contain
+// a FlatKV-only migration-version row that a memiavl-only truth node never owns.
 //
 // Usage:
 //
-//	# FlatKV digest at a height (WAL-replays to it). Prints per-bucket xors,
-//	# DIGEST(account+code+storage), DIGEST(account+code+storage+legacy), and a
-//	# second DIGEST(...+legacy) tagged [excl migration-version].
+//	# FlatKV digest at a height (WAL-replays to it). Prints per-bucket
+//	# bucket_digest values and one FINAL_DIGEST line for backend comparison.
+//	# FlatKV's internal migration-version marker is omitted from that comparison.
 //	seidb evm-logical-digest --backend flatkv \
 //	    --db-dir /.sei/data/state_commit/flatkv --height 213200000
 //
-//	# memIAVL digest at the same height (0 = current symlink). The marker is
-//	# absent here, so its DIGEST(...+legacy) is what the FlatKV
-//	# [excl migration-version] line must equal for a clean migration.
+//	# memIAVL digest at the same height (0 = current symlink), using the
+//	# default semantic mode. This independently decodes raw EVM keys without
+//	# flatkv.ImportTranslator. memiavl does not replay WAL in this tool; it
+//	# opens snapshot-<height>/evm or current/evm.
 //	seidb evm-logical-digest --backend memiavl \
 //	    --db-dir /.sei/data/state_commit/memiavl --height 213200000
 //
+//	# Translator-based memIAVL digest. This proves FlatKV state matches the
+//	# current migration mapping and is useful when debugging ImportTranslator.
+//	seidb evm-logical-digest --backend memiavl \
+//	    --db-dir /.sei/data/state_commit/memiavl --height 213200000 \
+//	    --memiavl-normalization translator
+//
 //	# Compare a migrated FlatKV node against a memiavl-only node at height H:
-//	#   FlatKV "DIGEST(...+legacy) [excl migration-version]"  ==  memiavl "DIGEST(...+legacy)"
-//	# (the WITH-marker FlatKV line will differ by exactly that one row, count-1.)
+//	#   FlatKV FINAL_DIGEST account+code+storage+legacy digest=... == memiavl FINAL_DIGEST account+code+storage+legacy digest=...
 //
 //	# Inspect one bucket instead of the global digest (e.g. list storage rows
 //	# under a key prefix, sharded by the next 2 bytes):
@@ -80,8 +90,8 @@ var migrationVersionPhysKey = []byte(migration.MigrationStore + "/" + migration.
 //	seidb evm-logical-digest --backend flatkv -d <dir> --height H \
 //	    --inspect-bucket account --list --list-limit 50 --details
 //
-//	# Hunt the single diverging entry between two runs: when two bucket digests
-//	# differ by exactly one row, XOR the two xor= accumulators (32-byte hex) and
+//	# Hunt the single diverging entry between two runs: when two bucket_digest
+//	# values differ by exactly one row, XOR those two 32-byte hex values and
 //	# pass the result; every matching row is printed as FOUND-HASH.
 //	seidb evm-logical-digest --backend flatkv -d <dir> --height H \
 //	    --find-hash <32-byte-hex>
@@ -94,14 +104,15 @@ func EvmLogicalDigestCmd() *cobra.Command {
 	cmd.Flags().String("backend", "", "Backend to read: flatkv | memiavl")
 	cmd.Flags().StringP("db-dir", "d", "", "For flatkv: the flatkv data dir. For memiavl: the memiavl root dir (contains current/ and snapshot-* )")
 	cmd.Flags().Int64("height", 0, "Target version. flatkv WAL-replays to it; memiavl resolves snapshot-<height>/evm (0 = current symlink)")
+	cmd.Flags().String("memiavl-normalization", "semantic", "memiavl digest/inspect normalization: semantic/independent (raw EVM key/value decoder) | translator (current migration mapping)")
 	cmd.Flags().String("inspect-bucket", "", "Inspect one normalized bucket (account|code|storage|legacy) instead of printing the global digest")
 	cmd.Flags().Int("key-offset", 0, "Inspect mode: byte offset into physical key before applying --key-prefix / sharding")
 	cmd.Flags().String("key-prefix", "", "Inspect mode: hex prefix, relative to --key-offset, used to filter physical keys")
 	cmd.Flags().Int("shard-next-bytes", 0, "Inspect mode: group matching keys by this many bytes after --key-prefix")
-	cmd.Flags().Bool("list", false, "Inspect mode: list matching key/logical-value pairs instead of shard digests")
+	cmd.Flags().Bool("list", false, "Inspect mode: list matching key/logical-value pairs instead of shard bucket_digest values")
 	cmd.Flags().Int("list-limit", 1000, "Inspect mode: maximum pairs to print with --list; <=0 means unlimited")
 	cmd.Flags().Bool("details", false, "Inspect list mode: include backend-specific version metadata")
-	cmd.Flags().String("find-hash", "", "Optional 32-byte hex per-entry hash to hunt for. When two bucket digests differ by exactly one entry, the XOR of the two accumulators IS that entry's hash; this prints every entry whose sha256(len(key)||key||len(val)||val) matches")
+	cmd.Flags().String("find-hash", "", "Optional 32-byte hex per-entry hash to hunt for. When two bucket_digest values differ by exactly one entry, their XOR IS that entry's hash; this prints every entry whose sha256(len(key)||key||len(val)||val) matches")
 	return cmd
 }
 
@@ -158,6 +169,16 @@ type evmDigest struct {
 	migrationVersionHash  [sha256.Size]byte
 }
 
+type digestPrintContext struct {
+	backend         string
+	mode            string
+	dbDir           string
+	source          string
+	normalization   string
+	requestedHeight int64
+	version         int64
+}
+
 // consume routes a physical (key, serialized-value) pair into its canonical
 // bucket, strips the vtype header, and folds the logical payload into the
 // accumulator. The legacy bucket (EVM keys with no canonical prefix: address
@@ -168,9 +189,14 @@ func (d *evmDigest) consume(physKey, val []byte) error {
 	if err != nil {
 		return err
 	}
+	d.addLogical(bucket, physKey, logical, val)
+	return nil
+}
+
+func (d *evmDigest) addLogical(bucket string, physKey, logical, rawVal []byte) {
 	sum := entryHash(physKey, logical)
 	if d.findTarget != nil && bytes.Equal(sum[:], d.findTarget) {
-		fmt.Printf("FOUND-HASH bucket=%s keyhex=%X logicalhex=%X rawhex=%X\n", bucket, physKey, logical, val)
+		fmt.Printf("FOUND-HASH bucket=%s keyhex=%X logicalhex=%X rawhex=%X\n", bucket, physKey, logical, rawVal)
 	}
 	switch bucket {
 	case flatkvBucketAccount:
@@ -186,7 +212,6 @@ func (d *evmDigest) consume(physKey, val []byte) error {
 			d.migrationVersionHash = sum
 		}
 	}
-	return nil
 }
 
 func normalizeEVMFlatKVPair(physKey, val []byte) (string, []byte, error) {
@@ -226,50 +251,54 @@ func normalizeEVMFlatKVPair(physKey, val []byte) (string, []byte, error) {
 	}
 }
 
-func (d *evmDigest) print(version int64) {
-	fmt.Printf("version: %d\n", version)
-	fmt.Printf("account  count=%d xor=%X\n", d.account.count, d.account.acc)
-	fmt.Printf("code     count=%d xor=%X\n", d.code.count, d.code.acc)
-	fmt.Printf("storage  count=%d xor=%X\n", d.storage.count, d.storage.acc)
-	fmt.Printf("legacy   count=%d xor=%X\n", d.legacy.count, d.legacy.acc)
+func (d *evmDigest) print(ctx digestPrintContext) {
+	fmt.Println("EVM logical digest report")
+	printDigestContext(ctx)
+	fmt.Println()
+
+	legacyForCompare := d.legacy.acc
+	legacyCountForCompare := d.legacy.count
+	if d.migrationVersionFound {
+		for i := 0; i < sha256.Size; i++ {
+			legacyForCompare[i] ^= d.migrationVersionHash[i]
+		}
+		legacyCountForCompare--
+		fmt.Println("flatkv_marker_adjustment: omitted migration/migration-version from legacy bucket in final result")
+		fmt.Println()
+	}
+
+	fmt.Println("Bucket digests (final digest inputs)")
+	fmt.Printf("account  count=%d bucket_digest=%X\n", d.account.count, d.account.acc)
+	fmt.Printf("code     count=%d bucket_digest=%X\n", d.code.count, d.code.acc)
+	fmt.Printf("storage  count=%d bucket_digest=%X\n", d.storage.count, d.storage.acc)
+	fmt.Printf("legacy   count=%d bucket_digest=%X\n", legacyCountForCompare, legacyForCompare)
+
 	combined := sha256.New()
 	_, _ = combined.Write(d.account.acc[:])
 	_, _ = combined.Write(d.code.acc[:])
 	_, _ = combined.Write(d.storage.acc[:])
-	fmt.Printf("DIGEST(account+code+storage) %X count=%d\n",
-		combined.Sum(nil), d.account.count+d.code.count+d.storage.count)
-	combined4 := sha256.New()
-	_, _ = combined4.Write(d.account.acc[:])
-	_, _ = combined4.Write(d.code.acc[:])
-	_, _ = combined4.Write(d.storage.acc[:])
-	_, _ = combined4.Write(d.legacy.acc[:])
-	fmt.Printf("DIGEST(account+code+storage+legacy) %X count=%d\n",
-		combined4.Sum(nil), d.account.count+d.code.count+d.storage.count+d.legacy.count)
+	_, _ = combined.Write(legacyForCompare[:])
+	fmt.Println()
+	fmt.Printf("FINAL_DIGEST account+code+storage+legacy count=%d digest=%X\n",
+		d.account.count+d.code.count+d.storage.count+legacyCountForCompare, combined.Sum(nil))
+}
 
-	// Second variant: legacy with the FlatKV-only migration-version marker
-	// XORed back out, plus the corresponding combined digest. This is the
-	// value to compare against a memiavl-only node, which never owns the
-	// migration-version key. When the marker is absent (e.g. memiavl backend,
-	// or a not-yet-migrated flatkv node) the excl variant is identical to the
-	// line above, which we state explicitly so both runs are directly diffable.
-	if d.migrationVersionFound {
-		legacyExcl := d.legacy.acc
-		for i := 0; i < sha256.Size; i++ {
-			legacyExcl[i] ^= d.migrationVersionHash[i]
-		}
-		fmt.Printf("legacy   count=%d xor=%X [excl migration-version]\n",
-			d.legacy.count-1, legacyExcl)
-		combinedExcl := sha256.New()
-		_, _ = combinedExcl.Write(d.account.acc[:])
-		_, _ = combinedExcl.Write(d.code.acc[:])
-		_, _ = combinedExcl.Write(d.storage.acc[:])
-		_, _ = combinedExcl.Write(legacyExcl[:])
-		fmt.Printf("DIGEST(account+code+storage+legacy) %X count=%d [excl migration-version]\n",
-			combinedExcl.Sum(nil), d.account.count+d.code.count+d.storage.count+d.legacy.count-1)
-	} else {
-		fmt.Printf("DIGEST(account+code+storage+legacy) %X count=%d [excl migration-version: marker absent, identical to above]\n",
-			combined4.Sum(nil), d.account.count+d.code.count+d.storage.count+d.legacy.count)
+func printDigestStart(ctx digestPrintContext) {
+	fmt.Println("EVM logical digest start")
+	printDigestContext(ctx)
+	fmt.Println()
+}
+
+func printDigestContext(ctx digestPrintContext) {
+	fmt.Printf("backend: %s\n", ctx.backend)
+	if ctx.mode != "" {
+		fmt.Printf("mode: %s\n", ctx.mode)
 	}
+	fmt.Printf("db_dir: %s\n", ctx.dbDir)
+	fmt.Printf("source: %s\n", ctx.source)
+	fmt.Printf("requested_height: %d\n", ctx.requestedHeight)
+	fmt.Printf("version: %d\n", ctx.version)
+	fmt.Printf("normalization: %s\n", ctx.normalization)
 }
 
 func runEvmLogicalDigest(cmd *cobra.Command, _ []string) error {
@@ -280,8 +309,9 @@ func runEvmLogicalDigest(cmd *cobra.Command, _ []string) error {
 		return errors.New("must provide --db-dir")
 	}
 	inspectBucket, _ := cmd.Flags().GetString("inspect-bucket")
+	memiavlNormalization, _ := cmd.Flags().GetString("memiavl-normalization")
 	if inspectBucket != "" {
-		return runEvmLogicalInspect(cmd, backend, dbDir, height, inspectBucket)
+		return runEvmLogicalInspect(cmd, backend, dbDir, height, inspectBucket, memiavlNormalization)
 	}
 
 	findHashHex, _ := cmd.Flags().GetString("find-hash")
@@ -301,7 +331,7 @@ func runEvmLogicalDigest(cmd *cobra.Command, _ []string) error {
 	case "flatkv":
 		return digestFlatKV(dbDir, height, findTarget)
 	case "memiavl":
-		return digestMemIAVL(dbDir, height, findTarget)
+		return digestMemIAVL(dbDir, height, findTarget, memiavlNormalization)
 	default:
 		return fmt.Errorf("unknown --backend %q (want flatkv|memiavl)", backend)
 	}
@@ -322,27 +352,33 @@ func digestFlatKV(dbDir string, height int64, findTarget []byte) error {
 	defer func() { _ = iter.Close() }()
 
 	d := evmDigest{findTarget: findTarget}
-	var seen, legacy uint64
+	ctx := digestPrintContext{
+		backend:         "flatkv",
+		mode:            "native",
+		dbDir:           dbDir,
+		source:          "isolated FlatKV clone opened from snapshot + changelog WAL replay",
+		normalization:   "native FlatKV physical keyspace; values reduced to height-independent logical payload",
+		requestedHeight: height,
+		version:         version,
+	}
+	printDigestStart(ctx)
+	fmt.Println("Scan progress: flatkv input_physical_rows -> normalized logical bucket counts")
+	var seen uint64
 	for ; iter.Valid(); iter.Next() {
 		k := iter.Key()
-		if seen < 5 {
-			fmt.Printf("  DEBUG key#%d bucket=%s keyhex=%X\n", seen, classifyFlatKVPhysicalKey(k), k)
-		}
 		seen++
-		if classifyFlatKVPhysicalKey(k) == flatkvBucketLegacy {
-			legacy++
-		}
 		if err := d.consume(k, iter.Value()); err != nil {
 			return err
 		}
 		if seen%20000000 == 0 {
-			fmt.Printf("  ...flatkv seen=%d legacy=%d acc=%d code=%d storage=%d\n", seen, legacy, d.account.count, d.code.count, d.storage.count)
+			fmt.Printf("  progress backend=flatkv input_physical_rows=%d digested account=%d code=%d storage=%d legacy=%d\n",
+				seen, d.account.count, d.code.count, d.storage.count, d.legacy.count)
 		}
 	}
 	if err := iter.Error(); err != nil {
 		return fmt.Errorf("iterate: %w", err)
 	}
-	d.print(version)
+	d.print(ctx)
 	return nil
 }
 
@@ -359,7 +395,7 @@ type inspectAccumulator struct {
 	listed         uint64
 }
 
-func runEvmLogicalInspect(cmd *cobra.Command, backend, dbDir string, height int64, inspectBucket string) error {
+func runEvmLogicalInspect(cmd *cobra.Command, backend, dbDir string, height int64, inspectBucket string, memiavlNormalization string) error {
 	if !isFlatKVBucket(inspectBucket) {
 		return fmt.Errorf("unknown --inspect-bucket %q", inspectBucket)
 	}
@@ -394,7 +430,7 @@ func runEvmLogicalInspect(cmd *cobra.Command, backend, dbDir string, height int6
 	case "flatkv":
 		return inspectFlatKV(dbDir, height, acc)
 	case "memiavl":
-		return inspectMemIAVL(dbDir, height, acc)
+		return inspectMemIAVL(dbDir, height, acc, memiavlNormalization)
 	default:
 		return fmt.Errorf("unknown --backend %q (want flatkv|memiavl)", backend)
 	}
@@ -409,15 +445,20 @@ func (a *inspectAccumulator) consumeWithMeta(physKey, val []byte, meta string) e
 	if err != nil {
 		return err
 	}
+	a.consumeLogical(bucket, physKey, logical, meta)
+	return nil
+}
+
+func (a *inspectAccumulator) consumeLogical(bucket string, physKey, logical []byte, meta string) {
 	if bucket != a.inspectBucket {
-		return nil
+		return
 	}
 	if len(physKey) < a.keyOffset {
-		return nil
+		return
 	}
 	rel := physKey[a.keyOffset:]
 	if !bytes.HasPrefix(rel, a.keyPrefix) {
-		return nil
+		return
 	}
 	a.matched++
 	if a.list {
@@ -429,7 +470,7 @@ func (a *inspectAccumulator) consumeWithMeta(physKey, val []byte, meta string) e
 			}
 			a.listed++
 		}
-		return nil
+		return
 	}
 	shardEnd := len(a.keyPrefix) + a.shardNextBytes
 	if shardEnd > len(rel) {
@@ -442,7 +483,6 @@ func (a *inspectAccumulator) consumeWithMeta(physKey, val []byte, meta string) e
 		a.shards[shard] = d
 	}
 	d.add(physKey, logical)
-	return nil
 }
 
 func (a *inspectAccumulator) print(version int64) {
@@ -460,7 +500,7 @@ func (a *inspectAccumulator) print(version int64) {
 	sort.Strings(keys)
 	for _, k := range keys {
 		d := a.shards[k]
-		fmt.Printf("shard=%s count=%d xor=%X\n", k, d.count, d.acc)
+		fmt.Printf("shard=%s count=%d bucket_digest=%X\n", k, d.count, d.acc)
 	}
 }
 
@@ -502,7 +542,18 @@ func inspectFlatKV(dbDir string, height int64, acc *inspectAccumulator) error {
 	return nil
 }
 
-func inspectMemIAVL(dbDir string, height int64, acc *inspectAccumulator) error {
+func inspectMemIAVL(dbDir string, height int64, acc *inspectAccumulator, normalization string) error {
+	switch normalization {
+	case "", "semantic", "independent":
+		return inspectMemIAVLSemantic(dbDir, height, acc)
+	case "translator":
+		return inspectMemIAVLTranslator(dbDir, height, acc)
+	default:
+		return fmt.Errorf("unknown --memiavl-normalization %q (want semantic|independent|translator)", normalization)
+	}
+}
+
+func inspectMemIAVLTranslator(dbDir string, height int64, acc *inspectAccumulator) error {
 	if acc.details && acc.list && acc.inspectBucket == flatkvBucketStorage {
 		return inspectMemIAVLStorageDetails(dbDir, height, acc)
 	}
@@ -590,6 +641,70 @@ func inspectMemIAVL(dbDir string, height int64, acc *inspectAccumulator) error {
 	return nil
 }
 
+func inspectMemIAVLSemantic(dbDir string, height int64, acc *inspectAccumulator) error {
+	if acc.details && acc.list && acc.inspectBucket == flatkvBucketStorage {
+		return inspectMemIAVLStorageDetails(dbDir, height, acc)
+	}
+
+	evmSnapshotDir, err := resolveMemIAVLEvmSnapshotDir(dbDir, height)
+	if err != nil {
+		return err
+	}
+	version, err := readMemIAVLSnapshotVersion(evmSnapshotDir)
+	if err != nil {
+		return err
+	}
+	kvsPath := filepath.Join(evmSnapshotDir, "kvs")
+	f, err := os.Open(filepath.Clean(kvsPath))
+	if err != nil {
+		return fmt.Errorf("open kvs %s: %w", kvsPath, err)
+	}
+	defer func() { _ = f.Close() }()
+	r := bufio.NewReaderSize(f, 16*1024*1024)
+
+	var accounts map[string]*semanticAccountDigestState
+	if acc.inspectBucket == flatkvBucketAccount {
+		accounts = make(map[string]*semanticAccountDigestState)
+	}
+	consume := func(bucket string, physKey, logical, _ []byte) {
+		acc.consumeLogical(bucket, physKey, logical, "")
+	}
+	var lenbuf [4]byte
+	var leaves uint64
+	for {
+		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return fmt.Errorf("read key len: %w", err)
+		}
+		keyLen := binary.LittleEndian.Uint32(lenbuf[:])
+		k := make([]byte, keyLen)
+		if _, err := io.ReadFull(r, k); err != nil {
+			return fmt.Errorf("read key: %w", err)
+		}
+		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
+			return fmt.Errorf("read val len: %w", err)
+		}
+		valLen := binary.LittleEndian.Uint32(lenbuf[:])
+		v := make([]byte, valLen)
+		if _, err := io.ReadFull(r, v); err != nil {
+			return fmt.Errorf("read val: %w", err)
+		}
+		leaves++
+		if leaves%20000000 == 0 {
+			fmt.Printf("  ...memiavl inspect mode=semantic leaves=%d matched=%d\n", leaves, acc.matched)
+		}
+		if err := consumeSemanticMemiavlLeaf(accounts, k, v, consume, "inspect"); err != nil {
+			return err
+		}
+	}
+	finalizeSemanticAccounts(accounts, consume)
+	fmt.Printf("  memiavl inspect total leaves=%d\n", leaves)
+	acc.print(version)
+	return nil
+}
+
 func inspectMemIAVLStorageDetails(dbDir string, height int64, acc *inspectAccumulator) error {
 	evmSnapshotDir, err := resolveMemIAVLEvmSnapshotDir(dbDir, height)
 	if err != nil {
@@ -655,7 +770,11 @@ func inspectMemIAVLStorageDetails(dbDir string, height int64, acc *inspectAccumu
 		if len(k) < rawOffset || !bytes.HasPrefix(k[rawOffset:], acc.keyPrefix) {
 			continue
 		}
-		if kind, _ := keys.ParseEVMKey(k); kind != keys.EVMKeyStorage {
+		kind, keyBytes := keys.ParseEVMKey(k)
+		if kind != keys.EVMKeyStorage {
+			continue
+		}
+		if isAllZero(v) {
 			continue
 		}
 		value, err := vtype.ParseStorageValue(v)
@@ -663,10 +782,7 @@ func inspectMemIAVLStorageDetails(dbDir string, height int64, acc *inspectAccumu
 			return fmt.Errorf("parse storage value %X: %w", k, err)
 		}
 		leafVersion := int64(binary.LittleEndian.Uint32(leafbuf[:4]))
-		physKey := make([]byte, len(keys.EVMStoreKey)+1+len(k))
-		copy(physKey, keys.EVMStoreKey)
-		physKey[len(keys.EVMStoreKey)] = '/'
-		copy(physKey[len(keys.EVMStoreKey)+1:], k)
+		physKey := ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes)
 		storageData := vtype.NewStorageData().SetBlockHeight(leafVersion).SetValue(value)
 		if err := acc.consumeWithMeta(physKey, storageData.Serialize(), fmt.Sprintf("leaf_version=%d", leafVersion)); err != nil {
 			return err
@@ -728,7 +844,18 @@ func flatKVValueMeta(physKey, val []byte) (string, error) {
 // kvs record layout (little-endian), repeated leafCount times until EOF:
 //
 //	keyLen uint32 | key [keyLen] | valLen uint32 | value [valLen]
-func digestMemIAVL(dbDir string, height int64, findTarget []byte) error {
+func digestMemIAVL(dbDir string, height int64, findTarget []byte, normalization string) error {
+	switch normalization {
+	case "", "semantic", "independent":
+		return digestMemIAVLSemantic(dbDir, height, findTarget)
+	case "translator":
+		return digestMemIAVLTranslator(dbDir, height, findTarget)
+	default:
+		return fmt.Errorf("unknown --memiavl-normalization %q (want semantic|independent|translator)", normalization)
+	}
+}
+
+func digestMemIAVLTranslator(dbDir string, height int64, findTarget []byte) error {
 	evmSnapshotDir, err := resolveMemIAVLEvmSnapshotDir(dbDir, height)
 	if err != nil {
 		return err
@@ -772,6 +899,18 @@ func digestMemIAVL(dbDir string, height int64, findTarget []byte) error {
 	// all leaves through it does not blow up RSS beyond the account buffer.
 	translator := flatkv.NewImportTranslator(0)
 	d := evmDigest{findTarget: findTarget}
+	ctx := digestPrintContext{
+		backend:         "memiavl",
+		mode:            "translator",
+		dbDir:           dbDir,
+		source:          evmSnapshotDir + " (snapshot/current only; no memiavl WAL replay)",
+		normalization:   "memiavl leaves translated with flatkv.ImportTranslator, then reduced to logical payload",
+		requestedHeight: height,
+		version:         version,
+	}
+	printDigestStart(ctx)
+	fmt.Println("Scan progress: memiavl input_leaves -> translated flatkv logical bucket counts")
+	fmt.Println("Note: account rows are merged by the translator at finalize, so progress shows account=deferred_until_finalize.")
 	var leaves uint64
 
 	const batchCap = 8192
@@ -819,16 +958,19 @@ func digestMemIAVL(dbDir string, height int64, findTarget []byte) error {
 		}
 
 		leaves++
-		if leaves%20000000 == 0 {
-			fmt.Printf("  ...memiavl leaves=%d acc=%d code=%d storage=%d\n",
-				leaves, d.account.count, d.code.count, d.storage.count)
-		}
-
 		batch = append(batch, &proto.KVPair{Key: k, Value: v})
 		if len(batch) >= batchCap {
 			if ferr := flush(); ferr != nil {
 				return ferr
 			}
+		}
+		if leaves%20000000 == 0 {
+			// Flush before reporting so progress counts include all leaves seen so far.
+			if ferr := flush(); ferr != nil {
+				return ferr
+			}
+			fmt.Printf("  progress backend=memiavl input_leaves=%d digested account=deferred_until_finalize code=%d storage=%d legacy=%d\n",
+				leaves, d.code.count, d.storage.count, d.legacy.count)
 		}
 	}
 
@@ -841,10 +983,203 @@ func digestMemIAVL(dbDir string, height int64, findTarget []byte) error {
 			return cerr
 		}
 	}
+	fmt.Printf("  finalize backend=memiavl account=%d code=%d storage=%d legacy=%d\n",
+		d.account.count, d.code.count, d.storage.count, d.legacy.count)
 
 	fmt.Printf("  memiavl total leaves=%d\n", leaves)
-	d.print(version)
+	d.print(ctx)
 	return nil
+}
+
+type semanticAccountDigestState struct {
+	nonce    uint64
+	codeHash [32]byte
+}
+
+func (s *semanticAccountDigestState) isZeroAccount() bool {
+	if s == nil {
+		return true
+	}
+	if s.nonce != 0 {
+		return false
+	}
+	for _, b := range s.codeHash {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *semanticAccountDigestState) logicalPayload() []byte {
+	logical := make([]byte, 72)
+	// Balance is not represented in the current memiavl EVM keyspace, so the
+	// first 32 bytes intentionally remain zero.
+	binary.BigEndian.PutUint64(logical[32:40], s.nonce)
+	copy(logical[40:], s.codeHash[:])
+	return logical
+}
+
+func digestMemIAVLSemantic(dbDir string, height int64, findTarget []byte) error {
+	evmSnapshotDir, err := resolveMemIAVLEvmSnapshotDir(dbDir, height)
+	if err != nil {
+		return err
+	}
+
+	version, err := readMemIAVLSnapshotVersion(evmSnapshotDir)
+	if err != nil {
+		return err
+	}
+
+	kvsPath := filepath.Join(evmSnapshotDir, "kvs")
+	f, err := os.Open(filepath.Clean(kvsPath))
+	if err != nil {
+		return fmt.Errorf("open kvs %s: %w", kvsPath, err)
+	}
+	defer func() { _ = f.Close() }()
+	r := bufio.NewReaderSize(f, 16*1024*1024)
+
+	d := evmDigest{findTarget: findTarget}
+	accounts := make(map[string]*semanticAccountDigestState)
+	ctx := digestPrintContext{
+		backend:         "memiavl",
+		mode:            "semantic",
+		dbDir:           dbDir,
+		source:          evmSnapshotDir + " (snapshot/current only; no memiavl WAL replay)",
+		normalization:   "independent semantic decoder for raw memiavl EVM keys; does not call flatkv.ImportTranslator",
+		requestedHeight: height,
+		version:         version,
+	}
+	printDigestStart(ctx)
+	fmt.Println("Scan progress: memiavl input_leaves -> independently decoded EVM logical bucket counts")
+	fmt.Println("Note: semantic mode does not call flatkv.ImportTranslator; account rows are merged locally at finalize.")
+
+	var lenbuf [4]byte
+	var leaves uint64
+	for {
+		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return fmt.Errorf("read key len: %w", err)
+		}
+		keyLen := binary.LittleEndian.Uint32(lenbuf[:])
+		k := make([]byte, keyLen)
+		if _, err := io.ReadFull(r, k); err != nil {
+			return fmt.Errorf("read key: %w", err)
+		}
+		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
+			return fmt.Errorf("read val len: %w", err)
+		}
+		valLen := binary.LittleEndian.Uint32(lenbuf[:])
+		v := make([]byte, valLen)
+		if _, err := io.ReadFull(r, v); err != nil {
+			return fmt.Errorf("read val: %w", err)
+		}
+
+		leaves++
+		if err := d.consumeSemanticMemiavlLeaf(accounts, k, v); err != nil {
+			return err
+		}
+		if leaves%20000000 == 0 {
+			fmt.Printf("  progress backend=memiavl mode=semantic input_leaves=%d digested account=deferred_until_finalize account_buffered=%d code=%d storage=%d legacy=%d\n",
+				leaves, len(accounts), d.code.count, d.storage.count, d.legacy.count)
+		}
+	}
+
+	d.finalizeSemanticAccounts(accounts)
+	fmt.Printf("  finalize backend=memiavl mode=semantic account=%d code=%d storage=%d legacy=%d\n",
+		d.account.count, d.code.count, d.storage.count, d.legacy.count)
+
+	fmt.Printf("  memiavl total leaves=%d\n", leaves)
+	d.print(ctx)
+	return nil
+}
+
+func (d *evmDigest) finalizeSemanticAccounts(accounts map[string]*semanticAccountDigestState) {
+	finalizeSemanticAccounts(accounts, d.addLogical)
+}
+
+func (d *evmDigest) consumeSemanticMemiavlLeaf(accounts map[string]*semanticAccountDigestState, rawKey, rawVal []byte) error {
+	return consumeSemanticMemiavlLeaf(accounts, rawKey, rawVal, d.addLogical, "digest")
+}
+
+type semanticLogicalConsumer func(bucket string, physKey, logical, rawVal []byte)
+
+func finalizeSemanticAccounts(accounts map[string]*semanticAccountDigestState, consume semanticLogicalConsumer) {
+	for addr, account := range accounts {
+		if account.isZeroAccount() {
+			continue
+		}
+		physKey := ktype.EVMPhysicalKey(keys.EVMKeyNonce, []byte(addr))
+		consume(flatkvBucketAccount, physKey, account.logicalPayload(), nil)
+	}
+}
+
+func consumeSemanticMemiavlLeaf(accounts map[string]*semanticAccountDigestState, rawKey, rawVal []byte, consume semanticLogicalConsumer, caller string) error {
+	kind, keyBytes := keys.ParseEVMKey(rawKey)
+	switch kind {
+	case keys.EVMKeyEmpty:
+		return fmt.Errorf("semantic memiavl %s: empty EVM key", caller)
+	case keys.EVMKeyNonce:
+		if len(rawVal) != 8 {
+			return fmt.Errorf("semantic memiavl %s: nonce %X has length %d, want 8", caller, rawKey, len(rawVal))
+		}
+		if accounts == nil {
+			return nil
+		}
+		account := getSemanticAccount(accounts, keyBytes)
+		account.nonce = binary.BigEndian.Uint64(rawVal)
+	case keys.EVMKeyCodeHash:
+		if len(rawVal) != 32 {
+			return fmt.Errorf("semantic memiavl %s: codehash %X has length %d, want 32", caller, rawKey, len(rawVal))
+		}
+		if accounts == nil {
+			return nil
+		}
+		account := getSemanticAccount(accounts, keyBytes)
+		copy(account.codeHash[:], rawVal)
+	case keys.EVMKeyCode:
+		if len(rawVal) == 0 {
+			return nil
+		}
+		physKey := ktype.EVMPhysicalKey(keys.EVMKeyCode, keyBytes)
+		consume(flatkvBucketCode, physKey, rawVal, rawVal)
+	case keys.EVMKeyStorage:
+		if len(rawVal) != 32 {
+			return fmt.Errorf("semantic memiavl %s: storage %X has length %d, want 32", caller, rawKey, len(rawVal))
+		}
+		if isAllZero(rawVal) {
+			return nil
+		}
+		physKey := ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes)
+		consume(flatkvBucketStorage, physKey, rawVal, rawVal)
+	case keys.EVMKeyLegacy:
+		physKey := ktype.ModulePhysicalKey(keys.EVMStoreKey, rawKey)
+		consume(flatkvBucketLegacy, physKey, rawVal, rawVal)
+	default:
+		return fmt.Errorf("semantic memiavl %s: unsupported EVM key kind %d for key %X", caller, kind, rawKey)
+	}
+	return nil
+}
+
+func getSemanticAccount(accounts map[string]*semanticAccountDigestState, addr []byte) *semanticAccountDigestState {
+	key := string(addr)
+	account, ok := accounts[key]
+	if !ok {
+		account = &semanticAccountDigestState{}
+		accounts[key] = account
+	}
+	return account
+}
+
+func isAllZero(bz []byte) bool {
+	for _, b := range bz {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // readMemIAVLSnapshotVersion reads the version field from the snapshot metadata
