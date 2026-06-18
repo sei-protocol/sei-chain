@@ -97,7 +97,7 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 
 func (s *blockDB) Flush() error { return nil }
 
-func (s *blockDB) Blocks() (types.BlockIterator, error) {
+func (s *blockDB) Blocks(reverse bool) (types.BlockIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -105,7 +105,12 @@ func (s *blockDB) Blocks() (types.BlockIterator, error) {
 	for n := range s.byNumber {
 		nums = append(nums, n)
 	}
-	sort.Slice(nums, func(i, j int) bool { return nums[i] < nums[j] })
+	sort.Slice(nums, func(i, j int) bool {
+		if reverse {
+			return nums[i] > nums[j]
+		}
+		return nums[i] < nums[j]
+	})
 	blocks := make([]*types.Block, len(nums))
 	for i, n := range nums {
 		blocks[i] = s.byNumber[n]
@@ -113,7 +118,7 @@ func (s *blockDB) Blocks() (types.BlockIterator, error) {
 	return &memBlockIterator{nums: nums, blocks: blocks, idx: -1}, nil
 }
 
-func (s *blockDB) QCs() (types.QCIterator, error) {
+func (s *blockDB) QCs(reverse bool) (types.QCIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -121,7 +126,12 @@ func (s *blockDB) QCs() (types.QCIterator, error) {
 	for l := range s.qcsByLower {
 		lowers = append(lowers, l)
 	}
-	sort.Slice(lowers, func(i, j int) bool { return lowers[i] < lowers[j] })
+	sort.Slice(lowers, func(i, j int) bool {
+		if reverse {
+			return lowers[i] > lowers[j]
+		}
+		return lowers[i] < lowers[j]
+	})
 	qcs := make([]*types.FullCommitQC, len(lowers))
 	for i, l := range lowers {
 		qcs[i] = s.qcsByLower[l].qc

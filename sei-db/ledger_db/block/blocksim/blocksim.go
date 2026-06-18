@@ -105,7 +105,31 @@ func NewBlockSim(
 	}
 	fmt.Printf("Loaded %d blocks and %d QCs from existing state.\n", blockCount, qcCount)
 
-	generator := NewBlockGenerator(ctx, config, rng, committee, keys)
+	// Recover the persisted tail so generation resumes after existing history
+	// instead of restarting from global block 0 (which would collide with the
+	// on-disk data).
+	prev, highest, err := recoverResumeState(db)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to recover resume state: %w", err)
+	}
+	if prevQC, ok := prev.Get(); ok {
+		// Orphan blocks past the last QC (a partial batch left by a hard crash)
+		// would make the next contiguous WriteBlock collide. Until the resume
+		// policy for this case is settled, fail loudly rather than die later on
+		// an opaque ErrBlockOutOfOrder.
+		lastQCNext := uint64(prevQC.GlobalRange(committee).Next)
+		if highest+1 > lastQCNext {
+			cancel()
+			return nil, fmt.Errorf(
+				"cannot resume: highest persisted block %d is past the last QC's range (covers up to %d); "+
+					"a partial batch was likely left by a hard crash — enable CleanDataOnStart to start fresh",
+				highest, lastQCNext-1)
+		}
+		fmt.Printf("Resuming from block %d.\n", highest)
+	}
+
+	generator := NewBlockGenerator(ctx, config, rng, committee, keys, prev)
 
 	consoleUpdatePeriod := time.Duration(config.ConsoleUpdateIntervalSeconds * float64(time.Second))
 
@@ -126,6 +150,8 @@ func NewBlockSim(
 		consoleUpdatePeriod:   consoleUpdatePeriod,
 		lastConsoleUpdateTime: start,
 		startTimestamp:        start,
+		highestBlockHeight:    highest,
+		lastPrunedAt:          highest,
 		closeChan:             make(chan struct{}, 1),
 		suspendChan:           make(chan bool, 1),
 		rateLimiter:           rateLimiter,
@@ -138,7 +164,7 @@ func NewBlockSim(
 // countExistingState scans the block and QC iterators to count what is already
 // persisted, exercising the replay path at startup.
 func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
-	blockIt, err := db.Blocks()
+	blockIt, err := db.Blocks(false)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to open block iterator: %w", err)
 	}
@@ -154,7 +180,7 @@ func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
 		blocks++
 	}
 
-	qcIt, err := db.QCs()
+	qcIt, err := db.QCs(false)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to open QC iterator: %w", err)
 	}
@@ -170,6 +196,50 @@ func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
 		qcs++
 	}
 	return blocks, qcs, nil
+}
+
+// recoverResumeState reads the persisted tail so the benchmark resumes
+// appending after existing history rather than restarting from global block 0.
+// It returns the last persisted QC (to seed the generator's chain via
+// BlockGenerator.prev) and the highest persisted block number. Blocks and QCs
+// are recovered independently with a single reverse-iterator step each, because
+// a hard crash mid-batch can leave blocks without a covering QC. An empty store
+// yields (None, 0, nil), preserving genesis-start behavior.
+func recoverResumeState(db types.BlockDB) (tmutils.Option[*types.CommitQC], uint64, error) {
+	prev := tmutils.None[*types.CommitQC]()
+	var highest uint64
+
+	blockIt, err := db.Blocks(true)
+	if err != nil {
+		return prev, 0, fmt.Errorf("failed to open reverse block iterator: %w", err)
+	}
+	defer func() { _ = blockIt.Close() }()
+	ok, err := blockIt.Next()
+	if err != nil {
+		return prev, 0, fmt.Errorf("failed to read newest block: %w", err)
+	}
+	if ok {
+		highest = uint64(blockIt.Number())
+	}
+
+	qcIt, err := db.QCs(true)
+	if err != nil {
+		return prev, 0, fmt.Errorf("failed to open reverse QC iterator: %w", err)
+	}
+	defer func() { _ = qcIt.Close() }()
+	ok, err = qcIt.Next()
+	if err != nil {
+		return prev, 0, fmt.Errorf("failed to read newest QC: %w", err)
+	}
+	if ok {
+		fqc, err := qcIt.QC()
+		if err != nil {
+			return prev, 0, fmt.Errorf("failed to decode newest QC: %w", err)
+		}
+		prev = tmutils.Some(fqc.QC())
+	}
+
+	return prev, highest, nil
 }
 
 // buildCommittee creates a round-robin committee of the given size along with
@@ -232,6 +302,16 @@ func (b *BlockSim) maybeThrottle() {
 	}
 }
 
+// handleNextBatch persists one batch: all of its blocks, then its QC. It is
+// deliberately atomic with respect to shutdown — it writes the whole batch and
+// only returns early on a write *error*, never on context cancellation (run
+// observes shutdown solely between batches, and the only mid-batch ctx use,
+// maybeThrottle, merely stops throttling and proceeds with the write). Combined
+// with flushes happening only after the QC (here, in suspend, and in teardown),
+// this guarantees a cleanly shut-down store always ends at a complete batch
+// boundary (highest block == last QC's Next-1), so it can be resumed without
+// orphan blocks. Do NOT add a mid-batch ctx abort: it would let a clean
+// shutdown leave a partial batch that breaks resume.
 func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 	b.metrics.SetMainThreadPhase("write_block")
 	for i, blk := range batch.blocks {

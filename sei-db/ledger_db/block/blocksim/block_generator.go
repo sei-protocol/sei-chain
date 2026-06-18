@@ -36,13 +36,17 @@ type BlockGenerator struct {
 }
 
 // NewBlockGenerator creates a BlockGenerator and immediately starts its
-// background goroutine.
+// background goroutine. prev seeds the chain: pass the last persisted QC to
+// resume after existing on-disk history, or utils.None to start from genesis.
+// prev is set on the struct before the goroutine is launched, so the goroutine
+// observes it without a data race.
 func NewBlockGenerator(
 	ctx context.Context,
 	config *BlocksimConfig,
 	rng utils.Rng,
 	committee *types.Committee,
 	keys []types.SecretKey,
+	prev utils.Option[*types.CommitQC],
 ) *BlockGenerator {
 	g := &BlockGenerator{
 		ctx:       ctx,
@@ -50,7 +54,7 @@ func NewBlockGenerator(
 		rng:       rng,
 		committee: committee,
 		keys:      keys,
-		prev:      utils.None[*types.CommitQC](),
+		prev:      prev,
 		batchChan: make(chan *generatedBatch, config.StagedBlockQueueSize),
 	}
 	go g.mainLoop()

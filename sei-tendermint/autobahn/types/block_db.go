@@ -202,8 +202,15 @@ type BlockDB interface {
 	Flush() error
 
 	// Blocks returns an iterator over every persisted block not yet
-	// pruned, in ascending GlobalBlockNumber order, for startup replay.
-	// Intended to be called once at construction by data.State.NewState.
+	// pruned, for startup replay. Intended to be called once at
+	// construction by data.State.NewState.
+	//
+	// If reverse is false the iterator yields blocks in ascending
+	// GlobalBlockNumber order (the efficient direction for a full scan);
+	// if reverse is true it yields them newest-first (descending), so a
+	// caller can read the most recent block without scanning the whole
+	// table. Reverse iteration may incur extra IO when materializing
+	// values (see BlockIterator.Block), so prefer forward for full scans.
 	//
 	// Unlike a bulk read, the iterator materializes one block at a time,
 	// so a caller can scan an arbitrarily large retention window without
@@ -214,17 +221,21 @@ type BlockDB interface {
 	// created; blocks written afterward are not observed. It is NOT safe
 	// for concurrent use and MUST be closed when no longer needed (see
 	// BlockIterator.Close).
-	Blocks() (BlockIterator, error)
+	Blocks(reverse bool) (BlockIterator, error)
 
 	// QCs returns an iterator over every persisted FullCommitQC not yet
-	// pruned, in ascending GlobalRange().First order. Successive QCs
+	// pruned. If reverse is false the iterator yields QCs in ascending
+	// GlobalRange().First order; if reverse is true it yields them
+	// newest-first (descending), so a caller can read the most recent QC
+	// without scanning the whole table (reverse value reads may incur
+	// extra IO — prefer forward for full scans). Successive forward QCs
 	// cover contiguous ranges; the first QC's First is not required to
 	// equal committee.FirstBlock() (QCs whose entire range is below the
 	// retention watermark have been pruned).
 	//
 	// Same snapshot, single-goroutine, and must-close semantics as
 	// Blocks.
-	QCs() (QCIterator, error)
+	QCs(reverse bool) (QCIterator, error)
 
 	// ReadBlockByNumber returns the block at GlobalBlockNumber n.
 	//
@@ -268,9 +279,10 @@ type BlockDB interface {
 	Close() error
 }
 
-// BlockIterator iterates over persisted blocks in ascending
-// GlobalBlockNumber order. It is created via BlockDB.Blocks and captures a
-// snapshot of the blocks present at creation time.
+// BlockIterator iterates over persisted blocks in GlobalBlockNumber order —
+// ascending, or descending if the iterator was created with reverse=true. It
+// is created via BlockDB.Blocks and captures a snapshot of the blocks present
+// at creation time.
 //
 // A BlockIterator is NOT safe for concurrent use by multiple goroutines.
 type BlockIterator interface {
@@ -299,9 +311,10 @@ type BlockIterator interface {
 	Close() error
 }
 
-// QCIterator iterates over persisted FullCommitQCs in ascending
-// GlobalRange().First order. It is created via BlockDB.QCs and captures a
-// snapshot of the QCs present at creation time.
+// QCIterator iterates over persisted FullCommitQCs in GlobalRange().First
+// order — ascending, or descending if the iterator was created with
+// reverse=true. It is created via BlockDB.QCs and captures a snapshot of the
+// QCs present at creation time.
 //
 // A QCIterator is NOT safe for concurrent use by multiple goroutines.
 type QCIterator interface {

@@ -63,6 +63,9 @@ func TestBlockDB(t *testing.T) {
 				testWriteOrderRejectedAfterRestart(t, impl.build)
 			})
 			t.Run("WriteBlockGaps", func(t *testing.T) { testWriteBlockGaps(t, impl.build) })
+			t.Run("ReverseIteratorEmpty", func(t *testing.T) { testReverseIteratorEmpty(t, impl.build) })
+			t.Run("ReverseIteratorOrdering", func(t *testing.T) { testReverseIteratorOrdering(t, impl.build) })
+			t.Run("ResumeAfterRestart", func(t *testing.T) { testResumeAfterRestart(t, impl.build) })
 		})
 	}
 }
@@ -102,14 +105,14 @@ func testEmptyDB(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, qc.IsPresent())
 
-	blockIt, err := db.Blocks()
+	blockIt, err := db.Blocks(false)
 	require.NoError(t, err)
 	ok, err := blockIt.Next()
 	require.NoError(t, err)
 	require.False(t, ok, "empty db should yield no blocks")
 	require.NoError(t, blockIt.Close())
 
-	qcIt, err := db.QCs()
+	qcIt, err := db.QCs(false)
 	require.NoError(t, err)
 	ok, err = qcIt.Next()
 	require.NoError(t, err)
@@ -299,10 +302,10 @@ func testIteratorSnapshot(t *testing.T, build builder) {
 	}
 	require.NoError(t, db.WriteQC(first.first, first.next, first.qc))
 
-	blockIt, err := db.Blocks()
+	blockIt, err := db.Blocks(false)
 	require.NoError(t, err)
 	defer func() { _ = blockIt.Close() }()
-	qcIt, err := db.QCs()
+	qcIt, err := db.QCs(false)
 	require.NoError(t, err)
 	defer func() { _ = qcIt.Close() }()
 
@@ -406,6 +409,165 @@ func testWriteOrderRejectedAfterRestart(t *testing.T, build builder) {
 	assertQCsReadable(t, db, committee, batches)
 }
 
+// testReverseIteratorEmpty asserts a reverse iterator over an empty store
+// yields nothing — the resume path relies on this to detect a fresh start.
+func testReverseIteratorEmpty(t *testing.T, build builder) {
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+
+	blockIt, err := db.Blocks(true)
+	require.NoError(t, err)
+	ok, err := blockIt.Next()
+	require.NoError(t, err)
+	require.False(t, ok, "reverse block iterator over empty store must yield nothing")
+	require.NoError(t, blockIt.Close())
+
+	qcIt, err := db.QCs(true)
+	require.NoError(t, err)
+	ok, err = qcIt.Next()
+	require.NoError(t, err)
+	require.False(t, ok, "reverse QC iterator over empty store must yield nothing")
+	require.NoError(t, qcIt.Close())
+}
+
+// testReverseIteratorOrdering asserts reverse iteration yields blocks and QCs
+// newest-first: the highest block and last QC come first, ordering is strictly
+// descending, and secondary keys are skipped (one entry per block / per QC).
+func testReverseIteratorOrdering(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+	writeAll(t, db, batches)
+
+	totalBlocks := 0
+	for _, b := range batches {
+		totalBlocks += len(b.blocks)
+	}
+	highest := batches[len(batches)-1].next - 1
+
+	blockIt, err := db.Blocks(true)
+	require.NoError(t, err)
+	count := 0
+	var prev types.GlobalBlockNumber
+	havePrev := false
+	for {
+		ok, err := blockIt.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		n := blockIt.Number()
+		if count == 0 {
+			require.Equal(t, highest, n, "reverse blocks must surface the highest block first")
+		}
+		if havePrev {
+			require.Less(t, n, prev, "reverse blocks must iterate descending")
+		}
+		prev, havePrev = n, true
+		count++
+	}
+	require.NoError(t, blockIt.Close())
+	require.Equal(t, totalBlocks, count, "reverse iterator must yield one entry per block (secondaries skipped)")
+
+	lastFirst := batches[len(batches)-1].first
+	qcIt, err := db.QCs(true)
+	require.NoError(t, err)
+	qcCount := 0
+	var prevFirst types.GlobalBlockNumber
+	haveQC := false
+	for {
+		ok, err := qcIt.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		qc, err := qcIt.QC()
+		require.NoError(t, err)
+		first := qc.QC().GlobalRange(committee).First
+		if qcCount == 0 {
+			require.Equal(t, lastFirst, first, "reverse QCs must surface the last QC first")
+		}
+		if haveQC {
+			require.Less(t, first, prevFirst, "reverse QCs must iterate descending by First")
+		}
+		prevFirst, haveQC = first, true
+		qcCount++
+	}
+	require.NoError(t, qcIt.Close())
+	require.Equal(t, len(batches), qcCount, "reverse iterator must yield one entry per QC (secondaries skipped)")
+}
+
+// testResumeAfterRestart asserts the resume recovery path: after a restart, a
+// reverse-iterator scan recovers the highest block number and the last QC, and
+// the contiguous continuation is accepted. This is the mechanism blocksim uses
+// to append to an existing store instead of restarting at global block 0.
+func testResumeAfterRestart(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	require.GreaterOrEqual(t, len(batches), 2, "need pre-restart data plus a continuation batch")
+
+	db, o := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+
+	head := batches[:len(batches)-1]
+	tail := batches[len(batches)-1]
+	writeAll(t, db, head)
+	db = restart(t, o, db)
+
+	last := head[len(head)-1]
+
+	// Recover the tail via reverse iteration (mirrors blocksim.recoverResumeState).
+	highest, ok := recoverHighestBlock(t, db)
+	require.True(t, ok)
+	require.Equal(t, last.next-1, highest, "recovered highest block must be the last persisted number")
+
+	prevQC, ok := recoverLastQC(t, db)
+	require.True(t, ok)
+	require.Equal(t, last.first, prevQC.GlobalRange(committee).First, "recovered QC must be the last persisted QC")
+	require.Equal(t, last.next, prevQC.GlobalRange(committee).Next)
+
+	// The recovered QC's upper bound is exactly where the continuation begins;
+	// writing the next contiguous batch must be accepted.
+	for i, blk := range tail.blocks {
+		require.NoError(t, db.WriteBlock(tail.first+gbn(i), blk))
+	}
+	require.NoError(t, db.WriteQC(tail.first, tail.next, tail.qc))
+
+	assertBlocksReadable(t, db, batches)
+	assertQCsReadable(t, db, committee, batches)
+}
+
+// recoverHighestBlock returns the highest persisted block number via a single
+// reverse-iterator step (false if the store is empty).
+func recoverHighestBlock(t *testing.T, db types.BlockDB) (types.GlobalBlockNumber, bool) {
+	it, err := db.Blocks(true)
+	require.NoError(t, err)
+	defer func() { _ = it.Close() }()
+	ok, err := it.Next()
+	require.NoError(t, err)
+	if !ok {
+		return 0, false
+	}
+	return it.Number(), true
+}
+
+// recoverLastQC returns the most recently persisted QC's *CommitQC via a single
+// reverse-iterator step (false if the store has no QCs).
+func recoverLastQC(t *testing.T, db types.BlockDB) (*types.CommitQC, bool) {
+	it, err := db.QCs(true)
+	require.NoError(t, err)
+	defer func() { _ = it.Close() }()
+	ok, err := it.Next()
+	require.NoError(t, err)
+	if !ok {
+		return nil, false
+	}
+	fqc, err := it.QC()
+	require.NoError(t, err)
+	return fqc.QC(), true
+}
+
 // testWriteBlockGaps asserts that block numbers need only be strictly
 // ascending, not contiguous: gaps are permitted, reads resolve only the written
 // numbers, and the iterator surfaces exactly those numbers in ascending order.
@@ -444,7 +606,7 @@ func testWriteBlockGaps(t *testing.T, build builder) {
 	}
 
 	// The iterator yields exactly the written numbers, ascending.
-	blockIt, err := db.Blocks()
+	blockIt, err := db.Blocks(false)
 	require.NoError(t, err)
 	defer func() { _ = blockIt.Close() }()
 	var got []types.GlobalBlockNumber
@@ -489,7 +651,7 @@ func TestMemblockPruneRemovesBelowWatermark(t *testing.T) {
 	require.True(t, opt.IsPresent())
 
 	// Iterators must skip the pruned records entirely.
-	blockIt, err := db.Blocks()
+	blockIt, err := db.Blocks(false)
 	require.NoError(t, err)
 	for {
 		ok, err := blockIt.Next()
@@ -501,7 +663,7 @@ func TestMemblockPruneRemovesBelowWatermark(t *testing.T) {
 	}
 	require.NoError(t, blockIt.Close())
 
-	qcIt, err := db.QCs()
+	qcIt, err := db.QCs(false)
 	require.NoError(t, err)
 	for {
 		ok, err := qcIt.Next()
@@ -593,14 +755,14 @@ func TestLittblockReclaimsAcrossRestart(t *testing.T) {
 	}
 
 	// After reclamation the iterators must surface nothing.
-	blockIt, err := db2.Blocks()
+	blockIt, err := db2.Blocks(false)
 	require.NoError(t, err)
 	ok, err := blockIt.Next()
 	require.NoError(t, err)
 	require.False(t, ok, "all blocks reclaimed: block iterator must be empty")
 	require.NoError(t, blockIt.Close())
 
-	qcIt, err := db2.QCs()
+	qcIt, err := db2.QCs(false)
 	require.NoError(t, err)
 	ok, err = qcIt.Next()
 	require.NoError(t, err)
@@ -664,7 +826,7 @@ func assertIterators(t *testing.T, db types.BlockDB, committee *types.Committee,
 		totalBlocks += len(b.blocks)
 	}
 
-	blockIt, err := db.Blocks()
+	blockIt, err := db.Blocks(false)
 	require.NoError(t, err)
 	count := 0
 	var prev types.GlobalBlockNumber
@@ -688,7 +850,7 @@ func assertIterators(t *testing.T, db types.BlockDB, committee *types.Committee,
 	require.NoError(t, blockIt.Close())
 	require.Equal(t, totalBlocks, count)
 
-	qcIt, err := db.QCs()
+	qcIt, err := db.QCs(false)
 	require.NoError(t, err)
 	qcCount := 0
 	var prevFirst types.GlobalBlockNumber

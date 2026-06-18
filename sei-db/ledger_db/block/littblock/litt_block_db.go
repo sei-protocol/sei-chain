@@ -235,16 +235,16 @@ func (s *blockDB) Flush() error {
 	return nil
 }
 
-func (s *blockDB) Blocks() (types.BlockIterator, error) {
-	it, err := s.blocks.Iterator(false)
+func (s *blockDB) Blocks(reverse bool) (types.BlockIterator, error) {
+	it, err := s.blocks.Iterator(reverse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open blocks iterator: %w", err)
 	}
 	return &blockIterator{it: it}, nil
 }
 
-func (s *blockDB) QCs() (types.QCIterator, error) {
-	it, err := s.qcs.Iterator(false)
+func (s *blockDB) QCs(reverse bool) (types.QCIterator, error) {
+	it, err := s.qcs.Iterator(reverse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open qcs iterator: %w", err)
 	}
