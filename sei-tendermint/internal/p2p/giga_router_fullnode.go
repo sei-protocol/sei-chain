@@ -57,10 +57,10 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 	})
 }
 
-// fullnodeHealthyConnDuration: a connection that lasts at least this long
-// AND delivered new blocks (data.NextBlock advanced) counts as a successful
-// subscription and resets backoff. Below this, treat the same as a rejection.
-const fullnodeHealthyConnDuration = 30 * time.Second
+// fullnodeHealthyMinAge: minimum time-since-last-healthy required before
+// the inter-cycle backoff escalates. Guards against a brief post-reconnect
+// failure burst doubling the backoff before the next progress arrives.
+const fullnodeHealthyMinAge = 30 * time.Second
 
 // fullnodeMaxBackoff caps the inter-cycle backoff so a persistently-
 // saturated cluster keeps retrying at a polite rate instead of unbounded.
@@ -85,10 +85,13 @@ const fullnodeProgressPollInterval = 5 * time.Second
 // disconnect counts as a failure (no progress) and lets backoff climb,
 // so a cluster-wide stall self-throttles instead of churning peers.
 //
-// Backoff: cfg.DialInterval between attempts within a cycle. After a full
-// pass with no healthy connection, double (capped at fullnodeMaxBackoff)
-// — but only if time-since-last-healthy exceeds fullnodeHealthyConnDuration,
-// so a brief post-reconnect burst of failures doesn't escalate.
+// Backoff: cfg.DialInterval between attempts within a cycle. A connection
+// that delivered any new blocks (data.NextBlock advanced) resets the
+// backoff regardless of how briefly it ran — a successful catch-up burst
+// followed by an early disconnect shouldn't escalate. After a full pass
+// with no progress, double (capped at fullnodeMaxBackoff) — but only if
+// time-since-last-healthy exceeds fullnodeHealthyMinAge, so a brief
+// post-reconnect burst of failures doesn't escalate.
 //
 // TODO(autobahn-state-sync): block sync from a single peer is bounded by
 // GetBlock's per-stream rate limit (rpc.Limit{Rate:10, Concurrent:10}) —
@@ -106,18 +109,17 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 	lastHealthyOrStart := time.Now()
 	for i := 0; ; i = (i + 1) % len(addrs) {
 		addr := addrs[i]
-		start := time.Now()
 		startHeight := r.data.NextBlock()
 		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			s.SpawnBg(func() error { return r.watchProgress(ctx) })
 			return r.dialAndRunConn(ctx, addr.Key, addr.HostPort, r.service.RunBlockSyncClient)
 		})
-		// Healthy reset is gated on actual progress (data.NextBlock
-		// advanced), not connection duration alone. A peer that holds
-		// the connection open without delivering blocks counts as a
-		// failure, so backoff keeps climbing through such disconnects.
+		// Reset on any actual progress (data.NextBlock advanced). A
+		// peer that holds the connection open without delivering blocks
+		// counts as a failure; a peer that delivered blocks then
+		// disconnected — even briefly — does not.
 		madeProgress := r.data.NextBlock() > startHeight
-		if madeProgress && time.Since(start) >= fullnodeHealthyConnDuration {
+		if madeProgress {
 			backoff = r.cfg.DialInterval
 			failsThisCycle = 0
 			lastHealthyOrStart = time.Now()
@@ -130,7 +132,7 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 			return err
 		}
 		if failsThisCycle >= len(addrs) {
-			if time.Since(lastHealthyOrStart) >= fullnodeHealthyConnDuration {
+			if time.Since(lastHealthyOrStart) >= fullnodeHealthyMinAge {
 				backoff = min(backoff*2, fullnodeMaxBackoff)
 			}
 			failsThisCycle = 0
