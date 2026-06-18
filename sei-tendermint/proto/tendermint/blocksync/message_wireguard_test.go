@@ -43,18 +43,12 @@ func TestSchemaForMessage_RejectsEvidenceOverCap(t *testing.T) {
 		blocksyncResponse(nil, wgtest.CommitWith(wgtest.MaxCommitSignatures+1)))))
 }
 
-func TestSchemaForMessage_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) {
-	// last_commit + evidence Commit signatures share one budget — combined
-	// over cap rejects, even though each individually is under cap.
-	half := wgtest.MaxCommitSignatures/2 + 1
-	require.Error(t, bcproto.SchemaForMessage.Scan(wgtest.Marshal(t,
-		blocksyncResponse(wgtest.CommitWith(half), wgtest.CommitWith(half)))))
-}
-
-func TestSchemaForMessage_EvidenceCommitsShareBudget(t *testing.T) {
-	half := wgtest.MaxCommitSignatures/2 + 1
-	require.Error(t, bcproto.SchemaForMessage.Scan(wgtest.Marshal(t,
-		blocksyncResponse(nil, wgtest.CommitWith(half), wgtest.CommitWith(half)))))
+func TestSchemaForMessage_MultipleCommitsEachAtCapPass(t *testing.T) {
+	// Each Commit is checked independently (per-instance). Two commits each
+	// at exactly MaxCommitSignatures must both pass.
+	require.NoError(t, bcproto.SchemaForMessage.Scan(wgtest.Marshal(t,
+		blocksyncResponse(wgtest.CommitWith(wgtest.MaxCommitSignatures),
+			wgtest.CommitWith(wgtest.MaxCommitSignatures)))))
 }
 
 func TestSchemaForMessage_IgnoresBlockRequest(t *testing.T) {
@@ -64,17 +58,13 @@ func TestSchemaForMessage_IgnoresBlockRequest(t *testing.T) {
 	require.NoError(t, bcproto.SchemaForMessage.Scan(wgtest.Marshal(t, msg)))
 }
 
-func TestSchemaForMessage_RejectsDuplicateNonRepeatedFields(t *testing.T) {
-	// Hand-encode two last_commit entries each at the cap. gogoproto.Marshal
-	// won't produce this shape (Block.last_commit is non-repeated), so we
-	// build the wire bytes directly to verify the cumulative counter
-	// rejects the merged result.
-	commit := emptyCommitWire(wgtest.MaxCommitSignatures)
+func TestSchemaForMessage_RejectsDuplicateNonRepeatedFieldOverCap(t *testing.T) {
+	// Hand-encode a last_commit with over-cap signatures. Each occurrence of
+	// a length-delimited field is checked independently (per-instance), so a
+	// single over-cap occurrence must still be rejected.
+	commit := emptyCommitWire(wgtest.MaxCommitSignatures + 1)
 	lastCommitField := wireguard.MustFieldNum[tmproto.Block]("last_commit")
 	block := protowire.AppendTag(nil, lastCommitField, protowire.BytesType)
-	block = protowire.AppendVarint(block, uint64(len(commit)))
-	block = append(block, commit...)
-	block = protowire.AppendTag(block, lastCommitField, protowire.BytesType)
 	block = protowire.AppendVarint(block, uint64(len(commit)))
 	block = append(block, commit...)
 

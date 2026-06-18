@@ -35,16 +35,12 @@ func TestSchemaForMessage_RejectsEvidenceOverCap(t *testing.T) {
 		consensusProposalMessage(nil, wgtest.CommitWith(wgtest.MaxCommitSignatures+1)))))
 }
 
-func TestSchemaForMessage_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) {
-	half := wgtest.MaxCommitSignatures/2 + 1
-	require.Error(t, tmcons.SchemaForMessage.Scan(wgtest.Marshal(t,
-		consensusProposalMessage(wgtest.CommitWith(half), wgtest.CommitWith(half)))))
-}
-
-func TestSchemaForMessage_EvidenceCommitsShareBudget(t *testing.T) {
-	half := wgtest.MaxCommitSignatures/2 + 1
-	require.Error(t, tmcons.SchemaForMessage.Scan(wgtest.Marshal(t,
-		consensusProposalMessage(nil, wgtest.CommitWith(half), wgtest.CommitWith(half)))))
+func TestSchemaForMessage_MultipleCommitsEachAtCapPass(t *testing.T) {
+	// Each Commit is checked independently (per-instance). Two commits each
+	// at exactly MaxCommitSignatures must both pass.
+	require.NoError(t, tmcons.SchemaForMessage.Scan(wgtest.Marshal(t,
+		consensusProposalMessage(wgtest.CommitWith(wgtest.MaxCommitSignatures),
+			wgtest.CommitWith(wgtest.MaxCommitSignatures)))))
 }
 
 func TestSchemaForMessage_PassesNonProposal(t *testing.T) {

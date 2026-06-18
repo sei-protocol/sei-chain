@@ -82,8 +82,8 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 				continue
 			}
 
-			if preDecode, ok := ch.desc.PreDecode.Get(); ok {
-				if err := preDecode(bz); err != nil {
+			if s, ok := ch.desc.MessageType.(interface{ WireguardScan([]byte) error }); ok {
+				if err := s.WireguardScan(bz); err != nil {
 					return fmt.Errorf("message pre-decode failed, dropping peer: [peer=%v] %w", conn.ID, err)
 				}
 			}
