@@ -121,22 +121,11 @@ type gigaValidatorRouter struct {
 // TODO(autobahn): once sei-db/ledger_db/block.BlockDB has a writer wired
 // (see BlockByNumber's TODO), the data WAL is redundant.
 func buildDataState(cfg *GigaRouterCommonConfig) (*data.State, error) {
-	if cfg.GenDoc == nil {
-		return nil, fmt.Errorf("GigaRouterCommonConfig.GenDoc must be set")
-	}
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
 	if cfg.DialInterval <= 0 {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.DialInterval = %v, want > 0", cfg.DialInterval)
-	}
-	if cfg.App == nil {
-		return nil, fmt.Errorf("GigaRouterCommonConfig.App must be set")
-	}
-	// Guards runFullnodeSubscriber's `(i + 1) % len(addrs)` against
-	// direct construction that bypasses AutobahnFileConfig.Validate.
-	if len(cfg.ValidatorAddrs) == 0 {
-		return nil, fmt.Errorf("GigaRouterCommonConfig.ValidatorAddrs is empty; need at least one committee member")
 	}
 	for vk, addr := range cfg.ValidatorAddrs {
 		if !addr.EVMRPC.IsPresent() {
@@ -187,12 +176,6 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 	dataState, err := buildDataState(&cfg.GigaRouterCommonConfig)
 	if err != nil {
 		return nil, err
-	}
-	if cfg.Producer == nil {
-		return nil, fmt.Errorf("GigaValidatorConfig.Producer must be set")
-	}
-	if cfg.ViewTimeout == nil {
-		return nil, fmt.Errorf("GigaValidatorConfig.ViewTimeout must be set")
 	}
 	// One App per node — common owns it; mirror into producer.Config so
 	// the producer's internal mempool drives the same ABCI proxy.

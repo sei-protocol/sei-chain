@@ -275,14 +275,14 @@ func buildValidatorGigaConfig(
 	}, nil
 }
 
-// buildAndStartGigaRouter picks validator-vs-fullnode by cfg.Mode:
+// buildGigaRouter picks validator-vs-fullnode by cfg.Mode:
 // "validator" runs the validator path, any other mode runs as a fullnode.
 // Mode is the operator's explicit role declaration, kept separate from
 // committee membership so a newly-joined committee member can finish
 // catch-up as a fullnode before the operator flips to mode = "validator".
 // A warning is logged if mode and committee membership disagree so an
 // operator misconfiguration is visible at startup.
-func buildAndStartGigaRouter(
+func buildGigaRouter(
 	cfg *config.Config,
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
@@ -476,14 +476,14 @@ func createRouter(
 		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
 	}
 	// Wire up Autobahn if enabled. Role dispatch (validator vs fullnode)
-	// happens inside buildAndStartGigaRouter based on cfg.Mode.
+	// happens inside buildGigaRouter based on cfg.Mode.
 	if cfg.AutobahnConfigFile != "" {
 		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile, "mode", cfg.Mode)
 		proxyApp, ok := app.Get()
 		if !ok {
 			return nil, closer, fmt.Errorf("autobahn requires app")
 		}
-		giga, err := buildAndStartGigaRouter(cfg, nodeKey, validatorKey, proxyApp, genDoc)
+		giga, err := buildGigaRouter(cfg, nodeKey, validatorKey, proxyApp, genDoc)
 		if err != nil {
 			return nil, closer, err
 		}

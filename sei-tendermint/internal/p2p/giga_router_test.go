@@ -195,14 +195,10 @@ type testNodeCfg struct {
 func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 	// EVMRPC must be present for NewGigaRouter to accept the config on
 	// either path; the URL value is unused by the tests in this file.
-	u, err := url.Parse(fmt.Sprintf("http://%s:8545", c.addr.Addr().String()))
-	if err != nil {
-		panic(err)
-	}
 	return GigaNodeAddr{
 		Key:      c.nodeKey.Public(),
 		HostPort: tcp.HostPort{Hostname: c.addr.Addr().String(), Port: c.addr.Port()},
-		EVMRPC:   utils.Some(u),
+		EVMRPC:   utils.Some(utils.OrPanic1(url.Parse(fmt.Sprintf("http://%s:8545", c.addr.Addr().String())))),
 	}
 }
 
