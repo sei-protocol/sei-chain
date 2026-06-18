@@ -10,13 +10,13 @@ import (
 // SchemaForProposal is the wireguard.Schema generated for tendermint.consensus.Proposal.
 var SchemaForProposal = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[Proposal]("proposal"): {Nested: utils.Some(types.SchemaForProposal)},
+		wireguard.Number(1): {Nested: utils.Some(types.SchemaForProposal)},
 	},
 }
 
 // SchemaForMessage is the wireguard.Schema generated for tendermint.consensus.Message.
 var SchemaForMessage = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[Message_Proposal]("proposal"): {Nested: utils.Some(SchemaForProposal)},
+		wireguard.Number(3): {Nested: utils.Some(SchemaForProposal)},
 	},
 }

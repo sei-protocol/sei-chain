@@ -261,7 +261,7 @@ type emitCtx struct {
 // current *protogen.GeneratedFile (which records the imports) and so are
 // rebuilt for every emitted file.
 type emitIdents struct {
-	schema, rule, number, mustField, utilsSome string
+	schema, rule, number, utilsSome string
 }
 
 func newEmitIdents(g *protogen.GeneratedFile) emitIdents {
@@ -272,7 +272,6 @@ func newEmitIdents(g *protogen.GeneratedFile) emitIdents {
 		schema:    q(wireguardRuntime, "Schema"),
 		rule:      q(wireguardRuntime, "Rule"),
 		number:    q(wireguardRuntime, "Number"),
-		mustField: q(wireguardRuntime, "MustFieldNum"),
 		utilsSome: q(utilsPkg, "Some"),
 	}
 }
@@ -332,17 +331,6 @@ func emitSchema(g *protogen.GeneratedFile, m *protogen.Message, ctx emitCtx, ide
 			continue
 		}
 
-		// For a oneof variant, the wire tag is on the wrapper struct
-		// (e.g. Message_BlockResponse), not the parent message.
-		ownerType := g.QualifiedGoIdent(m.GoIdent)
-		if f.ContainingOneof() != nil {
-			ownerType = g.QualifiedGoIdent(protogen.GoIdent{
-				GoName:       m.GoIdent.GoName + "_" + pf.GoName,
-				GoImportPath: m.GoIdent.GoImportPath,
-			})
-		}
-		fieldNumExpr := fmt.Sprintf("%s[%s](%q)", idents.mustField, ownerType, string(f.Name()))
-
 		var pieces []string
 		if hasMax {
 			maxCount := opts.Get(ctx.maxCountExt.TypeDescriptor()).Uint()
@@ -352,7 +340,7 @@ func emitSchema(g *protogen.GeneratedFile, m *protogen.Message, ctx emitCtx, ide
 			targetExpr := schemaVarForTarget(g, ctx, nestedTarget)
 			pieces = append(pieces, fmt.Sprintf("Nested: %s(%s)", idents.utilsSome, targetExpr))
 		}
-		g.P(fieldNumExpr, ": {", strings.Join(pieces, ", "), "},")
+		g.P(idents.number, "(", f.Number(), "): {", strings.Join(pieces, ", "), "},")
 	}
 	g.P("},")
 	g.P("}")

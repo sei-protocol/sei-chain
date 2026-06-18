@@ -10,13 +10,13 @@ import (
 // SchemaForBlockResponse is the wireguard.Schema generated for tendermint.blocksync.BlockResponse.
 var SchemaForBlockResponse = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[BlockResponse]("block"): {Nested: utils.Some(types.SchemaForBlock)},
+		wireguard.Number(1): {Nested: utils.Some(types.SchemaForBlock)},
 	},
 }
 
 // SchemaForMessage is the wireguard.Schema generated for tendermint.blocksync.Message.
 var SchemaForMessage = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[Message_BlockResponse]("block_response"): {Nested: utils.Some(SchemaForBlockResponse)},
+		wireguard.Number(3): {Nested: utils.Some(SchemaForBlockResponse)},
 	},
 }

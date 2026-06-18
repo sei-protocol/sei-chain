@@ -9,7 +9,7 @@ import (
 // SchemaForBlock is the wireguard.Schema generated for tendermint.types.Block.
 var SchemaForBlock = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[Block]("evidence"):    {Nested: utils.Some(SchemaForEvidenceList)},
-		wireguard.MustFieldNum[Block]("last_commit"): {Nested: utils.Some(SchemaForCommit)},
+		wireguard.Number(3): {Nested: utils.Some(SchemaForEvidenceList)},
+		wireguard.Number(4): {Nested: utils.Some(SchemaForCommit)},
 	},
 }

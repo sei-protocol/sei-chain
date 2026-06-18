@@ -9,49 +9,49 @@ import (
 // SchemaForCommit is the wireguard.Schema generated for tendermint.types.Commit.
 var SchemaForCommit = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[Commit]("signatures"): {MaxCount: 10000},
+		wireguard.Number(4): {MaxCount: 10000},
 	},
 }
 
 // SchemaForProposal is the wireguard.Schema generated for tendermint.types.Proposal.
 var SchemaForProposal = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[Proposal]("evidence"):    {Nested: utils.Some(SchemaForEvidenceList)},
-		wireguard.MustFieldNum[Proposal]("last_commit"): {Nested: utils.Some(SchemaForCommit)},
+		wireguard.Number(9):  {Nested: utils.Some(SchemaForEvidenceList)},
+		wireguard.Number(10): {Nested: utils.Some(SchemaForCommit)},
 	},
 }
 
 // SchemaForSignedHeader is the wireguard.Schema generated for tendermint.types.SignedHeader.
 var SchemaForSignedHeader = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[SignedHeader]("commit"): {Nested: utils.Some(SchemaForCommit)},
+		wireguard.Number(2): {Nested: utils.Some(SchemaForCommit)},
 	},
 }
 
 // SchemaForLightBlock is the wireguard.Schema generated for tendermint.types.LightBlock.
 var SchemaForLightBlock = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[LightBlock]("signed_header"): {Nested: utils.Some(SchemaForSignedHeader)},
+		wireguard.Number(1): {Nested: utils.Some(SchemaForSignedHeader)},
 	},
 }
 
 // SchemaForEvidence is the wireguard.Schema generated for tendermint.types.Evidence.
 var SchemaForEvidence = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[Evidence_LightClientAttackEvidence]("light_client_attack_evidence"): {Nested: utils.Some(SchemaForLightClientAttackEvidence)},
+		wireguard.Number(2): {Nested: utils.Some(SchemaForLightClientAttackEvidence)},
 	},
 }
 
 // SchemaForLightClientAttackEvidence is the wireguard.Schema generated for tendermint.types.LightClientAttackEvidence.
 var SchemaForLightClientAttackEvidence = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[LightClientAttackEvidence]("conflicting_block"): {Nested: utils.Some(SchemaForLightBlock)},
+		wireguard.Number(1): {Nested: utils.Some(SchemaForLightBlock)},
 	},
 }
 
 // SchemaForEvidenceList is the wireguard.Schema generated for tendermint.types.EvidenceList.
 var SchemaForEvidenceList = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[EvidenceList]("evidence"): {Nested: utils.Some(SchemaForEvidence)},
+		wireguard.Number(1): {Nested: utils.Some(SchemaForEvidence)},
 	},
 }

@@ -9,20 +9,20 @@ import (
 // SchemaForMsgInfo is the wireguard.Schema generated for tendermint.consensus.MsgInfo.
 var SchemaForMsgInfo = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[MsgInfo]("msg"): {Nested: utils.Some(SchemaForMessage)},
+		wireguard.Number(1): {Nested: utils.Some(SchemaForMessage)},
 	},
 }
 
 // SchemaForWALMessage is the wireguard.Schema generated for tendermint.consensus.WALMessage.
 var SchemaForWALMessage = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[WALMessage_MsgInfo]("msg_info"): {Nested: utils.Some(SchemaForMsgInfo)},
+		wireguard.Number(2): {Nested: utils.Some(SchemaForMsgInfo)},
 	},
 }
 
 // SchemaForTimedWALMessage is the wireguard.Schema generated for tendermint.consensus.TimedWALMessage.
 var SchemaForTimedWALMessage = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[TimedWALMessage]("msg"): {Nested: utils.Some(SchemaForWALMessage)},
+		wireguard.Number(2): {Nested: utils.Some(SchemaForWALMessage)},
 	},
 }

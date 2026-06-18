@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard/wgtest"
 	bcproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -70,7 +69,7 @@ func TestSchemaForMessage_RejectsDuplicateNonRepeatedFields(t *testing.T) {
 	// build the wire bytes directly to verify the cumulative counter
 	// rejects the merged result.
 	commit := emptyCommitWire(wgtest.MaxCommitSignatures)
-	lastCommitField := wireguard.MustFieldNum[tmproto.Block]("last_commit")
+	const lastCommitField = protowire.Number(4)
 	block := protowire.AppendTag(nil, lastCommitField, protowire.BytesType)
 	block = protowire.AppendVarint(block, uint64(len(commit)))
 	block = append(block, commit...)
@@ -92,7 +91,7 @@ func TestSchemaForMessage_RejectsDuplicateNonRepeatedFields(t *testing.T) {
 // emptyCommitWire builds the wire-format bytes for a Commit with n empty
 // CommitSig entries.
 func emptyCommitWire(n int) []byte {
-	field := wireguard.MustFieldNum[tmproto.Commit]("signatures")
+	const field = protowire.Number(4)
 	var commit []byte
 	for i := 0; i < n; i++ {
 		commit = protowire.AppendTag(commit, field, protowire.BytesType)

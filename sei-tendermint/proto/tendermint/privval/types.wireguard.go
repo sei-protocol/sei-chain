@@ -10,21 +10,21 @@ import (
 // SchemaForSignProposalRequest is the wireguard.Schema generated for tendermint.privval.SignProposalRequest.
 var SchemaForSignProposalRequest = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[SignProposalRequest]("proposal"): {Nested: utils.Some(types.SchemaForProposal)},
+		wireguard.Number(1): {Nested: utils.Some(types.SchemaForProposal)},
 	},
 }
 
 // SchemaForSignedProposalResponse is the wireguard.Schema generated for tendermint.privval.SignedProposalResponse.
 var SchemaForSignedProposalResponse = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[SignedProposalResponse]("proposal"): {Nested: utils.Some(types.SchemaForProposal)},
+		wireguard.Number(1): {Nested: utils.Some(types.SchemaForProposal)},
 	},
 }
 
 // SchemaForMessage is the wireguard.Schema generated for tendermint.privval.Message.
 var SchemaForMessage = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[Message_SignProposalRequest]("sign_proposal_request"):       {Nested: utils.Some(SchemaForSignProposalRequest)},
-		wireguard.MustFieldNum[Message_SignedProposalResponse]("signed_proposal_response"): {Nested: utils.Some(SchemaForSignedProposalResponse)},
+		wireguard.Number(5): {Nested: utils.Some(SchemaForSignProposalRequest)},
+		wireguard.Number(6): {Nested: utils.Some(SchemaForSignedProposalResponse)},
 	},
 }

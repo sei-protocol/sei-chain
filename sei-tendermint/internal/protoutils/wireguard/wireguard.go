@@ -10,9 +10,6 @@ package wireguard
 
 import (
 	"fmt"
-	"reflect"
-	"strconv"
-	"strings"
 
 	"google.golang.org/protobuf/encoding/protowire"
 
@@ -106,48 +103,4 @@ func scan(bz []byte, schema *Schema, counts map[counterKey]int) error {
 		bz = bz[valLen:]
 	}
 	return nil
-}
-
-// MustFieldNum reads the protobuf field number declared on T's field whose
-// proto `name=` tag matches protoName. It panics if the field is missing or
-// the tag is malformed, since both indicate a divergence between caller code
-// and the regenerated proto bindings — a silent miscompare is worse than a
-// loud startup failure for code that wires up Schemas at init.
-//
-// Reflection runs against the *struct type* via reflect.TypeFor[T](); no
-// runtime instance is examined. Repeated fields, optional fields, and oneof
-// variants all generate a struct field in the proto bindings regardless of
-// whether any message instance populates them, so an empty / nil value at
-// runtime is irrelevant here.
-//
-// To remove a proto field that a Schema currently references: first delete
-// the MustFieldNum call and the Schema Rule that uses it, then regenerate
-// proto with the field gone. Doing it in the other order panics at init.
-func MustFieldNum[T any](protoName string) Number {
-	t := reflect.TypeFor[T]()
-	for i := range t.NumField() {
-		tag := t.Field(i).Tag.Get("protobuf")
-		if tag == "" {
-			continue
-		}
-		parts := strings.Split(tag, ",")
-		var name, numStr string
-		for j, p := range parts {
-			if j == 1 {
-				numStr = p
-			}
-			if strings.HasPrefix(p, "name=") {
-				name = strings.TrimPrefix(p, "name=")
-			}
-		}
-		if name != protoName {
-			continue
-		}
-		num, err := strconv.ParseInt(numStr, 10, 32)
-		if err != nil {
-			panic(fmt.Sprintf("wireguard: bad protobuf tag on %s.%s: %v", t.Name(), t.Field(i).Name, err))
-		}
-		return Number(num) //nolint:gosec // ParseInt with bitSize=32 bounds num to int32 range
-	}
-	panic(fmt.Sprintf("wireguard: proto field %q not found on %s", protoName, t.Name()))
 }

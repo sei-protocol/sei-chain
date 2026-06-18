@@ -106,25 +106,6 @@ func TestScan_SkipsNonBytesFields(t *testing.T) {
 	require.NoError(t, wireguard.Scan(bz, &wireguard.Schema{}))
 }
 
-// proto struct stand-in for MustFieldNum's reflection path; we don't pull in
-// real generated types here because that would create a test-only dep on a
-// proto package outside this package's purview.
-type fixtureProto struct {
-	Height int64 `protobuf:"varint,1,opt,name=height,proto3"`
-	Sigs   []int `protobuf:"bytes,4,rep,name=signatures,proto3"`
-}
-
-func TestMustFieldNum_Resolves(t *testing.T) {
-	require.Equal(t, protowire.Number(1), wireguard.MustFieldNum[fixtureProto]("height"))
-	require.Equal(t, protowire.Number(4), wireguard.MustFieldNum[fixtureProto]("signatures"))
-}
-
-func TestMustFieldNum_PanicsOnUnknownField(t *testing.T) {
-	require.PanicsWithValue(t,
-		`wireguard: proto field "nope" not found on fixtureProto`,
-		func() { wireguard.MustFieldNum[fixtureProto]("nope") })
-}
-
 func TestScan_DuplicateNonRepeatedMessageCaughtByLeafCap(t *testing.T) {
 	// Two duplicate occurrences of an enclosing message, each carrying inner
 	// field-1 entries within the cap, should be caught because the inner

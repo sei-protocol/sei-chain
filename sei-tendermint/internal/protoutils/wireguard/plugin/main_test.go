@@ -154,13 +154,13 @@ func TestPlugin_AutoDescentAndMaxCount(t *testing.T) {
 
 	// SchemaForA: field_1 capped, field_2 nested into B.
 	require.Contains(t, content, "var SchemaForA = &")
-	require.Contains(t, content, `MustFieldNum[A]("field_1"): {MaxCount: 5}`)
-	require.Contains(t, content, `MustFieldNum[A]("field_2"): {Nested: `)
+	require.Contains(t, content, `Number(1): {MaxCount: 5}`)
+	require.Contains(t, content, `Number(2): {Nested: `)
 	require.Contains(t, content, "Some(SchemaForB)")
 
 	// SchemaForB: y capped.
 	require.Contains(t, content, "var SchemaForB = &")
-	require.Contains(t, content, `MustFieldNum[B]("y"): {MaxCount: 10}`)
+	require.Contains(t, content, `Number(1): {MaxCount: 10}`)
 }
 
 // TestPlugin_NoDescentWhenTargetHasNoSchema confirms the plugin skips
@@ -253,10 +253,10 @@ func TestPlugin_StrictModeRejectsUnannotatedRepeated(t *testing.T) {
 	require.Contains(t, err.Error(), "field_uncapped")
 }
 
-// TestPlugin_OneofDescentUsesWrapperType verifies that a oneof variant
-// pointing at an annotated target generates a rule whose MustFieldNum[T]
-// references the oneof wrapper type (e.g. Outer_VariantA), not the parent.
-func TestPlugin_OneofDescentUsesWrapperType(t *testing.T) {
+// TestPlugin_OneofDescentUsesConcreteFieldNumber verifies that a oneof
+// variant pointing at an annotated target emits the concrete wire field
+// number directly in the generated schema.
+func TestPlugin_OneofDescentUsesConcreteFieldNumber(t *testing.T) {
 	// Outer has a oneof "sum" with one variant: variant_a of type Inner.
 	// Inner has a max_count field.
 	outerOneof := []*descriptorpb.OneofDescriptorProto{{Name: proto.String("sum")}}
@@ -302,10 +302,7 @@ func TestPlugin_OneofDescentUsesWrapperType(t *testing.T) {
 
 	content := out["test/test.wireguard.go"]
 	require.NotEmpty(t, content)
-	// The oneof variant's rule must key on the wrapper type Outer_VariantA,
-	// not on Outer itself.
-	require.Contains(t, content, `MustFieldNum[Outer_VariantA]("variant_a")`)
-	require.NotContains(t, content, `MustFieldNum[Outer]("variant_a")`)
+	require.Contains(t, content, `Number(1): {Nested: `)
 }
 
 // TestPlugin_RepeatedMessageWithMaxCountAndDescent verifies that a
@@ -354,9 +351,9 @@ func TestPlugin_RepeatedMessageWithMaxCountAndDescent(t *testing.T) {
 	content := out["test/test.wireguard.go"]
 	require.NotEmpty(t, content)
 	// A.bs has both MaxCount and Nested rules.
-	require.Contains(t, content, `MustFieldNum[A]("bs"): {MaxCount: 7, Nested: `)
+	require.Contains(t, content, `Number(1): {MaxCount: 7, Nested: `)
 	require.Contains(t, content, "Some(SchemaForB)")
-	require.Contains(t, content, `MustFieldNum[B]("ys"): {MaxCount: 11}`)
+	require.Contains(t, content, `Number(1): {MaxCount: 11}`)
 }
 
 // TestPlugin_CrossFileReference verifies that a field in one file whose
@@ -441,7 +438,7 @@ func TestPlugin_CrossFileReference(t *testing.T) {
 	require.Contains(t, contentA, "testb.SchemaForB")
 	// b.wireguard.go declares SchemaForB.
 	require.Contains(t, contentB, "var SchemaForB = &")
-	require.Contains(t, contentB, `MustFieldNum[B]("items"): {MaxCount: 3}`)
+	require.Contains(t, contentB, `Number(1): {MaxCount: 3}`)
 }
 
 // TestPlugin_RejectsMaxCountZero verifies that (wireguard.max_count) = 0
