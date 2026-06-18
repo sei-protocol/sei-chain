@@ -56,22 +56,32 @@ func TestScan_DescendsIntoNested(t *testing.T) {
 	require.Error(t, wireguard.Scan(bz, outer))
 }
 
-func TestScan_CountsAccumulateAcrossInstances(t *testing.T) {
-	// MaxCount caps total occurrences across all instances of the enclosing
-	// schema reached during the scan — not per-instance. Two outer fields
-	// each carrying two inners hits four inner counts, which exceeds an
-	// inner cap of 3 even though no single outer carries more than two.
+func TestScan_CountsArePerNestedInstance(t *testing.T) {
+	// MaxCount on an inner field is checked per occurrence of the outer
+	// message, not summed globally. Two outer instances each carrying two
+	// inners (cap=3) must both pass; only a single instance that exceeds the
+	// cap should be rejected.
 	inner := &wireguard.Schema{
 		Rules: map[wireguard.Number]wireguard.Rule{1: {MaxCount: 3}},
 	}
 	outer := &wireguard.Schema{
 		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: utils.Some(inner), MaxCount: 5}},
 	}
-	innerBytes := appendBytesField(nil, 1, nil)
-	innerBytes = appendBytesField(innerBytes, 1, nil)
-	bz := appendBytesField(nil, 2, innerBytes)
-	bz = appendBytesField(bz, 2, innerBytes)
-	require.Error(t, wireguard.Scan(bz, outer))
+	twoInners := appendBytesField(nil, 1, nil)
+	twoInners = appendBytesField(twoInners, 1, nil)
+	bz := appendBytesField(nil, 2, twoInners)
+	bz = appendBytesField(bz, 2, twoInners)
+	// Two outer instances each with 2 inners (< 3): should pass.
+	require.NoError(t, wireguard.Scan(bz, outer))
+
+	fourInners := appendBytesField(nil, 1, nil)
+	fourInners = appendBytesField(fourInners, 1, nil)
+	fourInners = appendBytesField(fourInners, 1, nil)
+	fourInners = appendBytesField(fourInners, 1, nil)
+	bz2 := appendBytesField(nil, 2, twoInners)
+	bz2 = appendBytesField(bz2, 2, fourInners) // second outer has 4 inners > 3
+	// One outer instance exceeds the per-instance cap: should fail.
+	require.Error(t, wireguard.Scan(bz2, outer))
 }
 
 func TestScan_IgnoresUnrelatedFields(t *testing.T) {
@@ -125,10 +135,9 @@ func TestMustFieldNum_PanicsOnUnknownField(t *testing.T) {
 		func() { wireguard.MustFieldNum[fixtureProto]("nope") })
 }
 
-func TestScan_DuplicateNonRepeatedMessageCaughtByLeafCap(t *testing.T) {
-	// Two duplicate occurrences of an enclosing message, each carrying inner
-	// field-1 entries within the cap, should be caught because the inner
-	// counter accumulates across the duplicates.
+func TestScan_DuplicateOuterEachWithinCapPasses(t *testing.T) {
+	// Two occurrences of a nested field each carrying 2 inner items (cap=3)
+	// must both pass — the cap is per-instance, not a global sum.
 	inner := &wireguard.Schema{
 		Rules: map[wireguard.Number]wireguard.Rule{1: {MaxCount: 3}},
 	}
@@ -139,7 +148,7 @@ func TestScan_DuplicateNonRepeatedMessageCaughtByLeafCap(t *testing.T) {
 	innerBytes = appendBytesField(innerBytes, 1, nil)
 	bz := appendBytesField(nil, 2, innerBytes)
 	bz = appendBytesField(bz, 2, innerBytes)
-	require.Error(t, wireguard.Scan(bz, outer))
+	require.NoError(t, wireguard.Scan(bz, outer))
 }
 
 func TestScan_DistinctSchemasShareNoCounter(t *testing.T) {

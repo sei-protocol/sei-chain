@@ -45,10 +45,11 @@ type Rule struct {
 	// Nested, if Some, is applied to the contents of this length-delimited
 	// field. Use for descending through wrapper layers on the way to a cap.
 	Nested utils.Option[*Schema]
-	// MaxCount, if non-zero, caps how many times this field may appear in the
-	// scanned payload. The count is accumulated globally across the whole
-	// Scan call — every match of this (Schema, field) pair increments one
-	// shared counter, not a fresh counter per parent instance.
+	// MaxCount, if non-zero, caps how many times this field may appear within
+	// one instance of the parent message. Counts are local to each parent
+	// instance: descending into a repeated nested message resets the counters
+	// for that nested schema, so a cap on an inner field is checked per
+	// occurrence of the outer message, not summed across all occurrences.
 	MaxCount int
 }
 
@@ -68,9 +69,8 @@ func (s *Schema) Scan(bz []byte) error {
 	return Scan(bz, s)
 }
 
-// counterKey scopes a MaxCount accumulator by (Schema, field number) so the
-// same Schema reached from multiple paths shares one counter, while two
-// unrelated Schemas that happen to use the same field number don't collide.
+// counterKey scopes a MaxCount accumulator to a (Schema, field number) pair
+// within one scan of a single message instance.
 type counterKey struct {
 	schema *Schema
 	num    Number
@@ -98,7 +98,7 @@ func scan(bz []byte, schema *Schema, counts map[counterKey]int) error {
 					}
 				}
 				if nested, ok := rule.Nested.Get(); ok {
-					if err := scan(val, nested, counts); err != nil {
+					if err := scan(val, nested, map[counterKey]int{}); err != nil {
 						return err
 					}
 				}
