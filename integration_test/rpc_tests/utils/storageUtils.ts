@@ -61,7 +61,7 @@ export interface StorageScene {
     allowanceAmount: bigint;
 
     deployBlock: number;
-    /** Block right after deployment, before the mint — balances/supply are still 0 here. */
+    /** The block just before the mint (mintBlock-1): contract exists, balances/supply still 0. */
     preSeedBlock: number;
     /** Block of the final seeding tx (mint + approve applied). */
     seededBlock: number;
@@ -90,9 +90,15 @@ export async function seedStorageToken(
         'TestERC20',
     );
 
-    const preSeedBlock = await deployer.wallet.provider!.getBlockNumber();
-    await (await contract.mint(holder, holderBalance)).wait();
+    const mint = await (await contract.mint(holder, holderBalance)).wait();
     const approve = await (await contract.approve(spender, allowanceAmount)).wait();
+
+    // preSeedBlock must be a height where the contract exists but the mint has NOT yet applied.
+    // Block tags expose end-of-block state, so a pre-broadcast getBlockNumber() snapshot is unsafe:
+    // if the mint lands in that same block the balance is already seeded there. Derive it from the
+    // mint's actual height instead — mintBlock-1 is >= deployBlock (the mint can't share the already
+    // committed deploy block) and strictly before the mint, so the holder balance is provably zero.
+    const preSeedBlock = mint!.blockNumber - 1;
 
     return {
         erc20: address,

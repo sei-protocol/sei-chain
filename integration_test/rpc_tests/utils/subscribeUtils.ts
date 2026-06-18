@@ -161,8 +161,7 @@ export function assertNewHeadInapplicableZeros(head: any): void {
 /**
  * Cross-check a pushed head against the canonical block the node reports for the same height:
  * the deterministic identity/proposer/time fields must agree exactly. gasUsed is intentionally
- * excluded — newHeads sums TxResult gas while eth_getBlockByNumber sums receipt gas. baseFeePerGas
- * is checked separately by assertNewHeadBaseFeeTracksChain, which tolerates a commit-boundary race.
+ * excluded. 
  */
 export function assertNewHeadMatchesBlock(head: any, block: any): void {
     expect(BigInt(head.number), 'number matches the canonical block').to.equal(BigInt(block.number));
