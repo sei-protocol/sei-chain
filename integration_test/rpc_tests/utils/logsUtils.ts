@@ -152,6 +152,153 @@ export async function emitLogScene(
     };
 }
 
+/** The scene's blocks + token, the bound shared by every LOG_FILTER_MATRIX case. */
+const sceneBounds = (scene: LogScene) => ({
+    fromBlock: ethers.toQuantity(scene.firstEventBlock),
+    toBlock: ethers.toQuantity(scene.lastEventBlock),
+    address: scene.erc20,
+});
+
+export interface LogFilterCase {
+    /** Reused as the it() name and the assertion context string. */
+    title: string;
+    /**
+     * Build the eth_getLogs-style criteria and its expectations from an emitted scene. Every case is
+     * bounded to the scene's blocks + token so topic-only filters can't match unrelated chain history
+     * and bounded subscriptions replay a finite set.
+     */
+    build: (scene: LogScene) => {
+        criteria: Record<string, unknown>;
+        expectedCount: number;
+        check?: (logs: any[]) => void;
+    };
+}
+
+/**
+ * The canonical address/topic filter matrix every log-filter surface must honour identically —
+ * eth_getLogs, eth_newFilter, eth_getFilterChanges and the eth_subscribe `logs` stream all funnel
+ * through the same GetLogsByFilters matching. Each spec parameterises over this single table and
+ * pins results to its own eth_getLogs oracle, so a change in filter semantics is updated in one
+ * place instead of across every spec. Counts derive from emitLogScene's fixed four-event scene:
+ *   Transfer(0x0 -> emitter), Transfer(emitter -> alice), Transfer(emitter -> bob),
+ *   Approval(emitter -> alice).
+ */
+export const LOG_FILTER_MATRIX: LogFilterCase[] = [
+    {
+        title: 'no topics matches every event',
+        build: scene => ({ criteria: sceneBounds(scene), expectedCount: scene.totalCount }),
+    },
+    {
+        title: '[] (empty topics) matches every event',
+        build: scene => ({
+            criteria: { ...sceneBounds(scene), topics: [] },
+            expectedCount: scene.totalCount,
+        }),
+    },
+    {
+        title: '[A] matches topic0 (the three Transfers)',
+        build: scene => ({
+            criteria: { ...sceneBounds(scene), topics: [TRANSFER_TOPIC] },
+            expectedCount: scene.transferCount,
+            check: logs => logs.forEach(l => expect(l.topics[0]).to.equal(TRANSFER_TOPIC)),
+        }),
+    },
+    {
+        title: '[[A, B]] matches a topic0 OR-set (Transfer OR Approval)',
+        build: scene => ({
+            criteria: { ...sceneBounds(scene), topics: [[TRANSFER_TOPIC, APPROVAL_TOPIC]] },
+            expectedCount: scene.totalCount,
+            check: logs =>
+                logs.forEach(l => expect([TRANSFER_TOPIC, APPROVAL_TOPIC]).to.include(l.topics[0])),
+        }),
+    },
+    {
+        title: '[A, B] matches an indexed positional topic (Transfers sent by the emitter)',
+        build: scene => {
+            const sender = addressTopic(scene.emitter.address);
+            return {
+                criteria: { ...sceneBounds(scene), topics: [TRANSFER_TOPIC, sender] },
+                expectedCount: 2,
+                check: logs => logs.forEach(l => expect(l.topics[1]).to.equal(sender)),
+            };
+        },
+    },
+    {
+        title: '[null, B] matches pos1 regardless of pos0 (emitter as from/owner)',
+        build: scene => {
+            const sender = addressTopic(scene.emitter.address);
+            return {
+                criteria: { ...sceneBounds(scene), topics: [null, sender] },
+                expectedCount: 3,
+                check: logs => logs.forEach(l => expect(l.topics[1]).to.equal(sender)),
+            };
+        },
+    },
+    {
+        title: '[A, null, X] honours a wildcard slot + recipient (only the alice transfer)',
+        build: scene => {
+            const alice = addressTopic(scene.alice);
+            return {
+                criteria: { ...sceneBounds(scene), topics: [TRANSFER_TOPIC, null, alice] },
+                expectedCount: 1,
+                check: logs => expect(logs[0].topics[2]).to.equal(alice),
+            };
+        },
+    },
+    {
+        title: '[A, null, [X, Y]] matches (X OR Y) in an indexed slot (alice or bob)',
+        build: scene => {
+            const alice = addressTopic(scene.alice);
+            const bob = addressTopic(scene.bob);
+            return {
+                criteria: { ...sceneBounds(scene), topics: [TRANSFER_TOPIC, null, [alice, bob]] },
+                expectedCount: 2,
+                check: logs =>
+                    logs.forEach(l => {
+                        expect(l.topics[0]).to.equal(TRANSFER_TOPIC);
+                        expect([alice, bob]).to.include(l.topics[2]);
+                    }),
+            };
+        },
+    },
+    {
+        title: '[A, [X, Y]] matches a nested OR-set in an indexed slot (minted-from-zero OR emitter sends)',
+        build: scene => ({
+            criteria: {
+                ...sceneBounds(scene),
+                topics: [
+                    TRANSFER_TOPIC,
+                    [addressTopic(ethers.ZeroAddress), addressTopic(scene.emitter.address)],
+                ],
+            },
+            expectedCount: scene.transferCount,
+        }),
+    },
+    {
+        title: 'an address array unions logs (a non-emitting co-address adds nothing)',
+        build: scene => ({
+            criteria: {
+                ...sceneBounds(scene),
+                address: [scene.erc20, ethers.Wallet.createRandom().address],
+            },
+            expectedCount: scene.totalCount,
+            check: logs => logs.forEach(l => expect(l.address).to.equal(scene.erc20.toLowerCase())),
+        }),
+    },
+    {
+        title: 'an address array combined with a topic0 filter (the three Transfers)',
+        build: scene => ({
+            criteria: {
+                ...sceneBounds(scene),
+                address: [scene.erc20, ethers.Wallet.createRandom().address],
+                topics: [TRANSFER_TOPIC],
+            },
+            expectedCount: scene.transferCount,
+            check: logs => logs.forEach(l => expect(l.topics[0]).to.equal(TRANSFER_TOPIC)),
+        }),
+    },
+];
+
 /**
  * Deploy a fresh, event-less TestERC20 and return a contract handle so a spec can
  * emit events on its own schedule — used when a filter must be installed *before*

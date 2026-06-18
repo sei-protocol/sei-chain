@@ -9,10 +9,9 @@ import {
     assertFilterChangesMatchGetLogs,
     emitLogScene,
     LogScene,
-    addressTopic,
+    LOG_FILTER_MATRIX,
     expectLogShape,
     TRANSFER_TOPIC,
-    APPROVAL_TOPIC,
 } from '../utils/logsUtils';
 import { HASH32 } from '../utils/format';
 
@@ -91,12 +90,11 @@ describe('eth_getFilterChanges', function () {
         });
     });
 
-    describe('topic filtering (order-dependent matching)', () => {
+    describe('topic & address filtering, parity with eth_getLogs', () => {
+        // Parameterised over the shared LOG_FILTER_MATRIX (logsUtils): the same address/topic cases
+        // every filter/subscription spec runs. Each case is pinned to eth_getLogs — install a filter,
+        // drain its deltas, and require them byte-identical to eth_getLogs(criteria).
         let scene: LogScene;
-        let base: { fromBlock: string; toBlock: string; address: string };
-        let emitterTopic: string;
-        let aliceTopic: string;
-        let bobTopic: string;
 
         before(async function () {
             this.timeout(120 * 1000);
@@ -105,85 +103,16 @@ describe('eth_getFilterChanges', function () {
                 ethers.Wallet.createRandom().address,
                 ethers.Wallet.createRandom().address,
             );
-            base = {
-                fromBlock: ethers.toQuantity(scene.firstEventBlock),
-                toBlock: ethers.toQuantity(scene.lastEventBlock),
-                address: scene.erc20,
-            };
-            emitterTopic = addressTopic(scene.emitter.address);
-            aliceTopic = addressTopic(scene.alice);
-            bobTopic = addressTopic(scene.bob);
         });
 
-        it('[] (empty array) matches anything', async () => {
-            const got = await assertFilterChangesMatchGetLogs(sei, { ...base, topics: [] }, '[]');
-            expect(got.length, 'all four scene events').to.equal(scene.totalCount);
-        });
-
-        it('omitting topics entirely matches anything', async () => {
-            const got = await assertFilterChangesMatchGetLogs(sei, { ...base }, 'no topics');
-            expect(got.length, 'all four scene events').to.equal(scene.totalCount);
-        });
-
-        it('[A] matches A in the first position (the event signature)', async () => {
-            const got = await assertFilterChangesMatchGetLogs(
-                sei,
-                { ...base, topics: [TRANSFER_TOPIC] },
-                '[A]',
-            );
-            expect(got.length, 'the three Transfers').to.equal(scene.transferCount);
-            got.forEach((l: any) => expect(l.topics[0]).to.equal(TRANSFER_TOPIC));
-        });
-
-        it('[null, B] matches B in the second position regardless of the first', async () => {
-            // from == emitter ⇒ the two transfers + the approval (the mint is from 0x0).
-            const got = await assertFilterChangesMatchGetLogs(
-                sei,
-                { ...base, topics: [null, emitterTopic] },
-                '[null, B]',
-            );
-            expect(got.length, 'logs whose pos1 is the emitter').to.equal(3);
-            got.forEach((l: any) => expect(l.topics[1]).to.equal(emitterTopic));
-        });
-
-        it('[A, B] matches A in the first AND B in the second position', async () => {
-            const got = await assertFilterChangesMatchGetLogs(
-                sei,
-                { ...base, topics: [TRANSFER_TOPIC, emitterTopic] },
-                '[A, B]',
-            );
-            expect(got.length, 'Transfers from the emitter (excludes the mint)').to.equal(2);
-            got.forEach((l: any) => {
-                expect(l.topics[0]).to.equal(TRANSFER_TOPIC);
-                expect(l.topics[1]).to.equal(emitterTopic);
+        for (const c of LOG_FILTER_MATRIX) {
+            it(c.title, async () => {
+                const { criteria, expectedCount, check } = c.build(scene);
+                const got = await assertFilterChangesMatchGetLogs(sei, criteria, c.title);
+                expect(got.length, `${c.title}: match count`).to.equal(expectedCount);
+                check?.(got);
             });
-        });
-
-        it('[[A, B]] matches (A OR B) in the first position', async () => {
-            const got = await assertFilterChangesMatchGetLogs(
-                sei,
-                { ...base, topics: [[TRANSFER_TOPIC, APPROVAL_TOPIC]] },
-                '[[A, B]]',
-            );
-            expect(got.length, 'Transfer OR Approval == every event').to.equal(scene.totalCount);
-            got.forEach((l: any) =>
-                expect([TRANSFER_TOPIC, APPROVAL_TOPIC]).to.include(l.topics[0]),
-            );
-        });
-
-        it('[A, null, [X, Y]] matches A in pos0 AND (X OR Y) in pos2', async () => {
-            // Transfers whose recipient is alice OR bob (excludes the mint, whose to == emitter).
-            const got = await assertFilterChangesMatchGetLogs(
-                sei,
-                { ...base, topics: [TRANSFER_TOPIC, null, [aliceTopic, bobTopic]] },
-                '[A, null, [X, Y]]',
-            );
-            expect(got.length, 'transfers to alice or bob').to.equal(2);
-            got.forEach((l: any) => {
-                expect(l.topics[0]).to.equal(TRANSFER_TOPIC);
-                expect([aliceTopic, bobTopic]).to.include(l.topics[2]);
-            });
-        });
+        }
     });
 
     describe('range and optional parameters', () => {

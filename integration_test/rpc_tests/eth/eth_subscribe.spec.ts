@@ -9,8 +9,8 @@ import {
     expectLogShape,
     emitLogScene,
     LogScene,
+    LOG_FILTER_MATRIX,
     TRANSFER_TOPIC,
-    APPROVAL_TOPIC,
     addressTopic,
 } from '../utils/logsUtils';
 import {
@@ -116,8 +116,8 @@ describe('eth_subscribe (WebSocket)', function () {
             }
 
             // The mint topics0->emitter, then emitter->sink: subscription order is emission order.
-            expect(BigInt(logs[0].topics[2]), 'first Transfer credits the emitter').to.equal(
-                BigInt(emitter.address.toLowerCase()),
+            expect(logs[0].topics[2], 'first Transfer credits the emitter').to.equal(
+                addressTopic(emitter.address),
             );
 
             const viaGetLogs = await sei.send('eth_getLogs', [
@@ -172,13 +172,6 @@ describe('eth_subscribe (WebSocket)', function () {
             scene = await emitLogScene(emitter, alice, bob);
         });
 
-        const sceneFilter = (extra: object = {}) => ({
-            fromBlock: ethers.toQuantity(scene.firstEventBlock),
-            toBlock: ethers.toQuantity(scene.lastEventBlock),
-            address: scene.erc20,
-            ...extra,
-        });
-
         const assertSubLogsMatchGetLogs = async (criteria: object, ctx: string): Promise<any[]> => {
             const oracle = await sei.send('eth_getLogs', [criteria]);
             expect(oracle.length, `${ctx}: scene produced matching logs`).to.be.greaterThan(0);
@@ -213,70 +206,14 @@ describe('eth_subscribe (WebSocket)', function () {
             }
         };
 
-        it('unions logs across an address array (a non-emitting co-address adds nothing)', async () => {
-            const logs = await assertSubLogsMatchGetLogs(
-                sceneFilter({ address: [scene.erc20, ethers.Wallet.createRandom().address] }),
-                'multi-address',
-            );
-            expect(logs.length, 'array-of-addresses still yields the scene total').to.equal(
-                scene.totalCount,
-            );
-            logs.forEach((l: any) => expect(l.address).to.equal(scene.erc20.toLowerCase()));
-        });
-
-        it('matches a topic0 OR-set (Transfer OR Approval)', async () => {
-            const logs = await assertSubLogsMatchGetLogs(
-                sceneFilter({ topics: [[TRANSFER_TOPIC, APPROVAL_TOPIC]] }),
-                'topic0 OR',
-            );
-            expect(logs.length, 'every event in the scene').to.equal(scene.totalCount);
-        });
-
-        it('matches an indexed positional topic (Transfers sent by the emitter)', async () => {
-            const sender = addressTopic(scene.emitter.address);
-            const logs = await assertSubLogsMatchGetLogs(
-                sceneFilter({ topics: [TRANSFER_TOPIC, sender] }),
-                'topic0 + indexed sender',
-            );
-            expect(logs.length, 'emitter -> alice and emitter -> bob').to.equal(2);
-            logs.forEach((l: any) => expect(l.topics[1]).to.equal(sender));
-        });
-
-        it('honours a wildcard slot with a matched recipient topic (only the alice transfer)', async () => {
-            const logs = await assertSubLogsMatchGetLogs(
-                sceneFilter({ topics: [TRANSFER_TOPIC, null, addressTopic(scene.alice)] }),
-                'wildcard + recipient',
-            );
-            expect(logs.length, 'only the emitter -> alice transfer').to.equal(1);
-            expect(logs[0].topics[2]).to.equal(addressTopic(scene.alice));
-        });
-
-        it('matches a nested OR-set in an indexed slot (minted-from-zero OR sent-by-emitter)', async () => {
-            const logs = await assertSubLogsMatchGetLogs(
-                sceneFilter({
-                    topics: [
-                        TRANSFER_TOPIC,
-                        [addressTopic(ethers.ZeroAddress), addressTopic(scene.emitter.address)],
-                    ],
-                }),
-                'topic0 + sender OR-set',
-            );
-            expect(logs.length, 'all three Transfers (mint + 2 sends)').to.equal(scene.transferCount);
-        });
-
-        it('combines an address array with a topic0 filter', async () => {
-            const logs = await assertSubLogsMatchGetLogs(
-                sceneFilter({
-                    address: [scene.erc20, ethers.Wallet.createRandom().address],
-                    topics: [TRANSFER_TOPIC],
-                }),
-                'multi-address + topic0',
-            );
-            expect(logs.length, 'the three Transfers from the scene token').to.equal(
-                scene.transferCount,
-            );
-            logs.forEach((l: any) => expect(l.topics[0]).to.equal(TRANSFER_TOPIC));
-        });
+        for (const c of LOG_FILTER_MATRIX) {
+            it(c.title, async () => {
+                const { criteria, expectedCount, check } = c.build(scene);
+                const logs = await assertSubLogsMatchGetLogs(criteria, c.title);
+                expect(logs.length, `${c.title}: match count`).to.equal(expectedCount);
+                check?.(logs);
+            });
+        }
     });
 
     describe('subscription type support matrix (divergence from geth)', () => {
