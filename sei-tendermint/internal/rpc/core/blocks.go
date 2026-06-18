@@ -324,6 +324,10 @@ func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestB
 		return nil, err
 	}
 
+	if max := env.Config.MaxTxSearchResults; max > 0 && len(results) > max {
+		results = results[:max]
+	}
+
 	// sort results (must be done before pagination)
 	switch req.OrderBy {
 	case "desc", "":

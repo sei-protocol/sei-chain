@@ -249,6 +249,10 @@ timeout-read = "{{ .RPC.TimeoutRead }}"
 # Set to "0s" to disable (not recommended).
 timeout-write = "{{ .RPC.TimeoutWrite }}"
 
+# Maximum number of results returned by tx_search and block_search.
+# Set to 0 to disable the cap (not recommended on public nodes).
+max-tx-search-results = {{ .RPC.MaxTxSearchResults }}
+
 #######################################################################
 ###           P2P Configuration Options                             ###
 #######################################################################

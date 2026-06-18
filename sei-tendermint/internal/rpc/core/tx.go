@@ -72,6 +72,10 @@ func (env *Environment) TxSearch(ctx context.Context, req *coretypes.RequestTxSe
 				return nil, err
 			}
 
+			if max := env.Config.MaxTxSearchResults; max > 0 && len(results) > max {
+				results = results[:max]
+			}
+
 			// sort results (must be done before pagination)
 			switch req.OrderBy {
 			case "desc", "":
