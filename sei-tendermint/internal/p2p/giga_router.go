@@ -87,9 +87,6 @@ type gigaRouterCommon struct {
 	service *giga.Service
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 	app     *proxy.Proxy
-	// lastExecutedBlock is the height the app has Commit-ed, reported by
-	// LastCommittedBlockNumber. Seeded from app.Info() at the top of Run.
-	lastExecutedBlock atomic.Int64
 }
 
 type gigaValidatorRouter struct {
@@ -204,7 +201,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 }
 
 func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
-	return r.lastExecutedBlock.Load()
+	return r.app.LastBlockHeight()
 }
 
 func (r *gigaValidatorRouter) MaxGasEstimatedPerBlock() uint64 {
@@ -363,28 +360,10 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	if err != nil {
 		return nil, fmt.Errorf("app.Commit(): %w", err)
 	}
-	// Publish right after Commit (not in the caller loop) so readers of
-	// LastCommittedBlockNumber don't briefly see app.LastBlockHeight ahead
-	// of our reported height while PushAppHash is still running.
-	r.lastExecutedBlock.Store(int64(b.GlobalNumber)) // nolint:gosec // autobahn block numbers fit in int64.
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	return commitResp, nil
-}
-
-// seedLastExecuted publishes the persisted app height into lastExecutedBlock
-// so LastCommittedBlockNumber returns a coherent value before the catch-up
-// loop starts. Called synchronously from Run, before any goroutine is
-// spawned — otherwise /status could observe the zero value momentarily on
-// restart while ABCI already reflects persisted state.
-func (r *gigaRouterCommon) seedLastExecuted(ctx context.Context) error {
-	info, err := r.app.Info(ctx, &version.RequestInfo)
-	if err != nil {
-		return fmt.Errorf("App.Info(): %w", err)
-	}
-	r.lastExecutedBlock.Store(info.LastBlockHeight)
-	return nil
 }
 
 func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
@@ -445,9 +424,6 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		if err := r.seedLastExecuted(ctx); err != nil {
-			return err
-		}
 		// Validators dial every committee member in parallel — consensus
 		// voting needs fan-out, not stickiness. Same connections also
 		// serve block sync between committee peers.

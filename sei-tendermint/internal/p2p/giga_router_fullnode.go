@@ -36,9 +36,6 @@ func (r *gigaFullnodeRouter) RunInboundConn(ctx context.Context, hConn *handshak
 
 func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		if err := r.seedLastExecuted(ctx); err != nil {
-			return err
-		}
 		// Single-active subscriber: walk the committee in a stable order,
 		// move to the next on disconnect. Avoids the N× QC duplication of
 		// fanning out to every committee member.

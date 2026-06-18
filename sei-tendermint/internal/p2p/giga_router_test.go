@@ -90,6 +90,17 @@ func (a *testApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseIn
 	panic("unreachable")
 }
 
+func (a *testApp) LastBlockHeight() int64 {
+	for state := range a.state.Lock() {
+		init, ok := state.Init.Get()
+		if !ok || len(state.Blocks) == 0 {
+			return 0
+		}
+		return init.InitialHeight + int64(len(state.Blocks)) - 1
+	}
+	panic("unreachable")
+}
+
 func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
 	return &abci.ResponseCheckTxV2{
 		ResponseCheckTx: &abci.ResponseCheckTx{
