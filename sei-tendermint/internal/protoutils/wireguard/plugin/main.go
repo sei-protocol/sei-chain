@@ -5,6 +5,7 @@
 //
 // Supported annotations:
 //
+//	(wireguard.sized) = true      // require structurally bounded message size
 //	(wireguard.max_count) = N      // cap on a repeated field's occurrences
 //	(wireguard.max_size) = N       // cap on one string/bytes/message instance
 //	(wireguard.max_total_size) = N // cap on summed bytes across field instances
@@ -57,6 +58,7 @@ const (
 )
 
 type wireguardExts struct {
+	sized        protoreflect.ExtensionType
 	maxCount     protoreflect.ExtensionType
 	maxSize      protoreflect.ExtensionType
 	maxTotalSize protoreflect.ExtensionType
@@ -64,6 +66,10 @@ type wireguardExts struct {
 
 func findWireguardExts(files *protoregistry.Files) (wireguardExts, error) {
 	dyn := dynamicpb.NewTypes(files)
+	sized, err := dyn.FindExtensionByName("wireguard.sized")
+	if err != nil {
+		return wireguardExts{}, fmt.Errorf("sized extension: %w", err)
+	}
 	mc, err := dyn.FindExtensionByName("wireguard.max_count")
 	if err != nil {
 		return wireguardExts{}, fmt.Errorf("max_count extension: %w", err)
@@ -77,6 +83,7 @@ func findWireguardExts(files *protoregistry.Files) (wireguardExts, error) {
 		return wireguardExts{}, fmt.Errorf("max_total_size extension: %w", err)
 	}
 	return wireguardExts{
+		sized:        sized,
 		maxCount:     mc,
 		maxSize:      ms,
 		maxTotalSize: mts,
@@ -149,6 +156,9 @@ func run(p *protogen.Plugin) error {
 	if err := validateRuleValues(byName, inSchema, exts); err != nil {
 		return err
 	}
+	if err := validateSizedMessages(byName, exts); err != nil {
+		return err
+	}
 
 	if *strictFlag {
 		if err := strictCheck(byName, inSchema, exts.maxCount); err != nil {
@@ -207,6 +217,49 @@ func validateRuleValues(byName map[protoreflect.FullName]protoreflect.MessageDes
 		}
 	}
 	return nil
+}
+
+func validateSizedMessages(byName map[protoreflect.FullName]protoreflect.MessageDescriptor, exts wireguardExts) error {
+	for _, d := range byName {
+		if !hasTrueMessageOption(d, exts.sized) {
+			continue
+		}
+		fields := d.Fields()
+		for i := range fields.Len() {
+			f := fields.Get(i)
+			opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
+			hasMaxCount := opts.Has(exts.maxCount.TypeDescriptor())
+			hasMaxSize := opts.Has(exts.maxSize.TypeDescriptor())
+			hasMaxTotalSize := opts.Has(exts.maxTotalSize.TypeDescriptor())
+
+			if f.IsList() && !hasMaxCount {
+				return fmt.Errorf("%s.%s: repeated fields of wireguard.sized messages must have (wireguard.max_count)", d.FullName(), f.Name())
+			}
+
+			if f.Kind() != protoreflect.StringKind && f.Kind() != protoreflect.BytesKind && f.Kind() != protoreflect.MessageKind {
+				continue
+			}
+			if hasMaxSize || hasMaxTotalSize {
+				continue
+			}
+			if f.Kind() == protoreflect.MessageKind && hasTrueMessageOption(f.Message(), exts.sized) {
+				continue
+			}
+			if f.IsList() {
+				return fmt.Errorf("%s.%s: repeated sized fields need (wireguard.max_count) plus one of (wireguard.max_size), (wireguard.max_total_size), or a wireguard.sized nested message", d.FullName(), f.Name())
+			}
+			return fmt.Errorf("%s.%s: sized string/bytes/message fields need (wireguard.max_size), (wireguard.max_total_size), or a wireguard.sized nested message", d.FullName(), f.Name())
+		}
+	}
+	return nil
+}
+
+func hasTrueMessageOption(d protoreflect.MessageDescriptor, ext protoreflect.ExtensionType) bool {
+	options := d.Options().(*descriptorpb.MessageOptions).ProtoReflect()
+	if !options.Has(ext.TypeDescriptor()) {
+		return false
+	}
+	return options.Get(ext.TypeDescriptor()).Bool()
 }
 
 func supportsSizeRules(f protoreflect.FieldDescriptor) bool {

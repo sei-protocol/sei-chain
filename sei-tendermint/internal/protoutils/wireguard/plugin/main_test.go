@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	sizedFieldNum        = 414126221
 	maxCountFieldNum     = 414126218
 	maxSizeFieldNum      = 414126219
 	maxTotalSizeFieldNum = 414126220
@@ -46,6 +47,14 @@ func wireguardFDP() *descriptorpb.FileDescriptorProto {
 		Dependency: []string{"google/protobuf/descriptor.proto"},
 		Extension: []*descriptorpb.FieldDescriptorProto{
 			{
+				Name:     proto.String("sized"),
+				Number:   proto.Int32(sizedFieldNum),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_BOOL.Enum(),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Extendee: proto.String(".google.protobuf.MessageOptions"),
+				JsonName: proto.String("sized"),
+			},
+			{
 				Name:     proto.String("max_count"),
 				Number:   proto.Int32(maxCountFieldNum),
 				Type:     descriptorpb.FieldDescriptorProto_TYPE_UINT32.Enum(),
@@ -74,6 +83,14 @@ func wireguardFDP() *descriptorpb.FileDescriptorProto {
 			GoPackage: proto.String("github.com/example/test/wireguard"),
 		},
 	}
+}
+
+func buildMessageOptionsSized() *descriptorpb.MessageOptions {
+	bz := protowire.AppendTag(nil, sizedFieldNum, protowire.VarintType)
+	bz = protowire.AppendVarint(bz, 1)
+	opts := &descriptorpb.MessageOptions{}
+	opts.ProtoReflect().SetUnknown(bz)
+	return opts
 }
 
 // descriptorProtoFDP returns the FileDescriptorProto for the well-known
@@ -642,6 +659,221 @@ func TestPlugin_RejectsSizeRulesOnPackedScalarField(t *testing.T) {
 	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "string, bytes, or message field")
+}
+
+func TestPlugin_SizedRejectsUnboundedBytesField(t *testing.T) {
+	msg := &descriptorpb.DescriptorProto{
+		Name:    proto.String("A"),
+		Options: buildMessageOptionsSized(),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:   proto.String("payload"),
+				Number: proto.Int32(1),
+				Type:   descriptorpb.FieldDescriptorProto_TYPE_BYTES.Enum(),
+				Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+			},
+		},
+	}
+	testFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("test.proto"),
+		Package:     proto.String("test"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msg},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/test;testpb"),
+		},
+	}
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
+	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "sized string/bytes/message fields need")
+}
+
+func TestPlugin_SizedRejectsRepeatedFieldWithoutMaxCount(t *testing.T) {
+	msg := &descriptorpb.DescriptorProto{
+		Name:    proto.String("A"),
+		Options: buildMessageOptionsSized(),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:   proto.String("xs"),
+				Number: proto.Int32(1),
+				Type:   descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+				Label:  descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+			},
+		},
+	}
+	testFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("test.proto"),
+		Package:     proto.String("test"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msg},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/test;testpb"),
+		},
+	}
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
+	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "must have (wireguard.max_count)")
+}
+
+func TestPlugin_SizedRejectsUnsizedNestedMessageWithoutFieldSize(t *testing.T) {
+	msgInner := &descriptorpb.DescriptorProto{
+		Name: proto.String("Inner"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:   proto.String("payload"),
+				Number: proto.Int32(1),
+				Type:   descriptorpb.FieldDescriptorProto_TYPE_BYTES.Enum(),
+				Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+			},
+		},
+	}
+	msgOuter := &descriptorpb.DescriptorProto{
+		Name:    proto.String("Outer"),
+		Options: buildMessageOptionsSized(),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:     proto.String("inner"),
+				Number:   proto.Int32(1),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+				TypeName: proto.String(".test.Inner"),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+			},
+		},
+	}
+	testFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("test.proto"),
+		Package:     proto.String("test"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msgOuter, msgInner},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/test;testpb"),
+		},
+	}
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
+	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "sized string/bytes/message fields need")
+}
+
+func TestPlugin_SizedAcceptsSizedNestedMessage(t *testing.T) {
+	msgInner := &descriptorpb.DescriptorProto{
+		Name:    proto.String("Inner"),
+		Options: buildMessageOptionsSized(),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:    proto.String("payload"),
+				Number:  proto.Int32(1),
+				Type:    descriptorpb.FieldDescriptorProto_TYPE_BYTES.Enum(),
+				Label:   descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxSizeFieldNum: 8}),
+			},
+		},
+	}
+	msgOuter := &descriptorpb.DescriptorProto{
+		Name:    proto.String("Outer"),
+		Options: buildMessageOptionsSized(),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:     proto.String("inner"),
+				Number:   proto.Int32(1),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+				TypeName: proto.String(".test.Inner"),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+			},
+		},
+	}
+	testFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("test.proto"),
+		Package:     proto.String("test"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msgOuter, msgInner},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/test;testpb"),
+		},
+	}
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
+	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
+	require.NoError(t, err)
+}
+
+func TestPlugin_SizedRepeatedMessageRequiresSizeOrSizedNested(t *testing.T) {
+	msgInner := &descriptorpb.DescriptorProto{
+		Name: proto.String("Inner"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:    proto.String("xs"),
+				Number:  proto.Int32(1),
+				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+				Options: buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 2}),
+			},
+		},
+	}
+	msgOuter := &descriptorpb.DescriptorProto{
+		Name:    proto.String("Outer"),
+		Options: buildMessageOptionsSized(),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:     proto.String("inners"),
+				Number:   proto.Int32(1),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+				TypeName: proto.String(".test.Inner"),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+				Options:  buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 2}),
+			},
+		},
+	}
+	testFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("test.proto"),
+		Package:     proto.String("test"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msgOuter, msgInner},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/test;testpb"),
+		},
+	}
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
+	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "repeated sized fields need")
+}
+
+func TestPlugin_SizedRepeatedMessageAcceptsMaxTotalSize(t *testing.T) {
+	msgInner := &descriptorpb.DescriptorProto{Name: proto.String("Inner")}
+	msgOuter := &descriptorpb.DescriptorProto{
+		Name:    proto.String("Outer"),
+		Options: buildMessageOptionsSized(),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:     proto.String("inners"),
+				Number:   proto.Int32(1),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+				TypeName: proto.String(".test.Inner"),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+				Options:  buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 2, maxTotalSizeFieldNum: 64}),
+			},
+		},
+	}
+	testFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("test.proto"),
+		Package:     proto.String("test"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msgOuter, msgInner},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/test;testpb"),
+		},
+	}
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
+	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
+	require.NoError(t, err)
 }
 
 // TestPlugin_Proto3OptionalDoesNotEmitWrapperType verifies the fix for the
