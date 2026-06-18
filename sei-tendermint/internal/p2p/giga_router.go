@@ -42,21 +42,16 @@ func (a GigaNodeAddr) String() string {
 // GigaRouterCommonConfig is the slice of giga config shared by both
 // validator and fullnode constructors.
 type GigaRouterCommonConfig struct {
-	// DialInterval is the outbound dial-retry sleep on both paths and the
-	// initial backoff on the fullnode subscriber. Must be > 0.
-	DialInterval time.Duration
-	// ValidatorAddrs is the committee table. Every entry must carry a
-	// non-None EVMRPC URL — EvmProxy's silent-drop branch is otherwise
-	// reachable. Empty maps are rejected at construction.
+	DialInterval   time.Duration
 	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
+	GenDoc         *types.GenesisDoc
 	// PersistentStateDir is the on-disk root for the data WAL (and the
 	// validator's consensus persister in a sibling subdir). None ⇒ in-memory.
 	PersistentStateDir utils.Option[string]
 	// App is the ABCI proxy executeBlock drives. NewGigaValidatorRouter
 	// also copies this into cfg.Producer.App so the producer's internal
 	// mempool drives the same proxy.
-	App    *proxy.Proxy
-	GenDoc *types.GenesisDoc
+	App *proxy.Proxy
 }
 
 // GigaValidatorConfig configures a committee-member GigaRouter.
@@ -64,25 +59,16 @@ type GigaValidatorConfig struct {
 	GigaRouterCommonConfig
 	ValidatorKey atypes.SecretKey
 	ViewTimeout  func(atypes.View) time.Duration
-	// Producer carries gas/tx-per-block caps, block interval, etc. App
-	// is filled by NewGigaValidatorRouter from common.App — leave nil.
+	// Producer.App is filled by NewGigaValidatorRouter from common.App.
 	Producer *producer.Config
-	// MaxInboundFullnodePeers caps inbound block-sync connections from
-	// non-committee peers. 0 rejects all; n > 0 caps at n; negative is
-	// rejected. setup.go fills the operator-facing default
-	// (config.DefaultAutobahnMaxInboundFullnodePeers) when the TOML key
-	// is absent.
+	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
+	// peers. 0 rejects all; positive caps at n.
 	MaxInboundFullnodePeers int
 }
 
-// GigaRouter is the per-node entry into Autobahn — the read-path / Run /
-// EvmProxy surface external callers (router.go,
-// internal/rpc/core/{blocks,status,mempool}.go) reach through. Two
-// concrete impls in this package: *gigaValidatorRouter (committee members)
-// and *gigaFullnodeRouter. Validator-only operations are reached via
-// AsValidator() — see GigaValidatorRouter. RunInboundConn lives on
-// *gigaValidatorRouter directly (fullnodes don't accept inbound, so
-// putting it on GigaRouter would force a dummy fullnode impl).
+// GigaRouter is the read-path / Run / EvmProxy surface. Implemented by
+// *gigaValidatorRouter and *gigaFullnodeRouter; validator-only operations
+// are reached via AsValidator.
 type GigaRouter interface {
 	Run(ctx context.Context) error
 	LastCommittedBlockNumber() int64
@@ -90,14 +76,11 @@ type GigaRouter interface {
 	BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error)
 	BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error)
 	EvmProxy(sender common.Address) (*url.URL, bool)
-	// AsValidator returns Some on validators, None on fullnodes. Callers
-	// that need the producer-backed mempool branch on Get().
 	AsValidator() utils.Option[GigaValidatorRouter]
 }
 
-// GigaValidatorRouter is the validator-only surface reached via
-// GigaRouter.AsValidator(). Exposes the producer-backed mempool that the
-// RPC layer (broadcast_tx_*, evm tx insertion, nonce lookup) drives.
+// GigaValidatorRouter is the validator-only surface returned by
+// GigaRouter.AsValidator().
 type GigaValidatorRouter interface {
 	Mempool() *producer.State
 }
@@ -109,12 +92,8 @@ type gigaRouterCommon struct {
 	service *giga.Service
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 	app     *proxy.Proxy
-	// lastExecutedBlock is the height the app has Commit-ed. Read by
-	// LastCommittedBlockNumber so /status reports the executed frontier
-	// (matches CometBFT — clients querying receipts at the reported height
-	// won't see a height the app hasn't reached). Seeded synchronously by
-	// seedLastExecuted at the top of Run from app.Info().LastBlockHeight;
-	// advanced after every Commit.
+	// lastExecutedBlock is the height the app has Commit-ed, reported by
+	// LastCommittedBlockNumber. Seeded from app.Info() at the top of Run.
 	lastExecutedBlock atomic.Int64
 }
 
@@ -126,26 +105,21 @@ type gigaValidatorRouter struct {
 	producerConfig *producer.Config
 	poolIn         *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	// validatorKey is the cached public form of cfg.ValidatorKey, used by
-	// EvmProxy to short-circuit self-shard sends to local mempool instead
-	// of HTTP-forwarding to ourselves.
+	// EvmProxy to short-circuit self-shard sends to the local mempool.
 	validatorKey atypes.PublicKey
 
 	// inboundFullnodeCount tracks live non-committee inbound block-sync
-	// connections. Acquire is Add(1) + compare against cap; release is
-	// Add(-1). Brief overshoot under contention over-rejects by one or
-	// two peers but never over-accepts — and the atomic avoids queueing.
+	// connections. Optimistic Add(1) + compare against cap; over-rejects
+	// by one or two under contention but never over-accepts.
 	inboundFullnodeCount atomic.Int32
 	inboundFullnodeCap   int32
 }
 
 // validateCommonAndBuildData runs the validation and data-layer setup
-// shared by both giga constructors. The every-committee-member-has-an-
-// EVMRPC-URL guard lives here so EvmProxy's silent-drop branch is
-// unreachable in production on either mode.
+// shared by both giga constructors.
 //
 // TODO(autobahn): once sei-db/ledger_db/block.BlockDB has a writer wired
-// (see BlockByNumber's TODO), the data WAL is redundant — drop the
-// directory and make this a no-op.
+// (see BlockByNumber's TODO), the data WAL is redundant.
 func validateCommonAndBuildData(cfg *GigaRouterCommonConfig) (*data.State, error) {
 	if cfg.GenDoc == nil {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.GenDoc must be set")
@@ -270,21 +244,35 @@ func (r *gigaValidatorRouter) Mempool() *producer.State {
 	return r.producer
 }
 
-// BlockByNumber and BlockByHash translate Autobahn's GlobalBlock to the
-// CometBFT coretypes.ResultBlock shape so evmrpc (which wraps receipts /
-// logs with block context) keeps working without CometBFT's BlockStore
-// being populated. Block.Header.{ChainID,Height,Time} and Block.Data.Txs
-// are populated; the rest (AppHash, ProposerAddress, LastCommit, …) stay
-// zero — evmrpc doesn't read them on the receipt path.
+// BlockByNumber returns the finalized global block at height n translated
+// into the CometBFT coretypes.ResultBlock shape. This lets consumers
+// (notably evmrpc, which wraps receipts/logs with block context) keep
+// working under Autobahn without CometBFT's BlockStore being populated.
 //
-// TODO(autobahn): switch both to sei-db/ledger_db/block.BlockDB once a
-// writer is wired from executeBlock; data.State's index goes away then.
+// Fields populated when the underlying GlobalBlock is well-formed:
+// BlockID.Hash (Autobahn lane-block header hash — the same bytes passed to
+// app.FinalizeBlock's Hash param, which the EVM receipt store records as
+// blockHash), Block.Header.ChainID/Height/Time, Block.Data.Txs. Other
+// fields (AppHash, ProposerAddress, LastCommit, …) stay at zero values —
+// evmrpc does not read them on the receipt path. If gb.Header is nil
+// BlockID.Hash also stays empty; if gb.Payload is nil Block.Data.Txs
+// stays empty (see the malformed-block handling below).
+//
+// TODO(autobahn): switch this to read from sei-db/ledger_db/block.BlockDB
+// once a writer is wired (e.g. from app.FinalizeBlocker or executeBlock).
+// Today no production code calls BlockDB.WriteBlock, so Autobahn's in-memory
+// data.State is the only place a full block lives — but it's pruned per
+// Sei's RetainHeight and exposes only a height index (no GetBlockByHash).
+// BlockDB has the right shape (height + hash indexes, async pruning) and
+// is the long-term home for this read path.
 func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error) {
 	gb, err := r.data.GlobalBlock(ctx, n)
 	if err != nil {
-		// Map Autobahn's pruning sentinel to CometBFT's so callers
-		// (env.Block, evmrpc, ops tooling) hit the same error type they
-		// already handle on the CometBFT path.
+		// Map Autobahn's pruning sentinel to CometBFT's, so callers
+		// (env.Block, evmrpc, ops tooling) get the same error type they
+		// already handle on the CometBFT path. base is None because the
+		// active lower bound (data.State.inner.first) is internal to
+		// data.State; both call sites format through the same helper.
 		if errors.Is(err, data.ErrPruned) {
 			return nil, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
 		}
@@ -293,16 +281,30 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlo
 	return r.translateGlobalBlock(gb), nil
 }
 
-// BlockByHash matches CometBFT semantics for unknown hashes:
-// &ResultBlock{Block: nil} with no error.
+// BlockByHash returns the finalized global block keyed by Autobahn block-
+// header hash, translated into the CometBFT coretypes.ResultBlock shape
+// (same translation as BlockByNumber). Matches CometBFT semantics for
+// unknown hashes: returns &ResultBlock{Block: nil} with no error.
+//
+// Lookup-and-construct happens under a single data.State lock acquire, so
+// the returned block matches the requested hash atomically. Hashes below
+// the pruning watermark are not indexed and read as "unknown". Wrong-size
+// inputs are rejected at the call site (env.BlockByHash) so this method
+// can stay strongly typed on atypes.BlockHeaderHash.
+//
+// TODO(autobahn): replace this with a direct read from
+// sei-db/ledger_db/block.BlockDB.GetBlockByHash once a writer is wired into
+// block execution. The data.State-side index can also go away at that point.
 func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error) {
 	opt, err := r.data.GlobalBlockByHash(hash)
 	if err != nil {
 		return nil, fmt.Errorf("data.GlobalBlockByHash: %w", err)
 	}
-	// translateGlobalBlock dereferences gb.Header without nil-checking
-	// (matches executeBlock's contract on the same type), so reject the
-	// unknown-hash case here.
+	// Reject the unknown-hash case here so translateGlobalBlock can rely
+	// on the *GlobalBlock type contract (non-nil, with non-nil Header
+	// and Payload) — same way executeBlock dereferences b.Header
+	// without checking. Mirrors CometBFT's BlockStore.LoadBlockByHash
+	// returning &ResultBlock{Block: nil} for an unknown hash.
 	gb, ok := opt.Get()
 	if !ok {
 		return &coretypes.ResultBlock{}, nil
@@ -310,12 +312,22 @@ func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash atypes.BlockHea
 	return r.translateGlobalBlock(gb), nil
 }
 
-// translateGlobalBlock returns LastCommit with empty Signatures (mirroring
-// executeBlock's empty abci.CommitInfo). Under Autobahn the committee is
-// fixed by genesis — surfacing N "absent sig" entries here would make
-// trace replay's BeginBlock bump missed-block counters and diverge from
-// production. ToReqBeginBlock skips the per-validator loop when
-// Signatures is empty.
+// translateGlobalBlock converts an Autobahn GlobalBlock to the CometBFT
+// coretypes.ResultBlock shape used by env.Block / env.BlockByHash and
+// downstream evmrpc consumers. Caller must pass a non-nil *GlobalBlock with
+// non-nil Header and Payload — that's the contract data.State guarantees on
+// a successful lookup, and matches how executeBlock dereferences b.Header
+// without a nil-check on the same type. The "no such block" case is
+// rejected at the BlockByHash call site before delegating here.
+//
+// LastCommit is non-nil with empty Signatures, mirroring executeBlock's
+// FinalizeBlock call which passes an empty abci.CommitInfo. Under Autobahn
+// the committee is fixed by genesis (no validator-set updates), so the
+// application is not in control of jailing — surfacing N "absent sig"
+// entries here would make trace replay's BeginBlock bump missed-block
+// counters and diverge from production. ToReqBeginBlock skips the per-
+// validator loop when Signatures is empty, so empty Votes flow into
+// distribution/slashing on both paths.
 func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.ResultBlock {
 	srcTxs := gb.Payload.Txs()
 	tmTxs := make(types.Txs, len(srcTxs))
@@ -328,8 +340,11 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 		Block: &types.Block{
 			Header: types.Header{
 				ChainID: r.cfg.GenDoc.ChainID,
-				Height:  utils.Clamp[int64](gb.GlobalNumber),
-				Time:    gb.Timestamp,
+				// Clamp accepts any constraints.Integer for From, so
+				// gb.GlobalNumber (a typed uint64) goes in directly — no
+				// intermediate uint64() conversion needed.
+				Height: utils.Clamp[int64](gb.GlobalNumber),
+				Time:   gb.Timestamp,
 			},
 			Data:       types.Data{Txs: tmTxs},
 			LastCommit: &types.Commit{},

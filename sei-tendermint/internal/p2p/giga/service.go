@@ -9,28 +9,15 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-// Service serves the giga RPC API. Two construction modes:
-//
-//   - NewService(consensusState) — full validator service: serves and consumes
-//     all 9 streams (block-sync + consensus + avail).
-//   - NewBlockSyncService(dataState) — block-sync only: serves and consumes
-//     just StreamFullCommitQCs + GetBlock. Used by fullnodes that hold
-//     data.State but not the consensus / avail layers.
-//
-// All block-sync methods read/write s.data directly. The consensus / avail
-// methods access s.state, which is nil on block-sync-only services — but
-// those methods are only spawned by RunServer / RunClient (validator
-// entry points). RunBlockSyncServer / RunBlockSyncClient spawn only the
-// block-sync subset, so the consensus/avail handlers never run with
-// s.state == nil in practice.
+// Service serves the giga RPC API. NewService builds a full validator
+// service (all streams); NewBlockSyncService builds a block-sync-only
+// service (StreamFullCommitQCs + GetBlock) for fullnodes. state is nil on
+// block-sync-only services and is only dereferenced by handlers spawned
+// from the validator-only RunServer / RunClient entry points.
 type Service struct {
 	getBlockReqs chan req
 	data         *data.State
-	// state is the validator-mode consensus state. nil on block-sync-only
-	// services; safe because the handlers that dereference it are only
-	// spawned by the validator-only RunServer / RunClient entry points
-	// (see the type doc above).
-	state *consensus.State
+	state        *consensus.State
 }
 
 func NewService(state *consensus.State) *Service {
@@ -42,8 +29,7 @@ func NewService(state *consensus.State) *Service {
 }
 
 // NewBlockSyncService constructs a Service that only serves and consumes
-// block-sync streams. Used by fullnodes which sync finalized blocks from
-// validators but don't run consensus or avail themselves.
+// block-sync streams (no consensus / avail).
 func NewBlockSyncService(d *data.State) *Service {
 	return &Service{
 		getBlockReqs: make(chan req),
@@ -85,10 +71,8 @@ func (x *Service) RunClient(ctx context.Context, client rpc.Client[API]) error {
 	})
 }
 
-// RunBlockSyncServer spawns only the block-sync server handlers. Validators
-// call this on inbound connections from fullnode (non-committee) peers, so
-// fullnode peers can pull finalized blocks but can't push consensus messages
-// or observe consensus/avail subscriptions.
+// RunBlockSyncServer spawns only the block-sync server handlers. Used by
+// validators on inbound connections from non-committee peers.
 func (x *Service) RunBlockSyncServer(ctx context.Context, server rpc.Server[API]) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return x.serverPing(ctx, server) })
@@ -98,10 +82,8 @@ func (x *Service) RunBlockSyncServer(ctx context.Context, server rpc.Server[API]
 	})
 }
 
-// RunBlockSyncClient spawns only the block-sync client handlers. Fullnode
-// nodes call this when dialing each validator, pulling FullCommitQCs and
-// block payloads and feeding them into the local data.State via PushQC /
-// PushBlock.
+// RunBlockSyncClient spawns only the block-sync client handlers. Used by
+// fullnodes dialing committee members.
 func (x *Service) RunBlockSyncClient(ctx context.Context, client rpc.Client[API]) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return x.clientPing(ctx, client) })
