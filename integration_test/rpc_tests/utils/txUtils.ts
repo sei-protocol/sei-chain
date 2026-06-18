@@ -115,6 +115,97 @@ export interface RichBlock {
     number: number;
     hash: string;
     txs: SentTx[];
+    /**
+     * Gas used by the co-located pointer-backed CW20 transfer (a pure Cosmos tx). Sei folds
+     * this into the EVM receipts' cumulativeGasUsed (in tx-index order) but excludes it from
+     * block.gasUsed; gas-accounting assertions use it to reconcile the one cumulative jump.
+     * Absent on wasm-disabled chains.
+     */
+    cosmosShellGas?: bigint;
+}
+
+export interface RpcTx {
+    hash: string;
+    blockHash: string;
+    blockNumber: string;
+    transactionIndex: string;
+    from: string;
+    to: string | null;
+    value: string;
+    gas: string;
+    gasPrice: string;
+    nonce: string;
+    type: string;
+    input: string;
+    r: string;
+    s: string;
+    v?: string;
+    yParity?: string;
+    chainId?: string;
+    accessList?: unknown[];
+    maxFeePerGas?: string;
+    maxPriorityFeePerGas?: string;
+    authorizationList?: unknown[];
+}
+
+export interface RpcBlock {
+    number: string;
+    hash: string;
+    parentHash: string;
+    nonce: string;
+    sha3Uncles: string;
+    logsBloom: string;
+    transactionsRoot: string;
+    stateRoot: string;
+    receiptsRoot: string;
+    mixHash: string;
+    miner: string;
+    difficulty: string;
+    extraData: string;
+    size: string;
+    gasLimit: string;
+    gasUsed: string;
+    timestamp: string;
+    baseFeePerGas: string;
+    uncles: string[];
+    transactions: (string | RpcTx)[];
+    totalDifficulty?: string;
+    withdrawals?: unknown[];
+    withdrawalsRoot?: string;
+}
+
+/** A single JSON-RPC log object carried in a receipt / eth_getLogs result. */
+export interface RpcLog {
+    address: string;
+    topics: string[];
+    data: string;
+    blockHash: string;
+    blockNumber: string;
+    transactionHash: string;
+    transactionIndex: string;
+    logIndex: string;
+    removed: boolean;
+}
+
+/**
+ * The JSON-RPC transaction-receipt object. `to` is creation-dependent (Sei omits it on a
+ * creation receipt, geth returns null), and `contractAddress` is set iff it was a creation.
+ */
+export interface RpcReceipt {
+    transactionHash: string;
+    transactionIndex: string;
+    blockHash: string;
+    blockNumber: string;
+    from: string;
+    to?: string | null;
+    cumulativeGasUsed: string;
+    gasUsed: string;
+    effectiveGasPrice: string;
+    contractAddress: string | null;
+    logs: RpcLog[];
+    logsBloom: string;
+    status: string;
+    type: string;
 }
 
 /**
@@ -368,7 +459,12 @@ export async function buildRichSeiBlock(
                     hash: responses[i].hash,
                     receipt: receipts[i] as ethers.TransactionReceipt,
                 }));
-                return { number: blockNumber, hash: block!.hash!, txs };
+                return {
+                    number: blockNumber,
+                    hash: block!.hash!,
+                    txs,
+                    cosmosShellGas: wasm && cosmos ? cosmos.gasUsed : undefined,
+                };
             }
             lastErr = new Error(
                 `attempt ${attempt + 1}: EVM blocks ${[...uniqueBlocks].join(',')}` +
@@ -554,7 +650,7 @@ export async function signBelowIntrinsicTx(
 }
 
 /** Assert every documented header field is present and canonically encoded. */
-export function assertCanonicalHeader(block: any, opts: { hasTxs: boolean }): void {
+export function assertCanonicalHeader(block: RpcBlock, opts: { hasTxs: boolean }): void {
     for (const f of CORE_BLOCK_FIELDS) {
         expect(block, `header is missing ${f}`).to.have.property(f);
     }
@@ -610,7 +706,10 @@ const UNIVERSAL_TX_FIELDS = [
 ] as const;
 
 /** Assert a full transaction object is canonically encoded and linked to its block. */
-export function assertCanonicalTx(tx: any, block: any): void {
+export function assertCanonicalTx(
+    tx: RpcTx,
+    block: { hash: string; number: string | number },
+): void {
     for (const f of UNIVERSAL_TX_FIELDS) {
         expect(tx, `tx is missing ${f}`).to.have.property(f);
     }
@@ -639,7 +738,7 @@ export function assertCanonicalTx(tx: any, block: any): void {
  *   1559  (0x2):  maxFee* + accessList + yParity (+ effective gasPrice);  NO authorizationList
  *   7702  (0x4):  maxFee* + accessList + yParity + authorizationList
  */
-export function assertTxTypeSchema(tx: any): void {
+export function assertTxTypeSchema(tx: RpcTx): void {
     const type = Number(BigInt(tx.type));
     const has = (f: string) => expect(tx, `type ${type} tx must expose ${f}`).to.have.property(f);
     const lacks = (f: string) =>
@@ -685,48 +784,90 @@ export function assertTxTypeSchema(tx: any): void {
 /** Fetch the receipt for every transaction listed in a block (hash- or object-form tx lists). */
 function receiptsForBlock(
     provider: ethers.JsonRpcProvider,
-    block: any,
+    block: Pick<RpcBlock, 'transactions'>,
 ): Promise<(ethers.TransactionReceipt | null)[]> {
-    const hashes: string[] = (block.transactions as any[]).map(t =>
-        typeof t === 'string' ? t : t.hash,
-    );
+    const hashes = block.transactions.map(t => (typeof t === 'string' ? t : t.hash));
     return Promise.all(hashes.map(h => provider.getTransactionReceipt(h)));
 }
 
 /**
- * Verify the block's gas accounting: the block's gasUsed equals the sum of every
- * listed transaction's receipt gasUsed, that per-receipt gasUsed is positive, that
- * cumulativeGasUsed rises monotonically with transaction index, and that the final
- * cumulativeGasUsed equals the block's gasUsed. Robust on both chains (pure gas units).
+ * Reconcile the EVM-visible (eth_*) cumulativeGasUsed series of a single block.
+ *
+ * Receipts must be the eth-visible ones (EVM txs only), pre-mapped to native bigints and
+ * sorted by transaction index. `blockGasUsed` is the eth block.gasUsed (which sums ONLY
+ * EVM receipt gas). `cosmosShellGas`, when given, is the gas of a co-located pointer-backed
+ * CW20 transfer (a pure Cosmos tx): Sei folds that Cosmos-unit gas into the EVM receipts'
+ * cumulativeGasUsed in tx-index order, but NOT into block.gasUsed.
+ *
+ * The series therefore tracks the running Σ of EVM gasUsed exactly, EXCEPT for a single
+ * step where the shell receipt sits just before an EVM tx — there cumulativeGasUsed jumps
+ * by an extra `cosmosShellGas`. We assert that jump equals the Cosmos tx's gas exactly,
+ * that it happens at most once (the rich block has one CW20 tx; it may instead sort last,
+ * in which case no jump appears), and that every other step accumulates cleanly.
+ */
+export function assertCumulativeGasSeries(
+    ordered: { index: number; gasUsed: bigint; cumulativeGasUsed: bigint }[],
+    blockGasUsed: bigint,
+    cosmosShellGas?: bigint,
+): void {
+    let prevCumulative = 0n;
+    let runningOwn = 0n;
+    let shellOffset = 0n;
+    let jumps = 0;
+    for (const r of ordered) {
+        expect(r.gasUsed > 0n, `receipt ${r.index} burned gas`).to.equal(true);
+        runningOwn += r.gasUsed;
+        const expected = runningOwn + shellOffset;
+        if (r.cumulativeGasUsed !== expected) {
+            // The only legitimate perturbation is the shell receipt of the co-located CW20
+            // transfer folded in just before this EVM tx. Pin the jump to that exact gas.
+            const extra = r.cumulativeGasUsed - expected;
+            expect(
+                cosmosShellGas !== undefined,
+                `unexpected cumulativeGasUsed jump of ${extra} at idx ${r.index} with no CW20 shell tx`,
+            ).to.equal(true);
+            expect(extra, `cumulative jump at idx ${r.index} == co-located CW20 shell gas`).to.equal(
+                cosmosShellGas,
+            );
+            shellOffset += extra;
+            jumps++;
+        }
+        expect(r.cumulativeGasUsed > prevCumulative, `cumulativeGasUsed strictly increasing at idx ${r.index}`).to.equal(
+            true,
+        );
+        prevCumulative = r.cumulativeGasUsed;
+    }
+    expect(jumps, 'at most one CW20 shell receipt perturbs the EVM cumulative series').to.be.at.most(1);
+    
+    expect(
+        prevCumulative,
+        'final cumulativeGasUsed == block.gasUsed + any folded CW20 shell gas',
+    ).to.equal(blockGasUsed + shellOffset);
+    
+}
+
+/**
+ * Verify a Sei block's gas accounting against the EVM-visible (eth_*) receipts.
+ *
+ * `block.gasUsed` on the eth namespace sums ONLY EVM-transaction receipt gas (evmrpc
+ * excludes shell receipts from the block), so `block.gasUsed == Σ eth-visible gasUsed`
+ * holds exactly. The cumulativeGasUsed series is reconciled via assertCumulativeGasSeries,
+ * which also asserts that a co-located CW20 transfer's gas (`cosmosShellGas`) is exactly
+ * what perturbs the series — proving the Cosmos tx's gas does reach EVM cumulativeGasUsed.
  */
 export async function assertGasAccounting(
     provider: ethers.JsonRpcProvider,
-    block: any,
+    block: Pick<RpcBlock, 'transactions' | 'gasUsed'>,
+    cosmosShellGas?: bigint,
 ): Promise<void> {
     const receipts = await receiptsForBlock(provider, block);
     const summed = receipts.reduce((acc, r) => acc + r!.gasUsed, 0n);
-    expect(summed, 'block.gasUsed == Σ receipt.gasUsed').to.equal(BigInt(block.gasUsed));
+    expect(summed, 'block.gasUsed == Σ EVM-visible receipt.gasUsed').to.equal(BigInt(block.gasUsed));
 
-    // cumulativeGasUsed must be strictly increasing in tx index and end at gasUsed.
-    const ordered = [...receipts].sort((a, b) => a!.index - b!.index);
-    let prev = 0n;
-    let running = 0n;
-    for (const r of ordered) {
-        expect(r!.gasUsed > 0n, `receipt ${r!.index} burned gas`).to.equal(true);
-        running += r!.gasUsed;
-        expect(
-            r!.cumulativeGasUsed === running,
-            `cumulativeGasUsed[${r!.index}] == running Σ gasUsed`,
-        ).to.equal(true);
-        expect(r!.cumulativeGasUsed > prev, `cumulativeGasUsed strictly increasing`).to.equal(true);
-        prev = r!.cumulativeGasUsed;
-    }
-    if (ordered.length > 0) {
-        expect(
-            ordered[ordered.length - 1]!.cumulativeGasUsed,
-            'final cumulativeGasUsed == block.gasUsed',
-        ).to.equal(BigInt(block.gasUsed));
-    }
+    const ordered = [...receipts]
+        .sort((a, b) => a!.index - b!.index)
+        .map(r => ({ index: r!.index, gasUsed: r!.gasUsed, cumulativeGasUsed: r!.cumulativeGasUsed }));
+    assertCumulativeGasSeries(ordered, BigInt(block.gasUsed), cosmosShellGas);
 }
 
 const BASE_TX_GAS = 21_000n;
@@ -987,14 +1128,14 @@ export const TX_RECEIPT_SHARED_FIELDS = [
 export type BlockSpec = number | string;
 
 /** eth_getBlockReceipts wrapper that hex-encodes a numeric height for you. */
-export function blockReceipts(provider: ethers.JsonRpcProvider, spec: BlockSpec): Promise<any[]> {
+export function blockReceipts(provider: ethers.JsonRpcProvider, spec: BlockSpec): Promise<RpcReceipt[]> {
     const param = typeof spec === 'number' ? ethers.toQuantity(spec) : spec;
     return provider.send('eth_getBlockReceipts', [param]);
 }
 
 /** Every receipt field is present, canonically encoded and linked to its block + index. */
 export function assertCanonicalReceipt(
-    rc: any,
+    rc: RpcReceipt,
     blockHash: string,
     blockNumber: number,
     index: number,
@@ -1060,7 +1201,7 @@ export const RAW_TX_METHODS = [
  * authentic, self-consistent encoding: keccak256(raw) is the hash, and the recovered
  * sender / nonce / value / gas / fees / signature all match. Returns the decoded tx.
  */
-export function assertRawTxMatches(raw: string, txObject: any): ethers.Transaction {
+export function assertRawTxMatches(raw: string, txObject: RpcTx): ethers.Transaction {
     const decoded = ethers.Transaction.from(raw);
     expect(ethers.keccak256(raw), 'keccak256(raw) == tx hash').to.equal(txObject.hash);
     expect(decoded.hash, 'decoded hash == tx hash').to.equal(txObject.hash);
@@ -1077,7 +1218,7 @@ export function assertRawTxMatches(raw: string, txObject: any): ethers.Transacti
     if (txObject.maxFeePerGas !== undefined) {
         expect(decoded.maxFeePerGas, 'maxFeePerGas').to.equal(BigInt(txObject.maxFeePerGas));
         expect(decoded.maxPriorityFeePerGas, 'maxPriorityFeePerGas').to.equal(
-            BigInt(txObject.maxPriorityFeePerGas),
+            BigInt(txObject.maxPriorityFeePerGas!),
         );
     }
     if (txObject.gasPrice !== undefined && (decoded.type === 0 || decoded.type === 1)) {

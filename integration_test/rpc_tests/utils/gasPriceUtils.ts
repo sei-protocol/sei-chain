@@ -40,18 +40,17 @@ export async function gasPriceAtStableBlock(
 
 /**
  * Assert a Sei gas price reading tracks the base fee: uncongested it is exactly 1.1x
- * the base fee of some block in the immediate neighbourhood of B (the block the node
- * sampled for GetNextBaseFeePerGas can drift by one under active load); congested it at
- * least covers the base fee.
+ * (floor, matching the node's integer Mul/Div) the base fee of some block in the immediate
+ * neighbourhood of B, congested it at least covers the base fee.
  */
 export async function assertSeiGasPriceTracks(
     provider: ethers.JsonRpcProvider,
     gasPriceWei: bigint,
     block: number,
 ): Promise<void> {
-    await waitUntil(async () => ((await provider.getBlockNumber()) > block ? true : null), {
+    await waitUntil(async () => ((await provider.getBlockNumber()) >= block + 2 ? true : null), {
         timeoutMs: 15_000,
-        label: 'block after sample',
+        label: 'two blocks after sample',
     });
     const head = await provider.getBlockNumber();
     const heights = [block - 1, block, block + 1, block + 2].filter(h => h >= 0 && h <= head);

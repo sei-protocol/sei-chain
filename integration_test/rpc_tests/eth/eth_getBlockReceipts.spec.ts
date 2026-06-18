@@ -18,6 +18,7 @@ import {
     TX_RECEIPT_SHARED_FIELDS,
     blockReceipts,
     assertCanonicalReceipt,
+    assertCumulativeGasSeries,
     expectedEffectiveGasPrice,
     richFailedTxs,
     assertFailedReceipt,
@@ -390,17 +391,19 @@ describe('eth_getBlockReceipts', function () {
                 sei.send('eth_getBlockByNumber', [ethers.toQuantity(richSei.number), false]),
                 blockReceipts(sei, richSei.number),
             ]);
-            const ordered = [...receipts].sort(
-                (a, b) => Number(BigInt(a.transactionIndex)) - Number(BigInt(b.transactionIndex)),
-            );
-            let running = 0n;
-            for (const rc of ordered) {
-                running += BigInt(rc.gasUsed);
-                expect(BigInt(rc.cumulativeGasUsed), `cumulativeGasUsed at ${rc.transactionIndex}`).to.equal(
-                    running,
-                );
-            }
-            expect(running, 'final cumulativeGasUsed == block.gasUsed').to.equal(BigInt(block.gasUsed));
+            // block.gasUsed (eth) sums only EVM receipts, and eth_getBlockReceipts lists only
+            // EVM receipts, so this equality is exact.
+            const summed = receipts.reduce((acc, rc) => acc + BigInt(rc.gasUsed), 0n);
+            expect(summed, 'block.gasUsed == Σ EVM-visible receipt.gasUsed').to.equal(BigInt(block.gasUsed));
+
+            const ordered = [...receipts]
+                .map(rc => ({
+                    index: Number(BigInt(rc.transactionIndex)),
+                    gasUsed: BigInt(rc.gasUsed),
+                    cumulativeGasUsed: BigInt(rc.cumulativeGasUsed),
+                }))
+                .sort((a, b) => a.index - b.index);
+            assertCumulativeGasSeries(ordered, BigInt(block.gasUsed), richSei.cosmosShellGas);
         });
 
         it('pure transfers burn exactly the intrinsic gas', async () => {
@@ -471,7 +474,7 @@ describe('eth_getBlockReceipts', function () {
             const receipts = await blockReceipts(sei, richSei.number);
             const rc = receipts.find(
                 r => r.transactionHash === richSei.txs.find(t => t.kind === 'erc20')!.hash,
-            );
+            )!;
             expect(rc.logs.length >= 1, 'erc20 transfer emitted at least one log').to.equal(true);
             const transferTopic = ethers.id('Transfer(address,address,uint256)');
             expect(
@@ -498,23 +501,23 @@ describe('eth_getBlockReceipts', function () {
         it('the deployment receipt carries the created contractAddress with live code', async () => {
             const receipts = await blockReceipts(sei, richSei.number);
             const sent = richSei.txs.find(t => t.kind === 'deploy')!;
-            const rc = receipts.find(r => r.transactionHash === sent.hash);
+            const rc = receipts.find(r => r.transactionHash === sent.hash)!;
             expect(rc.to ?? null, 'creation receipt has no recipient').to.equal(null);
             expect(rc.contractAddress, 'contractAddress is set').to.match(ADDRESS);
-            expect(rc.contractAddress.toLowerCase(), 'matches the local receipt').to.equal(
+            expect(rc.contractAddress!.toLowerCase(), 'matches the local receipt').to.equal(
                 sent.receipt.contractAddress!.toLowerCase(),
             );
-            const code = await sei.getCode(rc.contractAddress, richSei.number);
+            const code = await sei.getCode(rc.contractAddress!, richSei.number);
             expect(code.length, 'deployed code is non-empty').to.be.greaterThan(2);
         });
 
         it('the precompile receipt succeeded and has no contractAddress', async () => {
             const receipts = await blockReceipts(sei, richSei.number);
             const sent = richSei.txs.find(t => t.kind === 'precompile')!;
-            const rc = receipts.find(r => r.transactionHash === sent.hash);
+            const rc = receipts.find(r => r.transactionHash === sent.hash)!;
             expect(rc.status, 'precompile call succeeded').to.equal('0x1');
             expect(rc.contractAddress, 'no contract created').to.equal(null);
-            expect(rc.to.toLowerCase(), 'targets the staking precompile').to.equal(
+            expect(rc.to!.toLowerCase(), 'targets the staking precompile').to.equal(
                 STAKING_PRECOMPILE_ADDRESS,
             );
         });
@@ -526,8 +529,8 @@ describe('eth_getBlockReceipts', function () {
             const receipts = await blockReceipts(sei, seiFailed.receipt.blockNumber);
             const rc = receipts.find(r => r.transactionHash === seiFailed.hash);
             expect(rc, 'failed tx present in block receipts').to.not.equal(undefined);
-            expect(rc.status, 'status reflects the revert').to.equal('0x0');
-            expect(BigInt(rc.gasUsed) > 0n, 'a reverted tx still burns gas').to.equal(true);
+            expect(rc!.status, 'status reflects the revert').to.equal('0x0');
+            expect(BigInt(rc!.gasUsed) > 0n, 'a reverted tx still burns gas').to.equal(true);
             const single = await sei.send('eth_getTransactionReceipt', [seiFailed.hash]);
             expect(single).to.deep.equal(rc);
         });
@@ -560,9 +563,9 @@ describe('eth_getBlockReceipts', function () {
             const seiReceipts = await blockReceipts(sei, richSei.number);
             const seiDeploy = seiReceipts.find(
                 r => r.transactionHash === richSei.txs.find(t => t.kind === 'deploy')!.hash,
-            );
+            )!;
             const gethReceipts = await blockReceipts(geth, gethCreate.blockNumber);
-            const gethDeploy = gethReceipts.find(r => r.transactionHash === gethCreate.hash);
+            const gethDeploy = gethReceipts.find(r => r.transactionHash === gethCreate.hash)!;
 
             expect(seiDeploy.contractAddress, 'Sei creation contractAddress').to.match(ADDRESS);
             expect(gethDeploy.contractAddress, 'geth creation contractAddress').to.match(ADDRESS);

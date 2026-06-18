@@ -6,6 +6,7 @@ import {
     RichBlock,
     blockReceipts,
     assertCanonicalReceipt,
+    assertCumulativeGasSeries,
     expectedEffectiveGasPrice,
     computeLogsBloom,
     richFailedTxs,
@@ -71,16 +72,15 @@ describe('eth_getTransactionReceipt', function () {
         });
 
         it('gasUsed matches the mined receipt and cumulativeGasUsed accumulates in index order', async () => {
-            const ordered = [...receipts].sort(
-                (a, b) => Number(BigInt(a.transactionIndex)) - Number(BigInt(b.transactionIndex)),
-            );
-            let running = 0n;
-            for (const rc of ordered) {
-                running += BigInt(rc.gasUsed);
-                expect(BigInt(rc.cumulativeGasUsed), `cumulative at idx ${rc.transactionIndex}`).to.equal(
-                    running,
-                );
-            }
+            const block = await sei.send('eth_getBlockByNumber', [ethers.toQuantity(rich.number), false]);
+            const ordered = [...receipts]
+                .map(rc => ({
+                    index: Number(BigInt(rc.transactionIndex)),
+                    gasUsed: BigInt(rc.gasUsed),
+                    cumulativeGasUsed: BigInt(rc.cumulativeGasUsed),
+                }))
+                .sort((a, b) => a.index - b.index);
+            assertCumulativeGasSeries(ordered, BigInt(block.gasUsed), rich.cosmosShellGas);
             for (const sent of rich.txs) {
                 const rc = await sei.send('eth_getTransactionReceipt', [sent.hash]);
                 expect(BigInt(rc.gasUsed), `gasUsed for ${sent.kind}`).to.equal(sent.receipt.gasUsed);
