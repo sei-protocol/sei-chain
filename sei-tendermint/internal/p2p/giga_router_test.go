@@ -329,6 +329,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			)
 			require.NoError(t, err, "NewRouter[%v]", i)
 			s.SpawnBgNamed(fmt.Sprintf("router[%v]", i), func() error { return utils.IgnoreCancel(router.Run(ctx)) })
+			s.SpawnBgNamed(fmt.Sprintf("giga[%v]", i), func() error { return utils.IgnoreCancel(giga.Run(ctx)) })
 			apps = append(apps, app)
 			routers = append(routers, router)
 			var txs [][]byte

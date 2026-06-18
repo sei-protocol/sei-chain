@@ -524,6 +524,12 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	if m, ok := n.mempool.Get(); ok {
 		n.SpawnCritical("mempool", m.Run)
 	}
+	// Run the GigaRouter alongside the transport. Constructed in createRouter
+	// and reached through n.router.Giga(); its lifecycle is owned here, not
+	// by the Router.
+	if giga, ok := n.router.Giga().Get(); ok {
+		n.SpawnCritical("giga", giga.Run)
+	}
 
 	for _, reactor := range n.services {
 		if err := reactor.Start(ctx); err != nil {
