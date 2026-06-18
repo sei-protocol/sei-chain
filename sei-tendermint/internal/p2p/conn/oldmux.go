@@ -32,12 +32,6 @@ type ChannelDescriptorT[T gogoproto.Message] struct {
 
 	MessageType T
 
-	// PreDecode, if Some, runs on the raw wire bytes of an inbound message
-	// before gogoproto.Unmarshal so a channel can enforce size or shape
-	// invariants before decoding. It should be a cheap, bounded check.
-	// Returning a non-nil error drops the message and evicts the sending peer.
-	PreDecode utils.Option[func([]byte) error]
-
 	// TODO: Remove once p2p refactor is complete.
 	SendQueueCapacity   int
 	RecvMessageCapacity int
@@ -56,7 +50,6 @@ func (chDesc ChannelDescriptorT[T]) ToGeneric() ChannelDescriptor {
 		ID:                  chDesc.ID,
 		Priority:            chDesc.Priority,
 		MessageType:         chDesc.MessageType,
-		PreDecode:           chDesc.PreDecode,
 		SendQueueCapacity:   chDesc.SendQueueCapacity,
 		RecvMessageCapacity: chDesc.RecvMessageCapacity,
 		RecvBufferCapacity:  chDesc.RecvBufferCapacity,
