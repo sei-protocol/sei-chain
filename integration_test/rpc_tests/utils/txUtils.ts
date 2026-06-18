@@ -499,7 +499,10 @@ export async function sharedRichBlock(
             const signers = claimPool(runtime, provider, 9, 'shared-rich-block');
             cachedRichBlock = await buildRichSeiBlock(provider, runtime, signers);
             return cachedRichBlock;
-        })();
+        })().catch(e => {
+            cachedRichBlockPromise = undefined;
+            throw e;
+        });
     }
     return cachedRichBlockPromise;
 }
