@@ -19,6 +19,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// Scanner is implemented by proto types whose generated *.wireguard.go adds a
+// WireguardScan method. protoutils.Unmarshal asserts this interface and calls
+// it automatically before proto.Unmarshal.
+type Scanner interface {
+	WireguardScan([]byte) error
+}
+
 // Number re-exports protowire.Number so callers can build Schemas without
 // also importing google.golang.org/protobuf/encoding/protowire directly.
 type Number = protowire.Number
