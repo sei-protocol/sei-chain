@@ -20,3 +20,11 @@ var SchemaForLightBlockResponse = &wireguard.Schema{
 		wireguard.MustFieldNum[LightBlockResponse]("light_block"): {Nested: utils.Some(types.SchemaForLightBlock)},
 	},
 }
+
+func (x *Message) WireguardScan(bz []byte) error {
+	return SchemaForMessage.Scan(bz)
+}
+
+func (x *LightBlockResponse) WireguardScan(bz []byte) error {
+	return SchemaForLightBlockResponse.Scan(bz)
+}

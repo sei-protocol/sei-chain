@@ -307,6 +307,7 @@ func emit(p *protogen.Plugin, ctx emitCtx) error {
 		for _, m := range targets {
 			emitSchema(g, m, ctx, idents)
 		}
+		emitMethods(g, targets, ctx, idents)
 	}
 	return nil
 }
@@ -334,8 +335,10 @@ func emitSchema(g *protogen.GeneratedFile, m *protogen.Message, ctx emitCtx, ide
 
 		// For a oneof variant, the wire tag is on the wrapper struct
 		// (e.g. Message_BlockResponse), not the parent message.
+		// Proto3 optional fields also get a synthetic oneof in the descriptor
+		// but do NOT get a wrapper struct in Go — skip those.
 		ownerType := g.QualifiedGoIdent(m.GoIdent)
-		if f.ContainingOneof() != nil {
+		if f.ContainingOneof() != nil && !f.ContainingOneof().IsSynthetic() {
 			ownerType = g.QualifiedGoIdent(protogen.GoIdent{
 				GoName:       m.GoIdent.GoName + "_" + pf.GoName,
 				GoImportPath: m.GoIdent.GoImportPath,
@@ -357,6 +360,19 @@ func emitSchema(g *protogen.GeneratedFile, m *protogen.Message, ctx emitCtx, ide
 	g.P("},")
 	g.P("}")
 	g.P()
+}
+
+// emitMethods emits a WireguardScan([]byte) error method on each target type.
+// protoutils.Unmarshal[T] and the transport layer discover the schema via a
+// plain interface assertion on wireScanner — no registry, no init(), no string
+// lookup needed.
+func emitMethods(g *protogen.GeneratedFile, targets []*protogen.Message, ctx emitCtx, idents emitIdents) {
+	for _, m := range targets {
+		g.P("func (x *", m.GoIdent.GoName, ") WireguardScan(bz []byte) error {")
+		g.P("return SchemaFor", m.GoIdent.GoName, ".Scan(bz)")
+		g.P("}")
+		g.P()
+	}
 }
 
 // schemaVarForTarget returns the Go expression that references the

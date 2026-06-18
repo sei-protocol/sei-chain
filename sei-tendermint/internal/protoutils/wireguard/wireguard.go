@@ -19,6 +19,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// Scanner is implemented by proto types whose generated *.wireguard.go adds a
+// WireguardScan method. protoutils.Unmarshal asserts this interface and calls
+// it automatically before proto.Unmarshal.
+type Scanner interface {
+	WireguardScan([]byte) error
+}
+
 // Number re-exports protowire.Number so callers can build Schemas without
 // also importing google.golang.org/protobuf/encoding/protowire directly.
 type Number = protowire.Number
@@ -38,10 +45,11 @@ type Rule struct {
 	// Nested, if Some, is applied to the contents of this length-delimited
 	// field. Use for descending through wrapper layers on the way to a cap.
 	Nested utils.Option[*Schema]
-	// MaxCount, if non-zero, caps how many times this field may appear in the
-	// scanned payload. The count is accumulated globally across the whole
-	// Scan call — every match of this (Schema, field) pair increments one
-	// shared counter, not a fresh counter per parent instance.
+	// MaxCount, if non-zero, caps how many times this field may appear within
+	// one instance of the parent message. The cap is per-instance: each
+	// occurrence of the outer message gets its own independent counter for
+	// this field. Total memory at any nesting depth is therefore bounded by
+	// the product of the caps along the path, not by a single global sum.
 	MaxCount int
 }
 
@@ -61,9 +69,8 @@ func (s *Schema) Scan(bz []byte) error {
 	return Scan(bz, s)
 }
 
-// counterKey scopes a MaxCount accumulator by (Schema, field number) so the
-// same Schema reached from multiple paths shares one counter, while two
-// unrelated Schemas that happen to use the same field number don't collide.
+// counterKey scopes a MaxCount accumulator to a (Schema, field number) pair
+// within one scan of a single message instance.
 type counterKey struct {
 	schema *Schema
 	num    Number
@@ -91,7 +98,13 @@ func scan(bz []byte, schema *Schema, counts map[counterKey]int) error {
 					}
 				}
 				if nested, ok := rule.Nested.Get(); ok {
-					if err := scan(val, nested, counts); err != nil {
+					// Fresh counts for each nested-message occurrence so that
+					// MaxCount is checked per instance rather than summed
+					// globally. This keeps the semantics intuitive: a cap of N
+					// on an inner field means "at most N per outer element",
+					// which is easy to reason about and still bounds total
+					// memory: outer_cap × inner_cap × … at every level.
+					if err := scan(val, nested, map[counterKey]int{}); err != nil {
 						return err
 					}
 				}
