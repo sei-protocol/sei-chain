@@ -221,6 +221,7 @@ func TestGetProof(t *testing.T) {
 	if store := testApp.EvmKeeper.ReceiptStore(); store != nil {
 		require.NoError(t, store.SetLatestVersion(MockHeight8))
 		require.NoError(t, store.SetEarliestVersion(1))
+		require.Equal(t, int64(1), store.EarliestVersion())
 	}
 	client := &MockClient{}
 	ctxProvider := func(height int64) sdk.Context {
@@ -235,34 +236,50 @@ func TestGetProof(t *testing.T) {
 	watermarks := evmrpc.NewWatermarkManager(client, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	stateAPI := evmrpc.NewStateAPI(client, &testApp.EvmKeeper, ctxProvider, evmrpc.ConnectionTypeHTTP, watermarks)
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000616263", testApp.EvmKeeper.GetState(testApp.GetCheckCtx(), evmAddr, common.BytesToHash(key)).Hex())
+	// hex-encode the storage slot as eth_getProof requires
+	hexKey := common.BytesToHash(key).Hex()
 	tests := []struct {
 		key         string
 		blockNr     rpc.BlockNumber
 		expectedVal []byte
 	}{
 		{
-			key:         string(key),
+			key:         hexKey,
 			blockNr:     rpc.BlockNumber(-2),
 			expectedVal: val,
 		},
 		{
-			key:         string(key),
+			key:         hexKey,
 			blockNr:     rpc.BlockNumber(8),
 			expectedVal: val,
 		},
 		{
-			key:         "non existent",
+			// valid hex slot that has no state set
+			key:         "0x0000000000000000000000000000000000000000000000000000000000000001",
 			blockNr:     rpc.BlockNumber(-2),
 			expectedVal: []byte{},
 		},
 	}
 	for _, test := range tests {
 		bptr := &rpc.BlockNumberOrHash{BlockNumber: &test.blockNr}
-		res, err := stateAPI.GetProof(context.Background(), evmAddr, []string{test.key}, *bptr)
+		res, err := stateAPI.GetProof(t.Context(), evmAddr, []string{test.key}, *bptr)
 		require.Nil(t, err)
 		vals := res.HexValues
 		require.Equal(t, common.BytesToHash(test.expectedVal), common.HexToHash(vals[0]))
 		proofs := res.StorageProof
 		require.Equal(t, "ics23:iavl", proofs[0].Ops[0].Type)
 	}
+
+	// malformed key must be rejected
+	bptr := &rpc.BlockNumberOrHash{BlockNumber: func() *rpc.BlockNumber { n := rpc.BlockNumber(-2); return &n }()}
+	_, err := stateAPI.GetProof(t.Context(), evmAddr, []string{"not-hex"}, *bptr)
+	require.Error(t, err)
+
+	// too many keys must be rejected
+	tooManyKeys := make([]string, evmrpc.MaxStorageKeysPerProof+1)
+	for i := range tooManyKeys {
+		tooManyKeys[i] = hexKey
+	}
+	_, err = stateAPI.GetProof(t.Context(), evmAddr, tooManyKeys, *bptr)
+	require.Error(t, err)
 }

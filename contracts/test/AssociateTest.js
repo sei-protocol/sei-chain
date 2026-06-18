@@ -1,4 +1,4 @@
-const { fundAddress, fundSeiAddress, getSeiBalance, associateKey, importKey, waitForReceipt, bankSend, evmSend, getNativeAccount, execute, getKeySeiAddress, getAccountSequence, waitForCondition} = require("./lib");
+const { fundAddress, fundSeiAddress, getSeiBalance, associateKeyStrict, importKey, waitForReceipt, bankSend, evmSend, getNativeAccount, execute, getKeySeiAddress, getAccountSequence, waitForCondition} = require("./lib");
 const { expect } = require("chai");
 
 describe("Associate Balances", function () {
@@ -29,9 +29,15 @@ describe("Associate Balances", function () {
     }
 
     async function verifyAssociation(seiAddr, evmAddr, associateFunc) {
+        const multiplier = BigInt(1000000000000)
         const beforeSei = BigInt(await getSeiBalance(seiAddr))
         const beforeEvm = await ethers.provider.getBalance(evmAddr)
         const gas = await associateFunc(seiAddr)
+        const expectedEvm = (beforeSei * multiplier) + beforeEvm - (gas * multiplier)
+        await waitForCondition(
+            async () => (await ethers.provider.getBalance(evmAddr)) === expectedEvm,
+            `EVM balance of ${evmAddr} to equal ${expectedEvm}`,
+        )
         const afterSei = BigInt(await getSeiBalance(seiAddr))
         const afterEvm = await ethers.provider.getBalance(evmAddr)
 
@@ -40,8 +46,7 @@ describe("Associate Balances", function () {
         console.log(`SEI Balance (after): ${afterSei}`)
         console.log(`EVM Balance (after): ${afterEvm}`)
 
-        const multiplier = BigInt(1000000000000)
-        expect(afterEvm).to.equal((beforeSei * multiplier) + beforeEvm - (gas * multiplier))
+        expect(afterEvm).to.equal(expectedEvm)
         expect(afterSei).to.equal(truncate(beforeSei - gas))
     }
 
@@ -80,7 +85,7 @@ describe("Associate Balances", function () {
         await fundAddress(addr.evmAddress, "200");
 
         await verifyAssociation(addr.seiAddress, addr.evmAddress, async function(){
-            await associateKey("test3")
+            await associateKeyStrict("test3")
             return BigInt(0)
         });
 

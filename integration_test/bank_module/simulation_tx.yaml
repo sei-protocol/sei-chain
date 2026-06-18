@@ -10,7 +10,7 @@
     # Send funds
     - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ACC $SIMULATION_TEST_ACC 1sei -b block --fees 2000usei --chain-id sei -y
 
-    - cmd: seid tx bank send $ADMIN_ACC $SIMULATION_TEST_ACC 1000sei --from $ADMIN_ACC  --chain-id sei -b block -y --dry-run --keyring-backend test
+    - cmd: seid tx bank send $ADMIN_ACC $SIMULATION_TEST_ACC 1000sei --from $ADMIN_ACC  --chain-id sei -b block -y --dry-run --keyring-backend test 2>&1
       env: GAS_ESIMATE
 
     # Validate that only the 1sei is sent

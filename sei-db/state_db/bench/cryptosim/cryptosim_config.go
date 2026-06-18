@@ -17,7 +17,6 @@ const (
 	minErc20StorageSlotSize     = 32
 	minErc20InteractionsPerAcct = 1
 	receiptReadModeCache        = "cache"
-	receiptReadModeDuckDB       = "duckdb"
 )
 
 // Defines the configuration for the cryptosim benchmark.
@@ -199,27 +198,18 @@ type CryptoSimConfig struct {
 
 	// Controls which block range receipt-by-hash reads target.
 	// "cache" = only read receipts in the cache window (guaranteed cache hit).
-	// "duckdb" = only read receipts older than the cache window (guaranteed cache miss, DuckDB fallback).
 	// Required when ReceiptReadConcurrency > 0.
 	ReceiptReadMode string
 
-	// ReceiptTxIndexBackend selects the tx-hash index implementation for the
-	// parquet receipt store. Set to "pebbledb" (the default) to maintain a
-	// Pebble-backed tx_hash -> block_number index so receipt-by-hash lookups
-	// target a single parquet file instead of scanning all files. Set to ""
-	// to disable the index and fall back to full DuckDB scans.
-	ReceiptTxIndexBackend string
-
 	// Number of concurrent goroutines issuing log filter (eth_getLogs) queries. 0 disables log filter reads.
-	// These goroutines are independent from the receipt reader goroutines.
+	// These goroutines are independent of the receipt reader goroutines.
 	ReceiptLogFilterReadConcurrency int
 
 	// Target total log filter reads per second across all log filter goroutines.
 	ReceiptLogFilterReadsPerSecond int
 
 	// Controls which block range log filter reads target.
-	// "cache" = only query blocks in the cache window (DuckDB skipped).
-	// "duckdb" = only query blocks older than the cache window (cache returns nothing).
+	// "cache" = only query blocks in the cache window.
 	// Required when ReceiptLogFilterReadConcurrency > 0.
 	ReceiptLogFilterReadMode string
 
@@ -296,7 +286,6 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ReceiptReadConcurrency:            0,
 		ReceiptReadsPerSecond:             100,
 		ReceiptReadMode:                   receiptReadModeCache,
-		ReceiptTxIndexBackend:             config.ReceiptTxIndexBackendPebble,
 		ReceiptLogFilterReadConcurrency:   0,
 		ReceiptLogFilterReadsPerSecond:    100,
 		ReceiptLogFilterReadMode:          receiptReadModeCache,
@@ -396,10 +385,10 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.ReceiptReadConcurrency > 0 {
 		switch c.ReceiptReadMode {
-		case receiptReadModeCache, receiptReadModeDuckDB:
+		case receiptReadModeCache:
 		default:
-			return fmt.Errorf("ReceiptReadMode must be %q or %q (got %q)",
-				receiptReadModeCache, receiptReadModeDuckDB, c.ReceiptReadMode)
+			return fmt.Errorf("ReceiptReadMode must be %q (got %q)",
+				receiptReadModeCache, c.ReceiptReadMode)
 		}
 	}
 	if c.ReceiptLogFilterReadConcurrency < 0 {
@@ -407,10 +396,10 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.ReceiptLogFilterReadConcurrency > 0 {
 		switch c.ReceiptLogFilterReadMode {
-		case receiptReadModeCache, receiptReadModeDuckDB:
+		case receiptReadModeCache:
 		default:
-			return fmt.Errorf("ReceiptLogFilterReadMode must be %q or %q (got %q)",
-				receiptReadModeCache, receiptReadModeDuckDB, c.ReceiptLogFilterReadMode)
+			return fmt.Errorf("ReceiptLogFilterReadMode must be %q (got %q)",
+				receiptReadModeCache, c.ReceiptLogFilterReadMode)
 		}
 	}
 	if c.ReceiptLogFilterMinBlockRange < 1 {

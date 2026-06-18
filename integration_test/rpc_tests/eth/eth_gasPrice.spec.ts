@@ -77,8 +77,11 @@ describe('eth_gasPrice', function () {
     describe('reflects base fee increases (Sei)', () => {
         it('gas price rises with the base fee and keeps tracking nextBaseFee * 1.1', async function () {
             const samples: { gasPrice: bigint; block: number }[] = [];
-            const { maxBlock } = await burnGasBurst(sei, runtime, spammers, 10, async () => {
-                samples.push(await gasPriceAtStableBlock(sei));
+            const { maxBlock } = await burnGasBurst(sei, runtime, spammers, {
+                rounds: 10,
+                onRound: async () => {
+                    samples.push(await gasPriceAtStableBlock(sei));
+                },
             });
             const peakGasPrice = samples.reduce((m, s) => (s.gasPrice > m ? s.gasPrice : m), 0n);
 

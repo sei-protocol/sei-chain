@@ -17,15 +17,12 @@ import { QueryBalanceRequest, QueryBalanceResponse } from 'cosmjs-types/cosmos/b
 import { seiProtoRegistry, Encoder } from '@sei-js/cosmos/encoding';
 import { Endpoints } from '../config/endpoints';
 import { waitUntil } from './chainUtils';
-import { SEI_HD_PATH } from './constants';
+import { SEI_HD_PATH, DOCKER_NODE, DOCKER_KEY_PASSWORD, SEID_ENV } from './constants';
 
 const exec = util.promisify(require('node:child_process').exec);
 
-const DOCKER_NODE = 'sei-node-0';
-const DOCKER_KEY_PASSWORD = '12345678';
 // 10^12 usei == 10^6 SEI. Matches shared/Funder.fundAdminOnSei.
 const DEFAULT_FUND_USEI = '1000000000000';
-const SEID_ENV = 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin';
 
 /** A `sei`-prefixed HD wallet derived from `mnemonic` at the shared coin-type-118 path. */
 function seiWalletFromMnemonic(mnemonic: string): Promise<DirectSecp256k1HdWallet> {
@@ -55,6 +52,15 @@ export interface CosmosBankSend {
     to: string;
     amountUsei: bigint;
     gasUsed: bigint;
+}
+
+/** A fresh random BIP39 mnemonic (coin type 118) — used to mint an ephemeral admin. */
+export async function generateMnemonic(length: 12 | 24 = 24): Promise<string> {
+    const wallet = await DirectSecp256k1HdWallet.generate(length, {
+        prefix: 'sei',
+        hdPaths: [stringToPath(SEI_HD_PATH)],
+    });
+    return wallet.mnemonic;
 }
 
 /** A fresh, never-funded `sei1…` bech32 address (with its backing mnemonic). */
@@ -150,7 +156,7 @@ async function bankSendFromContainerAdmin(toSeiAddress: string, amountUsei: stri
     );
     const containerAdmin = stdout.trimEnd();
     await exec(
-        `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && printf "${DOCKER_KEY_PASSWORD}\\n" | seid tx bank send ${containerAdmin} ${toSeiAddress} ${amountUsei}usei --fees 24500usei -y'`,
+        `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && printf "${DOCKER_KEY_PASSWORD}\\n" | seid tx bank send ${containerAdmin} ${toSeiAddress} ${amountUsei}usei --fees 24500usei -b sync -y'`,
     );
 }
 

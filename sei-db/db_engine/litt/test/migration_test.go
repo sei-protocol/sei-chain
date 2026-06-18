@@ -40,13 +40,15 @@ func TestGenerateData(t *testing.T) {
 	require.NoError(t, err)
 	config.DoubleWriteProtection = true
 	config.Fsync = false
-	config.ShardingFactor = 4
 	config.TargetSegmentFileSize = 100
+
+	tableConfig := litt.DefaultTableConfig("test")
+	tableConfig.ShardingFactor = 4
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
 
-	table, err := db.GetTable("test")
+	table, err := db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	for _, p := range migrationPuts {
@@ -126,7 +128,7 @@ func testMigration(t *testing.T, migrationPath string) {
 	require.NoError(t, err)
 	t.Cleanup(func() { util.CloseLogOnError(db, "littdb", nil) })
 
-	table, err := db.GetTable("test")
+	table, err := db.BuildTable(litt.DefaultTableConfig("test"))
 	require.NoError(t, err)
 
 	// Verify the data in the table matches our expected data (including secondary keys).
@@ -173,7 +175,7 @@ func testMigration(t *testing.T, migrationPath string) {
 	db, err = littbuilder.NewDB(config)
 	require.NoError(t, err, "Failed to reopen database")
 
-	table, err = db.GetTable("test")
+	table, err = db.BuildTable(litt.DefaultTableConfig("test"))
 	require.NoError(t, err, "Failed to get table after reopening")
 
 	// Verify original migration data is still intact

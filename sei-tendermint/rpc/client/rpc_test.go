@@ -144,28 +144,21 @@ func TestClientOperations(t *testing.T) {
 			require.Equal(t, 0, batch.Count())
 		})
 		t.Run("SendingEmptyRequest", func(t *testing.T) {
-
 			c := getHTTPClient(t, conf)
 			batch := c.NewBatch()
 			_, err := batch.Send(ctx)
 			require.Error(t, err, "sending an empty batch of JSON RPC requests should result in an error")
 		})
 		t.Run("ClearingEmptyRequest", func(t *testing.T) {
-
 			c := getHTTPClient(t, conf)
 			batch := c.NewBatch()
 			require.Zero(t, batch.Clear(), "clearing an empty batch of JSON RPC requests should result in a 0 result")
 		})
 		t.Run("ConcurrentJSONRPC", func(t *testing.T) {
-
 			var wg sync.WaitGroup
 			c := getHTTPClient(t, conf)
 			for range 50 {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					testBatchedJSONRPCCalls(ctx, c)
-				}()
+				wg.Go(func() { testBatchedJSONRPCCalls(ctx, c) })
 			}
 			wg.Wait()
 		})
@@ -569,7 +562,9 @@ func getMempool(t *testing.T, srv service.Service) *mempool.TxMempool {
 		RPCEnvironment() *rpccore.Environment
 	})
 	require.True(t, ok)
-	return n.RPCEnvironment().Mempool
+	mp, ok := n.RPCEnvironment().Mempool.Get()
+	require.True(t, ok)
+	return mp
 }
 
 // these cases are roughly the same as the TestClientMethodCalls, but
@@ -580,83 +575,6 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 	ctx := t.Context()
 
 	n, conf := NodeSuite(ctx, t)
-	pool := getMempool(t, n)
-
-	t.Run("UnconfirmedTxs", func(t *testing.T) {
-		// populate mempool with 5 tx
-		txs := make([]types.Tx, 5)
-		ch := make(chan error, 5)
-		for i := range 5 {
-			_, _, tx := MakeTxKV()
-
-			txs[i] = tx
-			_, err := pool.CheckTx(ctx, tx)
-			require.NoError(t, err)
-			ch <- nil
-		}
-		// wait for tx to arrive in mempoool.
-		for range 5 {
-			select {
-			case <-ch:
-			case <-time.After(5 * time.Second):
-				t.Error("Timed out waiting for CheckTx callback")
-			}
-		}
-		close(ch)
-
-		for _, c := range GetClients(t, n, conf) {
-			for i := 1; i <= 2; i++ {
-				mc := c.(client.MempoolClient)
-				page, perPage := i, 3
-				res, err := mc.UnconfirmedTxs(ctx, &page, &perPage)
-				require.NoError(t, err)
-
-				if i == 2 {
-					perPage = 2
-				}
-				require.Equal(t, perPage, int(res.Count))
-				require.Equal(t, 5, int(res.Total))
-				require.Equal(t, pool.SizeBytes(), uint64(res.TotalBytes))
-				for _, tx := range res.Txs {
-					require.Contains(t, txs, tx)
-				}
-			}
-		}
-
-		pool.Flush()
-	})
-	t.Run("NumUnconfirmedTxs", func(t *testing.T) {
-		ch := make(chan struct{})
-
-		pool := getMempool(t, n)
-
-		_, _, tx := MakeTxKV()
-
-		_, err := pool.CheckTx(ctx, tx)
-		require.NoError(t, err)
-		close(ch)
-
-		// wait for tx to arrive in mempoool.
-		select {
-		case <-ch:
-		case <-time.After(5 * time.Second):
-			t.Error("Timed out waiting for CheckTx callback")
-		}
-
-		mempoolSize := pool.Size()
-		for i, c := range GetClients(t, n, conf) {
-			mc, ok := c.(client.MempoolClient)
-			require.True(t, ok, "%d", i)
-			res, err := mc.NumUnconfirmedTxs(ctx)
-			require.NoError(t, err, "%d: %+v", i, err)
-
-			require.Equal(t, mempoolSize, int(res.Count))
-			require.Equal(t, mempoolSize, int(res.Total))
-			require.Equal(t, pool.SizeBytes(), uint64(res.TotalBytes))
-		}
-
-		pool.Flush()
-	})
 	t.Run("Tx", func(t *testing.T) {
 
 		c := getHTTPClient(t, conf)
@@ -850,6 +768,71 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 				require.Len(t, seen, txCount)
 			})
 		}
+	})
+}
+
+func TestMempoolRPCOnFullNode(t *testing.T) {
+	ctx := t.Context()
+
+	// Use a full node so background consensus does not consume mempool
+	// transactions while these RPC assertions are running.
+	n, conf := FullNodeSuite(ctx, t)
+	pool := getMempool(t, n)
+
+	t.Run("UnconfirmedTxs", func(t *testing.T) {
+		txs := make([]types.Tx, 5)
+		for i := range txs {
+			_, _, tx := MakeTxKV()
+			txs[i] = tx
+			_, err := pool.CheckTx(ctx, tx)
+			require.NoError(t, err)
+		}
+
+		// UnconfirmedTxs reads from the mempool's recent snapshot, so force a
+		// snapshot recomputation after inserting the test transactions.
+		pool.ReapTxs(mempool.ReapLimits{}, false)
+
+		for _, c := range GetClients(t, n, conf) {
+			mc, ok := c.(client.MempoolClient)
+			require.True(t, ok)
+			for i := 1; i <= 2; i++ {
+				page, perPage := i, 3
+				res, err := mc.UnconfirmedTxs(ctx, &page, &perPage)
+				require.NoError(t, err)
+
+				if i == 2 {
+					perPage = 2
+				}
+				require.Equal(t, perPage, int(res.Count))
+				require.Equal(t, 5, int(res.Total))
+				require.Equal(t, pool.SizeBytes(), uint64(res.TotalBytes))
+				for _, tx := range res.Txs {
+					require.Contains(t, txs, tx)
+				}
+			}
+		}
+
+		pool.Flush()
+	})
+
+	t.Run("NumUnconfirmedTxs", func(t *testing.T) {
+		_, _, tx := MakeTxKV()
+		_, err := pool.CheckTx(ctx, tx)
+		require.NoError(t, err)
+
+		mempoolSize := pool.Size()
+		for i, c := range GetClients(t, n, conf) {
+			mc, ok := c.(client.MempoolClient)
+			require.True(t, ok, "%d", i)
+			res, err := mc.NumUnconfirmedTxs(ctx)
+			require.NoError(t, err, "%d: %+v", i, err)
+
+			require.Equal(t, mempoolSize, int(res.Count))
+			require.Equal(t, mempoolSize, int(res.Total))
+			require.Equal(t, pool.SizeBytes(), uint64(res.TotalBytes))
+		}
+
+		pool.Flush()
 	})
 }
 

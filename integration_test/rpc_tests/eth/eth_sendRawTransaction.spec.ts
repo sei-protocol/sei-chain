@@ -42,16 +42,6 @@ describe('eth_sendRawTransaction', function () {
         }
     });
 
-    describe('schema matching (parity with geth)', () => {
-        it('geth accepts the same canonical EIP-1559 encoding and returns its hash', async () => {
-            const signed = await signRawTransfer(geth, gethSender, 2);
-            const returned = await sendRaw(geth, signed.raw);
-            expect(returned, 'returned hash == keccak256(raw)').to.equal(signed.hash);
-            const receipt = await geth.waitForTransaction(signed.hash, 1, 60_000);
-            expect(receipt!.status, 'mined on geth').to.equal(1);
-        });
-    });
-
     describe('wrong params / error handling', () => {
         it('[divergence] both reject a below-intrinsic-gas tx; geth is descriptive, Sei is generic', async () => {
             const [seiTx, gethTx] = await Promise.all([

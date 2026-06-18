@@ -1,7 +1,7 @@
 /**
  * Runs ONCE, sequentially, before any other spec in this module:
- *   1. Verifies both endpoints (local Sei EVM RPC + local Hardhat mainnet fork) are
- *      reachable before deploying, since most parallel specs compare the fork against Sei.
+ *   1. Verifies both endpoints (local Sei EVM RPC + local geth --dev reference) are
+ *      reachable before deploying, since most specs compare geth against Sei.
  *   2. Captures chain ids and block numbers at well-defined points so specs can make
  *      precise historical-state assertions (eth_call before deploy, eth_getStorageAt at
  *      the deploy block, etc.) without coordinating with each other.
@@ -11,7 +11,7 @@
  *   5. Writes the above to runtime/runtime.json, read via utils/testUtils.ts:readRuntimeState().
  *
  * The bootstrap is the ONLY place that writes runtime.json; specs MUST treat it as read-only
- * (writing back from a parallel worker would race).
+ * (writing back from a spec would clobber the shared state every later spec depends on).
  */
 import { ethers } from 'ethers';
 import { expect } from 'chai';
@@ -19,9 +19,8 @@ import { AdminMnemonic, Endpoints } from '../config/endpoints';
 import { gethRpc, isReachable, seiRpc } from '../utils/chainUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import { deployContract, deployTestErc20 } from '../utils/evmUtils';
-import { fundEvm, fundFromUnlocked, fundManyEvm } from '../utils/evmUtils';
-import { gethUnlockedAccount } from '../utils/walletUtils';
-import { fundAdminOnSei, seiAddressFromMnemonic } from '../utils/cosmosUtils';
+import { fundEvm, fundFromUnlocked, fundManyEvm, gethUnlockedAccount } from '../utils/evmUtils';
+import { fundAdminOnSei, generateMnemonic, seiAddressFromMnemonic } from '../utils/cosmosUtils';
 import {
     isWasmEnabled,
     deployCw20,
@@ -29,7 +28,7 @@ import {
     Cw20InitMsg,
 } from '../utils/wasmUtils';
 import { writeRuntimeState, RuntimeState } from '../utils/testUtils';
-import { sleep } from '../utils/chainUtils';
+import { waitUntil } from '../utils/chainUtils';
 
 const POOL_SIZE = 96;
 const POOL_FUND_WEI = ethers.parseEther('5');
@@ -46,12 +45,16 @@ describe('new_rpc_tests bootstrap', function () {
     this.timeout(10 * 60 * 1000);
 
     let admin: EvmAccount;
+    let adminMnemonic: string;
     let gethAdmin: EvmAccount | undefined;
     let pool: EvmAccount[] = [];
     let state: Partial<RuntimeState> = {};
 
     before(async () => {
-        admin = EvmAccount.fromMnemonic(AdminMnemonic);
+        // Use SEI_ADMIN_MNEMONIC when provided (e.g. a pre-funded key for a non-docker
+        // chain); otherwise mint a random admin and let the docker step fund it below.
+        adminMnemonic = AdminMnemonic || (await generateMnemonic());
+        admin = EvmAccount.fromMnemonic(adminMnemonic);
     });
 
     it('Sei EVM RPC is reachable', async () => {
@@ -97,7 +100,7 @@ describe('new_rpc_tests bootstrap', function () {
     });
 
     it('funds and associates the admin on Sei through docker node', async () => {
-        await fundAdminOnSei(admin.address, AdminMnemonic, seiRpc());
+        await fundAdminOnSei(admin.address, adminMnemonic, seiRpc());
         expect(
             (await admin.balance()) > 0n,
             'admin should hold a spendable EVM balance after funding + association',
@@ -176,9 +179,6 @@ describe('new_rpc_tests bootstrap', function () {
         pool = Array.from({ length: POOL_SIZE }, () => EvmAccount.random(seiRpc()));
         await fundManyEvm(admin, pool.map(p => p.address), POOL_FUND_WEI);
 
-        // fundManyEvm already asserts every funding tx succeeded (status 1), but verify
-        // every balance too: runtime.json must never advertise a pool account as ready
-        // unless it actually holds the funds a spec will claim it for.
         const balances = await Promise.all(pool.map(p => p.balance()));
         balances.forEach((bal, i) => {
             expect(bal, `pool[${i}] (${pool[i].address}) funded`).to.equal(POOL_FUND_WEI);
@@ -187,6 +187,7 @@ describe('new_rpc_tests bootstrap', function () {
         if (!gethAdmin) throw new Error('geth admin was not initialised by the mirror deploy step');
         state.funded = {
             admin: admin.address,
+            adminMnemonic,
             gethAdmin: {
                 address: gethAdmin.address,
                 privateKey: (gethAdmin.wallet as ethers.Wallet | ethers.HDNodeWallet).privateKey,
@@ -217,7 +218,7 @@ describe('new_rpc_tests bootstrap', function () {
         // Mint to the admin (cosmos cw20 transfer sender), the actor (pointer transfer
         // sender) and every pool account so any pool key the suite associates already
         // holds a CW20 balance under its pubkey-derived sei address.
-        const adminSei = await seiAddressFromMnemonic(AdminMnemonic);
+        const adminSei = await seiAddressFromMnemonic(adminMnemonic);
         const holders = [adminSei, actor.seiAddress(), ...pool.map(p => p.seiAddress())];
         const initMsg: Cw20InitMsg = {
             name: 'RpcTests CW20',
@@ -227,7 +228,7 @@ describe('new_rpc_tests bootstrap', function () {
             mint: { minter: adminSei },
         };
 
-        const { address: cw20 } = await deployCw20(initMsg);
+        const { address: cw20 } = await deployCw20(initMsg, adminMnemonic);
         const cw20Pointer = await registerCw20Pointer(cw20);
 
         state.wasm = {
@@ -244,9 +245,16 @@ describe('new_rpc_tests bootstrap', function () {
     });
 
     it('records the post-deploy block height and writes runtime/runtime.json', async () => {
-        // Give the chain a moment to finalize the funding txs.
-        await sleep(500);
-        const seiAfter = await seiRpc().getBlockNumber();
+        // Poll until the chain mints a block past the pre-deploy height instead of a
+        // fixed sleep, which is flaky on loaded CI runners where blocks come slowly.
+        const seiBefore = state.blocks!.seiBeforeDeploy;
+        const seiAfter = await waitUntil(
+            async () => {
+                const h = await seiRpc().getBlockNumber();
+                return h > seiBefore ? h : null;
+            },
+            { timeoutMs: 30_000, label: 'Sei block height to advance past bootstrap' },
+        );
         state.blocks!.seiAfterDeploy = seiAfter;
         state.bootstrappedAt = new Date().toISOString();
 

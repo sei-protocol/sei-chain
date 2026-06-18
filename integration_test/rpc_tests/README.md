@@ -35,11 +35,11 @@ namespace dirs like `debug/`, `sei/`, etc.) answers one or more of:
   both geth and Sei, then diff responses for the same logical operation. This is
   true apples-to-apples parity for schema, errors, and execution. geth cannot
   fork mainnet, so it runs an empty dev chain we drive with our own contracts.
-- **anvil/Hardhat mainnet fork (optional secondary).** Only a sanity check that
-  Sei's response *shape* holds up against messy real-world mainnet data. It is
-  **not** a reliable reference for error envelopes — anvil/Hardhat reimplement
-  the RPC layer (Rust) and diverge from geth. Tests must never assert exact
-  error parity against the fork.
+- **anvil/Hardhat mainnet fork (optional, manual).** `npm run rpc:fork` starts
+  one for ad-hoc checks that Sei's response *shape* holds up against messy
+  real-world mainnet data. The automated suite does not assert against it — geth
+  is the only reference — and it is **not** reliable for error envelopes
+  (anvil/Hardhat reimplement the RPC layer and diverge from geth).
 
 ## Layout
 
@@ -50,8 +50,8 @@ integration_test/rpc_tests/
 ├── hardhat.config.ts           # compile-only config: contracts/ -> artifacts/
 ├── contracts/                  # TestERC20.sol, GasBurner.sol, SimpleAccount7702.sol
 ├── .mocharc.bootstrap.json     # runs _start/ sequentially
-├── scripts/run-parallel.sh     # shards specs into N mocha processes (parallel run)
-├── .mocharc.run.json           # single-process fallback config
+├── .mocharc.run.json           # mocha config for the spec run (single process)
+├── scripts/run-ci.sh           # orchestrator: deps + compile + geth + bootstrap + run + merge
 ├── config/endpoints.ts         # env-driven endpoints
 ├── utils/                      # grouped by domain
 │   ├── constants.ts            # shared values: HD path, USEI/WEI_PER_USEI, staking addr, chain id
@@ -71,38 +71,31 @@ integration_test/rpc_tests/
 New RPC namespaces just need their own directory of `*.spec.ts` files (e.g.
 `debug/`, `sei/`, `txpool/`); the runner picks up any `*/*.spec.ts` automatically.
 
-## One-shot runner (recommended)
+## Runner (recommended)
 
 ```bash
 cd integration_test/rpc_tests
 npm install && npm run compile     # one-time
-npm run test:rpc:full
+# start your local Sei devnet first (e.g. `make docker-cluster-start` from the repo root)
+npm run rpc:ci                     # == bash scripts/run-ci.sh
 ```
 
-`test:rpc:full` (see `scripts/run-full.sh`) does everything end to end:
+`scripts/run-ci.sh` is the single orchestrator, used both locally and by the
+`EVM RPC Parity (geth reference)` matrix entry in
+`.github/workflows/integration-test.yml`. It assumes a Sei EVM RPC is already
+reachable (the workflow boots the 4-node cluster; locally you start it yourself),
+then end to end:
 
-1. `DOCKER_DETACH=true make docker-cluster-start` at the repo root and waits for the
-   4-node cluster (`build/generated/launch.complete`) **and** the EVM RPC on `:8545`.
-2. Starts the geth `--dev` reference node (`npm run rpc:geth`) and waits for `:9547`.
-3. Runs the suite (`rpc:bootstrap` then `rpc:run`) — it does **not** abort on test
-   failures, so you always get a report.
-4. Merges the per-phase mochawesome JSON into one combined HTML report at
+1. Installs deps (`npm ci`; skip with `SKIP_NPM_CI=true`) and compiles contracts.
+2. Waits for the Sei EVM RPC on `:8545` and for the chain to be producing blocks.
+3. Installs (on Linux, via the Ethereum PPA when `geth` is absent) and starts the
+   geth `--dev` reference node (`npm run rpc:geth`), waiting for `:9547`.
+4. Runs `rpc:bootstrap` then `rpc:run` in a single mocha process.
+5. Merges the per-phase mochawesome JSON into one combined HTML report at
    `reports/merged/rpc-tests.html`.
 
-The geth node it starts is always killed on exit. The docker cluster is left up by
-default (re-running is still safe — `docker-cluster-start` stops any prior cluster
-first); set `STOP_CLUSTER=true` to tear it down too. Other knobs: `CLUSTER_TIMEOUT`,
-`GETH_TIMEOUT`, `SEI_TIMEOUT`.
-
-## CI runner
-
-`scripts/run-ci.sh` is the orchestrator used by the `EVM RPC Parity (geth reference)`
-matrix entry in `.github/workflows/integration-test.yml`. It is `run-full.sh` minus the
-cluster start: the workflow already boots the 4-node cluster and exposes EVM RPC on
-`:8545`, so this script only installs deps (`npm ci`), compiles contracts, installs +
-starts the geth `--dev` reference (via the Ethereum PPA on Linux when `geth` is absent),
-then runs `rpc:bootstrap` + `rpc:run:serial`. It exits non-zero on any failure and always
-tears down geth. Knobs: `SEI_EVM_RPC`, `RPC_ETH_GETH`, `SEI_TIMEOUT`, `GETH_TIMEOUT`,
+The geth node is always killed on exit and the script exits non-zero on any
+failure. Knobs: `SEI_EVM_RPC`, `RPC_ETH_GETH`, `SEI_TIMEOUT`, `GETH_TIMEOUT`,
 `SKIP_NPM_CI`.
 
 ## Reporting
@@ -110,7 +103,7 @@ tears down geth. Knobs: `SEI_EVM_RPC`, `RPC_ETH_GETH`, `SEI_TIMEOUT`, `GETH_TIME
 Each phase writes a mochawesome JSON (`reports/new_rpc/bootstrap.json`,
 `reports/new_rpc/run.json`). `npm run report:merge` combines them via
 `mochawesome-merge` + `mochawesome-report-generator` into a single interactive
-report at `reports/merged/rpc-tests.html` (the one-shot runner does this for you).
+report at `reports/merged/rpc-tests.html` (`run-ci.sh` does this for you).
 
 ## Running manually
 
@@ -126,22 +119,18 @@ npm run rpc:geth      # geth --dev on http://127.0.0.1:9547  (requires geth on P
 # 3. (Optional) start the anvil/Hardhat mainnet fork for data-shape sanity checks.
 npm run rpc:fork      # http://127.0.0.1:9546
 
-# 4. Run the suite.
-npm run test:rpc      # bootstrap + parallel run, recommended
+# 4. Run the suite (single mocha process).
+npm run test:rpc      # bootstrap + run, recommended
 # or, piecewise:
 npm run rpc:bootstrap # writes runtime/runtime.json
-npm run rpc:run       # parallel run (process-sharded), requires runtime.json
-npm run rpc:run:serial # single-process fallback via .mocharc.run.json
+npm run rpc:run       # runs every eth/*.spec.ts via .mocharc.run.json
 ```
 
-> **How parallelism + reporting coexist.** mocha's own `--parallel` mode is
-> incompatible with mochawesome — its single main-process reporter can't
-> consolidate worker results and writes a corrupt `results: [false]`, dropping the
-> rpc specs from the merged report. So `rpc:run` (`scripts/run-parallel.sh`) shards
-> the spec files into `RPC_JOBS` buckets (default 8) and runs one mocha **process**
-> per bucket concurrently. Each process writes its own well-formed shard
-> (`reports/new_rpc/run-<n>.json`); `report:merge` globs them with `bootstrap.json`
-> into a single combined report. Tune concurrency with `RPC_JOBS`.
+> **Why a single process.** Every spec shares the one Sei chain and the
+> bootstrap's funded-account pool, so a parallel run would make specs contend on
+> the base fee and reuse pool keys (`claimPool` hands out disjoint slices via a
+> module-level cursor, which is only correct in-process). The suite therefore runs
+> serially; `report:merge` globs `bootstrap.json` + `run.json` into one report.
 
 Individual files can be run with `mocha` (which picks up `tsx` via `.mocharc`):
 
@@ -211,13 +200,13 @@ Rules of the road for new specs:
 1. **Read-only at runtime.** Bootstrap is the only writer of `runtime.json`. If
    you need new pre-computed state, add it to the `RuntimeState` interface and
    populate it in `_start/00_bootstrap.spec.ts`.
-2. **Pool accounts are single-use.** Each parallel worker that needs a fresh
-   account should claim a different `runtime.funded.pool[i]` — usually by
-   hashing its spec file name or by index.
+2. **Pool accounts are single-use.** Claim fresh accounts with
+   `claimPool(runtime, provider, count, label)` (testUtils), which hands out a
+   disjoint slice of `runtime.funded.pool` on every call; never reuse a pool key
+   across specs.
 3. **No imports from `shared/`** — keep this module self-contained.
 4. **Negative tests go through `rawSei` / `rawGeth`** to bypass ethers'
    client-side validation, so we assert the *node's* behavior, not ethers'.
 5. **geth is the error/schema source of truth.** Assert Sei matches `rawGeth`
-   exactly for shared methods. The anvil fork (`rawFork`) is only for real-data
-   shape sanity checks, never exact error parity. Sei-only methods (`sei_*`)
-   have no reference — just assert the Sei behavior.
+   exactly for shared methods. Sei-only methods (`sei_*`) have no reference — just
+   assert the Sei behavior.

@@ -146,6 +146,18 @@ func (*MockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (*MockClient) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
+	tx, err := Encoder(UnconfirmedTx)
+	if err != nil {
+		return nil, false
+	}
+	ethTx, _ := UnconfirmedTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
+	if ethTx == nil || ethTx.Hash() != hash {
+		return nil, false
+	}
+	return tx, true
+}
+
 func (*MockClient) EvmProxy(common.Address) (*url.URL, bool) {
 	return nil, false
 }

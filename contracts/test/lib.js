@@ -262,6 +262,8 @@ async function getKeySeiAddress(name) {
     return (await execute(`seid keys show ${name} -a`)).trim()
 }
 
+// Best-effort helper for idempotent bootstrap paths that may run after an
+// address is already associated.
 async function associateKey(keyName) {
     try {
         // seid tx evm associate-address has a custom (non-cosmos-JSON) output
@@ -270,9 +272,20 @@ async function associateKey(keyName) {
         // wait is acceptable.
         await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
         await waitForBlocks()
-    }catch(e){
-        console.log("skipping associate")
+    } catch (e) {
+        console.log(`skipping associate for ${keyName}`)
+        console.log(e)
     }
+}
+
+// Strict helper for tests that are explicitly asserting association behavior.
+async function associateKeyStrict(keyName) {
+    const seiAddress = await getKeySeiAddress(keyName)
+    await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
+    await waitForCondition(
+        async () => (await getEvmAddressAssociation(seiAddress)).associated === true,
+        `${seiAddress} to have an associated EVM address`,
+    )
 }
 
 function getEventAttribute(response, type, attribute) {
@@ -827,10 +840,13 @@ async function getSeiAddress(evmAddress) {
 }
 
 async function getEvmAddress(seiAddress) {
+    return (await getEvmAddressAssociation(seiAddress)).evm_address
+}
+
+async function getEvmAddressAssociation(seiAddress) {
     const command = `seid q evm evm-addr ${seiAddress} -o json`
     const output = await execute(command);
-    const response = JSON.parse(output)
-    return response.evm_address
+    return JSON.parse(output)
 }
 
 function generateWallet() {
@@ -1158,6 +1174,7 @@ module.exports = {
     importKey,
     getNativeAccount,
     associateKey,
+    associateKeyStrict,
     delay,
     bankSend,
     evmSend,

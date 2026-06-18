@@ -196,7 +196,7 @@ describe('eth_getBlockByHash', function () {
     describe('gas + fees reconcile against the block (multiple users)', () => {
         it('block.gasUsed equals Σ receipt gasUsed and cumulativeGasUsed is consistent', async () => {
             const block = await byHash(sei, richSei.hash, true);
-            await assertGasAccounting(sei, block);
+            await assertGasAccounting(sei, block, richSei.cosmosShellGas);
         });
 
         it('every reported transaction re-encodes to its hash and block.size covers the bytes', async () => {

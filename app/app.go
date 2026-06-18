@@ -67,9 +67,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
 	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis"
-	crisiskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/keeper"
-	crisistypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/types"
 	distr "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
 	distrclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/client"
 	distrkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
@@ -167,7 +164,6 @@ import (
 	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
-	"github.com/spf13/cast"
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -182,6 +178,7 @@ import (
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
+	gigastore "github.com/sei-protocol/sei-chain/giga/deps/store"
 	gigabankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
@@ -230,7 +227,6 @@ var (
 		distr.AppModuleBasic{},
 		gov.NewAppModuleBasic(getGovProposalHandlers()...),
 		params.AppModuleBasic{},
-		crisis.AppModuleBasic{},
 		slashing.AppModuleBasic{},
 		feegrantmodule.AppModuleBasic{},
 		ibc.AppModuleBasic{},
@@ -390,8 +386,6 @@ type App struct {
 	appCodec          codec.Codec
 	interfaceRegistry types.InterfaceRegistry
 
-	invCheckPeriod uint
-
 	// keys to access the substores
 	keys    map[string]*sdk.KVStoreKey
 	tkeys   map[string]*sdk.TransientStoreKey
@@ -408,7 +402,6 @@ type App struct {
 	MintKeeper       mintkeeper.Keeper
 	DistrKeeper      distrkeeper.Keeper
 	GovKeeper        govkeeper.Keeper
-	CrisisKeeper     crisiskeeper.Keeper
 	UpgradeKeeper    upgradekeeper.Keeper
 	ParamsKeeper     paramskeeper.Keeper
 	IBCKeeper        *ibckeeper.Keeper // IBC Keeper must be a pointer in the app, so we can SetRouter on it correctly
@@ -504,7 +497,7 @@ func New(
 	_ bool,
 	skipUpgradeHeights map[int64]bool,
 	homePath string,
-	invCheckPeriod uint,
+	_ uint,
 	enableCustomEVMPrecompiles bool,
 	tmConfig *tmcfg.Config,
 	encodingConfig appparams.EncodingConfig,
@@ -539,7 +532,6 @@ func New(
 		cdc:                   cdc,
 		appCodec:              appCodec,
 		interfaceRegistry:     interfaceRegistry,
-		invCheckPeriod:        invCheckPeriod,
 		keys:                  keys,
 		tkeys:                 tkeys,
 		memKeys:               memKeys,
@@ -596,9 +588,6 @@ func New(
 	)
 	app.SlashingKeeper = slashingkeeper.NewKeeper(
 		appCodec, keys[slashingtypes.StoreKey], &stakingKeeper, app.GetSubspace(slashingtypes.ModuleName),
-	)
-	app.CrisisKeeper = crisiskeeper.NewKeeper(
-		app.GetSubspace(crisistypes.ModuleName), invCheckPeriod, app.BankKeeper, authtypes.FeeCollectorName,
 	)
 
 	app.FeeGrantKeeper = feegrantkeeper.NewKeeper(appCodec, keys[feegrant.StoreKey], app.AccountKeeper)
@@ -870,12 +859,6 @@ func New(
 		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
 	}
 
-	/****  Module Options ****/
-
-	// NOTE: we may consider parsing `appOpts` inside module constructors. For the moment
-	// we prefer to be more strict in what arguments the modules expect.
-	skipGenesisInvariants := cast.ToBool(appOpts.Get(crisis.FlagSkipGenesisInvariants))
-
 	// NOTE: Any module instantiated in the module manager that is later modified
 	// must be passed by reference here.
 
@@ -889,7 +872,6 @@ func New(
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
 		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
-		crisis.NewAppModule(&app.CrisisKeeper, skipGenesisInvariants),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
 		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
@@ -921,7 +903,6 @@ func New(
 		EvmKeeper:        &app.EvmKeeper,
 	}
 	app.EndBlockKeepers = legacyabci.EndBlockKeepers{
-		CrisisKeeper:  &app.CrisisKeeper,
 		GovKeeper:     &app.GovKeeper,
 		StakingKeeper: &app.StakingKeeper,
 		OracleKeeper:  &app.OracleKeeper,
@@ -968,7 +949,6 @@ func New(
 		govtypes.ModuleName,
 		minttypes.ModuleName,
 		vestingtypes.ModuleName,
-		crisistypes.ModuleName,
 		ibchost.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
@@ -983,7 +963,6 @@ func New(
 		// this line is used by starport scaffolding # stargate/app/initGenesis
 	)
 
-	app.mm.RegisterInvariants(&app.CrisisKeeper)
 	app.mm.RegisterRoutes(app.Router(), app.QueryRouter(), encodingConfig.Amino)
 	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
 	app.mm.RegisterServices(app.configurator)
@@ -1414,10 +1393,11 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 				return &abci.ResponseFinalizeBlock{}, nil
 			}
+			consensusParamUpdates := app.GetConsensusParamsForStateToCommit()
 			cms := app.WriteState()
 			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
-			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
+			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp, consensusParamUpdates)
 			if hasHeadNotifier {
 				headNotifier.Stash(req, &resp)
 			}
@@ -1444,10 +1424,11 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
+	consensusParamUpdates := app.GetConsensusParamsForStateToCommit()
 	cms := app.WriteState()
 	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
-	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
+	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp, consensusParamUpdates)
 	if hasHeadNotifier {
 		headNotifier.Stash(req, &resp)
 	}
@@ -1559,6 +1540,8 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		// Matches V2's recover behavior in legacyabci/deliver_tx.go.
 		var result *abci.ExecTxResult
 		var execErr error
+		// fallbackToV2: store-iteration panic; re-run this tx via v2 to match v2.
+		var fallbackToV2 bool
 		// IIFE (immediately-invoked function) to scope defer/recover to this tx only,
 		// allowing the loop to continue processing subsequent transactions after a panic.
 		func() {
@@ -1571,6 +1554,11 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 							Code:      sdkerrors.ErrOutOfGas.ABCICode(),
 							Log:       fmt.Sprintf("out of gas in location: %v", oogErr.Descriptor),
 						}
+						return
+					}
+					// Store-iteration panic: giga can't handle this tx; fall back to v2 (mirrors makeGigaDeliverTx).
+					if err, ok := r.(error); ok && errors.Is(err, gigastore.ErrIteratorUnsupported) {
+						fallbackToV2 = true
 						return
 					}
 					// For other panics (e.g., nil deref from malformed protobuf), log and return ErrPanic
@@ -1597,6 +1585,16 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 			result, execErr = app.executeEVMTxWithGigaExecutor(ctx, evmMsg, cache)
 		}()
+
+		// Store-iteration panic: re-run via v2 so the result matches v2 exactly.
+		if fallbackToV2 {
+			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
+			appMetrics.gigaFallback.Add(ctx.Context(), 1)
+			res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
+			txResults[i] = res
+			ms.Write()
+			continue
+		}
 
 		if execErr != nil {
 			// Check if this is a fail-fast error (Cosmos precompile interop detected)
@@ -2054,6 +2052,12 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 
 	// Execute with feeAlreadyCharged=true — matching V2's msg_server behavior
 	execResult, execErr := gigaExecutor.ExecuteTransactionFeeCharged(ethTx, sender, cache.baseFee, &gp)
+
+	// Self-destruct requires iterating the store, unsupported by giga. Fallback to v2.
+	if stateDB.AnySelfDestructed() {
+		return nil, gigaprecompiles.ErrSelfDestructUnsupported
+	}
+
 	if execErr != nil {
 		// Match V2 error handling: bump nonce, commit fee deduction, track surplus
 		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
@@ -2247,6 +2251,16 @@ func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.
 					}
 					return
 				}
+				// Any store-iteration panic means giga can't handle this tx: fall back to v2.
+				if err, ok := r.(error); ok && errors.Is(err, gigastore.ErrIteratorUnsupported) {
+					resp = abci.ResponseDeliverTx{
+						Code:      gigautils.GigaAbortCode,
+						Codespace: gigautils.GigaAbortCodespace,
+						Info:      gigautils.GigaAbortInfo,
+						Log:       "giga executor abort: store iteration unsupported, fall back to v2",
+					}
+					return
+				}
 				// For other panics (e.g., nil deref from malformed protobuf), log and return ErrPanic
 				logger.Error("panic in gigaDeliverTx", "panic", r, "stack", string(debug.Stack()))
 				resp = abci.ResponseDeliverTx{
@@ -2430,7 +2444,13 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 	return typedTxs
 }
 
-func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock) abci.ResponseFinalizeBlock {
+func (app *App) getFinalizeBlockResponse(
+	appHash []byte,
+	events []abci.Event,
+	txResults []*abci.ExecTxResult,
+	endBlockResp abci.ResponseEndBlock,
+	consensusParamUpdates *tmproto.ConsensusParams,
+) abci.ResponseFinalizeBlock {
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return abci.ResponseFinalizeBlock{}
 	}
@@ -2443,27 +2463,74 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 				Power:  v.Power,
 			}
 		}),
-		ConsensusParamUpdates: &tmproto.ConsensusParams{
-			Block: &tmproto.BlockParams{
-				MaxBytes:      endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
-				MaxGas:        endBlockResp.ConsensusParamUpdates.Block.MaxGas,
-				MinTxsInBlock: endBlockResp.ConsensusParamUpdates.Block.MinTxsInBlock,
-				MaxGasWanted:  endBlockResp.ConsensusParamUpdates.Block.MaxGasWanted,
-			},
-			Evidence: &tmproto.EvidenceParams{
-				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
-				MaxAgeDuration:  endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeDuration,
-				MaxBytes:        endBlockResp.ConsensusParamUpdates.Evidence.MaxBytes,
-			},
-			Validator: &tmproto.ValidatorParams{
-				PubKeyTypes: endBlockResp.ConsensusParamUpdates.Validator.PubKeyTypes,
-			},
-			Version: &tmproto.VersionParams{
-				AppVersion: endBlockResp.ConsensusParamUpdates.Version.AppVersion,
-			},
-		},
-		AppHash: appHash,
+		ConsensusParamUpdates: cloneConsensusParams(consensusParamUpdates),
+		AppHash:               appHash,
 	}
+}
+
+func cloneConsensusParams(params *tmproto.ConsensusParams) *tmproto.ConsensusParams {
+	if params == nil {
+		return nil
+	}
+
+	cp := &tmproto.ConsensusParams{}
+	if params.Block != nil {
+		cp.Block = &tmproto.BlockParams{
+			MaxBytes:      params.Block.MaxBytes,
+			MaxGas:        params.Block.MaxGas,
+			MinTxsInBlock: params.Block.MinTxsInBlock,
+			MaxGasWanted:  params.Block.MaxGasWanted,
+		}
+	}
+	if params.Evidence != nil {
+		cp.Evidence = &tmproto.EvidenceParams{
+			MaxAgeNumBlocks: params.Evidence.MaxAgeNumBlocks,
+			MaxAgeDuration:  params.Evidence.MaxAgeDuration,
+			MaxBytes:        params.Evidence.MaxBytes,
+		}
+	}
+	if params.Validator != nil {
+		cp.Validator = &tmproto.ValidatorParams{
+			PubKeyTypes: append([]string(nil), params.Validator.PubKeyTypes...),
+		}
+	}
+	if params.Version != nil {
+		cp.Version = &tmproto.VersionParams{
+			AppVersion: params.Version.AppVersion,
+		}
+	}
+	if params.Synchrony != nil {
+		cp.Synchrony = &tmproto.SynchronyParams{
+			Precision:    cloneDuration(params.Synchrony.Precision),
+			MessageDelay: cloneDuration(params.Synchrony.MessageDelay),
+		}
+	}
+	if params.Timeout != nil {
+		cp.Timeout = &tmproto.TimeoutParams{
+			Propose:             cloneDuration(params.Timeout.Propose),
+			ProposeDelta:        cloneDuration(params.Timeout.ProposeDelta),
+			Vote:                cloneDuration(params.Timeout.Vote),
+			VoteDelta:           cloneDuration(params.Timeout.VoteDelta),
+			Commit:              cloneDuration(params.Timeout.Commit),
+			BypassCommitTimeout: params.Timeout.BypassCommitTimeout,
+		}
+	}
+	if params.Abci != nil {
+		cp.Abci = &tmproto.ABCIParams{
+			VoteExtensionsEnableHeight: params.Abci.VoteExtensionsEnableHeight,
+			RecheckTx:                  params.Abci.RecheckTx,
+		}
+	}
+
+	return cp
+}
+
+func cloneDuration(duration *time.Duration) *time.Duration {
+	if duration == nil {
+		return nil
+	}
+	cloned := *duration
+	return &cloned
 }
 
 // LoadHeight loads a particular height
@@ -2859,7 +2926,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(distrtypes.ModuleName)
 	paramsKeeper.Subspace(slashingtypes.ModuleName)
 	paramsKeeper.Subspace(govtypes.ModuleName).WithKeyTable(govtypes.ParamKeyTable())
-	paramsKeeper.Subspace(crisistypes.ModuleName)
 	paramsKeeper.Subspace(ibctransfertypes.ModuleName)
 	paramsKeeper.Subspace(ibchost.ModuleName)
 	paramsKeeper.Subspace(oracletypes.ModuleName)

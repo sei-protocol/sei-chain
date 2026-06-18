@@ -1,23 +1,24 @@
 import util from 'node:util';
 import fs from 'node:fs';
-import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { DirectSecp256k1HdWallet } from '@cosmjs/proto-signing';
 import { SigningCosmWasmClient } from '@cosmjs/cosmwasm-stargate';
-import { calculateFee, GasPrice } from '@cosmjs/stargate';
 import { stringToPath } from '@cosmjs/crypto';
-import { Endpoints, AdminMnemonic } from '../config/endpoints';
+import { Endpoints } from '../config/endpoints';
 import { waitUntil } from './chainUtils';
-import { SEI_HD_PATH, DOCKER_NODE, SEID_ENV } from './constants';
+import {
+    SEI_HD_PATH,
+    DOCKER_NODE,
+    SEID_ENV,
+    DOCKER_KEY_PASSWORD,
+    DOCKER_EVM_RPC,
+    CW20_WASM_PATH,
+    CW20_WASM_SHA256,
+    WASM_FEE,
+    EXEC_FEE,
+} from './constants';
 
 const exec = util.promisify(require('node:child_process').exec);
-
-const DOCKER_KEY_PASSWORD = '12345678';
-/** cw20_base bundled with the suite; instantiated as the dual-VM fixture token. */
-const CW20_WASM_PATH = path.resolve(__dirname, '..', 'contracts', 'cw20_base.wasm');
-/** Generous flat fee for the one-off store + instantiate (10M gas @ 3.5usei). */
-const WASM_FEE = calculateFee(10_000_000, GasPrice.fromString('3.5usei'));
-/** Smaller flat fee for a single CW20 execute (transfer). */
-const EXEC_FEE = calculateFee(1_500_000, GasPrice.fromString('3.5usei'));
 
 export interface Cw20InitMsg {
     name: string;
@@ -55,10 +56,10 @@ export async function isWasmEnabled(): Promise<boolean> {
 let adminClient: Promise<{ client: SigningCosmWasmClient; address: string }> | undefined;
 
 /** Cached CosmWasm signing client for the admin mnemonic (coin type 118). */
-function adminCosmWasm(): Promise<{ client: SigningCosmWasmClient; address: string }> {
+function adminCosmWasm(mnemonic: string): Promise<{ client: SigningCosmWasmClient; address: string }> {
     if (!adminClient) {
         adminClient = (async () => {
-            const wallet = await DirectSecp256k1HdWallet.fromMnemonic(AdminMnemonic, {
+            const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, {
                 prefix: 'sei',
                 hdPaths: [stringToPath(SEI_HD_PATH)],
             });
@@ -73,16 +74,29 @@ function adminCosmWasm(): Promise<{ client: SigningCosmWasmClient; address: stri
     return adminClient;
 }
 
+function readVerifiedCw20Wasm(): Buffer {
+    const wasm = fs.readFileSync(CW20_WASM_PATH);
+    const digest = createHash('sha256').update(wasm).digest('hex');
+    if (digest !== CW20_WASM_SHA256) {
+        throw new Error(
+            `cw20_base.wasm checksum mismatch: expected ${CW20_WASM_SHA256}, got ${digest}. ` +
+                `Re-copy from contracts/wasm/cw20_base.wasm and update CW20_WASM_SHA256 in the same commit.`,
+        );
+    }
+    return wasm;
+}
+
 /**
  * Store cw20_base and instantiate it with `initMsg`, signed client-side by the admin.
  * Returns the instantiated CW20 `sei1…` contract address (and its code id).
  */
 export async function deployCw20(
     initMsg: Cw20InitMsg,
+    adminMnemonic: string,
     label = 'rpc_tests cw20',
 ): Promise<{ codeId: number; address: string }> {
-    const { client, address } = await adminCosmWasm();
-    const wasm = fs.readFileSync(CW20_WASM_PATH);
+    const { client, address } = await adminCosmWasm(adminMnemonic);
+    const wasm = readVerifiedCw20Wasm();
     const uploaded = await client.upload(address, wasm, WASM_FEE);
     const instantiated = await client.instantiate(
         address,
@@ -111,10 +125,9 @@ async function queryCw20Pointer(cw20Address: string): Promise<string> {
  * rather than reading it once right after broadcast.
  */
 export async function registerCw20Pointer(cw20Address: string): Promise<string> {
-    const evmRpc = 'http://localhost:8545';
     await exec(
         `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && printf "${DOCKER_KEY_PASSWORD}\\n" | ` +
-            `seid tx evm register-evm-pointer CW20 ${cw20Address} --evm-rpc=${evmRpc} ` +
+            `seid tx evm register-evm-pointer CW20 ${cw20Address} --evm-rpc=${DOCKER_EVM_RPC} ` +
             `--from admin -y --gas-limit 4900000 --fees 800000usei -b sync'`,
     );
     return waitUntil<string>(
@@ -127,6 +140,8 @@ export interface Cw20ExecResult {
     hash: string;
     height: number;
     code: number;
+    /** Gas the Cosmos tx consumed — the same amount its shell receipt reports on-chain. */
+    gasUsed: bigint;
 }
 
 /**
@@ -138,8 +153,9 @@ export async function cw20Transfer(
     cw20Address: string,
     recipientSei: string,
     amount: string,
+    adminMnemonic: string,
 ): Promise<Cw20ExecResult> {
-    const { client, address } = await adminCosmWasm();
+    const { client, address } = await adminCosmWasm(adminMnemonic);
     const res = await client.execute(
         address,
         cw20Address,
@@ -147,5 +163,10 @@ export async function cw20Transfer(
         EXEC_FEE,
         'rpc_tests dual-vm cw20 transfer',
     );
-    return { hash: res.transactionHash, height: Number(res.height), code: 0 };
+    return {
+        hash: res.transactionHash,
+        height: Number(res.height),
+        code: 0,
+        gasUsed: BigInt(res.gasUsed),
+    };
 }

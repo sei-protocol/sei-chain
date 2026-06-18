@@ -15,16 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type countingCacheKVStore struct {
-	sdk.CacheKVStore
-	sets int
-}
-
-func (s *countingCacheKVStore) Set(key, value []byte) {
-	s.sets++
-	s.CacheKVStore.Set(key, value)
-}
-
 func TestState(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
 	ctx = ctx.WithBlockTime(time.Now())
@@ -64,6 +54,33 @@ func TestState(t *testing.T) {
 	// set storage
 	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{{}: {}})
 	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, common.Hash{}))
+}
+
+func TestAnySelfDestructed(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, false)
+
+	// no marked accounts yet
+	require.False(t, statedb.AnySelfDestructed())
+
+	// creating an account marks it AccountCreated, not AccountDeleted
+	statedb.CreateAccount(evmAddr)
+	require.False(t, statedb.AnySelfDestructed())
+
+	// self-destructing flips the flag
+	statedb.SelfDestruct(evmAddr)
+	require.True(t, statedb.AnySelfDestructed())
+
+	// reverting the self-destruct via snapshot should clear it again
+	statedb2 := state.NewDBImpl(ctx, k, false)
+	statedb2.CreateAccount(evmAddr)
+	rev := statedb2.Snapshot()
+	statedb2.SelfDestruct(evmAddr)
+	require.True(t, statedb2.AnySelfDestructed())
+	statedb2.RevertToSnapshot(rev)
+	require.False(t, statedb2.AnySelfDestructed())
 }
 
 func TestCreate(t *testing.T) {
@@ -280,59 +297,4 @@ func TestTransientStorageRevertNilMapPanic(t *testing.T) {
 
 	// After revert, the transient state should be restored to value1
 	require.Equal(t, value1, statedb.GetTransientState(evmAddr, tkey))
-}
-
-// TestSetState_NoopDedup verifies that writing the same value to a slot does not
-// append a journal entry, matching go-ethereum's behaviour.
-func TestSetState_NoopDedup(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper(t)
-	ctx = ctx.WithBlockTime(time.Now())
-	_, evmAddr := testkeeper.MockAddressPair()
-	sdb := state.NewDBImpl(ctx, k, false)
-
-	key := common.BytesToHash([]byte("k"))
-	val := common.BytesToHash([]byte("v"))
-
-	sdb.SetState(evmAddr, key, val)
-	rev := sdb.Snapshot()
-
-	// Write the same value N times — should produce zero new journal entries.
-	for range 5 {
-		sdb.SetState(evmAddr, key, val)
-	}
-
-	// Reverting must still leave the slot at val (not cleared to zero).
-	sdb.RevertToSnapshot(rev)
-	require.Equal(t, val, sdb.GetState(evmAddr, key))
-}
-
-func TestSetState_NoopStillWritesThrough(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper(t)
-	ctx = ctx.WithBlockTime(time.Now())
-	_, evmAddr := testkeeper.MockAddressPair()
-	sdb := state.NewDBImpl(ctx, k, false)
-
-	key := common.BytesToHash([]byte("k"))
-	val := common.BytesToHash([]byte("v"))
-	sdb.SetState(evmAddr, key, val)
-
-	counter := &countingCacheKVStore{}
-	ms := sdb.Ctx().MultiStore().(interface {
-		SetKVStores(func(sdk.StoreKey, sdk.KVStore) sdk.CacheWrap) sdk.MultiStore
-	}).SetKVStores(func(sk sdk.StoreKey, store sdk.KVStore) sdk.CacheWrap {
-		if sk == k.GetStoreKey() {
-			cacheStore, ok := store.(sdk.CacheKVStore)
-			require.True(t, ok)
-			counter.CacheKVStore = cacheStore
-			return counter
-		}
-		cacheWrap, ok := store.(sdk.CacheWrap)
-		require.True(t, ok)
-		return cacheWrap
-	})
-	sdb.WithCtx(sdb.Ctx().WithMultiStore(ms))
-	require.NotNil(t, counter.CacheKVStore)
-
-	sdb.SetState(evmAddr, key, val)
-	require.Equal(t, 1, counter.sets)
 }

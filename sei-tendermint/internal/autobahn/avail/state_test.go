@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/stretchr/testify/require"
@@ -128,9 +128,9 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 				lane := key.Public()
 				p := types.GenPayload(rng)
 				want[lane] = append(want[lane], p.Hash())
-				b, err := state.produceBlock(ctx, key, p)
+				b, err := state.produceLocalBlock(state.NextBlock(lane), key, p)
 				if err != nil {
-					return fmt.Errorf("state.ProduceBlock(): %w", err)
+					return fmt.Errorf("state.produceLocalBlock(): %w", err)
 				}
 				if err := utils.TestDiff(b.Msg().Block().Payload(), p); err != nil {
 					return fmt.Errorf("snapshot: %w", err)
@@ -254,8 +254,8 @@ func TestStateRestartFromPersisted(t *testing.T) {
 
 			for range 5 {
 				key := keys[rng.Intn(len(keys))]
-				if _, err := state.produceBlock(ctx, key, types.GenPayload(rng)); err != nil {
-					return fmt.Errorf("produceBlock: %w", err)
+				if _, err := state.produceLocalBlock(state.NextBlock(key.Public()), key, types.GenPayload(rng)); err != nil {
+					return fmt.Errorf("produceLocalBlock: %w", err)
 				}
 			}
 
@@ -340,7 +340,6 @@ func TestStateMismatchedQCs(t *testing.T) {
 	}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee))))
 	state, err := NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
-	ctx := t.Context()
 
 	// Helper to create a CommitQC for a specific index
 	makeQC := func(prev utils.Option[*types.CommitQC], laneQCs map[types.LaneID]*types.LaneQC) *types.CommitQC {
@@ -364,12 +363,14 @@ func TestStateMismatchedQCs(t *testing.T) {
 	// 1. Produce a block so we have a non-empty range
 	lane := keys[0].Public()
 	p := types.GenPayload(rng)
-	b, err := state.ProduceBlock(ctx, p)
+	b, err := state.ProduceLocalBlock(state.NextBlock(lane), p)
 	require.NoError(t, err)
 
 	// 2. Form a LaneQC for it
-	laneVotes := makeLaneVotes(keys, b.Msg().Block().Header())
-	laneQC := types.NewLaneQC(laneVotes[:2]) // f+1 = 2 for 4 nodes
+	laneQC := types.NewLaneQC(makeLaneVotes(
+		types.TestKeysWithWeight(committee, keys, committee.LaneQuorum()),
+		b.Msg().Block().Header(),
+	))
 
 	// 3. Create CommitQC for index 0 (finalizes block 0)
 	qc0 := makeQC(utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{lane: laneQC})
@@ -398,7 +399,7 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
 
 	// Produce a valid first block on our lane.
-	_, err := state.ProduceBlock(ctx, types.GenPayload(rng))
+	_, err := state.ProduceLocalBlock(state.NextBlock(keys[0].Public()), types.GenPayload(rng))
 	require.NoError(t, err)
 
 	// Create a second block with a fake parentHash.

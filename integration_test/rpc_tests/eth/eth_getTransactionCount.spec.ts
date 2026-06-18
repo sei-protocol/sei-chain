@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState, claimPool, expectSameError } from '../utils/testUtils';
 import { EvmAccount } from '../utils/evmUtils';
+import { EARLY_STATE_ERROR } from '../utils/format';
 
 describe('eth_getTransactionCount', function () {
     this.timeout(120 * 1000);
@@ -40,28 +41,39 @@ describe('eth_getTransactionCount', function () {
         });
 
         it('all block tags return the same live nonce for a funded, idle account', async () => {
-            const tags = ['earliest', 'safe', 'finalized', 'pending', 'latest'] as const;
+            const recent = ['safe', 'finalized', 'pending', 'latest'] as const;
             const results = await Promise.all(
-                tags.map(t => rawSei<string>('eth_getTransactionCount', [seiAdmin, t])),
+                recent.map(t => rawSei<string>('eth_getTransactionCount', [seiAdmin, t])),
             );
 
             const byTag: Record<string, bigint> = {};
             results.forEach((res, i) => {
-                expect(res.error, `${tags[i]}: ${JSON.stringify(res.error)}`).to.equal(undefined);
-                expect(res.result, `${tags[i]} is canonical`).to.match(
+                expect(res.error, `${recent[i]}: ${JSON.stringify(res.error)}`).to.equal(undefined);
+                expect(res.result, `${recent[i]} is canonical`).to.match(
                     /^0x(0|[1-9a-f][0-9a-f]*)$/,
                 );
-                byTag[tags[i]] = BigInt(res.result!);
+                byTag[recent[i]] = BigInt(res.result!);
             });
 
             const live = byTag.latest;
             for (const t of ['safe', 'finalized', 'pending'] as const) {
                 expect(byTag[t], `${t} equals the live (latest) nonce`).to.equal(live);
             }
-            expect(
-                byTag.earliest <= live,
-                `earliest (${byTag.earliest}) cannot exceed the live nonce (${live})`,
-            ).to.equal(true);
+
+            // earliest reads genesis: a full-history node serves a nonce that cannot exceed
+            // the live one, but a pruning node / one whose EVM module postdates genesis
+            // rejects it with -32000 (same divergence eth_call's earliest case handles).
+            const earliest = await rawSei<string>('eth_getTransactionCount', [seiAdmin, 'earliest']);
+            if (earliest.error) {
+                expect(earliest.error.code, `earliest: ${JSON.stringify(earliest.error)}`).to.equal(-32000);
+                expect(earliest.error.message).to.match(EARLY_STATE_ERROR);
+            } else {
+                expect(earliest.result, 'earliest is canonical').to.match(/^0x(0|[1-9a-f][0-9a-f]*)$/);
+                expect(
+                    BigInt(earliest.result!) <= live,
+                    `earliest (${earliest.result}) cannot exceed the live nonce (${live})`,
+                ).to.equal(true);
+            }
         });
 
         it('Sei and geth agree on the nonce of the contract address (always 1 after deploy)', async () => {
@@ -136,7 +148,7 @@ describe('eth_getTransactionCount', function () {
             );
             expect(
                 BigInt(pending.result!) >= BigInt(latest.result!),
-                '[divergence-probe] pending nonce must be >= latest nonce',
+                'pending nonce must be >= latest nonce',
             ).to.equal(true);
         });
     });
@@ -201,7 +213,7 @@ describe('eth_getTransactionCount', function () {
         });
     });
 
-    describe('geth parity', () => {
+    describe('wrong params / error handling (parity with geth)', () => {
         it('both agree that a fresh address starts at nonce 0x0', async () => {
             const fresh = ethers.Wallet.createRandom().address;
             const [s, g] = await Promise.all([
@@ -211,9 +223,7 @@ describe('eth_getTransactionCount', function () {
             expect(s.result).to.equal('0x0');
             expect(g.result).to.equal('0x0');
         });
-    });
 
-    describe('wrong params / error handling (parity with geth)', () => {
         it('empty params fail identically (-32602, missing required argument 0)', async () => {
             const [s, g] = await Promise.all([
                 rawSei('eth_getTransactionCount', []),
@@ -259,12 +269,10 @@ describe('eth_getTransactionCount', function () {
             expectSameError(s, g);
         });
 
-        it('an unknown future block returns an error or null (does not panic)', async () => {
+        it('an unknown future block returns undefined (does not panic)', async () => {
             const future = ethers.toQuantity((await sei.getBlockNumber()) + 10_000_000);
             const res = await rawSei('eth_getTransactionCount', [seiAdmin, future]);
-            if (res.error === undefined) {
-                expect(res.result, 'future block should return null, not a count').to.equal(null);
-            }
+            expect(res.error!.message).to.contain('is not yet available');
         });
     });
 });

@@ -34,6 +34,10 @@ func (*heightTestClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (*heightTestClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
+	return nil, false
+}
+
 func (*heightTestClient) EvmProxy(common.Address) (*url.URL, bool) {
 	return nil, false
 }
@@ -326,6 +330,32 @@ func TestLogFetcherSkipsUnavailableCachedBlock(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	default:
 	}
+}
+
+func TestGetBlockTransactionCountByNumberReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+
+	_, err := api.GetBlockTransactionCountByNumber(context.Background(), rpc.BlockNumber(100))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
+}
+
+func TestGetBlockTransactionCountByHashReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+
+	_, err := api.GetBlockTransactionCountByHash(context.Background(), common.HexToHash(highBlockHashHex))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
 }
 
 func TestStateAPIGetProofUnavailableHeight(t *testing.T) {

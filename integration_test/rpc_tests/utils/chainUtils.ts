@@ -15,7 +15,6 @@ const makeProvider = (url: string): ethers.JsonRpcProvider =>
 
 let seiProvider: ethers.JsonRpcProvider | undefined;
 let gethProvider: ethers.JsonRpcProvider | undefined;
-let forkProvider: ethers.JsonRpcProvider | undefined;
 
 export function seiRpc(): ethers.JsonRpcProvider {
     if (!seiProvider) seiProvider = makeProvider(Endpoints.sei.evmRpc);
@@ -26,12 +25,6 @@ export function seiRpc(): ethers.JsonRpcProvider {
 export function gethRpc(): ethers.JsonRpcProvider {
     if (!gethProvider) gethProvider = makeProvider(Endpoints.eth.geth);
     return gethProvider;
-}
-
-/** Optional secondary reference: anvil/Hardhat mainnet fork. */
-export function forkRpc(): ethers.JsonRpcProvider {
-    if (!forkProvider) forkProvider = makeProvider(Endpoints.eth.fork);
-    return forkProvider;
 }
 
 /**

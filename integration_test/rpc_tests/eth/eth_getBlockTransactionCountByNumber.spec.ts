@@ -3,8 +3,8 @@ import { expect } from 'chai';
 import { bothProviders, rawSei, rawGeth, expectJsonRpcError, sleep } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState, claimPool, expectSameError } from '../utils/testUtils';
 import { EvmAccount, fundFromUnlocked } from '../utils/evmUtils';
-import { AdminMnemonic } from '../config/endpoints';
 import { cosmosBankSend, generateSeiAddress, CosmosBankSend } from '../utils/cosmosUtils';
+import { cw20Transfer, Cw20ExecResult } from '../utils/wasmUtils';
 import { sharedRichBlock, sendSingleTx, RichBlock, SentTx, richFailedTxs, blockReceipts, txCountByNumber, assertTxCount, findEmptyBlock } from '../utils/txUtils';
 
 describe('eth_getBlockTransactionCountByNumber', function () {
@@ -49,20 +49,6 @@ describe('eth_getBlockTransactionCountByNumber', function () {
             ]);
             assertTxCount(count, block.transactions.length, 'count == block.transactions');
             expect(receipts.length, 'count == receipts length').to.equal(Number(BigInt(count)));
-        });
-
-        it('includes the two included-but-failed txs in the count', async () => {
-            const [count, block] = await Promise.all([
-                txCountByNumber(sei, richSei.number),
-                sei.send('eth_getBlockByNumber', [ethers.toQuantity(richSei.number), false]),
-            ]);
-            const { outOfGas, revertErc20 } = richFailedTxs(richSei);
-            for (const sent of [outOfGas, revertErc20]) {
-                expect(block.transactions, `${sent.kind} is counted in the block`).to.include(
-                    sent.hash,
-                );
-            }
-            assertTxCount(count, block.transactions.length, 'count includes the failed txs');
         });
 
         it('a known empty block reports 0x0', async function () {
@@ -119,7 +105,7 @@ describe('eth_getBlockTransactionCountByNumber', function () {
             for (let attempt = 0; attempt < 4 && height === undefined; attempt++) {
                 const recipient = await generateSeiAddress();
                 const [cos, ev] = await Promise.all([
-                    cosmosBankSend(AdminMnemonic, recipient, AMOUNT_USEI),
+                    cosmosBankSend(runtime.funded.adminMnemonic, recipient, AMOUNT_USEI),
                     sendSingleTx(sei, evmSigner),
                 ]);
                 if (cos.code === 0 && cos.height === ev.number) {
@@ -146,6 +132,45 @@ describe('eth_getBlockTransactionCountByNumber', function () {
                 block.transactions.map((h: string) => h.toLowerCase()),
                 'Cosmos tx not in the EVM block',
             ).to.not.include(cosmosAsEvmHash);
+            assertTxCount(count, block.transactions.length, 'count == EVM tx count');
+        });
+    });
+
+    describe('dual-VM: a pointer-backed CW20 wasm transfer is not counted', () => {
+        let height: number | undefined;
+        let cosmos: Cw20ExecResult;
+        let evm: { number: number; hash: string; tx: SentTx };
+
+        before(async function () {
+            this.timeout(180 * 1000);
+            if (!runtime.wasm) this.skip(); // wasm-disabled chain: no CW20 / pointer fixture
+            const evmSigner = claimPool(runtime, sei, 1, 'eth_getBlockTransactionCountByNumber:wasm')[0];
+            for (let attempt = 0; attempt < 4 && height === undefined; attempt++) {
+                const recipient = await generateSeiAddress();
+                const [cos, ev] = await Promise.all([
+                    cw20Transfer(runtime.wasm!.cw20, recipient, '1', runtime.funded.adminMnemonic),
+                    sendSingleTx(sei, evmSigner),
+                ]);
+                if (cos.code === 0 && cos.height === ev.number) {
+                    height = cos.height;
+                    cosmos = cos;
+                    evm = ev;
+                }
+            }
+            if (height === undefined) this.skip();
+        });
+
+        it('the count equals the EVM tx count, excluding the pointer-backed CW20 tx', async () => {
+            const [count, block] = await Promise.all([
+                txCountByNumber(sei, height!),
+                sei.send('eth_getBlockByNumber', [ethers.toQuantity(height!), false]),
+            ]);
+            // The CW20 transfer and the EVM tx share this block, but only the EVM tx counts —
+            // the pointer's synthetic Transfer log does not promote the wasm tx into the block.
+            const hashes = block.transactions.map((h: string) => h.toLowerCase());
+            const cosmosAsEvmHash = '0x' + cosmos.hash.toLowerCase();
+            expect(hashes, 'EVM tx present').to.include(evm.tx.hash.toLowerCase());
+            expect(hashes, 'CW20 wasm tx not in the EVM block').to.not.include(cosmosAsEvmHash);
             assertTxCount(count, block.transactions.length, 'count == EVM tx count');
         });
     });

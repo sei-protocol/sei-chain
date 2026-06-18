@@ -10,7 +10,7 @@ import { uint256Word } from './format';
 /**
  * Runtime state captured once by _start/00_bootstrap.spec.ts and read by every other spec; the
  * typed contract turns a missing field into a TypeScript error, not a runtime undefined. Add fields
- * here, but never write back from a non-bootstrap spec or parallel workers will race.
+ * here, but never write back from a non-bootstrap spec — the bootstrap is the only writer.
  */
 export interface RuntimeState {
     /** ISO timestamp when the state was written. */
@@ -62,6 +62,7 @@ export interface RuntimeState {
     /** EVM addresses pre-funded with a small balance, ready for use by tests. */
     funded: {
         admin: string;
+        adminMnemonic: string;
         /**
          * Deployer/owner of the geth-side TestERC20. Funded from geth's unlocked dev
          * account; this key is controlled client-side so specs can sign geth txs.

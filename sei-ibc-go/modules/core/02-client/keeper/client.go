@@ -8,6 +8,8 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/seilog"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
@@ -55,6 +57,8 @@ func (k Keeper) CreateClient(
 	logger.Info("client created at height", "client-id", clientID, "height", clientState.GetLatestHeight().String())
 
 	defer func() {
+		ibcClientMetrics.ibcClientCreate.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String(types.LabelClientType, clientState.ClientType())))
+		// TODO(PLT-428): remove once ibc_client_create verified
 		telemetry.IncrCounterWithLabels(
 			[]string{"ibc", "client", "create"},
 			1,
@@ -119,6 +123,12 @@ func (k Keeper) UpdateClient(ctx sdk.Context, clientID string, header exported.H
 		logger.Info("client state updated", "client-id", clientID, "height", consensusHeight.String())
 
 		defer func() {
+			ibcClientMetrics.ibcClientUpdate.Add(ctx.Context(), 1, otelmetric.WithAttributes(
+				attribute.String(types.LabelClientType, clientState.ClientType()),
+				attribute.String(types.LabelClientID, clientID),
+				attribute.String(types.LabelUpdateType, "msg"),
+			))
+			// TODO(PLT-428): remove once ibc_client_update verified
 			telemetry.IncrCounterWithLabels(
 				[]string{"ibc", "client", "update"},
 				1,
@@ -137,6 +147,12 @@ func (k Keeper) UpdateClient(ctx sdk.Context, clientID string, header exported.H
 		logger.Info("client frozen due to misbehaviour", "client-id", clientID)
 
 		defer func() {
+			ibcClientMetrics.ibcClientMisbehaviour.Add(ctx.Context(), 1, otelmetric.WithAttributes(
+				attribute.String(types.LabelClientType, clientState.ClientType()),
+				attribute.String(types.LabelClientID, clientID),
+				attribute.String(types.LabelMsgType, "update"),
+			))
+			// TODO(PLT-428): remove once ibc_client_misbehaviour verified
 			telemetry.IncrCounterWithLabels(
 				[]string{"ibc", "client", "misbehaviour"},
 				1,
@@ -182,6 +198,11 @@ func (k Keeper) UpgradeClient(ctx sdk.Context, clientID string, upgradedClient e
 	logger.Info("client state upgraded", "client-id", clientID, "height", updatedClientState.GetLatestHeight().String())
 
 	defer func() {
+		ibcClientMetrics.ibcClientUpgrade.Add(ctx.Context(), 1, otelmetric.WithAttributes(
+			attribute.String(types.LabelClientType, updatedClientState.ClientType()),
+			attribute.String(types.LabelClientID, clientID),
+		))
+		// TODO(PLT-428): remove once ibc_client_upgrade verified
 		telemetry.IncrCounterWithLabels(
 			[]string{"ibc", "client", "upgrade"},
 			1,
@@ -225,6 +246,11 @@ func (k Keeper) CheckMisbehaviourAndUpdateState(ctx sdk.Context, misbehaviour ex
 	logger.Info("client frozen due to misbehaviour", "client-id", misbehaviour.GetClientID())
 
 	defer func() {
+		ibcClientMetrics.ibcClientMisbehaviour.Add(ctx.Context(), 1, otelmetric.WithAttributes(
+			attribute.String(types.LabelClientType, misbehaviour.ClientType()),
+			attribute.String(types.LabelClientID, misbehaviour.GetClientID()),
+		))
+		// TODO(PLT-428): remove once ibc_client_misbehaviour verified
 		telemetry.IncrCounterWithLabels(
 			[]string{"ibc", "client", "misbehaviour"},
 			1,

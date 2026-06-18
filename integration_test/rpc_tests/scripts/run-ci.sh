@@ -2,24 +2,13 @@
 #
 # CI orchestrator for the Sei EVM JSON-RPC parity suite.
 #
-# Unlike run-full.sh (which boots the docker cluster itself), this script assumes the
-# integration-test workflow has ALREADY started the Sei cluster and exposed EVM RPC on
-# :8545. It only owns the pieces CI doesn't provide:
-#
-#   1. Install node deps (npm ci) and compile the suite's contracts.
-#   2. Wait for the Sei chain to be producing blocks.
-#   3. Install (if missing) and start a geth --dev parity reference on :9547.
-#   4. Run the suite serially (bootstrap + run) and exit non-zero on any failure.
-#
-# The geth node is always torn down on exit. Designed to be the single command behind
-# a matrix entry in .github/workflows/integration-test.yml.
-#
 # Env knobs:
 #   SEI_EVM_RPC     Sei EVM RPC URL                         (default http://localhost:8545)
 #   RPC_ETH_GETH    geth reference URL                      (default http://127.0.0.1:9547)
 #   SEI_TIMEOUT     seconds to wait for Sei RPC/blocks      (default 300)
 #   GETH_TIMEOUT    seconds to wait for geth to listen      (default 120)
 #   SKIP_NPM_CI     "true" to reuse an existing node_modules (default false)
+#   GETH_VERSION    pinned go-ethereum tag installed on CI  (default v1.17.0)
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,6 +20,7 @@ GETH_RPC_URL="${RPC_ETH_GETH:-http://127.0.0.1:${GETH_PORT}}"
 SEI_TIMEOUT="${SEI_TIMEOUT:-300}"
 GETH_TIMEOUT="${GETH_TIMEOUT:-120}"
 SKIP_NPM_CI="${SKIP_NPM_CI:-false}"
+GETH_VERSION="${GETH_VERSION:-v1.17.0}"
 
 REPORT_DIR="$RPC_DIR/reports/new_rpc"
 GETH_LOG="$RPC_DIR/reports/geth.log"
@@ -99,29 +89,36 @@ wait_for_block_production() {
     return 1
 }
 
-# Make a geth binary available. Already-installed wins (local dev / macOS via brew);
-# on Linux CI without one, install go-ethereum from the official Ethereum PPA.
+# Make a geth binary available, pinned to GETH_VERSION for reproducible parity output.
 ensure_geth() {
+    local pin="${GETH_VERSION#v}"
     if command -v geth >/dev/null 2>&1; then
-        log "Using geth: $(command -v geth) ($(geth version 2>/dev/null | sed -n 's/^Version: //p' | head -1))"
+        local have
+        have="$(geth version 2>/dev/null | sed -n 's/^Version: //p' | head -1)"
+        log "Using already-installed geth: $(command -v geth) (version ${have:-unknown}, pinned target ${pin})"
+        case "$have" in
+            "$pin"*) : ;;
+            *) warn "installed geth ${have:-unknown} != pinned ${pin}; comparing against the local binary (install geth@${GETH_VERSION} or set GETH_VERSION to match CI)" ;;
+        esac
         return 0
     fi
-    [ "$(uname -s)" = "Linux" ] || die "geth not found on PATH; install go-ethereum to run the reference node."
-    log "geth not found; installing go-ethereum from the Ethereum PPA"
-    command -v add-apt-repository >/dev/null 2>&1 || sudo apt-get install -y software-properties-common
-    sudo add-apt-repository -y ppa:ethereum/ethereum
-    sudo apt-get update -y
-    sudo apt-get install -y ethereum
-    command -v geth >/dev/null 2>&1 || die "geth installation failed"
+    command -v go >/dev/null 2>&1 || die "geth not found on PATH and no go toolchain to install the pinned ${GETH_VERSION}."
+    log "geth not found; installing pinned go-ethereum ${GETH_VERSION} via go install"
+    GOFLAGS=-mod=mod go install "github.com/ethereum/go-ethereum/cmd/geth@${GETH_VERSION}" \
+        || die "go install geth@${GETH_VERSION} failed"
+    local gobin
+    gobin="$(go env GOBIN)"; [ -n "$gobin" ] || gobin="$(go env GOPATH)/bin"
+    case ":$PATH:" in *":${gobin}:"*) : ;; *) export PATH="${gobin}:$PATH" ;; esac
+    command -v geth >/dev/null 2>&1 || die "geth still not on PATH after go install (looked in ${gobin})"
+    log "Installed geth: $(command -v geth) ($(geth version 2>/dev/null | sed -n 's/^Version: //p' | head -1))"
 }
 
 command -v curl >/dev/null 2>&1 || die "curl is required."
-command -v node >/dev/null 2>&1 || die "node is required (the workflow sets up Node 20)."
+command -v node >/dev/null 2>&1 || die "node is required (the workflow sets up Node 22)."
 
 cd "$RPC_DIR"
 mkdir -p "$REPORT_DIR"
 
-# --- 1. Install deps + compile contracts ----------------------------------------
 if [ "$SKIP_NPM_CI" = "true" ] && [ -d node_modules ]; then
     log "Reusing existing node_modules (SKIP_NPM_CI=true)"
 else
@@ -132,13 +129,11 @@ fi
 log "Compiling contracts (npm run compile)"
 npm run --silent compile || die "contract compile failed"
 
-# --- 2. Wait for the Sei chain (started by the workflow) ------------------------
 wait_for_rpc "$SEI_EVM_RPC_URL" "Sei EVM RPC" "$SEI_TIMEOUT" \
     || die "Sei EVM RPC at $SEI_EVM_RPC_URL never came up (is the cluster started?)"
 wait_for_block_production "$SEI_EVM_RPC_URL" "Sei chain" "$SEI_TIMEOUT" \
     || die "Sei chain at $SEI_EVM_RPC_URL is up but not producing blocks within ${SEI_TIMEOUT}s"
 
-# --- 3. Start the geth --dev reference node -------------------------------------
 ensure_geth
 log "Starting geth reference node (npm run rpc:geth) -> $GETH_LOG"
 npm run --silent rpc:geth > "$GETH_LOG" 2>&1 &
@@ -146,19 +141,22 @@ GETH_PID=$!
 wait_for_rpc "$GETH_RPC_URL" "geth reference" "$GETH_TIMEOUT" \
     || { warn "geth log tail:"; tail -n 20 "$GETH_LOG" || true; die "geth never came up on $GETH_RPC_URL"; }
 
-# --- 4. Bootstrap + run the suite serially --------------------------------------
-# Serial: every spec shares the one Sei chain, so a parallel run would have specs
-# contend on the base fee and the shared funded-account pool.
+# The suite runs in a single process: every spec shares the one Sei chain, so a
+# parallel run would have specs contend on the base fee and the funded-account pool.
 rm -f "$REPORT_DIR"/run.json "$REPORT_DIR"/run-*.json
+rm -f "$RPC_DIR/runtime/runtime.json"
 
 log "Running bootstrap (npm run rpc:bootstrap)"
 npm run rpc:bootstrap; BOOT_CODE=$?
 
-log "Running suite sequentially (npm run rpc:run:serial)"
-npm run rpc:run:serial; RUN_CODE=$?
+if [ "$BOOT_CODE" -ne 0 ]; then
+    warn "bootstrap failed (exit $BOOT_CODE); skipping the spec run so it can't run against stale fixtures"
+    RUN_CODE=0
+else
+    log "Running suite (npm run rpc:run)"
+    npm run rpc:run; RUN_CODE=$?
+fi
 
-# Always merge the per-spec mochawesome JSON into a single HTML report so the
-# workflow can upload it as an artifact whether the suite passed or failed.
 log "Merging mochawesome reports (npm run report:merge) -> $RPC_DIR/reports/merged"
 npm run --silent report:merge || warn "report merge failed (continuing so the rest of cleanup runs)"
 

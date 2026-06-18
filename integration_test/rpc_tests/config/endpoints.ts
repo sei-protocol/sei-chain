@@ -17,10 +17,7 @@ export const Endpoints = {
     accountless: env('RPC_ACCOUNTLESS', 'https://evm-rpc.sei-apis.com'),
 } as const;
 
-export const AdminMnemonic = env(
-    'SEI_ADMIN_MNEMONIC',
-    'cover brand danger absent gas worth sustain rural powder auction shadow find merge domain promote glimpse burger embody favorite lake rain plate present soda',
-);
+export const AdminMnemonic = env('SEI_ADMIN_MNEMONIC', '');
 
 export const RuntimeStatePath = env(
     'RPC_TESTS_RUNTIME_STATE',
