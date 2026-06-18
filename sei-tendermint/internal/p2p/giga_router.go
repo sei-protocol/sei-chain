@@ -435,7 +435,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		for _, addr := range r.cfg.ValidatorAddrs {
 			s.Spawn(func() error {
 				for {
-					err := r.dialAndRunConn(ctx, addr.Key, addr.HostPort, r.service.RunClient)
+					err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, r.service.RunClient)
 					logger.Info("giga connection failed", "addr", addr, "err", err)
 					if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
 						return err
@@ -452,13 +452,15 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	})
 }
 
-// dialAndRunConn dials a committee member, handshakes as a SeiGiga
-// connection, registers the rpc client in poolOut, and runs runClient
-// for the connection's lifetime. runClient is the only mode-specific
-// piece (validator: service.RunClient, fullnode: service.RunBlockSyncClient).
+// dialAndRunConn dials a peer, handshakes as a SeiGiga connection,
+// registers the rpc client in poolOut, and runs runClient for the
+// connection's lifetime. expectedKey is enforced when Some (validator
+// dialing a committee member); fullnodes pass None — block-sync data
+// is QC-verified, so the peer's identity doesn't need to be checked
+// here.
 func (r *gigaRouterCommon) dialAndRunConn(
 	ctx context.Context,
-	key NodePublicKey,
+	expectedKey utils.Option[NodePublicKey],
 	hp tcp.HostPort,
 	runClient func(ctx context.Context, client rpc.Client[giga.API]) error,
 ) error {
@@ -483,11 +485,12 @@ func (r *gigaRouterCommon) dialAndRunConn(
 		if !hConn.msg.SeiGigaConnection {
 			return fmt.Errorf("not a sei giga connection")
 		}
-		if got := hConn.msg.NodeAuth.Key(); got != key {
-			return fmt.Errorf("peer key = %v, want %v", got, key)
+		peerKey := hConn.msg.NodeAuth.Key()
+		if want, ok := expectedKey.Get(); ok && peerKey != want {
+			return fmt.Errorf("peer key = %v, want %v", peerKey, want)
 		}
 		client := rpc.NewClient[giga.API]()
-		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error {
+		return r.poolOut.InsertAndRun(ctx, peerKey, client, func(ctx context.Context) error {
 			return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				s.Spawn(func() error { return client.Run(ctx, hConn.conn) })
 				return runClient(ctx, client)
@@ -505,6 +508,7 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	if !hConn.msg.SeiGigaConnection {
 		return fmt.Errorf("not a SeiGiga connection")
 	}
+	// Filter unwanded connections.
 	key := hConn.msg.NodeAuth.Key()
 	isCommittee := false
 	for _, addr := range r.cfg.ValidatorAddrs {
