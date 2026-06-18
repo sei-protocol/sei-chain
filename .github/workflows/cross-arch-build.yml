@@ -60,19 +60,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.25.6'
-
-      - name: Install musl toolchain
+      # Build inside Alpine (musl-native) instead of using Ubuntu's musl-gcc
+      # wrapper. The wrapper links glibc's libgcc_eh, whose unwinder references
+      # _dl_find_object (glibc >=2.35) — a symbol musl does not provide — so a
+      # fully static (-static) link fails on the runner. Alpine's toolchain is
+      # musl-native and links cleanly, matching how sei-wasmvm's static archives
+      # are produced (make release-build-alpine).
+      - name: Build statically (Alpine / musl)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools build-essential
-
-      - name: Build statically
-        run: |
-          LINK_STATICALLY=true BUILD_TAGS=muslc CC=musl-gcc make build
+          docker run --rm -v "$PWD":/src -w /src golang:1.25.6-alpine sh -c '
+            apk add --no-cache build-base git &&
+            git config --global --add safe.directory /src &&
+            LINK_STATICALLY=true BUILD_TAGS=muslc LEDGER_ENABLED=false make build
+          '
 
       - name: Assert binary is statically linked
         run: |
