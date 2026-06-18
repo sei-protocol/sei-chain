@@ -11,8 +11,8 @@ package wireguard
 import (
 	"fmt"
 	"reflect"
-	"sync"
 
+	gogoproto "github.com/gogo/protobuf/proto"
 	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -41,10 +41,7 @@ type Rule struct {
 	MaxCount int
 }
 
-var (
-	registryMu sync.RWMutex
-	registry   = map[reflect.Type]Schema{}
-)
+var registry = map[reflect.Type]Schema{}
 
 // MustRegister associates T with schema in the global registry used by Scan.
 // It panics on duplicate registration or nil schema.
@@ -56,38 +53,30 @@ func MustRegister[T any](schema Schema) {
 	if t == nil {
 		panic("wireguard: cannot register nil type")
 	}
-	registryMu.Lock()
-	defer registryMu.Unlock()
 	if _, exists := registry[t]; exists {
 		panic(fmt.Sprintf("wireguard: duplicate schema registration for %v", t))
 	}
 	registry[t] = schema
 }
 
-func schemaForType(t reflect.Type) Schema {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-	return registry[t]
-}
-
 // Scan walks bz once, applying the schema registered for T. Returns nil on
 // success, an error on malformed wire bytes or a rule violation. If T has no
 // registered schema, Scan is a no-op.
 func Scan[T any](bz []byte) error {
-	return schemaForType(reflect.TypeFor[T]()).scan(bz)
+	return registry[reflect.TypeFor[T]()].scan(bz)
 }
 
-// ScanValue walks bz once, applying the schema registered for msg's dynamic
+// ScanAny walks bz once, applying the schema registered for msg's dynamic
 // type. A nil msg or a value with no registered schema is a no-op.
-func ScanValue(bz []byte, msg any) error {
+func ScanAny(bz []byte, msg gogoproto.Message) error {
 	if msg == nil {
 		return nil
 	}
-	return schemaForType(reflect.TypeOf(msg)).scan(bz)
+	return registry[reflect.TypeOf(msg)].scan(bz)
 }
 
 func (s Schema) scan(bz []byte) error {
-	if s == nil {
+	if len(s) == 0 {
 		return nil
 	}
 	counts := map[Number]int{}
@@ -111,11 +100,7 @@ func (s Schema) scan(bz []byte) error {
 					}
 				}
 				if nestedType, ok := rule.Nested.Get(); ok {
-					nested := schemaForType(nestedType)
-					if nested == nil {
-						return fmt.Errorf("wireguard: nested schema for %v not registered", nestedType)
-					}
-					if err := nested.scan(val); err != nil {
+					if err := registry[nestedType].scan(val); err != nil {
 						return err
 					}
 				}

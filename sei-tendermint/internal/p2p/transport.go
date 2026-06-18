@@ -83,7 +83,7 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 				continue
 			}
 
-			if err := wireguard.ScanValue(bz, ch.desc.MessageType); err != nil {
+			if err := wireguard.ScanAny(bz, ch.desc.MessageType); err != nil {
 				return fmt.Errorf("message pre-decode failed, dropping peer: [peer=%v] %w", conn.ID, err)
 			}
 			msg := gogoproto.Clone(ch.desc.MessageType)
