@@ -63,6 +63,9 @@ func (s *blockDB) WriteQC(
 	upperBound types.GlobalBlockNumber,
 	qc *types.FullCommitQC,
 ) error {
+	if lowerBound >= upperBound {
+		return fmt.Errorf("QC lowerBound %d >= upperBound %d", lowerBound, upperBound)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.hasQC && lowerBound != s.lastQCNext {
