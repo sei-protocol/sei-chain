@@ -89,6 +89,19 @@ if [ "$AUTOBAHN" = "true" ]; then
     i=$((i + 1))
   done
 
+  # Wait for each validator dir to be fully populated. gen-autobahn-config
+  # reads validator_pubkey, node_pubkey, autobahn_address, evmrpc_url; the
+  # rpc container can be spawned in parallel with the cluster, so any of
+  # these may not yet exist. Poll up to 5 minutes for evmrpc_url.txt (the
+  # autobahn-specific file each validator step writes last).
+  for d in $NODE_DIRS; do
+    i=0
+    while [ ! -f "$d/evmrpc_url.txt" ] && [ "$i" -lt 300 ]; do
+      sleep 1
+      i=$((i + 1))
+    done
+  done
+
   seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
 
   # Inject autobahn-config-file as a top-level key in config.toml. It must

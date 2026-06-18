@@ -2,11 +2,9 @@ package p2p
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"math/rand/v2"
 	"slices"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -46,10 +44,8 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 }
 
 // runFullnodeSubscriber: pick a committee member, dial + block-sync,
-// advance on disconnect/reject/stall. Committee list shuffled once at
-// startup so multiple fullnodes don't all converge on the same first
-// choice. watchProgress runs alongside the connection and closes it if
-// data.NextBlock stays unchanged long enough.
+// advance on disconnect/reject. Committee list shuffled once at startup
+// so multiple fullnodes don't all converge on the same first choice.
 //
 // TODO(autobahn-state-sync): block sync from a single peer is bounded by
 // GetBlock's per-stream rate limit (rpc.Limit{Rate:10, Concurrent:10}) —
@@ -62,33 +58,10 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 	rand.Shuffle(len(addrs), func(i, j int) { addrs[i], addrs[j] = addrs[j], addrs[i] })
 	for i := 0; ; i = (i + 1) % len(addrs) {
 		addr := addrs[i]
-		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			s.SpawnBg(func() error { return r.watchProgress(ctx) })
-			return r.dialAndRunConn(ctx, addr.Key, addr.HostPort, r.service.RunBlockSyncClient)
-		})
+		err := r.dialAndRunConn(ctx, addr.Key, addr.HostPort, r.service.RunBlockSyncClient)
 		logger.Info("fullnode giga connection ended; failing over", "addr", addr, "err", err)
 		if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
 			return err
 		}
-	}
-}
-
-// watchProgress returns an error once data.NextBlock has stayed unchanged
-// long enough. Runs alongside the dial in scope.Run; its error cancels
-// the connection and lets the loop fail over.
-func (r *gigaFullnodeRouter) watchProgress(ctx context.Context) error {
-	const stallTimeout = 60 * time.Second
-	for {
-		h := r.data.NextBlock()
-		err := utils.WithTimeout(ctx, stallTimeout, func(ctx context.Context) error {
-			return r.data.WaitForNextBlock(ctx, h)
-		})
-		if err == nil {
-			continue
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return fmt.Errorf("no block-sync progress for %v", stallTimeout)
 	}
 }
