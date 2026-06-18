@@ -450,6 +450,15 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 	panic("unreachable")
 }
 
+// WaitForNextBlock blocks until NextBlock advances past n (i.e. block n
+// has been received), or ctx is canceled.
+func (s *State) WaitForNextBlock(ctx context.Context, n types.GlobalBlockNumber) error {
+	for inner, ctrl := range s.inner.Lock() {
+		return ctrl.WaitUntil(ctx, func() bool { return inner.nextBlock > n })
+	}
+	panic("unreachable")
+}
+
 // GlobalBlockByHash returns the finalized GlobalBlock whose stored header
 // hashes to the given value, or None if no such block is currently in the
 // retained range. The lookup-and-construct happens under a single lock so

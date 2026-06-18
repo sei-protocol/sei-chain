@@ -86,23 +86,18 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 // long enough. Runs alongside the dial in scope.Run; its error cancels
 // the connection and lets the loop fail over.
 func (r *gigaFullnodeRouter) watchProgress(ctx context.Context) error {
-	const (
-		stallTimeout = 60 * time.Second
-		pollInterval = 5 * time.Second
-	)
-	last := r.data.NextBlock()
-	lastChange := time.Now()
+	const stallTimeout = 60 * time.Second
 	for {
-		if err := utils.Sleep(ctx, pollInterval); err != nil {
-			return err
-		}
-		if cur := r.data.NextBlock(); cur > last {
-			last = cur
-			lastChange = time.Now()
+		h := r.data.NextBlock()
+		err := utils.WithTimeout(ctx, stallTimeout, func(ctx context.Context) error {
+			return r.data.WaitForNextBlock(ctx, h)
+		})
+		if err == nil {
 			continue
 		}
-		if time.Since(lastChange) >= stallTimeout {
-			return fmt.Errorf("no block-sync progress for %v", stallTimeout)
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
+		return fmt.Errorf("no block-sync progress for %v", stallTimeout)
 	}
 }
