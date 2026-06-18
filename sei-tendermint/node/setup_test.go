@@ -2,6 +2,7 @@ package node
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,6 +41,7 @@ func makeValidator(valSeed, nodeSeed []byte, address string) config.AutobahnVali
 		ValidatorKey: valKey.Public(),
 		NodeKey:      nodeKey.Public(),
 		Address:      hp,
+		EVMRPC:       config.URL{URL: utils.OrPanic1(url.Parse("http://" + address))},
 	}
 }
 
