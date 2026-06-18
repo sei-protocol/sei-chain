@@ -44,16 +44,34 @@ func blockSearchEnv(t *testing.T, maxResults int, heights []int64) *Environment 
 // With order_by=desc on heights [1..20] the expected top-5 are 20,19,18,17,16.
 // TotalCount reflects the post-cap, post-sort count.
 func TestBlockSearchCapAppliedAfterSort(t *testing.T) {
-	const total = 20
-	const cap = 5
+	const (
+		total    = 20
+		capacity = 5
+	)
 
-	env := blockSearchEnv(t, cap, makeBlockHeights(total))
+	sink := indexermocks.NewEventSink(t)
+	sink.On("Type").Return(indexer.KV)
+	sink.On("SearchBlockEvents", mock.Anything, mock.Anything).Return(makeBlockHeights(total), nil)
+
+	var loadedHeights []int64
+	bs := statemocks.NewBlockStore(t)
+	bs.On("LoadBlock", mock.AnythingOfType("int64")).Run(func(args mock.Arguments) {
+		loadedHeights = append(loadedHeights, args.Get(0).(int64))
+	}).Return(nil)
+
+	env := &Environment{
+		EventSinks: []indexer.EventSink{sink},
+		BlockStore: bs,
+		Config:     config.RPCConfig{MaxTxSearchResults: capacity},
+	}
+
 	res, err := env.BlockSearch(t.Context(), &coretypes.RequestBlockSearch{
 		Query:   "block.height > 0",
 		OrderBy: "desc",
 	})
 	require.NoError(t, err)
-	require.Equal(t, cap, res.TotalCount)
+	require.Equal(t, capacity, res.TotalCount)
+	require.Equal(t, []int64{20, 19, 18, 17, 16}, loadedHeights)
 }
 
 func TestBlockSearchCapDisabled(t *testing.T) {
