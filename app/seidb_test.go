@@ -3,6 +3,7 @@ package app
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -50,6 +51,10 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.PruneIntervalSeconds
 	case FlagSSImportNumWorkers:
 		return defaultSSConfig.ImportNumWorkers
+	case FlagSSHistoricalOffloadDSN:
+		return defaultSSConfig.HistoricalOffloadDSN
+	case FlagSSHistoricalOffloadFollowerReadStaleness:
+		return defaultSSConfig.HistoricalOffloadFollowerReadStaleness
 	case receiptStoreBackendKey:
 		return defaultReceiptConfig.Backend
 	case FlagEVMSSDirectory:
@@ -109,6 +114,16 @@ func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	assert.Equal(t, "/tmp/evm-ss", ssConfig.EVMDBDirectory)
 	assert.True(t, ssConfig.EVMSplit)
 	assert.True(t, ssConfig.SeparateEVMSubDBs)
+}
+
+func TestParseSSConfigs_HistoricalOffloadDSN(t *testing.T) {
+	ssConfig := parseSSConfigs(mapAppOpts{
+		FlagSSEnable:                                 true,
+		FlagSSHistoricalOffloadDSN:                   "postgresql://offload/db",
+		FlagSSHistoricalOffloadFollowerReadStaleness: "10s",
+	})
+	assert.Equal(t, "postgresql://offload/db", ssConfig.HistoricalOffloadDSN)
+	assert.Equal(t, 10*time.Second, ssConfig.HistoricalOffloadFollowerReadStaleness)
 }
 
 func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
