@@ -36,4 +36,5 @@ func TestSchemaForBlock_LastCommitAndEvidenceHaveSeparateBudgets(t *testing.T) {
 	half := wgtest.MaxCommitSignatures/2 + 1
 	require.NoError(t, wireguard.Scan[*tmproto.Block](wgtest.Marshal(t,
 		consensusAssembledBlock(wgtest.CommitWith(half), wgtest.CommitWith(half)))))
+
 }

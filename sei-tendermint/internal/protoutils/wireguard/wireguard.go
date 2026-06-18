@@ -19,6 +19,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// Scanner is implemented by proto types whose generated *.wireguard.go adds a
+// WireguardScan method. protoutils.Unmarshal asserts this interface and calls
+// it automatically before proto.Unmarshal.
+type Scanner interface {
+	WireguardScan([]byte) error
+}
+
 // Number re-exports protowire.Number so callers can build Schemas without
 // also importing google.golang.org/protobuf/encoding/protowire directly.
 type Number = protowire.Number
@@ -36,8 +43,7 @@ type Rule struct {
 	// field. Use for descending through wrapper layers on the way to a cap.
 	Nested utils.Option[reflect.Type]
 	// MaxCount, if non-zero, caps how many times this field may appear in the
-	// current message instance. Nested message instances get their own fresh
-	// counters, so independent children do not share one budget.
+	// current message instance.
 	MaxCount int
 	// MaxSize, if non-zero, caps the raw byte length of each individual
 	// length-delimited field instance. This applies to strings, bytes, and

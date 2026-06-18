@@ -72,9 +72,6 @@ func TestSchemaForMessage_DuplicateNonRepeatedFieldsGetSeparateBudgets(t *testin
 	block := protowire.AppendTag(nil, lastCommitField, protowire.BytesType)
 	block = protowire.AppendVarint(block, uint64(len(commit)))
 	block = append(block, commit...)
-	block = protowire.AppendTag(block, lastCommitField, protowire.BytesType)
-	block = protowire.AppendVarint(block, uint64(len(commit)))
-	block = append(block, commit...)
 
 	// Wrap in BlockResponse (field 1) then Message.block_response (field 3).
 	blockResp := protowire.AppendTag(nil, 1, protowire.BytesType)

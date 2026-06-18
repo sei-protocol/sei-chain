@@ -140,6 +140,8 @@ export interface Cw20ExecResult {
     hash: string;
     height: number;
     code: number;
+    /** Gas the Cosmos tx consumed — the same amount its shell receipt reports on-chain. */
+    gasUsed: bigint;
 }
 
 /**
@@ -161,5 +163,10 @@ export async function cw20Transfer(
         EXEC_FEE,
         'rpc_tests dual-vm cw20 transfer',
     );
-    return { hash: res.transactionHash, height: Number(res.height), code: 0 };
+    return {
+        hash: res.transactionHash,
+        height: Number(res.height),
+        code: 0,
+        gasUsed: BigInt(res.gasUsed),
+    };
 }
