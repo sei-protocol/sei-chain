@@ -46,10 +46,10 @@ type Rule struct {
 	// field. Use for descending through wrapper layers on the way to a cap.
 	Nested utils.Option[*Schema]
 	// MaxCount, if non-zero, caps how many times this field may appear within
-	// one instance of the parent message. Counts are local to each parent
-	// instance: descending into a repeated nested message resets the counters
-	// for that nested schema, so a cap on an inner field is checked per
-	// occurrence of the outer message, not summed across all occurrences.
+	// one instance of the parent message. The cap is per-instance: each
+	// occurrence of the outer message gets its own independent counter for
+	// this field. Total memory at any nesting depth is therefore bounded by
+	// the product of the caps along the path, not by a single global sum.
 	MaxCount int
 }
 
@@ -98,6 +98,12 @@ func scan(bz []byte, schema *Schema, counts map[counterKey]int) error {
 					}
 				}
 				if nested, ok := rule.Nested.Get(); ok {
+					// Fresh counts for each nested-message occurrence so that
+					// MaxCount is checked per instance rather than summed
+					// globally. This keeps the semantics intuitive: a cap of N
+					// on an inner field means "at most N per outer element",
+					// which is easy to reason about and still bounds total
+					// memory: outer_cap × inner_cap × … at every level.
 					if err := scan(val, nested, map[counterKey]int{}); err != nil {
 						return err
 					}

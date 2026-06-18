@@ -57,30 +57,38 @@ func TestScan_DescendsIntoNested(t *testing.T) {
 }
 
 func TestScan_CountsArePerNestedInstance(t *testing.T) {
-	// MaxCount on an inner field is checked per occurrence of the outer
-	// message, not summed globally. Two outer instances each carrying two
-	// inners (cap=3) must both pass; only a single instance that exceeds the
-	// cap should be rejected.
+	// MaxCount is checked per instance of the containing message, not summed
+	// globally across all occurrences. This keeps caps easy to reason about:
+	// "at most N per outer element" rather than "N total across the payload".
+	// Memory is still bounded at every level by the product of the caps along
+	// the nesting path (outer_cap × inner_cap × …).
+	//
+	// Concretely: outer.field2 cap=5, inner.field1 cap=3.
+	// Five outer instances each with three inners is fine (5×3=15 total items
+	// but each instance is within its own cap). A single instance with four
+	// inners exceeds its per-instance cap and must be rejected.
 	inner := &wireguard.Schema{
 		Rules: map[wireguard.Number]wireguard.Rule{1: {MaxCount: 3}},
 	}
 	outer := &wireguard.Schema{
 		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: utils.Some(inner), MaxCount: 5}},
 	}
-	twoInners := appendBytesField(nil, 1, nil)
-	twoInners = appendBytesField(twoInners, 1, nil)
-	bz := appendBytesField(nil, 2, twoInners)
-	bz = appendBytesField(bz, 2, twoInners)
-	// Two outer instances each with 2 inners (< 3): should pass.
+
+	threeInners := appendBytesField(nil, 1, nil)
+	threeInners = appendBytesField(threeInners, 1, nil)
+	threeInners = appendBytesField(threeInners, 1, nil)
+
+	// Five outer instances each at the inner cap: all pass.
+	var bz []byte
+	for range 5 {
+		bz = appendBytesField(bz, 2, threeInners)
+	}
 	require.NoError(t, wireguard.Scan(bz, outer))
 
-	fourInners := appendBytesField(nil, 1, nil)
-	fourInners = appendBytesField(fourInners, 1, nil)
-	fourInners = appendBytesField(fourInners, 1, nil)
-	fourInners = appendBytesField(fourInners, 1, nil)
-	bz2 := appendBytesField(nil, 2, twoInners)
-	bz2 = appendBytesField(bz2, 2, fourInners) // second outer has 4 inners > 3
-	// One outer instance exceeds the per-instance cap: should fail.
+	// One outer instance with four inners exceeds the per-instance cap.
+	fourInners := appendBytesField(threeInners, 1, nil)
+	bz2 := appendBytesField(nil, 2, threeInners)
+	bz2 = appendBytesField(bz2, 2, fourInners)
 	require.Error(t, wireguard.Scan(bz2, outer))
 }
 
