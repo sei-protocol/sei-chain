@@ -44,7 +44,7 @@ func StartGRPCWeb(grpcSrv *grpc.Server, config config.Config) (*http.Server, err
 		if maxConn > math.MaxInt {
 			maxConn = math.MaxInt
 		}
-		listener = netutil.LimitListener(listener, int(maxConn))
+		listener = netutil.LimitListener(listener, int(maxConn)) //nolint:gosec // G115: clamped to math.MaxInt above
 	}
 
 	errCh := make(chan error, 1)
