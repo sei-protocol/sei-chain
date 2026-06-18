@@ -40,7 +40,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		addrs[validatorKey.Public()] = GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
-			EVMRPC:   utils.Some(rpcURL),
+			EVMRPC:   rpcURL,
 		}
 		urlByValidator[validatorKey.Public()] = rpcURL
 	}

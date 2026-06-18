@@ -198,7 +198,7 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 	return GigaNodeAddr{
 		Key:      c.nodeKey.Public(),
 		HostPort: tcp.HostPort{Hostname: c.addr.Addr().String(), Port: c.addr.Port()},
-		EVMRPC:   utils.Some(utils.OrPanic1(url.Parse(fmt.Sprintf("http://%s:8545", c.addr.Addr().String())))),
+		EVMRPC:   utils.OrPanic1(url.Parse(fmt.Sprintf("http://%s:8545", c.addr.Addr().String()))),
 	}
 }
 
@@ -442,7 +442,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		addrs[validatorKey.Public()] = GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
-			EVMRPC:   utils.Some(rpcURL),
+			EVMRPC:   rpcURL,
 		}
 		urlByValidator[validatorKey.Public()] = rpcURL
 	}

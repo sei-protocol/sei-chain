@@ -324,7 +324,7 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 		valKey.Public(): {
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "10.0.0.1", Port: 9999},
-			EVMRPC:   utils.Some(evmRPC),
+			EVMRPC:   evmRPC,
 		},
 	}
 

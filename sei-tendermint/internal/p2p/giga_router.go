@@ -32,7 +32,7 @@ import (
 type GigaNodeAddr struct {
 	Key      NodePublicKey
 	HostPort tcp.HostPort
-	EVMRPC   utils.Option[*url.URL]
+	EVMRPC   *url.URL
 }
 
 func (a GigaNodeAddr) String() string {
@@ -126,11 +126,6 @@ func buildDataState(cfg *GigaRouterCommonConfig) (*data.State, error) {
 	}
 	if cfg.DialInterval <= 0 {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.DialInterval = %v, want > 0", cfg.DialInterval)
-	}
-	for vk, addr := range cfg.ValidatorAddrs {
-		if !addr.EVMRPC.IsPresent() {
-			return nil, fmt.Errorf("autobahn: validator %s is missing evmrpc URL; every committee member must expose one so EvmProxy can forward", vk)
-		}
 	}
 	committee, err := atypes.NewRoundRobinElection(
 		slices.Collect(maps.Keys(cfg.ValidatorAddrs)),
@@ -569,13 +564,11 @@ func (r *gigaValidatorRouter) RunInboundConn(ctx context.Context, hConn *handsha
 
 // EvmProxy on the validator returns (nil, false) when the sender's shard
 // owner is us (handle locally via mempool, no HTTP round-trip to self).
-// Otherwise returns the shard owner's EVMRPC URL. buildDataState
-// rejects configs missing any URL, so .Get() never reaches the silent-drop
-// branch in production.
+// Otherwise returns the shard owner's EVMRPC URL.
 func (r *gigaValidatorRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
 	shardValidator := r.data.Committee().EvmShard(sender)
 	if r.validatorKey == shardValidator {
 		return nil, false
 	}
-	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC.Get()
+	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC, true
 }

@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -30,14 +31,7 @@ type AutobahnValidator struct {
 	// Each validator is assigned a shard of EVM address space.
 	// Upon receiving an EVM transaction, a node needs to proxy it
 	// to validator owning the shard.
-	EVMRPC utils.Option[URL] `json:"evmrpc"`
-}
-
-func (av *AutobahnValidator) GetEVMRPC() utils.Option[*url.URL] {
-	if u, ok := av.EVMRPC.Get(); ok {
-		return utils.Some(u.URL)
-	}
-	return utils.None[*url.URL]()
+	EVMRPC URL `json:"evmrpc"`
 }
 
 // AutobahnFileConfig is the JSON structure of the autobahn config file.
@@ -56,6 +50,11 @@ type AutobahnFileConfig struct {
 func (fc *AutobahnFileConfig) Validate() error {
 	if len(fc.Validators) == 0 {
 		return errors.New("validators must not be empty")
+	}
+	for _, v := range fc.Validators {
+		if v.EVMRPC.URL == nil {
+			return fmt.Errorf("validator %s is missing evmrpc URL", v.ValidatorKey)
+		}
 	}
 	if fc.MaxTxsPerBlock == 0 {
 		return errors.New("max_txs_per_block must be > 0")
