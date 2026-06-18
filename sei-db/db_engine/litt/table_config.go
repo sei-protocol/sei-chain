@@ -27,6 +27,10 @@ type TableConfig struct {
 	// The default is 8. Must be in the range [1, MaxShardingFactor]. Storing this as a uint8 makes it structurally
 	// impossible to configure more shards than the on-disk format can address. May be changed at runtime via
 	// Table.SetShardingFactor().
+	//
+	// Normally, writes to to a table are individually atomic but not atomic in aggregate. That is to say, if a caller
+	// writes A and then B and the DB crashes before flushing, it may be the case that B is persisted but A is not.
+	// However, if the sharding factor is 1, then all writes are made crash durable in the order they were issued.
 	ShardingFactor uint8
 
 	// The size of the write cache, in bytes, for the table. A write cache stores recently written values for fast

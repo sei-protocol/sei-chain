@@ -53,9 +53,15 @@ func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
 
 	s := &blockDB{db: db}
 
+	// Both tables run with a single write shard. The block store relies on
+	// LittDB's single-shard in-write-order crash atomicity (after a crash the
+	// surviving writes form a contiguous prefix of the write order, never a
+	// gapped subset), which the write-order cursors and contiguous-QC recovery
+	// depend on. ShardingFactor > 1 would void that guarantee.
 	blocksConfig := littdb.DefaultTableConfig(blocksTableName)
 	blocksConfig.TTL = config.Retention
 	blocksConfig.GCFilter = s.blocksGCFilter
+	blocksConfig.ShardingFactor = 1
 	blocksTable, err := db.BuildTable(blocksConfig)
 	if err != nil {
 		_ = db.Close()
@@ -65,6 +71,7 @@ func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
 	qcsConfig := littdb.DefaultTableConfig(qcsTableName)
 	qcsConfig.TTL = config.Retention
 	qcsConfig.GCFilter = s.qcsGCFilter
+	qcsConfig.ShardingFactor = 1
 	qcsTable, err := db.BuildTable(qcsConfig)
 	if err != nil {
 		_ = db.Close()
