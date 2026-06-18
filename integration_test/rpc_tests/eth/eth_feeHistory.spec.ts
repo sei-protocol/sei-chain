@@ -72,18 +72,13 @@ describe('eth_feeHistory Tests', function () {
             BigInt((await sei.send('eth_getBlockByNumber', ['latest', false])).baseFeePerGas ?? '0x0');
 
         it('drives the base fee up and every field replays through the fee-market formula', async function () {
-            if (!seiParams) this.skip();
             const { beforeBaseFee: before, minBlock, maxBlock } = await burnGasBurst(sei, runtime, spammers);
-            if (maxBlock === 0) this.skip();
 
-            // Cover the whole burst plus one block on each side so the boundary
-            // transitions (rise into the burst, decay out of it) are included.
             const newest = Math.min(maxBlock + 1, await sei.getBlockNumber());
             const count = Math.min(newest - minBlock + 2, 1024);
             const percentiles = [10, 50, 90];
             const fh = parseFeeHistory(await feeHistory(sei, count, ethers.toQuantity(newest), percentiles));
 
-            // The whole window is within mined history, so the request returns exactly `count` blocks.
             assertFeeHistoryCounts(fh, count, percentiles.length);
             await verifyFeeHistorySeries(sei, fh, newest, percentiles, 'sei', seiParams);
 
@@ -95,15 +90,15 @@ describe('eth_feeHistory Tests', function () {
             const rose = fh.baseFeePerGas.some((v, i) => i > 0 && v > fh.baseFeePerGas[i - 1]);
             expect(rose, 'at least one block raised the base fee').to.equal(true);
 
-            const exactTipBlock = fh.reward!.find(
-                row => row.length === percentiles.length && row.every(r => r === BURST_TIP),
+            const top = percentiles.length - 1;
+            const burstTipBlock = fh.reward!.find(
+                row => row.length === percentiles.length && row[top] === BURST_TIP,
             );
             expect(
-                exactTipBlock,
-                `a burst block must report the exact ${BURST_TIP} wei tip at every percentile`,
+                burstTipBlock,
+                `a burst block must report the exact ${BURST_TIP} wei tip at the ${percentiles[top]}th percentile`,
             ).to.not.equal(undefined);
 
-            // And no block may report a tip above what anyone actually paid.
             for (const row of fh.reward!) {
                 for (const r of row) {
                     expect(
@@ -112,6 +107,55 @@ describe('eth_feeHistory Tests', function () {
                     ).to.equal(true);
                 }
             }
+        });
+
+        it('reports each requested percentile as the exact gas-weighted tip', async function () {
+            const tips = [1n, 3n, 5n, 6n].map(g => g * 1_000_000_000n);
+            const signers = spammers.slice(0, tips.length);
+            expect(signers.length, 'a distinct signer per tip').to.equal(tips.length);
+
+            let blockNumber = 0;
+            for (let attempt = 0; attempt < 6 && blockNumber === 0; attempt++) {
+                const maxFee = (await getBaseFee()) * 2n + tips[tips.length - 1];
+                const nonces = await Promise.all(
+                    signers.map(s => sei.getTransactionCount(s.address, 'pending')),
+                );
+                const responses = await Promise.all(
+                    signers.map((s, i) =>
+                        s.wallet.sendTransaction({
+                            to: ethers.Wallet.createRandom().address,
+                            value: 1n,
+                            type: 2,
+                            gasLimit: 21000n,
+                            maxFeePerGas: maxFee,
+                            maxPriorityFeePerGas: tips[i],
+                            nonce: nonces[i],
+                        }),
+                    ),
+                );
+                const receipts = await Promise.all(
+                    responses.map(r => sei.waitForTransaction(r.hash, 1, 30_000)),
+                );
+                const blocks = new Set(receipts.map(r => r!.blockNumber));
+                if (blocks.size !== 1) continue; // split across blocks; re-price and retry
+                const candidate = receipts[0]!.blockNumber;
+                const blk = await sei.send('eth_getBlockByNumber', [ethers.toQuantity(candidate), false]);
+                const ours = new Set(responses.map(r => r.hash));
+                const clean =
+                    blk.transactions.length === tips.length &&
+                    blk.transactions.every((h: string) => ours.has(h)) &&
+                    receipts.every(r => r!.gasUsed === 21000n);
+                if (clean) blockNumber = candidate;
+            }
+            expect(blockNumber, 'four equal-gas tips co-located in a clean block').to.not.equal(0);
+
+            // percentiles -> threshold (of 84k total) -> tx the cumulative gas lands on:
+            //   10 -> 8400  -> tx0 (1g) | 40 -> 33600 -> tx1 (3g)
+            //   60 -> 50400 -> tx2 (5g) | 90 -> 75600 -> tx3 (6g)
+            const percentiles = [10, 40, 60, 90];
+            const fh = parseFeeHistory(await feeHistory(sei, 1, ethers.toQuantity(blockNumber), percentiles));
+            assertFeeHistoryCounts(fh, 1, percentiles.length);
+            expect(fh.reward![0], 'each percentile is the exact gas-weighted tip').to.deep.equal(tips);
         });
 
         it('a single over-target block reports gasUsedRatio above the target ratio', async function () {

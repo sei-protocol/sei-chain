@@ -129,10 +129,16 @@ describe('eth_getTransactionByHash', function () {
         it('returns canonical tx objects for the failed txs, whose receipts are status 0', async () => {
             const { outOfGas, revertErc20 } = richFailedTxs(rich);
             for (const sent of [outOfGas, revertErc20]) {
-                const tx = await sei.send('eth_getTransactionByHash', [sent.hash]);
+                const [tx, rc] = await Promise.all([
+                    sei.send('eth_getTransactionByHash', [sent.hash]),
+                    sei.send('eth_getTransactionReceipt', [sent.hash]),
+                ]);
                 expect(tx, `tx exists for ${sent.kind}`).to.not.equal(null);
                 assertTxObject(tx, rich);
                 assertTxMatchesSent(tx, sent);
+                // The title's claim: a failed tx is still mined with a canonical object, and
+                // its receipt records the failure (status 0x0, gas burned, no logs).
+                assertFailedReceipt(rc, sent);
             }
         });
     });
