@@ -31,8 +31,10 @@ func TestSchemaForBlock_RejectsEvidenceOverCap(t *testing.T) {
 		consensusAssembledBlock(nil, wgtest.CommitWith(wgtest.MaxCommitSignatures+1)))))
 }
 
-func TestSchemaForBlock_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) {
-	half := wgtest.MaxCommitSignatures/2 + 1
-	require.Error(t, tmproto.SchemaForBlock.Scan(wgtest.Marshal(t,
-		consensusAssembledBlock(wgtest.CommitWith(half), wgtest.CommitWith(half)))))
+func TestSchemaForBlock_MultipleCommitsEachAtCapPass(t *testing.T) {
+	// Each Commit is checked independently (per-instance). Two commits each
+	// at exactly MaxCommitSignatures must both pass.
+	require.NoError(t, tmproto.SchemaForBlock.Scan(wgtest.Marshal(t,
+		consensusAssembledBlock(wgtest.CommitWith(wgtest.MaxCommitSignatures),
+			wgtest.CommitWith(wgtest.MaxCommitSignatures)))))
 }

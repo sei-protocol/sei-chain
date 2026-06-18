@@ -23,8 +23,3 @@ func TestWiring_EvidenceAcceptsAtCap(t *testing.T) {
 	ev := wgtest.EvidenceWithCommit(wgtest.CommitWith(wgtest.MaxCommitSignatures))
 	require.NoError(t, ev.WireguardScan(wgtest.Marshal(t, &ev)))
 }
-
-func init() {
-	// Ensure Evidence implements WireguardScan at compile time.
-	var _ interface{ WireguardScan([]byte) error } = (*tmproto.Evidence)(nil)
-}

@@ -1,6 +1,7 @@
 package protoutils
 
 import (
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"google.golang.org/protobuf/proto"
 )
@@ -35,7 +36,7 @@ type wireScanner interface {
 
 func Unmarshal[T Message](bytes []byte) (T, error) {
 	t := New[T]()
-	if s, ok := any(t).(wireScanner); ok {
+	if s, ok := any(t).(wireguard.Scanner); ok {
 		if err := s.WireguardScan(bytes); err != nil {
 			return utils.Zero[T](), err
 		}
