@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders, rawSei, expectJsonRpcError } from '../utils/chainUtils';
+import { bothProviders, rawSei, expectJsonRpcError, waitUntil } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState, claimPool } from '../utils/testUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import {
@@ -235,13 +235,21 @@ describe('eth_getFilterChanges', function () {
                 await emitter.wallet.sendTransaction({ to: emitter.address, value: 0 })
             ).wait();
 
-            const hashes = await sei.send('eth_getFilterChanges', [id]);
-            expect(hashes, 'an array of block hashes').to.be.an('array');
-            expect(hashes.length).to.be.greaterThan(0);
-            hashes.forEach((h: string) => expect(h).to.match(HASH32));
-            expect(hashes, 'includes the block our tx landed in').to.include(
-                receipt!.blockHash,
+            // eth_getFilterChanges returns only the hashes new since the previous poll, and the
+            // filter cursor can trail the committed block on slow CI. Drain across polls — Sei mines
+            // continuously, so our tx's block may arrive after some earlier ones — until it appears.
+            const hashes: string[] = [];
+            await waitUntil(
+                async () => {
+                    hashes.push(...(await sei.send('eth_getFilterChanges', [id])));
+                    return hashes.includes(receipt!.blockHash) ? hashes : null;
+                },
+                { timeoutMs: 15_000, intervalMs: 300, label: 'block filter delivers our tx block hash' },
             );
+
+            expect(hashes.length, 'at least one new block hash').to.be.greaterThan(0);
+            hashes.forEach((h: string) => expect(h).to.match(HASH32));
+            expect(hashes, 'includes the block our tx landed in').to.include(receipt!.blockHash);
 
             await sei.send('eth_uninstallFilter', [id]);
         });
