@@ -477,7 +477,7 @@ func TestPlugin_RejectsMaxCountZero(t *testing.T) {
 // TestPlugin_Proto3OptionalDoesNotEmitWrapperType verifies the fix for the
 // synthetic-oneof bug: a proto3 optional field (which the compiler encodes as
 // a FieldDescriptorProto with Proto3Optional=true and a synthetic oneof) must
-// not produce a MustFieldNum[Foo_Bar]-style wrapper reference in the output.
+// not produce a nonexistent Foo_Bar wrapper reference in the output.
 // Before the fix the plugin treated the synthetic oneof like a real oneof and
 // emitted a nonexistent Go type.
 func TestPlugin_Proto3OptionalDoesNotEmitWrapperType(t *testing.T) {
@@ -528,7 +528,7 @@ func TestPlugin_Proto3OptionalDoesNotEmitWrapperType(t *testing.T) {
 	require.NotEmpty(t, content)
 
 	// items must be capped normally.
-	require.Contains(t, content, `MustFieldNum[Foo]("items"): {MaxCount: 5}`)
+	require.Contains(t, content, `Number(2): {MaxCount: 5}`)
 	// The synthetic-oneof wrapper type Foo_Bar must NOT appear.
 	require.NotContains(t, content, "Foo_Bar")
 }

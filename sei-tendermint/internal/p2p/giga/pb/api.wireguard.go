@@ -10,50 +10,50 @@ import (
 // SchemaForLaneReq is the wireguard.Schema generated for p2p.giga.LaneReq.
 var SchemaForLaneReq = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[LaneReq]("lane_proposal"): {Nested: utils.Some(pb.SchemaForSignedMsg)},
+		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForSignedMsg)},
 	},
 }
 
 // SchemaForLaneResp is the wireguard.Schema generated for p2p.giga.LaneResp.
 var SchemaForLaneResp = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[LaneResp]("lane_vote"): {Nested: utils.Some(pb.SchemaForSignedMsg)},
+		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForSignedMsg)},
 	},
 }
 
 // SchemaForLaneVote is the wireguard.Schema generated for p2p.giga.LaneVote.
 var SchemaForLaneVote = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[LaneVote]("lane_vote"): {Nested: utils.Some(pb.SchemaForSignedMsg)},
+		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForSignedMsg)},
 	},
 }
 
 // SchemaForLaneProposal is the wireguard.Schema generated for p2p.giga.LaneProposal.
 var SchemaForLaneProposal = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[LaneProposal]("lane_proposal"): {Nested: utils.Some(pb.SchemaForSignedMsg)},
+		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForSignedMsg)},
 	},
 }
 
 // SchemaForAppVote is the wireguard.Schema generated for p2p.giga.AppVote.
 var SchemaForAppVote = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[AppVote]("app_vote"): {Nested: utils.Some(pb.SchemaForSignedMsg)},
+		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForSignedMsg)},
 	},
 }
 
 // SchemaForStreamAppQCsResp is the wireguard.Schema generated for p2p.giga.StreamAppQCsResp.
 var SchemaForStreamAppQCsResp = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[StreamAppQCsResp]("app_qc"):    {Nested: utils.Some(pb.SchemaForAppQC)},
-		wireguard.MustFieldNum[StreamAppQCsResp]("commit_qc"): {Nested: utils.Some(pb.SchemaForCommitQC)},
+		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForAppQC)},
+		wireguard.Number(2): {Nested: utils.Some(pb.SchemaForCommitQC)},
 	},
 }
 
 // SchemaForGetBlockResp is the wireguard.Schema generated for p2p.giga.GetBlockResp.
 var SchemaForGetBlockResp = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[GetBlockResp]("block"): {Nested: utils.Some(pb.SchemaForBlock)},
+		wireguard.Number(1): {Nested: utils.Some(pb.SchemaForBlock)},
 	},
 }
 
