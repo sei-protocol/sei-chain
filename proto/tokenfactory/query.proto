@@ -2,6 +2,7 @@ syntax = "proto3";
 package seiprotocol.seichain.tokenfactory;
 
 import "cosmos/bank/v1beta1/bank.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "tokenfactory/authority_metadata.proto";
@@ -69,12 +70,14 @@ message QueryDenomAuthorityMetadataResponse {
 // DenomsFromCreator gRPC query.
 message QueryDenomsFromCreatorRequest {
   string creator = 1 [(gogoproto.moretags) = "yaml:\"creator\""];
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
 }
 
-// QueryDenomsFromCreatorRequest defines the response structure for the
+// QueryDenomsFromCreatorResponse defines the response structure for the
 // DenomsFromCreator gRPC query.
 message QueryDenomsFromCreatorResponse {
   repeated string denoms = 1 [(gogoproto.moretags) = "yaml:\"denoms\""];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryDenomMetadataRequest is the request type for the DenomMetadata gRPC method.

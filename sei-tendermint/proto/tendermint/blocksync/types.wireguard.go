@@ -20,3 +20,11 @@ var SchemaForMessage = &wireguard.Schema{
 		wireguard.MustFieldNum[Message_BlockResponse]("block_response"): {Nested: utils.Some(SchemaForBlockResponse)},
 	},
 }
+
+func (x *BlockResponse) WireguardScan(bz []byte) error {
+	return SchemaForBlockResponse.Scan(bz)
+}
+
+func (x *Message) WireguardScan(bz []byte) error {
+	return SchemaForMessage.Scan(bz)
+}
