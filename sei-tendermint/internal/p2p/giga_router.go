@@ -196,6 +196,11 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 	}
 	// One App per node — common owns it; mirror into producer.Config so
 	// the producer's internal mempool drives the same ABCI proxy.
+	//
+	// TODO(autobahn): drop App from producer.Config and pass it to
+	// producer.NewState as a constructor arg — App is a runtime dependency,
+	// not configuration, and common is the canonical home now that
+	// fullnodes also need it.
 	cfg.Producer.App = cfg.App
 	consensusState, err := consensus.NewState(&consensus.Config{
 		Key:                cfg.ValidatorKey,
