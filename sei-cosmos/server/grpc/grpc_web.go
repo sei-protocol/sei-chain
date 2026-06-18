@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"time"
@@ -39,7 +40,11 @@ func StartGRPCWeb(grpcSrv *grpc.Server, config config.Config) (*http.Server, err
 		return nil, fmt.Errorf("[grpc-web] failed to listen on %s: %w", config.GRPCWeb.Address, err)
 	}
 	if config.GRPCWeb.MaxOpenConnections > 0 {
-		listener = netutil.LimitListener(listener, int(config.GRPCWeb.MaxOpenConnections))
+		maxConn := config.GRPCWeb.MaxOpenConnections
+		if maxConn > math.MaxInt {
+			maxConn = math.MaxInt
+		}
+		listener = netutil.LimitListener(listener, int(maxConn))
 	}
 
 	errCh := make(chan error, 1)
