@@ -232,16 +232,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					}
 					if giga, ok := r.giga.Get(); ok && hConn.msg.SeiGigaConnection {
 						release()
-						// Only validators accept inbound giga connections; fullnodes
-						// dial outbound to committee members for block sync and have
-						// no inbound service. The interface intentionally doesn't
-						// expose RunInboundConn — so a fullnode here is rejected at
-						// the door rather than returning an error per call.
-						vr, isValidator := giga.(*gigaValidatorRouter)
-						if !isValidator {
-							return fmt.Errorf("fullnode does not accept inbound giga connections")
-						}
-						return vr.RunInboundConn(ctx, hConn)
+						return giga.RunInboundConn(ctx, hConn)
 					}
 					info, err := exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
 					if err != nil {

@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"maps"
 	"math/rand/v2"
-	"net/url"
 	"slices"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -30,11 +28,10 @@ func (r *gigaFullnodeRouter) Mempool() utils.Option[*producer.State] {
 	return utils.None[*producer.State]()
 }
 
-// EvmProxy on a fullnode always forwards — no validator key, no local
-// mempool, no self-shard short-circuit.
-func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
-	shardValidator := r.data.Committee().EvmShard(sender)
-	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC, true
+// RunInboundConn errors on fullnodes — they dial outbound to committee
+// members for block sync and don't accept inbound giga connections.
+func (r *gigaFullnodeRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
+	return fmt.Errorf("fullnode does not accept inbound giga connections")
 }
 
 func (r *gigaFullnodeRouter) Run(ctx context.Context) error {

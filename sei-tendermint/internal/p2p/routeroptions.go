@@ -49,10 +49,7 @@ type RouterOptions struct {
 	// Giga, if Some, is the already-constructed GigaRouter the Router
 	// should attach. Setup-side code (node/setup.go) picks the right
 	// constructor — NewGigaValidatorRouter or NewGigaFullnodeRouter —
-	// based on whether the node has a local validator key, then hands the
-	// concrete result here as the read interface. router.go only needs
-	// the interface; validator-only operations (RunInboundConn) are
-	// reached via in-package type assertion at the inbound-handshake site.
+	// based on whether the node has a local validator key.
 	Giga utils.Option[GigaRouter]
 
 	// Local endpoint to listen for p2p connections on.

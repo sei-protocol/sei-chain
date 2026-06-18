@@ -68,9 +68,10 @@ type GigaValidatorConfig struct {
 
 // GigaRouter is the read-path / Run / EvmProxy surface. Implemented by
 // *gigaValidatorRouter and *gigaFullnodeRouter; Mempool returns Some only
-// on validators.
+// on validators; RunInboundConn errors on fullnodes.
 type GigaRouter interface {
 	Run(ctx context.Context) error
+	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
 	LastCommittedBlockNumber() int64
 	MaxGasEstimatedPerBlock() uint64
 	BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error)
@@ -158,9 +159,6 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gig
 	}, nil
 }
 
-// NewGigaValidatorRouter returns the concrete validator type (not the
-// interface) so router.go can reach RunInboundConn in-package without a
-// runtime downcast.
 func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaValidatorRouter, error) {
 	dataState, err := buildDataState(&cfg.GigaRouterCommonConfig)
 	if err != nil {
@@ -552,9 +550,15 @@ func (r *gigaValidatorRouter) RunInboundConn(ctx context.Context, hConn *handsha
 	})
 }
 
+// EvmProxy returns the shard owner's EVMRPC URL for an EVM tx sender.
+// Overridden on *gigaValidatorRouter to short-circuit self-shard sends.
+func (r *gigaRouterCommon) EvmProxy(sender common.Address) (*url.URL, bool) {
+	shardValidator := r.data.Committee().EvmShard(sender)
+	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC, true
+}
+
 // EvmProxy on the validator returns (nil, false) when the sender's shard
 // owner is us (handle locally via mempool, no HTTP round-trip to self).
-// Otherwise returns the shard owner's EVMRPC URL.
 func (r *gigaValidatorRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
 	shardValidator := r.data.Committee().EvmShard(sender)
 	if r.validatorKey == shardValidator {
