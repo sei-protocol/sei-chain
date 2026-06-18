@@ -43,17 +43,15 @@ func TestSchemaForMessage_RejectsEvidenceOverCap(t *testing.T) {
 		blocksyncResponse(nil, wgtest.CommitWith(wgtest.MaxCommitSignatures+1)))))
 }
 
-func TestSchemaForMessage_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) {
-	// last_commit + evidence Commit signatures share one budget — combined
-	// over cap rejects, even though each individually is under cap.
+func TestSchemaForMessage_LastCommitAndEvidenceHaveSeparateBudgets(t *testing.T) {
 	half := wgtest.MaxCommitSignatures/2 + 1
-	require.Error(t, wireguard.Scan[*bcproto.Message](wgtest.Marshal(t,
+	require.NoError(t, wireguard.Scan[*bcproto.Message](wgtest.Marshal(t,
 		blocksyncResponse(wgtest.CommitWith(half), wgtest.CommitWith(half)))))
 }
 
-func TestSchemaForMessage_EvidenceCommitsShareBudget(t *testing.T) {
+func TestSchemaForMessage_EvidenceCommitsHaveSeparateBudgets(t *testing.T) {
 	half := wgtest.MaxCommitSignatures/2 + 1
-	require.Error(t, wireguard.Scan[*bcproto.Message](wgtest.Marshal(t,
+	require.NoError(t, wireguard.Scan[*bcproto.Message](wgtest.Marshal(t,
 		blocksyncResponse(nil, wgtest.CommitWith(half), wgtest.CommitWith(half)))))
 }
 
@@ -64,11 +62,11 @@ func TestSchemaForMessage_IgnoresBlockRequest(t *testing.T) {
 	require.NoError(t, wireguard.Scan[*bcproto.Message](wgtest.Marshal(t, msg)))
 }
 
-func TestSchemaForMessage_RejectsDuplicateNonRepeatedFields(t *testing.T) {
+func TestSchemaForMessage_DuplicateNonRepeatedFieldsGetSeparateBudgets(t *testing.T) {
 	// Hand-encode two last_commit entries each at the cap. gogoproto.Marshal
 	// won't produce this shape (Block.last_commit is non-repeated), so we
-	// build the wire bytes directly to verify the cumulative counter
-	// rejects the merged result.
+	// build the wire bytes directly to verify each nested Commit gets its
+	// own budget.
 	commit := emptyCommitWire(wgtest.MaxCommitSignatures)
 	const lastCommitField = protowire.Number(4)
 	block := protowire.AppendTag(nil, lastCommitField, protowire.BytesType)
@@ -86,7 +84,7 @@ func TestSchemaForMessage_RejectsDuplicateNonRepeatedFields(t *testing.T) {
 	msg = protowire.AppendVarint(msg, uint64(len(blockResp)))
 	msg = append(msg, blockResp...)
 
-	require.Error(t, wireguard.Scan[*bcproto.Message](msg))
+	require.NoError(t, wireguard.Scan[*bcproto.Message](msg))
 }
 
 // emptyCommitWire builds the wire-format bytes for a Commit with n empty

@@ -32,8 +32,8 @@ func TestSchemaForBlock_RejectsEvidenceOverCap(t *testing.T) {
 		consensusAssembledBlock(nil, wgtest.CommitWith(wgtest.MaxCommitSignatures+1)))))
 }
 
-func TestSchemaForBlock_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) {
+func TestSchemaForBlock_LastCommitAndEvidenceHaveSeparateBudgets(t *testing.T) {
 	half := wgtest.MaxCommitSignatures/2 + 1
-	require.Error(t, wireguard.Scan[*tmproto.Block](wgtest.Marshal(t,
+	require.NoError(t, wireguard.Scan[*tmproto.Block](wgtest.Marshal(t,
 		consensusAssembledBlock(wgtest.CommitWith(half), wgtest.CommitWith(half)))))
 }

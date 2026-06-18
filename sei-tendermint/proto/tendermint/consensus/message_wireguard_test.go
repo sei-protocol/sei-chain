@@ -36,15 +36,15 @@ func TestSchemaForMessage_RejectsEvidenceOverCap(t *testing.T) {
 		consensusProposalMessage(nil, wgtest.CommitWith(wgtest.MaxCommitSignatures+1)))))
 }
 
-func TestSchemaForMessage_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) {
+func TestSchemaForMessage_LastCommitAndEvidenceHaveSeparateBudgets(t *testing.T) {
 	half := wgtest.MaxCommitSignatures/2 + 1
-	require.Error(t, wireguard.Scan[*tmcons.Message](wgtest.Marshal(t,
+	require.NoError(t, wireguard.Scan[*tmcons.Message](wgtest.Marshal(t,
 		consensusProposalMessage(wgtest.CommitWith(half), wgtest.CommitWith(half)))))
 }
 
-func TestSchemaForMessage_EvidenceCommitsShareBudget(t *testing.T) {
+func TestSchemaForMessage_EvidenceCommitsHaveSeparateBudgets(t *testing.T) {
 	half := wgtest.MaxCommitSignatures/2 + 1
-	require.Error(t, wireguard.Scan[*tmcons.Message](wgtest.Marshal(t,
+	require.NoError(t, wireguard.Scan[*tmcons.Message](wgtest.Marshal(t,
 		consensusProposalMessage(nil, wgtest.CommitWith(half), wgtest.CommitWith(half)))))
 }
 

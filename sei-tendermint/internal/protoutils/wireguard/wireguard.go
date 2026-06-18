@@ -36,9 +36,8 @@ type Rule struct {
 	// field. Use for descending through wrapper layers on the way to a cap.
 	Nested utils.Option[reflect.Type]
 	// MaxCount, if non-zero, caps how many times this field may appear in the
-	// scanned payload. The count is accumulated globally across the whole
-	// Scan call — every match of this (Schema, field) pair increments one
-	// shared counter, not a fresh counter per parent instance.
+	// current message instance. Nested message instances get their own fresh
+	// counters, so independent children do not share one budget.
 	MaxCount int
 }
 
@@ -71,21 +70,11 @@ func schemaForType(t reflect.Type) Schema {
 	return registry[t]
 }
 
-// counterKey scopes a MaxCount accumulator by (Schema, field number) so the
-// same Schema reached from multiple paths shares one counter, while two
-// unrelated Schemas that happen to use the same field number don't collide.
-type counterKey struct {
-	schema any
-	num    Number
-}
-
 // Scan walks bz once, applying the schema registered for T. Returns nil on
 // success, an error on malformed wire bytes or a rule violation. If T has no
 // registered schema, Scan is a no-op.
 func Scan[T any](bz []byte) error {
-	t := reflect.TypeFor[T]()
-	schema := schemaForType(t)
-	return schema.scan(bz, t, map[counterKey]int{})
+	return schemaForType(reflect.TypeFor[T]()).scan(bz)
 }
 
 // ScanValue walks bz once, applying the schema registered for msg's dynamic
@@ -94,15 +83,14 @@ func ScanValue(bz []byte, msg any) error {
 	if msg == nil {
 		return nil
 	}
-	t := reflect.TypeOf(msg)
-	schema := schemaForType(t)
-	return schema.scan(bz, t, map[counterKey]int{})
+	return schemaForType(reflect.TypeOf(msg)).scan(bz)
 }
 
-func (s Schema) scan(bz []byte, schemaID any, counts map[counterKey]int) error {
+func (s Schema) scan(bz []byte) error {
 	if s == nil {
 		return nil
 	}
+	counts := map[Number]int{}
 	for len(bz) > 0 {
 		num, typ, tagLen := protowire.ConsumeTag(bz)
 		if tagLen < 0 {
@@ -117,9 +105,8 @@ func (s Schema) scan(bz []byte, schemaID any, counts map[counterKey]int) error {
 			}
 			if hasRule {
 				if rule.MaxCount > 0 {
-					key := counterKey{schemaID, num}
-					counts[key]++
-					if counts[key] > rule.MaxCount {
+					counts[num]++
+					if counts[num] > rule.MaxCount {
 						return fmt.Errorf("wireguard: field %d exceeds max %d entries", num, rule.MaxCount)
 					}
 				}
@@ -128,7 +115,7 @@ func (s Schema) scan(bz []byte, schemaID any, counts map[counterKey]int) error {
 					if nested == nil {
 						return fmt.Errorf("wireguard: nested schema for %v not registered", nestedType)
 					}
-					if err := nested.scan(val, nestedType, counts); err != nil {
+					if err := nested.scan(val); err != nil {
 						return err
 					}
 				}
