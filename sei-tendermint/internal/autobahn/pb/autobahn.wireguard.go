@@ -8,24 +8,51 @@ import (
 )
 
 func init() {
+	// Register the wireguard.Schema generated for autobahn.PublicKey.
+	wireguard.MustRegister[*PublicKey](wireguard.Schema{
+		1: {MaxSize: 32},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.Signature.
+	wireguard.MustRegister[*Signature](wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*PublicKey]())},
+		2: {MaxSize: 64},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.BlockHeader.
+	wireguard.MustRegister[*BlockHeader](wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*PublicKey]())},
+		3: {MaxSize: 32},
+		4: {MaxSize: 32},
+	})
+
 	// Register the wireguard.Schema generated for autobahn.Payload.
 	wireguard.MustRegister[*Payload](wireguard.Schema{
-		6: {MaxCount: 2000},
+		6: {MaxCount: 2000, MaxTotalSize: 2048000},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Block.
 	wireguard.MustRegister[*Block](wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
 		2: {Nested: utils.Some(reflect.TypeFor[*Payload]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.LaneQC.
 	wireguard.MustRegister[*LaneQC](wireguard.Schema{
-		2: {MaxCount: 100},
+		1: {Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
+		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*Signature]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.LaneRange.
+	wireguard.MustRegister[*LaneRange](wireguard.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*PublicKey]())},
+		4: {MaxSize: 32},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Proposal.
 	wireguard.MustRegister[*Proposal](wireguard.Schema{
-		3: {MaxCount: 100},
+		3: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*LaneRange]())},
+		4: {Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.FullProposal.
@@ -39,19 +66,19 @@ func init() {
 	// Register the wireguard.Schema generated for autobahn.PrepareQC.
 	wireguard.MustRegister[*PrepareQC](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
-		2: {MaxCount: 100},
+		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.CommitQC.
 	wireguard.MustRegister[*CommitQC](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
-		3: {MaxCount: 100},
+		3: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.FullCommitQC.
 	wireguard.MustRegister[*FullCommitQC](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*CommitQC]())},
-		2: {MaxCount: 100},
+		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.TimeoutQC.
@@ -84,20 +111,29 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.AppQC.
 	wireguard.MustRegister[*AppQC](wireguard.Schema{
-		2: {MaxCount: 100},
+		1: {Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
+		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*Signature]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.AppProposal.
+	wireguard.MustRegister[*AppProposal](wireguard.Schema{
+		3: {MaxSize: 32},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Msg.
 	wireguard.MustRegister[*Msg](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*Block]())},
+		2: {Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
 		3: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
 		4: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
 		5: {Nested: utils.Some(reflect.TypeFor[*Proposal]())},
+		7: {Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.SignedMsg.
 	wireguard.MustRegister[*SignedMsg](wireguard.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*Msg]())},
+		2: {Nested: utils.Some(reflect.TypeFor[*Signature]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.ConsensusReq.
