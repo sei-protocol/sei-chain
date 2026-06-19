@@ -502,7 +502,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
 		shardValidator := router.data.Committee().EvmShard(sender)
 
-		proxyURL, ok := router.EvmProxy(sender)
+		proxyURL, ok := router.EvmProxy(sender).Get()
 		expectedURL := urlByValidator[shardValidator]
 
 		if shardValidator == localValidator {

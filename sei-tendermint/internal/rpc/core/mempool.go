@@ -17,13 +17,13 @@ import (
 )
 
 // EvmProxy returns the EVM RPC URL of the autobahn validator that owns the
-// sender shard. If the sender maps to the local validator, or if no EVM RPC
-// endpoint is configured for the shard owner, it returns (nil, false).
-func (env *Environment) EvmProxy(sender common.Address) (*url.URL, bool) {
+// sender shard, or None if the sender maps to the local validator (handle
+// locally) or autobahn isn't configured.
+func (env *Environment) EvmProxy(sender common.Address) utils.Option[*url.URL] {
 	if r, ok := env.gigaRouter().Get(); ok {
 		return r.EvmProxy(sender)
 	}
-	return nil, false
+	return utils.None[*url.URL]()
 }
 
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {

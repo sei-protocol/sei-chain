@@ -77,7 +77,7 @@ type GigaRouter interface {
 	MaxGasEstimatedPerBlock() uint64
 	BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error)
 	BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error)
-	EvmProxy(sender common.Address) (*url.URL, bool)
+	EvmProxy(sender common.Address) utils.Option[*url.URL]
 	Mempool() utils.Option[*producer.State]
 }
 
@@ -538,19 +538,20 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	})
 }
 
-// EvmProxy returns the shard owner's EVMRPC URL for an EVM tx sender.
-// Overridden on *gigaValidatorRouter to short-circuit self-shard sends.
-func (r *gigaRouterCommon) EvmProxy(sender common.Address) (*url.URL, bool) {
+// EvmProxy returns the shard owner's EVMRPC URL for an EVM tx sender, or
+// None if the caller should handle it locally. Overridden on
+// *gigaValidatorRouter to short-circuit self-shard sends.
+func (r *gigaRouterCommon) EvmProxy(sender common.Address) utils.Option[*url.URL] {
 	shardValidator := r.data.Committee().EvmShard(sender)
-	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC, true
+	return utils.Some(r.cfg.ValidatorAddrs[shardValidator].EVMRPC)
 }
 
-// EvmProxy on the validator returns (nil, false) when the sender's shard
-// owner is us (handle locally via mempool, no HTTP round-trip to self).
-func (r *gigaValidatorRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
+// EvmProxy on the validator returns None when the sender's shard owner is
+// us (handle locally via mempool, no HTTP round-trip to self).
+func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*url.URL] {
 	shardValidator := r.data.Committee().EvmShard(sender)
 	if r.validatorKey == shardValidator {
-		return nil, false
+		return utils.None[*url.URL]()
 	}
-	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC, true
+	return utils.Some(r.cfg.ValidatorAddrs[shardValidator].EVMRPC)
 }
