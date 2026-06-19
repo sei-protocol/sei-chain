@@ -51,6 +51,21 @@ var flags flag.FlagSet
 
 var moduleFlag = flags.String("module", "", "prefix to strip from the absolute generated file path. Same as in protoc-gen-go")
 
+type errMustBePositive struct {
+	Rule string
+}
+
+func (err errMustBePositive) Error() string {
+	return fmt.Sprintf("wireguard.%s must be > 0", err.Rule)
+}
+
+var (
+	errSizeRulesRequireSizedFieldType         = errors.New("wireguard size rules require a string, bytes, or message field")
+	errSizedFieldMissingMaxCount              = errors.New("wireguard.sized repeated field missing wireguard.max_count")
+	errSizedRepeatedFieldNeedsSizeOrSizedNest = errors.New("wireguard.sized repeated field needs a size bound or sized nested message")
+	errSizedFieldNeedsSizeOrSizedNest         = errors.New("wireguard.sized field needs a size bound or sized nested message")
+)
+
 func main() {
 	protogen.Options{ParamFunc: flags.Set}.Run(run)
 }
@@ -89,6 +104,10 @@ func findWireguardExts(files *protoregistry.Files) (wireguardExts, error) {
 		maxSize:      ms,
 		maxTotalSize: mts,
 	}, nil
+}
+
+func extName(ext protoreflect.ExtensionType) string {
+	return string(ext.TypeDescriptor().Name())
 }
 
 func run(p *protogen.Plugin) error {
@@ -191,23 +210,16 @@ func validateRuleValues(byName map[protoreflect.FullName]protoreflect.MessageDes
 		for i := range fields.Len() {
 			f := fields.Get(i)
 			opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
-			for _, rule := range []struct {
-				name string
-				ext  protoreflect.ExtensionType
-			}{
-				{name: "max_count", ext: exts.maxCount},
-				{name: "max_size", ext: exts.maxSize},
-				{name: "max_total_size", ext: exts.maxTotalSize},
-			} {
-				if !opts.Has(rule.ext.TypeDescriptor()) {
+			for _, ext := range []protoreflect.ExtensionType{exts.maxCount, exts.maxSize, exts.maxTotalSize} {
+				if !opts.Has(ext.TypeDescriptor()) {
 					continue
 				}
-				if opts.Get(rule.ext.TypeDescriptor()).Uint() == 0 {
-					return fmt.Errorf("%s.%s: (wireguard.%s) must be > 0", d.FullName(), f.Name(), rule.name)
+				if opts.Get(ext.TypeDescriptor()).Uint() == 0 {
+					return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errMustBePositive{Rule: extName(ext)})
 				}
 			}
 			if (opts.Has(exts.maxSize.TypeDescriptor()) || opts.Has(exts.maxTotalSize.TypeDescriptor())) && !supportsSizeRules(f) {
-				return fmt.Errorf("%s.%s: max_size and max_total_size require a string, bytes, or message field", d.FullName(), f.Name())
+				return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errSizeRulesRequireSizedFieldType)
 			}
 		}
 	}
@@ -228,7 +240,7 @@ func validateSizedMessages(byName map[protoreflect.FullName]protoreflect.Message
 			hasMaxTotalSize := opts.Has(exts.maxTotalSize.TypeDescriptor())
 
 			if f.IsList() && !hasMaxCount {
-				return fmt.Errorf("%s.%s: repeated fields of wireguard.sized messages must have (wireguard.max_count)", d.FullName(), f.Name())
+				return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errSizedFieldMissingMaxCount)
 			}
 
 			if f.Kind() != protoreflect.StringKind && f.Kind() != protoreflect.BytesKind && f.Kind() != protoreflect.MessageKind {
@@ -241,9 +253,9 @@ func validateSizedMessages(byName map[protoreflect.FullName]protoreflect.Message
 				continue
 			}
 			if f.IsList() {
-				return fmt.Errorf("%s.%s: repeated sized fields need (wireguard.max_count) plus one of (wireguard.max_size), (wireguard.max_total_size), or a wireguard.sized nested message", d.FullName(), f.Name())
+				return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errSizedRepeatedFieldNeedsSizeOrSizedNest)
 			}
-			return fmt.Errorf("%s.%s: sized string/bytes/message fields need (wireguard.max_size), (wireguard.max_total_size), or a wireguard.sized nested message", d.FullName(), f.Name())
+			return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errSizedFieldNeedsSizeOrSizedNest)
 		}
 	}
 	return nil

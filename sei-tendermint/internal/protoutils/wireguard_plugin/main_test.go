@@ -173,8 +173,9 @@ func TestPlugin_RejectsMaxCountZero(t *testing.T) {
 	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
 	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "max_count")
-	require.Contains(t, err.Error(), "> 0")
+	var positiveErr errMustBePositive
+	require.ErrorAs(t, err, &positiveErr)
+	require.Equal(t, "max_count", positiveErr.Rule)
 }
 
 func TestPlugin_RejectsMaxSizeZero(t *testing.T) {
@@ -203,8 +204,9 @@ func TestPlugin_RejectsMaxSizeZero(t *testing.T) {
 	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
 	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "max_size")
-	require.Contains(t, err.Error(), "> 0")
+	var positiveErr errMustBePositive
+	require.ErrorAs(t, err, &positiveErr)
+	require.Equal(t, "max_size", positiveErr.Rule)
 }
 
 func TestPlugin_RejectsMaxTotalSizeZero(t *testing.T) {
@@ -233,8 +235,9 @@ func TestPlugin_RejectsMaxTotalSizeZero(t *testing.T) {
 	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
 	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "max_total_size")
-	require.Contains(t, err.Error(), "> 0")
+	var positiveErr errMustBePositive
+	require.ErrorAs(t, err, &positiveErr)
+	require.Equal(t, "max_total_size", positiveErr.Rule)
 }
 
 func TestPlugin_RejectsSizeRulesOnPackedScalarField(t *testing.T) {
@@ -263,7 +266,7 @@ func TestPlugin_RejectsSizeRulesOnPackedScalarField(t *testing.T) {
 	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
 	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "string, bytes, or message field")
+	require.ErrorIs(t, err, errSizeRulesRequireSizedFieldType)
 }
 
 func TestPlugin_SizedRejectsUnboundedBytesField(t *testing.T) {
@@ -292,7 +295,7 @@ func TestPlugin_SizedRejectsUnboundedBytesField(t *testing.T) {
 	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
 	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "sized string/bytes/message fields need")
+	require.ErrorIs(t, err, errSizedFieldNeedsSizeOrSizedNest)
 }
 
 func TestPlugin_SizedRejectsRepeatedFieldWithoutMaxCount(t *testing.T) {
@@ -321,7 +324,7 @@ func TestPlugin_SizedRejectsRepeatedFieldWithoutMaxCount(t *testing.T) {
 	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
 	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "must have (wireguard.max_count)")
+	require.ErrorIs(t, err, errSizedFieldMissingMaxCount)
 }
 
 func TestPlugin_SizedRejectsUnsizedNestedMessageWithoutFieldSize(t *testing.T) {
@@ -362,7 +365,7 @@ func TestPlugin_SizedRejectsUnsizedNestedMessageWithoutFieldSize(t *testing.T) {
 	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
 	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "sized string/bytes/message fields need")
+	require.ErrorIs(t, err, errSizedFieldNeedsSizeOrSizedNest)
 }
 
 func TestPlugin_SizedRepeatedMessageRequiresSizeOrSizedNested(t *testing.T) {
@@ -405,15 +408,7 @@ func TestPlugin_SizedRepeatedMessageRequiresSizeOrSizedNested(t *testing.T) {
 	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
 	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "repeated sized fields need")
-}
-
-func keys(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
+	require.ErrorIs(t, err, errSizedRepeatedFieldNeedsSizeOrSizedNest)
 }
 
 func init() {
