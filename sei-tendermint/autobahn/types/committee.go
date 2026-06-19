@@ -37,6 +37,8 @@ type Committee struct {
 	genesisTimestamp time.Time
 }
 
+const MaxValidators = 100
+
 func (c *Committee) HasReplica(k PublicKey) bool {
 	_, ok := c.weights[k]
 	return ok
@@ -143,6 +145,9 @@ func NewCommittee(weights map[PublicKey]uint64, firstBlock GlobalBlockNumber, ge
 	}
 	if totalWeight == 0 {
 		return nil, errors.New("total weight is 0")
+	}
+	if len(weights) > MaxValidators {
+		return nil, fmt.Errorf("too many validators: got %d, want <= %d", len(weights), MaxValidators)
 	}
 	replicas := slices.SortedFunc(maps.Keys(weights), func(a, b PublicKey) int { return a.Compare(b) })
 	return &Committee{
