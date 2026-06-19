@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/test/a/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"google.golang.org/protobuf/proto"

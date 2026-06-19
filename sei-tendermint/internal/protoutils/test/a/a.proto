@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package protoutils;
+
+import "protoutils/test/b/b.proto";
+import "wireguard/wireguard.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/test/a/pb";
+
+message TestonlyMsg {
+  string string_value = 1;
+  repeated string repeated_value = 2;
+  map<string, string> map_value = 3;
+  repeated TestonlyChild repeated_message_value = 4;
+  map<string, TestonlyChild> map_message_value = 5;
+}
+
+message TestonlyChild {
+  string value = 1;
+}
+
+message TestonlyCountedLeaf {
+  repeated string items = 1 [(wireguard.max_count) = 3];
+}
+
+message TestonlySizedLeaf {
+  repeated bytes items = 1 [(wireguard.max_total_size) = 3];
+}
+
+message TestonlyOuter {
+  TestonlyCountedLeaf child = 1;
+  repeated TestonlyCountedLeaf children = 2 [(wireguard.max_count) = 5];
+  TestonlySizedLeaf sized_child = 3;
+  repeated TestonlySizedLeaf sized_children = 4 [(wireguard.max_count) = 5];
+}
+
+message TestonlyMid {
+  TestonlyCountedLeaf child = 1;
+}
+
+message TestonlyRoot {
+  TestonlyMid mid = 1;
+}
+
+message TestonlyLeafA {
+  repeated string items = 1 [(wireguard.max_count) = 2];
+}
+
+message TestonlyLeafB {
+  repeated string items = 1 [(wireguard.max_count) = 2];
+}
+
+message TestonlyDistinct {
+  TestonlyLeafA a = 1;
+  TestonlyLeafB b = 2;
+}
+
+message TestonlyUnannotatedChild {
+  repeated string items = 1;
+  bytes payload = 2;
+}
+
+message TestonlyUnannotatedParent {
+  TestonlyUnannotatedChild child = 1;
+}
+
+message TestonlyOneofInner {
+  repeated string items = 1 [(wireguard.max_count) = 3];
+}
+
+message TestonlyOneofOuter {
+  oneof choice {
+    TestonlyOneofInner inner = 1;
+    string label = 2;
+  }
+}
+
+message TestonlySizedName {
+  string name = 1 [(wireguard.max_size) = 4];
+}
+
+message TestonlySizedParent {
+  repeated bytes payload = 1 [(wireguard.max_size) = 3, (wireguard.max_total_size) = 5];
+  TestonlySizedName child = 2;
+}
+
+message TestonlyCrossParent {
+  protoutils.cross.TestonlyCrossLeaf child = 1;
+}
+
+message TestonlySizedMessageInner {
+  option (wireguard.sized) = true;
+
+  bytes payload = 1 [(wireguard.max_size) = 8];
+}
+
+message TestonlySizedMessageOuter {
+  option (wireguard.sized) = true;
+
+  TestonlySizedMessageInner inner = 1;
+}
+
+message TestonlyRepeatedSizedChildren {
+  repeated TestonlySizedName children = 1 [(wireguard.max_count) = 2, (wireguard.max_total_size) = 12];
+}
+
+message TestonlyOptional {
+  optional string bar = 1;
+  repeated string items = 2 [(wireguard.max_count) = 5];
+}

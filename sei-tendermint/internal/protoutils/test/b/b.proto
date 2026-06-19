@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package protoutils.cross;
+
+import "wireguard/wireguard.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/test/b/pb";
+
+message TestonlyCrossLeaf {
+  TestonlyCrossInner child = 1;
+}
+
+message TestonlyCrossInner {
+  repeated string items = 1 [(wireguard.max_count) = 3];
+}
