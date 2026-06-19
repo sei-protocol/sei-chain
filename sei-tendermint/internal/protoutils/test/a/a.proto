@@ -80,7 +80,10 @@ message TestonlySizedName {
 }
 
 message TestonlySizedParent {
-  repeated bytes payload = 1 [(wireguard.max_size) = 3, (wireguard.max_total_size) = 5];
+  repeated bytes payload = 1 [
+    (wireguard.max_size) = 3,
+    (wireguard.max_total_size) = 5
+  ];
   TestonlySizedName child = 2;
 }
 
@@ -101,7 +104,10 @@ message TestonlySizedMessageOuter {
 }
 
 message TestonlyRepeatedSizedChildren {
-  repeated TestonlySizedName children = 1 [(wireguard.max_count) = 2, (wireguard.max_total_size) = 12];
+  repeated TestonlySizedName children = 1 [
+    (wireguard.max_count) = 2,
+    (wireguard.max_total_size) = 12
+  ];
 }
 
 message TestonlyOptional {

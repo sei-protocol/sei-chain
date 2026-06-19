@@ -40,7 +40,6 @@ func compilePluginFixture(t *testing.T, fileToGenerate string) (*pluginpb.CodeGe
 }
 
 func runPluginRequest(req *pluginpb.CodeGeneratorRequest) error {
-	*moduleFlag = ""
 	plug, err := protogen.Options{ParamFunc: flags.Set}.New(req)
 	if err != nil {
 		return err
