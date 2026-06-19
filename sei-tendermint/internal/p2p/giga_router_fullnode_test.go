@@ -94,8 +94,8 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.Equal(t, expectedRemoteURLs, returnedRemoteURLs)
 
 	// Read-path methods source from local data.State + genesis doc — no
-	// sentinels. Before any block is pushed (and before runExecute has
-	// seeded from app.Info), lastExecutedBlock is the zero value 0.
+	// sentinels. Before any block is pushed (and InitChain hasn't run),
+	// app.LastBlockHeight() is 0, so LastCommittedBlockNumber returns 0.
 	// MaxGasEstimatedPerBlock reflects the genesis consensus param.
 	require.Equal(t, int64(0), router.LastCommittedBlockNumber())
 	require.Equal(t, uint64(12345), router.MaxGasEstimatedPerBlock())

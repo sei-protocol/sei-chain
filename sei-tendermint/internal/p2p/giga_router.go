@@ -68,7 +68,8 @@ type GigaValidatorConfig struct {
 
 // GigaRouter is the read-path / Run / EvmProxy surface. Implemented by
 // *gigaValidatorRouter and *gigaFullnodeRouter; Mempool returns Some only
-// on validators; RunInboundConn errors on fullnodes.
+// on validators. RunInboundConn is served by both — non-committee peers
+// get the block-sync subset only.
 type GigaRouter interface {
 	Run(ctx context.Context) error
 	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
