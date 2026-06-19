@@ -6,7 +6,7 @@ import (
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	ssproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -36,16 +36,16 @@ func lightBlockRespMsg(n int) *ssproto.Message {
 }
 
 func TestSchemaForMessage_AcceptsAtCap(t *testing.T) {
-	require.NoError(t, wireguard.Scan[*ssproto.Message](marshal(t, lightBlockRespMsg(maxCommitSignatures))))
+	require.NoError(t, protoutils.Scan[*ssproto.Message](marshal(t, lightBlockRespMsg(maxCommitSignatures))))
 }
 
 func TestSchemaForMessage_RejectsOverCap(t *testing.T) {
-	require.Error(t, wireguard.Scan[*ssproto.Message](marshal(t, lightBlockRespMsg(maxCommitSignatures+1))))
+	require.Error(t, protoutils.Scan[*ssproto.Message](marshal(t, lightBlockRespMsg(maxCommitSignatures+1))))
 }
 
 func TestSchemaForMessage_PassesRequest(t *testing.T) {
 	msg := &ssproto.Message{Sum: &ssproto.Message_LightBlockRequest{
 		LightBlockRequest: &ssproto.LightBlockRequest{Height: 42},
 	}}
-	require.NoError(t, wireguard.Scan[*ssproto.Message](marshal(t, msg)))
+	require.NoError(t, protoutils.Scan[*ssproto.Message](marshal(t, msg)))
 }

@@ -1,10 +1,11 @@
-package wireguard
+package protoutils
 
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 // appendBytesField is shorthand for encoding `field N: BytesType payload`.
@@ -22,7 +23,7 @@ func TestScan_NilSchema(t *testing.T) {
 func TestScan_EnforcesMaxCount(t *testing.T) {
 	schema := Schema{3: {MaxCount: 2}}
 	var bz []byte
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		bz = appendBytesField(bz, 3, nil)
 	}
 	require.Error(t, schema.scan(bz))
@@ -31,7 +32,7 @@ func TestScan_EnforcesMaxCount(t *testing.T) {
 func TestScan_MaxCountAtBoundary(t *testing.T) {
 	schema := Schema{1: {MaxCount: 5}}
 	var bz []byte
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		bz = appendBytesField(bz, 1, nil)
 	}
 	require.NoError(t, schema.scan(bz))
@@ -68,7 +69,7 @@ func TestScan_MaxTotalSizeAtBoundary(t *testing.T) {
 func TestScan_IgnoresUnrelatedFields(t *testing.T) {
 	schema := Schema{3: {MaxCount: 1}}
 	var bz []byte
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		bz = appendBytesField(bz, 1, nil)
 	}
 	bz = appendBytesField(bz, 3, nil)

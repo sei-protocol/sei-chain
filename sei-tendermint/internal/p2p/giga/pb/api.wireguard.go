@@ -3,7 +3,7 @@ package pb
 
 import (
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
-	wireguard "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
+	wireguard "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	reflect "reflect"
 )

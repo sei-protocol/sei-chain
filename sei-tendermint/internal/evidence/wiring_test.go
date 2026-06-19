@@ -6,7 +6,7 @@ import (
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -38,13 +38,13 @@ func evidenceWithCommit(c *tmproto.Commit) tmproto.Evidence {
 // wireguard registration and rejects an over-cap LightClientAttack payload.
 func TestWiring_EvidenceChannel(t *testing.T) {
 	ev := evidenceWithCommit(commitWith(maxCommitSignatures + 1))
-	require.Error(t, wireguard.Scan[*tmproto.Evidence](marshal(t, &ev)),
-		"wireguard.Scan[*types.Evidence] failed to reject an over-cap Commit signatures list")
+	require.Error(t, protoutils.Scan[*tmproto.Evidence](marshal(t, &ev)),
+		"protoutils.Scan[*types.Evidence] failed to reject an over-cap Commit signatures list")
 }
 
 // TestWiring_EvidenceAcceptsAtCap asserts that a payload at exactly the cap
 // is accepted.
 func TestWiring_EvidenceAcceptsAtCap(t *testing.T) {
 	ev := evidenceWithCommit(commitWith(maxCommitSignatures))
-	require.NoError(t, wireguard.Scan[*tmproto.Evidence](marshal(t, &ev)))
+	require.NoError(t, protoutils.Scan[*tmproto.Evidence](marshal(t, &ev)))
 }

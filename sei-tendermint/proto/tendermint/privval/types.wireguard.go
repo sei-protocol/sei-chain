@@ -2,7 +2,7 @@
 package privval
 
 import (
-	wireguard "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
+	wireguard "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	types "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	reflect "reflect"

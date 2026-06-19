@@ -1,13 +1,4 @@
-// Package wireguard runs bounded checks on raw protobuf wire bytes before
-// the message is handed to Unmarshal. A caller registers a Schema describing
-// which fields to descend into, which repeated fields to cap, and which
-// length-delimited fields to size-cap; Scan then walks the bytes once and
-// rejects any payload that violates the rules.
-//
-// The intended use is as a channel/stream PreDecode hook: any size or shape
-// invariant that must be enforced before decoding goes here, expressed
-// declaratively as a schema next to the channel definition.
-package wireguard
+package protoutils
 
 import (
 	"fmt"
@@ -18,13 +9,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
-
-// Scanner is implemented by proto types whose generated *.wireguard.go adds a
-// WireguardScan method. protoutils.Unmarshal asserts this interface and calls
-// it automatically before proto.Unmarshal.
-type Scanner interface {
-	WireguardScan([]byte) error
-}
 
 // Number re-exports protowire.Number so callers can build Schemas without
 // also importing google.golang.org/protobuf/encoding/protowire directly.
@@ -58,6 +42,7 @@ type Rule struct {
 var registry = map[reflect.Type]Schema{}
 
 // MustRegister associates T with schema in the global registry used by Scan.
+// Can be called ONLY from generated init() functions.
 // It panics on duplicate registration or nil schema.
 func MustRegister[T any](schema Schema) {
 	t := reflect.TypeFor[T]()

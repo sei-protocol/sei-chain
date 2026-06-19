@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	bcproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -56,34 +56,34 @@ func blocksyncResponse(lastCommit *tmproto.Commit, evidenceCommits ...*tmproto.C
 }
 
 func TestSchemaForMessage_AcceptsLastCommitAtCap(t *testing.T) {
-	require.NoError(t, wireguard.Scan[*bcproto.Message](marshal(t,
+	require.NoError(t, protoutils.Scan[*bcproto.Message](marshal(t,
 		blocksyncResponse(commitWith(maxCommitSignatures)))))
 }
 
 func TestSchemaForMessage_AcceptsEvidenceCommitAtCap(t *testing.T) {
-	require.NoError(t, wireguard.Scan[*bcproto.Message](marshal(t,
+	require.NoError(t, protoutils.Scan[*bcproto.Message](marshal(t,
 		blocksyncResponse(nil, commitWith(maxCommitSignatures)))))
 }
 
 func TestSchemaForMessage_RejectsLastCommitOverCap(t *testing.T) {
-	require.Error(t, wireguard.Scan[*bcproto.Message](marshal(t,
+	require.Error(t, protoutils.Scan[*bcproto.Message](marshal(t,
 		blocksyncResponse(commitWith(maxCommitSignatures+1)))))
 }
 
 func TestSchemaForMessage_RejectsEvidenceOverCap(t *testing.T) {
-	require.Error(t, wireguard.Scan[*bcproto.Message](marshal(t,
+	require.Error(t, protoutils.Scan[*bcproto.Message](marshal(t,
 		blocksyncResponse(nil, commitWith(maxCommitSignatures+1)))))
 }
 
 func TestSchemaForMessage_LastCommitAndEvidenceHaveSeparateBudgets(t *testing.T) {
 	half := maxCommitSignatures/2 + 1
-	require.NoError(t, wireguard.Scan[*bcproto.Message](marshal(t,
+	require.NoError(t, protoutils.Scan[*bcproto.Message](marshal(t,
 		blocksyncResponse(commitWith(half), commitWith(half)))))
 }
 
 func TestSchemaForMessage_EvidenceCommitsHaveSeparateBudgets(t *testing.T) {
 	half := maxCommitSignatures/2 + 1
-	require.NoError(t, wireguard.Scan[*bcproto.Message](marshal(t,
+	require.NoError(t, protoutils.Scan[*bcproto.Message](marshal(t,
 		blocksyncResponse(nil, commitWith(half), commitWith(half)))))
 }
 
@@ -91,7 +91,7 @@ func TestSchemaForMessage_IgnoresBlockRequest(t *testing.T) {
 	msg := &bcproto.Message{Sum: &bcproto.Message_BlockRequest{
 		BlockRequest: &bcproto.BlockRequest{Height: 42},
 	}}
-	require.NoError(t, wireguard.Scan[*bcproto.Message](marshal(t, msg)))
+	require.NoError(t, protoutils.Scan[*bcproto.Message](marshal(t, msg)))
 }
 
 func TestSchemaForMessage_DuplicateNonRepeatedFieldsGetSeparateBudgets(t *testing.T) {
@@ -113,7 +113,7 @@ func TestSchemaForMessage_DuplicateNonRepeatedFieldsGetSeparateBudgets(t *testin
 	msg = protowire.AppendVarint(msg, uint64(len(blockResp)))
 	msg = append(msg, blockResp...)
 
-	require.NoError(t, wireguard.Scan[*bcproto.Message](msg))
+	require.NoError(t, protoutils.Scan[*bcproto.Message](msg))
 }
 
 // emptyCommitWire builds the wire-format bytes for a Commit with n empty

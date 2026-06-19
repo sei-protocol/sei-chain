@@ -1,9 +1,10 @@
-package protoutils
+package protoutils_test
 
 import (
 	"slices"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -42,10 +43,22 @@ func TestIterMalformed(t *testing.T) {
 		func(msg *pb.TestonlyMsg) { msg.MapMessageValue = nil },
 	)
 
-	got := slices.Collect(iterMalformed(msg))
-	require.Len(t, got, len(clearFields))
+	var got []*pb.TestonlyMsg
+	conv := protoutils.Conv[*pb.TestonlyMsg, *pb.TestonlyMsg]{
+		Encode: func(msg *pb.TestonlyMsg) *pb.TestonlyMsg { return protoutils.Clone(msg) },
+		Decode: func(msg *pb.TestonlyMsg) (*pb.TestonlyMsg, error) {
+			got = append(got, protoutils.Clone(msg))
+			return protoutils.Clone(msg), nil
+		},
+	}
+
+	require.NoError(t, conv.Test(msg))
+	require.True(t, slices.ContainsFunc(got, func(gotMsg *pb.TestonlyMsg) bool {
+		return proto.Equal(gotMsg, msg)
+	}), "missing original round-tripped message")
+
 	for _, f := range clearFields {
-		wantMsg := Clone(msg)
+		wantMsg := protoutils.Clone(msg)
 		f(wantMsg)
 		require.True(t, slices.ContainsFunc(got, func(gotMsg *pb.TestonlyMsg) bool {
 			return proto.Equal(gotMsg, wantMsg)

@@ -1,24 +1,23 @@
-package wireguard_test
+package protoutils_test
 
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	testpb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/pb"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 func TestScan_DescendsIntoNested(t *testing.T) {
-	require.Error(t, wireguard.Scan[*testpb.TestonlyOuter](protoutils.Marshal(&testpb.TestonlyOuter{
+	require.Error(t, protoutils.Scan[*testpb.TestonlyOuter](protoutils.Marshal(&testpb.TestonlyOuter{
 		Child: &testpb.TestonlyCountedLeaf{Items: []string{"a", "b", "c", "d"}},
 	})))
 }
 
 func TestScan_CountsResetAcrossInstances(t *testing.T) {
-	require.NoError(t, wireguard.Scan[*testpb.TestonlyOuter](protoutils.Marshal(&testpb.TestonlyOuter{
+	require.NoError(t, protoutils.Scan[*testpb.TestonlyOuter](protoutils.Marshal(&testpb.TestonlyOuter{
 		Children: []*testpb.TestonlyCountedLeaf{
 			{Items: []string{"a", "b"}},
 			{Items: []string{"c", "d"}},
@@ -27,7 +26,7 @@ func TestScan_CountsResetAcrossInstances(t *testing.T) {
 }
 
 func TestScan_MaxTotalSizeResetsAcrossNestedInstances(t *testing.T) {
-	require.NoError(t, wireguard.Scan[*testpb.TestonlyOuter](protoutils.Marshal(&testpb.TestonlyOuter{
+	require.NoError(t, protoutils.Scan[*testpb.TestonlyOuter](protoutils.Marshal(&testpb.TestonlyOuter{
 		SizedChildren: []*testpb.TestonlySizedLeaf{
 			{Items: [][]byte{{1}, {2, 3}}},
 			{Items: [][]byte{{4}, {5, 6}}},
@@ -43,11 +42,11 @@ func TestScan_DuplicateNonRepeatedMessagesGetSeparateChildBudgets(t *testing.T) 
 		raw = protowire.AppendVarint(raw, uint64(len(child)))
 		raw = append(raw, child...)
 	}
-	require.NoError(t, wireguard.Scan[*testpb.TestonlyOuter](raw))
+	require.NoError(t, protoutils.Scan[*testpb.TestonlyOuter](raw))
 }
 
 func TestScan_DistinctSchemasStayIndependent(t *testing.T) {
-	require.NoError(t, wireguard.Scan[*testpb.TestonlyDistinct](protoutils.Marshal(&testpb.TestonlyDistinct{
+	require.NoError(t, protoutils.Scan[*testpb.TestonlyDistinct](protoutils.Marshal(&testpb.TestonlyDistinct{
 		A: &testpb.TestonlyLeafA{Items: []string{"a", "b"}},
 		B: &testpb.TestonlyLeafB{Items: []string{"c", "d"}},
 	})))
@@ -58,13 +57,13 @@ func TestScan_NestedWithExplicitMaxCount(t *testing.T) {
 	for range 5 {
 		msg.Children = append(msg.Children, &testpb.TestonlyCountedLeaf{})
 	}
-	require.NoError(t, wireguard.Scan[*testpb.TestonlyOuter](protoutils.Marshal(msg)))
+	require.NoError(t, protoutils.Scan[*testpb.TestonlyOuter](protoutils.Marshal(msg)))
 	msg.Children = append(msg.Children, &testpb.TestonlyCountedLeaf{})
-	require.Error(t, wireguard.Scan[*testpb.TestonlyOuter](protoutils.Marshal(msg)))
+	require.Error(t, protoutils.Scan[*testpb.TestonlyOuter](protoutils.Marshal(msg)))
 }
 
 func TestScan_DeepNestingBoundedCorrectly(t *testing.T) {
-	require.Error(t, wireguard.Scan[*testpb.TestonlyRoot](protoutils.Marshal(&testpb.TestonlyRoot{
+	require.Error(t, protoutils.Scan[*testpb.TestonlyRoot](protoutils.Marshal(&testpb.TestonlyRoot{
 		Mid: &testpb.TestonlyMid{
 			Child: &testpb.TestonlyCountedLeaf{Items: []string{"a", "b", "c", "d"}},
 		},

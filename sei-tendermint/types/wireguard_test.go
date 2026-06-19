@@ -6,7 +6,7 @@ import (
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -55,37 +55,37 @@ func lcaeEvidence(n int) *tmproto.Evidence {
 }
 
 func TestSchemaForBlock_AcceptsLastCommitAtCap(t *testing.T) {
-	require.NoError(t, wireguard.Scan[*tmproto.Block](marshal(t,
+	require.NoError(t, protoutils.Scan[*tmproto.Block](marshal(t,
 		consensusAssembledBlock(commitWith(maxCommitSignatures)))))
 }
 
 func TestSchemaForBlock_RejectsLastCommitOverCap(t *testing.T) {
-	require.Error(t, wireguard.Scan[*tmproto.Block](marshal(t,
+	require.Error(t, protoutils.Scan[*tmproto.Block](marshal(t,
 		consensusAssembledBlock(commitWith(maxCommitSignatures+1)))))
 }
 
 func TestSchemaForBlock_RejectsEvidenceOverCap(t *testing.T) {
-	require.Error(t, wireguard.Scan[*tmproto.Block](marshal(t,
+	require.Error(t, protoutils.Scan[*tmproto.Block](marshal(t,
 		consensusAssembledBlock(nil, commitWith(maxCommitSignatures+1)))))
 }
 
 func TestSchemaForBlock_LastCommitAndEvidenceHaveSeparateBudgets(t *testing.T) {
 	half := maxCommitSignatures/2 + 1
-	require.NoError(t, wireguard.Scan[*tmproto.Block](marshal(t,
+	require.NoError(t, protoutils.Scan[*tmproto.Block](marshal(t,
 		consensusAssembledBlock(commitWith(half), commitWith(half)))))
 }
 
 func TestSchemaForEvidence_AcceptsAtCap(t *testing.T) {
-	require.NoError(t, wireguard.Scan[*tmproto.Evidence](marshal(t, lcaeEvidence(maxCommitSignatures))))
+	require.NoError(t, protoutils.Scan[*tmproto.Evidence](marshal(t, lcaeEvidence(maxCommitSignatures))))
 }
 
 func TestSchemaForEvidence_RejectsOverCap(t *testing.T) {
-	require.Error(t, wireguard.Scan[*tmproto.Evidence](marshal(t, lcaeEvidence(maxCommitSignatures+1))))
+	require.Error(t, protoutils.Scan[*tmproto.Evidence](marshal(t, lcaeEvidence(maxCommitSignatures+1))))
 }
 
 func TestSchemaForEvidence_PassesDuplicateVoteEvidence(t *testing.T) {
 	ev := &tmproto.Evidence{Sum: &tmproto.Evidence_DuplicateVoteEvidence{
 		DuplicateVoteEvidence: &tmproto.DuplicateVoteEvidence{},
 	}}
-	require.NoError(t, wireguard.Scan[*tmproto.Evidence](marshal(t, ev)))
+	require.NoError(t, protoutils.Scan[*tmproto.Evidence](marshal(t, ev)))
 }

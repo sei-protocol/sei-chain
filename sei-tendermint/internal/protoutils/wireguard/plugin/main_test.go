@@ -195,13 +195,13 @@ func TestPlugin_AutoDescentAndMaxCount(t *testing.T) {
 
 	// A: field_1 capped, field_2 nested into B.
 	require.Contains(t, content, "func init() {")
-	require.Contains(t, content, "MustRegister[*A](wireguard.Schema{")
+	require.Contains(t, content, "MustRegister[*A](protoutils.Schema{")
 	require.Contains(t, content, `1: {MaxCount: 5}`)
 	require.Contains(t, content, `2: {Nested: `)
 	require.Contains(t, content, "Some(reflect.TypeFor[*B]())")
 
 	// B: y capped.
-	require.Contains(t, content, "MustRegister[*B](wireguard.Schema{")
+	require.Contains(t, content, "MustRegister[*B](protoutils.Schema{")
 	require.Contains(t, content, `1: {MaxCount: 10}`)
 }
 
@@ -404,7 +404,7 @@ func TestPlugin_EmitsSizeRules(t *testing.T) {
 	require.NotEmpty(t, content)
 	require.Contains(t, content, `1: {MaxSize: 8, MaxTotalSize: 11}`)
 	require.Contains(t, content, `2: {Nested: `)
-	require.Contains(t, content, "MustRegister[*B](wireguard.Schema{")
+	require.Contains(t, content, "MustRegister[*B](protoutils.Schema{")
 	require.Contains(t, content, `1: {MaxSize: 4}`)
 }
 
@@ -488,7 +488,7 @@ func TestPlugin_CrossFileReference(t *testing.T) {
 	require.Contains(t, contentA, `"github.com/example/testb"`)
 	require.Contains(t, contentA, "reflect.TypeFor[*testb.B]()")
 	// b.wireguard.go registers B.
-	require.Contains(t, contentB, "MustRegister[*B](wireguard.Schema{")
+	require.Contains(t, contentB, "MustRegister[*B](protoutils.Schema{")
 	require.Contains(t, contentB, `1: {MaxCount: 3}`)
 }
 

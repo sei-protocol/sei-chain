@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
@@ -20,12 +20,12 @@ func TestWiring_DataChannel(t *testing.T) {
 			LastCommit: commitWith(maxCommitSignatures + 1),
 		}},
 	}}
-	require.Error(t, wireguard.Scan[*tmcons.Message](marshal(t, msg)),
-		"wireguard.Scan[*consensus.Message] failed to reject an over-cap last_commit")
+	require.Error(t, protoutils.Scan[*tmcons.Message](marshal(t, msg)),
+		"protoutils.Scan[*consensus.Message] failed to reject an over-cap last_commit")
 }
 
 // TestWiring_OtherChannelsAreNoOp documents that State, Vote, and VoteSet
-// messages don't reach a Commit path, so wireguard.Scan is a no-op for them.
+// messages don't reach a Commit path, so protoutils.Scan is a no-op for them.
 func TestWiring_OtherChannelsAreNoOp(t *testing.T) {
 	cases := []struct {
 		name string
@@ -37,14 +37,14 @@ func TestWiring_OtherChannelsAreNoOp(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(strings.ReplaceAll(c.name, ".", "_"), func(t *testing.T) {
-			require.NoError(t, wireguard.Scan[*tmcons.Message](marshal(t, c.msg)),
-				"consensus %s message should be a no-op for wireguard.Scan", c.name)
+			require.NoError(t, protoutils.Scan[*tmcons.Message](marshal(t, c.msg)),
+				"consensus %s message should be a no-op for protoutils.Scan", c.name)
 		})
 	}
 }
 
 // TestWiring_AssembledBlock verifies that the consensus state's block-parts
-// reassembly site calls wireguard.Scan[*tmproto.Block] before Unmarshal. The call
+// reassembly site calls protoutils.Scan[*tmproto.Block] before Unmarshal. The call
 // lives inside an unexported method on *State that needs a fully-set-up
 // state to exercise, so this is a source-file grep — it catches the
 // regression where someone removes or renames the call, which is the
@@ -53,6 +53,6 @@ func TestWiring_OtherChannelsAreNoOp(t *testing.T) {
 func TestWiring_AssembledBlock(t *testing.T) {
 	bz, err := os.ReadFile("state.go")
 	require.NoError(t, err, "could not read consensus/state.go to verify wiring")
-	require.Contains(t, string(bz), "wireguard.Scan[*tmproto.Block]",
-		"consensus state.go does not reference wireguard.Scan[*tmproto.Block]; the block-parts reassembly site lost its wireguard check")
+	require.Contains(t, string(bz), "protoutils.Scan[*tmproto.Block]",
+		"consensus state.go does not reference protoutils.Scan[*tmproto.Block]; the block-parts reassembly site lost its wireguard check")
 }

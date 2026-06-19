@@ -1,7 +1,6 @@
 package protoutils
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"google.golang.org/protobuf/proto"
 )
@@ -29,7 +28,7 @@ func Marshal[T Message](t T) []byte {
 
 func Unmarshal[T Message](bytes []byte) (T, error) {
 	t := New[T]()
-	if err := wireguard.Scan[T](bytes); err != nil {
+	if err := Scan[T](bytes); err != nil {
 		return utils.Zero[T](), err
 	}
 	err := proto.Unmarshal(bytes, t)

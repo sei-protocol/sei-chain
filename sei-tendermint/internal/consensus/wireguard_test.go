@@ -6,7 +6,7 @@ import (
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -54,29 +54,29 @@ func consensusProposalMessage(lastCommit *tmproto.Commit, evidenceCommits ...*tm
 }
 
 func TestSchemaForMessage_AcceptsLastCommitAtCap(t *testing.T) {
-	require.NoError(t, wireguard.Scan[*tmcons.Message](marshal(t,
+	require.NoError(t, protoutils.Scan[*tmcons.Message](marshal(t,
 		consensusProposalMessage(commitWith(maxCommitSignatures)))))
 }
 
 func TestSchemaForMessage_RejectsLastCommitOverCap(t *testing.T) {
-	require.Error(t, wireguard.Scan[*tmcons.Message](marshal(t,
+	require.Error(t, protoutils.Scan[*tmcons.Message](marshal(t,
 		consensusProposalMessage(commitWith(maxCommitSignatures+1)))))
 }
 
 func TestSchemaForMessage_RejectsEvidenceOverCap(t *testing.T) {
-	require.Error(t, wireguard.Scan[*tmcons.Message](marshal(t,
+	require.Error(t, protoutils.Scan[*tmcons.Message](marshal(t,
 		consensusProposalMessage(nil, commitWith(maxCommitSignatures+1)))))
 }
 
 func TestSchemaForMessage_LastCommitAndEvidenceHaveSeparateBudgets(t *testing.T) {
 	half := maxCommitSignatures/2 + 1
-	require.NoError(t, wireguard.Scan[*tmcons.Message](marshal(t,
+	require.NoError(t, protoutils.Scan[*tmcons.Message](marshal(t,
 		consensusProposalMessage(commitWith(half), commitWith(half)))))
 }
 
 func TestSchemaForMessage_EvidenceCommitsHaveSeparateBudgets(t *testing.T) {
 	half := maxCommitSignatures/2 + 1
-	require.NoError(t, wireguard.Scan[*tmcons.Message](marshal(t,
+	require.NoError(t, protoutils.Scan[*tmcons.Message](marshal(t,
 		consensusProposalMessage(nil, commitWith(half), commitWith(half)))))
 }
 
@@ -87,5 +87,5 @@ func TestSchemaForMessage_PassesNonProposal(t *testing.T) {
 			Part: tmproto.Part{Index: 0, Bytes: []byte{1, 2, 3}},
 		},
 	}}
-	require.NoError(t, wireguard.Scan[*tmcons.Message](marshal(t, msg)))
+	require.NoError(t, protoutils.Scan[*tmcons.Message](marshal(t, msg)))
 }

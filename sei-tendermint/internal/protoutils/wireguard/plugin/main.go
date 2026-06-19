@@ -55,7 +55,7 @@ func main() {
 	protogen.Options{ParamFunc: flags.Set}.Run(run)
 }
 
-const wireguardRuntime = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
+const wireguardRuntime = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 const utilsPkg = "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 
 type wireguardExts struct {
