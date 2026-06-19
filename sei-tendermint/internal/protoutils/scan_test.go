@@ -11,27 +11,34 @@ import (
 
 func TestScan(t *testing.T) {
 	t.Parallel()
-
 	rng := utils.TestRng()
-	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-	randomString := func(n int) string {
-		b := make([]byte, n)
-		for i := range b {
-			b[i] = letters[rng.Intn(len(letters))]
+	genBytes := func(rng utils.Rng, sizes ...int) [][]byte {
+		items := make([][]byte, len(sizes))
+		for i, size := range sizes {
+			items[i] = utils.GenBytes(rng, size)
 		}
-		return string(b)
+		return items
 	}
-	randomBytes := func(n int) []byte {
-		return utils.GenBytes(rng, n)
+	genStrings := func(rng utils.Rng, sizes ...int) []string {
+		items := make([]string, len(sizes))
+		for i, size := range sizes {
+			items[i] = utils.GenString(rng, size)
+		}
+		return items
 	}
-	randomSized := func() *pb.Sized {
-		return &pb.Sized{A: rng.Uint64()}
+	genSized := func(rng utils.Rng) *pb.Sized { return &pb.Sized{A: rng.Uint64()} }
+	genNotSized := func(rng utils.Rng, payloadSize int) *pb.NotSized {
+		return &pb.NotSized{LargeField: utils.GenBytes(rng, payloadSize)}
 	}
-	randomNotSized := func(payloadSize int) *pb.NotSized {
-		return &pb.NotSized{LargeField: randomBytes(payloadSize)}
+	genNotSizedSlice := func(rng utils.Rng, sizes ...int) []*pb.NotSized {
+		a := make([]*pb.NotSized, len(sizes))
+		for i := range a {
+			a[i] = genNotSized(rng, sizes[i])
+		}
+		return a
 	}
-	randomSizedOk := func() *pb.SizedOk {
+	genSizedOk := func(rng utils.Rng) *pb.SizedOk {
 		return &pb.SizedOk{
 			U64:                 rng.Uint64(),
 			I64:                 int64(rng.Uint64()),
@@ -39,55 +46,39 @@ func TestScan(t *testing.T) {
 			F64:                 rng.Uint64(),
 			F:                   float32(rng.Intn(1<<16)) / 37,
 			D:                   float64(rng.Uint64()) / 37,
-			S:                   randomSized(),
-			BSize:               randomBytes(5),
-			SSize:               randomString(5),
-			NSize:               randomNotSized(18),
-			U64Count:            []uint64{rng.Uint64(), rng.Uint64(), rng.Uint64(), rng.Uint64()},
-			I64Count:            []int64{int64(rng.Uint64()), int64(rng.Uint64()), int64(rng.Uint64()), int64(rng.Uint64())},
-			S64Count:            []int64{int64(rng.Uint64()), int64(rng.Uint64()), int64(rng.Uint64()), int64(rng.Uint64())},
-			F64Count:            []uint64{rng.Uint64(), rng.Uint64(), rng.Uint64(), rng.Uint64()},
+			S:                   genSized(rng),
+			BSize:               utils.GenBytes(rng, 5),
+			SSize:               utils.GenString(rng, 5),
+			NSize:               genNotSized(rng, 18),
+			U64Count:            utils.GenSliceN(rng, 4, func(rng utils.Rng) uint64 { return rng.Uint64() }),
+			I64Count:            utils.GenSliceN(rng, 4, func(rng utils.Rng) int64 { return int64(rng.Uint64()) }),
+			S64Count:            utils.GenSliceN(rng, 4, func(rng utils.Rng) int64 { return int64(rng.Uint64()) }),
+			F64Count:            utils.GenSliceN(rng, 4, func(rng utils.Rng) uint64 { return rng.Uint64() }),
 			FCount:              []float32{1.25, 2.5, 3.75, 4.125},
 			DCount:              []float64{1.5, 2.25, 3.125, 4.0625},
-			SCount:              []*pb.Sized{randomSized(), randomSized(), randomSized(), randomSized()},
-			BCountSize:          [][]byte{randomBytes(5), randomBytes(5), randomBytes(5)},
-			SCountSize:          []string{randomString(5), randomString(5), randomString(5)},
-			NCountSize:          []*pb.NotSized{randomNotSized(3), randomNotSized(3), randomNotSized(3)},
-			BCountTotalSize:     [][]byte{randomBytes(3), randomBytes(3), randomBytes(4)},
-			SCountTotalSize:     []string{randomString(3), randomString(3), randomString(4)},
-			NCountTotalSize:     []*pb.NotSized{randomNotSized(1), randomNotSized(1), randomNotSized(2)},
-			BCountSizeTotalSize: [][]byte{randomBytes(3), randomBytes(2), randomBytes(5)},
-			SCountSizeTotalSize: []string{randomString(3), randomString(2), randomString(5)},
-			NCountSizeTotalSize: []*pb.NotSized{randomNotSized(1), randomNotSized(2), randomNotSized(1)},
-			O:                   &pb.SizedOk_ONSize{ONSize: randomNotSized(18)},
+			SCount:              utils.GenSliceN(rng, 4, genSized),
+			BCountSize:          genBytes(rng, 5, 5, 5),
+			SCountSize:          genStrings(rng, 5, 5, 5),
+			NCountSize:          genNotSizedSlice(rng, 3, 3, 3),
+			BCountTotalSize:     genBytes(rng, 3, 3, 4),
+			SCountTotalSize:     genStrings(rng, 3, 3, 4),
+			NCountTotalSize:     genNotSizedSlice(rng, 1, 1, 2),
+			BCountSizeTotalSize: genBytes(rng, 3, 2, 5),
+			SCountSizeTotalSize: genStrings(rng, 3, 2, 5),
+			NCountSizeTotalSize: genNotSizedSlice(rng, 1, 2, 1),
+			O:                   &pb.SizedOk_ONSize{ONSize: genNotSized(rng, 18)},
 		}
 	}
 
-	baseSizedOk := randomSizedOk()
+	baseSizedOk := genSizedOk(rng)
 	baseOuterSized := &pb.OuterSized{
 		A: protoutils.Clone(baseSizedOk),
-		B: []*pb.SizedOk{
-			randomSizedOk(),
-			randomSizedOk(),
-			randomSizedOk(),
-			randomSizedOk(),
-			randomSizedOk(),
-			randomSizedOk(),
-			randomSizedOk(),
-		},
+		B: utils.GenSliceN(rng, 7, func(rng utils.Rng) *pb.SizedOk { return genSizedOk(rng) }),
 	}
 	baseOuterNotSized := &pb.OuterNotSized{
 		A: protoutils.Clone(baseSizedOk),
-		B: []*pb.SizedOk{
-			randomSizedOk(),
-			randomSizedOk(),
-			randomSizedOk(),
-			randomSizedOk(),
-			randomSizedOk(),
-			randomSizedOk(),
-			randomSizedOk(),
-		},
-		C: randomNotSized(256),
+		B: utils.GenSliceN(rng, 7, func(rng utils.Rng) *pb.SizedOk { return genSizedOk(rng) }),
+		C: genNotSized(rng, 256),
 	}
 
 	scanSizedOk := func(msg *pb.SizedOk) error {
@@ -100,214 +91,128 @@ func TestScan(t *testing.T) {
 		return protoutils.Scan[*pb.OuterNotSized](protoutils.Marshal(msg))
 	}
 
+	cloneSizedOkAndApply := func(msg *pb.SizedOk, mutators []func(*pb.SizedOk)) []*pb.SizedOk {
+		var variants []*pb.SizedOk
+		for _, mutate := range mutators {
+			clone := protoutils.Clone(msg)
+			mutate(clone)
+			variants = append(variants, clone)
+		}
+		return variants
+	}
+
+	sizedOkMalformedVariants := func(msg *pb.SizedOk) []*pb.SizedOk {
+		return cloneSizedOkAndApply(msg, []func(*pb.SizedOk){
+			func(msg *pb.SizedOk) { msg.BSize = utils.GenBytes(rng, 6) },
+			func(msg *pb.SizedOk) { msg.SSize = utils.GenString(rng, 6) },
+			func(msg *pb.SizedOk) { msg.NSize = genNotSized(rng, 19) },
+			func(msg *pb.SizedOk) { msg.U64Count = append(msg.U64Count, rng.Uint64()) },
+			func(msg *pb.SizedOk) { msg.I64Count = append(msg.I64Count, int64(rng.Uint64())) },
+			func(msg *pb.SizedOk) { msg.S64Count = append(msg.S64Count, int64(rng.Uint64())) },
+			func(msg *pb.SizedOk) { msg.F64Count = append(msg.F64Count, rng.Uint64()) },
+			func(msg *pb.SizedOk) { msg.FCount = append(msg.FCount, 5.25) },
+			func(msg *pb.SizedOk) { msg.DCount = append(msg.DCount, 5.125) },
+			func(msg *pb.SizedOk) { msg.SCount = append(msg.SCount, genSized(rng)) },
+			func(msg *pb.SizedOk) { msg.BCountSize = genBytes(rng, 1, 1, 1, 1) },
+			func(msg *pb.SizedOk) { msg.BCountSize[0] = utils.GenBytes(rng, 6) },
+			func(msg *pb.SizedOk) { msg.SCountSize = genStrings(rng, 1, 1, 1, 1) },
+			func(msg *pb.SizedOk) { msg.SCountSize[0] = utils.GenString(rng, 6) },
+			func(msg *pb.SizedOk) { msg.NCountSize = genNotSizedSlice(rng,0,0,0,0) },
+			func(msg *pb.SizedOk) { msg.NCountSize[0] = genNotSized(rng, 4) },
+			func(msg *pb.SizedOk) { msg.BCountTotalSize = genBytes(rng, 3, 3, 2, 2) },
+			func(msg *pb.SizedOk) { msg.BCountTotalSize = genBytes(rng, 3, 3, 5) },
+			func(msg *pb.SizedOk) { msg.SCountTotalSize = genStrings(rng, 3, 3, 2, 2) },
+			func(msg *pb.SizedOk) { msg.SCountTotalSize = genStrings(rng, 3, 3, 5) },
+			func(msg *pb.SizedOk) { msg.NCountTotalSize = genNotSizedSlice(rng,0,0,0,0) },
+			func(msg *pb.SizedOk) { msg.NCountTotalSize = genNotSizedSlice(rng, 1, 1, 3) },
+			func(msg *pb.SizedOk) { msg.BCountSizeTotalSize = genBytes(rng, 3, 3, 2, 2) },
+			func(msg *pb.SizedOk) { msg.BCountSizeTotalSize = genBytes(rng, 6, 2, 2) },
+			func(msg *pb.SizedOk) { msg.BCountSizeTotalSize = genBytes(rng, 5, 5, 1) },
+			func(msg *pb.SizedOk) { msg.SCountSizeTotalSize = genStrings(rng, 3, 3, 2, 2) },
+			func(msg *pb.SizedOk) { msg.SCountSizeTotalSize = genStrings(rng, 6, 2, 2) },
+			func(msg *pb.SizedOk) { msg.SCountSizeTotalSize = genStrings(rng, 5, 5, 1) },
+			func(msg *pb.SizedOk) { msg.NCountSizeTotalSize = genNotSizedSlice(rng, 0,0,0,0) },
+			func(msg *pb.SizedOk) { msg.NCountSizeTotalSize = genNotSizedSlice(rng, 4,0,0) },
+			func(msg *pb.SizedOk) { msg.NCountSizeTotalSize = genNotSizedSlice(rng, 3,3,1) },
+			func(msg *pb.SizedOk) { msg.O = &pb.SizedOk_ONSize{ONSize: genNotSized(rng, 19)} },
+		})
+	}
+
+	outerSizedMalformedVariants := func(msg *pb.OuterSized) []*pb.OuterSized {
+		var variants []*pb.OuterSized
+		for _, malformed := range sizedOkMalformedVariants(msg.A) {
+			clone := protoutils.Clone(msg)
+			clone.A = malformed
+			variants = append(variants, clone)
+		}
+		for i := range msg.B {
+			for _, malformed := range sizedOkMalformedVariants(msg.B[i]) {
+				clone := protoutils.Clone(msg)
+				clone.B[i] = malformed
+				variants = append(variants, clone)
+			}
+		}
+		clone := protoutils.Clone(msg)
+		clone.B = append(clone.B, genSizedOk(rng))
+		variants = append(variants, clone)
+		return variants
+	}
+
+	outerNotSizedMalformedVariants := func(msg *pb.OuterNotSized) []*pb.OuterNotSized {
+		var variants []*pb.OuterNotSized
+		for _, malformed := range sizedOkMalformedVariants(msg.A) {
+			clone := protoutils.Clone(msg)
+			clone.A = malformed
+			variants = append(variants, clone)
+		}
+		for i := range msg.B {
+			for _, malformed := range sizedOkMalformedVariants(msg.B[i]) {
+				clone := protoutils.Clone(msg)
+				clone.B[i] = malformed
+				variants = append(variants, clone)
+			}
+		}
+		clone := protoutils.Clone(msg)
+		clone.B = append(clone.B, genSizedOk(rng))
+		variants = append(variants, clone)
+		return variants
+	}
+
 	type testCase struct {
-		name    string
 		wantErr bool
 		run     func() error
 	}
 
 	cases := []testCase{
-		{name: "SizedOk valid", run: func() error { return scanSizedOk(protoutils.Clone(baseSizedOk)) }},
-		{name: "OuterSized valid", run: func() error { return scanOuterSized(protoutils.Clone(baseOuterSized)) }},
-		{name: "OuterNotSized valid", run: func() error { return scanOuterNotSized(protoutils.Clone(baseOuterNotSized)) }},
-		{name: "SizedOk field 8 max_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.BSize = randomBytes(6)
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 9 max_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.SSize = randomString(6)
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 10 max_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.NSize = randomNotSized(19)
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 11 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.U64Count = append(msg.U64Count, rng.Uint64())
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 12 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.I64Count = append(msg.I64Count, int64(rng.Uint64()))
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 13 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.S64Count = append(msg.S64Count, int64(rng.Uint64()))
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 14 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.F64Count = append(msg.F64Count, rng.Uint64())
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 15 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.FCount = append(msg.FCount, 5.25)
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 16 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.DCount = append(msg.DCount, 5.125)
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 17 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.SCount = append(msg.SCount, randomSized())
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 18 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.BCountSize = [][]byte{randomBytes(1), randomBytes(1), randomBytes(1), randomBytes(1)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 18 max_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.BCountSize[0] = randomBytes(6)
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 19 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.SCountSize = []string{randomString(1), randomString(1), randomString(1), randomString(1)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 19 max_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.SCountSize[0] = randomString(6)
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 20 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.NCountSize = []*pb.NotSized{{}, {}, {}, {}}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 20 max_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.NCountSize[0] = randomNotSized(4)
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 21 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.BCountTotalSize = [][]byte{randomBytes(3), randomBytes(3), randomBytes(2), randomBytes(2)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 21 max_total_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.BCountTotalSize = [][]byte{randomBytes(3), randomBytes(3), randomBytes(5)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 22 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.SCountTotalSize = []string{randomString(3), randomString(3), randomString(2), randomString(2)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 22 max_total_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.SCountTotalSize = []string{randomString(3), randomString(3), randomString(5)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 23 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.NCountTotalSize = []*pb.NotSized{{}, {}, {}, {}}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 23 max_total_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.NCountTotalSize = []*pb.NotSized{randomNotSized(1), randomNotSized(1), randomNotSized(3)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 24 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.BCountSizeTotalSize = [][]byte{randomBytes(3), randomBytes(3), randomBytes(2), randomBytes(2)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 24 max_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.BCountSizeTotalSize = [][]byte{randomBytes(6), randomBytes(2), randomBytes(2)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 24 max_total_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.BCountSizeTotalSize = [][]byte{randomBytes(5), randomBytes(5), randomBytes(1)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 25 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.SCountSizeTotalSize = []string{randomString(3), randomString(3), randomString(2), randomString(2)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 25 max_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.SCountSizeTotalSize = []string{randomString(6), randomString(2), randomString(2)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 25 max_total_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.SCountSizeTotalSize = []string{randomString(5), randomString(5), randomString(1)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 26 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.NCountSizeTotalSize = []*pb.NotSized{{}, {}, {}, {}}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 26 max_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.NCountSizeTotalSize = []*pb.NotSized{randomNotSized(4), {}, {}}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 26 max_total_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.NCountSizeTotalSize = []*pb.NotSized{randomNotSized(3), randomNotSized(3), randomNotSized(1)}
-			return scanSizedOk(msg)
-		}},
-		{name: "SizedOk field 28 max_size", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseSizedOk)
-			msg.O = &pb.SizedOk_ONSize{ONSize: randomNotSized(19)}
-			return scanSizedOk(msg)
-		}},
-		{name: "OuterSized field 1 nested", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseOuterSized)
-			msg.A.BSize = randomBytes(6)
-			return scanOuterSized(msg)
-		}},
-		{name: "OuterSized field 2 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseOuterSized)
-			msg.B = append(msg.B, randomSizedOk())
-			return scanOuterSized(msg)
-		}},
-		{name: "OuterSized field 2 nested", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseOuterSized)
-			msg.B[0].BSize = randomBytes(6)
-			return scanOuterSized(msg)
-		}},
-		{name: "OuterNotSized field 1 nested", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseOuterNotSized)
-			msg.A.BSize = randomBytes(6)
-			return scanOuterNotSized(msg)
-		}},
-		{name: "OuterNotSized field 2 max_count", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseOuterNotSized)
-			msg.B = append(msg.B, randomSizedOk())
-			return scanOuterNotSized(msg)
-		}},
-		{name: "OuterNotSized field 2 nested", wantErr: true, run: func() error {
-			msg := protoutils.Clone(baseOuterNotSized)
-			msg.B[0].BSize = randomBytes(6)
-			return scanOuterNotSized(msg)
-		}},
+		{run: func() error { return scanSizedOk(protoutils.Clone(baseSizedOk)) }},
+		{run: func() error { return scanOuterSized(protoutils.Clone(baseOuterSized)) }},
+		{run: func() error { return scanOuterNotSized(protoutils.Clone(baseOuterNotSized)) }},
+	}
+	for _, malformed := range sizedOkMalformedVariants(baseSizedOk) {
+		cases = append(cases, testCase{
+			wantErr: true,
+			run:     func() error { return scanSizedOk(malformed) },
+		})
+	}
+	for _, malformed := range outerSizedMalformedVariants(baseOuterSized) {
+		cases = append(cases, testCase{
+			wantErr: true,
+			run:     func() error { return scanOuterSized(malformed) },
+		})
+	}
+	for _, malformed := range outerNotSizedMalformedVariants(baseOuterNotSized) {
+		cases = append(cases, testCase{
+			wantErr: true,
+			run:     func() error { return scanOuterNotSized(malformed) },
+		})
 	}
 
 	for _, tc := range cases {
 		err := tc.run()
 		if tc.wantErr {
-			require.Error(t, err, tc.name)
+			require.Error(t, err)
 		} else {
-			require.NoError(t, err, tc.name)
+			require.NoError(t, err)
 		}
 	}
 }
