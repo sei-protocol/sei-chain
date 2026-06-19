@@ -116,7 +116,6 @@ func runPlugin(t *testing.T, files []*descriptorpb.FileDescriptorProto, fileToGe
 	// ParamFunc for each `key=value` in Parameter; the bound vars below
 	// are updated through the existing flags FlagSet.
 	*moduleFlag = ""
-	*strictFlag = false
 	plug, err := protogen.Options{ParamFunc: flags.Set}.New(req)
 	if err != nil {
 		return nil, err
@@ -249,51 +248,6 @@ func TestPlugin_NoDescentWhenTargetHasNoSchema(t *testing.T) {
 
 	// Nothing in the closure → no file emitted at all.
 	require.NotContains(t, keys(out), "test/test.wireguard.go", "no Schema should be emitted when no annotations reach")
-}
-
-// TestPlugin_StrictModeRejectsUnannotatedRepeated verifies that --strict
-// errors at codegen when a message in the closure has a repeated field
-// missing (wireguard.max_count).
-func TestPlugin_StrictModeRejectsUnannotatedRepeated(t *testing.T) {
-	msgA := &descriptorpb.DescriptorProto{
-		Name: proto.String("A"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			{
-				Name:    proto.String("field_capped"),
-				Number:  proto.Int32(1),
-				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
-				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-				Options: buildFieldOptions(map[protowire.Number]uint32{maxCountFieldNum: 5}),
-			},
-			{
-				// repeated but no max_count — strict mode should reject.
-				Name:   proto.String("field_uncapped"),
-				Number: proto.Int32(2),
-				Type:   descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
-				Label:  descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-			},
-		},
-	}
-	testFile := &descriptorpb.FileDescriptorProto{
-		Name:        proto.String("test.proto"),
-		Package:     proto.String("test"),
-		Syntax:      proto.String("proto3"),
-		Dependency:  []string{"wireguard/wireguard.proto"},
-		MessageType: []*descriptorpb.DescriptorProto{msgA},
-		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/example/test;testpb"),
-		},
-	}
-	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
-
-	// Without --strict: succeeds.
-	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
-	require.NoError(t, err)
-
-	// With --strict: errors.
-	_, err = runPlugin(t, files, "test.proto", "module=github.com/example,strict=true")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "field_uncapped")
 }
 
 // TestPlugin_OneofDescentUsesConcreteFieldNumber verifies that a oneof
@@ -515,7 +469,6 @@ func TestPlugin_CrossFileReference(t *testing.T) {
 		Parameter:      proto.String("module=github.com/example"),
 	}
 	*moduleFlag = ""
-	*strictFlag = false
 	plug, err := protogen.Options{ParamFunc: flags.Set}.New(req)
 	require.NoError(t, err)
 	require.NoError(t, run(plug))

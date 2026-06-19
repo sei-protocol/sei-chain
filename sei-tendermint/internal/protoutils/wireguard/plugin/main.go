@@ -3,22 +3,27 @@
 // annotated message type. The output sits next to the .pb.go files as
 // `<name>.wireguard.go`.
 //
-// Supported annotations:
+// Supported message annotations:
 //
-//	(wireguard.sized) = true      // require structurally bounded message size
-//	(wireguard.max_count) = N      // cap on a repeated field's occurrences
+//	(wireguard.sized) = true       // require structurally bounded message size
+//
+// Supported field annotations:
+//	(wireguard.max_count) = N      // cap on a repeated field's instances per message
 //	(wireguard.max_size) = N       // cap on one string/bytes/message instance
-//	(wireguard.max_total_size) = N // cap on summed bytes across field instances
+//	(wireguard.max_total_size) = N // cap on summed bytes across field instances per message
 //
-// Descent into nested message fields is automatic: if a field's target type
-// has a Schema (i.e. has annotations somewhere in its reachable subtree),
-// the parent's rule descends into it. Fields whose target type has no
-// annotations are walked past.
+// In particular a sized message needs to have
+// * max_count on every repeated int/sized message field
+// * max_size on every singular bytes/string/non-sized message field
+// * max_count AND (max_size OR max_total_size) on every repeated bytes/string/non-sized message field
+// Note that setting max_count and max_size effectively also bounds the total size by max_size * max_count,
+// but you can also set all: max_count, max_size, max_total_size, in which case the total size is bounded
+// by min(max_total_size,max_size * max_count).
 //
-// Strict mode (`--strict`): every reachable repeated field must carry
-// (wireguard.max_count); a missing annotation is a codegen error. Default
-// off so this plugin can land before the full audit of repeated fields
-// across the proto tree.
+// Annotations represent constraints on the field sizes.
+// Scan[T] traverses the binary encoded proto message checking that the constraints are satisfied.
+// This is useful for validating potentially malicious inputs BEFORE decoding the message - decoded message
+// might be significantly larger than the encoded message, which in turn might cause an OOM.
 //
 // TODO: dedup with sei-tendermint/internal/hashable/plugin in a later PR.
 package main
@@ -43,19 +48,14 @@ import (
 
 var flags flag.FlagSet
 
-var (
-	moduleFlag = flags.String("module", "", "prefix to strip from the absolute generated file path. Same as in protoc-gen-go")
-	strictFlag = flags.Bool("strict", false, "every reachable repeated field must carry (wireguard.max_count); a missing annotation is a codegen error")
-)
+var moduleFlag = flags.String("module", "", "prefix to strip from the absolute generated file path. Same as in protoc-gen-go")
 
 func main() {
 	protogen.Options{ParamFunc: flags.Set}.Run(run)
 }
 
-const (
-	wireguardRuntime = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
-	utilsPkg         = "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-)
+const wireguardRuntime = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
+const utilsPkg         = "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 
 type wireguardExts struct {
 	sized        protoreflect.ExtensionType
@@ -158,12 +158,6 @@ func run(p *protogen.Plugin) error {
 	}
 	if err := validateSizedMessages(byName, exts); err != nil {
 		return err
-	}
-
-	if *strictFlag {
-		if err := strictCheck(byName, inSchema, exts.maxCount); err != nil {
-			return err
-		}
 	}
 
 	// Index every protogen.Message reachable from the request by FullName.
@@ -308,24 +302,6 @@ func hasWireguardRule(d protoreflect.MessageDescriptor, exts wireguardExts) bool
 		}
 	}
 	return false
-}
-
-func strictCheck(byName map[protoreflect.FullName]protoreflect.MessageDescriptor, inSchema map[protoreflect.FullName]bool, ext protoreflect.ExtensionType) error {
-	for fullName := range inSchema {
-		d := byName[fullName]
-		fields := d.Fields()
-		for i := range fields.Len() {
-			f := fields.Get(i)
-			if !f.IsList() {
-				continue
-			}
-			opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
-			if !opts.Has(ext.TypeDescriptor()) {
-				return fmt.Errorf("strict: %s.%s is repeated but missing (wireguard.max_count)", d.FullName(), f.Name())
-			}
-		}
-	}
-	return nil
 }
 
 // emitCtx is the read-only context threaded into per-file/per-message
