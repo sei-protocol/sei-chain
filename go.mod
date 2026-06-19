@@ -113,6 +113,7 @@ require (
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
+	github.com/bufbuild/protocompile v0.14.1 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect

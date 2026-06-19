@@ -2,12 +2,12 @@ package protoutils
 
 import (
 	"reflect"
-	
-	"google.golang.org/protobuf/proto"
+
 	gogoproto "github.com/gogo/protobuf/proto"
-	
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // Message is comparable proto.Message.
@@ -44,13 +44,13 @@ func Unmarshal[T Message](bytes []byte) (T, error) {
 // success, an error on malformed wire bytes or a rule violation. If T has no
 // registered schema, Scan is a no-op.
 func Scan[T any](bz []byte) error {
-	return runtime.Scan(reflect.TypeFor[T](),bz)
+	return runtime.Scan(reflect.TypeFor[T](), bz)
 }
 
 // ScanAny walks bz once, applying the schema registered for msg's dynamic
 // type. A nil msg or a value with no registered schema is a no-op.
 func ScanAny(bz []byte, msg gogoproto.Message) error {
-	return runtime.Scan(reflect.TypeOf(msg),bz)
+	return runtime.Scan(reflect.TypeOf(msg), bz)
 }
 
 // Clone clones a proto.Message object.

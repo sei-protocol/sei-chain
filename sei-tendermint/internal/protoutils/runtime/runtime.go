@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"reflect"
 
-	"google.golang.org/protobuf/encoding/protowire"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 // Number re-exports protowire.Number so generated schemas do not need to
