@@ -13,6 +13,7 @@ require (
 	github.com/benbjohnson/immutable v0.4.3
 	github.com/bgentry/speakeasy v0.2.0
 	github.com/btcsuite/btcd/btcec/v2 v2.3.5
+	github.com/bufbuild/protocompile v0.14.1
 	github.com/cockroachdb/pebble/v2 v2.1.3
 	github.com/coinbase/rosetta-sdk-go v0.7.0
 	github.com/confio/ics23/go v0.9.0
@@ -113,7 +114,6 @@ require (
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
-	github.com/bufbuild/protocompile v0.14.1 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
