@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard/wgtest"
 	ssproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
@@ -18,11 +17,11 @@ func TestWiring_LightBlockChannel(t *testing.T) {
 	msg := &ssproto.Message{Sum: &ssproto.Message_LightBlockResponse{
 		LightBlockResponse: &ssproto.LightBlockResponse{
 			LightBlock: &tmproto.LightBlock{
-				SignedHeader: &tmproto.SignedHeader{Commit: wgtest.CommitWith(wgtest.MaxCommitSignatures + 1)},
+				SignedHeader: &tmproto.SignedHeader{Commit: commitWith(maxCommitSignatures + 1)},
 			},
 		},
 	}}
-	require.Error(t, wireguard.Scan[*ssproto.Message](wgtest.Marshal(t, msg)),
+	require.Error(t, wireguard.Scan[*ssproto.Message](marshal(t, msg)),
 		"wireguard.Scan[*statesync.Message] failed to reject an over-cap Commit signatures list")
 }
 
@@ -39,7 +38,7 @@ func TestWiring_OtherChannelsAreNoOp(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(strings.ReplaceAll(c.name, ".", "_"), func(t *testing.T) {
-			require.NoError(t, wireguard.Scan[*ssproto.Message](wgtest.Marshal(t, c.msg)),
+			require.NoError(t, wireguard.Scan[*ssproto.Message](marshal(t, c.msg)),
 				"statesync %s message should be a no-op for wireguard.Scan", c.name)
 		})
 	}

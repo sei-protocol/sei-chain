@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard/wgtest"
 	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
@@ -18,10 +17,10 @@ import (
 func TestWiring_DataChannel(t *testing.T) {
 	msg := &tmcons.Message{Sum: &tmcons.Message_Proposal{
 		Proposal: &tmcons.Proposal{Proposal: tmproto.Proposal{
-			LastCommit: wgtest.CommitWith(wgtest.MaxCommitSignatures + 1),
+			LastCommit: commitWith(maxCommitSignatures + 1),
 		}},
 	}}
-	require.Error(t, wireguard.Scan[*tmcons.Message](wgtest.Marshal(t, msg)),
+	require.Error(t, wireguard.Scan[*tmcons.Message](marshal(t, msg)),
 		"wireguard.Scan[*consensus.Message] failed to reject an over-cap last_commit")
 }
 
@@ -38,7 +37,7 @@ func TestWiring_OtherChannelsAreNoOp(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(strings.ReplaceAll(c.name, ".", "_"), func(t *testing.T) {
-			require.NoError(t, wireguard.Scan[*tmcons.Message](wgtest.Marshal(t, c.msg)),
+			require.NoError(t, wireguard.Scan[*tmcons.Message](marshal(t, c.msg)),
 				"consensus %s message should be a no-op for wireguard.Scan", c.name)
 		})
 	}

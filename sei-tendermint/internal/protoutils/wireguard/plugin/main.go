@@ -8,6 +8,7 @@
 //	(wireguard.sized) = true       // require structurally bounded message size
 //
 // Supported field annotations:
+//
 //	(wireguard.max_count) = N      // cap on a repeated field's instances per message
 //	(wireguard.max_size) = N       // cap on one string/bytes/message instance
 //	(wireguard.max_total_size) = N // cap on summed bytes across field instances per message
@@ -55,7 +56,7 @@ func main() {
 }
 
 const wireguardRuntime = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
-const utilsPkg         = "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+const utilsPkg = "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 
 type wireguardExts struct {
 	sized        protoreflect.ExtensionType
