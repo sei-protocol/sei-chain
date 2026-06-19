@@ -15,7 +15,7 @@ plugins:
   - local:
       - go
       - run
-      - ./sei-tendermint/internal/protoutils/wireguard/plugin
+      - ./sei-tendermint/internal/protoutils/wireguard_plugin
     strategy: all
     out: ./sei-tendermint/internal
     opt: [module=github.com/sei-protocol/sei-chain/sei-tendermint/internal]

@@ -1,17 +1,15 @@
-package protoutils
+package runtime
 
 import (
 	"fmt"
 	"reflect"
 
-	gogoproto "github.com/gogo/protobuf/proto"
 	"google.golang.org/protobuf/encoding/protowire"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// Number re-exports protowire.Number so callers can build Schemas without
-// also importing google.golang.org/protobuf/encoding/protowire directly.
+// Number re-exports protowire.Number so generated schemas do not need to
+// import protowire directly.
 type Number = protowire.Number
 
 // Schema describes the validation applied to a single proto message type.
@@ -52,18 +50,7 @@ func MustRegister[T any](schema Schema) {
 	registry[t] = schema
 }
 
-// Scan walks bz once, applying the schema registered for T. Returns nil on
-// success, an error on malformed wire bytes or a rule violation. If T has no
-// registered schema, Scan is a no-op.
-func Scan[T any](bz []byte) error {
-	return registry[reflect.TypeFor[T]()].scan(bz)
-}
-
-// ScanAny walks bz once, applying the schema registered for msg's dynamic
-// type. A nil msg or a value with no registered schema is a no-op.
-func ScanAny(bz []byte, msg gogoproto.Message) error {
-	return registry[reflect.TypeOf(msg)].scan(bz)
-}
+func Scan(t reflect.Type, bz []byte) error { return registry[t].scan(bz) }
 
 func (s Schema) scan(bz []byte) error {
 	if len(s) == 0 {

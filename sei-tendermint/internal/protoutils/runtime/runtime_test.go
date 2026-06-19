@@ -1,4 +1,4 @@
-package protoutils
+package runtime
 
 import (
 	"testing"
@@ -86,8 +86,7 @@ func TestScan_RejectsTruncatedLengthDelimited(t *testing.T) {
 	bz := protowire.AppendTag(nil, 3, protowire.BytesType)
 	bz = protowire.AppendVarint(bz, 100) // claims 100 bytes that don't follow
 	schema := Schema{3: {MaxCount: 1}}
-	err := schema.scan(bz)
-	require.Error(t, err)
+	require.Error(t, schema.scan(bz))
 }
 
 func TestScan_SkipsNonBytesFields(t *testing.T) {
