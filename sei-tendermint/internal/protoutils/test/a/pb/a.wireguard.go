@@ -3,100 +3,42 @@ package pb
 
 import (
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
-	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/test/b/pb"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	reflect "reflect"
 )
 
 func init() {
-	// Register the wireguard.Schema generated for protoutils.TestonlyCountedLeaf.
-	runtime.MustRegister[*TestonlyCountedLeaf](runtime.Schema{
-		1: {MaxCount: 3},
+	// Register the wireguard.Schema generated for protoutils.SizedOk.
+	runtime.MustRegister[*SizedOk](runtime.Schema{
+		8:  {MaxSize: 5},
+		9:  {MaxSize: 5},
+		10: {MaxSize: 20},
+		11: {MaxCount: 4},
+		12: {MaxCount: 4},
+		13: {MaxCount: 4},
+		14: {MaxCount: 4},
+		15: {MaxCount: 4},
+		16: {MaxCount: 4},
+		17: {MaxCount: 4},
+		18: {MaxCount: 3, MaxSize: 5},
+		19: {MaxCount: 3, MaxSize: 5},
+		20: {MaxCount: 3, MaxSize: 5},
+		21: {MaxCount: 3, MaxTotalSize: 10},
+		22: {MaxCount: 3, MaxTotalSize: 10},
+		23: {MaxCount: 3, MaxTotalSize: 10},
+		25: {MaxSize: 20},
 	})
 
-	// Register the wireguard.Schema generated for protoutils.TestonlySizedLeaf.
-	runtime.MustRegister[*TestonlySizedLeaf](runtime.Schema{
-		1: {MaxTotalSize: 3},
+	// Register the wireguard.Schema generated for protoutils.OuterSized.
+	runtime.MustRegister[*OuterSized](runtime.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*SizedOk]())},
+		2: {MaxCount: 7, Nested: utils.Some(reflect.TypeFor[*SizedOk]())},
 	})
 
-	// Register the wireguard.Schema generated for protoutils.TestonlyOuter.
-	runtime.MustRegister[*TestonlyOuter](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*TestonlyCountedLeaf]())},
-		2: {MaxCount: 5, Nested: utils.Some(reflect.TypeFor[*TestonlyCountedLeaf]())},
-		3: {Nested: utils.Some(reflect.TypeFor[*TestonlySizedLeaf]())},
-		4: {MaxCount: 5, Nested: utils.Some(reflect.TypeFor[*TestonlySizedLeaf]())},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlyMid.
-	runtime.MustRegister[*TestonlyMid](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*TestonlyCountedLeaf]())},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlyRoot.
-	runtime.MustRegister[*TestonlyRoot](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*TestonlyMid]())},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlyLeafA.
-	runtime.MustRegister[*TestonlyLeafA](runtime.Schema{
-		1: {MaxCount: 2},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlyLeafB.
-	runtime.MustRegister[*TestonlyLeafB](runtime.Schema{
-		1: {MaxCount: 2},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlyDistinct.
-	runtime.MustRegister[*TestonlyDistinct](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*TestonlyLeafA]())},
-		2: {Nested: utils.Some(reflect.TypeFor[*TestonlyLeafB]())},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlyOneofInner.
-	runtime.MustRegister[*TestonlyOneofInner](runtime.Schema{
-		1: {MaxCount: 3},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlyOneofOuter.
-	runtime.MustRegister[*TestonlyOneofOuter](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*TestonlyOneofInner]())},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlySizedName.
-	runtime.MustRegister[*TestonlySizedName](runtime.Schema{
-		1: {MaxSize: 4},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlySizedParent.
-	runtime.MustRegister[*TestonlySizedParent](runtime.Schema{
-		1: {MaxSize: 3, MaxTotalSize: 5},
-		2: {Nested: utils.Some(reflect.TypeFor[*TestonlySizedName]())},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlyCrossParent.
-	runtime.MustRegister[*TestonlyCrossParent](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*pb.TestonlyCrossLeaf]())},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlySizedMessageInner.
-	runtime.MustRegister[*TestonlySizedMessageInner](runtime.Schema{
-		1: {MaxSize: 8},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlySizedMessageOuter.
-	runtime.MustRegister[*TestonlySizedMessageOuter](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*TestonlySizedMessageInner]())},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlyRepeatedSizedChildren.
-	runtime.MustRegister[*TestonlyRepeatedSizedChildren](runtime.Schema{
-		1: {MaxCount: 2, MaxTotalSize: 12, Nested: utils.Some(reflect.TypeFor[*TestonlySizedName]())},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.TestonlyOptional.
-	runtime.MustRegister[*TestonlyOptional](runtime.Schema{
-		2: {MaxCount: 5},
+	// Register the wireguard.Schema generated for protoutils.OuterNotSized.
+	runtime.MustRegister[*OuterNotSized](runtime.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*SizedOk]())},
+		2: {MaxCount: 7, Nested: utils.Some(reflect.TypeFor[*SizedOk]())},
 	})
 
 }

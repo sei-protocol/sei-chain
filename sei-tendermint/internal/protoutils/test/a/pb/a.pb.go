@@ -7,7 +7,6 @@
 package pb
 
 import (
-	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/test/b/pb"
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -23,31 +22,27 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type TestonlyMsg struct {
-	state                protoimpl.MessageState    `protogen:"open.v1"`
-	StringValue          string                    `protobuf:"bytes,1,opt,name=string_value,json=stringValue,proto3" json:"string_value,omitempty"`
-	RepeatedValue        []string                  `protobuf:"bytes,2,rep,name=repeated_value,json=repeatedValue,proto3" json:"repeated_value,omitempty"`
-	MapValue             map[string]string         `protobuf:"bytes,3,rep,name=map_value,json=mapValue,proto3" json:"map_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	RepeatedMessageValue []*TestonlyChild          `protobuf:"bytes,4,rep,name=repeated_message_value,json=repeatedMessageValue,proto3" json:"repeated_message_value,omitempty"`
-	MapMessageValue      map[string]*TestonlyChild `protobuf:"bytes,5,rep,name=map_message_value,json=mapMessageValue,proto3" json:"map_message_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+type NotSized struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LargeField    []byte                 `protobuf:"bytes,1,opt,name=large_field,json=largeField,proto3" json:"large_field,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
-func (x *TestonlyMsg) Reset() {
-	*x = TestonlyMsg{}
+func (x *NotSized) Reset() {
+	*x = NotSized{}
 	mi := &file_protoutils_test_a_a_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TestonlyMsg) String() string {
+func (x *NotSized) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TestonlyMsg) ProtoMessage() {}
+func (*NotSized) ProtoMessage() {}
 
-func (x *TestonlyMsg) ProtoReflect() protoreflect.Message {
+func (x *NotSized) ProtoReflect() protoreflect.Message {
 	mi := &file_protoutils_test_a_a_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -59,67 +54,39 @@ func (x *TestonlyMsg) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TestonlyMsg.ProtoReflect.Descriptor instead.
-func (*TestonlyMsg) Descriptor() ([]byte, []int) {
+// Deprecated: Use NotSized.ProtoReflect.Descriptor instead.
+func (*NotSized) Descriptor() ([]byte, []int) {
 	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *TestonlyMsg) GetStringValue() string {
+func (x *NotSized) GetLargeField() []byte {
 	if x != nil {
-		return x.StringValue
-	}
-	return ""
-}
-
-func (x *TestonlyMsg) GetRepeatedValue() []string {
-	if x != nil {
-		return x.RepeatedValue
+		return x.LargeField
 	}
 	return nil
 }
 
-func (x *TestonlyMsg) GetMapValue() map[string]string {
-	if x != nil {
-		return x.MapValue
-	}
-	return nil
-}
-
-func (x *TestonlyMsg) GetRepeatedMessageValue() []*TestonlyChild {
-	if x != nil {
-		return x.RepeatedMessageValue
-	}
-	return nil
-}
-
-func (x *TestonlyMsg) GetMapMessageValue() map[string]*TestonlyChild {
-	if x != nil {
-		return x.MapMessageValue
-	}
-	return nil
-}
-
-type TestonlyChild struct {
+type Sized struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Value         string                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	A             uint64                 `protobuf:"varint,1,opt,name=a,proto3" json:"a,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *TestonlyChild) Reset() {
-	*x = TestonlyChild{}
+func (x *Sized) Reset() {
+	*x = Sized{}
 	mi := &file_protoutils_test_a_a_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TestonlyChild) String() string {
+func (x *Sized) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TestonlyChild) ProtoMessage() {}
+func (*Sized) ProtoMessage() {}
 
-func (x *TestonlyChild) ProtoReflect() protoreflect.Message {
+func (x *Sized) ProtoReflect() protoreflect.Message {
 	mi := &file_protoutils_test_a_a_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -131,83 +98,313 @@ func (x *TestonlyChild) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TestonlyChild.ProtoReflect.Descriptor instead.
-func (*TestonlyChild) Descriptor() ([]byte, []int) {
+// Deprecated: Use Sized.ProtoReflect.Descriptor instead.
+func (*Sized) Descriptor() ([]byte, []int) {
 	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *TestonlyChild) GetValue() string {
+func (x *Sized) GetA() uint64 {
 	if x != nil {
-		return x.Value
+		return x.A
+	}
+	return 0
+}
+
+type SizedOk struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Singular bounded fields
+	U64 uint64  `protobuf:"varint,1,opt,name=u64,proto3" json:"u64,omitempty"`
+	I64 int64   `protobuf:"varint,2,opt,name=i64,proto3" json:"i64,omitempty"`
+	S64 int64   `protobuf:"zigzag64,3,opt,name=s64,proto3" json:"s64,omitempty"`
+	F64 uint64  `protobuf:"fixed64,4,opt,name=f64,proto3" json:"f64,omitempty"`
+	F   float32 `protobuf:"fixed32,5,opt,name=f,proto3" json:"f,omitempty"`
+	D   float64 `protobuf:"fixed64,6,opt,name=d,proto3" json:"d,omitempty"`
+	S   *Sized  `protobuf:"bytes,7,opt,name=s,proto3" json:"s,omitempty"`
+	// Singular fields bounded by max_size
+	BSize []byte    `protobuf:"bytes,8,opt,name=b_size,json=bSize,proto3" json:"b_size,omitempty"`
+	SSize string    `protobuf:"bytes,9,opt,name=s_size,json=sSize,proto3" json:"s_size,omitempty"`
+	NSize *NotSized `protobuf:"bytes,10,opt,name=n_size,json=nSize,proto3" json:"n_size,omitempty"`
+	// Repeated fields bounded by max_count
+	U64Count []uint64  `protobuf:"varint,11,rep,packed,name=u64_count,json=u64Count,proto3" json:"u64_count,omitempty"`
+	I64Count []int64   `protobuf:"varint,12,rep,packed,name=i64_count,json=i64Count,proto3" json:"i64_count,omitempty"`
+	S64Count []int64   `protobuf:"zigzag64,13,rep,packed,name=s64_count,json=s64Count,proto3" json:"s64_count,omitempty"`
+	F64Count []uint64  `protobuf:"fixed64,14,rep,packed,name=f64_count,json=f64Count,proto3" json:"f64_count,omitempty"`
+	FCount   []float32 `protobuf:"fixed32,15,rep,packed,name=f_count,json=fCount,proto3" json:"f_count,omitempty"`
+	DCount   []float64 `protobuf:"fixed64,16,rep,packed,name=d_count,json=dCount,proto3" json:"d_count,omitempty"`
+	SCount   []*Sized  `protobuf:"bytes,17,rep,name=s_count,json=sCount,proto3" json:"s_count,omitempty"`
+	// Repeated fields bounded by max_count + max_size
+	BCountSize [][]byte    `protobuf:"bytes,18,rep,name=b_count_size,json=bCountSize,proto3" json:"b_count_size,omitempty"`
+	SCountSize []string    `protobuf:"bytes,19,rep,name=s_count_size,json=sCountSize,proto3" json:"s_count_size,omitempty"`
+	NCountSize []*NotSized `protobuf:"bytes,20,rep,name=n_count_size,json=nCountSize,proto3" json:"n_count_size,omitempty"`
+	// Repeated fields bounded by max_count + max_total_size
+	BCountTotalSize [][]byte    `protobuf:"bytes,21,rep,name=b_count_total_size,json=bCountTotalSize,proto3" json:"b_count_total_size,omitempty"`
+	SCountTotalSize []string    `protobuf:"bytes,22,rep,name=s_count_total_size,json=sCountTotalSize,proto3" json:"s_count_total_size,omitempty"`
+	NCountTotalSize []*NotSized `protobuf:"bytes,23,rep,name=n_count_total_size,json=nCountTotalSize,proto3" json:"n_count_total_size,omitempty"`
+	// Oneof fields.
+	//
+	// Types that are valid to be assigned to O:
+	//
+	//	*SizedOk_OU64
+	//	*SizedOk_ONSize
+	O             isSizedOk_O `protobuf_oneof:"o"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SizedOk) Reset() {
+	*x = SizedOk{}
+	mi := &file_protoutils_test_a_a_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SizedOk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SizedOk) ProtoMessage() {}
+
+func (x *SizedOk) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_test_a_a_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SizedOk.ProtoReflect.Descriptor instead.
+func (*SizedOk) Descriptor() ([]byte, []int) {
+	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SizedOk) GetU64() uint64 {
+	if x != nil {
+		return x.U64
+	}
+	return 0
+}
+
+func (x *SizedOk) GetI64() int64 {
+	if x != nil {
+		return x.I64
+	}
+	return 0
+}
+
+func (x *SizedOk) GetS64() int64 {
+	if x != nil {
+		return x.S64
+	}
+	return 0
+}
+
+func (x *SizedOk) GetF64() uint64 {
+	if x != nil {
+		return x.F64
+	}
+	return 0
+}
+
+func (x *SizedOk) GetF() float32 {
+	if x != nil {
+		return x.F
+	}
+	return 0
+}
+
+func (x *SizedOk) GetD() float64 {
+	if x != nil {
+		return x.D
+	}
+	return 0
+}
+
+func (x *SizedOk) GetS() *Sized {
+	if x != nil {
+		return x.S
+	}
+	return nil
+}
+
+func (x *SizedOk) GetBSize() []byte {
+	if x != nil {
+		return x.BSize
+	}
+	return nil
+}
+
+func (x *SizedOk) GetSSize() string {
+	if x != nil {
+		return x.SSize
 	}
 	return ""
 }
 
-type TestonlyCountedLeaf struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Items         []string               `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlyCountedLeaf) Reset() {
-	*x = TestonlyCountedLeaf{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlyCountedLeaf) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlyCountedLeaf) ProtoMessage() {}
-
-func (x *TestonlyCountedLeaf) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[2]
+func (x *SizedOk) GetNSize() *NotSized {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlyCountedLeaf.ProtoReflect.Descriptor instead.
-func (*TestonlyCountedLeaf) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *TestonlyCountedLeaf) GetItems() []string {
-	if x != nil {
-		return x.Items
+		return x.NSize
 	}
 	return nil
 }
 
-type TestonlySizedLeaf struct {
+func (x *SizedOk) GetU64Count() []uint64 {
+	if x != nil {
+		return x.U64Count
+	}
+	return nil
+}
+
+func (x *SizedOk) GetI64Count() []int64 {
+	if x != nil {
+		return x.I64Count
+	}
+	return nil
+}
+
+func (x *SizedOk) GetS64Count() []int64 {
+	if x != nil {
+		return x.S64Count
+	}
+	return nil
+}
+
+func (x *SizedOk) GetF64Count() []uint64 {
+	if x != nil {
+		return x.F64Count
+	}
+	return nil
+}
+
+func (x *SizedOk) GetFCount() []float32 {
+	if x != nil {
+		return x.FCount
+	}
+	return nil
+}
+
+func (x *SizedOk) GetDCount() []float64 {
+	if x != nil {
+		return x.DCount
+	}
+	return nil
+}
+
+func (x *SizedOk) GetSCount() []*Sized {
+	if x != nil {
+		return x.SCount
+	}
+	return nil
+}
+
+func (x *SizedOk) GetBCountSize() [][]byte {
+	if x != nil {
+		return x.BCountSize
+	}
+	return nil
+}
+
+func (x *SizedOk) GetSCountSize() []string {
+	if x != nil {
+		return x.SCountSize
+	}
+	return nil
+}
+
+func (x *SizedOk) GetNCountSize() []*NotSized {
+	if x != nil {
+		return x.NCountSize
+	}
+	return nil
+}
+
+func (x *SizedOk) GetBCountTotalSize() [][]byte {
+	if x != nil {
+		return x.BCountTotalSize
+	}
+	return nil
+}
+
+func (x *SizedOk) GetSCountTotalSize() []string {
+	if x != nil {
+		return x.SCountTotalSize
+	}
+	return nil
+}
+
+func (x *SizedOk) GetNCountTotalSize() []*NotSized {
+	if x != nil {
+		return x.NCountTotalSize
+	}
+	return nil
+}
+
+func (x *SizedOk) GetO() isSizedOk_O {
+	if x != nil {
+		return x.O
+	}
+	return nil
+}
+
+func (x *SizedOk) GetOU64() uint64 {
+	if x != nil {
+		if x, ok := x.O.(*SizedOk_OU64); ok {
+			return x.OU64
+		}
+	}
+	return 0
+}
+
+func (x *SizedOk) GetONSize() *NotSized {
+	if x != nil {
+		if x, ok := x.O.(*SizedOk_ONSize); ok {
+			return x.ONSize
+		}
+	}
+	return nil
+}
+
+type isSizedOk_O interface {
+	isSizedOk_O()
+}
+
+type SizedOk_OU64 struct {
+	OU64 uint64 `protobuf:"varint,24,opt,name=o_u64,json=oU64,proto3,oneof"`
+}
+
+type SizedOk_ONSize struct {
+	ONSize *NotSized `protobuf:"bytes,25,opt,name=o_n_size,json=oNSize,proto3,oneof"`
+}
+
+func (*SizedOk_OU64) isSizedOk_O() {}
+
+func (*SizedOk_ONSize) isSizedOk_O() {}
+
+type OuterSized struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Items         [][]byte               `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	A             *SizedOk               `protobuf:"bytes,1,opt,name=a,proto3" json:"a,omitempty"`
+	B             []*SizedOk             `protobuf:"bytes,2,rep,name=b,proto3" json:"b,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *TestonlySizedLeaf) Reset() {
-	*x = TestonlySizedLeaf{}
+func (x *OuterSized) Reset() {
+	*x = OuterSized{}
 	mi := &file_protoutils_test_a_a_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TestonlySizedLeaf) String() string {
+func (x *OuterSized) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TestonlySizedLeaf) ProtoMessage() {}
+func (*OuterSized) ProtoMessage() {}
 
-func (x *TestonlySizedLeaf) ProtoReflect() protoreflect.Message {
+func (x *OuterSized) ProtoReflect() protoreflect.Message {
 	mi := &file_protoutils_test_a_a_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -219,337 +416,49 @@ func (x *TestonlySizedLeaf) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TestonlySizedLeaf.ProtoReflect.Descriptor instead.
-func (*TestonlySizedLeaf) Descriptor() ([]byte, []int) {
+// Deprecated: Use OuterSized.ProtoReflect.Descriptor instead.
+func (*OuterSized) Descriptor() ([]byte, []int) {
 	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *TestonlySizedLeaf) GetItems() [][]byte {
-	if x != nil {
-		return x.Items
-	}
-	return nil
-}
-
-type TestonlyOuter struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Child         *TestonlyCountedLeaf   `protobuf:"bytes,1,opt,name=child,proto3" json:"child,omitempty"`
-	Children      []*TestonlyCountedLeaf `protobuf:"bytes,2,rep,name=children,proto3" json:"children,omitempty"`
-	SizedChild    *TestonlySizedLeaf     `protobuf:"bytes,3,opt,name=sized_child,json=sizedChild,proto3" json:"sized_child,omitempty"`
-	SizedChildren []*TestonlySizedLeaf   `protobuf:"bytes,4,rep,name=sized_children,json=sizedChildren,proto3" json:"sized_children,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlyOuter) Reset() {
-	*x = TestonlyOuter{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlyOuter) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlyOuter) ProtoMessage() {}
-
-func (x *TestonlyOuter) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlyOuter.ProtoReflect.Descriptor instead.
-func (*TestonlyOuter) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *TestonlyOuter) GetChild() *TestonlyCountedLeaf {
-	if x != nil {
-		return x.Child
-	}
-	return nil
-}
-
-func (x *TestonlyOuter) GetChildren() []*TestonlyCountedLeaf {
-	if x != nil {
-		return x.Children
-	}
-	return nil
-}
-
-func (x *TestonlyOuter) GetSizedChild() *TestonlySizedLeaf {
-	if x != nil {
-		return x.SizedChild
-	}
-	return nil
-}
-
-func (x *TestonlyOuter) GetSizedChildren() []*TestonlySizedLeaf {
-	if x != nil {
-		return x.SizedChildren
-	}
-	return nil
-}
-
-type TestonlyMid struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Child         *TestonlyCountedLeaf   `protobuf:"bytes,1,opt,name=child,proto3" json:"child,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlyMid) Reset() {
-	*x = TestonlyMid{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlyMid) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlyMid) ProtoMessage() {}
-
-func (x *TestonlyMid) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlyMid.ProtoReflect.Descriptor instead.
-func (*TestonlyMid) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *TestonlyMid) GetChild() *TestonlyCountedLeaf {
-	if x != nil {
-		return x.Child
-	}
-	return nil
-}
-
-type TestonlyRoot struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Mid           *TestonlyMid           `protobuf:"bytes,1,opt,name=mid,proto3" json:"mid,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlyRoot) Reset() {
-	*x = TestonlyRoot{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlyRoot) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlyRoot) ProtoMessage() {}
-
-func (x *TestonlyRoot) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlyRoot.ProtoReflect.Descriptor instead.
-func (*TestonlyRoot) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *TestonlyRoot) GetMid() *TestonlyMid {
-	if x != nil {
-		return x.Mid
-	}
-	return nil
-}
-
-type TestonlyLeafA struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Items         []string               `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlyLeafA) Reset() {
-	*x = TestonlyLeafA{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlyLeafA) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlyLeafA) ProtoMessage() {}
-
-func (x *TestonlyLeafA) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlyLeafA.ProtoReflect.Descriptor instead.
-func (*TestonlyLeafA) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *TestonlyLeafA) GetItems() []string {
-	if x != nil {
-		return x.Items
-	}
-	return nil
-}
-
-type TestonlyLeafB struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Items         []string               `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlyLeafB) Reset() {
-	*x = TestonlyLeafB{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlyLeafB) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlyLeafB) ProtoMessage() {}
-
-func (x *TestonlyLeafB) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlyLeafB.ProtoReflect.Descriptor instead.
-func (*TestonlyLeafB) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *TestonlyLeafB) GetItems() []string {
-	if x != nil {
-		return x.Items
-	}
-	return nil
-}
-
-type TestonlyDistinct struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	A             *TestonlyLeafA         `protobuf:"bytes,1,opt,name=a,proto3" json:"a,omitempty"`
-	B             *TestonlyLeafB         `protobuf:"bytes,2,opt,name=b,proto3" json:"b,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlyDistinct) Reset() {
-	*x = TestonlyDistinct{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlyDistinct) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlyDistinct) ProtoMessage() {}
-
-func (x *TestonlyDistinct) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlyDistinct.ProtoReflect.Descriptor instead.
-func (*TestonlyDistinct) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *TestonlyDistinct) GetA() *TestonlyLeafA {
+func (x *OuterSized) GetA() *SizedOk {
 	if x != nil {
 		return x.A
 	}
 	return nil
 }
 
-func (x *TestonlyDistinct) GetB() *TestonlyLeafB {
+func (x *OuterSized) GetB() []*SizedOk {
 	if x != nil {
 		return x.B
 	}
 	return nil
 }
 
-type TestonlyUnannotatedChild struct {
+type OuterNotSized struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Items         []string               `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
-	Payload       []byte                 `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
+	A             *SizedOk               `protobuf:"bytes,1,opt,name=a,proto3" json:"a,omitempty"`
+	B             []*SizedOk             `protobuf:"bytes,2,rep,name=b,proto3" json:"b,omitempty"`
+	C             *NotSized              `protobuf:"bytes,3,opt,name=c,proto3" json:"c,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *TestonlyUnannotatedChild) Reset() {
-	*x = TestonlyUnannotatedChild{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[10]
+func (x *OuterNotSized) Reset() {
+	*x = OuterNotSized{}
+	mi := &file_protoutils_test_a_a_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TestonlyUnannotatedChild) String() string {
+func (x *OuterNotSized) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TestonlyUnannotatedChild) ProtoMessage() {}
+func (*OuterNotSized) ProtoMessage() {}
 
-func (x *TestonlyUnannotatedChild) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[10]
+func (x *OuterNotSized) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_test_a_a_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -560,47 +469,58 @@ func (x *TestonlyUnannotatedChild) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TestonlyUnannotatedChild.ProtoReflect.Descriptor instead.
-func (*TestonlyUnannotatedChild) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{10}
+// Deprecated: Use OuterNotSized.ProtoReflect.Descriptor instead.
+func (*OuterNotSized) Descriptor() ([]byte, []int) {
+	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *TestonlyUnannotatedChild) GetItems() []string {
+func (x *OuterNotSized) GetA() *SizedOk {
 	if x != nil {
-		return x.Items
+		return x.A
 	}
 	return nil
 }
 
-func (x *TestonlyUnannotatedChild) GetPayload() []byte {
+func (x *OuterNotSized) GetB() []*SizedOk {
 	if x != nil {
-		return x.Payload
+		return x.B
 	}
 	return nil
 }
 
-type TestonlyUnannotatedParent struct {
-	state         protoimpl.MessageState    `protogen:"open.v1"`
-	Child         *TestonlyUnannotatedChild `protobuf:"bytes,1,opt,name=child,proto3" json:"child,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+func (x *OuterNotSized) GetC() *NotSized {
+	if x != nil {
+		return x.C
+	}
+	return nil
 }
 
-func (x *TestonlyUnannotatedParent) Reset() {
-	*x = TestonlyUnannotatedParent{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[11]
+type Msg struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	StringValue          string                 `protobuf:"bytes,1,opt,name=string_value,json=stringValue,proto3" json:"string_value,omitempty"`
+	RepeatedValue        []string               `protobuf:"bytes,2,rep,name=repeated_value,json=repeatedValue,proto3" json:"repeated_value,omitempty"`
+	MapValue             map[string]string      `protobuf:"bytes,3,rep,name=map_value,json=mapValue,proto3" json:"map_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	RepeatedMessageValue []*Child               `protobuf:"bytes,4,rep,name=repeated_message_value,json=repeatedMessageValue,proto3" json:"repeated_message_value,omitempty"`
+	MapMessageValue      map[string]*Child      `protobuf:"bytes,5,rep,name=map_message_value,json=mapMessageValue,proto3" json:"map_message_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *Msg) Reset() {
+	*x = Msg{}
+	mi := &file_protoutils_test_a_a_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TestonlyUnannotatedParent) String() string {
+func (x *Msg) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TestonlyUnannotatedParent) ProtoMessage() {}
+func (*Msg) ProtoMessage() {}
 
-func (x *TestonlyUnannotatedParent) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[11]
+func (x *Msg) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_test_a_a_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -611,166 +531,68 @@ func (x *TestonlyUnannotatedParent) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TestonlyUnannotatedParent.ProtoReflect.Descriptor instead.
-func (*TestonlyUnannotatedParent) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{11}
+// Deprecated: Use Msg.ProtoReflect.Descriptor instead.
+func (*Msg) Descriptor() ([]byte, []int) {
+	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *TestonlyUnannotatedParent) GetChild() *TestonlyUnannotatedChild {
+func (x *Msg) GetStringValue() string {
 	if x != nil {
-		return x.Child
-	}
-	return nil
-}
-
-type TestonlyOneofInner struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Items         []string               `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlyOneofInner) Reset() {
-	*x = TestonlyOneofInner{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[12]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlyOneofInner) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlyOneofInner) ProtoMessage() {}
-
-func (x *TestonlyOneofInner) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[12]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlyOneofInner.ProtoReflect.Descriptor instead.
-func (*TestonlyOneofInner) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *TestonlyOneofInner) GetItems() []string {
-	if x != nil {
-		return x.Items
-	}
-	return nil
-}
-
-type TestonlyOneofOuter struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Types that are valid to be assigned to Choice:
-	//
-	//	*TestonlyOneofOuter_Inner
-	//	*TestonlyOneofOuter_Label
-	Choice        isTestonlyOneofOuter_Choice `protobuf_oneof:"choice"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlyOneofOuter) Reset() {
-	*x = TestonlyOneofOuter{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[13]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlyOneofOuter) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlyOneofOuter) ProtoMessage() {}
-
-func (x *TestonlyOneofOuter) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[13]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlyOneofOuter.ProtoReflect.Descriptor instead.
-func (*TestonlyOneofOuter) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{13}
-}
-
-func (x *TestonlyOneofOuter) GetChoice() isTestonlyOneofOuter_Choice {
-	if x != nil {
-		return x.Choice
-	}
-	return nil
-}
-
-func (x *TestonlyOneofOuter) GetInner() *TestonlyOneofInner {
-	if x != nil {
-		if x, ok := x.Choice.(*TestonlyOneofOuter_Inner); ok {
-			return x.Inner
-		}
-	}
-	return nil
-}
-
-func (x *TestonlyOneofOuter) GetLabel() string {
-	if x != nil {
-		if x, ok := x.Choice.(*TestonlyOneofOuter_Label); ok {
-			return x.Label
-		}
+		return x.StringValue
 	}
 	return ""
 }
 
-type isTestonlyOneofOuter_Choice interface {
-	isTestonlyOneofOuter_Choice()
+func (x *Msg) GetRepeatedValue() []string {
+	if x != nil {
+		return x.RepeatedValue
+	}
+	return nil
 }
 
-type TestonlyOneofOuter_Inner struct {
-	Inner *TestonlyOneofInner `protobuf:"bytes,1,opt,name=inner,proto3,oneof"`
+func (x *Msg) GetMapValue() map[string]string {
+	if x != nil {
+		return x.MapValue
+	}
+	return nil
 }
 
-type TestonlyOneofOuter_Label struct {
-	Label string `protobuf:"bytes,2,opt,name=label,proto3,oneof"`
+func (x *Msg) GetRepeatedMessageValue() []*Child {
+	if x != nil {
+		return x.RepeatedMessageValue
+	}
+	return nil
 }
 
-func (*TestonlyOneofOuter_Inner) isTestonlyOneofOuter_Choice() {}
+func (x *Msg) GetMapMessageValue() map[string]*Child {
+	if x != nil {
+		return x.MapMessageValue
+	}
+	return nil
+}
 
-func (*TestonlyOneofOuter_Label) isTestonlyOneofOuter_Choice() {}
-
-type TestonlySizedName struct {
+type Child struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Value         string                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *TestonlySizedName) Reset() {
-	*x = TestonlySizedName{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[14]
+func (x *Child) Reset() {
+	*x = Child{}
+	mi := &file_protoutils_test_a_a_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TestonlySizedName) String() string {
+func (x *Child) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TestonlySizedName) ProtoMessage() {}
+func (*Child) ProtoMessage() {}
 
-func (x *TestonlySizedName) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[14]
+func (x *Child) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_test_a_a_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -781,296 +603,16 @@ func (x *TestonlySizedName) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TestonlySizedName.ProtoReflect.Descriptor instead.
-func (*TestonlySizedName) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{14}
+// Deprecated: Use Child.ProtoReflect.Descriptor instead.
+func (*Child) Descriptor() ([]byte, []int) {
+	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *TestonlySizedName) GetName() string {
+func (x *Child) GetValue() string {
 	if x != nil {
-		return x.Name
+		return x.Value
 	}
 	return ""
-}
-
-type TestonlySizedParent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Payload       [][]byte               `protobuf:"bytes,1,rep,name=payload,proto3" json:"payload,omitempty"`
-	Child         *TestonlySizedName     `protobuf:"bytes,2,opt,name=child,proto3" json:"child,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlySizedParent) Reset() {
-	*x = TestonlySizedParent{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[15]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlySizedParent) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlySizedParent) ProtoMessage() {}
-
-func (x *TestonlySizedParent) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[15]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlySizedParent.ProtoReflect.Descriptor instead.
-func (*TestonlySizedParent) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{15}
-}
-
-func (x *TestonlySizedParent) GetPayload() [][]byte {
-	if x != nil {
-		return x.Payload
-	}
-	return nil
-}
-
-func (x *TestonlySizedParent) GetChild() *TestonlySizedName {
-	if x != nil {
-		return x.Child
-	}
-	return nil
-}
-
-type TestonlyCrossParent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Child         *pb.TestonlyCrossLeaf  `protobuf:"bytes,1,opt,name=child,proto3" json:"child,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlyCrossParent) Reset() {
-	*x = TestonlyCrossParent{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[16]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlyCrossParent) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlyCrossParent) ProtoMessage() {}
-
-func (x *TestonlyCrossParent) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[16]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlyCrossParent.ProtoReflect.Descriptor instead.
-func (*TestonlyCrossParent) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{16}
-}
-
-func (x *TestonlyCrossParent) GetChild() *pb.TestonlyCrossLeaf {
-	if x != nil {
-		return x.Child
-	}
-	return nil
-}
-
-type TestonlySizedMessageInner struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Payload       []byte                 `protobuf:"bytes,1,opt,name=payload,proto3" json:"payload,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlySizedMessageInner) Reset() {
-	*x = TestonlySizedMessageInner{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[17]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlySizedMessageInner) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlySizedMessageInner) ProtoMessage() {}
-
-func (x *TestonlySizedMessageInner) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[17]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlySizedMessageInner.ProtoReflect.Descriptor instead.
-func (*TestonlySizedMessageInner) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{17}
-}
-
-func (x *TestonlySizedMessageInner) GetPayload() []byte {
-	if x != nil {
-		return x.Payload
-	}
-	return nil
-}
-
-type TestonlySizedMessageOuter struct {
-	state         protoimpl.MessageState     `protogen:"open.v1"`
-	Inner         *TestonlySizedMessageInner `protobuf:"bytes,1,opt,name=inner,proto3" json:"inner,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlySizedMessageOuter) Reset() {
-	*x = TestonlySizedMessageOuter{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[18]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlySizedMessageOuter) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlySizedMessageOuter) ProtoMessage() {}
-
-func (x *TestonlySizedMessageOuter) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[18]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlySizedMessageOuter.ProtoReflect.Descriptor instead.
-func (*TestonlySizedMessageOuter) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{18}
-}
-
-func (x *TestonlySizedMessageOuter) GetInner() *TestonlySizedMessageInner {
-	if x != nil {
-		return x.Inner
-	}
-	return nil
-}
-
-type TestonlyRepeatedSizedChildren struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Children      []*TestonlySizedName   `protobuf:"bytes,1,rep,name=children,proto3" json:"children,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlyRepeatedSizedChildren) Reset() {
-	*x = TestonlyRepeatedSizedChildren{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[19]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlyRepeatedSizedChildren) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlyRepeatedSizedChildren) ProtoMessage() {}
-
-func (x *TestonlyRepeatedSizedChildren) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[19]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlyRepeatedSizedChildren.ProtoReflect.Descriptor instead.
-func (*TestonlyRepeatedSizedChildren) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{19}
-}
-
-func (x *TestonlyRepeatedSizedChildren) GetChildren() []*TestonlySizedName {
-	if x != nil {
-		return x.Children
-	}
-	return nil
-}
-
-type TestonlyOptional struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Bar           *string                `protobuf:"bytes,1,opt,name=bar,proto3,oneof" json:"bar,omitempty"`
-	Items         []string               `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TestonlyOptional) Reset() {
-	*x = TestonlyOptional{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[20]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TestonlyOptional) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TestonlyOptional) ProtoMessage() {}
-
-func (x *TestonlyOptional) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[20]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TestonlyOptional.ProtoReflect.Descriptor instead.
-func (*TestonlyOptional) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{20}
-}
-
-func (x *TestonlyOptional) GetBar() string {
-	if x != nil && x.Bar != nil {
-		return *x.Bar
-	}
-	return ""
-}
-
-func (x *TestonlyOptional) GetItems() []string {
-	if x != nil {
-		return x.Items
-	}
-	return nil
 }
 
 var File_protoutils_test_a_a_proto protoreflect.FileDescriptor
@@ -1078,70 +620,68 @@ var File_protoutils_test_a_a_proto protoreflect.FileDescriptor
 const file_protoutils_test_a_a_proto_rawDesc = "" +
 	"\n" +
 	"\x19protoutils/test/a/a.proto\x12\n" +
-	"protoutils\x1a\x19protoutils/test/b/b.proto\x1a\x19wireguard/wireguard.proto\"\xe2\x03\n" +
-	"\vTestonlyMsg\x12!\n" +
+	"protoutils\x1a\x19wireguard/wireguard.proto\"+\n" +
+	"\bNotSized\x12\x1f\n" +
+	"\vlarge_field\x18\x01 \x01(\fR\n" +
+	"largeField\"\x1d\n" +
+	"\x05Sized\x12\f\n" +
+	"\x01a\x18\x01 \x01(\x04R\x01a:\x06\xe8\x88\xe2\xab\f\x01\"\xd6\a\n" +
+	"\aSizedOk\x12\x10\n" +
+	"\x03u64\x18\x01 \x01(\x04R\x03u64\x12\x10\n" +
+	"\x03i64\x18\x02 \x01(\x03R\x03i64\x12\x10\n" +
+	"\x03s64\x18\x03 \x01(\x12R\x03s64\x12\x10\n" +
+	"\x03f64\x18\x04 \x01(\x06R\x03f64\x12\f\n" +
+	"\x01f\x18\x05 \x01(\x02R\x01f\x12\f\n" +
+	"\x01d\x18\x06 \x01(\x01R\x01d\x12\x1f\n" +
+	"\x01s\x18\a \x01(\v2\x11.protoutils.SizedR\x01s\x12\x1d\n" +
+	"\x06b_size\x18\b \x01(\fB\x06؈\xe2\xab\f\x05R\x05bSize\x12\x1d\n" +
+	"\x06s_size\x18\t \x01(\tB\x06؈\xe2\xab\f\x05R\x05sSize\x123\n" +
+	"\x06n_size\x18\n" +
+	" \x01(\v2\x14.protoutils.NotSizedB\x06؈\xe2\xab\f\x14R\x05nSize\x12#\n" +
+	"\tu64_count\x18\v \x03(\x04B\x06Ј\xe2\xab\f\x04R\bu64Count\x12#\n" +
+	"\ti64_count\x18\f \x03(\x03B\x06Ј\xe2\xab\f\x04R\bi64Count\x12#\n" +
+	"\ts64_count\x18\r \x03(\x12B\x06Ј\xe2\xab\f\x04R\bs64Count\x12#\n" +
+	"\tf64_count\x18\x0e \x03(\x06B\x06Ј\xe2\xab\f\x04R\bf64Count\x12\x1f\n" +
+	"\af_count\x18\x0f \x03(\x02B\x06Ј\xe2\xab\f\x04R\x06fCount\x12\x1f\n" +
+	"\ad_count\x18\x10 \x03(\x01B\x06Ј\xe2\xab\f\x04R\x06dCount\x122\n" +
+	"\as_count\x18\x11 \x03(\v2\x11.protoutils.SizedB\x06Ј\xe2\xab\f\x04R\x06sCount\x12.\n" +
+	"\fb_count_size\x18\x12 \x03(\fB\fЈ\xe2\xab\f\x03؈\xe2\xab\f\x05R\n" +
+	"bCountSize\x12.\n" +
+	"\fs_count_size\x18\x13 \x03(\tB\fЈ\xe2\xab\f\x03؈\xe2\xab\f\x05R\n" +
+	"sCountSize\x12D\n" +
+	"\fn_count_size\x18\x14 \x03(\v2\x14.protoutils.NotSizedB\fЈ\xe2\xab\f\x03؈\xe2\xab\f\x05R\n" +
+	"nCountSize\x129\n" +
+	"\x12b_count_total_size\x18\x15 \x03(\fB\fЈ\xe2\xab\f\x03\xe0\x88\xe2\xab\f\n" +
+	"R\x0fbCountTotalSize\x129\n" +
+	"\x12s_count_total_size\x18\x16 \x03(\tB\fЈ\xe2\xab\f\x03\xe0\x88\xe2\xab\f\n" +
+	"R\x0fsCountTotalSize\x12O\n" +
+	"\x12n_count_total_size\x18\x17 \x03(\v2\x14.protoutils.NotSizedB\fЈ\xe2\xab\f\x03\xe0\x88\xe2\xab\f\n" +
+	"R\x0fnCountTotalSize\x12\x15\n" +
+	"\x05o_u64\x18\x18 \x01(\x04H\x00R\x04oU64\x128\n" +
+	"\bo_n_size\x18\x19 \x01(\v2\x14.protoutils.NotSizedB\x06؈\xe2\xab\f\x14H\x00R\x06oNSize:\x06\xe8\x88\xe2\xab\f\x01B\x03\n" +
+	"\x01o\"b\n" +
+	"\n" +
+	"OuterSized\x12!\n" +
+	"\x01a\x18\x01 \x01(\v2\x13.protoutils.SizedOkR\x01a\x12)\n" +
+	"\x01b\x18\x02 \x03(\v2\x13.protoutils.SizedOkB\x06Ј\xe2\xab\f\aR\x01b:\x06\xe8\x88\xe2\xab\f\x01\"\x81\x01\n" +
+	"\rOuterNotSized\x12!\n" +
+	"\x01a\x18\x01 \x01(\v2\x13.protoutils.SizedOkR\x01a\x12)\n" +
+	"\x01b\x18\x02 \x03(\v2\x13.protoutils.SizedOkB\x06Ј\xe2\xab\f\aR\x01b\x12\"\n" +
+	"\x01c\x18\x03 \x01(\v2\x14.protoutils.NotSizedR\x01c\"\xba\x03\n" +
+	"\x03Msg\x12!\n" +
 	"\fstring_value\x18\x01 \x01(\tR\vstringValue\x12%\n" +
-	"\x0erepeated_value\x18\x02 \x03(\tR\rrepeatedValue\x12B\n" +
-	"\tmap_value\x18\x03 \x03(\v2%.protoutils.TestonlyMsg.MapValueEntryR\bmapValue\x12O\n" +
-	"\x16repeated_message_value\x18\x04 \x03(\v2\x19.protoutils.TestonlyChildR\x14repeatedMessageValue\x12X\n" +
-	"\x11map_message_value\x18\x05 \x03(\v2,.protoutils.TestonlyMsg.MapMessageValueEntryR\x0fmapMessageValue\x1a;\n" +
+	"\x0erepeated_value\x18\x02 \x03(\tR\rrepeatedValue\x12:\n" +
+	"\tmap_value\x18\x03 \x03(\v2\x1d.protoutils.Msg.MapValueEntryR\bmapValue\x12G\n" +
+	"\x16repeated_message_value\x18\x04 \x03(\v2\x11.protoutils.ChildR\x14repeatedMessageValue\x12P\n" +
+	"\x11map_message_value\x18\x05 \x03(\v2$.protoutils.Msg.MapMessageValueEntryR\x0fmapMessageValue\x1a;\n" +
 	"\rMapValueEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a]\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aU\n" +
 	"\x14MapMessageValueEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12/\n" +
-	"\x05value\x18\x02 \x01(\v2\x19.protoutils.TestonlyChildR\x05value:\x028\x01\"%\n" +
-	"\rTestonlyChild\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\tR\x05value\"3\n" +
-	"\x13TestonlyCountedLeaf\x12\x1c\n" +
-	"\x05items\x18\x01 \x03(\tB\x06Ј\xe2\xab\f\x03R\x05items\"1\n" +
-	"\x11TestonlySizedLeaf\x12\x1c\n" +
-	"\x05items\x18\x01 \x03(\fB\x06\xe0\x88\xe2\xab\f\x03R\x05items\"\x99\x02\n" +
-	"\rTestonlyOuter\x125\n" +
-	"\x05child\x18\x01 \x01(\v2\x1f.protoutils.TestonlyCountedLeafR\x05child\x12C\n" +
-	"\bchildren\x18\x02 \x03(\v2\x1f.protoutils.TestonlyCountedLeafB\x06Ј\xe2\xab\f\x05R\bchildren\x12>\n" +
-	"\vsized_child\x18\x03 \x01(\v2\x1d.protoutils.TestonlySizedLeafR\n" +
-	"sizedChild\x12L\n" +
-	"\x0esized_children\x18\x04 \x03(\v2\x1d.protoutils.TestonlySizedLeafB\x06Ј\xe2\xab\f\x05R\rsizedChildren\"D\n" +
-	"\vTestonlyMid\x125\n" +
-	"\x05child\x18\x01 \x01(\v2\x1f.protoutils.TestonlyCountedLeafR\x05child\"9\n" +
-	"\fTestonlyRoot\x12)\n" +
-	"\x03mid\x18\x01 \x01(\v2\x17.protoutils.TestonlyMidR\x03mid\"-\n" +
-	"\rTestonlyLeafA\x12\x1c\n" +
-	"\x05items\x18\x01 \x03(\tB\x06Ј\xe2\xab\f\x02R\x05items\"-\n" +
-	"\rTestonlyLeafB\x12\x1c\n" +
-	"\x05items\x18\x01 \x03(\tB\x06Ј\xe2\xab\f\x02R\x05items\"d\n" +
-	"\x10TestonlyDistinct\x12'\n" +
-	"\x01a\x18\x01 \x01(\v2\x19.protoutils.TestonlyLeafAR\x01a\x12'\n" +
-	"\x01b\x18\x02 \x01(\v2\x19.protoutils.TestonlyLeafBR\x01b\"J\n" +
-	"\x18TestonlyUnannotatedChild\x12\x14\n" +
-	"\x05items\x18\x01 \x03(\tR\x05items\x12\x18\n" +
-	"\apayload\x18\x02 \x01(\fR\apayload\"W\n" +
-	"\x19TestonlyUnannotatedParent\x12:\n" +
-	"\x05child\x18\x01 \x01(\v2$.protoutils.TestonlyUnannotatedChildR\x05child\"2\n" +
-	"\x12TestonlyOneofInner\x12\x1c\n" +
-	"\x05items\x18\x01 \x03(\tB\x06Ј\xe2\xab\f\x03R\x05items\"n\n" +
-	"\x12TestonlyOneofOuter\x126\n" +
-	"\x05inner\x18\x01 \x01(\v2\x1e.protoutils.TestonlyOneofInnerH\x00R\x05inner\x12\x16\n" +
-	"\x05label\x18\x02 \x01(\tH\x00R\x05labelB\b\n" +
-	"\x06choice\"/\n" +
-	"\x11TestonlySizedName\x12\x1a\n" +
-	"\x04name\x18\x01 \x01(\tB\x06؈\xe2\xab\f\x04R\x04name\"r\n" +
-	"\x13TestonlySizedParent\x12&\n" +
-	"\apayload\x18\x01 \x03(\fB\f؈\xe2\xab\f\x03\xe0\x88\xe2\xab\f\x05R\apayload\x123\n" +
-	"\x05child\x18\x02 \x01(\v2\x1d.protoutils.TestonlySizedNameR\x05child\"P\n" +
-	"\x13TestonlyCrossParent\x129\n" +
-	"\x05child\x18\x01 \x01(\v2#.protoutils.cross.TestonlyCrossLeafR\x05child\"E\n" +
-	"\x19TestonlySizedMessageInner\x12 \n" +
-	"\apayload\x18\x01 \x01(\fB\x06؈\xe2\xab\f\bR\apayload:\x06\xe8\x88\xe2\xab\f\x01\"`\n" +
-	"\x19TestonlySizedMessageOuter\x12;\n" +
-	"\x05inner\x18\x01 \x01(\v2%.protoutils.TestonlySizedMessageInnerR\x05inner:\x06\xe8\x88\xe2\xab\f\x01\"h\n" +
-	"\x1dTestonlyRepeatedSizedChildren\x12G\n" +
-	"\bchildren\x18\x01 \x03(\v2\x1d.protoutils.TestonlySizedNameB\fЈ\xe2\xab\f\x02\xe0\x88\xe2\xab\f\fR\bchildren\"O\n" +
-	"\x10TestonlyOptional\x12\x15\n" +
-	"\x03bar\x18\x01 \x01(\tH\x00R\x03bar\x88\x01\x01\x12\x1c\n" +
-	"\x05items\x18\x02 \x03(\tB\x06Ј\xe2\xab\f\x05R\x05itemsB\x06\n" +
-	"\x04_barBPZNgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/test/a/pbb\x06proto3"
+	"\x03key\x18\x01 \x01(\tR\x03key\x12'\n" +
+	"\x05value\x18\x02 \x01(\v2\x11.protoutils.ChildR\x05value:\x028\x01\"\x1d\n" +
+	"\x05Child\x12\x14\n" +
+	"\x05value\x18\x01 \x01(\tR\x05valueBPZNgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/test/a/pbb\x06proto3"
 
 var (
 	file_protoutils_test_a_a_proto_rawDescOnce sync.Once
@@ -1155,57 +695,39 @@ func file_protoutils_test_a_a_proto_rawDescGZIP() []byte {
 	return file_protoutils_test_a_a_proto_rawDescData
 }
 
-var file_protoutils_test_a_a_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_protoutils_test_a_a_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_protoutils_test_a_a_proto_goTypes = []any{
-	(*TestonlyMsg)(nil),                   // 0: protoutils.TestonlyMsg
-	(*TestonlyChild)(nil),                 // 1: protoutils.TestonlyChild
-	(*TestonlyCountedLeaf)(nil),           // 2: protoutils.TestonlyCountedLeaf
-	(*TestonlySizedLeaf)(nil),             // 3: protoutils.TestonlySizedLeaf
-	(*TestonlyOuter)(nil),                 // 4: protoutils.TestonlyOuter
-	(*TestonlyMid)(nil),                   // 5: protoutils.TestonlyMid
-	(*TestonlyRoot)(nil),                  // 6: protoutils.TestonlyRoot
-	(*TestonlyLeafA)(nil),                 // 7: protoutils.TestonlyLeafA
-	(*TestonlyLeafB)(nil),                 // 8: protoutils.TestonlyLeafB
-	(*TestonlyDistinct)(nil),              // 9: protoutils.TestonlyDistinct
-	(*TestonlyUnannotatedChild)(nil),      // 10: protoutils.TestonlyUnannotatedChild
-	(*TestonlyUnannotatedParent)(nil),     // 11: protoutils.TestonlyUnannotatedParent
-	(*TestonlyOneofInner)(nil),            // 12: protoutils.TestonlyOneofInner
-	(*TestonlyOneofOuter)(nil),            // 13: protoutils.TestonlyOneofOuter
-	(*TestonlySizedName)(nil),             // 14: protoutils.TestonlySizedName
-	(*TestonlySizedParent)(nil),           // 15: protoutils.TestonlySizedParent
-	(*TestonlyCrossParent)(nil),           // 16: protoutils.TestonlyCrossParent
-	(*TestonlySizedMessageInner)(nil),     // 17: protoutils.TestonlySizedMessageInner
-	(*TestonlySizedMessageOuter)(nil),     // 18: protoutils.TestonlySizedMessageOuter
-	(*TestonlyRepeatedSizedChildren)(nil), // 19: protoutils.TestonlyRepeatedSizedChildren
-	(*TestonlyOptional)(nil),              // 20: protoutils.TestonlyOptional
-	nil,                                   // 21: protoutils.TestonlyMsg.MapValueEntry
-	nil,                                   // 22: protoutils.TestonlyMsg.MapMessageValueEntry
-	(*pb.TestonlyCrossLeaf)(nil),          // 23: protoutils.cross.TestonlyCrossLeaf
+	(*NotSized)(nil),      // 0: protoutils.NotSized
+	(*Sized)(nil),         // 1: protoutils.Sized
+	(*SizedOk)(nil),       // 2: protoutils.SizedOk
+	(*OuterSized)(nil),    // 3: protoutils.OuterSized
+	(*OuterNotSized)(nil), // 4: protoutils.OuterNotSized
+	(*Msg)(nil),           // 5: protoutils.Msg
+	(*Child)(nil),         // 6: protoutils.Child
+	nil,                   // 7: protoutils.Msg.MapValueEntry
+	nil,                   // 8: protoutils.Msg.MapMessageValueEntry
 }
 var file_protoutils_test_a_a_proto_depIdxs = []int32{
-	21, // 0: protoutils.TestonlyMsg.map_value:type_name -> protoutils.TestonlyMsg.MapValueEntry
-	1,  // 1: protoutils.TestonlyMsg.repeated_message_value:type_name -> protoutils.TestonlyChild
-	22, // 2: protoutils.TestonlyMsg.map_message_value:type_name -> protoutils.TestonlyMsg.MapMessageValueEntry
-	2,  // 3: protoutils.TestonlyOuter.child:type_name -> protoutils.TestonlyCountedLeaf
-	2,  // 4: protoutils.TestonlyOuter.children:type_name -> protoutils.TestonlyCountedLeaf
-	3,  // 5: protoutils.TestonlyOuter.sized_child:type_name -> protoutils.TestonlySizedLeaf
-	3,  // 6: protoutils.TestonlyOuter.sized_children:type_name -> protoutils.TestonlySizedLeaf
-	2,  // 7: protoutils.TestonlyMid.child:type_name -> protoutils.TestonlyCountedLeaf
-	5,  // 8: protoutils.TestonlyRoot.mid:type_name -> protoutils.TestonlyMid
-	7,  // 9: protoutils.TestonlyDistinct.a:type_name -> protoutils.TestonlyLeafA
-	8,  // 10: protoutils.TestonlyDistinct.b:type_name -> protoutils.TestonlyLeafB
-	10, // 11: protoutils.TestonlyUnannotatedParent.child:type_name -> protoutils.TestonlyUnannotatedChild
-	12, // 12: protoutils.TestonlyOneofOuter.inner:type_name -> protoutils.TestonlyOneofInner
-	14, // 13: protoutils.TestonlySizedParent.child:type_name -> protoutils.TestonlySizedName
-	23, // 14: protoutils.TestonlyCrossParent.child:type_name -> protoutils.cross.TestonlyCrossLeaf
-	17, // 15: protoutils.TestonlySizedMessageOuter.inner:type_name -> protoutils.TestonlySizedMessageInner
-	14, // 16: protoutils.TestonlyRepeatedSizedChildren.children:type_name -> protoutils.TestonlySizedName
-	1,  // 17: protoutils.TestonlyMsg.MapMessageValueEntry.value:type_name -> protoutils.TestonlyChild
-	18, // [18:18] is the sub-list for method output_type
-	18, // [18:18] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	1,  // 0: protoutils.SizedOk.s:type_name -> protoutils.Sized
+	0,  // 1: protoutils.SizedOk.n_size:type_name -> protoutils.NotSized
+	1,  // 2: protoutils.SizedOk.s_count:type_name -> protoutils.Sized
+	0,  // 3: protoutils.SizedOk.n_count_size:type_name -> protoutils.NotSized
+	0,  // 4: protoutils.SizedOk.n_count_total_size:type_name -> protoutils.NotSized
+	0,  // 5: protoutils.SizedOk.o_n_size:type_name -> protoutils.NotSized
+	2,  // 6: protoutils.OuterSized.a:type_name -> protoutils.SizedOk
+	2,  // 7: protoutils.OuterSized.b:type_name -> protoutils.SizedOk
+	2,  // 8: protoutils.OuterNotSized.a:type_name -> protoutils.SizedOk
+	2,  // 9: protoutils.OuterNotSized.b:type_name -> protoutils.SizedOk
+	0,  // 10: protoutils.OuterNotSized.c:type_name -> protoutils.NotSized
+	7,  // 11: protoutils.Msg.map_value:type_name -> protoutils.Msg.MapValueEntry
+	6,  // 12: protoutils.Msg.repeated_message_value:type_name -> protoutils.Child
+	8,  // 13: protoutils.Msg.map_message_value:type_name -> protoutils.Msg.MapMessageValueEntry
+	6,  // 14: protoutils.Msg.MapMessageValueEntry.value:type_name -> protoutils.Child
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_protoutils_test_a_a_proto_init() }
@@ -1213,18 +735,17 @@ func file_protoutils_test_a_a_proto_init() {
 	if File_protoutils_test_a_a_proto != nil {
 		return
 	}
-	file_protoutils_test_a_a_proto_msgTypes[13].OneofWrappers = []any{
-		(*TestonlyOneofOuter_Inner)(nil),
-		(*TestonlyOneofOuter_Label)(nil),
+	file_protoutils_test_a_a_proto_msgTypes[2].OneofWrappers = []any{
+		(*SizedOk_OU64)(nil),
+		(*SizedOk_ONSize)(nil),
 	}
-	file_protoutils_test_a_a_proto_msgTypes[20].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_protoutils_test_a_a_proto_rawDesc), len(file_protoutils_test_a_a_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   23,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

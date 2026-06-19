@@ -12,15 +12,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-func TestScan_DescendsIntoNested(t *testing.T) {
-	require.Error(t, protoutils.Scan[*testpb.TestonlyOuter](protoutils.Marshal(&testpb.TestonlyOuter{
-		Child: &testpb.TestonlyCountedLeaf{Items: []string{"a", "b", "c", "d"}},
+func TestScan_NestedRepeated(t *testing.T) {
+	require.Error(t, protoutils.Scan[*testpb.Outer](protoutils.Marshal(&testpb.Outer{
+		// Nested message with field exceeding max_count is BAD.
+		Child: &testpb.CountedLeaf{Items: []string{"a", "b", "c", "d"}},
 	})))
-}
-
-func TestScan_CountsResetAcrossInstances(t *testing.T) {
-	require.NoError(t, protoutils.Scan[*testpb.TestonlyOuter](protoutils.Marshal(&testpb.TestonlyOuter{
-		Children: []*testpb.TestonlyCountedLeaf{
+	require.NoError(t, protoutils.Scan[*testpb.Outer](protoutils.Marshal(&testpb.Outer{
+		// Multiple nested messages, each OK, then total is OK
+		Children: []*testpb.CountedLeaf{
 			{Items: []string{"a", "b"}},
 			{Items: []string{"c", "d"}},
 		},
@@ -28,8 +27,8 @@ func TestScan_CountsResetAcrossInstances(t *testing.T) {
 }
 
 func TestScan_MaxTotalSizeResetsAcrossNestedInstances(t *testing.T) {
-	require.NoError(t, protoutils.Scan[*testpb.TestonlyOuter](protoutils.Marshal(&testpb.TestonlyOuter{
-		SizedChildren: []*testpb.TestonlySizedLeaf{
+	require.NoError(t, protoutils.Scan[*testpb.Outer](protoutils.Marshal(&testpb.Outer{
+		SizedChildren: []*testpb.SizedLeaf{
 			{Items: [][]byte{{1}, {2, 3}}},
 			{Items: [][]byte{{4}, {5, 6}}},
 		},
@@ -37,44 +36,44 @@ func TestScan_MaxTotalSizeResetsAcrossNestedInstances(t *testing.T) {
 }
 
 func TestScan_DuplicateNonRepeatedMessagesGetSeparateChildBudgets(t *testing.T) {
-	child := protoutils.Marshal(&testpb.TestonlyCountedLeaf{Items: []string{"a", "b"}})
+	child := protoutils.Marshal(&testpb.CountedLeaf{Items: []string{"a", "b"}})
 	var raw []byte
 	for range 2 {
 		raw = protowire.AppendTag(raw, 1, protowire.BytesType)
 		raw = protowire.AppendVarint(raw, uint64(len(child)))
 		raw = append(raw, child...)
 	}
-	require.NoError(t, protoutils.Scan[*testpb.TestonlyOuter](raw))
+	require.NoError(t, protoutils.Scan[*testpb.Outer](raw))
 }
 
 func TestScan_DistinctSchemasStayIndependent(t *testing.T) {
-	require.NoError(t, protoutils.Scan[*testpb.TestonlyDistinct](protoutils.Marshal(&testpb.TestonlyDistinct{
-		A: &testpb.TestonlyLeafA{Items: []string{"a", "b"}},
-		B: &testpb.TestonlyLeafB{Items: []string{"c", "d"}},
+	require.NoError(t, protoutils.Scan[*testpb.Distinct](protoutils.Marshal(&testpb.Distinct{
+		A: &testpb.LeafA{Items: []string{"a", "b"}},
+		B: &testpb.LeafB{Items: []string{"c", "d"}},
 	})))
 }
 
 func TestScan_NestedWithExplicitMaxCount(t *testing.T) {
-	msg := &testpb.TestonlyOuter{}
+	msg := &testpb.Outer{}
 	for range 5 {
-		msg.Children = append(msg.Children, &testpb.TestonlyCountedLeaf{})
+		msg.Children = append(msg.Children, &testpb.CountedLeaf{})
 	}
-	require.NoError(t, protoutils.Scan[*testpb.TestonlyOuter](protoutils.Marshal(msg)))
-	msg.Children = append(msg.Children, &testpb.TestonlyCountedLeaf{})
-	require.Error(t, protoutils.Scan[*testpb.TestonlyOuter](protoutils.Marshal(msg)))
+	require.NoError(t, protoutils.Scan[*testpb.Outer](protoutils.Marshal(msg)))
+	msg.Children = append(msg.Children, &testpb.CountedLeaf{})
+	require.Error(t, protoutils.Scan[*testpb.Outer](protoutils.Marshal(msg)))
 }
 
 func TestScan_DeepNestingBoundedCorrectly(t *testing.T) {
-	require.Error(t, protoutils.Scan[*testpb.TestonlyRoot](protoutils.Marshal(&testpb.TestonlyRoot{
-		Mid: &testpb.TestonlyMid{
-			Child: &testpb.TestonlyCountedLeaf{Items: []string{"a", "b", "c", "d"}},
+	require.Error(t, protoutils.Scan[*testpb.Root](protoutils.Marshal(&testpb.Root{
+		Mid: &testpb.Mid{
+			Child: &testpb.CountedLeaf{Items: []string{"a", "b", "c", "d"}},
 		},
 	})))
 }
 
 func TestScan_UnannotatedTargetIsNoOp(t *testing.T) {
-	require.NoError(t, protoutils.Scan[*testpb.TestonlyUnannotatedParent](protoutils.Marshal(&testpb.TestonlyUnannotatedParent{
-		Child: &testpb.TestonlyUnannotatedChild{
+	require.NoError(t, protoutils.Scan[*testpb.UnannotatedParent](protoutils.Marshal(&testpb.UnannotatedParent{
+		Child: &testpb.UnannotatedChild{
 			Items:   []string{"a", "b", "c", "d", "e", "f"},
 			Payload: []byte("payload that would be rejected if capped"),
 		},
@@ -82,60 +81,60 @@ func TestScan_UnannotatedTargetIsNoOp(t *testing.T) {
 }
 
 func TestScan_DescendsIntoOneofVariant(t *testing.T) {
-	require.Error(t, protoutils.Scan[*testpb.TestonlyOneofOuter](protoutils.Marshal(&testpb.TestonlyOneofOuter{
-		Choice: &testpb.TestonlyOneofOuter_Inner{
-			Inner: &testpb.TestonlyOneofInner{Items: []string{"a", "b", "c", "d"}},
+	require.Error(t, protoutils.Scan[*testpb.OneofOuter](protoutils.Marshal(&testpb.OneofOuter{
+		Choice: &testpb.OneofOuter_Inner{
+			Inner: &testpb.OneofInner{Items: []string{"a", "b", "c", "d"}},
 		},
 	})))
 }
 
 func TestScan_EnforcesSizeRules(t *testing.T) {
-	require.Error(t, protoutils.Scan[*testpb.TestonlySizedParent](protoutils.Marshal(&testpb.TestonlySizedParent{
+	require.Error(t, protoutils.Scan[*testpb.SizedParent](protoutils.Marshal(&testpb.SizedParent{
 		Payload: [][]byte{{1, 2, 3, 4}},
 	})))
 
-	require.Error(t, protoutils.Scan[*testpb.TestonlySizedParent](protoutils.Marshal(&testpb.TestonlySizedParent{
+	require.Error(t, protoutils.Scan[*testpb.SizedParent](protoutils.Marshal(&testpb.SizedParent{
 		Payload: [][]byte{{1, 2, 3}, {4, 5, 6}},
 	})))
 
-	require.Error(t, protoutils.Scan[*testpb.TestonlySizedParent](protoutils.Marshal(&testpb.TestonlySizedParent{
-		Child: &testpb.TestonlySizedName{Name: "abcde"},
+	require.Error(t, protoutils.Scan[*testpb.SizedParent](protoutils.Marshal(&testpb.SizedParent{
+		Child: &testpb.SizedName{Name: "abcde"},
 	})))
 
-	require.NoError(t, protoutils.Scan[*testpb.TestonlySizedParent](protoutils.Marshal(&testpb.TestonlySizedParent{
+	require.NoError(t, protoutils.Scan[*testpb.SizedParent](protoutils.Marshal(&testpb.SizedParent{
 		Payload: [][]byte{{1, 2}, {3, 4, 5}},
-		Child:   &testpb.TestonlySizedName{Name: "abcd"},
+		Child:   &testpb.SizedName{Name: "abcd"},
 	})))
 }
 
 func TestScan_DescendsAcrossPackages(t *testing.T) {
-	require.Error(t, protoutils.Scan[*testpb.TestonlyCrossParent](protoutils.Marshal(&testpb.TestonlyCrossParent{
-		Child: &crosspb.TestonlyCrossLeaf{
-			Child: &crosspb.TestonlyCrossInner{Items: []string{"a", "b", "c", "d"}},
+	require.Error(t, protoutils.Scan[*testpb.CrossParent](protoutils.Marshal(&testpb.CrossParent{
+		Child: &crosspb.CrossLeaf{
+			Child: &crosspb.CrossInner{Items: []string{"a", "b", "c", "d"}},
 		},
 	})))
 }
 
 func TestScan_AcceptsSizedNestedMessage(t *testing.T) {
-	require.NoError(t, protoutils.Scan[*testpb.TestonlySizedMessageOuter](protoutils.Marshal(&testpb.TestonlySizedMessageOuter{
-		Inner: &testpb.TestonlySizedMessageInner{Payload: []byte("12345678")},
+	require.NoError(t, protoutils.Scan[*testpb.SizedMessageOuter](protoutils.Marshal(&testpb.SizedMessageOuter{
+		Inner: &testpb.SizedMessageInner{Payload: []byte("12345678")},
 	})))
 
-	require.Error(t, protoutils.Scan[*testpb.TestonlySizedMessageOuter](protoutils.Marshal(&testpb.TestonlySizedMessageOuter{
-		Inner: &testpb.TestonlySizedMessageInner{Payload: []byte("123456789")},
+	require.Error(t, protoutils.Scan[*testpb.SizedMessageOuter](protoutils.Marshal(&testpb.SizedMessageOuter{
+		Inner: &testpb.SizedMessageInner{Payload: []byte("123456789")},
 	})))
 }
 
 func TestScan_EnforcesRepeatedNestedTotalSize(t *testing.T) {
-	require.NoError(t, protoutils.Scan[*testpb.TestonlyRepeatedSizedChildren](protoutils.Marshal(&testpb.TestonlyRepeatedSizedChildren{
-		Children: []*testpb.TestonlySizedName{
+	require.NoError(t, protoutils.Scan[*testpb.RepeatedSizedChildren](protoutils.Marshal(&testpb.RepeatedSizedChildren{
+		Children: []*testpb.SizedName{
 			{Name: "abcd"},
 			{Name: "wxyz"},
 		},
 	})))
 
-	require.Error(t, protoutils.Scan[*testpb.TestonlyRepeatedSizedChildren](protoutils.Marshal(&testpb.TestonlyRepeatedSizedChildren{
-		Children: []*testpb.TestonlySizedName{
+	require.Error(t, protoutils.Scan[*testpb.RepeatedSizedChildren](protoutils.Marshal(&testpb.RepeatedSizedChildren{
+		Children: []*testpb.SizedName{
 			{Name: "abcd"},
 			{Name: "wxyz"},
 			{Name: "zzzz"},
@@ -144,12 +143,12 @@ func TestScan_EnforcesRepeatedNestedTotalSize(t *testing.T) {
 }
 
 func TestScan_Proto3OptionalDoesNotInterfere(t *testing.T) {
-	require.NoError(t, protoutils.Scan[*testpb.TestonlyOptional](protoutils.Marshal(&testpb.TestonlyOptional{
+	require.NoError(t, protoutils.Scan[*testpb.Optional](protoutils.Marshal(&testpb.Optional{
 		Bar:   proto.String("present"),
 		Items: []string{"a", "b", "c", "d", "e"},
 	})))
 
-	require.Error(t, protoutils.Scan[*testpb.TestonlyOptional](protoutils.Marshal(&testpb.TestonlyOptional{
+	require.Error(t, protoutils.Scan[*testpb.Optional](protoutils.Marshal(&testpb.Optional{
 		Bar:   proto.String("present"),
 		Items: []string{"a", "b", "c", "d", "e", "f"},
 	})))
