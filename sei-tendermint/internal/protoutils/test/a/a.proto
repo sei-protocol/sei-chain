@@ -51,10 +51,15 @@ message SizedOk {
   repeated string s_count_total_size = 22 [(wireguard.max_count) = 3, (wireguard.max_total_size) = 10];
   repeated NotSized n_count_total_size = 23 [(wireguard.max_count) = 3, (wireguard.max_total_size) = 10];
 
+  // Repeated fields bounded by max_count + max_size + max_total_size
+  repeated bytes b_count_size_total_size = 24 [(wireguard.max_count) = 3, (wireguard.max_size) = 5, (wireguard.max_total_size) = 10]; 
+  repeated string s_count_size_total_size = 25 [(wireguard.max_count) = 3, (wireguard.max_size) = 5, (wireguard.max_total_size) = 10];
+  repeated NotSized n_count_size_total_size = 26 [(wireguard.max_count) = 3, (wireguard.max_size) = 5, (wireguard.max_total_size) = 10];
+
   // Oneof fields.
   oneof o {
-    uint64 o_u64 = 24;
-    NotSized o_n_size = 25 [(wireguard.max_size) = 20];
+    uint64 o_u64 = 27;
+    NotSized o_n_size = 28 [(wireguard.max_size) = 20];
   }
 }
 

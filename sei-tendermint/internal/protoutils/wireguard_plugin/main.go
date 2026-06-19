@@ -21,10 +21,16 @@
 // but you can also set all: max_count, max_size, max_total_size, in which case the total size is bounded
 // by min(max_total_size,max_size * max_count).
 //
+// TODO: maps are NOT allowed in sized messages
+//
 // Annotations represent constraints on the field sizes.
 // Scan[T] traverses the binary encoded proto message checking that the constraints are satisfied.
 // This is useful for validating potentially malicious inputs BEFORE decoding the message - decoded message
 // might be significantly larger than the encoded message, which in turn might cause an OOM.
+//
+// NOTE: proto encoding containing multiple instances of a singular field, is a correct encoding (the last instance wins).
+// Scan does NOT impose implicit max_count = 1 for singular fields (even for sized messages), as these are NOT harmful:
+// during Unmarshal all but the last instances are simply ignored (it is just garbage data).
 //
 // TODO: dedup with sei-tendermint/internal/hashable/plugin in a later PR.
 package main
@@ -346,6 +352,7 @@ type emitCtx struct {
 // rebuilt for every emitted file.
 type emitIdents struct {
 	schema, mustRegister, utilsSome, reflectTypeFor string
+	varintType, fixed32Type, fixed64Type            string
 }
 
 func newEmitIdents(g *protogen.GeneratedFile) emitIdents {
@@ -357,6 +364,9 @@ func newEmitIdents(g *protogen.GeneratedFile) emitIdents {
 		mustRegister:   q(wireguardRuntime, "MustRegister"),
 		utilsSome:      q(utilsPkg, "Some"),
 		reflectTypeFor: q("reflect", "TypeFor"),
+		varintType:     q(wireguardRuntime, "VarintType"),
+		fixed32Type:    q(wireguardRuntime, "Fixed32Type"),
+		fixed64Type:    q(wireguardRuntime, "Fixed64Type"),
 	}
 }
 
@@ -427,6 +437,9 @@ func emitSchemaRegistration(g *protogen.GeneratedFile, m *protogen.Message, ctx 
 		if hasMaxCount {
 			maxCount := opts.Get(ctx.exts.maxCount.TypeDescriptor()).Uint()
 			pieces = append(pieces, fmt.Sprintf("MaxCount: %d", maxCount))
+			if packedTypeExpr := packedTypeExpr(f, idents); packedTypeExpr != "" {
+				pieces = append(pieces, fmt.Sprintf("PackedType: %s(%s)", idents.utilsSome, packedTypeExpr))
+			}
 		}
 		if hasMaxSize {
 			maxSize := opts.Get(ctx.exts.maxSize.TypeDescriptor()).Uint()
@@ -461,6 +474,33 @@ func typeExprForTarget(g *protogen.GeneratedFile, ctx emitCtx, d protoreflect.Me
 		GoImportPath: m.GoIdent.GoImportPath,
 	})
 	return fmt.Sprintf("%s[*%s]()", idents.reflectTypeFor, target)
+}
+
+func packedTypeExpr(f protoreflect.FieldDescriptor, idents emitIdents) string {
+	if !f.IsList() || !f.IsPacked() {
+		return ""
+	}
+	switch f.Kind() {
+	case protoreflect.BoolKind,
+		protoreflect.EnumKind,
+		protoreflect.Int32Kind,
+		protoreflect.Int64Kind,
+		protoreflect.Uint32Kind,
+		protoreflect.Uint64Kind,
+		protoreflect.Sint32Kind,
+		protoreflect.Sint64Kind:
+		return idents.varintType
+	case protoreflect.Fixed32Kind,
+		protoreflect.Sfixed32Kind,
+		protoreflect.FloatKind:
+		return idents.fixed32Type
+	case protoreflect.Fixed64Kind,
+		protoreflect.Sfixed64Kind,
+		protoreflect.DoubleKind:
+		return idents.fixed64Type
+	default:
+		return ""
+	}
 }
 
 type pm struct{ *protogen.Message }

@@ -12,6 +12,16 @@ import (
 // import protowire directly.
 type Number = protowire.Number
 
+// Type re-exports protowire.Type so generated schemas do not need to import
+// protowire directly.
+type Type = protowire.Type
+
+const (
+	VarintType  = protowire.VarintType
+	Fixed32Type = protowire.Fixed32Type
+	Fixed64Type = protowire.Fixed64Type
+)
+
 // Schema describes the validation applied to a single proto message type.
 // Rules are keyed by proto field number; nesting is expressed by setting
 // Rule.Nested to a child schema. Schemas are immutable after construction
@@ -24,6 +34,10 @@ type Rule struct {
 	// Nested, if Some, is applied to the contents of this length-delimited
 	// field. Use for descending through wrapper layers on the way to a cap.
 	Nested utils.Option[reflect.Type]
+	// PackedType, if Some, marks a repeated scalar field that may be encoded in
+	// packed form inside a length-delimited payload. The contained wire type is
+	// used to count packed elements for MaxCount enforcement.
+	PackedType utils.Option[Type]
 	// MaxCount, if non-zero, caps how many times this field may appear in the
 	// current message instance.
 	MaxCount int
@@ -72,7 +86,11 @@ func (s Schema) scan(bz []byte) error {
 			}
 			if hasRule {
 				if rule.MaxCount > 0 {
-					counts[num]++
+					count, err := packedCount(val, rule)
+					if err != nil {
+						return fmt.Errorf("wireguard: malformed packed field %d: %w", num, err)
+					}
+					counts[num] += count
 					if counts[num] > rule.MaxCount {
 						return fmt.Errorf("wireguard: field %d exceeds max %d entries", num, rule.MaxCount)
 					}
@@ -95,6 +113,12 @@ func (s Schema) scan(bz []byte) error {
 			bz = bz[valLen:]
 			continue
 		}
+		if hasRule && rule.MaxCount > 0 {
+			counts[num]++
+			if counts[num] > rule.MaxCount {
+				return fmt.Errorf("wireguard: field %d exceeds max %d entries", num, rule.MaxCount)
+			}
+		}
 		valLen := protowire.ConsumeFieldValue(num, typ, bz)
 		if valLen < 0 {
 			return fmt.Errorf("wireguard: malformed field %d value: %w", num, protowire.ParseError(valLen))
@@ -102,4 +126,31 @@ func (s Schema) scan(bz []byte) error {
 		bz = bz[valLen:]
 	}
 	return nil
+}
+
+func packedCount(bz []byte, rule Rule) (int, error) {
+	packedType, ok := rule.PackedType.Get()
+	if !ok {
+		return 1, nil
+	}
+	count := 0
+	for len(bz) > 0 {
+		var n int
+		switch packedType {
+		case protowire.VarintType:
+			_, n = protowire.ConsumeVarint(bz)
+		case protowire.Fixed32Type:
+			_, n = protowire.ConsumeFixed32(bz)
+		case protowire.Fixed64Type:
+			_, n = protowire.ConsumeFixed64(bz)
+		default:
+			return 0, fmt.Errorf("unsupported packed wire type %d", packedType)
+		}
+		if n < 0 {
+			return 0, protowire.ParseError(n)
+		}
+		bz = bz[n:]
+		count++
+	}
+	return count, nil
 }

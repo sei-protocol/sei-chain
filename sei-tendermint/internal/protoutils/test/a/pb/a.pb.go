@@ -140,6 +140,10 @@ type SizedOk struct {
 	BCountTotalSize [][]byte    `protobuf:"bytes,21,rep,name=b_count_total_size,json=bCountTotalSize,proto3" json:"b_count_total_size,omitempty"`
 	SCountTotalSize []string    `protobuf:"bytes,22,rep,name=s_count_total_size,json=sCountTotalSize,proto3" json:"s_count_total_size,omitempty"`
 	NCountTotalSize []*NotSized `protobuf:"bytes,23,rep,name=n_count_total_size,json=nCountTotalSize,proto3" json:"n_count_total_size,omitempty"`
+	// Repeated fields bounded by max_count + max_size + max_total_size
+	BCountSizeTotalSize [][]byte    `protobuf:"bytes,24,rep,name=b_count_size_total_size,json=bCountSizeTotalSize,proto3" json:"b_count_size_total_size,omitempty"`
+	SCountSizeTotalSize []string    `protobuf:"bytes,25,rep,name=s_count_size_total_size,json=sCountSizeTotalSize,proto3" json:"s_count_size_total_size,omitempty"`
+	NCountSizeTotalSize []*NotSized `protobuf:"bytes,26,rep,name=n_count_size_total_size,json=nCountSizeTotalSize,proto3" json:"n_count_size_total_size,omitempty"`
 	// Oneof fields.
 	//
 	// Types that are valid to be assigned to O:
@@ -342,6 +346,27 @@ func (x *SizedOk) GetNCountTotalSize() []*NotSized {
 	return nil
 }
 
+func (x *SizedOk) GetBCountSizeTotalSize() [][]byte {
+	if x != nil {
+		return x.BCountSizeTotalSize
+	}
+	return nil
+}
+
+func (x *SizedOk) GetSCountSizeTotalSize() []string {
+	if x != nil {
+		return x.SCountSizeTotalSize
+	}
+	return nil
+}
+
+func (x *SizedOk) GetNCountSizeTotalSize() []*NotSized {
+	if x != nil {
+		return x.NCountSizeTotalSize
+	}
+	return nil
+}
+
 func (x *SizedOk) GetO() isSizedOk_O {
 	if x != nil {
 		return x.O
@@ -372,11 +397,11 @@ type isSizedOk_O interface {
 }
 
 type SizedOk_OU64 struct {
-	OU64 uint64 `protobuf:"varint,24,opt,name=o_u64,json=oU64,proto3,oneof"`
+	OU64 uint64 `protobuf:"varint,27,opt,name=o_u64,json=oU64,proto3,oneof"`
 }
 
 type SizedOk_ONSize struct {
-	ONSize *NotSized `protobuf:"bytes,25,opt,name=o_n_size,json=oNSize,proto3,oneof"`
+	ONSize *NotSized `protobuf:"bytes,28,opt,name=o_n_size,json=oNSize,proto3,oneof"`
 }
 
 func (*SizedOk_OU64) isSizedOk_O() {}
@@ -625,7 +650,7 @@ const file_protoutils_test_a_a_proto_rawDesc = "" +
 	"\vlarge_field\x18\x01 \x01(\fR\n" +
 	"largeField\"\x1d\n" +
 	"\x05Sized\x12\f\n" +
-	"\x01a\x18\x01 \x01(\x04R\x01a:\x06\xe8\x88\xe2\xab\f\x01\"\xd6\a\n" +
+	"\x01a\x18\x01 \x01(\x04R\x01a:\x06\xe8\x88\xe2\xab\f\x01\"\xca\t\n" +
 	"\aSizedOk\x12\x10\n" +
 	"\x03u64\x18\x01 \x01(\x04R\x03u64\x12\x10\n" +
 	"\x03i64\x18\x02 \x01(\x03R\x03i64\x12\x10\n" +
@@ -656,9 +681,15 @@ const file_protoutils_test_a_a_proto_rawDesc = "" +
 	"\x12s_count_total_size\x18\x16 \x03(\tB\fЈ\xe2\xab\f\x03\xe0\x88\xe2\xab\f\n" +
 	"R\x0fsCountTotalSize\x12O\n" +
 	"\x12n_count_total_size\x18\x17 \x03(\v2\x14.protoutils.NotSizedB\fЈ\xe2\xab\f\x03\xe0\x88\xe2\xab\f\n" +
-	"R\x0fnCountTotalSize\x12\x15\n" +
-	"\x05o_u64\x18\x18 \x01(\x04H\x00R\x04oU64\x128\n" +
-	"\bo_n_size\x18\x19 \x01(\v2\x14.protoutils.NotSizedB\x06؈\xe2\xab\f\x14H\x00R\x06oNSize:\x06\xe8\x88\xe2\xab\f\x01B\x03\n" +
+	"R\x0fnCountTotalSize\x12H\n" +
+	"\x17b_count_size_total_size\x18\x18 \x03(\fB\x12Ј\xe2\xab\f\x03؈\xe2\xab\f\x05\xe0\x88\xe2\xab\f\n" +
+	"R\x13bCountSizeTotalSize\x12H\n" +
+	"\x17s_count_size_total_size\x18\x19 \x03(\tB\x12Ј\xe2\xab\f\x03؈\xe2\xab\f\x05\xe0\x88\xe2\xab\f\n" +
+	"R\x13sCountSizeTotalSize\x12^\n" +
+	"\x17n_count_size_total_size\x18\x1a \x03(\v2\x14.protoutils.NotSizedB\x12Ј\xe2\xab\f\x03؈\xe2\xab\f\x05\xe0\x88\xe2\xab\f\n" +
+	"R\x13nCountSizeTotalSize\x12\x15\n" +
+	"\x05o_u64\x18\x1b \x01(\x04H\x00R\x04oU64\x128\n" +
+	"\bo_n_size\x18\x1c \x01(\v2\x14.protoutils.NotSizedB\x06؈\xe2\xab\f\x14H\x00R\x06oNSize:\x06\xe8\x88\xe2\xab\f\x01B\x03\n" +
 	"\x01o\"b\n" +
 	"\n" +
 	"OuterSized\x12!\n" +
@@ -713,21 +744,22 @@ var file_protoutils_test_a_a_proto_depIdxs = []int32{
 	1,  // 2: protoutils.SizedOk.s_count:type_name -> protoutils.Sized
 	0,  // 3: protoutils.SizedOk.n_count_size:type_name -> protoutils.NotSized
 	0,  // 4: protoutils.SizedOk.n_count_total_size:type_name -> protoutils.NotSized
-	0,  // 5: protoutils.SizedOk.o_n_size:type_name -> protoutils.NotSized
-	2,  // 6: protoutils.OuterSized.a:type_name -> protoutils.SizedOk
-	2,  // 7: protoutils.OuterSized.b:type_name -> protoutils.SizedOk
-	2,  // 8: protoutils.OuterNotSized.a:type_name -> protoutils.SizedOk
-	2,  // 9: protoutils.OuterNotSized.b:type_name -> protoutils.SizedOk
-	0,  // 10: protoutils.OuterNotSized.c:type_name -> protoutils.NotSized
-	7,  // 11: protoutils.Msg.map_value:type_name -> protoutils.Msg.MapValueEntry
-	6,  // 12: protoutils.Msg.repeated_message_value:type_name -> protoutils.Child
-	8,  // 13: protoutils.Msg.map_message_value:type_name -> protoutils.Msg.MapMessageValueEntry
-	6,  // 14: protoutils.Msg.MapMessageValueEntry.value:type_name -> protoutils.Child
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	0,  // 5: protoutils.SizedOk.n_count_size_total_size:type_name -> protoutils.NotSized
+	0,  // 6: protoutils.SizedOk.o_n_size:type_name -> protoutils.NotSized
+	2,  // 7: protoutils.OuterSized.a:type_name -> protoutils.SizedOk
+	2,  // 8: protoutils.OuterSized.b:type_name -> protoutils.SizedOk
+	2,  // 9: protoutils.OuterNotSized.a:type_name -> protoutils.SizedOk
+	2,  // 10: protoutils.OuterNotSized.b:type_name -> protoutils.SizedOk
+	0,  // 11: protoutils.OuterNotSized.c:type_name -> protoutils.NotSized
+	7,  // 12: protoutils.Msg.map_value:type_name -> protoutils.Msg.MapValueEntry
+	6,  // 13: protoutils.Msg.repeated_message_value:type_name -> protoutils.Child
+	8,  // 14: protoutils.Msg.map_message_value:type_name -> protoutils.Msg.MapMessageValueEntry
+	6,  // 15: protoutils.Msg.MapMessageValueEntry.value:type_name -> protoutils.Child
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_protoutils_test_a_a_proto_init() }
