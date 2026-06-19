@@ -1,6 +1,8 @@
 version: v2
 inputs:
-  - directory: ./sei-tendermint/internal 
+  - directory: ./sei-tendermint/internal
+    exclude_paths:
+      - sei-tendermint/internal/protoutils/wireguard_plugin/testdata
 plugins:
   - remote: buf.build/protocolbuffers/go:v1.36.10
     out: ./sei-tendermint/internal
