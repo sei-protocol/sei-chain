@@ -9,6 +9,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
+// Test generating message(s) up to the limits.
+// Then checking if Scan succeeds.
+// Then exceeding all limits one by one and checking if Scan fails.
+// We are running Scan on the message in question, and on an outer sized/unsized message which embeds our message.
 func TestScan(t *testing.T) {
 	t.Parallel()
 	rng := utils.TestRng()
@@ -117,13 +121,13 @@ func TestScan(t *testing.T) {
 			func(msg *pb.SizedOk) { msg.BCountSize[0] = utils.GenBytes(rng, 6) },
 			func(msg *pb.SizedOk) { msg.SCountSize = genStrings(rng, 1, 1, 1, 1) },
 			func(msg *pb.SizedOk) { msg.SCountSize[0] = utils.GenString(rng, 6) },
-			func(msg *pb.SizedOk) { msg.NCountSize = genNotSizedSlice(rng,0,0,0,0) },
+			func(msg *pb.SizedOk) { msg.NCountSize = genNotSizedSlice(rng, 0, 0, 0, 0) },
 			func(msg *pb.SizedOk) { msg.NCountSize[0] = genNotSized(rng, 4) },
 			func(msg *pb.SizedOk) { msg.BCountTotalSize = genBytes(rng, 3, 3, 2, 2) },
 			func(msg *pb.SizedOk) { msg.BCountTotalSize = genBytes(rng, 3, 3, 5) },
 			func(msg *pb.SizedOk) { msg.SCountTotalSize = genStrings(rng, 3, 3, 2, 2) },
 			func(msg *pb.SizedOk) { msg.SCountTotalSize = genStrings(rng, 3, 3, 5) },
-			func(msg *pb.SizedOk) { msg.NCountTotalSize = genNotSizedSlice(rng,0,0,0,0) },
+			func(msg *pb.SizedOk) { msg.NCountTotalSize = genNotSizedSlice(rng, 0, 0, 0, 0) },
 			func(msg *pb.SizedOk) { msg.NCountTotalSize = genNotSizedSlice(rng, 1, 1, 3) },
 			func(msg *pb.SizedOk) { msg.BCountSizeTotalSize = genBytes(rng, 3, 3, 2, 2) },
 			func(msg *pb.SizedOk) { msg.BCountSizeTotalSize = genBytes(rng, 6, 2, 2) },
@@ -131,9 +135,9 @@ func TestScan(t *testing.T) {
 			func(msg *pb.SizedOk) { msg.SCountSizeTotalSize = genStrings(rng, 3, 3, 2, 2) },
 			func(msg *pb.SizedOk) { msg.SCountSizeTotalSize = genStrings(rng, 6, 2, 2) },
 			func(msg *pb.SizedOk) { msg.SCountSizeTotalSize = genStrings(rng, 5, 5, 1) },
-			func(msg *pb.SizedOk) { msg.NCountSizeTotalSize = genNotSizedSlice(rng, 0,0,0,0) },
-			func(msg *pb.SizedOk) { msg.NCountSizeTotalSize = genNotSizedSlice(rng, 4,0,0) },
-			func(msg *pb.SizedOk) { msg.NCountSizeTotalSize = genNotSizedSlice(rng, 3,3,1) },
+			func(msg *pb.SizedOk) { msg.NCountSizeTotalSize = genNotSizedSlice(rng, 0, 0, 0, 0) },
+			func(msg *pb.SizedOk) { msg.NCountSizeTotalSize = genNotSizedSlice(rng, 4, 0, 0) },
+			func(msg *pb.SizedOk) { msg.NCountSizeTotalSize = genNotSizedSlice(rng, 3, 3, 1) },
 			func(msg *pb.SizedOk) { msg.O = &pb.SizedOk_ONSize{ONSize: genNotSized(rng, 19)} },
 		})
 	}
@@ -178,41 +182,17 @@ func TestScan(t *testing.T) {
 		return variants
 	}
 
-	type testCase struct {
-		wantErr bool
-		run     func() error
-	}
+	require.NoError(t, scanSizedOk(protoutils.Clone(baseSizedOk)))
+	require.NoError(t, scanOuterSized(protoutils.Clone(baseOuterSized)))
+	require.NoError(t, scanOuterNotSized(protoutils.Clone(baseOuterNotSized)))
 
-	cases := []testCase{
-		{run: func() error { return scanSizedOk(protoutils.Clone(baseSizedOk)) }},
-		{run: func() error { return scanOuterSized(protoutils.Clone(baseOuterSized)) }},
-		{run: func() error { return scanOuterNotSized(protoutils.Clone(baseOuterNotSized)) }},
-	}
 	for _, malformed := range sizedOkMalformedVariants(baseSizedOk) {
-		cases = append(cases, testCase{
-			wantErr: true,
-			run:     func() error { return scanSizedOk(malformed) },
-		})
+		require.Error(t, scanSizedOk(malformed))
 	}
 	for _, malformed := range outerSizedMalformedVariants(baseOuterSized) {
-		cases = append(cases, testCase{
-			wantErr: true,
-			run:     func() error { return scanOuterSized(malformed) },
-		})
+		require.Error(t, scanOuterSized(malformed))
 	}
 	for _, malformed := range outerNotSizedMalformedVariants(baseOuterNotSized) {
-		cases = append(cases, testCase{
-			wantErr: true,
-			run:     func() error { return scanOuterNotSized(malformed) },
-		})
-	}
-
-	for _, tc := range cases {
-		err := tc.run()
-		if tc.wantErr {
-			require.Error(t, err)
-		} else {
-			require.NoError(t, err)
-		}
+		require.Error(t, scanOuterNotSized(malformed))
 	}
 }
