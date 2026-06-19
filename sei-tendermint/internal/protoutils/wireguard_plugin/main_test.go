@@ -97,6 +97,7 @@ func TestPlugin_Rejections(t *testing.T) {
 		{"max_size_zero.proto", errMustBePositive{Rule: "max_size"}},
 		{"max_total_size_zero.proto", errMustBePositive{Rule: "max_total_size"}},
 		{"size_rule_on_scalar.proto", errSizeRulesRequireSizedFieldType},
+		{"sized_map_field.proto", errSizedMapField},
 		{"sized_unbounded_bytes.proto", errSizedFieldNeedsSizeOrSizedNest},
 		{"sized_repeated_without_max_count.proto", errSizedFieldMissingMaxCount},
 		{"sized_unsized_nested_without_field_size.proto", errSizedFieldNeedsSizeOrSizedNest},

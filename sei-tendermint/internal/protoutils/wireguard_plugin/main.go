@@ -21,7 +21,7 @@
 // but you can also set all: max_count, max_size, max_total_size, in which case the total size is bounded
 // by min(max_total_size,max_size * max_count).
 //
-// TODO: maps are NOT allowed in sized messages
+// NOTE: maps are NOT allowed in sized messages.
 //
 // Annotations represent constraints on the field sizes.
 // Scan[T] traverses the binary encoded proto message checking that the constraints are satisfied.
@@ -67,6 +67,7 @@ func (err errMustBePositive) Error() string {
 
 var (
 	errSizeRulesRequireSizedFieldType         = errors.New("wireguard size rules require a string, bytes, or message field")
+	errSizedMapField                          = errors.New("wireguard.sized messages must not contain map fields")
 	errSizedFieldMissingMaxCount              = errors.New("wireguard.sized repeated field missing wireguard.max_count")
 	errSizedRepeatedFieldNeedsSizeOrSizedNest = errors.New("wireguard.sized repeated field needs a size bound or sized nested message")
 	errSizedFieldNeedsSizeOrSizedNest         = errors.New("wireguard.sized field needs a size bound or sized nested message")
@@ -240,6 +241,9 @@ func validateSizedMessages(byName map[protoreflect.FullName]protoreflect.Message
 		fields := d.Fields()
 		for i := range fields.Len() {
 			f := fields.Get(i)
+			if f.IsMap() {
+				return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errSizedMapField)
+			}
 			opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
 			hasMaxCount := opts.Has(exts.maxCount.TypeDescriptor())
 			hasMaxSize := opts.Has(exts.maxSize.TypeDescriptor())
