@@ -30,6 +30,7 @@ import (
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tenderminttypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -882,8 +883,8 @@ func (c *fixedBlockClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (c *fixedBlockClient) EvmProxy(common.Address) (*url.URL, bool) {
-	return nil, false
+func (c *fixedBlockClient) EvmProxy(common.Address) utils.Option[*url.URL] {
+	return utils.None[*url.URL]()
 }
 
 func (c *fixedBlockClient) Block(_ context.Context, _ *int64) (*coretypes.ResultBlock, error) {
