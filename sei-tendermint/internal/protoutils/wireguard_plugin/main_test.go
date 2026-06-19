@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -53,7 +54,20 @@ func pluginTestRoots(t *testing.T) (fixtureRoot, protoRoot string) {
 	_, currentFile, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	dir := filepath.Dir(currentFile)
-	return filepath.Join(dir, "testdata"), filepath.Join(dir, "..", "..", "..", "proto")
+	goModuleRoot := findGoModuleRoot(t, dir)
+	return filepath.Join(dir, "testdata"), filepath.Join(goModuleRoot, "sei-tendermint/proto")
+}
+
+func findGoModuleRoot(t *testing.T, start string) string {
+	t.Helper()
+
+	for dir := start; ; dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		require.NotEqual(t, parent, dir, "failed to find go module root from %s", start)
+	}
 }
 
 func collectDescriptors(root protoreflect.FileDescriptor, req *pluginpb.CodeGeneratorRequest) {
