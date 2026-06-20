@@ -84,11 +84,12 @@ type Config struct {
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 
 	// AutobahnMaxInboundFullnodePeers caps concurrent inbound block-sync
-	// connections from non-committee peers per validator. Pointer so we can
-	// tell absent ("use DefaultAutobahnMaxInboundFullnodePeers") from
-	// explicit 0 ("reject all inbound fullnode block-sync from this
-	// validator"). Positive values override the default. Only meaningful
-	// on validator-mode nodes; ignored on fullnodes.
+	// connections from non-committee peers. Applied on both validators and
+	// fullnodes (relay fullnodes serving downstream block-sync are subject
+	// to the same cap). Pointer so we can tell absent ("use
+	// DefaultAutobahnMaxInboundFullnodePeers") from explicit 0 ("reject
+	// all inbound block-sync from non-committee peers"). Positive values
+	// override the default.
 	AutobahnMaxInboundFullnodePeers *int `mapstructure:"autobahn-max-inbound-fullnode-peers"`
 }
 
