@@ -15,6 +15,7 @@ func init() {
 
 	// Register the wireguard.Schema generated for tendermint.types.Proposal.
 	runtime.MustRegister[*Proposal](runtime.Schema{
+		8:  {MaxCount: 2000},
 		9:  {Nested: utils.Some(reflect.TypeFor[*EvidenceList]())},
 		10: {Nested: utils.Some(reflect.TypeFor[*Commit]())},
 	})
@@ -37,11 +38,12 @@ func init() {
 	// Register the wireguard.Schema generated for tendermint.types.LightClientAttackEvidence.
 	runtime.MustRegister[*LightClientAttackEvidence](runtime.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*LightBlock]())},
+		3: {MaxCount: 100},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.types.EvidenceList.
 	runtime.MustRegister[*EvidenceList](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*Evidence]())},
+		1: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*Evidence]())},
 	})
 
 }
