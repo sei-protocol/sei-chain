@@ -44,8 +44,8 @@ type gigaRouterCommon struct {
 	// inboundFullnodeCount tracks live non-committee inbound block-sync
 	// connections. Optimistic Add(1) + compare against cap; over-rejects
 	// by one or two under contention but never over-accepts.
-	inboundFullnodeCount atomic.Int32
-	inboundFullnodeCap   int32
+	inboundFullnodeCount atomic.Int64
+	inboundFullnodeCap   int64
 }
 
 // buildDataState validates the common config and constructs the data

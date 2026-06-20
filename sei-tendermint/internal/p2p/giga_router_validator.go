@@ -58,7 +58,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
 			app:                cfg.App,
-			inboundFullnodeCap: int32(cfg.MaxInboundFullnodePeers),
+			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
 		consensus:      consensusState,
 		producer:       producerState,

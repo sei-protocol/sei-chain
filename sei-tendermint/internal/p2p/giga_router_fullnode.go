@@ -32,7 +32,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gig
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
 			app:                cfg.App,
-			inboundFullnodeCap: int32(cfg.MaxInboundFullnodePeers),
+			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
 	}, nil
 }
