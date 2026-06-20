@@ -96,8 +96,8 @@ func (x *Service) RunClient(ctx context.Context, client rpc.Client[API]) error {
 	})
 }
 
-// RunBlockSyncServer spawns only the block-sync server handlers. Used by
-// validators on inbound connections from non-committee peers.
+// RunBlockSyncServer spawns only the block-sync server handlers. Used on
+// both validator and fullnode inbound connections from non-committee peers.
 func (x *Service) RunBlockSyncServer(ctx context.Context, server rpc.Server[API]) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return x.serverPing(ctx, server) })

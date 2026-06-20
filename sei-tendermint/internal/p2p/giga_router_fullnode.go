@@ -16,10 +16,7 @@ type gigaFullnodeRouter struct {
 }
 
 func (r *gigaFullnodeRouter) MaxGasEstimatedPerBlock() uint64 {
-	if r.cfg.GenDoc.ConsensusParams != nil {
-		return r.cfg.GenDoc.ConsensusParams.Block.MaxGasUint64()
-	}
-	return 0
+	return r.cfg.GenDoc.ConsensusParams.Block.MaxGasUint64()
 }
 
 func (r *gigaFullnodeRouter) Mempool() utils.Option[*producer.State] {

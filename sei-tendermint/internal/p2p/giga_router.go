@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"net/url"
 	"slices"
 	"sync/atomic"
@@ -144,8 +145,8 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gig
 	if err != nil {
 		return nil, err
 	}
-	if cfg.MaxInboundFullnodePeers < 0 {
-		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want >= 0", cfg.MaxInboundFullnodePeers)
+	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > math.MaxInt32 {
+		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..MaxInt32", cfg.MaxInboundFullnodePeers)
 	}
 	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaFullnodeRouter{
@@ -184,8 +185,8 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
 	producerState := producer.NewState(cfg.Producer, consensusState)
-	if cfg.MaxInboundFullnodePeers < 0 {
-		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want >= 0", cfg.MaxInboundFullnodePeers)
+	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > math.MaxInt32 {
+		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..MaxInt32", cfg.MaxInboundFullnodePeers)
 	}
 	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaValidatorRouter{
@@ -503,8 +504,8 @@ func (r *gigaRouterCommon) dialAndRunConn(
 // RunInboundConn serves an inbound giga connection. Non-committee peers
 // get the block-sync subset (StreamFullCommitQCs + GetBlock), capped at
 // inboundFullnodeCap. Committee peers get the full RunServer on
-// validators; fullnodes don't run consensus/avail so committee peers
-// (rare — validators normally dial each other, not us) also get block-sync.
+// validators; on a fullnode the connection is refused (committee peers
+// shouldn't be dialing fullnodes — see Service.RunInbound).
 func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
 	if !hConn.msg.SeiGigaConnection {
 		return fmt.Errorf("not a SeiGiga connection")
