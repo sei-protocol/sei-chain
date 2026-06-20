@@ -233,6 +233,6 @@ message LightClientAttackEvidence {
 message EvidenceList {
   repeated Evidence evidence = 1 [
     (gogoproto.nullable) = false,
-    (wireguard.max_count) = 100
-  ]; // 100 = MaxValidators
+    (wireguard.max_count) = 100 // 100 = MaxValidators
+  ];
 }
