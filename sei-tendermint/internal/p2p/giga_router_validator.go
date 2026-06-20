@@ -3,7 +3,6 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"math"
 	"net/url"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -49,10 +48,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
 	producerState := producer.NewState(cfg.Producer, consensusState)
-	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > math.MaxInt32 {
-		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..MaxInt32", cfg.MaxInboundFullnodePeers)
-	}
-	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
+	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
 			cfg:                &cfg.GigaRouterCommonConfig,
@@ -62,7 +58,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
 			app:                cfg.App,
-			inboundFullnodeCap: int32(cfg.MaxInboundFullnodePeers), // nolint:gosec // validated >= 0 above.
+			inboundFullnodeCap: int32(cfg.MaxInboundFullnodePeers),
 		},
 		consensus:      consensusState,
 		producer:       producerState,

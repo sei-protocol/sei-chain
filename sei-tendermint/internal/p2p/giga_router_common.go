@@ -26,6 +26,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
+// maxInboundFullnodePeers caps GigaRouterCommonConfig.MaxInboundFullnodePeers.
+// Per-peer cost (~50-100 KB resident + ~8 goroutines + 1 fd) and NIC
+// bandwidth bind well before this. Shard via an edge-fullnode tier if
+// you need more.
+const maxInboundFullnodePeers = 10000
+
 type gigaRouterCommon struct {
 	cfg     *GigaRouterCommonConfig
 	key     NodeSecretKey
@@ -53,6 +59,9 @@ func buildDataState(cfg *GigaRouterCommonConfig) (*data.State, error) {
 	}
 	if cfg.DialInterval <= 0 {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.DialInterval = %v, want > 0", cfg.DialInterval)
+	}
+	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
+		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
 	}
 	committee, err := atypes.NewRoundRobinElection(
 		slices.Collect(maps.Keys(cfg.ValidatorAddrs)),

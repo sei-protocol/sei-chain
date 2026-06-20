@@ -40,7 +40,7 @@ type GigaRouterCommonConfig struct {
 	// mempool drives the same proxy.
 	App *proxy.Proxy
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
-	// peers. 0 rejects all; positive caps at n.
+	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
 }
 

@@ -2,9 +2,7 @@ package p2p
 
 import (
 	"context"
-	"fmt"
 	"maps"
-	"math"
 	"math/rand/v2"
 	"slices"
 
@@ -24,10 +22,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gig
 	if err != nil {
 		return nil, err
 	}
-	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > math.MaxInt32 {
-		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..MaxInt32", cfg.MaxInboundFullnodePeers)
-	}
-	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
+	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaFullnodeRouter{
 		gigaRouterCommon: &gigaRouterCommon{
 			cfg:                cfg,
@@ -37,7 +32,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gig
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
 			app:                cfg.App,
-			inboundFullnodeCap: int32(cfg.MaxInboundFullnodePeers), // nolint:gosec // validated >= 0 above.
+			inboundFullnodeCap: int32(cfg.MaxInboundFullnodePeers),
 		},
 	}, nil
 }
