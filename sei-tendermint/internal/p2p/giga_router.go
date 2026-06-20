@@ -530,10 +530,7 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			s.Spawn(func() error { return server.Run(ctx, hConn.conn) })
-			if isCommittee && r.service.HasConsensusState() {
-				return r.service.RunServer(ctx, server)
-			}
-			return r.service.RunBlockSyncServer(ctx, server)
+			return r.service.RunInbound(ctx, server, isCommittee)
 		})
 	})
 }
