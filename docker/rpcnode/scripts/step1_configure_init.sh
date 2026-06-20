@@ -1,4 +1,14 @@
 #!/usr/bin/env sh
+#
+# rpcnode init script for the integration-test docker setup. NOT a
+# production deploy script. Best-effort by design — curl probes against
+# the validator RPC are allowed to fail (the script proceeds with
+# whatever values came back, the container then converges as the cluster
+# stabilises). The few cases where we DO want fail-fast — genesis file
+# missing after the bounded wait, autobahn validator dirs missing — are
+# guarded by explicit `if [ ! -f ]; exit 1` checks below. Don't add
+# `set -e`: it makes those transient curl probes fatal and breaks
+# init when the cluster is still warming up.
 
 # Set up GO PATH
 echo "Configure and initialize environment"
