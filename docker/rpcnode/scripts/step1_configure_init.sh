@@ -1,5 +1,4 @@
 #!/usr/bin/env sh
-set -e
 
 # Set up GO PATH
 echo "Configure and initialize environment"
