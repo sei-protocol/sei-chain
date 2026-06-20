@@ -133,7 +133,7 @@ message Commit {
   ];
   repeated CommitSig signatures = 4 [
     (gogoproto.nullable) = false,
-    (wireguard.max_count) = 10000
+    (wireguard.max_count) = 10000 // 10000 = MaxVotesCount
   ];
 }
 
@@ -162,7 +162,7 @@ message Proposal {
     (gogoproto.stdtime) = true
   ];
   bytes signature = 7;
-  repeated TxKey tx_keys = 8 [(wireguard.max_count) = 2000];
+  repeated TxKey tx_keys = 8 [(wireguard.max_count) = 2000]; // 2000 = MaxTxsPerBlock
   EvidenceList evidence = 9;
   Commit last_commit = 10;
   Header header = 11 [(gogoproto.nullable) = false];
@@ -222,7 +222,7 @@ message DuplicateVoteEvidence {
 message LightClientAttackEvidence {
   tendermint.types.LightBlock conflicting_block = 1;
   int64 common_height = 2;
-  repeated tendermint.types.Validator byzantine_validators = 3 [(wireguard.max_count) = 100];
+  repeated tendermint.types.Validator byzantine_validators = 3 [(wireguard.max_count) = 100]; // 100 = MaxValidators
   int64 total_voting_power = 4;
   google.protobuf.Timestamp timestamp = 5 [
     (gogoproto.nullable) = false,
@@ -231,5 +231,5 @@ message LightClientAttackEvidence {
 }
 
 message EvidenceList {
-  repeated Evidence evidence = 1 [(gogoproto.nullable) = false, (wireguard.max_count) = 100];
+  repeated Evidence evidence = 1 [(gogoproto.nullable) = false, (wireguard.max_count) = 100]; // 100 = MaxValidators
 }
