@@ -2,6 +2,7 @@ package giga
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -38,14 +39,20 @@ func NewBlockSyncService(d *data.State) *Service {
 	}
 }
 
-// RunInbound dispatches an inbound peer to the right handler set. Committee
-// peers get the full RunServer iff this Service holds consensus state
-// (validator mode); otherwise the block-sync subset.
+// RunInbound dispatches an inbound peer to the right handler set.
+// Non-committee peers get the block-sync subset. Committee peers get the
+// full RunServer on a validator (state present); on a non-validator the
+// connection is refused — committee members shouldn't be dialing
+// fullnodes in any healthy configuration, and we don't want a stale
+// autobahn.json entry to take down RPC nodes via a reachable panic.
 func (x *Service) RunInbound(ctx context.Context, server rpc.Server[API], isCommittee bool) error {
-	if isCommittee && x.state.IsPresent() {
-		return x.RunServer(ctx, server)
+	if !isCommittee {
+		return x.RunBlockSyncServer(ctx, server)
 	}
-	return x.RunBlockSyncServer(ctx, server)
+	if !x.state.IsPresent() {
+		return fmt.Errorf("committee peer dialed a non-validator service")
+	}
+	return x.RunServer(ctx, server)
 }
 
 // validatorState unwraps state for the validator-only handlers. Panics if
