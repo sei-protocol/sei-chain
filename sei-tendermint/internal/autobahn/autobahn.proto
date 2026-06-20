@@ -81,7 +81,7 @@ message Payload {
   optional Timestamp created_at = 1; // required
   optional uint64 total_gas_wanted = 7; // required
   optional uint64 total_gas_estimated = 8; // required
-  repeated bytes txs = 6 [(wireguard.max_count) = 2000];
+  repeated bytes txs = 6 [(wireguard.max_count) = 2000]; // 2000 = MaxTxsPerBlock
 }
 
 message Block {
@@ -92,7 +92,7 @@ message Block {
 
 message LaneQC {
   BlockHeader vote = 1;
-  repeated Signature sigs = 2 [(wireguard.max_count) = 100];
+  repeated Signature sigs = 2 [(wireguard.max_count) = 100]; // 100 = MaxValidators
 }
 
 message LaneRange {
@@ -115,30 +115,30 @@ message Proposal {
   option (hashable.hashable) = true;
   optional View view = 1; // required.
   optional Timestamp timestamp = 5; // required
-  repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 100]; // Sorted by lane.
+  repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 100]; // 100 = MaxValidators; sorted by lane.
   optional AppProposal app = 4; // optional
 }
 
 message FullProposal {
   SignedMsg proposal = 1;
-  repeated LaneQC lane_qcs = 2 [(wireguard.max_count) = 100];
+  repeated LaneQC lane_qcs = 2 [(wireguard.max_count) = 100]; // 100 = MaxValidators
   optional AppQC app_qc = 3;
   optional TimeoutQC timeout_qc = 4; // justifies the proposal.
 }
 
 message PrepareQC {
   Proposal vote = 1;
-  repeated Signature sigs = 2 [(wireguard.max_count) = 100];
+  repeated Signature sigs = 2 [(wireguard.max_count) = 100]; // 100 = MaxValidators
 }
 
 message CommitQC {
   Proposal vote = 1;
-  repeated Signature sigs = 3 [(wireguard.max_count) = 100];
+  repeated Signature sigs = 3 [(wireguard.max_count) = 100]; // 100 = MaxValidators
 }
 
 message FullCommitQC {
   CommitQC qc = 1;
-  repeated BlockHeader headers = 2 [(wireguard.max_count) = 100];
+  repeated BlockHeader headers = 2 [(wireguard.max_count) = 100]; // 100 = MaxValidators
 }
 
 message TimeoutVote {
@@ -148,7 +148,7 @@ message TimeoutVote {
 }
 
 message TimeoutQC {
-  repeated SignedMsg votes = 1 [(wireguard.max_count) = 100];
+  repeated SignedMsg votes = 1 [(wireguard.max_count) = 100]; // 100 = MaxValidators
   optional PrepareQC latest_prepare_qc = 2;
 }
 
@@ -180,7 +180,7 @@ message PersistedAvailPruneAnchor {
 
 message AppQC {
   AppProposal vote = 1;
-  repeated Signature sigs = 2 [(wireguard.max_count) = 100];
+  repeated Signature sigs = 2 [(wireguard.max_count) = 100]; // 100 = MaxValidators
 }
 
 message AppProposal {
