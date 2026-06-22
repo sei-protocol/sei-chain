@@ -74,6 +74,7 @@ func TestRPCConfigValidateBasic(t *testing.T) {
 		"MaxBodyBytes",
 		"MaxHeaderBytes",
 		"LagThreshold",
+		"TimeoutReadHeader",
 		"TimeoutWrite",
 	}
 
