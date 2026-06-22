@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/test/a/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 // Test generating message(s) up to the limits.
@@ -61,6 +62,7 @@ func TestScan(t *testing.T) {
 			FCount:              []float32{1.25, 2.5, 3.75, 4.125},
 			DCount:              []float64{1.5, 2.25, 3.125, 4.0625},
 			SCount:              utils.GenSliceN(rng, 4, genSized),
+			BoolCountUnpacked:   []bool{true},
 			BCountSize:          genBytes(rng, 5, 5, 5),
 			SCountSize:          genStrings(rng, 5, 5, 5),
 			NCountSize:          genNotSizedSlice(rng, 3, 3, 3),
@@ -117,6 +119,7 @@ func TestScan(t *testing.T) {
 			func(msg *pb.SizedOk) { msg.FCount = append(msg.FCount, 5.25) },
 			func(msg *pb.SizedOk) { msg.DCount = append(msg.DCount, 5.125) },
 			func(msg *pb.SizedOk) { msg.SCount = append(msg.SCount, genSized(rng)) },
+			func(msg *pb.SizedOk) { msg.BoolCountUnpacked = append(msg.BoolCountUnpacked, false) },
 			func(msg *pb.SizedOk) { msg.BCountSize = genBytes(rng, 1, 1, 1, 1) },
 			func(msg *pb.SizedOk) { msg.BCountSize[0] = utils.GenBytes(rng, 6) },
 			func(msg *pb.SizedOk) { msg.SCountSize = genStrings(rng, 1, 1, 1, 1) },
@@ -195,4 +198,18 @@ func TestScan(t *testing.T) {
 	for _, malformed := range outerNotSizedMalformedVariants(baseOuterNotSized) {
 		require.Error(t, scanOuterNotSized(malformed))
 	}
+}
+
+func TestScan_PackedInputAcceptedForPackedFalseField(t *testing.T) {
+	t.Parallel()
+
+	var packedAtLimit []byte
+	packedAtLimit = protowire.AppendTag(packedAtLimit, 1, protowire.BytesType)
+	packedAtLimit = protowire.AppendBytes(packedAtLimit, protowire.AppendVarint(nil, 1))
+	require.NoError(t, protoutils.Scan[*pb.PackedFalseSized](packedAtLimit))
+
+	var packedOverLimit []byte
+	packedOverLimit = protowire.AppendTag(packedOverLimit, 1, protowire.BytesType)
+	packedOverLimit = protowire.AppendBytes(packedOverLimit, append(protowire.AppendVarint(nil, 1), protowire.AppendVarint(nil, 0)...))
+	require.Error(t, protoutils.Scan[*pb.PackedFalseSized](packedOverLimit))
 }

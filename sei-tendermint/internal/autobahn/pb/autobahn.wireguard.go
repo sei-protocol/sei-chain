@@ -7,6 +7,90 @@ import (
 	reflect "reflect"
 )
 
+func (*Timestamp) MaxSize() int {
+	return 22
+}
+
+func (*PublicKey) MaxSize() int {
+	return 34
+}
+
+func (*Signature) MaxSize() int {
+	return 102
+}
+
+func (*BlockHeader) MaxSize() int {
+	return 115
+}
+
+func (*Payload) MaxSize() int {
+	return 2054171
+}
+
+func (*Block) MaxSize() int {
+	return 2054292
+}
+
+func (*LaneQC) MaxSize() int {
+	return 10517
+}
+
+func (*LaneRange) MaxSize() int {
+	return 92
+}
+
+func (*View) MaxSize() int {
+	return 22
+}
+
+func (*Proposal) MaxSize() int {
+	return 9506
+}
+
+func (*FullProposal) MaxSize() int {
+	return 208577587
+}
+
+func (*PrepareQC) MaxSize() int {
+	return 19909
+}
+
+func (*CommitQC) MaxSize() int {
+	return 19909
+}
+
+func (*TimeoutVote) MaxSize() int {
+	return 35
+}
+
+func (*TimeoutQC) MaxSize() int {
+	return 205460713
+}
+
+func (*FullTimeoutVote) MaxSize() int {
+	return 2074321
+}
+
+func (*AppQC) MaxSize() int {
+	return 10458
+}
+
+func (*AppProposal) MaxSize() int {
+	return 56
+}
+
+func (*Msg) MaxSize() int {
+	return 2054296
+}
+
+func (*SignedMsg) MaxSize() int {
+	return 2054404
+}
+
+func (*ConsensusReq) MaxSize() int {
+	return 208577592
+}
+
 func init() {
 	// Register the wireguard.Schema generated for autobahn.PublicKey.
 	runtime.MustRegister[*PublicKey](runtime.Schema{

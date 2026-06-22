@@ -7,6 +7,22 @@ import (
 	reflect "reflect"
 )
 
+func (*Sized) MaxSize() int {
+	return 11
+}
+
+func (*SizedOk) MaxSize() int {
+	return 602
+}
+
+func (*OuterSized) MaxSize() int {
+	return 4840
+}
+
+func (*PackedFalseSized) MaxSize() int {
+	return 3
+}
+
 func init() {
 	// Register the wireguard.Schema generated for protoutils.SizedOk.
 	runtime.MustRegister[*SizedOk](runtime.Schema{
@@ -20,6 +36,7 @@ func init() {
 		15: {MaxCount: 4, PackedType: utils.Some(runtime.Fixed32Type)},
 		16: {MaxCount: 4, PackedType: utils.Some(runtime.Fixed64Type)},
 		17: {MaxCount: 4},
+		29: {MaxCount: 1, PackedType: utils.Some(runtime.VarintType)},
 		18: {MaxCount: 3, MaxSize: 5},
 		19: {MaxCount: 3, MaxSize: 5},
 		20: {MaxCount: 3, MaxSize: 5},
@@ -42,6 +59,11 @@ func init() {
 	runtime.MustRegister[*OuterNotSized](runtime.Schema{
 		1: {Nested: utils.Some(reflect.TypeFor[*SizedOk]())},
 		2: {MaxCount: 7, Nested: utils.Some(reflect.TypeFor[*SizedOk]())},
+	})
+
+	// Register the wireguard.Schema generated for protoutils.PackedFalseSized.
+	runtime.MustRegister[*PackedFalseSized](runtime.Schema{
+		1: {MaxCount: 1, PackedType: utils.Some(runtime.VarintType)},
 	})
 
 }

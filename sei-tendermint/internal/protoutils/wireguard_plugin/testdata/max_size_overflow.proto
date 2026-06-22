@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package wireguardplugin.invalid;
+
+import "wireguard/wireguard.proto";
+
+option go_package = "github.com/example/wireguardplugin/invalid";
+
+message Big {
+  option (wireguard.sized) = true;
+
+  repeated bytes payload = 1 [
+    (wireguard.max_count) = 4294967295,
+    (wireguard.max_size) = 4294967295
+  ];
+}

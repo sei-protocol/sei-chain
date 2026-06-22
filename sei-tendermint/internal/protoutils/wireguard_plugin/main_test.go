@@ -40,7 +40,7 @@ func compilePluginFixture(t *testing.T, fileToGenerate string) (*pluginpb.CodeGe
 }
 
 func runPluginRequest(req *pluginpb.CodeGeneratorRequest) error {
-	plug, err := protogen.Options{ParamFunc: flags.Set}.New(req)
+	plug, err := protogen.Options{ParamFunc: parseParam}.New(req)
 	if err != nil {
 		return err
 	}
@@ -102,6 +102,7 @@ func TestPlugin_Rejections(t *testing.T) {
 		{"sized_repeated_without_max_count.proto", errSizedFieldMissingMaxCount},
 		{"sized_unsized_nested_without_field_size.proto", errSizedFieldNeedsSizeOrSizedNest},
 		{"sized_repeated_message_needs_size_or_sized_nested.proto", errSizedRepeatedFieldNeedsSizeOrSizedNest},
+		{"sized_recursive.proto", errSizedRecursiveMessage},
 	} {
 		t.Run(tc.fixture, func(t *testing.T) {
 			t.Parallel()
