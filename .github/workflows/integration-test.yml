@@ -41,7 +41,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
         if: env.DOCKERHUB_USERNAME != ''
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -49,13 +50,15 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        # See: https://github.com/docker/setup-buildx-action/releases/tag/v4.1.0
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
       - name: Build localnode image (cached)
         uses: docker/build-push-action@v6
         with:
@@ -437,7 +440,8 @@ jobs:
         with:
           go-version: '1.25.6'
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
         if: env.DOCKERHUB_USERNAME != ''
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -445,7 +449,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
