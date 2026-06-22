@@ -18,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,13 +30,13 @@ import (
 // the full lifecycle: random CRUD, rollback-to-checkpoint, restart, state-sync
 // clone, and (for dual-backend modes) crash reconciliation. After every phase
 // it runs the appropriate subset of deep verifications.
-func runSteadyStateScenario(t *testing.T, mode config.WriteMode) {
+func runSteadyStateScenario(t *testing.T, mode types.WriteMode) {
 	dir := t.TempDir()
 	rng := testutil.NewTestRandom()
 	cfg := randomTestConfig(t, rng, mode)
 	placement := steadyStatePlacement(mode)
-	hasMemIAVL := mode != config.FlatKVOnly
-	hasFlatKV := mode != config.MemiavlOnly
+	hasMemIAVL := mode != types.FlatKVOnly
+	hasFlatKV := mode != types.MemiavlOnly
 
 	oracle := newStoreOracle()
 	keysInUse := newLiveKeySet()
@@ -164,23 +165,23 @@ func runSteadyStateScenario(t *testing.T, mode config.WriteMode) {
 }
 
 func TestRandomSteadyState_MemiavlOnly(t *testing.T) {
-	runSteadyStateScenario(t, config.MemiavlOnly)
+	runSteadyStateScenario(t, types.MemiavlOnly)
 }
 
 func TestRandomSteadyState_FlatKVOnly(t *testing.T) {
-	runSteadyStateScenario(t, config.FlatKVOnly)
+	runSteadyStateScenario(t, types.FlatKVOnly)
 }
 
 func TestRandomSteadyState_EVMMigrated(t *testing.T) {
-	runSteadyStateScenario(t, config.EVMMigrated)
+	runSteadyStateScenario(t, types.EVMMigrated)
 }
 
 func TestRandomSteadyState_AllMigratedButBank(t *testing.T) {
-	runSteadyStateScenario(t, config.AllMigratedButBank)
+	runSteadyStateScenario(t, types.AllMigratedButBank)
 }
 
 func TestRandomSteadyState_TestOnlyDualWrite(t *testing.T) {
-	runSteadyStateScenario(t, config.TestOnlyDualWrite)
+	runSteadyStateScenario(t, types.TestOnlyDualWrite)
 }
 
 // =============================================================================
@@ -190,9 +191,9 @@ func TestRandomSteadyState_TestOnlyDualWrite(t *testing.T) {
 // migrationScenario parameterizes the predecessor -> migration -> successor
 // lifecycle for one migration write mode.
 type migrationScenario struct {
-	predecessorMode config.WriteMode
-	migrationMode   config.WriteMode
-	successorMode   config.WriteMode
+	predecessorMode types.WriteMode
+	migrationMode   types.WriteMode
+	successorMode   types.WriteMode
 	targetVersion   uint64
 	// migratingStores is the subset of randomTestStores that physically move
 	// from memiavl to flatkv during this migration step.
@@ -425,9 +426,9 @@ func runMidMigrationInterleavings(
 
 func TestRandomMigration_MigrateEVM(t *testing.T) {
 	runMigrationScenario(t, migrationScenario{
-		predecessorMode: config.MemiavlOnly,
-		migrationMode:   config.MigrateEVM,
-		successorMode:   config.EVMMigrated,
+		predecessorMode: types.MemiavlOnly,
+		migrationMode:   types.MigrateEVM,
+		successorMode:   types.EVMMigrated,
 		targetVersion:   uint64(migration.Version1_MigrateEVM),
 		migratingStores: []string{keys.EVMStoreKey},
 	})
@@ -435,9 +436,9 @@ func TestRandomMigration_MigrateEVM(t *testing.T) {
 
 func TestRandomMigration_MigrateAllButBank(t *testing.T) {
 	runMigrationScenario(t, migrationScenario{
-		predecessorMode: config.EVMMigrated,
-		migrationMode:   config.MigrateAllButBank,
-		successorMode:   config.AllMigratedButBank,
+		predecessorMode: types.EVMMigrated,
+		migrationMode:   types.MigrateAllButBank,
+		successorMode:   types.AllMigratedButBank,
 		targetVersion:   uint64(migration.Version2_MigrateAllButBank),
 		migratingStores: []string{keys.StakingStoreKey},
 	})
@@ -445,9 +446,9 @@ func TestRandomMigration_MigrateAllButBank(t *testing.T) {
 
 func TestRandomMigration_MigrateBank(t *testing.T) {
 	runMigrationScenario(t, migrationScenario{
-		predecessorMode: config.AllMigratedButBank,
-		migrationMode:   config.MigrateBank,
-		successorMode:   config.FlatKVOnly,
+		predecessorMode: types.AllMigratedButBank,
+		migrationMode:   types.MigrateBank,
+		successorMode:   types.FlatKVOnly,
 		targetVersion:   uint64(migration.Version3_FlatKVOnly),
 		migratingStores: []string{keys.BankStoreKey},
 	})

@@ -443,7 +443,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	zeroKeyAfterBoundary := evmStorageTestKey(0x03)
 
 	memCfg := config.DefaultStateCommitConfig()
-	memCfg.WriteMode = config.MemiavlOnly
+	memCfg.WriteMode = types.MemiavlOnly
 	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 	require.NoError(t, err)

@@ -29,6 +29,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -695,27 +696,27 @@ const (
 // steadyStatePlacement returns the per-store backend expectation for a
 // steady-state (non-migrating) write mode. Panics for migration modes, whose
 // placement is in-flight and must be verified differently.
-func steadyStatePlacement(mode config.WriteMode) func(store string) backendPlacement {
+func steadyStatePlacement(mode types.WriteMode) func(store string) backendPlacement {
 	switch mode {
-	case config.MemiavlOnly:
+	case types.MemiavlOnly:
 		return func(string) backendPlacement { return inMemiavlOnly }
-	case config.FlatKVOnly:
+	case types.FlatKVOnly:
 		return func(string) backendPlacement { return inFlatKVOnly }
-	case config.EVMMigrated:
+	case types.EVMMigrated:
 		return func(store string) backendPlacement {
 			if store == keys.EVMStoreKey {
 				return inFlatKVOnly
 			}
 			return inMemiavlOnly
 		}
-	case config.AllMigratedButBank:
+	case types.AllMigratedButBank:
 		return func(store string) backendPlacement {
 			if store == keys.BankStoreKey {
 				return inMemiavlOnly
 			}
 			return inFlatKVOnly
 		}
-	case config.TestOnlyDualWrite:
+	case types.TestOnlyDualWrite:
 		return func(store string) backendPlacement {
 			if store == keys.EVMStoreKey {
 				return inBoth
@@ -1458,7 +1459,7 @@ outer:
 // -- every snapshot is retained for the (short) duration of a test by setting
 // SnapshotKeepRecent very high. Without that, pruning could remove the base
 // snapshot/WAL a past version needs and a non-1 interval would be unsafe.
-func randomTestConfig(t *testing.T, rng *testutil.TestRandom, mode config.WriteMode) config.StateCommitConfig {
+func randomTestConfig(t *testing.T, rng *testutil.TestRandom, mode types.WriteMode) config.StateCommitConfig {
 	t.Helper()
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = mode
