@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -116,6 +117,54 @@ func TestServeTLS(t *testing.T) {
 	body, err := io.ReadAll(res.Body)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("some body"), body)
+}
+
+func TestReadHeaderTimeoutSlowloris(t *testing.T) {
+	t.Cleanup(leaktest.Check(t))
+
+	ctx := t.Context()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "ok")
+	})
+
+	cfg := DefaultConfig()
+	cfg.ReadHeaderTimeout = 100 * time.Millisecond
+
+	l, err := Listen("tcp://127.0.0.1:0", 0)
+	require.NoError(t, err)
+	defer l.Close()
+
+	go Serve(ctx, l, mux, cfg) //nolint:errcheck
+
+	// Open a raw connection and send partial headers without the terminal \r\n\r\n.
+	conn, err := net.Dial("tcp", l.Addr().String())
+	require.NoError(t, err)
+	defer conn.Close()
+
+	_, err = fmt.Fprint(conn, "GET / HTTP/1.1\r\nHost: localhost\r\n")
+	require.NoError(t, err)
+
+	// The server should close or respond (408) after ReadHeaderTimeout fires.
+	// The 1s deadline is 10× the ReadHeaderTimeout, so if it fires first
+	// the server never acted and the test would be a false pass.
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(1*time.Second)))
+	buf := make([]byte, 256)
+	n, err := conn.Read(buf)
+	if err == nil {
+		// Server sent a response before closing — must be 408.
+		assert.Contains(t, string(buf[:n]), "408")
+	} else {
+		// If our deadline fired before the server acted, the error is a net
+		// timeout — that means ReadHeaderTimeout did not fire and the test
+		// would be meaningless.
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			t.Fatal("read deadline expired before server closed connection: ReadHeaderTimeout may not have fired")
+		}
+		// EOF or connection reset means the server closed the connection — expected.
+	}
 }
 
 func TestWriteRPCResponse(t *testing.T) {

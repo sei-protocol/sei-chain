@@ -13,6 +13,7 @@ require (
 	github.com/benbjohnson/immutable v0.4.3
 	github.com/bgentry/speakeasy v0.2.0
 	github.com/btcsuite/btcd/btcec/v2 v2.3.5
+	github.com/bufbuild/protocompile v0.14.1
 	github.com/cockroachdb/pebble/v2 v2.1.3
 	github.com/coinbase/rosetta-sdk-go v0.7.0
 	github.com/confio/ics23/go v0.9.0

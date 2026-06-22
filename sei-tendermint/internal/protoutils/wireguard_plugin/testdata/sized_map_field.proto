@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package wireguardplugin.invalid;
+
+import "wireguard/wireguard.proto";
+
+option go_package = "github.com/example/wireguardplugin/invalid";
+
+message SizedMapField {
+  option (wireguard.sized) = true;
+
+  map<string, string> entries = 1;
+}
