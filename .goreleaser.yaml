@@ -8,34 +8,20 @@ before:
     - bash scripts/check-libwasmvm-static.sh
 
 builds:
+  # The static seid is built in Alpine by the workflow prebuild (musl-native) —
+  # neither Ubuntu's musl-gcc nor zig cc can produce this static link on the runner.
+  # GoReleaser only packages that prebuilt binary. ledger is omitted from the static
+  # build (needs static HID/USB; not relevant for a server seid); make/source builds
+  # keep it (Makefile LEDGER_ENABLED defaults to true).
   - id: seid
-    main: ./cmd/seid
-    binary: seid
-    env:
-      - CGO_ENABLED=1
-      # zig cc as a musl cross-compiler (see scripts/setup-zig-cc.sh, installed by
-      # the workflow prebuild): Ubuntu's musl-gcc can't static-link on 24.04
-      # (glibc libgcc -> _dl_find_object, absent in musl).
-      - CC=zcc
-    flags:
-      - -trimpath
-      # ledger is intentionally omitted from the static binary: it needs static
-      # HID/USB libs and isn't relevant for a server seid. Source/`make` builds
-      # keep it (Makefile LEDGER_ENABLED defaults to true).
-      - -tags=netgo,muslc
-    ldflags:
-      - -s -w
-      - -X github.com/sei-protocol/sei-chain/sei-cosmos/version.Name=sei
-      - -X github.com/sei-protocol/sei-chain/sei-cosmos/version.AppName=seid
-      - -X github.com/sei-protocol/sei-chain/sei-cosmos/version.Version={{ .Version }}
-      - -X github.com/sei-protocol/sei-chain/sei-cosmos/version.Commit={{ .FullCommit }}
-      - -X "github.com/sei-protocol/sei-chain/sei-cosmos/version.BuildTags=netgo,muslc"
-      - -linkmode=external
-      - -extldflags "-Wl,--allow-multiple-definition -static"
+    builder: prebuilt
     goos:
       - linux
     goarch:
       - amd64
+    binary: seid
+    prebuilt:
+      path: build/seid
 
 archives:
   - id: seid

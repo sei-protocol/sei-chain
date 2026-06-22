@@ -70,28 +70,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.25.6'
-
-      # Ubuntu's musl-gcc wrapper can't fully static-link on 24.04 (glibc's libgcc
-      # pulls in _dl_find_object, which musl lacks). Use zig as a musl cross-compiler
-      # (it ships its own musl compiler-rt) via the same script the release prebuild
-      # runs, so this guard and the goreleaser release build identically.
-      - name: Set up Zig musl cross-compiler
-        run: bash scripts/setup-zig-cc.sh
-
-      - name: Build statically (musl via zig cc)
+      # Build inside Alpine (musl-native): Ubuntu's musl-gcc can't fully static-link
+      # on 24.04 (glibc libgcc -> _dl_find_object, absent in musl), and zig cc rejects
+      # the -z muldefs flag needed to link the libwasmvm v152/v155 archives. Alpine's
+      # gcc is GNU ld + musl, so it links cleanly. This is the same build the release
+      # prebuild runs; goreleaser then packages the binary via its prebuilt builder.
+      - name: Build statically (Alpine / musl)
         run: |
-          # Pass the static-link flags via LDFLAGS rather than LINK_STATICALLY: the
-          # Makefile's LINK_STATICALLY branch hard-codes `-z muldefs`, which zig cc
-          # (lld) rejects. --allow-multiple-definition is the lld/GNU-ld synonym and
-          # has the same effect (the libwasmvm base/v152/v155 archives redefine
-          # overlapping symbols). Keeps the shared Makefile untouched.
-          CC=zcc BUILD_TAGS=muslc LEDGER_ENABLED=false \
-            LDFLAGS='-linkmode=external -extldflags "-Wl,--allow-multiple-definition -static"' \
-            make build
+          docker run --rm -v "$PWD":/src -w /src golang:1.25.6-alpine sh -c '
+            apk add --no-cache build-base git &&
+            git config --global --add safe.directory /src &&
+            LINK_STATICALLY=true BUILD_TAGS=muslc LEDGER_ENABLED=false make build
+          '
 
       - name: Assert binary is statically linked
         run: |

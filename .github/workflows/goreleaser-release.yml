@@ -17,4 +17,8 @@ jobs:
       go-version: '1.25.6'
       submodules: 'true'
       prebuild-script: |
-        bash scripts/setup-zig-cc.sh
+        docker run --rm -v "$PWD":/src -w /src golang:1.25.6-alpine sh -c '
+          apk add --no-cache build-base git &&
+          git config --global --add safe.directory /src &&
+          LINK_STATICALLY=true BUILD_TAGS=muslc LEDGER_ENABLED=false make build
+        '
