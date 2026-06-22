@@ -9,11 +9,17 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-api_dir="$repo_root/sei-wasmvm/internal/api"
 
+# A muslc static seid links the base libwasmvm (sei-wasmvm) plus the versioned
+# CosmWasm VMs v152 + v155 (sei-wasmd); every archive must be present or the
+# static link fails late instead of fast.
 required=(
-  "$api_dir/libwasmvm_muslc.a"
-  "$api_dir/libwasmvm_muslc.aarch64.a"
+  "$repo_root/sei-wasmvm/internal/api/libwasmvm_muslc.a"
+  "$repo_root/sei-wasmvm/internal/api/libwasmvm_muslc.aarch64.a"
+  "$repo_root/sei-wasmd/x/wasm/artifacts/v152/api/libwasmvm152_muslc.a"
+  "$repo_root/sei-wasmd/x/wasm/artifacts/v152/api/libwasmvm152_muslc.aarch64.a"
+  "$repo_root/sei-wasmd/x/wasm/artifacts/v155/api/libwasmvm155_muslc.a"
+  "$repo_root/sei-wasmd/x/wasm/artifacts/v155/api/libwasmvm155_muslc.aarch64.a"
 )
 
 missing=0
@@ -25,7 +31,7 @@ for f in "${required[@]}"; do
 done
 
 if [[ $missing -eq 1 ]]; then
-  echo "::error::run 'make release-build-alpine' inside sei-wasmvm/ to (re)produce them"
+  echo "::error::regenerate the missing muslc archive(s) from their module (sei-wasmvm: 'make release-build-alpine'; sei-wasmd: x/wasm/artifacts)"
   exit 1
 fi
 
