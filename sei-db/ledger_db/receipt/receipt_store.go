@@ -107,6 +107,8 @@ func BackendTypeName(store ReceiptStore) string {
 	switch store.(type) {
 	case *receiptStore:
 		return receiptBackendPebble
+	case *littReceiptStore:
+		return receiptBackendLittIdx
 	default:
 		return "unknown"
 	}
@@ -119,6 +121,8 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 
 	backend := normalizeReceiptBackend(config.Backend)
 	switch backend {
+	case receiptBackendLittIdx:
+		return newLittReceiptStore(config, storeKey)
 	case receiptBackendPebble:
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory

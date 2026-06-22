@@ -82,10 +82,10 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 		}
 		backend = strings.ToLower(strings.TrimSpace(backend))
 		switch backend {
-		case "pebbledb", "pebble":
+		case "pebbledb", "pebble", "littidx":
 			cfg.Backend = backend
 		default:
-			return cfg, fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb", backend)
+			return cfg, fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb, littidx", backend)
 		}
 	}
 	if v := opts.Get(flagRSAsyncWriteBuffer); v != nil {
