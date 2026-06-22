@@ -307,7 +307,7 @@ func (s *sizedMessageMaxState) fieldSize(fd protoreflect.FieldDescriptor) (int, 
 	default:
 		valueSize := s.scalarValueSize(fd)
 		count := maxCount(fd, s.exts)
-		size := mulInt(count, addInt(tagSize(fd.Number()), valueSize))
+		size := mulInt(count, addInt(protowire.SizeTag(fd.Number()), valueSize))
 		if fd.IsList() {
 			size = max(size, bytesFieldSize(fd.Number(), mulInt(count, valueSize)))
 		}
@@ -320,10 +320,10 @@ func (s *sizedMessageMaxState) scalarValueSize(fd protoreflect.FieldDescriptor) 
 	case protoreflect.BoolKind:
 		return 1
 	case protoreflect.EnumKind:
-		var size int = 1
+		size := 1
 		values := fd.Enum().Values()
 		for i := range values.Len() {
-			size = max(size, protowire.SizeVarint(uint64(int64(values.Get(i).Number()))))
+			size = max(size, protowire.SizeVarint(uint64(int64(values.Get(i).Number())))) // nolint: gosec // WAI, negative enums are encoded as uint64
 		}
 		return size
 	case protoreflect.Int32Kind, protoreflect.Int64Kind:
@@ -345,17 +345,17 @@ func (s *sizedMessageMaxState) scalarValueSize(fd protoreflect.FieldDescriptor) 
 	}
 }
 
-func fieldUintOption(fd protoreflect.FieldDescriptor, ext protoreflect.ExtensionType) (int, bool) {
+func fieldIntOption(fd protoreflect.FieldDescriptor, ext protoreflect.ExtensionType) (int, bool) {
 	opts := fd.Options().(*descriptorpb.FieldOptions).ProtoReflect()
 	if !opts.Has(ext.TypeDescriptor()) {
 		return 0, false
 	}
-	return int(opts.Get(ext.TypeDescriptor()).Uint()), true
+	return int(opts.Get(ext.TypeDescriptor()).Uint()), true // nolint: gosec // proto.Unmarshal is using int for sizes, no point in specifying higher limits
 }
 
 func maxCount(fd protoreflect.FieldDescriptor, exts wireguardExts) int {
 	if fd.IsList() {
-		count, ok := fieldUintOption(fd, exts.maxCount)
+		count, ok := fieldIntOption(fd, exts.maxCount)
 		if !ok {
 			panic("missing max_count on a repeated field")
 		}
@@ -365,7 +365,7 @@ func maxCount(fd protoreflect.FieldDescriptor, exts wireguardExts) int {
 }
 
 func bytesFieldSize(f protoreflect.FieldNumber, rawSize int) int {
-	return addInt(tagSize(f), protowire.SizeVarint(uint64(rawSize)), rawSize)
+	return addInt(protowire.SizeTag(f), protowire.SizeVarint(uint64(rawSize)), rawSize) // nolint: gosec // always >=0
 }
 
 func bytesFieldBound(fd protoreflect.FieldDescriptor, exts wireguardExts) (int, bool) {
@@ -373,12 +373,12 @@ func bytesFieldBound(fd protoreflect.FieldDescriptor, exts wireguardExts) (int, 
 	item := math.MaxInt
 	total := math.MaxInt
 	bounded := false
-	if m, ok := fieldUintOption(fd, exts.maxTotalSize); ok {
+	if m, ok := fieldIntOption(fd, exts.maxTotalSize); ok {
 		total = min(total, m)
 		item = min(item, m)
 		bounded = true
 	}
-	if m, ok := fieldUintOption(fd, exts.maxSize); ok {
+	if m, ok := fieldIntOption(fd, exts.maxSize); ok {
 		total = min(total, mulInt(count, m))
 		item = min(item, m)
 		bounded = true
@@ -414,10 +414,6 @@ func mulInt(a int, b int) int {
 		return math.MaxInt
 	}
 	return a * b
-}
-
-func tagSize(f protoreflect.FieldNumber) int {
-	return protowire.SizeTag(protowire.Number(f))
 }
 
 // validateRuleValues rejects explicit zero-valued wireguard annotations,
