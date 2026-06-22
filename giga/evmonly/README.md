@@ -15,9 +15,10 @@ The target execution model is based on the `sei-v3` executor:
 
 The current implementation executes raw RLP transactions with go-ethereum
 against an EVM-native state backend, then returns a changeset plus Ethereum
-receipts. Custom precompiles are still placeholders. The open work is to port
-them behind an EVM-native context that is visible to the executor's conflict
-tracking without reintroducing Cosmos keeper dependencies.
+receipts. The staking custom precompile is the first SDK-free implementation;
+other custom precompiles are still placeholders. The open work is to port them
+behind an EVM-native context that is visible to the executor's conflict tracking
+without reintroducing Cosmos keeper dependencies.
 
 ## Current implementation
 
@@ -32,7 +33,7 @@ The `evmonly` package currently provides:
 - Ethereum receipt construction with logs, bloom, gas, tx hash, block metadata,
   contract address, and effective gas price
 - a map-backed `MemoryState` for tests and early integration
-- fail-closed custom precompile placeholders
+- fail-closed custom precompile placeholders plus an SDK-free staking precompile
 
 The executor accepts config for nonce checks, gas-price checks, minimum gas
 price, chain config, and the custom precompile registry.
@@ -123,7 +124,7 @@ receipts and RPC responses. `GasUsed` is the total EVM gas consumed by the block
 
 ## Open precompile work
 
-Native custom precompiles still need a separate design. If they introduce state
+Most native custom precompiles still need a separate design. If they introduce state
 outside balance, nonce, code, and storage, that state must either become part of
 the EVM-native changeset or be represented through an explicit extension that is
 visible to the OCC conflict tracker.
@@ -133,9 +134,10 @@ state as contract storage owned by that precompile address. With no range reads
 and no side state, precompile reads and writes can then flow through ordinary
 `(address, slot)` storage tracking.
 
-Until that design is implemented, the `evmonly` executor accepts a custom
-precompile registry only as a fail-closed placeholder. Calls to registered
-custom precompile addresses return `ErrCustomPrecompilesOpen`.
+The staking precompile under `giga/evmonly/precompiles/staking` follows this
+shape with a byte-key store backed by storage slots owned by the staking
+precompile address. Registry entries without an implementation still fail
+closed with `ErrCustomPrecompilesOpen`.
 
 ## Current limitations
 

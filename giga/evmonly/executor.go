@@ -9,12 +9,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
 // Executor runs raw EVM transactions against an EVM-native state backend.
@@ -203,6 +201,11 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 		result.GasUsed += txResult.GasUsed
 		txIndexUint++
 	}
+	validatorUpdates, err := runCustomPrecompileEndBlock(e.cfg.CustomPrecompiles, evm)
+	if err != nil {
+		return nil, fmt.Errorf("run custom precompile end block: %w", err)
+	}
+	result.ValidatorUpdates = validatorUpdates
 	stateDB.clearSnapshots()
 	stateDB.Finalise(true)
 	stateDB.ChangeSetInto(&result.ChangeSet)
@@ -340,31 +343,6 @@ func buildBlockContext(ctx BlockContext) vm.BlockContext {
 		BlobBaseFee: blobBaseFee,
 		Random:      &prevRandao,
 	}
-}
-
-type unresolvedCustomPrecompile struct{}
-
-func (unresolvedCustomPrecompile) RequiredGas([]byte) uint64 {
-	return 0
-}
-
-func (unresolvedCustomPrecompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool, bool, *tracing.Hooks) ([]byte, error) {
-	return nil, precompiles.ErrCustomPrecompilesOpen
-}
-
-func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.PrecompiledContract {
-	if registry == nil {
-		return nil
-	}
-	addresses := registry.Addresses()
-	if len(addresses) == 0 {
-		return nil
-	}
-	contracts := make(map[common.Address]vm.PrecompiledContract, len(addresses))
-	for _, addr := range addresses {
-		contracts[addr] = unresolvedCustomPrecompile{}
-	}
-	return contracts
 }
 
 func (e *Executor) chainConfig(ctx BlockContext) *params.ChainConfig {
