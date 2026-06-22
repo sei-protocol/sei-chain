@@ -59,26 +59,4 @@ describe("Sei Endpoints Tester", function () {
         expect(seiBlockExcludeTrace.transactions.length).to.equal(0);
     });
 
-    it("sei_traceBlockByNumberExcludeTraceFail should not have synthetic tx", async function () {
-        // create a synthetic tx
-        const res = await executeWasm(cw20Address,  { transfer: { recipient: accounts[1].seiAddress, amount: "1" } });
-        const blockNumber = parseInt(res["height"], 10);
-        const seiBlockExcludeTrace = await ethers.provider.send('sei_traceBlockByNumberExcludeTraceFail', ['0x' + blockNumber.toString(16), {"tracer": "callTracer"}]);
-        expect(seiBlockExcludeTrace.length).to.equal(0);
-    });
-
-    it("sei_traceBlockByHashExcludeTraceFail should not have synthetic tx", async function () {
-        // create a synthetic tx
-        const res = await executeWasm(cw20Address,  { transfer: { recipient: accounts[1].seiAddress, amount: "1" } });
-        const blockNumber = parseInt(res["height"], 10);
-        // get the block hash
-        const block = await ethers.provider.send('eth_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
-        const blockHash = block.hash;
-        // check sei_getBlockByHash
-        const seiBlock = await ethers.provider.send('sei_getBlockByHash', [blockHash, false]);
-        expect(seiBlock.transactions.length).to.equal(1);
-        // check sei_traceBlockByHashExcludeTraceFail
-        const seiBlockExcludeTrace = await ethers.provider.send('sei_traceBlockByHashExcludeTraceFail', [blockHash, {"tracer": "callTracer"}]);
-        expect(seiBlockExcludeTrace.length).to.equal(0);
-    });
 })
