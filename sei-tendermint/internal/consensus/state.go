@@ -23,6 +23,7 @@ import (
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
@@ -2179,7 +2180,7 @@ func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
 		return nil, err
 	}
 
-	if err := tmproto.SchemaForBlock.Scan(bz); err != nil {
+	if err := protoutils.Scan[*tmproto.Block](bz); err != nil {
 		return nil, err
 	}
 
@@ -2724,46 +2725,23 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 //---------------------------------------------------------
 
 func (cs *State) proposeTimeout(round int32) time.Duration {
-	tp := cs.state.ConsensusParams.Timeout.TimeoutParamsOrDefaults()
-	p := tp.Propose
-	if cs.config.UnsafeProposeTimeoutOverride != 0 {
-		p = cs.config.UnsafeProposeTimeoutOverride
-	}
-	pd := tp.ProposeDelta
-	if cs.config.UnsafeProposeTimeoutDeltaOverride != 0 {
-		pd = cs.config.UnsafeProposeTimeoutDeltaOverride
-	}
+	t := cs.config.ResolveTimeouts(cs.state.ConsensusParams.Timeout)
 	return time.Duration(
-		p.Nanoseconds()+pd.Nanoseconds()*int64(round),
+		t.Propose.Nanoseconds()+t.ProposeDelta.Nanoseconds()*int64(round),
 	) * time.Nanosecond
 }
 
 func (cs *State) voteTimeout(round int32) time.Duration {
-	tp := cs.state.ConsensusParams.Timeout.TimeoutParamsOrDefaults()
-	v := tp.Vote
-	if cs.config.UnsafeVoteTimeoutOverride != 0 {
-		v = cs.config.UnsafeVoteTimeoutOverride
-	}
-	vd := tp.VoteDelta
-	if cs.config.UnsafeVoteTimeoutDeltaOverride != 0 {
-		vd = cs.config.UnsafeVoteTimeoutDeltaOverride
-	}
-	return v + vd*time.Duration(round)
+	t := cs.config.ResolveTimeouts(cs.state.ConsensusParams.Timeout)
+	return t.Vote + t.VoteDelta*time.Duration(round)
 }
 
 func (cs *State) commitTime(t time.Time) time.Time {
-	c := cs.state.ConsensusParams.Timeout.Commit
-	if cs.config.UnsafeCommitTimeoutOverride != 0 {
-		c = cs.config.UnsafeCommitTimeoutOverride
-	}
-	return t.Add(c)
+	return t.Add(cs.config.ResolveTimeouts(cs.state.ConsensusParams.Timeout).Commit)
 }
 
 func (cs *State) bypassCommitTimeout() bool {
-	if cs.config.UnsafeBypassCommitTimeoutOverride != nil {
-		return *cs.config.UnsafeBypassCommitTimeoutOverride
-	}
-	return cs.state.ConsensusParams.Timeout.BypassCommitTimeout
+	return cs.config.ResolveTimeouts(cs.state.ConsensusParams.Timeout).BypassCommitTimeout
 }
 
 func (cs *State) calculateProposalTimestampDifferenceMetric() {

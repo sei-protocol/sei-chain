@@ -245,6 +245,10 @@ pprof-laddr = "{{ .RPC.PprofListenAddress }}"
 # timeout for any read request
 timeout-read = "{{ .RPC.TimeoutRead }}"
 
+# timeout to read HTTP request headers; mitigates slowloris attacks.
+# Set to "0s" to disable (not recommended).
+timeout-read-header = "{{ .RPC.TimeoutReadHeader }}"
+
 # HTTP write timeout; acts as a hard backstop for all handlers.
 # Set to "0s" to disable (not recommended).
 timeout-write = "{{ .RPC.TimeoutWrite }}"

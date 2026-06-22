@@ -120,6 +120,7 @@ func serverRPCConfig(r *config.RPCConfig) *server.Config {
 	cfg := server.DefaultConfig()
 	cfg.MaxBodyBytes = r.MaxBodyBytes
 	cfg.MaxHeaderBytes = r.MaxHeaderBytes
+	cfg.ReadHeaderTimeout = r.TimeoutReadHeader
 	cfg.WriteTimeout = r.TimeoutWrite
 	return cfg
 }
