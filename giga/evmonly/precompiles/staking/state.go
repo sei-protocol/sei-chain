@@ -139,7 +139,7 @@ func addUnbondingDelegation(store precompiles.Store, delegator string, validator
 	record.DelegatorAddress = delegator
 	record.ValidatorAddress = validator
 	record.Entries = append(record.Entries, UnbondingDelegationEntry{
-		CreationHeight: int64(creationHeight), //nolint:gosec // block heights fit signed ABI output in normal operation.
+		CreationHeight: saturatingInt64FromUint64(creationHeight),
 		CompletionTime: completionTime,
 		InitialBalance: amount.String(),
 		Balance:        amount.String(),
@@ -432,12 +432,13 @@ func matureTimeQueueIDs(store precompiles.Store, indexKey []byte, blockTime uint
 		return nil, err
 	}
 	mature := ids[:0]
+	completionTime := saturatingInt64FromUint64(blockTime)
 	for _, id := range ids {
 		time, err := parseTimeQueueID(id)
 		if err != nil {
 			return nil, err
 		}
-		if time <= int64(blockTime) {
+		if time <= completionTime {
 			mature = append(mature, id)
 		}
 	}
@@ -452,18 +453,27 @@ func matureTimeQueueIDs(store precompiles.Store, indexKey []byte, blockTime uint
 	return mature, nil
 }
 
+func saturatingInt64FromUint64(value uint64) int64 {
+	if value > uint64(1<<63-1) {
+		return int64(1<<63 - 1)
+	}
+	return int64(value) //nolint:gosec // bounded above.
+}
+
 func matureValidatorQueueIDs(store precompiles.Store, blockTime uint64, blockHeight uint64) ([]string, error) {
 	ids, err := getStringList(store, validatorQueueIndexKey())
 	if err != nil {
 		return nil, err
 	}
 	mature := ids[:0]
+	completionTime := saturatingInt64FromUint64(blockTime)
+	completionHeight := saturatingInt64FromUint64(blockHeight)
 	for _, id := range ids {
 		time, height, err := parseValidatorQueueID(id)
 		if err != nil {
 			return nil, err
 		}
-		if time <= int64(blockTime) && height <= int64(blockHeight) {
+		if time <= completionTime && height <= completionHeight {
 			mature = append(mature, id)
 		}
 	}
