@@ -138,6 +138,8 @@ func (r *BlockResult) resetForPool() {
 
 func (r *BlockResult) resetForPoolLocked() {
 	r.ChangeSet.resetForReuse()
+	clear(r.ValidatorUpdates)
+	r.ValidatorUpdates = r.ValidatorUpdates[:0]
 	clear(r.Txs)
 	r.Txs = r.Txs[:0]
 	clear(r.Receipts)
