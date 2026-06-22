@@ -1211,7 +1211,7 @@ type ConsensusConfig struct {
 // (i.e. while onchain timeout params are still equal to badParams)
 // overrides are still enabled by default.
 var badParams = types.TimeoutParams{
-	Propose:             1000 * time.Millisecond,
+	Propose:             1 * time.Second,
 	ProposeDelta:        500 * time.Millisecond,
 	Vote:                50 * time.Millisecond,
 	VoteDelta:           500 * time.Millisecond,
@@ -1221,7 +1221,7 @@ var badParams = types.TimeoutParams{
 
 func (c *ConsensusConfig) ResolveTimeouts(t types.TimeoutParams) types.TimeoutParams {
 	t = t.Or(types.DefaultTimeoutParams())
-	// Overrides are effective iff UnsafeOverridesEnabled OR t == badParams:
+	// Overrides are ineffective iff !UnsafeOverridesEnabled AND t != badParams:
 	// see doc on badParams.
 	if !c.UnsafeOverridesEnabled && t != badParams {
 		return t
