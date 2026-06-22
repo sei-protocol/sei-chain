@@ -13,5 +13,6 @@ func TestNoOpHashLogger(t *testing.T) {
 	})
 	require.NoError(t, l.ReportHash(1, "anything", []byte{0x01}))
 	require.NoError(t, l.ReportHash(1, "", nil))
+	require.NoError(t, l.SignalRollback())
 	require.NoError(t, l.Close())
 }

@@ -14,16 +14,17 @@ import (
 // blocks complete purely via ReportHash; tests that exercise the diff enable it explicitly.
 func testConfig(dir string) *HashLoggerConfig {
 	return &HashLoggerConfig{
-		Path:              dir,
-		Version:           "v1.0.0",
-		HashTypes:         []string{"a", "b"},
-		DiffHashType:      "",
-		HashBufferSize:    8192,
-		WriteBufferSize:   8192,
-		ControlBufferSize: 8192,
-		BlocksToRetain:    1_000_000,
-		TargetFileSize:    unit.MB,
-		MaxDiskSize:       unit.GB,
+		Path:               dir,
+		Version:            "v1.0.0",
+		HashTypes:          []string{"a", "b"},
+		DisableDiffHashing: true,
+		HashBufferSize:     8192,
+		WriteBufferSize:    8192,
+		ControlBufferSize:  8192,
+		MaxBufferedBlocks:  1 << 20, // large: existing tests never trip the overflow flush
+		BlocksToRetain:     1_000_000,
+		TargetFileSize:     unit.MB,
+		MaxDiskSize:        unit.GB,
 	}
 }
 
@@ -91,8 +92,9 @@ func TestImplNilHashCompletesBlock(t *testing.T) {
 func TestImplReportDiffPopulatesDiffHash(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
-	config.HashTypes = []string{"diff"}
+	config.HashTypes = nil
 	config.DiffHashType = "diff"
+	config.DisableDiffHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
 
@@ -108,8 +110,9 @@ func TestImplReportDiffPopulatesDiffHash(t *testing.T) {
 func TestImplReportDiffNilOptsOut(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
-	config.HashTypes = []string{"diff"}
+	config.HashTypes = nil
 	config.DiffHashType = "diff"
+	config.DisableDiffHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
 
@@ -126,8 +129,9 @@ func TestImplReportDiffNilOptsOut(t *testing.T) {
 func TestImplReportDiffEmptyChangeSetIsHashed(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
-	config.HashTypes = []string{"diff"}
+	config.HashTypes = nil
 	config.DiffHashType = "diff"
+	config.DisableDiffHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
 
@@ -146,8 +150,9 @@ func TestImplReportDiffEmptyChangeSetIsHashed(t *testing.T) {
 func TestImplDiffFloodIsHashedReliably(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
-	config.HashTypes = []string{"diff"}
+	config.HashTypes = nil
 	config.DiffHashType = "diff"
+	config.DisableDiffHashing = false
 	config.HashBufferSize = 1 // tiny buffer: a flood now backpressures rather than dropping
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
@@ -203,7 +208,8 @@ func TestImplRollbackOpensNewFile(t *testing.T) {
 		require.NoError(t, l.ReportHash(block, "a", []byte{byte(block)}))
 		require.NoError(t, l.ReportHash(block, "b", []byte{byte(block)}))
 	}
-	// Re-execute blocks 1 and 2 (a rollback).
+	// Signal the rollback, then re-execute blocks 1 and 2.
+	require.NoError(t, l.SignalRollback())
 	for block := uint64(1); block <= 2; block++ {
 		require.NoError(t, l.ReportHash(block, "a", []byte{byte(block + 50)}))
 		require.NoError(t, l.ReportHash(block, "b", []byte{byte(block + 50)}))
@@ -236,8 +242,9 @@ func TestImplCleanCloseLeavesNoUnsealedFile(t *testing.T) {
 func TestImplReportAfterCloseFailsFast(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
-	config.HashTypes = []string{"diff", "a"}
+	config.HashTypes = []string{"a"}
 	config.DiffHashType = "diff"
+	config.DisableDiffHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
 	require.NoError(t, l.Close())
@@ -325,4 +332,115 @@ func TestImplResumesAfterReopen(t *testing.T) {
 	require.NoError(t, l2.Close())
 
 	require.Len(t, readAllLogs(t, dir), 2)
+}
+
+func TestImplOverflowFlushesOldestIncomplete(t *testing.T) {
+	dir := t.TempDir()
+	config := testConfig(dir)
+	config.MaxBufferedBlocks = 3
+	l, err := NewHashLogger(config)
+	require.NoError(t, err)
+
+	// Report only type "a" for blocks 1..10. None can complete (each is missing "b"), so without an overflow
+	// bound they would buffer forever. With a bound of 3, the oldest incomplete blocks are force-flushed.
+	for block := uint64(1); block <= 10; block++ {
+		require.NoError(t, l.ReportHash(block, "a", []byte{byte(block)}))
+	}
+	require.NoError(t, l.Close())
+
+	logs := readAllLogs(t, dir)
+	// At least the blocks beyond the buffer bound must have been forced to disk, incomplete.
+	require.GreaterOrEqual(t, len(logs), 7, "oldest incomplete blocks should be force-flushed")
+	for _, log := range logs {
+		require.Equal(t, []byte{byte(log.BlockNumber)}, log.Hashes["a"])
+		require.Nil(t, log.Hashes["b"], "block %d was flushed incomplete, so b must be nil", log.BlockNumber)
+	}
+}
+
+func TestImplOverflowNeverFlushesBlockAwaitingDiff(t *testing.T) {
+	dir := t.TempDir()
+	config := testConfig(dir)
+	config.HashTypes = nil
+	config.DiffHashType = "diff"
+	config.DisableDiffHashing = false
+	config.HashBufferSize = 1    // tiny hasher channel: diffs back up and stay in flight
+	config.MaxBufferedBlocks = 2 // tight buffer bound, pressuring the overflow path
+	l, err := NewHashLogger(config)
+	require.NoError(t, err)
+
+	const blocks = 300
+	changeSet := []*proto.NamedChangeSet{cs("bank", kv("k", "v"))}
+	for block := uint64(1); block <= blocks; block++ {
+		l.ReportDiff(block, changeSet)
+	}
+	require.NoError(t, l.Close())
+
+	// Every block must be present with its real diff hash. If the overflow path ever force-flushed a block whose
+	// diff was still in flight, that block would have a nil diff here.
+	want := hashDiff(changeSet)
+	byBlock := make(map[uint64][]byte)
+	for _, log := range readAllLogs(t, dir) {
+		_, dup := byBlock[log.BlockNumber]
+		require.False(t, dup, "block %d recorded more than once", log.BlockNumber)
+		byBlock[log.BlockNumber] = log.Hashes["diff"]
+	}
+	for block := uint64(1); block <= blocks; block++ {
+		require.Equal(t, want, byBlock[block], "block %d missing or force-flushed before its diff arrived", block)
+	}
+}
+
+func TestImplSignalRollbackFlushesBeforeReturning(t *testing.T) {
+	dir := t.TempDir()
+	l, err := NewHashLogger(testConfig(dir))
+	require.NoError(t, err)
+
+	for block := uint64(1); block <= 3; block++ {
+		require.NoError(t, l.ReportHash(block, "a", []byte{byte(block)}))
+		require.NoError(t, l.ReportHash(block, "b", []byte{byte(block)}))
+	}
+	require.NoError(t, l.SignalRollback())
+
+	// SignalRollback flushes before returning, so blocks 1..3 are on disk now, before Close.
+	require.Len(t, readAllLogs(t, dir), 3, "rollback must flush buffered blocks before returning")
+
+	// Re-execute blocks 1..2 on the new timeline.
+	for block := uint64(1); block <= 2; block++ {
+		require.NoError(t, l.ReportHash(block, "a", []byte{byte(block + 50)}))
+		require.NoError(t, l.ReportHash(block, "b", []byte{byte(block + 50)}))
+	}
+	require.NoError(t, l.Close())
+
+	block1, err := ReadHashForBlock(dir, 1)
+	require.NoError(t, err)
+	require.Len(t, block1, 2, "block 1 was executed on both timelines")
+}
+
+func TestImplDiscardsReportsForFlushedBlocksWithoutRollback(t *testing.T) {
+	dir := t.TempDir()
+	l, err := NewHashLogger(testConfig(dir))
+	require.NoError(t, err)
+
+	// Complete and flush block 1.
+	require.NoError(t, l.ReportHash(1, "a", []byte{0x01}))
+	require.NoError(t, l.ReportHash(1, "b", []byte{0x02}))
+	// Now report block 1 again without signaling a rollback: these are discarded (already on disk).
+	require.NoError(t, l.ReportHash(1, "a", []byte{0x99}))
+	require.NoError(t, l.ReportHash(1, "b", []byte{0x99}))
+	require.NoError(t, l.Close())
+
+	block1, err := ReadHashForBlock(dir, 1)
+	require.NoError(t, err)
+	require.Len(t, block1, 1, "reports for an already-flushed block must be discarded without a rollback signal")
+	require.Equal(t, []byte{0x01}, block1[0].Hashes["a"])
+}
+
+func TestImplSignalRollbackAfterCloseFailsFast(t *testing.T) {
+	dir := t.TempDir()
+	l, err := NewHashLogger(testConfig(dir))
+	require.NoError(t, err)
+	require.NoError(t, l.Close())
+
+	require.NotPanics(t, func() {
+		require.Error(t, l.SignalRollback())
+	})
 }

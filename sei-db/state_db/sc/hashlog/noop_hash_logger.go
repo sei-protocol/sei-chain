@@ -22,6 +22,11 @@ func (n *noOpHashLogger) ReportHash(uint64, string, []byte) error {
 	return nil
 }
 
+func (n *noOpHashLogger) SignalRollback() error {
+	// intentional no-op
+	return nil
+}
+
 func (n *noOpHashLogger) Close() error {
 	// intentional no-op
 	return nil

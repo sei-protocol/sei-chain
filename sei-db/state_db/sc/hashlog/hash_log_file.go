@@ -248,6 +248,22 @@ func (h *hashLogFile) write(hashLog *HashLog) error {
 	return nil
 }
 
+// flush pushes any buffered writes to the OS and fsyncs the file, making everything written so far durable
+// without sealing it. A no-op for files with no open handle (e.g. files read back from disk).
+func (h *hashLogFile) flush() error {
+	if h.writer != nil {
+		if err := h.writer.Flush(); err != nil {
+			return fmt.Errorf("failed to flush hash log file: %w", err)
+		}
+	}
+	if h.file != nil {
+		if err := h.file.Sync(); err != nil {
+			return fmt.Errorf("failed to sync hash log file: %w", err)
+		}
+	}
+	return nil
+}
+
 // Close this file, flushing any buffered data to disk and marking it as sealed. Sealing renames the file from
 // its unsealed name to its sealed name via an atomic rename. An empty file (one that never received a write) is
 // removed rather than sealed. Idempotent.

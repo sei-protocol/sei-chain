@@ -10,11 +10,6 @@ import (
 // The default hash type under which ReportDiff's computed hash is recorded.
 const defaultDiffHashType = "diff"
 
-// DiffHashingDisabled is the value to assign to HashLoggerConfig.DiffHashType to disable diff hashing entirely:
-// no hasher thread is started and ReportDiff becomes a no-op. To instead skip diff hashing for an individual
-// block while diff hashing is enabled, pass a nil change set to ReportDiff.
-const DiffHashingDisabled = ""
-
 // Hash type names are written verbatim into CSV headers and must not collide with the "," field
 // separator or any other structural character. We restrict them to a small, safe allowlist.
 var legalHashTypeRegex = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
@@ -28,13 +23,22 @@ type HashLoggerConfig struct {
 	// character outside [A-Za-z0-9._] is replaced with "_") so that it can be embedded in file names.
 	Version string
 
-	// The ordered set of hash types this logger records. Each type becomes a column in the CSV output,
-	// in this order, and a block is only written once a hash has been reported for every type.
+	// The ordered set of caller-reported hash types this logger records. Each type becomes a column in the
+	// CSV output, in this order, and a block is only written once a hash has been reported for every type.
+	// This must not include DiffHashType: the diff column is owned and computed by the logger, not supplied
+	// via ReportHash.
 	HashTypes []string
 
-	// The hash type under which ReportDiff's computed hash is recorded. Must be one of HashTypes, or
-	// DiffHashingDisabled to disable diff hashing entirely (in which case ReportDiff is a no-op).
+	// The hash type under which ReportDiff's computed diff hash is recorded. The diff column is owned by the
+	// logger (it is computed internally from the change set, not supplied via ReportHash) and is prepended to
+	// the recorded columns. It must not also appear in HashTypes. Ignored when DisableDiffHashing is true.
 	DiffHashType string
+
+	// When true, diff hashing is disabled entirely: no hasher thread is started, ReportDiff becomes a no-op,
+	// and no diff column is recorded or awaited for block completion. DiffHashType is ignored in this case.
+	// To instead skip diff hashing for an individual block while diff hashing is enabled, pass a nil change
+	// set to ReportDiff.
+	DisableDiffHashing bool
 
 	// The size of the channel for sending work to the hasher thread.
 	HashBufferSize uint
@@ -44,6 +48,12 @@ type HashLoggerConfig struct {
 
 	// The size of the channel for sending notifications to the control loop.
 	ControlBufferSize uint
+
+	// The maximum number of blocks buffered in the control loop awaiting completion. When this is exceeded,
+	// the oldest buffered block is written to disk even if incomplete, unless it is still awaiting an
+	// in-flight diff hash (in which case the buffer is allowed to exceed this bound until the diff arrives).
+	// This bounds memory if a registered hash type is never reported for some block.
+	MaxBufferedBlocks uint
 
 	// The number of HashLog entries to retain on disk.
 	BlocksToRetain uint
@@ -62,11 +72,12 @@ func DefaultHashLoggerConfig(path string, version string) *HashLoggerConfig {
 	return &HashLoggerConfig{
 		Path:              path,
 		Version:           version,
-		HashTypes:         []string{defaultDiffHashType, "flatKV", "memIAVL", "root"},
+		HashTypes:         []string{"flatKV", "memIAVL", "root"},
 		DiffHashType:      defaultDiffHashType,
 		HashBufferSize:    16,
 		WriteBufferSize:   16,
 		ControlBufferSize: 16,
+		MaxBufferedBlocks: 1024,
 		BlocksToRetain:    1_000_000,
 		TargetFileSize:    unit.MB,
 		MaxDiskSize:       unit.GB,
@@ -84,8 +95,8 @@ func (c *HashLoggerConfig) Validate() error {
 	if c.MaxDiskSize == 0 {
 		return fmt.Errorf("max disk size must be greater than 0")
 	}
-	if len(c.HashTypes) == 0 {
-		return fmt.Errorf("at least one hash type is required")
+	if c.MaxBufferedBlocks == 0 {
+		return fmt.Errorf("max buffered blocks must be greater than 0")
 	}
 
 	seen := make(map[string]struct{}, len(c.HashTypes))
@@ -100,10 +111,24 @@ func (c *HashLoggerConfig) Validate() error {
 		seen[hashType] = struct{}{}
 	}
 
-	if c.DiffHashType != DiffHashingDisabled {
-		if _, ok := seen[c.DiffHashType]; !ok {
-			return fmt.Errorf("diff hash type %q is not one of the configured hash types", c.DiffHashType)
+	// When diff hashing is enabled, the diff column is recorded in addition to HashTypes, so it must be a
+	// valid name that does not collide with a caller-reported type. When disabled, DiffHashType is ignored.
+	if !c.DisableDiffHashing {
+		if c.DiffHashType == "" {
+			return fmt.Errorf("diff hash type is required unless diff hashing is disabled")
 		}
+		if !legalHashTypeRegex.MatchString(c.DiffHashType) {
+			return fmt.Errorf("diff hash type %q contains illegal characters (must match %s)",
+				c.DiffHashType, legalHashTypeRegex.String())
+		}
+		if _, ok := seen[c.DiffHashType]; ok {
+			return fmt.Errorf("diff hash type %q must not also appear in hash types", c.DiffHashType)
+		}
+	}
+
+	// At least one column must be recorded: the diff column (when enabled) or a caller-reported type.
+	if c.DisableDiffHashing && len(c.HashTypes) == 0 {
+		return fmt.Errorf("at least one hash type is required")
 	}
 
 	return nil
