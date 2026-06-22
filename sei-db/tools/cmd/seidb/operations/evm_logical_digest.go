@@ -392,7 +392,7 @@ type inspectAccumulator struct {
 	details        bool
 	shards         map[string]*digestBucket
 	matched        uint64
-	listed         uint64
+	listed         int
 }
 
 func runEvmLogicalInspect(cmd *cobra.Command, backend, dbDir string, height int64, inspectBucket string, memiavlNormalization string) error {
@@ -462,7 +462,7 @@ func (a *inspectAccumulator) consumeLogical(bucket string, physKey, logical []by
 	}
 	a.matched++
 	if a.list {
-		if a.listLimit <= 0 || int(a.listed) < a.listLimit {
+		if a.listLimit <= 0 || a.listed < a.listLimit {
 			if meta != "" {
 				fmt.Printf("key=%X logical=%X %s\n", physKey, logical, meta)
 			} else {
