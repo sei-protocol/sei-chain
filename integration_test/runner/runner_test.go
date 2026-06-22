@@ -40,6 +40,14 @@ func TestBankModule(t *testing.T) {
 	runner.RunFile(t, "../bank_module/simulation_tx.yaml")
 }
 
+// TestAutobahnBankModule is the Autobahn-matrix bank slice. It runs only
+// send_funds_test.yaml because the multi_sig and simulation cases broadcast
+// with -b block, which Autobahn's KV indexer doesn't support (BroadcastTxCommit
+// hangs to its timeout).
+func TestAutobahnBankModule(t *testing.T) {
+	runner.RunFile(t, "../bank_module/send_funds_test.yaml")
+}
+
 func TestMintModule(t *testing.T) {
 	runner.RunFile(t, "../mint_module/mint_test.yaml")
 }
