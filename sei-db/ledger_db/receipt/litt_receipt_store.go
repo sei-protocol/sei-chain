@@ -36,9 +36,9 @@ import (
 // segments. Each tx hash is a litt secondary key aliasing its receipt's byte
 // range, so eth_getTransactionReceipt is one litt lookup with no separate
 // index. A block is written as one or more litt "parts" (block + part index ->
-// the part's receipts, u32-length framed); a block normally has one part, but
-// legacy receipt migration flushes a block across several SetReceipts calls,
-// each appending a new immutable part.
+// the part's receipts concatenated); a block normally has one part, but legacy
+// receipt migration can flush a block across several SetReceipts calls, each
+// appending a new immutable part.
 //
 // The pebble index holds the tag keys (litt_tag_index.go) plus version
 // metadata (m:latest / m:earliest).
@@ -255,10 +255,10 @@ func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord
 	return nil
 }
 
-// writeBlock appends one part for the block into litt (framed value, tx hashes
-// as secondary keys) and stages the tag keys onto the index batch. The next
-// part index is derived by probing litt; crash replay of an already-persisted
-// part is skipped via the Exists check.
+// writeBlock appends one part for the block into litt (the receipts
+// concatenated, each tx hash a secondary key aliasing its receipt's range) and
+// stages the tag keys onto the index batch. nextPartIndex picks the next free
+// part slot, so a normal block writes part 0 and legacy migration appends.
 func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, records []ReceiptRecord) error {
 	sortRecordsByTxIndex(records)
 
@@ -267,16 +267,18 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 		return err
 	}
 
-	framed := make([]byte, 0)
+	// The part value is the receipts concatenated; each tx hash is a secondary
+	// key aliasing its receipt's sub-range, which is how every read fetches a
+	// receipt — the value is never read whole, so no framing is needed.
+	value := make([]byte, 0)
 	secondaryKeys := make([]*litttypes.SecondaryKey, 0, len(records))
 	for _, record := range records {
 		bz, err := marshaledReceipt(record)
 		if err != nil {
 			return err
 		}
-		framed = binary.BigEndian.AppendUint32(framed, uint32(len(bz))) //nolint:gosec // receipt sizes fit within uint32
-		offset := uint32(len(framed))                                   //nolint:gosec // block regions fit within uint32
-		framed = append(framed, bz...)
+		offset := uint32(len(value)) //nolint:gosec // block regions fit within uint32
+		value = append(value, bz...)
 
 		txHash := make([]byte, common.HashLength)
 		copy(txHash, record.TxHash[:])
@@ -287,15 +289,8 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 		})
 	}
 
-	partKey := littPartKey(blockNumber, partIndex)
-	exists, err := s.receipts.Exists(partKey)
-	if err != nil {
+	if err := s.receipts.Put(littPartKey(blockNumber, partIndex), value, secondaryKeys...); err != nil {
 		return err
-	}
-	if !exists {
-		if err := s.receipts.Put(partKey, framed, secondaryKeys...); err != nil {
-			return err
-		}
 	}
 	return s.stageTagKeys(batch, blockNumber, records)
 }
@@ -407,57 +402,22 @@ func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) error {
 }
 
 // rangeDeleter is implemented by index DBs that can drop a whole key range with
-// one range tombstone instead of per-key deletes (pebble).
+// one range tombstone instead of per-key deletes (pebble implements it).
 type rangeDeleter interface {
 	DeleteRange(start, end []byte, opts dbtypes.WriteOptions) error
 }
 
-// deleteIndexRange removes every index key in [lower, upper). With a native
-// range delete (pebble) this is one O(1) tombstone — essential for the tag
-// index, which writes thousands of keys per block, so per-key deletes would
-// otherwise iterate and delete millions of keys per prune pass. The iterate
-// path is a fallback for index DBs without range delete.
-func (s *littReceiptStore) deleteIndexRange(lower, upper []byte) (err error) {
-	if rd, ok := s.index.(rangeDeleter); ok {
-		return rd.DeleteRange(lower, upper, dbtypes.WriteOptions{})
+// deleteIndexRange removes every index key in [lower, upper) with one O(1) range
+// tombstone — essential for the tag index, which writes thousands of keys per
+// block, so per-key deletes would scan and delete millions of keys per prune
+// pass. The index is always pebble (which supports range delete); the assertion
+// guards against a future backend that does not.
+func (s *littReceiptStore) deleteIndexRange(lower, upper []byte) error {
+	rd, ok := s.index.(rangeDeleter)
+	if !ok {
+		return fmt.Errorf("receipt index %T does not support range delete", s.index)
 	}
-
-	iter, err := s.index.NewIter(&dbtypes.IterOptions{LowerBound: lower, UpperBound: upper})
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if closeErr := iter.Close(); err == nil {
-			err = closeErr
-		}
-	}()
-
-	batch := s.index.NewBatch()
-	defer func() { _ = batch.Close() }()
-
-	const maxBatchDeletes = 10_000
-	count := 0
-	for ; iter.Valid(); iter.Next() {
-		key := make([]byte, len(iter.Key()))
-		copy(key, iter.Key())
-		if err := batch.Delete(key); err != nil {
-			return err
-		}
-		if count++; count >= maxBatchDeletes {
-			if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
-				return err
-			}
-			batch.Reset()
-			count = 0
-		}
-	}
-	if err := iter.Error(); err != nil {
-		return err
-	}
-	if count > 0 {
-		return batch.Commit(dbtypes.WriteOptions{})
-	}
-	return nil
+	return rd.DeleteRange(lower, upper, dbtypes.WriteOptions{})
 }
 
 // groupReceiptRecordsByBlock splits records by block number (dropping entries

@@ -163,6 +163,40 @@ func TestLittIdxMultiLogReceipt(t *testing.T) {
 	}
 }
 
+// TestLittIdxBlockWideLogIndex verifies firstLogIndex accumulates across
+// transactions, so logs are numbered block-wide rather than per-transaction.
+func TestLittIdxBlockWideLogIndex(t *testing.T) {
+	store, ctx := setupLittIdx(t, t.TempDir())
+	defer func() { _ = store.Close() }()
+
+	addr := common.HexToAddress("0xabc")
+	topic := common.HexToHash("0xdef")
+	mk := func(txIndex uint32, nLogs int) receipt.ReceiptRecord {
+		logs := make([]*types.Log, nLogs)
+		for i := range logs {
+			logs[i] = &types.Log{Address: addr.Hex(), Topics: []string{topic.Hex()}, Index: uint32(i)} //nolint:gosec // small test indices
+		}
+		txHash := litTxHash(8, txIndex)
+		return receipt.ReceiptRecord{
+			TxHash:  txHash,
+			Receipt: &types.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 8, TransactionIndex: txIndex, Logs: logs},
+		}
+	}
+	// tx0: 2 logs, tx1: 1 log, tx2: 3 logs -> contiguous block-wide indices 0..5.
+	writeLitBlock(t, store, ctx, 8, mk(0, 2), mk(1, 1), mk(2, 3))
+
+	logs, err := store.FilterLogs(ctx, 8, 8, filters.FilterCriteria{Addresses: []common.Address{addr}})
+	require.NoError(t, err)
+	require.Len(t, logs, 6)
+	for i, lg := range logs {
+		require.Equal(t, uint(i), lg.Index, "log %d block-wide index", i) //nolint:gosec // small test indices
+	}
+	// Index ranges map back to the owning transaction in tx order.
+	require.Equal(t, []uint{0, 0, 1, 2, 2, 2}, []uint{
+		logs[0].TxIndex, logs[1].TxIndex, logs[2].TxIndex, logs[3].TxIndex, logs[4].TxIndex, logs[5].TxIndex,
+	})
+}
+
 func TestLittIdxReopen(t *testing.T) {
 	dir := t.TempDir()
 	store, ctx := setupLittIdx(t, dir)

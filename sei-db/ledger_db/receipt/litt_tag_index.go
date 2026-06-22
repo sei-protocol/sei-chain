@@ -34,10 +34,11 @@ const (
 	tagKindTopic0    byte = 0x01 // +p for topic position p
 	maxIndexedTopics      = 4    // EVM LOG4 limit
 
-	ledgerTxIndexLen = 4
+	littTxIndexLen   = 4
+	littLogIndexLen  = 4
 	littAddrTagLen   = common.AddressLength // 20
 	littTopicTagLen  = common.HashLength    // 32
-	littTagSuffixLen = ledgerTxIndexLen + 4 + common.HashLength
+	littTagSuffixLen = littTxIndexLen + littLogIndexLen + common.HashLength
 	littTagKeyMaxLen = 1 + blockNumLen + 1 + littTopicTagLen + littTagSuffixLen
 )
 
@@ -130,8 +131,8 @@ func parseLittTagKey(key []byte) (txIndex uint32, ref littTagRef, err error) {
 		return 0, littTagRef{}, fmt.Errorf("corrupt receipt tag key %x", key)
 	}
 	suffix := key[suffixStart:]
-	ref.firstLogIndex = binary.BigEndian.Uint32(suffix[ledgerTxIndexLen:])
-	copy(ref.txHash[:], suffix[ledgerTxIndexLen+4:])
+	ref.firstLogIndex = binary.BigEndian.Uint32(suffix[littTxIndexLen:])
+	copy(ref.txHash[:], suffix[littTxIndexLen+littLogIndexLen:])
 	return binary.BigEndian.Uint32(suffix), ref, nil
 }
 
@@ -153,7 +154,9 @@ func prefixSuccessor(prefix []byte) []byte {
 // stageTagKeys writes the tag keys for every log in the block (records already
 // sorted by transaction index) onto the index batch. Values are nil — all
 // information is in the key — so re-staging the same data (crash replay) is
-// idempotent.
+// idempotent. firstLogIndex is block-wide within a single call; a block split
+// across calls (legacy migration) restarts it per part — harmless, as the RPC
+// layer recomputes log indices from canonical block data.
 func (s *littReceiptStore) stageTagKeys(batch dbtypes.Batch, blockNumber uint64, records []ReceiptRecord) error {
 	scratch := make([]byte, 0, littTagKeyMaxLen)
 	firstLogIndex := uint32(0)
