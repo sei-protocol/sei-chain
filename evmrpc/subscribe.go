@@ -279,11 +279,11 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			begin = lastToHeight
 			filter.FromBlock = big.NewInt(lastToHeight + 1)
 			// Wait before the next poll, but stop promptly if the client
-			// disconnects (rpcSub.Err()) or the request context is cancelled /
-			// its deadline expires (ctx.Done()).
+			// disconnects or unsubscribes (rpcSub.Err()). Note: ctx here is the
+			// per-call context, which the RPC framework cancels as soon as the
+			// eth_subscribe call returns, so it must NOT be used to tear down the
+			// long-lived subscription loop.
 			select {
-			case <-ctx.Done():
-				return
 			case <-rpcSub.Err():
 				return
 			case <-time.After(SleepInterval):

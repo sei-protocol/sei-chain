@@ -348,7 +348,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	g := new(errgroup.Group)
 	g.SetLimit(maxBlockReceiptsConcurrency)
 	for i, hash := range txHashes {
-		g.Go(func() (err error) {
+		g.Go(func() error {
 			defer recoverAndLog()
 			receipt, err := getOrSetCachedReceiptErr(a.cacheCreationMutex, a.globalBlockCache, a.ctxProvider(height), a.keeper, block, hash.hash)
 			if err != nil {
