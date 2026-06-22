@@ -25,18 +25,19 @@ const (
 	ctrlHashReport  controlMsgKind = iota // a caller-reported hash for a block
 	ctrlDiffRequest                       // a change set to be diff-hashed on the hasher thread
 	ctrlRollback                          // an explicit rollback signal
+	ctrlClose                             // a graceful-shutdown signal (sent by Close)
 )
 
 // A message destined for the control loop. All caller entry points (ReportHash, ReportDiff, SignalRollback)
-// funnel through controlChan as a single ordered stream, so the control loop always knows which blocks have a
-// diff hash in flight and can order rollbacks against the reports around them.
+// and Close funnel through controlChan as a single ordered stream, so the control loop always knows which
+// blocks have a diff hash in flight and can order rollbacks and shutdown against the reports around them.
 type controlMessage struct {
 	kind        controlMsgKind
 	blockNumber uint64
 	hashType    string                  // ctrlHashReport: the type being reported
 	hash        []byte                  // ctrlHashReport: the reported hash (may be nil)
 	cs          []*proto.NamedChangeSet // ctrlDiffRequest: the change set to hash
-	done        chan struct{}           // ctrlRollback: closed once the flush completes
+	done        chan struct{}           // ctrlRollback / ctrlClose: closed once the flush/drain completes
 }
 
 // A change set dispatched from the control loop to the hasher.
@@ -120,12 +121,19 @@ type hashLoggerImpl struct {
 	hashChan       chan hashWork
 	hashResultChan chan hashResult
 
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	closeOnce sync.Once
-	closed    atomic.Bool
-	asyncErr  atomic.Pointer[error]
+	// ctx is the hard-stop context: the hasher, writer, and the control loop's downstream sends watch it, and it
+	// is cancelled by fail() on error and by Close() once everything has drained. senderCtx is a child of ctx
+	// that the controlChan producers (ReportHash/ReportDiff/SignalRollback) watch; the control loop cancels it
+	// once it stops reading controlChan, so an in-flight or future push aborts rather than deadlocking. Because
+	// controlChan is never closed, those pushes can never panic on a closed channel.
+	ctx          context.Context
+	cancel       context.CancelFunc
+	senderCtx    context.Context
+	senderCancel context.CancelFunc
+	wg           sync.WaitGroup
+	closeOnce    sync.Once
+	closed       atomic.Bool
+	asyncErr     atomic.Pointer[error]
 
 	// The following fields are owned exclusively by the writer goroutine.
 
@@ -159,6 +167,7 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	senderCtx, senderCancel := context.WithCancel(ctx)
 
 	// The recorded columns are the caller-reported types, with the logger-owned diff column prepended when
 	// diff hashing is enabled.
@@ -187,6 +196,8 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 		writerChan:          make(chan writerMessage, config.WriteBufferSize),
 		ctx:                 ctx,
 		cancel:              cancel,
+		senderCtx:           senderCtx,
+		senderCancel:        senderCancel,
 		sealedFiles:         make(map[uint64]*sealedFileInfo),
 	}
 	if !h.diffHashingDisabled {
@@ -330,25 +341,35 @@ func (h *hashLoggerImpl) SignalRollback() error {
 	done := make(chan struct{})
 	select {
 	case h.controlChan <- controlMessage{kind: ctrlRollback, done: done}:
-	case <-h.ctx.Done():
+	case <-h.senderCtx.Done():
 		return fmt.Errorf("hash logger is shutting down")
 	}
 	// Wait for the control loop to finish the flush so the rollback is durable before we return.
 	select {
 	case <-done:
 		return nil
-	case <-h.ctx.Done():
+	case <-h.senderCtx.Done():
 		return fmt.Errorf("hash logger is shutting down")
 	}
 }
 
 func (h *hashLoggerImpl) Close() error {
 	h.closeOnce.Do(func() {
-		// Reject any further Report*/SignalRollback calls before tearing down the channels they send on.
+		// Reject further Report*/SignalRollback calls (best effort; senderCtx is the real backstop).
 		h.closed.Store(true)
-		// Contract: the caller has stopped reporting. controlChan is the head of the pipeline; closing it makes
-		// the control loop drain its remaining work, then close hashChan (hasher) and writerChan (writer).
-		close(h.controlChan)
+		// controlChan is never closed. Instead we send a ctrlClose sentinel; FIFO ordering guarantees the
+		// control loop processes every prior report before it, then drains, cancels senderCtx (so any racing or
+		// future push aborts instead of deadlocking), and closes done. If an async error already cancelled ctx,
+		// the control loop is gone, so skip the handshake.
+		done := make(chan struct{})
+		select {
+		case h.controlChan <- controlMessage{kind: ctrlClose, done: done}:
+			select {
+			case <-done:
+			case <-h.ctx.Done():
+			}
+		case <-h.ctx.Done():
+		}
 		h.wg.Wait()
 		// Release the context now that every goroutine has exited.
 		h.cancel()
@@ -359,12 +380,13 @@ func (h *hashLoggerImpl) Close() error {
 	return nil
 }
 
-// sendControl forwards a message to the control loop, giving up if the logger is shutting down (the channel is
-// never closed while a non-control-loop sender may run, so this cannot send on a closed channel).
+// sendControl forwards a message to the control loop, giving up if the logger is shutting down. controlChan is
+// never closed, so this can never panic; senderCtx (cancelled by the control loop once it stops reading, and by
+// a hard error) unblocks a send that would otherwise wait on a control loop that is gone.
 func (h *hashLoggerImpl) sendControl(msg controlMessage) {
 	select {
 	case h.controlChan <- msg:
-	case <-h.ctx.Done():
+	case <-h.senderCtx.Done():
 	}
 }
 
@@ -421,9 +443,13 @@ func (h *hashLoggerImpl) controlLoop() {
 			select {
 			case <-h.ctx.Done():
 				return
-			case msg, ok := <-h.controlChan:
-				if !ok {
+			case msg := <-h.controlChan:
+				if msg.kind == ctrlClose {
+					// FIFO guarantees every prior report has been handled. Flush, then forbid further pushes
+					// (senderCancel) so any racing/future send aborts instead of deadlocking, and ack Close.
 					h.gracefulDrain(st)
+					h.senderCancel()
+					close(msg.done)
 					return
 				}
 				h.handleControlMessage(st, msg)

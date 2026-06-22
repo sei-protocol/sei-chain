@@ -2,6 +2,8 @@ package hashlog
 
 import (
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
@@ -443,4 +445,38 @@ func TestImplSignalRollbackAfterCloseFailsFast(t *testing.T) {
 	require.NotPanics(t, func() {
 		require.Error(t, l.SignalRollback())
 	})
+}
+
+func TestImplConcurrentReportAndCloseDoesNotPanic(t *testing.T) {
+	dir := t.TempDir()
+	l, err := NewHashLogger(testConfig(dir))
+	require.NoError(t, err)
+
+	// Reporters race Close. Because controlChan is never closed (Close uses a ctrlClose sentinel and the
+	// control loop cancels senderCtx), a send concurrent with Close must neither panic on a closed channel nor
+	// deadlock — it either lands or aborts via senderCtx, and the reporter stops once it observes closed.
+	var panicked atomic.Bool
+	var wg sync.WaitGroup
+	const reporters = 8
+	for r := 0; r < reporters; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if rec := recover(); rec != nil {
+					panicked.Store(true)
+				}
+			}()
+			for block := uint64(1); ; block++ {
+				if err := l.ReportHash(block, "a", []byte{0x01}); err != nil {
+					return // logger closed; stop
+				}
+				_ = l.ReportHash(block, "b", []byte{0x02})
+			}
+		}()
+	}
+
+	require.NoError(t, l.Close())
+	wg.Wait() // must return: reporters cannot deadlock after Close
+	require.False(t, panicked.Load(), "a Report* racing Close must not panic")
 }
