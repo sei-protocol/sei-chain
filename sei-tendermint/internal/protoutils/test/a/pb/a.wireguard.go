@@ -88,21 +88,9 @@ func init() {
 	// Register the wireguard.Schema generated for protoutils.Msg.
 	runtime.MustRegister[*Msg](runtime.Schema{
 		1: {MaxCount: 1},
-		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Msg_MapValueEntry]())},
+		3: {IsMap: true},
 		4: {Nested: utils.Some(reflect.TypeFor[*Child]())},
-		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Msg_MapMessageValueEntry]())},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.Msg.MapValueEntry.
-	runtime.MustRegister[*Msg_MapValueEntry](runtime.Schema{
-		1: {MaxCount: 1},
-		2: {MaxCount: 1},
-	})
-
-	// Register the wireguard.Schema generated for protoutils.Msg.MapMessageValueEntry.
-	runtime.MustRegister[*Msg_MapMessageValueEntry](runtime.Schema{
-		1: {MaxCount: 1},
-		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Child]())},
+		5: {IsMap: true, Nested: utils.Some(reflect.TypeFor[*Child]())},
 	})
 
 	// Register the wireguard.Schema generated for protoutils.Child.

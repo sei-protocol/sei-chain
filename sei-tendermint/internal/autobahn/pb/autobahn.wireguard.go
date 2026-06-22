@@ -112,15 +112,9 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.TransactionHeader.
 	runtime.MustRegister[*TransactionHeader](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TransactionHeader_PropertiesEntry]())},
+		1: {IsMap: true},
 		2: {MaxCount: 1},
 		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TransactionTimestamps]())},
-	})
-
-	// Register the wireguard.Schema generated for autobahn.TransactionHeader.PropertiesEntry.
-	runtime.MustRegister[*TransactionHeader_PropertiesEntry](runtime.Schema{
-		1: {MaxCount: 1},
-		2: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Transaction.

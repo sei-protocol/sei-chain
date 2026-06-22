@@ -247,3 +247,79 @@ func TestScan_RejectsDuplicateSingularFieldsInUnsizedMessages(t *testing.T) {
 	outerNotSizedDup = protowire.AppendBytes(outerNotSizedDup, payload)
 	require.Error(t, protoutils.Scan[*pb.OuterNotSized](outerNotSizedDup))
 }
+
+func TestScan_AllowsMultipleMapEntriesInUnsizedMessages(t *testing.T) {
+	t.Parallel()
+
+	msg := &pb.Msg{
+		MapValue: map[string]string{
+			"a": "1",
+			"b": "2",
+		},
+		MapMessageValue: map[string]*pb.Child{
+			"x": {Value: "left"},
+			"y": {Value: "right"},
+		},
+	}
+
+	require.NoError(t, protoutils.Scan[*pb.Msg](protoutils.Marshal(msg)))
+}
+
+func TestScan_ScansMapMessageValues(t *testing.T) {
+	t.Parallel()
+
+	valid := &pb.Msg{
+		MapMessageValue: map[string]*pb.Child{
+			"x": {Value: "left"},
+		},
+	}
+	require.NoError(t, protoutils.Scan[*pb.Msg](protoutils.Marshal(valid)))
+
+	child := protowire.AppendTag(nil, 1, protowire.BytesType)
+	child = protowire.AppendString(child, "first")
+	child = protowire.AppendTag(child, 1, protowire.BytesType)
+	child = protowire.AppendString(child, "second")
+
+	entry := protowire.AppendTag(nil, 1, protowire.BytesType)
+	entry = protowire.AppendString(entry, "k")
+	entry = protowire.AppendTag(entry, 2, protowire.BytesType)
+	entry = protowire.AppendBytes(entry, child)
+
+	msg := protowire.AppendTag(nil, 5, protowire.BytesType)
+	msg = protowire.AppendBytes(msg, entry)
+
+	require.Error(t, protoutils.Scan[*pb.Msg](msg))
+}
+
+func TestScan_RejectsMalformedNestedMapMessageValue(t *testing.T) {
+	t.Parallel()
+
+	child := protowire.AppendTag(nil, 1, protowire.BytesType)
+	child = protowire.AppendString(child, "first")
+	child = protowire.AppendTag(child, 1, protowire.BytesType)
+	child = protowire.AppendString(child, "second")
+
+	entry := protowire.AppendTag(nil, 1, protowire.BytesType)
+	entry = protowire.AppendString(entry, "k")
+	entry = protowire.AppendTag(entry, 2, protowire.BytesType)
+	entry = protowire.AppendBytes(entry, child)
+
+	msg := protowire.AppendTag(nil, 5, protowire.BytesType)
+	msg = protowire.AppendBytes(msg, entry)
+
+	require.Error(t, protoutils.Scan[*pb.Msg](msg))
+}
+
+func TestScan_RejectsDuplicateMapEntryKey(t *testing.T) {
+	t.Parallel()
+
+	entry := protowire.AppendTag(nil, 1, protowire.BytesType)
+	entry = protowire.AppendString(entry, "left")
+	entry = protowire.AppendTag(entry, 1, protowire.BytesType)
+	entry = protowire.AppendString(entry, "right")
+
+	msg := protowire.AppendTag(nil, 3, protowire.BytesType)
+	msg = protowire.AppendBytes(msg, entry)
+
+	require.Error(t, protoutils.Scan[*pb.Msg](msg))
+}

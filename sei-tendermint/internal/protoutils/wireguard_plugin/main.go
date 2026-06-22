@@ -559,29 +559,25 @@ type emitCtx struct {
 	exts wireguardExts
 }
 
-// emitIdents holds the Go identifier expressions for the wireguard /
-// utils / reflect symbols a generated file refers to. They are produced from the
-// current *protogen.GeneratedFile (which records the imports) and so are
-// rebuilt for every emitted file.
-type emitIdents struct {
-	schema, mustRegister, utilsSome, reflectTypeFor string
-	varintType, fixed32Type, fixed64Type            string
+// emitIdents lazily qualifies the Go identifiers a generated file actually
+// uses, so we don't force imports into files that never reference them.
+type emitIdents struct{ g *protogen.GeneratedFile }
+
+func newEmitIdents(g *protogen.GeneratedFile) emitIdents { return emitIdents{g: g} }
+
+func (i emitIdents) qual(pkg, name string) string {
+	return i.g.QualifiedGoIdent(protogen.GoIdent{GoName: name, GoImportPath: protogen.GoImportPath(pkg)})
 }
 
-func newEmitIdents(g *protogen.GeneratedFile) emitIdents {
-	q := func(pkg, name string) string {
-		return g.QualifiedGoIdent(protogen.GoIdent{GoName: name, GoImportPath: protogen.GoImportPath(pkg)})
-	}
-	return emitIdents{
-		schema:         q(wireguardRuntime, "Schema"),
-		mustRegister:   q(wireguardRuntime, "MustRegister"),
-		utilsSome:      q(utilsPkg, "Some"),
-		reflectTypeFor: q("reflect", "TypeFor"),
-		varintType:     q(wireguardRuntime, "VarintType"),
-		fixed32Type:    q(wireguardRuntime, "Fixed32Type"),
-		fixed64Type:    q(wireguardRuntime, "Fixed64Type"),
-	}
+func (i emitIdents) schema() string       { return i.qual(wireguardRuntime, "Schema") }
+func (i emitIdents) mustRegister() string { return i.qual(wireguardRuntime, "MustRegister") }
+func (i emitIdents) utilsSome() string    { return i.qual(utilsPkg, "Some") }
+func (i emitIdents) reflectTypeFor() string {
+	return i.qual("reflect", "TypeFor")
 }
+func (i emitIdents) varintType() string  { return i.qual(wireguardRuntime, "VarintType") }
+func (i emitIdents) fixed32Type() string { return i.qual(wireguardRuntime, "Fixed32Type") }
+func (i emitIdents) fixed64Type() string { return i.qual(wireguardRuntime, "Fixed64Type") }
 
 // emit walks files and emits per-file <name>.wireguard.go containing init()
 // registrations for messages defined in that file.
@@ -592,6 +588,9 @@ func emit(p *protogen.Plugin, ctx emitCtx) error {
 		}
 		var targets []*protogen.Message
 		for m := range allPMs(file) {
+			if m.Desc.IsMapEntry() {
+				continue
+			}
 			targets = append(targets, m.Message)
 		}
 		if len(targets) == 0 {
@@ -639,17 +638,22 @@ func emitSchemaRegistration(g *protogen.GeneratedFile, m *protogen.Message, ctx 
 	// doesn't).
 	d := ctx.byName[m.Desc.FullName()]
 	g.P("// Register the wireguard.Schema generated for ", d.FullName(), ".")
-	g.P(idents.mustRegister, "[*", m.GoIdent.GoName, "](", idents.schema, "{")
+	g.P(idents.mustRegister(), "[*", m.GoIdent.GoName, "](", idents.schema(), "{")
 	for _, pf := range m.Fields {
 		f := d.Fields().Get(pf.Desc.Index())
 		opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
 		hasMaxCount := opts.Has(ctx.exts.maxCount.TypeDescriptor())
 		hasMaxSize := opts.Has(ctx.exts.maxSize.TypeDescriptor())
 		hasMaxTotalSize := opts.Has(ctx.exts.maxTotalSize.TypeDescriptor())
-		implicitSingularMaxCount := !f.IsList()
+		implicitSingularMaxCount := !f.IsList() && !f.IsMap()
 
 		nestedTarget := f.Message()
-		if !implicitSingularMaxCount && !hasMaxCount && !hasMaxSize && !hasMaxTotalSize && nestedTarget == nil {
+		if f.IsMap() {
+			nestedTarget = f.MapValue().Message()
+		} else if nestedTarget != nil && nestedTarget.IsMapEntry() {
+			nestedTarget = nil
+		}
+		if !implicitSingularMaxCount && !hasMaxCount && !hasMaxSize && !hasMaxTotalSize && nestedTarget == nil && !f.IsMap() {
 			continue
 		}
 
@@ -657,7 +661,7 @@ func emitSchemaRegistration(g *protogen.GeneratedFile, m *protogen.Message, ctx 
 		if implicitSingularMaxCount || hasMaxCount {
 			pieces = append(pieces, fmt.Sprintf("MaxCount: %d", maxCount(f, ctx.exts)))
 			if packedTypeExpr := packedTypeExpr(f, idents); packedTypeExpr != "" {
-				pieces = append(pieces, fmt.Sprintf("PackedType: %s(%s)", idents.utilsSome, packedTypeExpr))
+				pieces = append(pieces, fmt.Sprintf("PackedType: %s(%s)", idents.utilsSome(), packedTypeExpr))
 			}
 		}
 		if hasMaxSize {
@@ -668,9 +672,12 @@ func emitSchemaRegistration(g *protogen.GeneratedFile, m *protogen.Message, ctx 
 			maxTotalSize := opts.Get(ctx.exts.maxTotalSize.TypeDescriptor()).Uint()
 			pieces = append(pieces, fmt.Sprintf("MaxTotalSize: %d", maxTotalSize))
 		}
+		if f.IsMap() {
+			pieces = append(pieces, "IsMap: true")
+		}
 		if nestedTarget != nil {
 			targetExpr := typeExprForTarget(g, ctx, nestedTarget, idents)
-			pieces = append(pieces, fmt.Sprintf("Nested: %s(%s)", idents.utilsSome, targetExpr))
+			pieces = append(pieces, fmt.Sprintf("Nested: %s(%s)", idents.utilsSome(), targetExpr))
 		}
 		g.P(f.Number(), ": {", strings.Join(pieces, ", "), "},")
 	}
@@ -692,7 +699,7 @@ func typeExprForTarget(g *protogen.GeneratedFile, ctx emitCtx, d protoreflect.Me
 		GoName:       m.GoIdent.GoName,
 		GoImportPath: m.GoIdent.GoImportPath,
 	})
-	return fmt.Sprintf("%s[*%s]()", idents.reflectTypeFor, target)
+	return fmt.Sprintf("%s[*%s]()", idents.reflectTypeFor(), target)
 }
 
 func packedTypeExpr(f protoreflect.FieldDescriptor, idents emitIdents) string {
@@ -708,15 +715,15 @@ func packedTypeExpr(f protoreflect.FieldDescriptor, idents emitIdents) string {
 		protoreflect.Uint64Kind,
 		protoreflect.Sint32Kind,
 		protoreflect.Sint64Kind:
-		return idents.varintType
+		return idents.varintType()
 	case protoreflect.Fixed32Kind,
 		protoreflect.Sfixed32Kind,
 		protoreflect.FloatKind:
-		return idents.fixed32Type
+		return idents.fixed32Type()
 	case protoreflect.Fixed64Kind,
 		protoreflect.Sfixed64Kind,
 		protoreflect.DoubleKind:
-		return idents.fixed64Type
+		return idents.fixed64Type()
 	default:
 		return ""
 	}
