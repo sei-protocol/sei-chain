@@ -39,6 +39,12 @@ const (
 	// exercise the resume / hybrid-read path mid-flight.
 	FlagSCKeysToMigratePerBlock = "state-commit.sc-keys-to-migrate-per-block"
 
+	// Block height at which the EVM migration begins when sc-write-mode is
+	// migrate_evm. When unset or 0 the migration starts immediately, matching
+	// the historical behavior. When > 0 the node runs memiavl-only-equivalent
+	// for the EVM module until this height, then begins draining.
+	FlagSCMigrateEVMStartHeight = "state-commit.sc-migrate-evm-start-height"
+
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
 	FlagSSDirectory         = "state-store.ss-db-directory"
@@ -144,6 +150,13 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	if v := appOpts.Get(FlagSCKeysToMigratePerBlock); v != nil {
 		if n := cast.ToInt(v); n > 0 {
 			scConfig.KeysToMigratePerBlock = n
+		}
+	}
+	// Optional: defer the start of the EVM migration to a fixed height. Absent
+	// or 0 preserves the historical "start immediately" behavior.
+	if v := appOpts.Get(FlagSCMigrateEVMStartHeight); v != nil {
+		if h := cast.ToInt64(v); h > 0 {
+			scConfig.MigrateEVMStartHeight = h
 		}
 	}
 

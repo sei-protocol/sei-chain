@@ -328,8 +328,26 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 // flatKV (if any) have been opened via LoadVersion.
 func (cs *CompositeCommitStore) buildRouter() error {
 	routerCtx, cancel := context.WithCancel(cs.ctx)
+
+	var opts []migration.RouterOption
+	// In MigrateEVM mode an optional start height defers the drain until the
+	// chain reaches it. The in-flight block height is derived from the
+	// memiavl committed version (+1) at apply time, so the gate opens exactly
+	// at the configured height without a restart.
+	if cs.config.WriteMode == config.MigrateEVM && cs.config.MigrateEVMStartHeight > 0 {
+		opts = append(opts, migration.WithMigrateEVMStartGate(
+			cs.config.MigrateEVMStartHeight,
+			func() int64 {
+				if cs.memIAVL == nil {
+					return 0
+				}
+				return cs.memIAVL.Version()
+			},
+		))
+	}
+
 	router, err := migration.BuildRouter(
-		routerCtx, cs.config.WriteMode, cs.memIAVL, cs.flatKV, cs.config.KeysToMigratePerBlock)
+		routerCtx, cs.config.WriteMode, cs.memIAVL, cs.flatKV, cs.config.KeysToMigratePerBlock, opts...)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("failed to build router: %w", err)

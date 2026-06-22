@@ -232,6 +232,101 @@ func TestRead_RoutesToCorrectDB(t *testing.T) {
 	require.Equal(t, []byte("old_z"), val, "unmigrated key should come from oldDB")
 }
 
+// --- Start-gate tests ---
+
+// TestStartGate_DefersMigrationUntilStartHeight verifies that a manager with a
+// configured start height behaves as a pure passthrough to the old DB until
+// the in-flight block height reaches the start height, then begins draining.
+func TestStartGate_DefersMigrationUntilStartHeight(t *testing.T) {
+	seed := map[string]map[string][]byte{
+		"evm": {"k1": []byte("v1"), "k2": []byte("v2")},
+	}
+	oldDB := newMockDB()
+	oldDB.seed(copyData(seed))
+	newDB := newMockDB()
+	iter := NewMockMigrationIterator(copyData(seed), false)
+
+	mgr, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter, 10,
+	)
+	require.NoError(t, err)
+
+	const startHeight = 100
+	var committedVersion int64 // in-flight height = committedVersion + 1
+	mgr.SetStartGate(startHeight, func() int64 { return committedVersion })
+
+	// committedVersion 0 => in-flight height 1, well below the start height.
+	require.False(t, mgr.isActive())
+
+	// A brand-new EVM write before the start height must land in the OLD DB
+	// (not the new DB) and must not advance the boundary or migrate seeded
+	// keys. This is what keeps the node AppHash-identical to a memiavl-only
+	// peer during the pre-start window.
+	err = mgr.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name:      "evm",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("new"), Value: []byte("brand")}}},
+	}}, true)
+	require.NoError(t, err)
+	require.True(t, mgr.boundary.Equals(MigrationBoundaryNotStarted),
+		"boundary must stay NotStarted before the start height")
+
+	gotOld, ok := oldDB.get("evm", "new")
+	require.True(t, ok, "brand-new key must be written to the old DB before start height")
+	require.Equal(t, []byte("brand"), gotOld)
+	_, ok = newDB.get("evm", "new")
+	require.False(t, ok, "brand-new key must not be routed to the new DB before start height")
+	_, ok = newDB.get("evm", "k1")
+	require.False(t, ok, "seeded keys must not migrate before the start height")
+
+	// Reads route to the old DB while inactive.
+	rv, found, err := mgr.Read("evm", []byte("k1"))
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, []byte("v1"), rv)
+
+	// Reach the start height: committedVersion 99 => in-flight height 100.
+	committedVersion = startHeight - 1
+	require.True(t, mgr.isActive())
+
+	err = mgr.ApplyChangeSets(nil, true)
+	require.NoError(t, err)
+	require.NotEqual(t, MigrationNotStarted, mgr.boundary.Status(),
+		"boundary must advance once the start height is reached")
+
+	v1, ok := newDB.get("evm", "k1")
+	require.True(t, ok, "seeded keys must migrate to the new DB at/after the start height")
+	require.Equal(t, []byte("v1"), v1)
+}
+
+// TestStartGate_StaysActiveOnceStarted verifies the gate never reverts to
+// passthrough once the boundary has advanced, even if the height check would
+// otherwise report inactive (defensive against a misconfigured version fn).
+func TestStartGate_StaysActiveOnceStarted(t *testing.T) {
+	oldDB := newMockDB()
+	newDB := newMockDB()
+	// Resume from an in-progress boundary so the manager loads non-NotStarted.
+	saved := NewMigrationBoundary("evm", []byte("b"))
+	newDB.seed(map[string]map[string][]byte{
+		MigrationStore: {MigrationBoundaryKey: saved.Serialize()},
+	})
+	iter := NewMockMigrationIterator(nil, false)
+
+	mgr, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter, 10,
+	)
+	require.NoError(t, err)
+
+	// Start height far in the future and a version fn that always reports 0,
+	// which would gate the migration off if the boundary were NotStarted.
+	mgr.SetStartGate(1_000_000, func() int64 { return 0 })
+	require.True(t, mgr.isActive(),
+		"a migration already past NotStarted must remain active regardless of height")
+}
+
 // --- ApplyChangeSets tests ---
 
 func TestApplyChangeSets_MigratesKeysAndPersistsBoundary(t *testing.T) {

@@ -65,6 +65,52 @@ type MigrationManager struct {
 	// completion-summary aggregator (RunStats / Elapsed) keeps working
 	// even without a configured OTel exporter.
 	metrics *MigrationMetrics
+
+	// startHeight optionally defers the start of the migration to a fixed
+	// block height. When > 0, the manager behaves as a pure passthrough to
+	// the old DB (no boundary advance, no metadata writes, all reads/writes
+	// routed to the old DB) for every block whose height is below
+	// startHeight, then begins draining at startHeight. 0 (the default when
+	// SetStartGate is never called) means "active immediately", preserving
+	// the historical behavior. See isActive.
+	startHeight int64
+
+	// currentVersionFn reports the last committed version of the backing
+	// store; the in-flight block height is that value + 1. Only consulted
+	// when startHeight > 0. Set together with startHeight via SetStartGate.
+	currentVersionFn func() int64
+}
+
+// SetStartGate configures an optional height gate that defers the start of
+// the migration until the chain reaches startHeight. currentVersionFn must
+// return the last committed version of the backing store (the in-flight
+// block height is that value + 1).
+//
+// When startHeight <= 0 or currentVersionFn is nil the gate is disabled and
+// the manager is active immediately, which is the default for callers that
+// never invoke this method (e.g. all existing tests and non-EVM migrations).
+//
+// Once the migration has advanced past MigrationNotStarted the gate is
+// permanently open regardless of height, so a mid-migration restart never
+// reverts to passthrough.
+func (m *MigrationManager) SetStartGate(startHeight int64, currentVersionFn func() int64) {
+	m.startHeight = startHeight
+	m.currentVersionFn = currentVersionFn
+}
+
+// isActive reports whether the migration should be draining/routing through
+// its full logic for the in-flight block. See SetStartGate.
+func (m *MigrationManager) isActive() bool {
+	if m.startHeight <= 0 || m.currentVersionFn == nil {
+		return true
+	}
+	// Once the boundary has moved off NotStarted the migration is underway
+	// (or complete); never fall back to passthrough.
+	if m.boundary.Status() != MigrationNotStarted {
+		return true
+	}
+	// In-flight block height is the last committed version + 1.
+	return m.currentVersionFn()+1 >= m.startHeight
 }
 
 // Handles the migration of data from one database to another.
@@ -240,6 +286,12 @@ func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) 
 		// The migration module is reserved for internal use, do not permit outer scope reads from it.
 		return nil, false, fmt.Errorf("reads from the 'migration' module are not permitted")
 	}
+	if !m.isActive() {
+		// Pre-start window: the migration has not begun for this height, so
+		// all data still lives in the old DB. Read straight from it, matching
+		// a memiavl-only node exactly.
+		return m.oldDBReader(store, key)
+	}
 	migrated := m.boundary.IsMigrated(store, key)
 	if migrated {
 		// This key has already been migrated, read it from the new DB.
@@ -321,6 +373,19 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet, f
 			// The migration module is reserved for internal use, do not permit outer scope writes to it.
 			return fmt.Errorf("writes to internal migration store %q are not permitted", MigrationStore)
 		}
+	}
+
+	if !m.isActive() {
+		// Pre-start window: behave as a pure passthrough to the old DB. Do
+		// not advance the boundary or write migration metadata, and route
+		// every caller write (including brand-new keys) to the old DB so the
+		// boundary stays NotStarted, the flatkv lattice stays excluded from
+		// the AppHash, and the backing memiavl tree is byte-for-byte what a
+		// memiavl-only node would have at this height.
+		if err := m.oldDBWriter(changesets, firstBatchInBlock); err != nil {
+			return fmt.Errorf("failed to apply changes to old database (pre-migration window): %w", err)
+		}
+		return nil
 	}
 
 	if m.boundary.Equals(MigrationBoundaryComplete) {

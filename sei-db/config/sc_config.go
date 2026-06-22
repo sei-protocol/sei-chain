@@ -52,6 +52,19 @@ type StateCommitConfig struct {
 
 	// The number of keys to migrate from memiavl to flatkv per block. Ignored if not in a migration mode.
 	KeysToMigratePerBlock int `mapstructure:"keys-to-migrate-per-block"`
+
+	// MigrateEVMStartHeight, when > 0 and WriteMode == MigrateEVM, defers the
+	// start of the EVM migration until the chain reaches this block height.
+	// Before this height the node behaves like memiavl_only for the EVM
+	// module: all EVM reads/writes stay on memiavl, the migration boundary
+	// stays NotStarted, and the flatkv lattice is excluded from the AppHash,
+	// so the node stays AppHash-compatible with memiavl-only peers. At this
+	// height the migration begins draining KeysToMigratePerBlock keys/block.
+	//
+	// 0 (default) means start immediately when MigrateEVM is configured,
+	// which preserves the historical behavior. Ignored when WriteMode is not
+	// MigrateEVM.
+	MigrateEVMStartHeight int64 `mapstructure:"migrate-evm-start-height"`
 }
 
 // DefaultStateCommitConfig returns the default StateCommitConfig

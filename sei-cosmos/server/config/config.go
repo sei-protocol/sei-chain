@@ -407,6 +407,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 				SnapshotWriterLimit:       v.GetInt("state-commit.sc-snapshot-writer-limit"),
 				SnapshotPrefetchThreshold: v.GetFloat64("state-commit.sc-snapshot-prefetch-threshold"),
 			},
+			MigrateEVMStartHeight: v.GetInt64("state-commit.sc-migrate-evm-start-height"),
 		},
 		StateStore: config.StateStoreConfig{
 			Enable:               v.GetBool("state-store.ss-enable"),

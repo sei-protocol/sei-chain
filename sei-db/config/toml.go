@@ -63,6 +63,15 @@ sc-write-mode = "{{ .StateCommit.WriteMode }}"
 # Must be > 0; ignored entirely when not in a migration mode.
 sc-keys-to-migrate-per-block = {{ .StateCommit.KeysToMigratePerBlock }}
 
+# MigrateEVMStartHeight, when > 0 and sc-write-mode = migrate_evm, defers the
+# start of the EVM migration until the chain reaches this block height. Before
+# it the node behaves like memiavl_only for the EVM module (EVM reads/writes
+# stay on memiavl, the migration boundary stays NotStarted, and the flatkv
+# lattice is excluded from the AppHash), so it stays AppHash-compatible with
+# memiavl-only peers; at this height the per-block drain begins.
+# 0 (default) starts the migration immediately when migrate_evm is configured.
+sc-migrate-evm-start-height = {{ .StateCommit.MigrateEVMStartHeight }}
+
 ###############################################################################
 ###                        FlatKV (EVM) Configuration                       ###
 ###############################################################################

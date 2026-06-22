@@ -13,6 +13,35 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 )
 
+// routerOptions carries optional, mode-specific tuning for BuildRouter. It is
+// populated by RouterOption values and defaults to the zero value (no gate),
+// which preserves the historical behavior for every existing caller.
+type routerOptions struct {
+	// migrateEVMStartHeight defers the start of the EVM migration to a fixed
+	// block height. 0 means start immediately. Only consulted for MigrateEVM.
+	migrateEVMStartHeight int64
+	// currentVersionFn reports the last committed version of the backing
+	// store; required (together with migrateEVMStartHeight > 0) to arm the
+	// start gate.
+	currentVersionFn func() int64
+}
+
+// RouterOption customizes BuildRouter. Options are optional; omitting them
+// preserves the default behavior.
+type RouterOption func(*routerOptions)
+
+// WithMigrateEVMStartGate defers the start of the EVM migration until the
+// chain reaches startHeight. currentVersionFn must report the last committed
+// version of the backing store (the in-flight block height is that value + 1).
+// A startHeight <= 0 or nil currentVersionFn leaves the migration active
+// immediately. Only affects the MigrateEVM write mode.
+func WithMigrateEVMStartGate(startHeight int64, currentVersionFn func() int64) RouterOption {
+	return func(o *routerOptions) {
+		o.migrateEVMStartHeight = startHeight
+		o.currentVersionFn = currentVersionFn
+	}
+}
+
 // Builds a router for the given migration write mode. A router is responsible for splitting
 // reads/writes between the memiavl and flatkv backends.
 func BuildRouter(
@@ -22,7 +51,13 @@ func BuildRouter(
 	flatKV flatkv.Store,
 	// If this router will be doing data migration, this is the number of keys to migrate in each batch.
 	migrationBatchSize int,
+	opts ...RouterOption,
 ) (Router, error) {
+
+	var options routerOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 
 	switch writeMode {
 	case config.MemiavlOnly:
@@ -32,7 +67,7 @@ func BuildRouter(
 		}
 		return router, nil
 	case config.MigrateEVM:
-		router, err := buildMigrateEVMRouter(ctx, memIAVL, flatKV, migrationBatchSize)
+		router, err := buildMigrateEVMRouter(ctx, memIAVL, flatKV, migrationBatchSize, options)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateEVMRouter: %w", err)
 		}
@@ -150,6 +185,7 @@ func buildMigrateEVMRouter(
 	memIAVL *memiavl.CommitStore,
 	flatKV flatkv.Store,
 	migrationBatchSize int,
+	options routerOptions,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -176,6 +212,12 @@ func buildMigrateEVMRouter(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
+	}
+
+	// Optionally defer the start of the migration to a fixed block height.
+	// A zero start height leaves the manager active immediately.
+	if options.migrateEVMStartHeight > 0 && options.currentVersionFn != nil {
+		migrationManager.SetStartGate(options.migrateEVMStartHeight, options.currentVersionFn)
 	}
 
 	nonEVMModules, err := keys.AllModulesExcept(keys.EVMStoreKey)
