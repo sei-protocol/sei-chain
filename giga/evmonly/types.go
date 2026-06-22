@@ -6,6 +6,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
 // BlockExecutor is the Cosmos-free block execution boundary for the EVM-only path.
@@ -42,11 +44,14 @@ type BlockContext struct {
 
 // BlockResult is the executor output consumed by the new runtime boundary.
 type BlockResult struct {
-	ChangeSet StateChangeSet
-	Txs       []TxResult
-	Receipts  ethtypes.Receipts
-	GasUsed   uint64
+	ChangeSet        StateChangeSet
+	ValidatorUpdates []ValidatorUpdate
+	Txs              []TxResult
+	Receipts         ethtypes.Receipts
+	GasUsed          uint64
 }
+
+type ValidatorUpdate = precompiles.ValidatorUpdate
 
 // StateChangeSet is the deterministic EVM-native state output for a block.
 // Values are post-block values, not deltas.
