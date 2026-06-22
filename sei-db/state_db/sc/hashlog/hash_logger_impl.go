@@ -81,6 +81,7 @@ type hashLoggerImpl struct {
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
 	closeOnce sync.Once
+	closed    atomic.Bool
 	asyncErr  atomic.Pointer[error]
 
 	// The following fields are owned exclusively by the writer goroutine.
@@ -232,6 +233,11 @@ func (h *hashLoggerImpl) scanDirectory() error {
 }
 
 func (h *hashLoggerImpl) ReportDiff(blockNumber uint64, cs []*proto.NamedChangeSet) {
+	// Calling Report* after Close() violates the contract; fail fast (no-op) rather than risk a send on a
+	// closed channel.
+	if h.closed.Load() {
+		return
+	}
 	if h.diffHashType == DiffHashingDisabled {
 		return
 	}
@@ -251,6 +257,11 @@ func (h *hashLoggerImpl) ReportDiff(blockNumber uint64, cs []*proto.NamedChangeS
 }
 
 func (h *hashLoggerImpl) ReportHash(blockNumber uint64, hashType string, hash []byte) error {
+	// Calling Report* after Close() violates the contract; fail fast rather than risk a send on a closed
+	// channel.
+	if h.closed.Load() {
+		return fmt.Errorf("hash logger is closed")
+	}
 	if _, ok := h.hashTypeSet[hashType]; !ok {
 		return fmt.Errorf("unknown hash type %q", hashType)
 	}
@@ -262,6 +273,8 @@ func (h *hashLoggerImpl) ReportHash(blockNumber uint64, hashType string, hash []
 
 func (h *hashLoggerImpl) Close() error {
 	h.closeOnce.Do(func() {
+		// Reject any further Report* calls before tearing down the channels they send on.
+		h.closed.Store(true)
 		// Contract: the caller has stopped reporting. Closing the head of the pipeline triggers a staged drain
 		// in which each stage flushes its work and closes the next stage's channel.
 		if h.diffHashType != DiffHashingDisabled {
@@ -270,6 +283,8 @@ func (h *hashLoggerImpl) Close() error {
 			close(h.controlChan)
 		}
 		h.wg.Wait()
+		// Release the context now that every goroutine has exited.
+		h.cancel()
 	})
 	if err := h.asyncErr.Load(); err != nil {
 		return *err

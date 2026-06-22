@@ -26,8 +26,16 @@ func hashDiff(cs []*proto.NamedChangeSet) []byte {
 	}
 
 	for _, ncs := range cs {
+		// Defensively skip nil entries: this runs on the background hasher goroutine, where a nil-pointer
+		// dereference would panic and take down the node rather than just losing one diff hash.
+		if ncs == nil {
+			continue
+		}
 		writeBytes([]byte(ncs.Name))
 		for _, pair := range ncs.Changeset.Pairs {
+			if pair == nil {
+				continue
+			}
 			if pair.Delete {
 				_, _ = digest.Write([]byte{1})
 			} else {

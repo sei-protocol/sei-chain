@@ -175,12 +175,17 @@ func (r *archiveReader) at(block uint64) ([]*HashLog, error) {
 	// Activate files the cursor has now reached.
 	for r.nextIdx < len(r.byFirst) && r.byFirst[r.nextIdx].firstBlock <= block {
 		meta := r.byFirst[r.nextIdx]
+		r.nextIdx++
+		if meta.lastBlock < block {
+			// Entirely below the cursor: only happens when the scan starts mid-range (CompareHashesInRange),
+			// where files before the requested window never need to be read.
+			continue
+		}
 		loaded, err := r.loadFile(meta)
 		if err != nil {
 			return nil, err
 		}
 		r.active[meta.index] = loaded
-		r.nextIdx++
 	}
 
 	// Evict files the cursor has passed.
@@ -222,7 +227,8 @@ func (r *archiveReader) loadFile(meta fileMeta) (*loadedFile, error) {
 }
 
 // Compare two hash log archives, looking for differences between them. Returns information for blocks with
-// deviant values. Returns blocks from lowest to highest.
+// deviant values, from lowest to highest. Covers every block present in either archive; to restrict the
+// comparison to a sub-range, use CompareHashesInRange.
 //
 // The comparison streams from the lowest block number to the highest, loading individual files on demand and
 // holding only those whose block ranges overlap the current cursor. It does not load either archive fully into
@@ -237,33 +243,89 @@ func CompareHashes(
 	// diffs encountered if it does not return all diffs.
 	maxDiffCount int,
 ) ([]*HashLogPair, error) {
+	readerA, readerB, err := openArchiveReaders(pathA, pathB)
+	if err != nil {
+		return nil, err
+	}
+	lowBlock, highBlock, ok := globalBlockRange(readerA, readerB)
+	if !ok {
+		return nil, nil
+	}
+	return compareBlockRange(readerA, readerB, lowBlock, highBlock, maxDiffCount)
+}
+
+// CompareHashesInRange is CompareHashes restricted to the inclusive block range [lowBlock, highBlock], for
+// zooming in on a region of interest. The requested window is clamped to the blocks actually present in the
+// archives, and files entirely below the window are never read, so it is cheap even far from block zero.
+func CompareHashesInRange(
+	pathA string,
+	pathB string,
+	// the lowest block number to compare (inclusive)
+	lowBlock uint64,
+	// the highest block number to compare (inclusive)
+	highBlock uint64,
+	// the maximum number of diffs to return, or -1 for all (see CompareHashes)
+	maxDiffCount int,
+) ([]*HashLogPair, error) {
+	if lowBlock > highBlock {
+		return nil, fmt.Errorf("lowBlock (%d) must not exceed highBlock (%d)", lowBlock, highBlock)
+	}
+	readerA, readerB, err := openArchiveReaders(pathA, pathB)
+	if err != nil {
+		return nil, err
+	}
+	globalLow, globalHigh, ok := globalBlockRange(readerA, readerB)
+	if !ok {
+		return nil, nil
+	}
+	// Clamp the requested window to the blocks actually present; nothing outside that range can differ.
+	low := max(lowBlock, globalLow)
+	high := min(highBlock, globalHigh)
+	if low > high {
+		return nil, nil
+	}
+	return compareBlockRange(readerA, readerB, low, high, maxDiffCount)
+}
+
+// openArchiveReaders opens both archives for streaming comparison.
+func openArchiveReaders(pathA string, pathB string) (*archiveReader, *archiveReader, error) {
 	readerA, err := newArchiveReader(pathA)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open archive A: %w", err)
+		return nil, nil, fmt.Errorf("failed to open archive A: %w", err)
 	}
 	readerB, err := newArchiveReader(pathB)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open archive B: %w", err)
+		return nil, nil, fmt.Errorf("failed to open archive B: %w", err)
 	}
+	return readerA, readerB, nil
+}
 
-	if !readerA.hasBlocks && !readerB.hasBlocks {
-		return nil, nil
-	}
-
-	var minBlock uint64
-	var maxBlock uint64
+// globalBlockRange returns the inclusive block range spanned by either archive. ok is false if both are empty.
+func globalBlockRange(readerA *archiveReader, readerB *archiveReader) (low uint64, high uint64, ok bool) {
 	switch {
 	case readerA.hasBlocks && readerB.hasBlocks:
-		minBlock = min(readerA.minBlock, readerB.minBlock)
-		maxBlock = max(readerA.maxBlock, readerB.maxBlock)
+		return min(readerA.minBlock, readerB.minBlock), max(readerA.maxBlock, readerB.maxBlock), true
 	case readerA.hasBlocks:
-		minBlock, maxBlock = readerA.minBlock, readerA.maxBlock
+		return readerA.minBlock, readerA.maxBlock, true
+	case readerB.hasBlocks:
+		return readerB.minBlock, readerB.maxBlock, true
 	default:
-		minBlock, maxBlock = readerB.minBlock, readerB.maxBlock
+		return 0, 0, false
 	}
+}
 
+// compareBlockRange streams the comparison over the inclusive range [lowBlock, highBlock], which the caller
+// must have already validated and clamped. Both readers are advanced in lockstep, in non-decreasing block
+// order, as required by archiveReader.at.
+func compareBlockRange(
+	readerA *archiveReader,
+	readerB *archiveReader,
+	lowBlock uint64,
+	highBlock uint64,
+	maxDiffCount int,
+) ([]*HashLogPair, error) {
 	var diffs []*HashLogPair
-	for block := minBlock; block <= maxBlock; block++ {
+	for block := lowBlock; block <= highBlock; block++ {
 		hashesA, err := readerA.at(block)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read block %d from archive A: %w", block, err)

@@ -171,6 +171,65 @@ func TestCompareHashesOverlappingRollbackFile(t *testing.T) {
 	require.Len(t, diffs[0].HashesFromB, 1, "block 5 appears in one of B's files")
 }
 
+func TestCompareHashesInRangeRestrictsToWindow(t *testing.T) {
+	dirA := filepath.Join(t.TempDir(), "a")
+	dirB := filepath.Join(t.TempDir(), "b")
+	hashTypes := []string{"root"}
+
+	// Blocks 1..30 in single-block files, identical except deviations at 5, 17, and 25.
+	deviant := map[uint64]bool{5: true, 17: true, 25: true}
+	for block := uint64(1); block <= 30; block++ {
+		valueB := []byte{byte(block)}
+		if deviant[block] {
+			valueB = []byte{0xFF}
+		}
+		writeArchive(t, dirA, block, "v1", hashTypes,
+			[]*HashLog{log(block, map[string][]byte{"root": {byte(block)}})})
+		writeArchive(t, dirB, block, "v1", hashTypes,
+			[]*HashLog{log(block, map[string][]byte{"root": valueB})})
+	}
+
+	// Zooming into [10, 20] must surface only the block-17 deviation.
+	diffs, err := CompareHashesInRange(dirA, dirB, 10, 20, -1)
+	require.NoError(t, err)
+	require.Len(t, diffs, 1)
+	require.Equal(t, uint64(17), diffs[0].HashesFromA[0].BlockNumber)
+
+	// The full comparison still finds all three, confirming the window is what narrowed the result.
+	all, err := CompareHashes(dirA, dirB, -1)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+}
+
+func TestCompareHashesInRangeClampsAndValidates(t *testing.T) {
+	dirA := filepath.Join(t.TempDir(), "a")
+	dirB := filepath.Join(t.TempDir(), "b")
+	hashTypes := []string{"root"}
+	writeArchive(t, dirA, 0, "v1", hashTypes, []*HashLog{
+		log(5, map[string][]byte{"root": {0x05}}),
+		log(6, map[string][]byte{"root": {0x06}}),
+	})
+	writeArchive(t, dirB, 0, "v1", hashTypes, []*HashLog{
+		log(5, map[string][]byte{"root": {0x05}}),
+		log(6, map[string][]byte{"root": {0xFF}}), // block 6 deviates
+	})
+
+	// A window wider than the data is clamped to what's present and still finds the deviation.
+	diffs, err := CompareHashesInRange(dirA, dirB, 0, 1_000_000, -1)
+	require.NoError(t, err)
+	require.Len(t, diffs, 1)
+	require.Equal(t, uint64(6), diffs[0].HashesFromA[0].BlockNumber)
+
+	// A window entirely outside the data yields nothing.
+	none, err := CompareHashesInRange(dirA, dirB, 100, 200, -1)
+	require.NoError(t, err)
+	require.Empty(t, none)
+
+	// An inverted range is rejected.
+	_, err = CompareHashesInRange(dirA, dirB, 10, 5, -1)
+	require.Error(t, err)
+}
+
 func TestCompareHashesDifferentTypeSets(t *testing.T) {
 	dirA := filepath.Join(t.TempDir(), "a")
 	dirB := filepath.Join(t.TempDir(), "b")

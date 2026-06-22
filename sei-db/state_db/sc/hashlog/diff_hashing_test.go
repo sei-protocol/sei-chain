@@ -64,3 +64,11 @@ func TestHashDiffEmptyStable(t *testing.T) {
 	require.Equal(t, hashDiff(nil), hashDiff([]*proto.NamedChangeSet{}))
 	require.Len(t, hashDiff(nil), 8)
 }
+
+func TestHashDiffToleratesNilEntries(t *testing.T) {
+	// hashDiff runs on the background hasher goroutine, so a nil change set or nil pair must be skipped
+	// rather than panic and take down the node.
+	require.NotPanics(t, func() {
+		hashDiff([]*proto.NamedChangeSet{nil, cs("bank", kv("a", "1"), nil, kv("b", "2"))})
+	})
+}

@@ -233,6 +233,23 @@ func TestImplCleanCloseLeavesNoUnsealedFile(t *testing.T) {
 	require.True(t, files[0].parsed.sealed)
 }
 
+func TestImplReportAfterCloseFailsFast(t *testing.T) {
+	dir := t.TempDir()
+	config := testConfig(dir)
+	config.HashTypes = []string{"diff", "a"}
+	config.DiffHashType = "diff"
+	l, err := NewHashLogger(config)
+	require.NoError(t, err)
+	require.NoError(t, l.Close())
+
+	// After Close the pipeline channels are closed; a stray Report* must fail fast rather than panic on a
+	// send to a closed channel (or hang).
+	require.NotPanics(t, func() {
+		l.ReportDiff(1, []*proto.NamedChangeSet{cs("bank", kv("k", "v"))})
+		require.Error(t, l.ReportHash(1, "a", []byte{0x01}))
+	})
+}
+
 func TestImplCloseIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	l, err := NewHashLogger(testConfig(dir))
