@@ -148,9 +148,16 @@ func bytesFieldSize(tagLen, n int, val []byte, fd protoreflect.FieldDescriptor) 
 	}
 
 	total := 0
-	if fd.IsList() {
-		// One slice header per field; adding it per occurrence over-counts by
-		// (N-1)*sliceHeaderSize across N elements — noise near a 1MB limit.
+	if fd.IsMap() {
+		// Map fields: Go allocates a runtime map (hmap), not a slice. Add
+		// per-entry overhead for hmap fields, bucket slots, and tophash.
+		// Over-counts the fixed hmap header across N entries, which is
+		// conservative.
+		total += mapEntryOverhead
+	} else if fd.IsList() {
+		// Repeated fields: one slice header per field. Adding it per
+		// occurrence over-counts by (N-1)*sliceHeaderSize across N elements
+		// — noise near a 1MB limit.
 		total += sliceHeaderSize
 	}
 
@@ -158,12 +165,6 @@ func bytesFieldSize(tagLen, n int, val []byte, fd protoreflect.FieldDescriptor) 
 	case protoreflect.MessageKind, protoreflect.GroupKind:
 		if fd.IsList() {
 			total += pointerSize // pointer element in the backing array
-		}
-		if fd.IsMap() {
-			// Add per-entry map runtime overhead (hmap fields, bucket slots,
-			// tophash). Over-counts the fixed hmap header across N entries,
-			// which is conservative.
-			total += mapEntryOverhead
 		}
 		sub, err := allocEstimate(val, fd.Message())
 		if err != nil {
