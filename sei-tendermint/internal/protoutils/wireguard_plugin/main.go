@@ -330,14 +330,6 @@ func (s *sizedMessageMaxState) fieldSize(fd protoreflect.FieldDescriptor) (int, 
 
 func (s *sizedMessageMaxState) repeatedFieldSize(fd protoreflect.FieldDescriptor) (int, error) {
 	count, _ := fieldUintOption(fd, s.exts.maxCount)
-
-	if _, ok := packedWireType(fd); ok {
-		valueSize := s.scalarValueSize(fd)
-		packedSize := bytesFieldSize(fd.Number(), mulInt(count, valueSize))
-		unpackedSize := mulInt(count, addInt(tagSize(fd.Number()), valueSize))
-		return max(packedSize, unpackedSize), nil
-	}
-
 	tagTotal := mulInt(count, tagSize(fd.Number()))
 	switch fd.Kind() {
 	case protoreflect.StringKind, protoreflect.BytesKind:
@@ -368,9 +360,13 @@ func (s *sizedMessageMaxState) repeatedFieldSize(fd protoreflect.FieldDescriptor
 			return 0, err
 		}
 		return addInt(tagTotal, mulInt(count, sizeBytes(nestedSize))), nil
+	case protoreflect.GroupKind:
+		return 0, fmt.Errorf("groups not supported")
 	default:
-		perEntrySize := addInt(tagSize(fd.Number()), s.scalarValueSize(fd))
-		return mulInt(count, perEntrySize), nil
+		valueSize := s.scalarValueSize(fd)
+		packedSize := bytesFieldSize(fd.Number(), mulInt(count, valueSize))
+		unpackedSize := mulInt(count, addInt(tagSize(fd.Number()), valueSize))
+		return max(packedSize, unpackedSize), nil
 	}
 }
 
@@ -381,23 +377,18 @@ func (s *sizedMessageMaxState) singularFieldSize(fd protoreflect.FieldDescriptor
 		if !ok {
 			return 0, fmt.Errorf("%s: %w", fd.FullName(), errSizedFieldNeedsSizeOrSizedNest)
 		}
-		return lengthDelimitedFieldSize(tagSize(fd), bound), nil
+		return bytesFieldSize(fd.Number(), bound), nil
 	case protoreflect.MessageKind:
 		if bound, ok := singularLengthBound(fd, s.exts); ok {
-			return lengthDelimitedFieldSize(tagSize(fd), bound), nil
+			return bytesFieldSize(fd.Number(), bound), nil
 		}
-
 		nestedSize, err := s.messageSize(fd.Message())
 		if err != nil {
 			return 0, err
 		}
 		return bytesFieldSize(fd.Number(), nestedSize), nil
 	default:
-		valueSize, err := s.scalarValueSize(fd)
-		if err != nil {
-			return 0, err
-		}
-		return addInt(tagSize(fd.Number()), valueSize), nil
+		return addInt(tagSize(fd.Number()), s.scalarValueSize(fd)), nil
 	}
 }
 
