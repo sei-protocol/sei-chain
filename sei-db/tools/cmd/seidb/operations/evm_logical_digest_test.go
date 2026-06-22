@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/stretchr/testify/require"
 )
 
@@ -84,6 +85,19 @@ func TestInspectMemiavlRejectsUnknownNormalizationBeforeOpeningSnapshot(t *testi
 
 	err := runEvmLogicalDigest(cmd, nil)
 	require.ErrorContains(t, err, `unknown --memiavl-normalization "bogus"`)
+}
+
+func TestShouldIncludeFlatKVEVMLogicalDigestKey(t *testing.T) {
+	addr := bytesOfLen(keys.AddressLen, 0x42)
+	slot := bytesOfLen(32, 0x07)
+	storageKeyBytes := append(append([]byte{}, addr...), slot...)
+
+	require.True(t, shouldIncludeFlatKVEVMLogicalDigestKey(ktype.EVMPhysicalKey(keys.EVMKeyStorage, storageKeyBytes)))
+	require.True(t, shouldIncludeFlatKVEVMLogicalDigestKey(ktype.ModulePhysicalKey(keys.EVMStoreKey, []byte{0xFF, 0xAA})))
+	require.True(t, shouldIncludeFlatKVEVMLogicalDigestKey(migrationVersionPhysKey))
+
+	require.False(t, shouldIncludeFlatKVEVMLogicalDigestKey(ktype.ModulePhysicalKey("bank", []byte("balance"))))
+	require.False(t, shouldIncludeFlatKVEVMLogicalDigestKey([]byte("malformed-key-without-module-prefix")))
 }
 
 func coreEVMRawPairs() []*proto.KVPair {

@@ -367,6 +367,9 @@ func digestFlatKV(dbDir string, height int64, findTarget []byte) error {
 	for ; iter.Valid(); iter.Next() {
 		k := iter.Key()
 		seen++
+		if !shouldIncludeFlatKVEVMLogicalDigestKey(k) {
+			continue
+		}
 		if err := d.consume(k, iter.Value()); err != nil {
 			return err
 		}
@@ -380,6 +383,14 @@ func digestFlatKV(dbDir string, height int64, findTarget []byte) error {
 	}
 	d.print(ctx)
 	return nil
+}
+
+func shouldIncludeFlatKVEVMLogicalDigestKey(physKey []byte) bool {
+	if bytes.Equal(physKey, migrationVersionPhysKey) {
+		return true
+	}
+	moduleName, _, err := ktype.StripModulePrefix(physKey)
+	return err == nil && moduleName == keys.EVMStoreKey
 }
 
 type inspectAccumulator struct {
@@ -520,6 +531,9 @@ func inspectFlatKV(dbDir string, height int64, acc *inspectAccumulator) error {
 	var seen uint64
 	for ; iter.Valid(); iter.Next() {
 		seen++
+		if !shouldIncludeFlatKVEVMLogicalDigestKey(iter.Key()) {
+			continue
+		}
 		meta := ""
 		if acc.details && acc.list {
 			var derr error
