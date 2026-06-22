@@ -27,7 +27,6 @@
   "DeleteLogDirOnStartup": false,
   "DeleteDataDirOnShutdown": false,
   "DeleteLogDirOnShutdown": false,
-  "ReceiptTxIndexBackend": "pebble",
   "ExecutorQueueSize": 1024,
   "HotAccountProbability": 0.1,
   "HotErc20ContractProbability": 0.5,

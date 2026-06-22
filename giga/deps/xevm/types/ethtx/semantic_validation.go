@@ -48,6 +48,9 @@ func validateAccessList(accessList AccessList) error {
 }
 
 func validateAuthList(authList AuthList) error {
+	if len(authList) == 0 {
+		return fmt.Errorf("auth list cannot be empty")
+	}
 	for _, auth := range authList {
 		if auth.ChainID == nil {
 			return fmt.Errorf("auth list chain id cannot be nil")

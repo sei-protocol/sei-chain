@@ -61,7 +61,6 @@ func GetChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  BlockSyncChannel,
 		MessageType:         new(pb.Message),
-		PreDecode:           utils.Some(pb.SchemaForMessage.Scan),
 		Priority:            5,
 		SendQueueCapacity:   1000,
 		RecvBufferCapacity:  1024,
@@ -70,7 +69,7 @@ func GetChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 	}
 }
 
-type consensusReactor interface {
+type ConsensusReactor interface {
 	// For when we switch from block sync reactor to the consensus
 	// machine.
 	SwitchToConsensus(state sm.State, skipWAL bool)
@@ -104,7 +103,7 @@ type consensusHandoff struct {
 // always-on query responder only.
 type SyncerConfig struct {
 	BlockExec             *sm.BlockExecutor
-	ConsReactor           consensusReactor
+	ConsReactor           utils.Option[ConsensusReactor]
 	BlockSync             bool
 	Metrics               *consensus.Metrics
 	EventBus              *eventbus.EventBus
@@ -140,7 +139,7 @@ type syncController struct {
 	store       sm.BlockStore
 	router      *p2p.Router
 	channel     *p2p.Channel[*pb.Message]
-	consReactor consensusReactor
+	consReactor utils.Option[ConsensusReactor]
 	metrics     *consensus.Metrics
 	eventBus    *eventbus.EventBus
 
@@ -220,14 +219,9 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		return fmt.Errorf("state (%v) and store (%v) height mismatch", state.LastBlockHeight, r.store.Height())
 	}
 
-	r.SpawnCritical("processBlockSyncCh", func(ctx context.Context) error {
-		r.processBlockSyncCh(ctx)
-		return nil
-	})
+	r.SpawnCritical("processBlockSyncCh", func(ctx context.Context) error { return r.processBlockSyncCh(ctx) })
 	if syncer, ok := r.syncer.Get(); ok {
-		r.SpawnCritical("syncController.run", func(ctx context.Context) error {
-			return syncer.run(ctx)
-		})
+		r.SpawnCritical("syncController.run", func(ctx context.Context) error { return syncer.run(ctx) })
 		if syncer.startInBlockSync {
 			syncer.blocksyncReady.Store(utils.Some(blocksyncResult{
 				stateSynced: false,
@@ -329,16 +323,17 @@ func (r *Reactor) handleMessage(m p2p.RecvMsg[*pb.Message]) (err error) {
 }
 
 // processBlockSyncCh listens for messages on the shared blocksync channel.
-func (r *Reactor) processBlockSyncCh(ctx context.Context) {
+func (r *Reactor) processBlockSyncCh(ctx context.Context) error {
 	for ctx.Err() == nil {
 		m, err := r.channel.Recv(ctx)
 		if err != nil {
-			return
+			return err
 		}
 		if err := r.handleMessage(m); err != nil && ctx.Err() == nil {
 			r.router.Evict(m.From, fmt.Errorf("blocksync: %w", err))
 		}
 	}
+	return ctx.Err()
 }
 
 // run owns the active sync controller's internal concurrency. A single
@@ -347,65 +342,56 @@ func (r *Reactor) processBlockSyncCh(ctx context.Context) {
 // blocksync-only session tasks have exited.
 func (s *syncController) run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
-		sc.SpawnNamed("processPeerUpdates", func() error {
-			s.processPeerUpdates(ctx)
-			return nil
+		result, err := s.blocksyncReady.Wait(ctx, func(o utils.Option[blocksyncResult]) bool {
+			return o.IsPresent()
 		})
-		sc.SpawnNamed("blocksyncSession", func() error {
-			result, err := s.blocksyncReady.Wait(ctx, func(o utils.Option[blocksyncResult]) bool {
-				return o.IsPresent()
-			})
-			if err != nil {
-				return err
+		if err != nil {
+			return err
+		}
+		res := result.OrPanic("no blocksync result")
+		s.blockSync.Store(true)
+		if res.stateSynced {
+			if err := s.PublishStatus(types.EventDataBlockSyncStatus{
+				Complete: false,
+				Height:   res.state.LastBlockHeight,
+			}); err != nil {
+				logger.Info("failed to publish blocksync status", "height", res.state.LastBlockHeight, "err", err)
 			}
-			res := result.OrPanic("no blocksync result")
-			s.blockSync.Store(true)
-			if res.stateSynced {
-				if err := s.PublishStatus(types.EventDataBlockSyncStatus{
-					Complete: false,
-					Height:   res.state.LastBlockHeight,
-				}); err != nil {
-					logger.Info("failed to publish blocksync status", "height", res.state.LastBlockHeight, "err", err)
-				}
-			}
+		}
 
-			pool := NewBlockPool(startHeightForState(res.state), s.router)
-			s.pool.Store(pool)
-			sc.SpawnBgNamed("requestRoutine", func() error {
-				s.requestRoutine(ctx, pool)
-				return nil
-			})
+		pool := NewBlockPool(startHeightForState(res.state), s.router)
+		s.pool.Store(pool)
+		sc.SpawnNamed("requestRoutine", func() error { return s.requestRoutine(ctx, pool) })
+		sc.SpawnNamed("processPeerUpdates", func() error { return s.processPeerUpdates(ctx, pool) })
 
-			handoff, err := scope.Run1(ctx, func(ctx context.Context, session scope.Scope) (consensusHandoff, error) {
-				session.SpawnBgNamed("pool.run", func() error {
-					return utils.IgnoreCancel(pool.run(ctx))
-				})
-				return s.poolRoutine(ctx, pool, res.state, res.stateSynced)
+		handoff, err := scope.Run1(ctx, func(ctx context.Context, session scope.Scope) (consensusHandoff, error) {
+			session.SpawnBgNamed("pool.run", func() error {
+				return utils.IgnoreCancel(pool.run(ctx))
 			})
-			if err != nil {
-				return err
-			}
-
-			s.blockSync.Store(false)
-			if s.consReactor != nil {
-				logger.Info("switching to consensus reactor", "height", handoff.height, "blocks_synced", handoff.blocksSynced, "state_synced", handoff.stateSynced, "max_peer_height", handoff.maxPeerHeight)
-				s.consReactor.SwitchToConsensus(handoff.state, handoff.blocksSynced > 0 || handoff.stateSynced)
-				s.autoRestartIfBehind(ctx, pool)
-			}
-			return nil
+			return s.poolRoutine(ctx, pool, res.state, res.stateSynced)
 		})
+		if err != nil {
+			return err
+		}
+
+		s.blockSync.Store(false)
+		if r, ok := s.consReactor.Get(); ok {
+			logger.Info("switching to consensus reactor", "height", handoff.height, "blocks_synced", handoff.blocksSynced, "state_synced", handoff.stateSynced, "max_peer_height", handoff.maxPeerHeight)
+			r.SwitchToConsensus(handoff.state, handoff.blocksSynced > 0 || handoff.stateSynced)
+			s.autoRestartIfBehind(ctx, pool)
+		}
 		return nil
 	})
 }
 
 // processPeerUpdates listens for peer updates. Active blocksync owns peer-up
 // status announcements and peer-down cleanup for the shared pool.
-func (s *syncController) processPeerUpdates(ctx context.Context) {
+func (s *syncController) processPeerUpdates(ctx context.Context, pool *BlockPool) error {
 	recv := s.router.Subscribe()
 	for {
 		update, err := recv.Recv(ctx)
 		if err != nil {
-			return
+			return err
 		}
 
 		logger.Debug("received peer update", "peer", update.NodeID, "status", update.Status)
@@ -414,9 +400,7 @@ func (s *syncController) processPeerUpdates(ctx context.Context) {
 		case p2p.PeerStatusUp:
 			s.channel.Send(wrap(&pb.StatusRequest{}), update.NodeID)
 		case p2p.PeerStatusDown:
-			if pool := s.pool.Load(); pool != nil {
-				pool.RemovePeer(update.NodeID)
-			}
+			pool.RemovePeer(update.NodeID)
 		}
 	}
 }
@@ -460,13 +444,12 @@ func (s *syncController) switchToBlockSync(state sm.State) error {
 	return nil
 }
 
-func (s *syncController) requestRoutine(ctx context.Context, pool *BlockPool) {
+func (s *syncController) requestRoutine(ctx context.Context, pool *BlockPool) error {
 	statusUpdateTicker := time.NewTicker(statusUpdateInterval)
-
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		case request := <-pool.Requests():
 			s.channel.Send(wrap(&pb.BlockRequest{Height: request.Height}), request.PeerID)
 		case pErr := <-pool.Errors():
