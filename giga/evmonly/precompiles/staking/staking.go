@@ -420,7 +420,7 @@ func (p *Precompile) createValidator(ctx *precompiles.Context, method *abi.Metho
 		CommissionRate:          commissionRate,
 		CommissionMaxRate:       commissionMaxRate,
 		CommissionMaxChangeRate: commissionMaxChangeRate,
-		CommissionUpdateTime:    int64(ctx.Block.Time), //nolint:gosec // block times fit signed ABI output in normal operation.
+		CommissionUpdateTime:    saturatingInt64FromUint64(ctx.Block.Time),
 		MinSelfDelegation:       minSelfDelegation.String(),
 	}
 	if err := setValidator(ctx.Store, validator); err != nil {
@@ -468,7 +468,7 @@ func (p *Precompile) editValidator(ctx *precompiles.Context, method *abi.Method,
 			return nil, err
 		}
 		validator.CommissionRate = commissionRate
-		validator.CommissionUpdateTime = int64(ctx.Block.Time) //nolint:gosec // block times fit signed ABI output in normal operation.
+		validator.CommissionUpdateTime = saturatingInt64FromUint64(ctx.Block.Time)
 	}
 	if minSelfDelegation != nil && minSelfDelegation.Sign() > 0 {
 		validator.MinSelfDelegation = minSelfDelegation.String()

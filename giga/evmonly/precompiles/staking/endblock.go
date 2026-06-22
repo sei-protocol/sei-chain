@@ -124,7 +124,7 @@ func applyAndReturnValidatorSetUpdates(store precompiles.Store, block precompile
 		if validator.Status == bondStatusBonded {
 			validator.Status = bondStatusUnbonding
 			validator.UnbondingTime = util.SaturatingCompletionTime(block.Time, params.UnbondingTime)
-			validator.UnbondingHeight = int64(block.Number) //nolint:gosec // block heights fit signed ABI output in normal operation.
+			validator.UnbondingHeight = saturatingInt64FromUint64(block.Number)
 			if err := setValidator(store, validator); err != nil {
 				return nil, err
 			}
@@ -293,8 +293,9 @@ func completeUnbonding(ctx *precompiles.EndBlockContext, pair delegationPair) er
 		return err
 	}
 	remaining := record.Entries[:0]
+	blockTime := saturatingInt64FromUint64(ctx.Block.Time)
 	for _, entry := range record.Entries {
-		if entry.CompletionTime > int64(ctx.Block.Time) {
+		if entry.CompletionTime > blockTime {
 			remaining = append(remaining, entry)
 			continue
 		}
@@ -351,8 +352,9 @@ func completeRedelegation(store precompiles.Store, triplet redelegationTriplet, 
 		return err
 	}
 	remaining := record.Entries[:0]
+	completionTime := saturatingInt64FromUint64(blockTime)
 	for _, entry := range record.Entries {
-		if entry.CompletionTime > int64(blockTime) {
+		if entry.CompletionTime > completionTime {
 			remaining = append(remaining, entry)
 		}
 	}
