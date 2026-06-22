@@ -356,8 +356,8 @@ func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 }
 
 // isReceiptUntraceable returns true if the receipt represents a tx whose
-// trace would be empty or meaningless. Shared discriminator used by every
-// *ExcludeTraceFail site (tx, block, trace) so they filter the same set.
+// trace would be empty or meaningless. Shared discriminator used by the
+// legacy sei tx and block *ExcludeTraceFail endpoints so they filter the same set.
 //
 //   - TxType == ShellEVMTxType: chain-generated synthetic, no real EVM
 //     execution. app/receipt.go writes these for wasm txs to surface CW20
