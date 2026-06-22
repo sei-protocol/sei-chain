@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package wireguardplugin.invalid;
+
+import "wireguard/wireguard.proto";
+
+option go_package = "github.com/example/wireguardplugin/invalid";
+
+message SizedRepeatedWithoutMaxCount {
+  option (wireguard.sized) = true;
+
+  repeated int32 xs = 1;
+}

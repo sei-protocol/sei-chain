@@ -156,7 +156,7 @@ async function bankSendFromContainerAdmin(toSeiAddress: string, amountUsei: stri
     );
     const containerAdmin = stdout.trimEnd();
     await exec(
-        `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && printf "${DOCKER_KEY_PASSWORD}\\n" | seid tx bank send ${containerAdmin} ${toSeiAddress} ${amountUsei}usei --fees 24500usei -y'`,
+        `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && printf "${DOCKER_KEY_PASSWORD}\\n" | seid tx bank send ${containerAdmin} ${toSeiAddress} ${amountUsei}usei --fees 24500usei -b sync -y'`,
     );
 }
 

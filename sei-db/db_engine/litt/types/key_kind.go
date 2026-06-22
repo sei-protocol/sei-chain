@@ -23,3 +23,9 @@ const (
 	// that the group is fully written.
 	KeyKindFinalSecondary KeyKind = 3
 )
+
+// IsPrimary returns true if the key kind denotes a primary key (a standalone primary or a primary with
+// secondaries), and false if it denotes a secondary key.
+func (k KeyKind) IsPrimary() bool {
+	return k == KeyKindStandalone || k == KeyKindPrimary
+}

@@ -907,6 +907,73 @@ func (d *DiskTable) RunGC() error {
 	return nil
 }
 
+// Iterator returns a new iterator over the keys in the table.
+func (d *DiskTable) Iterator(reverse bool) (litt.Iterator, error) {
+	if ok, err := d.errorMonitor.IsOk(); !ok {
+		return nil, fmt.Errorf("cannot process Iterator() request, DB is in panicked state due to error: %w", err)
+	}
+
+	request := &controlLoopOpenIteratorRequest{
+		responseChan: make(chan []*segment.Segment, 1),
+	}
+	err := d.controlLoop.enqueue(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send open iterator request: %w", err)
+	}
+
+	segs, err := util.Await(d.errorMonitor, request.responseChan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to await iterator open: %w", err)
+	}
+
+	if reverse {
+		return newReverseIterator(d, segs), nil
+	}
+	return newForwardIterator(d, segs), nil
+}
+
+// GetOldestKey returns the oldest non-deleted primary key in the table.
+func (d *DiskTable) GetOldestKey() (key []byte, exists bool, err error) {
+	resp, err := d.boundaryKeys()
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get oldest key: %w", err)
+	}
+	return resp.oldestKey, resp.oldestExists, nil
+}
+
+// GetNewestKey returns the newest primary key in the table.
+func (d *DiskTable) GetNewestKey() (key []byte, exists bool, err error) {
+	resp, err := d.boundaryKeys()
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get newest key: %w", err)
+	}
+	return resp.newestKey, resp.newestExists, nil
+}
+
+// boundaryKeys sends a request to the control loop for the oldest and newest primary keys.
+func (d *DiskTable) boundaryKeys() (*boundaryKeysResponse, error) {
+	if ok, err := d.errorMonitor.IsOk(); !ok {
+		return nil, fmt.Errorf("cannot process request, DB is in panicked state due to error: %w", err)
+	}
+
+	request := &controlLoopBoundaryKeysRequest{
+		responseChan: make(chan *boundaryKeysResponse, 1),
+	}
+	err := d.controlLoop.enqueue(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send boundary keys request: %w", err)
+	}
+
+	resp, err := util.Await(d.errorMonitor, request.responseChan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to await boundary keys: %w", err)
+	}
+	if resp.err != nil {
+		return nil, resp.err
+	}
+	return resp, nil
+}
+
 // writeKeysToKeymap flushes all keys to the keymap. Once they are flushed, it also removes the keys from the
 // unflushedDataCache.
 func (d *DiskTable) writeKeysToKeymap(keys []*types.ScopedKey) error {
