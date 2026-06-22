@@ -65,6 +65,7 @@ func (err errMustBePositive) Error() string {
 
 var (
 	errSizeRulesRequireSizedFieldType         = errors.New("wireguard size rules require a string, bytes, or message field")
+	errMaxTotalSizeRequiresRepeatedField      = errors.New("wireguard.max_total_size requires a repeated field")
 	errSizedMapField                          = errors.New("wireguard.sized messages must not contain map fields")
 	errSizedFieldMissingMaxCount              = errors.New("wireguard.sized repeated field missing wireguard.max_count")
 	errSizedRepeatedFieldNeedsSizeOrSizedNest = errors.New("wireguard.sized repeated field needs a size bound or sized nested message")
@@ -373,13 +374,10 @@ func (s *sizedMessageMaxState) repeatedFieldSize(fd protoreflect.FieldDescriptor
 func (s *sizedMessageMaxState) singularFieldSize(fd protoreflect.FieldDescriptor) (int, error) {
 	switch fd.Kind() {
 	case protoreflect.StringKind, protoreflect.BytesKind:
-		bound, ok := singularLengthBound(fd, s.exts)
-		if !ok {
-			return 0, fmt.Errorf("%s: %w", fd.FullName(), errSizedFieldNeedsSizeOrSizedNest)
-		}
+		bound, _ := fieldUintOption(fd, s.exts.maxSize)
 		return bytesFieldSize(fd.Number(), bound), nil
 	case protoreflect.MessageKind:
-		if bound, ok := singularLengthBound(fd, s.exts); ok {
+		if bound, ok := fieldUintOption(fd, s.exts.maxSize); ok {
 			return bytesFieldSize(fd.Number(), bound), nil
 		}
 		nestedSize, err := s.messageSize(fd.Message())
@@ -404,7 +402,7 @@ func (s *sizedMessageMaxState) scalarValueSize(fd protoreflect.FieldDescriptor) 
 		}
 		return size
 	case protoreflect.Int32Kind, protoreflect.Int64Kind:
-		return 10, nil
+		return 10
 	case protoreflect.Sint32Kind:
 		return protowire.SizeVarint(protowire.EncodeZigZag(-1 << 31))
 	case protoreflect.Sint64Kind:
@@ -431,17 +429,7 @@ func fieldUintOption(fd protoreflect.FieldDescriptor, ext protoreflect.Extension
 }
 
 func singularLengthBound(fd protoreflect.FieldDescriptor, exts wireguardExts) (int, bool) {
-	s := math.MaxInt
-	bounded := false
-	if m, ok := fieldUintOption(fd, exts.maxSize); ok {
-		s = min(s, m)
-		bounded = true
-	}
-	if m, ok := fieldUintOption(fd, exts.maxTotalSize); ok {
-		s = min(s, m)
-		bounded = true
-	}
-	return s, bounded
+	return fieldUintOption(fd, exts.maxSize)
 }
 
 func repeatedLengthBounds(fd protoreflect.FieldDescriptor, exts wireguardExts) (rawTotal int, perItemCap int, err error) {
@@ -546,6 +534,9 @@ func validateRuleValues(byName map[protoreflect.FullName]protoreflect.MessageDes
 			}
 			if (opts.Has(exts.maxSize.TypeDescriptor()) || opts.Has(exts.maxTotalSize.TypeDescriptor())) && !supportsSizeRules(f) {
 				return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errSizeRulesRequireSizedFieldType)
+			}
+			if opts.Has(exts.maxTotalSize.TypeDescriptor()) && !f.IsList() {
+				return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errMaxTotalSizeRequiresRepeatedField)
 			}
 		}
 	}
