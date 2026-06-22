@@ -4,25 +4,75 @@ package privval
 import (
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	crypto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 	types "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	reflect "reflect"
 )
 
 func init() {
+	// Register the wireguard.Schema generated for tendermint.privval.RemoteSignerError.
+	runtime.MustRegister[*RemoteSignerError](runtime.Schema{
+		1: {MaxCount: 1},
+		2: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.privval.PubKeyRequest.
+	runtime.MustRegister[*PubKeyRequest](runtime.Schema{
+		1: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.privval.PubKeyResponse.
+	runtime.MustRegister[*PubKeyResponse](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*crypto.PublicKey]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*RemoteSignerError]())},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.privval.SignVoteRequest.
+	runtime.MustRegister[*SignVoteRequest](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*types.Vote]())},
+		2: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.privval.SignedVoteResponse.
+	runtime.MustRegister[*SignedVoteResponse](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*types.Vote]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*RemoteSignerError]())},
+	})
+
 	// Register the wireguard.Schema generated for tendermint.privval.SignProposalRequest.
 	runtime.MustRegister[*SignProposalRequest](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*types.Proposal]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*types.Proposal]())},
+		2: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.privval.SignedProposalResponse.
 	runtime.MustRegister[*SignedProposalResponse](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*types.Proposal]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*types.Proposal]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*RemoteSignerError]())},
 	})
+
+	// Register the wireguard.Schema generated for tendermint.privval.PingRequest.
+	runtime.MustRegister[*PingRequest](runtime.Schema{})
+
+	// Register the wireguard.Schema generated for tendermint.privval.PingResponse.
+	runtime.MustRegister[*PingResponse](runtime.Schema{})
 
 	// Register the wireguard.Schema generated for tendermint.privval.Message.
 	runtime.MustRegister[*Message](runtime.Schema{
-		5: {Nested: utils.Some(reflect.TypeFor[*SignProposalRequest]())},
-		6: {Nested: utils.Some(reflect.TypeFor[*SignedProposalResponse]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PubKeyRequest]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PubKeyResponse]())},
+		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignVoteRequest]())},
+		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedVoteResponse]())},
+		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignProposalRequest]())},
+		6: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposalResponse]())},
+		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PingRequest]())},
+		8: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PingResponse]())},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.privval.AuthSigMessage.
+	runtime.MustRegister[*AuthSigMessage](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*crypto.PublicKey]())},
+		2: {MaxCount: 1},
 	})
 
 }

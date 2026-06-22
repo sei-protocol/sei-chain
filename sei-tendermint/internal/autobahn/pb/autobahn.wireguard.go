@@ -24,11 +24,11 @@ func (*BlockHeader) MaxSize() int {
 }
 
 func (*Payload) MaxSize() int {
-	return 2054171
+	return 2056046
 }
 
 func (*Block) MaxSize() int {
-	return 2054292
+	return 2056167
 }
 
 func (*LaneQC) MaxSize() int {
@@ -48,7 +48,7 @@ func (*Proposal) MaxSize() int {
 }
 
 func (*FullProposal) MaxSize() int {
-	return 208577587
+	return 208766962
 }
 
 func (*PrepareQC) MaxSize() int {
@@ -64,11 +64,11 @@ func (*TimeoutVote) MaxSize() int {
 }
 
 func (*TimeoutQC) MaxSize() int {
-	return 205460713
+	return 205648213
 }
 
 func (*FullTimeoutVote) MaxSize() int {
-	return 2074321
+	return 2076196
 }
 
 func (*AppQC) MaxSize() int {
@@ -80,15 +80,15 @@ func (*AppProposal) MaxSize() int {
 }
 
 func (*Msg) MaxSize() int {
-	return 2054296
+	return 2056171
 }
 
 func (*SignedMsg) MaxSize() int {
-	return 2054404
+	return 2056279
 }
 
 func (*ConsensusReq) MaxSize() int {
-	return 208577592
+	return 208766967
 }
 
 func init() {

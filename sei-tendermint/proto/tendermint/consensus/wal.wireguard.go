@@ -4,23 +4,44 @@ package consensus
 import (
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	types "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 )
 
 func init() {
 	// Register the wireguard.Schema generated for tendermint.consensus.MsgInfo.
 	runtime.MustRegister[*MsgInfo](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*Message]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Message]())},
+		2: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.consensus.TimeoutInfo.
+	runtime.MustRegister[*TimeoutInfo](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*durationpb.Duration]())},
+		2: {MaxCount: 1},
+		3: {MaxCount: 1},
+		4: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.consensus.EndHeight.
+	runtime.MustRegister[*EndHeight](runtime.Schema{
+		1: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.consensus.WALMessage.
 	runtime.MustRegister[*WALMessage](runtime.Schema{
-		2: {Nested: utils.Some(reflect.TypeFor[*MsgInfo]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*types.EventDataRoundState]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*MsgInfo]())},
+		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutInfo]())},
+		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*EndHeight]())},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.consensus.TimedWALMessage.
 	runtime.MustRegister[*TimedWALMessage](runtime.Schema{
-		2: {Nested: utils.Some(reflect.TypeFor[*WALMessage]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*timestamppb.Timestamp]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*WALMessage]())},
 	})
 
 }

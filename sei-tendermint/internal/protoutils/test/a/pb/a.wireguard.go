@@ -12,11 +12,11 @@ func (*Sized) MaxSize() int {
 }
 
 func (*SizedOk) MaxSize() int {
-	return 602
+	return 614
 }
 
 func (*OuterSized) MaxSize() int {
-	return 4840
+	return 4936
 }
 
 func (*PackedFalseSized) MaxSize() int {

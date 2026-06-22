@@ -10,8 +10,10 @@ import (
 func init() {
 	// Register the wireguard.Schema generated for tendermint.types.Block.
 	runtime.MustRegister[*Block](runtime.Schema{
-		3: {Nested: utils.Some(reflect.TypeFor[*EvidenceList]())},
-		4: {Nested: utils.Some(reflect.TypeFor[*Commit]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Header]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Data]())},
+		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*EvidenceList]())},
+		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Commit]())},
 	})
 
 }

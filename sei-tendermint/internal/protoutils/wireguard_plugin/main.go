@@ -29,9 +29,7 @@
 // This is useful for validating potentially malicious inputs BEFORE decoding the message - decoded message
 // might be significantly larger than the encoded message, which in turn might cause an OOM.
 //
-// NOTE: proto encoding containing multiple instances of a singular field, is a correct encoding (the last instance wins).
-// Scan does NOT impose implicit max_count = 1 for singular fields (even for sized messages), as these are NOT harmful:
-// during Unmarshal all but the last instances are simply ignored (it is just garbage data).
+// Scan imposes an implicit max_count = 1 for singular fields.
 //
 // TODO: dedup with sei-tendermint/internal/hashable/plugin in a later PR.
 package main
@@ -41,7 +39,6 @@ import (
 	"fmt"
 	"iter"
 	"math"
-	"math/bits"
 	"path/filepath"
 	"strings"
 
@@ -68,6 +65,7 @@ var (
 	errSizeRulesRequireSizedFieldType         = errors.New("wireguard size rules require a string, bytes, or message field")
 	errMaxTotalSizeRequiresRepeatedField      = errors.New("wireguard.max_total_size requires a repeated field")
 	errSizedMapField                          = errors.New("wireguard.sized messages must not contain map fields")
+	errSizedGroupField                        = errors.New("wireguard.sized messages must not contain group fields")
 	errSizedFieldMissingMaxCount              = errors.New("wireguard.sized repeated field missing wireguard.max_count")
 	errSizedRepeatedFieldNeedsSizeOrSizedNest = errors.New("wireguard.sized repeated field needs a size bound or sized nested message")
 	errSizedFieldNeedsSizeOrSizedNest         = errors.New("wireguard.sized field needs a size bound or sized nested message")
@@ -293,31 +291,25 @@ func (s *sizedMessageMaxState) messageSize(d protoreflect.MessageDescriptor) (in
 }
 
 func (s *sizedMessageMaxState) fieldSize(fd protoreflect.FieldDescriptor) (int, error) {
-	if fd.IsMap() {
-		return 0, fmt.Errorf("%s: %w", fd.FullName(), errSizedMapField)
-	}
 	switch fd.Kind() {
 	case protoreflect.StringKind, protoreflect.BytesKind:
-		bound,_ := bytesFieldBound(fd, s.exts)
+		bound, _ := bytesFieldBound(fd, s.exts)
 		return bound, nil
 	case protoreflect.MessageKind:
-		if bound,ok := bytesFieldBound(fd, s.exts); ok {
+		if bound, ok := bytesFieldBound(fd, s.exts); ok {
 			return bound, nil
 		}
 		nestedSize, err := s.messageSize(fd.Message())
 		if err != nil {
 			return 0, err
 		}
-		count, _ := fieldUintOption(fd, s.exts.maxCount)
-		return mulInt(count, bytesFieldSize(fd.Number(), nestedSize)), nil
-	case protoreflect.GroupKind:
-		return 0, fmt.Errorf("groups not supported")
+		return mulInt(maxCount(fd, s.exts), bytesFieldSize(fd.Number(), nestedSize)), nil
 	default:
 		valueSize := s.scalarValueSize(fd)
-		count, _ := fieldUintOption(fd, s.exts.maxCount)
+		count := maxCount(fd, s.exts)
 		size := mulInt(count, addInt(tagSize(fd.Number()), valueSize))
 		if fd.IsList() {
-			size = max(size,bytesFieldSize(fd.Number(), mulInt(count, valueSize)))
+			size = max(size, bytesFieldSize(fd.Number(), mulInt(count, valueSize)))
 		}
 		return size, nil
 	}
@@ -361,43 +353,46 @@ func fieldUintOption(fd protoreflect.FieldDescriptor, ext protoreflect.Extension
 	return int(opts.Get(ext.TypeDescriptor()).Uint()), true
 }
 
-func singularLengthBound(fd protoreflect.FieldDescriptor, exts wireguardExts) (int, bool) {
-	return fieldUintOption(fd, exts.maxSize)
-}
-
 func maxCount(fd protoreflect.FieldDescriptor, exts wireguardExts) int {
 	if fd.IsList() {
-		count, _ := fieldUintOption(fd, exts.maxCount)
+		count, ok := fieldUintOption(fd, exts.maxCount)
+		if !ok {
+			panic("missing max_count on a repeated field")
+		}
 		return count
 	}
 	return 1
 }
 
 func bytesFieldSize(f protoreflect.FieldNumber, rawSize int) int {
-	return addInt(tagSize(f), sizeBytes(rawSize))
+	return addInt(tagSize(f), protowire.SizeVarint(uint64(rawSize)), rawSize)
 }
 
 func bytesFieldBound(fd protoreflect.FieldDescriptor, exts wireguardExts) (int, bool) {
-	count := maxCount(fd,exts)	
+	count := maxCount(fd, exts)
 	item := math.MaxInt
 	total := math.MaxInt
 	bounded := false
 	if m, ok := fieldUintOption(fd, exts.maxTotalSize); ok {
-		total = min(total,m)
-		item = min(item,m)
+		total = min(total, m)
+		item = min(item, m)
 		bounded = true
 	}
 	if m, ok := fieldUintOption(fd, exts.maxSize); ok {
-		total = min(total,mulInt(count,m))
-		item = min(item,m)
+		total = min(total, mulInt(count, m))
+		item = min(item, m)
 		bounded = true
 	}
-	if !bounded { return 0, false }
-	if count == 0 { return 0, true }
+	if !bounded {
+		return 0, false
+	}
+	if count == 0 {
+		return 0, true
+	}
 	// Overapproximation by at most <count> bytes.
 	// Total size is maximized by maximizing the number of instances that <total> is spread across.
-	item = min(item,total/count+1)
-	return mulInt(count,bytesFieldSize(fd.Number(), item)), true
+	item = min(item, total/count+1)
+	return mulInt(count, bytesFieldSize(fd.Number(), item)), true
 }
 
 func addInt(vs ...int) int {
@@ -415,19 +410,14 @@ func mulInt(a int, b int) int {
 	if a == 0 || b == 0 {
 		return 0
 	}
-	hi, lo := bits.Mul64(uint64(a), uint64(b))
-	if hi != 0 || lo > uint64(math.MaxInt) {
+	if a > math.MaxInt/b {
 		return math.MaxInt
 	}
-	return int(lo)
+	return a * b
 }
 
 func tagSize(f protoreflect.FieldNumber) int {
 	return protowire.SizeTag(protowire.Number(f))
-}
-
-func sizeBytes(n int) int {
-	return addInt(protowire.SizeVarint(uint64(n)), n)
 }
 
 // validateRuleValues rejects explicit zero-valued wireguard annotations,
@@ -469,6 +459,9 @@ func validateSizedMessages(byName map[protoreflect.FullName]protoreflect.Message
 			f := fields.Get(i)
 			if f.IsMap() {
 				return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errSizedMapField)
+			}
+			if f.Kind() == protoreflect.GroupKind {
+				return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errSizedGroupField)
 			}
 			opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
 			hasMaxCount := opts.Has(exts.maxCount.TypeDescriptor())
@@ -662,11 +655,7 @@ func emitSchemaRegistration(g *protogen.GeneratedFile, m *protogen.Message, ctx 
 
 		var pieces []string
 		if implicitSingularMaxCount || hasMaxCount {
-			maxCount := uint64(1)
-			if hasMaxCount && !implicitSingularMaxCount {
-				maxCount = opts.Get(ctx.exts.maxCount.TypeDescriptor()).Uint()
-			}
-			pieces = append(pieces, fmt.Sprintf("MaxCount: %d", maxCount))
+			pieces = append(pieces, fmt.Sprintf("MaxCount: %d", maxCount(f, ctx.exts)))
 			if packedTypeExpr := packedTypeExpr(f, idents); packedTypeExpr != "" {
 				pieces = append(pieces, fmt.Sprintf("PackedType: %s(%s)", idents.utilsSome, packedTypeExpr))
 			}
@@ -707,23 +696,8 @@ func typeExprForTarget(g *protogen.GeneratedFile, ctx emitCtx, d protoreflect.Me
 }
 
 func packedTypeExpr(f protoreflect.FieldDescriptor, idents emitIdents) string {
-	switch t, ok := packedWireType(f); {
-	case !ok:
-		return ""
-	case t == protowire.VarintType:
-		return idents.varintType
-	case t == protowire.Fixed32Type:
-		return idents.fixed32Type
-	case t == protowire.Fixed64Type:
-		return idents.fixed64Type
-	default:
-		return ""
-	}
-}
-
-func packedWireType(f protoreflect.FieldDescriptor) (protowire.Type, bool) {
 	if !f.IsList() {
-		return 0, false
+		return ""
 	}
 	switch f.Kind() {
 	case protoreflect.BoolKind,
@@ -734,17 +708,17 @@ func packedWireType(f protoreflect.FieldDescriptor) (protowire.Type, bool) {
 		protoreflect.Uint64Kind,
 		protoreflect.Sint32Kind,
 		protoreflect.Sint64Kind:
-		return protowire.VarintType, true
+		return idents.varintType
 	case protoreflect.Fixed32Kind,
 		protoreflect.Sfixed32Kind,
 		protoreflect.FloatKind:
-		return protowire.Fixed32Type, true
+		return idents.fixed32Type
 	case protoreflect.Fixed64Kind,
 		protoreflect.Sfixed64Kind,
 		protoreflect.DoubleKind:
-		return protowire.Fixed64Type, true
+		return idents.fixed64Type
 	default:
-		return 0, false
+		return ""
 	}
 }
 
