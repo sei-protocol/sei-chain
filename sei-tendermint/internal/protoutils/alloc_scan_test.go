@@ -43,13 +43,17 @@ func TestUnmarshalWithLimit_ManyEmptyEntriesRejected(t *testing.T) {
 	require.Error(t, err, "10k empty entries should exceed the 1MB allocation estimate")
 }
 
-// TestUnmarshalWithLimit_ZeroLimitRejectsEverything verifies that limit=0
-// rejects any non-empty message.
-func TestUnmarshalWithLimit_ZeroLimitRejectsEverything(t *testing.T) {
+// TestUnmarshalWithLimit_ZeroLimitPanics verifies that limitBytes=0 panics.
+// A zero (or negative) limit is a programming error, not a runtime condition.
+func TestUnmarshalWithLimit_ZeroLimitPanics(t *testing.T) {
 	msg := &pb.OuterNotSized{B: []*pb.SizedOk{{}}}
 	bz := protoutils.Marshal(msg)
-	_, err := protoutils.UnmarshalWithLimit[*pb.OuterNotSized](bz, 0)
-	require.Error(t, err)
+	require.Panics(t, func() {
+		_, _ = protoutils.UnmarshalWithLimit[*pb.OuterNotSized](bz, 0)
+	})
+	require.Panics(t, func() {
+		_, _ = protoutils.UnmarshalWithLimit[*pb.OuterNotSized](bz, -1)
+	})
 }
 
 // TestUnmarshalWithLimit_ResultIsCorrect verifies that a message passing the

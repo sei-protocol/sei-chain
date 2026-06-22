@@ -49,6 +49,9 @@ func Unmarshal[T Message](bytes []byte) (T, error) {
 // is conservative (may over-count) so legitimate messages must stay well within
 // the limit.
 func UnmarshalWithLimit[T Message](bytes []byte, limitBytes int) (T, error) {
+	if limitBytes <= 0 {
+		panic(fmt.Sprintf("protoutils: limitBytes must be positive, got %d", limitBytes))
+	}
 	if err := Scan[T](bytes); err != nil {
 		return utils.Zero[T](), err
 	}
@@ -73,6 +76,9 @@ func UnmarshalWithLimit[T Message](bytes []byte, limitBytes int) (T, error) {
 // not implement google.golang.org/protobuf/proto.Message directly), allowing
 // the same allocEstimate walk to protect Tendermint P2P messages.
 func UnmarshalGogoWithLimit(bz []byte, msg gogoproto.Message, limitBytes int) error {
+	if limitBytes <= 0 {
+		panic(fmt.Sprintf("protoutils: limitBytes must be positive, got %d", limitBytes))
+	}
 	if msg == nil {
 		return fmt.Errorf("protoutils: nil message")
 	}
