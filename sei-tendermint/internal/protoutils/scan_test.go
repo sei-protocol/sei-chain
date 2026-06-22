@@ -213,3 +213,37 @@ func TestScan_PackedInputAcceptedForPackedFalseField(t *testing.T) {
 	packedOverLimit = protowire.AppendBytes(packedOverLimit, append(protowire.AppendVarint(nil, 1), protowire.AppendVarint(nil, 0)...))
 	require.Error(t, protoutils.Scan[*pb.PackedFalseSized](packedOverLimit))
 }
+
+func TestScan_RejectsDuplicateSingularFieldsInSizedMessages(t *testing.T) {
+	t.Parallel()
+
+	var sizedDup []byte
+	sizedDup = protowire.AppendTag(sizedDup, 1, protowire.VarintType)
+	sizedDup = protowire.AppendVarint(sizedDup, 1)
+	sizedDup = protowire.AppendTag(sizedDup, 1, protowire.VarintType)
+	sizedDup = protowire.AppendVarint(sizedDup, 2)
+	require.Error(t, protoutils.Scan[*pb.Sized](sizedDup))
+
+	var outerSizedDup []byte
+	inner := protowire.AppendTag(nil, 1, protowire.VarintType)
+	inner = protowire.AppendVarint(inner, 1)
+	outerSizedDup = protowire.AppendTag(outerSizedDup, 1, protowire.BytesType)
+	outerSizedDup = protowire.AppendBytes(outerSizedDup, inner)
+	outerSizedDup = protowire.AppendTag(outerSizedDup, 1, protowire.BytesType)
+	outerSizedDup = protowire.AppendBytes(outerSizedDup, inner)
+	require.Error(t, protoutils.Scan[*pb.OuterSized](outerSizedDup))
+}
+
+func TestScan_RejectsDuplicateSingularFieldsInUnsizedMessages(t *testing.T) {
+	t.Parallel()
+
+	payload := protowire.AppendTag(nil, 1, protowire.BytesType)
+	payload = protowire.AppendBytes(payload, []byte{1})
+
+	var outerNotSizedDup []byte
+	outerNotSizedDup = protowire.AppendTag(outerNotSizedDup, 3, protowire.BytesType)
+	outerNotSizedDup = protowire.AppendBytes(outerNotSizedDup, payload)
+	outerNotSizedDup = protowire.AppendTag(outerNotSizedDup, 3, protowire.BytesType)
+	outerNotSizedDup = protowire.AppendBytes(outerNotSizedDup, payload)
+	require.Error(t, protoutils.Scan[*pb.OuterNotSized](outerNotSizedDup))
+}
