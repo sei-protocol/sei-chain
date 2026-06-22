@@ -278,7 +278,16 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			}
 			begin = lastToHeight
 			filter.FromBlock = big.NewInt(lastToHeight + 1)
-			time.Sleep(SleepInterval)
+			// Wait before the next poll, but stop promptly if the client
+			// disconnects (rpcSub.Err()) or the request context is cancelled /
+			// its deadline expires (ctx.Done()).
+			select {
+			case <-ctx.Done():
+				return
+			case <-rpcSub.Err():
+				return
+			case <-time.After(SleepInterval):
+			}
 		}
 	}()
 
