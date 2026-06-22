@@ -8,6 +8,7 @@
 #   SEI_TIMEOUT     seconds to wait for Sei RPC/blocks      (default 300)
 #   GETH_TIMEOUT    seconds to wait for geth to listen      (default 120)
 #   SKIP_NPM_CI     "true" to reuse an existing node_modules (default false)
+#   GETH_VERSION    pinned go-ethereum tag installed on CI  (default v1.17.0)
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,6 +20,7 @@ GETH_RPC_URL="${RPC_ETH_GETH:-http://127.0.0.1:${GETH_PORT}}"
 SEI_TIMEOUT="${SEI_TIMEOUT:-300}"
 GETH_TIMEOUT="${GETH_TIMEOUT:-120}"
 SKIP_NPM_CI="${SKIP_NPM_CI:-false}"
+GETH_VERSION="${GETH_VERSION:-v1.17.0}"
 
 REPORT_DIR="$RPC_DIR/reports/new_rpc"
 GETH_LOG="$RPC_DIR/reports/geth.log"
@@ -87,20 +89,28 @@ wait_for_block_production() {
     return 1
 }
 
-# Make a geth binary available. Already-installed wins (local dev / macOS via brew);
-# on Linux CI without one, install go-ethereum from the official Ethereum PPA.
+# Make a geth binary available, pinned to GETH_VERSION for reproducible parity output.
 ensure_geth() {
+    local pin="${GETH_VERSION#v}"
     if command -v geth >/dev/null 2>&1; then
-        log "Using geth: $(command -v geth) ($(geth version 2>/dev/null | sed -n 's/^Version: //p' | head -1))"
+        local have
+        have="$(geth version 2>/dev/null | sed -n 's/^Version: //p' | head -1)"
+        log "Using already-installed geth: $(command -v geth) (version ${have:-unknown}, pinned target ${pin})"
+        case "$have" in
+            "$pin"*) : ;;
+            *) warn "installed geth ${have:-unknown} != pinned ${pin}; comparing against the local binary (install geth@${GETH_VERSION} or set GETH_VERSION to match CI)" ;;
+        esac
         return 0
     fi
-    [ "$(uname -s)" = "Linux" ] || die "geth not found on PATH; install go-ethereum to run the reference node."
-    log "geth not found; installing go-ethereum from the Ethereum PPA"
-    command -v add-apt-repository >/dev/null 2>&1 || sudo apt-get install -y software-properties-common
-    sudo add-apt-repository -y ppa:ethereum/ethereum
-    sudo apt-get update -y
-    sudo apt-get install -y ethereum
-    command -v geth >/dev/null 2>&1 || die "geth installation failed"
+    command -v go >/dev/null 2>&1 || die "geth not found on PATH and no go toolchain to install the pinned ${GETH_VERSION}."
+    log "geth not found; installing pinned go-ethereum ${GETH_VERSION} via go install"
+    GOFLAGS=-mod=mod go install "github.com/ethereum/go-ethereum/cmd/geth@${GETH_VERSION}" \
+        || die "go install geth@${GETH_VERSION} failed"
+    local gobin
+    gobin="$(go env GOBIN)"; [ -n "$gobin" ] || gobin="$(go env GOPATH)/bin"
+    case ":$PATH:" in *":${gobin}:"*) : ;; *) export PATH="${gobin}:$PATH" ;; esac
+    command -v geth >/dev/null 2>&1 || die "geth still not on PATH after go install (looked in ${gobin})"
+    log "Installed geth: $(command -v geth) ($(geth version 2>/dev/null | sed -n 's/^Version: //p' | head -1))"
 }
 
 command -v curl >/dev/null 2>&1 || die "curl is required."
