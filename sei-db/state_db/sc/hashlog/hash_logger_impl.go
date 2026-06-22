@@ -41,20 +41,21 @@ type sealedFileInfo struct {
 
 // A standard hash logger implementation.
 //
-// Work flows through three goroutines so that reporting never blocks the caller's commit path:
+// Work flows through three goroutines off the caller's commit path:
 //
 //	ReportDiff ──▶ hashChan ──▶ hasher ───┐
 //	                                      ├──▶ controlChan ──▶ controlLoop ──▶ writerChan ──▶ writer
 //	ReportHash ───────────────────────────┘
 //
 // The hasher computes diff hashes off the hot path. The control loop assembles a complete HashLog per block,
-// emits blocks in order, and detects rollbacks. The writer owns all on-disk state.
+// emits complete blocks in order, and detects rollbacks. The writer owns all on-disk state.
 //
-// Load is shed only where a stage can fall behind a slow downstream resource: the hasher channel (a flood of
-// diffs to hash) and the writer channel (a slow disk). ReportDiff drops a diff (recording a nil hash) when the
-// hasher channel is full; the control loop drops a block when the writer channel is full. ReportHash, by
-// contrast, does a blocking send: the control loop drains its channel quickly (its own shedding happens
-// downstream), so this cannot stall the caller's commit path. Report* must not be called after Close().
+// Delivery is reliable: every send is a blocking send (bounded only by the configured channel buffers, which
+// absorb transient stalls). Nothing is silently dropped, so the recorded hashes faithfully reflect what was
+// reported. If a downstream stage (a slow disk, say) falls behind for an extended period, backpressure
+// propagates up the linear pipeline and the caller's commit path blocks until it catches up; since this tool
+// is off by default, it can be disabled if that ever becomes a problem. Report* must not be called after
+// Close().
 type hashLoggerImpl struct {
 	// Immutable configuration captured at construction.
 	directory    string
@@ -63,7 +64,6 @@ type hashLoggerImpl struct {
 	hashTypeSet  map[string]struct{}
 	diffHashType string // DiffHashingDisabled if diff hashing is disabled
 
-	maxBlockDelay  uint
 	targetFileSize uint64
 	blocksToRetain uint64
 	maxDiskSize    uint64
@@ -128,7 +128,6 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 		hashTypes:      hashTypes,
 		hashTypeSet:    hashTypeSet,
 		diffHashType:   config.DiffHashType,
-		maxBlockDelay:  config.MaxBlockDelay,
 		targetFileSize: uint64(config.TargetFileSize),
 		blocksToRetain: uint64(config.BlocksToRetain),
 		maxDiskSize:    uint64(config.MaxDiskSize),
@@ -243,12 +242,11 @@ func (h *hashLoggerImpl) ReportDiff(blockNumber uint64, cs []*proto.NamedChangeS
 		h.sendControl(controlMessage{blockNumber: blockNumber, hashType: h.diffHashType, hash: nil})
 		return
 	}
-	// Send the diff to the hasher thread. If the hasher's channel is full, drop the diff and notify the
-	// control loop with a nil hash so the block can still complete (load shedding).
+	// Blocking send to the hasher thread; give up only if the logger is shutting down. The diff is never
+	// dropped, so the recorded diff hash always reflects the change set that was reported.
 	select {
 	case h.hashChan <- diffMessage{blockNumber: blockNumber, cs: cs}:
-	default:
-		h.sendControl(controlMessage{blockNumber: blockNumber, hashType: h.diffHashType, hash: nil})
+	case <-h.ctx.Done():
 	}
 }
 
@@ -256,8 +254,8 @@ func (h *hashLoggerImpl) ReportHash(blockNumber uint64, hashType string, hash []
 	if _, ok := h.hashTypeSet[hashType]; !ok {
 		return fmt.Errorf("unknown hash type %q", hashType)
 	}
-	// No load shedding here: the control loop drains controlChan quickly (it sheds further downstream, at the
-	// hasher and writer channels), so this blocking send cannot stall the caller's commit path for long.
+	// Blocking send to the control loop, which normally drains controlChan quickly; it can backpressure only
+	// if the downstream writer is itself stalled on a slow disk.
 	h.sendControl(controlMessage{blockNumber: blockNumber, hashType: hashType, hash: hash})
 	return nil
 }
@@ -361,14 +359,6 @@ func (h *hashLoggerImpl) handleControlMessage(
 	log.Hashes[msg.hashType] = msg.hash
 
 	h.drainComplete(pending, lastEmitted, lastEmittedValid)
-
-	// Don't buffer forever: once more than MaxBlockDelay blocks are waiting, force-emit the oldest even if
-	// it's incomplete, then resume emitting any newly-contiguous complete blocks.
-	for uint(len(pending)) > h.maxBlockDelay {
-		oldest := minPendingKey(pending)
-		h.emit(pending, oldest, lastEmitted, lastEmittedValid)
-		h.drainComplete(pending, lastEmitted, lastEmittedValid)
-	}
 }
 
 // drainComplete emits the contiguous prefix of complete blocks (oldest first), stopping at the first
@@ -407,23 +397,14 @@ func (h *hashLoggerImpl) emit(
 ) {
 	log := pending[blockNumber]
 	delete(pending, blockNumber)
-	h.trySendToWriter(log)
+	h.blockingSendToWriter(log)
 	*lastEmitted = blockNumber
 	*lastEmittedValid = true
 }
 
-// trySendToWriter delivers a log to the writer, shedding it (dropping) if the writer channel is full. This is
-// what keeps the control loop from blocking on a slow disk, which in turn keeps controlChan drained.
-func (h *hashLoggerImpl) trySendToWriter(log *HashLog) {
-	select {
-	case h.writerChan <- log:
-	default:
-		logger.Debug("writer channel full; dropping block", "block", log.BlockNumber)
-	}
-}
-
-// blockingSendToWriter delivers a log to the writer, giving up only if the logger is shutting down. Used during
-// the graceful drain, where the caller has stopped and the writer is still draining, so it cannot deadlock.
+// blockingSendToWriter delivers a log to the writer, giving up only if the logger is shutting down. A slow
+// writer (slow disk) therefore backpressures the control loop, which backpressures the upstream channels and
+// ultimately the caller — nothing is dropped.
 func (h *hashLoggerImpl) blockingSendToWriter(log *HashLog) {
 	select {
 	case h.writerChan <- log:
@@ -456,8 +437,8 @@ func (h *hashLoggerImpl) writer() {
 
 func (h *hashLoggerImpl) handleWrite(log *HashLog) error {
 	// A block number that doesn't advance indicates a rollback (re-execution of an earlier height). Seal the
-	// current file and start a new one so every file's block numbers stay monotonic. The writer detecting this
-	// itself (rather than relying on a control signal) means rollback handling survives load shedding.
+	// current file and start a new one so every file's block numbers stay monotonic. The writer detects this
+	// itself from the block numbers it receives, rather than relying on a separate control signal.
 	if h.mutableFile.hasBlocks && log.BlockNumber <= h.mutableFile.lastBlockIndex {
 		if err := h.rotate(); err != nil {
 			return err

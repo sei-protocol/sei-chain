@@ -45,11 +45,6 @@ type HashLoggerConfig struct {
 	// The size of the channel for sending notifications to the control loop.
 	ControlBufferSize uint
 
-	// If we don't receive all information within this many blocks, flush to disk regardless.
-	// The hash logger buffers data until it has all info for a block, but we shouldn't buffer
-	// it forever.
-	MaxBlockDelay uint
-
 	// The number of HashLog entries to retain on disk.
 	BlocksToRetain uint
 
@@ -72,7 +67,6 @@ func DefaultHashLoggerConfig(path string, version string) *HashLoggerConfig {
 		HashBufferSize:    16,
 		WriteBufferSize:   16,
 		ControlBufferSize: 16,
-		MaxBlockDelay:     16,
 		BlocksToRetain:    1_000_000,
 		TargetFileSize:    unit.MB,
 		MaxDiskSize:       unit.GB,

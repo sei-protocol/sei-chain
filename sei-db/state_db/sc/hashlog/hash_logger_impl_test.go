@@ -21,7 +21,6 @@ func testConfig(dir string) *HashLoggerConfig {
 		HashBufferSize:    8192,
 		WriteBufferSize:   8192,
 		ControlBufferSize: 8192,
-		MaxBlockDelay:     16,
 		BlocksToRetain:    1_000_000,
 		TargetFileSize:    unit.MB,
 		MaxDiskSize:       unit.GB,
@@ -144,28 +143,33 @@ func TestImplReportDiffEmptyChangeSetIsHashed(t *testing.T) {
 	require.Equal(t, hashDiff(empty), logs[0].Hashes["diff"])
 }
 
-func TestImplLoadSheddingStillCompletesBlocks(t *testing.T) {
+func TestImplDiffFloodIsHashedReliably(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = []string{"diff"}
 	config.DiffHashType = "diff"
-	config.HashBufferSize = 1 // tiny, to provoke diff drops under a flood
+	config.HashBufferSize = 1 // tiny buffer: a flood now backpressures rather than dropping
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
 
 	const blocks = 200
+	changeSet := []*proto.NamedChangeSet{cs("bank", kv("k", "v"))}
 	for block := uint64(1); block <= blocks; block++ {
-		l.ReportDiff(block, []*proto.NamedChangeSet{cs("bank", kv("k", "v"))})
+		l.ReportDiff(block, changeSet)
 	}
 	require.NoError(t, l.Close())
 
-	// Every block that was reported must appear, even if its diff hash was shed (nil).
-	seen := make(map[uint64]bool)
+	// Every block must appear exactly once, and its diff hash must be the real hash — nothing is shed even
+	// under a flood through a one-deep hasher channel.
+	want := hashDiff(changeSet)
+	byBlock := make(map[uint64][]byte)
 	for _, log := range readAllLogs(t, dir) {
-		seen[log.BlockNumber] = true
+		_, dup := byBlock[log.BlockNumber]
+		require.False(t, dup, "block %d recorded more than once", log.BlockNumber)
+		byBlock[log.BlockNumber] = log.Hashes["diff"]
 	}
 	for block := uint64(1); block <= blocks; block++ {
-		require.True(t, seen[block], "block %d missing", block)
+		require.Equal(t, want, byBlock[block], "block %d missing or has a shed (nil) diff hash", block)
 	}
 }
 

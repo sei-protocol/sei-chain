@@ -14,8 +14,7 @@ import "github.com/sei-protocol/sei-chain/sei-db/proto"
 type HashLogger interface {
 
 	// Report the diff for a block's state. The logger hashes the diff itself, on a background thread, and
-	// records the result under the configured diff hash type. Under heavy load the diff may be dropped (its
-	// recorded hash will be nil), but the block is still considered to have a reported diff.
+	// records the result under the configured diff hash type.
 	//
 	// Passing a nil cs is supported: it records a nil diff hash for the block without hashing anything. This is
 	// the way to skip diff hashing for a particular block (e.g. a node that does not want diff hashing can pass
