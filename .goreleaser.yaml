@@ -31,7 +31,7 @@ builds:
       - -X github.com/sei-protocol/sei-chain/sei-cosmos/version.Commit={{ .FullCommit }}
       - -X "github.com/sei-protocol/sei-chain/sei-cosmos/version.BuildTags=netgo,muslc"
       - -linkmode=external
-      - -extldflags "-Wl,-z,muldefs -static"
+      - -extldflags "-Wl,--allow-multiple-definition -static"
     goos:
       - linux
     goarch:

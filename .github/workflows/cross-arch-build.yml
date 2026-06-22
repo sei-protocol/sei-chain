@@ -84,7 +84,14 @@ jobs:
 
       - name: Build statically (musl via zig cc)
         run: |
-          CC=zcc LINK_STATICALLY=true BUILD_TAGS=muslc LEDGER_ENABLED=false make build
+          # Pass the static-link flags via LDFLAGS rather than LINK_STATICALLY: the
+          # Makefile's LINK_STATICALLY branch hard-codes `-z muldefs`, which zig cc
+          # (lld) rejects. --allow-multiple-definition is the lld/GNU-ld synonym and
+          # has the same effect (the libwasmvm base/v152/v155 archives redefine
+          # overlapping symbols). Keeps the shared Makefile untouched.
+          CC=zcc BUILD_TAGS=muslc LEDGER_ENABLED=false \
+            LDFLAGS='-linkmode=external -extldflags "-Wl,--allow-multiple-definition -static"' \
+            make build
 
       - name: Assert binary is statically linked
         run: |
