@@ -462,8 +462,17 @@ jobs:
       - name: Load prebuilt seid and pull Docker images
         run: |
           tar -xzf integration-build.tar.gz
-          docker pull "${GHCR_LOCALNODE}:${{ github.run_id }}"
-          docker pull "${GHCR_RPCNODE}:${{ github.run_id }}"
+          pull_with_retry() {
+            local ref="$1"
+            for attempt in 1 2 3 4 5; do
+              if docker pull "$ref"; then return 0; fi
+              echo "docker pull $ref failed (attempt $attempt), retrying in $((attempt*5))s..."
+              sleep $((attempt*5))
+            done
+            echo "docker pull $ref failed after 5 attempts"; return 1
+          }
+          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
           docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
       - name: Start 4 node docker cluster
