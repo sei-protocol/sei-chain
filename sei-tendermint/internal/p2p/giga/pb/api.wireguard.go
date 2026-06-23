@@ -11,38 +11,77 @@ import (
 func init() {
 	// Register the wireguard.Schema generated for p2p.giga.LaneReq.
 	runtime.MustRegister[*LaneReq](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneResp.
 	runtime.MustRegister[*LaneResp](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
 	})
+
+	// Register the wireguard.Schema generated for p2p.giga.LaneQCsResp.
+	runtime.MustRegister[*LaneQCsResp](runtime.Schema{})
+
+	// Register the wireguard.Schema generated for p2p.giga.ConsensusResp.
+	runtime.MustRegister[*ConsensusResp](runtime.Schema{})
+
+	// Register the wireguard.Schema generated for p2p.giga.PingReq.
+	runtime.MustRegister[*PingReq](runtime.Schema{})
+
+	// Register the wireguard.Schema generated for p2p.giga.PingResp.
+	runtime.MustRegister[*PingResp](runtime.Schema{})
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneVote.
 	runtime.MustRegister[*LaneVote](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneProposal.
 	runtime.MustRegister[*LaneProposal](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.AppVote.
 	runtime.MustRegister[*AppVote](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
 	})
+
+	// Register the wireguard.Schema generated for p2p.giga.StreamLaneProposalsReq.
+	runtime.MustRegister[*StreamLaneProposalsReq](runtime.Schema{
+		1: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for p2p.giga.StreamAppQCsReq.
+	runtime.MustRegister[*StreamAppQCsReq](runtime.Schema{})
 
 	// Register the wireguard.Schema generated for p2p.giga.StreamAppQCsResp.
 	runtime.MustRegister[*StreamAppQCsResp](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*pb.AppQC]())},
-		2: {Nested: utils.Some(reflect.TypeFor[*pb.CommitQC]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.AppQC]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.CommitQC]())},
+	})
+
+	// Register the wireguard.Schema generated for p2p.giga.StreamCommitQCsReq.
+	runtime.MustRegister[*StreamCommitQCsReq](runtime.Schema{})
+
+	// Register the wireguard.Schema generated for p2p.giga.StreamLaneVotesReq.
+	runtime.MustRegister[*StreamLaneVotesReq](runtime.Schema{})
+
+	// Register the wireguard.Schema generated for p2p.giga.StreamAppVotesReq.
+	runtime.MustRegister[*StreamAppVotesReq](runtime.Schema{})
+
+	// Register the wireguard.Schema generated for p2p.giga.GetBlockReq.
+	runtime.MustRegister[*GetBlockReq](runtime.Schema{
+		1: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.GetBlockResp.
 	runtime.MustRegister[*GetBlockResp](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*pb.Block]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.Block]())},
+	})
+
+	// Register the wireguard.Schema generated for p2p.giga.StreamFullCommitQCsReq.
+	runtime.MustRegister[*StreamFullCommitQCsReq](runtime.Schema{
+		1: {MaxCount: 1},
 	})
 
 }

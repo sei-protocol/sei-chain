@@ -34,6 +34,11 @@ type Rule struct {
 	// Nested, if Some, is applied to the contents of this length-delimited
 	// field. Use for descending through wrapper layers on the way to a cap.
 	Nested utils.Option[reflect.Type]
+	// IsMap marks a repeated length-delimited field whose payload is a protobuf
+	// synthetic map-entry message. Scan derives the entry shape directly:
+	// key is field 1 with implicit MaxCount 1, value is field 2 with implicit
+	// MaxCount 1 and optional Nested recursion.
+	IsMap bool
 	// PackedType, if Some, marks a repeated scalar field that may be encoded in
 	// packed form inside a length-delimited payload. The contained wire type is
 	// used to count packed elements for MaxCount enforcement.
@@ -104,7 +109,11 @@ func (s Schema) scan(bz []byte) error {
 						return fmt.Errorf("wireguard: field %d exceeds max total size %d bytes", num, rule.MaxTotalSize)
 					}
 				}
-				if nestedType, ok := rule.Nested.Get(); ok {
+				if rule.IsMap {
+					if err := scanMapEntry(val, rule); err != nil {
+						return err
+					}
+				} else if nestedType, ok := rule.Nested.Get(); ok {
 					if err := registry[nestedType].scan(val); err != nil {
 						return err
 					}
@@ -153,4 +162,12 @@ func packedCount(bz []byte, rule Rule) (int, error) {
 		count++
 	}
 	return count, nil
+}
+
+func scanMapEntry(bz []byte, rule Rule) error {
+	entry := Schema{
+		1: {MaxCount: 1},
+		2: {MaxCount: 1, Nested: rule.Nested},
+	}
+	return entry.scan(bz)
 }
