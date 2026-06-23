@@ -370,13 +370,16 @@ func commitHashToVault(
 		return fmt.Errorf("hashvault CommitToHash aborted at height %d: %w", height, err)
 	}
 	if errors.Is(err, hashvault.ErrHashMismatch) {
-		logger.Error("FATAL: HashVault detected a block-hash mismatch — the node has equivocated. "+
-			"Halting. DO NOT RESTART WITHOUT HUMAN INTERVENTION.",
-			"height", height, "hash", fmt.Sprintf("%X", hash), "err", err)
+		// The HashVault has already logged the conflicting hashes, its data directory, and the
+		// bypass/slashing guidance immediately before returning this error; don't duplicate it.
+		logger.Error("FATAL: HashVault detected a block-hash equivocation; halting. See the preceding "+
+			"HashVault error for the conflicting hashes and recovery steps. "+
+			"DO NOT RESTART WITHOUT HUMAN INTERVENTION.",
+			"height", height)
 	} else {
 		logger.Error("FATAL: HashVault could not commit the block hash (operational error, not a "+
 			"confirmed equivocation). Halting.",
-			"height", height, "hash", fmt.Sprintf("%X", hash), "err", err)
+			"height", height, "hashHex", fmt.Sprintf("%x", hash), "err", err)
 	}
 	panic(fmt.Sprintf("hashvault CommitToHash failed at height %d: %v", height, err))
 }
