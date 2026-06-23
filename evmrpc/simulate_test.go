@@ -256,7 +256,7 @@ func TestEstimateGasAfterCallsMaxCalls(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "too many calls")
 
-	// At the cap: the size guard is passed (any error must not be the cap error).
+	// At the cap: the size guard is passed.
 	atCap := make([]export.TransactionArgs, maxCalls)
 	for i := range atCap {
 		atCap[i] = call
