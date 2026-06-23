@@ -58,6 +58,7 @@ type nodeImpl struct {
 
 	// network
 	router           *p2p.Router
+	giga             utils.Option[p2p.GigaRouter]
 	ServiceRestartCh utils.Option[chan []string]
 	nodeInfo         types.NodeInfo
 	nodeKey          types.NodeKey // our node privkey
@@ -215,6 +216,7 @@ func makeNode(
 		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
 	node.router = router
+	node.giga = router.Giga()
 	node.rpcEnv.Router = router
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
@@ -524,10 +526,10 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	if m, ok := n.mempool.Get(); ok {
 		n.SpawnCritical("mempool", m.Run)
 	}
-	// Run the GigaRouter alongside the transport. Constructed in createRouter
-	// and reached through n.router.Giga(); its lifecycle is owned here, not
-	// by the Router.
-	if giga, ok := n.router.Giga().Get(); ok {
+	// Run the GigaRouter alongside the transport. n.giga is the canonical
+	// reference; the Router holds a copy only for its own internal use
+	// (dispatching inbound giga connections). Lifecycle is owned here.
+	if giga, ok := n.giga.Get(); ok {
 		n.SpawnCritical("giga", giga.Run)
 	}
 

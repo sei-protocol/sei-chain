@@ -86,6 +86,14 @@ func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
 	return r.app.LastBlockHeight()
 }
 
+// MaxGasEstimatedPerBlock reflects the network-wide block gas budget. Both
+// roles ultimately resolve to genDoc.ConsensusParams.Block.MaxGas — the
+// validator's producer.Config.MaxGasEstimatedPerBlock is also sourced from
+// it at setup time, so read directly from genDoc here and skip the cache.
+func (r *gigaRouterCommon) MaxGasEstimatedPerBlock() uint64 {
+	return r.cfg.GenDoc.ConsensusParams.Block.MaxGasUint64()
+}
+
 // BlockByNumber returns the finalized global block at height n translated
 // into the CometBFT coretypes.ResultBlock shape. This lets consumers
 // (notably evmrpc, which wraps receipts/logs with block context) keep

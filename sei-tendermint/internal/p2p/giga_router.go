@@ -36,7 +36,7 @@ type GigaRouterCommonConfig struct {
 	// validator's consensus persister in a sibling subdir). None ⇒ in-memory.
 	PersistentStateDir utils.Option[string]
 	// App is the ABCI proxy executeBlock drives. NewGigaValidatorRouter
-	// also copies this into cfg.Producer.App so the producer's internal
+	// also passes it to producer.NewState so the producer's internal
 	// mempool drives the same proxy.
 	App *proxy.Proxy
 	// MaxInboundFullnodePeers caps inbound block-sync from non-committee
@@ -49,8 +49,7 @@ type GigaValidatorConfig struct {
 	GigaRouterCommonConfig
 	ValidatorKey atypes.SecretKey
 	ViewTimeout  func(atypes.View) time.Duration
-	// Producer.App is filled by NewGigaValidatorRouter from common.App.
-	Producer *producer.Config
+	Producer     *producer.Config
 }
 
 // GigaRouter is the read-path / Run / EvmProxy surface. Implemented by

@@ -51,7 +51,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		var apps []*testApp
-		var routers []*Router
+		var gigas []*gigaValidatorRouter
 		var allTxs [][]byte
 		for i, cfg := range cfgs {
 			nodeInfo := makeInfo(cfg.nodeKey)
@@ -102,7 +102,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			s.SpawnBgNamed(fmt.Sprintf("router[%v]", i), func() error { return utils.IgnoreCancel(router.Run(ctx)) })
 			s.SpawnBgNamed(fmt.Sprintf("giga[%v]", i), func() error { return utils.IgnoreCancel(giga.Run(ctx)) })
 			apps = append(apps, app)
-			routers = append(routers, router)
+			gigas = append(gigas, giga)
 			var txs [][]byte
 			for range maxTxsPerBlock * blocksPerLane {
 				tx := utils.GenBytes(rng, 100)
@@ -110,7 +110,6 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				allTxs = append(allTxs, tx)
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
-				giga := router.Giga().OrPanic("non-giga router")
 				v := giga.Mempool().OrPanic("validator giga must have a mempool")
 				for _, tx := range txs {
 					if _, err := v.InsertTx(ctx, tx); err != nil {
@@ -132,11 +131,10 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			t.Logf("app[%v]", i)
 			require.NoError(t, utils.TestDiff(want, app.Snapshot()), "state mismatch app[%v]", i)
 		}
-		// Covers Router.Giga() + GigaRouter.LastCommittedBlockNumber() — after
-		// blocks have been finalized every node should report a non-zero
-		// consensus-committed height through the new accessors used by /status.
-		for i, r := range routers {
-			giga := r.Giga().OrPanic("non-giga router")
+		// Covers GigaRouter.LastCommittedBlockNumber() — after blocks have
+		// been finalized every node should report a non-zero
+		// consensus-committed height through the accessor used by /status.
+		for i, giga := range gigas {
 			committed := giga.LastCommittedBlockNumber()
 			require.Positive(t, committed, "router[%v].LastCommittedBlockNumber()", i)
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
@@ -170,15 +168,13 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		// data layer holds (GlobalBlock.Payload.Txs) must equal the txs
 		// surfaced through BlockByNumber. Iterates the full retain window
 		// rather than a fixed tail so the assertion holds regardless of
-		// where producers placed the test txs.
-		giga0, _ := routers[0].Giga().Get()
+		// where producers placed the test txs. Reaches into giga0.data
+		// directly — internal same-package access.
+		giga0 := gigas[0]
 		latest := giga0.LastCommittedBlockNumber()
-		// Reach into the concrete validator impl to compare against
-		// data.State directly; this is an internal same-package test.
-		giga0Val := giga0.(*gigaValidatorRouter)
 		for h := int64(1); h <= latest; h++ {
 			gbn := atypes.GlobalBlockNumber(h) //nolint:gosec // h is positive
-			gb, err := giga0Val.data.GlobalBlock(ctx, gbn)
+			gb, err := giga0.data.GlobalBlock(ctx, gbn)
 			if err != nil {
 				continue // pruned out of the retain window
 			}

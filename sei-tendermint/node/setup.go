@@ -221,13 +221,8 @@ func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfi
 
 // buildValidatorGigaConfig assembles a GigaValidatorConfig. Errors if
 // self isn't in the committee or the node key doesn't match.
-//
-// maxInboundFullnodePeers is the operator's TOML setting passed through
-// from Config.AutobahnMaxInboundFullnodePeers (see
-// resolveMaxInboundFullnodePeers for nil/zero/positive semantics).
 func buildValidatorGigaConfig(
 	autobahnConfigFile string,
-	maxInboundFullnodePeers *int,
 	nodeKey types.NodeKey,
 	validatorKey atypes.SecretKey,
 	app *proxy.Proxy,
@@ -257,13 +252,12 @@ func buildValidatorGigaConfig(
 			PersistentStateDir:      fc.PersistentStateDir,
 			App:                     app,
 			GenDoc:                  genDoc,
-			MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(maxInboundFullnodePeers),
+			MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
 		},
 		ValidatorKey: validatorKey,
 		ViewTimeout: func(atypes.View) time.Duration {
 			return time.Duration(fc.ViewTimeout)
 		},
-		// App is left nil; NewGigaValidatorRouter mirrors common.App.
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
 			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),
@@ -313,7 +307,7 @@ func buildGigaRouter(
 		if cfg.PrivValidator.ListenAddr != "" {
 			return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 		}
-		valCfg, err := buildValidatorGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnMaxInboundFullnodePeers, nodeKey, valKey, app, genDoc)
+		valCfg, err := buildValidatorGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, app, genDoc)
 		if err != nil {
 			return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
 		}
@@ -321,7 +315,7 @@ func buildGigaRouter(
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		return p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey))
 	}
-	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnMaxInboundFullnodePeers, app, genDoc)
+	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, app, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
@@ -339,14 +333,14 @@ func rootifyPersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) {
 	}
 }
 
-// resolveMaxInboundFullnodePeers: nil ⇒ default, *0 ⇒ 0 (reject all),
-// *n ⇒ n. The default lives in the config package so giga_router doesn't
-// carry an operator-facing knob.
-func resolveMaxInboundFullnodePeers(p *int) int {
-	if p == nil {
-		return config.DefaultAutobahnMaxInboundFullnodePeers
+// resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject all,
+// Some(n) ⇒ n. The default lives in the config package so giga_router
+// doesn't carry an operator-facing knob.
+func resolveMaxInboundFullnodePeers(o utils.Option[uint64]) int {
+	if v, ok := o.Get(); ok {
+		return int(v) //nolint:gosec // bounded by maxInboundFullnodePeers in giga_router_common
 	}
-	return *p
+	return config.DefaultMaxInboundFullnodePeers
 }
 
 // genesisMaxGas returns consensus_params.block.max_gas as uint64. Errors
@@ -364,7 +358,6 @@ func genesisMaxGas(genDoc *types.GenesisDoc) (uint64, error) {
 // than producing them and forward every EVM tx to the shard owner.
 func buildFullnodeGigaConfig(
 	autobahnConfigFile string,
-	maxInboundFullnodePeers *int,
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaRouterCommonConfig, error) {
@@ -372,8 +365,8 @@ func buildFullnodeGigaConfig(
 	if err != nil {
 		return nil, err
 	}
-	// Fullnode's MaxGasEstimatedPerBlock reads through to genDoc; validate
-	// the source so a malformed genesis can't silently expose 0 to clients.
+	// MaxGasEstimatedPerBlock reads through to genDoc; validate the source
+	// so a malformed genesis can't silently expose 0 to clients.
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
@@ -383,7 +376,7 @@ func buildFullnodeGigaConfig(
 		PersistentStateDir:      fc.PersistentStateDir,
 		App:                     app,
 		GenDoc:                  genDoc,
-		MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(maxInboundFullnodePeers),
+		MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
 	}, nil
 }
 

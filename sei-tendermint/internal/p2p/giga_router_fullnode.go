@@ -37,10 +37,6 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gig
 	}, nil
 }
 
-func (r *gigaFullnodeRouter) MaxGasEstimatedPerBlock() uint64 {
-	return r.cfg.GenDoc.ConsensusParams.Block.MaxGasUint64()
-}
-
 func (r *gigaFullnodeRouter) Mempool() utils.Option[*producer.State] {
 	return utils.None[*producer.State]()
 }

@@ -18,9 +18,8 @@ import (
 type gigaValidatorRouter struct {
 	*gigaRouterCommon
 
-	consensus      *consensus.State
-	producer       *producer.State
-	producerConfig *producer.Config
+	consensus *consensus.State
+	producer  *producer.State
 	// validatorKey is the cached public form of cfg.ValidatorKey, used by
 	// EvmProxy to short-circuit self-shard sends to the local mempool.
 	validatorKey atypes.PublicKey
@@ -31,14 +30,6 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 	if err != nil {
 		return nil, err
 	}
-	// One App per node — common owns it; mirror into producer.Config so
-	// the producer's internal mempool drives the same ABCI proxy.
-	//
-	// TODO(autobahn): drop App from producer.Config and pass it to
-	// producer.NewState as a constructor arg — App is a runtime dependency,
-	// not configuration, and common is the canonical home now that
-	// fullnodes also need it.
-	cfg.Producer.App = cfg.App
 	consensusState, err := consensus.NewState(&consensus.Config{
 		Key:                cfg.ValidatorKey,
 		ViewTimeout:        cfg.ViewTimeout,
@@ -47,7 +38,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
-	producerState := producer.NewState(cfg.Producer, consensusState)
+	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
 	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
@@ -60,15 +51,10 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 			app:                cfg.App,
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
-		consensus:      consensusState,
-		producer:       producerState,
-		producerConfig: cfg.Producer,
-		validatorKey:   cfg.ValidatorKey.Public(),
+		consensus:    consensusState,
+		producer:     producerState,
+		validatorKey: cfg.ValidatorKey.Public(),
 	}, nil
-}
-
-func (r *gigaValidatorRouter) MaxGasEstimatedPerBlock() uint64 {
-	return r.producerConfig.MaxGasEstimatedPerBlock
 }
 
 func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {

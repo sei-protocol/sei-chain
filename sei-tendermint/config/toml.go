@@ -157,13 +157,6 @@ node-key-file = "{{ js .BaseConfig.NodeKey }}"
 # would otherwise nest it under the immediately preceding section.
 autobahn-config-file = "{{ .AutobahnConfigFile }}"
 
-# Concurrent inbound block-sync connections from non-committee peers.
-# Applied on both validators and fullnodes — relay fullnodes serving
-# downstream block-sync are subject to the same cap. Absent/commented-out
-# means use the built-in default (10). Set to 0 to reject all inbound
-# block-sync from non-committee peers. Positive values override the default.
-# autobahn-max-inbound-fullnode-peers = 10
-
 #######################################################################
 ###                 Advanced Configuration Options                  ###
 #######################################################################

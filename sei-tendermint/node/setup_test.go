@@ -88,7 +88,7 @@ func TestBuildGigaConfig_EmptyPathErrors(t *testing.T) {
 	nodeKey := makeTestNodeKey([]byte("test-node-key"))
 	valKey := makeTestValidatorKey([]byte("val-seed"))
 	txMempool, genDoc := makeTestGigaDeps()
-	_, err := buildValidatorGigaConfig("", nil, nodeKey, valKey, txMempool, genDoc)
+	_, err := buildValidatorGigaConfig("", nodeKey, valKey, txMempool, genDoc)
 	assert.Error(t, err, "empty path should error")
 }
 
@@ -114,7 +114,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	valKey := makeTestValidatorKey([]byte("val1-seed"))
 	txMempool, genDoc := makeTestGigaDeps()
 
-	result, err := buildValidatorGigaConfig(cfgFile, nil, nodeKey, valKey, txMempool, genDoc)
+	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -151,7 +151,7 @@ func TestBuildGigaConfig_NoneMaxTxsPerSecond(t *testing.T) {
 	valKey := makeTestValidatorKey([]byte("val-seed"))
 	txMempool, genDoc := makeTestGigaDeps()
 
-	result, err := buildValidatorGigaConfig(cfgFile, nil, nodeKey, valKey, txMempool, genDoc)
+	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)
 	require.NotNil(t, result.Producer)
 	assert.False(t, result.Producer.MaxTxsPerSecond.IsPresent())
@@ -165,7 +165,7 @@ func TestBuildGigaConfig_NonePersistentStateDir(t *testing.T) {
 	valKey := makeTestValidatorKey([]byte("val-seed"))
 	txMempool, genDoc := makeTestGigaDeps()
 
-	result, err := buildValidatorGigaConfig(cfgFile, nil, nodeKey, valKey, txMempool, genDoc)
+	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)
 	assert.False(t, result.PersistentStateDir.IsPresent())
 }
@@ -176,21 +176,21 @@ func TestBuildGigaConfig_InvalidConfigFile(t *testing.T) {
 	txMempool, genDoc := makeTestGigaDeps()
 
 	t.Run("missing file", func(t *testing.T) {
-		_, err := buildValidatorGigaConfig("/nonexistent/autobahn.json", nil, nodeKey, valKey, txMempool, genDoc)
+		_, err := buildValidatorGigaConfig("/nonexistent/autobahn.json", nodeKey, valKey, txMempool, genDoc)
 		assert.Error(t, err)
 	})
 
 	t.Run("invalid json", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "bad.json")
 		require.NoError(t, os.WriteFile(path, []byte("not json"), 0644))
-		_, err := buildValidatorGigaConfig(path, nil, nodeKey, valKey, txMempool, genDoc)
+		_, err := buildValidatorGigaConfig(path, nodeKey, valKey, txMempool, genDoc)
 		assert.Error(t, err)
 	})
 
 	t.Run("empty validators", func(t *testing.T) {
 		fc := defaultFileConfig([]config.AutobahnValidator{})
 		cfgFile := writeAutobahnConfig(t, fc)
-		_, err := buildValidatorGigaConfig(cfgFile, nil, nodeKey, valKey, txMempool, genDoc)
+		_, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "validators must not be empty")
 	})
@@ -207,21 +207,21 @@ func TestBuildGigaConfig_GenesisMaxGas(t *testing.T) {
 	t.Run("nil ConsensusParams", func(t *testing.T) {
 		txMempool, genDoc := makeTestGigaDeps()
 		genDoc.ConsensusParams = nil
-		_, err := buildValidatorGigaConfig(cfgFile, nil, nodeKey, valKey, txMempool, genDoc)
+		_, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 		assert.ErrorIs(t, err, ErrGenesisMaxGasInvalid)
 	})
 
 	t.Run("zero MaxGas", func(t *testing.T) {
 		txMempool, genDoc := makeTestGigaDeps()
 		genDoc.ConsensusParams.Block.MaxGas = 0
-		_, err := buildValidatorGigaConfig(cfgFile, nil, nodeKey, valKey, txMempool, genDoc)
+		_, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 		assert.ErrorIs(t, err, ErrGenesisMaxGasInvalid)
 	})
 
 	t.Run("negative MaxGas", func(t *testing.T) {
 		txMempool, genDoc := makeTestGigaDeps()
 		genDoc.ConsensusParams.Block.MaxGas = -1
-		_, err := buildValidatorGigaConfig(cfgFile, nil, nodeKey, valKey, txMempool, genDoc)
+		_, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 		assert.ErrorIs(t, err, ErrGenesisMaxGasInvalid)
 	})
 }
@@ -237,7 +237,7 @@ func TestBuildGigaConfig_DuplicateValidatorKey(t *testing.T) {
 	valKey := makeTestValidatorKey([]byte("val-seed"))
 	txMempool, genDoc := makeTestGigaDeps()
 
-	_, err := buildValidatorGigaConfig(path, nil, nodeKey, valKey, txMempool, genDoc)
+	_, err := buildValidatorGigaConfig(path, nodeKey, valKey, txMempool, genDoc)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate validator key")
 }
@@ -253,7 +253,7 @@ func TestBuildGigaConfig_DuplicateNodeKey(t *testing.T) {
 	valKey := makeTestValidatorKey([]byte("val1"))
 	txMempool, genDoc := makeTestGigaDeps()
 
-	_, err := buildValidatorGigaConfig(path, nil, nodeKey, valKey, txMempool, genDoc)
+	_, err := buildValidatorGigaConfig(path, nodeKey, valKey, txMempool, genDoc)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate node key")
 }
@@ -265,7 +265,7 @@ func TestBuildGigaConfig_SelfNotInValidators(t *testing.T) {
 	valKey := makeTestValidatorKey([]byte("my-val"))
 	txMempool, genDoc := makeTestGigaDeps()
 
-	_, err := buildValidatorGigaConfig(cfgFile, nil, nodeKey, valKey, txMempool, genDoc)
+	_, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "validator key not found")
 }
@@ -278,7 +278,7 @@ func TestBuildGigaConfig_NodeKeyMismatch(t *testing.T) {
 	valKey := makeTestValidatorKey([]byte("my-val"))
 	txMempool, genDoc := makeTestGigaDeps()
 
-	_, err := buildValidatorGigaConfig(cfgFile, nil, nodeKey, valKey, txMempool, genDoc)
+	_, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "node key mismatch")
 }
