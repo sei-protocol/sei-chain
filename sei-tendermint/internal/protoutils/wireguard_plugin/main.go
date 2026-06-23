@@ -73,7 +73,7 @@ var (
 )
 
 func main() {
-	protogen.Options{ParamFunc: parseParam}.Run(run)
+	protogen.Options{}.Run(run)
 }
 
 const wireguardRuntime = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
@@ -84,45 +84,6 @@ type wireguardExts struct {
 	maxCount     protoreflect.ExtensionType
 	maxSize      protoreflect.ExtensionType
 	maxTotalSize protoreflect.ExtensionType
-}
-
-type config struct {
-	module string
-}
-
-func parseParam(name, value string) error {
-	switch name {
-	case "module", "paths":
-		return nil
-	default:
-		return fmt.Errorf("unknown parameter %q", name)
-	}
-}
-
-func parseConfig(parameter string) (config, error) {
-	cfg := config{}
-	if parameter == "" {
-		return cfg, nil
-	}
-
-	for rawPart := range strings.SplitSeq(parameter, ",") {
-		if rawPart == "" {
-			continue
-		}
-		key, value, hasValue := strings.Cut(rawPart, "=")
-		if !hasValue {
-			value = ""
-		}
-		switch key {
-		case "module":
-			cfg.module = value
-		case "paths":
-			// Accepted for protoc-gen-go compatibility; only used by protogen itself.
-		default:
-			return config{}, fmt.Errorf("unknown parameter %q", key)
-		}
-	}
-	return cfg, nil
 }
 
 func findWireguardExts(files *protoregistry.Files) (wireguardExts, error) {
@@ -157,9 +118,6 @@ func extName(ext protoreflect.ExtensionType) string {
 
 func run(p *protogen.Plugin) error {
 	p.SupportedFeatures = uint64(pluginpb.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL)
-	if _, err := parseConfig(p.Request.GetParameter()); err != nil {
-		return err
-	}
 
 	// Rebuild the file set so dynamic options resolve against the full graph,
 	// including imports we don't generate code for.
