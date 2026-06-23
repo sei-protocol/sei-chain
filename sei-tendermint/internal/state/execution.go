@@ -17,8 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	"github.com/sei-protocol/seilog"
 	otrace "go.opentelemetry.io/otel/trace"
 )
@@ -62,11 +60,6 @@ type BlockExecutor struct {
 	// below, which is a runtime atomic.Bool flipped on for the Giga executor.
 	consensusPolicy types.ConsensusPolicy
 
-	// hashVault is the block-hash equivocation guard. Every applied block's hash is committed to
-	// it; if it ever rejects a hash the node halts. Never nil (a no-op implementation is used when
-	// the operator disables the vault or in tests).
-	hashVault hashvault.HashVault
-
 	// cache the verification results over a single height
 	cache map[string]struct{}
 }
@@ -81,7 +74,6 @@ func NewBlockExecutor(
 	eventBus *eventbus.EventBus,
 	metrics *Metrics,
 	consensusPolicy types.ConsensusPolicy,
-	hashVault hashvault.HashVault,
 ) *BlockExecutor {
 	return &BlockExecutor{
 		eventBus:        eventBus,
@@ -93,7 +85,6 @@ func NewBlockExecutor(
 		cache:           make(map[string]struct{}),
 		blockStore:      blockStore,
 		consensusPolicy: consensusPolicy,
-		hashVault:       hashVault,
 	}
 }
 
@@ -409,13 +400,6 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	}
 	saveBlockTime := time.Now()
 	state.AppHash = fBlockRes.AppHash
-
-	// Commit this block's hash to the equivocation guard before saving state. See commitHashToVault.
-	// A returned error is a benign shutdown cancellation; genuine faults panic inside the call.
-	if err := commitHashToVault(ctx, blockExec.hashVault, block.Height, state.AppHash); err != nil {
-		return state, err
-	}
-
 	if err := blockExec.store.Save(state); err != nil {
 		return state, err
 	}
@@ -436,16 +420,6 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 			logger.Error("failed to prune blocks", "retain_height", retainHeight, "err", err)
 		} else {
 			logger.Debug("pruned blocks", "pruned", pruned, "retain_height", retainHeight)
-		}
-		// Align the vault's retention with what is actually still on disk, not the requested
-		// retainHeight: prune it to the blockstore's current base. Block/state pruning is best-effort
-		// and non-atomic, so a (partial) failure can leave blocks below retainHeight on disk. Pruning
-		// to the real base guarantees the vault boundary never advances past a block that can still be
-		// replayed — which would otherwise make a later CommitToHash fatally reject an on-disk height
-		// (ErrBelowPruneBoundary). A prune failure is GC, not equivocation: log and continue.
-		base := blockExec.blockStore.Base()
-		if err := blockExec.hashVault.Prune(ctx, uint64(base)); err != nil { //nolint:gosec // base is non-negative
-			logger.Error("failed to prune hashvault", "base", base, "err", err)
 		}
 	}
 	blockExec.metrics.PruneBlockLatency.Observe(float64(time.Since(pruneBlockTime).Milliseconds()))
@@ -723,41 +697,6 @@ func FireEvents(
 	}
 }
 
-// commitHashToVault records the block hash for the given height in the equivocation guard and halts
-// the node on any error. It is shared by ApplyBlock (live blocks) and ExecCommitBlock (blocks caught
-// up during the ABCI handshake) so every applied height is guarded identically.
-//
-// A genuine failure halts the node — we cannot prove the node is still committed to a single hash for
-// this height, so failing closed is the only safe option. We distinguish a confirmed equivocation
-// (ErrHashMismatch: never restart without human investigation) from an operational failure (I/O,
-// corruption), which must not cry equivocation.
-//
-// Context cancellation/deadline is NOT a failure to record the hash: CommitToHash returns on its first
-// line without attempting any write, and it only happens because the node is shutting down. There is no
-// risk of proceeding unguarded, so we unwind cleanly by returning the error to the caller (which logs
-// and aborts the apply) instead of panicking.
-func commitHashToVault(ctx context.Context, vault hashvault.HashVault, height int64, hash []byte) error {
-	err := vault.CommitToHash(ctx, uint64(height), hash) //nolint:gosec // block height is non-negative
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		logger.Info("HashVault commit aborted by context cancellation during shutdown; not recording hash",
-			"height", height, "err", err)
-		return fmt.Errorf("hashvault CommitToHash aborted at height %d: %w", height, err)
-	}
-	if errors.Is(err, hashvault.ErrHashMismatch) {
-		logger.Error("FATAL: HashVault detected a block-hash mismatch — the node has equivocated. "+
-			"Halting. DO NOT RESTART WITHOUT HUMAN INTERVENTION.",
-			"height", height, "hash", fmt.Sprintf("%X", hash), "err", err)
-	} else {
-		logger.Error("FATAL: HashVault could not commit the block hash (operational error, not a "+
-			"confirmed equivocation). Halting.",
-			"height", height, "hash", fmt.Sprintf("%X", hash), "err", err)
-	}
-	panic(fmt.Sprintf("hashvault CommitToHash failed at height %d: %v", height, err))
-}
-
 //----------------------------------------------------------------------------------------------------
 // Execute block without state. TODO: eliminate
 
@@ -771,7 +710,6 @@ func ExecCommitBlock(
 	store Store,
 	initialHeight int64,
 	s State,
-	hashVault hashvault.HashVault,
 ) ([]byte, error) {
 	finalizeBlockResponse, err := appConn.FinalizeBlock(
 		ctx,
@@ -816,13 +754,6 @@ func ExecCommitBlock(
 	_, err = appConn.Commit(ctx)
 	if err != nil {
 		logger.Error("client error during proxyAppConn.Commit", "err", err)
-		return nil, err
-	}
-
-	// Guard the replayed height exactly as ApplyBlock guards live blocks, so heights caught up during
-	// the ABCI handshake are recorded in (and checked against) the equivocation guard.
-	// A returned error is a benign shutdown cancellation; genuine faults panic inside the call.
-	if err := commitHashToVault(ctx, hashVault, block.Height, block.Hash()); err != nil {
 		return nil, err
 	}
 

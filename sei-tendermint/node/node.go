@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -69,7 +67,6 @@ type nodeImpl struct {
 	initialState   sm.State
 	stateStore     sm.Store
 	blockStore     *store.BlockStore // store the blockchain to disk
-	hashVault      hashvault.HashVault
 	mempool        utils.Option[*mempool.TxMempool]
 	evPool         utils.Option[*evidence.Pool]
 	indexerService *indexer.Service
@@ -109,12 +106,6 @@ func makeNode(
 	}
 
 	stateStore := sm.NewStore(stateDB)
-
-	hashVault, err := makeHashVault(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("makeHashVault(): %w", err)
-	}
-	closers = append(closers, func() error { return hashVault.Close(context.Background()) })
 
 	genDoc, err := genesisDocProvider()
 	if err != nil {
@@ -187,7 +178,6 @@ func makeNode(
 		initialState: state,
 		stateStore:   stateStore,
 		blockStore:   blockStore,
-		hashVault:    hashVault,
 
 		rpcEnv: &rpccore.Environment{
 			App: proxyApp,
@@ -266,7 +256,6 @@ func makeNode(
 			eventBus,
 			nodeMetrics.state,
 			consensusPolicy,
-			hashVault,
 		)
 
 		// Determine whether we should attempt state sync.
@@ -424,25 +413,6 @@ func makeNode(
 	return node, nil
 }
 
-// makeHashVault constructs the block-hash equivocation guard. By default it returns a durable
-// Pebble-backed vault rooted at <db-dir>/hashvault. If the operator has explicitly set
-// hash-vault-disabled-unsafe, it returns a no-op vault and logs loudly that the node is unsafe.
-func makeHashVault(ctx context.Context, cfg *config.Config) (hashvault.HashVault, error) {
-	if cfg.HashVaultDisabledUnsafe {
-		logger.Error("################################################################")
-		logger.Error("# HASHVAULT DISABLED (hash-vault-disabled-unsafe=true).        #")
-		logger.Error("# This node has NO block-hash equivocation protection and is   #")
-		logger.Error("# running in an UNSAFE configuration. Re-enable as soon as the #")
-		logger.Error("# underlying issue is resolved.                                #")
-		logger.Error("################################################################")
-		return hashvault.NewNoopHashVault(), nil
-	}
-
-	hvCfg := hashvault.DefaultHashVaultConfig()
-	hvCfg.DataDir = filepath.Join(cfg.DBDir(), "hashvault")
-	return hashvault.NewPebbleHashVault(ctx, hvCfg)
-}
-
 // OnStart starts the Node. It implements service.Service.
 func (n *nodeImpl) OnStart(ctx context.Context) error {
 	// EventBus and IndexerService must be started before the handshake because
@@ -464,7 +434,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		// Create the handshaker, which calls RequestInfo, sets the AppVersion on the state,
 		// and replays any blocks as necessary to sync tendermint with the app.
 		if err := consensus.NewHandshaker(
-			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc, n.consensusPolicy, n.hashVault,
+			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc, n.consensusPolicy,
 		).Handshake(ctx, n.rpcEnv.App); err != nil {
 			return err
 		}

@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	abcimocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -58,7 +57,7 @@ func TestApplyBlock(t *testing.T) {
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	proxyApp := proxy.New(app, proxy.NopMetrics())
 	mp := makeTxMempool(t, proxyApp)
-	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy(), hashvault.NewNoopHashVault())
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	bps, err := block.MakePartSet(testPartSize)
@@ -70,88 +69,6 @@ func TestApplyBlock(t *testing.T) {
 
 	// TODO check state and mempool
 	assert.EqualValues(t, 1, state.Version.Consensus.App, "App version wasn't updated")
-}
-
-// erroringHashVault is a HashVault whose CommitToHash always fails, used to verify that ApplyBlock
-// halts the node when the equivocation guard rejects a block hash.
-type erroringHashVault struct{}
-
-func (erroringHashVault) CommitToHash(context.Context, uint64, []byte) error {
-	return hashvault.ErrHashMismatch
-}
-func (erroringHashVault) Prune(context.Context, uint64) error { return nil }
-func (erroringHashVault) Close(context.Context) error         { return nil }
-
-// TestApplyBlockHaltsOnHashVaultError verifies that a CommitToHash failure bricks the node: there is
-// no safe automatic recovery from a "changed its mind" hash, so ApplyBlock must panic.
-func TestApplyBlockHaltsOnHashVaultError(t *testing.T) {
-	app := &testApp{}
-
-	ctx := t.Context()
-
-	eventBus := eventbus.NewDefault()
-	require.NoError(t, eventBus.Start(ctx))
-
-	state, stateDB, _ := makeState(t, 1, 1)
-	stateStore := sm.NewStore(stateDB)
-	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	proxyApp := proxy.New(app, proxy.NopMetrics())
-	mp := makeTxMempool(t, proxyApp)
-	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy(), erroringHashVault{})
-
-	block := sf.MakeBlock(state, 1, new(types.Commit))
-	bps, err := block.MakePartSet(testPartSize)
-	require.NoError(t, err)
-	blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: bps.Header()}
-
-	require.Panics(t, func() {
-		_, _ = blockExec.ApplyBlock(ctx, state, blockID, block, nil)
-	}, "ApplyBlock must panic (halt the node) when the HashVault rejects the block hash")
-}
-
-// cancelingHashVault is a HashVault whose CommitToHash reports the context error, mimicking a commit
-// that races with node shutdown.
-type cancelingHashVault struct{}
-
-func (cancelingHashVault) CommitToHash(ctx context.Context, _ uint64, _ []byte) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return context.Canceled
-}
-func (cancelingHashVault) Prune(context.Context, uint64) error { return nil }
-func (cancelingHashVault) Close(context.Context) error         { return nil }
-
-// TestApplyBlockReturnsErrorOnHashVaultContextCancel verifies that a commit aborted by context
-// cancellation during shutdown unwinds as a normal error instead of panicking the node. Cancellation
-// is not a failure to record the hash, so it must not be mistaken for an operational fault.
-func TestApplyBlockReturnsErrorOnHashVaultContextCancel(t *testing.T) {
-	app := &testApp{}
-
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	eventBus := eventbus.NewDefault()
-	require.NoError(t, eventBus.Start(ctx))
-
-	state, stateDB, _ := makeState(t, 1, 1)
-	stateStore := sm.NewStore(stateDB)
-	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	proxyApp := proxy.New(app, proxy.NopMetrics())
-	mp := makeTxMempool(t, proxyApp)
-	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy(), cancelingHashVault{})
-
-	block := sf.MakeBlock(state, 1, new(types.Commit))
-	bps, err := block.MakePartSet(testPartSize)
-	require.NoError(t, err)
-	blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: bps.Header()}
-
-	cancel()
-
-	require.NotPanics(t, func() {
-		_, err = blockExec.ApplyBlock(ctx, state, blockID, block, nil)
-	}, "ApplyBlock must not panic when the HashVault commit is canceled by shutdown")
-	require.ErrorIs(t, err, context.Canceled, "ApplyBlock must surface the cancellation as an error")
 }
 
 // TestApplyBlockProposerPriorityHash verifies that ApplyBlock emits the
@@ -184,7 +101,7 @@ func TestApplyBlockProposerPriorityHash(t *testing.T) {
 	testMetrics.ProposerPriorityHash = hashGauge
 	testMetrics.ProposerPriorityHashHeight = heightGauge
 
-	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, testMetrics, types.DefaultConsensusPolicy(), hashvault.NewNoopHashVault())
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, testMetrics, types.DefaultConsensusPolicy())
 
 	// Apply blocks 1..interval. Only height == interval should emit the metric.
 	var lastCommit *types.Commit = new(types.Commit)
@@ -245,7 +162,7 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 			eventBus := eventbus.NewDefault()
 			require.NoError(t, eventBus.Start(ctx))
 
-			blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy(), hashvault.NewNoopHashVault())
+			blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
 			state, _, lastCommit := makeAndCommitGoodBlock(ctx, t, state, 1, new(types.Commit), state.NextValidators.Validators[0].Address, blockExec, privVals, nil)
 
 			for idx, isAbsent := range tc.absentCommitSigs {
@@ -358,7 +275,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
-	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy(), hashvault.NewNoopHashVault())
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	block.Evidence = ev
@@ -400,7 +317,6 @@ func TestProcessProposal(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
-		hashvault.NewNoopHashVault(),
 	)
 
 	block0 := sf.MakeBlock(state, height-1, new(types.Commit))
@@ -599,7 +515,6 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
-		hashvault.NewNoopHashVault(),
 	)
 
 	updatesSub, err := eventBus.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
@@ -665,7 +580,6 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
-		hashvault.NewNoopHashVault(),
 	)
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))

@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -357,7 +356,6 @@ func TestCreateProposalBlock(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
-		hashvault.NewNoopHashVault(),
 	)
 
 	commit := &types.Commit{Height: height - 1}
@@ -433,7 +431,6 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
-		hashvault.NewNoopHashVault(),
 	)
 
 	commit := &types.Commit{Height: height - 1}
@@ -506,7 +503,6 @@ func TestMaxProposalBlockSize(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
-		hashvault.NewNoopHashVault(),
 	)
 
 	blockID := types.BlockID{
