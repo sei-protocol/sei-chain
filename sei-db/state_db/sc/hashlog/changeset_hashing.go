@@ -7,10 +7,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// Hashes the diff of a block's state. Order sensitive.
+// Hashes the changeset of a block's state. Order sensitive.
 //
 // This is NOT a cryptographically secure hash function. Its purpose is to be a canary in the coal mine for
-// deviations in a block's diff, not to detect adversarially crafted collisions. This method needs to be fast
+// deviations in a block's changeset, not to detect adversarially crafted collisions. This method needs to be fast
 // with low overhead.
 //
 // The encoding is fully self-delimiting so that distinct inputs cannot collide merely because their byte
@@ -21,7 +21,7 @@ import (
 //
 // The counts are computed over only the non-nil entries that are actually folded in, so the framing stays
 // consistent with the data even when nil entries are defensively skipped.
-func hashDiff(cs []*proto.NamedChangeSet) []byte {
+func hashChangeset(cs []*proto.NamedChangeSet) []byte {
 	digest := xxhash.New()
 
 	var lengthBuf [binary.MaxVarintLen64]byte
@@ -36,7 +36,7 @@ func hashDiff(cs []*proto.NamedChangeSet) []byte {
 
 	// Frame the stream with the number of change sets actually hashed. Nil entries are skipped defensively:
 	// this runs on the background hasher goroutine, where a nil-pointer dereference would panic and take down
-	// the node rather than just losing one diff hash.
+	// the node rather than just losing one changeset hash.
 	changeSetCount := uint64(0)
 	for _, ncs := range cs {
 		if ncs != nil {

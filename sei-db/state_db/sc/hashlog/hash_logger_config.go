@@ -7,12 +7,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 )
 
-// DiffHashType is the reserved hash type under which the logger records the diff hash it computes itself from
-// each block's change set (see HashLogger.ReportDiff). It is owned by the logger, not the caller: the name is
-// fixed (not configurable) so every hash log file uses the same diff column name. It must never appear in
+// ChangesetHashType is the reserved hash type under which the logger records the changeset hash it computes itself from
+// each block's change set (see HashLogger.ReportChangeset). It is owned by the logger, not the caller: the name is
+// fixed (not configurable) so every hash log file uses the same changeset column name. It must never appear in
 // HashLoggerConfig.HashTypes — Validate rejects a collision — and ReportHash rejects it, so a caller can never
-// clobber or race the logger-computed diff column.
-const DiffHashType = "diff"
+// clobber or race the logger-computed changeset column.
+const ChangesetHashType = "changeset"
 
 // Hash type names are written verbatim into CSV headers and must not collide with the "," field
 // separator or any other structural character. We restrict them to a small, safe allowlist.
@@ -29,14 +29,14 @@ type HashLoggerConfig struct {
 
 	// The ordered set of caller-reported hash types this logger records. Each type becomes a column in the
 	// CSV output, in this order, and a block is only written once a hash has been reported for every type.
-	// This must not include the reserved DiffHashType: the diff column is owned and computed by the logger,
+	// This must not include the reserved ChangesetHashType: the changeset column is owned and computed by the logger,
 	// not supplied via ReportHash.
 	HashTypes []string
 
-	// When true, diff hashing is disabled entirely: no hasher thread is started, ReportDiff becomes a no-op,
-	// and no diff column is recorded or awaited for block completion. To instead skip diff hashing for an
-	// individual block while diff hashing is enabled, pass a nil change set to ReportDiff.
-	DisableDiffHashing bool
+	// When true, changeset hashing is disabled entirely: no hasher thread is started, ReportChangeset becomes a no-op,
+	// and no changeset column is recorded or awaited for block completion. To instead skip changeset hashing for an
+	// individual block while changeset hashing is enabled, pass a nil change set to ReportChangeset.
+	DisableChangesetHashing bool
 
 	// The size of the channel for sending work to the hasher thread.
 	HashBufferSize uint
@@ -49,7 +49,7 @@ type HashLoggerConfig struct {
 
 	// The maximum number of blocks buffered in the control loop awaiting completion. When this is exceeded,
 	// the oldest buffered block is written to disk even if incomplete, unless it is still awaiting an
-	// in-flight diff hash (in which case the buffer is allowed to exceed this bound until the diff arrives).
+	// in-flight changeset hash (in which case the buffer is allowed to exceed this bound until the changeset arrives).
 	// This bounds memory if a registered hash type is never reported for some block.
 	MaxBufferedBlocks uint
 
@@ -106,11 +106,11 @@ func (c *HashLoggerConfig) Validate() error {
 			return fmt.Errorf("hash type %q contains illegal characters (must match %s)",
 				hashType, legalHashTypeRegex.String())
 		}
-		// DiffHashType is reserved for the logger-computed diff column, so it may never be a caller-reported
-		// type. This holds even when diff hashing is disabled: the name stays reserved so a config can never
+		// ChangesetHashType is reserved for the logger-computed changeset column, so it may never be a caller-reported
+		// type. This holds even when changeset hashing is disabled: the name stays reserved so a config can never
 		// silently mean different columns depending on the flag.
-		if hashType == DiffHashType {
-			return fmt.Errorf("hash type %q is reserved for the logger-computed diff column", hashType)
+		if hashType == ChangesetHashType {
+			return fmt.Errorf("hash type %q is reserved for the logger-computed changeset column", hashType)
 		}
 		if _, ok := seen[hashType]; ok {
 			return fmt.Errorf("duplicate hash type %q", hashType)
@@ -118,8 +118,8 @@ func (c *HashLoggerConfig) Validate() error {
 		seen[hashType] = struct{}{}
 	}
 
-	// At least one column must be recorded: the diff column (when enabled) or a caller-reported type.
-	if c.DisableDiffHashing && len(c.HashTypes) == 0 {
+	// At least one column must be recorded: the changeset column (when enabled) or a caller-reported type.
+	if c.DisableChangesetHashing && len(c.HashTypes) == 0 {
 		return fmt.Errorf("at least one hash type is required")
 	}
 

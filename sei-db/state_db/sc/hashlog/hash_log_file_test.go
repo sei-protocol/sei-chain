@@ -59,7 +59,7 @@ func newTestLog(blockNumber uint64, hashTypes []string) *HashLog {
 
 func TestHashLogFileWriteReadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	hashTypes := []string{"diff", "root"}
+	hashTypes := []string{"changeset", "root"}
 
 	file, err := newHashLogFile(dir, 1, "v1.0.0", hashTypes)
 	require.NoError(t, err)
@@ -76,13 +76,13 @@ func TestHashLogFileWriteReadRoundTrip(t *testing.T) {
 	require.Len(t, read.logs, 2)
 	require.Equal(t, uint64(10), read.logs[0].BlockNumber)
 	require.Equal(t, "v1.0.0", read.logs[0].Version)
-	require.Equal(t, []byte{10, 4}, read.logs[0].Hashes["diff"])
+	require.Equal(t, []byte{10, 9}, read.logs[0].Hashes["changeset"])
 	require.Equal(t, uint64(11), read.logs[1].BlockNumber)
 }
 
 func TestHashLogFileWriteRejectedAfterSeal(t *testing.T) {
 	dir := t.TempDir()
-	hashTypes := []string{"diff"}
+	hashTypes := []string{"changeset"}
 	file, err := newHashLogFile(dir, 1, "v1.0.0", hashTypes)
 	require.NoError(t, err)
 	require.NoError(t, file.write(newTestLog(1, hashTypes)))
@@ -92,7 +92,7 @@ func TestHashLogFileWriteRejectedAfterSeal(t *testing.T) {
 
 func TestHashLogFileEmptyRemovedOnClose(t *testing.T) {
 	dir := t.TempDir()
-	file, err := newHashLogFile(dir, 1, "v1.0.0", []string{"diff"})
+	file, err := newHashLogFile(dir, 1, "v1.0.0", []string{"changeset"})
 	require.NoError(t, err)
 	require.NoError(t, file.close())
 
@@ -103,7 +103,7 @@ func TestHashLogFileEmptyRemovedOnClose(t *testing.T) {
 
 func TestReadHashLogFileTolaratesTornFinalLine(t *testing.T) {
 	dir := t.TempDir()
-	hashTypes := []string{"diff", "root"}
+	hashTypes := []string{"changeset", "root"}
 
 	file, err := newHashLogFile(dir, 1, "v1.0.0", hashTypes)
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ func TestReadHashLogFileTolaratesTornFinalLine(t *testing.T) {
 
 func TestSealHashLogRecoversOrphan(t *testing.T) {
 	dir := t.TempDir()
-	hashTypes := []string{"diff"}
+	hashTypes := []string{"changeset"}
 
 	// Create an unsealed file but do not seal it (simulating a crash).
 	file, err := newHashLogFile(dir, 4, "v9.9.9", hashTypes)

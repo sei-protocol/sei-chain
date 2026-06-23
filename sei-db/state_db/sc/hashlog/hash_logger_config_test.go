@@ -35,7 +35,7 @@ func TestConfigValidateZeroMaxBufferedBlocks(t *testing.T) {
 func TestConfigValidateEmptyHashTypes(t *testing.T) {
 	c := DefaultHashLoggerConfig("/tmp/hashlog", "v1.0.0")
 	c.HashTypes = nil
-	c.DisableDiffHashing = true
+	c.DisableChangesetHashing = true
 	require.ErrorContains(t, c.Validate(), "at least one hash type")
 }
 
@@ -51,24 +51,24 @@ func TestConfigValidateIllegalHashType(t *testing.T) {
 	require.ErrorContains(t, c.Validate(), "illegal characters")
 }
 
-func TestConfigValidateReservedDiffHashType(t *testing.T) {
+func TestConfigValidateReservedChangesetHashType(t *testing.T) {
 	c := DefaultHashLoggerConfig("/tmp/hashlog", "v1.0.0")
-	c.HashTypes = []string{DiffHashType, "root"}
+	c.HashTypes = []string{ChangesetHashType, "root"}
 	require.ErrorContains(t, c.Validate(), "reserved")
 }
 
-func TestConfigValidateReservedDiffHashTypeRejectedEvenWhenDisabled(t *testing.T) {
-	// The diff name stays reserved even with diff hashing disabled, so a config can never silently mean
+func TestConfigValidateReservedChangesetHashTypeRejectedEvenWhenDisabled(t *testing.T) {
+	// The changeset name stays reserved even with changeset hashing disabled, so a config can never silently mean
 	// different columns depending on the flag.
 	c := DefaultHashLoggerConfig("/tmp/hashlog", "v1.0.0")
-	c.HashTypes = []string{DiffHashType, "root"}
-	c.DisableDiffHashing = true
+	c.HashTypes = []string{ChangesetHashType, "root"}
+	c.DisableChangesetHashing = true
 	require.ErrorContains(t, c.Validate(), "reserved")
 }
 
-func TestConfigValidateDiffHashTypeDisabled(t *testing.T) {
+func TestConfigValidateChangesetHashTypeDisabled(t *testing.T) {
 	c := DefaultHashLoggerConfig("/tmp/hashlog", "v1.0.0")
 	c.HashTypes = []string{"flatKV", "root"}
-	c.DisableDiffHashing = true // disabling diff hashing is allowed
+	c.DisableChangesetHashing = true // disabling changeset hashing is allowed
 	require.NoError(t, c.Validate())
 }

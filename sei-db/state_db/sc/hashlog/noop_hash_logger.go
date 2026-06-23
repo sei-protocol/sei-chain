@@ -13,7 +13,7 @@ func NewNoOpHashLogger() HashLogger {
 	return &noOpHashLogger{}
 }
 
-func (n *noOpHashLogger) ReportDiff(uint64, []*proto.NamedChangeSet) {
+func (n *noOpHashLogger) ReportChangeset(uint64, []*proto.NamedChangeSet) {
 	// intentional no-op
 }
 

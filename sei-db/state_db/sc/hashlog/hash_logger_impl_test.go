@@ -12,21 +12,21 @@ import (
 )
 
 // testConfig returns a config with generous buffers so that, for the modest volumes used in tests, nothing is
-// dropped and the pipeline is deterministic once Close() has drained it. Diff hashing is disabled by default so
-// blocks complete purely via ReportHash; tests that exercise the diff enable it explicitly.
+// dropped and the pipeline is deterministic once Close() has drained it. Changeset hashing is disabled by default so
+// blocks complete purely via ReportHash; tests that exercise the changeset enable it explicitly.
 func testConfig(dir string) *HashLoggerConfig {
 	return &HashLoggerConfig{
-		Path:               dir,
-		Version:            "v1.0.0",
-		HashTypes:          []string{"a", "b"},
-		DisableDiffHashing: true,
-		HashBufferSize:     8192,
-		WriteBufferSize:    8192,
-		ControlBufferSize:  8192,
-		MaxBufferedBlocks:  1 << 20, // large: existing tests never trip the overflow flush
-		BlocksToRetain:     1_000_000,
-		TargetFileSize:     unit.MB,
-		MaxDiskSize:        unit.GB,
+		Path:                    dir,
+		Version:                 "v1.0.0",
+		HashTypes:               []string{"a", "b"},
+		DisableChangesetHashing: true,
+		HashBufferSize:          8192,
+		WriteBufferSize:         8192,
+		ControlBufferSize:       8192,
+		MaxBufferedBlocks:       1 << 20, // large: existing tests never trip the overflow flush
+		BlocksToRetain:          1_000_000,
+		TargetFileSize:          unit.MB,
+		MaxDiskSize:             unit.GB,
 	}
 }
 
@@ -49,7 +49,7 @@ func TestImplEmitsInBlockOrderDespiteLaggingType(t *testing.T) {
 	require.NoError(t, err)
 
 	// Report type "a" for blocks 1..5 first, then type "b". Block N stays incomplete (and therefore buffered,
-	// blocking emission of N+1) until its "b" arrives — mirroring a lagging diff hash.
+	// blocking emission of N+1) until its "b" arrives — mirroring a lagging changeset hash.
 	for block := uint64(1); block <= 5; block++ {
 		require.NoError(t, l.ReportHash(block, "a", []byte{byte(block)}))
 	}
@@ -76,18 +76,18 @@ func TestImplReportHashUnknownType(t *testing.T) {
 	require.ErrorContains(t, l.ReportHash(1, "nonexistent", []byte{0x01}), "unknown hash type")
 }
 
-func TestImplReportHashRejectsReservedDiffType(t *testing.T) {
+func TestImplReportHashRejectsReservedChangesetType(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = []string{"a"}
-	config.DisableDiffHashing = false
+	config.DisableChangesetHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, l.Close()) }()
 
-	// The diff column is logger-owned; reporting it via ReportHash must be rejected so it cannot clobber or
-	// race the internally computed diff hash.
-	err = l.ReportHash(1, "diff", []byte{0x01})
+	// The changeset column is logger-owned; reporting it via ReportHash must be rejected so it cannot clobber or
+	// race the internally computed changeset hash.
+	err = l.ReportHash(1, "changeset", []byte{0x01})
 	require.ErrorContains(t, err, "reserved")
 
 	// A normal caller-reported type is still accepted.
@@ -109,66 +109,66 @@ func TestImplNilHashCompletesBlock(t *testing.T) {
 	require.Equal(t, []byte{0x42}, logs[0].Hashes["b"])
 }
 
-func TestImplReportDiffPopulatesDiffHash(t *testing.T) {
+func TestImplReportChangesetPopulatesChangesetHash(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = nil
-	config.DisableDiffHashing = false
+	config.DisableChangesetHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
 
 	changeSet := []*proto.NamedChangeSet{cs("bank", kv("key", "value"))}
-	l.ReportDiff(1, changeSet)
+	l.ReportChangeset(1, changeSet)
 	require.NoError(t, l.Close())
 
 	logs := readAllLogs(t, dir)
 	require.Len(t, logs, 1)
-	require.Equal(t, hashDiff(changeSet), logs[0].Hashes["diff"])
+	require.Equal(t, hashChangeset(changeSet), logs[0].Hashes["changeset"])
 }
 
-func TestImplReportDiffNilOptsOut(t *testing.T) {
+func TestImplReportChangesetNilOptsOut(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = nil
-	config.DisableDiffHashing = false
+	config.DisableChangesetHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
 
-	// A nil change set records a nil diff hash (opting out for this block) rather than hashing an empty diff.
-	l.ReportDiff(1, nil)
+	// A nil change set records a nil changeset hash (opting out for this block) rather than hashing an empty changeset.
+	l.ReportChangeset(1, nil)
 	require.NoError(t, l.Close())
 
 	logs := readAllLogs(t, dir)
 	require.Len(t, logs, 1)
 	require.Equal(t, uint64(1), logs[0].BlockNumber)
-	require.Nil(t, logs[0].Hashes["diff"])
+	require.Nil(t, logs[0].Hashes["changeset"])
 }
 
-func TestImplReportDiffEmptyChangeSetIsHashed(t *testing.T) {
+func TestImplReportChangesetEmptyChangeSetIsHashed(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = nil
-	config.DisableDiffHashing = false
+	config.DisableChangesetHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
 
-	// An empty (non-nil) change set is a legitimate no-change block: it gets the hash of the empty diff, which
+	// An empty (non-nil) change set is a legitimate no-change block: it gets the hash of the empty changeset, which
 	// is non-nil and deterministic (distinct from the nil opt-out above).
 	empty := []*proto.NamedChangeSet{}
-	l.ReportDiff(1, empty)
+	l.ReportChangeset(1, empty)
 	require.NoError(t, l.Close())
 
 	logs := readAllLogs(t, dir)
 	require.Len(t, logs, 1)
-	require.NotNil(t, logs[0].Hashes["diff"])
-	require.Equal(t, hashDiff(empty), logs[0].Hashes["diff"])
+	require.NotNil(t, logs[0].Hashes["changeset"])
+	require.Equal(t, hashChangeset(empty), logs[0].Hashes["changeset"])
 }
 
-func TestImplDiffFloodIsHashedReliably(t *testing.T) {
+func TestImplChangesetFloodIsHashedReliably(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = nil
-	config.DisableDiffHashing = false
+	config.DisableChangesetHashing = false
 	config.HashBufferSize = 1 // tiny buffer: a flood now backpressures rather than dropping
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
@@ -176,21 +176,21 @@ func TestImplDiffFloodIsHashedReliably(t *testing.T) {
 	const blocks = 200
 	changeSet := []*proto.NamedChangeSet{cs("bank", kv("k", "v"))}
 	for block := uint64(1); block <= blocks; block++ {
-		l.ReportDiff(block, changeSet)
+		l.ReportChangeset(block, changeSet)
 	}
 	require.NoError(t, l.Close())
 
-	// Every block must appear exactly once, and its diff hash must be the real hash — nothing is shed even
+	// Every block must appear exactly once, and its changeset hash must be the real hash — nothing is shed even
 	// under a flood through a one-deep hasher channel.
-	want := hashDiff(changeSet)
+	want := hashChangeset(changeSet)
 	byBlock := make(map[uint64][]byte)
 	for _, log := range readAllLogs(t, dir) {
 		_, dup := byBlock[log.BlockNumber]
 		require.False(t, dup, "block %d recorded more than once", log.BlockNumber)
-		byBlock[log.BlockNumber] = log.Hashes["diff"]
+		byBlock[log.BlockNumber] = log.Hashes["changeset"]
 	}
 	for block := uint64(1); block <= blocks; block++ {
-		require.Equal(t, want, byBlock[block], "block %d missing or has a shed (nil) diff hash", block)
+		require.Equal(t, want, byBlock[block], "block %d missing or has a shed (nil) changeset hash", block)
 	}
 }
 
@@ -263,7 +263,7 @@ func TestImplReportAfterCloseFailsFast(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = []string{"a"}
-	config.DisableDiffHashing = false
+	config.DisableChangesetHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
 	require.NoError(t, l.Close())
@@ -271,7 +271,7 @@ func TestImplReportAfterCloseFailsFast(t *testing.T) {
 	// After Close the pipeline channels are closed; a stray Report* must fail fast rather than panic on a
 	// send to a closed channel (or hang).
 	require.NotPanics(t, func() {
-		l.ReportDiff(1, []*proto.NamedChangeSet{cs("bank", kv("k", "v"))})
+		l.ReportChangeset(1, []*proto.NamedChangeSet{cs("bank", kv("k", "v"))})
 		require.Error(t, l.ReportHash(1, "a", []byte{0x01}))
 	})
 }
@@ -376,12 +376,12 @@ func TestImplOverflowFlushesOldestIncomplete(t *testing.T) {
 	}
 }
 
-func TestImplOverflowNeverFlushesBlockAwaitingDiff(t *testing.T) {
+func TestImplOverflowNeverFlushesBlockAwaitingChangeset(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = nil
-	config.DisableDiffHashing = false
-	config.HashBufferSize = 1    // tiny hasher channel: diffs back up and stay in flight
+	config.DisableChangesetHashing = false
+	config.HashBufferSize = 1    // tiny hasher channel: changesets back up and stay in flight
 	config.MaxBufferedBlocks = 2 // tight buffer bound, pressuring the overflow path
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
@@ -389,21 +389,21 @@ func TestImplOverflowNeverFlushesBlockAwaitingDiff(t *testing.T) {
 	const blocks = 300
 	changeSet := []*proto.NamedChangeSet{cs("bank", kv("k", "v"))}
 	for block := uint64(1); block <= blocks; block++ {
-		l.ReportDiff(block, changeSet)
+		l.ReportChangeset(block, changeSet)
 	}
 	require.NoError(t, l.Close())
 
-	// Every block must be present with its real diff hash. If the overflow path ever force-flushed a block whose
-	// diff was still in flight, that block would have a nil diff here.
-	want := hashDiff(changeSet)
+	// Every block must be present with its real changeset hash. If the overflow path ever force-flushed a block whose
+	// changeset was still in flight, that block would have a nil changeset here.
+	want := hashChangeset(changeSet)
 	byBlock := make(map[uint64][]byte)
 	for _, log := range readAllLogs(t, dir) {
 		_, dup := byBlock[log.BlockNumber]
 		require.False(t, dup, "block %d recorded more than once", log.BlockNumber)
-		byBlock[log.BlockNumber] = log.Hashes["diff"]
+		byBlock[log.BlockNumber] = log.Hashes["changeset"]
 	}
 	for block := uint64(1); block <= blocks; block++ {
-		require.Equal(t, want, byBlock[block], "block %d missing or force-flushed before its diff arrived", block)
+		require.Equal(t, want, byBlock[block], "block %d missing or force-flushed before its changeset arrived", block)
 	}
 }
 

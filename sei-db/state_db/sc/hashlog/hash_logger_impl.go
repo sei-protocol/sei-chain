@@ -23,32 +23,32 @@ var logger = seilog.NewLogger("db", "state-db", "sc", "hashlog")
 type controlMsgKind int
 
 const (
-	ctrlHashReport  controlMsgKind = iota // a caller-reported hash for a block
-	ctrlDiffRequest                       // a change set to be diff-hashed on the hasher thread
-	ctrlClose                             // a graceful-shutdown signal (sent by Close)
+	ctrlHashReport       controlMsgKind = iota // a caller-reported hash for a block
+	ctrlChangesetRequest                       // a changeset to be hashed on the hasher thread
+	ctrlClose                                  // a graceful-shutdown signal (sent by Close)
 )
 
 // Data flow:
 //
-// The control loop gathers and collates hash data. When it gets the diff for a block, it farms the work of
-// hashing that diff to the hasher goroutine. When it collects enough data to write to the hash log, it offloads
-// the write to the writer goroutine.
+// The control loop gathers and collates hash data. When it gets the changeset for a block, it farms the work of
+// hashing that changeset to the hasher goroutine. When it collects enough data to write to the hash log, it
+// offloads the write to the writer goroutine.
 //
-//	                                       ┌─────writerChan────▶ writer
-//	ReportHash ──┐                         │
-//	ReportDiff ──┴──controlChan──▶ controlLoop ──hashChan──▶ hasher
-//	                                       ▲                   │
-//	                                       └──hashResultChan───┘
+//	                                            ┌─────writerChan────▶ writer
+//	ReportHash      ──┐                         │
+//	ReportChangeset ──┴──controlChan──▶ controlLoop ──hashChan──▶ hasher
+//	                                            ▲                   │
+//	                                            └──hashResultChan───┘
 
-// A message destined for the control loop. The caller entry points (ReportHash, ReportDiff) and Close funnel
-// through controlChan as a single ordered stream, so the control loop always knows which blocks have a diff
+// A message destined for the control loop. The caller entry points (ReportHash, ReportChangeset) and Close funnel
+// through controlChan as a single ordered stream, so the control loop always knows which blocks have a changeset
 // hash in flight and can order shutdown against the reports around it.
 type controlMessage struct {
 	kind        controlMsgKind
 	blockNumber uint64
 	hashType    string                  // ctrlHashReport: the type being reported
 	hash        []byte                  // ctrlHashReport: the reported hash (may be nil)
-	cs          []*proto.NamedChangeSet // ctrlDiffRequest: the change set to hash
+	cs          []*proto.NamedChangeSet // ctrlChangesetRequest: the change set to hash
 	done        chan struct{}           // ctrlClose: closed once the drain completes
 }
 
@@ -58,7 +58,7 @@ type hashWork struct {
 	cs          []*proto.NamedChangeSet
 }
 
-// A computed diff hash returned from the hasher to the control loop.
+// A computed changeset hash returned from the hasher to the control loop.
 type hashResult struct {
 	blockNumber uint64
 	hash        []byte
@@ -85,16 +85,16 @@ type hashLoggerImpl struct {
 	// The software version embedded in each file name (sanitized to be filename-safe at construction).
 	version string
 
-	// The ordered set of hash columns recorded per block; the diff column is prepended when diff hashing is
+	// The ordered set of hash columns recorded per block; the changeset column is prepended when changeset hashing is
 	// enabled.
 	hashTypes []string
 
 	// The membership set over hashTypes, for O(1) validation of caller-supplied hash types in ReportHash.
 	hashTypeSet map[string]struct{}
 
-	// When true, diff hashing is disabled: no hasher thread, ReportDiff is a no-op, and no diff column is
+	// When true, changeset hashing is disabled: no hasher thread, ReportChangeset is a no-op, and no changeset column is
 	// recorded or awaited.
-	diffHashingDisabled bool
+	changesetHashingDisabled bool
 
 	// The size a mutable file may reach before it is sealed and a fresh one is opened.
 	targetFileSize uint64
@@ -116,10 +116,10 @@ type hashLoggerImpl struct {
 	// For sending work to the writer thread.
 	writerChan chan writerMessage
 
-	// For dispatching diff work from the control loop to the hasher. Nil when diff hashing is disabled.
+	// For dispatching changeset work from the control loop to the hasher. Nil when changeset hashing is disabled.
 	hashChan chan hashWork
 
-	// For the hasher to return computed diff hashes to the control loop. Nil when diff hashing is disabled.
+	// For the hasher to return computed changeset hashes to the control loop. Nil when changeset hashing is disabled.
 	hashResultChan chan hashResult
 
 	// The hard-stop context that the hasher, writer, and the control loop's downstream sends all watch. Cancelled
@@ -129,7 +129,7 @@ type hashLoggerImpl struct {
 	// Cancels ctx.
 	cancel context.CancelFunc
 
-	// A child of ctx that the controlChan producers (ReportHash/ReportDiff) watch. The control loop cancels it
+	// A child of ctx that the controlChan producers (ReportHash/ReportChangeset) watch. The control loop cancels it
 	// once it stops reading controlChan, so an in-flight or future push aborts rather than deadlocking. Because
 	// controlChan is never closed, those pushes can never panic on a closed channel.
 	senderCtx context.Context
@@ -175,14 +175,14 @@ type hashLoggerImpl struct {
 	// Blocks being assembled, keyed by block number.
 	pendingBlocks map[uint64]*HashLog
 
-	// Blocks with a diff dispatched to the hasher whose result has not yet returned. Such a block is never
-	// force-flushed by the overflow path: its diff is on the way.
+	// Blocks with a changeset dispatched to the hasher whose result has not yet returned. Such a block is never
+	// force-flushed by the overflow path: its changeset is on the way.
 	blocksWithPendingHashes map[uint64]struct{}
 
 	// The single hash job that has been read off controlChan but not yet enqueued into hashChan, because the
 	// hasher fell behind and hashChan's buffer is full. hashChan's buffer is the real in-flight queue (many
 	// jobs); this is the one job that couldn't fit, and it is the backpressure boundary: while it is set the
-	// control loop stops reading new control messages (so ReportDiff blocks upstream), but it keeps draining
+	// control loop stops reading new control messages (so ReportChangeset blocks upstream), but it keeps draining
 	// results, which keeps the loop⇄hasher pair deadlock-free.
 	hashAwaitingDispatch *hashWork
 
@@ -211,11 +211,11 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	senderCtx, senderCancel := context.WithCancel(ctx)
 
-	// The recorded columns are the caller-reported types, with the logger-owned diff column prepended when
-	// diff hashing is enabled.
+	// The recorded columns are the caller-reported types, with the logger-owned changeset column prepended when
+	// changeset hashing is enabled.
 	var hashTypes []string
-	if !config.DisableDiffHashing {
-		hashTypes = append(hashTypes, DiffHashType)
+	if !config.DisableChangesetHashing {
+		hashTypes = append(hashTypes, ChangesetHashType)
 	}
 	hashTypes = append(hashTypes, config.HashTypes...)
 	hashTypeSet := make(map[string]struct{}, len(hashTypes))
@@ -224,26 +224,26 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 	}
 
 	h := &hashLoggerImpl{
-		directory:               config.Path,
-		version:                 sanitizeVersion(config.Version),
-		hashTypes:               hashTypes,
-		hashTypeSet:             hashTypeSet,
-		diffHashingDisabled:     config.DisableDiffHashing,
-		targetFileSize:          uint64(config.TargetFileSize),
-		blocksToRetain:          uint64(config.BlocksToRetain),
-		maxDiskSize:             uint64(config.MaxDiskSize),
-		maxBufferedBlocks:       uint64(config.MaxBufferedBlocks),
-		controlChan:             make(chan controlMessage, config.ControlBufferSize),
-		writerChan:              make(chan writerMessage, config.WriteBufferSize),
-		ctx:                     ctx,
-		cancel:                  cancel,
-		senderCtx:               senderCtx,
-		senderCancel:            senderCancel,
-		sealedFiles:             make(map[uint64]*sealedFileInfo),
-		pendingBlocks:           make(map[uint64]*HashLog),
-		blocksWithPendingHashes: make(map[uint64]struct{}),
+		directory:                config.Path,
+		version:                  sanitizeVersion(config.Version),
+		hashTypes:                hashTypes,
+		hashTypeSet:              hashTypeSet,
+		changesetHashingDisabled: config.DisableChangesetHashing,
+		targetFileSize:           uint64(config.TargetFileSize),
+		blocksToRetain:           uint64(config.BlocksToRetain),
+		maxDiskSize:              uint64(config.MaxDiskSize),
+		maxBufferedBlocks:        uint64(config.MaxBufferedBlocks),
+		controlChan:              make(chan controlMessage, config.ControlBufferSize),
+		writerChan:               make(chan writerMessage, config.WriteBufferSize),
+		ctx:                      ctx,
+		cancel:                   cancel,
+		senderCtx:                senderCtx,
+		senderCancel:             senderCancel,
+		sealedFiles:              make(map[uint64]*sealedFileInfo),
+		pendingBlocks:            make(map[uint64]*HashLog),
+		blocksWithPendingHashes:  make(map[uint64]struct{}),
 	}
-	if !h.diffHashingDisabled {
+	if !h.changesetHashingDisabled {
 		h.hashChan = make(chan hashWork, config.HashBufferSize)
 		h.hashResultChan = make(chan hashResult, config.HashBufferSize)
 	}
@@ -260,7 +260,7 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 	}
 	h.mutableFile = mutableFile
 
-	if !h.diffHashingDisabled {
+	if !h.changesetHashingDisabled {
 		h.wg.Add(1)
 		go h.hasher()
 	}
@@ -338,26 +338,26 @@ func (h *hashLoggerImpl) scanDirectory() error {
 	return nil
 }
 
-func (h *hashLoggerImpl) ReportDiff(blockNumber uint64, cs []*proto.NamedChangeSet) {
+func (h *hashLoggerImpl) ReportChangeset(blockNumber uint64, cs []*proto.NamedChangeSet) {
 	// Calling Report* after Close() violates the contract; fail fast (no-op) rather than risk a send on a
 	// closed channel.
 	if h.closed.Load() {
 		return
 	}
-	if h.diffHashingDisabled {
+	if h.changesetHashingDisabled {
 		return
 	}
-	// A nil change set means the caller is opting out of diff hashing for this block: record a nil diff hash
+	// A nil change set means the caller is opting out of changeset hashing for this block: record a nil changeset hash
 	// (which still completes the block) without bothering the hasher thread. An empty (non-nil) change set is a
-	// legitimate no-change block and falls through to be hashed normally (yielding the hash of the empty diff).
+	// legitimate no-change block and falls through to be hashed normally (yielding the hash of the empty changeset).
 	if cs == nil {
 		h.sendControl(
-			controlMessage{kind: ctrlHashReport, blockNumber: blockNumber, hashType: DiffHashType, hash: nil})
+			controlMessage{kind: ctrlHashReport, blockNumber: blockNumber, hashType: ChangesetHashType, hash: nil})
 		return
 	}
-	// Blocking send to the control loop, which dispatches the change set to the hasher. The diff is never
-	// dropped, so the recorded diff hash always reflects the change set that was reported.
-	h.sendControl(controlMessage{kind: ctrlDiffRequest, blockNumber: blockNumber, cs: cs})
+	// Blocking send to the control loop, which dispatches the change set to the hasher. The changeset is never
+	// dropped, so the recorded changeset hash always reflects the change set that was reported.
+	h.sendControl(controlMessage{kind: ctrlChangesetRequest, blockNumber: blockNumber, cs: cs})
 }
 
 func (h *hashLoggerImpl) ReportHash(blockNumber uint64, hashType string, hash []byte) error {
@@ -366,10 +366,10 @@ func (h *hashLoggerImpl) ReportHash(blockNumber uint64, hashType string, hash []
 	if h.closed.Load() {
 		return fmt.Errorf("hash logger is closed")
 	}
-	// The diff column is logger-owned: it is computed internally from ReportDiff, not supplied by the caller.
-	// Reject it here so a caller can never clobber (or race) the computed diff hash via ReportHash.
-	if !h.diffHashingDisabled && hashType == DiffHashType {
-		return fmt.Errorf("hash type %q is reserved for the logger-computed diff; use ReportDiff", hashType)
+	// The changeset column is logger-owned: it is computed internally from ReportChangeset, not supplied by the caller.
+	// Reject it here so a caller can never clobber (or race) the computed changeset hash via ReportHash.
+	if !h.changesetHashingDisabled && hashType == ChangesetHashType {
+		return fmt.Errorf("hash type %q is reserved for the logger-computed changeset; use ReportChangeset", hashType)
 	}
 	if _, ok := h.hashTypeSet[hashType]; !ok {
 		return fmt.Errorf("unknown hash type %q", hashType)
@@ -422,14 +422,14 @@ func (h *hashLoggerImpl) hasher() {
 	for {
 		select {
 		case <-h.ctx.Done():
-			// Hard stop (error path); abandon in-flight diffs.
+			// Hard stop (error path); abandon in-flight changesets.
 			return
 		case work, ok := <-h.hashChan:
 			if !ok {
-				// The control loop closed hashChan after draining all in-flight diffs; nothing left to do.
+				// The control loop closed hashChan after draining all in-flight changesets; nothing left to do.
 				return
 			}
-			result := hashResult{blockNumber: work.blockNumber, hash: hashDiff(work.cs)}
+			result := hashResult{blockNumber: work.blockNumber, hash: hashChangeset(work.cs)}
 			select {
 			case h.hashResultChan <- result:
 			case <-h.ctx.Done():
@@ -457,17 +457,17 @@ func (h *hashLoggerImpl) controlLoop() {
 					return
 				}
 				h.handleControlMessage(msg)
-			case res := <-h.hashResultChan: // nil channel when diff hashing is disabled; case never fires
-				h.applyDiffResult(res)
+			case res := <-h.hashResultChan: // nil channel when changeset hashing is disabled; case never fires
+				h.applyChangesetResult(res)
 			}
 		} else {
-			// A diff is waiting to be dispatched: offer it to the hasher while still draining results, so the
+			// A changeset is waiting to be dispatched: offer it to the hasher while still draining results, so the
 			// control loop and hasher can never deadlock sending to each other.
 			select {
 			case <-h.ctx.Done():
 				return
 			case res := <-h.hashResultChan:
-				h.applyDiffResult(res)
+				h.applyChangesetResult(res)
 			case h.hashChan <- *h.hashAwaitingDispatch:
 				h.hashAwaitingDispatch = nil
 			}
@@ -481,8 +481,8 @@ func (h *hashLoggerImpl) handleControlMessage(msg controlMessage) {
 	switch msg.kind {
 	case ctrlHashReport:
 		h.handleHashReport(msg.blockNumber, msg.hashType, msg.hash)
-	case ctrlDiffRequest:
-		h.handleDiffRequest(msg.blockNumber, msg.cs)
+	case ctrlChangesetRequest:
+		h.handleChangesetRequest(msg.blockNumber, msg.cs)
 	}
 }
 
@@ -494,25 +494,26 @@ func (h *hashLoggerImpl) handleHashReport(blockNumber uint64, hashType string, h
 	h.ensurePending(blockNumber).Hashes[hashType] = hash
 }
 
-// handleDiffRequest records that a block is awaiting a diff hash and holds the work for dispatch to the hasher.
-func (h *hashLoggerImpl) handleDiffRequest(blockNumber uint64, cs []*proto.NamedChangeSet) {
+// handleChangesetRequest records that a block is awaiting a changeset hash and holds the work for dispatch to
+// the hasher.
+func (h *hashLoggerImpl) handleChangesetRequest(blockNumber uint64, cs []*proto.NamedChangeSet) {
 	if h.hasFlushedAtLeastOnce && blockNumber <= h.flushedHighWater {
 		return // already on disk; discard
 	}
-	// Create the pending entry now so minPendingKey accounts for diff-only blocks and the overflow path can see
-	// that the oldest block is awaiting a diff.
+	// Create the pending entry now so minPendingKey accounts for changeset-only blocks and the overflow path can
+	// see that the oldest block is awaiting a changeset.
 	h.ensurePending(blockNumber)
 	h.blocksWithPendingHashes[blockNumber] = struct{}{}
 	h.hashAwaitingDispatch = &hashWork{blockNumber: blockNumber, cs: cs}
 }
 
-// applyDiffResult records a computed diff hash and clears the block's pending-diff marker.
-func (h *hashLoggerImpl) applyDiffResult(res hashResult) {
+// applyChangesetResult records a computed changeset hash and clears the block's pending-changeset marker.
+func (h *hashLoggerImpl) applyChangesetResult(res hashResult) {
 	delete(h.blocksWithPendingHashes, res.blockNumber)
 	if h.hasFlushedAtLeastOnce && res.blockNumber <= h.flushedHighWater {
-		return // the block was already flushed (e.g. force-flushed by the overflow path); discard the stale diff
+		return // the block was already flushed (e.g. force-flushed by the overflow path); discard the stale changeset
 	}
-	h.ensurePending(res.blockNumber).Hashes[DiffHashType] = res.hash
+	h.ensurePending(res.blockNumber).Hashes[ChangesetHashType] = res.hash
 }
 
 // ensurePending returns the pending HashLog for a block, creating an empty one if needed.
@@ -527,7 +528,7 @@ func (h *hashLoggerImpl) ensurePending(blockNumber uint64) *HashLog {
 
 // flushProgress emits every block it can: first the contiguous prefix of complete blocks, then — while the
 // buffer still exceeds maxBufferedBlocks — the oldest incomplete block, to bound memory. It never force-flushes
-// a block awaiting an in-flight diff (its diff is on the way), even if that leaves the buffer over the bound.
+// a block awaiting an in-flight changeset (its changeset is on the way), even if that leaves the buffer over the bound.
 func (h *hashLoggerImpl) flushProgress() {
 	for {
 		h.drainComplete()
@@ -535,8 +536,8 @@ func (h *hashLoggerImpl) flushProgress() {
 			return
 		}
 		oldest := minPendingKey(h.pendingBlocks)
-		if _, awaitingDiff := h.blocksWithPendingHashes[oldest]; awaitingDiff {
-			return // don't force-flush a block whose diff is still being computed
+		if _, awaitingChangeset := h.blocksWithPendingHashes[oldest]; awaitingChangeset {
+			return // don't force-flush a block whose changeset is still being computed
 		}
 		h.emit(oldest)
 	}
@@ -554,13 +555,13 @@ func (h *hashLoggerImpl) drainComplete() {
 	}
 }
 
-// drainInFlightDiffs blocks until every dispatched diff has returned, applying each result, so no diff result
-// can arrive after the buffer has been flushed. Used on shutdown.
-func (h *hashLoggerImpl) drainInFlightDiffs() {
+// drainInFlightChangesets blocks until every dispatched changeset has returned, applying each result, so no
+// changeset result can arrive after the buffer has been flushed. Used on shutdown.
+func (h *hashLoggerImpl) drainInFlightChangesets() {
 	for len(h.blocksWithPendingHashes) > 0 {
 		select {
 		case res := <-h.hashResultChan:
-			h.applyDiffResult(res)
+			h.applyChangesetResult(res)
 		case <-h.ctx.Done():
 			return
 		}
@@ -580,9 +581,9 @@ func (h *hashLoggerImpl) emit(blockNumber uint64) {
 // gracefulDrain flushes all remaining completable work on a clean shutdown, then closes the downstream channels
 // so the hasher and writer drain and exit.
 func (h *hashLoggerImpl) gracefulDrain() {
-	h.drainInFlightDiffs()
+	h.drainInFlightChangesets()
 	h.flushCompleteOnShutdown()
-	if !h.diffHashingDisabled {
+	if !h.changesetHashingDisabled {
 		close(h.hashChan)
 	}
 	close(h.writerChan)

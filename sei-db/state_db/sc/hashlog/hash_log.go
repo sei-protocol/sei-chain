@@ -12,9 +12,9 @@ const blockNumberHeader = "block_number"
 
 // A record for a single block, recording information about the block's hash.
 //
-// The set of hashes a record carries is data-driven: each configured hash type (e.g. "diff", "flatKV",
+// The set of hashes a record carries is data-driven: each configured hash type (e.g. "changeset", "flatKV",
 // "memIAVL", "root") maps to a hash value. A nil value means no hash was recorded for that type (the
-// subsystem was disabled, or the caller opted out of diff hashing for the block by passing a nil change set).
+// subsystem was disabled, or the caller opted out of changeset hashing for the block by passing a nil change set).
 type HashLog struct {
 	// The software version currently running on this node. Populated from the file name when read back;
 	// it is not stored on individual CSV rows.
@@ -24,7 +24,7 @@ type HashLog struct {
 	BlockNumber uint64
 
 	// The recorded hashes, keyed by hash type. A nil value means the hash was not recorded for that type
-	// (the subsystem was disabled, or diff hashing was opted out for this block).
+	// (the subsystem was disabled, or changeset hashing was opted out for this block).
 	Hashes map[string][]byte
 }
 
