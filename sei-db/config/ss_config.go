@@ -11,7 +11,7 @@ const (
 	PebbleDBBackend         = "pebbledb"
 	RocksDBBackend          = "rocksdb"
 	DefaultSSBackend        = PebbleDBBackend
-	DefaultSSCacheSizeBytes = 32 * 1204 * 1024
+	DefaultSSCacheSizeBytes = 32 * 1024 * 1024
 )
 
 // StateStoreConfig defines configuration for the state store (SS) layer.
