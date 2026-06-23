@@ -414,6 +414,31 @@ func TestImplOverflowNeverFlushesBlockAwaitingDiff(t *testing.T) {
 	}
 }
 
+func TestImplCleanCloseDiscardsIncompleteBlocks(t *testing.T) {
+	dir := t.TempDir()
+	l, err := NewHashLogger(testConfig(dir))
+	require.NoError(t, err)
+
+	// Block 1 complete, block 2 incomplete (missing "b"), block 3 complete. A clean close must write the two
+	// complete blocks (even across the gap left by block 2) and drop the incomplete one rather than persist a
+	// partial record that would read back as a spurious divergence.
+	require.NoError(t, l.ReportHash(1, "a", []byte{0x01}))
+	require.NoError(t, l.ReportHash(1, "b", []byte{0x02}))
+	require.NoError(t, l.ReportHash(2, "a", []byte{0x03}))
+	require.NoError(t, l.ReportHash(3, "a", []byte{0x04}))
+	require.NoError(t, l.ReportHash(3, "b", []byte{0x05}))
+	require.NoError(t, l.Close())
+
+	logs := readAllLogs(t, dir)
+	require.Len(t, logs, 2, "only the two complete blocks should be written")
+	require.Equal(t, uint64(1), logs[0].BlockNumber)
+	require.Equal(t, uint64(3), logs[1].BlockNumber)
+
+	gone, err := ReadHashForBlock(dir, 2)
+	require.NoError(t, err)
+	require.Empty(t, gone, "an incomplete block must be discarded at clean close, not written as a partial record")
+}
+
 func TestImplDiscardsReportsForFlushedBlocksWithoutReopen(t *testing.T) {
 	dir := t.TempDir()
 	l, err := NewHashLogger(testConfig(dir))

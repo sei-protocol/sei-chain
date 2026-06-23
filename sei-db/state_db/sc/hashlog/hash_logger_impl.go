@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -580,17 +581,39 @@ func (h *hashLoggerImpl) emit(blockNumber uint64) {
 	h.hasFlushedAtLeastOnce = true
 }
 
-// gracefulDrain flushes all remaining work on a clean shutdown, then closes the downstream channels so the
-// hasher and writer drain and exit.
+// gracefulDrain flushes all remaining completable work on a clean shutdown, then closes the downstream channels
+// so the hasher and writer drain and exit.
 func (h *hashLoggerImpl) gracefulDrain() {
 	h.drainInFlightDiffs()
-	for len(h.pendingBlocks) > 0 {
-		h.emit(minPendingKey(h.pendingBlocks))
-	}
+	h.flushCompleteOnShutdown()
 	if !h.diffHashingDisabled {
 		close(h.hashChan)
 	}
 	close(h.writerChan)
+}
+
+// flushCompleteOnShutdown writes every complete block still buffered, in increasing block order, and discards
+// any incomplete one. Unlike the overflow path — which must force-flush incomplete blocks to bound memory mid-run
+// — a clean shutdown never writes a partial record: a block that is missing a hash type at close would read back
+// with that column nil and surface as a spurious divergence during comparison, so it is dropped instead.
+func (h *hashLoggerImpl) flushCompleteOnShutdown() {
+	blocks := make([]uint64, 0, len(h.pendingBlocks))
+	for blockNumber := range h.pendingBlocks {
+		blocks = append(blocks, blockNumber)
+	}
+	sort.Slice(blocks, func(i int, j int) bool { return blocks[i] < blocks[j] })
+
+	discarded := 0
+	for _, blockNumber := range blocks {
+		if len(h.pendingBlocks[blockNumber].Hashes) < len(h.hashTypes) {
+			discarded++
+			continue
+		}
+		h.emit(blockNumber)
+	}
+	if discarded > 0 {
+		logger.Info("discarded incomplete blocks on clean shutdown", "count", discarded)
+	}
 }
 
 // blockingSendToWriter delivers a message to the writer, giving up only if the logger is shutting down. A slow
@@ -701,8 +724,10 @@ func (h *hashLoggerImpl) runGC() {
 			continue
 		}
 
-		overBlockRetention := h.latestBlock > h.blocksToRetain &&
-			info.lastBlock < h.latestBlock-h.blocksToRetain
+		// Retain exactly the most-recent blocksToRetain blocks: a file is over the window once its newest block
+		// is more than blocksToRetain-1 behind the latest. Written as an addition to avoid unsigned underflow
+		// when latestBlock < blocksToRetain (in which case nothing is over the window).
+		overBlockRetention := info.lastBlock+h.blocksToRetain <= h.latestBlock
 		overSizeCap := h.currentDiskSpaceUsed > h.maxDiskSize
 		if !overBlockRetention && !overSizeCap {
 			break

@@ -98,6 +98,10 @@ func (c *HashLoggerConfig) Validate() error {
 	if c.MaxBufferedBlocks == 0 {
 		return fmt.Errorf("max buffered blocks must be greater than 0")
 	}
+	if c.TargetFileSize == 0 {
+		// A zero target would seal and rotate a fresh file after every single block.
+		return fmt.Errorf("target file size must be greater than 0")
+	}
 
 	seen := make(map[string]struct{}, len(c.HashTypes))
 	for _, hashType := range c.HashTypes {
