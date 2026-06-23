@@ -82,7 +82,7 @@ func allocEstimate(data []byte, desc protoreflect.MessageDescriptor) (int, error
 				// stores it verbatim in the unknown fields blob.
 				total += tagLen + n
 			} else if fd.IsList() {
-				total += scalarElementSize(fd.Kind())
+				total += sliceHeaderSize + scalarElementSize(fd.Kind())
 			}
 
 		case protowire.Fixed32Type:
@@ -96,7 +96,7 @@ func allocEstimate(data []byte, desc protoreflect.MessageDescriptor) (int, error
 				// stores it verbatim in the unknown fields blob.
 				total += tagLen + n
 			} else if fd.IsList() {
-				total += scalarElementSize(fd.Kind())
+				total += sliceHeaderSize + scalarElementSize(fd.Kind())
 			}
 
 		case protowire.Fixed64Type:
@@ -110,7 +110,7 @@ func allocEstimate(data []byte, desc protoreflect.MessageDescriptor) (int, error
 				// stores it verbatim in the unknown fields blob.
 				total += tagLen + n
 			} else if fd.IsList() {
-				total += scalarElementSize(fd.Kind())
+				total += sliceHeaderSize + scalarElementSize(fd.Kind())
 			}
 
 		case protowire.StartGroupType:

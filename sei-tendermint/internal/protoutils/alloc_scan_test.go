@@ -265,6 +265,26 @@ func TestUnmarshalWithLimit_TruncatedInputReturnsError(t *testing.T) {
 	require.Error(t, err, "truncated mid-varint should return an error")
 }
 
+// TestUnmarshalWithLimit_UnpackedRepeatedScalarSliceHeaderCounted verifies that
+// non-packed repeated scalar fields (Fixed64Type wire encoding) include the
+// slice header in the allocation estimate. Each occurrence contributes
+// sliceHeaderSize + elementSize, not just elementSize.
+func TestUnmarshalWithLimit_UnpackedRepeatedScalarSliceHeaderCounted(t *testing.T) {
+	// SizedOk.f64_count is repeated fixed64 (field 14). fixed64 always uses
+	// Fixed64Type wire encoding — never packed. Each occurrence costs 8 bytes
+	// element + 24 bytes slice header = 32 bytes in the estimate.
+	// 100k occurrences × 32 = ~3.2MB, well over the 1MB limit.
+	// Wire size: 100k × (1 tag + 8 value) = ~900KB, under 1MB.
+	var bz []byte
+	for range 100_000 {
+		bz = protowire.AppendTag(bz, 14, protowire.Fixed64Type)
+		bz = protowire.AppendFixed64(bz, 0)
+	}
+	require.Less(t, len(bz), 1<<20, "wire bytes should be under 1MB")
+	_, err := protoutils.UnmarshalWithLimit[*pb.SizedOk](bz, 1<<20)
+	require.Error(t, err, "100k unpacked fixed64 elements should exceed 1MB due to per-occurrence slice header cost")
+}
+
 // TestUnmarshalWithLimit_SmallUnknownFieldsAccepted verifies that small unknown
 // scalar fields (varint, fixed32, fixed64) are accepted within a generous limit.
 func TestUnmarshalWithLimit_SmallUnknownFieldsAccepted(t *testing.T) {
