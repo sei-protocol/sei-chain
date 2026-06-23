@@ -639,11 +639,10 @@ var File_p2p_giga_api_proto protoreflect.FileDescriptor
 
 const file_p2p_giga_api_proto_rawDesc = "" +
 	"\n" +
-	"\x12p2p/giga/api.proto\x12\bp2p.giga\x1a\x17autobahn/autobahn.proto\x1a\x19wireguard/wireguard.proto\"\x0f\n" +
-	"\rConsensusResp\"\t\n" +
-	"\aPingReq\"\n" +
-	"\n" +
-	"\bPingResp\"L\n" +
+	"\x12p2p/giga/api.proto\x12\bp2p.giga\x1a\x17autobahn/autobahn.proto\x1a\x19wireguard/wireguard.proto\"\x17\n" +
+	"\rConsensusResp:\x06\xe8\x88\xe2\xab\f\x01\"\x11\n" +
+	"\aPingReq:\x06\xe8\x88\xe2\xab\f\x01\"\x12\n" +
+	"\bPingResp:\x06\xe8\x88\xe2\xab\f\x01\"L\n" +
 	"\bLaneVote\x128\n" +
 	"\tlane_vote\x18\x01 \x01(\v2\x1b.autobahn.SignedBlockHeaderR\blaneVote:\x06\xe8\x88\xe2\xab\f\x01\"R\n" +
 	"\fLaneProposal\x12:\n" +
@@ -651,14 +650,14 @@ const file_p2p_giga_api_proto_rawDesc = "" +
 	"\aAppVote\x122\n" +
 	"\bapp_vote\x18\x01 \x01(\v2\x17.autobahn.SignedAppVoteR\aappVote:\x06\xe8\x88\xe2\xab\f\x01\"N\n" +
 	"\x16StreamLaneProposalsReq\x12,\n" +
-	"\x12first_block_number\x18\x01 \x01(\x04R\x10firstBlockNumber:\x06\xe8\x88\xe2\xab\f\x01\"\x11\n" +
-	"\x0fStreamAppQCsReq\"s\n" +
+	"\x12first_block_number\x18\x01 \x01(\x04R\x10firstBlockNumber:\x06\xe8\x88\xe2\xab\f\x01\"\x19\n" +
+	"\x0fStreamAppQCsReq:\x06\xe8\x88\xe2\xab\f\x01\"s\n" +
 	"\x10StreamAppQCsResp\x12&\n" +
 	"\x06app_qc\x18\x01 \x01(\v2\x0f.autobahn.AppQCR\x05appQc\x12/\n" +
-	"\tcommit_qc\x18\x02 \x01(\v2\x12.autobahn.CommitQCR\bcommitQc:\x06\xe8\x88\xe2\xab\f\x01\"\x14\n" +
-	"\x12StreamCommitQCsReq\"\x14\n" +
-	"\x12StreamLaneVotesReq\"\x13\n" +
-	"\x11StreamAppVotesReq\":\n" +
+	"\tcommit_qc\x18\x02 \x01(\v2\x12.autobahn.CommitQCR\bcommitQc:\x06\xe8\x88\xe2\xab\f\x01\"\x1c\n" +
+	"\x12StreamCommitQCsReq:\x06\xe8\x88\xe2\xab\f\x01\"\x1c\n" +
+	"\x12StreamLaneVotesReq:\x06\xe8\x88\xe2\xab\f\x01\"\x1b\n" +
+	"\x11StreamAppVotesReq:\x06\xe8\x88\xe2\xab\f\x01\":\n" +
 	"\vGetBlockReq\x12#\n" +
 	"\rglobal_number\x18\x01 \x01(\x04R\fglobalNumber:\x06\xe8\x88\xe2\xab\f\x01\"L\n" +
 	"\fGetBlockResp\x12*\n" +

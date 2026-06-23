@@ -24,7 +24,6 @@ func (spec Msg[M]) Verify() error {
 	return nil
 }
 
-
 type Msg[M protoutils.Sized] struct {
 	MsgSize InBytes
 	Window  InMsgs
@@ -81,11 +80,11 @@ func Register[API any, Req, Resp protoutils.Sized](kind mux.StreamKind, limit Li
 	if _, ok := service[kind]; ok {
 		panic(fmt.Errorf("conflicting rpc for kind %v", kind))
 	}
-	if err := req.Verify(); err!=nil {
-		panic(fmt.Errorf("RPC %v: %w",kind,err))
+	if err := req.Verify(); err != nil {
+		panic(fmt.Errorf("RPC %v: %w", kind, err))
 	}
-	if err := resp.Verify(); err!=nil {
-		panic(fmt.Errorf("RPC %v: %w",kind,err))
+	if err := resp.Verify(); err != nil {
+		panic(fmt.Errorf("RPC %v: %w", kind, err))
 	}
 	service[kind] = &rpcConfig{limit: limit}
 	return &RPC[API, Req, Resp]{kind, limit, req, resp}

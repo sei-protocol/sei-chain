@@ -8,6 +8,18 @@ import (
 	reflect "reflect"
 )
 
+func (*ConsensusResp) MaxSize() int {
+	return 0
+}
+
+func (*PingReq) MaxSize() int {
+	return 0
+}
+
+func (*PingResp) MaxSize() int {
+	return 0
+}
+
 func (*LaneVote) MaxSize() int {
 	return 224
 }
@@ -17,15 +29,31 @@ func (*LaneProposal) MaxSize() int {
 }
 
 func (*AppVote) MaxSize() int {
-	return 233
+	return 165
 }
 
 func (*StreamLaneProposalsReq) MaxSize() int {
 	return 11
 }
 
+func (*StreamAppQCsReq) MaxSize() int {
+	return 0
+}
+
 func (*StreamAppQCsResp) MaxSize() int {
-	return 30510
+	return 30374
+}
+
+func (*StreamCommitQCsReq) MaxSize() int {
+	return 0
+}
+
+func (*StreamLaneVotesReq) MaxSize() int {
+	return 0
+}
+
+func (*StreamAppVotesReq) MaxSize() int {
+	return 0
 }
 
 func (*GetBlockReq) MaxSize() int {

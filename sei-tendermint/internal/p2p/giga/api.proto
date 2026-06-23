@@ -7,10 +7,17 @@ import "wireguard/wireguard.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb";
 
-message ConsensusResp {}
+message ConsensusResp {
+  option (wireguard.sized) = true;
+}
 
-message PingReq {}
-message PingResp {}
+message PingReq {
+  option (wireguard.sized) = true;
+}
+
+message PingResp {
+  option (wireguard.sized) = true;
+}
 
 message LaneVote {
   option (wireguard.sized) = true;
@@ -32,16 +39,26 @@ message StreamLaneProposalsReq {
   uint64 first_block_number = 1;
 }
 
-message StreamAppQCsReq {}
+message StreamAppQCsReq {
+  option (wireguard.sized) = true;
+}
 message StreamAppQCsResp {
   option (wireguard.sized) = true;
   autobahn.AppQC app_qc = 1; // required
   autobahn.CommitQC commit_qc = 2; // required
 }
 
-message StreamCommitQCsReq {}
-message StreamLaneVotesReq {}
-message StreamAppVotesReq {}
+message StreamCommitQCsReq {
+  option (wireguard.sized) = true;
+}
+
+message StreamLaneVotesReq {
+  option (wireguard.sized) = true;
+}
+
+message StreamAppVotesReq {
+  option (wireguard.sized) = true;
+}
 
 message GetBlockReq {
   option (wireguard.sized) = true;

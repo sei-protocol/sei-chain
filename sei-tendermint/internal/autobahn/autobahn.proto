@@ -153,6 +153,7 @@ message CommitQC {
 }
 
 message FullCommitQC {
+  option (wireguard.sized) = true;
   CommitQC qc = 1;
   repeated BlockHeader headers = 2 [(wireguard.max_count) = 100];
 }
