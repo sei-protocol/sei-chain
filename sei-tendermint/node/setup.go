@@ -291,9 +291,9 @@ func buildGigaRouter(
 		_, inCommittee := validatorAddrs[valKey.Public()]
 		switch {
 		case cfg.Mode == config.ModeValidator && !inCommittee:
-			logger.Error("Autobahn: mode is \"validator\" but local validator key is not in the committee", "valKey", valKey.Public())
+			logger.Warn("Autobahn: mode is \"validator\" but local validator key is not in the committee", "valKey", valKey.Public())
 		case cfg.Mode != config.ModeValidator && inCommittee:
-			logger.Error("Autobahn: local validator key is in the committee but mode is not \"validator\"; starting as fullnode", "mode", cfg.Mode)
+			logger.Warn("Autobahn: local validator key is in the committee but mode is not \"validator\"; starting as fullnode", "mode", cfg.Mode)
 		}
 	}
 	if cfg.Mode == config.ModeValidator {

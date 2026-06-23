@@ -49,6 +49,12 @@ const MaxConcurrentBlockFetches = 100
 // BlockFetchTimeout after which the block fetch RPC is considered failed and needs to be retried.
 const BlockFetchTimeout = 2 * time.Second
 
+// BlockFetchRetryInterval bounds how often runBlockFetcher resends a
+// GetBlock for the same height when the chosen peer doesn't have it yet
+// (empty Option response). Prevents a tight retry loop when our peer
+// happens to be a fullnode that's also catching up.
+const BlockFetchRetryInterval = 1 * time.Second
+
 type req struct {
 	n    types.GlobalBlockNumber
 	done chan struct{}
@@ -84,6 +90,9 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 				}
 				b, ok := block.Get()
 				if !ok {
+					// Peer doesn't have block n yet (e.g. they're a fullnode
+					// catching up too). runBlockFetcher's outer loop will
+					// retry after BlockFetchRetryInterval.
 					return nil
 				}
 				if err := s.data.PushBlock(ctx, req.n, b); err != nil {
@@ -110,9 +119,17 @@ func (x *Service) runBlockFetcher(ctx context.Context) error {
 			}
 			scope.Spawn(func() error {
 				defer release()
-				for {
+				for first := true; ; first = false {
 					if _, err := x.data.TryBlock(n); !errors.Is(err, data.ErrNotFound) {
 						return nil
+					}
+					// Back off between repeated requests for the same block —
+					// avoids hammering a peer that responded with an empty
+					// block (doesn't have it yet).
+					if !first {
+						if err := utils.Sleep(ctx, BlockFetchRetryInterval); err != nil {
+							return err
+						}
 					}
 					req := req{n: n, done: make(chan struct{})}
 					if err := utils.Send(ctx, x.getBlockReqs, req); err != nil {
