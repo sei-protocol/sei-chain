@@ -45,9 +45,13 @@ import (
 //
 // Durability: a background flusher bounds litt durability lag to
 // littFlushInterval without putting fsync on the commit path; Close flushes the
-// remainder. Retention: receipt values expire via litt's per-table TTL (time
-// based), tag keys are pruned by block range, and reads enforce the KeepRecent
-// floor, so visible retention never exceeds KeepRecent regardless of GC timing.
+// remainder. Accepted tradeoff: a hard crash can lose up to littFlushInterval
+// of the most recent receipt bodies (litt buffers in memory, no WAL) while the
+// index still lists them — tolerable for auxiliary, non-consensus RPC data,
+// since reads return not-found for a missing body. Retention: receipt values
+// expire via litt's per-table TTL (time based), tag keys are pruned by block
+// range, and reads enforce the KeepRecent floor, so visible retention never
+// exceeds KeepRecent regardless of GC timing.
 type littReceiptStore struct {
 	values   litt.DB
 	receipts litt.Table
@@ -76,8 +80,11 @@ const (
 
 	littReceiptTableName = "receipts"
 	littFlushInterval    = 100 * time.Millisecond
-	// littTTLPerBlock converts the KeepRecent block count into litt's
-	// time-based TTL. Chosen well above Giga block times.
+	// littTTLPerBlock converts the KeepRecent block count into litt's wall-clock
+	// TTL (KeepRecent * littTTLPerBlock). Set above Giga block times so the TTL
+	// over-retains; only a sustained block time above this would expire a body
+	// still inside the height-based KeepRecent window, which reads mask as
+	// not-found (the earliest-version floor is authoritative).
 	littTTLPerBlock = 2 * time.Second
 
 	littPartCountLen = 4
@@ -106,7 +113,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	// and stall throughput, so raise the key-count and key-file caps past a
 	// retention window and let only the value-file size bind segment seals.
 	littConfig.MaxSegmentKeyCount = 100_000_000
-	littConfig.TargetSegmentFileSize = 512 << 20
+	littConfig.TargetSegmentFileSize = 512 * unit.MB
 	littConfig.TargetSegmentKeyFileSize = 5 * unit.GB
 	littConfig.KeymapType = keymap.PebbleDBKeymapType
 
@@ -366,7 +373,9 @@ func (s *littReceiptStore) startPruning() {
 	go func() {
 		defer s.backgroundWg.Done()
 		for {
-			pruneBefore := s.latestVersion.Load() - s.keepRecent
+			// Keep exactly keepRecent blocks, [latest-keepRecent+1, latest]; the
+			// +1 matches the pebble backend (which retains keepRecent, not +1).
+			pruneBefore := s.latestVersion.Load() - s.keepRecent + 1
 			if pruneBefore > 0 {
 				if err := s.pruneBlocksBelow(uint64(pruneBefore)); err != nil {
 					logger.Error("failed to prune littdb receipt store", "before-block", pruneBefore, "err", err)
