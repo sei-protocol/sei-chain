@@ -369,6 +369,9 @@ func createRouter(
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
 		}
+		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
+		// enable/disable decision through as plain config.
+		gigaCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 		// Resolve a relative persistent_state_dir against the node's --home dir,
 		// matching how other paths in the tendermint config are handled
 		// (config.go's rootify). Absolute paths pass through unchanged. None

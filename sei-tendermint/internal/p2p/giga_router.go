@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"path/filepath"
 	"slices"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -43,6 +45,11 @@ type GigaRouterConfig struct {
 	Consensus      *consensus.Config
 	Producer       *producer.Config
 	GenDoc         *types.GenesisDoc
+
+	// HashVaultDisabledUnsafe disables the block-hash equivocation guard (HashVault). The guard is
+	// on by default (false); the GigaRouter builds and owns it (see Run). Setting this to true is an
+	// explicit, last-resort operator decision to run WITHOUT equivocation protection.
+	HashVaultDisabledUnsafe bool
 }
 
 type GigaRouter struct {
@@ -54,6 +61,11 @@ type GigaRouter struct {
 	service   *giga.Service
 	poolIn    *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut   *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
+
+	// hashVault is the block-hash equivocation guard. The GigaRouter owns its lifecycle: Run builds
+	// it (durable under PersistentStateDir, or a no-op when disabled / in-memory) and closes it on
+	// exit. Never nil once Run has started. See buildHashVault and commitHashToVault.
+	hashVault hashvault.HashVault
 
 	// lastCommitQCRecv is subscribed once at construction and reused for the
 	// lifetime of the GigaRouter. Load() is lock-free (a single
@@ -293,6 +305,16 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
 	}
+
+	// Commit this height's app hash to the equivocation guard before persisting app state, so the
+	// vault always records our commitment to a height before the state it implies is committed (and
+	// before the hash is proposed for AppQC voting via PushAppHash below). On restart the block is
+	// re-executed and the identical hash is re-committed idempotently. A returned error is a benign
+	// shutdown cancellation; genuine faults panic inside the call. See commitHashToVault.
+	if err := commitHashToVault(ctx, r.hashVault, b.GlobalNumber, resp.AppHash); err != nil {
+		return nil, err
+	}
+
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.App.Commit(): %w", err)
@@ -301,6 +323,62 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	return commitResp, nil
+}
+
+// buildHashVault constructs the block-hash equivocation guard the GigaRouter owns. By default it
+// returns a durable Pebble-backed vault rooted at <PersistentStateDir>/hashvault, alongside the
+// other Autobahn on-disk state. It returns a no-op vault (no protection) in two cases: the operator
+// explicitly set HashVaultDisabledUnsafe — logged loudly as unsafe — or there is no persistent
+// state directory (in-memory mode, e.g. tests), where a durable vault would be pointless because
+// the data WAL is itself a no-op (see data.NewDataWAL).
+func buildHashVault(ctx context.Context, cfg *GigaRouterConfig) (hashvault.HashVault, error) {
+	if cfg.HashVaultDisabledUnsafe {
+		logger.Error("################################################################")
+		logger.Error("# HASHVAULT DISABLED (hash-vault-disabled-unsafe=true).        #")
+		logger.Error("# This node has NO block-hash equivocation protection and is   #")
+		logger.Error("# running in an UNSAFE configuration. Re-enable as soon as the #")
+		logger.Error("# underlying issue is resolved.                                #")
+		logger.Error("################################################################")
+		return hashvault.NewNoopHashVault(), nil
+	}
+	dir, ok := cfg.Consensus.PersistentStateDir.Get()
+	if !ok {
+		logger.Info("HashVault: no persistent state dir (in-memory mode); using no-op vault")
+		return hashvault.NewNoopHashVault(), nil
+	}
+	hvCfg := hashvault.DefaultHashVaultConfig()
+	hvCfg.DataDir = filepath.Join(dir, "hashvault")
+	return hashvault.NewPebbleHashVault(ctx, hvCfg)
+}
+
+// commitHashToVault records the app hash for the given height in the equivocation guard and halts
+// the node on any error. Every executed height is guarded, so a node can never commit to two
+// different app hashes for the same height without deliberate human intervention.
+func commitHashToVault(
+	ctx context.Context,
+	vault hashvault.HashVault,
+	height atypes.GlobalBlockNumber,
+	hash []byte,
+) error {
+	err := vault.CommitToHash(ctx, uint64(height), hash)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		logger.Info("HashVault commit aborted by context cancellation during shutdown; not recording hash",
+			"height", height, "err", err)
+		return fmt.Errorf("hashvault CommitToHash aborted at height %d: %w", height, err)
+	}
+	if errors.Is(err, hashvault.ErrHashMismatch) {
+		logger.Error("FATAL: HashVault detected a block-hash mismatch — the node has equivocated. "+
+			"Halting. DO NOT RESTART WITHOUT HUMAN INTERVENTION.",
+			"height", height, "hash", fmt.Sprintf("%X", hash), "err", err)
+	} else {
+		logger.Error("FATAL: HashVault could not commit the block hash (operational error, not a "+
+			"confirmed equivocation). Halting.",
+			"height", height, "hash", fmt.Sprintf("%X", hash), "err", err)
+	}
+	panic(fmt.Sprintf("hashvault CommitToHash failed at height %d: %v", height, err))
 }
 
 func (r *GigaRouter) runExecute(ctx context.Context) error {
@@ -364,10 +442,25 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		if err := r.data.PruneBefore(pruneBefore); err != nil {
 			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
 		}
+		// Align the vault's retention with the data layer's prune boundary.
+		if err := r.hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
+			logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
+		}
 	}
 }
 
 func (r *GigaRouter) Run(ctx context.Context) error {
+	hashVault, err := buildHashVault(ctx, r.cfg)
+	if err != nil {
+		return fmt.Errorf("buildHashVault(): %w", err)
+	}
+	r.hashVault = hashVault
+	defer func() {
+		if err := hashVault.Close(context.Background()); err != nil {
+			logger.Error("failed to close hashvault", "err", err)
+		}
+	}()
+
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Spawn outbound connections dialing.
 		for _, addr := range r.cfg.ValidatorAddrs {

@@ -636,6 +636,12 @@ restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
 # Leave empty to disable Autobahn.
 autobahn-config-file = "{{ .AutobahnConfigFile }}"
 
+# hash-vault-disabled-unsafe disables the block-hash equivocation guard (HashVault).
+# DO NOT set this to true unless you are knowingly running an UNSAFE node as a last-resort
+# recovery measure. A node with this enabled has NO protection against changing its mind about
+# a committed block's hash, and will log error-level warnings on every startup.
+hash-vault-disabled-unsafe = {{ .HashVaultDisabledUnsafe }}
+
 `
 
 // defaultConfigTemplate combines manual and auto-managed templates for backward compatibility
