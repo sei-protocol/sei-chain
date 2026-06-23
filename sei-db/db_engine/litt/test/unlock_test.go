@@ -25,13 +25,15 @@ func TestUnlock(t *testing.T) {
 	config, err := litt.DefaultConfig(volumes...)
 	config.Fsync = false // Disable fsync for faster tests
 	config.TargetSegmentFileSize = 100
-	config.ShardingFactor = uint8(len(volumes))
 	require.NoError(t, err)
+
+	tableConfig := litt.DefaultTableConfig("test_table")
+	tableConfig.ShardingFactor = uint8(len(volumes))
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
 
-	table, err := db.GetTable("test_table")
+	table, err := db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	expectedData := make(map[string][]byte)
@@ -107,7 +109,7 @@ func TestUnlock(t *testing.T) {
 	db, err = littbuilder.NewDB(config)
 	require.NoError(t, err)
 
-	table, err = db.GetTable("test_table")
+	table, err = db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	for key, expectedValue := range expectedData {
@@ -134,7 +136,7 @@ func TestPurgeLocks(t *testing.T) {
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
 
-	table, err := db.GetTable("test_table")
+	table, err := db.BuildTable(litt.DefaultTableConfig("test_table"))
 	require.NoError(t, err)
 
 	expectedData := make(map[string][]byte)

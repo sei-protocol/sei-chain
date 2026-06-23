@@ -156,6 +156,13 @@ type Config struct {
 	// SS-pebble. Requires MemiavlOnly write mode; falls back transparently.
 	TraceBakeUseSnapshot    bool  `mapstructure:"trace_bake_use_snapshot"`
 	TraceBakeSnapshotWindow int64 `mapstructure:"trace_bake_snapshot_window"` // recent snapshots to keep (default 64)
+
+	// IPRateLimitRPS is the per-IP sustained request rate in requests/second.
+	// Zero disables per-IP rate limiting (all requests pass through).
+	IPRateLimitRPS float64 `mapstructure:"ip_rate_limit_rps"`
+
+	// IPRateLimitBurst is the maximum per-IP burst size.
+	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
 }
 
 var DefaultConfig = Config{
@@ -200,6 +207,8 @@ var DefaultConfig = Config{
 	TraceBakeWindowBlocks:   0,
 	TraceBakeUseSnapshot:    false,
 	TraceBakeSnapshotWindow: 64,
+	IPRateLimitRPS:          200,
+	IPRateLimitBurst:        400,
 }
 
 const (
@@ -240,6 +249,8 @@ const (
 	flagTraceBakeWindowBlocks        = "evm.trace_bake_window_blocks"
 	flagTraceBakeUseSnapshot         = "evm.trace_bake_use_snapshot"
 	flagTraceBakeSnapshotWindow      = "evm.trace_bake_snapshot_window"
+	flagIPRateLimitRPS               = "evm.ip_rate_limit_rps"
+	flagIPRateLimitBurst             = "evm.ip_rate_limit_burst"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -430,7 +441,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-
+	if v := opts.Get(flagIPRateLimitRPS); v != nil {
+		if cfg.IPRateLimitRPS, err = cast.ToFloat64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagIPRateLimitBurst); v != nil {
+		if cfg.IPRateLimitBurst, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
 	return cfg, nil
 }
 
@@ -540,8 +560,6 @@ enabled_legacy_sei_apis = [
   # "sei_newBlockFilter",
   # "sei_newFilter",
   # "sei_sign",
-  # "sei_traceBlockByHashExcludeTraceFail",
-  # "sei_traceBlockByNumberExcludeTraceFail",
   # "sei_uninstallFilter",
   #
   # Optional sei2_* block namespace (bank transfers in blocks; HTTP only):
@@ -618,4 +636,12 @@ trace_bake_use_snapshot = {{ .EVM.TraceBakeUseSnapshot }}
 
 # Number of recent memiavl snapshots to retain for trace baking.
 trace_bake_snapshot_window = {{ .EVM.TraceBakeSnapshotWindow }}
+
+# ip_rate_limit_rps is the per-IP sustained request rate in requests/second.
+# Set to 0 to disable per-IP rate limiting (all requests pass through).
+ip_rate_limit_rps = {{ .EVM.IPRateLimitRPS }}
+
+# ip_rate_limit_burst is the maximum per-IP burst above the sustained rate.
+ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
+
 `

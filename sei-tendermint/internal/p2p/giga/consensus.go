@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -110,7 +110,7 @@ func (x *Service) serverConsensus(ctx context.Context, server rpc.Server[API]) e
 			}
 			req, err := types.ConsensusReqConv.DecodeReq(reqRaw)
 			if err != nil {
-				return fmt.Errorf("types.SignedMsgConv.DecodeReq(): %w", err)
+				return fmt.Errorf("types.ConsensusReqConv.DecodeReq(): %w", err)
 			}
 			switch req := req.(type) {
 			case *types.ConsensusReqPrepareVote:

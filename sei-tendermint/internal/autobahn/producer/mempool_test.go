@@ -6,16 +6,16 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/big"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -61,7 +61,7 @@ func (tx *txSpec) asResponse() *abci.ResponseCheckTxV2 {
 		EVMHash:            tx.EVMHash,
 		EVMSenderAddress:   tx.Address,
 		SeiSenderAddress:   tx.Address[:],
-		EVMRequiredBalance: big.NewInt(int64(tx.RequiredBalance)),
+		EVMRequiredBalance: *uint256.NewInt(tx.RequiredBalance),
 	}
 }
 

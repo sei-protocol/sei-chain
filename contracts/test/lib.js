@@ -280,8 +280,12 @@ async function associateKey(keyName) {
 
 // Strict helper for tests that are explicitly asserting association behavior.
 async function associateKeyStrict(keyName) {
+    const seiAddress = await getKeySeiAddress(keyName)
     await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
-    await waitForBlocks()
+    await waitForCondition(
+        async () => (await getEvmAddressAssociation(seiAddress)).associated === true,
+        `${seiAddress} to have an associated EVM address`,
+    )
 }
 
 function getEventAttribute(response, type, attribute) {
@@ -836,10 +840,13 @@ async function getSeiAddress(evmAddress) {
 }
 
 async function getEvmAddress(seiAddress) {
+    return (await getEvmAddressAssociation(seiAddress)).evm_address
+}
+
+async function getEvmAddressAssociation(seiAddress) {
     const command = `seid q evm evm-addr ${seiAddress} -o json`
     const output = await execute(command);
-    const response = JSON.parse(output)
-    return response.evm_address
+    return JSON.parse(output)
 }
 
 function generateWallet() {

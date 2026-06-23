@@ -46,8 +46,13 @@ type DiskTable struct {
 	// The table's name.
 	name string
 
-	// The table's metadata.
-	metadata *tableMetadata
+	// The table's TTL, supplied at creation time and held only in memory (not persisted across restarts).
+	// Accessed/modified by concurrent goroutines (the caller via SetTTL and the control loop).
+	ttl atomic.Pointer[time.Duration]
+
+	// The table's sharding factor, supplied at creation time and held only in memory (not persisted across
+	// restarts). Accessed/modified by concurrent goroutines (the control loop and read sites).
+	shardingFactor atomic.Uint32
 
 	// A map of keys to their addresses.
 	keymap keymap.Keymap
@@ -99,6 +104,7 @@ func NewDiskTable(
 	config *litt.Config,
 	runtimeConfig *litt.RuntimeConfig,
 	name string,
+	tableConfig litt.TableConfig,
 	keymap keymap.Keymap,
 	keymapPath string,
 	keymapTypeFile *keymap.KeymapTypeFile,
@@ -135,44 +141,6 @@ func NewDiskTable(
 		}
 	}
 
-	var metadataFilePath string
-	var metadata *tableMetadata
-
-	// Find the table metadata file or create a new one.
-	for _, root := range qualifiedRoots {
-		possibleMetadataPath := metadataPath(root)
-		exists, err := util.Exists(possibleMetadataPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check if metadata file exists: %w", err)
-		}
-		if exists {
-			if metadataFilePath != "" {
-				return nil, fmt.Errorf("multiple metadata files found: %s and %s",
-					metadataFilePath, possibleMetadataPath)
-			}
-
-			// We've found an existing metadata file. Use it.
-			metadataFilePath = possibleMetadataPath
-		}
-	}
-	if metadataFilePath == "" {
-		// No metadata file exists yet. Create a new one in the first root.
-		var err error
-		metadataDir := qualifiedRoots[0]
-		metadata, err = newTableMetadata(runtimeConfig.Logger, metadataDir, config.TTL, config.ShardingFactor, config.Fsync)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create table metadata: %w", err)
-		}
-	} else {
-		// Metadata file exists, so we need to load it.
-		var err error
-		metadataDir := path.Dir(metadataFilePath)
-		metadata, err = loadTableMetadata(runtimeConfig.Logger, metadataDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load table metadata: %w", err)
-		}
-	}
-
 	errorMonitor := util.NewErrorMonitor(runtimeConfig.CTX, runtimeConfig.Logger, runtimeConfig.FatalErrorCallback)
 
 	table := &DiskTable{
@@ -182,13 +150,16 @@ func NewDiskTable(
 		roots:          qualifiedRoots,
 		segmentPaths:   segmentPaths,
 		name:           name,
-		metadata:       metadata,
 		keymap:         keymap,
 		keymapPath:     keymapPath,
 		keymapTypeFile: keymapTypeFile,
 		metrics:        metrics,
 		fsync:          config.Fsync,
 	}
+	// TTL and sharding factor are supplied at creation time and held only in memory; they are not persisted
+	// across restarts.
+	table.setTTL(tableConfig.TTL)
+	table.setShardingFactor(tableConfig.ShardingFactor)
 	table.flushCoordinator = newFlushCoordinator(errorMonitor, table.flushInternal, config.MinimumFlushInterval)
 
 	snapshottingEnabled := config.SnapshotDirectory != ""
@@ -233,7 +204,7 @@ func NewDiskTable(
 		nextSegmentIndex,
 		segmentPaths,
 		snapshottingEnabled,
-		metadata.GetShardingFactor(),
+		table.getShardingFactor(),
 		config.Fsync)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mutable segment: %w", err)
@@ -296,7 +267,6 @@ func NewDiskTable(
 		clock:                   runtimeConfig.Clock,
 		segmentPaths:            segmentPaths,
 		snapshottingEnabled:     snapshottingEnabled,
-		metadata:                metadata,
 		fsync:                   config.Fsync,
 		metrics:                 metrics,
 		name:                    name,
@@ -305,6 +275,7 @@ func NewDiskTable(
 		flushLoop:               fLoop,
 		garbageCollectionPeriod: config.GCPeriod,
 		immutableSegmentSize:    immutableSegmentSize,
+		gcFilter:                tableConfig.GCFilter,
 	}
 	cLoop.threadsafeHighestSegmentIndex.Store(highestSegmentIndex)
 	table.controlLoop = cLoop
@@ -510,11 +481,16 @@ func (d *DiskTable) Close() error {
 	return nil
 }
 
-// Destroy stops the disk table and delete all files.
-func (d *DiskTable) Destroy() error {
+// IsDropped returns true if the table has been dropped (see Drop).
+func (d *DiskTable) IsDropped() bool {
+	return d.destroyed.Load()
+}
+
+// Drop stops the disk table and deletes all files.
+func (d *DiskTable) Drop() error {
 	firstTimeDestroying := d.destroyed.CompareAndSwap(false, true)
 	if !firstTimeDestroying {
-		return nil // already destroyed
+		return nil // already dropped
 	}
 
 	err := d.Close()
@@ -583,12 +559,6 @@ func (d *DiskTable) Destroy() error {
 		}
 	}
 
-	// delete the metadata file
-	err = d.metadata.delete()
-	if err != nil {
-		return fmt.Errorf("failed to delete metadata: %w", err)
-	}
-
 	// delete the root directories for the table
 	for _, root := range d.roots {
 		err = os.Remove(root)
@@ -600,6 +570,27 @@ func (d *DiskTable) Destroy() error {
 	return nil
 }
 
+// getTTL returns the in-memory TTL for the table.
+func (d *DiskTable) getTTL() time.Duration {
+	return *d.ttl.Load()
+}
+
+// setTTL sets the in-memory TTL for the table.
+func (d *DiskTable) setTTL(ttl time.Duration) {
+	d.ttl.Store(&ttl)
+}
+
+// getShardingFactor returns the in-memory sharding factor for the table. Capped at litt.MaxShardingFactor
+// (255) so the value always fits in a single byte.
+func (d *DiskTable) getShardingFactor() uint8 {
+	return uint8(d.shardingFactor.Load()) //nolint:gosec // bounded to uint8 by setShardingFactor / constructor
+}
+
+// setShardingFactor sets the in-memory sharding factor for the table.
+func (d *DiskTable) setShardingFactor(shardingFactor uint8) {
+	d.shardingFactor.Store(uint32(shardingFactor))
+}
+
 // SetTTL sets the TTL for the disk table. If set to 0, no TTL is enforced. This setting affects both new
 // data and data already written.
 func (d *DiskTable) SetTTL(ttl time.Duration) error {
@@ -607,10 +598,7 @@ func (d *DiskTable) SetTTL(ttl time.Duration) error {
 		return fmt.Errorf("cannot process SetTTL() request, DB is in panicked state due to error: %w", err)
 	}
 
-	err := d.metadata.SetTTL(ttl)
-	if err != nil {
-		return fmt.Errorf("failed to set TTL: %w", err)
-	}
+	d.setTTL(ttl)
 	return nil
 }
 
@@ -917,6 +905,73 @@ func (d *DiskTable) RunGC() error {
 	}
 
 	return nil
+}
+
+// Iterator returns a new iterator over the keys in the table.
+func (d *DiskTable) Iterator(reverse bool) (litt.Iterator, error) {
+	if ok, err := d.errorMonitor.IsOk(); !ok {
+		return nil, fmt.Errorf("cannot process Iterator() request, DB is in panicked state due to error: %w", err)
+	}
+
+	request := &controlLoopOpenIteratorRequest{
+		responseChan: make(chan []*segment.Segment, 1),
+	}
+	err := d.controlLoop.enqueue(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send open iterator request: %w", err)
+	}
+
+	segs, err := util.Await(d.errorMonitor, request.responseChan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to await iterator open: %w", err)
+	}
+
+	if reverse {
+		return newReverseIterator(d, segs), nil
+	}
+	return newForwardIterator(d, segs), nil
+}
+
+// GetOldestKey returns the oldest non-deleted primary key in the table.
+func (d *DiskTable) GetOldestKey() (key []byte, exists bool, err error) {
+	resp, err := d.boundaryKeys()
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get oldest key: %w", err)
+	}
+	return resp.oldestKey, resp.oldestExists, nil
+}
+
+// GetNewestKey returns the newest primary key in the table.
+func (d *DiskTable) GetNewestKey() (key []byte, exists bool, err error) {
+	resp, err := d.boundaryKeys()
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get newest key: %w", err)
+	}
+	return resp.newestKey, resp.newestExists, nil
+}
+
+// boundaryKeys sends a request to the control loop for the oldest and newest primary keys.
+func (d *DiskTable) boundaryKeys() (*boundaryKeysResponse, error) {
+	if ok, err := d.errorMonitor.IsOk(); !ok {
+		return nil, fmt.Errorf("cannot process request, DB is in panicked state due to error: %w", err)
+	}
+
+	request := &controlLoopBoundaryKeysRequest{
+		responseChan: make(chan *boundaryKeysResponse, 1),
+	}
+	err := d.controlLoop.enqueue(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send boundary keys request: %w", err)
+	}
+
+	resp, err := util.Await(d.errorMonitor, request.responseChan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to await boundary keys: %w", err)
+	}
+	if resp.err != nil {
+		return nil, resp.err
+	}
+	return resp, nil
 }
 
 // writeKeysToKeymap flushes all keys to the keymap. Once they are flushed, it also removes the keys from the

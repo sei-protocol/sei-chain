@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -18,7 +18,7 @@ func TestConsensusClientServer(t *testing.T) {
 	env := newTestEnv(committee)
 	// Run only a subset of replicas, to enforce timeouts.
 	var nodes []*testNode
-	for _, key := range keys[:committee.CommitQuorum()] {
+	for _, key := range types.TestKeysWithWeight(committee, keys, committee.CommitQuorum()) {
 		nodes = append(nodes, env.AddNode(key))
 	}
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {

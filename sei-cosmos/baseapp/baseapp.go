@@ -2,7 +2,6 @@ package baseapp
 
 import (
 	"fmt"
-	"math/big"
 	"reflect"
 	"strings"
 	"sync"
@@ -11,6 +10,7 @@ import (
 	"github.com/armon/go-metrics"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/proto"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
@@ -86,8 +86,8 @@ func (app *BaseApp) EvmNonce(_ common.Address) uint64 {
 	return 0
 }
 
-func (app *BaseApp) EvmBalance(_ common.Address, _ []byte) *big.Int {
-	return big.NewInt(0)
+func (app *BaseApp) EvmBalance(_ common.Address, _ []byte) uint256.Int {
+	return uint256.Int{}
 }
 
 // BaseApp reflects the ABCI application implementation.
@@ -695,6 +695,13 @@ func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *tmproto.ConsensusParams
 	}
 
 	return cp
+}
+
+func (app *BaseApp) GetConsensusParamsForStateToCommit() *tmproto.ConsensusParams {
+	if app.stateToCommit == nil {
+		return nil
+	}
+	return app.GetConsensusParams(app.stateToCommit.Context())
 }
 
 // AddRunTxRecoveryHandler adds custom app.runTx method panic handlers.

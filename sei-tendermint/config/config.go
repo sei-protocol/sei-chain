@@ -514,6 +514,18 @@ type RPCConfig struct {
 
 	// Timeout for any read request
 	TimeoutRead time.Duration `mapstructure:"timeout-read"`
+
+	// Timeout to read HTTP request headers; mitigates slowloris attacks.
+	// 0 disables the timeout, not recommended.
+	TimeoutReadHeader time.Duration `mapstructure:"timeout-read-header"`
+
+	// HTTP write timeout. Acts as a hard backstop for all handlers.
+	// 0 disables the timeout, not recommended
+	TimeoutWrite time.Duration `mapstructure:"timeout-write"`
+
+	// Maximum number of results returned by tx_search and block_search.
+	// 0 disables the cap (not recommended on public nodes).
+	MaxTxSearchResults int `mapstructure:"max-tx-search-results"`
 }
 
 // DefaultRPCConfig returns a default configuration for the RPC server
@@ -543,7 +555,11 @@ func DefaultRPCConfig() *RPCConfig {
 		TLSKeyFile:   "",
 		LagThreshold: 300,
 
-		TimeoutRead: 10 * time.Second,
+		TimeoutRead:       10 * time.Second,
+		TimeoutReadHeader: 10 * time.Second,
+		TimeoutWrite:      30 * time.Second,
+
+		MaxTxSearchResults: 10_000,
 	}
 }
 
@@ -585,6 +601,19 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	}
 	if cfg.LagThreshold < 0 {
 		return errors.New("lag-threshold can't be negative")
+	}
+	if cfg.TimeoutReadHeader < 0 {
+		return errors.New("timeout-read-header can't be negative")
+	}
+	if cfg.TimeoutWrite < 0 {
+		return errors.New("timeout-write can't be negative")
+	}
+	if cfg.TimeoutWrite > 0 && cfg.TimeoutWrite <= cfg.TimeoutBroadcastTxCommit {
+		return fmt.Errorf("timeout-write (%s) must be greater than timeout-broadcast-tx-commit (%s)",
+			cfg.TimeoutWrite, cfg.TimeoutBroadcastTxCommit)
+	}
+	if cfg.MaxTxSearchResults < 0 {
+		return errors.New("max-tx-search-results can't be negative")
 	}
 	return nil
 }
@@ -807,14 +836,14 @@ type MempoolConfig struct {
 	CheckTxErrorBlacklistEnabled bool `mapstructure:"check-tx-error-blacklist-enabled"`
 	CheckTxErrorThreshold        int  `mapstructure:"check-tx-error-threshold"`
 
-	// Maximum number of transactions in the pending set
 	PendingSize int `mapstructure:"pending-size"`
 
-	// Limit the total size of all txs in the pending set.
 	MaxPendingTxsBytes int64 `mapstructure:"max-pending-txs-bytes"`
 
+	// Deprecated: pending TTL is not used and this field has no effect.
 	PendingTTLDuration time.Duration `mapstructure:"pending-ttl-duration"`
 
+	// Deprecated: pending TTL is not used and this field has no effect.
 	PendingTTLNumBlocks int64 `mapstructure:"pending-ttl-num-blocks"`
 
 	RemoveExpiredTxsFromQueue bool `mapstructure:"remove-expired-txs-from-queue"`
@@ -1146,6 +1175,9 @@ type ConsensusConfig struct {
 	// removed in the v0.37 release of Tendermint.
 	// See: https://github.com/tendermint/tendermint/issues/8188
 
+	// If false, all the Unsafe<..>TimeoutOverride fields are ignored.
+	// Defaults to false.
+	UnsafeOverridesEnabled bool `mapstructure:"unsafe-overrides-enabled"`
 	// UnsafeProposeTimeoutOverride provides an unsafe override of the Propose
 	// timeout consensus parameter. It configures how long the consensus engine
 	// will wait to receive a proposal block before prevoting nil.
@@ -1187,6 +1219,43 @@ type ConsensusConfig struct {
 	DeprecatedTimeoutPrecommitDelta *any `mapstructure:"timeout-precommit-delta"`
 	DeprecatedTimeoutCommit         *any `mapstructure:"timeout-commit"`
 	DeprecatedSkipTimeoutCommit     *any `mapstructure:"skip-timeout-commit"`
+}
+
+// Timeout params on Sei pacific-1, as of 2026-06-16.
+// Overrides will be disabled by default in release 6.6,
+// but only after the onchain timeout params are set
+// to correct values via gov proposal. Until then
+// (i.e. while onchain timeout params are still equal to badParams)
+// overrides are still enabled by default.
+var badParams = types.TimeoutParams{
+	Propose:             1 * time.Second,
+	ProposeDelta:        500 * time.Millisecond,
+	Vote:                50 * time.Millisecond,
+	VoteDelta:           500 * time.Millisecond,
+	Commit:              50 * time.Millisecond,
+	BypassCommitTimeout: false,
+}
+
+func (c *ConsensusConfig) ResolveTimeouts(t types.TimeoutParams) types.TimeoutParams {
+	t = t.Or(types.DefaultTimeoutParams())
+	// Overrides are ineffective iff !UnsafeOverridesEnabled AND t != badParams:
+	// see doc on badParams.
+	if !c.UnsafeOverridesEnabled && t != badParams {
+		return t
+	}
+	overrides := types.TimeoutParams{
+		Propose:      c.UnsafeProposeTimeoutOverride,
+		ProposeDelta: c.UnsafeProposeTimeoutDeltaOverride,
+		Vote:         c.UnsafeVoteTimeoutOverride,
+		VoteDelta:    c.UnsafeVoteTimeoutDeltaOverride,
+		Commit:       c.UnsafeCommitTimeoutOverride,
+	}
+	t = overrides.Or(t)
+	// BypassCommitTimeout is special because it can be overridden to false.
+	if bcto := c.UnsafeBypassCommitTimeoutOverride; bcto != nil {
+		t.BypassCommitTimeout = *bcto
+	}
+	return t
 }
 
 // DefaultConsensusConfig returns a default configuration for the consensus service

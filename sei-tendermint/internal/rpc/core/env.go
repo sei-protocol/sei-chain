@@ -279,17 +279,13 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 	cfg.MaxBodyBytes = conf.RPC.MaxBodyBytes
 	cfg.MaxHeaderBytes = conf.RPC.MaxHeaderBytes
 	cfg.MaxOpenConnections = conf.RPC.MaxOpenConnections
-	// If necessary adjust global WriteTimeout to ensure it's greater than
-	// TimeoutBroadcastTxCommit.
-	// See https://github.com/tendermint/tendermint/issues/3435
-	// Note we don't need to adjust anything if the timeout is already unlimited.
-	if cfg.WriteTimeout > 0 && cfg.WriteTimeout <= conf.RPC.TimeoutBroadcastTxCommit {
-		cfg.WriteTimeout = conf.RPC.TimeoutBroadcastTxCommit + 1*time.Second
-	}
 
 	if conf.RPC.TimeoutRead > 0 {
 		cfg.ReadTimeout = conf.RPC.TimeoutRead
 	}
+
+	cfg.ReadHeaderTimeout = conf.RPC.TimeoutReadHeader
+	cfg.WriteTimeout = conf.RPC.TimeoutWrite
 
 	// If the event log is enabled, subscribe to all events published to the
 	// event bus, and forward them to the event log.

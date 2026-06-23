@@ -68,22 +68,19 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 		return nil, fmt.Errorf("too many paths configured (%d), max is %d",
 			len(cfg.LittConfig.Paths), litt.MaxShardingFactor)
 	}
-	cfg.LittConfig.ShardingFactor = uint8(len(cfg.LittConfig.Paths)) //nolint:gosec // bounded above by MaxShardingFactor
 
 	db, err := littbuilder.NewDB(cfg.LittConfig, runtimeConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create db: %w", err)
 	}
 
-	table, err := db.GetTable("benchmark")
+	tableConfig := litt.DefaultTableConfig("benchmark")
+	tableConfig.ShardingFactor = uint8(len(cfg.LittConfig.Paths)) //nolint:gosec // bounded above by MaxShardingFactor
+	tableConfig.TTL = time.Duration(cfg.TTLHours * float64(time.Hour))
+
+	table, err := db.BuildTable(tableConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create table: %w", err)
-	}
-
-	ttl := time.Duration(cfg.TTLHours * float64(time.Hour))
-	err = table.SetTTL(ttl)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set TTL for table: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

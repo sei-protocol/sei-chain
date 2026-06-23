@@ -205,8 +205,12 @@ func (c *cachedTable) Close() error {
 	return c.base.Close()
 }
 
-func (c *cachedTable) Destroy() error {
-	return c.base.Destroy()
+func (c *cachedTable) Drop() error {
+	return c.base.Drop()
+}
+
+func (c *cachedTable) IsDropped() bool {
+	return c.base.IsDropped()
 }
 
 func (c *cachedTable) SetShardingFactor(shardingFactor uint8) error {
@@ -215,4 +219,19 @@ func (c *cachedTable) SetShardingFactor(shardingFactor uint8) error {
 
 func (c *cachedTable) RunGC() error {
 	return c.base.RunGC()
+}
+
+// Iterator returns a new iterator over the keys in the table. The iterator reads values directly from
+// the base table, bypassing the cache: the iterator's target workload is a large linear scan, for which
+// the cache offers no benefit and would only thrash.
+func (c *cachedTable) Iterator(reverse bool) (litt.Iterator, error) {
+	return c.base.Iterator(reverse)
+}
+
+func (c *cachedTable) GetOldestKey() (key []byte, exists bool, err error) {
+	return c.base.GetOldestKey()
+}
+
+func (c *cachedTable) GetNewestKey() (key []byte, exists bool, err error) {
+	return c.base.GetNewestKey()
 }
