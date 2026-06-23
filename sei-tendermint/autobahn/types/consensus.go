@@ -42,11 +42,11 @@ var ConsensusReqConv = protoutils.Conv[ConsensusReq, *pb.ConsensusReq]{
 			}
 		case *ConsensusReqPrepareVote:
 			return &pb.ConsensusReq{
-				T: &pb.ConsensusReq_PrepareVote{PrepareVote: SignedMsgConv[*PrepareVote]().Encode(m.Signed)},
+				T: &pb.ConsensusReq_PrepareVoteV2{PrepareVoteV2: SignedPrepareVoteConv.Encode(m.Signed)},
 			}
 		case *ConsensusReqCommitVote:
 			return &pb.ConsensusReq{
-				T: &pb.ConsensusReq_CommitVote{CommitVote: SignedMsgConv[*CommitVote]().Encode(m.Signed)},
+				T: &pb.ConsensusReq_CommitVoteV2{CommitVoteV2: SignedCommitVoteConv.Encode(m.Signed)},
 			}
 		case *FullTimeoutVote:
 			return &pb.ConsensusReq{
@@ -67,14 +67,14 @@ var ConsensusReqConv = protoutils.Conv[ConsensusReq, *pb.ConsensusReq]{
 		switch t := m.T.(type) {
 		case *pb.ConsensusReq_Proposal:
 			return FullProposalConv.DecodeReq(t.Proposal)
-		case *pb.ConsensusReq_PrepareVote:
-			vote, err := SignedMsgConv[*PrepareVote]().DecodeReq(t.PrepareVote)
+		case *pb.ConsensusReq_PrepareVoteV2:
+			vote, err := SignedPrepareVoteConv.DecodeReq(t.PrepareVoteV2)
 			if err != nil {
 				return nil, fmt.Errorf("prepareVote: %w", err)
 			}
 			return &ConsensusReqPrepareVote{vote}, nil
-		case *pb.ConsensusReq_CommitVote:
-			vote, err := SignedMsgConv[*CommitVote]().DecodeReq(t.CommitVote)
+		case *pb.ConsensusReq_CommitVoteV2:
+			vote, err := SignedCommitVoteConv.DecodeReq(t.CommitVoteV2)
 			if err != nil {
 				return nil, fmt.Errorf("commitVote: %w", err)
 			}
