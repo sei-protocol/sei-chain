@@ -412,7 +412,7 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 
 	// Commit this block's hash to the equivocation guard before saving state. See commitHashToVault.
 	// A returned error is a benign shutdown cancellation; genuine faults panic inside the call.
-	if err := commitHashToVault(ctx, blockExec.hashVault, block.Height, block.Hash()); err != nil {
+	if err := commitHashToVault(ctx, blockExec.hashVault, block.Height, state.AppHash); err != nil {
 		return state, err
 	}
 
