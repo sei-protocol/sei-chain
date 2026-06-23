@@ -21,4 +21,4 @@ make run-rpc-node-skipbuild &
 
 sleep 5
 
-python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
+go test -tags yaml_integration -v -timeout 5m ./integration_test/runner/... -run TestStartup
