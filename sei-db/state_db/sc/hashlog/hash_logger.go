@@ -27,8 +27,10 @@ type HashLogger interface {
 	ReportDiff(blockNumber uint64, cs []*proto.NamedChangeSet)
 
 	// Report a hash for a block under the given type. The type must be one of the types this logger was
-	// configured to record, otherwise an error is returned. A subsystem that is disabled should report a nil
-	// hash for its type rather than skipping the call, so that the block can still be completed.
+	// configured to record, otherwise an error is returned. The diff hash type is reserved for the
+	// logger-computed diff column (use ReportDiff) and is also rejected when diff hashing is enabled. A
+	// subsystem that is disabled should report a nil hash for its type rather than skipping the call, so that
+	// the block can still be completed.
 	ReportHash(blockNumber uint64, hashType string, hash []byte) error
 
 	// SignalRollback notifies the logger that the node has rolled back and is about to re-execute blocks at

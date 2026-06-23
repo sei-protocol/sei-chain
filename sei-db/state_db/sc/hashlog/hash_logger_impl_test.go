@@ -76,6 +76,25 @@ func TestImplReportHashUnknownType(t *testing.T) {
 	require.ErrorContains(t, l.ReportHash(1, "nonexistent", []byte{0x01}), "unknown hash type")
 }
 
+func TestImplReportHashRejectsReservedDiffType(t *testing.T) {
+	dir := t.TempDir()
+	config := testConfig(dir)
+	config.HashTypes = []string{"a"}
+	config.DiffHashType = "diff"
+	config.DisableDiffHashing = false
+	l, err := NewHashLogger(config)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, l.Close()) }()
+
+	// The diff column is logger-owned; reporting it via ReportHash must be rejected so it cannot clobber or
+	// race the internally computed diff hash.
+	err = l.ReportHash(1, "diff", []byte{0x01})
+	require.ErrorContains(t, err, "reserved")
+
+	// A normal caller-reported type is still accepted.
+	require.NoError(t, l.ReportHash(1, "a", []byte{0x01}))
+}
+
 func TestImplNilHashCompletesBlock(t *testing.T) {
 	dir := t.TempDir()
 	l, err := NewHashLogger(testConfig(dir))

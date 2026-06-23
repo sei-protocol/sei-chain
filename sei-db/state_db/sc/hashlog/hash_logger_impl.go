@@ -28,6 +28,18 @@ const (
 	ctrlClose                             // a graceful-shutdown signal (sent by Close)
 )
 
+// Data flow:
+//
+// The control loop gathers and colates hash data. When it gets the diff for a block, it farms the work of hashing
+// that diff to the hasher goroutine. When it collects enough data to write to the hash log, it offloads the write
+// to the writer goroutine.
+//
+//	ReportHash ─────────┐                     ┌──────writerChan─────▶ writer
+//	ReportDiff ─────────┤                     │
+//	SignalRollback ─────┴───controlChan──▶ controlLoop ───hashChan──▶ hasher
+//	                                          ▲                         │
+//	                                          └──────hashResultChan─────┘
+
 // A message destined for the control loop. All caller entry points (ReportHash, ReportDiff, SignalRollback)
 // and Close funnel through controlChan as a single ordered stream, so the control loop always knows which
 // blocks have a diff hash in flight and can order rollbacks and shutdown against the reports around them.
@@ -69,29 +81,6 @@ type sealedFileInfo struct {
 }
 
 // A standard hash logger implementation.
-//
-// The control loop is the hub. All caller entry points funnel into it; it dispatches diff work to the hasher,
-// receives the results back, assembles a complete HashLog per block, and emits to the writer:
-//
-//	ReportHash ─────────┐
-//	ReportDiff ─────────┤
-//	SignalRollback ─────┴─▶ controlChan ─▶ controlLoop ─┬─▶ hashChan ─▶ hasher
-//	                                          ▲         │
-//	                                          └── hashResultChan ◀──────┘
-//	                                       controlLoop ─▶ writerChan ─▶ writer
-//
-// Routing diff requests through the control loop means it always knows which blocks have a diff hash in flight,
-// so it never force-flushes a block that is merely waiting on its diff. The control loop emits complete blocks
-// in increasing order; if more than maxBufferedBlocks pile up (e.g. a registered hash type is never reported),
-// it force-writes the oldest incomplete block to bound memory — unless that block is still awaiting its diff.
-// Rollbacks are explicit (SignalRollback), not inferred. The writer owns all on-disk state.
-//
-// Delivery is reliable: every send is a blocking send (bounded only by the configured channel buffers, which
-// absorb transient stalls). Nothing is silently dropped, so the recorded hashes faithfully reflect what was
-// reported. If a downstream stage (a slow disk, say) falls behind for an extended period, backpressure
-// propagates up the pipeline and the caller's commit path blocks until it catches up; since this tool is off
-// by default, it can be disabled if that ever becomes a problem. Report*/SignalRollback must not be called
-// after Close().
 type hashLoggerImpl struct {
 	// Immutable configuration captured at construction.
 	directory   string
@@ -154,6 +143,28 @@ type hashLoggerImpl struct {
 
 	// The highest block number written to disk so far (used for block-count retention).
 	latestBlock uint64
+
+	// The following fields are the control loop's private bookkeeping, owned exclusively by the control loop
+	// goroutine, so they need no synchronization.
+
+	// Blocks being assembled, keyed by block number.
+	pendingBlocks map[uint64]*HashLog
+
+	// Blocks with a diff dispatched to the hasher whose result has not yet returned. Such a block is never
+	// force-flushed by the overflow path: its diff is on the way.
+	blocksWithPendingHashes map[uint64]struct{}
+
+	// The single hash job that has been read off controlChan but not yet enqueued into hashChan, because the
+	// hasher fell behind and hashChan's buffer is full. hashChan's buffer is the real in-flight queue (many
+	// jobs); this is the one job that couldn't fit, and it is the backpressure boundary: while it is set the
+	// control loop stops reading new control messages (so ReportDiff blocks upstream), but it keeps draining
+	// results, which keeps the loop⇄hasher pair deadlock-free.
+	workAwaitingDispatch *hashWork
+
+	// The highest block number written to disk. While valid, reports for blocks at or below it are discarded
+	// (they are already flushed); SignalRollback clears this so re-executed blocks are accepted again.
+	flushedHighWater uint64
+	flushedValid     bool
 }
 
 // NewHashLogger creates a HashLogger that writes to config.Path.
@@ -182,23 +193,25 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 	}
 
 	h := &hashLoggerImpl{
-		directory:           config.Path,
-		version:             sanitizeVersion(config.Version),
-		hashTypes:           hashTypes,
-		hashTypeSet:         hashTypeSet,
-		diffHashType:        config.DiffHashType,
-		diffHashingDisabled: config.DisableDiffHashing,
-		targetFileSize:      uint64(config.TargetFileSize),
-		blocksToRetain:      uint64(config.BlocksToRetain),
-		maxDiskSize:         uint64(config.MaxDiskSize),
-		maxBufferedBlocks:   uint64(config.MaxBufferedBlocks),
-		controlChan:         make(chan controlMessage, config.ControlBufferSize),
-		writerChan:          make(chan writerMessage, config.WriteBufferSize),
-		ctx:                 ctx,
-		cancel:              cancel,
-		senderCtx:           senderCtx,
-		senderCancel:        senderCancel,
-		sealedFiles:         make(map[uint64]*sealedFileInfo),
+		directory:               config.Path,
+		version:                 sanitizeVersion(config.Version),
+		hashTypes:               hashTypes,
+		hashTypeSet:             hashTypeSet,
+		diffHashType:            config.DiffHashType,
+		diffHashingDisabled:     config.DisableDiffHashing,
+		targetFileSize:          uint64(config.TargetFileSize),
+		blocksToRetain:          uint64(config.BlocksToRetain),
+		maxDiskSize:             uint64(config.MaxDiskSize),
+		maxBufferedBlocks:       uint64(config.MaxBufferedBlocks),
+		controlChan:             make(chan controlMessage, config.ControlBufferSize),
+		writerChan:              make(chan writerMessage, config.WriteBufferSize),
+		ctx:                     ctx,
+		cancel:                  cancel,
+		senderCtx:               senderCtx,
+		senderCancel:            senderCancel,
+		sealedFiles:             make(map[uint64]*sealedFileInfo),
+		pendingBlocks:           make(map[uint64]*HashLog),
+		blocksWithPendingHashes: make(map[uint64]struct{}),
 	}
 	if !h.diffHashingDisabled {
 		h.hashChan = make(chan hashWork, config.HashBufferSize)
@@ -308,7 +321,8 @@ func (h *hashLoggerImpl) ReportDiff(blockNumber uint64, cs []*proto.NamedChangeS
 	// (which still completes the block) without bothering the hasher thread. An empty (non-nil) change set is a
 	// legitimate no-change block and falls through to be hashed normally (yielding the hash of the empty diff).
 	if cs == nil {
-		h.sendControl(controlMessage{kind: ctrlHashReport, blockNumber: blockNumber, hashType: h.diffHashType, hash: nil})
+		h.sendControl(
+			controlMessage{kind: ctrlHashReport, blockNumber: blockNumber, hashType: h.diffHashType, hash: nil})
 		return
 	}
 	// Blocking send to the control loop, which dispatches the change set to the hasher. The diff is never
@@ -321,6 +335,11 @@ func (h *hashLoggerImpl) ReportHash(blockNumber uint64, hashType string, hash []
 	// channel.
 	if h.closed.Load() {
 		return fmt.Errorf("hash logger is closed")
+	}
+	// The diff column is logger-owned: it is computed internally from ReportDiff, not supplied by the caller.
+	// Reject it here so a caller can never clobber (or race) the computed diff hash via ReportHash.
+	if !h.diffHashingDisabled && hashType == h.diffHashType {
+		return fmt.Errorf("hash type %q is reserved for the logger-computed diff; use ReportDiff", hashType)
 	}
 	if _, ok := h.hashTypeSet[hashType]; !ok {
 		return fmt.Errorf("unknown hash type %q", hashType)
@@ -412,34 +431,11 @@ func (h *hashLoggerImpl) hasher() {
 	}
 }
 
-// controlState is the control loop's private bookkeeping. It is owned exclusively by the control loop
-// goroutine, so it needs no synchronization.
-type controlState struct {
-	// Blocks being assembled, keyed by block number.
-	pending map[uint64]*HashLog
-	// Blocks with a diff dispatched to the hasher whose result has not yet returned. Such a block is never
-	// force-flushed by the overflow path: its diff is on the way.
-	diffPending map[uint64]struct{}
-	// At most one diff request awaiting dispatch to the hasher. While set, the control loop stops receiving new
-	// control messages (backpressure) but keeps draining results, which keeps the loop⇄hasher pair
-	// deadlock-free.
-	held *hashWork
-	// The highest block number written to disk. While valid, reports for blocks at or below it are discarded
-	// (they are already flushed); SignalRollback clears this so re-executed blocks are accepted again.
-	flushedHighWater uint64
-	flushedValid     bool
-}
-
 func (h *hashLoggerImpl) controlLoop() {
 	defer h.wg.Done()
 
-	st := &controlState{
-		pending:     make(map[uint64]*HashLog),
-		diffPending: make(map[uint64]struct{}),
-	}
-
 	for {
-		if st.held == nil {
+		if h.workAwaitingDispatch == nil {
 			select {
 			case <-h.ctx.Done():
 				return
@@ -447,14 +443,14 @@ func (h *hashLoggerImpl) controlLoop() {
 				if msg.kind == ctrlClose {
 					// FIFO guarantees every prior report has been handled. Flush, then forbid further pushes
 					// (senderCancel) so any racing/future send aborts instead of deadlocking, and ack Close.
-					h.gracefulDrain(st)
+					h.gracefulDrain()
 					h.senderCancel()
 					close(msg.done)
 					return
 				}
-				h.handleControlMessage(st, msg)
+				h.handleControlMessage(msg)
 			case res := <-h.hashResultChan: // nil channel when diff hashing is disabled; case never fires
-				h.applyDiffResult(st, res)
+				h.applyDiffResult(res)
 			}
 		} else {
 			// A diff is waiting to be dispatched: offer it to the hasher while still draining results, so the
@@ -463,76 +459,76 @@ func (h *hashLoggerImpl) controlLoop() {
 			case <-h.ctx.Done():
 				return
 			case res := <-h.hashResultChan:
-				h.applyDiffResult(st, res)
-			case h.hashChan <- *st.held:
-				st.held = nil
+				h.applyDiffResult(res)
+			case h.hashChan <- *h.workAwaitingDispatch:
+				h.workAwaitingDispatch = nil
 			}
 		}
-		h.flushProgress(st)
+		h.flushProgress()
 	}
 }
 
 // handleControlMessage routes a single control message to the appropriate handler.
-func (h *hashLoggerImpl) handleControlMessage(st *controlState, msg controlMessage) {
+func (h *hashLoggerImpl) handleControlMessage(msg controlMessage) {
 	switch msg.kind {
 	case ctrlHashReport:
-		h.handleHashReport(st, msg.blockNumber, msg.hashType, msg.hash)
+		h.handleHashReport(msg.blockNumber, msg.hashType, msg.hash)
 	case ctrlDiffRequest:
-		h.handleDiffRequest(st, msg.blockNumber, msg.cs)
+		h.handleDiffRequest(msg.blockNumber, msg.cs)
 	case ctrlRollback:
-		h.handleRollback(st, msg.done)
+		h.handleRollback(msg.done)
 	}
 }
 
 // handleHashReport records a caller-reported hash, discarding it if the block has already been flushed.
-func (h *hashLoggerImpl) handleHashReport(st *controlState, blockNumber uint64, hashType string, hash []byte) {
-	if st.flushedValid && blockNumber <= st.flushedHighWater {
+func (h *hashLoggerImpl) handleHashReport(blockNumber uint64, hashType string, hash []byte) {
+	if h.flushedValid && blockNumber <= h.flushedHighWater {
 		return // already on disk: a duplicate/late report, or a re-execution without SignalRollback
 	}
-	h.ensurePending(st, blockNumber).Hashes[hashType] = hash
+	h.ensurePending(blockNumber).Hashes[hashType] = hash
 }
 
 // handleDiffRequest records that a block is awaiting a diff hash and holds the work for dispatch to the hasher.
-func (h *hashLoggerImpl) handleDiffRequest(st *controlState, blockNumber uint64, cs []*proto.NamedChangeSet) {
-	if st.flushedValid && blockNumber <= st.flushedHighWater {
+func (h *hashLoggerImpl) handleDiffRequest(blockNumber uint64, cs []*proto.NamedChangeSet) {
+	if h.flushedValid && blockNumber <= h.flushedHighWater {
 		return // already on disk; discard
 	}
 	// Create the pending entry now so minPendingKey accounts for diff-only blocks and the overflow path can see
 	// that the oldest block is awaiting a diff.
-	h.ensurePending(st, blockNumber)
-	st.diffPending[blockNumber] = struct{}{}
-	st.held = &hashWork{blockNumber: blockNumber, cs: cs}
+	h.ensurePending(blockNumber)
+	h.blocksWithPendingHashes[blockNumber] = struct{}{}
+	h.workAwaitingDispatch = &hashWork{blockNumber: blockNumber, cs: cs}
 }
 
 // applyDiffResult records a computed diff hash and clears the block's pending-diff marker.
-func (h *hashLoggerImpl) applyDiffResult(st *controlState, res hashResult) {
-	delete(st.diffPending, res.blockNumber)
-	if st.flushedValid && res.blockNumber <= st.flushedHighWater {
+func (h *hashLoggerImpl) applyDiffResult(res hashResult) {
+	delete(h.blocksWithPendingHashes, res.blockNumber)
+	if h.flushedValid && res.blockNumber <= h.flushedHighWater {
 		return // the block was already flushed (e.g. across a rollback); discard the stale diff
 	}
-	h.ensurePending(st, res.blockNumber).Hashes[h.diffHashType] = res.hash
+	h.ensurePending(res.blockNumber).Hashes[h.diffHashType] = res.hash
 }
 
 // handleRollback flushes all buffered work to disk, then resets the already-flushed tracking so re-executed
 // blocks are accepted. It hands a barrier to the writer (which makes the flush durable and then releases the
-// SignalRollback caller via done) and resets ordering so subsequent reports are the new timeline. held is
-// always nil here: rollback is only received in the held==nil branch.
-func (h *hashLoggerImpl) handleRollback(st *controlState, done chan struct{}) {
-	h.drainInFlightDiffs(st)
-	for len(st.pending) > 0 {
-		h.emit(st, minPendingKey(st.pending))
+// SignalRollback caller via done) and resets ordering so subsequent reports are the new timeline.
+// workAwaitingDispatch is always nil here: rollback is only received in the workAwaitingDispatch==nil branch.
+func (h *hashLoggerImpl) handleRollback(done chan struct{}) {
+	h.drainInFlightDiffs()
+	for len(h.pendingBlocks) > 0 {
+		h.emit(minPendingKey(h.pendingBlocks))
 	}
 	// The barrier is ordered after every emitted block, so the writer makes them durable before closing done.
 	h.blockingSendToWriter(writerMessage{rollbackAck: done})
-	st.flushedValid = false
+	h.flushedValid = false
 }
 
 // ensurePending returns the pending HashLog for a block, creating an empty one if needed.
-func (h *hashLoggerImpl) ensurePending(st *controlState, blockNumber uint64) *HashLog {
-	log, ok := st.pending[blockNumber]
+func (h *hashLoggerImpl) ensurePending(blockNumber uint64) *HashLog {
+	log, ok := h.pendingBlocks[blockNumber]
 	if !ok {
 		log = &HashLog{BlockNumber: blockNumber, Hashes: make(map[string][]byte, len(h.hashTypes))}
-		st.pending[blockNumber] = log
+		h.pendingBlocks[blockNumber] = log
 	}
 	return log
 }
@@ -540,39 +536,39 @@ func (h *hashLoggerImpl) ensurePending(st *controlState, blockNumber uint64) *Ha
 // flushProgress emits every block it can: first the contiguous prefix of complete blocks, then — while the
 // buffer still exceeds maxBufferedBlocks — the oldest incomplete block, to bound memory. It never force-flushes
 // a block awaiting an in-flight diff (its diff is on the way), even if that leaves the buffer over the bound.
-func (h *hashLoggerImpl) flushProgress(st *controlState) {
+func (h *hashLoggerImpl) flushProgress() {
 	for {
-		h.drainComplete(st)
-		if uint64(len(st.pending)) <= h.maxBufferedBlocks {
+		h.drainComplete()
+		if uint64(len(h.pendingBlocks)) <= h.maxBufferedBlocks {
 			return
 		}
-		oldest := minPendingKey(st.pending)
-		if _, awaitingDiff := st.diffPending[oldest]; awaitingDiff {
+		oldest := minPendingKey(h.pendingBlocks)
+		if _, awaitingDiff := h.blocksWithPendingHashes[oldest]; awaitingDiff {
 			return // don't force-flush a block whose diff is still being computed
 		}
-		h.emit(st, oldest)
+		h.emit(oldest)
 	}
 }
 
 // drainComplete emits the contiguous prefix of complete blocks (oldest first), stopping at the first incomplete
 // block so that blocks are always written in increasing order.
-func (h *hashLoggerImpl) drainComplete(st *controlState) {
-	for len(st.pending) > 0 {
-		oldest := minPendingKey(st.pending)
-		if len(st.pending[oldest].Hashes) < len(h.hashTypes) {
+func (h *hashLoggerImpl) drainComplete() {
+	for len(h.pendingBlocks) > 0 {
+		oldest := minPendingKey(h.pendingBlocks)
+		if len(h.pendingBlocks[oldest].Hashes) < len(h.hashTypes) {
 			break
 		}
-		h.emit(st, oldest)
+		h.emit(oldest)
 	}
 }
 
 // drainInFlightDiffs blocks until every dispatched diff has returned, applying each result, so no diff result
 // can arrive after the buffer has been flushed. Used by rollback and shutdown.
-func (h *hashLoggerImpl) drainInFlightDiffs(st *controlState) {
-	for len(st.diffPending) > 0 {
+func (h *hashLoggerImpl) drainInFlightDiffs() {
+	for len(h.blocksWithPendingHashes) > 0 {
 		select {
 		case res := <-h.hashResultChan:
-			h.applyDiffResult(st, res)
+			h.applyDiffResult(res)
 		case <-h.ctx.Done():
 			return
 		}
@@ -580,21 +576,21 @@ func (h *hashLoggerImpl) drainInFlightDiffs(st *controlState) {
 }
 
 // emit writes a single block to the writer and records it as flushed.
-func (h *hashLoggerImpl) emit(st *controlState, blockNumber uint64) {
-	log := st.pending[blockNumber]
-	delete(st.pending, blockNumber)
-	delete(st.diffPending, blockNumber)
+func (h *hashLoggerImpl) emit(blockNumber uint64) {
+	log := h.pendingBlocks[blockNumber]
+	delete(h.pendingBlocks, blockNumber)
+	delete(h.blocksWithPendingHashes, blockNumber)
 	h.blockingSendToWriter(writerMessage{log: log})
-	st.flushedHighWater = blockNumber
-	st.flushedValid = true
+	h.flushedHighWater = blockNumber
+	h.flushedValid = true
 }
 
 // gracefulDrain flushes all remaining work on a clean shutdown, then closes the downstream channels so the
 // hasher and writer drain and exit.
-func (h *hashLoggerImpl) gracefulDrain(st *controlState) {
-	h.drainInFlightDiffs(st)
-	for len(st.pending) > 0 {
-		h.emit(st, minPendingKey(st.pending))
+func (h *hashLoggerImpl) gracefulDrain() {
+	h.drainInFlightDiffs()
+	for len(h.pendingBlocks) > 0 {
+		h.emit(minPendingKey(h.pendingBlocks))
 	}
 	if !h.diffHashingDisabled {
 		close(h.hashChan)

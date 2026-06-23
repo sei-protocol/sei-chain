@@ -54,6 +54,23 @@ func TestHashDiffBoundarySensitive(t *testing.T) {
 	require.NotEqual(t, hashDiff(a), hashDiff(b))
 }
 
+func TestHashDiffChangeSetFramingSensitive(t *testing.T) {
+	// Count-prefix framing makes the grouping of pairs into change sets significant: two pairs under one
+	// (empty-named) change set must not collide with the same two pairs split across two (empty-named) change
+	// sets, even though both flatten to the same name/key/value stream.
+	a := []*proto.NamedChangeSet{cs("", kv("a", "1"), kv("b", "2"))}
+	b := []*proto.NamedChangeSet{cs("", kv("a", "1")), cs("", kv("b", "2"))}
+	require.NotEqual(t, hashDiff(a), hashDiff(b))
+}
+
+func TestHashDiffPairCountSensitive(t *testing.T) {
+	// A trailing empty change set must change the digest: the change-set count is folded in, so an extra
+	// (empty) group is observable even though it contributes no name, key, or value bytes.
+	a := []*proto.NamedChangeSet{cs("bank", kv("a", "1"))}
+	b := []*proto.NamedChangeSet{cs("bank", kv("a", "1")), cs("")}
+	require.NotEqual(t, hashDiff(a), hashDiff(b))
+}
+
 func TestHashDiffNameSensitive(t *testing.T) {
 	a := []*proto.NamedChangeSet{cs("bank", kv("a", "1"))}
 	b := []*proto.NamedChangeSet{cs("evm", kv("a", "1"))}

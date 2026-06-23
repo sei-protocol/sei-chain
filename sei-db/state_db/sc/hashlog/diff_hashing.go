@@ -13,25 +13,52 @@ import (
 // deviations in a block's diff, not to detect adversarially crafted collisions. This method needs to be fast
 // with low overhead.
 //
-// Every field is length-prefixed before being folded into the digest so that distinct inputs cannot collide
-// merely because their concatenations happen to be equal (e.g. keys "ab"+"" vs "a"+"b").
+// The encoding is fully self-delimiting so that distinct inputs cannot collide merely because their byte
+// streams happen to line up:
+//   - Every field (name, key, value) is length-prefixed, so e.g. keys "ab"+"" cannot alias "a"+"b".
+//   - The change-set count and each change set's pair count are written up front, so a pair can never be
+//     confused with the start of the next change set, and the grouping of pairs into change sets is significant.
+//
+// The counts are computed over only the non-nil entries that are actually folded in, so the framing stays
+// consistent with the data even when nil entries are defensively skipped.
 func hashDiff(cs []*proto.NamedChangeSet) []byte {
 	digest := xxhash.New()
 
 	var lengthBuf [binary.MaxVarintLen64]byte
-	writeBytes := func(b []byte) {
-		n := binary.PutUvarint(lengthBuf[:], uint64(len(b)))
+	writeUvarint := func(v uint64) {
+		n := binary.PutUvarint(lengthBuf[:], v)
 		_, _ = digest.Write(lengthBuf[:n])
+	}
+	writeBytes := func(b []byte) {
+		writeUvarint(uint64(len(b)))
 		_, _ = digest.Write(b)
 	}
 
+	// Frame the stream with the number of change sets actually hashed. Nil entries are skipped defensively:
+	// this runs on the background hasher goroutine, where a nil-pointer dereference would panic and take down
+	// the node rather than just losing one diff hash.
+	changeSetCount := uint64(0)
 	for _, ncs := range cs {
-		// Defensively skip nil entries: this runs on the background hasher goroutine, where a nil-pointer
-		// dereference would panic and take down the node rather than just losing one diff hash.
+		if ncs != nil {
+			changeSetCount++
+		}
+	}
+	writeUvarint(changeSetCount)
+
+	for _, ncs := range cs {
 		if ncs == nil {
 			continue
 		}
 		writeBytes([]byte(ncs.Name))
+
+		pairCount := uint64(0)
+		for _, pair := range ncs.Changeset.Pairs {
+			if pair != nil {
+				pairCount++
+			}
+		}
+		writeUvarint(pairCount)
+
 		for _, pair := range ncs.Changeset.Pairs {
 			if pair == nil {
 				continue
