@@ -7,8 +7,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 )
 
-// The default hash type under which ReportDiff's computed hash is recorded.
-const defaultDiffHashType = "diff"
+// DiffHashType is the reserved hash type under which the logger records the diff hash it computes itself from
+// each block's change set (see HashLogger.ReportDiff). It is owned by the logger, not the caller: the name is
+// fixed (not configurable) so every hash log file uses the same diff column name. It must never appear in
+// HashLoggerConfig.HashTypes — Validate rejects a collision — and ReportHash rejects it, so a caller can never
+// clobber or race the logger-computed diff column.
+const DiffHashType = "diff"
 
 // Hash type names are written verbatim into CSV headers and must not collide with the "," field
 // separator or any other structural character. We restrict them to a small, safe allowlist.
@@ -25,19 +29,13 @@ type HashLoggerConfig struct {
 
 	// The ordered set of caller-reported hash types this logger records. Each type becomes a column in the
 	// CSV output, in this order, and a block is only written once a hash has been reported for every type.
-	// This must not include DiffHashType: the diff column is owned and computed by the logger, not supplied
-	// via ReportHash.
+	// This must not include the reserved DiffHashType: the diff column is owned and computed by the logger,
+	// not supplied via ReportHash.
 	HashTypes []string
 
-	// The hash type under which ReportDiff's computed diff hash is recorded. The diff column is owned by the
-	// logger (it is computed internally from the change set, not supplied via ReportHash) and is prepended to
-	// the recorded columns. It must not also appear in HashTypes. Ignored when DisableDiffHashing is true.
-	DiffHashType string
-
 	// When true, diff hashing is disabled entirely: no hasher thread is started, ReportDiff becomes a no-op,
-	// and no diff column is recorded or awaited for block completion. DiffHashType is ignored in this case.
-	// To instead skip diff hashing for an individual block while diff hashing is enabled, pass a nil change
-	// set to ReportDiff.
+	// and no diff column is recorded or awaited for block completion. To instead skip diff hashing for an
+	// individual block while diff hashing is enabled, pass a nil change set to ReportDiff.
 	DisableDiffHashing bool
 
 	// The size of the channel for sending work to the hasher thread.
@@ -72,8 +70,7 @@ func DefaultHashLoggerConfig(path string, version string) *HashLoggerConfig {
 	return &HashLoggerConfig{
 		Path:              path,
 		Version:           version,
-		HashTypes:         []string{"flatKV", "memIAVL", "root"},
-		DiffHashType:      defaultDiffHashType,
+		HashTypes:         []string{},
 		HashBufferSize:    16,
 		WriteBufferSize:   16,
 		ControlBufferSize: 16,
@@ -109,25 +106,16 @@ func (c *HashLoggerConfig) Validate() error {
 			return fmt.Errorf("hash type %q contains illegal characters (must match %s)",
 				hashType, legalHashTypeRegex.String())
 		}
+		// DiffHashType is reserved for the logger-computed diff column, so it may never be a caller-reported
+		// type. This holds even when diff hashing is disabled: the name stays reserved so a config can never
+		// silently mean different columns depending on the flag.
+		if hashType == DiffHashType {
+			return fmt.Errorf("hash type %q is reserved for the logger-computed diff column", hashType)
+		}
 		if _, ok := seen[hashType]; ok {
 			return fmt.Errorf("duplicate hash type %q", hashType)
 		}
 		seen[hashType] = struct{}{}
-	}
-
-	// When diff hashing is enabled, the diff column is recorded in addition to HashTypes, so it must be a
-	// valid name that does not collide with a caller-reported type. When disabled, DiffHashType is ignored.
-	if !c.DisableDiffHashing {
-		if c.DiffHashType == "" {
-			return fmt.Errorf("diff hash type is required unless diff hashing is disabled")
-		}
-		if !legalHashTypeRegex.MatchString(c.DiffHashType) {
-			return fmt.Errorf("diff hash type %q contains illegal characters (must match %s)",
-				c.DiffHashType, legalHashTypeRegex.String())
-		}
-		if _, ok := seen[c.DiffHashType]; ok {
-			return fmt.Errorf("diff hash type %q must not also appear in hash types", c.DiffHashType)
-		}
 	}
 
 	// At least one column must be recorded: the diff column (when enabled) or a caller-reported type.

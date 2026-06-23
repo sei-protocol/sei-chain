@@ -80,7 +80,6 @@ func TestImplReportHashRejectsReservedDiffType(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = []string{"a"}
-	config.DiffHashType = "diff"
 	config.DisableDiffHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
@@ -114,7 +113,6 @@ func TestImplReportDiffPopulatesDiffHash(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = nil
-	config.DiffHashType = "diff"
 	config.DisableDiffHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
@@ -132,7 +130,6 @@ func TestImplReportDiffNilOptsOut(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = nil
-	config.DiffHashType = "diff"
 	config.DisableDiffHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
@@ -151,7 +148,6 @@ func TestImplReportDiffEmptyChangeSetIsHashed(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = nil
-	config.DiffHashType = "diff"
 	config.DisableDiffHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
@@ -172,7 +168,6 @@ func TestImplDiffFloodIsHashedReliably(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = nil
-	config.DiffHashType = "diff"
 	config.DisableDiffHashing = false
 	config.HashBufferSize = 1 // tiny buffer: a flood now backpressures rather than dropping
 	l, err := NewHashLogger(config)
@@ -268,7 +263,6 @@ func TestImplReportAfterCloseFailsFast(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = []string{"a"}
-	config.DiffHashType = "diff"
 	config.DisableDiffHashing = false
 	l, err := NewHashLogger(config)
 	require.NoError(t, err)
@@ -386,7 +380,6 @@ func TestImplOverflowNeverFlushesBlockAwaitingDiff(t *testing.T) {
 	dir := t.TempDir()
 	config := testConfig(dir)
 	config.HashTypes = nil
-	config.DiffHashType = "diff"
 	config.DisableDiffHashing = false
 	config.HashBufferSize = 1    // tiny hasher channel: diffs back up and stay in flight
 	config.MaxBufferedBlocks = 2 // tight buffer bound, pressuring the overflow path

@@ -92,9 +92,6 @@ type hashLoggerImpl struct {
 	// The membership set over hashTypes, for O(1) validation of caller-supplied hash types in ReportHash.
 	hashTypeSet map[string]struct{}
 
-	// The name of the logger-owned diff column. Meaningful only when diff hashing is enabled.
-	diffHashType string
-
 	// When true, diff hashing is disabled: no hasher thread, ReportDiff is a no-op, and no diff column is
 	// recorded or awaited.
 	diffHashingDisabled bool
@@ -218,7 +215,7 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 	// diff hashing is enabled.
 	var hashTypes []string
 	if !config.DisableDiffHashing {
-		hashTypes = append(hashTypes, config.DiffHashType)
+		hashTypes = append(hashTypes, DiffHashType)
 	}
 	hashTypes = append(hashTypes, config.HashTypes...)
 	hashTypeSet := make(map[string]struct{}, len(hashTypes))
@@ -231,7 +228,6 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 		version:                 sanitizeVersion(config.Version),
 		hashTypes:               hashTypes,
 		hashTypeSet:             hashTypeSet,
-		diffHashType:            config.DiffHashType,
 		diffHashingDisabled:     config.DisableDiffHashing,
 		targetFileSize:          uint64(config.TargetFileSize),
 		blocksToRetain:          uint64(config.BlocksToRetain),
@@ -356,7 +352,7 @@ func (h *hashLoggerImpl) ReportDiff(blockNumber uint64, cs []*proto.NamedChangeS
 	// legitimate no-change block and falls through to be hashed normally (yielding the hash of the empty diff).
 	if cs == nil {
 		h.sendControl(
-			controlMessage{kind: ctrlHashReport, blockNumber: blockNumber, hashType: h.diffHashType, hash: nil})
+			controlMessage{kind: ctrlHashReport, blockNumber: blockNumber, hashType: DiffHashType, hash: nil})
 		return
 	}
 	// Blocking send to the control loop, which dispatches the change set to the hasher. The diff is never
@@ -372,7 +368,7 @@ func (h *hashLoggerImpl) ReportHash(blockNumber uint64, hashType string, hash []
 	}
 	// The diff column is logger-owned: it is computed internally from ReportDiff, not supplied by the caller.
 	// Reject it here so a caller can never clobber (or race) the computed diff hash via ReportHash.
-	if !h.diffHashingDisabled && hashType == h.diffHashType {
+	if !h.diffHashingDisabled && hashType == DiffHashType {
 		return fmt.Errorf("hash type %q is reserved for the logger-computed diff; use ReportDiff", hashType)
 	}
 	if _, ok := h.hashTypeSet[hashType]; !ok {
@@ -516,7 +512,7 @@ func (h *hashLoggerImpl) applyDiffResult(res hashResult) {
 	if h.hasFlushedAtLeastOnce && res.blockNumber <= h.flushedHighWater {
 		return // the block was already flushed (e.g. force-flushed by the overflow path); discard the stale diff
 	}
-	h.ensurePending(res.blockNumber).Hashes[h.diffHashType] = res.hash
+	h.ensurePending(res.blockNumber).Hashes[DiffHashType] = res.hash
 }
 
 // ensurePending returns the pending HashLog for a block, creating an empty one if needed.

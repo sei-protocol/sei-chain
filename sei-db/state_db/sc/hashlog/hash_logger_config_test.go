@@ -41,7 +41,7 @@ func TestConfigValidateEmptyHashTypes(t *testing.T) {
 
 func TestConfigValidateDuplicateHashTypes(t *testing.T) {
 	c := DefaultHashLoggerConfig("/tmp/hashlog", "v1.0.0")
-	c.HashTypes = []string{"diff", "diff"}
+	c.HashTypes = []string{"root", "root"}
 	require.ErrorContains(t, c.Validate(), "duplicate hash type")
 }
 
@@ -51,17 +51,19 @@ func TestConfigValidateIllegalHashType(t *testing.T) {
 	require.ErrorContains(t, c.Validate(), "illegal characters")
 }
 
-func TestConfigValidateDiffHashTypeInHashTypes(t *testing.T) {
+func TestConfigValidateReservedDiffHashType(t *testing.T) {
 	c := DefaultHashLoggerConfig("/tmp/hashlog", "v1.0.0")
-	c.HashTypes = []string{"diff", "root"}
-	c.DiffHashType = "diff"
-	require.ErrorContains(t, c.Validate(), "must not also appear in hash types")
+	c.HashTypes = []string{DiffHashType, "root"}
+	require.ErrorContains(t, c.Validate(), "reserved")
 }
 
-func TestConfigValidateDiffHashTypeRequiredWhenEnabled(t *testing.T) {
+func TestConfigValidateReservedDiffHashTypeRejectedEvenWhenDisabled(t *testing.T) {
+	// The diff name stays reserved even with diff hashing disabled, so a config can never silently mean
+	// different columns depending on the flag.
 	c := DefaultHashLoggerConfig("/tmp/hashlog", "v1.0.0")
-	c.DiffHashType = ""
-	require.ErrorContains(t, c.Validate(), "diff hash type is required")
+	c.HashTypes = []string{DiffHashType, "root"}
+	c.DisableDiffHashing = true
+	require.ErrorContains(t, c.Validate(), "reserved")
 }
 
 func TestConfigValidateDiffHashTypeDisabled(t *testing.T) {
