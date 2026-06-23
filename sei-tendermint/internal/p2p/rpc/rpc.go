@@ -18,7 +18,7 @@ type InMsgs uint64
 
 func (spec Msg[M]) Verify() error {
 	var msg M
-	if m := InBytes(msg.MaxSize()); m > spec.MsgSize {
+	if m := InBytes(msg.MaxSize()); m > spec.MsgSize { // nolint: gosec // MaxSize() >= 0
 		return fmt.Errorf("%T.MaxSize() = %d exceeds configured cap %d", msg, m, spec.MsgSize)
 	}
 	return nil
