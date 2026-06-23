@@ -25,6 +25,10 @@ const (
 	// DefaultGRPCWebAddress defines the default address to bind the gRPC-web server to.
 	DefaultGRPCWebAddress = "0.0.0.0:9091"
 
+	// DefaultGRPCWebMaxOpenConnections defines the default maximum number of
+	// simultaneous open connections for the gRPC-web server.
+	DefaultGRPCWebMaxOpenConnections = 1000
+
 	// DefaultOccEanbled defines whether to use OCC for tx processing
 	DefaultOccEnabled = true
 )
@@ -296,7 +300,7 @@ func DefaultConfig() *Config {
 		GRPCWeb: GRPCWebConfig{
 			Enable:             true,
 			Address:            DefaultGRPCWebAddress,
-			MaxOpenConnections: 1000,
+			MaxOpenConnections: DefaultGRPCWebMaxOpenConnections,
 		},
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   0,
@@ -341,6 +345,14 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			return Config{}, fmt.Errorf("invalid state-commit.sc-write-mode %q: %w", wm, err)
 		}
 		scWriteMode = parsed
+	}
+
+	// Apply the in-code default when the key is absent so that nodes upgrading
+	// with an older app.toml (which lacks this key) are still bounded rather
+	// than running with unlimited connections.
+	grpcWebMaxOpenConnections := uint(DefaultGRPCWebMaxOpenConnections)
+	if v.IsSet("grpc-web.max-open-connections") {
+		grpcWebMaxOpenConnections = v.GetUint("grpc-web.max-open-connections")
 	}
 
 	return Config{
@@ -393,7 +405,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			Enable:             v.GetBool("grpc-web.enable"),
 			Address:            v.GetString("grpc-web.address"),
 			EnableUnsafeCORS:   v.GetBool("grpc-web.enable-unsafe-cors"),
-			MaxOpenConnections: v.GetUint("grpc-web.max-open-connections"),
+			MaxOpenConnections: grpcWebMaxOpenConnections,
 		},
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   v.GetUint64("state-sync.snapshot-interval"),
