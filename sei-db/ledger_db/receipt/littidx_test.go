@@ -197,6 +197,60 @@ func TestLittIdxBlockWideLogIndex(t *testing.T) {
 	})
 }
 
+// TestLittIdxMultiPart writes one block across two SetReceipts calls (the
+// legacy-migration shape that produces multiple litt parts) and confirms both
+// parts' receipts and logs are visible.
+func TestLittIdxMultiPart(t *testing.T) {
+	store, ctx := setupLittIdx(t, t.TempDir())
+	defer func() { _ = store.Close() }()
+
+	addr := common.HexToAddress("0xabcd")
+	topic := common.HexToHash("0x1111")
+	// Two separate writes for block 4 -> part 0 then part 1.
+	writeLitBlock(t, store, ctx, 4, litReceipt(4, 0, addr, topic))
+	writeLitBlock(t, store, ctx, 4, litReceipt(4, 1, addr, topic))
+
+	for _, txIndex := range []uint32{0, 1} {
+		rcpt, err := store.GetReceiptFromStore(ctx, litTxHash(4, txIndex))
+		require.NoError(t, err)
+		require.Equal(t, uint64(4), rcpt.BlockNumber)
+		require.Equal(t, txIndex, rcpt.TransactionIndex)
+	}
+
+	logs, err := store.FilterLogs(ctx, 4, 4, filters.FilterCriteria{Addresses: []common.Address{addr}})
+	require.NoError(t, err)
+	require.Len(t, logs, 2)
+}
+
+// TestLittIdxLegacyFallback covers GetReceipt falling back to the legacy KV
+// store for a receipt that predates this backend (absent from litt).
+func TestLittIdxLegacyFallback(t *testing.T) {
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "littidx"
+	cfg.DBDirectory = t.TempDir()
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	defer func() { _ = store.Close() }()
+
+	txHash := litTxHash(99, 0)
+	legacy := &types.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 99, TransactionIndex: 0}
+	bz, err := legacy.Marshal()
+	require.NoError(t, err)
+	ctx.KVStore(storeKey).Set(types.ReceiptKey(txHash), bz)
+
+	// Not in litt, so the store-only read misses...
+	_, err = store.GetReceiptFromStore(ctx, txHash)
+	require.ErrorIs(t, err, receipt.ErrNotFound)
+
+	// ...but GetReceipt falls back to the legacy KV store.
+	rcpt, err := store.GetReceipt(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, uint64(99), rcpt.BlockNumber)
+}
+
 func TestLittIdxReopen(t *testing.T) {
 	dir := t.TempDir()
 	store, ctx := setupLittIdx(t, dir)

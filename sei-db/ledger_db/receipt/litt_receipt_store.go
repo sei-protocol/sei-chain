@@ -176,6 +176,10 @@ func (s *littReceiptStore) SetLatestVersion(version int64) error {
 }
 
 func (s *littReceiptStore) SetEarliestVersion(version int64) error {
+	// The retention floor only moves forward; never re-expose pruned blocks.
+	if version <= s.earliestVersion.Load() {
+		return nil
+	}
 	if err := s.index.Set(receiptEarliestVersionKey, encodeBlockNumber(uint64(version)), dbtypes.WriteOptions{}); err != nil { //nolint:gosec // block heights fit within uint64
 		return err
 	}
