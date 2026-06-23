@@ -345,11 +345,16 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	// Go() until a slot frees, bounding the number of live goroutines rather
 	// than just the number doing concurrent work.
 	allReceipts := make([]map[string]interface{}, len(txHashes))
-	g := new(errgroup.Group)
+	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(maxBlockReceiptsConcurrency)
 	for i, hash := range txHashes {
 		g.Go(func() error {
 			defer recoverAndLog()
+			// Bail early if a sibling goroutine already errored or the caller
+			// cancelled; no point doing work the group is about to discard.
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			receipt, err := getOrSetCachedReceiptErr(a.cacheCreationMutex, a.globalBlockCache, a.ctxProvider(height), a.keeper, block, hash.hash)
 			if err != nil {
 				// A missing receipt is expected for some hashes and is not an
