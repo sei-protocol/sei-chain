@@ -722,10 +722,6 @@ type P2PConfig struct {
 
 	// List of node IDs, from which a connection will be accepted regardless of the connection limits.
 	UnconditionalPeerIDs string `mapstructure:"unconditional-peer-ids"`
-
-	// ProtoAllocLimitMultiplier scales the per-stream inbound MsgSize to set
-	// the alloc limit for proto unmarshalling. A value of 0 uses the default (2).
-	ProtoAllocLimitMultiplier int `mapstructure:"proto-alloc-limit-multiplier"`
 }
 
 // DefaultP2PConfig returns a default configuration for the peer-to-peer layer
@@ -746,8 +742,7 @@ func DefaultP2PConfig() *P2PConfig {
 		DialTimeout:                   3 * time.Second,
 		DialInterval:                  10 * time.Second,
 		TestDialFail:                  false,
-		QueueType:                     "simple-priority",
-		ProtoAllocLimitMultiplier:     2,
+		QueueType: "simple-priority",
 	}
 }
 

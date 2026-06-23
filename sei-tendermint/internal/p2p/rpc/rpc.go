@@ -16,22 +16,11 @@ import (
 type InBytes uint64
 type InMsgs uint64
 
-// allocMultiplier scales each stream's inbound MsgSize to set the per-message
-// alloc limit for UnmarshalWithLimit. Must be set once at startup before any
-// streams are opened.
-var allocMultiplier = 2
-
-// SetAllocMultiplier overrides the default alloc multiplier (2). A value of 0
-// is treated as 1 (no scaling). Panics if m is negative.
-func SetAllocMultiplier(m int) {
-	if m < 0 {
-		panic(fmt.Sprintf("rpc: SetAllocMultiplier: multiplier must be non-negative, got %d", m))
-	}
-	if m == 0 {
-		m = 1
-	}
-	allocMultiplier = m
-}
+// recvAllocMultiplier scales each stream's inbound MsgSize to derive the
+// per-message alloc limit passed to UnmarshalWithLimit. Load testing against
+// the largest message (~2 MB wire for LaneProposal) showed its alloc estimate
+// fits comfortably within 2× MsgSize.
+const recvAllocMultiplier = 2
 
 func (spec Msg[M]) Verify() error {
 	var msg M
@@ -129,7 +118,7 @@ func (r *RPC[API, Req, Resp]) Call(ctx context.Context, client Client[API]) (Str
 	if err != nil {
 		return Stream[Req, Resp]{}, err
 	}
-	return Stream[Req, Resp]{inner: s, allocLimit: int(r.Resp.MsgSize) * allocMultiplier}, nil //nolint:gosec // MsgSize is a validated config value
+	return Stream[Req, Resp]{inner: s, allocLimit: int(r.Resp.MsgSize) * recvAllocMultiplier}, nil //nolint:gosec // MsgSize is a validated config value
 }
 
 func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], handler func(context.Context, Stream[Resp, Req]) error) error {
@@ -145,7 +134,7 @@ func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], han
 					if err != nil {
 						return err
 					}
-					err = handler(ctx, Stream[Resp, Req]{inner: stream, allocLimit: int(r.Req.MsgSize) * allocMultiplier}) //nolint:gosec // MsgSize is a validated config value
+					err = handler(ctx, Stream[Resp, Req]{inner: stream, allocLimit: int(r.Req.MsgSize) * recvAllocMultiplier}) //nolint:gosec // MsgSize is a validated config value
 					stream.Close()
 					if err != nil {
 						return err
