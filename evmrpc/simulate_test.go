@@ -209,6 +209,62 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(8)
 }
 
+func TestEstimateGasAfterCallsMaxCalls(t *testing.T) {
+	testCtx := Ctx.WithBlockHeight(1)
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return testCtx.WithIsTracing(true)
+		}
+		return testCtx.WithBlockHeight(height).WithIsTracing(true)
+	}
+
+	const maxCalls = 2
+	config := &evmrpc.SimulateConfig{
+		GasCap:              1000000,
+		EVMTimeout:          5 * time.Second,
+		MaxEstimateGasCalls: maxCalls,
+	}
+
+	testApp := testkeeper.TestApp(t)
+	watermarks := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
+	simAPI := evmrpc.NewSimulationAPI(
+		ctxProvider,
+		EVMKeeper,
+		legacyabci.BeginBlockKeepers{},
+		func(int64) client.TxConfig { return TxConfig },
+		&MockClient{},
+		config,
+		testApp.BaseApp,
+		testApp.TracerAnteHandler,
+		evmrpc.ConnectionTypeHTTP,
+		evmrpc.NewBlockCache(3000),
+		&sync.Mutex{},
+		watermarks,
+	)
+
+	_, from := testkeeper.MockAddressPair()
+	_, to := testkeeper.MockAddressPair()
+	args := export.TransactionArgs{From: &from, To: &to}
+	call := export.TransactionArgs{From: &from, To: &to}
+
+	// Over the cap: rejected early with the "too many calls" error.
+	oversized := make([]export.TransactionArgs, maxCalls+1)
+	for i := range oversized {
+		oversized[i] = call
+	}
+	_, err := simAPI.EstimateGasAfterCalls(t.Context(), args, oversized, nil, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "too many calls")
+
+	// At the cap: the size guard is passed (any error must not be the cap error).
+	atCap := make([]export.TransactionArgs, maxCalls)
+	for i := range atCap {
+		atCap[i] = call
+	}
+	_, err = simAPI.EstimateGasAfterCalls(t.Context(), args, atCap, nil, nil)
+	require.Nil(t, err)
+}
+
 func TestCreateAccessList(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(1)
 
