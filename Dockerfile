@@ -24,6 +24,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY . .
+
+# Install the platform evmone shared library next to the other native libraries
+# so the Giga executor can load it from a fixed, trusted absolute path (/usr/lib)
+# at runtime instead of relying on the dynamic linker's search path.
+RUN cp giga/executor/lib/libevmone.0.12.0_linux_${TARGETARCH}.so /go/lib/
 ENV CGO_ENABLED=1
 ARG SEI_CHAIN_REF=""
 ARG GO_BUILD_TAGS=""
@@ -43,7 +48,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM docker.io/ubuntu:24.04@sha256:104ae83764a5119017b8e8d6218fa0832b09df65aae7d5a6de29a85d813da2fb
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates && \
+    apt-get install -y --no-install-recommends ca-certificates libstdc++6 && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /go/bin/seid /usr/bin/

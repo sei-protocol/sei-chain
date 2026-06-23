@@ -522,6 +522,10 @@ type RPCConfig struct {
 	// HTTP write timeout. Acts as a hard backstop for all handlers.
 	// 0 disables the timeout, not recommended
 	TimeoutWrite time.Duration `mapstructure:"timeout-write"`
+
+	// Maximum number of results returned by tx_search and block_search.
+	// 0 disables the cap (not recommended on public nodes).
+	MaxTxSearchResults int `mapstructure:"max-tx-search-results"`
 }
 
 // DefaultRPCConfig returns a default configuration for the RPC server
@@ -554,6 +558,8 @@ func DefaultRPCConfig() *RPCConfig {
 		TimeoutRead:       10 * time.Second,
 		TimeoutReadHeader: 10 * time.Second,
 		TimeoutWrite:      30 * time.Second,
+
+		MaxTxSearchResults: 10_000,
 	}
 }
 
@@ -605,6 +611,9 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	if cfg.TimeoutWrite > 0 && cfg.TimeoutWrite <= cfg.TimeoutBroadcastTxCommit {
 		return fmt.Errorf("timeout-write (%s) must be greater than timeout-broadcast-tx-commit (%s)",
 			cfg.TimeoutWrite, cfg.TimeoutBroadcastTxCommit)
+	}
+	if cfg.MaxTxSearchResults < 0 {
+		return errors.New("max-tx-search-results can't be negative")
 	}
 	return nil
 }
