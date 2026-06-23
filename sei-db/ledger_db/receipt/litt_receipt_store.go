@@ -240,8 +240,10 @@ func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord
 		return s.SetLatestVersion(ctx.BlockHeight())
 	}
 
-	// Receipt values go to litt first; the index batch (tag keys + version
-	// meta) commits after, so an indexed block always has its values written.
+	// Receipt values go to litt first, then the index batch (tag keys + version
+	// meta) commits. The litt flush below makes the values durable before the
+	// index references them, so a committed block can never have index entries
+	// pointing at receipt bodies that a hard crash dropped (litt has no WAL).
 	batch := s.index.NewBatch()
 	defer func() { _ = batch.Close() }()
 
@@ -258,6 +260,11 @@ func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord
 		if err := batch.Set(receiptLatestVersionKey, encodeBlockNumber(maxBlock)); err != nil {
 			return err
 		}
+	}
+	// Flush litt durable before publishing the index, ordering body durability
+	// ahead of the index that references it.
+	if err := s.receipts.Flush(); err != nil {
+		return err
 	}
 	if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
 		return err
