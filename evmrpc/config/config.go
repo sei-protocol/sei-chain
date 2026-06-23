@@ -107,6 +107,9 @@ type Config struct {
 	// max number of concurrent NewHead subscriptions
 	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
 
+	// max number of concurrent logs subscriptions
+	MaxSubscriptionsLogs uint64 `mapstructure:"max_subscriptions_logs"`
+
 	// test api enables certain override apis for integration test situations
 	EnableTestAPI bool `mapstructure:"enable_test_api"`
 
@@ -186,6 +189,7 @@ var DefaultConfig = Config{
 	MaxLogNoBlock:                10000,
 	MaxBlocksForLog:              2000,
 	MaxSubscriptionsNewHead:      10000,
+	MaxSubscriptionsLogs:         10000,
 	EnableTestAPI:                false,
 	MaxConcurrentTraceCalls:      10,
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
@@ -232,6 +236,7 @@ const (
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
 	flagMaxSubscriptionsNewHead      = "evm.max_subscriptions_new_head"
+	flagMaxSubscriptionsLogs         = "evm.max_subscriptions_logs"
 	flagEnableTestAPI                = "evm.enable_test_api"
 	flagMaxConcurrentTraceCalls      = "evm.max_concurrent_trace_calls"
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
@@ -353,6 +358,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxSubscriptionsNewHead); v != nil {
 		if cfg.MaxSubscriptionsNewHead, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxSubscriptionsLogs); v != nil {
+		if cfg.MaxSubscriptionsLogs, err = cast.ToUint64E(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -580,6 +590,9 @@ max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
 
 # max number of concurrent NewHead subscriptions
 max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
+
+# max number of concurrent logs subscriptions
+max_subscriptions_logs = {{ .EVM.MaxSubscriptionsLogs }}
 
 # MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls.
 # Set to 0 for unlimited.
