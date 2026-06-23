@@ -16,6 +16,11 @@ type Message interface {
 	proto.Message
 }
 
+type Sized interface {
+	Message
+	MaxSize() int
+}
+
 // Constructs an empty message.
 func New[T Message]() T {
 	return utils.Zero[T]().ProtoReflect().New().Interface().(T)

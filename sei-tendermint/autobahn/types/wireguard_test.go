@@ -138,7 +138,7 @@ func TestTimeoutQCWireguardAcceptsMaxValidators(t *testing.T) {
 	raw := protoutils.Marshal(TimeoutQCConv.Encode(qc))
 	decoded, err := protoutils.Unmarshal[*pb.TimeoutQC](raw)
 	require.NoError(t, err)
-	require.Len(t, decoded.Votes, MaxValidators)
+	require.Len(t, decoded.VotesV2, MaxValidators)
 }
 
 func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
