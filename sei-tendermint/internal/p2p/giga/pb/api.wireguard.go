@@ -8,20 +8,39 @@ import (
 	reflect "reflect"
 )
 
+func (*LaneVote) MaxSize() int {
+	return 224
+}
+
+func (*LaneProposal) MaxSize() int {
+	return 2056279
+}
+
+func (*AppVote) MaxSize() int {
+	return 233
+}
+
+func (*StreamLaneProposalsReq) MaxSize() int {
+	return 11
+}
+
+func (*StreamAppQCsResp) MaxSize() int {
+	return 30510
+}
+
+func (*GetBlockReq) MaxSize() int {
+	return 11
+}
+
+func (*GetBlockResp) MaxSize() int {
+	return 2056171
+}
+
+func (*StreamFullCommitQCsReq) MaxSize() int {
+	return 11
+}
+
 func init() {
-	// Register the wireguard.Schema generated for p2p.giga.LaneReq.
-	runtime.MustRegister[*LaneReq](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
-	})
-
-	// Register the wireguard.Schema generated for p2p.giga.LaneResp.
-	runtime.MustRegister[*LaneResp](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
-	})
-
-	// Register the wireguard.Schema generated for p2p.giga.LaneQCsResp.
-	runtime.MustRegister[*LaneQCsResp](runtime.Schema{})
-
 	// Register the wireguard.Schema generated for p2p.giga.ConsensusResp.
 	runtime.MustRegister[*ConsensusResp](runtime.Schema{})
 
@@ -33,17 +52,17 @@ func init() {
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneVote.
 	runtime.MustRegister[*LaneVote](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedBlockHeader]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneProposal.
 	runtime.MustRegister[*LaneProposal](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedBlock]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.AppVote.
 	runtime.MustRegister[*AppVote](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedMsg]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedAppVote]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.StreamLaneProposalsReq.

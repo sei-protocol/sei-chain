@@ -1,7 +1,6 @@
 package giga
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
@@ -11,6 +10,10 @@ const kB rpc.InBytes = 1024
 const MB rpc.InBytes = 1024 * kB
 
 type API struct{}
+
+var consensusReqCap = 1200 * kB
+var getBlockRespCap = 2 * MB
+var laneProposalCap = 2 * MB
 
 var Ping = rpc.Register[API](
 	0,
@@ -23,7 +26,7 @@ var StreamLaneProposals = rpc.Register[API](
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamLaneProposalsReq]{MsgSize: kB, Window: 1},
 	rpc.Msg[*pb.LaneProposal]{
-		MsgSize: rpc.InBytes(types.MaxBlockProtoSize) + 10*kB,
+		MsgSize: laneProposalCap,
 		Window:  5,
 	},
 )
@@ -58,7 +61,7 @@ var Consensus = rpc.Register[API](6,
 	// This is an artifact of how Consensus was initially implemented,
 	// but it can be made to be consistent with all other streaming RPCs.
 	rpc.Limit{Rate: 10, Concurrent: 10},
-	rpc.Msg[*apb.ConsensusReq]{MsgSize: 10 * kB, Window: 1},
+	rpc.Msg[*apb.ConsensusReq]{MsgSize: consensusReqCap, Window: 1},
 	rpc.Msg[*pb.ConsensusResp]{MsgSize: kB, Window: 1},
 )
 var StreamFullCommitQCs = rpc.Register[API](7,
@@ -70,7 +73,7 @@ var GetBlock = rpc.Register[API](8,
 	rpc.Limit{Rate: 10, Concurrent: 10},
 	rpc.Msg[*pb.GetBlockReq]{MsgSize: 10 * kB, Window: 1},
 	rpc.Msg[*pb.GetBlockResp]{
-		MsgSize: rpc.InBytes(types.MaxBlockProtoSize) + 10*kB,
+		MsgSize: getBlockRespCap,
 		Window:  1,
 	},
 )

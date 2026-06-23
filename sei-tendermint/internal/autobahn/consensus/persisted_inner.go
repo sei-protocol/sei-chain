@@ -155,10 +155,10 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 			p.TimeoutQc = types.TimeoutQCConv.Encode(v)
 		}
 		if v, ok := m.CommitVote.Get(); ok {
-			p.CommitVote = types.SignedMsgConv[*types.CommitVote]().Encode(v)
+			p.CommitVote = types.SignedCommitVoteConv.Encode(v)
 		}
 		if v, ok := m.PrepareVote.Get(); ok {
-			p.PrepareVote = types.SignedMsgConv[*types.PrepareVote]().Encode(v)
+			p.PrepareVote = types.SignedPrepareVoteConv.Encode(v)
 		}
 		if v, ok := m.TimeoutVote.Get(); ok {
 			p.TimeoutVote = types.FullTimeoutVoteConv.Encode(v)
@@ -189,14 +189,14 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 			m.TimeoutQC = utils.Some(v)
 		}
 		if p.CommitVote != nil {
-			v, err := types.SignedMsgConv[*types.CommitVote]().Decode(p.CommitVote)
+			v, err := types.SignedCommitVoteConv.Decode(p.CommitVote)
 			if err != nil {
 				return nil, fmt.Errorf("commit_vote: %w", err)
 			}
 			m.CommitVote = utils.Some(v)
 		}
 		if p.PrepareVote != nil {
-			v, err := types.SignedMsgConv[*types.PrepareVote]().Decode(p.PrepareVote)
+			v, err := types.SignedPrepareVoteConv.Decode(p.PrepareVote)
 			if err != nil {
 				return nil, fmt.Errorf("prepare_vote: %w", err)
 			}
