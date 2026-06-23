@@ -1124,21 +1124,36 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 	includeFlatKV := cs.flatKV != nil
 
 	if includeFlatKV && exportNeedsMetadataGating(cs.config.WriteMode) {
-		// Evaluate the hash predicates against metadata as-of the
-		// exported version: flatkv read-only clones replay the WAL to the
-		// target version, so the boundary/version keys reflect historical
-		// state, not the live store's.
-		ro, err := cs.flatKV.LoadVersion(version, true)
-		if err != nil {
-			// Era signal: under these configurations the chain has (or may
-			// have) memiavl-only history, and a version flatkv cannot load
-			// predates flatkv's participation in the hash. Export memiavl
-			// only. A genuinely corrupt store would also fail the writable
-			// load paths, so this is logged rather than fatal.
-			logger.Warn("flatkv unavailable at export version; exporting memiavl only",
-				"version", version, "err", err)
+		// Distinguish a genuinely pre-flatkv-era version from an in-history
+		// flatkv load failure using flatkv's persisted earliest-history
+		// record, NOT the load failing — mirroring readOnlyTargetPredatesFlatKV.
+		// "no snapshot at target" / version-mismatch is also what a pruned or
+		// corrupt in-history version produces (flatkv prunes old snapshots and
+		// truncates the WAL beneath them while EarliestVersion stays fixed at
+		// the seeded value), so keying on the load failing would silently emit
+		// a memiavl-only snapshot that drops consensus-visible flatkv state and
+		// is byte-indistinguishable from a legitimate pre-era stream.
+		earliest := cs.flatKV.EarliestVersion()
+		if earliest > 0 && version < earliest {
+			// Genuinely pre-flatkv era: every consensus value at this height
+			// lived in memiavl, so omitting flatkv is correct.
+			logger.Info("export version predates flatkv history; exporting memiavl only",
+				"version", version, "flatkvEarliestVersion", earliest)
 			includeFlatKV = false
 		} else {
+			// Evaluate the hash predicates against metadata as-of the
+			// exported version: flatkv read-only clones replay the WAL to the
+			// target version, so the boundary/version keys reflect historical
+			// state, not the live store's.
+			ro, err := cs.flatKV.LoadVersion(version, true)
+			if err != nil {
+				// In-history load failure (pruned snapshot/WAL, corruption, or
+				// a transient fault) at a version where flatkv participates in
+				// the AppHash. Silently omitting flatkv here would produce a
+				// consensus-incomplete snapshot, so fail loud instead.
+				return nil, fmt.Errorf("failed to load flatkv at export version %d (>= earliest %d): %w",
+					version, earliest, err)
+			}
 			started, gateErr := migrationStarted(ro)
 			var bankDone bool
 			if gateErr == nil {

@@ -54,6 +54,18 @@ func (f *failingEVMStore) CommittedRootHash() []byte              { return nil }
 func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error     { return nil }
 func (f *failingEVMStore) Close() error                           { return nil }
 
+// eraFailingEVMStore is a failingEVMStore with a configurable
+// EarliestVersion, used to exercise Exporter's pre-era vs in-history
+// classification of a flatkv load failure.
+type eraFailingEVMStore struct {
+	failingEVMStore
+	earliest int64
+}
+
+var _ flatkv.Store = (*eraFailingEVMStore)(nil)
+
+func (f *eraFailingEVMStore) EarliestVersion() int64 { return f.earliest }
+
 func padLeft32(val ...byte) []byte {
 	var b [32]byte
 	copy(b[32-len(val):], val)
@@ -1156,6 +1168,90 @@ func TestExportMemiavlOnlyHasNoFlatKVModule(t *testing.T) {
 	for _, it := range items {
 		require.NotEqual(t, keys.FlatKVStoreKey, it.moduleName,
 			"evm_flatkv should not appear in MemiavlOnly export")
+	}
+}
+
+// TestExporterFailsLoudOnInHistoryFlatKVLoadFailure verifies that when
+// flatkv fails to load at an export version within flatkv's history
+// (version >= EarliestVersion), Exporter returns an error rather than
+// silently emitting a memiavl-only snapshot that would drop
+// consensus-visible flatkv state. Mirrors readOnlyTargetPredatesFlatKV's
+// fail-loud contract for pruned/corrupt in-history versions.
+func TestExporterFailsLoudOnInHistoryFlatKVLoadFailure(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cfg.WriteMode = types.MigrateEVM
+	cfg.KeysToMigratePerBlock = 100
+
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("key1"), Value: []byte("value1")},
+		}}},
+	})
+	require.NoError(t, err)
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	// Inject a flatkv whose load fails at an in-history version: export
+	// version 1 is >= EarliestVersion 1, so the pre-era short-circuit does
+	// not apply and the load failure must surface as an error.
+	cs.flatKV = &eraFailingEVMStore{earliest: 1}
+
+	_, err = cs.Exporter(1)
+	require.Error(t, err, "Exporter must fail loud on an in-history flatkv load failure")
+	require.Contains(t, err.Error(), "failed to load flatkv at export version")
+}
+
+// TestExporterOmitsFlatKVForPreEraVersion verifies that when the export
+// version predates flatkv's history (version < EarliestVersion), Exporter
+// omits flatkv and returns a memiavl-only snapshot without error — the
+// flatkv load is never attempted. This is the legitimate pre-era case that
+// must remain non-fatal even though a load at that version would fail.
+func TestExporterOmitsFlatKVForPreEraVersion(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.MemIAVLConfig.SnapshotInterval = 1
+	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cfg.WriteMode = types.MigrateEVM
+	cfg.KeysToMigratePerBlock = 100
+
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("key1"), Value: []byte("val1")},
+		}}},
+	})
+	require.NoError(t, err)
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	// Inject a flatkv whose EarliestVersion is above the export height, so
+	// version 1 is pre-era. LoadVersion would fail, but the pre-era check
+	// short-circuits before it is called: flatkv is omitted, no error.
+	cs.flatKV = &eraFailingEVMStore{earliest: 10}
+
+	exporter, err := cs.Exporter(1)
+	require.NoError(t, err, "pre-era export must omit flatkv without error")
+	items := drainCompositeExporter(t, exporter)
+	require.NoError(t, exporter.Close())
+	require.NoError(t, cs.Close())
+
+	for _, it := range items {
+		require.NotEqual(t, keys.FlatKVStoreKey, it.moduleName,
+			"flatkv module must not appear in a pre-era export")
 	}
 }
 
