@@ -80,17 +80,17 @@ func init() {
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneVote.
 	runtime.MustRegister[*LaneVote](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedBlockHeader]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedBlockHeader]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.LaneProposal.
 	runtime.MustRegister[*LaneProposal](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedBlock]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedBlock]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.AppVote.
 	runtime.MustRegister[*AppVote](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedAppVote]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.SignedAppVote]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.StreamLaneProposalsReq.

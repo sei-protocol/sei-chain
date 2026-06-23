@@ -21,17 +21,23 @@ message PingResp {
 
 message LaneVote {
   option (wireguard.sized) = true;
-  autobahn.SignedBlockHeader lane_vote = 1;
+  reserved "lane_vote";
+  reserved 1;
+  autobahn.SignedBlockHeader lane_vote_v2 = 2;
 }
 
 message LaneProposal {
   option (wireguard.sized) = true;
-  autobahn.SignedBlock lane_proposal = 1;
+  reserved "lane_proposal";
+  reserved 1;
+  autobahn.SignedBlock lane_proposal_v2 = 2;
 }
 
 message AppVote {
   option (wireguard.sized) = true;
-  autobahn.SignedAppVote app_vote = 1;
+  reserved "app_vote";
+  reserved 1;
+  autobahn.SignedAppVote app_vote_v2 = 2;
 }
 
 message StreamLaneProposalsReq {

@@ -133,8 +133,10 @@ message Proposal {
 }
 
 message FullProposal {
+  reserved "proposal";
+  reserved 1;
   option (wireguard.sized) = true;
-  SignedProposal proposal = 1;
+  SignedProposal proposal_v2 = 5;
   repeated LaneQC lane_qcs = 2 [(wireguard.max_count) = 100];
   optional AppQC app_qc = 3;
   optional TimeoutQC timeout_qc = 4; // justifies the proposal.
@@ -167,13 +169,17 @@ message TimeoutVote {
 
 message TimeoutQC {
   option (wireguard.sized) = true;
-  repeated SignedTimeoutVote votes = 1 [(wireguard.max_count) = 100];
+  reserved "votes";
+  reserved 1;
+  repeated SignedTimeoutVote votes_v2 = 3 [(wireguard.max_count) = 100];
   optional PrepareQC latest_prepare_qc = 2;
 }
 
 message FullTimeoutVote {
+  reserved "vote";
+  reserved 1;
   option (wireguard.sized) = true;
-  SignedTimeoutVote vote = 1;
+  SignedTimeoutVote vote_v2 = 3;
   optional PrepareQC latest_prepare_qc = 2;
 }
 
@@ -182,12 +188,14 @@ message FullTimeoutVote {
 // Do NOT persist internal derived fields (e.g., cached computations, runtime state).
 // Derived fields are implementation-dependent and should be recomputed on load.
 message PersistedInner {
+  reserved "commit_vote", "prepare_vote";
+  reserved 4, 5;
   optional CommitQC commit_qc = 1;
   optional PrepareQC prepare_qc = 2;
   optional TimeoutQC timeout_qc = 3;
 
-  optional SignedProposal commit_vote = 4;
-  optional SignedProposal prepare_vote = 5;
+  optional SignedProposal commit_vote_v2 = 7;
+  optional SignedProposal prepare_vote_v2 = 8;
   optional FullTimeoutVote timeout_vote = 6;
 }
 
@@ -274,11 +282,13 @@ message SignedAppProposal {
 
 // TODO(gprusak): rename to ConsensusMsg
 message ConsensusReq {
+  reserved "prepare_vote", "commit_vote";
+  reserved 2, 3;
   option (wireguard.sized) = true;
   oneof t {
     FullProposal proposal = 1;
-    SignedProposal prepare_vote = 2;
-    SignedProposal commit_vote = 3;
+    SignedProposal prepare_vote_v2 = 6;
+    SignedProposal commit_vote_v2 = 7;
     FullTimeoutVote timeout_vote = 4;
     TimeoutQC timeout_qc = 5;
   }

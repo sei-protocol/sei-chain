@@ -219,7 +219,7 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.FullProposal.
 	runtime.MustRegister[*FullProposal](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
+		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
 		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*LaneQC]())},
 		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppQC]())},
 		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutQC]())},
@@ -251,13 +251,13 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.TimeoutQC.
 	runtime.MustRegister[*TimeoutQC](runtime.Schema{
-		1: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*SignedTimeoutVote]())},
+		3: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*SignedTimeoutVote]())},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareQC]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.FullTimeoutVote.
 	runtime.MustRegister[*FullTimeoutVote](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedTimeoutVote]())},
+		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedTimeoutVote]())},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareQC]())},
 	})
 
@@ -266,8 +266,8 @@ func init() {
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*CommitQC]())},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareQC]())},
 		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutQC]())},
-		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
-		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
+		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
+		8: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
 		6: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*FullTimeoutVote]())},
 	})
 
@@ -340,8 +340,8 @@ func init() {
 	// Register the wireguard.Schema generated for autobahn.ConsensusReq.
 	runtime.MustRegister[*ConsensusReq](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*FullProposal]())},
-		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
-		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
+		6: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
+		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
 		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*FullTimeoutVote]())},
 		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutQC]())},
 	})

@@ -29,11 +29,11 @@ type StreamFullCommitQCsReq struct {
 var LaneVoteConv = protoutils.Conv[*types.Signed[*types.LaneVote], *pb.LaneVote]{
 	Encode: func(m *types.Signed[*types.LaneVote]) *pb.LaneVote {
 		return &pb.LaneVote{
-			LaneVote: types.SignedLaneVoteConv.Encode(m),
+			LaneVoteV2: types.SignedLaneVoteConv.Encode(m),
 		}
 	},
 	Decode: func(m *pb.LaneVote) (*types.Signed[*types.LaneVote], error) {
-		laneVote, err := types.SignedLaneVoteConv.DecodeReq(m.LaneVote)
+		laneVote, err := types.SignedLaneVoteConv.DecodeReq(m.LaneVoteV2)
 		if err != nil {
 			return nil, fmt.Errorf("laneVote: %w", err)
 		}
@@ -44,11 +44,11 @@ var LaneVoteConv = protoutils.Conv[*types.Signed[*types.LaneVote], *pb.LaneVote]
 var LaneProposalConv = protoutils.Conv[*types.Signed[*types.LaneProposal], *pb.LaneProposal]{
 	Encode: func(m *types.Signed[*types.LaneProposal]) *pb.LaneProposal {
 		return &pb.LaneProposal{
-			LaneProposal: types.SignedLaneProposalConv.Encode(m),
+			LaneProposalV2: types.SignedLaneProposalConv.Encode(m),
 		}
 	},
 	Decode: func(m *pb.LaneProposal) (*types.Signed[*types.LaneProposal], error) {
-		laneProposal, err := types.SignedLaneProposalConv.DecodeReq(m.LaneProposal)
+		laneProposal, err := types.SignedLaneProposalConv.DecodeReq(m.LaneProposalV2)
 		if err != nil {
 			return nil, fmt.Errorf("laneProposal: %w", err)
 		}
@@ -59,11 +59,11 @@ var LaneProposalConv = protoutils.Conv[*types.Signed[*types.LaneProposal], *pb.L
 var AppVoteConv = protoutils.Conv[*types.Signed[*types.AppVote], *pb.AppVote]{
 	Encode: func(m *types.Signed[*types.AppVote]) *pb.AppVote {
 		return &pb.AppVote{
-			AppVote: types.SignedAppVoteConv.Encode(m),
+			AppVoteV2: types.SignedAppVoteConv.Encode(m),
 		}
 	},
 	Decode: func(m *pb.AppVote) (*types.Signed[*types.AppVote], error) {
-		appVote, err := types.SignedAppVoteConv.DecodeReq(m.AppVote)
+		appVote, err := types.SignedAppVoteConv.DecodeReq(m.AppVoteV2)
 		if err != nil {
 			return nil, fmt.Errorf("appVote: %w", err)
 		}

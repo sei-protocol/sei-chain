@@ -545,14 +545,14 @@ var FullProposalConv = protoutils.Conv[*FullProposal, *pb.FullProposal]{
 			laneQCs = append(laneQCs, qc)
 		}
 		return &pb.FullProposal{
-			Proposal:  SignedProposalConv.Encode(m.proposal),
-			LaneQcs:   LaneQCConv.EncodeSlice(laneQCs),
-			AppQc:     AppQCConv.EncodeOpt(m.appQC),
-			TimeoutQc: TimeoutQCConv.EncodeOpt(m.timeoutQC),
+			ProposalV2: SignedProposalConv.Encode(m.proposal),
+			LaneQcs:    LaneQCConv.EncodeSlice(laneQCs),
+			AppQc:      AppQCConv.EncodeOpt(m.appQC),
+			TimeoutQc:  TimeoutQCConv.EncodeOpt(m.timeoutQC),
 		}
 	},
 	Decode: func(m *pb.FullProposal) (*FullProposal, error) {
-		proposal, err := SignedProposalConv.DecodeReq(m.Proposal)
+		proposal, err := SignedProposalConv.DecodeReq(m.ProposalV2)
 		if err != nil {
 			return nil, fmt.Errorf("proposal: %w", err)
 		}
