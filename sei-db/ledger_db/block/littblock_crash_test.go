@@ -2,15 +2,19 @@ package block
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
 // TestLittblockNoBlockWithoutQCAfterTornTail is the end-to-end proof of the
@@ -40,8 +44,21 @@ func TestLittblockNoBlockWithoutQCAfterTornTail(t *testing.T) {
 	// Corrupt the segment holding the most value bytes (where the most recent
 	// writes landed): drop the tail of its value file, then flip its metadata
 	// back to unsealed so LoadSegment re-runs recovery on reopen.
+	//
+	// Dropping tornTailBytes models a partial write of the last value. That only
+	// stays a single torn tail (rather than spilling across value boundaries)
+	// while every stored block encodes to more than tornTailBytes — assert it so
+	// this fails loudly if block sizes ever shrink below that assumption.
+	const tornTailBytes = 16
+	for _, b := range batches {
+		for i, blk := range b.blocks {
+			require.Greater(t, len(types.BlockConv.Marshal(blk)), tornTailBytes,
+				"block %d encodes to <= %d bytes, breaking the torn-tail truncation model",
+				b.first+gbn(i), tornTailBytes)
+		}
+	}
 	valPath, metaPath := largestValueSegmentFiles(t, dir)
-	truncateFileBy(t, valPath, 16)
+	truncateFileBy(t, valPath, tornTailBytes)
 	markSegmentUnsealedOnDisk(t, metaPath)
 
 	// Reopen: recovery discards the torn tail, keeping a contiguous prefix.
@@ -135,4 +152,111 @@ func markSegmentUnsealedOnDisk(t *testing.T, metaPath string) {
 	require.Equal(t, segment.V3MetadataSize, len(data), "unexpected metadata size for %s", metaPath)
 	data[segment.V3MetadataSize-1] = 0
 	require.NoError(t, os.WriteFile(metaPath, data, 0600))
+}
+
+const (
+	// crashChildEnv gates the child branch of TestLittblockFlushSurvivesHardKill.
+	// When set, the test re-runs as the crash subprocess instead of the parent
+	// orchestrator.
+	crashChildEnv = "LITTBLOCK_CRASH_CHILD"
+	// crashDirEnv carries the data directory the parent created down to the child,
+	// so both processes operate on the same on-disk DB.
+	crashDirEnv = "LITTBLOCK_CRASH_DIR"
+)
+
+// TestLittblockFlushSurvivesHardKill is the counterpart to
+// TestLittblockNoBlockWithoutQCAfterTornTail: where the torn-tail test proves an
+// unflushed partial write degrades to a contiguous prefix (some loss expected),
+// this proves a clean Flush loses NOTHING across a real, uncatchable process kill.
+//
+// It re-execs this test binary as a child (gated by crashChildEnv) that writes
+// every batch, Flushes, then SIGKILLs itself. SIGKILL cannot be caught, so no
+// deferred Close and no graceful shutdown run — it is the strongest possible "kill
+// process". Because the kill happens only after Flush returns, the parent can then
+// reopen the DB the dead child left behind and require every flushed block (and its
+// covering QC) to be present. We must not SIGKILL the process running the tests, so
+// the crash is isolated to the child subprocess.
+func TestLittblockFlushSurvivesHardKill(t *testing.T) {
+	if os.Getenv(crashChildEnv) == "1" {
+		// Child branch: write, flush, then crash. Never returns.
+		runLittblockCrashChild(t)
+		return
+	}
+
+	if runtime.GOOS == "windows" {
+		t.Skip("hard-kill crash test relies on Unix SIGKILL / WaitStatus")
+	}
+
+	// t.TempDir is removed when this test ends, cleaning up the child's data too.
+	dir := t.TempDir()
+
+	// Re-exec only this test as the crash child, pointed at dir. We pass just
+	// -test.run and -test.v (not the parent's flags) so the child writes no
+	// coverprofile it can never finish.
+	cmd := exec.Command(os.Args[0], "-test.run", "^"+t.Name()+"$", "-test.v") //nolint:gosec // os.Args[0] is the test binary
+	cmd.Env = append(os.Environ(), crashChildEnv+"=1", crashDirEnv+"="+dir)
+	out, err := cmd.CombinedOutput()
+
+	// The child MUST have died from SIGKILL; otherwise no real crash happened (it
+	// exited cleanly or failed a require) and the test proves nothing.
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr, "child should have been signal-killed; output:\n%s", out)
+	ws, ok := exitErr.Sys().(syscall.WaitStatus)
+	require.True(t, ok, "unexpected wait status type %T; output:\n%s", exitErr.Sys(), out)
+	require.True(t, ws.Signaled(), "child should exit via signal; output:\n%s", out)
+	require.Equal(t, syscall.SIGKILL, ws.Signal(), "child should be SIGKILLed; output:\n%s", out)
+
+	// Reopen the DB the crashed child left behind and assert nothing flushed was lost.
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+
+	db, err := littblock.NewBlockDB(littConfig(t, dir))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	totalBlocks := 0
+	for _, b := range batches {
+		totalBlocks += len(b.blocks)
+	}
+
+	it, err := db.Blocks(false)
+	require.NoError(t, err)
+	defer func() { _ = it.Close() }()
+	present := 0
+	for {
+		ok, err := it.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		n := it.Number()
+		qc, err := db.ReadQCByBlockNumber(n)
+		require.NoError(t, err)
+		require.True(t, qc.IsPresent(), "block %d lost its covering QC after hard kill", n)
+		present++
+	}
+
+	// Unlike the torn-tail test (which expects loss), a clean Flush before the kill
+	// must lose nothing.
+	require.Equal(t, totalBlocks, present, "flushed blocks must all survive a hard kill")
+}
+
+// runLittblockCrashChild is the subprocess body of TestLittblockFlushSurvivesHardKill:
+// it opens the DB at crashDirEnv, writes every batch, Flushes, then hard-kills its
+// own process. It never returns.
+func runLittblockCrashChild(t *testing.T) {
+	dir := os.Getenv(crashDirEnv)
+	require.NotEmpty(t, dir)
+
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+
+	db, err := littblock.NewBlockDB(littConfig(t, dir))
+	require.NoError(t, err)
+	writeAll(t, db, batches)
+	require.NoError(t, db.Flush())
+
+	// Hard crash: uncatchable, runs no defers and no graceful Close.
+	require.NoError(t, syscall.Kill(syscall.Getpid(), syscall.SIGKILL))
+	select {} // unreachable — block so nothing else runs before the kernel reaps us
 }
