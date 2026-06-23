@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/test/a/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 // Test generating message(s) up to the limits.
@@ -61,6 +62,7 @@ func TestScan(t *testing.T) {
 			FCount:              []float32{1.25, 2.5, 3.75, 4.125},
 			DCount:              []float64{1.5, 2.25, 3.125, 4.0625},
 			SCount:              utils.GenSliceN(rng, 4, genSized),
+			BoolCountUnpacked:   []bool{true},
 			BCountSize:          genBytes(rng, 5, 5, 5),
 			SCountSize:          genStrings(rng, 5, 5, 5),
 			NCountSize:          genNotSizedSlice(rng, 3, 3, 3),
@@ -117,6 +119,7 @@ func TestScan(t *testing.T) {
 			func(msg *pb.SizedOk) { msg.FCount = append(msg.FCount, 5.25) },
 			func(msg *pb.SizedOk) { msg.DCount = append(msg.DCount, 5.125) },
 			func(msg *pb.SizedOk) { msg.SCount = append(msg.SCount, genSized(rng)) },
+			func(msg *pb.SizedOk) { msg.BoolCountUnpacked = append(msg.BoolCountUnpacked, false) },
 			func(msg *pb.SizedOk) { msg.BCountSize = genBytes(rng, 1, 1, 1, 1) },
 			func(msg *pb.SizedOk) { msg.BCountSize[0] = utils.GenBytes(rng, 6) },
 			func(msg *pb.SizedOk) { msg.SCountSize = genStrings(rng, 1, 1, 1, 1) },
@@ -195,4 +198,128 @@ func TestScan(t *testing.T) {
 	for _, malformed := range outerNotSizedMalformedVariants(baseOuterNotSized) {
 		require.Error(t, scanOuterNotSized(malformed))
 	}
+}
+
+func TestScan_PackedInputAcceptedForPackedFalseField(t *testing.T) {
+	t.Parallel()
+
+	var packedAtLimit []byte
+	packedAtLimit = protowire.AppendTag(packedAtLimit, 1, protowire.BytesType)
+	packedAtLimit = protowire.AppendBytes(packedAtLimit, protowire.AppendVarint(nil, 1))
+	require.NoError(t, protoutils.Scan[*pb.PackedFalseSized](packedAtLimit))
+
+	var packedOverLimit []byte
+	packedOverLimit = protowire.AppendTag(packedOverLimit, 1, protowire.BytesType)
+	packedOverLimit = protowire.AppendBytes(packedOverLimit, append(protowire.AppendVarint(nil, 1), protowire.AppendVarint(nil, 0)...))
+	require.Error(t, protoutils.Scan[*pb.PackedFalseSized](packedOverLimit))
+}
+
+func TestScan_RejectsDuplicateSingularFieldsInSizedMessages(t *testing.T) {
+	t.Parallel()
+
+	var sizedDup []byte
+	sizedDup = protowire.AppendTag(sizedDup, 1, protowire.VarintType)
+	sizedDup = protowire.AppendVarint(sizedDup, 1)
+	sizedDup = protowire.AppendTag(sizedDup, 1, protowire.VarintType)
+	sizedDup = protowire.AppendVarint(sizedDup, 2)
+	require.Error(t, protoutils.Scan[*pb.Sized](sizedDup))
+
+	var outerSizedDup []byte
+	inner := protowire.AppendTag(nil, 1, protowire.VarintType)
+	inner = protowire.AppendVarint(inner, 1)
+	outerSizedDup = protowire.AppendTag(outerSizedDup, 1, protowire.BytesType)
+	outerSizedDup = protowire.AppendBytes(outerSizedDup, inner)
+	outerSizedDup = protowire.AppendTag(outerSizedDup, 1, protowire.BytesType)
+	outerSizedDup = protowire.AppendBytes(outerSizedDup, inner)
+	require.Error(t, protoutils.Scan[*pb.OuterSized](outerSizedDup))
+}
+
+func TestScan_RejectsDuplicateSingularFieldsInUnsizedMessages(t *testing.T) {
+	t.Parallel()
+
+	payload := protowire.AppendTag(nil, 1, protowire.BytesType)
+	payload = protowire.AppendBytes(payload, []byte{1})
+
+	var outerNotSizedDup []byte
+	outerNotSizedDup = protowire.AppendTag(outerNotSizedDup, 3, protowire.BytesType)
+	outerNotSizedDup = protowire.AppendBytes(outerNotSizedDup, payload)
+	outerNotSizedDup = protowire.AppendTag(outerNotSizedDup, 3, protowire.BytesType)
+	outerNotSizedDup = protowire.AppendBytes(outerNotSizedDup, payload)
+	require.Error(t, protoutils.Scan[*pb.OuterNotSized](outerNotSizedDup))
+}
+
+func TestScan_AllowsMultipleMapEntriesInUnsizedMessages(t *testing.T) {
+	t.Parallel()
+
+	msg := &pb.Msg{
+		MapValue: map[string]string{
+			"a": "1",
+			"b": "2",
+		},
+		MapMessageValue: map[string]*pb.Child{
+			"x": {Value: "left"},
+			"y": {Value: "right"},
+		},
+	}
+
+	require.NoError(t, protoutils.Scan[*pb.Msg](protoutils.Marshal(msg)))
+}
+
+func TestScan_ScansMapMessageValues(t *testing.T) {
+	t.Parallel()
+
+	valid := &pb.Msg{
+		MapMessageValue: map[string]*pb.Child{
+			"x": {Value: "left"},
+		},
+	}
+	require.NoError(t, protoutils.Scan[*pb.Msg](protoutils.Marshal(valid)))
+
+	child := protowire.AppendTag(nil, 1, protowire.BytesType)
+	child = protowire.AppendString(child, "first")
+	child = protowire.AppendTag(child, 1, protowire.BytesType)
+	child = protowire.AppendString(child, "second")
+
+	entry := protowire.AppendTag(nil, 1, protowire.BytesType)
+	entry = protowire.AppendString(entry, "k")
+	entry = protowire.AppendTag(entry, 2, protowire.BytesType)
+	entry = protowire.AppendBytes(entry, child)
+
+	msg := protowire.AppendTag(nil, 5, protowire.BytesType)
+	msg = protowire.AppendBytes(msg, entry)
+
+	require.Error(t, protoutils.Scan[*pb.Msg](msg))
+}
+
+func TestScan_RejectsMalformedNestedMapMessageValue(t *testing.T) {
+	t.Parallel()
+
+	child := protowire.AppendTag(nil, 1, protowire.BytesType)
+	child = protowire.AppendString(child, "first")
+	child = protowire.AppendTag(child, 1, protowire.BytesType)
+	child = protowire.AppendString(child, "second")
+
+	entry := protowire.AppendTag(nil, 1, protowire.BytesType)
+	entry = protowire.AppendString(entry, "k")
+	entry = protowire.AppendTag(entry, 2, protowire.BytesType)
+	entry = protowire.AppendBytes(entry, child)
+
+	msg := protowire.AppendTag(nil, 5, protowire.BytesType)
+	msg = protowire.AppendBytes(msg, entry)
+
+	require.Error(t, protoutils.Scan[*pb.Msg](msg))
+}
+
+func TestScan_RejectsDuplicateMapEntryKey(t *testing.T) {
+	t.Parallel()
+
+	entry := protowire.AppendTag(nil, 1, protowire.BytesType)
+	entry = protowire.AppendString(entry, "left")
+	entry = protowire.AppendTag(entry, 1, protowire.BytesType)
+	entry = protowire.AppendString(entry, "right")
+
+	msg := protowire.AppendTag(nil, 3, protowire.BytesType)
+	msg = protowire.AppendBytes(msg, entry)
+
+	require.Error(t, protoutils.Scan[*pb.Msg](msg))
 }

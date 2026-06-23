@@ -40,7 +40,7 @@ func compilePluginFixture(t *testing.T, fileToGenerate string) (*pluginpb.CodeGe
 }
 
 func runPluginRequest(req *pluginpb.CodeGeneratorRequest) error {
-	plug, err := protogen.Options{ParamFunc: flags.Set}.New(req)
+	plug, err := protogen.Options{}.New(req)
 	if err != nil {
 		return err
 	}
@@ -96,12 +96,15 @@ func TestPlugin_Rejections(t *testing.T) {
 		{"max_count_zero.proto", errMustBePositive{Rule: "max_count"}},
 		{"max_size_zero.proto", errMustBePositive{Rule: "max_size"}},
 		{"max_total_size_zero.proto", errMustBePositive{Rule: "max_total_size"}},
+		{"singular_max_total_size.proto", errMaxTotalSizeRequiresRepeatedField},
 		{"size_rule_on_scalar.proto", errSizeRulesRequireSizedFieldType},
 		{"sized_map_field.proto", errSizedMapField},
+		{"sized_group_field.proto", errSizedGroupField},
 		{"sized_unbounded_bytes.proto", errSizedFieldNeedsSizeOrSizedNest},
 		{"sized_repeated_without_max_count.proto", errSizedFieldMissingMaxCount},
 		{"sized_unsized_nested_without_field_size.proto", errSizedFieldNeedsSizeOrSizedNest},
 		{"sized_repeated_message_needs_size_or_sized_nested.proto", errSizedRepeatedFieldNeedsSizeOrSizedNest},
+		{"sized_recursive.proto", errSizedRecursiveMessage},
 	} {
 		t.Run(tc.fixture, func(t *testing.T) {
 			t.Parallel()
