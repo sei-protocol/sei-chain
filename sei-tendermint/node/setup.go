@@ -26,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
@@ -466,6 +467,9 @@ func createRouter(
 	closer := func() error { return nil }
 	noneDB := utils.None[atypes.BlockDB]()
 	gigaBlockDB := noneDB
+	if m := cfg.P2P.ProtoAllocLimitMultiplier; m != 0 {
+		rpc.SetAllocMultiplier(m)
+	}
 	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
 	if err != nil {
 		return nil, closer, noneDB, err

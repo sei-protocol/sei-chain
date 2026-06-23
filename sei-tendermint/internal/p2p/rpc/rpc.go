@@ -16,6 +16,23 @@ import (
 type InBytes uint64
 type InMsgs uint64
 
+// allocMultiplier scales each stream's inbound MsgSize to set the per-message
+// alloc limit for UnmarshalWithLimit. Must be set once at startup before any
+// streams are opened.
+var allocMultiplier = 2
+
+// SetAllocMultiplier overrides the default alloc multiplier (2). A value of 0
+// is treated as 1 (no scaling). Panics if m is negative.
+func SetAllocMultiplier(m int) {
+	if m < 0 {
+		panic(fmt.Sprintf("rpc: SetAllocMultiplier: multiplier must be non-negative, got %d", m))
+	}
+	if m == 0 {
+		m = 1
+	}
+	allocMultiplier = m
+}
+
 func (spec Msg[M]) Verify() error {
 	var msg M
 	if m := InBytes(msg.MaxSize()); m > spec.MsgSize { // nolint: gosec // MaxSize() >= 0
@@ -122,7 +139,7 @@ func (r *RPC[API, Req, Resp]) Call(ctx context.Context, client Client[API]) (Str
 	if err != nil {
 		return Stream[Req, Resp]{}, err
 	}
-	return Stream[Req, Resp]{inner: s}, nil
+	return Stream[Req, Resp]{inner: s, allocLimit: int(r.Resp.MsgSize) * allocMultiplier}, nil //nolint:gosec // MsgSize is a validated config value
 }
 
 func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], handler func(context.Context, Stream[Resp, Req]) error) error {
@@ -138,7 +155,7 @@ func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], han
 					if err != nil {
 						return err
 					}
-					stream := Stream[Resp, Req]{inner: muxStream}
+					stream := Stream[Resp, Req]{inner: muxStream, allocLimit: int(r.Req.MsgSize) * allocMultiplier} //nolint:gosec // MsgSize is a validated config value
 					err = handler(ctx, stream)
 					stream.Close()
 					if err != nil {
@@ -152,7 +169,10 @@ func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], han
 	})
 }
 
-type Stream[SendT, RecvT protoutils.Message] struct{ inner *mux.Stream }
+type Stream[SendT, RecvT protoutils.Message] struct {
+	inner      *mux.Stream
+	allocLimit int
+}
 
 func (s Stream[SendT, RecvT]) Close() { s.inner.Close() }
 
@@ -165,5 +185,5 @@ func (s Stream[SendT, RecvT]) Recv(ctx context.Context) (RecvT, error) {
 	if err != nil {
 		return utils.Zero[RecvT](), err
 	}
-	return protoutils.Unmarshal[RecvT](raw)
+	return protoutils.UnmarshalWithLimit[RecvT](raw, s.allocLimit)
 }
