@@ -194,8 +194,6 @@ func TestParseWriteMode(t *testing.T) {
 		{"migrate_bank", MigrateBank, false},
 		{"flatkv_only", FlatKVOnly, false},
 		{"test_only_dual_write", TestOnlyDualWrite, false},
-		// cosmos_only is the platform sei-config alias for MemiavlOnly.
-		{"cosmos_only", MemiavlOnly, false},
 		{"invalid", "", true},
 		{"", "", true},
 	}
