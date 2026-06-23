@@ -742,7 +742,7 @@ func DefaultP2PConfig() *P2PConfig {
 		DialTimeout:                   3 * time.Second,
 		DialInterval:                  10 * time.Second,
 		TestDialFail:                  false,
-		QueueType: "simple-priority",
+		QueueType:                     "simple-priority",
 	}
 }
 
