@@ -560,8 +560,6 @@ enabled_legacy_sei_apis = [
   # "sei_newBlockFilter",
   # "sei_newFilter",
   # "sei_sign",
-  # "sei_traceBlockByHashExcludeTraceFail",
-  # "sei_traceBlockByNumberExcludeTraceFail",
   # "sei_uninstallFilter",
   #
   # Optional sei2_* block namespace (bank transfers in blocks; HTTP only):

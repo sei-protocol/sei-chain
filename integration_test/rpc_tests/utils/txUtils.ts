@@ -3,7 +3,8 @@ import { expect } from 'chai';
 import { EvmAccount, abiOf, bytecodeOf, selfAuthorize } from './evmUtils';
 import { RuntimeState, claimPool } from './testUtils';
 import { generateSeiAddress } from './cosmosUtils';
-import { cw20Transfer } from './wasmUtils';
+import { prepareCw20Transfer } from './wasmUtils';
+import { waitUntil } from './chainUtils';
 import { HASH32, BLOOM256, NONCE8, HEX_QUANTITY, HEX_DATA, ADDRESS } from './format';
 import { STAKING_PRECOMPILE_ADDRESS, USEI, ZERO_HASH } from './constants';
 export { STAKING_PRECOMPILE_ADDRESS, USEI, ZERO_HASH };
@@ -230,6 +231,14 @@ async function pricing(
     return { maxFeePerGas, maxPriorityFeePerGas: tip, gasPrice: maxFeePerGas };
 }
 
+async function waitForNextBlock(provider: ethers.JsonRpcProvider, label: string): Promise<void> {
+    const start = await provider.getBlockNumber();
+    await waitUntil(
+        async () => ((await provider.getBlockNumber()) > start ? true : null),
+        { timeoutMs: 10_000, intervalMs: 25, label },
+    );
+}
+
 const TRANSFER_VALUE = ethers.parseEther('0.001');
 const rand = (): string => ethers.Wallet.createRandom().address;
 
@@ -416,23 +425,54 @@ export async function buildRichSeiBlock(
         }
 
         try {
-            const responses = await Promise.all(
-                specs.map(s => s.signer.wallet.sendTransaction(s.req)),
-            );
-            // Fire the Cosmos CW20 transfer right after broadcasting the EVM batch so it
-            // joins the same mempool window. A throw (e.g. a sequence race on retry) just
-            // fails this attempt rather than aborting the build.
-            const cosmosPending = wasm
-                ? cw20Transfer(wasm.cw20, cosmosRecipient!, '1', runtime.funded.adminMnemonic).catch(
-                      () => null,
+            const preparedCosmos = wasm
+                ? await prepareCw20Transfer(
+                      wasm.cw20,
+                      cosmosRecipient!,
+                      '1',
+                      runtime.funded.adminMnemonic,
                   )
+                : undefined;
+            const populated = await Promise.all(
+                specs.map(s => s.signer.wallet.populateTransaction(s.req)),
+            );
+            const signed = await Promise.all(
+                populated.map((tx, i) => specs[i].signer.wallet.signTransaction(tx)),
+            );
+
+            // Stage both sides before a fresh block boundary, then broadcast the pure Cosmos
+            // CW20 transfer and the EVM batch together. Broadcasting the EVM txs first lets a
+            // fast proposer seal them one height before the Cosmos tx, which made the rich-block
+            // fixture flaky.
+            if (wasm) {
+                await waitForNextBlock(
+                    provider,
+                    `next Sei block before rich batch attempt ${attempt + 1}`,
+                );
+            }
+            const cosmosPending = preparedCosmos
+                ? preparedCosmos
+                      .broadcast()
+                      .then(p => ({ hash: p.hash, wait: p.wait.catch(() => null) }))
+                      .catch(() => null)
                 : Promise.resolve(null);
+            const evmBroadcasts = Promise.all(signed.map(raw => provider.broadcastTransaction(raw)));
+            let pendingCosmos: Awaited<typeof cosmosPending>;
+            let responses: ethers.TransactionResponse[];
+            try {
+                [pendingCosmos, responses] = await Promise.all([cosmosPending, evmBroadcasts]);
+            } catch (e) {
+                pendingCosmos = await cosmosPending;
+                // If the Cosmos tx passed CheckTx, wait for its sequence to settle before retrying.
+                if (pendingCosmos) await pendingCosmos.wait;
+                throw e;
+            }
             // waitForTransaction (unlike resp.wait) does NOT throw on a status-0 receipt, so the
             // two included-but-failed txs resolve to their receipts instead of aborting the batch.
             const receipts = await Promise.all(
                 responses.map(r => provider.waitForTransaction(r.hash, 1, 25_000)),
             );
-            const cosmos = await cosmosPending;
+            const cosmos = pendingCosmos ? await pendingCosmos.wait : null;
             const blockNumbers = receipts.map(r => r!.blockNumber);
             const uniqueBlocks = new Set(blockNumbers);
             const allOk = receipts.every(r => r && (r.status === 1 || r.status === 0));

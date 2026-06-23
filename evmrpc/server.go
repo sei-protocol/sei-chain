@@ -108,8 +108,6 @@ func NewEVMHTTPServer(
 	seiLegacyAllowlist := BuildSeiLegacyEnabledSet(config.EnabledLegacySeiApis)
 
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, methodTimeout, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
-	seiDebugAPI := NewSeiDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
-	seiDebugAPI.backend.SetTraceContextProvider(traceCtxProvider)
 
 	// DB semaphore aligned with worker count
 	dbReadSemaphore := make(chan struct{}, workerCount)
@@ -208,10 +206,6 @@ func NewEVMHTTPServer(
 		{
 			Namespace: "debug",
 			Service:   debugAPI,
-		},
-		{
-			Namespace: "sei",
-			Service:   seiDebugAPI,
 		},
 	}
 	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.
