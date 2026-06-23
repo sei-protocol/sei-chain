@@ -14,6 +14,10 @@ on:
       tag:
         description: 'Tag'
         required: false
+      build_tags:
+        description: 'Extra Go build tags for the plain seid image (e.g. mock_block_validation)'
+        required: false
+        type: string
 
 jobs:
   publisher:
@@ -61,3 +65,4 @@ jobs:
           tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ inputs.tag || inputs.ref || github.sha }}
           build-args: |
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
+            GO_BUILD_TAGS=${{ inputs.build_tags }}
