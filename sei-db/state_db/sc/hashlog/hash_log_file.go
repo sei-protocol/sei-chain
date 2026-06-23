@@ -229,7 +229,7 @@ func (h *hashLogFile) write(hashLog *HashLog) error {
 		if err != nil {
 			return fmt.Errorf("failed to write header: %w", err)
 		}
-		h.size += uint64(n)
+		h.size += uint64(n) //nolint:gosec // WriteString returns a non-negative byte count
 		h.headerWritten = true
 	}
 
@@ -237,7 +237,7 @@ func (h *hashLogFile) write(hashLog *HashLog) error {
 	if err != nil {
 		return fmt.Errorf("failed to write hash log: %w", err)
 	}
-	h.size += uint64(n)
+	h.size += uint64(n) //nolint:gosec // WriteString returns a non-negative byte count
 
 	if !h.hasBlocks {
 		h.firstBlockIndex = hashLog.BlockNumber
@@ -245,22 +245,6 @@ func (h *hashLogFile) write(hashLog *HashLog) error {
 	}
 	h.lastBlockIndex = hashLog.BlockNumber
 
-	return nil
-}
-
-// flush pushes any buffered writes to the OS and fsyncs the file, making everything written so far durable
-// without sealing it. A no-op for files with no open handle (e.g. files read back from disk).
-func (h *hashLogFile) flush() error {
-	if h.writer != nil {
-		if err := h.writer.Flush(); err != nil {
-			return fmt.Errorf("failed to flush hash log file: %w", err)
-		}
-	}
-	if h.file != nil {
-		if err := h.file.Sync(); err != nil {
-			return fmt.Errorf("failed to sync hash log file: %w", err)
-		}
-	}
 	return nil
 }
 

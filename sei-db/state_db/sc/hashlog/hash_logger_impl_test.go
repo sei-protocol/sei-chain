@@ -220,7 +220,7 @@ func TestImplFileRotation(t *testing.T) {
 	}
 }
 
-func TestImplRollbackOpensNewFile(t *testing.T) {
+func TestImplRollbackViaReopen(t *testing.T) {
 	dir := t.TempDir()
 	l, err := NewHashLogger(testConfig(dir))
 	require.NoError(t, err)
@@ -229,17 +229,21 @@ func TestImplRollbackOpensNewFile(t *testing.T) {
 		require.NoError(t, l.ReportHash(block, "a", []byte{byte(block)}))
 		require.NoError(t, l.ReportHash(block, "b", []byte{byte(block)}))
 	}
-	// Signal the rollback, then re-execute blocks 1 and 2.
-	require.NoError(t, l.SignalRollback())
-	for block := uint64(1); block <= 2; block++ {
-		require.NoError(t, l.ReportHash(block, "a", []byte{byte(block + 50)}))
-		require.NoError(t, l.ReportHash(block, "b", []byte{byte(block + 50)}))
-	}
+	// To roll back, close the logger and open a new one, then re-execute blocks 1 and 2. The reopened logger
+	// starts with nothing flushed, so the re-executed blocks are logged into a fresh file rather than discarded.
 	require.NoError(t, l.Close())
+
+	l2, err := NewHashLogger(testConfig(dir))
+	require.NoError(t, err)
+	for block := uint64(1); block <= 2; block++ {
+		require.NoError(t, l2.ReportHash(block, "a", []byte{byte(block + 50)}))
+		require.NoError(t, l2.ReportHash(block, "b", []byte{byte(block + 50)}))
+	}
+	require.NoError(t, l2.Close())
 
 	files, err := listArchiveFiles(dir)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(files), 2, "a rollback should start a new file")
+	require.GreaterOrEqual(t, len(files), 2, "reopening after a rollback should start a new file")
 
 	block1, err := ReadHashForBlock(dir, 1)
 	require.NoError(t, err)
@@ -410,33 +414,7 @@ func TestImplOverflowNeverFlushesBlockAwaitingDiff(t *testing.T) {
 	}
 }
 
-func TestImplSignalRollbackFlushesBeforeReturning(t *testing.T) {
-	dir := t.TempDir()
-	l, err := NewHashLogger(testConfig(dir))
-	require.NoError(t, err)
-
-	for block := uint64(1); block <= 3; block++ {
-		require.NoError(t, l.ReportHash(block, "a", []byte{byte(block)}))
-		require.NoError(t, l.ReportHash(block, "b", []byte{byte(block)}))
-	}
-	require.NoError(t, l.SignalRollback())
-
-	// SignalRollback flushes before returning, so blocks 1..3 are on disk now, before Close.
-	require.Len(t, readAllLogs(t, dir), 3, "rollback must flush buffered blocks before returning")
-
-	// Re-execute blocks 1..2 on the new timeline.
-	for block := uint64(1); block <= 2; block++ {
-		require.NoError(t, l.ReportHash(block, "a", []byte{byte(block + 50)}))
-		require.NoError(t, l.ReportHash(block, "b", []byte{byte(block + 50)}))
-	}
-	require.NoError(t, l.Close())
-
-	block1, err := ReadHashForBlock(dir, 1)
-	require.NoError(t, err)
-	require.Len(t, block1, 2, "block 1 was executed on both timelines")
-}
-
-func TestImplDiscardsReportsForFlushedBlocksWithoutRollback(t *testing.T) {
+func TestImplDiscardsReportsForFlushedBlocksWithoutReopen(t *testing.T) {
 	dir := t.TempDir()
 	l, err := NewHashLogger(testConfig(dir))
 	require.NoError(t, err)
@@ -444,26 +422,16 @@ func TestImplDiscardsReportsForFlushedBlocksWithoutRollback(t *testing.T) {
 	// Complete and flush block 1.
 	require.NoError(t, l.ReportHash(1, "a", []byte{0x01}))
 	require.NoError(t, l.ReportHash(1, "b", []byte{0x02}))
-	// Now report block 1 again without signaling a rollback: these are discarded (already on disk).
+	// Now report block 1 again without reopening the logger: these are discarded (already on disk). A genuine
+	// rollback would close the logger and reopen it (see TestImplRollbackViaReopen).
 	require.NoError(t, l.ReportHash(1, "a", []byte{0x99}))
 	require.NoError(t, l.ReportHash(1, "b", []byte{0x99}))
 	require.NoError(t, l.Close())
 
 	block1, err := ReadHashForBlock(dir, 1)
 	require.NoError(t, err)
-	require.Len(t, block1, 1, "reports for an already-flushed block must be discarded without a rollback signal")
+	require.Len(t, block1, 1, "reports for an already-flushed block must be discarded without reopening")
 	require.Equal(t, []byte{0x01}, block1[0].Hashes["a"])
-}
-
-func TestImplSignalRollbackAfterCloseFailsFast(t *testing.T) {
-	dir := t.TempDir()
-	l, err := NewHashLogger(testConfig(dir))
-	require.NoError(t, err)
-	require.NoError(t, l.Close())
-
-	require.NotPanics(t, func() {
-		require.Error(t, l.SignalRollback())
-	})
 }
 
 func TestImplConcurrentReportAndCloseDoesNotPanic(t *testing.T) {

@@ -33,16 +33,11 @@ type HashLogger interface {
 	// the block can still be completed.
 	ReportHash(blockNumber uint64, hashType string, hash []byte) error
 
-	// SignalRollback notifies the logger that the node has rolled back and is about to re-execute blocks at
-	// heights that have already been logged. It flushes all buffered blocks to disk before returning, so once
-	// it returns the logger holds no pre-rollback state: every subsequent report is treated as the new
-	// (post-rollback) timeline and is logged even though its block number may not advance. Returns an error if
-	// the logger is closed.
-	//
-	// Callers must invoke this before reporting any re-executed block. Without it, reports for blocks that have
-	// already been written to disk are silently discarded, so the re-executed timeline would be lost.
-	SignalRollback() error
-
 	// Shut down the HashLogger and release any resources. Flushes pending writes before returning.
+	//
+	// To roll back — re-execute blocks at heights that have already been logged — close the logger and open a
+	// new one. A reopened logger starts with nothing flushed, so it logs the re-executed blocks into a fresh
+	// file even though their numbers no longer advance; the prior records remain on disk alongside them.
+	// Reports for already-flushed blocks made without reopening are silently discarded.
 	Close() error
 }
