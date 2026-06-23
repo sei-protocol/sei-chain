@@ -456,10 +456,17 @@ export async function buildRichSeiBlock(
                       .then(p => ({ hash: p.hash, wait: p.wait.catch(() => null) }))
                       .catch(() => null)
                 : Promise.resolve(null);
-            const [pendingCosmos, responses] = await Promise.all([
-                cosmosPending,
-                Promise.all(signed.map(raw => provider.broadcastTransaction(raw))),
-            ]);
+            const evmBroadcasts = Promise.all(signed.map(raw => provider.broadcastTransaction(raw)));
+            let pendingCosmos: Awaited<typeof cosmosPending>;
+            let responses: ethers.TransactionResponse[];
+            try {
+                [pendingCosmos, responses] = await Promise.all([cosmosPending, evmBroadcasts]);
+            } catch (e) {
+                pendingCosmos = await cosmosPending;
+                // If the Cosmos tx passed CheckTx, wait for its sequence to settle before retrying.
+                if (pendingCosmos) await pendingCosmos.wait;
+                throw e;
+            }
             // waitForTransaction (unlike resp.wait) does NOT throw on a status-0 receipt, so the
             // two included-but-failed txs resolve to their receipts instead of aborting the batch.
             const receipts = await Promise.all(
