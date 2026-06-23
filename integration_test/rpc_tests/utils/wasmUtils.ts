@@ -2,8 +2,10 @@ import util from 'node:util';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { DirectSecp256k1HdWallet } from '@cosmjs/proto-signing';
-import { SigningCosmWasmClient } from '@cosmjs/cosmwasm-stargate';
+import { MsgExecuteContractEncodeObject, SigningCosmWasmClient } from '@cosmjs/cosmwasm-stargate';
 import { stringToPath } from '@cosmjs/crypto';
+import { toUtf8 } from '@cosmjs/encoding';
+import { TxRaw } from 'cosmjs-types/cosmos/tx/v1beta1/tx';
 import { Endpoints } from '../config/endpoints';
 import { waitUntil } from './chainUtils';
 import {
@@ -144,6 +146,59 @@ export interface Cw20ExecResult {
     gasUsed: bigint;
 }
 
+export interface PreparedCw20Transfer {
+    broadcast(): Promise<{ hash: string; wait: Promise<Cw20ExecResult> }>;
+}
+
+const CW20_TRANSFER_MEMO = 'rpc_tests dual-vm cw20 transfer';
+
+async function waitForCw20Exec(
+    client: SigningCosmWasmClient,
+    hash: string,
+): Promise<Cw20ExecResult> {
+    const tx = await waitUntil(
+        async () => client.getTx(hash),
+        { timeoutMs: 60_000, intervalMs: 250, label: `CW20 transfer ${hash}` },
+    );
+    return {
+        hash,
+        height: tx.height,
+        code: tx.code,
+        gasUsed: BigInt(tx.gasUsed),
+    };
+}
+
+/**
+ * Sign a CW20 transfer without broadcasting it. Tests that need a mixed
+ * EVM/Cosmos block use this to stage the Cosmos tx first, then release it in
+ * the same mempool window as their EVM txs.
+ */
+export async function prepareCw20Transfer(
+    cw20Address: string,
+    recipientSei: string,
+    amount: string,
+    adminMnemonic: string,
+): Promise<PreparedCw20Transfer> {
+    const { client, address } = await adminCosmWasm(adminMnemonic);
+    const msg: MsgExecuteContractEncodeObject = {
+        typeUrl: '/cosmwasm.wasm.v1.MsgExecuteContract',
+        value: {
+            sender: address,
+            contract: cw20Address,
+            msg: toUtf8(JSON.stringify({ transfer: { recipient: recipientSei, amount } })),
+            funds: [],
+        },
+    };
+    const txRaw = await client.sign(address, [msg], EXEC_FEE, CW20_TRANSFER_MEMO);
+    const txBytes = TxRaw.encode(txRaw).finish();
+    return {
+        async broadcast() {
+            const hash = await client.broadcastTxSync(txBytes);
+            return { hash, wait: waitForCw20Exec(client, hash) };
+        },
+    };
+}
+
 /**
  * Sign and broadcast a CW20 `transfer` from the admin and wait for inclusion. Returns
  * the block height so the rich-block builder can require it to co-locate with the EVM
@@ -155,18 +210,7 @@ export async function cw20Transfer(
     amount: string,
     adminMnemonic: string,
 ): Promise<Cw20ExecResult> {
-    const { client, address } = await adminCosmWasm(adminMnemonic);
-    const res = await client.execute(
-        address,
-        cw20Address,
-        { transfer: { recipient: recipientSei, amount } },
-        EXEC_FEE,
-        'rpc_tests dual-vm cw20 transfer',
-    );
-    return {
-        hash: res.transactionHash,
-        height: Number(res.height),
-        code: 0,
-        gasUsed: BigInt(res.gasUsed),
-    };
+    const prepared = await prepareCw20Transfer(cw20Address, recipientSei, amount, adminMnemonic);
+    const pending = await prepared.broadcast();
+    return pending.wait;
 }
