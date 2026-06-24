@@ -5,7 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -63,7 +63,7 @@ func TestMigrateEVM(t *testing.T) {
 	)
 
 	// Build a migration router that will migrate the evm/ data to flatkv.
-	migrationRouter, err := BuildRouter(t.Context(), config.MigrateEVM, memiavlDB, flatKVDB, 100)
+	migrationRouter, err := BuildRouter(t.Context(), types.MigrateEVM, memiavlDB, flatKVDB, 100)
 	require.NoError(t, err)
 
 	// Phase 2: drive 2 blocks through the migration router. Phase 1 produced
@@ -117,7 +117,7 @@ func TestMigrateEVM(t *testing.T) {
 	// manager recovers its state from disk - either resuming from the
 	// boundary, or coming up in passthrough if the version key already
 	// records the target version.
-	migrationRouter, err = BuildRouter(t.Context(), config.MigrateEVM, memiavlDB, flatKVDB, 100)
+	migrationRouter, err = BuildRouter(t.Context(), types.MigrateEVM, memiavlDB, flatKVDB, 100)
 	require.NoError(t, err, "rebuild migration router after restart")
 
 	// Sanity check: all oracle data is still reachable through the rebuilt
@@ -225,7 +225,7 @@ func TestMigrateAllButBank(t *testing.T) {
 	// Lay down v1 state: evm/ in flatKV, everything else in memiavl. Drives
 	// roughly equal load across all real modules so the non-evm-non-bank
 	// stores accumulate enough keys to make the v1->v2 migration meaningful.
-	evmMigratedRouter, err := BuildRouter(t.Context(), config.EVMMigrated, memiavlDB, flatKVDB, 0)
+	evmMigratedRouter, err := BuildRouter(t.Context(), types.EVMMigrated, memiavlDB, flatKVDB, 0)
 	require.NoError(t, err, "build EVMMigrated router")
 	SimulateBlocks(t,
 		NewTestMultiRouter(t, evmMigratedRouter, inMemoryRouter),
@@ -248,7 +248,7 @@ func TestMigrateAllButBank(t *testing.T) {
 	SeedMigrationVersionInFlatKV(t, flatKVDB, Version1_MigrateEVM)
 
 	// --- Phase 2: partial MigrateAllButBank ---
-	migrationRouter, err := BuildRouter(t.Context(), config.MigrateAllButBank, memiavlDB, flatKVDB, 100)
+	migrationRouter, err := BuildRouter(t.Context(), types.MigrateAllButBank, memiavlDB, flatKVDB, 100)
 	require.NoError(t, err, "build MigrateAllButBank router")
 
 	// 50 blocks * 100 batch ≈ 5,000 keys migrated, well short of the ~9,000
@@ -297,7 +297,7 @@ func TestMigrateAllButBank(t *testing.T) {
 		require.NoError(t, err, "flatKV commit")
 	}
 
-	migrationRouter, err = BuildRouter(t.Context(), config.MigrateAllButBank, memiavlDB, flatKVDB, 100)
+	migrationRouter, err = BuildRouter(t.Context(), types.MigrateAllButBank, memiavlDB, flatKVDB, 100)
 	require.NoError(t, err, "rebuild MigrateAllButBank router after restart")
 
 	// Sanity check: all oracle data is still reachable through the rebuilt
@@ -414,7 +414,7 @@ func TestMigrateBank(t *testing.T) {
 	// Lay down v2 state: bank/ in memiavl, everything else in flatKV. Drives
 	// roughly equal load across all real modules so bank/ accumulates enough
 	// keys to make the v2->v3 migration meaningful.
-	allMigratedButBankRouter, err := BuildRouter(t.Context(), config.AllMigratedButBank, memiavlDB, flatKVDB, 0)
+	allMigratedButBankRouter, err := BuildRouter(t.Context(), types.AllMigratedButBank, memiavlDB, flatKVDB, 0)
 	require.NoError(t, err, "build AllMigratedButBank router")
 	SimulateBlocks(t,
 		NewTestMultiRouter(t, allMigratedButBankRouter, inMemoryRouter),
@@ -437,7 +437,7 @@ func TestMigrateBank(t *testing.T) {
 	SeedMigrationVersionInFlatKV(t, flatKVDB, Version2_MigrateAllButBank)
 
 	// --- Phase 2: MigrateBank ---
-	migrationRouter, err := BuildRouter(t.Context(), config.MigrateBank, memiavlDB, flatKVDB, 100)
+	migrationRouter, err := BuildRouter(t.Context(), types.MigrateBank, memiavlDB, flatKVDB, 100)
 	require.NoError(t, err, "build MigrateBank router")
 
 	// Drive 2 blocks through the migration router. Phase 1 produced ~500
@@ -484,7 +484,7 @@ func TestMigrateBank(t *testing.T) {
 		require.NoError(t, err, "flatKV commit")
 	}
 
-	migrationRouter, err = BuildRouter(t.Context(), config.MigrateBank, memiavlDB, flatKVDB, 100)
+	migrationRouter, err = BuildRouter(t.Context(), types.MigrateBank, memiavlDB, flatKVDB, 100)
 	require.NoError(t, err, "rebuild MigrateBank router after restart")
 
 	// Sanity check: all oracle data is still reachable through the rebuilt

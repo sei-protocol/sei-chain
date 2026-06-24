@@ -42,6 +42,14 @@ type Store interface {
 	// a read-only store, on a non-fresh store, or for initialVersion <= 0.
 	SetInitialVersion(initialVersion int64) error
 
+	// EarliestVersion returns the version this store's history begins at
+	// (the seeded version recorded by SetInitialVersion), or 0 when
+	// unknown (genesis stores, and stores created before the record
+	// existed). A non-zero result means versions below it predate the
+	// store entirely — the chain ran without flatkv — as opposed to
+	// pruned or corrupt in-history versions, which still fail to load.
+	EarliestVersion() int64
+
 	// Get returns the value for a key within the given module.
 	// For EVM keys (moduleName == "evm"), the key is a memiavl EVM key
 	// routed to account/storage/code/legacy DBs internally.
