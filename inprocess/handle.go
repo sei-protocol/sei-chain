@@ -83,7 +83,7 @@ func (h Node) WaitReady(ctx context.Context) error {
 	if err := waitHeightAdvances(ctx, probeClient, h.TendermintRPC(), 1); err != nil {
 		return fmt.Errorf("%s tendermint: %w", h.n.moniker, err)
 	}
-	if err := waitEVMServing(ctx, probeClient, h.EVMRPC()); err != nil {
+	if err := waitEVMServing(ctx, probeClient, h.EVMRPC(), h.n.serveErr); err != nil {
 		return fmt.Errorf("%s evm: %w", h.n.moniker, err)
 	}
 	return nil
