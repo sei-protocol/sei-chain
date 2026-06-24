@@ -18,6 +18,8 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
+const testGasPriceWei = 1_000_000_000
+
 func TestExecutorEmptyBlock(t *testing.T) {
 	executor := NewExecutor(Config{})
 
@@ -177,7 +179,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 	chainID := big.NewInt(713715)
 	recipient := testAddress(0xa7)
 
-	t.Run("invalid nonce", func(t *testing.T) {
+	t.Run("nonce too high", func(t *testing.T) {
 		key, err := crypto.GenerateKey()
 		require.NoError(t, err)
 		sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -196,6 +198,29 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		require.True(t, errors.Is(err, core.ErrNonceTooHigh))
 		require.Nil(t, result)
 		require.Equal(t, uint64(0), state.GetNonce(sender))
+		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+	})
+
+	t.Run("nonce too low", func(t *testing.T) {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+
+		state := NewMemoryState()
+		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
+		state.SetNonce(sender, 1)
+		rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
+		executor := NewExecutor(Config{}, WithState(state))
+
+		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+			Context: blockContext(chainID),
+			Txs:     [][]byte{rawTx},
+		})
+
+		require.Error(t, err)
+		require.True(t, errors.Is(err, core.ErrNonceTooLow))
+		require.Nil(t, result)
+		require.Equal(t, uint64(1), state.GetNonce(sender))
 		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 	})
 
@@ -218,6 +243,169 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		require.True(t, errors.Is(err, core.ErrInsufficientFunds))
 		require.Nil(t, result)
 		require.Equal(t, uint64(0), state.GetNonce(sender))
+		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+	})
+
+	t.Run("min gas price", func(t *testing.T) {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+
+		state := NewMemoryState()
+		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
+		rawTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(1))
+		executor := NewExecutor(Config{
+			MinGasPrice: big.NewInt(2),
+		}, WithState(state))
+
+		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+			Context: blockContext(chainID),
+			Txs:     [][]byte{rawTx},
+		})
+
+		require.Error(t, err)
+		require.True(t, errors.Is(err, errInsufficientGasPrice))
+		require.Nil(t, result)
+		require.Equal(t, uint64(0), state.GetNonce(sender))
+		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+	})
+
+	t.Run("fee cap below base fee", func(t *testing.T) {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+
+		state := NewMemoryState()
+		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
+		rawTx := signDynamicFeeTxWithFees(
+			t,
+			key,
+			chainID,
+			0,
+			&recipient,
+			big.NewInt(1),
+			nil,
+			big.NewInt(testGasPriceWei),
+			big.NewInt(testGasPriceWei),
+			100_000,
+		)
+		executor := NewExecutor(Config{
+			DisableGasPriceCheck: true,
+		}, WithState(state))
+		ctx := blockContext(chainID)
+		ctx.BaseFee = big.NewInt(2 * testGasPriceWei)
+
+		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+			Context: ctx,
+			Txs:     [][]byte{rawTx},
+		})
+
+		require.Error(t, err)
+		require.True(t, errors.Is(err, core.ErrFeeCapTooLow))
+		require.Nil(t, result)
+		require.Equal(t, uint64(0), state.GetNonce(sender))
+		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+	})
+
+	t.Run("intrinsic gas too low", func(t *testing.T) {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+
+		state := NewMemoryState()
+		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
+		rawTx := signLegacyTxWithGas(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 20_000)
+		executor := NewExecutor(Config{}, WithState(state))
+
+		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+			Context: blockContext(chainID),
+			Txs:     [][]byte{rawTx},
+		})
+
+		require.Error(t, err)
+		require.True(t, errors.Is(err, core.ErrIntrinsicGas))
+		require.Nil(t, result)
+		require.Equal(t, uint64(0), state.GetNonce(sender))
+		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+	})
+
+	t.Run("block gas exhausted", func(t *testing.T) {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+
+		state := NewMemoryState()
+		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
+		firstTransfer := signLegacyTxWithGas(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 21_000)
+		secondTransfer := signLegacyTxWithGas(t, key, chainID, 1, &recipient, big.NewInt(1), nil, 21_000)
+		executor := NewExecutor(Config{}, WithState(state))
+		ctx := blockContext(chainID)
+		ctx.GasLimit = 30_000
+
+		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+			Context: ctx,
+			Txs:     [][]byte{firstTransfer, secondTransfer},
+		})
+
+		require.Error(t, err)
+		require.True(t, errors.Is(err, core.ErrGasLimitReached))
+		require.Nil(t, result)
+		require.Equal(t, uint64(0), state.GetNonce(sender))
+		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+	})
+}
+
+func TestExecutorRejectsBadSignatureBeforeExecution(t *testing.T) {
+	chainID := big.NewInt(713715)
+	recipient := testAddress(0xa8)
+
+	t.Run("wrong chain id", func(t *testing.T) {
+		wrongChainID := big.NewInt(1)
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+
+		state := NewMemoryState()
+		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
+		rawTx := signLegacyTx(t, key, wrongChainID, 0, &recipient, big.NewInt(1), nil)
+		executor := NewExecutor(Config{}, WithState(state))
+
+		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+			Context: blockContext(chainID),
+			Txs:     [][]byte{rawTx},
+		})
+
+		require.Error(t, err)
+		require.True(t, errors.Is(err, ethtypes.ErrInvalidChainId))
+		require.Nil(t, result)
+		require.Equal(t, uint64(0), state.GetNonce(sender))
+		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+	})
+
+	t.Run("invalid signature values", func(t *testing.T) {
+		state := NewMemoryState()
+		rawTx := legacyTxWithSignatureValues(
+			t,
+			0,
+			&recipient,
+			big.NewInt(1),
+			nil,
+			100_000,
+			big.NewInt(testGasPriceWei),
+			new(big.Int).Add(big.NewInt(35), new(big.Int).Mul(big.NewInt(2), chainID)),
+			new(big.Int),
+			new(big.Int),
+		)
+		executor := NewExecutor(Config{}, WithState(state))
+
+		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+			Context: blockContext(chainID),
+			Txs:     [][]byte{rawTx},
+		})
+
+		require.Error(t, err)
+		require.True(t, errors.Is(err, ethtypes.ErrInvalidSig))
+		require.Nil(t, result)
 		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 	})
 }
@@ -400,9 +588,14 @@ func signLegacyTx(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce u
 
 func signLegacyTxWithGas(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte, gas uint64) []byte {
 	t.Helper()
+	return signLegacyTxWithGasPrice(t, key, chainID, nonce, to, value, data, gas, big.NewInt(testGasPriceWei))
+}
+
+func signLegacyTxWithGasPrice(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte, gas uint64, gasPrice *big.Int) []byte {
+	t.Helper()
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    nonce,
-		GasPrice: big.NewInt(1_000_000_000),
+		GasPrice: new(big.Int).Set(gasPrice),
 		Gas:      gas,
 		To:       to,
 		Value:    value,
@@ -411,6 +604,24 @@ func signLegacyTxWithGas(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, 
 	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
 	require.NoError(t, err)
 	raw, err := signed.MarshalBinary()
+	require.NoError(t, err)
+	return raw
+}
+
+func legacyTxWithSignatureValues(t *testing.T, nonce uint64, to *common.Address, value *big.Int, data []byte, gas uint64, gasPrice *big.Int, v *big.Int, r *big.Int, s *big.Int) []byte {
+	t.Helper()
+	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    nonce,
+		GasPrice: new(big.Int).Set(gasPrice),
+		Gas:      gas,
+		To:       to,
+		Value:    value,
+		Data:     data,
+		V:        new(big.Int).Set(v),
+		R:        new(big.Int).Set(r),
+		S:        new(big.Int).Set(s),
+	})
+	raw, err := tx.MarshalBinary()
 	require.NoError(t, err)
 	return raw
 }
@@ -424,12 +635,28 @@ func decodeTx(t *testing.T, raw []byte) *ethtypes.Transaction {
 
 func signDynamicFeeTx(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte) []byte {
 	t.Helper()
+	return signDynamicFeeTxWithFees(
+		t,
+		key,
+		chainID,
+		nonce,
+		to,
+		value,
+		data,
+		big.NewInt(testGasPriceWei),
+		big.NewInt(testGasPriceWei),
+		100_000,
+	)
+}
+
+func signDynamicFeeTxWithFees(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte, gasTipCap *big.Int, gasFeeCap *big.Int, gas uint64) []byte {
+	t.Helper()
 	tx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		ChainID:   chainID,
 		Nonce:     nonce,
-		GasTipCap: big.NewInt(1_000_000_000),
-		GasFeeCap: big.NewInt(1_000_000_000),
-		Gas:       100_000,
+		GasTipCap: new(big.Int).Set(gasTipCap),
+		GasFeeCap: new(big.Int).Set(gasFeeCap),
+		Gas:       gas,
 		To:        to,
 		Value:     value,
 		Data:      data,
