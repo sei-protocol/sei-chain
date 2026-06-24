@@ -34,6 +34,18 @@ func (h Node) Name() string { return h.n.moniker }
 // handle parity.
 func (h Node) Namespace() string { return "" }
 
+// Home is the node's on-disk home dir (the seid --home target). It holds the
+// node's config/, data/, and the `test` keyring this node's genesis keys were
+// written into — what the YAML runner's in-process arm points a host `seid` at.
+// Not part of the SDK NodeHandle surface (a home dir is in-process-only); exposed
+// because the host-binary runner arm needs it.
+func (h Node) Home() string { return h.n.home }
+
+// RPCNodeAddr is the node's CometBFT RPC dial address in tcp:// form
+// (tcp://127.0.0.1:PORT) — the value a host `seid --node` flag wants, distinct
+// from TendermintRPC's http:// form used by the readiness probes.
+func (h Node) RPCNodeAddr() string { return h.n.rpcAddr }
+
 // TendermintRPC is the node's CometBFT RPC base URL (http://127.0.0.1:PORT).
 func (h Node) TendermintRPC() string { return "http://" + stripScheme(h.n.rpcAddr) }
 

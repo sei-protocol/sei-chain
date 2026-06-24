@@ -50,6 +50,17 @@ type Verifier struct {
 	Result string `yaml:"result,omitempty"` // env var to match (regex only)
 }
 
+// execer runs one command step against a target node and returns its trimmed
+// stdout. It is the seam between the two backends: the docker arm runs the
+// command via `docker exec`, the in-process arm runs it on the host against an
+// inprocess.Network. node is the Input's resolved target (a docker container
+// name / a "sei-node-N" moniker); env is the accumulated capture map. A non-zero
+// command exit is reported via the returned string (the captured code), not err
+// — err is reserved for harness-level failures (mirrors the runner.py contract).
+type execer interface {
+	run(t *testing.T, cmd, node string, env map[string]string, opts Options) (string, error)
+}
+
 // Options controls how RunFile executes commands.
 type Options struct {
 	// DefaultContainer is the docker container used when an Input has no Node set.
@@ -59,6 +70,11 @@ type Options struct {
 	// Shell is the shell used to execute commands (e.g. "sh", "bash").
 	// Resolved via PATH at runtime. Defaults to "sh".
 	Shell string
+	// exec is the backend. nil selects the docker arm (the default), so existing
+	// docker runs are unaffected. The in-process arm is installed via
+	// WithInProcessNetwork (build-tagged `inprocess`); it never enters a normal
+	// runner build.
+	exec execer
 }
 
 // Option is a functional option for Options.
@@ -79,6 +95,13 @@ func WithShell(shell string) Option {
 	return func(o *Options) { o.Shell = shell }
 }
 
+// withExecer installs a backend execer. Unexported: callers select the
+// in-process arm via WithInProcessNetwork (build-tagged), and the docker arm is
+// the zero-value default.
+func withExecer(e execer) Option {
+	return func(o *Options) { o.exec = e }
+}
+
 func newOptions(opts []Option) Options {
 	var o Options
 	//applying default options
@@ -87,6 +110,9 @@ func newOptions(opts []Option) Options {
 	}
 	for _, opt := range opts {
 		opt(&o)
+	}
+	if o.exec == nil {
+		o.exec = dockerExecer{}
 	}
 	return o
 }
@@ -111,11 +137,11 @@ func runCase(t *testing.T, tc TestCase, opts Options) {
 	envMap := make(map[string]string)
 
 	for i, inp := range tc.Inputs {
-		container := inp.Node
-		if container == "" {
-			container = opts.DefaultContainer
+		node := inp.Node
+		if node == "" {
+			node = opts.DefaultContainer
 		}
-		out, err := execCmd(t, inp.Cmd, container, envMap, opts)
+		out, err := opts.exec.run(t, inp.Cmd, node, envMap, opts)
 		t.Logf("[%d] $ %s\n    => %s", i, inp.Cmd, out)
 		require.NoError(t, err, "input[%d] failed: %v", i, err)
 		if inp.Env != "" {
@@ -130,11 +156,16 @@ func runCase(t *testing.T, tc TestCase, opts Options) {
 	}
 }
 
-// execCmd runs cmd in the given docker container (or locally if container is empty),
+// dockerExecer is the default backend: it runs each command via `docker exec`
+// in the target container (the existing behavior). It is selected whenever no
+// other execer is installed, so docker runs are unaffected by the seam.
+type dockerExecer struct{}
+
+// run runs cmd in the given docker container (or locally if container is empty),
 // injecting the accumulated envMap. Non-zero exit is logged but not fatal — this
 // matches runner.py behaviour where commands that echo error codes exit 0 from
 // bash but the captured output is the code.
-func execCmd(t *testing.T, cmd, container string, envMap map[string]string, opts Options) (string, error) {
+func (dockerExecer) run(t *testing.T, cmd, container string, envMap map[string]string, opts Options) (string, error) {
 	t.Helper()
 	var c *exec.Cmd
 

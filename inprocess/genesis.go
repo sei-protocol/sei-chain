@@ -104,6 +104,26 @@ func (b *genesisBuilder) fundValidator(
 	return addr, nil
 }
 
+// fundAccount stores a non-validator key in kb and funds its genesis account +
+// balance. Unlike fundValidator it writes no gentx (the account never stakes) —
+// it is the genesis-funded signing account a suite spends from (e.g. `admin`).
+func (b *genesisBuilder) fundAccount(
+	kb keyring.Keyring,
+	name string,
+	algo keyring.SignatureAlgo,
+	coins sdk.Coins,
+) error {
+	addr, _, err := testutil.GenerateSaveCoinKey(kb, name, "", true, algo)
+	if err != nil {
+		return fmt.Errorf("generate key for %s: %w", name, err)
+	}
+	b.accounts = append(b.accounts, authtypes.NewBaseAccount(addr, nil, 0, 0))
+	if !coins.Empty() {
+		b.balances = append(b.balances, banktypes.Balance{Address: addr.String(), Coins: coins.Sort()})
+	}
+	return nil
+}
+
 // writeBaseGenesis writes a base genesis file (accounts + balances, empty
 // validator set) to every validator's genesis path. Mirrors initGenFiles.
 func (b *genesisBuilder) writeBaseGenesis(baseState map[string]json.RawMessage, genFiles []string) error {

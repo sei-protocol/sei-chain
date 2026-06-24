@@ -67,6 +67,27 @@ type Options struct {
 	// TimeoutCommit is the consensus commit timeout; 0 defaults to 2s. The
 	// dominant cadence lever — lower it (e.g. 500ms) for faster tests.
 	TimeoutCommit time.Duration
+
+	// ExtraKeys are non-validator genesis accounts to create + fund. Each key is
+	// written into its target node's home `test` keyring (so a host `seid --home
+	// <home> --keyring-backend test` resolves it) and funded at genesis. This is
+	// the bridge the YAML runner's in-process arm needs: the bank suite signs as
+	// `admin` (node 0) and the docker topology also seeds `node_admin` per node.
+	ExtraKeys []ExtraKey
+}
+
+// ExtraKey is a non-validator genesis account the harness creates and funds. It
+// mirrors the docker localnode topology where `admin` lives on node 0 only and
+// `node_admin` exists per node, so suites that sign as those names run unchanged
+// against the in-process arm.
+type ExtraKey struct {
+	// Name is the keyring key name (e.g. "admin", "node_admin").
+	Name string
+	// Node is the 0-based validator index whose home keyring receives the key.
+	Node int
+	// Coins is the genesis balance for the key's account. Empty funds nothing
+	// (the account still exists), which is rarely what a signing key wants.
+	Coins sdk.Coins
 }
 
 func (o Options) withDefaults() Options {
@@ -150,6 +171,9 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 	if err := net.provisionNodes(enc, gb); err != nil {
 		return nil, err
 	}
+	if err := net.provisionExtraKeys(gb); err != nil {
+		return nil, err
+	}
 
 	baseState := app.ModuleBasics.DefaultGenesis(enc.Marshaler)
 	genFiles := make([]string, len(net.nodes))
@@ -178,11 +202,12 @@ func (net *Network) provisionNodes(enc encoding, gb *genesisBuilder) error {
 	for i := 0; i < net.opts.Validators; i++ {
 		moniker := fmt.Sprintf("node%d", i)
 		nodeDir := filepath.Join(net.baseDir, moniker, "simd")
-		clientDir := filepath.Join(net.baseDir, moniker, "simcli")
+		// The keyring lives in the node home (not a separate simcli dir) so a host
+		// `seid --home <nodeDir> --keyring-backend test` — how the YAML runner's
+		// in-process arm targets a node — resolves the same keys this harness wrote
+		// (keyring dir falls back to --home; see client/cmd.go).
+		clientDir := nodeDir
 		if err := os.MkdirAll(filepath.Join(nodeDir, "config"), 0o750); err != nil {
-			return err
-		}
-		if err := os.MkdirAll(clientDir, 0o750); err != nil {
 			return err
 		}
 
@@ -216,6 +241,12 @@ func (net *Network) provisionNodes(enc encoding, gb *genesisBuilder) error {
 		}
 
 		writeAppConfig(filepath.Join(nodeDir, "config/app.toml"))
+		// Seed a client.toml so a bare host `seid --home <nodeDir>` (no per-command
+		// flags) already targets this node: test keyring, the harness chain-id, and
+		// this node's loopback TM RPC. The in-process runner arm still injects the
+		// same values as flags defensively, but pinning them here keeps opaque
+		// sourced helper scripts (which call bare `seid`) on the right node.
+		writeClientConfig(filepath.Join(nodeDir, "config/client.toml"), net.opts.ChainID, addrs.rpcAddr)
 
 		clientCx := client.Context{}.
 			WithKeyringDir(clientDir).WithKeyring(kb).WithHomeDir(tmCfg.RootDir).
@@ -231,6 +262,31 @@ func (net *Network) provisionNodes(enc encoding, gb *genesisBuilder) error {
 			httpPort: addrs.httpPort, wsPort: addrs.wsPort,
 			serveErr: make(chan error, 2), // one HTTP + one WS listener
 		})
+	}
+	return nil
+}
+
+// provisionExtraKeys creates each Options.ExtraKey in its target node's home
+// `test` keyring and funds its genesis account. It runs after provisionNodes (so
+// every node's keyring exists) and before genesis assembly (so the balances fold
+// into the base genesis). This is the keyring/home bridge the YAML runner's
+// in-process arm relies on — `admin` on node 0, `node_admin` per node — matching
+// the docker localnode topology so bank suites sign unchanged.
+func (net *Network) provisionExtraKeys(gb *genesisBuilder) error {
+	algoStr := string(hdSecp256k1())
+	for _, ek := range net.opts.ExtraKeys {
+		if ek.Node < 0 || ek.Node >= len(net.nodes) {
+			return fmt.Errorf("extra key %q targets node %d, out of range [0,%d)", ek.Name, ek.Node, len(net.nodes))
+		}
+		kb := net.nodes[ek.Node].clientCx.Keyring
+		algos, _ := kb.SupportedAlgorithms()
+		algo, err := keyring.NewSigningAlgoFromString(algoStr, algos)
+		if err != nil {
+			return err
+		}
+		if err := gb.fundAccount(kb, ek.Name, algo, ek.Coins); err != nil {
+			return fmt.Errorf("provision extra key %q on node%d: %w", ek.Name, ek.Node, err)
+		}
 	}
 	return nil
 }
@@ -384,6 +440,27 @@ func writeAppConfig(path string) {
 	appCfg.GRPCWeb.Enable = false
 	appCfg.Telemetry.Enabled = false
 	srvconfig.WriteConfigFile(path, appCfg)
+}
+
+// clientConfigTemplate matches sei-cosmos client/config's client.toml schema. It
+// is reproduced here (not imported) because that package's writer + config
+// struct are unexported — the same reason genesis.go reimplements the network
+// package's unexported helpers rather than forcing a cosmos source change.
+const clientConfigTemplate = `chain-id = "%s"
+keyring-backend = "test"
+output = "json"
+node = "%s"
+broadcast-mode = "sync"
+`
+
+// writeClientConfig writes a client.toml pinning the test keyring, chain-id, and
+// this node's loopback TM RPC so a bare host `seid --home <nodeDir>` already
+// targets the node without per-command flags (client/config.ReadFromClientConfig
+// reads <home>/config/client.toml). broadcast-mode stays sync — the suites
+// broadcast with -b sync and poll on-chain side effects. Best-effort: a failed
+// write leaves the in-process arm's explicit per-command flags as the fallback.
+func writeClientConfig(path, chainID, rpcAddr string) {
+	_ = os.WriteFile(path, []byte(fmt.Sprintf(clientConfigTemplate, chainID, rpcAddr)), 0o600)
 }
 
 // freePort allocates a free loopback TCP port via server.FreeTCPAddr.
