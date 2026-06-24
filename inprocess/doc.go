@@ -42,7 +42,11 @@
 //     hard-disables them).
 //  4. tmCfg.Instrumentation.Prometheus = false — avoids the dup-registry panic;
 //     with metrics off no evmrpc/EVM-keeper de-globalization is needed.
-//  5. Listeners scoped to 127.0.0.1 (EVM defaults to 0.0.0.0, TM RPC to [::]).
+//  5. TM RPC / gRPC / P2P listeners scoped to 127.0.0.1 (they default to [::] /
+//     0.0.0.0). The EVM HTTP/WS listeners bind 0.0.0.0 — evmrpc hardcodes the
+//     bind host (server.LocalAddress) with no config override — but on a free
+//     ephemeral port, dialed via 127.0.0.1. They are not loopback-scoped; a
+//     bind-host option in evmrpc would be the only way to tighten that.
 //  6. MaxIncomingConnectionAttempts raised — loopback collapses all peers onto
 //     127.0.0.1, so the router's IP-keyed conn-tracker counts the startup burst
 //     on one key.

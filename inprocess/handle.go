@@ -12,6 +12,13 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 )
 
+// probeClient is the default HTTP client the readiness probes dial with. It is a
+// package-level default so WaitReady takes only a ctx (mirroring the SDK's
+// sei.NodeHandle.WaitReady), keeping the http client an internal detail. The
+// short timeout bounds a single /status or eth_blockNumber probe — the overall
+// wait is governed by the caller's ctx, not this.
+var probeClient = &http.Client{Timeout: 5 * time.Second}
+
 // Node is a handle to one running in-process validator. Its method set mirrors
 // the SDK's sei.NodeHandle (EVMRPC/TendermintRPC/REST/WaitReady/Object) so a thin
 // adapter can satisfy that interface once the SDK toolchain skew is resolved
@@ -56,12 +63,14 @@ func (h Node) Object() any { return h.n.tmNode }
 func (h Node) ServeErr() <-chan error { return h.n.serveErr }
 
 // WaitReady blocks until this node has joined consensus (height advancing) and
-// its EVM listener is serving, or ctx fires.
-func (h Node) WaitReady(ctx context.Context, hc *http.Client) error {
-	if err := waitHeightAdvances(ctx, hc, h.TendermintRPC(), 1); err != nil {
+// its EVM listener is serving, or ctx fires. Its single-ctx signature mirrors
+// the SDK's sei.NodeHandle.WaitReady; the probe HTTP client is an internal
+// default (probeClient).
+func (h Node) WaitReady(ctx context.Context) error {
+	if err := waitHeightAdvances(ctx, probeClient, h.TendermintRPC(), 1); err != nil {
 		return fmt.Errorf("%s tendermint: %w", h.n.moniker, err)
 	}
-	if err := waitEVMServing(ctx, hc, h.EVMRPC()); err != nil {
+	if err := waitEVMServing(ctx, probeClient, h.EVMRPC()); err != nil {
 		return fmt.Errorf("%s evm: %w", h.n.moniker, err)
 	}
 	return nil
@@ -87,9 +96,8 @@ func (net *Network) Len() int { return len(net.nodes) }
 // ctx fires. It is the heavy readiness gate (per-node height-advance + EVM
 // probe), distinct from Start (which only constructs + starts the nodes).
 func (net *Network) WaitReady(ctx context.Context) error {
-	hc := &http.Client{Timeout: 5 * time.Second}
 	for i := range net.nodes {
-		if err := net.Node(i).WaitReady(ctx, hc); err != nil {
+		if err := net.Node(i).WaitReady(ctx); err != nil {
 			return err
 		}
 	}
@@ -110,12 +118,12 @@ func (net *Network) Close() {
 	for _, n := range net.nodes {
 		stopNode(n)
 	}
-	// The EVM worker pool is a process global shared by all N nodes (the LLD's
-	// known cross-node coupling, accepted for the metrics-off MVP). Drain it once
-	// here, not per node, so its goroutines do not leak across test runs.
-	if pool := evmrpc.GetGlobalWorkerPool(); pool != nil {
-		pool.Close()
-	}
+	// The EVM worker pool (evmrpc.GetGlobalWorkerPool) is a process-wide
+	// sync.Once singleton, NOT Network-owned. Deliberately not Closed here:
+	// Close is permanent (the Once never re-fires), so a second Start in the
+	// same process would inherit a closed pool and every EVM request would fail.
+	// Its goroutines are reaped at process exit. De-globalizing the pool in
+	// evmrpc is the proper fix for repeated Start/Close in one process.
 
 	if net.ownBaseDir && net.baseDir != "" {
 		_ = os.RemoveAll(net.baseDir)

@@ -5,6 +5,7 @@ package inprocess
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,5 +121,23 @@ func TestStartRejectsZeroValidators(t *testing.T) {
 	_, err := Start(context.Background(), Options{Validators: 0})
 	if err == nil {
 		t.Fatal("Start with 0 validators: want error, got nil")
+	}
+}
+
+// TestFreshChainIDPerRun pins the per-run unique chain-id discipline: an empty
+// Options.ChainID must yield a distinct id each time, so a run never collides
+// with a prior run's persisted genesis. Pure-function check — no bring-up.
+func TestFreshChainIDPerRun(t *testing.T) {
+	a := Options{}.withDefaults().ChainID
+	b := Options{}.withDefaults().ChainID
+	if a == b {
+		t.Fatalf("fresh chain-id not unique across runs: %q == %q", a, b)
+	}
+	if !strings.HasPrefix(a, chainIDPrefix) {
+		t.Fatalf("chain-id %q lacks prefix %q", a, chainIDPrefix)
+	}
+	// An explicit ChainID is honored verbatim.
+	if got := (Options{ChainID: "pinned"}).withDefaults().ChainID; got != "pinned" {
+		t.Fatalf("explicit ChainID not honored: got %q", got)
 	}
 }

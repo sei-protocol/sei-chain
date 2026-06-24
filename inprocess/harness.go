@@ -4,6 +4,7 @@ package inprocess
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"os"
@@ -30,10 +31,23 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 )
 
-// defaultChainID is the chain-id the sei-chain integration helpers and CLI
-// hardcode; a different value fails every tx, so it is the default and not
-// merely a placeholder.
-const defaultChainID = "sei"
+// chainIDPrefix prefixes every harness-generated chain-id. The value is free —
+// the harness signs its own txs with Options.ChainID, and it is NOT the EVM
+// chain ID (the keeper derives that). A fresh token per Start mirrors the
+// controller harness's runChainID discipline: a static id reused across runs
+// collides with a prior run's persisted genesis and halts at height 1.
+const chainIDPrefix = "sei-inprocess"
+
+// freshChainID returns a unique chain-id token (chainIDPrefix-<8 hex>). Falls
+// back to a nanosecond timestamp if crypto/rand is unavailable, which still
+// yields a distinct id per Start.
+func freshChainID() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("%s-%d", chainIDPrefix, time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%s-%x", chainIDPrefix, b[:])
+}
 
 // Options configures a Start. The zero value is invalid (Validators must be
 // >= 1); use sensible explicit values.
@@ -42,7 +56,9 @@ type Options struct {
 	// (app, node.New) pair serving its own RPC stack.
 	Validators int
 
-	// ChainID is the genesis chain id; "" defaults to "sei".
+	// ChainID is the genesis chain id; "" generates a fresh per-run id
+	// (chainIDPrefix-<rand>) so a run never collides with a prior run's genesis.
+	// Set it explicitly only when a test pins a specific chain id.
 	ChainID string
 
 	// BaseDir is the parent dir for per-node homes; "" creates a temp dir the
@@ -56,7 +72,7 @@ type Options struct {
 
 func (o Options) withDefaults() Options {
 	if o.ChainID == "" {
-		o.ChainID = defaultChainID
+		o.ChainID = freshChainID()
 	}
 	if o.TimeoutCommit == 0 {
 		o.TimeoutCommit = 2 * time.Second
@@ -284,8 +300,10 @@ type nodeAddrs struct {
 	httpPort, wsPort int
 }
 
-// buildNodeConfig builds an isolated per-node tendermint config with loopback
-// listeners and the conn-tracker ceiling raised (recipes #4, #5, #6).
+// buildNodeConfig builds an isolated per-node tendermint config with loopback TM
+// RPC / gRPC / P2P listeners and the conn-tracker ceiling raised (recipes #4, #5,
+// #6). EVM bind-host is not config-scopable (evmrpc hardcodes 0.0.0.0); the EVM
+// ports are allocated free here and dialed via loopback.
 func buildNodeConfig(nodeDir, moniker string, timeoutCommit time.Duration) (*config.Config, nodeAddrs, error) {
 	sctx := server.NewDefaultContext()
 	tmCfg := sctx.Config
