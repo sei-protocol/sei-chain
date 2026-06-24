@@ -199,7 +199,7 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 	for _, l := range p.laneRanges {
 		laneRanges = append(laneRanges, l)
 	}
-	return newProposal(m.View().Next(), p.Timestamp(), laneRanges, p.App(), p.GlobalRange().First), true
+	return newProposal(m.View().Next(), p.Timestamp(), laneRanges, p.App(), p.firstBlock), true
 }
 
 // TimeoutVoteConv is the protobuf converter for TimeoutVote.

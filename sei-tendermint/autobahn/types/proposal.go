@@ -113,7 +113,7 @@ type ViewSpec struct {
 	// I.e. that TimeoutQC comes from the expected consensus instance.
 	CommitQC   utils.Option[*CommitQC]
 	TimeoutQC  utils.Option[*TimeoutQC]
-	FirstBlock GlobalBlockNumber // first global block number of the current epoch
+	FirstBlock GlobalBlockNumber // genesis InitialHeight; added to lane-relative block numbers to produce absolute global block numbers
 }
 
 // NextGlobalBlock returns the first global block number expected in the next proposal.
@@ -541,6 +541,9 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		app, err := AppProposalConv.DecodeOpt(m.App)
 		if err != nil {
 			return nil, fmt.Errorf("appQC: %w", err)
+		}
+		if m.GlobalFirst == nil {
+			return nil, fmt.Errorf("global_first is required")
 		}
 		proposal := newProposal(view, timestamp, laneRanges, app, GlobalBlockNumber(m.GetGlobalFirst()))
 		if len(proposal.laneRanges) != len(laneRanges) {

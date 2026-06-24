@@ -204,7 +204,7 @@ func (i *inner) skipTo(n types.GlobalBlockNumber) {
 // insertQC verifies and inserts a FullCommitQC into the inner state.
 // Accepts QCs whose range starts at or before nextQC (partially pruned
 // prefix is silently skipped). Rejects gaps where gr.First > nextQC.
-func (i *inner) insertQC(committee *types.Committee, firstBlock types.GlobalBlockNumber, qc *types.FullCommitQC) error {
+func (i *inner) insertQC(committee *types.Committee, qc *types.FullCommitQC) error {
 	if err := qc.Verify(committee); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
@@ -230,7 +230,7 @@ func (i *inner) insertQC(committee *types.Committee, firstBlock types.GlobalBloc
 // updateNextBlock after inserting one or more blocks. This separation
 // allows batch insertion (e.g. PushQC inserts multiple blocks, then
 // advances nextBlock once).
-func (i *inner) insertBlock(committee *types.Committee, firstBlock types.GlobalBlockNumber, n types.GlobalBlockNumber, block *types.Block) error {
+func (i *inner) insertBlock(committee *types.Committee, n types.GlobalBlockNumber, block *types.Block) error {
 	if n < i.first || n >= i.nextQC {
 		return nil // outside QC range
 	}
@@ -303,7 +303,7 @@ func NewState(cfg *Config, dataWAL *DataWAL) (*State, error) {
 	// before inner.first) by skipping the pruned prefix.
 	for _, qc := range dataWAL.CommitQCs.ConsumeLoaded() {
 		committee := cfg.Registry.CommitteeFor(qc.QC().Proposal().Index())
-		if err := inner.insertQC(committee, cfg.Registry.FirstBlock(), qc); err != nil {
+		if err := inner.insertQC(committee, qc); err != nil {
 			return nil, fmt.Errorf("load QC from WAL: %w", err)
 		}
 	}
@@ -322,7 +322,7 @@ func NewState(cfg *Config, dataWAL *DataWAL) (*State, error) {
 		if err := lb.Block.Verify(committee); err != nil {
 			return nil, fmt.Errorf("load block %d from WAL: %w", lb.Number, err)
 		}
-		if err := inner.insertBlock(committee, cfg.Registry.FirstBlock(), lb.Number, lb.Block); err != nil {
+		if err := inner.insertBlock(committee, lb.Number, lb.Block); err != nil {
 			return nil, fmt.Errorf("load block %d from WAL: %w", lb.Number, err)
 		}
 	}
@@ -355,7 +355,6 @@ func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
 	// Wait until QC is needed.
 	committee := s.cfg.Registry.CommitteeFor(qc.QC().Proposal().Index())
-	firstBlock := s.cfg.Registry.FirstBlock()
 	gr := qc.QC().GlobalRange()
 	needQC, err := func() (bool, error) {
 		for inner, ctrl := range s.inner.Lock() {
@@ -402,7 +401,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 			storedGR := storedQC.QC().GlobalRange()
 			storedCommittee := s.cfg.Registry.CommitteeFor(storedQC.QC().Proposal().Index())
 			if b, ok := byHash[storedQC.Headers()[n-storedGR.First].Hash()]; ok {
-				if err := inner.insertBlock(storedCommittee, firstBlock, n, b); err != nil {
+				if err := inner.insertBlock(storedCommittee, n, b); err != nil {
 					return err
 				}
 			}
@@ -447,7 +446,7 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		if err := block.Verify(committee); err != nil {
 			return fmt.Errorf("block.Verify(): %w", err)
 		}
-		if err := inner.insertBlock(committee, s.cfg.Registry.FirstBlock(), n, block); err != nil {
+		if err := inner.insertBlock(committee, n, block); err != nil {
 			return err
 		}
 		inner.updateNextBlock(s.metrics)

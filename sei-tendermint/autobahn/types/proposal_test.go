@@ -730,13 +730,18 @@ func TestProposalVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
 func TestProposalVerifyValidReproposal(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	firstBlock := GlobalBlockNumber(0)
+	firstBlock := GlobalBlockNumber(100)
 	genesisTimestamp := time.Time{}
 
-	// First, create a valid proposal at view (0, 0) with a PrepareQC.
-	vs0 := ViewSpec{}
+	// Build a proposal at view (0, 0) with one lane block so sum(lane.First) > 0.
+	// firstBlock > 0 ensures a reproposal bug that passes GlobalRange().First
+	// (= sum(lane.First)+firstBlock) instead of firstBlock would be caught.
+	vs0 := ViewSpec{FirstBlock: firstBlock}
 	leader0 := leaderKey(committee, keys, vs0.View())
-	fp0 := utils.OrPanic1(NewProposal(leader0, committee, vs0, firstBlock, genesisTimestamp, time.Now(), nil, utils.None[*AppQC]()))
+	lane := committee.Leader(vs0.View())
+	laneQC0 := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
+	fp0 := utils.OrPanic1(NewProposal(leader0, committee, vs0, firstBlock, genesisTimestamp, time.Now(),
+		map[LaneID]*LaneQC{lane: laneQC0}, utils.None[*AppQC]()))
 
 	// Build a PrepareQC for the proposal at (0, 0).
 	var prepareVotes []*Signed[*PrepareVote]
@@ -752,12 +757,14 @@ func TestProposalVerifyValidReproposal(t *testing.T) {
 	}
 	timeoutQC := NewTimeoutQC(timeoutVotes)
 
-	vs1 := ViewSpec{TimeoutQC: utils.Some(timeoutQC)}
+	vs1 := ViewSpec{TimeoutQC: utils.Some(timeoutQC), FirstBlock: firstBlock}
 	require.Equal(t, View{Index: 0, Number: 1}, vs1.View())
 
 	leader1 := leaderKey(committee, keys, vs1.View())
 	reproposal := utils.OrPanic1(NewProposal(leader1, committee, vs1, firstBlock, genesisTimestamp, time.Now(), nil, utils.None[*AppQC]()))
 
+	// Reproposal must carry the same GlobalRange as the original.
+	require.Equal(t, fp0.Proposal().Msg().GlobalRange(), reproposal.Proposal().Msg().GlobalRange())
 	require.NoError(t, reproposal.Verify(committee, vs1, genesisTimestamp))
 }
 

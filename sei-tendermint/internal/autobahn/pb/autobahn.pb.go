@@ -839,7 +839,7 @@ type Proposal struct {
 	Timestamp     *Timestamp             `protobuf:"bytes,5,opt,name=timestamp,proto3,oneof" json:"timestamp,omitempty"`                         // required
 	LaneRanges    []*LaneRange           `protobuf:"bytes,3,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"`           // Sorted by lane.
 	App           *AppProposal           `protobuf:"bytes,4,opt,name=app,proto3,oneof" json:"app,omitempty"`                                     // optional
-	GlobalFirst   *uint64                `protobuf:"varint,6,opt,name=global_first,json=globalFirst,proto3,oneof" json:"global_first,omitempty"` // epoch offset baked into this proposal; 0 for genesis epoch
+	GlobalFirst   *uint64                `protobuf:"varint,6,opt,name=global_first,json=globalFirst,proto3,oneof" json:"global_first,omitempty"` // genesis InitialHeight; added to lane block numbers to produce absolute global block numbers
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
