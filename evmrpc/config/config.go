@@ -166,6 +166,14 @@ type Config struct {
 
 	// IPRateLimitBurst is the maximum per-IP burst size.
 	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
+
+	// BatchRequestLimit is the maximum number of requests allowed in a single
+	// JSON-RPC batch (HTTP and WebSocket). Set to 0 to disable the limit.
+	BatchRequestLimit int `mapstructure:"batch_request_limit"`
+
+	// BatchResponseMaxSize is the maximum number of bytes returned from a
+	// batched JSON-RPC call (HTTP and WebSocket). Set to 0 to disable the limit.
+	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
 }
 
 var DefaultConfig = Config{
@@ -213,6 +221,8 @@ var DefaultConfig = Config{
 	TraceBakeSnapshotWindow: 64,
 	IPRateLimitRPS:          200,
 	IPRateLimitBurst:        400,
+	BatchRequestLimit:       1000,
+	BatchResponseMaxSize:    25 * 1000 * 1000, // 25MB
 }
 
 const (
@@ -256,6 +266,8 @@ const (
 	flagTraceBakeSnapshotWindow      = "evm.trace_bake_snapshot_window"
 	flagIPRateLimitRPS               = "evm.ip_rate_limit_rps"
 	flagIPRateLimitBurst             = "evm.ip_rate_limit_burst"
+	flagBatchRequestLimit            = "evm.batch_request_limit"
+	flagBatchResponseMaxSize         = "evm.batch_response_max_size"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -461,6 +473,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagBatchRequestLimit); v != nil {
+		if cfg.BatchRequestLimit, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagBatchResponseMaxSize); v != nil {
+		if cfg.BatchResponseMaxSize, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
 	return cfg, nil
 }
 
@@ -656,5 +678,13 @@ ip_rate_limit_rps = {{ .EVM.IPRateLimitRPS }}
 
 # ip_rate_limit_burst is the maximum per-IP burst above the sustained rate.
 ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
+
+# batch_request_limit is the maximum number of requests allowed in a single
+# JSON-RPC batch (HTTP and WebSocket). Set to 0 to disable the limit.
+batch_request_limit = {{ .EVM.BatchRequestLimit }}
+
+# batch_response_max_size is the maximum number of bytes returned from a
+# batched JSON-RPC call (HTTP and WebSocket). Set to 0 to disable the limit.
+batch_response_max_size = {{ .EVM.BatchResponseMaxSize }}
 
 `
