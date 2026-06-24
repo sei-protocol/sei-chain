@@ -50,13 +50,13 @@ func (h Node) RPCNodeAddr() string { return h.n.rpcAddr }
 func (h Node) TendermintRPC() string { return "http://" + stripScheme(h.n.rpcAddr) }
 
 // EVMRPC is the node's EVM JSON-RPC HTTP URL. The URL dials loopback, but the
-// listener itself binds 0.0.0.0 (see doc.go recipe #5's accepted caveat).
+// listener itself binds 0.0.0.0 (see doc.go's 0.0.0.0 EVM caveat).
 func (h Node) EVMRPC() string { return fmt.Sprintf("http://127.0.0.1:%d", h.n.httpPort) }
 
 // EVMWS is the node's EVM JSON-RPC WebSocket URL. Not part of the SDK
 // NodeHandle surface, but the in-process harness binds it, so it is exposed.
-// The URL dials loopback, but the listener itself binds 0.0.0.0 (see doc.go
-// recipe #5's accepted caveat).
+// The URL dials loopback, but the listener itself binds 0.0.0.0 (see doc.go's
+// 0.0.0.0 EVM caveat).
 func (h Node) EVMWS() string { return fmt.Sprintf("ws://127.0.0.1:%d", h.n.wsPort) }
 
 // REST is "" — the harness does not start the Cosmos LCD listener (reserved:
@@ -73,6 +73,11 @@ func (h Node) Object() any { return h.n.tmNode }
 // (instead of the process-wide panic the production path uses). A non-nil
 // receive means that node's EVM listener failed to bind; consensus may still be
 // healthy. Buffered (cap 2: HTTP + WS).
+//
+// Read it AFTER WaitReady returns, not concurrently with it. WaitReady's probe
+// drains and re-sends on this same channel, and the re-send is single-receiver-
+// at-a-time — a concurrent read can race WaitReady for the re-sent error. This is
+// within the documented "not goroutine-safe across calls" contract.
 func (h Node) ServeErr() <-chan error { return h.n.serveErr }
 
 // WaitReady blocks until this node has joined consensus (height advancing) and

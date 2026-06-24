@@ -28,35 +28,47 @@
 // sei.NodeHandle / sei.NetworkHandle so a thin adapter can satisfy the SDK
 // interface once the toolchain skew is resolved — see Node and Network below.
 //
-// # Recipe (the gotchas that make N>1 consensus + per-node RPC work)
+// # Invariants (the gotchas that make N>1 consensus + per-node RPC work)
 //
 // These are the load-bearing deltas vs sei-cosmos/testutil/network.New, proven
-// by the N-RPC spike and preserved here:
+// by the N-RPC spike and preserved here. Each is named and referenced by name at
+// its point-of-use in the code (there is no central numbered list to drift):
 //
-//  1. genDoc.Validators = nil — let CometBFT derive the valset from the app's
-//     InitChain response. testutil/network sets it to []{self}, which fails
-//     consensus replay for N>1.
-//  2. Full P2P mesh — persistent-peers wired nodeID@127.0.0.1:p2pPort across all
-//     N (testutil/network wires zero) — without the mesh nodes never gossip and
-//     consensus never forms for N>1.
-//  3. Injected AppOptions enable EVM HTTP/WS on per-node ports — without them
-//     app.TestAppOpts hard-disables the listeners and no node serves EVM.
-//  4. tmCfg.Instrumentation.Prometheus = false — metrics off avoids the
-//     dup-registry panic from the process-wide registries. Invariant: metrics
+//   - empty-valset invariant: genDoc.Validators = nil — let CometBFT derive the
+//     valset from the app's InitChain response. testutil/network sets it to
+//     []{self}, which fails consensus replay for N>1. (N=1 is the documented
+//     exception under the validator-count rule below.)
+//   - gentx-derived peer mesh: the P2P mesh is NOT wired explicitly by the
+//     harness. Each validator's gentx memo carries nodeID@127.0.0.1:p2pPort, and
+//     collectGentxs → genutil.GenAppStateFromConfig (sei-cosmos x/genutil) mutates
+//     P2P.PersistentPeers IN PLACE on the same *config.Config the harness holds in
+//     node.tmCfg and later hands to tmnode.New. So the mesh is derived from the
+//     gentxs, not set by harness code — without it nodes never gossip and
+//     consensus never forms for N>1. This in-place mutation is invisible at the
+//     harness layer and fragile: a refactor that clones tmCfg before collectGentxs,
+//     or builds nodes before collecting, silently breaks consensus for all N. Start
+//     guards it — after collectGentxs it asserts PersistentPeers is non-empty for
+//     N>=2 and fails loudly otherwise.
+//   - EVM-enable injection: injected AppOptions enable EVM HTTP/WS on per-node
+//     ports — without them app.TestAppOpts hard-disables the listeners and no node
+//     serves EVM.
+//   - metrics-off constraint: tmCfg.Instrumentation.Prometheus = false — metrics
+//     off avoids the dup-registry panic from the process-wide registries. Metrics
 //     must stay off until the evmrpc/EVM-keeper metrics are de-globalized —
 //     re-enabling Prometheus without that reintroduces the panic.
-//  5. TM RPC / P2P listeners scoped to 127.0.0.1 (they default to [::] /
-//     0.0.0.0) — without scoping an in-process harness publishes externally
-//     reachable consensus/RPC listeners. Caveat (accepted): the EVM HTTP/WS listeners bind all
-//     interfaces (0.0.0.0) for the harness lifetime; only TM RPC/P2P are
-//     loopback-scoped. They run on free ephemeral ports, dialed via 127.0.0.1.
-//     Tightening requires a bind-host option in evmrpc (not yet present).
-//  6. MaxIncomingConnectionAttempts raised — loopback collapses all peers onto
-//     127.0.0.1, so the router's IP-keyed conn-tracker counts the startup burst
-//     on one key — without the raise the burst trips the per-IP cap and peers
-//     are rejected.
+//   - loopback bind scope: TM RPC / P2P listeners scoped to 127.0.0.1 (they
+//     default to [::] / 0.0.0.0) — without scoping an in-process harness publishes
+//     externally reachable consensus/RPC listeners. 0.0.0.0 EVM caveat (accepted):
+//     the EVM HTTP/WS listeners bind all interfaces (0.0.0.0) for the harness
+//     lifetime; only TM RPC/P2P are loopback-scoped. They run on free ephemeral
+//     ports, dialed via 127.0.0.1. Tightening requires a bind-host option in
+//     evmrpc (not yet present).
+//   - loopback conn-tracker ceiling: MaxIncomingConnectionAttempts raised —
+//     loopback collapses all peers onto 127.0.0.1, so the router's IP-keyed
+//     conn-tracker counts the startup burst on one key — without the raise the
+//     burst trips the per-IP cap and peers are rejected.
 //
-// # Validator count: 1 or >= 3 (2 is the trap)
+// # Validator-count rule: 1 or >= 3 (2 is the trap)
 //
 // When wiring a suite, pick Validators = 1 or Validators >= 3. Start rejects 2.
 // The constraint is CometBFT's block-sync→consensus handoff, NOT a voting-power
@@ -66,8 +78,8 @@
 //     (sei-tendermint onlyValidatorIsUs, node/setup.go, gating
 //     `blockSync := !onlyValidatorIsUs` in node/node.go). That decision reads the
 //     genesis-derived valset BEFORE InitChain, so the harness pins the single
-//     validator into genesis for N=1 (recipe #1's empty valset would leave size 0,
-//     defeat onlyValidatorIsUs, and the solo node would hang in block-sync — see
+//     validator into genesis for N=1 (the empty-valset invariant would leave size
+//     0, defeat onlyValidatorIsUs, and the solo node would hang in block-sync — see
 //     startNode).
 //   - N=2 hangs. Each node has exactly one peer, and BlockPool.IsCaughtUp
 //     (internal/blocksync/pool.go) hard-requires len(peers) > 1 to ever report

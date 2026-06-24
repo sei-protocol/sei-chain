@@ -21,7 +21,7 @@ import (
 // is mechanical.
 
 // probeInterval is the readiness poll cadence.
-var probeInterval = 500 * time.Millisecond
+const probeInterval = 500 * time.Millisecond
 
 // waitHeightAdvances blocks until tmRPC's committed height rises by >= delta
 // from the first successful read — proof the chain is producing blocks, not

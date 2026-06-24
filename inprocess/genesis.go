@@ -27,7 +27,8 @@ import (
 // genesisBuilder accumulates per-validator accounts, balances, and gentxs across
 // the key-generation pass, then assembles a shared genesis whose validator set
 // is left EMPTY so every node derives the consensus valset from its InitChain
-// response (recipe #1) — the single most important delta from testutil/network.
+// response (the empty-valset invariant) — the single most important delta from
+// testutil/network.
 //
 // This is a self-contained reimplementation of the unexported initGenFiles /
 // collectGenFiles / writeFile helpers in sei-cosmos/testutil/network: lifting
@@ -148,7 +149,7 @@ func (b *genesisBuilder) writeBaseGenesis(baseState map[string]json.RawMessage, 
 	genDoc := tmtypes.GenesisDoc{
 		ChainID:    b.chainID,
 		AppState:   appStateJSON,
-		Validators: nil, // recipe #1: derive valset from InitChain.
+		Validators: nil, // empty-valset invariant: derive valset from InitChain.
 	}
 	for _, gf := range genFiles {
 		if err := genDoc.SaveAs(gf); err != nil {

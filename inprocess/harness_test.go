@@ -127,6 +127,21 @@ func TestStartRejectsZeroValidators(t *testing.T) {
 	}
 }
 
+// TestBuildNodeConfigMetricsOff mechanically guards the metrics-off constraint
+// (see doc.go): a built node config must keep Instrumentation.Prometheus = false.
+// Re-enabling it reintroduces the process-wide dup-registry panic, so this catches
+// a regression in CI rather than relying on reviewer memory.
+func TestBuildNodeConfigMetricsOff(t *testing.T) {
+	dir := t.TempDir()
+	tmCfg, _, err := buildNodeConfig(dir, "node0", time.Second)
+	if err != nil {
+		t.Fatalf("buildNodeConfig: %v", err)
+	}
+	if tmCfg.Instrumentation.Prometheus {
+		t.Fatal("Instrumentation.Prometheus = true; metrics-off constraint violated — this reintroduces the dup-registry panic")
+	}
+}
+
 // TestFreshChainIDPerRun pins the per-run unique chain-id discipline: an empty
 // Options.ChainID must yield a distinct id each time, so a run never collides
 // with a prior run's persisted genesis. Pure-function check — no bring-up.

@@ -7,7 +7,7 @@ import "github.com/sei-protocol/sei-chain/app"
 // appOptions is the per-node servertypes.AppOptions the harness injects into
 // app.New. app.TestAppOpts hard-disables the EVM HTTP/WS listeners to avoid port
 // clashes in single-app tests; the harness needs the opposite — EVM enabled on
-// distinct per-node ports (recipe #3) — plus the chain-id the sei-chain helpers
+// distinct per-node ports (the EVM-enable injection invariant) — plus the chain-id the sei-chain helpers
 // hardcode. Unknown keys return nil, matching servertypes.AppOptions semantics
 // (callers treat a nil as "unset, use the default").
 type appOptions struct {

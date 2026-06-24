@@ -139,8 +139,8 @@ func (e *inProcessExecer) ensureBin(t *testing.T) error {
 			return
 		}
 		e.binDir = dir
-		// F5: the build dir holds a freshly-built seid + shim; remove it at test end
-		// so repeated runs don't accrue a binary per run.
+		// Remove the build dir at test end so repeated runs don't accrue a binary
+		// per run.
 		t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 		root, err := repoRoot()
@@ -150,7 +150,7 @@ func (e *inProcessExecer) ensureBin(t *testing.T) error {
 		}
 		realBin := filepath.Join(dir, "seid.real")
 		// Build from this branch's source so the CLI matches the in-process app.
-		build := exec.Command("go", "build", "-tags", "inprocess", "-o", realBin, "./cmd/seid")
+		build := exec.Command("go", "build", "-tags", "inprocess", "-o", realBin, "./cmd/seid") //nolint:gosec
 		build.Dir = root
 		if out, berr := build.CombinedOutput(); berr != nil {
 			e.setup = fmt.Errorf("go build seid: %w\n%s", berr, out)

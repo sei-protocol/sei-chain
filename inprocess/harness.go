@@ -126,7 +126,7 @@ type node struct {
 	app      *app.App
 	tmNode   rpclocal.NodeService
 	rpc      *rpclocal.Local
-	serveErr chan error // EVM listener Start() failures (recipe: no process-wide panic)
+	serveErr chan error // EVM listener Start() failures, diverted here instead of a process-wide panic
 }
 
 // Network is a handle to a running in-process mesh. It owns the lifecycle: Close
@@ -139,9 +139,16 @@ type Network struct {
 	closed     bool
 }
 
-// Start stands up opts.Validators in-process validators, wires a full P2P mesh,
-// starts each node's RPC + EVM listeners, and returns once every node is
-// constructed and started (NOT once consensus is live — call WaitReady for that).
+// Start stands up opts.Validators in-process validators, starts each node's RPC
+// + EVM listeners, and returns once every node is constructed and started (NOT
+// once consensus is live — call WaitReady for that).
+//
+// The P2P mesh is not wired by Start directly. It is derived per the
+// gentx-derived peer mesh invariant (see doc.go): collectGentxs →
+// genutil.GenAppStateFromConfig mutates each node's tmCfg.P2P.PersistentPeers in
+// place from the gentx memos. Start guards that this implicit wiring actually
+// happened (see the assertion after collectGentxs) so a refactor that breaks it
+// fails loudly instead of silently dropping consensus.
 //
 // On any error mid-bring-up, every already-started node is torn down before
 // returning, so a partial failure leaks nothing. The caller still must Close the
@@ -198,6 +205,20 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 	}
 	if err := gb.collectGentxs(net.nodes, filepath.Join(baseDir, "gentxs")); err != nil {
 		return nil, fmt.Errorf("collect gentxs: %w", err)
+	}
+	// gentx-derived peer mesh guard: collectGentxs is what populates each node's
+	// PersistentPeers (in place, via GenAppStateFromConfig — see doc.go). For N>=2
+	// an empty PersistentPeers means the implicit wiring did not land and consensus
+	// will never form; fail loudly here rather than hang in WaitReady.
+	if len(net.nodes) >= 2 {
+		for _, n := range net.nodes {
+			if n.tmCfg.P2P.PersistentPeers == "" {
+				return nil, fmt.Errorf(
+					"inprocess: gentx-derived peer mesh not wired: collectGentxs did not populate PersistentPeers for %s — did a refactor clone or reorder the config?",
+					n.moniker,
+				)
+			}
+		}
 	}
 
 	for _, n := range net.nodes {
@@ -310,18 +331,19 @@ func (net *Network) provisionExtraKeys(gb *genesisBuilder) error {
 
 // startNode builds the app, constructs + starts the tendermint node, wires the
 // local RPC client, and registers the EVM listeners. The node's EVM Start()
-// failures land on n.serveErr instead of panicking (recipe: a single bind
-// failure must not kill all N nodes). The genesis valset is N-dependent — see
-// the recipe #1 / N=1 block below.
+// failures land on n.serveErr instead of panicking (so a single bind failure
+// must not kill all N nodes). The genesis valset is N-dependent per the
+// empty-valset invariant — see the N=1 exception below.
 func (net *Network) startNode(ctx context.Context, n *node, enc encoding) error {
 	theApp := newNodeApp(n, enc)
 	theApp.SetEVMServeErr(n.serveErr)
 	n.app = theApp
 
-	// recipe #1 (N>=2): zero the validator set so every node derives the valset
-	// from its own InitChain response — without this, multi-node consensus replay
-	// fails. genesis.go writes Validators=nil at build time; re-assert it here
-	// against the collectGentxs file round-trip (ExportGenesisFileWithTime).
+	// empty-valset invariant (N>=2): zero the validator set so every node derives
+	// the valset from its own InitChain response — without this, multi-node
+	// consensus replay fails. genesis.go writes Validators=nil at build time;
+	// re-assert it here against the collectGentxs file round-trip
+	// (ExportGenesisFileWithTime).
 	//
 	// N=1 EXCEPTION: a sole validator must skip block-sync and produce blocks as
 	// solo proposer, which only happens when sei-tendermint's onlyValidatorIsUs
@@ -394,10 +416,11 @@ type nodeAddrs struct {
 	httpPort, wsPort int
 }
 
-// buildNodeConfig builds an isolated per-node tendermint config with loopback TM
-// RPC / P2P listeners and the conn-tracker ceiling raised (recipes #4, #5, #6).
+// buildNodeConfig builds an isolated per-node tendermint config: metrics off
+// (metrics-off constraint), loopback TM RPC / P2P listeners (loopback bind
+// scope), and the conn-tracker ceiling raised (loopback conn-tracker ceiling).
 // EVM bind-host is not config-scopable (evmrpc hardcodes 0.0.0.0); the EVM ports
-// are allocated free here and dialed via loopback.
+// are allocated free here and dialed via loopback (the 0.0.0.0 EVM caveat).
 func buildNodeConfig(nodeDir, moniker string, timeoutCommit time.Duration) (*config.Config, nodeAddrs, error) {
 	sctx := server.NewDefaultContext()
 	tmCfg := sctx.Config
@@ -406,18 +429,19 @@ func buildNodeConfig(nodeDir, moniker string, timeoutCommit time.Duration) (*con
 	tmCfg.SetRoot(nodeDir)
 	tmCfg.Consensus.UnsafeCommitTimeoutOverride = timeoutCommit
 	tmCfg.TxIndex = config.TestTxIndexConfig()
-	// recipe #6: loopback collapses every peer onto 127.0.0.1, so the router's
-	// IP-keyed conn-tracker counts all N-1 inbound on one key. AllowDuplicateIP
-	// is a peer-manager flag and does NOT touch the router conn-tracker.
+	// loopback conn-tracker ceiling: loopback collapses every peer onto 127.0.0.1,
+	// so the router's IP-keyed conn-tracker counts all N-1 inbound on one key.
+	// AllowDuplicateIP is a peer-manager flag and does NOT touch the router
+	// conn-tracker.
 	tmCfg.P2P.MaxIncomingConnectionAttempts = 10000
 	tmCfg.P2P.AllowDuplicateIP = true
-	// recipe #4: metrics-off avoids the prometheus.DefaultRegisterer dup panic
-	// from the process-wide registries. Invariant: this must stay off until the
-	// evmrpc/EVM-keeper metrics are de-globalized — re-enabling Prometheus
-	// without that reintroduces the panic.
+	// metrics-off constraint: metrics-off avoids the prometheus.DefaultRegisterer
+	// dup panic from the process-wide registries. This must stay off until the
+	// evmrpc/EVM-keeper metrics are de-globalized — re-enabling Prometheus without
+	// that reintroduces the panic.
 	tmCfg.Instrumentation.Prometheus = false
 
-	// recipe #5: server.FreeTCPAddr composes tcp://0.0.0.0:PORT — a publicly-bound
+	// loopback bind scope: server.FreeTCPAddr composes tcp://0.0.0.0:PORT — a publicly-bound
 	// listener. An in-process harness must scope every listener to loopback, so we
 	// take only the free port and compose the 127.0.0.1 address ourselves.
 	var a nodeAddrs
