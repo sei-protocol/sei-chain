@@ -89,6 +89,12 @@ func applyPebbleMetricsConfig(c *config.Config) {
 	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
 	c.LegacyDBConfig.EnableMetrics = c.EnablePebbleMetrics
 	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
+
+	c.AccountDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.CodeDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.StorageDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.LegacyDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.MetadataDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 }
 
 // CommitStore implements flatkv.Store for EVM state storage.

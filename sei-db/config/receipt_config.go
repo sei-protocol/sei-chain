@@ -19,6 +19,7 @@ const (
 	flagRSMisnamedBackend      = "receipt-store.backend"
 	flagRSAsyncWriteBuffer     = "receipt-store.async-write-buffer"
 	flagRSPruneIntervalSeconds = "receipt-store.prune-interval-seconds"
+	flagRSReadWriteMetrics     = "receipt-store.enable-read-write-metrics"
 )
 
 // ReceiptStoreConfig defines configuration for the receipt store database.
@@ -48,6 +49,10 @@ type ReceiptStoreConfig struct {
 	// PruneIntervalSeconds defines the interval in seconds to trigger pruning
 	// default to every 600 seconds
 	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
+
+	// EnableReadWriteMetrics emits simple estimated read/write counters for Pebble-backed receipt storage.
+	// defaults to false
+	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
 }
 
 // DefaultReceiptStoreConfig returns the default ReceiptStoreConfig.
@@ -101,6 +106,13 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 			return cfg, err
 		}
 		cfg.PruneIntervalSeconds = pruneIntervalSeconds
+	}
+	if v := opts.Get(flagRSReadWriteMetrics); v != nil {
+		enableReadWriteMetrics, err := cast.ToBoolE(v)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.EnableReadWriteMetrics = enableReadWriteMetrics
 	}
 	return cfg, nil
 }
