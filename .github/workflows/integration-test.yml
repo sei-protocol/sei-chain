@@ -116,6 +116,13 @@ jobs:
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
     needs: prepare-cluster
+    # Defer the full Autobahn (GIGA consensus-mode) matrix variants to merge
+    # queue and push events. Entries tagged `merge_only: true` are skipped on
+    # pull_request to cut per-PR ubuntu-large fan-out; a smoke of Autobahn
+    # coverage still runs on PRs via the dedicated autobahn-integration-tests
+    # job below. Job-level `if` is evaluated per matrix combination, so it can
+    # read matrix.test; skipped combinations consume no runner.
+    if: ${{ github.event_name != 'pull_request' || !matrix.test.merge_only }}
     runs-on: ubuntu-large
     timeout-minutes: 30
     permissions:
@@ -150,6 +157,9 @@ jobs:
           },
           {
             name: "Autobahn Mint & Staking & Bank Module",
+            # merge_only: skipped on pull_request (see job-level `if`); runs on
+            # merge queue and push.
+            merge_only: true,
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
               "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestMintModule|TestStakingModule|TestAutobahnBankModule\""
@@ -163,6 +173,7 @@ jobs:
           },
           {
             name: "Autobahn Gov & Oracle & Authz Module",
+            merge_only: true,
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
               "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule|TestAuthzModule\""
@@ -195,6 +206,7 @@ jobs:
           },
           {
             name: "Autobahn Upgrade Module (Major)",
+            merge_only: true,
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
               "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMajor"
@@ -209,6 +221,7 @@ jobs:
           },
           {
             name: "Autobahn Upgrade Module (Minor)",
+            merge_only: true,
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
               "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMinor"
@@ -224,6 +237,7 @@ jobs:
           },
           {
             name: "Autobahn SeiDB State Store",
+            merge_only: true,
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
@@ -299,6 +313,7 @@ jobs:
           },
           {
             name: "Autobahn EVM Module (Compat)",
+            merge_only: true,
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_compat_tests.sh",
@@ -306,6 +321,7 @@ jobs:
           },
           {
             name: "Autobahn EVM Module (Precompile & Endpoints)",
+            merge_only: true,
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
@@ -330,6 +346,7 @@ jobs:
           },
           {
             name: "Autobahn EVM Interoperability (Pointer Tests)",
+            merge_only: true,
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_interoperability_pointer_tests.sh"
@@ -337,6 +354,7 @@ jobs:
           },
           {
             name: "Autobahn EVM Interoperability (Misc Tests)",
+            merge_only: true,
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_interoperability_misc_tests.sh"
@@ -371,6 +389,7 @@ jobs:
           },
           {
             name: "Autobahn EVM GIGA Module",
+            merge_only: true,
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_giga_tests.sh"
@@ -392,6 +411,7 @@ jobs:
           },
           {
             name: "Autobahn RPC .io/.iox (spec fixtures)",
+            merge_only: true,
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
