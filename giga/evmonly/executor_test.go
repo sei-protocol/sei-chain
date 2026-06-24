@@ -478,8 +478,42 @@ func TestExecutorCreateSelfDestructThenTransferSameAddress(t *testing.T) {
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Empty(t, state.GetCode(contractAddr))
 	require.Equal(t, big.NewInt(9), state.GetBalance(contractAddr))
+	require.Equal(t, uint64(0), state.GetNonce(contractAddr))
 	require.Equal(t, big.NewInt(0), state.GetBalance(beneficiary))
 	require.Equal(t, uint64(3), state.GetNonce(sender))
+}
+
+func TestExecutorEIP6780CreateFlagExpiresAfterTx(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	beneficiary := testAddress(0xb3)
+	runtime := selfDestructCode(beneficiary)
+	contractAddr := crypto.CreateAddress(sender, 0)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
+
+	createContract := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
+	selfDestructAfterCreateTx := signLegacyTx(t, key, chainID, 1, &contractAddr, big.NewInt(0), nil)
+	executor := NewExecutor(Config{}, WithState(state))
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{createContract, selfDestructAfterCreateTx},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Receipts, 2)
+	for _, txResult := range result.Txs {
+		require.Equal(t, ethtypes.ReceiptStatusSuccessful, txResult.Status)
+	}
+
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, runtime, state.GetCode(contractAddr))
+	require.Equal(t, uint64(1), state.GetNonce(contractAddr))
+	require.Equal(t, big.NewInt(0), state.GetBalance(beneficiary))
 }
 
 func TestExecutorFinalisesAfterEachTx(t *testing.T) {
@@ -543,6 +577,42 @@ func TestSnapshotRevertRestoresBaseState(t *testing.T) {
 	stateDB.RevertToSnapshot(snapshot)
 
 	require.Empty(t, stateDB.ChangeSet().Storage)
+}
+
+func TestStateDBFirstStorageReadPreservesBase(t *testing.T) {
+	addr := testAddress(0xa9)
+	key := testHash(0x01)
+	value := testHash(0x02)
+	nextValue := testHash(0x03)
+
+	t.Run("get state", func(t *testing.T) {
+		state := NewMemoryState()
+		state.SetState(addr, key, value)
+		stateDB := newNativeStateDB(state)
+
+		require.Equal(t, value, stateDB.GetState(addr, key))
+		require.Empty(t, stateDB.ChangeSet().Storage)
+	})
+
+	t.Run("get committed state", func(t *testing.T) {
+		state := NewMemoryState()
+		state.SetState(addr, key, value)
+		stateDB := newNativeStateDB(state)
+
+		require.Equal(t, value, stateDB.GetCommittedState(addr, key))
+		require.Empty(t, stateDB.ChangeSet().Storage)
+	})
+
+	t.Run("set state returns persisted previous value", func(t *testing.T) {
+		state := NewMemoryState()
+		state.SetState(addr, key, value)
+		stateDB := newNativeStateDB(state)
+
+		require.Equal(t, value, stateDB.SetState(addr, key, nextValue))
+		changes := stateDB.ChangeSet()
+		require.Len(t, changes.Storage, 1)
+		require.Equal(t, nextValue, changes.Storage[0].Value)
+	})
 }
 
 func TestFinaliseClearsRefund(t *testing.T) {

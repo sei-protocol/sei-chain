@@ -292,8 +292,9 @@ func (s *nativeStateDB) SelfDestruct(addr common.Address) uint256.Int {
 }
 
 func (s *nativeStateDB) SelfDestruct6780(addr common.Address) (uint256.Int, bool) {
-	if !s.account(addr).Created {
-		return *uint256.NewInt(0), false
+	acct := s.account(addr)
+	if !acct.Created {
+		return *acct.Balance.Clone(), false
 	}
 	return s.SelfDestruct(addr), true
 }
@@ -422,7 +423,10 @@ func (s *nativeStateDB) Finalise(bool) {
 		if acct.SelfDestructed {
 			acct.Code = nil
 			acct.Storage = map[common.Hash]common.Hash{}
+			acct.Nonce = 0
+			acct.SelfDestructed = false
 		}
+		acct.Created = false
 	}
 	s.refund = 0
 }
@@ -494,9 +498,12 @@ func (s *nativeStateDB) account(addr common.Address) *nativeAccount {
 	if acct, ok := s.accounts[addr]; ok {
 		return acct
 	}
-	acct := s.loadAccount(addr)
-	s.accounts[addr] = acct.clone()
-	s.base[addr] = acct.clone()
+	base, ok := s.base[addr]
+	if !ok {
+		base = s.loadAccount(addr)
+		s.base[addr] = base.clone()
+	}
+	s.accounts[addr] = base.clone()
 	return s.accounts[addr]
 }
 
