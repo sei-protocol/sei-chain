@@ -73,6 +73,7 @@ var (
 	errTransitiveRedelegation = errors.New("redelegation to this validator already in progress; first redelegation not complete")
 	errMaxRedelegationEntries = errors.New("too many redelegation entries for (delegator, src-validator, dst-validator) tuple")
 	errMaxUnbondingEntries    = errors.New("too many unbonding delegation entries for (delegator, validator) tuple")
+	errDuplicateConsensusKey  = errors.New("validator consensus pubkey already exists")
 	errMinSelfDelegation      = errors.New("minimum self delegation must be greater than the current value")
 	errSelfDelegationTooLow   = errors.New("minimum self delegation cannot be greater than the validator's self delegation")
 )
@@ -222,7 +223,7 @@ func (p *Precompile) delegate(ctx *precompiles.Context, method *abi.Method, args
 	if err := util.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
-	validatorAddress := args[0].(string)
+	validatorAddress := normalizeValidatorAddress(args[0].(string))
 	validator, ok, err := getValidator(ctx.Store, validatorAddress)
 	if err != nil {
 		return nil, err
@@ -267,8 +268,8 @@ func (p *Precompile) redelegate(ctx *precompiles.Context, method *abi.Method, ar
 		return nil, err
 	}
 	delegator := util.AddressString(ctx.Caller)
-	srcValidator := args[0].(string)
-	dstValidator := args[1].(string)
+	srcValidator := normalizeValidatorAddress(args[0].(string))
+	dstValidator := normalizeValidatorAddress(args[1].(string))
 	amount := args[2].(*big.Int)
 	if err := util.ValidatePositiveAmount(amount, "redelegation amount"); err != nil {
 		return nil, err
@@ -347,7 +348,7 @@ func (p *Precompile) undelegate(ctx *precompiles.Context, method *abi.Method, ar
 		return nil, err
 	}
 	delegator := util.AddressString(ctx.Caller)
-	validatorAddress := args[0].(string)
+	validatorAddress := normalizeValidatorAddress(args[0].(string))
 	amount := args[1].(*big.Int)
 	if err := util.ValidatePositiveAmount(amount, "undelegation amount"); err != nil {
 		return nil, err
@@ -432,6 +433,11 @@ func (p *Precompile) createValidator(ctx *precompiles.Context, method *abi.Metho
 		return nil, err
 	} else if exists {
 		return nil, errors.New("validator already exists")
+	}
+	if _, exists, err := getValidatorByConsensusPubkey(ctx.Store, pubKey); err != nil {
+		return nil, err
+	} else if exists {
+		return nil, errDuplicateConsensusKey
 	}
 	if err := transferPrecompileValueToEscrow(ctx); err != nil {
 		return nil, err
@@ -538,7 +544,7 @@ func (p *Precompile) delegation(ctx *precompiles.Context, method *abi.Method, ar
 		return nil, err
 	}
 	delegator := util.AddressString(args[0].(common.Address))
-	validatorAddress := args[1].(string)
+	validatorAddress := normalizeValidatorAddress(args[1].(string))
 	record, ok, err := getDelegation(ctx.Store, delegator, validatorAddress)
 	if err != nil {
 		return nil, err
@@ -596,7 +602,7 @@ func (p *Precompile) validator(ctx *precompiles.Context, method *abi.Method, arg
 	if err := util.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
-	validator, ok, err := getValidator(ctx.Store, args[0].(string))
+	validator, ok, err := getValidator(ctx.Store, normalizeValidatorAddress(args[0].(string)))
 	if err != nil {
 		return nil, err
 	}
@@ -613,7 +619,7 @@ func (p *Precompile) validatorDelegations(ctx *precompiles.Context, method *abi.
 	if err := util.ValidateArgsLength(args, 2); err != nil {
 		return nil, err
 	}
-	validatorAddress := args[0].(string)
+	validatorAddress := normalizeValidatorAddress(args[0].(string))
 	nextKey := args[1].([]byte)
 	delegators, err := getStringList(ctx.Store, validatorDelegationsIndexKey(validatorAddress))
 	if err != nil {
@@ -648,7 +654,7 @@ func (p *Precompile) validatorUnbondingDelegations(ctx *precompiles.Context, met
 	if err := util.ValidateArgsLength(args, 2); err != nil {
 		return nil, err
 	}
-	validatorAddress := args[0].(string)
+	validatorAddress := normalizeValidatorAddress(args[0].(string))
 	nextKey := args[1].([]byte)
 	delegators, err := getStringList(ctx.Store, validatorUnbondingsIndexKey(validatorAddress))
 	if err != nil {
@@ -679,7 +685,7 @@ func (p *Precompile) unbondingDelegation(ctx *precompiles.Context, method *abi.M
 		return nil, err
 	}
 	delegator := util.AddressString(args[0].(common.Address))
-	validatorAddress := args[1].(string)
+	validatorAddress := normalizeValidatorAddress(args[1].(string))
 	record, ok, err := getUnbondingDelegation(ctx.Store, delegator, validatorAddress)
 	if err != nil {
 		return nil, err
@@ -733,7 +739,7 @@ func (p *Precompile) delegatorValidator(ctx *precompiles.Context, method *abi.Me
 		return nil, err
 	}
 	delegator := util.AddressString(args[0].(common.Address))
-	validatorAddress := args[1].(string)
+	validatorAddress := normalizeValidatorAddress(args[1].(string))
 	if _, ok, err := getDelegation(ctx.Store, delegator, validatorAddress); err != nil {
 		return nil, err
 	} else if !ok {
@@ -786,9 +792,9 @@ func (p *Precompile) redelegations(ctx *precompiles.Context, method *abi.Method,
 	if err := util.ValidateArgsLength(args, 4); err != nil {
 		return nil, err
 	}
-	delegatorFilter := args[0].(string)
-	srcFilter := args[1].(string)
-	dstFilter := args[2].(string)
+	delegatorFilter := normalizeValidatorAddress(args[0].(string))
+	srcFilter := normalizeValidatorAddress(args[1].(string))
+	dstFilter := normalizeValidatorAddress(args[2].(string))
 	nextKey := args[3].([]byte)
 	ids, err := getStringList(ctx.Store, redelegationsIndexKey())
 	if err != nil {
