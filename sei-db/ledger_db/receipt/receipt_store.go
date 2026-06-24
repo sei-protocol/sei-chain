@@ -35,6 +35,7 @@ var (
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.
 type ReceiptStore interface {
 	LatestVersion() int64
+	EarliestVersion() int64
 	SetLatestVersion(version int64) error
 	SetEarliestVersion(version int64) error
 	GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
@@ -123,6 +124,7 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 		ssConfig.DBDirectory = config.DBDirectory
 		ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer
 		ssConfig.KeepRecent = config.KeepRecent
+		ssConfig.EnableReadWriteMetrics = config.EnableReadWriteMetrics
 		if config.PruneIntervalSeconds > 0 {
 			ssConfig.PruneIntervalSeconds = config.PruneIntervalSeconds
 		}
@@ -155,6 +157,10 @@ func (s *receiptStore) LatestVersion() int64 {
 
 func (s *receiptStore) SetLatestVersion(version int64) error {
 	return s.db.SetLatestVersion(version)
+}
+
+func (s *receiptStore) EarliestVersion() int64 {
+	return s.db.GetEarliestVersion()
 }
 
 func (s *receiptStore) SetEarliestVersion(version int64) error {

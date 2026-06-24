@@ -129,9 +129,9 @@ func validatePage(pagePtr *int, perPage, totalCount int) (int, error) {
 //	if r, ok := env.gigaRouter().Get(); ok {
 //	    // Autobahn path, r is the router
 //	}
-func (env *Environment) gigaRouter() utils.Option[*p2p.GigaRouter] {
+func (env *Environment) gigaRouter() utils.Option[p2p.GigaRouter] {
 	if env.Router == nil { // inspect mode
-		return utils.None[*p2p.GigaRouter]()
+		return utils.None[p2p.GigaRouter]()
 	}
 	return env.Router.Giga()
 }
@@ -284,6 +284,7 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 		cfg.ReadTimeout = conf.RPC.TimeoutRead
 	}
 
+	cfg.ReadHeaderTimeout = conf.RPC.TimeoutReadHeader
 	cfg.WriteTimeout = conf.RPC.TimeoutWrite
 
 	// If the event log is enabled, subscribe to all events published to the

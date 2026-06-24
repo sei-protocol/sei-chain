@@ -14,13 +14,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -307,77 +301,6 @@ func TestRouter_GigaNotSetByDefault(t *testing.T) {
 	rng := utils.TestRng()
 	router := makeRouter(rng)
 	require.False(t, router.giga.IsPresent(), "GigaRouter should not be set with default options")
-}
-
-func TestRouter_GigaSetWhenConfigured(t *testing.T) {
-	rng := utils.TestRng()
-	nodeKey := makeKey(rng)
-	// Use a separate key for the validator to verify both propagate independently.
-	valKey := atypes.SecretKeyFromED25519(ed25519.SecretKey(makeKey(rng)))
-
-	validatorAddrs := map[atypes.PublicKey]GigaNodeAddr{
-		valKey.Public(): {
-			Key:      nodeKey.Public(),
-			HostPort: tcp.HostPort{Hostname: "10.0.0.1", Port: 9999},
-		},
-	}
-
-	// Use intentionally non-default values to ensure config actually propagates.
-	opts := makeRouterOptions()
-	proxyApp := proxy.New(abci.BaseApplication{}, proxy.NopMetrics())
-	opts.Giga = utils.Some(&GigaRouterConfig{
-		DialInterval:   7 * time.Second,
-		ValidatorAddrs: validatorAddrs,
-		Consensus: &consensus.Config{
-			Key:                valKey,
-			ViewTimeout:        func(atypes.View) time.Duration { return 3 * time.Second },
-			PersistentStateDir: utils.None[string](),
-		},
-		Producer: &producer.Config{
-			App:                     proxyApp,
-			MaxGasWantedPerBlock:    77_000_000,
-			MaxGasEstimatedPerBlock: 76_000_000,
-			MaxTxsPerBlock:          7_777,
-			MaxTxsPerSecond:         utils.Some(uint64(999)),
-			BlockInterval:           777 * time.Millisecond,
-		},
-		GenDoc: &types.GenesisDoc{
-			ChainID:       "giga-e2e-test",
-			InitialHeight: 42,
-			GenesisTime:   time.Now(),
-		},
-	})
-
-	router := makeRouterWithOptionsAndKey(opts, nodeKey)
-	require.True(t, router.giga.IsPresent(), "GigaRouter should be set when Giga config is provided")
-
-	giga, _ := router.giga.Get()
-
-	// Verify non-default config values were propagated.
-	require.Equal(t, 7*time.Second, giga.cfg.DialInterval)
-	require.Len(t, giga.cfg.ValidatorAddrs, 1)
-	addr, ok := giga.cfg.ValidatorAddrs[valKey.Public()]
-	require.True(t, ok, "validator key should be in ValidatorAddrs")
-	require.Equal(t, nodeKey.Public(), addr.Key, "node key should match")
-	require.Equal(t, "10.0.0.1", addr.HostPort.Hostname)
-	require.Equal(t, uint16(9999), addr.HostPort.Port)
-
-	// Verify consensus key is the validator key (distinct from node key).
-	require.Equal(t, valKey.Public(), giga.cfg.Consensus.Key.Public())
-	require.Equal(t, 3*time.Second, giga.cfg.Consensus.ViewTimeout(atypes.View{}))
-
-	// Verify producer config with non-default values.
-	require.Equal(t, uint64(77_000_000), giga.cfg.Producer.MaxGasWantedPerBlock)
-	require.Equal(t, uint64(76_000_000), giga.cfg.Producer.MaxGasEstimatedPerBlock)
-	require.Equal(t, uint64(7_777), giga.cfg.Producer.MaxTxsPerBlock)
-	maxTps, tpsOk := giga.cfg.Producer.MaxTxsPerSecond.Get()
-	require.True(t, tpsOk)
-	require.Equal(t, uint64(999), maxTps)
-	require.Equal(t, 777*time.Millisecond, giga.cfg.Producer.BlockInterval)
-
-	// Verify genesis doc.
-	require.Equal(t, "giga-e2e-test", giga.cfg.GenDoc.ChainID)
-	require.Equal(t, int64(42), giga.cfg.GenDoc.InitialHeight)
 }
 
 func blindHandshake(ctx context.Context, c tcp.Conn, key NodeSecretKey, info types.NodeInfo) error {

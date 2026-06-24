@@ -80,6 +80,7 @@ func NewEVMHTTPServer(
 		GasCap:                       config.SimulationGasLimit,
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+		MaxEstimateGasCalls:          config.MaxEstimateGasCalls,
 	}
 	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 
@@ -108,8 +109,6 @@ func NewEVMHTTPServer(
 	seiLegacyAllowlist := BuildSeiLegacyEnabledSet(config.EnabledLegacySeiApis)
 
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, methodTimeout, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
-	seiDebugAPI := NewSeiDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
-	seiDebugAPI.backend.SetTraceContextProvider(traceCtxProvider)
 
 	// DB semaphore aligned with worker count
 	dbReadSemaphore := make(chan struct{}, workerCount)
@@ -209,10 +208,6 @@ func NewEVMHTTPServer(
 			Namespace: "debug",
 			Service:   debugAPI,
 		},
-		{
-			Namespace: "sei",
-			Service:   seiDebugAPI,
-		},
 	}
 	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.
 	if config.EnableTestAPI && !evmCfg.IsLiveChainID(ctx) {
@@ -271,6 +266,7 @@ func NewEVMWebSocketServer(
 		GasCap:                       config.SimulationGasLimit,
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+		MaxEstimateGasCalls:          config.MaxEstimateGasCalls,
 	}
 	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 	// DB semaphore aligned with worker count

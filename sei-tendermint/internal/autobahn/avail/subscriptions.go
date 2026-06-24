@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 )
 
 func (s *State) SubscribeLaneProposals(first types.BlockNumber) *LaneProposalsRecv {

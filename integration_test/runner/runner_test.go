@@ -40,6 +40,14 @@ func TestBankModule(t *testing.T) {
 	runner.RunFile(t, "../bank_module/simulation_tx.yaml")
 }
 
+// TestAutobahnBankModule is the Autobahn-matrix bank slice. It runs only
+// send_funds_test.yaml because the multi_sig and simulation cases broadcast
+// with -b block, which Autobahn's KV indexer doesn't support (BroadcastTxCommit
+// hangs to its timeout).
+func TestAutobahnBankModule(t *testing.T) {
+	runner.RunFile(t, "../bank_module/send_funds_test.yaml")
+}
+
 func TestMintModule(t *testing.T) {
 	runner.RunFile(t, "../mint_module/mint_test.yaml")
 }
@@ -69,15 +77,30 @@ func TestAuthzModule(t *testing.T) {
 	runner.RunFile(t, "../authz_module/generic_authorization_test.yaml")
 }
 
-func TestWasmModule(t *testing.T) {
+// TestWasmModuleCore runs delegation, admin, and withdraw tests after a fresh contract deploy.
+// In CI a second deploy follows before TestWasmModuleEmergencyWithdraw, because the withdraw
+// test mutates contract state that the emergency-withdraw test depends on.
+func TestWasmModuleCore(t *testing.T) {
 	runner.RunFile(t, "../wasm_module/timelocked_token_delegation_test.yaml")
 	runner.RunFile(t, "../wasm_module/timelocked_token_admin_test.yaml")
 	runner.RunFile(t, "../wasm_module/timelocked_token_withdraw_test.yaml")
+}
+
+// TestWasmModuleEmergencyWithdraw requires a freshly deployed timelocked token contract.
+// In CI it runs after a second invocation of deploy_timelocked_token_contract.sh.
+func TestWasmModuleEmergencyWithdraw(t *testing.T) {
 	runner.RunFile(t, "../wasm_module/timelocked_token_emergency_withdraw_test.yaml")
 }
 
-func TestSeiDB(t *testing.T) {
+// TestSeiDBFlatKV runs the FlatKV EVM integration scenarios.
+// In CI the cluster boots with GIGA_STORAGE=true and a fixture is deployed first.
+func TestSeiDBFlatKV(t *testing.T) {
 	runner.RunFile(t, "../seidb/flatkv_evm_test.yaml")
+}
+
+// TestSeiDBStateStore runs state-store iteration tests.
+// In CI wasm contracts and tokenfactory denoms are deployed as a prerequisite.
+func TestSeiDBStateStore(t *testing.T) {
 	runner.RunFile(t, "../seidb/state_store_test.yaml")
 }
 
@@ -89,4 +112,16 @@ func TestChainOperation(t *testing.T) {
 // the CI RPC-node cluster (make run-rpc-node-integration-ci).
 func TestStateSync(t *testing.T) {
 	runner.RunFile(t, "../chain_operation/statesync_operation.yaml")
+}
+
+// TestUpgradeMajor tests a major release upgrade: early-upgrade panic, target-height panic,
+// rolling node upgrades, and full recovery across all four nodes.
+func TestUpgradeMajor(t *testing.T) {
+	runner.RunFile(t, "../upgrade_module/major_upgrade_test.yaml")
+}
+
+// TestUpgradeMinor tests a minor release upgrade: early upgrades continue without panic,
+// non-upgraded nodes panic at target height, and rolling upgrades complete successfully.
+func TestUpgradeMinor(t *testing.T) {
+	runner.RunFile(t, "../upgrade_module/minor_upgrade_test.yaml")
 }

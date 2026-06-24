@@ -21,3 +21,12 @@ func TestReadReceiptConfigRejectsMisnamedBackendKey(t *testing.T) {
 	require.ErrorContains(t, err, "receipt-store.backend")
 	require.ErrorContains(t, err, "receipt-store.rs-backend")
 }
+
+func TestReadReceiptConfigReadWriteMetrics(t *testing.T) {
+	cfg, err := ReadReceiptConfig(mapAppOpts{
+		"receipt-store.enable-read-write-metrics": true,
+	})
+
+	require.NoError(t, err)
+	require.True(t, cfg.EnableReadWriteMetrics)
+}

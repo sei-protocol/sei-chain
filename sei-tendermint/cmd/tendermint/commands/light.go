@@ -170,6 +170,7 @@ for applications built w/ Cosmos SDK).
 			cfg.MaxBodyBytes = conf.RPC.MaxBodyBytes
 			cfg.MaxHeaderBytes = conf.RPC.MaxHeaderBytes
 			cfg.MaxOpenConnections = maxOpenConnections
+			cfg.ReadHeaderTimeout = conf.RPC.TimeoutReadHeader
 			cfg.WriteTimeout = conf.RPC.TimeoutWrite
 
 			p, err := lproxy.NewProxy(c, listenAddr, primaryAddr, cfg, lrpc.KeyPathFn(lrpc.DefaultMerkleKeyPathFn()))

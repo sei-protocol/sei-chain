@@ -401,12 +401,13 @@ func (s *CommitStore) batchReadOldValues(changesByType map[keys.EVMKeyKind]map[s
 	readErrs := make([]error, 4)
 	var wg sync.WaitGroup
 	for i := range jobs {
+		idx := i
 		job := jobs[i]
 		if len(job.batch) > 0 {
 			wg.Add(1)
 			s.miscPool.Submit(func() {
 				defer wg.Done()
-				readErrs[i] = job.db.BatchGet(job.batch)
+				readErrs[idx] = job.db.BatchGet(job.batch)
 			})
 		}
 	}

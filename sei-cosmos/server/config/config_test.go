@@ -200,6 +200,8 @@ func TestGetConfig(t *testing.T) {
 	require.Equal(t, DefaultMinGasPrices, cfg.MinGasPrices)
 	require.True(t, cfg.Telemetry.Enabled)
 	require.False(t, cfg.API.Enable)
+	require.Equal(t, seidbconfig.DefaultStateCommitConfig().FlatKVConfig.SnapshotInterval, cfg.StateCommit.FlatKVConfig.SnapshotInterval)
+	require.Equal(t, seidbconfig.DefaultStateCommitConfig().FlatKVConfig.SnapshotKeepRecent, cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
 }
 
 func TestConfigTemplate(t *testing.T) {

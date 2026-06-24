@@ -54,6 +54,7 @@ func (db *Database) getAscending(storeKey string, targetVersion int64, key []byt
 		return nil, nil
 	}
 
+	db.operationMetrics.AddRead(1)
 	prefixedVal, err := getMVCCSliceAscending(db.storage, storeKey, key, targetVersion)
 	if err != nil {
 		if errors.Is(err, errorutils.ErrRecordNotFound) {
@@ -122,9 +123,11 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 		prevKey, prevKeyEncoded, prevValEncoded []byte
 		prevVersionDecoded                      int64
 		prevStore                               string
+		scanReads                               int64
 	)
 
 	for itr.First(); itr.Valid(); {
+		scanReads++
 		currKeyEncoded := slices.Clone(itr.Key())
 
 		// Ignore metadata entries during pruning
@@ -180,11 +183,13 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 
 			counter++
 			if counter >= PruneCommitBatchSize {
+				writeCount := int64(batch.Count())
 				err = batch.Commit(defaultWriteOpts)
 				if err != nil {
 					return err
 				}
 
+				db.operationMetrics.AddWrite(writeCount)
 				counter = 0
 				batch.Reset()
 			}
@@ -201,11 +206,14 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 
 	// Commit any leftover delete ops in batch
 	if counter > 0 {
+		writeCount := int64(batch.Count())
 		err = batch.Commit(defaultWriteOpts)
 		if err != nil {
 			return err
 		}
+		db.operationMetrics.AddWrite(writeCount)
 	}
+	db.operationMetrics.AddRead(scanReads)
 
 	return db.SetEarliestVersion(earliestVersion, false)
 }
@@ -231,7 +239,7 @@ func (db *Database) iteratorAscending(storeKey string, version int64, start, end
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newAscendingIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey), nil
+	return newAscendingIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey, db.operationMetrics), nil
 }
 
 func (db *Database) reverseIteratorAscending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
@@ -257,7 +265,7 @@ func (db *Database) reverseIteratorAscending(storeKey string, version int64, sta
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newAscendingIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey), nil
+	return newAscendingIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey, db.operationMetrics), nil
 }
 
 func getMVCCSliceAscending(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {
