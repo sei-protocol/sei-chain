@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/require"
@@ -79,6 +81,217 @@ func TestExecutorDynamicFeeTx(t *testing.T) {
 
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, big.NewInt(11), state.GetBalance(recipient))
+}
+
+func TestExecutorReceiptAndLogMetadata(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa5)
+	logContract := testAddress(0xc2)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
+	state.SetCode(logContract, log0Code())
+
+	transfer := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(3), nil)
+	emitLog := signLegacyTx(t, key, chainID, 1, &logContract, big.NewInt(0), nil)
+	transferTx := decodeTx(t, transfer)
+	emitLogTx := decodeTx(t, emitLog)
+	ctx := blockContext(chainID)
+	ctx.Number = 42
+	ctx.BlockHash = testHash(0x42)
+	executor := NewExecutor(Config{}, WithState(state))
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: ctx,
+		Txs:     [][]byte{transfer, emitLog},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Txs, 2)
+	require.Len(t, result.Receipts, 2)
+
+	require.Equal(t, transferTx.Hash(), result.Receipts[0].TxHash)
+	require.Equal(t, uint(0), result.Receipts[0].TransactionIndex)
+	require.Equal(t, ctx.BlockHash, result.Receipts[0].BlockHash)
+	require.Equal(t, new(big.Int).SetUint64(ctx.Number), result.Receipts[0].BlockNumber)
+	require.Equal(t, result.Txs[0].GasUsed, result.Receipts[0].CumulativeGasUsed)
+
+	require.Equal(t, emitLogTx.Hash(), result.Receipts[1].TxHash)
+	require.Equal(t, uint(1), result.Receipts[1].TransactionIndex)
+	require.Equal(t, result.GasUsed, result.Receipts[1].CumulativeGasUsed)
+	require.Len(t, result.Receipts[1].Logs, 1)
+	log := result.Receipts[1].Logs[0]
+	require.Equal(t, logContract, log.Address)
+	require.Equal(t, ctx.Number, log.BlockNumber)
+	require.Equal(t, ctx.BlockHash, log.BlockHash)
+	require.Equal(t, emitLogTx.Hash(), log.TxHash)
+	require.Equal(t, uint(1), log.TxIndex)
+	require.Equal(t, uint(0), log.Index)
+
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, big.NewInt(3), state.GetBalance(recipient))
+	require.Equal(t, uint64(2), state.GetNonce(sender))
+}
+
+func TestExecutorEVMFailureProducesReceiptAndContinues(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	oogContract := testAddress(0xc3)
+	recipient := testAddress(0xa6)
+	keySlot := testHash(0x01)
+	value := testHash(0x02)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
+	state.SetCode(oogContract, storeCode(keySlot, value))
+
+	oogCall := signLegacyTxWithGas(t, key, chainID, 0, &oogContract, big.NewInt(0), nil, 22_000)
+	laterTransfer := signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(5), nil)
+	executor := NewExecutor(Config{}, WithState(state))
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{oogCall, laterTransfer},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Txs, 2)
+	require.Equal(t, ethtypes.ReceiptStatusFailed, result.Txs[0].Status)
+	require.True(t, errors.Is(result.Txs[0].Err, vm.ErrOutOfGas))
+	require.Equal(t, uint64(22_000), result.Txs[0].GasUsed)
+	require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[1].Status)
+	require.Equal(t, result.GasUsed, result.Receipts[1].CumulativeGasUsed)
+
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, common.Hash{}, state.GetState(oogContract, keySlot))
+	require.Equal(t, big.NewInt(5), state.GetBalance(recipient))
+	require.Equal(t, uint64(2), state.GetNonce(sender))
+}
+
+func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
+	chainID := big.NewInt(713715)
+	recipient := testAddress(0xa7)
+
+	t.Run("invalid nonce", func(t *testing.T) {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+
+		state := NewMemoryState()
+		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
+		rawTx := signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(1), nil)
+		executor := NewExecutor(Config{}, WithState(state))
+
+		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+			Context: blockContext(chainID),
+			Txs:     [][]byte{rawTx},
+		})
+
+		require.Error(t, err)
+		require.True(t, errors.Is(err, core.ErrNonceTooHigh))
+		require.Nil(t, result)
+		require.Equal(t, uint64(0), state.GetNonce(sender))
+		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+	})
+
+	t.Run("insufficient balance", func(t *testing.T) {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+
+		state := NewMemoryState()
+		state.SetBalance(sender, big.NewInt(1))
+		rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
+		executor := NewExecutor(Config{}, WithState(state))
+
+		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+			Context: blockContext(chainID),
+			Txs:     [][]byte{rawTx},
+		})
+
+		require.Error(t, err)
+		require.True(t, errors.Is(err, core.ErrInsufficientFunds))
+		require.Nil(t, result)
+		require.Equal(t, uint64(0), state.GetNonce(sender))
+		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+	})
+}
+
+func TestExecutorCreatesContractThenUpdatesStorage(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	storageKey := testHash(0x11)
+	storageValue := testHash(0x22)
+	runtime := storeCode(storageKey, storageValue)
+	contractAddr := crypto.CreateAddress(sender, 0)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
+
+	createContract := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
+	callContract := signLegacyTx(t, key, chainID, 1, &contractAddr, big.NewInt(0), nil)
+	executor := NewExecutor(Config{}, WithState(state))
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{createContract, callContract},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Receipts, 2)
+	require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[0].Status)
+	require.Equal(t, contractAddr, result.Txs[0].ContractAddress)
+	require.Equal(t, contractAddr, result.Receipts[0].ContractAddress)
+	require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[1].Status)
+
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, runtime, state.GetCode(contractAddr))
+	require.Equal(t, storageValue, state.GetState(contractAddr, storageKey))
+	require.Equal(t, uint64(2), state.GetNonce(sender))
+}
+
+func TestExecutorCreateSelfDestructThenTransferSameAddress(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	beneficiary := testAddress(0xb2)
+	runtime := selfDestructCode(beneficiary)
+	contractAddr := crypto.CreateAddress(sender, 0)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
+
+	createContract := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
+	destroyContract := signLegacyTx(t, key, chainID, 1, &contractAddr, big.NewInt(0), nil)
+	transferToDestroyed := signLegacyTx(t, key, chainID, 2, &contractAddr, big.NewInt(9), nil)
+	executor := NewExecutor(Config{
+		ChainConfig: legacySelfDestructChainConfig(chainID),
+	}, WithState(state))
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{createContract, destroyContract, transferToDestroyed},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Receipts, 3)
+	for _, txResult := range result.Txs {
+		require.Equal(t, ethtypes.ReceiptStatusSuccessful, txResult.Status)
+	}
+
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Empty(t, state.GetCode(contractAddr))
+	require.Equal(t, big.NewInt(9), state.GetBalance(contractAddr))
+	require.Equal(t, big.NewInt(0), state.GetBalance(beneficiary))
+	require.Equal(t, uint64(3), state.GetNonce(sender))
 }
 
 func TestExecutorFinalisesAfterEachTx(t *testing.T) {
@@ -182,10 +395,15 @@ func TestExecutorCustomPrecompilePlaceholder(t *testing.T) {
 
 func signLegacyTx(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte) []byte {
 	t.Helper()
+	return signLegacyTxWithGas(t, key, chainID, nonce, to, value, data, 100_000)
+}
+
+func signLegacyTxWithGas(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte, gas uint64) []byte {
+	t.Helper()
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    nonce,
 		GasPrice: big.NewInt(1_000_000_000),
-		Gas:      100_000,
+		Gas:      gas,
 		To:       to,
 		Value:    value,
 		Data:     data,
@@ -195,6 +413,13 @@ func signLegacyTx(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce u
 	raw, err := signed.MarshalBinary()
 	require.NoError(t, err)
 	return raw
+}
+
+func decodeTx(t *testing.T, raw []byte) *ethtypes.Transaction {
+	t.Helper()
+	var tx ethtypes.Transaction
+	require.NoError(t, tx.UnmarshalBinary(raw))
+	return &tx
 }
 
 func signDynamicFeeTx(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte) []byte {
@@ -248,6 +473,42 @@ func legacySelfDestructChainConfig(chainID *big.Int) *params.ChainConfig {
 func selfDestructCode(beneficiary common.Address) []byte {
 	code := append([]byte{0x73}, beneficiary.Bytes()...)
 	return append(code, 0xff)
+}
+
+func log0Code() []byte {
+	return []byte{0x60, 0x00, 0x60, 0x00, 0xa0, 0x00}
+}
+
+func storeCode(key, value common.Hash) []byte {
+	code := append([]byte{0x7f}, value.Bytes()...)
+	code = append(code, 0x7f)
+	code = append(code, key.Bytes()...)
+	return append(code, 0x55, 0x00)
+}
+
+func initCode(runtime []byte) []byte {
+	if len(runtime) > 255 {
+		panic("test runtime too large")
+	}
+	runtimeLen := byte(len(runtime)) //nolint:gosec // bounded by the check above.
+	code := []byte{
+		0x60, runtimeLen,
+		0x60, 0x0c,
+		0x60, 0x00,
+		0x39,
+		0x60, runtimeLen,
+		0x60, 0x00,
+		0xf3,
+	}
+	return append(code, runtime...)
+}
+
+func testAddress(suffix byte) common.Address {
+	return common.BytesToAddress([]byte{suffix})
+}
+
+func testHash(suffix byte) common.Hash {
+	return common.BytesToHash([]byte{suffix})
 }
 
 type staticPrecompileRegistry struct {
