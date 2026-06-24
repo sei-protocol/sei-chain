@@ -133,11 +133,9 @@ jobs:
             name: "Wasm Module",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml",
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestWasmModuleCore",
               "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml"
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestWasmModuleEmergencyWithdraw"
             ]
           },
           {
@@ -150,34 +148,20 @@ jobs:
             name: "Autobahn Mint & Staking & Bank Module",
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml"
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestMintModule|TestStakingModule|TestAutobahnBankModule\""
             ]
           },
           {
             name: "Gov & Oracle & Authz Module",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml"
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule|TestAuthzModule\""
             ]
           },
           {
             name: "Autobahn Gov & Oracle & Authz Module",
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml"
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule|TestAuthzModule\""
             ]
           },
           {
@@ -187,8 +171,7 @@ jobs:
               "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
               "until [[ $(docker exec sei-rpc-node build/seid status |jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done",
               "echo rpc node started",
-              "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml",
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestChainOperation|TestStateSync\"",
               "./integration_test/contracts/verify_statesync_flatkv_digest.sh",
               "./integration_test/contracts/verify_cross_validator_flatkv_digest.sh"
             ]
@@ -196,36 +179,35 @@ jobs:
           {
             name: "Distribution Module",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml",
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestDistributionModule"
             ]
           },
           {
             name: "Upgrade Module (Major)",
             env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMajor"
             ]
           },
           {
             name: "Autobahn Upgrade Module (Major)",
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMajor"
             ]
           },
           {
             name: "Upgrade Module (Minor)",
             env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMinor"
             ]
           },
           {
             name: "Autobahn Upgrade Module (Minor)",
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMinor"
             ]
           },
           {
@@ -233,8 +215,8 @@ jobs:
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
               "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
-            ],
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBStateStore"
+            ]
           },
           {
             name: "Autobahn SeiDB State Store",
@@ -242,8 +224,8 @@ jobs:
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
               "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
-            ],
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBStateStore"
+            ]
           },
           {
             # Umbrella job for all FlatKV-specific docker-level coverage.
@@ -271,13 +253,13 @@ jobs:
             env: "GIGA_STORAGE=true",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV",
               "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
               "./integration_test/contracts/verify_flatkv_crash_recovery.sh",
               "./integration_test/contracts/verify_flatkv_statesync_crash_recovery.sh",
               "./integration_test/contracts/verify_flatkv_total_loss_recovery.sh",
-              "./integration_test/contracts/verify_flatkv_partial_loss_fails_loudly.sh",
-            ],
+              "./integration_test/contracts/verify_flatkv_partial_loss_fails_loudly.sh"
+            ]
           },
           {
             # Post-migration FlatKV-only state-sync coverage.
@@ -307,8 +289,8 @@ jobs:
             scripts: [
               "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
               "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
-              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV",
+              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh"
             ]
           },
           {
@@ -324,8 +306,8 @@ jobs:
             scripts: [
               "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
               "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
-              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV",
+              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh"
             ]
           },
           {
@@ -421,16 +403,9 @@ jobs:
         ]
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      - name: Pyyaml
-        run: |
-          pip3 install pyyaml
 
       - name: Install jq
         run: sudo apt-get install -y jq
@@ -462,8 +437,17 @@ jobs:
       - name: Load prebuilt seid and pull Docker images
         run: |
           tar -xzf integration-build.tar.gz
-          docker pull "${GHCR_LOCALNODE}:${{ github.run_id }}"
-          docker pull "${GHCR_RPCNODE}:${{ github.run_id }}"
+          pull_with_retry() {
+            local ref="$1"
+            for attempt in 1 2 3 4 5; do
+              if docker pull "$ref"; then return 0; fi
+              echo "docker pull $ref failed (attempt $attempt), retrying in $((attempt*5))s..."
+              sleep $((attempt*5))
+            done
+            echo "docker pull $ref failed after 5 attempts"; return 1
+          }
+          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
           docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
       - name: Start 4 node docker cluster
@@ -481,7 +465,7 @@ jobs:
         run: ${{matrix.test.env}} make run-rpc-node-integration-ci &
 
       - name: Verify Sei Chain is running
-        run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
+        run: go test -tags yaml_integration -v -timeout 5m ./integration_test/runner/... -run TestStartup
 
       - name: ${{ matrix.test.name }}
         run: |
@@ -547,10 +531,82 @@ jobs:
           path: integration_test/rpc_tests/reports/merged
           if-no-files-found: ignore
 
+  # Autobahn integration suite (Autobahn Basic) — boots its own cluster via
+  # TestMain (docker-cluster-start / -stop), so it runs in a separate job
+  # rather than as a matrix entry that would share the integration-tests
+  # cluster.
+  autobahn-integration-tests:
+    name: Integration Test (Autobahn Basic)
+    runs-on: ubuntu-large
+    timeout-minutes: 45
+    needs: prepare-cluster
+    permissions:
+      packages: read
+      contents: read
+    env:
+      GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
+      GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.6'
+      - name: Install jq
+        run: sudo apt-get install -y jq
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: env.DOCKERHUB_USERNAME != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download integration CI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-ci-artifacts
+      - name: Load prebuilt seid and pull Docker images
+        run: |
+          tar -xzf integration-build.tar.gz
+          docker pull "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          docker pull "${GHCR_RPCNODE}:${{ github.run_id }}"
+          docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
+          docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
+      - name: Run autobahn integration tests
+        run: make autobahn-integration-test
+      - name: Print node logs on failure
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          for c in sei-node-0 sei-node-1 sei-node-2 sei-node-3 sei-rpc-node; do
+            echo "==================== ${c} (docker logs tail) ===================="
+            docker logs --tail 200 "${c}" || true
+          done
+      - name: Collect logs directory
+        if: ${{ always() }}
+        run: |
+          mkdir -p artifacts/sei-autobahn-integration
+          if [ -d build/generated/logs ]; then
+            cp -r build/generated/logs artifacts/sei-autobahn-integration/
+          fi
+      - name: Upload logs directory
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-autobahn-integration
+          path: artifacts/sei-autobahn-integration
+          if-no-files-found: warn
+
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
-    needs: [prepare-cluster, integration-tests]
+    needs: [prepare-cluster, integration-tests, autobahn-integration-tests]
     if: always()
     steps:
       - name: Verify prepare and test jobs succeeded
@@ -561,6 +617,10 @@ jobs:
           fi
           if [[ "${{ needs.integration-tests.result }}" != "success" ]]; then
             echo "integration-tests job did not succeed (${{ needs.integration-tests.result }})"
+            exit 1
+          fi
+          if [[ "${{ needs.autobahn-integration-tests.result }}" != "success" ]]; then
+            echo "autobahn-integration-tests job did not succeed (${{ needs.autobahn-integration-tests.result }})"
             exit 1
           fi
           echo "All integration test jobs passed."

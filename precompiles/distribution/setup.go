@@ -15,6 +15,7 @@ import (
 	distributionv620 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v620"
 	distributionv630 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v630"
 	distributionv640 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v640"
+	distributionv65 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v65"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -32,6 +33,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 		"v6.2.0":      check(distributionv620.NewPrecompile(keepers)),
 		"v6.3.0":      check(distributionv630.NewPrecompile(keepers)),
 		"v6.4.0":      check(distributionv640.NewPrecompile(keepers)),
+		"v6.5":        check(distributionv65.NewPrecompile(keepers)),
 	}
 }
 

@@ -44,6 +44,7 @@ MIN_KEYS_MIGRATED=${MIGRATE_MIN_KEYS_MIGRATED:-3500}
 
 STOP_TIMEOUT=${MIGRATE_STOP_TIMEOUT:-30}
 HALT_TIMEOUT=${MIGRATE_HALT_TIMEOUT:-120}
+HALT_RESTART_ATTEMPTS=${MIGRATE_HALT_RESTART_ATTEMPTS:-4}
 # 60s default leaves headroom for the slowest realistic restart path on
 # a CI runner: pebble WAL replay (~5s) + memiavl load (~5s) + tendermint
 # state load + p2p handshake. The original 20s window was tight enough
@@ -167,6 +168,26 @@ capture_priv_validator_heights() {
     fi
     if [ -z "$signed_max" ] || [ "$h" -gt "$signed_max" ]; then
       signed_max=$h
+    fi
+  done
+}
+
+is_seid_running() {
+  docker exec "$1" pgrep -f "seid start" >/dev/null 2>&1
+}
+
+capture_process_states() {
+  process_states=""
+  process_live_count=0
+  process_stopped_count=0
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    node="sei-node-$i"
+    if is_seid_running "$node"; then
+      process_states="${process_states} ${node}=running"
+      process_live_count=$((process_live_count + 1))
+    else
+      process_states="${process_states} ${node}=stopped"
+      process_stopped_count=$((process_stopped_count + 1))
     fi
   done
 }
@@ -360,7 +381,7 @@ start_all_validators() {
   wait_for_all_seid_start "$label"
 }
 
-wait_for_all_seid_stop() {
+wait_for_all_seid_stop_or_timeout() {
   local label=$1
   local timeout=$2
   local elapsed=0
@@ -372,7 +393,7 @@ wait_for_all_seid_stop() {
     live_node=""
     for i in $(seq 0 $((NODE_COUNT - 1))); do
       node="sei-node-$i"
-      if docker exec "$node" pgrep -f "seid start" >/dev/null 2>&1; then
+      if is_seid_running "$node"; then
         all_dead=false
         live_node=$node
         break
@@ -385,7 +406,103 @@ wait_for_all_seid_stop() {
     elapsed=$((elapsed + 2))
   done
 
-  echo "ERROR: not all validators ${label} within ${timeout}s (last live: ${live_node})" >&2
+  last_live_node=$live_node
+  echo "WARN: not all validators ${label} within ${timeout}s (last live: ${live_node})" >&2
+  return 1
+}
+
+wait_for_all_seid_stop() {
+  local label=$1
+  local timeout=$2
+
+  if wait_for_all_seid_stop_or_timeout "$label" "$timeout"; then
+    return 0
+  fi
+
+  echo "ERROR: not all validators ${label} within ${timeout}s (last live: ${last_live_node})" >&2
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    dump_node_log "sei-node-$i"
+  done
+  exit 1
+}
+
+validators_halted_safely() {
+  if [ "$process_live_count" -ne 0 ]; then
+    return 1
+  fi
+
+  if [ -z "$stopped_min" ] || [ "$stopped_min" != "$stopped_max" ]; then
+    return 1
+  fi
+
+  if [ -n "$signed_max" ] && [ "$signed_max" -gt "$stopped_min" ]; then
+    return 1
+  fi
+
+  return 0
+}
+
+configure_next_halt_height() {
+  local next_start_height=0
+
+  if [ -n "$stopped_max" ] && [ "$stopped_max" -gt "$next_start_height" ]; then
+    next_start_height=$stopped_max
+  fi
+  if [ -n "$signed_max" ] && [ "$signed_max" -gt "$next_start_height" ]; then
+    next_start_height=$signed_max
+  fi
+
+  HALT_HEIGHT=$((next_start_height + PRE_FLIP_HALT_BLOCKS))
+  configure_halt_height "$HALT_HEIGHT"
+  echo "Configured retry halt-height=$HALT_HEIGHT after unsafe halt state"
+}
+
+wait_for_safe_halt_height() {
+  local attempt=1
+
+  while [ "$attempt" -le "$HALT_RESTART_ATTEMPTS" ]; do
+    echo "Waiting for validators to halt at a safe block boundary (attempt ${attempt}/${HALT_RESTART_ATTEMPTS}, halt-height=$HALT_HEIGHT)"
+    wait_for_all_seid_stop_or_timeout "halted at height $HALT_HEIGHT" "$HALT_TIMEOUT" || true
+
+    capture_stopped_heights
+    capture_priv_validator_heights
+    capture_process_states
+    echo "Halt attempt ${attempt} process states:${process_states}"
+    echo "Halt attempt ${attempt} committed heights:${stopped_heights}"
+    echo "Halt attempt ${attempt} last-sign heights:${signed_heights}"
+
+    if validators_halted_safely; then
+      echo "All $NODE_COUNT validators halted safely at committed height $stopped_min"
+      return 0
+    fi
+
+    if [ "$attempt" -ge "$HALT_RESTART_ATTEMPTS" ]; then
+      break
+    fi
+
+    if [ "$process_live_count" -eq 0 ]; then
+      echo "Validators are stopped but not at a safe common boundary; scheduling a fresh same-mode halt"
+    else
+      echo "Some validators halted before their peers caught up; stopping remaining live validators before a fresh same-mode halt"
+      stop_all_validators "stopped after partial halt attempt ${attempt}"
+      capture_stopped_heights
+      capture_priv_validator_heights
+      capture_process_states
+      echo "Post-stop retry process states:${process_states}"
+      echo "Post-stop retry committed heights:${stopped_heights}"
+      echo "Post-stop retry last-sign heights:${signed_heights}"
+    fi
+
+    configure_next_halt_height
+    start_all_validators "restarted in memiavl_only for halt retry"
+
+    attempt=$((attempt + 1))
+  done
+
+  echo "ERROR: validators did not halt at a safe common boundary after ${HALT_RESTART_ATTEMPTS} attempts; refusing to flip sc-write-mode" >&2
+  echo "Final process states:${process_states}" >&2
+  echo "Final committed heights:${stopped_heights}" >&2
+  echo "Final last-sign heights:${signed_heights}" >&2
   for i in $(seq 0 $((NODE_COUNT - 1))); do
     dump_node_log "sei-node-$i"
   done
@@ -506,32 +623,7 @@ configure_halt_height "$HALT_HEIGHT"
 echo "Configured halt-height=$HALT_HEIGHT on all $NODE_COUNT validators; restarting in memiavl_only to halt at a block boundary"
 
 start_all_validators "restarted in memiavl_only with halt-height=$HALT_HEIGHT"
-wait_for_all_seid_stop "halted at height $HALT_HEIGHT" "$HALT_TIMEOUT"
-
-capture_stopped_heights
-capture_priv_validator_heights
-echo "Halted validator committed heights:${stopped_heights}"
-echo "Halted validator last-sign heights:${signed_heights}"
-
-if [ -z "$stopped_min" ] || [ "$stopped_min" != "$stopped_max" ]; then
-  echo "ERROR: validators did not halt at a common committed height; refusing to flip sc-write-mode" >&2
-  echo "Split halted heights:${stopped_heights}" >&2
-  for i in $(seq 0 $((NODE_COUNT - 1))); do
-    dump_node_log "sei-node-$i"
-  done
-  exit 1
-fi
-
-if [ -n "$signed_max" ] && [ "$signed_max" -gt "$stopped_min" ]; then
-  echo "ERROR: validators halted at height $stopped_min but last-sign state advanced to $signed_max; refusing to flip sc-write-mode" >&2
-  echo "Halted validator last-sign heights:${signed_heights}" >&2
-  for i in $(seq 0 $((NODE_COUNT - 1))); do
-    dump_node_log "sei-node-$i"
-  done
-  exit 1
-fi
-
-echo "All $NODE_COUNT validators halted safely at committed height $stopped_min"
+wait_for_safe_halt_height
 
 # --- step 3: flip sc-write-mode on every node -------------------------
 #

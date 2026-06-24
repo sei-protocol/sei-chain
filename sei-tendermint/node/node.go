@@ -58,6 +58,7 @@ type nodeImpl struct {
 
 	// network
 	router           *p2p.Router
+	giga             utils.Option[p2p.GigaRouter]
 	ServiceRestartCh utils.Option[chan []string]
 	nodeInfo         types.NodeInfo
 	nodeKey          types.NodeKey // our node privkey
@@ -192,16 +193,19 @@ func makeNode(
 		},
 	}
 
-	// Autobahn requires a local validator key; remote signers are not supported.
-	if cfg.AutobahnConfigFile != "" && cfg.PrivValidator.ListenAddr != "" {
-		return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
-	}
 	gigaEnabled := cfg.AutobahnConfigFile != ""
+	// Pass the local key when autobahn is on; setup.go's
+	// buildGigaRouter picks validator-vs-fullnode by cfg.Mode and
+	// uses the key to check that a validator-mode node is in the committee.
+	gigaValidatorKey := utils.None[atypes.SecretKey]()
+	if gigaEnabled {
+		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
+	}
 	router, peerCloser, err := createRouter(
 		nodeMetrics.p2p,
 		node.NodeInfo,
 		nodeKey,
-		utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey)),
+		gigaValidatorKey,
 		cfg,
 		utils.Some(proxyApp),
 		genDoc,
@@ -212,6 +216,7 @@ func makeNode(
 		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
 	node.router = router
+	node.giga = router.Giga()
 	node.rpcEnv.Router = router
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
@@ -520,6 +525,12 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	n.rpcEnv.IsListening = true
 	if m, ok := n.mempool.Get(); ok {
 		n.SpawnCritical("mempool", m.Run)
+	}
+	// Run the GigaRouter alongside the transport. n.giga is the canonical
+	// reference; the Router holds a copy only for its own internal use
+	// (dispatching inbound giga connections). Lifecycle is owned here.
+	if giga, ok := n.giga.Get(); ok {
+		n.SpawnCritical("giga", giga.Run)
 	}
 
 	for _, reactor := range n.services {

@@ -31,6 +31,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -158,8 +159,8 @@ func (*MockClient) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
 	return tx, true
 }
 
-func (*MockClient) EvmProxy(common.Address) (*url.URL, bool) {
-	return nil, false
+func (*MockClient) EvmProxy(common.Address) tmutils.Option[*url.URL] {
+	return tmutils.None[*url.URL]()
 }
 
 func NewMockClientWithLatest(latest int64) *MockClient {

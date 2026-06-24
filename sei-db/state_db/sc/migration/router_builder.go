@@ -7,17 +7,17 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 // Builds a router for the given migration write mode. A router is responsible for splitting
 // reads/writes between the memiavl and flatkv backends.
 func BuildRouter(
 	ctx context.Context,
-	writeMode config.WriteMode,
+	writeMode types.WriteMode,
 	memIAVL *memiavl.CommitStore,
 	flatKV flatkv.Store,
 	// If this router will be doing data migration, this is the number of keys to migrate in each batch.
@@ -25,13 +25,13 @@ func BuildRouter(
 ) (Router, error) {
 
 	switch writeMode {
-	case config.MemiavlOnly:
+	case types.MemiavlOnly:
 		router, err := buildMemiavlOnlyRouter(memIAVL)
 		if err != nil {
 			return nil, fmt.Errorf("buildMemiavlOnlyRouter: %w", err)
 		}
 		return router, nil
-	case config.MigrateEVM:
+	case types.MigrateEVM:
 		router, err := buildMigrateEVMRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateEVMRouter: %w", err)
@@ -41,7 +41,7 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case config.EVMMigrated:
+	case types.EVMMigrated:
 		router, err := buildEVMMigratedRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildEVMMigratedRouter: %w", err)
@@ -51,7 +51,7 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case config.MigrateAllButBank:
+	case types.MigrateAllButBank:
 		router, err := buildMigrateAllButBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateAllButBankRouter: %w", err)
@@ -61,7 +61,7 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case config.AllMigratedButBank:
+	case types.AllMigratedButBank:
 		router, err := buildAllMigratedButBankRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildAllMigratedButBankRouter: %w", err)
@@ -71,7 +71,7 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case config.MigrateBank:
+	case types.MigrateBank:
 		router, err := buildMigrateBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateBankRouter: %w", err)
@@ -81,13 +81,13 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case config.FlatKVOnly:
+	case types.FlatKVOnly:
 		router, err := buildFlatKVOnlyRouter(flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildFlatKVOnlyRouter: %w", err)
 		}
 		return router, nil
-	case config.TestOnlyDualWrite:
+	case types.TestOnlyDualWrite:
 		router, err := buildTestOnlyDualWriteRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildTestOnlyDualWriteRouter: %w", err)

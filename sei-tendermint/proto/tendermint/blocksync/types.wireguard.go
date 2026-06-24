@@ -9,14 +9,37 @@ import (
 )
 
 func init() {
+	// Register the wireguard.Schema generated for tendermint.blocksync.BlockRequest.
+	runtime.MustRegister[*BlockRequest](runtime.Schema{
+		1: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.blocksync.NoBlockResponse.
+	runtime.MustRegister[*NoBlockResponse](runtime.Schema{
+		1: {MaxCount: 1},
+	})
+
 	// Register the wireguard.Schema generated for tendermint.blocksync.BlockResponse.
 	runtime.MustRegister[*BlockResponse](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*types.Block]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*types.Block]())},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.blocksync.StatusRequest.
+	runtime.MustRegister[*StatusRequest](runtime.Schema{})
+
+	// Register the wireguard.Schema generated for tendermint.blocksync.StatusResponse.
+	runtime.MustRegister[*StatusResponse](runtime.Schema{
+		1: {MaxCount: 1},
+		2: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.blocksync.Message.
 	runtime.MustRegister[*Message](runtime.Schema{
-		3: {Nested: utils.Some(reflect.TypeFor[*BlockResponse]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*BlockRequest]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*NoBlockResponse]())},
+		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*BlockResponse]())},
+		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*StatusRequest]())},
+		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*StatusResponse]())},
 	})
 
 }

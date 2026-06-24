@@ -15,6 +15,7 @@ import (
 	stakingv620 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v620"
 	stakingv630 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v630"
 	stakingv640 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v640"
+	stakingv65 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v65"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -32,6 +33,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 		"v6.2.0":      check(stakingv620.NewPrecompile(keepers)),
 		"v6.3.0":      check(stakingv630.NewPrecompile(keepers)),
 		"v6.4.0":      check(stakingv640.NewPrecompile(keepers)),
+		"v6.5":        check(stakingv65.NewPrecompile(keepers)),
 	}
 }
 
