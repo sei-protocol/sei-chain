@@ -22,6 +22,12 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err e
 		return errReadOnly
 	}
 
+	// Hold the write lock for the whole body: it both reads
+	// (batchReadOldValues) and mutates (maps.Copy) the pending-writes maps,
+	// which iterator construction and Get read under a read lock.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	///////////
 	// Setup //
 	///////////
@@ -193,7 +199,7 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 				if pair.Delete {
 					kindMap[physKey] = nil
 				} else {
-					kindMap[physKey] = pair.Value
+					kindMap[physKey] = nonNilValue(pair.Value)
 				}
 			}
 		} else {
@@ -203,13 +209,33 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 				if pair.Delete {
 					legacyMap[physKey] = nil
 				} else {
-					legacyMap[physKey] = pair.Value
+					legacyMap[physKey] = nonNilValue(pair.Value)
 				}
 			}
 		}
 	}
 
 	return result, nil
+}
+
+// nonNilValue normalizes a non-delete changeset value so the downstream
+// "nil value == deletion" convention in process*Changes stays correct.
+//
+// A changeset pair is a deletion iff its Delete flag is set; an empty
+// (zero-length) value with Delete=false is a legitimate "set this key to an
+// empty value" write. Protobuf cannot distinguish an empty []byte{} from nil,
+// so after a WAL round-trip (catchup, read-only clone, snapshot export,
+// state-sync restore) such a write arrives as Value=nil. Without this
+// normalization the process*Changes helpers would treat the nil value as a
+// deletion and drop the key on replay, diverging the per-DB LtHash — and thus
+// the evm_lattice store hash and the consensus AppHash — from the live chain
+// that stored the key. True deletes carry Delete=true and are recorded as nil
+// by the caller before reaching this helper.
+func nonNilValue(v []byte) []byte {
+	if v == nil {
+		return []byte{}
+	}
+	return v
 }
 
 // Process incoming storage changes into a form appropriate for hashing and insertion into the DB.

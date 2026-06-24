@@ -11,13 +11,14 @@ import (
 // Important: Callers must call Close() after Commit() to release batch resources,
 // even if Commit() succeeds. Failure to Close() will leak memory.
 type pebbleBatch struct {
-	b *pebble.Batch
+	b                *pebble.Batch
+	operationMetrics *OperationMetrics
 }
 
 var _ types.Batch = (*pebbleBatch)(nil)
 
 func (p *pebbleDB) NewBatch() types.Batch {
-	return &pebbleBatch{b: p.db.NewBatch()}
+	return &pebbleBatch{b: p.db.NewBatch(), operationMetrics: p.operationMetrics}
 }
 
 func (pb *pebbleBatch) Set(key, value []byte) error {
@@ -29,10 +30,12 @@ func (pb *pebbleBatch) Delete(key []byte) error {
 }
 
 func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
+	writeCount := int64(pb.b.Count())
 	err := pb.b.Commit(toPebbleWriteOpts(opts))
 	if err != nil {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
+	pb.operationMetrics.AddWrite(writeCount)
 	return nil
 }
 

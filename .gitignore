@@ -3,6 +3,7 @@ vue/dist
 release/
 .idea/
 .vscode/
+.cursor/
 .DS_Store
 build/
 cache/

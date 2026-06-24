@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/zbiljic/go-filelock"
@@ -88,11 +89,35 @@ func applyPebbleMetricsConfig(c *config.Config) {
 	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
 	c.LegacyDBConfig.EnableMetrics = c.EnablePebbleMetrics
 	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
+
+	c.AccountDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.CodeDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.StorageDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.LegacyDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.MetadataDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 }
 
 // CommitStore implements flatkv.Store for EVM state storage.
-// NOT thread-safe; callers must serialize all operations.
+//
+// Concurrency: writes (ApplyChangeSets, Commit) and the reads that touch the
+// pending-writes maps (Get, Has, GetBlockHeightModified) and iterator
+// construction (Iterator, RawGlobalIterator) are guarded by mu. Iterators
+// snapshot their data at construction time (pending writes are cloned and the
+// Pebble view is pinned), so once built they may be used and Closed without
+// holding mu and may safely outlive a subsequent ApplyChangeSets/Commit. All
+// other lifecycle operations (LoadVersion, Rollback, snapshot/import/export,
+// Close) must still be serialized by the caller.
 type CommitStore struct {
+	// mu guards the pending-writes maps against concurrent iterator
+	// construction / reads while ApplyChangeSets and Commit mutate them.
+	//
+	// TODO(concurrency): this is a coarse lock taken at the exported entry
+	// points. Commit in particular holds the write lock across its WAL fsync
+	// and periodic auto-snapshot. That is acceptable while commits are not
+	// pipelined with reads; revisit with a finer-grained scheme (guarding only
+	// the in-memory maps) if/when pipelining is introduced.
+	mu sync.RWMutex
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	config config.Config

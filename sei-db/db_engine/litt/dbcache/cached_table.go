@@ -51,22 +51,28 @@ func (c *cachedTable) Name() string {
 	return c.base.Name()
 }
 
-func (c *cachedTable) Put(key []byte, value []byte) error {
-	err := c.base.Put(key, value)
+func (c *cachedTable) Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error {
+	err := c.base.Put(key, value, secondaryKeys...)
 	if err != nil {
 		return fmt.Errorf("failed to put entry into base table: %w", err)
 	}
 	c.writeCache.Put(string(key), value)
+	for _, sk := range secondaryKeys {
+		c.writeCache.Put(string(sk.Key), value[sk.Offset:sk.Offset+sk.Length])
+	}
 	return nil
 }
 
-func (c *cachedTable) PutBatch(batch []*types.KVPair) error {
+func (c *cachedTable) PutBatch(batch []*types.PutRequest) error {
 	err := c.base.PutBatch(batch)
 	if err != nil {
 		return err
 	}
-	for _, kv := range batch {
-		c.writeCache.Put(util.UnsafeBytesToString(kv.Key), kv.Value)
+	for _, req := range batch {
+		c.writeCache.Put(util.UnsafeBytesToString(req.Key), req.Value)
+		for _, sk := range req.SecondaryKeys {
+			c.writeCache.Put(util.UnsafeBytesToString(sk.Key), req.Value[sk.Offset:sk.Offset+sk.Length])
+		}
 	}
 	return nil
 }
@@ -199,8 +205,12 @@ func (c *cachedTable) Close() error {
 	return c.base.Close()
 }
 
-func (c *cachedTable) Destroy() error {
-	return c.base.Destroy()
+func (c *cachedTable) Drop() error {
+	return c.base.Drop()
+}
+
+func (c *cachedTable) IsDropped() bool {
+	return c.base.IsDropped()
 }
 
 func (c *cachedTable) SetShardingFactor(shardingFactor uint8) error {
@@ -209,4 +219,19 @@ func (c *cachedTable) SetShardingFactor(shardingFactor uint8) error {
 
 func (c *cachedTable) RunGC() error {
 	return c.base.RunGC()
+}
+
+// Iterator returns a new iterator over the keys in the table. The iterator reads values directly from
+// the base table, bypassing the cache: the iterator's target workload is a large linear scan, for which
+// the cache offers no benefit and would only thrash.
+func (c *cachedTable) Iterator(reverse bool) (litt.Iterator, error) {
+	return c.base.Iterator(reverse)
+}
+
+func (c *cachedTable) GetOldestKey() (key []byte, exists bool, err error) {
+	return c.base.GetOldestKey()
+}
+
+func (c *cachedTable) GetNewestKey() (key []byte, exists bool, err error) {
+	return c.base.GetNewestKey()
 }

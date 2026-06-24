@@ -6,7 +6,6 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	dbm "github.com/tendermint/tm-db"
 )
 
 var _ Router = (*threadSafeRouter)(nil)
@@ -16,26 +15,21 @@ var _ Router = (*threadSafeRouter)(nil)
 //
 // Concurrency model:
 //   - ApplyChangeSets holds the write lock, so it never overlaps with any
-//     other Read / Iterator / GetProof / ApplyChangeSets call.
-//   - Read, Iterator, and GetProof each hold the read lock, so they may run
-//     concurrently with one another but never alongside an in-flight
-//     ApplyChangeSets.
+//     other Read / GetProof / ApplyChangeSets call.
+//   - Read and GetProof each hold the read lock, so they may run concurrently
+//     with one another but never alongside an in-flight ApplyChangeSets.
 //
-// Iterator caveat: Iterator() only holds the read lock while the call that
-// constructs the iterator is on the stack. Iteration itself happens after
-// the lock is released, so callers must not interleave ApplyChangeSets with
-// use of an outstanding iterator obtained from the same router. That
-// contract is by convention; this wrapper cannot enforce it because the
-// iterator outlives the call that produced it.
+// Iteration is not routed through the Router (the owning store stitches the
+// backends together directly), so the wrapper has no Iterator method.
 type threadSafeRouter struct {
 	mu    sync.RWMutex
 	inner Router
 }
 
 // NewThreadSafeRouter wraps router so that ApplyChangeSets is mutually
-// exclusive with Read / Iterator / GetProof, while the read-side methods
-// may run concurrently with one another. See [threadSafeRouter] for the
-// full concurrency contract, including the iterator caveat.
+// exclusive with Read / GetProof, while the read-side methods may run
+// concurrently with one another. See [threadSafeRouter] for the full
+// concurrency contract.
 //
 // Returns an error if router is nil.
 func NewThreadSafeRouter(router Router) (Router, error) {
@@ -51,16 +45,10 @@ func (r *threadSafeRouter) Read(store string, key []byte) ([]byte, bool, error) 
 	return r.inner.Read(store, key)
 }
 
-func (r *threadSafeRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+func (r *threadSafeRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.inner.ApplyChangeSets(changesets)
-}
-
-func (r *threadSafeRouter) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.inner.Iterator(store, start, end, ascending)
+	return r.inner.ApplyChangeSets(changesets, firstBatchInBlock)
 }
 
 func (r *threadSafeRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {

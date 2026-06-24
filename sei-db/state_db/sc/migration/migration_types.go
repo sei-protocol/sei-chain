@@ -5,7 +5,6 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	dbm "github.com/tendermint/tm-db"
 )
 
 // MigrationStatus is the lifecycle status of a migration.
@@ -36,13 +35,19 @@ func (s MigrationStatus) String() string {
 // Write a batch of values to the database.
 //
 // May not be atomic. If not atomic, then the caller must provide crash safe atomicity.
-type DBWriter func(changesets []*proto.NamedChangeSet) error
+//
+// firstBatchInBlock is true when this write is the first ApplyChangeSets
+// call in the caller's current block-commit cycle. Leaf-level writers
+// (memiavl, flatkv) should ignore it; only the MigrationManager
+// consumes it, to advance the migration boundary at most once per
+// block. The parameter is plumbed through DBWriter (rather than only
+// living on Router) because MigrationManager.BuildRoute exposes its
+// ApplyChangeSets as a DBWriter, so a leaf writer and a router writer
+// must share the same shape.
+type DBWriter func(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error
 
 // Read a value from the database.
 type DBReader func(store string, key []byte) ([]byte, bool, error)
-
-// Get an iterator over a range of keys in a store.
-type DBIteratorBuilder func(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error)
 
 // Builds a proof of the value for a key in a store.
 type DBProofBuilder func(store string, key []byte) (*ics23.CommitmentProof, error)
@@ -58,11 +63,12 @@ type Router interface {
 	//
 	// If this method returns an error, it is not safe to attempt to retry. An error should be considered
 	// fatal, and should result in any managed databases being shut down and crash recovered.
-	ApplyChangeSets(changesets []*proto.NamedChangeSet) error
-
-	// Get an iterator over a range of keys in a store. Some stores may not support iteration,
-	// and this method will return an error in that case.
-	Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error)
+	//
+	// firstBatchInBlock is true when this is the first ApplyChangeSets call in
+	// the caller's current block-commit cycle. Non-migration routers should
+	// ignore it; migration routers use it to advance the migration boundary at
+	// most once per block.
+	ApplyChangeSets(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error
 
 	// Get a proof of the value for a key in a store. Some stores may not support proofs,
 	// and this method will return an error in that case.

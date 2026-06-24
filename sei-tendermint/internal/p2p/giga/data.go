@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -21,7 +21,9 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 		return fmt.Errorf("client.StreamFullCommitQCs(): %w", err)
 	}
 	defer stream.Close()
-	if err := stream.Send(ctx, &pb.StreamFullCommitQCsReq{NextBlock: uint64(s.state.Data().NextBlock())}); err != nil {
+	if err := stream.Send(ctx, StreamFullCommitQCsReqConv.Encode(&StreamFullCommitQCsReq{
+		NextBlock: s.state.Data().NextBlock(),
+	})); err != nil {
 		return fmt.Errorf("stream.Send(): %w", err)
 	}
 	for ctx.Err() == nil {
@@ -68,7 +70,7 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 				defer stream.Close()
 				defer close(req.done)
 				resp, err := utils.WithTimeout1(ctx, BlockFetchTimeout, func(ctx context.Context) (*pb.GetBlockResp, error) {
-					if err := stream.Send(ctx, &pb.GetBlockReq{GlobalNumber: uint64(req.n)}); err != nil {
+					if err := stream.Send(ctx, GetBlockReqConv.Encode(&GetBlockReq{GlobalNumber: req.n})); err != nil {
 						return nil, fmt.Errorf("stream.Send(): %w", err)
 					}
 					return stream.Recv(ctx)
@@ -76,12 +78,13 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 				if err != nil {
 					return err
 				}
-				if resp.Block == nil {
-					return nil
-				}
-				b, err := types.BlockConv.Decode(resp.Block)
+				block, err := GetBlockRespConv.Decode(resp)
 				if err != nil {
-					return fmt.Errorf("BlockConv.Decode(): %w", err)
+					return fmt.Errorf("GetBlockRespConv.Decode(): %w", err)
+				}
+				b, ok := block.Get()
+				if !ok {
+					return nil
 				}
 				if err := s.state.Data().PushBlock(ctx, req.n, b); err != nil {
 					return fmt.Errorf("s.PushBlock(): %w", err)
@@ -126,12 +129,16 @@ func (x *Service) runBlockFetcher(ctx context.Context) error {
 
 func (s *Service) serverStreamFullCommitQCs(ctx context.Context, server rpc.Server[API]) error {
 	return StreamFullCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.FullCommitQC, *pb.StreamFullCommitQCsReq]) error {
-		req, err := stream.Recv(ctx)
+		reqRaw, err := stream.Recv(ctx)
 		if err != nil {
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
+		req, err := StreamFullCommitQCsReqConv.Decode(reqRaw)
+		if err != nil {
+			return fmt.Errorf("StreamFullCommitQCsReqConv.Decode(): %w", err)
+		}
 		prev := utils.None[*types.FullCommitQC]()
-		for i := types.GlobalBlockNumber(req.NextBlock); ; i++ {
+		for i := req.NextBlock; ; i++ {
 			qc, err := s.state.Data().QC(ctx, i)
 			if err != nil {
 				return fmt.Errorf("s.state.QC(): %w", err)
@@ -150,15 +157,19 @@ func (s *Service) serverStreamFullCommitQCs(ctx context.Context, server rpc.Serv
 
 func (x *Service) serverGetBlock(ctx context.Context, server rpc.Server[API]) error {
 	return GetBlock.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.GetBlockResp, *pb.GetBlockReq]) error {
-		req, err := stream.Recv(ctx)
+		reqRaw, err := stream.Recv(ctx)
 		if err != nil {
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
-		block, err := x.state.Data().TryBlock(types.GlobalBlockNumber(req.GlobalNumber))
-		resp := &pb.GetBlockResp{}
-		if err == nil {
-			resp.Block = types.BlockConv.Encode(block)
+		req, err := GetBlockReqConv.Decode(reqRaw)
+		if err != nil {
+			return fmt.Errorf("GetBlockReqConv.Decode(): %w", err)
 		}
-		return stream.Send(ctx, resp)
+		block, err := x.state.Data().TryBlock(req.GlobalNumber)
+		resp := utils.None[*types.Block]()
+		if err == nil {
+			resp = utils.Some(block)
+		}
+		return stream.Send(ctx, GetBlockRespConv.Encode(resp))
 	})
 }

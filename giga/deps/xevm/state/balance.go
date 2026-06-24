@@ -55,7 +55,6 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	surplus := sdk.NewIntFromBigInt(amt)
 	s.tempState.surplus = s.tempState.surplus.Add(surplus)
 	s.journal = append(s.journal, &surplusChange{delta: surplus})
-	s.journal = append(s.journal, &balanceChange{evmAddr: evmAddr, seiAddr: addr, usei: usei, wei: wei, isAdd: false})
 	return *ZeroInt
 }
 
@@ -98,7 +97,6 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	surplus := sdk.NewIntFromBigInt(amt).Neg()
 	s.tempState.surplus = s.tempState.surplus.Add(surplus)
 	s.journal = append(s.journal, &surplusChange{delta: surplus})
-	s.journal = append(s.journal, &balanceChange{evmAddr: evmAddr, seiAddr: addr, usei: usei, wei: wei, isAdd: true})
 	return *ZeroInt
 }
 

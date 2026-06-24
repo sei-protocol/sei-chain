@@ -11,6 +11,7 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -73,6 +74,25 @@ type CompositeCommitStore struct {
 	// boundary advances (or the migration completes), the gate latches
 	// and subsequent calls skip the flatkv read. See shouldAppendLatticeHash.
 	latticeAppendLatched atomic.Bool
+
+	// migrationAdvancedThisCommit gates per-block migration progress
+	// against rootmulti.Store's double-flush pattern. rootmulti calls
+	// flush() once inside GetWorkingHash (whose result is the AppHash
+	// returned to Tendermint) and once inside Commit. In migration
+	// modes we forward every flush to the router, but only the first
+	// ApplyChangeSets call in a commit cycle is marked firstBatchInBlock
+	// so the MigrationManager advances at most one batch per block.
+	// Otherwise a second flush with empty or non-empty changesets could
+	// advance another migration batch, perturb the working commit info,
+	// and persist a hash that differs from the one already returned to
+	// Tendermint.
+	//
+	// Set on the first ApplyChangeSets of a block; reset by Commit
+	// after both backend commits succeed. See ApplyChangeSets + Commit
+	// for the wiring and the rootmulti integration test
+	// TestRootMultiMigrateEVM_DoubleFlushAppHashStable for the pinned
+	// invariant.
+	migrationAdvancedThisCommit bool
 }
 
 // NewCompositeCommitStore creates a new composite commit store.
@@ -316,12 +336,27 @@ func (cs *CompositeCommitStore) buildRouter() error {
 }
 
 // ApplyChangeSets applies changesets to the appropriate backends based on config.
+//
+// Forwarding rules:
+//   - Non-migration modes: empty changesets are a no-op (nothing to apply).
+//   - Migration modes: every flush is forwarded so caller writes always
+//     reach the backends and empty blocks can still advance migration.
+//     The firstBatchInBlock flag tells the MigrationManager whether this
+//     call may advance the boundary; second and later flushes in the same
+//     commit cycle forward writes only.
 func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
-	if len(changesets) == 0 {
+	if cs.config.WriteMode.IsMigrationMode() {
+		firstBatchInBlock := !cs.migrationAdvancedThisCommit
+		if err := cs.router.ApplyChangeSets(changesets, firstBatchInBlock); err != nil {
+			return fmt.Errorf("failed to apply changesets: %w", err)
+		}
+		cs.migrationAdvancedThisCommit = true
+		return nil
+	} else if len(changesets) == 0 {
 		return nil
 	}
 
-	err := cs.router.ApplyChangeSets(changesets)
+	err := cs.router.ApplyChangeSets(changesets, false)
 	if err != nil {
 		return fmt.Errorf("failed to apply changesets: %w", err)
 	}
@@ -358,6 +393,13 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 			return 0, fmt.Errorf("failed to commit flatkv: %w", err)
 		}
 	}
+
+	// Reset the per-block migration-advance gate so the next block's
+	// first ApplyChangeSets is permitted to advance migration again.
+	// Reset after both backends have successfully committed; see
+	// migrationAdvancedThisCommit for the AppHash continuity invariant
+	// this preserves.
+	cs.migrationAdvancedThisCommit = false
 
 	if cosmosVersion >= 0 && flatkvVersion >= 0 {
 		if cosmosVersion != flatkvVersion {
@@ -521,8 +563,7 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 }
 
 // appendEvmLatticeHash returns a new CommitInfo with the EVM lattice hash
-// appended, without mutating the original. Returns the original unchanged
-// when flatKV is not present.
+// appended, without mutating the original.
 func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHash []byte) *proto.CommitInfo {
 	combined := make([]proto.StoreInfo, len(ci.StoreInfos)+1)
 	copy(combined, ci.StoreInfos)
@@ -608,6 +649,9 @@ func (cs *CompositeCommitStore) GetChildStoreByName(name string) types.CommitKVS
 		cs.router,
 		name,
 		cs.Version,
+		func(start, end []byte, ascending bool) (db.Iterator, error) {
+			return cs.iterate(name, start, end, ascending)
+		},
 	)
 }
 
@@ -704,6 +748,9 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 	if memIAVLExporter == nil && flatkvExporter == nil {
 		return nil, fmt.Errorf("no exporter created")
 	} else if memIAVLExporter == nil {
+		// flatkv_only: the FlatKV exporter is self-describing (it emits its
+		// own keys.FlatKVStoreKey module header ahead of the nodes), so it
+		// can be returned directly without the composite wrapper.
 		return flatkvExporter, nil
 	} else if flatkvExporter == nil {
 		return memIAVLExporter, nil
@@ -810,18 +857,81 @@ func (cs *CompositeCommitStore) Has(store string, key []byte) (bool, error) {
 }
 
 func (cs *CompositeCommitStore) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
+	return cs.iterate(store, start, end, ascending)
+}
+
+// iterate builds a single iterator over store by stitching together one
+// iterator per active backend.
+//
+// Both memiavl and flatkv expose the same per-store Iterator contract and
+// matching key semantics, so iteration no longer goes through the router:
+// composite asks each non-nil backend for an iterator and merges the results.
+// A backend that does not hold store contributes nothing -- memiavl returns a
+// nil iterator for an unknown store and flatkv returns an empty one -- so an
+// absent store iterates as an empty (no-op) range rather than an error. This
+// matches the long-term flatkv-only end state, where every module lives in a
+// single backend and "unsupported store" ceases to exist.
+//
+// Iterator construction is synchronized by each backend rather than by the
+// router: memiavl captures a COW root under the tree lock, and flatkv pins its
+// Pebble views plus pending-write snapshots under its store lock.
+//
+// During a migration a key lives in exactly one backend at any committed
+// version (migrated keys are deleted from memiavl as they are copied into
+// flatkv), so the merged stream has no duplicates. memiavl must be queried
+// before flatkv: if a migration commit interleaves between the two iterator
+// constructions, this order makes the worst case a duplicate key, which the
+// merge dedupes with flatkv winning. The reverse order could miss the key.
+func (cs *CompositeCommitStore) iterate(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
 	if store == "" {
 		return nil, fmt.Errorf("store name cannot be empty")
 	}
-	if start == nil {
-		return nil, fmt.Errorf("start cannot be nil")
+	if store == migration.MigrationStore {
+		return nil, fmt.Errorf("iteration from the %q store is not permitted", migration.MigrationStore)
 	}
-	if end == nil {
-		return nil, fmt.Errorf("end cannot be nil")
+
+	// flatkv is appended after memiavl so it is the rightmost (winning) child.
+	children := make([]db.Iterator, 0, 2)
+	if cs.memIAVL != nil {
+		memIter, err := cs.memIAVL.Iterator(store, start, end, ascending)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build memiavl iterator: %w", err)
+		}
+		// memiavl returns a nil iterator for a store it does not hold; skip it.
+		if memIter != nil {
+			children = append(children, memIter)
+		}
 	}
-	iterator, err := cs.router.Iterator(store, start, end, ascending)
+	if cs.flatKV != nil {
+		flatIter, err := cs.flatKV.Iterator(store, start, end, ascending)
+		if err != nil {
+			closeIterators(children)
+			return nil, fmt.Errorf("failed to build flatkv iterator: %w", err)
+		}
+		if flatIter != nil {
+			children = append(children, flatIter)
+		}
+	}
+
+	// Zero children yields a valid, empty iterator (an absent store is a no-op).
+	// NewMergingIterator takes ownership of children and closes all of them if
+	// construction fails, so we must not close them again here (Pebble's Close is
+	// not idempotent and a double close could corrupt its iterator pool).
+	merged, err := iterators.NewMergingIterator(ascending, children...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get iterator: %w", err)
+		return nil, fmt.Errorf("failed to merge backend iterators: %w", err)
 	}
-	return iterator, nil
+	// The merged iterator reports the union of child domains; present the
+	// caller's logical [start, end) instead, per the dbm.Iterator contract.
+	return iterators.NewDomainIterator(merged, start, end)
+}
+
+// closeIterators best-effort closes a set of iterators, used to release any
+// already-built children when a later step of iterator construction fails.
+func closeIterators(iters []db.Iterator) {
+	for _, it := range iters {
+		if it != nil {
+			_ = it.Close()
+		}
+	}
 }

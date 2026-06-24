@@ -8,6 +8,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 type msgServer struct {
@@ -68,6 +70,8 @@ func (k msgServer) WithdrawDelegatorReward(goCtx context.Context, msg *types.Msg
 	defer func() {
 		for _, a := range amount {
 			if a.Amount.IsInt64() {
+				distributionMetrics.withdrawRewardAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(a.Denom))))
+				// TODO(PLT-353): remove once distribution_withdraw_reward_amount verified
 				telemetry.SetGaugeWithLabels(
 					[]string{"tx", "msg", "withdraw_reward"},
 					float32(a.Amount.Int64()),
@@ -102,6 +106,8 @@ func (k msgServer) WithdrawValidatorCommission(goCtx context.Context, msg *types
 	defer func() {
 		for _, a := range amount {
 			if a.Amount.IsInt64() {
+				distributionMetrics.withdrawCommissionAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(a.Denom))))
+				// TODO(PLT-353): remove once distribution_withdraw_commission_amount verified
 				telemetry.SetGaugeWithLabels(
 					[]string{"tx", "msg", "withdraw_commission"},
 					float32(a.Amount.Int64()),

@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -84,9 +84,8 @@ Output is written to the file specified by --output.`,
 			cfg := config.AutobahnFileConfig{
 				Validators:       validators,
 				MaxTxsPerBlock:   5_000,
-				MempoolSize:      5_000,
-				BlockInterval:    utils.Duration(400 * time.Millisecond),
 				AllowEmptyBlocks: true,
+				BlockInterval:    utils.Duration(400 * time.Millisecond),
 				ViewTimeout:      utils.Duration(1500 * time.Millisecond),
 				DialInterval:     utils.Duration(10 * time.Second),
 			}

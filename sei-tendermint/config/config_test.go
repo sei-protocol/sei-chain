@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -72,6 +74,9 @@ func TestRPCConfigValidateBasic(t *testing.T) {
 		"MaxBodyBytes",
 		"MaxHeaderBytes",
 		"LagThreshold",
+		"TimeoutReadHeader",
+		"TimeoutWrite",
+		"MaxTxSearchResults",
 	}
 
 	for _, fieldName := range fieldsToTest {
@@ -79,6 +84,16 @@ func TestRPCConfigValidateBasic(t *testing.T) {
 		assert.Error(t, cfg.ValidateBasic())
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(0)
 	}
+
+	// Cross-field: timeout-write must be greater than timeout-broadcast-tx-commit when non-zero.
+	cfg2 := TestRPCConfig()
+	cfg2.TimeoutBroadcastTxCommit = 20 * time.Second
+	cfg2.TimeoutWrite = 20 * time.Second
+	assert.Error(t, cfg2.ValidateBasic())
+	cfg2.TimeoutWrite = 21 * time.Second
+	assert.NoError(t, cfg2.ValidateBasic())
+	cfg2.TimeoutWrite = 0 // 0 disables; constraint does not apply
+	assert.NoError(t, cfg2.ValidateBasic())
 }
 
 func TestMempoolConfigValidateBasic(t *testing.T) {
@@ -136,6 +151,62 @@ func TestConsensusConfig_ValidateBasic(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestConsensusConfigResolveTimeouts(t *testing.T) {
+	overrides := func(enabled bool, bypass *bool) *ConsensusConfig {
+		cfg := DefaultConsensusConfig()
+		cfg.UnsafeOverridesEnabled = enabled
+		cfg.UnsafeProposeTimeoutOverride = 9 * time.Second
+		cfg.UnsafeProposeTimeoutDeltaOverride = 8 * time.Second
+		cfg.UnsafeVoteTimeoutOverride = 7 * time.Second
+		cfg.UnsafeVoteTimeoutDeltaOverride = 6 * time.Second
+		cfg.UnsafeCommitTimeoutOverride = 5 * time.Second
+		cfg.UnsafeBypassCommitTimeoutOverride = bypass
+		return cfg
+	}
+
+	onchain := func(bypass bool) types.TimeoutParams {
+		return types.TimeoutParams{
+			Propose:             2 * time.Second,
+			ProposeDelta:        250 * time.Millisecond,
+			Vote:                3 * time.Second,
+			VoteDelta:           350 * time.Millisecond,
+			Commit:              4 * time.Second,
+			BypassCommitTimeout: bypass,
+		}
+	}
+	overridden := func(bypass bool) types.TimeoutParams {
+		return types.TimeoutParams{
+			Propose:             9 * time.Second,
+			ProposeDelta:        8 * time.Second,
+			Vote:                7 * time.Second,
+			VoteDelta:           6 * time.Second,
+			Commit:              5 * time.Second,
+			BypassCommitTimeout: bypass,
+		}
+	}
+
+	testCases := []struct {
+		name     string
+		cfg      *ConsensusConfig
+		params   types.TimeoutParams
+		expected types.TimeoutParams
+	}{
+		{"fills defaults", DefaultConsensusConfig(), types.TimeoutParams{}, types.DefaultTimeoutParams()},
+		{"disabled ignores overrides for non-legacy params", overrides(false, utils.Alloc(true)), onchain(false), onchain(false)},
+		{"disabled preserves legacy override behavior", overrides(false, utils.Alloc(true)), badParams, overridden(true)},
+		{"enabled applies overrides", overrides(true, utils.Alloc(false)), onchain(false), overridden(false)},
+		{"nil bypass override keeps resolved false", overrides(true, nil), onchain(false), overridden(false)},
+		{"nil bypass override keeps resolved true", overrides(true, nil), onchain(true), overridden(true)},
+		{"false bypass override clears true", overrides(true, utils.Alloc(false)), onchain(true), overridden(false)},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.expected, tc.cfg.ResolveTimeouts(tc.params))
 		})
 	}
 }

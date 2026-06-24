@@ -40,6 +40,16 @@ func openDB(t *testing.T, cfg *PebbleDBConfig, cacheCfg *dbcache.CacheConfig) ty
 	return db
 }
 
+func openUncachedPebbleDB(t *testing.T, cfg *PebbleDBConfig) *pebbleDB {
+	t.Helper()
+	db, err := Open(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	pdb, ok := db.(*pebbleDB)
+	require.True(t, ok, "Open must return *pebbleDB")
+	return pdb
+}
+
 // ---------------------------------------------------------------------------
 // Cache-sensitive tests — run in both cached and uncached modes
 // ---------------------------------------------------------------------------
@@ -172,7 +182,7 @@ func TestIteratorBounds(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, itr.Close()) })
 
 	var keys []string
-	for ok := itr.First(); ok && itr.Valid(); ok = itr.Next() {
+	for ; itr.Valid(); itr.Next() {
 		keys = append(keys, string(itr.Key()))
 	}
 	require.NoError(t, itr.Error())
@@ -181,14 +191,13 @@ func TestIteratorBounds(t *testing.T) {
 
 func TestIteratorPrev(t *testing.T) {
 	cfg := DefaultTestConfig(t)
-	cacheCfg := DefaultTestCacheConfig()
-	db := openDB(t, &cfg, &cacheCfg)
+	pdb := openUncachedPebbleDB(t, &cfg)
 
 	for _, k := range []string{"a", "b", "c"} {
-		require.NoError(t, db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}))
+		require.NoError(t, pdb.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}))
 	}
 
-	itr, err := db.NewIter(nil)
+	itr, err := pdb.db.NewIter(nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, itr.Close()) })
 
@@ -203,18 +212,17 @@ func TestIteratorPrev(t *testing.T) {
 
 func TestIteratorSeekLTAndValue(t *testing.T) {
 	cfg := DefaultTestConfig(t)
-	cacheCfg := DefaultTestCacheConfig()
-	db := openDB(t, &cfg, &cacheCfg)
+	pdb := openUncachedPebbleDB(t, &cfg)
 
 	for _, kv := range []struct{ k, v string }{
 		{"a", "val-a"},
 		{"b", "val-b"},
 		{"c", "val-c"},
 	} {
-		require.NoError(t, db.Set([]byte(kv.k), []byte(kv.v), types.WriteOptions{Sync: false}))
+		require.NoError(t, pdb.Set([]byte(kv.k), []byte(kv.v), types.WriteOptions{Sync: false}))
 	}
 
-	itr, err := db.NewIter(nil)
+	itr, err := pdb.db.NewIter(nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, itr.Close()) })
 

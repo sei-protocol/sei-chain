@@ -6,13 +6,12 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	db "github.com/tendermint/tm-db"
 )
 
 // Route binds a set of module/store names to the database accessors
-// (reader, writer, and optionally iterator and proof builders) that
+// (reader, writer, and optionally proof builders) that
 // should be used to access them. A ModuleRouter dispatches reads,
-// writes, iteration and proof requests to the matching Route.
+// writes, and proof requests to the matching Route.
 type Route struct {
 	// The module names to route to this destination. Guaranteed to
 	// contain no duplicates by NewRoute.
@@ -21,8 +20,6 @@ type Route struct {
 	reader DBReader
 	// For writing values to the database.
 	writer DBWriter
-	// For getting an iterator over a range of keys in a store. If nil, the route does not support iteration.
-	iteratorBuilder DBIteratorBuilder
 	// For building a proof of the value for a key in a store. If nil, the route does not support proofs.
 	proofBuilder DBProofBuilder
 }
@@ -37,8 +34,6 @@ func NewRoute(
 	reader DBReader,
 	// For writing values to the database.
 	writer DBWriter,
-	// For getting an iterator over a range of keys in a store. If nil, the route does not support iteration.
-	iteratorBuilder DBIteratorBuilder,
 	// For building a proof of the value for a key in a store. If nil, the route does not support proofs.
 	proofBuilder DBProofBuilder,
 	// The module names to route to this destination. Must not contain
@@ -62,11 +57,10 @@ func NewRoute(
 	// be able to mutate our internal state after construction.
 	owned := append([]string(nil), modules...)
 	return &Route{
-		modules:         owned,
-		reader:          reader,
-		writer:          writer,
-		iteratorBuilder: iteratorBuilder,
-		proofBuilder:    proofBuilder,
+		modules:      owned,
+		reader:       reader,
+		writer:       writer,
+		proofBuilder: proofBuilder,
 	}, nil
 }
 
@@ -126,7 +120,7 @@ func NewModuleRouter(routes ...*Route) (*ModuleRouter, error) {
 // returned.
 //
 // Non-atomic across routes; atomicity must be ensured by the caller.
-func (m *ModuleRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+func (m *ModuleRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error {
 	perRoute := make(map[*Route][]*proto.NamedChangeSet, len(m.routes))
 	for _, cs := range changesets {
 		if cs == nil {
@@ -141,7 +135,7 @@ func (m *ModuleRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error
 
 	collected := make([]error, 0, len(m.routes))
 	for _, r := range m.routes {
-		if err := r.writer(perRoute[r]); err != nil {
+		if err := r.writer(perRoute[r], firstBatchInBlock); err != nil {
 			collected = append(collected, fmt.Errorf("failed to apply changes: %w", err))
 		}
 	}
@@ -172,15 +166,4 @@ func (m *ModuleRouter) GetProof(store string, key []byte) (*ics23.CommitmentProo
 		return nil, fmt.Errorf("proof builder not supported for store %q", store)
 	}
 	return r.proofBuilder(store, key)
-}
-
-func (m *ModuleRouter) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
-	r, ok := m.moduleToRoute[store]
-	if !ok {
-		return nil, fmt.Errorf("module %q is not registered with any Route", store)
-	}
-	if r.iteratorBuilder == nil {
-		return nil, fmt.Errorf("iterator builder not supported for store %q", store)
-	}
-	return r.iteratorBuilder(store, start, end, ascending)
 }

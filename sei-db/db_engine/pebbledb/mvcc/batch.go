@@ -9,15 +9,17 @@ import (
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
 type Batch struct {
-	storage    *pebble.DB
-	version    int64
-	ops        []batchOp
-	descending bool
+	storage          *pebble.DB
+	version          int64
+	ops              []batchOp
+	descending       bool
+	operationMetrics *pebbledbmetrics.OperationMetrics
 }
 
 type batchOp struct {
@@ -27,17 +29,23 @@ type batchOp struct {
 }
 
 // NewBatch creates a new Batch using the supplied MVCC encoding mode.
-func NewBatch(storage *pebble.DB, version int64, descending bool) (*Batch, error) {
+func NewBatch(storage *pebble.DB, version int64, descending bool, operationMetrics ...*pebbledbmetrics.OperationMetrics) (*Batch, error) {
 	if version < 0 {
 		return nil, fmt.Errorf("version must be non-negative")
 	}
-	b := &Batch{
-		storage:    storage,
-		version:    version,
-		ops:        make([]batchOp, 0, 16),
-		descending: descending,
+
+	var metrics *pebbledbmetrics.OperationMetrics
+	if len(operationMetrics) > 0 {
+		metrics = operationMetrics[0]
 	}
-	return b, nil
+
+	return &Batch{
+		storage:          storage,
+		version:          version,
+		ops:              make([]batchOp, 0, 16),
+		descending:       descending,
+		operationMetrics: metrics,
+	}, nil
 }
 
 func (b *Batch) Size() int {
@@ -68,7 +76,8 @@ func (b *Batch) Delete(storeKey string, key []byte) error {
 }
 
 func (b *Batch) Write() error {
-	return writeBatchOps(b.storage, b.ops, func(batch *pebble.Batch) error {
+	writeCount := int64(len(b.ops) + 1) // includes latest-version metadata.
+	err := writeBatchOps(b.storage, b.ops, func(batch *pebble.Batch) error {
 		var versionBz [VersionSize]byte
 		binary.LittleEndian.PutUint64(versionBz[:], uint64(b.version)) //nolint:gosec // block heights are non-negative and fit in int64
 		if err := batch.Set([]byte(latestVersionKey), versionBz[:], nil); err != nil {
@@ -76,21 +85,32 @@ func (b *Batch) Write() error {
 		}
 		return nil
 	})
+	if err == nil && b.operationMetrics != nil {
+		b.operationMetrics.AddWrite(writeCount)
+	}
+	return err
 }
 
 // For writing kv pairs in any order of version
 type RawBatch struct {
-	storage    *pebble.DB
-	ops        []batchOp
-	descending bool
+	storage          *pebble.DB
+	ops              []batchOp
+	descending       bool
+	operationMetrics *pebbledbmetrics.OperationMetrics
 }
 
 // NewRawBatch creates a new RawBatch using the supplied MVCC encoding mode.
-func NewRawBatch(storage *pebble.DB, descending bool) (*RawBatch, error) {
+func NewRawBatch(storage *pebble.DB, descending bool, operationMetrics ...*pebbledbmetrics.OperationMetrics) (*RawBatch, error) {
+	var metrics *pebbledbmetrics.OperationMetrics
+	if len(operationMetrics) > 0 {
+		metrics = operationMetrics[0]
+	}
+
 	return &RawBatch{
-		storage:    storage,
-		ops:        make([]batchOp, 0, 16),
-		descending: descending,
+		storage:          storage,
+		ops:              make([]batchOp, 0, 16),
+		descending:       descending,
+		operationMetrics: metrics,
 	}, nil
 }
 
@@ -121,7 +141,7 @@ func (b *RawBatch) Delete(storeKey string, key []byte, version int64) error {
 	return b.set(storeKey, version, key, []byte(tombstoneVal), version)
 }
 
-// HardDelete physically removes the key by encoding it with the batch’s version
+// HardDelete physically removes the key by encoding it with the batch's version
 // and calling the underlying pebble.Batch.Delete.
 func (b *Batch) HardDelete(storeKey string, key []byte) error {
 	fullKey := MVCCEncode(prependStoreKey(storeKey, key), b.version, b.descending)
@@ -133,7 +153,12 @@ func (b *Batch) HardDelete(storeKey string, key []byte) error {
 }
 
 func (b *RawBatch) Write() error {
-	return writeBatchOps(b.storage, b.ops, nil)
+	writeCount := int64(len(b.ops))
+	err := writeBatchOps(b.storage, b.ops, nil)
+	if err == nil && b.operationMetrics != nil {
+		b.operationMetrics.AddWrite(writeCount)
+	}
+	return err
 }
 
 // writeBatchOps applies ops to a new pebble batch in sorted order, records

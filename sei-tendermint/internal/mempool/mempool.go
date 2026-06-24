@@ -1,12 +1,9 @@
 package mempool
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"math/big"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/reservoir"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -29,16 +25,6 @@ var ErrTxInCache = errors.New("tx already exists in cache")
 
 // ErrTxTooLarge defines an error when a transaction is too big to be sent to peers.
 var ErrTxTooLarge = errors.New("tx too large")
-
-// Using SHA-256 truncated to 128 bits as the cache key: At 2K tx/sec, the
-// collision probability is effectively zero (≈10^-29 for 120K keys in a minute,
-// still negligible over years). If reduced 3× smaller (~43 bits), collisions
-// become probable within a day and guaranteed over longer periods.
-//
-// For the purposes of the LRU cache key both sizes are sufficiently secure. For
-// now. 128 bits is a safe balance between performance and collision probability
-// and we may revisit later.
-const maxCacheKeySize = sha256.Size / 2
 
 // MinTxsPerBlock is how many txs we will attempt to have in a block if there's still space.
 // MinGasEVMTx is the minimum the gas estimate can be for an EVM tx to be considered valid.
@@ -71,32 +57,27 @@ type Config struct {
 	// NOTE: the max size of a tx transmitted over the network is {max-tx-bytes}.
 	MaxTxBytes int
 
-	// TTLDuration, if non-zero, defines the maximum amount of time a transaction
-	// can exist for in the mempool.
-	//
-	// Note, if TTLNumBlocks is also defined, a transaction will be removed if it
-	// has existed in the mempool at least TTLNumBlocks number of blocks or if it's
-	// insertion time into the mempool is beyond TTLDuration.
-	TTLDuration time.Duration
+	// time after which transaction is removed from mempool.
+	TTLDuration utils.Option[time.Duration]
 
-	// TTLNumBlocks, if non-zero, defines the maximum number of blocks a transaction
-	// can exist for in the mempool.
-	//
-	// Note, if TTLDuration is also defined, a transaction will be removed if it
-	// has existed in the mempool at least TTLNumBlocks number of blocks or if
-	// it's insertion time into the mempool is beyond TTLDuration.
-	TTLNumBlocks int64
+	// number of blocks after which a transaction is removed from mempool.
+	TTLNumBlocks utils.Option[int64]
 
 	// TxNotifyThreshold, if non-zero, defines the minimum number of transactions
 	// needed to trigger a notification in mempool's Tx notifier
 	TxNotifyThreshold uint64
 
-	// Maximum number of transactions in the pending set
 	PendingSize int
 
-	// Limit the total size of all txs in the pending set.
 	MaxPendingTxsBytes int64
 
+	// Deprecated: pending TTL is not used and this field has no effect.
+	PendingTTLDuration time.Duration
+
+	// Deprecated: pending TTL is not used and this field has no effect.
+	PendingTTLNumBlocks int64
+
+	// Whether expired READY transactions should be pruned from mempool (PENDING expired are always prunned)
 	RemoveExpiredTxsFromQueue bool
 
 	// DropPriorityThreshold defines the percentage of transactions with the lowest
@@ -148,9 +129,9 @@ func DefaultConfig() *Config {
 		MaxTxsBytes:               1024 * 1024 * 1024, // 1GB
 		CacheSize:                 10000,
 		DuplicateTxsCacheSize:     100000,
-		MaxTxBytes:                1024 * 1024,     // 1MB
-		TTLDuration:               5 * time.Second, // prevent stale txs from filling mempool
-		TTLNumBlocks:              10,              // remove txs after 10 blocks
+		MaxTxBytes:                1024 * 1024,                 // 1MB
+		TTLDuration:               utils.Some(5 * time.Second), // prevent stale txs from filling mempool
+		TTLNumBlocks:              utils.Some(int64(10)),       // remove txs after 10 blocks
 		TxNotifyThreshold:         0,
 		PendingSize:               5000,
 		MaxPendingTxsBytes:        1024 * 1024 * 1024, // 1GB
@@ -161,9 +142,26 @@ func DefaultConfig() *Config {
 	}
 }
 
-type evmAddrNonce struct {
-	Address common.Address
-	Nonce   uint64
+type lockMap[K comparable] struct{ inner utils.Mutex[map[K]struct{}] }
+
+func newLockMap[K comparable]() *lockMap[K] {
+	return &lockMap[K]{inner: utils.NewMutex(map[K]struct{}{})}
+}
+
+func (m *lockMap[K]) Lock(k K) bool {
+	for inner := range m.inner.Lock() {
+		if _, ok := inner[k]; ok {
+			return false
+		}
+		inner[k] = struct{}{}
+	}
+	return true
+}
+
+func (m *lockMap[K]) Unlock(k K) {
+	for inner := range m.inner.Lock() {
+		delete(inner, k)
+	}
 }
 
 // TxMempool defines a prioritized mempool data structure used by the v1 mempool
@@ -174,6 +172,7 @@ type TxMempool struct {
 	metrics *Metrics
 	config  *Config
 	app     *proxy.Proxy
+	txLocks *lockMap[types.TxHash]
 
 	// txsAvailable fires once for each height when the mempool is not empty
 	txsAvailable         chan struct{}
@@ -182,50 +181,13 @@ type TxMempool struct {
 	// height defines the last block height process during Update()
 	height int64
 
-	// cache defines a fixed-size cache of already seen transactions as this
-	// reduces pressure on the proxyApp.
-	cache TxCache
-
-	// blockFailedTxs tracks tx hashes that have previously failed during
-	// block execution. Used to prevent infinite re-entry of txs that
-	// consistently fail before fee charging in DeliverTx.
-	blockFailedTxs TxCache
-
 	// A TTL cache which keeps all txs that we have seen before over the TTL window.
 	// Currently, this can be used for tracking whether checkTx is always serving the same tx or not.
 	duplicateTxsCache utils.Option[*DuplicateTxCache]
 
 	// txStore defines the main storage of valid transactions. Indexes are built
 	// on top of this store.
-	txStore *TxStore
-
-	// gossipIndex defines the gossiping index of valid transactions via a
-	// thread-safe linked-list. We also use the gossip index as a cursor for
-	// rechecking transactions already in the mempool.
-	gossipIndex *clist.CList[*WrappedTx]
-
-	// recheckCursor and recheckEnd are used as cursors based on the gossip index
-	// to recheck transactions that are already in the mempool. Iteration is not
-	// thread-safe and transaction may be mutated in serial order.
-	//
-	// XXX/TODO: It might be somewhat of a codesmell to use the gossip index for
-	// iterator and cursor management when rechecking transactions. If the gossip
-	// index changes or is removed in a future refactor, this will have to be
-	// refactored. Instead, we should consider just keeping a slice of a snapshot
-	// of the mempool's current transactions during Update and an integer cursor
-	// into that slice. This, however, requires additional O(n) space complexity.
-	recheckCursor *clist.CElement[*WrappedTx] // next expected response
-	recheckEnd    *clist.CElement[*WrappedTx] // re-checking stops here
-
-	// priorityIndex defines the priority index of valid transactions via a
-	// thread-safe priority queue.
-	priorityIndex *TxPriorityQueue
-
-	// pendingTxs stores transactions that are not valid yet but might become valid
-	// once nonce ordering or sender balance catches up.
-	pendingTxs *PendingTxs
-
-	byAddrNonce utils.Mutex[map[evmAddrNonce]*WrappedTx]
+	txStore *txStore
 
 	// A read/write lock is used to safe guard updates, insertions and deletions
 	// from the mempool. A read-lock is implicitly acquired when executing CheckTx,
@@ -233,9 +195,15 @@ type TxMempool struct {
 	// the mempool via Update().
 	mtx                  sync.RWMutex
 	txConstraintsFetcher TxConstraintsFetcher
-
-	priorityReservoir *reservoir.Sampler[int64]
 }
+
+func (txmp *TxMempool) Size() int                 { return txmp.txStore.State().total.count }
+func (txmp *TxMempool) SizeBytes() uint64         { return txmp.txStore.State().ready.bytes }
+func (txmp *TxMempool) NumTxsNotPending() int     { return txmp.txStore.State().ready.count }
+func (txmp *TxMempool) BytesNotPending() uint64   { return txmp.txStore.State().ready.bytes }
+func (txmp *TxMempool) TotalTxsBytesSize() uint64 { return txmp.txStore.State().total.bytes }
+func (txmp *TxMempool) PendingSize() int          { return txmp.txStore.State().PendingCount() }
+func (txmp *TxMempool) PendingSizeBytes() uint64  { return txmp.txStore.State().PendingBytes() }
 
 func NewTxMempool(
 	cfg *Config,
@@ -243,81 +211,41 @@ func NewTxMempool(
 	metrics *Metrics,
 	txConstraintsFetcher TxConstraintsFetcher,
 ) *TxMempool {
-
 	txmp := &TxMempool{
 		config:               cfg,
 		app:                  app,
 		txsAvailable:         make(chan struct{}, 1),
+		txLocks:              newLockMap[types.TxHash](),
 		height:               -1,
-		cache:                NopTxCache{},
-		blockFailedTxs:       NopTxCache{},
 		metrics:              metrics,
-		txStore:              NewTxStore(),
-		gossipIndex:          clist.New[*WrappedTx](),
-		priorityIndex:        NewTxPriorityQueue(),
-		pendingTxs:           NewPendingTxs(cfg),
-		byAddrNonce:          utils.NewMutex(map[evmAddrNonce]*WrappedTx{}),
+		txStore:              NewTxStore(cfg, app, metrics),
 		txConstraintsFetcher: txConstraintsFetcher,
-		priorityReservoir:    reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
-	}
-
-	if cfg.CacheSize > 0 {
-		txmp.cache = NewLRUTxCache(cfg.CacheSize, maxCacheKeySize)
-		txmp.blockFailedTxs = NewLRUTxCache(cfg.CacheSize, maxCacheKeySize)
 	}
 
 	if cfg.DuplicateTxsCacheSize > 0 {
-		txmp.duplicateTxsCache = utils.Some(NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, maxCacheKeySize))
+		txmp.duplicateTxsCache = utils.Some(NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, 0))
 	}
 
 	return txmp
 }
 
-func (txmp *TxMempool) Config() *Config { return txmp.config }
-
+func (txmp *TxMempool) Config() *Config   { return txmp.config }
 func (txmp *TxMempool) App() *proxy.Proxy { return txmp.app }
-
 func (txmp *TxMempool) EvmNextPendingNonce(addr common.Address) uint64 {
-	an := evmAddrNonce{addr, txmp.app.EvmNonce(addr)}
-	for byAddrNonce := range txmp.byAddrNonce.Lock() {
-		for {
-			if _, ok := byAddrNonce[an]; !ok {
-				break
-			}
-			an.Nonce += 1
-		}
-	}
-	return an.Nonce
+	return txmp.txStore.NextNonce(addr)
 }
 
-func (txmp *TxMempool) addNonce(wtx *WrappedTx) {
-	evm, ok := wtx.evm.Get()
-	if !ok {
-		return
-	}
-	an := evmAddrNonce{evm.address, evm.nonce}
-	for byAddrNonce := range txmp.byAddrNonce.Lock() {
-		if old, ok := byAddrNonce[an]; ok && old.priority >= wtx.priority {
-			return
-		}
-		byAddrNonce[an] = wtx
-	}
+func (txmp *TxMempool) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
+	return txmp.txStore.ByEvmHash(hash)
 }
 
-func (txmp *TxMempool) removeNonce(wtx *WrappedTx) {
-	evm, ok := wtx.evm.Get()
-	if !ok {
-		return
-	}
-	an := evmAddrNonce{evm.address, evm.nonce}
-	for byAddrNonce := range txmp.byAddrNonce.Lock() {
-		if byAddrNonce[an] == wtx {
-			delete(byAddrNonce, an)
-		}
-	}
-}
+// Relatively fresh snapshot of the mempool.
+// NOTE: it is NOT the current state of the mempool most of the time.
+func (txmp *TxMempool) RecentSnapshot() types.Txs { return txmp.txStore.RecentSnapshot() }
 
-func (txmp *TxMempool) TxStore() *TxStore { return txmp.txStore }
+func (txmp *TxMempool) WaitForTxs(ctx context.Context) error {
+	return txmp.txStore.WaitForTxs(ctx)
+}
 
 // Lock obtains a write-lock on the mempool. A caller must be sure to explicitly
 // release the lock when finished.
@@ -326,66 +254,19 @@ func (txmp *TxMempool) Lock() { txmp.mtx.Lock() }
 // Unlock releases a write-lock on the mempool.
 func (txmp *TxMempool) Unlock() { txmp.mtx.Unlock() }
 
-// Size returns the number of valid transactions in the mempool. It is
-// thread-safe.
-func (txmp *TxMempool) Size() int {
-	return txmp.NumTxsNotPending() + txmp.PendingSize()
-}
-
 func (txmp *TxMempool) utilisation() float64 {
-	return float64(txmp.NumTxsNotPending()) / float64(txmp.config.Size)
+	return float64(txmp.Size()) / float64(max(txmp.config.Size+txmp.config.PendingSize, 1))
 }
-
-func (txmp *TxMempool) NumTxsNotPending() int {
-	return txmp.txStore.Size()
-}
-
-func (txmp *TxMempool) BytesNotPending() int64 {
-	return txmp.txStore.AllTxsBytes()
-}
-
-func (txmp *TxMempool) TotalTxsBytesSize() int64 {
-	return txmp.BytesNotPending() + txmp.pendingTxs.SizeBytes()
-}
-
-// PendingSize returns the number of pending transactions in the mempool.
-func (txmp *TxMempool) PendingSize() int        { return txmp.pendingTxs.Size() }
-func (txmp *TxMempool) PendingSizeBytes() int64 { return txmp.pendingTxs.SizeBytes() }
-
-// SizeBytes return the total sum in bytes of all the valid transactions in the
-// mempool. It is thread-safe.
-func (txmp *TxMempool) SizeBytes() int64 { return txmp.txStore.AllTxsBytes() }
 
 // WaitForNextTx waits until the next transaction is available for gossip.
 // Returns the next valid transaction to gossip.
-func (txmp *TxMempool) WaitForNextTx(ctx context.Context) (*clist.CElement[*WrappedTx], error) {
-	return txmp.gossipIndex.WaitFront(ctx)
+func (txmp *TxMempool) WaitForReadyTx(ctx context.Context) (*clist.CElement[types.Tx], error) {
+	return txmp.txStore.readyTxs.WaitFront(ctx)
 }
 
 // TxsAvailable returns a channel which fires once for every height, and only
 // when transactions are available in the mempool. It is thread-safe.
-func (txmp *TxMempool) TxsAvailable() <-chan struct{} {
-	return txmp.txsAvailable
-}
-
-func (txmp *TxMempool) checkResponseState(wtx *WrappedTx) error {
-	constraints, err := txmp.txConstraintsFetcher()
-	if err != nil {
-		return err
-	}
-
-	if constraints.MaxGas == -1 {
-		return nil
-	}
-	if wtx.gasWanted < 0 {
-		return fmt.Errorf("negative gas wanted: %d", wtx.gasWanted)
-	}
-	if wtx.gasWanted > constraints.MaxGas {
-		return fmt.Errorf("gas wanted exceeds max gas: gas wanted %d is greater than max gas %d", wtx.gasWanted, constraints.MaxGas)
-	}
-
-	return nil
-}
+func (txmp *TxMempool) TxsAvailable() <-chan struct{} { return txmp.txsAvailable }
 
 // CheckTx executes the ABCI CheckTx method for a given transaction.
 // It acquires a read-lock and attempts to execute the application's
@@ -408,19 +289,29 @@ func (txmp *TxMempool) checkResponseState(wtx *WrappedTx) error {
 // NOTE:
 // - The applications' CheckTx implementation may panic.
 // - The caller is not to explicitly require any locks for executing CheckTx.
-func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) (*abci.ResponseCheckTx, error) {
+func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.ResponseCheckTx, error) {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 
+	// Early exit if tx is too large.
 	if txSize := len(tx); txSize > txmp.config.MaxTxBytes {
 		return nil, fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, txmp.config.MaxTxBytes, txSize)
 	}
+	hTx := newHashedTx(tx)
+
+	// Avoid processing same transaction in parallel.
+	if !txmp.txLocks.Lock(hTx.Hash()) {
+		// ErrTxInCache is returned for backward compatibility.
+		return nil, ErrTxInCache
+	}
+	defer txmp.txLocks.Unlock(hTx.Hash())
+
 	constraints, err := txmp.txConstraintsFetcher()
 	if err != nil {
 		return nil, fmt.Errorf("txmp.txConstraintsFetcher(): %w", err)
 	}
-	if txSize := types.ComputeProtoSizeForTxs([]types.Tx{tx}); txSize > constraints.MaxDataBytes {
-		return nil, fmt.Errorf("%w: tx size is too big: %d, max: %d", ErrTxTooLarge, txSize, constraints.MaxDataBytes)
+	if hTx.protoSize > constraints.MaxDataBytes {
+		return nil, fmt.Errorf("%w: tx size is too big: %d, max: %d", ErrTxTooLarge, hTx.protoSize, constraints.MaxDataBytes)
 	}
 
 	// Reject low priority transactions when the mempool is more than
@@ -430,43 +321,31 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 
 		hint, err := txmp.app.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
 		if err != nil {
-			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, true)
+			txmp.metrics.observeCheckTxPriorityDistribution(0, true, "", true)
 			logger.Error("failed to get tx priority hint", "err", err)
 			return nil, err
 		}
-		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, txInfo.SenderNodeID, false)
+		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, "", false)
 
-		cutoff, found := txmp.priorityReservoir.Percentile()
+		cutoff, found := txmp.txStore.priorityReservoir.Percentile()
 		if found && hint.Priority <= cutoff {
 			txmp.metrics.CheckTxDroppedByPriorityHint.Add(1)
 			return nil, errors.New("priority not high enough for mempool")
 		}
 	}
-	txHash := tx.Hash()
 
-	// We add the transaction to the mempool's cache and if the
-	// transaction is already present in the cache, i.e. false is returned, then we
-	// check if we've seen this transaction and error if we have.
-	if !txmp.cache.Push(txHash) {
-		txmp.txStore.GetOrSetPeerByTxHash(txHash, txInfo.SenderID)
+	// Check if the tx is known to be bad.
+	if txmp.txStore.ShouldReject(hTx.Hash()) {
 		return nil, ErrTxInCache
 	}
-	txmp.metrics.CacheSize.Set(float64(txmp.cache.Size()))
 
-	// Check TTL cache to see if we've recently processed this transaction
-	// Only execute TTL cache logic if we're using a real TTL cache (not NOP)
 	if c, ok := txmp.duplicateTxsCache.Get(); ok {
-		c.Increment(txHash)
-	}
-
-	if len(txInfo.SenderNodeID) == 0 {
-		txmp.metrics.NumberOfLocalCheckTx.Add(1)
+		c.Increment(hTx.Hash())
 	}
 	res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil || !res.IsOK() {
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
-		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, true)
-		txmp.cache.Remove(txHash)
+		txmp.metrics.observeCheckTxPriorityDistribution(0, false, "", true)
 	}
 	if err != nil {
 		return nil, err
@@ -475,103 +354,68 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		return res.ResponseCheckTx, nil
 	}
 	txmp.metrics.NumberOfSuccessfulCheckTxs.Add(1)
-	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, txInfo.SenderNodeID, false)
+	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, "", false)
 
+	// Normalize the estimate.
+	estimatedGas := res.GasEstimated
+	if estimatedGas < MinGasEVMTx || estimatedGas > res.GasWanted {
+		estimatedGas = res.GasWanted
+	}
 	wtx := &WrappedTx{
-		hashedTx:     newHashedTx(tx),
+		hashedTx:     hTx,
 		timestamp:    time.Now().UTC(),
 		height:       txmp.height,
 		priority:     res.Priority,
-		estimatedGas: res.GasEstimated,
+		estimatedGas: estimatedGas,
 		gasWanted:    res.GasWanted,
-		peers:        map[uint16]struct{}{txInfo.SenderID: {}},
 	}
 	if res.IsEVM {
 		wtx.evm = utils.Some(evmTx{
 			address:         res.EVMSenderAddress,
 			seiAddress:      res.SeiSenderAddress,
+			hash:            res.EVMHash,
 			nonce:           res.EVMNonce,
 			requiredBalance: res.EVMRequiredBalance,
 		})
 	}
 
-	// only add new transaction if checkTx passes and is not pending
-	if !txmp.isPending(wtx) {
-		if err := txmp.addNewTransaction(wtx); err != nil {
-			return nil, err
-		}
-	} else {
-		// otherwise add to pending txs store
-		if err := txmp.canAddPendingTx(wtx); err != nil {
-			// TODO: eviction strategy for pending transactions
-			txmp.cache.Remove(txHash)
-			return nil, err
-		}
-		if err := txmp.pendingTxs.Insert(wtx); err != nil {
-			txmp.cache.Remove(txHash)
-			return nil, err
-		}
+	if err := wtx.check(constraints); err != nil {
+		// ignore bad transactions
+		logger.Info("rejected bad transaction", "priority", wtx.priority, "tx", wtx.Hash(), "post_check_err", err)
+		txmp.txStore.MarkInvalid(hTx.Hash())
+		txmp.metrics.FailedTxs.Add(1)
+		return nil, err
 	}
-	txmp.addNonce(wtx)
+
+	if err := txmp.txStore.Insert(wtx); err != nil {
+		txmp.metrics.RejectedTxs.Add(1)
+		return nil, err
+	}
+
+	txmp.metrics.InsertedTxs.Add(1)
+	txmp.metrics.TxSizeBytes.Add(float64(wtx.Size()))
+	txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
+	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
+	txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
+
+	txmp.notifyTxsAvailable()
 	return res.ResponseCheckTx, nil
 }
 
-func (txmp *TxMempool) isInMempool(txHash types.TxHash) bool {
-	return !txmp.txStore.IsTxRemovedByHash(txHash)
-}
-
-func (txmp *TxMempool) HasTx(txHash types.TxHash) bool {
-	txmp.mtx.RLock()
-	defer txmp.mtx.RUnlock()
-	return txmp.txStore.GetTxByHash(txHash) != nil
-}
-
-func (txmp *TxMempool) GetTxsForHashes(txHashes []types.TxHash) types.Txs {
-	txmp.mtx.RLock()
-	defer txmp.mtx.RUnlock()
-
-	txs := make([]types.Tx, 0, len(txHashes))
-	for _, txHash := range txHashes {
-		wtx := txmp.txStore.GetTxByHash(txHash)
-		txs = append(txs, wtx.Tx())
-	}
-	return txs
-}
-
 func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
-	txmp.mtx.RLock()
-	defer txmp.mtx.RUnlock()
-
-	txs := make([]types.Tx, 0, len(txHashes))
-	missing := []types.TxHash{}
-	for _, txHash := range txHashes {
-		wtx := txmp.txStore.GetTxByHash(txHash)
-		if wtx == nil {
-			missing = append(missing, txHash)
-			continue
-		}
-		txs = append(txs, wtx.Tx())
-	}
-	return txs, missing
+	return txmp.txStore.SafeGetTxsForHashes(txHashes)
 }
 
-// Flush empties the mempool. It acquires a read-lock, fetches all the
-// transactions currently in the transaction store and removes each transaction
-// from the store and all indexes and finally resets the cache.
-//
-// NOTE:
-// - Flushing the mempool may leave the mempool in an inconsistent state.
+// Flush empties the mempool.
 func (txmp *TxMempool) Flush() {
-	txmp.mtx.Lock()
-	defer txmp.mtx.Unlock()
-	for _, wtx := range txmp.txStore.GetAllTxs() {
-		txmp.removeTx(wtx, false, false, true)
-	}
-	txmp.cache.Reset()
+	txmp.txStore.Clear()
+	txmp.metrics.Size.Set(0)
+	txmp.metrics.PendingSize.Set(0)
+	txmp.metrics.TotalTxsSizeBytes.Set(0)
 }
 
-// ReapMaxBytesMaxGas returns a list of transactions within the provided size
-// and gas constraints. The returned list starts with EVM transactions (in priority order),
+// ReapTxs returns a list of transactions within the provided constraints and their total gas estimate.
+// The returned list starts with EVM transactions (in priority order),
 // followed by non-EVM transactions (in priority order).
 // There are 4 types of constraints.
 //  1. maxBytes - stops pulling txs from mempool once maxBytes is hit.
@@ -580,205 +424,22 @@ func (txmp *TxMempool) Flush() {
 //  3. maxGasEstimated - similar to maxGasWanted but will use the estimated gas used for EVM txs
 //     while still using gas wanted for cosmos txs. Can be set to -1 to be ignored.
 //
-// NOTE:
-//   - Transactions returned are not removed from the mempool transaction
-//     store or indexes.
-func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimated int64) types.Txs {
-	txmp.mtx.Lock()
-	defer txmp.mtx.Unlock()
-	txs, _ := txmp.reapTxs(ReapLimits{
-		MaxBytes:        utils.Some(maxBytes),
-		MaxGasWanted:    utils.Some(maxGasWanted),
-		MaxGasEstimated: utils.Some(maxGasEstimated),
-	})
-	return txs
-}
-
-type ReapLimits struct {
-	MaxTxs          utils.Option[uint64]
-	MaxBytes        utils.Option[int64]
-	MaxGasWanted    utils.Option[int64]
-	MaxGasEstimated utils.Option[int64]
-}
-
-// ReapMaxTxsBytesMaxGas returns a list of transactions within the provided tx,
-// byte, and gas constraints together with the total estimated gas for the
-// returned transactions.
-//
-// NOTE: Gas limits are enforced using int64 running totals. If those totals
-// overflow, gas limit enforcement no longer works correctly. This preserves the
-// historical behavior for backward compatibility.
-func (txmp *TxMempool) reapTxs(l ReapLimits) (types.Txs, int64) {
-	maxTxs := l.MaxTxs.Or(utils.Max[uint64]())
-	maxBytes := l.MaxBytes.Or(utils.Max[int64]())
-	maxGasWanted := l.MaxGasWanted.Or(utils.Max[int64]())
-	maxGasEstimated := l.MaxGasEstimated.Or(utils.Max[int64]())
-	if maxBytes < 0 {
-		maxBytes = utils.Max[int64]()
+// NOTE: Transactions are removed from the mempool iff remove == true.
+// Either way, the transactions stay in the LRU cache.
+func (txmp *TxMempool) ReapTxs(limits ReapLimits, remove bool) (types.Txs, int64) {
+	txs, gasEstimate := txmp.txStore.Reap(limits, remove)
+	if remove {
+		txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
+		txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
+		txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
 	}
-	if maxGasWanted < 0 {
-		maxGasWanted = utils.Max[int64]()
-	}
-	if maxGasEstimated < 0 {
-		maxGasEstimated = utils.Max[int64]()
-	}
-	var (
-		totalGasWanted    int64
-		totalGasEstimated int64
-		totalSize         int64
-	)
-
-	numTxs := uint64(0)
-	encounteredGasUnfit := false
-	if uint64(txmp.NumTxsNotPending()) < txmp.config.TxNotifyThreshold { //nolint:gosec // NumTxsNotPending returns non-negative value
-		// do not reap anything if threshold is not met
-		return []types.Tx{}, 0
-	}
-	totalTxs := txmp.priorityIndex.NumTxs()
-	evmTxs := make([]types.Tx, 0, totalTxs)
-	nonEvmTxs := make([]types.Tx, 0, totalTxs)
-	txmp.priorityIndex.ForEachTx(func(wtx *WrappedTx) bool {
-		size := types.ComputeProtoSizeForTxs([]types.Tx{wtx.Tx()})
-
-		// bytes limit is a hard stop
-		if totalSize+size > maxBytes || numTxs+1 > maxTxs {
-			return false
-		}
-
-		// if the tx doesn't have a gas estimate, fallback to gas wanted
-		var txGasEstimate int64
-		if wtx.estimatedGas >= MinGasEVMTx && wtx.estimatedGas <= wtx.gasWanted {
-			txGasEstimate = wtx.estimatedGas
-		} else {
-			wtx.estimatedGas = wtx.gasWanted
-			txGasEstimate = wtx.gasWanted
-		}
-
-		// prospective totals
-		prospectiveGasWanted := totalGasWanted + wtx.gasWanted
-		prospectiveGasEstimated := totalGasEstimated + txGasEstimate
-
-		maxGasWantedExceeded := prospectiveGasWanted > maxGasWanted
-		maxGasEstimatedExceeded := prospectiveGasEstimated > maxGasEstimated
-
-		if maxGasWantedExceeded || maxGasEstimatedExceeded {
-			// skip this unfit-by-gas tx once and attempt to pull up to 10 smaller ones
-			if !encounteredGasUnfit && numTxs < MinTxsToPeek {
-				encounteredGasUnfit = true
-				return true
-			}
-			return false
-		}
-
-		// include tx and update totals
-		numTxs += 1
-		totalSize += size
-		totalGasWanted = prospectiveGasWanted
-		totalGasEstimated = prospectiveGasEstimated
-
-		if wtx.evm.IsPresent() {
-			evmTxs = append(evmTxs, wtx.Tx())
-		} else {
-			nonEvmTxs = append(nonEvmTxs, wtx.Tx())
-		}
-		if encounteredGasUnfit && numTxs >= MinTxsToPeek {
-			return false
-		}
-		return true
-	})
-
-	return append(evmTxs, nonEvmTxs...), totalGasEstimated
-}
-
-// RemoveTxs removes the provided transactions from the mempool if present.
-func (txmp *TxMempool) PopTxs(l ReapLimits) (types.Txs, int64) {
-	txmp.Lock()
-	defer txmp.Unlock()
-	txs, gasEstimated := txmp.reapTxs(l)
-	for _, tx := range txs {
-		if wtx := txmp.txStore.GetTxByHash(tx.Hash()); wtx != nil {
-			txmp.removeTx(wtx, false, false, true)
-		}
-	}
-	return txs, gasEstimated
-}
-
-// ReapMaxTxs returns a list of transactions within the provided number of
-// transactions bound. Transaction are retrieved in priority order.
-//
-// NOTE:
-//   - Transactions returned are not removed from the mempool transaction
-//     store or indexes.
-func (txmp *TxMempool) ReapMaxTxs(max int) types.Txs {
-	txmp.mtx.Lock()
-	defer txmp.mtx.Unlock()
-
-	wTxs := txmp.priorityIndex.PeekTxs(max)
-	txs := make([]types.Tx, 0, len(wTxs))
-	for _, wtx := range wTxs {
-		txs = append(txs, wtx.Tx())
-	}
-	if len(txs) < max {
-		// retrieve more from pending txs
-		pending := txmp.pendingTxs.Peek(max - len(txs))
-		for _, ptx := range pending {
-			txs = append(txs, ptx.Tx())
-		}
-	}
-	return txs
+	return txs, gasEstimate
 }
 
 // Update iterates over all the transactions provided by the block producer,
 // removes them from the cache (if applicable), and removes
 // the transactions from the main transaction store and associated indexes.
-// If there are transactions remaining in the mempool, we initiate a
-// re-CheckTx for them (if applicable), otherwise, we notify the caller more
-// transactions are available.
-//
-// WARNING: callers should almost always pass recheck=false. recheck=true
-// re-runs CheckTx on every tx still in the mempool after each block, and
-// handleRecheckResult treats a "now pending" response as terminal: it
-// evicts the tx and async-re-CheckTx-es it, which lands it back in
-// pendingTxs. For chains whose antehandler returns pending for any
-// ahead-of-nonce EVM tx (Sei), this evicts perfectly-valid queued txs.
-//
-// Example. txA (nonce 3), txB (nonce 2), txC (nonce 1) on the same sender.
-//
-//  1. txA, txB, txC are submitted in this order.
-//  2. txA and txB enter pendingTxs (their nonce is ahead of the sender's
-//     expected nonce at CheckTx time so the EVM antehandler marks them
-//     pending). txC enters the priority index (its nonce matches expected).
-//  3. Block 1 reaps and mines txC. The sender's expected nonce becomes 2.
-//  4. handlePendingTransactions promotes txA and txB into the priority
-//     index. The per-sender evmQueue is now [txB (head), txA (tail)].
-//
-// From step 5 onwards the recheck flag matters:
-//
-// recheck=false (correct):
-//
-//  5. updateReCheckTxs is skipped. The priority index keeps txB and txA.
-//  6. Block 2 reaps the whole evmQueue. Both txB and txA mine.
-//
-// All 3 txs mine in 2 blocks, regardless of how out-of-order they arrived.
-//
-// recheck=true (broken):
-//
-//  5. updateReCheckTxs re-runs CheckTx on each tx in the priority index:
-//     - txB: nonce 2 == expected 2 → not pending → stays.
-//     - txA: nonce 3  > expected 2 → pending again. handleRecheckResult
-//     evicts it and async-re-CheckTx-es it, which lands it back in
-//     pendingTxs.
-//  6. Block 2 reaps txB only (txA is no longer in the priority index).
-//     handlePendingTransactions re-promotes txA. txA's nonce now matches
-//     expected, so it survives the recheck this time.
-//  7. Block 3 mines txA.
-//
-// All 3 txs take 3 blocks. With many out-of-order sequential nonces from
-// one sender, this stalls the chain to 1-tx-per-block-per-sender throughput.
-//
-// CometBFT's default for ConsensusParams.ABCI.RecheckTx is false. Recheck
-// primarily defended against state-dependent invalidation that modern
-// chains catch in ProcessProposal/DeliverTx anyway.
+// If recheck = true, CheckTx is called on all remaining transactions.
 //
 // NOTE:
 // - The caller must explicitly acquire a write-lock.
@@ -787,481 +448,55 @@ func (txmp *TxMempool) Update(
 	blockHeight int64,
 	blockTxs types.Txs,
 	execTxResult []*abci.ExecTxResult,
-	txConstraintsFetcher TxConstraintsFetcher,
+	txConstraints TxConstraints,
 	recheck bool,
 ) error {
+	if blockHeight <= txmp.height {
+		return fmt.Errorf("blockHeight = %v, want > %v", blockHeight, txmp.height)
+	}
 	txmp.height = blockHeight
 	txmp.notifiedTxsAvailable.Store(false)
-	txmp.txConstraintsFetcher = txConstraintsFetcher
+	txmp.txConstraintsFetcher = func() (TxConstraints, error) {
+		return txConstraints, nil
+	}
 
+	txResults := map[types.TxHash]bool{}
 	for i, tx := range blockTxs {
-		txHash := tx.Hash()
-		if execTxResult[i].Code == abci.CodeTypeOK {
-			// add the valid committed transaction to the cache (if missing)
-			_ = txmp.cache.Push(txHash)
-			txmp.blockFailedTxs.Remove(txHash)
-		} else if !txmp.config.KeepInvalidTxsInCache {
-			if txmp.blockFailedTxs.Push(txHash) {
-				// First block failure: allow one retry
-				txmp.cache.Remove(txHash)
+		txResults[tx.Hash()] = execTxResult[i].Code == abci.CodeTypeOK
+	}
+	newPriorities := map[types.TxHash]int64{}
+	invalidTxs := map[types.TxHash]bool{}
+	if recheck {
+		for _, wtx := range txmp.txStore.ReadyTxs() {
+			if _, ok := txResults[wtx.Hash()]; ok {
+				continue
 			}
-			// Subsequent failures: leave in cache to prevent infinite re-entry
-		}
-
-		// remove the committed transaction from the transaction store and indexes
-		if wtx := txmp.txStore.GetTxByHash(txHash); wtx != nil {
-			txmp.removeTx(wtx, false, false, true)
-		}
-		if execTxResult[i].EvmTxInfo != nil {
-			// remove any tx that has the same nonce (because the committed tx
-			// may be from block proposal and is never in the local mempool)
-			if wtx, _ := txmp.priorityIndex.TxByAddrNonce(
-				common.HexToAddress(execTxResult[i].EvmTxInfo.SenderAddress),
-				execTxResult[i].EvmTxInfo.Nonce,
-			); wtx != nil {
-				txmp.removeTx(wtx, false, false, true)
-			}
-		}
-	}
-
-	txmp.purgeExpiredTxs(blockHeight)
-	txmp.handlePendingTransactions()
-
-	// If there any uncommitted transactions left in the mempool, we either
-	// initiate re-CheckTx per remaining transaction or notify that remaining
-	// transactions are left.
-	if txmp.Size() > 0 {
-		if recheck {
-			logger.Debug(
-				"executing re-CheckTx for all remaining transactions",
-				"num_txs", txmp.Size(),
-				"height", blockHeight,
-			)
-			txmp.updateReCheckTxs(ctx)
-		} else {
-			txmp.notifyTxsAvailable()
-		}
-	}
-
-	txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
-	txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
-	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
-	return nil
-}
-
-// addNewTransaction is invoked for a new unique transaction after CheckTx
-// has been executed by the ABCI application for the first time on that transaction.
-// CheckTx can be called again for the same transaction later when re-checking;
-// however, this function will not be called. A recheck after a block is committed
-// goes to handleRecheckResult.
-//
-// addNewTransaction runs after the ABCI application executes CheckTx.
-// It runs the consensus-derived post-check for the current state snapshot.
-// If the post-check reports an error, the transaction is rejected. Otherwise,
-// we attempt to insert the transaction into the mempool. CheckTx response codes
-// are filtered earlier in CheckTx.
-//
-// When inserting a transaction, we first check if there is sufficient capacity.
-// If there is, the transaction is added to the txStore and all indexes.
-// Otherwise, if the mempool is full, we attempt to find a lower priority transaction
-// to evict in place of the new incoming transaction. If no such transaction exists,
-// the new incoming transaction is rejected.
-//
-// NOTE:
-// - An explicit lock is NOT required.
-func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx) error {
-	// Update transaction priority reservoir with the true Tx priority
-	// as determined by the application.
-	//
-	// NOTE: This is done before potentially rejecting the transaction due to
-	// mempool being full. This is to ensure that the reservoir contains a
-	// representative sample of all transactions that have been processed by
-	// CheckTx.
-	//
-	// However, this is NOT done if the tx is pending, since a spammer could
-	// throw off the correct priority percentiles otherwise.
-	//
-	// We do not use the priority hint here as it may be misleading and
-	// inaccurate. The true priority as determined by the application is the
-	// most accurate.
-	txmp.priorityReservoir.Add(wtx.priority)
-	err := txmp.checkResponseState(wtx)
-	if err != nil {
-		// ignore bad transactions
-		logger.Info(
-			"rejected bad transaction",
-			"priority", wtx.priority,
-			"tx", wtx.Hash(),
-			"post_check_err", err,
-		)
-		txmp.metrics.FailedTxs.Add(1)
-		if !txmp.config.KeepInvalidTxsInCache {
-			txmp.cache.Remove(wtx.Hash())
-		}
-		return err
-	}
-	if err := txmp.canAddTx(wtx); err != nil {
-		evictTxs := txmp.priorityIndex.GetEvictableTxs(
-			wtx.priority,
-			int64(wtx.Size()),
-			txmp.SizeBytes(),
-			txmp.config.MaxTxsBytes,
-		)
-		if len(evictTxs) == 0 {
-			// No room for the new incoming transaction so we just remove it from
-			// the cache.
-			txmp.cache.Remove(wtx.Hash())
-			logger.Error(
-				"rejected incoming good transaction; mempool full",
-				"tx", wtx.Hash(),
-				"err", err,
-			)
-			txmp.metrics.RejectedTxs.Add(1)
-			return nil
-		}
-
-		// evict an existing transaction(s)
-		//
-		// NOTE:
-		// - The transaction, toEvict, can be removed while a concurrent
-		//   reCheckTx callback is being executed for the same transaction.
-		for _, toEvict := range evictTxs {
-			txmp.removeTx(toEvict, true, true, true)
-			logger.Debug(
-				"evicted existing good transaction; mempool full",
-				"old_tx", fmt.Sprintf("%X", toEvict.Hash()),
-				"old_priority", toEvict.priority,
-				"new_tx", wtx.Hash(),
-				"new_priority", wtx.priority,
-			)
-			txmp.metrics.EvictedTxs.Add(1)
-		}
-	}
-
-	if txmp.isInMempool(wtx.Hash()) {
-		return nil
-	}
-
-	if txmp.insertTx(wtx) {
-		logger.Debug(
-			"inserted good transaction",
-			"priority", wtx.priority,
-			"tx", wtx.Hash(),
-			"height", txmp.height,
-			"num_txs", txmp.NumTxsNotPending(),
-		)
-		txmp.notifyTxsAvailable()
-	}
-
-	return nil
-}
-
-// handleRecheckResult handles the responses from ABCI CheckTx calls issued
-// during the recheck phase of a block Update.  It removes any transactions
-// invalidated by the application.
-//
-// The caller must hold a mempool write-lock (via Lock()) and when
-// executing Update(), if the mempool is non-empty and Recheck is
-// enabled, then all remaining transactions will be rechecked via
-// CheckTx. The order transactions are rechecked must be the same as
-// the order in which this callback is called.
-//
-// This method is NOT executed for the initial CheckTx on a new transaction;
-// that case is handled by addNewTransaction instead.
-func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckTxV2) {
-	if txmp.recheckCursor == nil {
-		return
-	}
-
-	txmp.metrics.RecheckTimes.Add(1)
-
-	wtx := txmp.recheckCursor.Value()
-
-	// Search through the remaining list of tx to recheck for a transaction that matches
-	// the one we received from the ABCI application.
-	for !bytes.Equal(tx, wtx.Tx()) {
-
-		logger.Debug(
-			"re-CheckTx transaction mismatch",
-			"got", wtx.Hash(),
-			"expected", tx.Hash(),
-		)
-
-		if txmp.recheckCursor == txmp.recheckEnd {
-			// we reached the end of the recheckTx list without finding a tx
-			// matching the one we received from the ABCI application.
-			// Return without processing any tx.
-			txmp.recheckCursor = nil
-			return
-		}
-
-		txmp.recheckCursor = txmp.recheckCursor.Next()
-		wtx = txmp.recheckCursor.Value()
-	}
-
-	// Only evaluate transactions that have not been removed. This can happen
-	// if an existing transaction is evicted during CheckTx and while this
-	// callback is being executed for the same evicted transaction.
-	if !txmp.txStore.IsTxRemoved(wtx) {
-		err := txmp.checkResponseState(wtx)
-		if evm, ok := wtx.evm.Get(); ok {
-			evm.requiredBalance = new(big.Int).Set(res.EVMRequiredBalance)
-			wtx.evm = utils.Some(evm)
-		}
-
-		// we will treat a transaction that turns pending in a recheck as invalid and evict it
-		if res.Code == abci.CodeTypeOK && err == nil && !txmp.isPending(wtx) {
-			wtx.priority = res.Priority
-		} else {
-			logger.Debug(
-				"existing transaction no longer valid; failed re-CheckTx callback",
-				"priority", wtx.priority,
-				"tx", wtx.Hash(),
-				"err", err,
-				"code", res.Code,
-			)
-
-			if wtx.gossipEl != txmp.recheckCursor {
-				panic("corrupted reCheckTx cursor")
-			}
-
-			txmp.removeTx(wtx, !txmp.config.KeepInvalidTxsInCache, true, true)
-		}
-	}
-
-	// move reCheckTx cursor to next element
-	if txmp.recheckCursor == txmp.recheckEnd {
-		txmp.recheckCursor = nil
-	} else {
-		txmp.recheckCursor = txmp.recheckCursor.Next()
-	}
-
-	if txmp.recheckCursor == nil {
-		logger.Debug("finished rechecking transactions")
-
-		if txmp.NumTxsNotPending() > 0 {
-			txmp.notifyTxsAvailable()
-		}
-	}
-
-	txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
-	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
-	txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
-}
-
-// updateReCheckTxs updates the recheck cursors using the gossipIndex. For
-// each transaction, it executes CheckTx. The global callback defined on
-// the app will be executed for each transaction after CheckTx is
-// executed.
-//
-// NOTE:
-// - The caller must have a write-lock when executing updateReCheckTxs.
-func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
-	if txmp.Size() == 0 {
-		panic("attempted to update re-CheckTx txs when mempool is empty")
-	}
-	logger.Debug(
-		"executing re-CheckTx for all remaining transactions",
-		"num_txs", txmp.Size(),
-		"height", txmp.height,
-	)
-
-	txmp.recheckCursor = txmp.gossipIndex.Front()
-	txmp.recheckEnd = txmp.gossipIndex.Back()
-
-	for e := txmp.gossipIndex.Front(); e != nil; e = e.Next() {
-		wtx := e.Value()
-
-		// Only execute CheckTx if the transaction is not marked as removed which
-		// could happen if the transaction was evicted.
-		if !txmp.txStore.IsTxRemoved(wtx) {
+			txmp.metrics.RecheckTimes.Add(1)
 			res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{
 				Tx:   wtx.Tx(),
 				Type: abci.CheckTxTypeV2Recheck,
 			})
-			if err == nil {
-				err = res.Err()
+			if err != nil || !res.IsOK() {
+				invalidTxs[wtx.Hash()] = true
+			} else {
+				// If succeeds, we just care about the new priority.
+				newPriorities[wtx.Hash()] = res.Priority
 			}
-			if err != nil {
-				// no need in retrying since the tx will be rechecked after the next block
-
-				logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", wtx.Hash())
-				continue
-			}
-			txmp.handleRecheckResult(wtx.Tx(), res)
 		}
 	}
-}
-
-// canAddTx returns an error if we cannot insert the provided *WrappedTx into
-// the mempool due to mempool configured constraints. If it returns nil,
-// the transaction can be inserted into the mempool.
-func (txmp *TxMempool) canAddTx(wtx *WrappedTx) error {
-	var (
-		numTxs    = txmp.NumTxsNotPending()
-		sizeBytes = txmp.SizeBytes()
-	)
-
-	if numTxs >= txmp.config.Size || int64(wtx.Size())+sizeBytes > txmp.config.MaxTxsBytes {
-		return fmt.Errorf("mempool is full: number of txs %d (max: %d), total txs bytes %d (max: %d)",
-			numTxs,
-			txmp.config.Size,
-			sizeBytes,
-			txmp.config.MaxTxsBytes,
-		)
-	}
-
-	return nil
-}
-
-func (txmp *TxMempool) canAddPendingTx(wtx *WrappedTx) error {
-	var (
-		numTxs    = txmp.PendingSize()
-		sizeBytes = txmp.PendingSizeBytes()
-	)
-
-	if numTxs >= txmp.config.PendingSize || int64(wtx.Size())+sizeBytes > txmp.config.MaxPendingTxsBytes {
-		return fmt.Errorf("mempool pending set is full: number of txs %d (max: %d), total txs bytes %d (max: %d)",
-			numTxs,
-			txmp.config.PendingSize,
-			sizeBytes,
-			txmp.config.MaxPendingTxsBytes,
-		)
-	}
-
-	return nil
-}
-
-func (txmp *TxMempool) insertTx(wtx *WrappedTx) bool {
-	replacedTx, inserted := txmp.priorityIndex.PushTx(wtx)
-	if !inserted {
-		return false
-	}
-	txmp.metrics.TxSizeBytes.Add(float64(wtx.Size()))
-	txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
-	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
-	txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
-
-	if replacedTx != nil {
-		txmp.removeTx(replacedTx, true, false, false)
-	}
-
-	txmp.txStore.SetTx(wtx)
-
-	// Insert the transaction into the gossip index and mark the reference to the
-	// linked-list element, which will be needed at a later point when the
-	// transaction is removed.
-	gossipEl := txmp.gossipIndex.PushBack(wtx)
-	wtx.gossipEl = gossipEl
-
-	txmp.metrics.InsertedTxs.Add(1)
-	return true
-}
-
-func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReenqueue bool, updatePriorityIndex bool) {
-	if txmp.txStore.IsTxRemoved(wtx) {
-		return
-	}
-
-	txmp.removeNonce(wtx)
-	txmp.txStore.RemoveTx(wtx)
-	toBeReenqueued := []*WrappedTx{}
-	if updatePriorityIndex {
-		toBeReenqueued = txmp.priorityIndex.RemoveTx(wtx, shouldReenqueue)
-	}
-
-	// Remove the transaction from the gossip index and cleanup the linked-list
-	// element so it can be garbage collected.
-	txmp.gossipIndex.Remove(wtx.gossipEl)
-	wtx.gossipEl.DetachPrev()
-
-	txmp.metrics.RemovedTxs.Add(1)
-	if removeFromCache {
-		txmp.cache.Remove(wtx.Hash())
-	}
-
-	if shouldReenqueue {
-		for _, reenqueue := range toBeReenqueued {
-			txmp.removeTx(reenqueue, removeFromCache, false, true)
-		}
-		for _, reenqueue := range toBeReenqueued {
-			rtx := reenqueue.Tx()
-			go func() {
-				if _, err := txmp.CheckTx(context.Background(), rtx, TxInfo{}); err != nil {
-					logger.Error("failed to reenqueue transaction", "tx-hash", rtx.Hash(), "err", err)
-				}
-			}()
-		}
-	}
-}
-
-func (txmp *TxMempool) expire(blockHeight int64, wtx *WrappedTx) {
-	txmp.metrics.ExpiredTxs.Add(1)
-	txmp.logExpiredTx(blockHeight, wtx)
-	if !txmp.config.KeepInvalidTxsInCache {
-		txmp.cache.Remove(wtx.Hash())
-	}
-}
-
-func (txmp *TxMempool) logExpiredTx(blockHeight int64, wtx *WrappedTx) {
-	// defensive check
-	if wtx == nil {
-		return
-	}
-
-	logger.Info(
-		"transaction expired",
-		"priority", wtx.priority,
-		"tx", wtx.Hash(),
-		"address", func() string {
-			evm, ok := wtx.evm.Get()
-			if !ok {
-				return ""
-			}
-			return evm.address.Hex()
-		}(),
-		"evm", wtx.evm.IsPresent(),
-		"nonce", wtx.EVMNonce(),
-		"height", blockHeight,
-		"tx_height", wtx.height,
-		"tx_timestamp", wtx.timestamp,
-		"age", time.Since(wtx.timestamp),
-	)
-}
-
-// purgeExpiredTxs removes all transactions that have exceeded their respective
-// height- and/or time-based TTLs from their respective indexes. Every expired
-// transaction will be removed from the mempool, but preserved in the cache (except for pending txs).
-//
-// NOTE: purgeExpiredTxs must only be called during TxMempool#Update in which
-// the caller has a write-lock on the mempool and so we can safely iterate over
-// the height and time based indexes.
-func (txmp *TxMempool) purgeExpiredTxs(blockHeight int64) {
-	now := time.Now()
-
-	minHeight := utils.None[int64]()
-	if n := txmp.config.TTLNumBlocks; n > 0 && blockHeight > n {
-		minHeight = utils.Some(blockHeight - n)
-	}
-	minTime := utils.None[time.Time]()
-	if d := txmp.config.TTLDuration; d > 0 {
-		minTime = utils.Some(time.Now().Add(-d))
-	}
-	expiredTxs := txmp.txStore.GetOlderThan(minTime, minHeight)
-
-	for _, wtx := range expiredTxs {
-		if txmp.config.RemoveExpiredTxsFromQueue {
-			txmp.removeTx(wtx, !txmp.config.KeepInvalidTxsInCache, false, true)
-		} else {
-			txmp.expire(blockHeight, wtx)
-		}
-	}
-
-	// remove pending txs that have expired
-	txmp.pendingTxs.PurgeExpired(blockHeight, now, func(wtx *WrappedTx) {
-		txmp.removeNonce(wtx)
-		txmp.expire(blockHeight, wtx)
+	txmp.txStore.Update(updateSpec{
+		Now:           time.Now(),
+		Height:        blockHeight,
+		TxResults:     txResults,
+		NewPriorities: newPriorities,
+		InvalidTxs:    invalidTxs,
+		Constraints:   txConstraints,
 	})
+	txmp.notifyTxsAvailable()
+	txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
+	txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
+	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
+	return nil
 }
 
 func (txmp *TxMempool) notifyTxsAvailable() {
@@ -1272,46 +507,6 @@ func (txmp *TxMempool) notifyTxsAvailable() {
 	select {
 	case txmp.txsAvailable <- struct{}{}:
 	default:
-	}
-}
-
-func (txmp *TxMempool) isPending(wtx *WrappedTx) bool {
-	evm, ok := wtx.evm.Get()
-	if !ok {
-		return false
-	}
-	if evm.nonce > txmp.EvmNextPendingNonce(evm.address) {
-		return true
-	}
-	balance := txmp.app.EvmBalance(evm.address, evm.seiAddress)
-	return balance.Cmp(evm.requiredBalance) < 0
-}
-
-func (txmp *TxMempool) handlePendingTransactions() {
-	accepted, rejected := txmp.pendingTxs.EvaluatePendingTransactions(func(wtx *WrappedTx) abci.PendingTxCheckerResponse {
-		evm, ok := wtx.evm.Get()
-		if !ok {
-			return abci.Accepted
-		}
-		if evm.nonce < txmp.app.EvmNonce(evm.address) {
-			return abci.Rejected
-		}
-		if txmp.isPending(wtx) {
-			return abci.Pending
-		}
-		return abci.Accepted
-	})
-	for _, tx := range accepted {
-		if err := txmp.addNewTransaction(tx); err != nil {
-			txmp.removeNonce(tx)
-			logger.Error("error adding pending transaction", "err", err)
-		}
-	}
-	for _, tx := range rejected {
-		txmp.removeNonce(tx)
-		if !txmp.config.KeepInvalidTxsInCache {
-			txmp.cache.Remove(tx.Hash())
-		}
 	}
 }
 
