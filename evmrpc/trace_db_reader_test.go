@@ -8,7 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/stretchr/testify/require"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
@@ -87,45 +86,6 @@ func TestBlockTraceCacheGet(t *testing.T) {
 		got, ok := blockTraceCacheGet(c, 5, []common.Hash{}, cfg)
 		require.True(t, ok)
 		require.Empty(t, got)
-	})
-}
-
-func TestFilterExcludeFailFromBlockCache(t *testing.T) {
-	c, err := keeper.NewTraceDB(t.TempDir())
-	require.NoError(t, err)
-	defer c.Close()
-
-	tx1 := common.HexToHash("0x11")
-	tx2 := common.HexToHash("0x22")
-	tx3 := common.HexToHash("0x33")
-
-	// Per-block row mirrors what the baker writes: full TxTraceResult array
-	// including entries with Error set.
-	row, err := json.Marshal([]*tracers.TxTraceResult{
-		{TxHash: tx1, Result: json.RawMessage(`{"a":1}`)},
-		{TxHash: tx2, Error: "execution reverted"},
-		{TxHash: tx3, Result: json.RawMessage(`{"a":3}`)},
-	})
-	require.NoError(t, err)
-	require.NoError(t, c.PutBlock(9, "callTracer", row))
-
-	t.Run("filters errored entries on hit", func(t *testing.T) {
-		got, ok := filterExcludeFailFromBlockCache(c, 9, "callTracer", nil, sdk.Context{})
-		require.True(t, ok)
-		require.Len(t, got, 2)
-		require.Equal(t, tx1, got[0].TxHash)
-		require.Equal(t, tx3, got[1].TxHash)
-	})
-
-	t.Run("missing per-block row -> miss", func(t *testing.T) {
-		_, ok := filterExcludeFailFromBlockCache(c, 99, "callTracer", nil, sdk.Context{})
-		require.False(t, ok)
-	})
-
-	t.Run("malformed row -> miss", func(t *testing.T) {
-		require.NoError(t, c.PutBlock(10, "callTracer", json.RawMessage(`not-json`)))
-		_, ok := filterExcludeFailFromBlockCache(c, 10, "callTracer", nil, sdk.Context{})
-		require.False(t, ok)
 	})
 }
 

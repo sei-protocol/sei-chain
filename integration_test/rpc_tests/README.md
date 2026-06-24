@@ -41,6 +41,16 @@ namespace dirs like `debug/`, `sei/`, etc.) answers one or more of:
   is the only reference — and it is **not** reliable for error envelopes
   (anvil/Hardhat reimplement the RPC layer and diverge from geth).
 
+> **Filter & subscription coverage is deliberately Sei-only.** The log-filter and
+> WebSocket specs (`eth_getLogs`, `eth_newFilter`, `eth_getFilterChanges`,
+> `eth_newBlockFilter`, `eth_subscribe`) assert Sei's *functional* behavior and
+> pin each result to Sei's own `eth_getLogs` oracle; they do **not** cross-check
+> geth value-for-value. geth WS is not in CI, and polling-filter cursor semantics
+> legitimately diverge between clients, so geth parity here is limited to error
+> envelopes and handle shapes (e.g. `eth_newBlockFilter` id shape,
+> `eth_newFilter` malformed-topic error). Do not expect symmetric geth asserts
+> across every filter/subscription case.
+
 ## Layout
 
 ```

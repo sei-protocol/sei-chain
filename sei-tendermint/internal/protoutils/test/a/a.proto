@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package protoutils;
+
+import "wireguard/wireguard.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/test/a/pb";
+
+message NotSized {
+  bytes large_field = 1;
+}
+
+message Sized {
+  option (wireguard.sized) = true;
+  uint64 a = 1;
+}
+
+message SizedOk {
+  option (wireguard.sized) = true;
+
+  // Singular bounded fields
+  uint64 u64 = 1;
+  int64 i64 = 2;
+  sint64 s64 = 3;
+  fixed64 f64 = 4;
+  float f = 5;
+  double d = 6;
+  Sized s = 7;
+
+  // Singular fields bounded by max_size
+  bytes b_size = 8 [(wireguard.max_size) = 5];
+  string s_size = 9 [(wireguard.max_size) = 5];
+  NotSized n_size = 10 [(wireguard.max_size) = 20];
+
+  // Repeated fields bounded by max_count
+  repeated uint64 u64_count = 11 [(wireguard.max_count) = 4];
+  repeated int64 i64_count = 12 [(wireguard.max_count) = 4];
+  repeated sint64 s64_count = 13 [(wireguard.max_count) = 4];
+  repeated fixed64 f64_count = 14 [(wireguard.max_count) = 4];
+  repeated float f_count = 15 [(wireguard.max_count) = 4];
+  repeated double d_count = 16 [(wireguard.max_count) = 4];
+  repeated Sized s_count = 17 [(wireguard.max_count) = 4];
+  repeated bool bool_count_unpacked = 29 [
+    (wireguard.max_count) = 1,
+    packed = false
+  ];
+
+  // Repeated fields bounded by max_count + max_size
+  repeated bytes b_count_size = 18 [
+    (wireguard.max_count) = 3,
+    (wireguard.max_size) = 5
+  ];
+  repeated string s_count_size = 19 [
+    (wireguard.max_count) = 3,
+    (wireguard.max_size) = 5
+  ];
+  repeated NotSized n_count_size = 20 [
+    (wireguard.max_count) = 3,
+    (wireguard.max_size) = 5
+  ];
+
+  // Repeated fields bounded by max_count + max_total_size
+  repeated bytes b_count_total_size = 21 [
+    (wireguard.max_count) = 3,
+    (wireguard.max_total_size) = 10
+  ];
+  repeated string s_count_total_size = 22 [
+    (wireguard.max_count) = 3,
+    (wireguard.max_total_size) = 10
+  ];
+  repeated NotSized n_count_total_size = 23 [
+    (wireguard.max_count) = 3,
+    (wireguard.max_total_size) = 10
+  ];
+
+  // Repeated fields bounded by max_count + max_size + max_total_size
+  repeated bytes b_count_size_total_size = 24 [
+    (wireguard.max_count) = 3,
+    (wireguard.max_size) = 5,
+    (wireguard.max_total_size) = 10
+  ];
+  repeated string s_count_size_total_size = 25 [
+    (wireguard.max_count) = 3,
+    (wireguard.max_size) = 5,
+    (wireguard.max_total_size) = 10
+  ];
+  repeated NotSized n_count_size_total_size = 26 [
+    (wireguard.max_count) = 3,
+    (wireguard.max_size) = 5,
+    (wireguard.max_total_size) = 10
+  ];
+
+  // Oneof fields.
+  oneof o {
+    uint64 o_u64 = 27;
+    NotSized o_n_size = 28 [(wireguard.max_size) = 20];
+  }
+}
+
+message OuterSized {
+  option (wireguard.sized) = true;
+  SizedOk a = 1;
+  repeated SizedOk b = 2 [(wireguard.max_count) = 7];
+}
+
+message OuterNotSized {
+  SizedOk a = 1;
+  repeated SizedOk b = 2 [(wireguard.max_count) = 7];
+  NotSized c = 3;
+}
+
+message PackedFalseSized {
+  option (wireguard.sized) = true;
+  repeated bool flags = 1 [
+    (wireguard.max_count) = 1,
+    packed = false
+  ];
+}
+
+message Msg {
+  string string_value = 1;
+  repeated string repeated_value = 2;
+  map<string, string> map_value = 3;
+  repeated Child repeated_message_value = 4;
+  map<string, Child> map_message_value = 5;
+}
+
+message Child {
+  string value = 1;
+}

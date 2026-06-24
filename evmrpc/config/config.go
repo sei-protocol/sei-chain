@@ -104,6 +104,9 @@ type Config struct {
 	// max number of blocks to query logs for
 	MaxBlocksForLog int64 `mapstructure:"max_blocks_for_log"`
 
+	// max number of calls allowed in an eth_estimateGasAfterCalls request
+	MaxEstimateGasCalls int `mapstructure:"max_estimate_gas_calls"`
+
 	// max number of concurrent NewHead subscriptions
 	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
 
@@ -185,6 +188,7 @@ var DefaultConfig = Config{
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
 	MaxBlocksForLog:              2000,
+	MaxEstimateGasCalls:          100,
 	MaxSubscriptionsNewHead:      10000,
 	EnableTestAPI:                false,
 	MaxConcurrentTraceCalls:      10,
@@ -231,6 +235,7 @@ const (
 	flagDenyList                     = "evm.deny_list"
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
+	flagMaxEstimateGasCalls          = "evm.max_estimate_gas_calls"
 	flagMaxSubscriptionsNewHead      = "evm.max_subscriptions_new_head"
 	flagEnableTestAPI                = "evm.enable_test_api"
 	flagMaxConcurrentTraceCalls      = "evm.max_concurrent_trace_calls"
@@ -348,6 +353,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxBlocksForLog); v != nil {
 		if cfg.MaxBlocksForLog, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxEstimateGasCalls); v != nil {
+		if cfg.MaxEstimateGasCalls, err = cast.ToIntE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -560,8 +570,6 @@ enabled_legacy_sei_apis = [
   # "sei_newBlockFilter",
   # "sei_newFilter",
   # "sei_sign",
-  # "sei_traceBlockByHashExcludeTraceFail",
-  # "sei_traceBlockByNumberExcludeTraceFail",
   # "sei_uninstallFilter",
   #
   # Optional sei2_* block namespace (bank transfers in blocks; HTTP only):
@@ -579,6 +587,9 @@ max_log_no_block = {{ .EVM.MaxLogNoBlock }}
 
 # max number of blocks to query logs for
 max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
+
+# max number of calls allowed in an eth_estimateGasAfterCalls request
+max_estimate_gas_calls = {{ .EVM.MaxEstimateGasCalls }}
 
 # max number of concurrent NewHead subscriptions
 max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}

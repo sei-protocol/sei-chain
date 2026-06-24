@@ -66,6 +66,22 @@ func TestNewCommittee_RejectsWeightOverflow(t *testing.T) {
 	}
 }
 
+func TestNewCommittee_RejectsTooManyValidators(t *testing.T) {
+	rng := utils.TestRng()
+	firstBlock := GenGlobalBlockNumber(rng)
+	genesisTimestamp := time.Now()
+
+	weights := map[PublicKey]uint64{}
+	for range MaxValidators + 1 {
+		weights[GenPublicKey(rng)] = 1
+	}
+
+	_, err := NewCommittee(weights, firstBlock, genesisTimestamp)
+	if err == nil {
+		t.Fatal("NewCommittee() succeeded, want error")
+	}
+}
+
 func makeCommittee() (*Committee, []SecretKey) {
 	keys := []SecretKey{
 		TestSecretKey("heavy"),

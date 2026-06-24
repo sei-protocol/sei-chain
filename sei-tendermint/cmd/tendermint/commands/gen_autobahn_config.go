@@ -77,7 +77,7 @@ Output is written to the file specified by --output.`,
 					ValidatorKey: valKey,
 					NodeKey:      nodeKey,
 					Address:      addr,
-					EVMRPC:       utils.Some(evmRPC),
+					EVMRPC:       evmRPC,
 				})
 			}
 

@@ -84,6 +84,10 @@ snapshot-interval = {{ .StateCommit.FlatKVConfig.SnapshotInterval }}
 # SnapshotKeepRecent defines how many old snapshots to keep besides the latest one.
 # 0 = keep only the current snapshot. Default: 2.
 snapshot-keep-recent = {{ .StateCommit.FlatKVConfig.SnapshotKeepRecent }}
+
+# EnableReadWriteMetrics emits estimated read/write counters for FlatKV's Pebble DBs.
+# Default: false.
+enable-read-write-metrics = {{ .StateCommit.FlatKVConfig.EnableReadWriteMetrics }}
 `
 
 // StateStoreConfigTemplate defines the configuration template for state-store
@@ -126,6 +130,10 @@ ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 # defaults to 1
 ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 
+# EnableReadWriteMetrics emits estimated PebbleDB MVCC read/write counters.
+# Applies when ss-backend = "pebbledb". Default: false.
+ss-enable-read-write-metrics = {{ .StateStore.EnableReadWriteMetrics }}
+
 # EVMDBDirectory defines the directory for the optional EVM state-store DB(s).
 # If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
 evm-ss-db-directory = "{{ .StateStore.EVMDBDirectory }}"
@@ -167,6 +175,11 @@ async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
 # Receipt retention is controlled by the global min-retain-blocks flag.
 # defaults to 600 seconds
 prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
+
+# EnableReadWriteMetrics emits estimated read/write counters for Pebble-backed
+# receipt storage.
+# Default: false.
+enable-read-write-metrics = {{ .ReceiptStore.EnableReadWriteMetrics }}
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility
