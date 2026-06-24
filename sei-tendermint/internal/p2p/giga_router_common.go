@@ -284,7 +284,9 @@ func buildHashVault(ctx context.Context, cfg *GigaRouterCommonConfig) (hashvault
 	}
 	dir, ok := cfg.PersistentStateDir.Get()
 	if !ok {
-		logger.Info("HashVault: no persistent state dir (in-memory mode); using no-op vault")
+		logger.Error("HASHVAULT DISABLED: no persistent state dir (in-memory mode); using no-op vault. " +
+			"This node has NO block-hash equivocation protection. This is expected only for in-memory " +
+			"runs such as tests; a production node reaching this path is misconfigured.")
 		return hashvault.NewNoopHashVault(), nil
 	}
 	hvCfg := hashvault.DefaultHashVaultConfig()
@@ -394,7 +396,14 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 		// Align the vault's retention with the data layer's prune boundary.
 		if err := r.hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
-			logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
+			// A canceled context just means we're shutting down between a successful executeBlock
+			// and this prune; that's benign, not a prune failure, so don't alarm operators.
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				logger.Info("hashvault prune aborted by context cancellation during shutdown",
+					"prune_before", pruneBefore, "err", err)
+			} else {
+				logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
+			}
 		}
 	}
 }
