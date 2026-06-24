@@ -37,11 +37,14 @@ func (h Node) Namespace() string { return "" }
 // TendermintRPC is the node's CometBFT RPC base URL (http://127.0.0.1:PORT).
 func (h Node) TendermintRPC() string { return "http://" + stripScheme(h.n.rpcAddr) }
 
-// EVMRPC is the node's EVM JSON-RPC HTTP URL.
+// EVMRPC is the node's EVM JSON-RPC HTTP URL. The URL dials loopback, but the
+// listener itself binds 0.0.0.0 (see doc.go recipe #5's accepted caveat).
 func (h Node) EVMRPC() string { return fmt.Sprintf("http://127.0.0.1:%d", h.n.httpPort) }
 
 // EVMWS is the node's EVM JSON-RPC WebSocket URL. Not part of the SDK
 // NodeHandle surface, but the in-process harness binds it, so it is exposed.
+// The URL dials loopback, but the listener itself binds 0.0.0.0 (see doc.go
+// recipe #5's accepted caveat).
 func (h Node) EVMWS() string { return fmt.Sprintf("ws://127.0.0.1:%d", h.n.wsPort) }
 
 // REST is "" — the harness does not start the Cosmos LCD listener (reserved:

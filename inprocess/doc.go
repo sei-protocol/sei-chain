@@ -47,7 +47,7 @@
 //     re-enabling Prometheus without that reintroduces the panic.
 //  5. TM RPC / P2P listeners scoped to 127.0.0.1 (they default to [::] /
 //     0.0.0.0) — without scoping an in-process harness publishes externally
-//     reachable listeners. Caveat (accepted): the EVM HTTP/WS listeners bind all
+//     reachable consensus/RPC listeners. Caveat (accepted): the EVM HTTP/WS listeners bind all
 //     interfaces (0.0.0.0) for the harness lifetime; only TM RPC/P2P are
 //     loopback-scoped. They run on free ephemeral ports, dialed via 127.0.0.1.
 //     Tightening requires a bind-host option in evmrpc (not yet present).
