@@ -883,7 +883,7 @@ func TestExecutorStakingPrecompileForwardsPayableValue(t *testing.T) {
 	stakingAddr := common.HexToAddress(stakingprecompile.StakingAddress)
 
 	state := NewMemoryState()
-	initialBalance := big.NewInt(1_000_000_000_000_000_000)
+	initialBalance := sei(100)
 	state.SetBalance(sender, initialBalance)
 
 	contract, err := stakingprecompile.NewPrecompile()
@@ -900,7 +900,7 @@ func TestExecutorStakingPrecompileForwardsPayableValue(t *testing.T) {
 		big.NewInt(1),
 	)
 	require.NoError(t, err)
-	value := new(big.Int).Mul(big.NewInt(5), big.NewInt(1_000_000_000_000))
+	value := sei(5)
 	rawTx := signLegacyTx(t, key, chainID, 0, &stakingAddr, value, input)
 	executor := NewExecutor(Config{
 		CustomPrecompiles: registry,
@@ -939,7 +939,7 @@ func TestExecutorStakingDelegationLifecycleE2E(t *testing.T) {
 	escrowAddr := stakingprecompile.EscrowAddress()
 
 	state := NewMemoryState()
-	initialBalance := big.NewInt(1_000_000_000_000_000_000)
+	initialBalance := sei(1000)
 	state.SetBalance(source, initialBalance)
 	state.SetBalance(destination, initialBalance)
 	state.SetBalance(delegator, initialBalance)
@@ -965,8 +965,8 @@ func TestExecutorStakingDelegationLifecycleE2E(t *testing.T) {
 		escrowAddr:  new(big.Int),
 	}
 
-	sourceSelfStake := usei(10)
-	destinationSelfStake := usei(5)
+	sourceSelfStake := sei(10)
+	destinationSelfStake := sei(5)
 	sourceSetupResult := executeBlockAndApply(t, executor, state, blockContextAt(chainID, 1, 100), [][]byte{
 		signStakingTx(sourceKey, sourceSelfStake, mustPackStaking(t, contract, stakingprecompile.CreateValidatorMethod,
 			"01020304",
@@ -982,8 +982,8 @@ func TestExecutorStakingDelegationLifecycleE2E(t *testing.T) {
 	addExpectedBalance(expectedBalances, escrowAddr, sourceSelfStake)
 	requireNativeBalances(t, state, expectedBalances)
 	require.Equal(t, []ValidatorUpdate{{PubKey: []byte{0x01, 0x02, 0x03, 0x04}, Power: 10}}, sourceSetupResult.ValidatorUpdates)
-	requireStakingPool(t, state, "10", "0")
-	requireStakingValidator(t, state, source, "10", "10", 3)
+	requireStakingPool(t, state, "10000000", "0")
+	requireStakingValidator(t, state, source, "10000000", "10000000", 3)
 
 	destinationSetupResult := executeBlockAndApply(t, executor, state, blockContextAt(chainID, 2, 125), [][]byte{
 		signStakingTx(dstKey, destinationSelfStake, mustPackStaking(t, contract, stakingprecompile.CreateValidatorMethod,
@@ -1000,11 +1000,11 @@ func TestExecutorStakingDelegationLifecycleE2E(t *testing.T) {
 	addExpectedBalance(expectedBalances, escrowAddr, destinationSelfStake)
 	requireNativeBalances(t, state, expectedBalances)
 	require.Equal(t, []ValidatorUpdate{{PubKey: []byte{0x05, 0x06, 0x07, 0x08}, Power: 5}}, destinationSetupResult.ValidatorUpdates)
-	requireStakingPool(t, state, "15", "0")
-	requireStakingValidator(t, state, source, "10", "10", 3)
-	requireStakingValidator(t, state, destination, "5", "5", 3)
+	requireStakingPool(t, state, "15000000", "0")
+	requireStakingValidator(t, state, source, "10000000", "10000000", 3)
+	requireStakingValidator(t, state, destination, "5000000", "5000000", 3)
 
-	delegationValue := usei(7)
+	delegationValue := sei(7)
 	delegateResult := executeBlockAndApply(t, executor, state, blockContextAt(chainID, 3, 150), [][]byte{
 		signStakingTx(delegatorKey, delegationValue, mustPackStaking(t, contract, stakingprecompile.DelegateMethod, source.Hex())),
 	})
@@ -1013,12 +1013,12 @@ func TestExecutorStakingDelegationLifecycleE2E(t *testing.T) {
 	addExpectedBalance(expectedBalances, escrowAddr, delegationValue)
 	requireNativeBalances(t, state, expectedBalances)
 	require.Equal(t, []ValidatorUpdate{{PubKey: []byte{0x01, 0x02, 0x03, 0x04}, Power: 17}}, delegateResult.ValidatorUpdates)
-	requireStakingPool(t, state, "22", "0")
-	requireStakingValidator(t, state, source, "17", "17", 3)
-	requireStakingValidator(t, state, destination, "5", "5", 3)
-	requireStakingDelegation(t, state, delegator, source, "7")
+	requireStakingPool(t, state, "22000000", "0")
+	requireStakingValidator(t, state, source, "17000000", "17000000", 3)
+	requireStakingValidator(t, state, destination, "5000000", "5000000", 3)
+	requireStakingDelegation(t, state, delegator, source, "7000000")
 
-	redelegationAmount := big.NewInt(3)
+	redelegationAmount := big.NewInt(3_000_000)
 	redelegationTime := uint64(200)
 	redelegationCompletion := int64(redelegationTime + 1_814_400)
 	redelegateResult := executeBlockAndApply(t, executor, state, blockContextAt(chainID, 4, redelegationTime), [][]byte{
@@ -1031,14 +1031,14 @@ func TestExecutorStakingDelegationLifecycleE2E(t *testing.T) {
 		{PubKey: []byte{0x01, 0x02, 0x03, 0x04}, Power: 14},
 		{PubKey: []byte{0x05, 0x06, 0x07, 0x08}, Power: 8},
 	}, redelegateResult.ValidatorUpdates)
-	requireStakingPool(t, state, "22", "0")
-	requireStakingValidator(t, state, source, "14", "14", 3)
-	requireStakingValidator(t, state, destination, "8", "8", 3)
-	requireStakingDelegation(t, state, delegator, source, "4")
-	requireStakingDelegation(t, state, delegator, destination, "3")
-	requireStakingRedelegation(t, state, delegator, source, destination, "3", redelegationCompletion)
+	requireStakingPool(t, state, "22000000", "0")
+	requireStakingValidator(t, state, source, "14000000", "14000000", 3)
+	requireStakingValidator(t, state, destination, "8000000", "8000000", 3)
+	requireStakingDelegation(t, state, delegator, source, "4000000")
+	requireStakingDelegation(t, state, delegator, destination, "3000000")
+	requireStakingRedelegation(t, state, delegator, source, destination, "3000000", redelegationCompletion)
 
-	undelegationAmount := big.NewInt(2)
+	undelegationAmount := big.NewInt(2_000_000)
 	undelegationTime := uint64(300)
 	undelegationCompletion := int64(undelegationTime + 1_814_400)
 	undelegateResult := executeBlockAndApply(t, executor, state, blockContextAt(chainID, 5, undelegationTime), [][]byte{
@@ -1048,35 +1048,35 @@ func TestExecutorStakingDelegationLifecycleE2E(t *testing.T) {
 	debitExpectedBalance(expectedBalances, delegator, nil, undelegateResult.Txs[0])
 	requireNativeBalances(t, state, expectedBalances)
 	require.Equal(t, []ValidatorUpdate{{PubKey: []byte{0x05, 0x06, 0x07, 0x08}, Power: 6}}, undelegateResult.ValidatorUpdates)
-	requireStakingPool(t, state, "20", "2")
-	requireStakingValidator(t, state, source, "14", "14", 3)
-	requireStakingValidator(t, state, destination, "6", "6", 3)
-	requireStakingDelegation(t, state, delegator, source, "4")
-	requireStakingDelegation(t, state, delegator, destination, "1")
-	requireStakingRedelegation(t, state, delegator, source, destination, "3", redelegationCompletion)
-	requireStakingUnbonding(t, state, delegator, destination, "2", undelegationCompletion)
+	requireStakingPool(t, state, "20000000", "2000000")
+	requireStakingValidator(t, state, source, "14000000", "14000000", 3)
+	requireStakingValidator(t, state, destination, "6000000", "6000000", 3)
+	requireStakingDelegation(t, state, delegator, source, "4000000")
+	requireStakingDelegation(t, state, delegator, destination, "1000000")
+	requireStakingRedelegation(t, state, delegator, source, destination, "3000000", redelegationCompletion)
+	requireStakingUnbonding(t, state, delegator, destination, "2000000", undelegationCompletion)
 
 	redelegationMaturityResult := executeBlockAndApply(t, executor, state, blockContextAt(chainID, 6, uint64(redelegationCompletion)), nil)
 	require.Empty(t, redelegationMaturityResult.ValidatorUpdates)
 	requireNativeBalances(t, state, expectedBalances)
-	requireStakingPool(t, state, "20", "2")
-	requireStakingValidator(t, state, source, "14", "14", 3)
-	requireStakingValidator(t, state, destination, "6", "6", 3)
-	requireStakingDelegation(t, state, delegator, source, "4")
-	requireStakingDelegation(t, state, delegator, destination, "1")
+	requireStakingPool(t, state, "20000000", "2000000")
+	requireStakingValidator(t, state, source, "14000000", "14000000", 3)
+	requireStakingValidator(t, state, destination, "6000000", "6000000", 3)
+	requireStakingDelegation(t, state, delegator, source, "4000000")
+	requireStakingDelegation(t, state, delegator, destination, "1000000")
 	requireNoStakingRedelegation(t, state, delegator, source, destination)
-	requireStakingUnbonding(t, state, delegator, destination, "2", undelegationCompletion)
+	requireStakingUnbonding(t, state, delegator, destination, "2000000", undelegationCompletion)
 
 	undelegationMaturityResult := executeBlockAndApply(t, executor, state, blockContextAt(chainID, 7, uint64(undelegationCompletion)), nil)
 	require.Empty(t, undelegationMaturityResult.ValidatorUpdates)
-	addExpectedBalance(expectedBalances, delegator, usei(2))
-	addExpectedBalance(expectedBalances, escrowAddr, new(big.Int).Neg(usei(2)))
+	addExpectedBalance(expectedBalances, delegator, sei(2))
+	addExpectedBalance(expectedBalances, escrowAddr, new(big.Int).Neg(sei(2)))
 	requireNativeBalances(t, state, expectedBalances)
-	requireStakingPool(t, state, "20", "0")
-	requireStakingValidator(t, state, source, "14", "14", 3)
-	requireStakingValidator(t, state, destination, "6", "6", 3)
-	requireStakingDelegation(t, state, delegator, source, "4")
-	requireStakingDelegation(t, state, delegator, destination, "1")
+	requireStakingPool(t, state, "20000000", "0")
+	requireStakingValidator(t, state, source, "14000000", "14000000", 3)
+	requireStakingValidator(t, state, destination, "6000000", "6000000", 3)
+	requireStakingDelegation(t, state, delegator, source, "4000000")
+	requireStakingDelegation(t, state, delegator, destination, "1000000")
 	requireNoStakingRedelegation(t, state, delegator, source, destination)
 	requireNoStakingUnbonding(t, state, delegator, destination)
 }
@@ -1214,8 +1214,10 @@ func mustPackStaking(t *testing.T, contract *stakingprecompile.Precompile, metho
 	return input
 }
 
-func usei(amount int64) *big.Int {
-	return new(big.Int).Mul(big.NewInt(amount), big.NewInt(1_000_000_000_000))
+// sei returns amount whole SEI in wei. One SEI is 1e6 usei, so a sei(n) stake
+// yields n consensus power under the 1e6 powerReduction.
+func sei(amount int64) *big.Int {
+	return new(big.Int).Mul(big.NewInt(amount), big.NewInt(1_000_000_000_000_000_000))
 }
 
 func debitExpectedBalance(expected map[common.Address]*big.Int, sender common.Address, value *big.Int, tx TxResult) {
