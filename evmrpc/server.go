@@ -80,6 +80,7 @@ func NewEVMHTTPServer(
 		GasCap:                       config.SimulationGasLimit,
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+		MaxEstimateGasCalls:          config.MaxEstimateGasCalls,
 	}
 	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 
@@ -265,6 +266,7 @@ func NewEVMWebSocketServer(
 		GasCap:                       config.SimulationGasLimit,
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+		MaxEstimateGasCalls:          config.MaxEstimateGasCalls,
 	}
 	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 	// DB semaphore aligned with worker count
