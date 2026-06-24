@@ -230,6 +230,34 @@ func TestCompareHashesInRangeClampsAndValidates(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestArchiveReaderDoesNotAliasRowsInMultiRowFile guards against a per-iteration pointer-aliasing
+// bug in loadFile. A single sealed file holds three distinct rows; each block must read back its own
+// block number and hash. If loadFile stored one shared *HashLog reused across loop iterations, every
+// block would read back as the final row (block 3 / {0x03}), failing the first assertion.
+func TestArchiveReaderDoesNotAliasRowsInMultiRowFile(t *testing.T) {
+	dir := t.TempDir()
+	hashTypes := []string{"root"}
+	writeArchive(t, dir, 0, "v1", hashTypes, []*HashLog{
+		log(1, map[string][]byte{"root": {0x01}}),
+		log(2, map[string][]byte{"root": {0x02}}),
+		log(3, map[string][]byte{"root": {0x03}}),
+	})
+
+	r, err := newArchiveReader(dir)
+	require.NoError(t, err)
+
+	// at requires non-decreasing block numbers across calls; 1,2,3 satisfies that.
+	for block := uint64(1); block <= 3; block++ {
+		got, err := r.at(block)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.Equal(t, block, got[0].BlockNumber,
+			"block %d read back as block %d (rows aliased to the final row?)", block, got[0].BlockNumber)
+		require.Equal(t, []byte{byte(block)}, got[0].Hashes["root"],
+			"block %d returned the wrong hash (rows aliased to the final row?)", block)
+	}
+}
+
 func TestCompareHashesDifferentTypeSets(t *testing.T) {
 	dirA := filepath.Join(t.TempDir(), "a")
 	dirB := filepath.Join(t.TempDir(), "b")
