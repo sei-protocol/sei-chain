@@ -2,6 +2,7 @@ package staking
 
 import (
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -35,13 +36,60 @@ func newValidator(t *testing.T, p *Precompile, store *memoryStore, balances *mem
 	t.Helper()
 	err := runStaking(t, p, store, balances, operator, new(big.Int).Mul(big.NewInt(selfStakeUsei), useiToSwei),
 		CreateValidatorMethod,
-		"01020304",
+		operator.Hex()[2:],
 		"moniker",
 		"0.100000000000000000",
 		"0.200000000000000000",
 		"0.010000000000000000",
 		big.NewInt(1),
 	)
+	require.NoError(t, err)
+}
+
+func TestCreateValidatorRejectsDuplicateConsensusPubkey(t *testing.T) {
+	p, err := NewPrecompile()
+	require.NoError(t, err)
+	store := newMemoryStore()
+	balances := newMemoryBalances()
+	valA := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	valB := common.HexToAddress("0x00000000000000000000000000000000000000b2")
+
+	require.NoError(t, runStaking(t, p, store, balances, valA, new(big.Int).Mul(big.NewInt(10), useiToSwei),
+		CreateValidatorMethod, "01020304", "validator-a",
+		"0.100000000000000000", "0.200000000000000000", "0.010000000000000000", big.NewInt(1)))
+	err = runStaking(t, p, store, balances, valB, new(big.Int).Mul(big.NewInt(10), useiToSwei),
+		CreateValidatorMethod, "01020304", "validator-b",
+		"0.100000000000000000", "0.200000000000000000", "0.010000000000000000", big.NewInt(1))
+	require.ErrorIs(t, err, errDuplicateConsensusKey)
+}
+
+func TestValidatorInputsAcceptLowercaseHex(t *testing.T) {
+	p, err := NewPrecompile()
+	require.NoError(t, err)
+	store := newMemoryStore()
+	balances := newMemoryBalances()
+	valA := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	valB := common.HexToAddress("0x00000000000000000000000000000000000000b2")
+	lowerValA := strings.ToLower(valA.Hex())
+	lowerValB := strings.ToLower(valB.Hex())
+	newValidator(t, p, store, balances, valA, 10)
+	newValidator(t, p, store, balances, valB, 10)
+
+	require.NoError(t, runStaking(t, p, store, balances, valA, new(big.Int).Mul(big.NewInt(1), useiToSwei), DelegateMethod, lowerValA))
+	require.NoError(t, runStaking(t, p, store, balances, valA, nil, RedelegateMethod, lowerValA, lowerValB, big.NewInt(1)))
+	require.NoError(t, runStaking(t, p, store, balances, valA, nil, UndelegateMethod, lowerValB, big.NewInt(1)))
+
+	input, err := p.abi.Pack(ValidatorMethod, lowerValA)
+	require.NoError(t, err)
+	_, err = p.Run(&precompiles.Context{
+		Caller:        valA,
+		Address:       address,
+		ApparentValue: nil,
+		Block:         precompiles.BlockContext{Number: 1, Time: 100},
+		Store:         store,
+		Balances:      balances,
+		Logs:          &memoryLogs{},
+	}, input)
 	require.NoError(t, err)
 }
 

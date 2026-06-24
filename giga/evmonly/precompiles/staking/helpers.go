@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
@@ -32,6 +34,13 @@ func validateWritable(ctx *precompiles.Context) error {
 		return errReadOnly
 	}
 	return nil
+}
+
+func normalizeValidatorAddress(validatorAddress string) string {
+	if common.IsHexAddress(validatorAddress) {
+		return common.HexToAddress(validatorAddress).Hex()
+	}
+	return validatorAddress
 }
 
 func statusMatches(filter string, status int32) bool {
