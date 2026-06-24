@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 
 	protoio "github.com/gogo/protobuf/io"
@@ -929,14 +930,17 @@ func (rs *Store) restore(height int64, protoReader protoio.Reader) (snapshottype
 	if err != nil {
 		return snapshottypes.SnapshotItem{}, err
 	}
+	// ssStore.Import is a streaming consumer of ssImporter: it runs for the whole
+	// loop below and only returns once we close the channel, so its result is
+	// collected after the loop via ssGroup.Wait() rather than panicked on. 
+	// On error the group cancels ssCtx, which the producer send selects on so it never 
+	// blocks against a consumer that has stopped draining.
+	ssGroup, ssCtx := errgroup.WithContext(context.Background())
 	if rs.ssStore != nil {
 		ssImporter = make(chan seidbtypes.SnapshotNode, 10000)
-		go func() {
-			err := rs.ssStore.Import(height, ssImporter)
-			if err != nil {
-				panic(err)
-			}
-		}()
+		ssGroup.Go(func() error {
+			return rs.ssStore.Import(height, ssImporter)
+		})
 	}
 loop:
 	for {
@@ -981,10 +985,17 @@ loop:
 
 			// Check if we should also import to SS store
 			if rs.ssStore != nil && node.Height == 0 && ssImporter != nil {
-				ssImporter <- seidbtypes.SnapshotNode{
+				// Guard the send: if ssStore.Import errored (e.g. on a malformed
+				// snapshot) it may have stopped draining ssImporter, so select on
+				// ssCtx.Done() to avoid blocking forever once the buffer fills.
+				select {
+				case ssImporter <- seidbtypes.SnapshotNode{
 					StoreKey: storeKey,
 					Key:      node.Key,
 					Value:    node.Value,
+				}:
+				case <-ssCtx.Done():
+					// SS import has returned (likely an error); stop forwarding.
 				}
 			}
 		default:
@@ -1000,6 +1011,9 @@ loop:
 	}
 	if ssImporter != nil {
 		close(ssImporter)
+	}
+	if err := ssGroup.Wait(); err != nil && restoreErr == nil {
+		restoreErr = fmt.Errorf("ss import failed during restore: %w", err)
 	}
 	// Initialize SS version metadata. Without SetLatestVersion, GetLatestVersion()
 	// stays 0 until the first post-sync block commits, which is misleading to any

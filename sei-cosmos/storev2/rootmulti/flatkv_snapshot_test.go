@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	protoio "github.com/gogo/protobuf/io"
+	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -347,6 +348,59 @@ func TestFlatKVOnlySnapshotRestorePopulatesSS(t *testing.T) {
 	queryEqual("/bank/key", []byte("supply"), []byte{snapHeight, snapHeight, 0xB0})
 	queryEqual("/evm/key", evmData.storKey, makeSlot(snapHeight, 0xBB))
 	queryEqual("/evm/key", evmData.nonKey, makeNonce(uint64(snapHeight)))
+}
+
+// TestFlatKVMalformedSnapshotReturnsErrorNotPanic verifies that a malformed
+// flatkv snapshot node — such as a malicious peer could send during state sync
+// — makes Restore return an error rather than panicking the node. Before the
+// fix, the SS import goroutine called panic() on any error from ssStore.Import,
+// which a peer could trigger via convertFlatKVNodes (e.g. a key with no module
+// prefix, or an undecodable value) and use to crash a syncing node.
+//
+// The crafted leaf uses a Version that does NOT match the restore height, so
+// the SC flatkv importer drops it (see KVImporter.AddNode) and the test
+// isolates the SS conversion path being fixed. The SS importer receives the
+// node regardless of version, and convertFlatKVNodes fails on StripModulePrefix.
+//
+// Note: pre-fix this could not be written as require.Panics — the panic fired
+// in a goroutine and would crash the test binary outright. Reaching the
+// require.Error assertion at all is the regression signal.
+func TestFlatKVMalformedSnapshotReturnsErrorNotPanic(t *testing.T) {
+	cfg := flatKVOnlyConfig()
+	ssCfg := seidbconfig.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	ssCfg.AsyncWriteBuffer = 0
+
+	dstStore, _ := newTestRootMultiWithSS(t, t.TempDir(), cfg, ssCfg)
+	defer func() { require.NoError(t, dstStore.Close()) }()
+
+	const restoreHeight = 1
+
+	// Hand-craft a snapshot stream: a "flatkv" store header followed by a leaf
+	// whose physical key has no module-prefix separator, so convertFlatKVNodes
+	// -> ktype.StripModulePrefix returns an error.
+	var buf bytes.Buffer
+	writer := protoio.NewDelimitedWriter(&buf)
+	require.NoError(t, writer.WriteMsg(&snapshottypes.SnapshotItem{
+		Item: &snapshottypes.SnapshotItem_Store{
+			Store: &snapshottypes.SnapshotStoreItem{Name: keys.FlatKVStoreKey},
+		},
+	}))
+	require.NoError(t, writer.WriteMsg(&snapshottypes.SnapshotItem{
+		Item: &snapshottypes.SnapshotItem_IAVL{
+			IAVL: &snapshottypes.SnapshotIAVLItem{
+				Key:     []byte("malformed-no-prefix"),
+				Value:   []byte("garbage"),
+				Version: restoreHeight + 1, // mismatch: SC drops it, SS still converts
+				Height:  0,
+			},
+		},
+	}))
+	require.NoError(t, writer.Close())
+
+	reader := protoio.NewDelimitedReader(bytes.NewReader(buf.Bytes()), 1<<30)
+	_, err := dstStore.Restore(restoreHeight, 1, reader)
+	require.Error(t, err, "malformed flatkv snapshot must return an error, not panic")
 }
 
 func simulateFlatKVOnlyBlock(
