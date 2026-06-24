@@ -183,7 +183,7 @@ func getDefaultOpts() opts {
 		20000,
 		1000,
 		10000,
-		10000,
+		1000,
 		false,
 		uint64(10),
 		uint64(10),

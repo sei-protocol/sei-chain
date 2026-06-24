@@ -189,7 +189,7 @@ var DefaultConfig = Config{
 	MaxLogNoBlock:                10000,
 	MaxBlocksForLog:              2000,
 	MaxSubscriptionsNewHead:      10000,
-	MaxSubscriptionsLogs:         10000,
+	MaxSubscriptionsLogs:         1000,
 	EnableTestAPI:                false,
 	MaxConcurrentTraceCalls:      10,
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
