@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	dbm "github.com/tendermint/tm-db"
@@ -95,7 +94,6 @@ type node struct {
 	p2pHost  string
 	p2pPort  string
 	rpcAddr  string // tcp://127.0.0.1:PORT (TM RPC listen address)
-	grpcAddr string // 127.0.0.1:PORT
 	httpPort int    // EVM JSON-RPC HTTP
 	wsPort   int    // EVM JSON-RPC WS
 
@@ -152,7 +150,6 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 	if err := net.provisionNodes(enc, gb); err != nil {
 		return nil, err
 	}
-	wireMesh(net.nodes)
 
 	baseState := app.ModuleBasics.DefaultGenesis(enc.Marshaler)
 	genFiles := make([]string, len(net.nodes))
@@ -218,7 +215,7 @@ func (net *Network) provisionNodes(enc encoding, gb *genesisBuilder) error {
 			return err
 		}
 
-		writeAppConfig(filepath.Join(nodeDir, "config/app.toml"), addrs.grpcAddr, net.opts)
+		writeAppConfig(filepath.Join(nodeDir, "config/app.toml"))
 
 		clientCx := client.Context{}.
 			WithKeyringDir(clientDir).WithKeyring(kb).WithHomeDir(tmCfg.RootDir).
@@ -230,7 +227,7 @@ func (net *Network) provisionNodes(enc encoding, gb *genesisBuilder) error {
 			moniker: moniker, nodeID: nodeID, pubKey: pubKey, addr: addr,
 			home: nodeDir, tmCfg: tmCfg, clientCx: clientCx,
 			p2pHost: addrs.p2pHost, p2pPort: addrs.p2pPort,
-			rpcAddr: addrs.rpcAddr, grpcAddr: addrs.grpcAddr,
+			rpcAddr:  addrs.rpcAddr,
 			httpPort: addrs.httpPort, wsPort: addrs.wsPort,
 			serveErr: make(chan error, 2), // one HTTP + one WS listener
 		})
@@ -248,6 +245,9 @@ func (net *Network) startNode(ctx context.Context, n *node, enc encoding) error 
 	n.app = theApp
 
 	// recipe #1: zero the validator set so CometBFT derives it from InitChain.
+	// genesis.go writes Validators=nil at genesis-build time; this re-asserts the
+	// invariant against the file round-trip here (collectGentxs rewrites the
+	// genesis via ExportGenesisFileWithTime, so re-read it defensively).
 	genDoc, err := tmtypes.GenesisDocFromFile(n.tmCfg.GenesisFile())
 	if err != nil {
 		return err
@@ -273,8 +273,10 @@ func (net *Network) startNode(ctx context.Context, n *node, enc encoding) error 
 	}
 	n.rpc = lc
 	n.clientCx = n.clientCx.WithClient(lc)
-	// RegisterLocalServices builds the EVM HTTP/WS listeners (their goroutines
-	// block on the first-block start signal) and the gRPC tx service.
+	// RegisterLocalServices builds the EVM HTTP/WS listeners; their goroutines
+	// block on the first-block start signal. (It also registers query/tx services
+	// on the in-process gRPC query router, but the harness starts no standalone
+	// cosmos gRPC listener — TM RPC + EVM are the served surface.)
 	theApp.RegisterLocalServices(lc, n.clientCx.TxConfig)
 	return nil
 }
@@ -296,14 +298,13 @@ func resolveBaseDir(dir string) (string, bool, error) {
 type nodeAddrs struct {
 	p2pHost, p2pPort string
 	rpcAddr          string
-	grpcAddr         string
 	httpPort, wsPort int
 }
 
 // buildNodeConfig builds an isolated per-node tendermint config with loopback TM
-// RPC / gRPC / P2P listeners and the conn-tracker ceiling raised (recipes #4, #5,
-// #6). EVM bind-host is not config-scopable (evmrpc hardcodes 0.0.0.0); the EVM
-// ports are allocated free here and dialed via loopback.
+// RPC / P2P listeners and the conn-tracker ceiling raised (recipes #4, #5, #6).
+// EVM bind-host is not config-scopable (evmrpc hardcodes 0.0.0.0); the EVM ports
+// are allocated free here and dialed via loopback.
 func buildNodeConfig(nodeDir, moniker string, timeoutCommit time.Duration) (*config.Config, nodeAddrs, error) {
 	sctx := server.NewDefaultContext()
 	tmCfg := sctx.Config
@@ -318,7 +319,9 @@ func buildNodeConfig(nodeDir, moniker string, timeoutCommit time.Duration) (*con
 	tmCfg.P2P.MaxIncomingConnectionAttempts = 10000
 	tmCfg.P2P.AllowDuplicateIP = true
 	// recipe #4: metrics-off avoids the prometheus.DefaultRegisterer dup panic
-	// and lets the evmrpc/EVM-keeper metrics globals commingle harmlessly.
+	// from the process-wide registries. Invariant: this must stay off until the
+	// evmrpc/EVM-keeper metrics are de-globalized — re-enabling Prometheus
+	// without that reintroduces the panic.
 	tmCfg.Instrumentation.Prometheus = false
 
 	// recipe #5: server.FreeTCPAddr composes tcp://0.0.0.0:PORT — a publicly-bound
@@ -331,12 +334,6 @@ func buildNodeConfig(nodeDir, moniker string, timeoutCommit time.Duration) (*con
 	}
 	a.rpcAddr = fmt.Sprintf("tcp://127.0.0.1:%d", rpcPort)
 	tmCfg.RPC.ListenAddress = a.rpcAddr
-
-	grpcPort, err := freePort()
-	if err != nil {
-		return nil, a, err
-	}
-	a.grpcAddr = fmt.Sprintf("127.0.0.1:%d", grpcPort)
 
 	p2pPort, err := freePort()
 	if err != nil {
@@ -353,21 +350,6 @@ func buildNodeConfig(nodeDir, moniker string, timeoutCommit time.Duration) (*con
 		return nil, a, err
 	}
 	return tmCfg, a, nil
-}
-
-// wireMesh wires a full persistent-peer mesh: every node lists all others as
-// nodeID@127.0.0.1:p2pPort (recipe #2 — testutil/network wires zero peers).
-func wireMesh(nodes []*node) {
-	for i, n := range nodes {
-		var peers []string
-		for j, peer := range nodes {
-			if j == i {
-				continue
-			}
-			peers = append(peers, fmt.Sprintf("%s@127.0.0.1:%s", peer.nodeID, peer.p2pPort))
-		}
-		n.tmCfg.P2P.PersistentPeers = strings.Join(peers, ",")
-	}
 }
 
 // newNodeApp builds a real sei-chain app for one node with EVM serving on its
@@ -390,12 +372,13 @@ func newNodeApp(n *node, enc encoding) *app.App {
 	)
 }
 
-// writeAppConfig writes a minimal per-node app.toml enabling gRPC on grpcAddr.
-func writeAppConfig(path, grpcAddr string, opts Options) {
+// writeAppConfig writes a minimal per-node app.toml. The harness serves TM RPC +
+// EVM (HTTP/WS) only; the cosmos gRPC server stays off (nothing in the harness
+// path calls servergrpc.StartGRPCServer, so enabling it would advertise a port
+// no listener binds).
+func writeAppConfig(path string) {
 	appCfg := srvconfig.DefaultConfig()
 	appCfg.Telemetry.Enabled = false
-	appCfg.GRPC.Enable = true
-	appCfg.GRPC.Address = grpcAddr
 	srvconfig.WriteConfigFile(path, appCfg)
 }
 

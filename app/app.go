@@ -478,19 +478,20 @@ type App struct {
 	httpServerStartSignalSent bool
 	wsServerStartSignalSent   bool
 
-	// evmHTTPServer/evmWSServer retain the EVM JSON-RPC HTTP and WebSocket
-	// listeners constructed in RegisterLocalServices so an embedding orchestrator
-	// (the in-process harness) can Stop() them at teardown. Nil for a node with
-	// the respective listener disabled. Production seid never reads these — its
-	// process exit reaps the listeners — but discarding them leaked the only Stop
-	// handle, which an in-process host running N apps in one process needs.
+	// evmHTTPServer/evmWSServer hold the EVM JSON-RPC HTTP and WebSocket listeners
+	// constructed in RegisterLocalServices so an embedding orchestrator (the
+	// in-process harness) can Stop() them at teardown. Nil when the respective
+	// listener is disabled. Production seid does not read these; its process exit
+	// reaps the listeners.
 	evmHTTPServer evmrpc.EVMServer
 	evmWSServer   evmrpc.EVMServer
-	// evmServeErr, when non-nil, diverts an EVM listener Start() failure to the
-	// channel instead of panicking. Production leaves it nil and keeps the
-	// fail-loud panic (a bind failure must crash a real node). The harness sets it
-	// via SetEVMServeErr before the first block so a single node's bind failure is
-	// a reportable error, not a process-wide panic that kills all N nodes.
+	// evmServeErr, when non-nil, diverts an EVM listener Start() (listener-start)
+	// failure to the channel instead of panicking. Production leaves it nil: a
+	// listener-start failure panics and crashes the node. An in-process host sets
+	// it via SetEVMServeErr before the first block so one node's listener-start
+	// failure is a reportable error rather than a process-wide panic killing all N.
+	// Construct-time bind failures (NewEVM*Server below) are not covered — those
+	// stay fail-fast.
 	evmServeErr chan<- error
 
 	txPrioritizer sdk.TxPrioritizer
@@ -2779,9 +2780,9 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 }
 
 // reportEVMServeErr diverts an EVM listener Start() failure to the registered
-// error channel, falling back to the historical panic when no channel is set
-// (production seid). The send is non-blocking: the channel is buffered and a
-// second listener's failure must not deadlock the goroutine.
+// error channel, or panics when no channel is set (production seid). The send is
+// non-blocking: the channel is buffered and a second listener's failure must not
+// deadlock the goroutine.
 func (app *App) reportEVMServeErr(err error) {
 	if app.evmServeErr == nil {
 		panic(err)
@@ -2793,10 +2794,10 @@ func (app *App) reportEVMServeErr(err error) {
 }
 
 // recoverEVMServe is the deferred guard on the EVM listener goroutines. A panic
-// inside Start() (beyond the bind error it returns cleanly) is converted to a
-// reported error when a channel is registered, so one node's listener panic does
-// not crash an in-process host running N nodes. With no channel (production
-// seid) it re-panics, preserving the historical fail-loud behavior exactly.
+// inside Start() (beyond the error it returns cleanly) is converted to a reported
+// error when a channel is registered, so one node's listener panic does not crash
+// an in-process host running N nodes. With no channel (production seid) it
+// re-panics, keeping the fail-loud contract.
 func (app *App) recoverEVMServe() {
 	if r := recover(); r != nil {
 		if app.evmServeErr == nil {
@@ -2809,22 +2810,6 @@ func (app *App) recoverEVMServe() {
 		app.reportEVMServeErr(err)
 	}
 }
-
-// SetEVMServeErr registers the channel that EVM listener Start() failures are
-// sent to, replacing the default fail-loud panic. An in-process host that runs
-// multiple apps in one process calls this before the first block so one node's
-// bind failure is a reportable error rather than a process-wide panic. The
-// channel should be buffered (>= 2: one HTTP + one WS listener).
-func (app *App) SetEVMServeErr(ch chan<- error) { app.evmServeErr = ch }
-
-// EVMHTTPServer returns the EVM JSON-RPC HTTP listener constructed in
-// RegisterLocalServices, or nil if HTTP serving is disabled. An embedding
-// orchestrator calls Stop() on it at teardown.
-func (app *App) EVMHTTPServer() evmrpc.EVMServer { return app.evmHTTPServer }
-
-// EVMWebSocketServer returns the EVM JSON-RPC WebSocket listener, or nil if WS
-// serving is disabled.
-func (app *App) EVMWebSocketServer() evmrpc.EVMServer { return app.evmWSServer }
 
 // RegisterSwaggerAPI registers swagger route with API Server
 func RegisterSwaggerAPI(rtr *mux.Router) {

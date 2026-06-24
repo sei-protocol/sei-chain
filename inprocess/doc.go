@@ -1,8 +1,8 @@
 //go:build inprocess
 
 // Package inprocess stands up N sei-chain validators in a single Go process,
-// reaching real CometBFT consensus and each serving its own full RPC stack
-// (Tendermint RPC + EVM JSON-RPC HTTP/WS + gRPC), with deterministic teardown.
+// reaching real CometBFT consensus and each serving its own RPC stack
+// (Tendermint RPC + EVM JSON-RPC HTTP/WS), with deterministic teardown.
 //
 // It is the in-process provisioning foundation for the SDK "local" provider
 // (design: bdchatham-designs/designs/test-harness/sdk-local-provider-lld.md).
@@ -37,17 +37,22 @@
 //     InitChain response. testutil/network sets it to []{self}, which fails
 //     consensus replay for N>1.
 //  2. Full P2P mesh — persistent-peers wired nodeID@127.0.0.1:p2pPort across all
-//     N (testutil/network wires zero).
-//  3. Injected AppOptions enable EVM HTTP/WS on per-node ports (app.TestAppOpts
-//     hard-disables them).
-//  4. tmCfg.Instrumentation.Prometheus = false — avoids the dup-registry panic;
-//     with metrics off no evmrpc/EVM-keeper de-globalization is needed.
-//  5. TM RPC / gRPC / P2P listeners scoped to 127.0.0.1 (they default to [::] /
-//     0.0.0.0). The EVM HTTP/WS listeners bind 0.0.0.0 — evmrpc hardcodes the
-//     bind host (server.LocalAddress) with no config override — but on a free
-//     ephemeral port, dialed via 127.0.0.1. They are not loopback-scoped; a
-//     bind-host option in evmrpc would be the only way to tighten that.
+//     N (testutil/network wires zero) — without the mesh nodes never gossip and
+//     consensus never forms for N>1.
+//  3. Injected AppOptions enable EVM HTTP/WS on per-node ports — without them
+//     app.TestAppOpts hard-disables the listeners and no node serves EVM.
+//  4. tmCfg.Instrumentation.Prometheus = false — metrics off avoids the
+//     dup-registry panic from the process-wide registries. Invariant: metrics
+//     must stay off until the evmrpc/EVM-keeper metrics are de-globalized —
+//     re-enabling Prometheus without that reintroduces the panic.
+//  5. TM RPC / P2P listeners scoped to 127.0.0.1 (they default to [::] /
+//     0.0.0.0) — without scoping an in-process harness publishes externally
+//     reachable listeners. Caveat (accepted): the EVM HTTP/WS listeners bind all
+//     interfaces (0.0.0.0) for the harness lifetime; only TM RPC/P2P are
+//     loopback-scoped. They run on free ephemeral ports, dialed via 127.0.0.1.
+//     Tightening requires a bind-host option in evmrpc (not yet present).
 //  6. MaxIncomingConnectionAttempts raised — loopback collapses all peers onto
 //     127.0.0.1, so the router's IP-keyed conn-tracker counts the startup burst
-//     on one key.
+//     on one key — without the raise the burst trips the per-IP cap and peers
+//     are rejected.
 package inprocess

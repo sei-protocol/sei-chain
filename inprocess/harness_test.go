@@ -47,7 +47,7 @@ func TestInProcessNetwork(t *testing.T) {
 	}
 	for i := 0; i < n; i++ {
 		nd := net.Node(i)
-		t.Logf("node %s: tm=%s evm=%s ws=%s grpc=%s", nd.Name(), nd.TendermintRPC(), nd.EVMRPC(), nd.EVMWS(), nd.GRPC())
+		t.Logf("node %s: tm=%s evm=%s ws=%s", nd.Name(), nd.TendermintRPC(), nd.EVMRPC(), nd.EVMWS())
 	}
 
 	// No EVM listener reported a bind failure.

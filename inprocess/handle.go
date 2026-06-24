@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
@@ -43,13 +44,10 @@ func (h Node) EVMRPC() string { return fmt.Sprintf("http://127.0.0.1:%d", h.n.ht
 // NodeHandle surface, but the in-process harness binds it, so it is exposed.
 func (h Node) EVMWS() string { return fmt.Sprintf("ws://127.0.0.1:%d", h.n.wsPort) }
 
-// REST is "" — the harness does not enable the Cosmos LCD listener (validators
-// serve none by default; present for SDK handle parity).
+// REST is "" — the harness does not start the Cosmos LCD listener (reserved:
+// REST is part of the SDK NodeHandle shape, so it is present as an honest parity
+// stub; validators serve none by default).
 func (h Node) REST() string { return "" }
-
-// GRPC is the node's Cosmos gRPC address (host:port). Not in the SDK NodeHandle
-// surface (gRPC is not a published status endpoint); exposed for in-process dials.
-func (h Node) GRPC() string { return h.n.grpcAddr }
 
 // Object returns the live *node.Node behind the handle (SDK escape hatch: the
 // dynamic value behind any). Read-oriented — driving it is an in-process-only
@@ -154,10 +152,11 @@ func stopEVMServer(s evmrpc.EVMServer) {
 // stripScheme drops a leading scheme:// from a listen address so it can be
 // recomposed with a concrete scheme (TM RPC config carries tcp://).
 func stripScheme(addr string) string {
-	for _, p := range []string{"tcp://", "http://"} {
-		if len(addr) >= len(p) && addr[:len(p)] == p {
-			return addr[len(p):]
-		}
+	if rest, ok := strings.CutPrefix(addr, "tcp://"); ok {
+		return rest
+	}
+	if rest, ok := strings.CutPrefix(addr, "http://"); ok {
+		return rest
 	}
 	return addr
 }
