@@ -110,6 +110,9 @@ type Config struct {
 	// max number of concurrent NewHead subscriptions
 	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
 
+	// max number of concurrent logs subscriptions
+	MaxSubscriptionsLogs uint64 `mapstructure:"max_subscriptions_logs"`
+
 	// test api enables certain override apis for integration test situations
 	EnableTestAPI bool `mapstructure:"enable_test_api"`
 
@@ -198,6 +201,7 @@ var DefaultConfig = Config{
 	MaxBlocksForLog:              2000,
 	MaxEstimateGasCalls:          100,
 	MaxSubscriptionsNewHead:      10000,
+	MaxSubscriptionsLogs:         1000,
 	EnableTestAPI:                false,
 	MaxConcurrentTraceCalls:      10,
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
@@ -247,6 +251,7 @@ const (
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
 	flagMaxEstimateGasCalls          = "evm.max_estimate_gas_calls"
 	flagMaxSubscriptionsNewHead      = "evm.max_subscriptions_new_head"
+	flagMaxSubscriptionsLogs         = "evm.max_subscriptions_logs"
 	flagEnableTestAPI                = "evm.enable_test_api"
 	flagMaxConcurrentTraceCalls      = "evm.max_concurrent_trace_calls"
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
@@ -375,6 +380,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxSubscriptionsNewHead); v != nil {
 		if cfg.MaxSubscriptionsNewHead, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxSubscriptionsLogs); v != nil {
+		if cfg.MaxSubscriptionsLogs, err = cast.ToUint64E(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -615,6 +625,9 @@ max_estimate_gas_calls = {{ .EVM.MaxEstimateGasCalls }}
 
 # max number of concurrent NewHead subscriptions
 max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
+
+# max number of concurrent logs subscriptions
+max_subscriptions_logs = {{ .EVM.MaxSubscriptionsLogs }}
 
 # MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls.
 # Set to 0 for unlimited.
