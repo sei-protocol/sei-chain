@@ -221,6 +221,11 @@ func NewDiskTable(
 		if err != nil {
 			return nil, fmt.Errorf("failed to load keymap from segments: %w", err)
 		}
+	} else {
+		err = table.repairKeymap(segments, lowestSegmentIndex, highestSegmentIndex)
+		if err != nil {
+			return nil, fmt.Errorf("failed to repair keymap: %w", err)
+		}
 	}
 
 	var upperBoundSnapshotFile *BoundaryFile
@@ -385,7 +390,8 @@ func (d *DiskTable) repairSnapshot(
 func (d *DiskTable) reloadKeymap(
 	segments map[uint32]*segment.Segment,
 	lowestSegmentIndex uint32,
-	highestSegmentIndex uint32) error {
+	highestSegmentIndex uint32,
+) error {
 
 	start := d.clock()
 	defer func() {
@@ -441,6 +447,72 @@ func (d *DiskTable) reloadKeymap(
 	err = f.Close()
 	if err != nil {
 		return fmt.Errorf("failed to close keymap initialized file after reload: %w", err)
+	}
+
+	return nil
+}
+
+// After a crash, it's possible that there may be a small number of key-value pairs in segment files that
+// never made it into the keymap. This method detects these orphaned key-value pairs and puts them into the keymap.
+func (d *DiskTable) repairKeymap(
+	segments map[uint32]*segment.Segment,
+	lowestSegmentIndex uint32,
+	highestSegmentIndex uint32,
+) error {
+
+	start := d.clock()
+	var rescued []*types.ScopedKey
+	defer func() {
+		d.logger.Debug("repaired keymap", "keysRescued", len(rescued), "duration", d.clock().Sub(start))
+	}()
+
+	// The keymap is always written in the same order that keys are appended to the segment key files, and the
+	// keymap recovers to a prefix of those writes. Any keys missing from the keymap are therefore a contiguous
+	// suffix (the most recently written keys). We walk keys newest-first, collecting any that are absent from the
+	// keymap, and stop at the first key that is present: everything older than it is already durable.
+	//
+	// The rescued keys MUST be written in a single atomic batch. If we instead flushed incrementally, a crash
+	// partway through would leave the newest rescued keys present while older ones were still missing. The next
+	// repair would walk newest-first, immediately hit one of those newly-written keys, stop, and never rescue
+	// the older keys that are still absent. A single batch makes repair all-or-nothing: a crash either leaves
+	// nothing written (the next repair redoes it) or everything written (the next repair sees an intact prefix).
+
+	reachedDurablePrefix := false
+	for i := highestSegmentIndex; !reachedDurablePrefix; i-- {
+		seg := segments[i]
+		if seg.IsSealed() {
+			keys, err := seg.GetKeys()
+			if err != nil {
+				return fmt.Errorf("failed to get keys from segment %d: %w", i, err)
+			}
+			for keyIndex := len(keys) - 1; keyIndex >= 0; keyIndex-- {
+				key := keys[keyIndex]
+
+				_, present, err := d.keymap.Get(key.Key)
+				if err != nil {
+					return fmt.Errorf("failed to check keymap for key in segment %d: %w", i, err)
+				}
+				if present {
+					// Reached the durable prefix; every older key is already in the keymap.
+					reachedDurablePrefix = true
+					break
+				}
+
+				rescued = append(rescued, key)
+			}
+		}
+
+		if i == lowestSegmentIndex {
+			break
+		}
+	}
+
+	if len(rescued) == 0 {
+		return nil
+	}
+
+	if err := d.keymap.Put(rescued); err != nil {
+		return fmt.Errorf("failed to put rescued keys into keymap: %w", err)
 	}
 
 	return nil

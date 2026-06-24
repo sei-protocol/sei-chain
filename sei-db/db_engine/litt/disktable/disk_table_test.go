@@ -281,6 +281,115 @@ func buildPebbleDBKeyDiskTableMultiShard(
 	return table, nil
 }
 
+// countingKeymap wraps a Keymap and records how many times Put was called and how many keys were written.
+// Used to assert that keymap repair rescues missing keys in a single atomic batch.
+type countingKeymap struct {
+	keymap.Keymap
+	putCalls int
+	putKeys  int
+}
+
+func (c *countingKeymap) Put(keys []*types.ScopedKey) error {
+	c.putCalls++
+	c.putKeys += len(keys)
+	return c.Keymap.Put(keys)
+}
+
+// openRepairTestTable opens a disk table at directory using the provided keymap. reload selects between a full
+// keymap reload (true) and the tail-repair path (false).
+func openRepairTestTable(
+	t *testing.T,
+	directory string,
+	tableName string,
+	keymapPath string,
+	km keymap.Keymap,
+	reload bool,
+) litt.ManagedTable {
+
+	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafePebbleDBKeymapType)
+	require.NoError(t, err)
+
+	config, err := litt.DefaultConfig(directory)
+	require.NoError(t, err)
+	config.Fsync = false
+
+	tableConfig := litt.DefaultTableConfig(tableName)
+	tableConfig.ShardingFactor = 4
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Logger = slog.Default()
+
+	table, err := NewDiskTable(
+		config,
+		runtimeConfig,
+		tableName,
+		tableConfig,
+		km,
+		keymapPath,
+		keymapTypeFile,
+		[]string{directory},
+		reload,
+		nil)
+	require.NoError(t, err)
+
+	return table
+}
+
+// TestRepairKeymapSingleBatch verifies that repairKeymap rescues all missing keys in a single keymap.Put,
+// even when the missing tail is larger than keymapReloadBatchSize. Writing the rescued keys incrementally
+// would let a crash mid-repair leave the newest keys present and older keys still missing; a subsequent
+// repair stops at the first present key and would never rescue the older ones, losing data permanently.
+func TestRepairKeymapSingleBatch(t *testing.T) {
+	directory := t.TempDir()
+	tableName := "repair-batch"
+	logger := slog.Default()
+	keymapPath := filepath.Join(directory, tableName, keymap.KeymapDirectoryName)
+
+	key := func(i int) []byte { return []byte(fmt.Sprintf("key-%06d", i)) }
+	value := func(i int) []byte { return []byte(fmt.Sprintf("value-%06d", i)) }
+	keyCount := keymapReloadBatchSize + 100
+
+	// Phase 1: populate the table and close it cleanly.
+	km1, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, true)
+	require.NoError(t, err)
+	table := openRepairTestTable(t, directory, tableName, keymapPath, km1, true)
+	for i := 0; i < keyCount; i++ {
+		require.NoError(t, table.Put(key(i), value(i)))
+	}
+	require.NoError(t, table.Flush())
+	require.NoError(t, table.Close())
+
+	// Phase 2: out-of-band, delete the newest keys from the keymap. The deleted tail is larger than one
+	// batch, so an incremental repair would split it into multiple Put calls.
+	deletedCount := keymapReloadBatchSize + 50
+	km2, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	for i := keyCount - deletedCount; i < keyCount; i++ {
+		require.NoError(t, km2.Delete([]*types.ScopedKey{{Key: key(i)}}))
+	}
+	require.NoError(t, km2.Stop())
+
+	// Phase 3: reopen with a counting keymap and let NewDiskTable run repairKeymap.
+	realKeymap, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, true)
+	require.NoError(t, err)
+	spy := &countingKeymap{Keymap: realKeymap}
+	repaired := openRepairTestTable(t, directory, tableName, keymapPath, spy, false)
+
+	// repairKeymap must have rescued the entire deleted tail in exactly one Put.
+	require.Equal(t, 1, spy.putCalls)
+	require.Equal(t, deletedCount, spy.putKeys)
+
+	// The rescued keys must be readable again with their original values.
+	for i := keyCount - deletedCount; i < keyCount; i++ {
+		v, ok, err := repaired.Get(key(i))
+		require.NoError(t, err)
+		require.True(t, ok, "key %s should have been repaired", key(i))
+		require.Equal(t, value(i), v)
+	}
+
+	require.NoError(t, repaired.Close())
+}
+
 func restartTest(t *testing.T, tableBuilder *tableBuilder) {
 	rand := util.NewTestRandom()
 
