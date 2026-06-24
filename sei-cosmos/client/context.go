@@ -29,7 +29,7 @@ type LocalClient interface {
 	Client
 	EvmNextPendingNonce(addr common.Address) uint64
 	EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool)
-	EvmProxy(sender common.Address) (*url.URL, bool)
+	EvmProxy(sender common.Address) utils.Option[*url.URL]
 }
 
 type Context struct {

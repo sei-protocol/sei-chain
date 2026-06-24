@@ -49,6 +49,10 @@ type StateStoreConfig struct {
 	// defaults to 1
 	ImportNumWorkers int `mapstructure:"import-num-workers"`
 
+	// EnableReadWriteMetrics emits simple estimated read/write counters for the state-store backend.
+	// defaults to false
+	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
+
 	// KeepLastVersion defines whether to keep last version of a key during pruning or delete
 	// defaults to true
 	KeepLastVersion bool `mapstructure:"keep-last-version"`

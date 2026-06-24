@@ -142,6 +142,22 @@ genesis-file = "{{ js .BaseConfig.Genesis }}"
 node-key-file = "{{ js .BaseConfig.NodeKey }}"
 
 #######################################################################
+###                   Autobahn Configuration                        ###
+#######################################################################
+
+# Path to a JSON file containing the Autobahn (GigaRouter) configuration.
+# Leave empty to disable Autobahn. The autobahn role follows the top-level
+# "mode" field: mode = "validator" runs the validator path; any other mode
+# runs as a fullnode that loads the committee for routing only and
+# forwards eth_sendRawTransaction to the shard owner. A warning is logged
+# at startup if mode disagrees with committee membership.
+#
+# Placed here (as a top-level key, before any [section] header) so the
+# TOML parser sees it at root scope where mapstructure expects it — viper
+# would otherwise nest it under the immediately preceding section.
+autobahn-config-file = "{{ .AutobahnConfigFile }}"
+
+#######################################################################
 ###                 Advanced Configuration Options                  ###
 #######################################################################
 
@@ -639,10 +655,6 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 
 # Cooldown between each restart
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
-
-# Path to a JSON file containing the Autobahn (GigaRouter) configuration.
-# Leave empty to disable Autobahn.
-autobahn-config-file = "{{ .AutobahnConfigFile }}"
 
 `
 

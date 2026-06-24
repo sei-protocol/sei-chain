@@ -30,11 +30,11 @@ type sendProxyClient struct {
 	proxyURL *url.URL
 }
 
-func (c *sendProxyClient) EvmProxy(common.Address) (*url.URL, bool) {
+func (c *sendProxyClient) EvmProxy(common.Address) utils.Option[*url.URL] {
 	if c.proxyURL == nil {
-		return nil, false
+		return utils.None[*url.URL]()
 	}
-	return c.proxyURL, true
+	return utils.Some(c.proxyURL)
 }
 
 func TestMnemonicToPrivateKey(t *testing.T) {

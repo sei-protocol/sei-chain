@@ -33,6 +33,11 @@ type Table interface {
 	// of the value is 2^32 bytes. This database has been optimized under the assumption that values
 	// are generally much larger than keys. This affects performance, but not correctness.
 	//
+	// Although writes are individually atomic, the DB makes no guarantees about atomicity of multiple writes in
+	// aggregate. That is to say, if a caller writes A and then B and the DB crashes before flushing, it may be the
+	// case that B is persisted but A is not. The exception to this rule is if the sharding factor for this table
+	// is 1, in which case the database guarantees that writes become crash durable in the order they were issued.
+	//
 	// It is not safe to modify the byte slices passed to this function after the call
 	// (the key bytes, the value bytes, and every secondary key's bytes).
 	Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error
@@ -45,6 +50,12 @@ type Table interface {
 	// The maximum size of a key (primary or secondary) is 64 KiB (2^16 - 1 bytes). The maximum size
 	// of a value is 2^32 bytes. This database has been optimized under the assumption that values
 	// are generally much larger than keys. This affects performance, but not correctness.
+	//
+	// Although writes in a batch are individually atomic, the DB makes no guarantees about atomicity of multiple
+	// writes in aggregate. That is to say, if a caller writes A and then B in a batch and the DB crashes before
+	// flushing, it may be the case that B is persisted but A is not. The exception to this rule is if the sharding
+	// factor for this table is 1, in which case the database guarantees that writes become crash durable in the
+	// order they were issued.
 	//
 	// It is not safe to modify the byte slices passed to this function after the call
 	// (including the key byte slices, the value byte slices, and every secondary key's bytes).

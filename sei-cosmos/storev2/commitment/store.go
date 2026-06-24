@@ -127,6 +127,12 @@ func (st *Store) PopChangeSet() seidbproto.ChangeSet {
 	return cs
 }
 
+// HasPendingChanges reports whether writes have been buffered since the
+// last PopChangeSet, without consuming them.
+func (st *Store) HasPendingChanges() bool {
+	return len(st.changeSet.Pairs) > 0
+}
+
 func (st *Store) Query(_ context.Context, req abci.RequestQuery) (res abci.ResponseQuery) {
 	if req.Height > 0 && req.Height != st.tree.Version() {
 		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, "invalid height"))

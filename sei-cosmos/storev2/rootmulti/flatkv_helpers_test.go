@@ -40,19 +40,19 @@ func withTestMemIAVL(cfg seidbconfig.StateCommitConfig) seidbconfig.StateCommitC
 
 func dualWriteConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.TestOnlyDualWrite
+	cfg.WriteMode = sctypes.TestOnlyDualWrite
 	return withTestMemIAVL(cfg)
 }
 
 func evmMigratedConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.EVMMigrated
+	cfg.WriteMode = sctypes.EVMMigrated
 	return withTestMemIAVL(cfg)
 }
 
 func flatKVOnlyConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.FlatKVOnly
+	cfg.WriteMode = sctypes.FlatKVOnly
 	return withTestMemIAVL(cfg)
 }
 
@@ -62,7 +62,7 @@ func flatKVOnlyConfig() seidbconfig.StateCommitConfig {
 // MigrateEVM at restart.
 func memiavlOnlyConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.MemiavlOnly
+	cfg.WriteMode = sctypes.MemiavlOnly
 	return withTestMemIAVL(cfg)
 }
 
@@ -76,7 +76,7 @@ func memiavlOnlyConfig() seidbconfig.StateCommitConfig {
 // blocks.
 func migrateEVMConfig(keysPerBlock int) seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.MigrateEVM
+	cfg.WriteMode = sctypes.MigrateEVM
 	cfg.KeysToMigratePerBlock = keysPerBlock
 	return withTestMemIAVL(cfg)
 }

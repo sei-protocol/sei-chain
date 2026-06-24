@@ -95,6 +95,10 @@ func (app *Proxy) GetValidators() []types.ValidatorUpdate {
 	return app.app.GetValidators()
 }
 
+func (app *Proxy) LastBlockHeight() int64 {
+	return app.app.LastBlockHeight()
+}
+
 func (app *Proxy) ListSnapshots(ctx context.Context, req *types.RequestListSnapshots) (*types.ResponseListSnapshots, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "list_snapshots", "type", "sync"))()
 	return app.app.ListSnapshots(ctx, req)

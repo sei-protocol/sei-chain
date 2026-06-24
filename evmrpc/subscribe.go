@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -34,11 +35,15 @@ type SubscriptionAPI struct {
 	newHeadListenersMtx *sync.RWMutex
 	newHeadListeners    map[rpc.ID]chan map[string]interface{}
 	connectionType      ConnectionType
+
+	// logSubsCount bounds the number of concurrent logs subscriptions
+	logSubsCount atomic.Uint64
 }
 
 type SubscriptionConfig struct {
 	subscriptionCapacity int
 	newHeadLimit         uint64
+	logLimit             uint64
 }
 
 func NewSubscriptionAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType, blockHeaderNotifier *BlockHeaderNotifier) *SubscriptionAPI {
@@ -228,6 +233,11 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 		filter = unboundedFilter
 	}
 
+	// Bound the number of concurrent logs subscriptions
+	if !a.acquireLogSub() {
+		return nil, errors.New("no new subscription can be created")
+	}
+
 	rpcSub := notifier.CreateSubscription()
 
 	// Track subscription metrics
@@ -238,6 +248,7 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 		go func() {
 			var err error
 			defer recoverAndLog()
+			defer a.releaseLogSub()
 			defer wpMetrics.RecordSubscriptionEnd()
 			logs, _, err := a.logFetcher.GetLogsByFilters(ctx, *filter, 0)
 			if err != nil {
@@ -257,6 +268,7 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	go func() {
 		var err error
 		defer recoverAndLog()
+		defer a.releaseLogSub()
 		defer wpMetrics.RecordSubscriptionEnd()
 		begin := int64(0)
 		for {
@@ -278,11 +290,47 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			}
 			begin = lastToHeight
 			filter.FromBlock = big.NewInt(lastToHeight + 1)
-			time.Sleep(SleepInterval)
+			// Wait before the next poll, but stop promptly if the client
+			// disconnects or unsubscribes (rpcSub.Err()). Note: ctx here is the
+			// per-call context, which the RPC framework cancels as soon as the
+			// eth_subscribe call returns, so it must NOT be used to tear down the
+			// long-lived subscription loop.
+			select {
+			case <-rpcSub.Err():
+				return
+			case <-time.After(SleepInterval):
+			}
 		}
 	}()
 
 	return rpcSub, nil
+}
+
+// acquireLogSub reserves a logs-subscription slot
+func (a *SubscriptionAPI) acquireLogSub() bool {
+	for {
+		cur := a.logSubsCount.Load()
+		if cur >= a.subscriptonConfig.logLimit {
+			return false
+		}
+		if a.logSubsCount.CompareAndSwap(cur, cur+1) {
+			return true
+		}
+		// A concurrent acquire/release changed the count; re-read and retry.
+	}
+}
+
+// releaseLogSub frees a slot reserved by acquireLogSub.
+func (a *SubscriptionAPI) releaseLogSub() {
+	for {
+		cur := a.logSubsCount.Load()
+		if cur == 0 {
+			return
+		}
+		if a.logSubsCount.CompareAndSwap(cur, cur-1) {
+			return
+		}
+	}
 }
 
 const SubscriberPrefix = "evm.rpc."

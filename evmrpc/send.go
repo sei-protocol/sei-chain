@@ -92,7 +92,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	// but we still need to handle it.
 	sender, senderErr := getSender(tx, s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
 	if senderErr == nil {
-		if url, ok := s.tmClient.EvmProxy(sender); ok {
+		if url, ok := s.tmClient.EvmProxy(sender).Get(); ok {
 			recordRedirectedRequest(ctx, "eth_sendRawTransaction", string(s.connectionType))
 			// HTTP transport pooling already happens globally underneath net/http, so
 			// creating a fresh RPC client per proxied request is fine here. If we

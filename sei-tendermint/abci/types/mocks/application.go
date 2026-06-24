@@ -277,6 +277,24 @@ func (_m *Application) InitChain(_a0 context.Context, _a1 *types.RequestInitChai
 	return r0, r1
 }
 
+// LastBlockHeight provides a mock function with no fields
+func (_m *Application) LastBlockHeight() int64 {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for LastBlockHeight")
+	}
+
+	var r0 int64
+	if rf, ok := ret.Get(0).(func() int64); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	return r0
+}
+
 // ListSnapshots provides a mock function with given fields: _a0, _a1
 func (_m *Application) ListSnapshots(_a0 context.Context, _a1 *types.RequestListSnapshots) (*types.ResponseListSnapshots, error) {
 	ret := _m.Called(_a0, _a1)
