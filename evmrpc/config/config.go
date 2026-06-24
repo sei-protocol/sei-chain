@@ -171,7 +171,8 @@ type Config struct {
 	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
 
 	// MaxOpenConnections caps the number of simultaneously accepted connections
-	// on the EVM HTTP and WebSocket listeners. Excess connections block in the
+	// on the EVM HTTP and WebSocket listeners. The limit is applied per listener
+	// (HTTP and WS each get their own budget). Excess connections block in the
 	// accept queue until an active connection closes. Zero disables the limit.
 	MaxOpenConnections int `mapstructure:"max_open_connections"`
 }
@@ -222,7 +223,7 @@ var DefaultConfig = Config{
 	TraceBakeSnapshotWindow: 64,
 	IPRateLimitRPS:          200,
 	IPRateLimitBurst:        400,
-	MaxOpenConnections:      0,
+	MaxOpenConnections:      2000,
 }
 
 const (
@@ -683,8 +684,7 @@ ip_rate_limit_rps = {{ .EVM.IPRateLimitRPS }}
 ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
 
 # max_open_connections caps the number of simultaneously accepted connections on
-# the EVM HTTP and WebSocket listeners. Excess connections wait in the accept
-# queue until an active connection closes. Set to 0 to disable the limit.
+# the EVM HTTP and WebSocket listeners. Set to 0 to disable the limit.
 max_open_connections = {{ .EVM.MaxOpenConnections }}
 
 `
