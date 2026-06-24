@@ -1,7 +1,6 @@
 package giga
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
@@ -23,7 +22,7 @@ var StreamLaneProposals = rpc.Register[API](
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamLaneProposalsReq]{MsgSize: kB, Window: 1},
 	rpc.Msg[*pb.LaneProposal]{
-		MsgSize: rpc.InBytes(types.MaxBlockProtoSize) + 10*kB,
+		MsgSize: 2 * MB,
 		Window:  5,
 	},
 )
@@ -37,7 +36,7 @@ var StreamCommitQCs = rpc.Register[API](
 	3,
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamCommitQCsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*apb.CommitQC]{MsgSize: 10 * kB, Window: 20},
+	rpc.Msg[*apb.CommitQC]{MsgSize: 20 * kB, Window: 20},
 )
 var StreamAppVotes = rpc.Register[API](
 	4,
@@ -48,7 +47,7 @@ var StreamAppVotes = rpc.Register[API](
 var StreamAppQCs = rpc.Register[API](5,
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamAppQCsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*pb.StreamAppQCsResp]{MsgSize: 10 * kB, Window: 20},
+	rpc.Msg[*pb.StreamAppQCsResp]{MsgSize: 30 * kB, Window: 20},
 )
 var Consensus = rpc.Register[API](6,
 	// Consensus streams are special in a sense that
@@ -58,7 +57,7 @@ var Consensus = rpc.Register[API](6,
 	// This is an artifact of how Consensus was initially implemented,
 	// but it can be made to be consistent with all other streaming RPCs.
 	rpc.Limit{Rate: 10, Concurrent: 10},
-	rpc.Msg[*apb.ConsensusReq]{MsgSize: 10 * kB, Window: 1},
+	rpc.Msg[*apb.ConsensusReq]{MsgSize: 1200 * kB, Window: 1},
 	rpc.Msg[*pb.ConsensusResp]{MsgSize: kB, Window: 1},
 )
 var StreamFullCommitQCs = rpc.Register[API](7,
@@ -70,7 +69,7 @@ var GetBlock = rpc.Register[API](8,
 	rpc.Limit{Rate: 10, Concurrent: 10},
 	rpc.Msg[*pb.GetBlockReq]{MsgSize: 10 * kB, Window: 1},
 	rpc.Msg[*pb.GetBlockResp]{
-		MsgSize: rpc.InBytes(types.MaxBlockProtoSize) + 10*kB,
+		MsgSize: 2 * MB,
 		Window:  1,
 	},
 )

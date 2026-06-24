@@ -125,13 +125,14 @@ type SizedOk struct {
 	SSize string    `protobuf:"bytes,9,opt,name=s_size,json=sSize,proto3" json:"s_size,omitempty"`
 	NSize *NotSized `protobuf:"bytes,10,opt,name=n_size,json=nSize,proto3" json:"n_size,omitempty"`
 	// Repeated fields bounded by max_count
-	U64Count []uint64  `protobuf:"varint,11,rep,packed,name=u64_count,json=u64Count,proto3" json:"u64_count,omitempty"`
-	I64Count []int64   `protobuf:"varint,12,rep,packed,name=i64_count,json=i64Count,proto3" json:"i64_count,omitempty"`
-	S64Count []int64   `protobuf:"zigzag64,13,rep,packed,name=s64_count,json=s64Count,proto3" json:"s64_count,omitempty"`
-	F64Count []uint64  `protobuf:"fixed64,14,rep,packed,name=f64_count,json=f64Count,proto3" json:"f64_count,omitempty"`
-	FCount   []float32 `protobuf:"fixed32,15,rep,packed,name=f_count,json=fCount,proto3" json:"f_count,omitempty"`
-	DCount   []float64 `protobuf:"fixed64,16,rep,packed,name=d_count,json=dCount,proto3" json:"d_count,omitempty"`
-	SCount   []*Sized  `protobuf:"bytes,17,rep,name=s_count,json=sCount,proto3" json:"s_count,omitempty"`
+	U64Count          []uint64  `protobuf:"varint,11,rep,packed,name=u64_count,json=u64Count,proto3" json:"u64_count,omitempty"`
+	I64Count          []int64   `protobuf:"varint,12,rep,packed,name=i64_count,json=i64Count,proto3" json:"i64_count,omitempty"`
+	S64Count          []int64   `protobuf:"zigzag64,13,rep,packed,name=s64_count,json=s64Count,proto3" json:"s64_count,omitempty"`
+	F64Count          []uint64  `protobuf:"fixed64,14,rep,packed,name=f64_count,json=f64Count,proto3" json:"f64_count,omitempty"`
+	FCount            []float32 `protobuf:"fixed32,15,rep,packed,name=f_count,json=fCount,proto3" json:"f_count,omitempty"`
+	DCount            []float64 `protobuf:"fixed64,16,rep,packed,name=d_count,json=dCount,proto3" json:"d_count,omitempty"`
+	SCount            []*Sized  `protobuf:"bytes,17,rep,name=s_count,json=sCount,proto3" json:"s_count,omitempty"`
+	BoolCountUnpacked []bool    `protobuf:"varint,29,rep,name=bool_count_unpacked,json=boolCountUnpacked,proto3" json:"bool_count_unpacked,omitempty"`
 	// Repeated fields bounded by max_count + max_size
 	BCountSize [][]byte    `protobuf:"bytes,18,rep,name=b_count_size,json=bCountSize,proto3" json:"b_count_size,omitempty"`
 	SCountSize []string    `protobuf:"bytes,19,rep,name=s_count_size,json=sCountSize,proto3" json:"s_count_size,omitempty"`
@@ -300,6 +301,13 @@ func (x *SizedOk) GetDCount() []float64 {
 func (x *SizedOk) GetSCount() []*Sized {
 	if x != nil {
 		return x.SCount
+	}
+	return nil
+}
+
+func (x *SizedOk) GetBoolCountUnpacked() []bool {
+	if x != nil {
+		return x.BoolCountUnpacked
 	}
 	return nil
 }
@@ -520,6 +528,50 @@ func (x *OuterNotSized) GetC() *NotSized {
 	return nil
 }
 
+type PackedFalseSized struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Flags         []bool                 `protobuf:"varint,1,rep,name=flags,proto3" json:"flags,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PackedFalseSized) Reset() {
+	*x = PackedFalseSized{}
+	mi := &file_protoutils_test_a_a_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PackedFalseSized) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PackedFalseSized) ProtoMessage() {}
+
+func (x *PackedFalseSized) ProtoReflect() protoreflect.Message {
+	mi := &file_protoutils_test_a_a_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PackedFalseSized.ProtoReflect.Descriptor instead.
+func (*PackedFalseSized) Descriptor() ([]byte, []int) {
+	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *PackedFalseSized) GetFlags() []bool {
+	if x != nil {
+		return x.Flags
+	}
+	return nil
+}
+
 type Msg struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	StringValue          string                 `protobuf:"bytes,1,opt,name=string_value,json=stringValue,proto3" json:"string_value,omitempty"`
@@ -533,7 +585,7 @@ type Msg struct {
 
 func (x *Msg) Reset() {
 	*x = Msg{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[5]
+	mi := &file_protoutils_test_a_a_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -545,7 +597,7 @@ func (x *Msg) String() string {
 func (*Msg) ProtoMessage() {}
 
 func (x *Msg) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[5]
+	mi := &file_protoutils_test_a_a_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -558,7 +610,7 @@ func (x *Msg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Msg.ProtoReflect.Descriptor instead.
 func (*Msg) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{5}
+	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Msg) GetStringValue() string {
@@ -605,7 +657,7 @@ type Child struct {
 
 func (x *Child) Reset() {
 	*x = Child{}
-	mi := &file_protoutils_test_a_a_proto_msgTypes[6]
+	mi := &file_protoutils_test_a_a_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -617,7 +669,7 @@ func (x *Child) String() string {
 func (*Child) ProtoMessage() {}
 
 func (x *Child) ProtoReflect() protoreflect.Message {
-	mi := &file_protoutils_test_a_a_proto_msgTypes[6]
+	mi := &file_protoutils_test_a_a_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -630,7 +682,7 @@ func (x *Child) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Child.ProtoReflect.Descriptor instead.
 func (*Child) Descriptor() ([]byte, []int) {
-	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{6}
+	return file_protoutils_test_a_a_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Child) GetValue() string {
@@ -650,7 +702,8 @@ const file_protoutils_test_a_a_proto_rawDesc = "" +
 	"\vlarge_field\x18\x01 \x01(\fR\n" +
 	"largeField\"\x1d\n" +
 	"\x05Sized\x12\f\n" +
-	"\x01a\x18\x01 \x01(\x04R\x01a:\x06\xe8\x88\xe2\xab\f\x01\"\xca\t\n" +
+	"\x01a\x18\x01 \x01(\x04R\x01a:\x06\xe8\x88\xe2\xab\f\x01\"\x84\n" +
+	"\n" +
 	"\aSizedOk\x12\x10\n" +
 	"\x03u64\x18\x01 \x01(\x04R\x03u64\x12\x10\n" +
 	"\x03i64\x18\x02 \x01(\x03R\x03i64\x12\x10\n" +
@@ -669,7 +722,8 @@ const file_protoutils_test_a_a_proto_rawDesc = "" +
 	"\tf64_count\x18\x0e \x03(\x06B\x06Ј\xe2\xab\f\x04R\bf64Count\x12\x1f\n" +
 	"\af_count\x18\x0f \x03(\x02B\x06Ј\xe2\xab\f\x04R\x06fCount\x12\x1f\n" +
 	"\ad_count\x18\x10 \x03(\x01B\x06Ј\xe2\xab\f\x04R\x06dCount\x122\n" +
-	"\as_count\x18\x11 \x03(\v2\x11.protoutils.SizedB\x06Ј\xe2\xab\f\x04R\x06sCount\x12.\n" +
+	"\as_count\x18\x11 \x03(\v2\x11.protoutils.SizedB\x06Ј\xe2\xab\f\x04R\x06sCount\x128\n" +
+	"\x13bool_count_unpacked\x18\x1d \x03(\bB\bЈ\xe2\xab\f\x01\x10\x00R\x11boolCountUnpacked\x12.\n" +
 	"\fb_count_size\x18\x12 \x03(\fB\fЈ\xe2\xab\f\x03؈\xe2\xab\f\x05R\n" +
 	"bCountSize\x12.\n" +
 	"\fs_count_size\x18\x13 \x03(\tB\fЈ\xe2\xab\f\x03؈\xe2\xab\f\x05R\n" +
@@ -698,7 +752,9 @@ const file_protoutils_test_a_a_proto_rawDesc = "" +
 	"\rOuterNotSized\x12!\n" +
 	"\x01a\x18\x01 \x01(\v2\x13.protoutils.SizedOkR\x01a\x12)\n" +
 	"\x01b\x18\x02 \x03(\v2\x13.protoutils.SizedOkB\x06Ј\xe2\xab\f\aR\x01b\x12\"\n" +
-	"\x01c\x18\x03 \x01(\v2\x14.protoutils.NotSizedR\x01c\"\xba\x03\n" +
+	"\x01c\x18\x03 \x01(\v2\x14.protoutils.NotSizedR\x01c\":\n" +
+	"\x10PackedFalseSized\x12\x1e\n" +
+	"\x05flags\x18\x01 \x03(\bB\bЈ\xe2\xab\f\x01\x10\x00R\x05flags:\x06\xe8\x88\xe2\xab\f\x01\"\xba\x03\n" +
 	"\x03Msg\x12!\n" +
 	"\fstring_value\x18\x01 \x01(\tR\vstringValue\x12%\n" +
 	"\x0erepeated_value\x18\x02 \x03(\tR\rrepeatedValue\x12:\n" +
@@ -726,17 +782,18 @@ func file_protoutils_test_a_a_proto_rawDescGZIP() []byte {
 	return file_protoutils_test_a_a_proto_rawDescData
 }
 
-var file_protoutils_test_a_a_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_protoutils_test_a_a_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_protoutils_test_a_a_proto_goTypes = []any{
-	(*NotSized)(nil),      // 0: protoutils.NotSized
-	(*Sized)(nil),         // 1: protoutils.Sized
-	(*SizedOk)(nil),       // 2: protoutils.SizedOk
-	(*OuterSized)(nil),    // 3: protoutils.OuterSized
-	(*OuterNotSized)(nil), // 4: protoutils.OuterNotSized
-	(*Msg)(nil),           // 5: protoutils.Msg
-	(*Child)(nil),         // 6: protoutils.Child
-	nil,                   // 7: protoutils.Msg.MapValueEntry
-	nil,                   // 8: protoutils.Msg.MapMessageValueEntry
+	(*NotSized)(nil),         // 0: protoutils.NotSized
+	(*Sized)(nil),            // 1: protoutils.Sized
+	(*SizedOk)(nil),          // 2: protoutils.SizedOk
+	(*OuterSized)(nil),       // 3: protoutils.OuterSized
+	(*OuterNotSized)(nil),    // 4: protoutils.OuterNotSized
+	(*PackedFalseSized)(nil), // 5: protoutils.PackedFalseSized
+	(*Msg)(nil),              // 6: protoutils.Msg
+	(*Child)(nil),            // 7: protoutils.Child
+	nil,                      // 8: protoutils.Msg.MapValueEntry
+	nil,                      // 9: protoutils.Msg.MapMessageValueEntry
 }
 var file_protoutils_test_a_a_proto_depIdxs = []int32{
 	1,  // 0: protoutils.SizedOk.s:type_name -> protoutils.Sized
@@ -751,10 +808,10 @@ var file_protoutils_test_a_a_proto_depIdxs = []int32{
 	2,  // 9: protoutils.OuterNotSized.a:type_name -> protoutils.SizedOk
 	2,  // 10: protoutils.OuterNotSized.b:type_name -> protoutils.SizedOk
 	0,  // 11: protoutils.OuterNotSized.c:type_name -> protoutils.NotSized
-	7,  // 12: protoutils.Msg.map_value:type_name -> protoutils.Msg.MapValueEntry
-	6,  // 13: protoutils.Msg.repeated_message_value:type_name -> protoutils.Child
-	8,  // 14: protoutils.Msg.map_message_value:type_name -> protoutils.Msg.MapMessageValueEntry
-	6,  // 15: protoutils.Msg.MapMessageValueEntry.value:type_name -> protoutils.Child
+	8,  // 12: protoutils.Msg.map_value:type_name -> protoutils.Msg.MapValueEntry
+	7,  // 13: protoutils.Msg.repeated_message_value:type_name -> protoutils.Child
+	9,  // 14: protoutils.Msg.map_message_value:type_name -> protoutils.Msg.MapMessageValueEntry
+	7,  // 15: protoutils.Msg.MapMessageValueEntry.value:type_name -> protoutils.Child
 	16, // [16:16] is the sub-list for method output_type
 	16, // [16:16] is the sub-list for method input_type
 	16, // [16:16] is the sub-list for extension type_name
@@ -777,7 +834,7 @@ func file_protoutils_test_a_a_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_protoutils_test_a_a_proto_rawDesc), len(file_protoutils_test_a_a_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -17,6 +17,7 @@
 // * max_count on every repeated int/sized message field
 // * max_size on every singular bytes/string/non-sized message field
 // * max_count AND (max_size OR max_total_size) on every repeated bytes/string/non-sized message field
+// * every singular field is implicitly capped to one wire occurrence
 // Note that setting max_count and max_size effectively also bounds the total size by max_size * max_count,
 // but you can also set all: max_count, max_size, max_total_size, in which case the total size is bounded
 // by min(max_total_size,max_size * max_count).
@@ -28,22 +29,21 @@
 // This is useful for validating potentially malicious inputs BEFORE decoding the message - decoded message
 // might be significantly larger than the encoded message, which in turn might cause an OOM.
 //
-// NOTE: proto encoding containing multiple instances of a singular field, is a correct encoding (the last instance wins).
-// Scan does NOT impose implicit max_count = 1 for singular fields (even for sized messages), as these are NOT harmful:
-// during Unmarshal all but the last instances are simply ignored (it is just garbage data).
+// Scan imposes an implicit max_count = 1 for singular fields.
 //
 // TODO: dedup with sei-tendermint/internal/hashable/plugin in a later PR.
 package main
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"iter"
+	"math"
 	"path/filepath"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -52,10 +52,6 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 	"google.golang.org/protobuf/types/pluginpb"
 )
-
-var flags flag.FlagSet
-
-var moduleFlag = flags.String("module", "", "prefix to strip from the absolute generated file path. Same as in protoc-gen-go")
 
 type errMustBePositive struct {
 	Rule string
@@ -67,14 +63,17 @@ func (err errMustBePositive) Error() string {
 
 var (
 	errSizeRulesRequireSizedFieldType         = errors.New("wireguard size rules require a string, bytes, or message field")
+	errMaxTotalSizeRequiresRepeatedField      = errors.New("wireguard.max_total_size requires a repeated field")
 	errSizedMapField                          = errors.New("wireguard.sized messages must not contain map fields")
+	errSizedGroupField                        = errors.New("wireguard.sized messages must not contain group fields")
 	errSizedFieldMissingMaxCount              = errors.New("wireguard.sized repeated field missing wireguard.max_count")
 	errSizedRepeatedFieldNeedsSizeOrSizedNest = errors.New("wireguard.sized repeated field needs a size bound or sized nested message")
 	errSizedFieldNeedsSizeOrSizedNest         = errors.New("wireguard.sized field needs a size bound or sized nested message")
+	errSizedRecursiveMessage                  = errors.New("wireguard.sized messages must not recursively include themselves")
 )
 
 func main() {
-	protogen.Options{ParamFunc: flags.Set}.Run(run)
+	protogen.Options{}.Run(run)
 }
 
 const wireguardRuntime = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
@@ -153,37 +152,14 @@ func run(p *protogen.Plugin) error {
 		byName[d.FullName()] = d
 	}
 
-	// A message has a Schema if it has at least one wireguard-annotated field,
-	// or if it reaches a message with a Schema via a message-typed field.
-	// Find the closure.
-	inSchema := map[protoreflect.FullName]bool{}
-	for fullName, d := range byName {
-		if hasWireguardRule(d, exts) {
-			inSchema[fullName] = true
-		}
-	}
-	for changed := true; changed; {
-		changed = false
-		for fullName, d := range byName {
-			if inSchema[fullName] {
-				continue
-			}
-			fields := d.Fields()
-			for i := range fields.Len() {
-				target := fields.Get(i).Message()
-				if target != nil && inSchema[target.FullName()] {
-					inSchema[fullName] = true
-					changed = true
-					break
-				}
-			}
-		}
-	}
-
-	if err := validateRuleValues(byName, inSchema, exts); err != nil {
+	if err := validateRuleValues(byName, exts); err != nil {
 		return err
 	}
 	if err := validateSizedMessages(byName, exts); err != nil {
+		return err
+	}
+	maxSizes, err := computeSizedMessageMaxSizes(byName, exts)
+	if err != nil {
 		return err
 	}
 
@@ -201,18 +177,209 @@ func run(p *protogen.Plugin) error {
 	return emit(p, emitCtx{
 		byName:   byName,
 		byMsg:    byMsg,
-		inSchema: inSchema,
+		maxSizes: maxSizes,
 		exts:     exts,
 	})
+}
+
+type sizedMessageMaxState struct {
+	byName map[protoreflect.FullName]protoreflect.MessageDescriptor
+	exts   wireguardExts
+	cache  map[protoreflect.FullName]int
+	stack  map[protoreflect.FullName]struct{}
+}
+
+func computeSizedMessageMaxSizes(byName map[protoreflect.FullName]protoreflect.MessageDescriptor, exts wireguardExts) (map[protoreflect.FullName]int, error) {
+	state := sizedMessageMaxState{
+		byName: byName,
+		exts:   exts,
+		cache:  map[protoreflect.FullName]int{},
+		stack:  map[protoreflect.FullName]struct{}{},
+	}
+	for _, d := range byName {
+		if !hasTrueMessageOption(d, exts.sized) {
+			continue
+		}
+		if _, err := state.messageSize(d); err != nil {
+			return nil, err
+		}
+	}
+	return state.cache, nil
+}
+
+func (s *sizedMessageMaxState) messageSize(d protoreflect.MessageDescriptor) (int, error) {
+	if size, ok := s.cache[d.FullName()]; ok {
+		return size, nil
+	}
+	if _, ok := s.stack[d.FullName()]; ok {
+		return 0, fmt.Errorf("%s: %w", d.FullName(), errSizedRecursiveMessage)
+	}
+	s.stack[d.FullName()] = struct{}{}
+	defer delete(s.stack, d.FullName())
+
+	var total int
+	fields := d.Fields()
+	for i := range fields.Len() {
+		fd := fields.Get(i)
+		if oo := fd.ContainingOneof(); oo != nil && !oo.IsSynthetic() {
+			if oo.Fields().Get(0) != fd {
+				continue
+			}
+			var oneofMax int
+			for j := range oo.Fields().Len() {
+				fieldSize, err := s.fieldSize(oo.Fields().Get(j))
+				if err != nil {
+					return 0, err
+				}
+				oneofMax = max(oneofMax, fieldSize)
+			}
+			total = addInt(total, oneofMax)
+			continue
+		}
+
+		fieldSize, err := s.fieldSize(fd)
+		if err != nil {
+			return 0, err
+		}
+		total = addInt(total, fieldSize)
+	}
+
+	s.cache[d.FullName()] = total
+	return total, nil
+}
+
+func (s *sizedMessageMaxState) fieldSize(fd protoreflect.FieldDescriptor) (int, error) {
+	switch fd.Kind() {
+	case protoreflect.StringKind, protoreflect.BytesKind:
+		bound, _ := bytesFieldBound(fd, s.exts)
+		return bound, nil
+	case protoreflect.MessageKind:
+		if bound, ok := bytesFieldBound(fd, s.exts); ok {
+			return bound, nil
+		}
+		nestedSize, err := s.messageSize(fd.Message())
+		if err != nil {
+			return 0, err
+		}
+		return mulInt(maxCount(fd, s.exts), bytesFieldSize(fd.Number(), nestedSize)), nil
+	default:
+		valueSize := s.scalarValueSize(fd)
+		count := maxCount(fd, s.exts)
+		size := mulInt(count, addInt(protowire.SizeTag(fd.Number()), valueSize))
+		if fd.IsList() {
+			size = max(size, bytesFieldSize(fd.Number(), mulInt(count, valueSize)))
+		}
+		return size, nil
+	}
+}
+
+func (s *sizedMessageMaxState) scalarValueSize(fd protoreflect.FieldDescriptor) int {
+	switch fd.Kind() {
+	case protoreflect.BoolKind:
+		return 1
+	case protoreflect.EnumKind:
+		size := 1
+		values := fd.Enum().Values()
+		for i := range values.Len() {
+			size = max(size, protowire.SizeVarint(uint64(int64(values.Get(i).Number())))) // nolint: gosec // WAI, negative enums are encoded as uint64
+		}
+		return size
+	case protoreflect.Int32Kind, protoreflect.Int64Kind:
+		return 10
+	case protoreflect.Sint32Kind:
+		return protowire.SizeVarint(protowire.EncodeZigZag(-1 << 31))
+	case protoreflect.Sint64Kind:
+		return protowire.SizeVarint(protowire.EncodeZigZag(-1 << 63))
+	case protoreflect.Uint32Kind:
+		return protowire.SizeVarint(^uint64(uint32(0)))
+	case protoreflect.Uint64Kind:
+		return 10
+	case protoreflect.Sfixed32Kind, protoreflect.Fixed32Kind, protoreflect.FloatKind:
+		return protowire.SizeFixed32()
+	case protoreflect.Sfixed64Kind, protoreflect.Fixed64Kind, protoreflect.DoubleKind:
+		return protowire.SizeFixed64()
+	default:
+		panic(fmt.Errorf("%s: unsupported field kind %s", fd.FullName(), fd.Kind()))
+	}
+}
+
+func fieldIntOption(fd protoreflect.FieldDescriptor, ext protoreflect.ExtensionType) (int, bool) {
+	opts := fd.Options().(*descriptorpb.FieldOptions).ProtoReflect()
+	if !opts.Has(ext.TypeDescriptor()) {
+		return 0, false
+	}
+	return int(opts.Get(ext.TypeDescriptor()).Uint()), true // nolint: gosec // proto.Unmarshal is using int for sizes, no point in specifying higher limits
+}
+
+func maxCount(fd protoreflect.FieldDescriptor, exts wireguardExts) int {
+	if fd.IsList() {
+		count, ok := fieldIntOption(fd, exts.maxCount)
+		if !ok {
+			panic("missing max_count on a repeated field")
+		}
+		return count
+	}
+	return 1
+}
+
+func bytesFieldSize(f protoreflect.FieldNumber, rawSize int) int {
+	return addInt(protowire.SizeTag(f), protowire.SizeVarint(uint64(rawSize)), rawSize) // nolint: gosec // always >=0
+}
+
+func bytesFieldBound(fd protoreflect.FieldDescriptor, exts wireguardExts) (int, bool) {
+	count := maxCount(fd, exts)
+	item := math.MaxInt
+	total := math.MaxInt
+	bounded := false
+	if m, ok := fieldIntOption(fd, exts.maxTotalSize); ok {
+		total = min(total, m)
+		item = min(item, m)
+		bounded = true
+	}
+	if m, ok := fieldIntOption(fd, exts.maxSize); ok {
+		total = min(total, mulInt(count, m))
+		item = min(item, m)
+		bounded = true
+	}
+	if !bounded {
+		return 0, false
+	}
+	if count == 0 {
+		return 0, true
+	}
+	// Overapproximation by at most <count> bytes.
+	// Total size is maximized by maximizing the number of instances that <total> is spread across.
+	item = min(item, total/count+1)
+	return mulInt(count, bytesFieldSize(fd.Number(), item)), true
+}
+
+func addInt(vs ...int) int {
+	sum := 0
+	for _, v := range vs {
+		if v > math.MaxInt-sum {
+			return math.MaxInt
+		}
+		sum += v
+	}
+	return sum
+}
+
+func mulInt(a int, b int) int {
+	if a == 0 || b == 0 {
+		return 0
+	}
+	if a > math.MaxInt/b {
+		return math.MaxInt
+	}
+	return a * b
 }
 
 // validateRuleValues rejects explicit zero-valued wireguard annotations,
 // which would silently mean "no cap" at runtime. An explicit zero is almost
 // certainly a mistake; pick a positive cap or drop the annotation if the
 // field is genuinely unbounded.
-func validateRuleValues(byName map[protoreflect.FullName]protoreflect.MessageDescriptor, inSchema map[protoreflect.FullName]bool, exts wireguardExts) error {
-	for fullName := range inSchema {
-		d := byName[fullName]
+func validateRuleValues(byName map[protoreflect.FullName]protoreflect.MessageDescriptor, exts wireguardExts) error {
+	for _, d := range byName {
 		fields := d.Fields()
 		for i := range fields.Len() {
 			f := fields.Get(i)
@@ -227,6 +394,9 @@ func validateRuleValues(byName map[protoreflect.FullName]protoreflect.MessageDes
 			}
 			if (opts.Has(exts.maxSize.TypeDescriptor()) || opts.Has(exts.maxTotalSize.TypeDescriptor())) && !supportsSizeRules(f) {
 				return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errSizeRulesRequireSizedFieldType)
+			}
+			if opts.Has(exts.maxTotalSize.TypeDescriptor()) && !f.IsList() {
+				return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errMaxTotalSizeRequiresRepeatedField)
 			}
 		}
 	}
@@ -243,6 +413,9 @@ func validateSizedMessages(byName map[protoreflect.FullName]protoreflect.Message
 			f := fields.Get(i)
 			if f.IsMap() {
 				return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errSizedMapField)
+			}
+			if f.Kind() == protoreflect.GroupKind {
+				return fmt.Errorf("%s.%s: %w", d.FullName(), f.Name(), errSizedGroupField)
 			}
 			opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
 			hasMaxCount := opts.Has(exts.maxCount.TypeDescriptor())
@@ -316,17 +489,6 @@ func walkMsgs(mds protoreflect.MessageDescriptors) iter.Seq[protoreflect.Message
 	}
 }
 
-func hasWireguardRule(d protoreflect.MessageDescriptor, exts wireguardExts) bool {
-	fields := d.Fields()
-	for i := range fields.Len() {
-		opts := fields.Get(i).Options().(*descriptorpb.FieldOptions).ProtoReflect()
-		if opts.Has(exts.maxCount.TypeDescriptor()) || opts.Has(exts.maxSize.TypeDescriptor()) || opts.Has(exts.maxTotalSize.TypeDescriptor()) {
-			return true
-		}
-	}
-	return false
-}
-
 // emitCtx is the read-only context threaded into per-file/per-message
 // emission. It batches the lookup tables and the wireguard / utils / reflect Go
 // identifier expressions that emit needs but don't change between calls.
@@ -342,40 +504,37 @@ type emitCtx struct {
 	// target to its Go identifier without hand-constructing the name.
 	byMsg map[protoreflect.FullName]*protogen.Message
 
-	// inSchema is the set of message types we emit schemas for.
-	inSchema map[protoreflect.FullName]bool
+	// maxSizes stores the generated MaxSize() return value for each sized
+	// message.
+	maxSizes map[protoreflect.FullName]int
 
 	// exts are the wireguard FieldOptions extensions resolved against the
 	// rebuilt descriptor graph.
 	exts wireguardExts
 }
 
-// emitIdents holds the Go identifier expressions for the wireguard /
-// utils / reflect symbols a generated file refers to. They are produced from the
-// current *protogen.GeneratedFile (which records the imports) and so are
-// rebuilt for every emitted file.
-type emitIdents struct {
-	schema, mustRegister, utilsSome, reflectTypeFor string
-	varintType, fixed32Type, fixed64Type            string
+// emitIdents lazily qualifies the Go identifiers a generated file actually
+// uses, so we don't force imports into files that never reference them.
+type emitIdents struct{ g *protogen.GeneratedFile }
+
+func newEmitIdents(g *protogen.GeneratedFile) emitIdents { return emitIdents{g: g} }
+
+func (i emitIdents) qual(pkg, name string) string {
+	return i.g.QualifiedGoIdent(protogen.GoIdent{GoName: name, GoImportPath: protogen.GoImportPath(pkg)})
 }
 
-func newEmitIdents(g *protogen.GeneratedFile) emitIdents {
-	q := func(pkg, name string) string {
-		return g.QualifiedGoIdent(protogen.GoIdent{GoName: name, GoImportPath: protogen.GoImportPath(pkg)})
-	}
-	return emitIdents{
-		schema:         q(wireguardRuntime, "Schema"),
-		mustRegister:   q(wireguardRuntime, "MustRegister"),
-		utilsSome:      q(utilsPkg, "Some"),
-		reflectTypeFor: q("reflect", "TypeFor"),
-		varintType:     q(wireguardRuntime, "VarintType"),
-		fixed32Type:    q(wireguardRuntime, "Fixed32Type"),
-		fixed64Type:    q(wireguardRuntime, "Fixed64Type"),
-	}
+func (i emitIdents) schema() string       { return i.qual(wireguardRuntime, "Schema") }
+func (i emitIdents) mustRegister() string { return i.qual(wireguardRuntime, "MustRegister") }
+func (i emitIdents) utilsSome() string    { return i.qual(utilsPkg, "Some") }
+func (i emitIdents) reflectTypeFor() string {
+	return i.qual("reflect", "TypeFor")
 }
+func (i emitIdents) varintType() string  { return i.qual(wireguardRuntime, "VarintType") }
+func (i emitIdents) fixed32Type() string { return i.qual(wireguardRuntime, "Fixed32Type") }
+func (i emitIdents) fixed64Type() string { return i.qual(wireguardRuntime, "Fixed64Type") }
 
 // emit walks files and emits per-file <name>.wireguard.go containing init()
-// registrations for messages in the closure that are defined in that file.
+// registrations for messages defined in that file.
 func emit(p *protogen.Plugin, ctx emitCtx) error {
 	for _, file := range p.Files {
 		if !file.Generate {
@@ -383,20 +542,17 @@ func emit(p *protogen.Plugin, ctx emitCtx) error {
 		}
 		var targets []*protogen.Message
 		for m := range allPMs(file) {
-			if ctx.inSchema[m.Desc.FullName()] {
-				targets = append(targets, m.Message)
+			if m.Desc.IsMapEntry() {
+				continue
 			}
+			targets = append(targets, m.Message)
 		}
 		if len(targets) == 0 {
 			continue
 		}
 
-		genDir, err := filepath.Rel(*moduleFlag, string(file.GoImportPath))
-		if err != nil {
-			return fmt.Errorf("filepath.Rel(): %w", err)
-		}
 		genFileName := strings.TrimSuffix(filepath.Base(file.Desc.Path()), ".proto") + ".wireguard.go"
-		g := p.NewGeneratedFile(filepath.Join(genDir, genFileName), file.GoImportPath)
+		g := p.NewGeneratedFile(filepath.Join(string(file.GoImportPath), genFileName), file.GoImportPath)
 		g.P("// Code generated by sei-tendermint/internal/protoutils/wireguard_plugin. DO NOT EDIT.")
 		g.P("package ", file.GoPackageName)
 		g.P()
@@ -407,10 +563,25 @@ func emit(p *protogen.Plugin, ctx emitCtx) error {
 }
 
 func emitRegistrations(g *protogen.GeneratedFile, targets []*protogen.Message, ctx emitCtx, idents emitIdents) {
+	for _, m := range targets {
+		if !hasTrueMessageOption(ctx.byName[m.Desc.FullName()], ctx.exts.sized) {
+			continue
+		}
+		emitMaxSizeMethod(g, m, ctx)
+	}
+
 	g.P("func init() {")
 	for _, m := range targets {
 		emitSchemaRegistration(g, m, ctx, idents)
 	}
+	g.P("}")
+	g.P()
+}
+
+func emitMaxSizeMethod(g *protogen.GeneratedFile, m *protogen.Message, ctx emitCtx) {
+	size := ctx.maxSizes[m.Desc.FullName()]
+	g.P("func (*", m.GoIdent.GoName, ") MaxSize() int {")
+	g.P("return ", size)
 	g.P("}")
 	g.P()
 }
@@ -421,28 +592,30 @@ func emitSchemaRegistration(g *protogen.GeneratedFile, m *protogen.Message, ctx 
 	// doesn't).
 	d := ctx.byName[m.Desc.FullName()]
 	g.P("// Register the wireguard.Schema generated for ", d.FullName(), ".")
-	g.P(idents.mustRegister, "[*", m.GoIdent.GoName, "](", idents.schema, "{")
+	g.P(idents.mustRegister(), "[*", m.GoIdent.GoName, "](", idents.schema(), "{")
 	for _, pf := range m.Fields {
 		f := d.Fields().Get(pf.Desc.Index())
 		opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
 		hasMaxCount := opts.Has(ctx.exts.maxCount.TypeDescriptor())
 		hasMaxSize := opts.Has(ctx.exts.maxSize.TypeDescriptor())
 		hasMaxTotalSize := opts.Has(ctx.exts.maxTotalSize.TypeDescriptor())
+		implicitSingularMaxCount := !f.IsList() && !f.IsMap()
 
-		var nestedTarget protoreflect.MessageDescriptor
-		if target := f.Message(); target != nil && ctx.inSchema[target.FullName()] {
-			nestedTarget = target
+		nestedTarget := f.Message()
+		if f.IsMap() {
+			nestedTarget = f.MapValue().Message()
+		} else if nestedTarget != nil && nestedTarget.IsMapEntry() {
+			nestedTarget = nil
 		}
-		if !hasMaxCount && !hasMaxSize && !hasMaxTotalSize && nestedTarget == nil {
+		if !implicitSingularMaxCount && !hasMaxCount && !hasMaxSize && !hasMaxTotalSize && nestedTarget == nil && !f.IsMap() {
 			continue
 		}
 
 		var pieces []string
-		if hasMaxCount {
-			maxCount := opts.Get(ctx.exts.maxCount.TypeDescriptor()).Uint()
-			pieces = append(pieces, fmt.Sprintf("MaxCount: %d", maxCount))
+		if implicitSingularMaxCount || hasMaxCount {
+			pieces = append(pieces, fmt.Sprintf("MaxCount: %d", maxCount(f, ctx.exts)))
 			if packedTypeExpr := packedTypeExpr(f, idents); packedTypeExpr != "" {
-				pieces = append(pieces, fmt.Sprintf("PackedType: %s(%s)", idents.utilsSome, packedTypeExpr))
+				pieces = append(pieces, fmt.Sprintf("PackedType: %s(%s)", idents.utilsSome(), packedTypeExpr))
 			}
 		}
 		if hasMaxSize {
@@ -453,9 +626,12 @@ func emitSchemaRegistration(g *protogen.GeneratedFile, m *protogen.Message, ctx 
 			maxTotalSize := opts.Get(ctx.exts.maxTotalSize.TypeDescriptor()).Uint()
 			pieces = append(pieces, fmt.Sprintf("MaxTotalSize: %d", maxTotalSize))
 		}
+		if f.IsMap() {
+			pieces = append(pieces, "IsMap: true")
+		}
 		if nestedTarget != nil {
 			targetExpr := typeExprForTarget(g, ctx, nestedTarget, idents)
-			pieces = append(pieces, fmt.Sprintf("Nested: %s(%s)", idents.utilsSome, targetExpr))
+			pieces = append(pieces, fmt.Sprintf("Nested: %s(%s)", idents.utilsSome(), targetExpr))
 		}
 		g.P(f.Number(), ": {", strings.Join(pieces, ", "), "},")
 	}
@@ -477,11 +653,11 @@ func typeExprForTarget(g *protogen.GeneratedFile, ctx emitCtx, d protoreflect.Me
 		GoName:       m.GoIdent.GoName,
 		GoImportPath: m.GoIdent.GoImportPath,
 	})
-	return fmt.Sprintf("%s[*%s]()", idents.reflectTypeFor, target)
+	return fmt.Sprintf("%s[*%s]()", idents.reflectTypeFor(), target)
 }
 
 func packedTypeExpr(f protoreflect.FieldDescriptor, idents emitIdents) string {
-	if !f.IsList() || !f.IsPacked() {
+	if !f.IsList() {
 		return ""
 	}
 	switch f.Kind() {
@@ -493,15 +669,15 @@ func packedTypeExpr(f protoreflect.FieldDescriptor, idents emitIdents) string {
 		protoreflect.Uint64Kind,
 		protoreflect.Sint32Kind,
 		protoreflect.Sint64Kind:
-		return idents.varintType
+		return idents.varintType()
 	case protoreflect.Fixed32Kind,
 		protoreflect.Sfixed32Kind,
 		protoreflect.FloatKind:
-		return idents.fixed32Type
+		return idents.fixed32Type()
 	case protoreflect.Fixed64Kind,
 		protoreflect.Sfixed64Kind,
 		protoreflect.DoubleKind:
-		return idents.fixed64Type
+		return idents.fixed64Type()
 	default:
 		return ""
 	}

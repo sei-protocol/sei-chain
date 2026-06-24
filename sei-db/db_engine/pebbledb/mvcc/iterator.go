@@ -13,6 +13,8 @@ import (
 	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
+
+	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 )
 
 var _ dbm.Iterator = (*iterator)(nil)
@@ -31,12 +33,14 @@ type iterator struct {
 	reverse            bool
 	useDefaultComparer bool
 	iterationCount     int64
+	readCount          int64
 	storeKey           string
+	operationMetrics   *pebbledbmetrics.OperationMetrics
 
 	closeSync sync.Once
 }
 
-func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, useDefaultComparer bool, storeKey string) *iterator {
+func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, useDefaultComparer bool, storeKey string, operationMetrics *pebbledbmetrics.OperationMetrics) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
@@ -49,6 +53,7 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 			reverse:            reverse,
 			useDefaultComparer: useDefaultComparer,
 			storeKey:           storeKey,
+			operationMetrics:   operationMetrics,
 		}
 	}
 
@@ -70,6 +75,7 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 		reverse:            reverse,
 		useDefaultComparer: useDefaultComparer,
 		storeKey:           storeKey,
+		operationMetrics:   operationMetrics,
 	}
 
 	if valid {
@@ -93,6 +99,9 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 		} else {
 			itr.nextForward()
 		}
+	}
+	if itr.Valid() {
+		itr.readCount = 1
 	}
 
 	return itr
@@ -275,6 +284,9 @@ func (itr *iterator) Next() {
 	} else {
 		itr.nextForward()
 	}
+	if itr.Valid() {
+		itr.readCount++
+	}
 }
 
 func (itr *iterator) Valid() bool {
@@ -320,6 +332,9 @@ func (itr *iterator) Close() error {
 				attribute.String("store", itr.storeKey),
 			),
 		)
+		if itr.operationMetrics != nil {
+			itr.operationMetrics.AddRead(itr.readCount)
+		}
 	})
 	return nil
 }

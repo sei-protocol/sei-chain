@@ -29,6 +29,7 @@ type opts struct {
 	denyList                     interface{}
 	maxLogNoBlock                interface{}
 	maxBlocksForLog              interface{}
+	maxEstimateGasCalls          interface{}
 	maxSubscriptionsNewHead      interface{}
 	maxSubscriptionsLogs         interface{}
 	enableTestAPI                interface{}
@@ -104,6 +105,9 @@ func (o *opts) Get(k string) interface{} {
 	}
 	if k == "evm.max_blocks_for_log" {
 		return o.maxBlocksForLog
+	}
+	if k == "evm.max_estimate_gas_calls" {
+		return o.maxEstimateGasCalls
 	}
 	if k == "evm.max_subscriptions_new_head" {
 		return o.maxSubscriptionsNewHead
@@ -182,6 +186,7 @@ func getDefaultOpts() opts {
 		make([]string, 0),
 		20000,
 		1000,
+		100,
 		10000,
 		1000,
 		false,

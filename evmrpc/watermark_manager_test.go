@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -203,8 +204,8 @@ func (*fakeTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (*fakeTMClient) EvmProxy(common.Address) (*url.URL, bool) {
-	return nil, false
+func (*fakeTMClient) EvmProxy(common.Address) utils.Option[*url.URL] {
+	return utils.None[*url.URL]()
 }
 
 func (f *fakeTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {

@@ -76,7 +76,11 @@ type Config struct {
 	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
 
 	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
-	// configuration. Leave empty to disable Autobahn.
+	// configuration. Leave empty to disable Autobahn. The autobahn role
+	// follows the top-level `mode` field: "validator" runs the validator
+	// path; any other mode runs as a fullnode (loads the committee as a
+	// routing table and pulls blocks from committee members). A warning is
+	// logged at startup if mode disagrees with committee membership.
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 }
 

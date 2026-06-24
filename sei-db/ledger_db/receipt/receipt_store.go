@@ -124,6 +124,7 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 		ssConfig.DBDirectory = config.DBDirectory
 		ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer
 		ssConfig.KeepRecent = config.KeepRecent
+		ssConfig.EnableReadWriteMetrics = config.EnableReadWriteMetrics
 		if config.PruneIntervalSeconds > 0 {
 			ssConfig.PruneIntervalSeconds = config.PruneIntervalSeconds
 		}
