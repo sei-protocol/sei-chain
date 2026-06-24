@@ -531,10 +531,82 @@ jobs:
           path: integration_test/rpc_tests/reports/merged
           if-no-files-found: ignore
 
+  # Autobahn integration suite (Autobahn Basic) — boots its own cluster via
+  # TestMain (docker-cluster-start / -stop), so it runs in a separate job
+  # rather than as a matrix entry that would share the integration-tests
+  # cluster.
+  autobahn-integration-tests:
+    name: Integration Test (Autobahn Basic)
+    runs-on: ubuntu-large
+    timeout-minutes: 45
+    needs: prepare-cluster
+    permissions:
+      packages: read
+      contents: read
+    env:
+      GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
+      GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.6'
+      - name: Install jq
+        run: sudo apt-get install -y jq
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: env.DOCKERHUB_USERNAME != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download integration CI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-ci-artifacts
+      - name: Load prebuilt seid and pull Docker images
+        run: |
+          tar -xzf integration-build.tar.gz
+          docker pull "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          docker pull "${GHCR_RPCNODE}:${{ github.run_id }}"
+          docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
+          docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
+      - name: Run autobahn integration tests
+        run: make autobahn-integration-test
+      - name: Print node logs on failure
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          for c in sei-node-0 sei-node-1 sei-node-2 sei-node-3 sei-rpc-node; do
+            echo "==================== ${c} (docker logs tail) ===================="
+            docker logs --tail 200 "${c}" || true
+          done
+      - name: Collect logs directory
+        if: ${{ always() }}
+        run: |
+          mkdir -p artifacts/sei-autobahn-integration
+          if [ -d build/generated/logs ]; then
+            cp -r build/generated/logs artifacts/sei-autobahn-integration/
+          fi
+      - name: Upload logs directory
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-autobahn-integration
+          path: artifacts/sei-autobahn-integration
+          if-no-files-found: warn
+
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
-    needs: [prepare-cluster, integration-tests]
+    needs: [prepare-cluster, integration-tests, autobahn-integration-tests]
     if: always()
     steps:
       - name: Verify prepare and test jobs succeeded
@@ -545,6 +617,10 @@ jobs:
           fi
           if [[ "${{ needs.integration-tests.result }}" != "success" ]]; then
             echo "integration-tests job did not succeed (${{ needs.integration-tests.result }})"
+            exit 1
+          fi
+          if [[ "${{ needs.autobahn-integration-tests.result }}" != "success" ]]; then
+            echo "autobahn-integration-tests job did not succeed (${{ needs.autobahn-integration-tests.result }})"
             exit 1
           fi
           echo "All integration test jobs passed."

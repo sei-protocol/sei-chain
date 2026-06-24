@@ -107,7 +107,14 @@ func (c *Local) CheckTx(ctx context.Context, tx types.Tx) (*coretypes.ResultChec
 
 func (c *Local) EvmNextPendingNonce(addr common.Address) uint64 {
 	if giga, ok := c.Environment.Router.Giga().Get(); ok {
-		return giga.Mempool().EvmNextPendingNonce(addr)
+		if v, ok := giga.Mempool().Get(); ok {
+			return v.EvmNextPendingNonce(addr)
+		}
+		// Fullnode: no local mempool; the pending nonce lives on the
+		// shard owner. Returning 0 here defers to the on-chain confirmed
+		// nonce; callers that need the pending value should query the
+		// shard owner's EVM RPC directly via EvmProxy.
+		return 0
 	}
 	if mp, ok := c.Mempool.Get(); ok {
 		return mp.EvmNextPendingNonce(addr)

@@ -51,6 +51,10 @@ func (m *mockApplication) GetValidators() []abci.ValidatorUpdate {
 	return nil
 }
 
+func (m *mockApplication) LastBlockHeight() int64 {
+	return 0
+}
+
 func (m *mockApplication) Close() error {
 	return m.cms.Close()
 }
