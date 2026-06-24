@@ -57,7 +57,7 @@ func TestConsensusClientServer(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("ds.QC(): %w", err)
 				}
-				want.Timestamp = qc.QC().Proposal().BlockTimestamp(n.data.Registry().FirstBlock(), idx).OrPanic("global block not in QC")
+				want.Timestamp = qc.QC().Proposal().BlockTimestamp(idx).OrPanic("global block not in QC")
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}

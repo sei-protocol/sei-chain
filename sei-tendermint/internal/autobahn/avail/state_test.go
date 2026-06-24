@@ -60,24 +60,9 @@ func makeCommitQC(
 	laneQCs map[types.LaneID]*types.LaneQC,
 	appQC utils.Option[*types.AppQC],
 ) *types.CommitQC {
-	vs := types.ViewSpec{CommitQC: prev}
+	vs := types.ViewSpec{CommitQC: prev, FirstBlock: registry.FirstBlock()}
 	committee := registry.CommitteeFor(vs.View().Index)
-	fullProposal := utils.OrPanic1(types.NewProposal(
-		leaderKey(committee, keys, vs.View()),
-		committee,
-		vs,
-		0,
-		time.Time{},
-		time.Now(),
-		laneQCs,
-		appQC,
-	))
-	vote := types.NewCommitVote(fullProposal.Proposal().Msg())
-	var votes []*types.Signed[*types.CommitVote]
-	for _, k := range keys {
-		votes = append(votes, types.Sign(k, vote))
-	}
-	return types.NewCommitQC(votes)
+	return types.BuildCommitQC(committee, keys, prev, registry.FirstBlock(), time.Time{}, laneQCs, appQC)
 }
 
 func qcPayloadHashes(qc *types.FullCommitQC) byLane[types.PayloadHash] {
@@ -169,7 +154,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Push app votes.")
-			appProposal := types.NewAppProposal(qc.GlobalRange(registry.FirstBlock()).Next-1, qc.Proposal().Index(), types.GenAppHash(rng))
+			appProposal := types.NewAppProposal(qc.GlobalRange().Next-1, qc.Proposal().Index(), types.GenAppHash(rng))
 			for _, vote := range makeAppVotes(keys, appProposal) {
 				if err := state.PushAppVote(ctx, vote); err != nil {
 					return fmt.Errorf("state.PushAppVote(): %w", err)
@@ -205,7 +190,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Check that the blocks were successfully pushed to data state.")
-			gr := got.QC().GlobalRange(registry.FirstBlock())
+			gr := got.QC().GlobalRange()
 			for i := gr.First; i < gr.Next; i++ {
 				b, err := ds.Block(ctx, i)
 				if err != nil {
@@ -289,7 +274,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 				return fmt.Errorf("PushCommitQC: %w", err)
 			}
 
-			appProposal := types.NewAppProposal(qc.GlobalRange(registry.FirstBlock()).Next-1, qc.Proposal().Index(), types.GenAppHash(rng))
+			appProposal := types.NewAppProposal(qc.GlobalRange().Next-1, qc.Proposal().Index(), types.GenAppHash(rng))
 			for _, vote := range makeAppVotes(keys, appProposal) {
 				if err := state.PushAppVote(ctx, vote); err != nil {
 					return fmt.Errorf("PushAppVote: %w", err)
@@ -350,12 +335,12 @@ func TestStateMismatchedQCs(t *testing.T) {
 
 	// Helper to create a CommitQC for a specific index
 	makeQC := func(prev utils.Option[*types.CommitQC], laneQCs map[types.LaneID]*types.LaneQC) *types.CommitQC {
-		vs := types.ViewSpec{CommitQC: prev}
+		vs := types.ViewSpec{CommitQC: prev, FirstBlock: initialBlock}
 		fullProposal := utils.OrPanic1(types.NewProposal(
 			leaderKey(committee, keys, vs.View()),
 			committee,
 			vs,
-			0,
+			initialBlock,
 			time.Time{},
 			time.Now(),
 			laneQCs,
@@ -383,8 +368,8 @@ func TestStateMismatchedQCs(t *testing.T) {
 
 	// 3. Create CommitQC for index 0 (finalizes block 0)
 	qc0 := makeQC(utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{lane: laneQC})
-	require.Equal(t, initialBlock, qc0.GlobalRange(registry.FirstBlock()).First)
-	require.Equal(t, initialBlock+1, qc0.GlobalRange(registry.FirstBlock()).Next)
+	require.Equal(t, initialBlock, qc0.GlobalRange().First)
+	require.Equal(t, initialBlock+1, qc0.GlobalRange().Next)
 
 	t.Run("PushAppQC mismatch", func(t *testing.T) {
 		require := require.New(t)

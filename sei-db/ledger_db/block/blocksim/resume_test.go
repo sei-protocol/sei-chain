@@ -67,8 +67,8 @@ func TestRecoverResumeState(t *testing.T) {
 
 	prevQC, ok := prev.Get()
 	require.True(t, ok, "recovered prev QC must be present")
-	require.Equal(t, last.first, prevQC.GlobalRange(0).First, "recovered QC must be the last persisted QC")
-	require.Equal(t, last.next, prevQC.GlobalRange(0).Next)
+	require.Equal(t, last.first, prevQC.GlobalRange().First, "recovered QC must be the last persisted QC")
+	require.Equal(t, last.next, prevQC.GlobalRange().Next)
 
 	// Empty-store sanity: a fresh dir recovers nothing.
 	empty, err := openBlockDB(&BlocksimConfig{Backend: "litt", DataDir: t.TempDir(), LittRetentionSeconds: 1})

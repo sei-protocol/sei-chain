@@ -121,7 +121,7 @@ func NewBlockSim(
 		// last QC's range — the next batch then appends contiguously. Block bytes
 		// are irrelevant here (this is a DB stress test), so the backfill writes
 		// freshly generated blocks under the already-persisted QC.
-		qcRange := prevQC.GlobalRange(0)
+		qcRange := prevQC.GlobalRange()
 		lastQCNext := uint64(qcRange.Next)
 		firstMissing := uint64(qcRange.First)
 		if h, ok := highestOpt.Get(); ok {

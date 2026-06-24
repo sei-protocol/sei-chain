@@ -26,7 +26,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 		return makeCommitQC(registry, keys, prev, lqcs, utils.None[*types.AppQC]())
 	}
 	makeAppQC := func(qcForRange *types.CommitQC, qcForIndex *types.CommitQC) *types.AppQC {
-		gr := qcForRange.GlobalRange(registry.FirstBlock())
+		gr := qcForRange.GlobalRange()
 		require.True(t, gr.Len() > 0)
 		ap := types.NewAppProposal(gr.First, qcForIndex.Index(), types.GenAppHash(rng))
 		return types.NewAppQC(makeAppVotes(keys, ap))

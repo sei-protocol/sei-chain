@@ -44,23 +44,23 @@ func (*View) MaxSize() int {
 }
 
 func (*Proposal) MaxSize() int {
-	return 9506
+	return 9517
 }
 
 func (*FullProposal) MaxSize() int {
-	return 1106394
+	return 1106416
 }
 
 func (*PrepareQC) MaxSize() int {
-	return 19909
+	return 19920
 }
 
 func (*CommitQC) MaxSize() int {
-	return 19909
+	return 19920
 }
 
 func (*FullCommitQC) MaxSize() int {
-	return 136913
+	return 31624
 }
 
 func (*TimeoutVote) MaxSize() int {
@@ -68,11 +68,11 @@ func (*TimeoutVote) MaxSize() int {
 }
 
 func (*TimeoutQC) MaxSize() int {
-	return 34313
+	return 34324
 }
 
 func (*FullTimeoutVote) MaxSize() int {
-	return 20057
+	return 20068
 }
 
 func (*AppQC) MaxSize() int {
@@ -88,7 +88,7 @@ func (*Msg) MaxSize() int {
 }
 
 func (*SignedProposal) MaxSize() int {
-	return 9613
+	return 9624
 }
 
 func (*SignedTimeoutVote) MaxSize() int {
@@ -112,7 +112,7 @@ func (*SignedAppProposal) MaxSize() int {
 }
 
 func (*ConsensusReq) MaxSize() int {
-	return 1106398
+	return 1106420
 }
 
 func init() {
@@ -215,6 +215,7 @@ func init() {
 		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Timestamp]())},
 		3: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*LaneRange]())},
 		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
+		6: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.FullProposal.

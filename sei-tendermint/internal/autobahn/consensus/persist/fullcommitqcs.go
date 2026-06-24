@@ -19,7 +19,7 @@ type fullCommitQCState struct {
 }
 
 func (s *fullCommitQCState) persistQC(qc *types.FullCommitQC) error {
-	gr := qc.QC().GlobalRange(s.firstBlock)
+	gr := qc.QC().GlobalRange()
 	if gr.First < s.next {
 		return nil
 	}
@@ -51,7 +51,7 @@ func (s *fullCommitQCState) truncateBefore(n types.GlobalBlockNumber) error {
 	// per prune call because pruning advances one block at a time while
 	// each QC covers many blocks.
 	if err := iw.TruncateWhile(func(entry *types.FullCommitQC) bool {
-		return entry.QC().GlobalRange(s.firstBlock).Next <= n
+		return entry.QC().GlobalRange().Next <= n
 	}); err != nil {
 		return fmt.Errorf("truncate full commitqc WAL: %w", err)
 	}
@@ -87,7 +87,7 @@ func NewFullCommitQCPersister(stateDir utils.Option[string], firstBlock types.Gl
 		return nil, err
 	}
 	if len(loaded) > 0 {
-		s.next = loaded[len(loaded)-1].QC().GlobalRange(s.firstBlock).Next
+		s.next = loaded[len(loaded)-1].QC().GlobalRange().Next
 	}
 	s.loaded = loaded
 	return &FullCommitQCPersister{
@@ -109,7 +109,7 @@ func (gp *FullCommitQCPersister) Next() types.GlobalBlockNumber {
 func (gp *FullCommitQCPersister) LoadedFirst() types.GlobalBlockNumber {
 	for s := range gp.state.Lock() {
 		if len(s.loaded) > 0 {
-			return s.loaded[0].QC().GlobalRange(s.firstBlock).First
+			return s.loaded[0].QC().GlobalRange().First
 		}
 		return s.firstBlock
 	}

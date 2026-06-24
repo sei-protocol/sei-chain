@@ -65,12 +65,12 @@ func TestState(t *testing.T) {
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := TestCommitQC(rng, committee, keys, prev, 0, time.Time{})
+			qc, blocks := TestCommitQC(rng, committee, keys, prev, registry.FirstBlock(), time.Time{})
 			prev = utils.Some(qc.QC())
 			if err := state.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("state.PushQC(): %w", err)
 			}
-			gr := qc.QC().GlobalRange(registry.FirstBlock())
+			gr := qc.QC().GlobalRange()
 			for n := gr.First; n < gr.Next; n += 1 {
 				want.QCs[n] = qc
 				want.Blocks[n] = blocks[n-gr.First]
@@ -98,7 +98,7 @@ func TestState(t *testing.T) {
 
 			wantG := &types.GlobalBlock{
 				GlobalNumber:  n,
-				Timestamp:     want.QCs[n].QC().Proposal().BlockTimestamp(registry.FirstBlock(), n).OrPanic("global block not in QC"),
+				Timestamp:     want.QCs[n].QC().Proposal().BlockTimestamp(n).OrPanic("global block not in QC"),
 				Header:        wantB.Header(),
 				Payload:       wantB.Payload(),
 				FinalAppState: want.QCs[n].QC().Proposal().App(),
@@ -133,9 +133,9 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
 
 	// Push a valid QC to advance inner.nextQC.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	nextQC := qc1.QC().GlobalRange(registry.FirstBlock()).Next
+	nextQC := qc1.QC().GlobalRange().Next
 
 	// Construct a malicious QC signed by non-committee keys.
 	// It starts from block 0 (stale) but extends beyond nextQC.
@@ -146,7 +146,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 		badKeys[i] = types.GenSecretKey(rng)
 	}
 	laneBlocks := map[types.LaneID][]*types.Block{}
-	maliciousBlocksTotal := int(gr1.Len()) + 1
+	maliciousBlocksTotal := int(nextQC-registry.FirstBlock()) + 1
 	require.LessOrEqual(t, maliciousBlocksTotal, committee.Lanes().Len()*types.MaxLaneRangeInProposal)
 	for i := range maliciousBlocksTotal {
 		lane := committee.Lanes().At(i % committee.Lanes().Len())
@@ -192,7 +192,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 		laneQCs,
 		utils.None[*types.AppQC](),
 	))
-	malGR := proposal.Proposal().Msg().GlobalRange(registry.FirstBlock())
+	malGR := proposal.Proposal().Msg().GlobalRange()
 	require.Less(t, malGR.First, nextQC, "test setup: malicious gr.First must be < nextQC")
 	require.Greater(t, malGR.Next, nextQC, "test setup: malicious gr.Next must be > nextQC")
 
@@ -209,7 +209,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	_ = state.PushQC(ctx, maliciousQC, malBlocks)
 
 	// Verify state was not corrupted: all previously pushed QCs and blocks are intact.
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
+	gr1 := qc1.QC().GlobalRange()
 	for n := gr1.First; n < gr1.Next; n++ {
 		got, err := state.QC(ctx, n)
 		require.NoError(t, err)
@@ -227,9 +227,9 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	}
 
 	// Verify state is still functional: the next valid QC is accepted and visible.
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), 0, time.Time{})
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), registry.FirstBlock(), time.Time{})
 	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
-	gr2 := qc2.QC().GlobalRange(registry.FirstBlock())
+	gr2 := qc2.QC().GlobalRange()
 	for n := gr2.First; n < gr2.Next; n++ {
 		got, err := state.QC(ctx, n)
 		require.NoError(t, err)
@@ -247,9 +247,9 @@ func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
 
 	// Push qc1 with NO blocks — only the QC is stored.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
 	require.NoError(t, state.PushQC(ctx, qc1, nil))
-	gr := qc1.QC().GlobalRange(registry.FirstBlock())
+	gr := qc1.QC().GlobalRange()
 
 	// Build a tampered FullCommitQC: same CommitQC (same range) but with
 	// different block headers (different payloads → different hashes).
@@ -299,12 +299,12 @@ func TestExecution(t *testing.T) {
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := TestCommitQC(rng, committee, keys, prev, 0, time.Time{})
+			qc, blocks := TestCommitQC(rng, committee, keys, prev, registry.FirstBlock(), time.Time{})
 			if err := state.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("state.PushQC(): %w", err)
 			}
 			prev = utils.Some(qc.QC())
-			gr := qc.QC().GlobalRange(registry.FirstBlock())
+			gr := qc.QC().GlobalRange()
 			// PushAppHash for a block beyond nextBlock should not succeed:
 			// it waits for persistence which never happens for unfinalised blocks.
 			shortCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
@@ -339,9 +339,9 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
 
 	// Push QC without blocks.
-	qc, blocks := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
+	qc, blocks := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
 	require.NoError(t, state.PushQC(ctx, qc, nil))
-	gr := qc.QC().GlobalRange(registry.FirstBlock())
+	gr := qc.QC().GlobalRange()
 
 	// PushBlock for a block whose QC is already present succeeds immediately.
 	require.NoError(t, state.PushBlock(ctx, gr.First, blocks[0]))
@@ -372,9 +372,9 @@ func TestGlobalBlockByHash(t *testing.T) {
 		Registry: registry,
 	}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
 
-	qc, blocks := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
+	qc, blocks := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
 	require.NoError(t, state.PushQC(ctx, qc, blocks))
-	gr := qc.QC().GlobalRange(registry.FirstBlock())
+	gr := qc.QC().GlobalRange()
 	n := gr.First
 	wantBlock := blocks[0]
 	wantHash := wantBlock.Header().Hash()
@@ -436,8 +436,8 @@ func TestReconcileCase2Corrupted(t *testing.T) {
 	dir := t.TempDir()
 
 	// Persist blocks and QCs normally.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	gr1 := qc1.QC().GlobalRange()
 
 	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
 	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
@@ -470,8 +470,8 @@ func TestReconcileCase3BlocksLost(t *testing.T) {
 	dir := t.TempDir()
 
 	// First run: populate both WALs.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	gr1 := qc1.QC().GlobalRange()
 
 	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
 	state1 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw1))
@@ -506,9 +506,9 @@ func TestReconcileCase3BlocksLost(t *testing.T) {
 	}
 
 	// State should accept the next QC normally.
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), 0, time.Time{})
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), registry.FirstBlock(), time.Time{})
 	require.NoError(t, state2.PushQC(ctx, qc2, blocks2))
-	require.Equal(t, qc2.QC().GlobalRange(registry.FirstBlock()).Next, state2.NextBlock())
+	require.Equal(t, qc2.QC().GlobalRange().Next, state2.NextBlock())
 	require.NoError(t, dw2.Close())
 }
 
@@ -521,10 +521,10 @@ func TestReconcileCase4Normal(t *testing.T) {
 	dir := t.TempDir()
 
 	// Build two sequential QCs with their blocks.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), 0, time.Time{})
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
-	gr2 := qc2.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), registry.FirstBlock(), time.Time{})
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
 
 	// First run: push both QCs and persist to WALs.
 	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
@@ -592,14 +592,14 @@ func TestReconcileCase4AfterPruning(t *testing.T) {
 	dir := t.TempDir()
 
 	// Build 3 sequential QCs.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), 0, time.Time{})
-	qc3, blocks3 := TestCommitQC(rng, committee, keys, utils.Some(qc2.QC()), 0, time.Time{})
-	gr2 := qc2.QC().GlobalRange(registry.FirstBlock())
-	gr3 := qc3.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), registry.FirstBlock(), time.Time{})
+	qc3, blocks3 := TestCommitQC(rng, committee, keys, utils.Some(qc2.QC()), registry.FirstBlock(), time.Time{})
+	gr2 := qc2.QC().GlobalRange()
+	gr3 := qc3.QC().GlobalRange()
 
 	// First run: push all 3 QCs, persist to WALs, then truncate before qc2.
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
+	gr1 := qc1.QC().GlobalRange()
 	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
 	state1 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw1))
 	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
@@ -623,7 +623,7 @@ func TestReconcileCase4AfterPruning(t *testing.T) {
 	require.Equal(t, gr3.Next, state2.NextBlock())
 
 	// qc1 blocks should be pruned.
-	for n := qc1.QC().GlobalRange(registry.FirstBlock()).First; n < qc1.QC().GlobalRange(registry.FirstBlock()).Next; n++ {
+	for n := qc1.QC().GlobalRange().First; n < qc1.QC().GlobalRange().Next; n++ {
 		_, err := state2.TryBlock(n)
 		require.ErrorIs(t, err, ErrPruned)
 	}
@@ -647,10 +647,10 @@ func TestReconcileCase5BlocksAhead(t *testing.T) {
 	committee := registry.LatestCommittee()
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), 0, time.Time{})
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
-	gr2 := qc2.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), registry.FirstBlock(), time.Time{})
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
 
 	// Persist both QCs and all blocks.
 	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
@@ -695,10 +695,10 @@ func TestReconcileCase6QCsAhead(t *testing.T) {
 	dir := t.TempDir()
 
 	// Build 2 sequential QCs.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), 0, time.Time{})
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
-	gr2 := qc2.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), registry.FirstBlock(), time.Time{})
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
 
 	// First run: push both QCs and persist to WALs.
 	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
@@ -748,10 +748,10 @@ func TestReconcileCase7BlocksPastQCs(t *testing.T) {
 	dir := t.TempDir()
 
 	// Build 2 sequential QCs.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), 0, time.Time{})
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
-	gr2 := qc2.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), registry.FirstBlock(), time.Time{})
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
 
 	// Persist only qc1 to QCs WAL but persist ALL blocks (qc1 + qc2) to blocks WAL.
 	// This simulates blocks being persisted ahead of QCs.
@@ -800,10 +800,10 @@ func TestReconcileCase7BlocksTail(t *testing.T) {
 	dir := t.TempDir()
 
 	// Build 2 sequential QCs.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), 0, time.Time{})
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
-	gr2 := qc2.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), registry.FirstBlock(), time.Time{})
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
 
 	// Persist qc1 to both WALs, but only blocks (not QC) for qc2.
 	// This simulates a crash during parallel persistence in runPersist.
@@ -850,10 +850,10 @@ func TestReconcileCase8BlocksBehind(t *testing.T) {
 	dir := t.TempDir()
 
 	// Build 2 sequential QCs.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), 0, time.Time{})
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
-	gr2 := qc2.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), registry.FirstBlock(), time.Time{})
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
 
 	// Persist both QCs but only qc1's blocks to WALs.
 	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
@@ -903,8 +903,8 @@ func TestReconcilePartialQCPrefix(t *testing.T) {
 	dir := t.TempDir()
 
 	// Build one QC with enough blocks to split.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	gr1 := qc1.QC().GlobalRange()
 	if gr1.Next-gr1.First < 3 {
 		t.Skip("need at least 3 blocks in QC range to test split")
 	}
@@ -960,8 +960,8 @@ func TestReconcileBlockGap(t *testing.T) {
 	committee := registry.LatestCommittee()
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	gr1 := qc1.QC().GlobalRange()
 	if gr1.Next-gr1.First < 3 {
 		t.Skip("need at least 3 blocks in QC range to test gap")
 	}
@@ -1001,8 +1001,8 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 	state := utils.OrPanic1(NewState(&Config{Registry: registry}, dw))
 
 	// Push one QC with blocks and execute all of them.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	gr1 := qc1.QC().GlobalRange()
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
 
 	// Persist and execute.
@@ -1047,10 +1047,10 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	state := utils.OrPanic1(NewState(&Config{Registry: registry}, dw))
 
 	// Push two QCs so we have two distinct QC ranges.
-	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
-	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), 0, time.Time{})
-	gr1 := qc1.QC().GlobalRange(registry.FirstBlock())
-	gr2 := qc2.QC().GlobalRange(registry.FirstBlock())
+	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
+	qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), registry.FirstBlock(), time.Time{})
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
 	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
 
@@ -1121,12 +1121,12 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 		}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
 
 		// Push first QC covering [0, N).
-		qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), 0, time.Time{})
+		qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
 		require.NoError(t, state.PushQC(ctx, qc1, blocks1))
 
 		// Prepare second QC covering [N, M) but don't push it yet.
-		qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), 0, time.Time{})
-		gr2 := qc2.QC().GlobalRange(registry.FirstBlock())
+		qc2, blocks2 := TestCommitQC(rng, committee, keys, utils.Some(qc1.QC()), registry.FirstBlock(), time.Time{})
+		gr2 := qc2.QC().GlobalRange()
 
 		// Block gr2.First should not be in state yet.
 		_, err := state.TryBlock(gr2.First)

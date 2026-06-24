@@ -296,7 +296,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		}
 		// Verify the vote against the CommitQC.
 		qc := inner.commitQCs.q[idx]
-		if err := v.Msg().Proposal().Verify(committee, qc, s.data.Registry().FirstBlock()); err != nil {
+		if err := v.Msg().Proposal().Verify(committee, qc); err != nil {
 			return fmt.Errorf("invalid vote: %w", err)
 		}
 		// Push the vote.
@@ -341,7 +341,7 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 	}
 	// Defense-in-depth check, it should never happen that >f validators sign
 	// a proposal which does not match the commitQC's global range.
-	if !commitQC.GlobalRange(s.data.Registry().FirstBlock()).Has(appQC.Proposal().GlobalNumber()) {
+	if !commitQC.GlobalRange().Has(appQC.Proposal().GlobalNumber()) {
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	for inner, ctrl := range s.inner.Lock() {

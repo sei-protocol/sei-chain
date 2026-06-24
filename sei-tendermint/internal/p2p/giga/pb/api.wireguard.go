@@ -41,7 +41,7 @@ func (*StreamAppQCsReq) MaxSize() int {
 }
 
 func (*StreamAppQCsResp) MaxSize() int {
-	return 30374
+	return 30385
 }
 
 func (*StreamCommitQCsReq) MaxSize() int {

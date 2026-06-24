@@ -195,7 +195,7 @@ func (i *inner) prune(c *types.Committee, firstBlock types.GlobalBlockNumber, ap
 	if i.commitQCs.next == idx {
 		i.commitQCs.pushBack(commitQC)
 	}
-	i.appVotes.prune(commitQC.GlobalRange(firstBlock).First)
+	i.appVotes.prune(commitQC.GlobalRange().First)
 	for lane := range i.votes {
 		lr := commitQC.LaneRange(lane)
 		i.votes[lr.Lane()].prune(lr.First())

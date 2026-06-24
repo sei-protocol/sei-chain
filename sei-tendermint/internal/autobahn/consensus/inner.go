@@ -180,7 +180,7 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 	if vs.View() != proposal.View() {
 		return nil
 	}
-	if err := proposal.Verify(s.Data().Registry().CommitteeFor(vs.View().Index), vs, s.Data().Registry().FirstBlock(), s.Data().Registry().GenesisTimestamp()); err != nil {
+	if err := proposal.Verify(s.Data().Registry().CommitteeFor(vs.View().Index), vs, s.Data().Registry().GenesisTimestamp()); err != nil {
 		return fmt.Errorf("proposal.Verify(): %w", err)
 	}
 	// Update.

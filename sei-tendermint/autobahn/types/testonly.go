@@ -11,6 +11,34 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// BuildCommitQC builds a valid CommitQC from explicit lane QCs and an optional app QC.
+// Use BuildFullCommitQC when you want random blocks generated automatically.
+func BuildCommitQC(
+	committee *Committee,
+	keys []SecretKey,
+	prev utils.Option[*CommitQC],
+	firstBlock GlobalBlockNumber,
+	genesisTimestamp time.Time,
+	laneQCs map[LaneID]*LaneQC,
+	appQC utils.Option[*AppQC],
+) *CommitQC {
+	vs := ViewSpec{CommitQC: prev, FirstBlock: firstBlock}
+	leader := committee.Leader(vs.View())
+	var leaderKey SecretKey
+	for _, k := range keys {
+		if k.Public() == leader {
+			leaderKey = k
+			break
+		}
+	}
+	proposal := utils.OrPanic1(NewProposal(leaderKey, committee, vs, firstBlock, genesisTimestamp, time.Now(), laneQCs, appQC))
+	votes := make([]*Signed[*CommitVote], 0, len(keys))
+	for _, k := range keys {
+		votes = append(votes, Sign(k, NewCommitVote(proposal.Proposal().Msg())))
+	}
+	return NewCommitQC(votes)
+}
+
 // GenNodeID generates a random NodeID.
 func GenNodeID(rng utils.Rng) NodeID {
 	return NodeID(utils.GenString(rng, 10))
@@ -180,12 +208,12 @@ func GenView(rng utils.Rng) View {
 
 // GenProposal generates a random Proposal.
 func GenProposal(rng utils.Rng) *Proposal {
-	return newProposal(GenView(rng), time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
+	return newProposal(GenView(rng), time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), 0)
 }
 
 // GenProposalAt generates a Proposal at a specific view.
 func GenProposalAt(rng utils.Rng, view View) *Proposal {
-	return newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
+	return newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), 0)
 }
 
 // GenAppHash generates a random AppHash.

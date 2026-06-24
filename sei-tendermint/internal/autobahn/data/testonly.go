@@ -42,26 +42,14 @@ func TestCommitQC(
 	makeBlock := func(producer types.LaneID) *types.Block {
 		if bs := blocks[producer]; len(bs) > 0 {
 			parent := bs[len(bs)-1]
-			return types.NewBlock(
-				producer,
-				parent.Header().Next(),
-				parent.Header().Hash(),
-				types.GenPayload(rng),
-			)
+			return types.NewBlock(producer, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
 		}
-		return types.NewBlock(
-			producer,
-			types.LaneRangeOpt(prev, producer).Next(),
-			types.GenBlockHeaderHash(rng),
-			types.GenPayload(rng),
-		)
+		return types.NewBlock(producer, types.LaneRangeOpt(prev, producer).Next(), types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	}
-	// Make some blocks
 	for range 10 {
 		producer := committee.Lanes().At(rng.Intn(committee.Lanes().Len()))
 		blocks[producer] = append(blocks[producer], makeBlock(producer))
 	}
-	// Construct a proposal.
 	laneQCs := map[types.LaneID]*types.LaneQC{}
 	var headers []*types.BlockHeader
 	var blockList []*types.Block
@@ -74,39 +62,16 @@ func TestCommitQC(
 			}
 		}
 	}
-	viewSpec := types.ViewSpec{CommitQC: prev}
-	leader := committee.Leader(viewSpec.View())
-	var leaderKey types.SecretKey
-	for _, k := range keys {
-		if k.Public() == leader {
-			leaderKey = k
-			break
-		}
+	var appQC utils.Option[*types.AppQC]
+	if cqc, ok := prev.Get(); ok {
+		vs := types.ViewSpec{CommitQC: prev, FirstBlock: firstBlock}
+		p := types.NewAppProposal(cqc.GlobalRange().Next-1, vs.View().Index, types.GenAppHash(rng))
+		appQC = utils.Some(TestAppQC(keys, p))
+	} else {
+		appQC = utils.None[*types.AppQC]()
 	}
-	proposal := utils.OrPanic1(types.NewProposal(
-		leaderKey,
-		committee,
-		viewSpec,
-		firstBlock,
-		genesisTimestamp,
-		time.Now(),
-		laneQCs,
-		func() utils.Option[*types.AppQC] {
-			if n := types.GlobalRangeOpt(prev, firstBlock).Next; n > 0 {
-				p := types.NewAppProposal(n-1, viewSpec.View().Index, types.GenAppHash(rng))
-				return utils.Some(TestAppQC(keys, p))
-			}
-			return utils.None[*types.AppQC]()
-		}(),
-	))
-	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
-	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.Proposal().Msg())))
-	}
-	return types.NewFullCommitQC(
-		types.NewCommitQC(votes),
-		headers,
-	), blockList
+	cqc := types.BuildCommitQC(committee, keys, prev, firstBlock, genesisTimestamp, laneQCs, appQC)
+	return types.NewFullCommitQC(cqc, headers), blockList
 }
 
 var _ StateAPI = (*MockState)(nil)

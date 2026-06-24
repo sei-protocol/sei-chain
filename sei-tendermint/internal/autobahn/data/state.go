@@ -205,10 +205,10 @@ func (i *inner) skipTo(n types.GlobalBlockNumber) {
 // Accepts QCs whose range starts at or before nextQC (partially pruned
 // prefix is silently skipped). Rejects gaps where gr.First > nextQC.
 func (i *inner) insertQC(committee *types.Committee, firstBlock types.GlobalBlockNumber, qc *types.FullCommitQC) error {
-	if err := qc.Verify(committee, firstBlock); err != nil {
+	if err := qc.Verify(committee); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
-	gr := qc.QC().GlobalRange(firstBlock)
+	gr := qc.QC().GlobalRange()
 	if gr.Next <= i.nextQC {
 		return nil // fully behind, skip
 	}
@@ -238,7 +238,7 @@ func (i *inner) insertBlock(committee *types.Committee, firstBlock types.GlobalB
 		return nil // already have it
 	}
 	qc := i.qcs[n]
-	storedGR := qc.QC().GlobalRange(firstBlock)
+	storedGR := qc.QC().GlobalRange()
 	want := qc.Headers()[n-storedGR.First].Hash()
 	got := block.Header().Hash()
 	if want != got {
@@ -356,7 +356,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	// Wait until QC is needed.
 	committee := s.cfg.Registry.CommitteeFor(qc.QC().Proposal().Index())
 	firstBlock := s.cfg.Registry.FirstBlock()
-	gr := qc.QC().GlobalRange(firstBlock)
+	gr := qc.QC().GlobalRange()
 	needQC, err := func() (bool, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
@@ -373,7 +373,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	}
 	// Verify data.
 	if needQC {
-		if err := qc.Verify(committee, firstBlock); err != nil {
+		if err := qc.Verify(committee); err != nil {
 			return fmt.Errorf("qc.Verify(): %w", err)
 		}
 	}
@@ -399,7 +399,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 		// Match blocks against stored (already verified) QC headers.
 		for n := max(inner.nextBlock, gr.First); n < min(gr.Next, inner.nextQC); n += 1 {
 			storedQC := inner.qcs[n]
-			storedGR := storedQC.QC().GlobalRange(firstBlock)
+			storedGR := storedQC.QC().GlobalRange()
 			storedCommittee := s.cfg.Registry.CommitteeFor(storedQC.QC().Proposal().Index())
 			if b, ok := byHash[storedQC.Headers()[n-storedGR.First].Hash()]; ok {
 				if err := inner.insertBlock(storedCommittee, firstBlock, n, b); err != nil {
@@ -532,10 +532,9 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 func (i *inner) globalBlockAt(registry *epoch.Registry, n types.GlobalBlockNumber) *types.GlobalBlock {
 	b := i.blocks[n]
 	qc := i.qcs[n].QC()
-	firstBlock := registry.FirstBlock()
 	return &types.GlobalBlock{
 		GlobalNumber:  n,
-		Timestamp:     qc.Proposal().BlockTimestamp(firstBlock, n).OrPanic("global block not in QC"),
+		Timestamp:     qc.Proposal().BlockTimestamp(n).OrPanic("global block not in QC"),
 		Header:        b.Header(),
 		Payload:       b.Payload(),
 		FinalAppState: qc.Proposal().App(),
@@ -713,7 +712,7 @@ func (s *State) runPersist(ctx context.Context) error {
 			seen := map[types.GlobalBlockNumber]bool{}
 			for n := persistedQC; n < inner.nextQC; n++ {
 				qc := inner.qcs[n]
-				first := qc.QC().GlobalRange(s.cfg.Registry.FirstBlock()).First
+				first := qc.QC().GlobalRange().First
 				if !seen[first] {
 					seen[first] = true
 					b.qcs = append(b.qcs, qc)
