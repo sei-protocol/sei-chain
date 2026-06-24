@@ -175,6 +175,15 @@ func (p *pebbleDB) Delete(key []byte, opts types.WriteOptions) error {
 	return nil
 }
 
+// DeleteRange deletes every key in [start, end) with a single range tombstone
+// (O(1) write) rather than iterating and point-deleting each key.
+func (p *pebbleDB) DeleteRange(start, end []byte, opts types.WriteOptions) error {
+	if err := p.db.DeleteRange(start, end, toPebbleWriteOpts(opts)); err != nil {
+		return fmt.Errorf("failed to delete range in database: %w", err)
+	}
+	return nil
+}
+
 func (p *pebbleDB) NewIter(opts *types.IterOptions) (dbm.Iterator, error) {
 	var iopts *pebble.IterOptions
 	if opts != nil {
