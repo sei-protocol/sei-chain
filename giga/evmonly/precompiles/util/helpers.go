@@ -47,16 +47,6 @@ func ValidatePositiveAmount(amount *big.Int, name string) error {
 	return nil
 }
 
-func ValidateDecimal(value string, name string) error {
-	if value == "" {
-		return fmt.Errorf("invalid %s", name)
-	}
-	if _, ok := new(big.Rat).SetString(value); !ok {
-		return fmt.Errorf("invalid %s", name)
-	}
-	return nil
-}
-
 func SaturatingCompletionTime(blockTime uint64, offset uint64) int64 {
 	if blockTime > uint64(1<<63-1) || offset > uint64(1<<63-1)-blockTime {
 		return int64(1<<63 - 1)

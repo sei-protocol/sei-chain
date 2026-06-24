@@ -56,7 +56,9 @@ const (
 	bondStatusUnbonding   int32 = 2
 	bondStatusBonded      int32 = 3
 
-	powerReduction int64 = 1
+	// powerReduction matches Cosmos sdk.DefaultPowerReduction so consensus
+	// power is denominated in whole SEI (1e6 usei == 1 power).
+	powerReduction int64 = 1_000_000
 )
 
 var (
@@ -67,6 +69,12 @@ var (
 	errMissingStore           = errors.New("staking precompile requires a store")
 	errMissingBalanceTransfer = errors.New("staking precompile requires balance transfer")
 	errValidatorMissing       = errors.New("validator not found")
+	errSelfRedelegation       = errors.New("cannot redelegate to the same validator")
+	errTransitiveRedelegation = errors.New("redelegation to this validator already in progress; first redelegation not complete")
+	errMaxRedelegationEntries = errors.New("too many redelegation entries for (delegator, src-validator, dst-validator) tuple")
+	errMaxUnbondingEntries    = errors.New("too many unbonding delegation entries for (delegator, validator) tuple")
+	errMinSelfDelegation      = errors.New("minimum self delegation must be greater than the current value")
+	errSelfDelegationTooLow   = errors.New("minimum self delegation cannot be greater than the validator's self delegation")
 )
 
 //go:embed abi.json
@@ -265,6 +273,9 @@ func (p *Precompile) redelegate(ctx *precompiles.Context, method *abi.Method, ar
 	if err := util.ValidatePositiveAmount(amount, "redelegation amount"); err != nil {
 		return nil, err
 	}
+	if srcValidator == dstValidator {
+		return nil, errSelfRedelegation
+	}
 	src, ok, err := getValidator(ctx.Store, srcValidator)
 	if err != nil {
 		return nil, err
@@ -278,6 +289,25 @@ func (p *Precompile) redelegate(ctx *precompiles.Context, method *abi.Method, ar
 	}
 	if !ok {
 		return nil, fmt.Errorf("destination %w", errValidatorMissing)
+	}
+	params, err := loadParams(ctx.Store)
+	if err != nil {
+		return nil, err
+	}
+	// Disallow transitive redelegations: tokens already received via an
+	// in-progress redelegation into srcValidator cannot be redelegated again
+	// until that redelegation completes (matches Cosmos HasReceivingRedelegation).
+	receiving, err := hasReceivingRedelegation(ctx.Store, delegator, srcValidator)
+	if err != nil {
+		return nil, err
+	}
+	if receiving {
+		return nil, errTransitiveRedelegation
+	}
+	if existing, ok, err := getRedelegation(ctx.Store, delegator, srcValidator, dstValidator); err != nil {
+		return nil, err
+	} else if ok && len(existing.Entries) >= int(params.MaxEntries) {
+		return nil, errMaxRedelegationEntries
 	}
 	if err := validateDelegationAmount(ctx.Store, delegator, srcValidator, amount); err != nil {
 		return nil, err
@@ -295,10 +325,6 @@ func (p *Precompile) redelegate(ctx *precompiles.Context, method *abi.Method, ar
 		return nil, err
 	}
 	if err := movePoolsForRedelegation(ctx.Store, src.Status, dst.Status, amount); err != nil {
-		return nil, err
-	}
-	params, err := loadParams(ctx.Store)
-	if err != nil {
 		return nil, err
 	}
 	if err := addRedelegation(ctx.Store, delegator, srcValidator, dstValidator, amount, util.SaturatingCompletionTime(ctx.Block.Time, params.UnbondingTime)); err != nil {
@@ -333,6 +359,15 @@ func (p *Precompile) undelegate(ctx *precompiles.Context, method *abi.Method, ar
 	if !ok {
 		return nil, errValidatorMissing
 	}
+	params, err := loadParams(ctx.Store)
+	if err != nil {
+		return nil, err
+	}
+	if existing, ok, err := getUnbondingDelegation(ctx.Store, delegator, validatorAddress); err != nil {
+		return nil, err
+	} else if ok && len(existing.Entries) >= int(params.MaxEntries) {
+		return nil, errMaxUnbondingEntries
+	}
 	if err := validateDelegationAmount(ctx.Store, delegator, validatorAddress, amount); err != nil {
 		return nil, err
 	}
@@ -340,10 +375,6 @@ func (p *Precompile) undelegate(ctx *precompiles.Context, method *abi.Method, ar
 		return nil, err
 	}
 	if err := addValidatorTokens(ctx.Store, validatorAddress, new(big.Int).Neg(amount)); err != nil {
-		return nil, err
-	}
-	params, err := loadParams(ctx.Store)
-	if err != nil {
 		return nil, err
 	}
 	if err := addUnbondingDelegation(ctx.Store, delegator, validatorAddress, amount, ctx.Block.Number, util.SaturatingCompletionTime(ctx.Block.Time, params.UnbondingTime)); err != nil {
@@ -379,13 +410,11 @@ func (p *Precompile) createValidator(ctx *precompiles.Context, method *abi.Metho
 	if err != nil {
 		return nil, errors.New("invalid public key hex format")
 	}
-	if err := util.ValidateDecimal(commissionRate, "commission rate"); err != nil {
+	params, err := loadParams(ctx.Store)
+	if err != nil {
 		return nil, err
 	}
-	if err := util.ValidateDecimal(commissionMaxRate, "commission max rate"); err != nil {
-		return nil, err
-	}
-	if err := util.ValidateDecimal(commissionMaxChangeRate, "commission max change rate"); err != nil {
+	if err := validateInitialCommission(commissionRate, commissionMaxRate, commissionMaxChangeRate, params.MinCommissionRate); err != nil {
 		return nil, err
 	}
 	if err := util.ValidatePositiveAmount(minSelfDelegation, "minimum self delegation"); err != nil {
@@ -464,13 +493,31 @@ func (p *Precompile) editValidator(ctx *precompiles.Context, method *abi.Method,
 		validator.Description = moniker
 	}
 	if commissionRate != "" {
-		if err := util.ValidateDecimal(commissionRate, "commission rate"); err != nil {
+		params, err := loadParams(ctx.Store)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateCommissionUpdate(validator, commissionRate, params.MinCommissionRate, ctx.Block.Time); err != nil {
 			return nil, err
 		}
 		validator.CommissionRate = commissionRate
 		validator.CommissionUpdateTime = saturatingInt64FromUint64(ctx.Block.Time)
 	}
 	if minSelfDelegation != nil && minSelfDelegation.Sign() > 0 {
+		current, err := util.ParseAmount(validator.MinSelfDelegation)
+		if err != nil {
+			return nil, err
+		}
+		if minSelfDelegation.Cmp(current) <= 0 {
+			return nil, errMinSelfDelegation
+		}
+		tokens, err := util.ParseAmount(validator.Tokens)
+		if err != nil {
+			return nil, err
+		}
+		if minSelfDelegation.Cmp(tokens) > 0 {
+			return nil, errSelfDelegationTooLow
+		}
 		validator.MinSelfDelegation = minSelfDelegation.String()
 	}
 	if err := setValidator(ctx.Store, validator); err != nil {
@@ -520,6 +567,7 @@ func (p *Precompile) validators(ctx *precompiles.Context, method *abi.Method, ar
 		return nil, err
 	}
 	filtered := make([]string, 0, len(validatorAddresses))
+	matched := make(map[string]Validator, len(validatorAddresses))
 	for _, validatorAddress := range validatorAddresses {
 		validator, ok, err := getValidator(ctx.Store, validatorAddress)
 		if err != nil {
@@ -527,6 +575,7 @@ func (p *Precompile) validators(ctx *precompiles.Context, method *abi.Method, ar
 		}
 		if ok && statusMatches(status, validator.Status) {
 			filtered = append(filtered, validatorAddress)
+			matched[validatorAddress] = validator
 		}
 	}
 	page, outNextKey, err := pageStrings(filtered, nextKey)
@@ -535,13 +584,7 @@ func (p *Precompile) validators(ctx *precompiles.Context, method *abi.Method, ar
 	}
 	result := ValidatorsResponse{Validators: make([]Validator, 0, len(page)), NextKey: outNextKey}
 	for _, validatorAddress := range page {
-		validator, ok, err := getValidator(ctx.Store, validatorAddress)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			result.Validators = append(result.Validators, validator)
-		}
+		result.Validators = append(result.Validators, matched[validatorAddress])
 	}
 	return method.Outputs.Pack(result)
 }
@@ -832,19 +875,7 @@ func (p *Precompile) historicalInfo(ctx *precompiles.Context, method *abi.Method
 		return nil, err
 	}
 	if !ok {
-		if height < 0 || uint64(height) != ctx.Block.Number {
-			return nil, errors.New("historical info not found")
-		}
-		if err := setHistoricalInfo(ctx.Store, ctx.Block.Number); err != nil {
-			return nil, err
-		}
-		info, ok, err = getHistoricalInfo(ctx.Store, height)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return nil, errors.New("historical info not found")
-		}
+		return nil, errors.New("historical info not found")
 	}
 	return method.Outputs.Pack(info)
 }
