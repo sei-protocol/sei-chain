@@ -17,6 +17,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
@@ -48,10 +49,14 @@ func freshChainID() string {
 	return fmt.Sprintf("%s-%x", chainIDPrefix, b[:])
 }
 
-// Options configures a Start. The zero value is invalid (Validators must be
-// >= 1); use sensible explicit values.
+// Options configures a Start. The zero value is invalid (Validators must be 1
+// or >= 3; 2 is rejected — see the Validators doc); use explicit values.
 type Options struct {
-	// Validators is the number of in-process validators (>= 1). Each is a full
+	// Validators is the number of in-process validators. Valid: 1 or >= 3. 2 is
+	// REJECTED — two validators each have exactly one peer, and CometBFT's
+	// BlockPool.IsCaughtUp requires >1 peer, so an N=2 mesh deadlocks in
+	// block-sync. N=1 runs as a solo proposer (onlyValidatorIsUs skips
+	// block-sync); N>=3 gives every node >=2 peers. Each validator is a full
 	// (app, node.New) pair serving its own RPC stack.
 	Validators int
 
@@ -144,7 +149,15 @@ type Network struct {
 func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 	opts = opts.withDefaults()
 	if opts.Validators < 1 {
-		return nil, fmt.Errorf("inprocess: Options.Validators must be >= 1, got %d", opts.Validators)
+		return nil, fmt.Errorf("inprocess: Options.Validators must be 1 or >= 3, got %d", opts.Validators)
+	}
+	// N=2 deadlocks in CometBFT block-sync: each node has exactly 1 peer, and
+	// BlockPool.IsCaughtUp (sei-tendermint internal/blocksync/pool.go) hard-requires
+	// >1 peer to ever report caught-up, so neither node leaves block-sync. Reject it
+	// loudly rather than hang. N=1 (solo proposer via onlyValidatorIsUs) and N>=3
+	// (>=2 peers each) both work — see startNode and doc.go.
+	if opts.Validators == 2 {
+		return nil, fmt.Errorf("inprocess: Options.Validators == 2 deadlocks in CometBFT block-sync (BlockPool.IsCaughtUp requires >1 peer); use 1 or >= 3")
 	}
 
 	baseDir, ownBaseDir, err := resolveBaseDir(opts.BaseDir)
@@ -243,10 +256,14 @@ func (net *Network) provisionNodes(enc encoding, gb *genesisBuilder) error {
 		writeAppConfig(filepath.Join(nodeDir, "config/app.toml"))
 		// Seed a client.toml so a bare host `seid --home <nodeDir>` (no per-command
 		// flags) already targets this node: test keyring, the harness chain-id, and
-		// this node's loopback TM RPC. The in-process runner arm still injects the
-		// same values as flags defensively, but pinning them here keeps opaque
-		// sourced helper scripts (which call bare `seid`) on the right node.
-		writeClientConfig(filepath.Join(nodeDir, "config/client.toml"), net.opts.ChainID, addrs.rpcAddr)
+		// this node's loopback TM RPC. The runner arm's shim also injects --home and
+		// --node explicitly (so RPC targeting does not rest on this file alone), but
+		// keyring-backend=test is resolved ONLY from here — the sourced helpers pass
+		// no --keyring-backend flag — so this write is load-bearing and its failure
+		// must surface.
+		if err := writeClientConfig(filepath.Join(nodeDir, "config/client.toml"), net.opts.ChainID, addrs.rpcAddr); err != nil {
+			return fmt.Errorf("write client.toml for %s: %w", moniker, err)
+		}
 
 		clientCx := client.Context{}.
 			WithKeyringDir(clientDir).WithKeyring(kb).WithHomeDir(tmCfg.RootDir).
@@ -291,24 +308,44 @@ func (net *Network) provisionExtraKeys(gb *genesisBuilder) error {
 	return nil
 }
 
-// startNode builds the app, constructs + starts the tendermint node with an
-// EMPTY-valset genesis (recipe #1), wires the local RPC client, and registers
-// the EVM listeners. The node's EVM Start() failures land on n.serveErr instead
-// of panicking (recipe: a single bind failure must not kill all N nodes).
+// startNode builds the app, constructs + starts the tendermint node, wires the
+// local RPC client, and registers the EVM listeners. The node's EVM Start()
+// failures land on n.serveErr instead of panicking (recipe: a single bind
+// failure must not kill all N nodes). The genesis valset is N-dependent — see
+// the recipe #1 / N=1 block below.
 func (net *Network) startNode(ctx context.Context, n *node, enc encoding) error {
 	theApp := newNodeApp(n, enc)
 	theApp.SetEVMServeErr(n.serveErr)
 	n.app = theApp
 
-	// recipe #1: zero the validator set so CometBFT derives it from InitChain.
-	// genesis.go writes Validators=nil at genesis-build time; this re-asserts the
-	// invariant against the file round-trip here (collectGentxs rewrites the
-	// genesis via ExportGenesisFileWithTime, so re-read it defensively).
+	// recipe #1 (N>=2): zero the validator set so every node derives the valset
+	// from its own InitChain response — without this, multi-node consensus replay
+	// fails. genesis.go writes Validators=nil at build time; re-assert it here
+	// against the collectGentxs file round-trip (ExportGenesisFileWithTime).
+	//
+	// N=1 EXCEPTION: a sole validator must skip block-sync and produce blocks as
+	// solo proposer, which only happens when sei-tendermint's onlyValidatorIsUs
+	// (node/setup.go) sees state.Validators.Size()==1 with our consensus key at
+	// the blockSync decision (node/node.go: `blockSync := !onlyValidatorIsUs`).
+	// That decision reads the genesis-derived state (MakeGenesisState) BEFORE
+	// InitChain runs, so an empty valset leaves size 0, onlyValidatorIsUs returns
+	// false, and the node enters block-sync — where BlockPool.IsCaughtUp requires
+	// >1 peer (pool.go) and a 0-peer solo node hangs forever at height 1. Pinning
+	// the single validator into genesis here makes onlyValidatorIsUs fire.
 	genDoc, err := tmtypes.GenesisDocFromFile(n.tmCfg.GenesisFile())
 	if err != nil {
 		return err
 	}
 	genDoc.Validators = nil
+	if len(net.nodes) == 1 {
+		tmPub, perr := cryptocodec.ToTmPubKeyInterface(n.pubKey)
+		if perr != nil {
+			return fmt.Errorf("convert consensus pubkey for %s: %w", n.moniker, perr)
+		}
+		genDoc.Validators = []tmtypes.GenesisValidator{
+			{PubKey: tmPub, Address: tmPub.Address(), Name: n.moniker, Power: 100},
+		}
+	}
 
 	tmNode, err := tmnode.New(
 		ctx, n.tmCfg, func() {}, theApp, genDoc,
@@ -457,10 +494,15 @@ broadcast-mode = "sync"
 // this node's loopback TM RPC so a bare host `seid --home <nodeDir>` already
 // targets the node without per-command flags (client/config.ReadFromClientConfig
 // reads <home>/config/client.toml). broadcast-mode stays sync — the suites
-// broadcast with -b sync and poll on-chain side effects. Best-effort: a failed
-// write leaves the in-process arm's explicit per-command flags as the fallback.
-func writeClientConfig(path, chainID, rpcAddr string) {
-	_ = os.WriteFile(path, []byte(fmt.Sprintf(clientConfigTemplate, chainID, rpcAddr)), 0o600)
+// broadcast with -b sync and poll on-chain side effects.
+//
+// This write is load-bearing, not best-effort: the sourced _tx_helpers.sh call
+// bare `seid` with no --keyring-backend flag, so keyring-backend=test is resolved
+// from this file (the shim only injects --home and --node). A failed write would
+// silently fall the keyring back to the OS default and break signing — so the
+// error is returned, not swallowed.
+func writeClientConfig(path, chainID, rpcAddr string) error {
+	return os.WriteFile(path, []byte(fmt.Sprintf(clientConfigTemplate, chainID, rpcAddr)), 0o600)
 }
 
 // freePort allocates a free loopback TCP port via server.FreeTCPAddr.

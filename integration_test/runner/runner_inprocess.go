@@ -36,8 +36,9 @@ func WithInProcessNetwork(net *inprocess.Network) Option {
 // inProcessExecer runs commands on the host against an inprocess.Network. It
 // shims `seid` so opaque sourced helper scripts (which call bare `seid` /
 // `$seidbin`) land on the right node: the shim prepends `--home "$SEID_HOME"`
-// to every real seid call, and the per-node client.toml the harness wrote under
-// that home supplies chain-id, the test keyring, and the node's RPC address.
+// and `--node "$SEID_NODE"` to every real seid call (explicit home + RPC
+// targeting), and the per-node client.toml the harness wrote under that home
+// supplies chain-id and the test keyring.
 type inProcessExecer struct {
 	net *inprocess.Network
 
@@ -57,7 +58,7 @@ func newInProcessExecer(net *inprocess.Network) *inProcessExecer {
 // contract; err is reserved for harness-level failures.
 func (e *inProcessExecer) run(t *testing.T, cmd, node string, envMap map[string]string, opts Options) (string, error) {
 	t.Helper()
-	if err := e.ensureBin(); err != nil {
+	if err := e.ensureBin(t); err != nil {
 		return "", fmt.Errorf("prepare seid: %w", err)
 	}
 	h, err := e.nodeFor(node)
@@ -69,11 +70,19 @@ func (e *inProcessExecer) run(t *testing.T, cmd, node string, envMap map[string]
 	// Run from the repo root so the suites' relative `source
 	// integration_test/utils/_tx_helpers.sh` resolves (docker runs with the repo
 	// mounted at the container CWD; `go test` runs with CWD = the package dir).
-	c.Dir = repoRoot()
+	root, err := repoRoot()
+	if err != nil {
+		return "", err
+	}
+	c.Dir = root
 	c.Env = append(os.Environ(), envMapSlice(envMap)...)
 	c.Env = append(c.Env,
 		"PATH="+e.binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"SEID_HOME="+h.Home(),
+		// SEID_NODE makes TM RPC targeting explicit via the shim's --node flag
+		// rather than resting solely on the per-node client.toml. RPCNodeAddr is the
+		// tcp:// form --node wants.
+		"SEID_NODE="+h.RPCNodeAddr(),
 		"SEI_EVM_RPC="+h.EVMRPC(),
 		"SEI_EVM_WS="+h.EVMWS(),
 		// Some EVM suites read EVM_RPC; keep parity with SEI_EVM_RPC.
@@ -117,13 +126,12 @@ func (e *inProcessExecer) nodeFor(node string) (inprocess.Node, error) {
 }
 
 // ensureBin builds the seid binary once and writes a `seid` shim alongside it,
-// in a dir prepended to PATH. The shim execs the real binary with `--home
-// "$SEID_HOME"` prepended: --home is a global persistent flag every seid
-// subcommand accepts, so a single shim redirects bare `seid` calls (inside
-// opaque sourced helpers) to the per-command node home without rewriting the
-// commands. The build is on the same branch as the harness, so the CLI and the
-// in-process app are the same code.
-func (e *inProcessExecer) ensureBin() error {
+// in a dir prepended to PATH. The shim redirects bare `seid` calls (inside
+// opaque sourced helpers) to the per-command node home + RPC without rewriting
+// the commands — see shimScript for the --home/--node split. The build is on the
+// same branch as the harness, so the CLI and the in-process app are the same
+// code. The temp build dir is removed via t.Cleanup so each run leaves none.
+func (e *inProcessExecer) ensureBin(t *testing.T) error {
 	e.once.Do(func() {
 		dir, err := os.MkdirTemp("", "sei-inprocess-bin-")
 		if err != nil {
@@ -131,20 +139,26 @@ func (e *inProcessExecer) ensureBin() error {
 			return
 		}
 		e.binDir = dir
+		// F5: the build dir holds a freshly-built seid + shim; remove it at test end
+		// so repeated runs don't accrue a binary per run.
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
+		root, err := repoRoot()
+		if err != nil {
+			e.setup = err
+			return
+		}
 		realBin := filepath.Join(dir, "seid.real")
 		// Build from this branch's source so the CLI matches the in-process app.
 		build := exec.Command("go", "build", "-tags", "inprocess", "-o", realBin, "./cmd/seid")
-		build.Dir = repoRoot()
+		build.Dir = root
 		if out, berr := build.CombinedOutput(); berr != nil {
 			e.setup = fmt.Errorf("go build seid: %w\n%s", berr, out)
 			return
 		}
 
 		shim := filepath.Join(dir, "seid")
-		// --home is global; prepending it is valid for every subcommand. exec
-		// replaces the shim process so signals/exit codes pass through cleanly.
-		script := "#!/bin/sh\nexec \"" + realBin + "\" --home \"$SEID_HOME\" \"$@\"\n"
+		script := shimScript(realBin)
 		if werr := os.WriteFile(shim, []byte(script), 0o700); werr != nil { //nolint:gosec
 			e.setup = werr
 			return
@@ -153,15 +167,31 @@ func (e *inProcessExecer) ensureBin() error {
 	return e.setup
 }
 
+// shimScript builds the `seid` shim. It always prepends --home (a root
+// persistent flag) and appends --node only for client subcommands (query/q/tx/
+// status), where --node is registered — appending it to `keys` or other
+// non-client subcommands would fail cobra flag parsing.
+func shimScript(realBin string) string {
+	return "#!/bin/sh\n" +
+		"home_args=\"--home $SEID_HOME\"\n" +
+		"case \"$1\" in\n" +
+		"  q|query|tx|status) node_args=\"--node $SEID_NODE\" ;;\n" +
+		"  *) node_args=\"\" ;;\n" +
+		"esac\n" +
+		"exec \"" + realBin + "\" $home_args $node_args \"$@\"\n"
+}
+
 // repoRoot returns the sei-chain repo root by walking up from this source file's
 // package dir (integration_test/runner) to the module root, so `go build
-// ./cmd/seid` resolves regardless of the test's working directory.
-func repoRoot() string {
-	// runner package lives at <root>/integration_test/runner; climb two levels.
+// ./cmd/seid` resolves regardless of the test's working directory. It surfaces a
+// Getwd failure rather than silently degrading to "." (a wrong build/run dir),
+// which would fail confusingly downstream.
+func repoRoot() (string, error) {
+	// `go test` runs with CWD = the package dir; runner lives at
+	// <root>/integration_test/runner, so climb two levels.
 	wd, err := os.Getwd()
 	if err != nil {
-		return "."
+		return "", fmt.Errorf("resolve repo root: %w", err)
 	}
-	// `go test` runs with CWD = the package dir.
-	return filepath.Clean(filepath.Join(wd, "..", ".."))
+	return filepath.Clean(filepath.Join(wd, "..", "..")), nil
 }

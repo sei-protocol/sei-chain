@@ -116,11 +116,14 @@ func assertCrossNodeTxRoundTrip(t *testing.T, ctx context.Context, net *Network)
 	t.Fatalf("tx %X not observed on node1 within deadline", res.Hash)
 }
 
-// TestStartRejectsZeroValidators guards the input validation.
+// TestStartRejectsZeroValidators guards the input validation: 0 (too few) and 2
+// (the block-sync deadlock) are rejected without bring-up. N=1 and N>=3 are the
+// valid topologies (proven live by TestInProcessNetwork at N=4).
 func TestStartRejectsZeroValidators(t *testing.T) {
-	_, err := Start(context.Background(), Options{Validators: 0})
-	if err == nil {
-		t.Fatal("Start with 0 validators: want error, got nil")
+	for _, n := range []int{0, 2} {
+		if _, err := Start(context.Background(), Options{Validators: n}); err == nil {
+			t.Fatalf("Start with %d validators: want error, got nil", n)
+		}
 	}
 }
 

@@ -55,4 +55,24 @@
 //     127.0.0.1, so the router's IP-keyed conn-tracker counts the startup burst
 //     on one key — without the raise the burst trips the per-IP cap and peers
 //     are rejected.
+//
+// # Validator count: 1 or >= 3 (2 is the trap)
+//
+// When wiring a suite, pick Validators = 1 or Validators >= 3. Start rejects 2.
+// The constraint is CometBFT's block-sync→consensus handoff, NOT a voting-power
+// quorum:
+//
+//   - N=1 works. A sole validator skips block-sync and proposes blocks solo
+//     (sei-tendermint onlyValidatorIsUs, node/setup.go, gating
+//     `blockSync := !onlyValidatorIsUs` in node/node.go). That decision reads the
+//     genesis-derived valset BEFORE InitChain, so the harness pins the single
+//     validator into genesis for N=1 (recipe #1's empty valset would leave size 0,
+//     defeat onlyValidatorIsUs, and the solo node would hang in block-sync — see
+//     startNode).
+//   - N=2 hangs. Each node has exactly one peer, and BlockPool.IsCaughtUp
+//     (internal/blocksync/pool.go) hard-requires len(peers) > 1 to ever report
+//     caught-up, so neither node leaves block-sync. This is a peer-count deadlock,
+//     not a stake threshold. Start rejects N=2 loudly rather than let it hang.
+//   - N>=3 works. Every node has >= 2 peers, so IsCaughtUp can fire and hand off
+//     to consensus. N=3 is the smallest real multi-node topology.
 package inprocess

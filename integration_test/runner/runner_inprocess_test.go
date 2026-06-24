@@ -46,11 +46,16 @@ func TestInProcessBankModule(t *testing.T) {
 	defer cancel()
 
 	net, err := inprocess.Start(ctx, inprocess.Options{
-		// Three validators: send_funds asserts only node-0 state, but fewer than
-		// three in-process validators stay in block-sync and never enter consensus
-		// (the block-sync→consensus transition needs a >2/3 voting-power quorum of
-		// reachable peers, which N<3 can't form). N=3 is the minimum live topology.
-		// admin lives on node 0 (the suite default); nodes 1-2 provide the quorum.
+		// Three validators. send_funds asserts only node-0 state, but the N choice
+		// is constrained by CometBFT's block-sync handoff, NOT a voting-power quorum:
+		//   N=1  works  — a sole validator skips block-sync and proposes solo
+		//                 (sei-tendermint onlyValidatorIsUs).
+		//   N=2  HANGS  — each node has exactly 1 peer; BlockPool.IsCaughtUp requires
+		//                 >1 peer, so neither leaves block-sync (Start rejects N=2).
+		//   N>=3 works  — every node has >=2 peers, so IsCaughtUp can fire and hand
+		//                 off to consensus.
+		// N=3 is the smallest MULTI-NODE topology, the point of this end-to-end demo:
+		// admin lives on node 0 (the suite default); nodes 1-2 are real consensus peers.
 		Validators:    3,
 		ChainID:       chainID,
 		TimeoutCommit: time.Second,
