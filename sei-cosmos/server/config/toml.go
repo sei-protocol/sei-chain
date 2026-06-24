@@ -189,6 +189,34 @@ enable = {{ .GRPC.Enable }}
 # Address defines the gRPC server address to bind to.
 address = "{{ .GRPC.Address }}"
 
+# MaxRecvMsgSize defines the maximum message size in bytes the server can receive.
+# It bounds per-request memory allocation before the rate limiter fires. Default 4 MB.
+max-recv-msg-size = {{ .GRPC.MaxRecvMsgSize }}
+
+# MaxOpenConnections defines the maximum number of simultaneous open connections. 0 means unlimited.
+max-open-connections = {{ .GRPC.MaxOpenConnections }}
+
+# MaxConnectionIdle is the duration after which an idle connection is closed (e.g. "5m"). 0 means infinity.
+max-connection-idle = "{{ .GRPC.MaxConnectionIdle }}"
+
+# MaxConnectionAge is the maximum duration a connection may exist before it is closed (e.g. "30m"). 0 means infinity.
+max-connection-age = "{{ .GRPC.MaxConnectionAge }}"
+
+# MaxConnectionAgeGrace is an additive period after max-connection-age during which the connection is forcibly closed. 0 means infinity.
+max-connection-age-grace = "{{ .GRPC.MaxConnectionAgeGrace }}"
+
+# KeepaliveTime is the interval after which, with no activity, the server pings the client to check liveness.
+keepalive-time = "{{ .GRPC.KeepaliveTime }}"
+
+# KeepaliveTimeout is the duration the server waits for a keepalive ping ack before closing the connection.
+keepalive-timeout = "{{ .GRPC.KeepaliveTimeout }}"
+
+# KeepaliveMinTime is the minimum interval a client must wait between keepalive pings; more frequent pings are penalized.
+keepalive-min-time = "{{ .GRPC.KeepaliveMinTime }}"
+
+# KeepalivePermitWithoutStream defines whether the server allows keepalive pings even when there are no active streams.
+keepalive-permit-without-stream = {{ .GRPC.KeepalivePermitWithoutStream }}
+
 ###############################################################################
 ###                        gRPC Web Configuration (Auto-managed)            ###
 ###############################################################################
