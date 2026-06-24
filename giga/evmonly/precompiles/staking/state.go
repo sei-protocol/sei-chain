@@ -1,6 +1,7 @@
 package staking
 
 import (
+	"encoding/hex"
 	"errors"
 	"math/big"
 	"sort"
@@ -100,6 +101,9 @@ func setValidator(store precompiles.Store, validator Validator) error {
 	if err := util.SetJSON(store, validatorKey(validator.OperatorAddress), validator); err != nil {
 		return err
 	}
+	if err := util.SetJSON(store, validatorConsensusPubkeyKey(validator.ConsensusPubkey), validator.OperatorAddress); err != nil {
+		return err
+	}
 	return addStringListItem(store, validatorsIndexKey(), validator.OperatorAddress)
 }
 
@@ -107,8 +111,19 @@ func getValidator(store precompiles.Store, validatorAddress string) (Validator, 
 	return util.GetJSON[Validator](store, validatorKey(validatorAddress))
 }
 
+func getValidatorByConsensusPubkey(store precompiles.Store, pubKey []byte) (string, bool, error) {
+	return util.GetJSON[string](store, validatorConsensusPubkeyKey(pubKey))
+}
+
 func removeValidator(store precompiles.Store, validatorAddress string) error {
+	validator, ok, err := getValidator(store, validatorAddress)
+	if err != nil {
+		return err
+	}
 	store.Delete(validatorKey(validatorAddress))
+	if ok {
+		store.Delete(validatorConsensusPubkeyKey(validator.ConsensusPubkey))
+	}
 	return removeStringListItem(store, validatorsIndexKey(), validatorAddress)
 }
 
@@ -634,6 +649,10 @@ func validatorsIndexKey() []byte {
 
 func validatorKey(validator string) []byte {
 	return []byte("validator/" + validator)
+}
+
+func validatorConsensusPubkeyKey(pubKey []byte) []byte {
+	return []byte("validator-consensus-pubkey/" + hex.EncodeToString(pubKey))
 }
 
 func delegationKey(delegator string, validator string) []byte {
