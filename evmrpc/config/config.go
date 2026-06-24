@@ -169,6 +169,11 @@ type Config struct {
 
 	// IPRateLimitBurst is the maximum per-IP burst size.
 	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
+
+	// MaxOpenConnections caps the number of simultaneously accepted connections
+	// on the EVM HTTP and WebSocket listeners. Excess connections block in the
+	// accept queue until an active connection closes. Zero disables the limit.
+	MaxOpenConnections int `mapstructure:"max_open_connections"`
 }
 
 var DefaultConfig = Config{
@@ -217,6 +222,7 @@ var DefaultConfig = Config{
 	TraceBakeSnapshotWindow: 64,
 	IPRateLimitRPS:          200,
 	IPRateLimitBurst:        400,
+	MaxOpenConnections:      0,
 }
 
 const (
@@ -261,6 +267,7 @@ const (
 	flagTraceBakeSnapshotWindow      = "evm.trace_bake_snapshot_window"
 	flagIPRateLimitRPS               = "evm.ip_rate_limit_rps"
 	flagIPRateLimitBurst             = "evm.ip_rate_limit_burst"
+	flagMaxOpenConnections           = "evm.max_open_connections"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -471,6 +478,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagMaxOpenConnections); v != nil {
+		if cfg.MaxOpenConnections, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
 	return cfg, nil
 }
 
@@ -669,5 +681,10 @@ ip_rate_limit_rps = {{ .EVM.IPRateLimitRPS }}
 
 # ip_rate_limit_burst is the maximum per-IP burst above the sustained rate.
 ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
+
+# max_open_connections caps the number of simultaneously accepted connections on
+# the EVM HTTP and WebSocket listeners. Excess connections wait in the accept
+# queue until an active connection closes. Set to 0 to disable the limit.
+max_open_connections = {{ .EVM.MaxOpenConnections }}
 
 `

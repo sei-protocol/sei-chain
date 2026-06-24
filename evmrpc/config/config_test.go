@@ -43,6 +43,7 @@ type opts struct {
 	workerQueueSize              interface{}
 	ipRateLimitRPS               interface{}
 	ipRateLimitBurst             interface{}
+	maxOpenConnections           interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -160,6 +161,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.ip_rate_limit_burst" {
 		return o.ipRateLimitBurst
 	}
+	if k == "evm.max_open_connections" {
+		return o.maxOpenConnections
+	}
 	panic("unknown key")
 }
 
@@ -200,6 +204,7 @@ func getDefaultOpts() opts {
 		1000,
 		200.0,
 		400,
+		2000,
 	}
 }
 
