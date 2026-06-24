@@ -371,6 +371,15 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			return fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
 		}
 	} else {
+		// Re-commit the last finalized block's hash to the equivocation guard before re-proposing it
+		// for AppQC voting (PushAppHash below), mirroring executeBlock's commit-before-PushAppHash
+		// ordering. On a normal restart this idempotently matches the hash recorded when `last` was
+		// first executed; if the committed app state has diverged from what the vault recorded (e.g. an
+		// out-of-band rollback/restore), this halts the node instead of externalizing a conflicting
+		// hash. A returned error is a benign shutdown cancellation; genuine faults panic inside.
+		if err := commitHashToVault(ctx, r.hashVault, last, info.LastBlockAppHash); err != nil {
+			return err
+		}
 		// Losing a prefix of appHashes on crash is fine: AppQC is reached
 		// once everyone votes on apphashes of a suffix of finalized blocks.
 		if err := r.data.PushAppHash(ctx, last, info.LastBlockAppHash); err != nil {
