@@ -253,7 +253,7 @@ func testPruneStraddleRetainsQC(t *testing.T, build builder) {
 	require.NoError(t, err)
 	got, ok := opt.Get()
 	require.True(t, ok, "straddling QC must be retained")
-	require.Equal(t, straddled.first, got.QC().GlobalRange(committee).First)
+	require.Equal(t, straddled.first, got.QC().GlobalRange(0).First)
 }
 
 // testPruneIdempotentMonotonic asserts PruneBefore is idempotent and the
@@ -485,7 +485,7 @@ func testReverseIteratorOrdering(t *testing.T, build builder) {
 		}
 		qc, err := qcIt.QC()
 		require.NoError(t, err)
-		first := qc.QC().GlobalRange(committee).First
+		first := qc.QC().GlobalRange(0).First
 		if qcCount == 0 {
 			require.Equal(t, lastFirst, first, "reverse QCs must surface the last QC first")
 		}
@@ -525,8 +525,8 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 
 	prevQC, ok := recoverLastQC(t, db)
 	require.True(t, ok)
-	require.Equal(t, last.first, prevQC.GlobalRange(committee).First, "recovered QC must be the last persisted QC")
-	require.Equal(t, last.next, prevQC.GlobalRange(committee).Next)
+	require.Equal(t, last.first, prevQC.GlobalRange(0).First, "recovered QC must be the last persisted QC")
+	require.Equal(t, last.next, prevQC.GlobalRange(0).Next)
 
 	// The recovered QC's upper bound is exactly where the continuation begins;
 	// writing the next contiguous batch must be accepted.
@@ -712,7 +712,7 @@ func TestMemblockPruneRemovesBelowWatermark(t *testing.T) {
 		}
 		fqc, err := qcIt.QC()
 		require.NoError(t, err)
-		require.GreaterOrEqual(t, fqc.QC().GlobalRange(committee).First, watermark,
+		require.GreaterOrEqual(t, fqc.QC().GlobalRange(0).First, watermark,
 			"QC iterator must not surface pruned QCs")
 	}
 	require.NoError(t, qcIt.Close())
@@ -842,13 +842,13 @@ func assertBlocksReadable(t *testing.T, db types.BlockDB, batches []batch) {
 
 func assertQCsReadable(t *testing.T, db types.BlockDB, committee *types.Committee, batches []batch) {
 	for _, b := range batches {
-		r := b.qc.QC().GlobalRange(committee)
+		r := b.qc.QC().GlobalRange(0)
 		for n := r.First; n < r.Next; n++ {
 			opt, err := db.ReadQCByBlockNumber(n)
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "QC covering %d should exist", n)
-			gr := got.QC().GlobalRange(committee)
+			gr := got.QC().GlobalRange(0)
 			require.Equal(t, r.First, gr.First)
 			require.Equal(t, r.Next, gr.Next)
 			require.Len(t, got.Headers(), len(b.qc.Headers()), "QC must round-trip its full header set")
@@ -902,7 +902,7 @@ func assertIterators(t *testing.T, db types.BlockDB, committee *types.Committee,
 		}
 		qc, err := qcIt.QC()
 		require.NoError(t, err)
-		first := qc.QC().GlobalRange(committee).First
+		first := qc.QC().GlobalRange(0).First
 		if haveQC {
 			require.Greater(t, first, prevFirst, "QCs must iterate ascending by First")
 		}
@@ -960,7 +960,7 @@ func buildCommittee() (*types.Committee, []types.SecretKey) {
 		keys[i] = types.GenSecretKey(rng)
 		replicas[i] = keys[i].Public()
 	}
-	committee := utils.OrPanic1(types.NewRoundRobinElection(replicas, 0, genesisTime))
+	committee := utils.OrPanic1(types.NewRoundRobinElection(replicas))
 	return committee, keys
 }
 
@@ -972,7 +972,7 @@ func generateBatches(committee *types.Committee, keys []types.SecretKey) []batch
 	batches := make([]batch, 0, numBatches)
 	for range numBatches {
 		fqc, blocks := buildFullCommitQC(rng, committee, keys, prev)
-		r := fqc.QC().GlobalRange(committee)
+		r := fqc.QC().GlobalRange(0)
 		batches = append(batches, batch{first: r.First, next: r.Next, blocks: blocks, qc: fqc})
 		prev = utils.Some(fqc.QC())
 	}
@@ -1029,10 +1029,12 @@ func buildFullCommitQC(
 		leaderKey,
 		committee,
 		viewSpec,
+		0,
 		genesisTime,
+		time.Now(),
 		laneQCs,
 		func() utils.Option[*types.AppQC] {
-			if n := types.GlobalRangeOpt(prev, committee).Next; n > 0 {
+			if n := types.GlobalRangeOpt(prev, 0).Next; n > 0 {
 				p := types.NewAppProposal(n-1, viewSpec.View().Index, types.GenAppHash(rng))
 				return utils.Some(testAppQC(keys, p))
 			}

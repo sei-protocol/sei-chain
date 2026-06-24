@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -18,25 +19,21 @@ func makeGlobalBlocks(rng utils.Rng, n int) []*types.Block {
 
 func TestNewGlobalBlockPersisterEmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
-	fb := committee.FirstBlock()
-
-	gp, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	require.NotNil(t, gp)
 	require.Equal(t, 0, len(gp.ConsumeLoaded()))
-	require.Equal(t, fb, gp.Next())
+	require.Equal(t, types.GlobalBlockNumber(0), gp.Next())
 	require.NoError(t, gp.Close())
 }
 
 func TestNewGlobalBlockPersisterNoop(t *testing.T) {
 	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
-	fb := committee.FirstBlock()
+	_, _ = epoch.GenRegistry(rng, 3)
+	fb := types.GlobalBlockNumber(0)
 	blocks := makeGlobalBlocks(rng, 5)
 
-	gp, err := NewGlobalBlockPersister(utils.None[string](), committee)
+	gp, err := NewGlobalBlockPersister(utils.None[string](), 0)
 	require.NoError(t, err)
 	require.NotNil(t, gp)
 	require.Equal(t, 0, len(gp.ConsumeLoaded()))
@@ -61,11 +58,11 @@ func TestNewGlobalBlockPersisterNoop(t *testing.T) {
 func TestGlobalBlockPersistAndReload(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
-	fb := committee.FirstBlock()
+	_, _ = epoch.GenRegistry(rng, 3)
+	fb := types.GlobalBlockNumber(0)
 	blocks := makeGlobalBlocks(rng, 5)
 
-	gp, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	for i, b := range blocks {
 		require.NoError(t, gp.PersistBlock(fb+types.GlobalBlockNumber(i), b))
@@ -73,7 +70,7 @@ func TestGlobalBlockPersistAndReload(t *testing.T) {
 	require.Equal(t, fb+5, gp.Next())
 	require.NoError(t, gp.Close())
 
-	gp2, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp2, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	loaded := gp2.ConsumeLoaded()
 	require.Equal(t, 5, len(loaded))
@@ -87,11 +84,11 @@ func TestGlobalBlockPersistAndReload(t *testing.T) {
 func TestGlobalBlockTruncateAndReload(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
-	fb := committee.FirstBlock()
+	_, _ = epoch.GenRegistry(rng, 3)
+	fb := types.GlobalBlockNumber(0)
 	blocks := makeGlobalBlocks(rng, 10)
 
-	gp, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	for i, b := range blocks {
 		require.NoError(t, gp.PersistBlock(fb+types.GlobalBlockNumber(i), b))
@@ -99,7 +96,7 @@ func TestGlobalBlockTruncateAndReload(t *testing.T) {
 	require.NoError(t, gp.TruncateBefore(fb+5))
 	require.NoError(t, gp.Close())
 
-	gp2, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp2, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	loaded := gp2.ConsumeLoaded()
 	require.Equal(t, 5, len(loaded))
@@ -112,11 +109,11 @@ func TestGlobalBlockTruncateAndReload(t *testing.T) {
 func TestGlobalBlockTruncateAll(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
-	fb := committee.FirstBlock()
+	_, _ = epoch.GenRegistry(rng, 3)
+	fb := types.GlobalBlockNumber(0)
 	blocks := makeGlobalBlocks(rng, 5)
 
-	gp, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	for i, b := range blocks {
 		require.NoError(t, gp.PersistBlock(fb+types.GlobalBlockNumber(i), b))
@@ -125,7 +122,7 @@ func TestGlobalBlockTruncateAll(t *testing.T) {
 	require.Equal(t, fb+10, gp.Next())
 	require.NoError(t, gp.Close())
 
-	gp2, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp2, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(gp2.ConsumeLoaded()))
 	require.Equal(t, fb, gp2.Next())
@@ -135,11 +132,11 @@ func TestGlobalBlockTruncateAll(t *testing.T) {
 func TestGlobalBlockDuplicateIgnored(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
-	fb := committee.FirstBlock()
+	_, _ = epoch.GenRegistry(rng, 3)
+	fb := types.GlobalBlockNumber(0)
 	block := types.GenBlock(rng)
 
-	gp, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	require.NoError(t, gp.PersistBlock(fb, block))
 	require.NoError(t, gp.PersistBlock(fb, block))
@@ -150,11 +147,11 @@ func TestGlobalBlockDuplicateIgnored(t *testing.T) {
 func TestGlobalBlockGapError(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
-	fb := committee.FirstBlock()
+	_, _ = epoch.GenRegistry(rng, 3)
+	fb := types.GlobalBlockNumber(0)
 	block := types.GenBlock(rng)
 
-	gp, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	err = gp.PersistBlock(fb+2, block)
 	require.Error(t, err)
@@ -165,11 +162,11 @@ func TestGlobalBlockGapError(t *testing.T) {
 func TestGlobalBlockTruncateBeforeNoop(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
-	fb := committee.FirstBlock()
+	_, _ = epoch.GenRegistry(rng, 3)
+	fb := types.GlobalBlockNumber(0)
 	blocks := makeGlobalBlocks(rng, 5)
 
-	gp, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	for i, b := range blocks {
 		require.NoError(t, gp.PersistBlock(fb+types.GlobalBlockNumber(i), b))
@@ -178,7 +175,7 @@ func TestGlobalBlockTruncateBeforeNoop(t *testing.T) {
 	require.Equal(t, fb+5, gp.Next())
 	require.NoError(t, gp.Close())
 
-	gp2, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp2, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	require.Equal(t, 5, len(gp2.ConsumeLoaded()))
 	require.NoError(t, gp2.Close())
@@ -187,18 +184,18 @@ func TestGlobalBlockTruncateBeforeNoop(t *testing.T) {
 func TestGlobalBlockContinueAfterReload(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
-	fb := committee.FirstBlock()
+	_, _ = epoch.GenRegistry(rng, 3)
+	fb := types.GlobalBlockNumber(0)
 	blocks := makeGlobalBlocks(rng, 10)
 
-	gp, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	for i := range 5 {
 		require.NoError(t, gp.PersistBlock(fb+types.GlobalBlockNumber(i), blocks[i]))
 	}
 	require.NoError(t, gp.Close())
 
-	gp2, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp2, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	require.Equal(t, 5, len(gp2.ConsumeLoaded()))
 	for i := 5; i < 10; i++ {
@@ -207,7 +204,7 @@ func TestGlobalBlockContinueAfterReload(t *testing.T) {
 	require.Equal(t, fb+10, gp2.Next())
 	require.NoError(t, gp2.Close())
 
-	gp3, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp3, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	require.Equal(t, 10, len(gp3.ConsumeLoaded()))
 	require.NoError(t, gp3.Close())
@@ -216,12 +213,12 @@ func TestGlobalBlockContinueAfterReload(t *testing.T) {
 func TestGlobalBlockTruncateAfterMiddle(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
-	fb := committee.FirstBlock()
+	_, _ = epoch.GenRegistry(rng, 3)
+	fb := types.GlobalBlockNumber(0)
 	blocks := makeGlobalBlocks(rng, 5)
 
 	// First session: persist 5 blocks.
-	gp, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	for i, b := range blocks {
 		require.NoError(t, gp.PersistBlock(fb+types.GlobalBlockNumber(i), b))
@@ -229,7 +226,7 @@ func TestGlobalBlockTruncateAfterMiddle(t *testing.T) {
 	require.NoError(t, gp.Close())
 
 	// Second session: reload, then TruncateAfter trims WAL and loaded.
-	gp2, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp2, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	require.NoError(t, gp2.TruncateAfter(fb+3))
 	require.Equal(t, fb+3, gp2.Next())
@@ -240,7 +237,7 @@ func TestGlobalBlockTruncateAfterMiddle(t *testing.T) {
 	require.NoError(t, gp2.Close())
 
 	// Third session: verify WAL persistence.
-	gp3, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp3, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	loaded = gp3.ConsumeLoaded()
 	require.Equal(t, 3, len(loaded))
@@ -252,11 +249,11 @@ func TestGlobalBlockTruncateAfterMiddle(t *testing.T) {
 func TestGlobalBlockTruncateAfterNoop(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
-	fb := committee.FirstBlock()
+	_, _ = epoch.GenRegistry(rng, 3)
+	fb := types.GlobalBlockNumber(0)
 	blocks := makeGlobalBlocks(rng, 3)
 
-	gp, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	for i, b := range blocks {
 		require.NoError(t, gp.PersistBlock(fb+types.GlobalBlockNumber(i), b))
@@ -270,11 +267,11 @@ func TestGlobalBlockTruncateAfterNoop(t *testing.T) {
 func TestGlobalBlockTruncateAfterBeforeFirst(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
-	fb := committee.FirstBlock()
+	_, _ = epoch.GenRegistry(rng, 3)
+	fb := types.GlobalBlockNumber(0)
 	blocks := makeGlobalBlocks(rng, 5)
 
-	gp, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	for i, b := range blocks {
 		require.NoError(t, gp.PersistBlock(fb+types.GlobalBlockNumber(i), b))
@@ -289,7 +286,7 @@ func TestGlobalBlockTruncateAfterBeforeFirst(t *testing.T) {
 	require.NoError(t, gp.Close())
 
 	// Reload — should be empty.
-	gp2, err := NewGlobalBlockPersister(utils.Some(dir), committee)
+	gp2, err := NewGlobalBlockPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(gp2.ConsumeLoaded()))
 	require.NoError(t, gp2.Close())

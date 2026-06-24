@@ -74,7 +74,7 @@ func (g *BlockGenerator) mainLoop() {
 
 func (g *BlockGenerator) buildBatch() *generatedBatch {
 	fqc, blocks := g.buildFullCommitQC()
-	r := fqc.QC().GlobalRange(g.committee)
+	r := fqc.QC().GlobalRange(0)
 	g.prev = utils.Some(fqc.QC())
 	return &generatedBatch{first: r.First, next: r.Next, blocks: blocks, qc: fqc}
 }
@@ -145,10 +145,12 @@ func (g *BlockGenerator) buildFullCommitQC() (*types.FullCommitQC, []*types.Bloc
 		leaderKey,
 		committee,
 		viewSpec,
+		0,
+		genesisTime,
 		time.Now(),
 		laneQCs,
 		func() utils.Option[*types.AppQC] {
-			if n := types.GlobalRangeOpt(prev, committee).Next; n > 0 {
+			if n := types.GlobalRangeOpt(prev, 0).Next; n > 0 {
 				p := types.NewAppProposal(n-1, viewSpec.View().Index, types.GenAppHash(rng))
 				return utils.Some(testAppQC(keys, p))
 			}

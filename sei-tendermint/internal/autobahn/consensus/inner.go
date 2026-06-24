@@ -81,6 +81,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/seilog"
@@ -98,7 +99,7 @@ type inner struct {
 // newInner creates the inner state from persisted data loaded by NewPersister.
 // data is None on fresh start (persistence disabled or no prior state).
 // Returns error if persisted state is corrupt (see persistedInner.validate).
-func newInner(data utils.Option[*pb.PersistedInner], committee *types.Committee) (inner, error) {
+func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (inner, error) {
 	var persisted persistedInner
 
 	if p, ok := data.Get(); ok {
@@ -109,7 +110,7 @@ func newInner(data utils.Option[*pb.PersistedInner], committee *types.Committee)
 		persisted = *decoded
 	}
 
-	if err := persisted.validate(committee); err != nil {
+	if err := persisted.validate(registry); err != nil {
 		return inner{}, err
 	}
 
@@ -122,7 +123,7 @@ func (s *State) pushCommitQC(qc *types.CommitQC) error {
 	if i := s.innerRecv.Load(); qc.Proposal().Index() < i.View().Index {
 		return nil
 	}
-	if err := qc.Verify(s.Data().Committee()); err != nil {
+	if err := qc.Verify(s.Data().Registry().CommitteeFor(qc.Proposal().Index())); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for iSend := range s.inner.Lock() {
@@ -151,7 +152,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 		return nil
 	}
 	// Verify checks the invariant: TimeoutQC.View().Index == CommitQC.Index + 1
-	if err := qc.Verify(s.Data().Committee(), i.CommitQC); err != nil {
+	if err := qc.Verify(s.Data().Registry().CommitteeFor(qc.View().Index), i.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for isend := range s.inner.Lock() {
@@ -179,7 +180,7 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 	if vs.View() != proposal.View() {
 		return nil
 	}
-	if err := proposal.Verify(s.Data().Committee(), vs); err != nil {
+	if err := proposal.Verify(s.Data().Registry().CommitteeFor(vs.View().Index), vs, s.Data().Registry().FirstBlock(), s.Data().Registry().GenesisTimestamp()); err != nil {
 		return fmt.Errorf("proposal.Verify(): %w", err)
 	}
 	// Update.
@@ -205,7 +206,7 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 	if vs.View() != qc.Proposal().View() {
 		return nil
 	}
-	if err := qc.Verify(s.Data().Committee()); err != nil {
+	if err := qc.Verify(s.Data().Registry().CommitteeFor(qc.Proposal().View().Index)); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	// Update.

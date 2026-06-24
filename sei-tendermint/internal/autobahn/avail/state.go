@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -155,7 +156,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		return nil, err
 	}
 
-	inner, err := newInner(data.Committee(), loaded)
+	inner, err := newInner(data.Registry(), data.Registry().FirstBlock(), loaded)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +165,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	// loadPersistedState.
 	if ls, ok := loaded.Get(); ok {
 		if anchor, ok := ls.pruneAnchor.Get(); ok {
-			for lane := range data.Committee().Lanes().All() {
+			for lane := range data.Registry().LatestCommittee().Lanes().All() {
 				if err := pers.blocks.MaybePruneAndPersistLane(lane, utils.Some(anchor.CommitQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
 					return nil, fmt.Errorf("prune stale block WAL entries: %w", err)
 				}
@@ -260,7 +261,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	if err := qc.Verify(s.data.Committee()); err != nil {
+	if err := qc.Verify(s.data.Registry().CommitteeFor(qc.Proposal().Index())); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
@@ -279,10 +280,11 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 
 // PushAppVote pushes an AppVote to the state.
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
-	if err := v.VerifySig(s.data.Committee()); err != nil {
+	idx := v.Msg().Proposal().RoadIndex()
+	committee := s.data.Registry().CommitteeFor(idx)
+	if err := v.VerifySig(committee); err != nil {
 		return fmt.Errorf("v.VerifySig(): %w", err)
 	}
-	idx := v.Msg().Proposal().RoadIndex()
 	// Wait for the corresponding commitQC.
 	if err := s.waitForCommitQC(ctx, idx); err != nil {
 		return err
@@ -294,7 +296,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		}
 		// Verify the vote against the CommitQC.
 		qc := inner.commitQCs.q[idx]
-		if err := v.Msg().Proposal().Verify(s.data.Committee(), qc); err != nil {
+		if err := v.Msg().Proposal().Verify(committee, qc, s.data.Registry().FirstBlock()); err != nil {
 			return fmt.Errorf("invalid vote: %w", err)
 		}
 		// Push the vote.
@@ -303,11 +305,11 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		for q.next <= n {
 			q.pushBack(newAppVotes())
 		}
-		appQC, ok := q.q[n].pushVote(s.data.Committee(), v)
+		appQC, ok := q.q[n].pushVote(committee, v)
 		if !ok {
 			return nil
 		}
-		updated, err := inner.prune(s.data.Committee(), appQC, qc)
+		updated, err := inner.prune(committee, s.data.Registry().FirstBlock(), appQC, qc)
 		if err != nil {
 			return err
 		}
@@ -327,7 +329,7 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			return nil
 		}
 	}
-	c := s.data.Committee()
+	c := s.data.Registry().CommitteeFor(commitQC.Proposal().Index())
 	if err := appQC.Verify(c); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
@@ -339,11 +341,11 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 	}
 	// Defense-in-depth check, it should never happen that >f validators sign
 	// a proposal which does not match the commitQC's global range.
-	if !commitQC.GlobalRange(c).Has(appQC.Proposal().GlobalNumber()) {
+	if !commitQC.GlobalRange(s.data.Registry().FirstBlock()).Has(appQC.Proposal().GlobalNumber()) {
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		updated, err := inner.prune(s.data.Committee(), appQC, commitQC)
+		updated, err := inner.prune(c, s.data.Registry().FirstBlock(), appQC, commitQC)
 		if err != nil {
 			return err
 		}
@@ -391,11 +393,13 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	if p.Key() != h.Lane() {
 		return fmt.Errorf("signer %v does not match lane %v", p.Key(), h.Lane())
 	}
-	if err := p.Msg().Verify(s.data.Committee()); err != nil {
+	if err := s.data.Registry().VerifyInWindow(func(c *types.Committee) error {
+		if err := p.Msg().Verify(c); err != nil {
+			return err
+		}
+		return p.VerifySig(c)
+	}); err != nil {
 		return fmt.Errorf("block.Verify(): %w", err)
-	}
-	if err := p.VerifySig(s.data.Committee()); err != nil {
-		return fmt.Errorf("p.VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.blocks[h.Lane()]
@@ -441,12 +445,15 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 // Waits until the lane has enough capacity for the new vote.
 // It does NOT wait for the previous votes.
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
-	if err := vote.Msg().Verify(s.data.Committee()); err != nil {
-		return fmt.Errorf("vote.Msg().Verify(): %w", err)
+	if err := s.data.Registry().VerifyInWindow(func(c *types.Committee) error {
+		if err := vote.Msg().Verify(c); err != nil {
+			return err
+		}
+		return vote.VerifySig(c)
+	}); err != nil {
+		return fmt.Errorf("vote.Verify(): %w", err)
 	}
-	if err := vote.VerifySig(s.data.Committee()); err != nil {
-		return fmt.Errorf("vote.VerifySig(): %w", err)
-	}
+	window := s.data.Registry().EpochWindow()
 	h := vote.Msg().Header()
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.votes[h.Lane()]
@@ -464,7 +471,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= h.BlockNumber() {
 			q.pushBack(newBlockVotes())
 		}
-		if _, ok := q.q[h.BlockNumber()].pushVote(s.data.Committee(), vote); ok {
+		if q.q[h.BlockNumber()].pushVote(window, vote) {
 			ctrl.Updated()
 		}
 	}
@@ -489,8 +496,8 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 					return nil, data.ErrPruned
 				}
 				// Check if we have the header.
-				if byHash, ok := q.q[n].byHash[want]; ok {
-					h := byHash.votes[0].Msg().Header()
+				if entry, ok := q.q[n].byHash[want]; ok {
+					h := entry.votes[0].Msg().Header()
 					want = h.ParentHash()
 					headers[len(headers)-i-1] = h
 					break
@@ -513,7 +520,7 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 	}
 	// Collect the headers from the votes.
 	var commitHeaders []*types.BlockHeader
-	for lane := range s.data.Committee().Lanes().All() {
+	for lane := range s.data.Registry().CommitteeFor(qc.Proposal().Index()).Lanes().All() {
 		headers, err := s.headers(ctx, qc.LaneRange(lane))
 		if err != nil {
 			return nil, err
@@ -536,18 +543,20 @@ func (s *State) WaitForLocalCapacity(ctx context.Context, toProduce types.BlockN
 	return nil
 }
 
-// WaitForLaneQCs waits until there is at least 1 LaneQC with a block not finalized by prev.
+// WaitForLaneQCs waits until there is at least 1 LaneQC (for the given epoch)
+// with a block not finalized by prev.
 func (s *State) WaitForLaneQCs(
-	ctx context.Context, prev utils.Option[*types.CommitQC],
+	ctx context.Context, prev utils.Option[*types.CommitQC], e epoch.Index,
 ) (map[types.LaneID]*types.LaneQC, error) {
-	c := s.data.Committee()
+	window := s.data.Registry().EpochWindow()
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}
 		for {
-			for lane := range c.Lanes().All() {
+			for lane := range inner.blocks {
 				first := types.LaneRangeOpt(prev, lane).Next()
-				for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
-					if qc, ok := inner.laneQC(c, lane, first+i); ok {
+				for i := range types.BlockNumber(BlocksPerLanePerCommit) {
+					qcs := inner.laneQCs(window, lane, first+i)
+					if qc, ok := qcs[e]; ok {
 						laneQCs[lane] = qc
 					} else {
 						break
@@ -611,7 +620,6 @@ func (s *State) Run(ctx context.Context) error {
 		})
 		// Task inserting FullCommitQCs and local blocks to data state.
 		scope.SpawnNamed("s.data.PushQC", func() error {
-			c := s.data.Committee()
 			for n := types.RoadIndex(0); ; n = max(n+1, s.FirstCommitQC()) {
 				qc, err := s.fullCommitQC(ctx, n)
 				if err != nil {
@@ -622,6 +630,7 @@ func (s *State) Run(ctx context.Context) error {
 				}
 
 				// Collect the blocks we have locally.
+				c := s.data.Registry().CommitteeFor(qc.QC().Proposal().Index())
 				var blocks []*types.Block
 				for inner := range s.inner.Lock() {
 					for lane := range c.Lanes().All() {
@@ -684,7 +693,7 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 			s.markBlockPersisted(header.Lane(), header.BlockNumber()+1)
 		}
 
-		blocksByLane := make(map[types.LaneID][]*types.Signed[*types.LaneProposal], s.data.Committee().Lanes().Len())
+		blocksByLane := make(map[types.LaneID][]*types.Signed[*types.LaneProposal])
 		for _, proposal := range batch.blocks {
 			lane := proposal.Msg().Block().Header().Lane()
 			blocksByLane[lane] = append(blocksByLane[lane], proposal)
@@ -698,11 +707,18 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 					s.markCommitQCsPersisted(qc)
 				}))
 			})
-			for lane := range s.data.Committee().Lanes().All() {
-				proposals := blocksByLane[lane]
-				ps.Spawn(func() error {
-					return pers.blocks.MaybePruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))
-				})
+			seenLane := map[types.LaneID]struct{}{}
+			for _, c := range s.data.Registry().EpochWindow() {
+				for lane := range c.Lanes().All() {
+					if _, ok := seenLane[lane]; ok {
+						continue
+					}
+					seenLane[lane] = struct{}{}
+					proposals := blocksByLane[lane]
+					ps.Spawn(func() error {
+						return pers.blocks.MaybePruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))
+					})
+				}
 			}
 			return nil
 		}); err != nil {

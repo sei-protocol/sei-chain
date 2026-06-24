@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -17,10 +18,10 @@ import (
 // view timeout (so voteTimeout is only triggered explicitly).
 // keys[0] is used as the node's signing key.
 func newTestState(rng utils.Rng) (*State, []types.SecretKey) {
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 	dataState := utils.OrPanic1(data.NewState(
-		&data.Config{Committee: committee},
-		utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee)),
+		&data.Config{Registry: registry},
+		utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock())),
 	))
 	s := utils.OrPanic1(NewState(&Config{
 		Key:                keys[0],
@@ -258,7 +259,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 // voteTimeout still inherits the PrepareQC from the persisted TimeoutQC.
 func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	makeCfg := func() *Config {
@@ -270,8 +271,8 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	}
 	makeDataState := func() *data.State {
 		return utils.OrPanic1(data.NewState(
-			&data.Config{Committee: committee},
-			utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee)),
+			&data.Config{Registry: registry},
+			utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock())),
 		))
 	}
 

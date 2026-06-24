@@ -3,7 +3,6 @@ package types
 import (
 	"math"
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -11,15 +10,13 @@ import (
 
 func TestNewCommittee_FiltersOutZeroWeightValidators(t *testing.T) {
 	rng := utils.TestRng()
-	firstBlock := GenGlobalBlockNumber(rng)
-	genesisTimestamp := time.Now()
 	zeroWeightKey := GenPublicKey(rng)
 	nonZeroWeightKey := GenPublicKey(rng)
 
 	committee, err := NewCommittee(map[PublicKey]uint64{
 		zeroWeightKey:    0,
 		nonZeroWeightKey: 7,
-	}, firstBlock, genesisTimestamp)
+	})
 	if err != nil {
 		t.Fatalf("NewCommittee(): %v", err)
 	}
@@ -40,13 +37,11 @@ func TestNewCommittee_FiltersOutZeroWeightValidators(t *testing.T) {
 
 func TestNewCommittee_RejectsZeroTotalWeight(t *testing.T) {
 	rng := utils.TestRng()
-	firstBlock := GenGlobalBlockNumber(rng)
-	genesisTimestamp := time.Now()
 
 	_, err := NewCommittee(map[PublicKey]uint64{
 		GenPublicKey(rng): 0,
 		GenPublicKey(rng): 0,
-	}, firstBlock, genesisTimestamp)
+	})
 	if err == nil {
 		t.Fatal("NewCommittee() succeeded, want error")
 	}
@@ -54,13 +49,11 @@ func TestNewCommittee_RejectsZeroTotalWeight(t *testing.T) {
 
 func TestNewCommittee_RejectsWeightOverflow(t *testing.T) {
 	rng := utils.TestRng()
-	firstBlock := GenGlobalBlockNumber(rng)
-	genesisTimestamp := time.Now()
 
 	_, err := NewCommittee(map[PublicKey]uint64{
 		GenPublicKey(rng): math.MaxUint64,
 		GenPublicKey(rng): 1,
-	}, firstBlock, genesisTimestamp)
+	})
 	if err == nil {
 		t.Fatal("NewCommittee() succeeded, want error")
 	}
@@ -68,15 +61,13 @@ func TestNewCommittee_RejectsWeightOverflow(t *testing.T) {
 
 func TestNewCommittee_RejectsTooManyValidators(t *testing.T) {
 	rng := utils.TestRng()
-	firstBlock := GenGlobalBlockNumber(rng)
-	genesisTimestamp := time.Now()
 
 	weights := map[PublicKey]uint64{}
 	for range MaxValidators + 1 {
 		weights[GenPublicKey(rng)] = 1
 	}
 
-	_, err := NewCommittee(weights, firstBlock, genesisTimestamp)
+	_, err := NewCommittee(weights)
 	if err == nil {
 		t.Fatal("NewCommittee() succeeded, want error")
 	}
@@ -92,7 +83,7 @@ func makeCommittee() (*Committee, []SecretKey) {
 		keys[0].Public(): 5,
 		keys[1].Public(): 1,
 		keys[2].Public(): 1,
-	}, 0, time.Now())), keys
+	})), keys
 }
 
 func TestLaneQCVerifyChecksWeight(t *testing.T) {

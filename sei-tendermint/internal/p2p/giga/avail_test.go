@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -16,8 +17,9 @@ import (
 func TestAvailClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
-	env := newTestEnv(committee)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestCommittee()
+	env := newTestEnv(registry)
 	var nodes []*testNode
 	activeKeys := keys[:3] // keys are sorted by weight, so that's ok.
 	totalWeight := uint64(0)
@@ -31,7 +33,7 @@ func TestAvailClientServer(t *testing.T) {
 	}
 
 	totalBlocks := 3 * avail.BlocksPerLane
-	firstBlock := committee.FirstBlock()
+	firstBlock := nodes[0].data.Registry().FirstBlock()
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		t.Log("Spawn network.")
 		s.SpawnBg(func() error { return env.Run(ctx) })

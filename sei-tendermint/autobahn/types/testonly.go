@@ -37,7 +37,7 @@ func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
 	slices.SortStableFunc(sks, func(a, b SecretKey) int {
 		return -cmp.Compare(pks[a.Public()], pks[b.Public()])
 	})
-	return utils.OrPanic1(NewCommittee(pks, GenGlobalBlockNumber(rng)%1000000, time.Now())), sks
+	return utils.OrPanic1(NewCommittee(pks)), sks
 }
 
 // TestKeysWithWeight returns a deterministic subset of keys whose committee weight reaches the requested threshold.

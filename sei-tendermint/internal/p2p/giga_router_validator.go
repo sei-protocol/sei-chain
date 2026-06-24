@@ -89,7 +89,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 // EvmProxy on the validator returns None when the sender's shard owner is
 // us (handle locally via mempool, no HTTP round-trip to self).
 func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*url.URL] {
-	shardValidator := r.data.Committee().EvmShard(sender)
+	shardValidator := r.data.Registry().LatestCommittee().EvmShard(sender)
 	if r.validatorKey == shardValidator {
 		return utils.None[*url.URL]()
 	}

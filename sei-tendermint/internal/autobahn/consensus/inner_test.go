@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -28,12 +29,12 @@ func seedPersistedInner(dir string, state *persistedInner) {
 
 // loadInner is a test helper that loads persisted data and creates inner.
 // Mirrors what NewState does: NewPersister → newInner.
-func loadInner(dir string, committee *types.Committee) (inner, error) {
+func loadInner(dir string, registry *epoch.Registry) (inner, error) {
 	_, data, err := persist.NewPersister[*pb.PersistedInner](utils.Some(dir), innerFile)
 	if err != nil {
 		return inner{}, err
 	}
-	return newInner(data, committee)
+	return newInner(data, registry)
 }
 
 // makePrepareQC creates a PrepareQC with valid signatures from the given keys.
@@ -47,9 +48,9 @@ func makePrepareQC(keys []types.SecretKey, proposal *types.Proposal) *types.Prep
 
 func TestNewInnerEmpty(t *testing.T) {
 	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 1)
+	registry, _ := epoch.GenRegistry(rng, 1)
 	// No data should return empty inner (persistence disabled / fresh start)
-	i, err := newInner(utils.None[*pb.PersistedInner](), committee)
+	i, err := newInner(utils.None[*pb.PersistedInner](), registry)
 	require.NoError(t, err)
 	require.False(t, i.PrepareVote.IsPresent(), "prepareVote should be None")
 	require.False(t, i.CommitVote.IsPresent(), "commitVote should be None")
@@ -61,7 +62,7 @@ func TestNewInnerPrepareVote(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create and persist a prepare vote at genesis view (0, 0)
-	committee, keys := types.GenCommittee(rng, 1)
+	registry, keys := epoch.GenRegistry(rng, 1)
 	key := keys[0]
 	genesisProposal := types.GenProposalAt(rng, types.View{Index: 0, Number: 0})
 	vote := types.Sign(key, types.NewPrepareVote(genesisProposal))
@@ -71,7 +72,7 @@ func TestNewInnerPrepareVote(t *testing.T) {
 	})
 
 	// Load and verify
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	loaded, ok := i.PrepareVote.Get()
 	require.True(t, ok, "prepareVote should be Some")
@@ -83,7 +84,7 @@ func TestNewInnerCommitVote(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create and persist a commit vote at genesis view (0, 0)
-	committee, keys := types.GenCommittee(rng, 1)
+	registry, keys := epoch.GenRegistry(rng, 1)
 	key := keys[0]
 	genesisProposal := types.GenProposalAt(rng, types.View{Index: 0, Number: 0})
 	prepareQC := makePrepareQC([]types.SecretKey{key}, genesisProposal)
@@ -95,7 +96,7 @@ func TestNewInnerCommitVote(t *testing.T) {
 	})
 
 	// Load and verify
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	loaded, ok := i.CommitVote.Get()
 	require.True(t, ok, "commitVote should be Some")
@@ -107,7 +108,7 @@ func TestNewInnerTimeoutVote(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create and persist a timeout vote at genesis view (0, 0)
-	committee, keys := types.GenCommittee(rng, 1)
+	registry, keys := epoch.GenRegistry(rng, 1)
 	key := keys[0]
 	vote := types.NewFullTimeoutVote(key, types.View{Index: 0, Number: 0}, utils.None[*types.PrepareQC]())
 
@@ -116,7 +117,7 @@ func TestNewInnerTimeoutVote(t *testing.T) {
 	})
 
 	// Load and verify
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	loaded, ok := i.TimeoutVote.Get()
 	require.True(t, ok, "timeoutVote should be Some")
@@ -128,7 +129,7 @@ func TestNewInnerAllVotes(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create all vote types at genesis view (0, 0)
-	committee, keys := types.GenCommittee(rng, 1)
+	registry, keys := epoch.GenRegistry(rng, 1)
 	key := keys[0]
 	genesisProposal := types.GenProposalAt(rng, types.View{Index: 0, Number: 0})
 	prepareQC := makePrepareQC([]types.SecretKey{key}, genesisProposal)
@@ -144,7 +145,7 @@ func TestNewInnerAllVotes(t *testing.T) {
 	})
 
 	// Load and verify all
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	require.True(t, i.PrepareVote.IsPresent(), "prepareVote should be Some")
 	require.True(t, i.CommitVote.IsPresent(), "commitVote should be Some")
@@ -156,7 +157,7 @@ func TestNewInnerPartialState(t *testing.T) {
 	dir := t.TempDir()
 
 	// Only persist prepareVote
-	committee, keys := types.GenCommittee(rng, 1)
+	registry, keys := epoch.GenRegistry(rng, 1)
 	key := keys[0]
 	genesisProposal := types.GenProposalAt(rng, types.View{Index: 0, Number: 0})
 	prepareVote := types.Sign(key, types.NewPrepareVote(genesisProposal))
@@ -166,7 +167,7 @@ func TestNewInnerPartialState(t *testing.T) {
 	})
 
 	// Load - only prepareVote should be present
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	require.True(t, i.PrepareVote.IsPresent(), "prepareVote should be Some")
 	require.False(t, i.CommitVote.IsPresent(), "commitVote should be None")
@@ -176,7 +177,7 @@ func TestNewInnerPartialState(t *testing.T) {
 func TestNewInnerCommitQC(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create a CommitQC at index 5
 	proposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -192,7 +193,7 @@ func TestNewInnerCommitQC(t *testing.T) {
 	})
 
 	// Load and verify
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	require.True(t, i.CommitQC.IsPresent(), "CommitQC should be loaded")
 	loadedQC, ok := i.CommitQC.Get()
@@ -205,7 +206,7 @@ func TestNewInnerCommitQC(t *testing.T) {
 func TestNewInnerTimeoutQC(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create a CommitQC at index 5 (required for TimeoutQC at index 6)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -229,7 +230,7 @@ func TestNewInnerTimeoutQC(t *testing.T) {
 	})
 
 	// Load and verify
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	require.True(t, i.TimeoutQC.IsPresent(), "TimeoutQC should be loaded")
 	// View should be (6, 3) since TimeoutQC at (6, 2) advances to (6, 3)
@@ -239,7 +240,7 @@ func TestNewInnerTimeoutQC(t *testing.T) {
 func TestNewInnerTimeoutQCOnlyGenesis(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create TimeoutQC at (0, 2) - no CommitQC needed for index 0
 	var timeoutVotes []*types.FullTimeoutVote
@@ -253,7 +254,7 @@ func TestNewInnerTimeoutQCOnlyGenesis(t *testing.T) {
 	})
 
 	// Load and verify - should work without CommitQC since index is 0
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	require.True(t, i.TimeoutQC.IsPresent(), "TimeoutQC should be loaded")
 	require.Equal(t, types.View{Index: 0, Number: 3}, i.View())
@@ -262,7 +263,7 @@ func TestNewInnerTimeoutQCOnlyGenesis(t *testing.T) {
 func TestNewInnerTimeoutQCWithoutCommitQCError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create TimeoutQC at index 6 WITHOUT CommitQC at index 5
 	var timeoutVotes []*types.FullTimeoutVote
@@ -276,7 +277,7 @@ func TestNewInnerTimeoutQCWithoutCommitQCError(t *testing.T) {
 	})
 
 	// Should return error - TimeoutQC at index 6 requires CommitQC at index 5
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -284,7 +285,7 @@ func TestNewInnerTimeoutQCWithoutCommitQCError(t *testing.T) {
 func TestNewInnerTimeoutQCAheadOfCommitQCError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC at index 5
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -308,7 +309,7 @@ func TestNewInnerTimeoutQCAheadOfCommitQCError(t *testing.T) {
 	})
 
 	// Should return error - TimeoutQC index must equal CommitQC.Index + 1
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -316,7 +317,7 @@ func TestNewInnerTimeoutQCAheadOfCommitQCError(t *testing.T) {
 func TestNewInnerViewSpecStaleTimeoutQC(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC at index 10
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 10, Number: 0})
@@ -341,7 +342,7 @@ func TestNewInnerViewSpecStaleTimeoutQC(t *testing.T) {
 	})
 
 	// Load - stale TimeoutQC should be treated as corrupt state
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -349,7 +350,7 @@ func TestNewInnerViewSpecStaleTimeoutQC(t *testing.T) {
 func TestNewInnerViewSpecValidBothQCs(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC at index 5
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -373,7 +374,7 @@ func TestNewInnerViewSpecValidBothQCs(t *testing.T) {
 	})
 
 	// Load - both should be present
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	require.True(t, i.CommitQC.IsPresent(), "CommitQC should be loaded")
 	require.True(t, i.TimeoutQC.IsPresent(), "TimeoutQC should be loaded")
@@ -384,7 +385,7 @@ func TestNewInnerViewSpecValidBothQCs(t *testing.T) {
 func TestNewInnerStaleVoteError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC at index 5 -> current view is (6, 0)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -405,7 +406,7 @@ func TestNewInnerStaleVoteError(t *testing.T) {
 		PrepareVote: utils.Some(staleVote),
 	})
 
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -413,7 +414,7 @@ func TestNewInnerStaleVoteError(t *testing.T) {
 func TestNewInnerFuturePrepareVoteError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC at index 5 -> current view is (6, 0)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -434,7 +435,7 @@ func TestNewInnerFuturePrepareVoteError(t *testing.T) {
 	})
 
 	// Should return error - future votes indicate corrupt state
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -442,7 +443,7 @@ func TestNewInnerFuturePrepareVoteError(t *testing.T) {
 func TestNewInnerFutureCommitVoteError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC at index 5 -> current view is (6, 0)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -463,7 +464,7 @@ func TestNewInnerFutureCommitVoteError(t *testing.T) {
 	})
 
 	// Should return error
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -471,7 +472,7 @@ func TestNewInnerFutureCommitVoteError(t *testing.T) {
 func TestNewInnerFutureTimeoutVoteError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC at index 5 -> current view is (6, 0)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -491,7 +492,7 @@ func TestNewInnerFutureTimeoutVoteError(t *testing.T) {
 	})
 
 	// Should return error
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -499,7 +500,7 @@ func TestNewInnerFutureTimeoutVoteError(t *testing.T) {
 func TestNewInnerCurrentViewVoteOk(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC at index 5 -> current view is (6, 0)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -520,7 +521,7 @@ func TestNewInnerCurrentViewVoteOk(t *testing.T) {
 	})
 
 	// Should succeed - current view votes are valid
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	require.True(t, i.PrepareVote.IsPresent(), "current view vote should be loaded")
 }
@@ -528,7 +529,7 @@ func TestNewInnerCurrentViewVoteOk(t *testing.T) {
 func TestNewInnerCommitQCInvalidSignatureError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, _ := types.GenCommittee(rng, 3)
+	registry, _ := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC signed by keys NOT in committee
 	otherKeys := make([]types.SecretKey, 3)
@@ -548,7 +549,7 @@ func TestNewInnerCommitQCInvalidSignatureError(t *testing.T) {
 	})
 
 	// Should return error - invalid signatures
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -556,7 +557,7 @@ func TestNewInnerCommitQCInvalidSignatureError(t *testing.T) {
 func TestNewInnerTimeoutQCInvalidSignatureError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create valid CommitQC at index 5
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -584,7 +585,7 @@ func TestNewInnerTimeoutQCInvalidSignatureError(t *testing.T) {
 	})
 
 	// Should return error - invalid signatures on TimeoutQC
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -592,7 +593,7 @@ func TestNewInnerTimeoutQCInvalidSignatureError(t *testing.T) {
 func TestNewInnerCurrentViewVoteInvalidSignatureError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create valid CommitQC at index 5 -> current view is (6, 0)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -614,7 +615,7 @@ func TestNewInnerCurrentViewVoteInvalidSignatureError(t *testing.T) {
 	})
 
 	// Should return error - current view votes must have valid signatures
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -622,7 +623,7 @@ func TestNewInnerCurrentViewVoteInvalidSignatureError(t *testing.T) {
 func TestNewInnerStaleVoteInvalidSignatureError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create valid CommitQC at index 5 -> current view is (6, 0)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -644,7 +645,7 @@ func TestNewInnerStaleVoteInvalidSignatureError(t *testing.T) {
 		PrepareVote: utils.Some(badVote),
 	})
 
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -652,7 +653,7 @@ func TestNewInnerStaleVoteInvalidSignatureError(t *testing.T) {
 func TestNewInnerPrepareQC(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create prepareQC at genesis view (0, 0)
 	proposal := types.GenProposalAt(rng, types.View{Index: 0, Number: 0})
@@ -663,7 +664,7 @@ func TestNewInnerPrepareQC(t *testing.T) {
 	})
 
 	// Load and verify
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	require.True(t, i.PrepareQC.IsPresent(), "prepareQC should be loaded")
 }
@@ -671,7 +672,7 @@ func TestNewInnerPrepareQC(t *testing.T) {
 func TestNewInnerStalePrepareQCError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC at index 5 -> current view is (6, 0)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -692,7 +693,7 @@ func TestNewInnerStalePrepareQCError(t *testing.T) {
 		PrepareQC: utils.Some(stalePrepareQC),
 	})
 
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -700,7 +701,7 @@ func TestNewInnerStalePrepareQCError(t *testing.T) {
 func TestNewInnerCommitVoteWithoutPrepareQCError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Current view is (0, 0) (no CommitQC or TimeoutQC).
 	// CommitVote requires PrepareQC justification.
@@ -711,7 +712,7 @@ func TestNewInnerCommitVoteWithoutPrepareQCError(t *testing.T) {
 		CommitVote: utils.Some(commitVote),
 	})
 
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "CommitVote present without PrepareQC")
 }
@@ -719,7 +720,7 @@ func TestNewInnerCommitVoteWithoutPrepareQCError(t *testing.T) {
 func TestNewInnerFuturePrepareQCError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC at index 5 -> current view is (6, 0)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -740,7 +741,7 @@ func TestNewInnerFuturePrepareQCError(t *testing.T) {
 	})
 
 	// Should return error - future prepareQC indicates corrupt state
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -748,7 +749,7 @@ func TestNewInnerFuturePrepareQCError(t *testing.T) {
 func TestNewInnerCurrentViewPrepareQCOk(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC at index 5 -> current view is (6, 0)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -769,7 +770,7 @@ func TestNewInnerCurrentViewPrepareQCOk(t *testing.T) {
 	})
 
 	// Should succeed - current view prepareQC is valid
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	require.True(t, i.PrepareQC.IsPresent(), "current view prepareQC should be loaded")
 }
@@ -777,7 +778,7 @@ func TestNewInnerCurrentViewPrepareQCOk(t *testing.T) {
 func TestNewInnerCurrentViewPrepareQCInvalidSignatureError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Create CommitQC at index 5 -> current view is (6, 0)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -802,7 +803,7 @@ func TestNewInnerCurrentViewPrepareQCInvalidSignatureError(t *testing.T) {
 	})
 
 	// Should return error - current view prepareQC has invalid signatures
-	_, err := loadInner(dir, committee)
+	_, err := loadInner(dir, registry)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
@@ -810,7 +811,8 @@ func TestNewInnerCurrentViewPrepareQCInvalidSignatureError(t *testing.T) {
 func TestNewInnerPrepareQCIncludedInTimeoutVote(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
+	committee := registry.LatestCommittee()
 	voteKey := keys[0]
 
 	// Create CommitQC at index 5 -> current view is (6, 0)
@@ -832,7 +834,7 @@ func TestNewInnerPrepareQCIncludedInTimeoutVote(t *testing.T) {
 	})
 
 	// Load state
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	require.True(t, i.PrepareQC.IsPresent(), "prepareQC should be loaded")
 
@@ -855,7 +857,7 @@ func TestNewInnerPrepareQCIncludedInTimeoutVote(t *testing.T) {
 func TestPushTimeoutQCClearsStaleState(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 
 	// Setup: Create CommitQC at index 5 -> current view is (6, 0)
 	qcProposal := types.GenProposalAt(rng, types.View{Index: 5, Number: 0})
@@ -884,7 +886,7 @@ func TestPushTimeoutQCClearsStaleState(t *testing.T) {
 	})
 
 	// Load initial state and verify everything is present
-	i, err := loadInner(dir, committee)
+	i, err := loadInner(dir, registry)
 	require.NoError(t, err)
 	require.True(t, i.PrepareQC.IsPresent(), "prepareQC should be loaded")
 	require.True(t, i.PrepareVote.IsPresent(), "prepareVote should be loaded")
@@ -924,8 +926,8 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 	// Verify that a persist error in runOutputs propagates
 	// and terminates the consensus component (instead of panicking).
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
-	ds := utils.OrPanic1(data.NewState(&data.Config{Committee: committee}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee))))
+	registry, keys := epoch.GenRegistry(rng, 4)
+	ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock()))))
 
 	wantErr := errors.New("disk on fire")
 	pers := utils.Some[persist.Persister[*pb.PersistedInner]](failPersister[*pb.PersistedInner]{err: wantErr})

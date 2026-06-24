@@ -41,8 +41,8 @@ func (m *CommitQC) LaneRange(lane LaneID) *LaneRange {
 }
 
 // GlobalRange returns the finalized global block range.
-func (m *CommitQC) GlobalRange(c *Committee) GlobalRange {
-	return m.Proposal().GlobalRange(c)
+func (m *CommitQC) GlobalRange(firstBlock GlobalBlockNumber) GlobalRange {
+	return m.Proposal().GlobalRange(firstBlock)
 }
 
 // Verify verifies the CommitQC against the committee.
@@ -78,12 +78,12 @@ func (m *FullCommitQC) Index() RoadIndex {
 }
 
 // Verify verifies the FullCommitQC against the committee.
-func (m *FullCommitQC) Verify(c *Committee) error {
+func (m *FullCommitQC) Verify(c *Committee, firstBlock GlobalBlockNumber) error {
 	if err := m.qc.Verify(c); err != nil {
 		return fmt.Errorf("qC: %w", err)
 	}
 	n := uint64(0)
-	if want, got := int(m.qc.GlobalRange(c).Len()), len(m.headers); want != got { //nolint:gosec // global range len is a small bounded value representing block count in a QC
+	if want, got := int(m.qc.GlobalRange(firstBlock).Len()), len(m.headers); want != got { //nolint:gosec // global range len is a small bounded value representing block count in a QC
 		return fmt.Errorf("len(headers) = %d, want %d", got, want)
 	}
 	for lane := range c.Lanes().All() {

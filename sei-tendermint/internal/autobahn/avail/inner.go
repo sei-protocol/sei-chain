@@ -6,6 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -55,12 +56,25 @@ type loadedAvailState struct {
 	blocks      map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+func newInner(registry *epoch.Registry, firstBlock types.GlobalBlockNumber, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+	// Use the anchor's own committee for prune() so range calculations use the
+	// correct epoch's lane boundaries. Fall back to the latest known committee.
+	pruneCommittee := registry.LatestCommittee()
+	if l, ok := loaded.Get(); ok {
+		if anchor, ok := l.pruneAnchor.Get(); ok {
+			pruneCommittee = registry.CommitteeFor(anchor.CommitQC.Proposal().Index())
+		}
+	}
+
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
-	for lane := range c.Lanes().All() {
-		votes[lane] = newQueue[types.BlockNumber, blockVotes]()
-		blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+	for _, c := range registry.EpochWindow() {
+		for lane := range c.Lanes().All() {
+			if _, ok := votes[lane]; !ok {
+				votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+				blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+			}
+		}
 	}
 
 	i := &inner{
@@ -70,10 +84,10 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 		commitQCs:           newQueue[types.RoadIndex, *types.CommitQC](),
 		blocks:              blocks,
 		votes:               votes,
-		nextBlockToPersist:  make(map[types.LaneID]types.BlockNumber, c.Lanes().Len()),
-		persistedBlockStart: make(map[types.LaneID]types.BlockNumber, c.Lanes().Len()),
+		nextBlockToPersist:  make(map[types.LaneID]types.BlockNumber, len(votes)),
+		persistedBlockStart: make(map[types.LaneID]types.BlockNumber, len(votes)),
 	}
-	i.appVotes.prune(c.FirstBlock())
+	i.appVotes.prune(firstBlock)
 
 	l, ok := loaded.Get()
 	if !ok {
@@ -88,7 +102,7 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 			slog.Uint64("roadIndex", uint64(anchor.AppQC.Proposal().RoadIndex())),
 			slog.Uint64("globalNumber", uint64(anchor.AppQC.Proposal().GlobalNumber())),
 		)
-		if _, err := i.prune(c, anchor.AppQC, anchor.CommitQC); err != nil {
+		if _, err := i.prune(pruneCommittee, firstBlock, anchor.AppQC, anchor.CommitQC); err != nil {
 			return nil, fmt.Errorf("prune: %w", err)
 		}
 		for lane := range i.blocks {
@@ -143,18 +157,32 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 	return i, nil
 }
 
-func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
-	for _, byHash := range i.votes[lane].q[n].byHash {
-		if byHash.weight >= c.LaneQuorum() {
-			return types.NewLaneQC(byHash.votes[:]), true
+// laneQCs returns one LaneQC per epoch that has accumulated sufficient weight,
+// filtering each QC to only the votes from that epoch's committee members.
+func (i *inner) laneQCs(window map[epoch.Index]*types.Committee, lane types.LaneID, n types.BlockNumber) map[epoch.Index]*types.LaneQC {
+	result := map[epoch.Index]*types.LaneQC{}
+	for _, entry := range i.votes[lane].q[n].byHash {
+		for e, c := range window {
+			if _, ok := result[e]; ok {
+				continue // already found a quorum hash for this epoch
+			}
+			if entry.epochWeight[e] >= c.LaneQuorum() {
+				var qualified []*types.Signed[*types.LaneVote]
+				for _, v := range entry.votes {
+					if c.Weight(v.Key()) > 0 {
+						qualified = append(qualified, v)
+					}
+				}
+				result[e] = types.NewLaneQC(qualified)
+			}
 		}
 	}
-	return nil, false
+	return result
 }
 
 // prune advances the state to account for a new AppQC/CommitQC pair.
 // Returns true if pruning occurred, false if the QC was stale.
-func (i *inner) prune(c *types.Committee, appQC *types.AppQC, commitQC *types.CommitQC) (bool, error) {
+func (i *inner) prune(c *types.Committee, firstBlock types.GlobalBlockNumber, appQC *types.AppQC, commitQC *types.CommitQC) (bool, error) {
 	idx := appQC.Proposal().RoadIndex()
 	if idx != commitQC.Proposal().Index() {
 		return false, fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", idx, commitQC.Proposal().Index())
@@ -167,7 +195,7 @@ func (i *inner) prune(c *types.Committee, appQC *types.AppQC, commitQC *types.Co
 	if i.commitQCs.next == idx {
 		i.commitQCs.pushBack(commitQC)
 	}
-	i.appVotes.prune(commitQC.GlobalRange(c).First)
+	i.appVotes.prune(commitQC.GlobalRange(firstBlock).First)
 	for lane := range i.votes {
 		lr := commitQC.LaneRange(lane)
 		i.votes[lr.Lane()].prune(lr.First())

@@ -35,6 +35,8 @@ func TestCommitQC(
 	committee *types.Committee,
 	keys []types.SecretKey,
 	prev utils.Option[*types.CommitQC],
+	firstBlock types.GlobalBlockNumber,
+	genesisTimestamp time.Time,
 ) (*types.FullCommitQC, []*types.Block) {
 	blocks := map[types.LaneID][]*types.Block{}
 	makeBlock := func(producer types.LaneID) *types.Block {
@@ -85,10 +87,12 @@ func TestCommitQC(
 		leaderKey,
 		committee,
 		viewSpec,
+		firstBlock,
+		genesisTimestamp,
 		time.Now(),
 		laneQCs,
 		func() utils.Option[*types.AppQC] {
-			if n := types.GlobalRangeOpt(prev, committee).Next; n > 0 {
+			if n := types.GlobalRangeOpt(prev, firstBlock).Next; n > 0 {
 				p := types.NewAppProposal(n-1, viewSpec.View().Index, types.GenAppHash(rng))
 				return utils.Some(TestAppQC(keys, p))
 			}

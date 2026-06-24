@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -13,14 +14,15 @@ import (
 func TestConsensusClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 7)
-	firstBlock := committee.FirstBlock()
-	env := newTestEnv(committee)
+	registry, keys := epoch.GenRegistry(rng, 7)
+	committee := registry.LatestCommittee()
+	env := newTestEnv(registry)
 	// Run only a subset of replicas, to enforce timeouts.
 	var nodes []*testNode
 	for _, key := range types.TestKeysWithWeight(committee, keys, committee.CommitQuorum()) {
 		nodes = append(nodes, env.AddNode(key))
 	}
+	firstBlock := nodes[0].data.Registry().FirstBlock()
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		var wantAppProposal utils.Option[*types.AppProposal]
@@ -55,7 +57,7 @@ func TestConsensusClientServer(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("ds.QC(): %w", err)
 				}
-				want.Timestamp = qc.QC().Proposal().BlockTimestamp(committee, idx).OrPanic("global block not in QC")
+				want.Timestamp = qc.QC().Proposal().BlockTimestamp(n.data.Registry().FirstBlock(), idx).OrPanic("global block not in QC")
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}

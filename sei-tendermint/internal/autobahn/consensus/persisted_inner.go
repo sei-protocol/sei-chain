@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -81,9 +82,15 @@ func (p *persistedInner) View() types.View {
 
 // validate checks internal consistency and cryptographic signatures of persisted state.
 // Returns error on corrupt state.
-func (p *persistedInner) validate(committee *types.Committee) error {
+func (p *persistedInner) validate(registry *epoch.Registry) error {
+	// CommitQC was produced under its own epoch's committee.
+	// All other fields (votes, PrepareQC, TimeoutQC) belong to the active view,
+	// which may be one epoch ahead when a TimeoutQC bumped the index.
+	activeCommittee := registry.CommitteeFor(p.View().Index)
+
 	if cqc, ok := p.CommitQC.Get(); ok {
-		if err := cqc.Verify(committee); err != nil {
+		commitCommittee := registry.CommitteeFor(cqc.Index())
+		if err := cqc.Verify(commitCommittee); err != nil {
 			return fmt.Errorf("corrupt persisted state: CommitQC failed verification: %w", err)
 		}
 	}
@@ -96,7 +103,7 @@ func (p *persistedInner) validate(committee *types.Committee) error {
 		if tqcIndex != expectedIndex {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC has index %d but expected %d", tqcIndex, expectedIndex)
 		}
-		if err := tqc.Verify(committee, p.CommitQC); err != nil {
+		if err := tqc.Verify(activeCommittee, p.CommitQC); err != nil {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC failed verification: %w", err)
 		}
 	}
@@ -117,24 +124,24 @@ func (p *persistedInner) validate(committee *types.Committee) error {
 
 	// PrepareQC is required when CommitVote is present (CommitVote requires PrepareQC justification).
 	if pqc, ok := p.PrepareQC.Get(); ok {
-		if err := checkViewAndSig("PrepareQC", pqc.Proposal().View(), pqc.Verify(committee)); err != nil {
+		if err := checkViewAndSig("PrepareQC", pqc.Proposal().View(), pqc.Verify(activeCommittee)); err != nil {
 			return err
 		}
 	} else if p.CommitVote.IsPresent() {
 		return fmt.Errorf("corrupt persisted state: CommitVote present without PrepareQC")
 	}
 	if v, ok := p.CommitVote.Get(); ok {
-		if err := checkViewAndSig("CommitVote", v.Msg().Proposal().View(), v.VerifySig(committee)); err != nil {
+		if err := checkViewAndSig("CommitVote", v.Msg().Proposal().View(), v.VerifySig(activeCommittee)); err != nil {
 			return err
 		}
 	}
 	if v, ok := p.PrepareVote.Get(); ok {
-		if err := checkViewAndSig("PrepareVote", v.Msg().Proposal().View(), v.VerifySig(committee)); err != nil {
+		if err := checkViewAndSig("PrepareVote", v.Msg().Proposal().View(), v.VerifySig(activeCommittee)); err != nil {
 			return err
 		}
 	}
 	if v, ok := p.TimeoutVote.Get(); ok {
-		if err := checkViewAndSig("TimeoutVote", v.View(), v.Verify(committee)); err != nil {
+		if err := checkViewAndSig("TimeoutVote", v.View(), v.Verify(activeCommittee)); err != nil {
 			return err
 		}
 	}

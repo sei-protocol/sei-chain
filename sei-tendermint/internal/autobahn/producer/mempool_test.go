@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -181,7 +182,8 @@ func (env *testEnv) Run(ctx context.Context) error {
 		s.Spawn(func() error { return env.state.Run(ctx) })
 		// Process blocks.
 		stats := blockStats{}
-		for i := env.data.Committee().FirstBlock(); ; i += 1 {
+		firstBlock := env.data.Registry().FirstBlock()
+		for i := firstBlock; ; i += 1 {
 			// Wait for the next block to be finalized.
 			b, err := env.data.GlobalBlock(ctx, i)
 			if err != nil {
@@ -189,7 +191,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 			}
 
 			// Check that adding first transaction to the previous block would exceed the limit.
-			if i > env.data.Committee().FirstBlock() {
+			if i > firstBlock {
 				tx, err := decodeTxSpec(b.Payload.Txs()[0])
 				if err != nil {
 					return fmt.Errorf("decodeTxSpec(): %w", err)
@@ -228,10 +230,10 @@ func (env *testEnv) Run(ctx context.Context) error {
 }
 
 func newTestEnv(rng utils.Rng, cfg *Config, app *proxy.Proxy) *testEnv {
-	committee, keys := types.GenCommittee(rng, 1)
+	registry, keys := epoch.GenRegistry(rng, 1)
 	dataState := utils.OrPanic1(data.NewState(
-		&data.Config{Committee: committee},
-		utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee)),
+		&data.Config{Registry: registry},
+		utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock())),
 	))
 	consensusState := utils.OrPanic1(consensus.NewState(&consensus.Config{
 		Key:                keys[0],

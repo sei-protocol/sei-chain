@@ -124,11 +124,11 @@ func (vs *ViewSpec) View() View {
 	return View{Index: idx, Number: 0}
 }
 
-func (vs *ViewSpec) NextTimestamp(c *Committee) time.Time {
+func (vs *ViewSpec) NextTimestamp(genesisTimestamp time.Time) time.Time {
 	if cQC, ok := vs.CommitQC.Get(); ok {
 		return cQC.Proposal().NextTimestamp()
 	}
-	return c.GenesisTimestamp()
+	return genesisTimestamp
 }
 
 // Proposal is the road tipcut proposal.
@@ -181,11 +181,11 @@ func (m *Proposal) App() utils.Option[*AppProposal] { return m.app }
 // GlobalRange returns the proposed global block range.
 // To compute GlobalRange from lane ranges in proposal,
 // we need to know the global number of the first block
-// of the chain (c.FirstBlock()).
-func (m *Proposal) GlobalRange(c *Committee) GlobalRange {
+// of the chain (firstBlock).
+func (m *Proposal) GlobalRange(firstBlock GlobalBlockNumber) GlobalRange {
 	gr := m.globalRangeWithoutOffset
-	gr.First += c.FirstBlock()
-	gr.Next += c.FirstBlock()
+	gr.First += firstBlock
+	gr.Next += firstBlock
 	return gr
 }
 
@@ -193,9 +193,9 @@ func (m *Proposal) GlobalRange(c *Committee) GlobalRange {
 const minTimestampDiff = time.Microsecond
 
 // Monotone timestamp assigned to each block of the proposal.
-// Returns None, if n doed not belong to the proposal's global range.
-func (m *Proposal) BlockTimestamp(c *Committee, n GlobalBlockNumber) utils.Option[time.Time] {
-	gr := m.GlobalRange(c)
+// Returns None, if n does not belong to the proposal's global range.
+func (m *Proposal) BlockTimestamp(firstBlock GlobalBlockNumber, n GlobalBlockNumber) utils.Option[time.Time] {
+	gr := m.GlobalRange(firstBlock)
 	if !gr.Has(n) {
 		return utils.None[time.Time]()
 	}
@@ -267,6 +267,8 @@ func NewProposal(
 	key SecretKey,
 	committee *Committee,
 	viewSpec ViewSpec,
+	firstBlock GlobalBlockNumber,
+	genesisTimestamp time.Time,
 	timestamp time.Time,
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
@@ -301,12 +303,12 @@ func NewProposal(
 	}
 	// If the new appProposal is from the future (which may happen if this node is behind), then clear appQC.
 	// The proposal will be useless in this case, but at least it will be valid.
-	if a, ok := app.Get(); ok && a.GlobalNumber() >= GlobalRangeOpt(viewSpec.CommitQC, committee).Next {
+	if a, ok := app.Get(); ok && a.GlobalNumber() >= GlobalRangeOpt(viewSpec.CommitQC, firstBlock).Next {
 		app = utils.None[*AppProposal]()
 		appQC = utils.None[*AppQC]()
 	}
 	// Normalize the creation timestamp.
-	if wantMin := viewSpec.NextTimestamp(committee); timestamp.Before(wantMin) {
+	if wantMin := viewSpec.NextTimestamp(genesisTimestamp); timestamp.Before(wantMin) {
 		timestamp = wantMin
 	}
 	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, app)
@@ -339,17 +341,17 @@ func (m *FullProposal) TimeoutQC() utils.Option[*TimeoutQC] {
 }
 
 // Verify verifies the FullProposal against the current view.
-func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
+func (m *FullProposal) Verify(c *Committee, vs ViewSpec, firstBlock GlobalBlockNumber, genesisTimestamp time.Time) error {
 	return scope.Parallel(func(s scope.ParallelScope) error {
 		// Does the view match?
 		if got, want := m.proposal.Msg().View(), vs.View(); got != want {
 			return fmt.Errorf("view = %v, want %v", m.View(), vs.View())
 		}
-		if got, want := m.proposal.Msg().GlobalRange(c).First, GlobalRangeOpt(vs.CommitQC, c).Next; got != want {
+		if got, want := m.proposal.Msg().GlobalRange(firstBlock).First, GlobalRangeOpt(vs.CommitQC, firstBlock).Next; got != want {
 			return fmt.Errorf("proposal.GlobalRange().First = %v, want %v", got, want)
 		}
 		// Is the timestamp monotone?
-		if got, wantMin := m.proposal.Msg().Timestamp(), vs.NextTimestamp(c); got.Before(wantMin) {
+		if got, wantMin := m.proposal.Msg().Timestamp(), vs.NextTimestamp(genesisTimestamp); got.Before(wantMin) {
 			return fmt.Errorf("proposal.Timestamp() = %v, want >= %v", got, wantMin)
 		}
 		// Is proposer valid?
@@ -438,7 +440,7 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 				}
 				return nil
 			})
-			if got, want := appQC.Proposal().GlobalNumber(), GlobalRangeOpt(vs.CommitQC, c).Next; got >= want {
+			if got, want := appQC.Proposal().GlobalNumber(), GlobalRangeOpt(vs.CommitQC, firstBlock).Next; got >= want {
 				return fmt.Errorf("appQC for block %v, while only %v blocks were finalized", got, want)
 			}
 		}
