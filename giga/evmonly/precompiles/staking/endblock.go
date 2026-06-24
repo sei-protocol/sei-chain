@@ -28,6 +28,9 @@ func (p *Precompile) EndBlock(ctx *precompiles.EndBlockContext) ([]precompiles.V
 	if err := completeMatureRedelegations(ctx.Store, ctx.Block); err != nil {
 		return nil, err
 	}
+	if err := trackHistoricalInfo(ctx.Store, ctx.Block); err != nil {
+		return nil, err
+	}
 	return updates, nil
 }
 

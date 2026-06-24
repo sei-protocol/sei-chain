@@ -11,6 +11,10 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles/util"
 )
 
+// sharesScalingFactor is 10^precision, matching the fixed-point scale Cosmos
+// sdk.Dec uses to report delegation shares.
+var sharesScalingFactor = new(big.Int).Exp(big.NewInt(10), big.NewInt(precision), nil)
+
 func addDelegation(store precompiles.Store, delegator string, validator string, delta *big.Int) error {
 	record, ok, err := getDelegation(store, delegator, validator)
 	if err != nil {
@@ -82,7 +86,10 @@ func delegationFromRecord(record delegationRecord) (Delegation, error) {
 		},
 		Delegation: DelegationDetails{
 			DelegatorAddress: record.DelegatorAddress,
-			Shares:           new(big.Int).Set(amount),
+			// Shares are reported as a Cosmos sdk.Dec, i.e. scaled by
+			// 10^precision, so callers recover the share count as
+			// shares / 10^decimals. With no slashing shares == tokens.
+			Shares:           new(big.Int).Mul(amount, sharesScalingFactor),
 			Decimals:         big.NewInt(precision),
 			ValidatorAddress: record.ValidatorAddress,
 		},
@@ -185,6 +192,26 @@ func addRedelegation(store precompiles.Store, delegator string, srcValidator str
 
 func getRedelegation(store precompiles.Store, delegator string, srcValidator string, dstValidator string) (Redelegation, bool, error) {
 	return util.GetJSON[Redelegation](store, redelegationKey(delegator, srcValidator, dstValidator))
+}
+
+// hasReceivingRedelegation reports whether the delegator has an in-progress
+// redelegation whose destination is validator, mirroring Cosmos
+// HasReceivingRedelegation (used to reject transitive redelegations).
+func hasReceivingRedelegation(store precompiles.Store, delegator string, validator string) (bool, error) {
+	ids, err := getStringList(store, redelegationsIndexKey())
+	if err != nil {
+		return false, err
+	}
+	for _, id := range ids {
+		recordDelegator, _, dst, ok := splitRedelegationID(id)
+		if !ok {
+			continue
+		}
+		if recordDelegator == delegator && dst == validator {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func loadParams(store precompiles.Store) (Params, error) {
@@ -293,11 +320,56 @@ func setHistoricalInfo(store precompiles.Store, height uint64) error {
 			info.Validators = append(info.Validators, validator)
 		}
 	}
-	return util.SetJSON(store, historicalInfoKey(info.Height), info)
+	if err := util.SetJSON(store, historicalInfoKey(info.Height), info); err != nil {
+		return err
+	}
+	return addStringListItem(store, historicalInfoIndexKey(), strconv.FormatInt(info.Height, 10))
 }
 
 func getHistoricalInfo(store precompiles.Store, height int64) (HistoricalInfo, bool, error) {
 	return util.GetJSON[HistoricalInfo](store, historicalInfoKey(height))
+}
+
+func deleteHistoricalInfo(store precompiles.Store, height int64) error {
+	store.Delete(historicalInfoKey(height))
+	return removeStringListItem(store, historicalInfoIndexKey(), strconv.FormatInt(height, 10))
+}
+
+// trackHistoricalInfo records the current block's historical info and prunes
+// entries beyond HistoricalEntries, mirroring Cosmos TrackHistoricalInfo (which
+// runs in BeginBlock; the evm-only path only has an end-block hook).
+func trackHistoricalInfo(store precompiles.Store, block precompiles.BlockContext) error {
+	params, err := loadParams(store)
+	if err != nil {
+		return err
+	}
+	if err := pruneHistoricalInfo(store, block.Number, params.HistoricalEntries); err != nil {
+		return err
+	}
+	if params.HistoricalEntries == 0 {
+		return nil
+	}
+	return setHistoricalInfo(store, block.Number)
+}
+
+func pruneHistoricalInfo(store precompiles.Store, currentHeight uint64, historicalEntries uint32) error {
+	heights, err := getStringList(store, historicalInfoIndexKey())
+	if err != nil {
+		return err
+	}
+	cutoff := saturatingInt64FromUint64(currentHeight) - int64(historicalEntries)
+	for _, heightStr := range heights {
+		height, err := strconv.ParseInt(heightStr, 10, 64)
+		if err != nil {
+			return err
+		}
+		if height <= cutoff {
+			if err := deleteHistoricalInfo(store, height); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func getStringList(store precompiles.Store, key []byte) ([]string, error) {
@@ -610,6 +682,10 @@ func splitRedelegationID(id string) (string, string, string, bool) {
 
 func historicalInfoKey(height int64) []byte {
 	return []byte("historical/" + strconv.FormatInt(height, 10))
+}
+
+func historicalInfoIndexKey() []byte {
+	return []byte("historical/index")
 }
 
 func lastValidatorsIndexKey() []byte {

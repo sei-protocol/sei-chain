@@ -159,3 +159,10 @@ closed with `ErrCustomPrecompilesOpen`.
 - Historical `BLOCKHASH` lookups beyond the parent block are not wired yet.
 - Block-level blob gas accounting and `MaxBlobGasPerBlock` enforcement are not
   wired yet, so blob transactions are rejected fail-closed.
+- The staking precompile models bonding, delegation, redelegation, unbonding,
+  and validator-set updates in usei, but does not model staking rewards,
+  slashing, or jailing. Delegation shares track tokens 1:1 (no slash-driven
+  share/token divergence), and reward-withdrawal events are emitted with a zero
+  amount. Validator historical info is recorded in the end-block hook (Cosmos
+  tracks it in begin-block), so info for the current height is only queryable
+  after that block's end-block runs.

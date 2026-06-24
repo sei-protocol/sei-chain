@@ -17,13 +17,18 @@ func TestPrecompileCreateDelegateAndQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	caller := common.HexToAddress("0x0000000000000000000000000000000000000abc")
+	// Stakes are denominated in whole SEI (1e6 usei) so validators clear the
+	// powerReduction threshold and receive non-zero consensus power.
+	selfStakeUsei := big.NewInt(5_000_000)
+	delegateUsei := big.NewInt(2_000_000)
+	totalUsei := big.NewInt(7_000_000)
 	store := newMemoryStore()
 	logs := &memoryLogs{}
 	balances := newMemoryBalances()
 	ctx := &precompiles.Context{
 		Caller:        caller,
 		Address:       address,
-		ApparentValue: new(big.Int).Mul(big.NewInt(5), useiToSwei),
+		ApparentValue: new(big.Int).Mul(selfStakeUsei, useiToSwei),
 		Block:         precompiles.BlockContext{Number: 7, Time: 100},
 		Store:         store,
 		Balances:      balances,
@@ -45,11 +50,11 @@ func TestPrecompileCreateDelegateAndQuery(t *testing.T) {
 	require.NoError(t, err)
 	requireBoolReturn(t, p, CreateValidatorMethod, ret, true)
 	require.Len(t, logs.logs, 1)
-	require.Equal(t, new(big.Int).Mul(big.NewInt(5), useiToSwei), balances.balance(EscrowAddress()))
+	require.Equal(t, new(big.Int).Mul(selfStakeUsei, useiToSwei), balances.balance(EscrowAddress()))
 	require.Zero(t, balances.balance(caller).Sign())
 	require.Zero(t, balances.balance(address).Sign())
 
-	ctx.ApparentValue = new(big.Int).Mul(big.NewInt(2), useiToSwei)
+	ctx.ApparentValue = new(big.Int).Mul(delegateUsei, useiToSwei)
 	input, err = p.abi.Pack(DelegateMethod, caller.Hex())
 	require.NoError(t, err)
 	balances.add(address, ctx.ApparentValue)
@@ -57,7 +62,7 @@ func TestPrecompileCreateDelegateAndQuery(t *testing.T) {
 	require.NoError(t, err)
 	requireBoolReturn(t, p, DelegateMethod, ret, true)
 	require.Len(t, logs.logs, 3)
-	require.Equal(t, new(big.Int).Mul(big.NewInt(7), useiToSwei), balances.balance(EscrowAddress()))
+	require.Equal(t, new(big.Int).Mul(totalUsei, useiToSwei), balances.balance(EscrowAddress()))
 	require.Zero(t, balances.balance(caller).Sign())
 	require.Zero(t, balances.balance(address).Sign())
 
@@ -70,6 +75,7 @@ func TestPrecompileCreateDelegateAndQuery(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, updates, 1)
+	require.Equal(t, int64(7), updates[0].Power)
 
 	ctx.ApparentValue = nil
 	input, err = p.abi.Pack(DelegationMethod, caller, caller.Hex())
@@ -81,8 +87,11 @@ func TestPrecompileCreateDelegateAndQuery(t *testing.T) {
 	}
 	require.NoError(t, p.abi.UnpackIntoInterface(&delegationOut, DelegationMethod, ret))
 	delegation := delegationOut.Delegation
-	require.Equal(t, big.NewInt(7), delegation.Balance.Amount)
+	require.Equal(t, totalUsei, delegation.Balance.Amount)
 	require.Equal(t, "usei", delegation.Balance.Denom)
+	// Shares are reported as an sdk.Dec (token count scaled by 10^decimals).
+	require.Equal(t, new(big.Int).Mul(totalUsei, sharesScalingFactor), delegation.Delegation.Shares)
+	require.Equal(t, big.NewInt(precision), delegation.Delegation.Decimals)
 	require.Equal(t, caller.Hex(), delegation.Delegation.DelegatorAddress)
 	require.Equal(t, caller.Hex(), delegation.Delegation.ValidatorAddress)
 
@@ -95,7 +104,7 @@ func TestPrecompileCreateDelegateAndQuery(t *testing.T) {
 	}
 	require.NoError(t, p.abi.UnpackIntoInterface(&poolOut, PoolMethod, ret))
 	pool := poolOut.Pool
-	require.Equal(t, "7", pool.BondedTokens)
+	require.Equal(t, "7000000", pool.BondedTokens)
 	require.Equal(t, "0", pool.NotBondedTokens)
 
 	input, err = p.abi.Pack(ValidatorsMethod, "BOND_STATUS_BONDED", []byte{})
