@@ -155,7 +155,8 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		return nil, err
 	}
 
-	inner, err := newInner(data.Registry().LatestEpoch(), loaded)
+	ep := data.Registry().LatestEpoch()
+	inner, err := newInner(ep, loaded)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +165,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	// loadPersistedState.
 	if ls, ok := loaded.Get(); ok {
 		if anchor, ok := ls.pruneAnchor.Get(); ok {
-			for lane := range data.Registry().LatestEpoch().Committee.Lanes().All() {
+			for lane := range ep.Committee.Lanes().All() {
 				if err := pers.blocks.MaybePruneAndPersistLane(lane, utils.Some(anchor.CommitQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
 					return nil, fmt.Errorf("prune stale block WAL entries: %w", err)
 				}
