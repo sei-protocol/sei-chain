@@ -293,6 +293,11 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 
 	app.WriteState()
 	app.GetWorkingHash()
+	// Hand the block hash to the commit store so it can record it in the per-block hash log under the
+	// same block number as the state hashes (the commit store cannot see the block hash on its own).
+	if reporter, ok := app.cms.(interface{ SetNextBlockHash([]byte) }); ok {
+		reporter.SetNextBlockHash(app.stateToCommit.ctx.HeaderHash())
+	}
 	app.cms.Commit(true)
 
 	// Reset the Check state to the latest committed.
