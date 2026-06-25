@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/alitto/pond"
@@ -811,6 +813,16 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 
 	// Rename temporary directory to final location
 	if err := os.Rename(path, targetPath); err != nil {
+		// snapshot-<h> exists only via a prior atomic rename (the importer or an
+		// earlier rewrite), so its presence means a complete snapshot — the Stat
+		// guard above has a TOCTOU window against a concurrent restore/handle. Drop
+		// our redundant temp and treat as success rather than failing.
+		if errors.Is(err, fs.ErrExist) || errors.Is(err, syscall.ENOTEMPTY) {
+			if rmErr := os.RemoveAll(path); rmErr != nil {
+				return rmErr
+			}
+			return updateCurrentSymlink(db.dir, snapshotDir)
+		}
 		logger.Error("failed to rename snapshot directory, cleaning up",
 			"tmpDir", tmpDir,
 			"targetDir", snapshotDir,
