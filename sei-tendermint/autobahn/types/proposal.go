@@ -107,7 +107,7 @@ func (v View) Next() View {
 }
 
 // ViewSpec is the full local context for starting a view: justification QCs plus
-// the epoch active at that view. It is constructed locally and never sent on the wire.
+// the epoch active at that view.
 type ViewSpec struct {
 	// WARNING: currently we have implicit assumption that
 	// TimeoutQC.View().Index == CommitQC.Index.Next(),
