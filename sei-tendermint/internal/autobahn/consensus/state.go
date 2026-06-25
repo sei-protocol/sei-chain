@@ -123,7 +123,7 @@ func newState(
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
 		commitVotes:  utils.NewMutex(newCommitVotes()),
 
-		myView:        utils.NewAtomicSend(types.ViewSpec{}),
+		myView:        utils.NewAtomicSend(types.ViewSpec{Epoch: initialInner.ep}),
 		myProposal:    utils.NewAtomicSend(utils.None[*types.FullProposal]()),
 		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusReqPrepareVote]()),
 		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusReqCommitVote]()),
@@ -207,7 +207,6 @@ func (s *State) Avail() *avail.State { return s.avail }
 // Constructs new proposals.
 func (s *State) runPropose(ctx context.Context) error {
 	return s.myView.Iter(ctx, func(ctx context.Context, vs types.ViewSpec) error {
-		vs.Epoch = s.Data().Registry().EpochFor(vs.View().Index)
 		if vs.Epoch.Committee.Leader(vs.View()) != s.cfg.Key.Public() {
 			return nil // not the leader.
 		}
@@ -251,7 +250,7 @@ func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v 
 // timers, neither of which constitutes a vote.
 func (s *State) runOutputs(ctx context.Context) error {
 	return s.innerRecv.Iter(ctx, func(ctx context.Context, i inner) error {
-		vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC}
+		vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, Epoch: i.ep}
 		old := s.myView.Load()
 		if old.View().Less(vs.View()) {
 			s.myView.Store(vs)

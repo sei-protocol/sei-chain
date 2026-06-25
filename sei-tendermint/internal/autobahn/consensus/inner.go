@@ -94,6 +94,7 @@ const innerFile = "inner"
 
 type inner struct {
 	persistedInner
+	ep *types.Epoch
 }
 
 // newInner creates the inner state from persisted data loaded by NewPersister.
@@ -116,7 +117,7 @@ func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (
 
 	logger.Info("restored consensus state", "state", innerProtoConv.Encode(&persisted))
 
-	return inner{persistedInner: persisted}, nil
+	return inner{persistedInner: persisted, ep: registry.LatestEpoch()}, nil
 }
 
 func (s *State) pushCommitQC(qc *types.CommitQC) error {
@@ -131,17 +132,9 @@ func (s *State) pushCommitQC(qc *types.CommitQC) error {
 		if qc.Proposal().Index() < i.View().Index {
 			return nil
 		}
-		// CommitQC advances to new index; clear all state for new view
-		iSend.Store(inner{persistedInner{
-			CommitQC: utils.Some(qc),
-		}})
-		// TODO: rotate epoch when dynamic committees are wired up.
-		// currentEpoch := s.Data().Registry().EpochFor(qc.Proposal().Index())
-		// if qc.Proposal().Index() >= currentEpoch.End {
-		//     next, ok := s.Data().Registry().EpochByIndex(currentEpoch.EpochIndex + 1)
-		//     if !ok { panic("epoch not registered") }
-		//     _ = next
-		// }
+		// CommitQC advances to new index; clear all state for new view.
+		// TODO: rotate ep when epoch transitions are wired up.
+		iSend.Store(inner{persistedInner: persistedInner{CommitQC: utils.Some(qc)}, ep: i.ep})
 	}
 	return nil
 }
@@ -168,10 +161,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 			return nil
 		}
 		// TimeoutQC advances view number; clear votes and prepareQC (stale view).
-		isend.Store(inner{persistedInner{
-			CommitQC:  i.CommitQC,
-			TimeoutQC: utils.Some(qc),
-		}})
+		isend.Store(inner{persistedInner: persistedInner{CommitQC: i.CommitQC, TimeoutQC: utils.Some(qc)}, ep: i.ep})
 	}
 	return nil
 }
@@ -187,7 +177,6 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 	if vs.View() != proposal.View() {
 		return nil
 	}
-	vs.Epoch = s.Data().Registry().EpochFor(vs.View().Index)
 	if err := proposal.Verify(vs); err != nil {
 		return fmt.Errorf("proposal.Verify(): %w", err)
 	}

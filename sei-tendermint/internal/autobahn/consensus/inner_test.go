@@ -902,10 +902,7 @@ func TestPushTimeoutQCClearsStaleState(t *testing.T) {
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
 	// Simulate pushTimeoutQC's Update callback
-	newInner := inner{persistedInner{
-		CommitQC:  i.CommitQC,
-		TimeoutQC: utils.Some(timeoutQC),
-	}}
+	newInner := inner{persistedInner: persistedInner{CommitQC: i.CommitQC, TimeoutQC: utils.Some(timeoutQC)}, ep: i.ep}
 
 	// Verify: view advanced to (6, 1)
 	require.Equal(t, types.View{Index: 6, Number: 1}, newInner.View(), "view should advance to (6, 1)")
