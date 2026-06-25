@@ -52,7 +52,7 @@ func TestState(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		state := utils.OrPanic1(NewState(&Config{
 			Registry: registry,
@@ -127,7 +127,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	state := utils.OrPanic1(NewState(&Config{
 		Registry: registry,
 	}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
@@ -241,7 +241,7 @@ func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	state := utils.OrPanic1(NewState(&Config{
 		Registry: registry,
 	}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
@@ -287,7 +287,7 @@ func TestExecution(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		state := utils.OrPanic1(NewState(&Config{
 			Registry: registry,
@@ -332,7 +332,7 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 
 	state := utils.OrPanic1(NewState(&Config{
 		Registry: registry,
@@ -366,7 +366,7 @@ func TestGlobalBlockByHash(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 
 	state := utils.OrPanic1(NewState(&Config{
 		Registry: registry,
@@ -432,7 +432,7 @@ func TestReconcileCase2Corrupted(t *testing.T) {
 	t.Log("Reconcile case 2: QCs lost (corruption), returns error")
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	// Persist blocks and QCs normally.
@@ -466,7 +466,7 @@ func TestReconcileCase3BlocksLost(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	// First run: populate both WALs.
@@ -517,7 +517,7 @@ func TestReconcileCase4Normal(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	// Build two sequential QCs with their blocks.
@@ -588,7 +588,7 @@ func TestReconcileCase4AfterPruning(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	// Build 3 sequential QCs.
@@ -644,7 +644,7 @@ func TestReconcileCase5BlocksAhead(t *testing.T) {
 	t.Log("Reconcile case 5: Prune crash, blocks ahead (a>X)")
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
@@ -691,7 +691,7 @@ func TestReconcileCase6QCsAhead(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	// Build 2 sequential QCs.
@@ -744,7 +744,7 @@ func TestReconcileCase7BlocksPastQCs(t *testing.T) {
 	t.Log("Reconcile case 7: Persist crash, blocks past QCs (b>=Y)")
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	// Build 2 sequential QCs.
@@ -796,7 +796,7 @@ func TestReconcileCase7BlocksTail(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	// Build 2 sequential QCs.
@@ -846,7 +846,7 @@ func TestReconcileCase8BlocksBehind(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	// Build 2 sequential QCs.
@@ -899,7 +899,7 @@ func TestReconcilePartialQCPrefix(t *testing.T) {
 	t.Log("Reconcile: partial QC prefix from per-block pruning")
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	// Build one QC with enough blocks to split.
@@ -957,7 +957,7 @@ func TestReconcileBlockGap(t *testing.T) {
 	t.Log("Reconcile: block gap in WAL detected (defense in depth)")
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC](), registry.FirstBlock(), time.Time{})
@@ -994,7 +994,7 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
@@ -1040,7 +1040,7 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
@@ -1114,7 +1114,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 		ctx := t.Context()
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 3)
-		committee := registry.LatestCommittee()
+		committee := registry.LatestEpoch().Committee
 
 		state := utils.OrPanic1(NewState(&Config{
 			Registry: registry,

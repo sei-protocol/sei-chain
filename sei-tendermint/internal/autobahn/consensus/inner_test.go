@@ -812,7 +812,7 @@ func TestNewInnerPrepareQCIncludedInTimeoutVote(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	voteKey := keys[0]
 
 	// Create CommitQC at index 5 -> current view is (6, 0)
