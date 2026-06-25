@@ -574,7 +574,8 @@ func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, appVersion u
 			appVersion, resp.AppVersion)
 	}
 
-	if !bytes.Equal(snapshot.trustedAppHash, resp.LastBlockAppHash) {
+	if !types.DefaultConsensusPolicy().SkipAppHashValidation() &&
+		!bytes.Equal(snapshot.trustedAppHash, resp.LastBlockAppHash) {
 		logger.Error("appHash verification failed",
 			"expected", snapshot.trustedAppHash,
 			"actual", resp.LastBlockAppHash)
