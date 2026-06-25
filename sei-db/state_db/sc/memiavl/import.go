@@ -48,13 +48,20 @@ func NewMultiTreeImporter(dir string, height uint64) (*MultiTreeImporter, error)
 		return nil, fmt.Errorf("fail to lock db: %w", err)
 	}
 
-	return &MultiTreeImporter{
+	mti := &MultiTreeImporter{
 		dir:         dir,
 		height:      int64(height),
 		snapshotDir: snapshotName(int64(height)),
 		fileLock:    fileLock,
 		ctx:         context.Background(), // Default to background context for backward compatibility
-	}, nil
+	}
+	// State-sync can re-offer the same snapshot, so a prior pass may have left a
+	// temp dir at this height; clear it so it can't poison this import.
+	if err := os.RemoveAll(mti.tmpDir()); err != nil {
+		_ = fileLock.Unlock()
+		return nil, fmt.Errorf("fail to clear stale import tmp dir: %w", err)
+	}
+	return mti, nil
 }
 
 func (mti *MultiTreeImporter) tmpDir() string {
@@ -100,7 +107,13 @@ func (mti *MultiTreeImporter) Close() error {
 		return err
 	}
 
-	if err := os.Rename(tmpDir, filepath.Join(mti.dir, mti.snapshotDir)); err != nil {
+	// State-sync can re-offer the same snapshot, so the final dir may already
+	// exist from a prior pass; restore must be idempotent.
+	finalDir := filepath.Join(mti.dir, mti.snapshotDir)
+	if err := os.RemoveAll(finalDir); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpDir, finalDir); err != nil {
 		return err
 	}
 
