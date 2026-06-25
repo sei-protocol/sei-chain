@@ -516,13 +516,12 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 			laneRanges = append(laneRanges, r)
 		}
 		sort.Slice(laneRanges, func(i, j int) bool { return laneRanges[i].Lane().Compare(laneRanges[j].Lane()) < 0 })
-		globalFirst := uint64(m.firstBlock)
 		return &pb.Proposal{
 			View:        ViewConv.Encode(m.view),
 			Timestamp:   TimeConv.Encode(m.timestamp),
 			LaneRanges:  LaneRangeConv.EncodeSlice(laneRanges),
 			App:         AppProposalConv.EncodeOpt(m.app),
-			GlobalFirst: &globalFirst,
+			GlobalFirst: utils.Alloc(uint64(m.firstBlock)),
 		}
 	},
 	Decode: func(m *pb.Proposal) (*Proposal, error) {
@@ -543,7 +542,7 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 			return nil, fmt.Errorf("appQC: %w", err)
 		}
 		if m.GlobalFirst == nil {
-			return nil, fmt.Errorf("global_first is required")
+			return nil, fmt.Errorf("global_first: missing")
 		}
 		proposal := newProposal(view, timestamp, laneRanges, app, GlobalBlockNumber(m.GetGlobalFirst()))
 		if len(proposal.laneRanges) != len(laneRanges) {
