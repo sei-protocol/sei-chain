@@ -37,13 +37,13 @@ func TestCommitHashToVault(t *testing.T) {
 
 	t.Run("matching hash is idempotent", func(t *testing.T) {
 		vault := newSeededVault(t, height, h1)
-		require.NoError(t, commitHashToVault(context.Background(), vault, height, h1))
+		require.NoError(t, commitAppHashToVault(context.Background(), vault, height, h1))
 	})
 
 	t.Run("divergent hash halts the node", func(t *testing.T) {
 		vault := newSeededVault(t, height, h1)
 		require.Panics(t, func() {
-			_ = commitHashToVault(context.Background(), vault, height, h2)
+			_ = commitAppHashToVault(context.Background(), vault, height, h2)
 		})
 	})
 
@@ -52,7 +52,7 @@ func TestCommitHashToVault(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		// Must not panic: a canceled context is a benign shutdown, not an equivocation.
-		err := commitHashToVault(ctx, vault, height, h2)
+		err := commitAppHashToVault(ctx, vault, height, h2)
 		require.Error(t, err)
 	})
 }

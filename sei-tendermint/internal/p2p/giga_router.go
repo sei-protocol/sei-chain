@@ -43,7 +43,7 @@ type GigaRouterCommonConfig struct {
 	// peers. 0 rejects all; positive caps at n, up to maxInboundFullnodePeers.
 	MaxInboundFullnodePeers int
 
-	// HashVaultDisabledUnsafe disables the block-hash equivocation guard (HashVault). The guard is
+	// HashVaultDisabledUnsafe disables the app-hash equivocation guard (HashVault). The guard is
 	// on by default (false); the GigaRouter builds and owns it (see runExecute). Setting this to true
 	// is an explicit, last-resort operator decision to run WITHOUT equivocation protection.
 	HashVaultDisabledUnsafe bool

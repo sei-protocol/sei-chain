@@ -83,7 +83,7 @@ type Config struct {
 	// logged at startup if mode disagrees with committee membership.
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 
-	// HashVaultDisabledUnsafe disables the block-hash equivocation guard (HashVault). The vault is
+	// HashVaultDisabledUnsafe disables the app-hash equivocation guard (HashVault). The vault is
 	// on by default (false). Setting this to true is an explicit, last-resort operator decision to
 	// run WITHOUT equivocation protection; the node logs loudly that it is unsafe.
 	HashVaultDisabledUnsafe bool `mapstructure:"hash-vault-disabled-unsafe"`

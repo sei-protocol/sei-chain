@@ -157,10 +157,14 @@ node-key-file = "{{ js .BaseConfig.NodeKey }}"
 # would otherwise nest it under the immediately preceding section.
 autobahn-config-file = "{{ .AutobahnConfigFile }}"
 
-# hash-vault-disabled-unsafe disables the block-hash equivocation guard (HashVault).
+# hash-vault-disabled-unsafe disables the app-hash equivocation guard (HashVault).
 # DO NOT set this to true unless you are knowingly running an UNSAFE node as a last-resort
 # recovery measure. A node with this enabled has NO protection against changing its mind about
-# a committed block's hash, and will log error-level warnings on every startup.
+# a committed block's app hash, and will log error-level warnings on every startup.
+#
+# It is safer to leave HashVault enabled: if you hit a startup panic, first remove the HashVault
+# files as instructed in the panic message and let the node run. Only disable HashVault if you are
+# very sure the stored hashes are totally wrong and you keep hitting the same panic on new blocks.
 #
 # Placed here (as a top-level key, before any [section] header) so the TOML parser sees it at
 # root scope where mapstructure expects it — viper would otherwise nest it under the
