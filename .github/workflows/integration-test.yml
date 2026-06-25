@@ -27,8 +27,8 @@ defaults:
 
 jobs:
   # Generate the integration-test matrix from integration-test-matrix.json.
-  # On pull_request we drop entries tagged `merge_only: true` (the full Autobahn
-  # GIGA-mode variants) to cut per-PR ubuntu-large fan-out; on push and merge
+  # On pull_request we drop entries tagged `merge_only: true` (Autobahn Gov/Mint/
+  # Upgrade GIGA-mode variants) to cut per-PR ubuntu-large fan-out; on push and merge
   # queue the full matrix runs. The matrix is built here, in a job output,
   # because the `matrix` context is NOT available to a job-level `if:` — a
   # per-combination `if` on the test job would fail workflow validation
@@ -49,7 +49,7 @@ jobs:
           set -euo pipefail
           matrix_file=.github/workflows/integration-test-matrix.json
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            # Defer merge_only entries to merge queue / push.
+            # Defer merge_only Autobahn Gov/Mint/Upgrade entries to merge queue / push.
             tests=$(jq -c '[.[] | select(.merge_only != true)]' "$matrix_file")
           else
             tests=$(jq -c '.' "$matrix_file")
@@ -146,7 +146,7 @@ jobs:
 
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
-    # The merge_only (Autobahn GIGA-mode) variants are filtered out of the
+    # The merge_only Autobahn Gov/Mint/Upgrade variants are filtered out of the
     # matrix on pull_request by the set-matrix job above; a smoke of Autobahn
     # coverage still runs on PRs via the dedicated autobahn-integration-tests
     # job below. On push and merge queue the full matrix runs.
