@@ -1296,10 +1296,40 @@ func TestExecutorRegisteredCustomPrecompile(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Txs, 1)
 	require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[0].Status)
+	require.Greater(t, result.Txs[0].GasUsed, uint64(21_000+100))
 	require.NotEmpty(t, result.ChangeSet.Storage)
 
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, encodedStoredLength(2), state.GetState(customAddr, storeBaseSlot([]byte("seen"))))
+}
+
+func TestExecutorRegisteredCustomPrecompileMetersDynamicStoreGas(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	customAddr := common.HexToAddress("0x0000000000000000000000000000000000001005")
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+
+	rawTx := signLegacyTxWithGas(t, key, chainID, 0, &customAddr, big.NewInt(0), []byte{0x01}, 30_000)
+	executor := NewExecutor(Config{
+		CustomPrecompiles: contractPrecompileRegistry{
+			customAddr: storeWritePrecompile{},
+		},
+	}, WithState(state))
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{rawTx},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Txs, 1)
+	require.Equal(t, ethtypes.ReceiptStatusFailed, result.Txs[0].Status)
+	require.True(t, errors.Is(result.Txs[0].Err, vm.ErrOutOfGas))
+	require.Empty(t, result.ChangeSet.Storage)
 }
 
 func TestExecutorStakingPrecompileForwardsPayableValue(t *testing.T) {
@@ -1328,7 +1358,7 @@ func TestExecutorStakingPrecompileForwardsPayableValue(t *testing.T) {
 	)
 	require.NoError(t, err)
 	value := sei(5)
-	rawTx := signLegacyTx(t, key, chainID, 0, &stakingAddr, value, input)
+	rawTx := signLegacyTxWithGas(t, key, chainID, 0, &stakingAddr, value, input, 8_000_000)
 	executor := NewExecutor(Config{
 		CustomPrecompiles: registry,
 	}, WithState(state))
@@ -1380,7 +1410,7 @@ func TestExecutorStakingDelegationLifecycleE2E(t *testing.T) {
 	nonces := map[common.Address]uint64{}
 	signStakingTx := func(key *ecdsa.PrivateKey, value *big.Int, input []byte) []byte {
 		sender := crypto.PubkeyToAddress(key.PublicKey)
-		raw := signLegacyTx(t, key, chainID, nonces[sender], &stakingAddr, value, input)
+		raw := signLegacyTxWithGas(t, key, chainID, nonces[sender], &stakingAddr, value, input, 8_000_000)
 		nonces[sender]++
 		return raw
 	}
