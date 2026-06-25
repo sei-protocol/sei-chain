@@ -154,14 +154,12 @@ func (vs *ViewSpec) NextTimestamp(info EpochInfo) time.Time {
 // AppQC could be nil if we haven't reached any quorum state hash.
 type Proposal struct {
 	utils.ReadOnly
-	view           View
-	timestamp      time.Time
-	laneRanges     map[LaneID]*LaneRange
-	app            utils.Option[*AppProposal]
-	globalRange    GlobalRange
-	firstBlock     GlobalBlockNumber
-	epochIndex     uint64
-	epochTimestamp time.Time
+	view        View
+	timestamp   time.Time
+	laneRanges  map[LaneID]*LaneRange
+	app         utils.Option[*AppProposal]
+	globalRange GlobalRange
+	epochInfo   EpochInfo
 }
 
 func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange, app utils.Option[*AppProposal], info EpochInfo) *Proposal {
@@ -177,14 +175,12 @@ func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange, app ut
 	gr.First += info.FirstBlock
 	gr.Next += info.FirstBlock
 	return &Proposal{
-		view:           view,
-		timestamp:      timestamp,
-		laneRanges:     laneRangesM,
-		globalRange:    gr,
-		firstBlock:     info.FirstBlock,
-		epochIndex:     info.EpochIndex,
-		epochTimestamp: info.EpochTimestamp,
-		app:            app,
+		view:        view,
+		timestamp:   timestamp,
+		laneRanges:  laneRangesM,
+		globalRange: gr,
+		epochInfo:   info,
+		app:         app,
 	}
 }
 
@@ -532,9 +528,9 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 			Timestamp:      TimeConv.Encode(m.timestamp),
 			LaneRanges:     LaneRangeConv.EncodeSlice(laneRanges),
 			App:            AppProposalConv.EncodeOpt(m.app),
-			GlobalFirst:    utils.Alloc(uint64(m.firstBlock)),
-			EpochIndex:     utils.Alloc(m.epochIndex),
-			EpochTimestamp: TimeConv.Encode(m.epochTimestamp),
+			GlobalFirst:    utils.Alloc(uint64(m.epochInfo.FirstBlock)),
+			EpochIndex:     utils.Alloc(m.epochInfo.EpochIndex),
+			EpochTimestamp: TimeConv.Encode(m.epochInfo.EpochTimestamp),
 		}
 	},
 	Decode: func(m *pb.Proposal) (*Proposal, error) {

@@ -322,7 +322,7 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 		}
 	}
 
-	tamperedProposal := newProposal(origProposal.view, origProposal.timestamp, tamperedRanges, origProposal.app, EpochInfo{FirstBlock: origProposal.firstBlock, EpochIndex: origProposal.epochIndex, EpochTimestamp: origProposal.epochTimestamp})
+	tamperedProposal := newProposal(origProposal.view, origProposal.timestamp, tamperedRanges, origProposal.app, origProposal.epochInfo)
 	maliciousFP := &FullProposal{
 		proposal:  Sign(proposerKey, tamperedProposal),
 		laneQCs:   fp.laneQCs,
@@ -354,7 +354,7 @@ func TestProposalVerifyAcceptsImplicitLaneRange(t *testing.T) {
 		keptRanges = append(keptRanges, r)
 	}
 
-	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges, origP.app, EpochInfo{FirstBlock: origP.firstBlock, EpochIndex: origP.epochIndex, EpochTimestamp: origP.epochTimestamp})
+	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges, origP.app, origP.epochInfo)
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 	}
@@ -380,7 +380,7 @@ func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 		i++
 	}
 
-	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges, origP.app, EpochInfo{FirstBlock: origP.firstBlock, EpochIndex: origP.epochIndex, EpochTimestamp: origP.epochTimestamp})
+	shortProposal := newProposal(origP.view, origP.timestamp, keptRanges, origP.app, origP.epochInfo)
 	shortFP := &FullProposal{
 		proposal: Sign(proposerKey, shortProposal),
 	}
@@ -406,7 +406,7 @@ func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 			tamperedRanges = append(tamperedRanges, r)
 		}
 	}
-	tamperedProposal := newProposal(origP.view, origP.timestamp, tamperedRanges, origP.app, EpochInfo{FirstBlock: origP.firstBlock, EpochIndex: origP.epochIndex, EpochTimestamp: origP.epochTimestamp})
+	tamperedProposal := newProposal(origP.view, origP.timestamp, tamperedRanges, origP.app, origP.epochInfo)
 	tamperedFP := &FullProposal{
 		proposal: Sign(proposerKey, tamperedProposal),
 	}
@@ -789,7 +789,7 @@ func TestProposalVerifyRejectsReproposalHashMismatch(t *testing.T) {
 	for _, r := range origP.laneRanges {
 		ranges = append(ranges, r)
 	}
-	wrongP := newProposal(origP.view, time.Now().Add(time.Hour), ranges, origP.app, EpochInfo{FirstBlock: origP.firstBlock, EpochIndex: origP.epochIndex, EpochTimestamp: origP.epochTimestamp})
+	wrongP := newProposal(origP.view, time.Now().Add(time.Hour), ranges, origP.app, origP.epochInfo)
 	wrongFP := &FullProposal{
 		proposal:  Sign(leader1, wrongP),
 		timeoutQC: reproposal.timeoutQC,
