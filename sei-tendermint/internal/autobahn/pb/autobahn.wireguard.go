@@ -44,23 +44,23 @@ func (*View) MaxSize() int {
 }
 
 func (*Proposal) MaxSize() int {
-	return 9529
+	return 9552
 }
 
 func (*FullProposal) MaxSize() int {
-	return 1106416
+	return 1106486
 }
 
 func (*PrepareQC) MaxSize() int {
-	return 19920
+	return 19955
 }
 
 func (*CommitQC) MaxSize() int {
-	return 19920
+	return 19955
 }
 
 func (*FullCommitQC) MaxSize() int {
-	return 31624
+	return 31659
 }
 
 func (*TimeoutVote) MaxSize() int {
@@ -68,11 +68,11 @@ func (*TimeoutVote) MaxSize() int {
 }
 
 func (*TimeoutQC) MaxSize() int {
-	return 34324
+	return 34359
 }
 
 func (*FullTimeoutVote) MaxSize() int {
-	return 20068
+	return 20103
 }
 
 func (*AppQC) MaxSize() int {
@@ -88,7 +88,7 @@ func (*Msg) MaxSize() int {
 }
 
 func (*SignedProposal) MaxSize() int {
-	return 9624
+	return 9659
 }
 
 func (*SignedTimeoutVote) MaxSize() int {
@@ -112,7 +112,7 @@ func (*SignedAppProposal) MaxSize() int {
 }
 
 func (*ConsensusReq) MaxSize() int {
-	return 1106420
+	return 1106490
 }
 
 func init() {
