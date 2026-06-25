@@ -88,6 +88,14 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.Transa
 	defer func() {
 		recordMetricsWithError(ctx, "eth_createAccessList", s.connectionType, startTime, returnErr, recover())
 	}()
+	/* ---------- fail‑fast limiter ---------- */
+	if s.requestLimiter != nil {
+		if !s.requestLimiter.TryAcquire(1) {
+			returnErr = errors.New("eth_createAccessList rejected due to rate limit: server busy")
+			return
+		}
+		defer s.requestLimiter.Release(1)
+	}
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
