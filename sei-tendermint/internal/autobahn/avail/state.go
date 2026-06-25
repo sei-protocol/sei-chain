@@ -475,7 +475,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= h.BlockNumber() {
 			q.pushBack(newBlockVotes())
 		}
-		if q.q[h.BlockNumber()].pushVote(inner.ep, vote) {
+		if _, ok := q.q[h.BlockNumber()].pushVote(inner.ep.Committee, vote); ok {
 			ctrl.Updated()
 		}
 	}
@@ -558,7 +558,7 @@ func (s *State) WaitForLaneQCs(
 			for lane := range inner.blocks {
 				first := types.LaneRangeOpt(prev, lane).Next()
 				for i := range types.BlockNumber(BlocksPerLanePerCommit) {
-					if qc, ok := inner.laneQCs(ep, lane, first+i); ok {
+					if qc, ok := inner.laneQC(ep.Committee, lane, first+i); ok {
 						laneQCs[lane] = qc
 					} else {
 						break

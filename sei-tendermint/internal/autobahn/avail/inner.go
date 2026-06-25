@@ -148,19 +148,11 @@ func newInner(ep *types.Epoch, firstBlock types.GlobalBlockNumber, loaded utils.
 	return i, nil
 }
 
-// laneQCs returns a LaneQC for the given epoch if sufficient weight has accumulated,
-// filtering to only votes from that epoch's committee members.
-func (i *inner) laneQCs(ep *types.Epoch, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
-	e, c := ep.EpochIndex, ep.Committee
-	for _, entry := range i.votes[lane].q[n].byHash {
-		if entry.epochWeight[e] >= c.LaneQuorum() {
-			var qualified []*types.Signed[*types.LaneVote]
-			for _, v := range entry.votes {
-				if c.Weight(v.Key()) > 0 {
-					qualified = append(qualified, v)
-				}
-			}
-			return types.NewLaneQC(qualified), true
+// TODO: filter votes per-epoch committee once epoch transitions are wired up.
+func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
+	for _, byHash := range i.votes[lane].q[n].byHash {
+		if byHash.weight >= c.LaneQuorum() {
+			return types.NewLaneQC(byHash.votes[:]), true
 		}
 	}
 	return nil, false
