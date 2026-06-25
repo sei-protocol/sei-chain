@@ -8,6 +8,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
@@ -450,6 +452,13 @@ func (k Keeper) RecvPacket(goCtx context.Context, msg *channeltypes.MsgRecvPacke
 	}
 
 	defer func() {
+		ibcCoreMetrics.txMsgIbcRecvPacket.Add(ctx.Context(), 1, otelmetric.WithAttributes(
+			attribute.String(coretypes.LabelSourcePort, msg.Packet.SourcePort),
+			attribute.String(coretypes.LabelSourceChannel, msg.Packet.SourceChannel),
+			attribute.String(coretypes.LabelDestinationPort, msg.Packet.DestinationPort),
+			attribute.String(coretypes.LabelDestinationChannel, msg.Packet.DestinationChannel),
+		))
+		// TODO(PLT-428): remove once tx_msg_ibc_recv_packet verified
 		telemetry.IncrCounterWithLabels(
 			[]string{"tx", "msg", "ibc", channeltypes.EventTypeRecvPacket},
 			1,
@@ -517,6 +526,14 @@ func (k Keeper) Timeout(goCtx context.Context, msg *channeltypes.MsgTimeout) (*c
 	}
 
 	defer func() {
+		ibcCoreMetrics.ibcTimeoutPacket.Add(ctx.Context(), 1, otelmetric.WithAttributes(
+			attribute.String(coretypes.LabelSourcePort, msg.Packet.SourcePort),
+			attribute.String(coretypes.LabelSourceChannel, msg.Packet.SourceChannel),
+			attribute.String(coretypes.LabelDestinationPort, msg.Packet.DestinationPort),
+			attribute.String(coretypes.LabelDestinationChannel, msg.Packet.DestinationChannel),
+			attribute.String(coretypes.LabelTimeoutType, "height"),
+		))
+		// TODO(PLT-428): remove once ibc_timeout_packet verified
 		telemetry.IncrCounterWithLabels(
 			[]string{"ibc", "timeout", "packet"},
 			1,
@@ -588,6 +605,14 @@ func (k Keeper) TimeoutOnClose(goCtx context.Context, msg *channeltypes.MsgTimeo
 	}
 
 	defer func() {
+		ibcCoreMetrics.ibcTimeoutPacket.Add(ctx.Context(), 1, otelmetric.WithAttributes(
+			attribute.String(coretypes.LabelSourcePort, msg.Packet.SourcePort),
+			attribute.String(coretypes.LabelSourceChannel, msg.Packet.SourceChannel),
+			attribute.String(coretypes.LabelDestinationPort, msg.Packet.DestinationPort),
+			attribute.String(coretypes.LabelDestinationChannel, msg.Packet.DestinationChannel),
+			attribute.String(coretypes.LabelTimeoutType, "channel-closed"),
+		))
+		// TODO(PLT-428): remove once ibc_timeout_packet verified
 		telemetry.IncrCounterWithLabels(
 			[]string{"ibc", "timeout", "packet"},
 			1,
@@ -651,6 +676,13 @@ func (k Keeper) Acknowledgement(goCtx context.Context, msg *channeltypes.MsgAckn
 	}
 
 	defer func() {
+		ibcCoreMetrics.txMsgIbcAcknowledgePacket.Add(ctx.Context(), 1, otelmetric.WithAttributes(
+			attribute.String(coretypes.LabelSourcePort, msg.Packet.SourcePort),
+			attribute.String(coretypes.LabelSourceChannel, msg.Packet.SourceChannel),
+			attribute.String(coretypes.LabelDestinationPort, msg.Packet.DestinationPort),
+			attribute.String(coretypes.LabelDestinationChannel, msg.Packet.DestinationChannel),
+		))
+		// TODO(PLT-428): remove once tx_msg_ibc_acknowledge_packet verified
 		telemetry.IncrCounterWithLabels(
 			[]string{"tx", "msg", "ibc", channeltypes.EventTypeAcknowledgePacket},
 			1,

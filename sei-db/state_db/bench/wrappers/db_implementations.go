@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	ssComposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 )
 
@@ -79,7 +80,7 @@ func newFlatKVCommitStore(ctx context.Context, dbDir string, config *flatkvConfi
 	return NewFlatKVWrapper(cs), nil
 }
 
-func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode config.WriteMode) (DBWrapper, error) {
+func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode sctypes.WriteMode) (DBWrapper, error) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = writeMode
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
@@ -129,7 +130,7 @@ func newCombinedCompositeDualSSComposite(
 ) (DBWrapper, error) {
 
 	fmt.Printf("Opening CompositeDual (SC) + Composite (SS) from directory %s\n", dbDir)
-	sc, err := newCompositeCommitStore(ctx, filepath.Join(dbDir, "sc"), config.TestOnlyDualWrite)
+	sc, err := newCompositeCommitStore(ctx, filepath.Join(dbDir, "sc"), sctypes.TestOnlyDualWrite)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SC store: %w", err)
 	}
@@ -151,11 +152,11 @@ func NewDBImpl(ctx context.Context, dbType DBType, dataDir string, dbConfig any)
 	case FlatKV:
 		return newFlatKVCommitStore(ctx, dataDir, dbConfig.(*flatkvConfig.Config))
 	case CompositeDual:
-		return newCompositeCommitStore(ctx, dataDir, config.TestOnlyDualWrite)
+		return newCompositeCommitStore(ctx, dataDir, sctypes.TestOnlyDualWrite)
 	case CompositeSplit:
-		return newCompositeCommitStore(ctx, dataDir, config.EVMMigrated)
+		return newCompositeCommitStore(ctx, dataDir, sctypes.EVMMigrated)
 	case CompositeCosmos:
-		return newCompositeCommitStore(ctx, dataDir, config.MemiavlOnly)
+		return newCompositeCommitStore(ctx, dataDir, sctypes.MemiavlOnly)
 	case SSComposite:
 		return newSSCompositeStateStore(dataDir, dbConfig.(*config.StateStoreConfig))
 	case SSHistoricalOffload:

@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/stretchr/testify/require"
@@ -367,8 +367,10 @@ func TestStateMismatchedQCs(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. Form a LaneQC for it
-	laneVotes := makeLaneVotes(keys, b.Msg().Block().Header())
-	laneQC := types.NewLaneQC(laneVotes[:2]) // f+1 = 2 for 4 nodes
+	laneQC := types.NewLaneQC(makeLaneVotes(
+		types.TestKeysWithWeight(committee, keys, committee.LaneQuorum()),
+		b.Msg().Block().Header(),
+	))
 
 	// 3. Create CommitQC for index 0 (finalizes block 0)
 	qc0 := makeQC(utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{lane: laneQC})

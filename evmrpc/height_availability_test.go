@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -38,8 +39,8 @@ func (*heightTestClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (*heightTestClient) EvmProxy(common.Address) (*url.URL, bool) {
-	return nil, false
+func (*heightTestClient) EvmProxy(common.Address) utils.Option[*url.URL] {
+	return utils.None[*url.URL]()
 }
 
 func newHeightTestClient(highHeight, earliest, latest int64) *heightTestClient {
@@ -330,6 +331,32 @@ func TestLogFetcherSkipsUnavailableCachedBlock(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	default:
 	}
+}
+
+func TestGetBlockTransactionCountByNumberReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+
+	_, err := api.GetBlockTransactionCountByNumber(context.Background(), rpc.BlockNumber(100))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
+}
+
+func TestGetBlockTransactionCountByHashReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+
+	_, err := api.GetBlockTransactionCountByHash(context.Background(), common.HexToHash(highBlockHashHex))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
 }
 
 func TestStateAPIGetProofUnavailableHeight(t *testing.T) {

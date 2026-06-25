@@ -11,6 +11,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/spf13/viper"
 )
@@ -332,11 +333,28 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	// default, matching the behavior of app/seidb.go.
 	scWriteMode := config.DefaultStateCommitConfig().WriteMode
 	if wm := v.GetString("state-commit.sc-write-mode"); wm != "" {
-		parsed, err := config.ParseWriteMode(wm)
+		parsed, err := sctypes.ParseWriteMode(wm)
 		if err != nil {
 			return Config{}, fmt.Errorf("invalid state-commit.sc-write-mode %q: %w", wm, err)
 		}
 		scWriteMode = parsed
+	}
+
+	flatKVConfig := config.DefaultStateCommitConfig().FlatKVConfig
+	if v.IsSet("state-commit.flatkv.fsync") {
+		flatKVConfig.Fsync = v.GetBool("state-commit.flatkv.fsync")
+	}
+	if v.IsSet("state-commit.flatkv.async-write-buffer") {
+		flatKVConfig.AsyncWriteBuffer = v.GetInt("state-commit.flatkv.async-write-buffer")
+	}
+	if v.IsSet("state-commit.flatkv.snapshot-interval") {
+		flatKVConfig.SnapshotInterval = v.GetUint32("state-commit.flatkv.snapshot-interval")
+	}
+	if v.IsSet("state-commit.flatkv.snapshot-keep-recent") {
+		flatKVConfig.SnapshotKeepRecent = v.GetUint32("state-commit.flatkv.snapshot-keep-recent")
+	}
+	if v.IsSet("state-commit.flatkv.enable-read-write-metrics") {
+		flatKVConfig.EnableReadWriteMetrics = v.GetBool("state-commit.flatkv.enable-read-write-metrics")
 	}
 
 	return Config{
@@ -407,6 +425,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 				SnapshotWriterLimit:       v.GetInt("state-commit.sc-snapshot-writer-limit"),
 				SnapshotPrefetchThreshold: v.GetFloat64("state-commit.sc-snapshot-prefetch-threshold"),
 			},
+			FlatKVConfig: flatKVConfig,
 		},
 		StateStore: config.StateStoreConfig{
 			Enable:               v.GetBool("state-store.ss-enable"),
@@ -416,9 +435,12 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			KeepRecent:           v.GetInt("state-store.ss-keep-recent"),
 			PruneIntervalSeconds: v.GetInt("state-store.ss-prune-interval"),
 			ImportNumWorkers:     v.GetInt("state-store.ss-import-num-workers"),
-			EVMSplit:             v.GetBool("state-store.evm-ss-split"),
-			EVMDBDirectory:       v.GetString("state-store.evm-ss-db-directory"),
-			SeparateEVMSubDBs:    v.GetBool("state-store.evm-ss-separate-dbs"),
+			EnableReadWriteMetrics: v.GetBool(
+				"state-store.ss-enable-read-write-metrics",
+			),
+			EVMSplit:          v.GetBool("state-store.evm-ss-split"),
+			EVMDBDirectory:    v.GetString("state-store.evm-ss-db-directory"),
+			SeparateEVMSubDBs: v.GetBool("state-store.evm-ss-separate-dbs"),
 		},
 		Genesis: GenesisConfig{
 			StreamImport:      v.GetBool("genesis.stream-import"),

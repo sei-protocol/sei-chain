@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/bloom"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -70,7 +72,7 @@ func newPebbleDBKeymap(
 	}
 	requiresReload = !exists
 
-	db, err := pebble.Open(keymapPath, &pebble.Options{})
+	db, err := pebble.Open(keymapPath, keymapPebbleOptions())
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to open PebbleDB: %w", err)
 	}
@@ -85,6 +87,29 @@ func newPebbleDBKeymap(
 	kmap.alive.Store(true)
 
 	return kmap, requiresReload, nil
+}
+
+// keymapPebbleOptions returns pebble options sized for the keymap workload:
+// a sustained stream of small random keys (e.g. 32-byte hashes) written in
+// batches and read back as point lookups. Stock pebble options (4MB
+// memtable, single compaction, no filters) collapse under high key rates —
+// the memtable rotates every second and L0 backs up, stalling every writer.
+func keymapPebbleOptions() *pebble.Options {
+	opts := &pebble.Options{
+		MemTableSize:                64 * unit.MB,
+		MemTableStopWritesThreshold: 4,
+		L0CompactionThreshold:       4,
+		L0StopWritesThreshold:       1000,
+		LBaseMaxBytes:               64 * unit.MB,
+	}
+	opts.CompactionConcurrencyRange = func() (lower, upper int) { return 1, 8 }
+	opts.EnsureDefaults()
+	// Per-level bloom filters: keymap reads are point lookups by key.
+	for i := range opts.Levels {
+		opts.Levels[i].FilterPolicy = bloom.FilterPolicy(10)
+		opts.Levels[i].FilterType = pebble.TableFilter
+	}
+	return opts
 }
 
 func (p *PebbleDBKeymap) writeOptions() *pebble.WriteOptions {

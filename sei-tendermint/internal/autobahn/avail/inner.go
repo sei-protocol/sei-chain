@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -144,9 +144,9 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 }
 
 func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
-	for _, vs := range i.votes[lane].q[n].byHeader {
-		if len(vs) >= c.LaneQuorum() {
-			return types.NewLaneQC(vs[:c.LaneQuorum()]), true
+	for _, byHash := range i.votes[lane].q[n].byHash {
+		if byHash.weight >= c.LaneQuorum() {
+			return types.NewLaneQC(byHash.votes[:]), true
 		}
 	}
 	return nil, false

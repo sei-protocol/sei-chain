@@ -5,6 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/export"
+	"github.com/ethereum/go-ethereum/rpc"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/stretchr/testify/require"
 )
 
@@ -81,4 +87,43 @@ func TestAcquireTraceSemaphoreCanceledContextDoesNotConsumeSlot(t *testing.T) {
 			t.Fatal("expected canceled acquire to leave semaphore slot available")
 		}
 	}
+}
+
+type panicHashLookupClient struct {
+	*heightTestClient
+}
+
+func (c *panicHashLookupClient) BlockByHash(context.Context, tmbytes.HexBytes) (*coretypes.ResultBlock, error) {
+	panic("hash lookup should not happen before trace context setup")
+}
+
+func TestHashBasedTraceEndpointsAcquireSemaphoreBeforeHashLookup(t *testing.T) {
+	latestHeight := int64(10)
+	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
+	tmClient := &panicHashLookupClient{
+		heightTestClient: newHeightTestClient(8, 1, latestHeight),
+	}
+	watermarks := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, nil)
+	api := &DebugAPI{
+		tmClient:           tmClient,
+		ctxProvider:        func(int64) sdk.Context { return latestCtx },
+		connectionType:     ConnectionTypeHTTP,
+		traceCallSemaphore: make(chan struct{}, 1),
+		traceTimeout:       time.Second,
+		backend: &Backend{
+			tmClient:   tmClient,
+			watermarks: watermarks,
+		},
+	}
+
+	api.traceCallSemaphore <- struct{}{}
+	defer func() { <-api.traceCallSemaphore }()
+
+	hash := common.HexToHash(highBlockHashHex)
+	_, err := api.TraceBlockByHash(context.Background(), hash, nil)
+	require.ErrorIs(t, err, errTraceConcurrencyLimit)
+
+	blockNrOrHash := rpc.BlockNumberOrHashWithHash(hash, false)
+	_, err = api.TraceCall(context.Background(), export.TransactionArgs{}, blockNrOrHash, nil)
+	require.ErrorIs(t, err, errTraceConcurrencyLimit)
 }

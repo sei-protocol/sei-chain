@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -77,7 +77,7 @@ Output is written to the file specified by --output.`,
 					ValidatorKey: valKey,
 					NodeKey:      nodeKey,
 					Address:      addr,
-					EVMRPC:       utils.Some(evmRPC),
+					EVMRPC:       evmRPC,
 				})
 			}
 

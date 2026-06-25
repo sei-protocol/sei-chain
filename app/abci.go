@@ -3,10 +3,12 @@ package app
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetrics "go.opentelemetry.io/otel/metric"
 
@@ -129,7 +131,7 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.R
 		EVMSenderAddress:   txCtx.EVMSenderAddress(),
 		SeiSenderAddress:   txCtx.SeiSenderAddress(),
 		IsEVM:              txCtx.IsEVM(),
-		EVMRequiredBalance: txCtx.EVMRequiredBalance(),
+		EVMRequiredBalance: bigIntToUint256(txCtx.EVMRequiredBalance()),
 	}
 
 	return res
@@ -139,14 +141,25 @@ func (app *App) EvmNonce(evmAddr common.Address) uint64 {
 	return app.EvmKeeper.GetNonce(app.GetCheckCtx(), evmAddr)
 }
 
-func (app *App) EvmBalance(evmAddr common.Address, seiAddrBz []byte) *big.Int {
+func (app *App) EvmBalance(evmAddr common.Address, seiAddrBz []byte) uint256.Int {
 	ctx := app.GetCheckCtx()
 	balance := app.EvmKeeper.GetBalance(ctx, evmAddr[:])
 	seiAddr := sdk.AccAddress(seiAddrBz)
 	if !seiAddr.Equals(sdk.AccAddress(evmAddr[:])) {
 		balance = new(big.Int).Add(balance, app.EvmKeeper.GetBalance(ctx, seiAddr))
 	}
-	return balance
+	return bigIntToUint256(balance)
+}
+
+func bigIntToUint256(x *big.Int) uint256.Int {
+	if x == nil {
+		return uint256.Int{}
+	}
+	y, overflow := uint256.FromBig(x)
+	if overflow {
+		panic(fmt.Sprintf("big.Int overflows uint256: %v", x))
+	}
+	return *y
 }
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {

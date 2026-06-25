@@ -806,7 +806,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Range-query receipt stores only constrain by numeric block range and
 	// do not enforce crit.BlockHash.
 	if crit.BlockHash == nil {
-		// Try efficient range query first (supported by parquet/DuckDB backend)
+		// Try efficient range query first
 		// #nosec G115 -- begin and end are validated to be positive block heights above
 		if logs, rangeErr := f.tryFilterLogsRange(ctx, uint64(begin), uint64(end), crit); rangeErr == nil {
 			return logs, end, nil
@@ -985,7 +985,7 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 // normalizeRangeQueryLogs corrects BlockHash, TxIndex, and LogIndex on logs
 // returned from range-query backends.
 //
-// Range-query backends (parquet/cache) store logs with:
+// Range-query backends store logs with:
 //   - BlockHash = zero (unknown at receipt flush time)
 //   - TxIndex = raw Cosmos block position (includes non-EVM txs)
 //   - LogIndex = absolute position across ALL receipts (includes filtered-out txs)

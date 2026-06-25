@@ -9,14 +9,19 @@ import (
 const metaKeyPrefix = "_meta/"
 
 const (
-	metaVersion = metaKeyPrefix + "version"
-	metaLtHash  = metaKeyPrefix + "hash"
+	metaVersion  = metaKeyPrefix + "version"
+	metaLtHash   = metaKeyPrefix + "hash"
+	metaEarliest = metaKeyPrefix + "earliest"
 )
 
 var (
 	MetaKeyPrefixBytes = []byte(metaKeyPrefix)
 	MetaVersionKey     = []byte(metaVersion)
 	MetaLtHashKey      = []byte(metaLtHash)
+	// MetaEarliestVersionKey records the version a seeded store's history
+	// begins at (written once by SetInitialVersion, global metadata DB
+	// only). Absent on genesis stores and stores predating the record.
+	MetaEarliestVersionKey = []byte(metaEarliest)
 )
 
 // IsMetaKey reports whether key is a per-DB internal metadata key (not user data).

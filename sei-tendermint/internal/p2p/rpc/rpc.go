@@ -16,7 +16,15 @@ import (
 type InBytes uint64
 type InMsgs uint64
 
-type Msg[M protoutils.Message] struct {
+func (spec Msg[M]) Verify() error {
+	var msg M
+	if m := InBytes(msg.MaxSize()); m > spec.MsgSize { // nolint: gosec // MaxSize() >= 0
+		return fmt.Errorf("%T.MaxSize() = %d exceeds configured cap %d", msg, m, spec.MsgSize)
+	}
+	return nil
+}
+
+type Msg[M protoutils.Sized] struct {
 	MsgSize InBytes
 	Window  InMsgs
 }
@@ -26,7 +34,7 @@ type Limit struct {
 	Concurrent uint64
 }
 
-type RPC[API any, Req, Resp protoutils.Message] struct {
+type RPC[API any, Req, Resp protoutils.Sized] struct {
 	Kind  mux.StreamKind
 	Limit Limit
 	Req   Msg[Req]
@@ -62,7 +70,7 @@ func (s service) muxClientConfig() *mux.Config {
 	return cfg
 }
 
-func Register[API any, Req, Resp protoutils.Message](kind mux.StreamKind, limit Limit, req Msg[Req], resp Msg[Resp]) *RPC[API, Req, Resp] {
+func Register[API any, Req, Resp protoutils.Sized](kind mux.StreamKind, limit Limit, req Msg[Req], resp Msg[Resp]) *RPC[API, Req, Resp] {
 	t := reflect.TypeFor[API]()
 	if _, ok := registry[t]; !ok {
 		registry[t] = service{}
@@ -71,6 +79,12 @@ func Register[API any, Req, Resp protoutils.Message](kind mux.StreamKind, limit 
 	// Simplification: we allow the same number of streams in each direction.
 	if _, ok := service[kind]; ok {
 		panic(fmt.Errorf("conflicting rpc for kind %v", kind))
+	}
+	if err := req.Verify(); err != nil {
+		panic(fmt.Errorf("RPC %v: %w", kind, err))
+	}
+	if err := resp.Verify(); err != nil {
+		panic(fmt.Errorf("RPC %v: %w", kind, err))
 	}
 	service[kind] = &rpcConfig{limit: limit}
 	return &RPC[API, Req, Resp]{kind, limit, req, resp}

@@ -282,8 +282,6 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | sei_legacy_deprecation                 | sei_sign-disabled.iox                                          | Sei          |
 | sei_newBlockFilter                     | newBlockFilter.io                                              | Sei          |
 | sei_newFilter                          | newFilter.io                                                   | Sei          |
-| sei_traceBlockByHashExcludeTraceFail   | traceBlockByHashExcludeTraceFail.iox                           | Sei          |
-| sei_traceBlockByNumberExcludeTraceFail | traceBlockByNumberExcludeTraceFail.iox                         | Sei          |
 | sei_uninstallFilter                    | uninstallFilter.io                                             | Sei          |
 | txpool_content                         | content.io                                                     | Sei          |
 | web3_clientVersion                     | clientVersion.io                                               | Sei          |

@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -231,7 +232,7 @@ func driveMigrationWorkload(
 	t.Helper()
 
 	memCfg := config.DefaultStateCommitConfig()
-	memCfg.WriteMode = config.MemiavlOnly
+	memCfg.WriteMode = types.MemiavlOnly
 	// AsyncCommitBuffer=0 keeps WAL writes synchronous; without it
 	// GetLatestVersion / on-disk reconcile races with the in-flight
 	// commit and the post-reopen version checks become flaky.
@@ -258,7 +259,7 @@ func driveMigrationWorkload(
 	require.NoError(t, cs.Close())
 
 	migCfg := config.DefaultStateCommitConfig()
-	migCfg.WriteMode = config.MigrateEVM
+	migCfg.WriteMode = types.MigrateEVM
 	migCfg.KeysToMigratePerBlock = keysToMigratePerBlock
 	migCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
@@ -286,7 +287,7 @@ func driveMigrationWorkload(
 func reopenInMigrateEVM(t *testing.T, dir string, batch int) *CompositeCommitStore {
 	t.Helper()
 	cfg := config.DefaultStateCommitConfig()
-	cfg.WriteMode = config.MigrateEVM
+	cfg.WriteMode = types.MigrateEVM
 	cfg.KeysToMigratePerBlock = batch
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
@@ -304,7 +305,7 @@ func TestComposite_MigrateEVM_SecondNonEmptyFlushDoesNotAdvanceMigration(t *test
 	key2 := evmStorageTestKey(0x02)
 
 	memCfg := config.DefaultStateCommitConfig()
-	memCfg.WriteMode = config.MemiavlOnly
+	memCfg.WriteMode = types.MemiavlOnly
 	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 	require.NoError(t, err)
@@ -365,6 +366,164 @@ func evmStorageTestValue(seed byte) []byte {
 		value[i] = seed
 	}
 	return value
+}
+
+func zeroStorageTestValue() []byte {
+	return make([]byte, 32)
+}
+
+func isZeroTestValue(v []byte) bool {
+	if len(v) == 0 {
+		return true
+	}
+	for _, b := range v {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func pruneZeroStorageViaRoutedGet(t *testing.T, cs *CompositeCommitStore, limit int) (int, int) {
+	t.Helper()
+	iter, err := cs.Iterator(keys.EVMStoreKey, keys.StateKeyPrefix(), []byte{0x04}, true)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, iter.Close()) }()
+
+	var deletes []*proto.KVPair
+	processed := 0
+	for ; iter.Valid() && processed < limit; iter.Next() {
+		key := append([]byte(nil), iter.Key()...)
+		processed++
+
+		// Match x/evm's migration-safe prune contract: iterator output is only a
+		// candidate source; deletion is decided from the routed logical read path.
+		value, found, err := cs.Get(keys.EVMStoreKey, key)
+		require.NoError(t, err)
+		if found && isZeroTestValue(value) {
+			deletes = append(deletes, &proto.KVPair{Key: key, Delete: true})
+		}
+	}
+	require.NoError(t, iter.Error())
+
+	if len(deletes) > 0 {
+		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{{
+			Name: keys.EVMStoreKey,
+			Changeset: proto.ChangeSet{
+				Pairs: deletes,
+			},
+		}}))
+	} else {
+		require.NoError(t, cs.ApplyChangeSets(nil))
+	}
+	return processed, len(deletes)
+}
+
+func requireEVMStorageKeysAbsentFromIterator(t *testing.T, cs *CompositeCommitStore, absentKeys ...[]byte) {
+	t.Helper()
+	absent := make(map[string]struct{}, len(absentKeys))
+	for _, key := range absentKeys {
+		absent[string(key)] = struct{}{}
+	}
+
+	iter, err := cs.Iterator(keys.EVMStoreKey, keys.StateKeyPrefix(), []byte{0x04}, true)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, iter.Close()) }()
+	for ; iter.Valid(); iter.Next() {
+		_, forbidden := absent[string(iter.Key())]
+		require.Falsef(t, forbidden, "pruned zero-storage key %x must not appear in composite iterator", iter.Key())
+	}
+	require.NoError(t, iter.Error())
+}
+
+func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T) {
+	dir := t.TempDir()
+	zeroKeyBeforeBoundary := evmStorageTestKey(0x01)
+	nonZeroKey := evmStorageTestKey(0x02)
+	zeroKeyAfterBoundary := evmStorageTestKey(0x03)
+
+	memCfg := config.DefaultStateCommitConfig()
+	memCfg.WriteMode = types.MemiavlOnly
+	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: zeroKeyBeforeBoundary, Value: zeroStorageTestValue()},
+			{Key: nonZeroKey, Value: evmStorageTestValue(0x22)},
+			{Key: zeroKeyAfterBoundary, Value: zeroStorageTestValue()},
+		}},
+	}}))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+	require.NoError(t, cs.Close())
+
+	cs = reopenInMigrateEVM(t, dir, 1)
+
+	processed, deleted := pruneZeroStorageViaRoutedGet(t, cs, 10)
+	require.Equal(t, 3, processed)
+	require.Equal(t, 2, deleted)
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	for _, key := range [][]byte{zeroKeyBeforeBoundary, zeroKeyAfterBoundary} {
+		value, found, err := cs.Get(keys.EVMStoreKey, key)
+		require.NoError(t, err)
+		require.Falsef(t, found, "pruned zero-storage key %x must be logically absent", key)
+		require.Nil(t, value)
+	}
+	value, found, err := cs.Get(keys.EVMStoreKey, nonZeroKey)
+	require.NoError(t, err)
+	require.True(t, found, "non-zero storage key must survive prune")
+	require.Equal(t, evmStorageTestValue(0x22), value)
+	requireEVMStorageKeysAbsentFromIterator(t, cs, zeroKeyBeforeBoundary, zeroKeyAfterBoundary)
+
+	workload := newMigrationWorkload(0x5150)
+	runUntilMigrationComplete(t, cs, workload, 20)
+	for _, key := range [][]byte{zeroKeyBeforeBoundary, zeroKeyAfterBoundary} {
+		value, found, err := cs.Get(keys.EVMStoreKey, key)
+		require.NoError(t, err)
+		require.Falsef(t, found, "pruned zero-storage key %x must remain absent after migration completes", key)
+		require.Nil(t, value)
+	}
+	value, found, err = cs.Get(keys.EVMStoreKey, nonZeroKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, evmStorageTestValue(0x22), value)
+	requireEVMStorageKeysAbsentFromIterator(t, cs, zeroKeyBeforeBoundary, zeroKeyAfterBoundary)
+	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+
+	preFlipVersion := cs.Version()
+	preFlipHash := append([]byte(nil), cs.flatKV.CommittedRootHash()...)
+	require.NoError(t, cs.Close())
+
+	finalCfg := evmMigratedConfig()
+	finalCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cs, err = NewCompositeCommitStore(t.Context(), dir, finalCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+
+	require.Equal(t, preFlipVersion, cs.Version())
+	require.Equal(t, preFlipHash, cs.flatKV.CommittedRootHash())
+	for _, key := range [][]byte{zeroKeyBeforeBoundary, zeroKeyAfterBoundary} {
+		value, found, err := cs.Get(keys.EVMStoreKey, key)
+		require.NoError(t, err)
+		require.Falsef(t, found, "pruned zero-storage key %x must remain absent after EVMMigrated reopen", key)
+		require.Nil(t, value)
+	}
+	value, found, err = cs.Get(keys.EVMStoreKey, nonZeroKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, evmStorageTestValue(0x22), value)
+	requireEVMStorageKeysAbsentFromIterator(t, cs, zeroKeyBeforeBoundary, zeroKeyAfterBoundary)
+	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
 }
 
 // runUntilMigrationComplete drives the workload through commits until
@@ -536,7 +695,7 @@ func TestComposite_MigrateEVM_CrashAndResume(t *testing.T) {
 		workload := newMigrationWorkload(seed)
 
 		memCfg := config.DefaultStateCommitConfig()
-		memCfg.WriteMode = config.MemiavlOnly
+		memCfg.WriteMode = types.MemiavlOnly
 		memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 		require.NoError(t, err)
@@ -625,7 +784,7 @@ func TestComposite_MigrateEVM_DeterministicAcrossTwoStores(t *testing.T) {
 		workload := newMigrationWorkload(seed)
 
 		memCfg := config.DefaultStateCommitConfig()
-		memCfg.WriteMode = config.MemiavlOnly
+		memCfg.WriteMode = types.MemiavlOnly
 		memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 		require.NoError(t, err)

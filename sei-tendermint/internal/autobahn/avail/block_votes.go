@@ -1,18 +1,18 @@
 package avail
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
 type blockVotes struct {
-	byKey    map[types.PublicKey]*types.Signed[*types.LaneVote]
-	byHeader map[types.BlockHeaderHash][]*types.Signed[*types.LaneVote]
+	byKey  map[types.PublicKey]*types.Signed[*types.LaneVote]
+	byHash map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]
 }
 
 func newBlockVotes() blockVotes {
 	return blockVotes{
-		byKey:    map[types.PublicKey]*types.Signed[*types.LaneVote]{},
-		byHeader: map[types.BlockHeaderHash][]*types.Signed[*types.LaneVote]{},
+		byKey:  map[types.PublicKey]*types.Signed[*types.LaneVote]{},
+		byHash: map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]{},
 	}
 }
 
@@ -24,9 +24,18 @@ func (bv blockVotes) pushVote(c *types.Committee, vote *types.Signed[*types.Lane
 		return nil, false
 	}
 	bv.byKey[k] = vote
-	bv.byHeader[h] = append(bv.byHeader[h], vote)
-	if vs := bv.byHeader[h]; len(vs) == c.LaneQuorum() {
-		return types.NewLaneQC(vs), true
+	byHash, ok := bv.byHash[h]
+	if !ok {
+		byHash = &voteSet[*types.Signed[*types.LaneVote]]{}
+		bv.byHash[h] = byHash
+	}
+	if byHash.weight >= c.LaneQuorum() {
+		return nil, false
+	}
+	byHash.weight += c.Weight(k)
+	byHash.votes = append(byHash.votes, vote)
+	if byHash.weight >= c.LaneQuorum() {
+		return types.NewLaneQC(byHash.votes), true
 	}
 	return nil, false
 }

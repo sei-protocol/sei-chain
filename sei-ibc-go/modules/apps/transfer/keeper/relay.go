@@ -8,6 +8,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
@@ -145,7 +147,9 @@ func (k Keeper) sendTransfer(
 	// chain inside the packet data. The receiving chain will perform denom
 	// prefixing as necessary.
 
+	var isSource bool
 	if types.SenderChainIsSource(sourcePort, sourceChannel, fullDenomPath) {
+		isSource = true
 		labels = append(labels, telemetry.NewLabel(coretypes.LabelSource, "true"))
 
 		// create the escrow address for the tokens
@@ -200,6 +204,8 @@ func (k Keeper) sendTransfer(
 
 	defer func() {
 		if token.Amount.IsInt64() {
+			ibcTransferMetrics.txMsgIbcTransfer.Record(ctx.Context(), token.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(fullDenomPath))))
+			// TODO(PLT-428): remove once tx_msg_ibc_transfer verified
 			telemetry.SetGaugeWithLabels(
 				[]string{"tx", "msg", "ibc", "transfer"},
 				float32(token.Amount.Int64()),
@@ -207,6 +213,12 @@ func (k Keeper) sendTransfer(
 			)
 		}
 
+		ibcTransferMetrics.ibcTransferSend.Add(ctx.Context(), 1, otelmetric.WithAttributes(
+			attribute.String(coretypes.LabelDestinationPort, destinationPort),
+			attribute.String(coretypes.LabelDestinationChannel, destinationChannel),
+			attribute.Bool(coretypes.LabelSource, isSource),
+		))
+		// TODO(PLT-428): remove once ibc_transfer_send verified
 		telemetry.IncrCounterWithLabels(
 			[]string{"ibc", types.ModuleName, "send"},
 			1,
@@ -291,6 +303,8 @@ func (k Keeper) OnRecvPacket(ctx sdk.Context, packet channeltypes.Packet, data t
 
 		defer func() {
 			if transferAmount.IsInt64() {
+				ibcTransferMetrics.ibcTransferPacketReceive.Record(ctx.Context(), transferAmount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(unprefixedDenom))))
+				// TODO(PLT-428): remove once ibc_transfer_packet_receive verified
 				telemetry.SetGaugeWithLabels(
 					[]string{"ibc", types.ModuleName, "packet", "receive"},
 					float32(transferAmount.Int64()),
@@ -298,6 +312,12 @@ func (k Keeper) OnRecvPacket(ctx sdk.Context, packet channeltypes.Packet, data t
 				)
 			}
 
+			ibcTransferMetrics.ibcTransferReceive.Add(ctx.Context(), 1, otelmetric.WithAttributes(
+				attribute.String(coretypes.LabelSourcePort, packet.GetSourcePort()),
+				attribute.String(coretypes.LabelSourceChannel, packet.GetSourceChannel()),
+				attribute.Bool(coretypes.LabelSource, true),
+			))
+			// TODO(PLT-428): remove once ibc_transfer_receive verified
 			telemetry.IncrCounterWithLabels(
 				[]string{"ibc", types.ModuleName, "receive"},
 				1,
@@ -351,6 +371,8 @@ func (k Keeper) OnRecvPacket(ctx sdk.Context, packet channeltypes.Packet, data t
 
 	defer func() {
 		if transferAmount.IsInt64() {
+			ibcTransferMetrics.ibcTransferPacketReceive.Record(ctx.Context(), transferAmount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(data.Denom))))
+			// TODO(PLT-428): remove once ibc_transfer_packet_receive verified
 			telemetry.SetGaugeWithLabels(
 				[]string{"ibc", types.ModuleName, "packet", "receive"},
 				float32(transferAmount.Int64()),
@@ -358,6 +380,12 @@ func (k Keeper) OnRecvPacket(ctx sdk.Context, packet channeltypes.Packet, data t
 			)
 		}
 
+		ibcTransferMetrics.ibcTransferReceive.Add(ctx.Context(), 1, otelmetric.WithAttributes(
+			attribute.String(coretypes.LabelSourcePort, packet.GetSourcePort()),
+			attribute.String(coretypes.LabelSourceChannel, packet.GetSourceChannel()),
+			attribute.Bool(coretypes.LabelSource, false),
+		))
+		// TODO(PLT-428): remove once ibc_transfer_receive verified
 		telemetry.IncrCounterWithLabels(
 			[]string{"ibc", types.ModuleName, "receive"},
 			1,

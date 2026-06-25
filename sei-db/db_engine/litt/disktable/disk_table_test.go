@@ -100,15 +100,19 @@ func buildMemKeyDiskTableSingleShard(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	config.Clock = clock
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
+		litt.DefaultTableConfig(name),
 		keys,
 		keymapPath,
 		keymapTypeFile,
@@ -146,16 +150,22 @@ func buildMemKeyDiskTableMultiShard(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	config.Clock = clock
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.ShardingFactor = 4
-	config.Logger = logger
+
+	tableConfig := litt.DefaultTableConfig(name)
+	tableConfig.ShardingFactor = 4
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
+		tableConfig,
 		keys,
 		keymapPath,
 		keymapTypeFile,
@@ -192,15 +202,19 @@ func buildPebbleDBKeyDiskTableSingleShard(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	config.Clock = clock
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
+		litt.DefaultTableConfig(name),
 		keys,
 		keymapPath,
 		keymapTypeFile,
@@ -237,16 +251,22 @@ func buildPebbleDBKeyDiskTableMultiShard(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	config.Clock = clock
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.ShardingFactor = 4
-	config.Logger = logger
+
+	tableConfig := litt.DefaultTableConfig(name)
+	tableConfig.ShardingFactor = 4
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
+		tableConfig,
 		keys,
 		keymapPath,
 		keymapTypeFile,
@@ -359,7 +379,7 @@ func restartTest(t *testing.T, tableBuilder *tableBuilder) {
 
 	ok, _ := table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -447,7 +467,7 @@ func middleFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelet
 		filePath = fmt.Sprintf("%s/%s/segments/%d%s",
 			directory, tableName, middleIndex, segment.KeyFileExtension)
 	} else if typeToDelete == "value" {
-		shardingFactor := table.(*DiskTable).metadata.GetShardingFactor()
+		shardingFactor := table.(*DiskTable).getShardingFactor()
 		shard := rand.Uint32Range(0, uint32(shardingFactor))
 		filePath = fmt.Sprintf("%s/%s/segments/%d-%d%s",
 			directory, tableName, middleIndex, shard, segment.ValuesFileExtension)
@@ -573,7 +593,7 @@ func initialFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDele
 		filePath = fmt.Sprintf("%s/%s/segments/%d%s",
 			directory, tableName, lowestSegmentIndex, segment.KeyFileExtension)
 	} else if typeToDelete == "value" {
-		shardingFactor := table.(*DiskTable).metadata.GetShardingFactor()
+		shardingFactor := table.(*DiskTable).getShardingFactor()
 		shard := rand.Uint32Range(0, uint32(shardingFactor))
 		filePath = fmt.Sprintf(
 			"%s/%s/segments/%d-%d%s",
@@ -668,7 +688,7 @@ func initialFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDele
 
 	ok, _ = table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -765,7 +785,7 @@ func lastFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete 
 		filePath = fmt.Sprintf("%s/%s/segments/%d%s",
 			directory, tableName, highestSegmentIndex, segment.KeyFileExtension)
 	} else if typeToDelete == "value" {
-		shardingFactor := table.(*DiskTable).metadata.GetShardingFactor()
+		shardingFactor := table.(*DiskTable).getShardingFactor()
 		shard := rand.Uint32Range(0, uint32(shardingFactor))
 		filePath = fmt.Sprintf("%s/%s/segments/%d-%d%s",
 			directory, tableName, highestSegmentIndex, shard, segment.ValuesFileExtension)
@@ -867,7 +887,7 @@ func lastFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete 
 
 	ok, _ = table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -1103,7 +1123,7 @@ func truncatedKeyFileTest(t *testing.T, tableBuilder *tableBuilder) {
 
 	ok, _ = table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -1348,7 +1368,7 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 
 	ok, _ = table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -1567,7 +1587,7 @@ func unflushedKeysTest(t *testing.T, tableBuilder *tableBuilder) {
 
 	ok, _ = table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -1585,7 +1605,7 @@ func TestUnflushedKeys(t *testing.T) {
 	}
 }
 
-func metadataPreservedOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
+func settingsResetOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
 	rand := util.NewTestRandom()
 
 	directory := t.TempDir()
@@ -1597,6 +1617,11 @@ func metadataPreservedOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
 	}
 	require.Equal(t, tableName, table.Name())
 
+	// Capture the initial settings, which come from the table config supplied at creation time.
+	initialTTL := (table.(*DiskTable)).getTTL()
+	initialShardingFactor := (table.(*DiskTable)).getShardingFactor()
+
+	// Change the settings at runtime.
 	ttl := time.Hour + time.Duration(rand.Int63n(1000))*time.Millisecond
 	err = table.SetTTL(ttl)
 	require.NoError(t, err)
@@ -1614,82 +1639,20 @@ func metadataPreservedOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
 	table, err = tableBuilder.builder(time.Now, tableName, []string{directory})
 	require.NoError(t, err)
 
-	// Check the table metadata.
-	actualTTL := (table.(*DiskTable)).metadata.GetTTL()
-	require.Equal(t, ttl, actualTTL)
+	// Settings are not persisted to disk, so after a restart they revert to the values supplied at creation
+	// time rather than the values set at runtime.
+	require.Equal(t, initialTTL, (table.(*DiskTable)).getTTL())
+	require.Equal(t, initialShardingFactor, (table.(*DiskTable)).getShardingFactor())
 
-	actualShardingFactor := (table.(*DiskTable)).metadata.GetShardingFactor()
-	require.Equal(t, shardingFactor, actualShardingFactor)
-
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 }
 
-func TestMetadataPreservedOnRestart(t *testing.T) {
+func TestSettingsResetOnRestart(t *testing.T) {
 	t.Parallel()
 	for _, tb := range tableBuilders {
 		t.Run(tb.name, func(t *testing.T) {
-			metadataPreservedOnRestartTest(t, tb)
-		})
-	}
-}
-
-func orphanedMetadataTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := util.NewTestRandom()
-
-	directory := t.TempDir()
-
-	tableName := rand.String(8)
-	table, err := tableBuilder.builder(time.Now, tableName, []string{directory})
-	if err != nil {
-		t.Fatalf("failed to create table: %v", err)
-	}
-	require.Equal(t, tableName, table.Name())
-
-	ttl := time.Hour + time.Duration(rand.Int63n(1000))*time.Millisecond
-	err = table.SetTTL(ttl)
-	require.NoError(t, err)
-	shardingFactor := uint8(rand.Uint32Range(1, 100))
-	err = table.SetShardingFactor(shardingFactor)
-	require.NoError(t, err)
-
-	// Stop the table
-	ok, _ := table.(*DiskTable).errorMonitor.IsOk()
-	require.True(t, ok)
-	err = table.Close()
-	require.NoError(t, err)
-
-	// Simulate an orphaned metadata file.
-	orphanedMetadataFileName := fmt.Sprintf("%s/%s/table.metadata.swap", directory, tableName)
-	orphanedFileBytes := rand.PrintableVariableBytes(1, 1024)
-	err = os.WriteFile(orphanedMetadataFileName, orphanedFileBytes, 0644)
-	require.NoError(t, err)
-
-	// Restart the table.
-	table, err = tableBuilder.builder(time.Now, tableName, []string{directory})
-	require.NoError(t, err)
-
-	// Check the table metadata.
-	actualTTL := (table.(*DiskTable)).metadata.GetTTL()
-	require.Equal(t, ttl, actualTTL)
-
-	actualShardingFactor := (table.(*DiskTable)).metadata.GetShardingFactor()
-	require.Equal(t, shardingFactor, actualShardingFactor)
-
-	// The swap file we created should not be present anymore.
-	exists, err := util.Exists(orphanedMetadataFileName)
-	require.NoError(t, err)
-	require.False(t, exists)
-
-	err = table.Destroy()
-	require.NoError(t, err)
-}
-
-func TestOrphanedMetadata(t *testing.T) {
-	t.Parallel()
-	for _, tb := range tableBuilders {
-		t.Run(tb.name, func(t *testing.T) {
-			orphanedMetadataTest(t, tb)
+			settingsResetOnRestartTest(t, tb)
 		})
 	}
 }
@@ -1747,16 +1710,6 @@ func restartWithMultipleStorageDirectoriesTest(t *testing.T, tableBuilder *table
 				err = os.Rename(file, destination)
 				require.NoError(t, err)
 			}
-
-			// Shuffle the table metadata location. This should not cause problems.
-			metadataDir := path.Join(directories[0], tableName)
-			mPath := path.Join(metadataDir, TableMetadataFileName)
-			newMetadataDir := path.Join(directories[rand.Uint32Range(1, uint32(len(directories)))], tableName)
-			newMPath := path.Join(newMetadataDir, TableMetadataFileName)
-			err = os.MkdirAll(newMetadataDir, 0755)
-			require.NoError(t, err)
-			err = os.Rename(mPath, newMPath)
-			require.NoError(t, err)
 
 			table, err = tableBuilder.builder(time.Now, tableName, directories)
 			require.NoError(t, err)
@@ -1834,7 +1787,7 @@ func restartWithMultipleStorageDirectoriesTest(t *testing.T, tableBuilder *table
 
 	ok, _ := table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directories are empty
@@ -1923,7 +1876,7 @@ func changingShardingFactorTest(t *testing.T, tableBuilder *tableBuilder) {
 	expectedShardCounts := make(map[uint32]uint8)
 
 	// Before data is written, change the sharding factor to a random value.
-	expectedShardCounts[getLatestSegmentIndex(table)] = table.(*DiskTable).metadata.GetShardingFactor()
+	expectedShardCounts[getLatestSegmentIndex(table)] = table.(*DiskTable).getShardingFactor()
 	shardingFactor := uint8(rand.Uint32Range(2, 10))
 	err = table.SetShardingFactor(shardingFactor)
 	require.NoError(t, err)
@@ -1950,6 +1903,10 @@ func changingShardingFactorTest(t *testing.T, tableBuilder *tableBuilder) {
 			table, err = tableBuilder.builder(time.Now, tableName, roots)
 			require.NoError(t, err)
 
+			// Sharding factor is not persisted across restarts (see TestSettingsResetOnRestart). The
+			// restarted table's new segment uses the builder's configured factor, not the runtime value
+			// previously set via SetShardingFactor, so re-sync our expectation to the table's actual factor.
+			shardingFactor = table.(*DiskTable).getShardingFactor()
 			expectedShardCounts[getLatestSegmentIndex(table)] = shardingFactor
 
 			// Do a full scan of the table to verify that all expected values are still present.

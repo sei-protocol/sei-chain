@@ -43,6 +43,8 @@ KEYS_TO_MIGRATE_PER_BLOCK=${MIGRATE_KEYS_PER_BLOCK:-400}
 MIN_KEYS_MIGRATED=${MIGRATE_MIN_KEYS_MIGRATED:-3500}
 
 STOP_TIMEOUT=${MIGRATE_STOP_TIMEOUT:-30}
+HALT_TIMEOUT=${MIGRATE_HALT_TIMEOUT:-120}
+HALT_RESTART_ATTEMPTS=${MIGRATE_HALT_RESTART_ATTEMPTS:-4}
 # 60s default leaves headroom for the slowest realistic restart path on
 # a CI runner: pebble WAL replay (~5s) + memiavl load (~5s) + tendermint
 # state load + p2p handshake. The original 20s window was tight enough
@@ -55,7 +57,12 @@ COMPARE_BUFFER=${MIGRATE_COMPARE_BUFFER:-2}
 MIN_HEIGHT_AFTER=${MIGRATE_MIN_HEIGHT_AFTER:-5}
 PRE_FLIP_SYNC_TIMEOUT=${MIGRATE_PREFLIP_SYNC_TIMEOUT:-120}
 PRE_FLIP_SETTLE_BLOCKS=${MIGRATE_PREFLIP_SETTLE_BLOCKS:-2}
-PRE_FLIP_STOP_ATTEMPTS=${MIGRATE_PREFLIP_STOP_ATTEMPTS:-5}
+# The halt target is loaded at process start, so it must be far enough ahead
+# that a validator with a slower Tendermint/app startup cannot miss the halt
+# block while the other three validators form quorum. The devnet can produce
+# empty blocks quickly (unsafe commit timeout is 50ms), but observed CI restart
+# and consensus startup skew is still comfortably below this default window.
+PRE_FLIP_HALT_BLOCKS=${MIGRATE_PREFLIP_HALT_BLOCKS:-300}
 FIXTURE_HEIGHT_FILE=${MIGRATE_FIXTURE_HEIGHT_FILE:-integration_test/contracts/flatkv_evm_latest_fixture_block_height.txt}
 
 echo "verify_flatkv_evm_migrate_migration: node_count=$NODE_COUNT"
@@ -130,6 +137,57 @@ capture_stopped_heights() {
     fi
     if [ -z "$stopped_max" ] || [ "$h" -gt "$stopped_max" ]; then
       stopped_max=$h
+    fi
+  done
+}
+
+node_last_sign_height() {
+  local node=$1
+  local height=""
+
+  height=$(docker exec "$node" jq -r '.height // "0"' /root/.sei/data/priv_validator_state.json 2>/dev/null \
+    || echo 0)
+
+  if [[ "$height" =~ ^[0-9]+$ ]]; then
+    echo "$height"
+  else
+    echo 0
+  fi
+}
+
+capture_priv_validator_heights() {
+  signed_heights=""
+  signed_min=""
+  signed_max=""
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    node="sei-node-$i"
+    h=$(node_last_sign_height "$node")
+    signed_heights="${signed_heights} ${node}=${h}"
+    if [ -z "$signed_min" ] || [ "$h" -lt "$signed_min" ]; then
+      signed_min=$h
+    fi
+    if [ -z "$signed_max" ] || [ "$h" -gt "$signed_max" ]; then
+      signed_max=$h
+    fi
+  done
+}
+
+is_seid_running() {
+  docker exec "$1" pgrep -f "seid start" >/dev/null 2>&1
+}
+
+capture_process_states() {
+  process_states=""
+  process_live_count=0
+  process_stopped_count=0
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    node="sei-node-$i"
+    if is_seid_running "$node"; then
+      process_states="${process_states} ${node}=running"
+      process_live_count=$((process_live_count + 1))
+    else
+      process_states="${process_states} ${node}=stopped"
+      process_stopped_count=$((process_stopped_count + 1))
     fi
   done
 }
@@ -293,6 +351,191 @@ wait_for_all_seid_start() {
   exit 1
 }
 
+start_all_validators() {
+  local label=$1
+  local barrier_dir="build/generated/flatkv_migrate_start_barrier_$(date +%s%N)"
+
+  mkdir -p "$barrier_dir/ready"
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    node="sei-node-$i"
+    docker exec -d \
+      -e "ID=${i}" \
+      -e "FLATKV_START_BARRIER=${barrier_dir}" \
+      -e "FLATKV_START_NODE_COUNT=${NODE_COUNT}" \
+      "$node" bash -lc '
+        set -euo pipefail
+        cd /sei-protocol/sei-chain
+        mkdir -p "$FLATKV_START_BARRIER/ready"
+        touch "$FLATKV_START_BARRIER/ready/$ID"
+        while true; do
+          ready_count=$(echo "$FLATKV_START_BARRIER"/ready/* | wc -w | tr -d " ")
+          if [ "$ready_count" -ge "$FLATKV_START_NODE_COUNT" ]; then
+            break
+          fi
+          sleep 0.2
+        done
+        /usr/bin/start_sei.sh
+      '
+  done
+
+  wait_for_all_seid_start "$label"
+}
+
+wait_for_all_seid_stop_or_timeout() {
+  local label=$1
+  local timeout=$2
+  local elapsed=0
+  local all_dead=false
+  local live_node=""
+
+  while [ "$elapsed" -lt "$timeout" ]; do
+    all_dead=true
+    live_node=""
+    for i in $(seq 0 $((NODE_COUNT - 1))); do
+      node="sei-node-$i"
+      if is_seid_running "$node"; then
+        all_dead=false
+        live_node=$node
+        break
+      fi
+    done
+    if $all_dead; then
+      return 0
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+
+  last_live_node=$live_node
+  echo "WARN: not all validators ${label} within ${timeout}s (last live: ${live_node})" >&2
+  return 1
+}
+
+wait_for_all_seid_stop() {
+  local label=$1
+  local timeout=$2
+
+  if wait_for_all_seid_stop_or_timeout "$label" "$timeout"; then
+    return 0
+  fi
+
+  echo "ERROR: not all validators ${label} within ${timeout}s (last live: ${last_live_node})" >&2
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    dump_node_log "sei-node-$i"
+  done
+  exit 1
+}
+
+validators_halted_safely() {
+  if [ "$process_live_count" -ne 0 ]; then
+    return 1
+  fi
+
+  if [ -z "$stopped_min" ] || [ "$stopped_min" != "$stopped_max" ]; then
+    return 1
+  fi
+
+  if [ -n "$signed_max" ] && [ "$signed_max" -gt "$stopped_min" ]; then
+    return 1
+  fi
+
+  return 0
+}
+
+configure_next_halt_height() {
+  local next_start_height=0
+
+  if [ -n "$stopped_max" ] && [ "$stopped_max" -gt "$next_start_height" ]; then
+    next_start_height=$stopped_max
+  fi
+  if [ -n "$signed_max" ] && [ "$signed_max" -gt "$next_start_height" ]; then
+    next_start_height=$signed_max
+  fi
+
+  HALT_HEIGHT=$((next_start_height + PRE_FLIP_HALT_BLOCKS))
+  configure_halt_height "$HALT_HEIGHT"
+  echo "Configured retry halt-height=$HALT_HEIGHT after unsafe halt state"
+}
+
+wait_for_safe_halt_height() {
+  local attempt=1
+
+  while [ "$attempt" -le "$HALT_RESTART_ATTEMPTS" ]; do
+    echo "Waiting for validators to halt at a safe block boundary (attempt ${attempt}/${HALT_RESTART_ATTEMPTS}, halt-height=$HALT_HEIGHT)"
+    wait_for_all_seid_stop_or_timeout "halted at height $HALT_HEIGHT" "$HALT_TIMEOUT" || true
+
+    capture_stopped_heights
+    capture_priv_validator_heights
+    capture_process_states
+    echo "Halt attempt ${attempt} process states:${process_states}"
+    echo "Halt attempt ${attempt} committed heights:${stopped_heights}"
+    echo "Halt attempt ${attempt} last-sign heights:${signed_heights}"
+
+    if validators_halted_safely; then
+      echo "All $NODE_COUNT validators halted safely at committed height $stopped_min"
+      return 0
+    fi
+
+    if [ "$attempt" -ge "$HALT_RESTART_ATTEMPTS" ]; then
+      break
+    fi
+
+    if [ "$process_live_count" -eq 0 ]; then
+      echo "Validators are stopped but not at a safe common boundary; scheduling a fresh same-mode halt"
+    else
+      echo "Some validators halted before their peers caught up; stopping remaining live validators before a fresh same-mode halt"
+      stop_all_validators "stopped after partial halt attempt ${attempt}"
+      capture_stopped_heights
+      capture_priv_validator_heights
+      capture_process_states
+      echo "Post-stop retry process states:${process_states}"
+      echo "Post-stop retry committed heights:${stopped_heights}"
+      echo "Post-stop retry last-sign heights:${signed_heights}"
+    fi
+
+    configure_next_halt_height
+    start_all_validators "restarted in memiavl_only for halt retry"
+
+    attempt=$((attempt + 1))
+  done
+
+  echo "ERROR: validators did not halt at a safe common boundary after ${HALT_RESTART_ATTEMPTS} attempts; refusing to flip sc-write-mode" >&2
+  echo "Final process states:${process_states}" >&2
+  echo "Final committed heights:${stopped_heights}" >&2
+  echo "Final last-sign heights:${signed_heights}" >&2
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    dump_node_log "sei-node-$i"
+  done
+  exit 1
+}
+
+stop_all_validators() {
+  local label=$1
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    node="sei-node-$i"
+    docker exec "$node" pkill -TERM -f "seid start" >/dev/null 2>&1 || true &
+  done
+  wait
+  wait_for_all_seid_stop "$label" "$STOP_TIMEOUT"
+}
+
+configure_halt_height() {
+  local height=$1
+  local written_halt=""
+
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    node="sei-node-$i"
+    docker exec "$node" bash -c "sed -i 's/^halt-height = .*/halt-height = $height/' '$APP_CONFIG'"
+  done
+
+  written_halt=$(docker exec "sei-node-0" grep -E '^halt-height' "$APP_CONFIG" \
+    | tail -1 | awk -F'=' '{print $2}' | tr -d ' "' || true)
+  if [ -z "$written_halt" ] || [ "$written_halt" != "$height" ]; then
+    echo "ERROR: sei-node-0 app.toml has halt-height='$written_halt' after rewrite; expected '$height'" >&2
+    exit 1
+  fi
+}
+
 # --- step 1: pre-flip sanity ------------------------------------------
 #
 # Refuse to proceed unless every node is currently running in memiavl_only.
@@ -349,99 +592,38 @@ echo "Pre-flip height floor reached across all $NODE_COUNT validators: $PRE_FLIP
 # "state.AppHash does not match AppHash after replay". Crash/recovery of the
 # migration engine is covered by the composite/rootmulti Go tests; this docker
 # scenario models the safe operator migration: stop cleanly, edit config, restart.
+#
+# A common committed height is not enough by itself. A validator can sign a vote
+# for H+1 before H+1 commits; flipping storage modes at committed height H then
+# makes consensus WAL replay ask the signer for a different H+1 vote and trips
+# Tendermint's double-sign guard ("error signing vote: conflicting data"). To
+# avoid sampling that unstable window, first do a same-mode restart with a
+# temporary future halt-height. The app halts from Commit after writing that
+# block, so every validator stops at a durable height boundary before the flip.
 
-stopped_heights=""
-stopped_min=""
-stopped_max=""
-stopped_consistent=false
-for attempt in $(seq 1 "$PRE_FLIP_STOP_ATTEMPTS"); do
-  echo "Freezing validators before migration stop (attempt ${attempt}/${PRE_FLIP_STOP_ATTEMPTS})..."
-  for i in $(seq 0 $((NODE_COUNT - 1))); do
-    docker pause "sei-node-$i" >/dev/null 2>&1 || true &
-  done
-  wait
+echo "Stopping all $NODE_COUNT validators in memiavl_only mode to configure a deterministic halt height..."
+stop_all_validators "stopped before halt-height configuration"
+echo "All $NODE_COUNT validators confirmed stopped before halt-height configuration"
 
-  capture_stopped_heights
-  echo "Frozen validator committed heights:${stopped_heights}"
+capture_stopped_heights
+capture_priv_validator_heights
+echo "Pre-halt stopped validator committed heights:${stopped_heights}"
+echo "Pre-halt validator last-sign heights:${signed_heights}"
 
-  if [ -n "$stopped_min" ] && [ "$stopped_min" = "$stopped_max" ]; then
-    echo "Stopping all $NODE_COUNT validators from frozen height $stopped_min..."
-    for i in $(seq 0 $((NODE_COUNT - 1))); do
-      node="sei-node-$i"
-      (
-        docker unpause "$node" >/dev/null 2>&1 || true
-        docker exec "$node" pkill -TERM -f "seid start" >/dev/null 2>&1 || true
-      ) &
-    done
-    wait
-
-    elapsed=0
-    while [ "$elapsed" -lt "$STOP_TIMEOUT" ]; do
-      all_dead=true
-      for i in $(seq 0 $((NODE_COUNT - 1))); do
-        node="sei-node-$i"
-        if docker exec "$node" pgrep -f "seid start" >/dev/null 2>&1; then
-          all_dead=false
-          break
-        fi
-      done
-      if $all_dead; then break; fi
-      sleep 2
-      elapsed=$((elapsed + 2))
-    done
-    if ! $all_dead; then
-      echo "ERROR: not all validators stopped within ${STOP_TIMEOUT}s" >&2
-      for i in $(seq 0 $((NODE_COUNT - 1))); do
-        dump_node_log "sei-node-$i"
-      done
-      exit 1
-    fi
-    echo "All $NODE_COUNT validators confirmed stopped"
-
-    capture_stopped_heights
-    echo "Stopped validator committed heights:${stopped_heights}"
-
-    if [ -n "$stopped_min" ] && [ "$stopped_min" = "$stopped_max" ]; then
-      stopped_consistent=true
-      break
-    fi
-
-    echo "Validators committed an extra block during shutdown; restarting in memiavl_only before retry:${stopped_heights}" >&2
-    if [ "$attempt" -eq "$PRE_FLIP_STOP_ATTEMPTS" ]; then
-      break
-    fi
-
-    for i in $(seq 0 $((NODE_COUNT - 1))); do
-      docker exec -d -e "ID=${i}" "sei-node-$i" /usr/bin/start_sei.sh
-    done
-    wait_for_all_seid_start "restarted in memiavl_only"
-
-    PRE_FLIP_HEIGHT=$(wait_for_cluster_height_sync "$stopped_max" "$PRE_FLIP_SYNC_TIMEOUT" | tail -1)
-    echo "Pre-flip height floor restored across all $NODE_COUNT validators after shutdown drift: $PRE_FLIP_HEIGHT"
-    continue
-  fi
-
-  echo "Validators froze at split heights; unpausing to let laggards converge before retry:${stopped_heights}" >&2
-  for i in $(seq 0 $((NODE_COUNT - 1))); do
-    docker unpause "sei-node-$i" >/dev/null 2>&1 || true &
-  done
-  wait
-
-  if [ "$attempt" -eq "$PRE_FLIP_STOP_ATTEMPTS" ]; then
-    break
-  fi
-  PRE_FLIP_HEIGHT=$(wait_for_cluster_height_sync "$stopped_max" "$PRE_FLIP_SYNC_TIMEOUT" | tail -1)
-  echo "Pre-flip height floor restored across all $NODE_COUNT validators: $PRE_FLIP_HEIGHT"
-done
-
-if ! $stopped_consistent; then
-  echo "ERROR: validators could not be stopped at a common committed height; refusing to flip sc-write-mode" >&2
-  echo "Split final stopped heights:${stopped_heights}" >&2
-  for i in $(seq 0 $((NODE_COUNT - 1))); do
-    dump_node_log "sei-node-$i"
-  done
-  exit 1
+halt_start_height=$stopped_max
+if [ -n "$signed_max" ] && [ "$signed_max" -gt "$halt_start_height" ]; then
+  halt_start_height=$signed_max
 fi
+if [ -n "$PRE_FLIP_HEIGHT" ] && [ "$PRE_FLIP_HEIGHT" -gt "$halt_start_height" ]; then
+  halt_start_height=$PRE_FLIP_HEIGHT
+fi
+HALT_HEIGHT=$((halt_start_height + PRE_FLIP_HALT_BLOCKS))
+
+configure_halt_height "$HALT_HEIGHT"
+echo "Configured halt-height=$HALT_HEIGHT on all $NODE_COUNT validators; restarting in memiavl_only to halt at a block boundary"
+
+start_all_validators "restarted in memiavl_only with halt-height=$HALT_HEIGHT"
+wait_for_safe_halt_height
 
 # --- step 3: flip sc-write-mode on every node -------------------------
 #
@@ -460,6 +642,7 @@ for i in $(seq 0 $((NODE_COUNT - 1))); do
   # read it -- the seid log showed KeysToMigratePerBlock:1024 (default)
   # regardless of what we wrote here.
   docker exec "$node" bash -c "
+    sed -i 's/^halt-height = .*/halt-height = 0/' '$APP_CONFIG'
     sed -i 's/^sc-write-mode = .*/sc-write-mode = \"migrate_evm\"/' '$APP_CONFIG'
     if grep -q '^sc-keys-to-migrate-per-block' '$APP_CONFIG'; then
       sed -i 's/^sc-keys-to-migrate-per-block = .*/sc-keys-to-migrate-per-block = $KEYS_TO_MIGRATE_PER_BLOCK/' '$APP_CONFIG'
@@ -484,11 +667,7 @@ fi
 
 # --- step 4: coordinated restart --------------------------------------
 
-for i in $(seq 0 $((NODE_COUNT - 1))); do
-  node="sei-node-$i"
-  docker exec -d -e "ID=${i}" "$node" /usr/bin/start_sei.sh
-done
-wait_for_all_seid_start "restarted in migrate_evm"
+start_all_validators "restarted in migrate_evm"
 
 # Settle check: catch fast post-init crashes (e.g. a panic in
 # composite.LoadVersion when flatkv is allocated for the first time on

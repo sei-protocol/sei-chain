@@ -104,8 +104,14 @@ type Config struct {
 	// max number of blocks to query logs for
 	MaxBlocksForLog int64 `mapstructure:"max_blocks_for_log"`
 
+	// max number of calls allowed in an eth_estimateGasAfterCalls request
+	MaxEstimateGasCalls int `mapstructure:"max_estimate_gas_calls"`
+
 	// max number of concurrent NewHead subscriptions
 	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
+
+	// max number of concurrent logs subscriptions
+	MaxSubscriptionsLogs uint64 `mapstructure:"max_subscriptions_logs"`
 
 	// test api enables certain override apis for integration test situations
 	EnableTestAPI bool `mapstructure:"enable_test_api"`
@@ -156,6 +162,13 @@ type Config struct {
 	// SS-pebble. Requires MemiavlOnly write mode; falls back transparently.
 	TraceBakeUseSnapshot    bool  `mapstructure:"trace_bake_use_snapshot"`
 	TraceBakeSnapshotWindow int64 `mapstructure:"trace_bake_snapshot_window"` // recent snapshots to keep (default 64)
+
+	// IPRateLimitRPS is the per-IP sustained request rate in requests/second.
+	// Zero disables per-IP rate limiting (all requests pass through).
+	IPRateLimitRPS float64 `mapstructure:"ip_rate_limit_rps"`
+
+	// IPRateLimitBurst is the maximum per-IP burst size.
+	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
 }
 
 var DefaultConfig = Config{
@@ -178,7 +191,9 @@ var DefaultConfig = Config{
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
 	MaxBlocksForLog:              2000,
+	MaxEstimateGasCalls:          100,
 	MaxSubscriptionsNewHead:      10000,
+	MaxSubscriptionsLogs:         1000,
 	EnableTestAPI:                false,
 	MaxConcurrentTraceCalls:      10,
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
@@ -200,6 +215,8 @@ var DefaultConfig = Config{
 	TraceBakeWindowBlocks:   0,
 	TraceBakeUseSnapshot:    false,
 	TraceBakeSnapshotWindow: 64,
+	IPRateLimitRPS:          200,
+	IPRateLimitBurst:        400,
 }
 
 const (
@@ -222,7 +239,9 @@ const (
 	flagDenyList                     = "evm.deny_list"
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
+	flagMaxEstimateGasCalls          = "evm.max_estimate_gas_calls"
 	flagMaxSubscriptionsNewHead      = "evm.max_subscriptions_new_head"
+	flagMaxSubscriptionsLogs         = "evm.max_subscriptions_logs"
 	flagEnableTestAPI                = "evm.enable_test_api"
 	flagMaxConcurrentTraceCalls      = "evm.max_concurrent_trace_calls"
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
@@ -240,6 +259,8 @@ const (
 	flagTraceBakeWindowBlocks        = "evm.trace_bake_window_blocks"
 	flagTraceBakeUseSnapshot         = "evm.trace_bake_use_snapshot"
 	flagTraceBakeSnapshotWindow      = "evm.trace_bake_snapshot_window"
+	flagIPRateLimitRPS               = "evm.ip_rate_limit_rps"
+	flagIPRateLimitBurst             = "evm.ip_rate_limit_burst"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -340,8 +361,18 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagMaxEstimateGasCalls); v != nil {
+		if cfg.MaxEstimateGasCalls, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
 	if v := opts.Get(flagMaxSubscriptionsNewHead); v != nil {
 		if cfg.MaxSubscriptionsNewHead, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxSubscriptionsLogs); v != nil {
+		if cfg.MaxSubscriptionsLogs, err = cast.ToUint64E(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -430,7 +461,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-
+	if v := opts.Get(flagIPRateLimitRPS); v != nil {
+		if cfg.IPRateLimitRPS, err = cast.ToFloat64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagIPRateLimitBurst); v != nil {
+		if cfg.IPRateLimitBurst, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
 	return cfg, nil
 }
 
@@ -540,8 +580,6 @@ enabled_legacy_sei_apis = [
   # "sei_newBlockFilter",
   # "sei_newFilter",
   # "sei_sign",
-  # "sei_traceBlockByHashExcludeTraceFail",
-  # "sei_traceBlockByNumberExcludeTraceFail",
   # "sei_uninstallFilter",
   #
   # Optional sei2_* block namespace (bank transfers in blocks; HTTP only):
@@ -560,8 +598,14 @@ max_log_no_block = {{ .EVM.MaxLogNoBlock }}
 # max number of blocks to query logs for
 max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
 
+# max number of calls allowed in an eth_estimateGasAfterCalls request
+max_estimate_gas_calls = {{ .EVM.MaxEstimateGasCalls }}
+
 # max number of concurrent NewHead subscriptions
 max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
+
+# max number of concurrent logs subscriptions
+max_subscriptions_logs = {{ .EVM.MaxSubscriptionsLogs }}
 
 # MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls.
 # Set to 0 for unlimited.
@@ -618,4 +662,12 @@ trace_bake_use_snapshot = {{ .EVM.TraceBakeUseSnapshot }}
 
 # Number of recent memiavl snapshots to retain for trace baking.
 trace_bake_snapshot_window = {{ .EVM.TraceBakeSnapshotWindow }}
+
+# ip_rate_limit_rps is the per-IP sustained request rate in requests/second.
+# Set to 0 to disable per-IP rate limiting (all requests pass through).
+ip_rate_limit_rps = {{ .EVM.IPRateLimitRPS }}
+
+# ip_rate_limit_burst is the maximum per-IP burst above the sustained rate.
+ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
+
 `

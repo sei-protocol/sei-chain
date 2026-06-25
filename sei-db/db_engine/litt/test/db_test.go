@@ -1,9 +1,7 @@
 package test
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -11,8 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/memtable"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
@@ -21,65 +17,69 @@ import (
 type dbBuilder struct {
 	name    string
 	builder func(t *testing.T, tableDirectory string) (litt.DB, error)
+	// tableConfig is the per-table config to pass to DB.BuildTable for tables created by this builder.
+	tableConfig litt.TableConfig
+}
+
+// diskTableConfig is the per-table config used by the disk-backed test builders. These settings previously
+// lived on the top-level litt.Config.
+var diskTableConfig = litt.TableConfig{
+	TTL:            0,
+	ShardingFactor: 4,
+	WriteCacheSize: 1000,
 }
 
 var builders = []*dbBuilder{
 	{
-		name:    "mem",
-		builder: buildMemDB,
+		name:        "mem keymap disk table",
+		builder:     buildMemKeyDiskDB,
+		tableConfig: diskTableConfig,
 	},
 	{
-		name:    "mem keymap disk table",
-		builder: buildMemKeyDiskDB,
-	},
-	{
-		name:    "pebbleDB keymap disk table",
-		builder: buildPebbleDBDiskDB,
+		name:        "pebbleDB keymap disk table",
+		builder:     buildPebbleDBDiskDB,
+		tableConfig: diskTableConfig,
 	},
 }
 
 var restartableBuilders = []*dbBuilder{
 	{
-		name:    "mem keymap disk table",
-		builder: buildMemKeyDiskDB,
+		name:        "mem keymap disk table",
+		builder:     buildMemKeyDiskDB,
+		tableConfig: diskTableConfig,
 	},
 	{
-		name:    "pebbleDB keymap disk table",
-		builder: buildPebbleDBDiskDB,
+		name:        "pebbleDB keymap disk table",
+		builder:     buildPebbleDBDiskDB,
+		tableConfig: diskTableConfig,
 	},
 }
 
 var flushLimitedBuilder = &dbBuilder{
-	name:    "pebbleDB keymap disk table with flush limiter",
-	builder: buildPebbleDBDiskDBWithFlushLimiter,
+	name:        "pebbleDB keymap disk table with flush limiter",
+	builder:     buildPebbleDBDiskDBWithFlushLimiter,
+	tableConfig: diskTableConfig,
 }
 
-func buildMemDB(t *testing.T, path string) (litt.DB, error) {
-	config, err := litt.DefaultConfig(path)
-	require.NoError(t, err)
-
-	config.GCPeriod = 50 * time.Millisecond
-	config.Logger = slog.Default()
-
-	tb := func(
-		ctx context.Context,
-		logger *slog.Logger,
-		name string,
-		metrics *metrics.LittDBMetrics,
-	) (litt.ManagedTable, error) {
-		return memtable.NewMemTable(config, name), nil
+// buildTables builds the named tables once (BuildTable errors if a table is opened more than once) and returns
+// a map of name to handle.
+func buildTables(t *testing.T, db litt.DB, tableConfig litt.TableConfig, names []string) map[string]litt.Table {
+	tables := make(map[string]litt.Table, len(names))
+	for _, name := range names {
+		cfg := tableConfig
+		cfg.Name = name
+		table, err := db.BuildTable(cfg)
+		require.NoError(t, err)
+		tables[name] = table
 	}
-
-	return littbuilder.NewDBUnsafe(config, tb)
+	return tables
 }
 
 func buildMemKeyDiskDB(t *testing.T, path string) (litt.DB, error) {
 	config, err := litt.DefaultConfig(path)
 	require.NoError(t, err)
 	config.KeymapType = keymap.MemKeymapType
-	config.WriteCacheSize = 1000
 	config.TargetSegmentFileSize = 100
-	config.ShardingFactor = 4
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true
 
@@ -90,9 +90,7 @@ func buildPebbleDBDiskDB(t *testing.T, path string) (litt.DB, error) {
 	config, err := litt.DefaultConfig(path)
 	require.NoError(t, err)
 	config.KeymapType = keymap.UnsafePebbleDBKeymapType
-	config.WriteCacheSize = 1000
 	config.TargetSegmentFileSize = 100
-	config.ShardingFactor = 4
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true
 
@@ -103,9 +101,7 @@ func buildPebbleDBDiskDBWithFlushLimiter(t *testing.T, path string) (litt.DB, er
 	config, err := litt.DefaultConfig(path)
 	require.NoError(t, err)
 	config.KeymapType = keymap.UnsafePebbleDBKeymapType
-	config.WriteCacheSize = 1000
 	config.TargetSegmentFileSize = 100
-	config.ShardingFactor = 4
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true
 	config.MinimumFlushInterval = 50 * time.Millisecond
@@ -131,6 +127,8 @@ func randomDBOperationsTest(t *testing.T, builder *dbBuilder) {
 		tableNames = append(tableNames, fmt.Sprintf("table-%d-%s", i, rand.PrintableBytes(8)))
 	}
 
+	tables := buildTables(t, db, builder.tableConfig, tableNames)
+
 	// first key is table name, second key is the key in the kv-pair
 	expectedValues := make(map[string]map[string][]byte)
 	for _, tableName := range tableNames {
@@ -142,8 +140,7 @@ func randomDBOperationsTest(t *testing.T, builder *dbBuilder) {
 
 		// Write some data.
 		tableName := tableNames[rand.Intn(len(tableNames))]
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err)
+		table := tables[tableName]
 
 		batchSize := rand.Int32Range(1, 10)
 
@@ -168,9 +165,7 @@ func randomDBOperationsTest(t *testing.T, builder *dbBuilder) {
 		// Once in a while, flush tables.
 		if rand.BoolWithProbability(0.1) {
 			for _, tableName := range tableNames {
-				table, err = db.GetTable(tableName)
-				require.NoError(t, err)
-				err = table.Flush()
+				err = tables[tableName].Flush()
 				require.NoError(t, err)
 			}
 		}
@@ -186,8 +181,7 @@ func randomDBOperationsTest(t *testing.T, builder *dbBuilder) {
 		// Don't do this every time for the sake of test runtime.
 		if rand.BoolWithProbability(0.01) || i == iterations-1 /* always check on the last iteration */ {
 			for tableName, tableValues := range expectedValues {
-				table, err := db.GetTable(tableName)
-				require.NoError(t, err)
+				table := tables[tableName]
 
 				for expectedKey, expectedValue := range tableValues {
 					value, ok, err := table.Get([]byte(expectedKey))
@@ -238,6 +232,8 @@ func dbRestartTest(t *testing.T, builder *dbBuilder) {
 		tableNames = append(tableNames, fmt.Sprintf("table-%d-%s", i, rand.PrintableBytes(8)))
 	}
 
+	tables := buildTables(t, db, builder.tableConfig, tableNames)
+
 	// first key is table name, second key is the key in the kv-pair
 	expectedValues := make(map[string]map[string][]byte)
 	for _, tableName := range tableNames {
@@ -256,10 +252,12 @@ func dbRestartTest(t *testing.T, builder *dbBuilder) {
 			db, err = builder.builder(t, directory)
 			require.NoError(t, err)
 
+			// Rebuild the table handles after restart.
+			tables = buildTables(t, db, builder.tableConfig, tableNames)
+
 			// Do a full scan of the table to verify that all expected values are still present.
 			for tableName, tableValues := range expectedValues {
-				table, err := db.GetTable(tableName)
-				require.NoError(t, err)
+				table := tables[tableName]
 
 				for expectedKey, expectedValue := range tableValues {
 					value, ok, err := table.Get([]byte(expectedKey))
@@ -272,8 +270,7 @@ func dbRestartTest(t *testing.T, builder *dbBuilder) {
 
 		// Write some data.
 		tableName := tableNames[rand.Intn(len(tableNames))]
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err)
+		table := tables[tableName]
 
 		batchSize := rand.Int32Range(1, 10)
 
@@ -298,9 +295,7 @@ func dbRestartTest(t *testing.T, builder *dbBuilder) {
 		// Once in a while, flush tables.
 		if rand.BoolWithProbability(0.1) {
 			for _, tableName := range tableNames {
-				table, err = db.GetTable(tableName)
-				require.NoError(t, err)
-				err = table.Flush()
+				err = tables[tableName].Flush()
 				require.NoError(t, err)
 			}
 		}
@@ -316,8 +311,7 @@ func dbRestartTest(t *testing.T, builder *dbBuilder) {
 		// Don't do this every time for the sake of test runtime.
 		if rand.BoolWithProbability(0.01) || i == iterations-1 /* always check on the last iteration */ {
 			for tableName, tableValues := range expectedValues {
-				table, err := db.GetTable(tableName)
-				require.NoError(t, err)
+				table := tables[tableName]
 
 				for expectedKey, expectedValue := range tableValues {
 					value, ok, err := table.Get([]byte(expectedKey))
@@ -343,6 +337,57 @@ func TestDBRestart(t *testing.T) {
 	for _, builder := range restartableBuilders {
 		t.Run(builder.name, func(t *testing.T) {
 			dbRestartTest(t, builder)
+		})
+	}
+}
+
+func dropTableTest(t *testing.T, builder *dbBuilder) {
+	rand := util.NewTestRandom()
+
+	directory := t.TempDir()
+
+	db, err := builder.builder(t, directory)
+	require.NoError(t, err)
+
+	tableName := "to-be-dropped"
+	cfg := builder.tableConfig
+	cfg.Name = tableName
+
+	table, err := db.BuildTable(cfg)
+	require.NoError(t, err)
+
+	// Write some data and confirm it is readable.
+	key := rand.PrintableVariableBytes(32, 64)
+	value := rand.PrintableVariableBytes(1, 128)
+	require.NoError(t, table.Put(key, value))
+	require.NoError(t, table.Flush())
+
+	readValue, ok, err := table.Get(key)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, value, readValue)
+
+	// Drop the table. Its on-disk data should be deleted.
+	require.NoError(t, table.Drop())
+
+	// Rebuilding the same name must succeed (the DB has forgotten the dropped table) and yield a fresh,
+	// empty table.
+	table, err = db.BuildTable(cfg)
+	require.NoError(t, err)
+
+	_, ok, err = table.Get(key)
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	// Closing the DB after a drop must not error.
+	require.NoError(t, db.Close())
+}
+
+func TestDropTable(t *testing.T) {
+	t.Parallel()
+	for _, builder := range builders {
+		t.Run(builder.name, func(t *testing.T) {
+			dropTableTest(t, builder)
 		})
 	}
 }

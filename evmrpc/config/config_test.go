@@ -29,7 +29,9 @@ type opts struct {
 	denyList                     interface{}
 	maxLogNoBlock                interface{}
 	maxBlocksForLog              interface{}
+	maxEstimateGasCalls          interface{}
 	maxSubscriptionsNewHead      interface{}
+	maxSubscriptionsLogs         interface{}
 	enableTestAPI                interface{}
 	maxConcurrentTraceCalls      interface{}
 	maxConcurrentSimulationCalls interface{}
@@ -39,6 +41,8 @@ type opts struct {
 	rpcStatsInterval             interface{}
 	workerPoolSize               interface{}
 	workerQueueSize              interface{}
+	ipRateLimitRPS               interface{}
+	ipRateLimitBurst             interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -102,8 +106,14 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_blocks_for_log" {
 		return o.maxBlocksForLog
 	}
+	if k == "evm.max_estimate_gas_calls" {
+		return o.maxEstimateGasCalls
+	}
 	if k == "evm.max_subscriptions_new_head" {
 		return o.maxSubscriptionsNewHead
+	}
+	if k == "evm.max_subscriptions_logs" {
+		return o.maxSubscriptionsLogs
 	}
 	if k == "evm.enable_test_api" {
 		return o.enableTestAPI
@@ -144,6 +154,12 @@ func (o *opts) Get(k string) interface{} {
 		k == "evm.trace_bake_snapshot_window" {
 		return nil
 	}
+	if k == "evm.ip_rate_limit_rps" {
+		return o.ipRateLimitRPS
+	}
+	if k == "evm.ip_rate_limit_burst" {
+		return o.ipRateLimitBurst
+	}
 	panic("unknown key")
 }
 
@@ -170,7 +186,9 @@ func getDefaultOpts() opts {
 		make([]string, 0),
 		20000,
 		1000,
+		100,
 		10000,
+		1000,
 		false,
 		uint64(10),
 		uint64(10),
@@ -180,6 +198,8 @@ func getDefaultOpts() opts {
 		10 * time.Second,
 		32,
 		1000,
+		200.0,
+		400,
 	}
 }
 
@@ -294,6 +314,18 @@ func TestReadConfig(t *testing.T) {
 	badOpts.workerQueueSize = "bad"
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
+
+	// Test bad types for rate limit config
+	badOpts = goodOpts
+	badOpts.ipRateLimitRPS = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.ipRateLimitBurst = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
 }
 
 // Test worker pool configuration values
@@ -360,4 +392,17 @@ func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {
 	cfg, err := config.ReadConfig(&opts)
 	require.NoError(t, err)
 	require.True(t, cfg.EnableParallelizedBlockTrace)
+}
+
+func TestReadConfigMaxSubscriptionsLogs(t *testing.T) {
+	opts := getDefaultOpts()
+	opts.maxSubscriptionsLogs = uint64(42)
+	cfg, err := config.ReadConfig(&opts)
+	require.NoError(t, err)
+	require.Equal(t, uint64(42), cfg.MaxSubscriptionsLogs)
+
+	// A non-numeric value is rejected.
+	opts.maxSubscriptionsLogs = "bad"
+	_, err = config.ReadConfig(&opts)
+	require.Error(t, err)
 }

@@ -97,6 +97,12 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Co
 	return cs, nil
 }
 
+// SetWriteMode implements types.Committer. The memiavl commit store is a
+// single-backend store; its write mode is fixed.
+func (cs *CommitStore) SetWriteMode(types.WriteMode) error {
+	return fmt.Errorf("memiavl commit store does not support runtime write-mode changes")
+}
+
 // Copy returns an O(1) memiavl snapshot; COW nodes are shared with the live store.
 func (cs *CommitStore) Copy() types.Committer {
 	if cs == nil || cs.db == nil {

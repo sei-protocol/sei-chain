@@ -984,6 +984,44 @@ func TestGigaVsGeth_ContractDeployAndCall(t *testing.T) {
 	t.Logf("Giga deploy gas used: %d", gigaDeployResults[0].GasUsed)
 }
 
+// selfDestructInConstructorBytecode is init code (CALLER; SELFDESTRUCT) that
+// destroys the contract within the same tx it is created. This makes the giga
+// executor detect the self-destruct (AnySelfDestructed) and fall back to v2,
+// since giga's cachekv cannot iterate to clear a destructed account's storage.
+var selfDestructInConstructorBytecode = common.Hex2Bytes("33ff")
+
+// TestGigaVsGeth_SelfDestruct verifies a self-destructing tx yields identical
+// consensus results under v2 and giga. Giga must fall back to v2 (it cannot
+// clear destructed storage), so this guards that the two stay interoperable.
+func TestGigaVsGeth_SelfDestruct(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+	deployer := utils.NewSigner()
+
+	// ---- Geth (v2) ----
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	gethTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: selfDestructInConstructorBytecode, Nonce: 0},
+	}, false)
+	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
+	require.NoError(t, gethErr)
+	require.Len(t, gethResults, 1)
+
+	// ---- Giga (OCC) — must fall back to v2 on the self-destruct ----
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaOCC)
+	gigaTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: selfDestructInConstructorBytecode, Nonce: 0},
+	}, true)
+	_, gigaResults, gigaErr := RunBlock(t, gigaCtx, gigaTxs)
+	require.NoError(t, gigaErr)
+	require.Len(t, gigaResults, 1)
+
+	// Consensus-critical parity: LastResultsHash covers Code/Data/GasWanted/GasUsed.
+	CompareResultsNoGas(t, "SelfDestruct", gethResults, gigaResults)
+	CompareLastResultsHash(t, "SelfDestruct", gethResults, gigaResults)
+	CompareReceipts(t, "SelfDestruct", gethCtx, gethResults, gigaCtx, gigaResults)
+}
+
 // TestGigaVsGeth_ContractCallsSequential compares Giga vs Geth for sequential contract calls
 // This test deploys a contract and calls it within the same block
 func TestGigaVsGeth_ContractCallsSequential(t *testing.T) {

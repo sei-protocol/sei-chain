@@ -14,8 +14,8 @@ type Config struct {
 }
 
 var DefaultConfig = Config{
-	Enabled:    false, // disabled by default, opt-in
-	OCCEnabled: false, // OCC disabled by default
+	Enabled:    true,
+	OCCEnabled: true,
 }
 
 const (
@@ -47,11 +47,11 @@ const ConfigTemplate = `
 
 [giga_executor]
 # enabled controls whether to use the Giga executor for improved EVM throughput.
-# Default: false
+# Default: true
 enabled = {{ .GigaExecutor.Enabled }}
 
 # occ_enabled controls whether to use OCC (Optimistic Concurrency Control) with the Giga executor.
 # When true, transactions are executed in parallel with conflict detection and retry.
-# Default: false
+# Default: true
 occ_enabled = {{ .GigaExecutor.OCCEnabled }}
 `

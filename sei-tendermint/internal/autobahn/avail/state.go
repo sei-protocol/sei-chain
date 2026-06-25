@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -490,8 +490,8 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 					return nil, data.ErrPruned
 				}
 				// Check if we have the header.
-				if vs := q.q[n].byHeader[want]; len(vs) > 0 {
-					h := vs[0].Msg().Header()
+				if byHash, ok := q.q[n].byHash[want]; ok {
+					h := byHash.votes[0].Msg().Header()
 					want = h.ParentHash()
 					headers[len(headers)-i-1] = h
 					break
