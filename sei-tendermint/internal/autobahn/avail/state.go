@@ -155,7 +155,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		return nil, err
 	}
 
-	inner, err := newInner(data.Registry().LatestEpoch(), data.Registry().FirstBlock(), loaded)
+	inner, err := newInner(data.Registry().LatestEpoch(), loaded)
 	if err != nil {
 		return nil, err
 	}
