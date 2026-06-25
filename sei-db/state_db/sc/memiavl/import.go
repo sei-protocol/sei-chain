@@ -110,12 +110,18 @@ func (mti *MultiTreeImporter) Close() error {
 		return err
 	}
 
-	// State-sync can re-offer the same snapshot (RETRY_SNAPSHOT or an equal-height
-	// re-select), and a background rewrite can target the same height, so the final
-	// dir may be produced concurrently. A rename is atomic, so if the target already
-	// exists the snapshot there is complete: accept it and drop our redundant temp.
+	// A snapshot-<h> dir exists only after an atomic rename, so if it is already
+	// present the snapshot is complete. State-sync can re-run/re-offer the same
+	// height (and a background rewrite can target it), so accept an existing dir
+	// and drop our redundant temp instead of failing state sync.
 	finalDir := filepath.Join(mti.dir, mti.snapshotDir)
-	if err := os.Rename(tmpDir, finalDir); err != nil {
+	if _, statErr := os.Stat(finalDir); statErr == nil {
+		if rmErr := os.RemoveAll(tmpDir); rmErr != nil {
+			return rmErr
+		}
+	} else if err := os.Rename(tmpDir, finalDir); err != nil {
+		fmt.Fprintf(os.Stderr, "RENAME-DIAG: rename %s -> %s: type=%T isExist=%v isNotEmpty=%v err=%v\n",
+			tmpDir, finalDir, err, errors.Is(err, fs.ErrExist), errors.Is(err, syscall.ENOTEMPTY), err)
 		if !errors.Is(err, fs.ErrExist) && !errors.Is(err, syscall.ENOTEMPTY) {
 			return err
 		}
