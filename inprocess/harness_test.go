@@ -14,10 +14,10 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
-// TestInProcessNetwork productionizes the N-RPC spike: it stands up N=4
-// validators in one process, asserts every node serves Tendermint RPC + EVM
-// JSON-RPC, and round-trips a tx (broadcast on node 0, observed on node 1's
-// independent RPC) — proving real consensus + N independent RPC stacks.
+// TestInProcessNetwork stands up N=4 validators in one process and asserts
+// every node serves Tendermint RPC + EVM JSON-RPC, then round-trips a tx
+// (broadcast on node 0, observed on node 1's independent RPC) — exercising
+// real consensus across N independent RPC stacks.
 //
 // Run:
 //
@@ -109,7 +109,7 @@ func assertCrossNodeTxRoundTrip(t *testing.T, ctx context.Context, net *Network)
 
 // TestStartRejectsZeroValidators guards the input validation: 0 (too few) and 2
 // (the block-sync deadlock) are rejected without bring-up. N=1 and N>=3 are the
-// valid topologies (proven live by TestInProcessNetwork at N=4).
+// valid topologies.
 func TestStartRejectsZeroValidators(t *testing.T) {
 	for _, n := range []int{0, 2} {
 		if _, err := Start(context.Background(), Options{Validators: n}); err == nil {

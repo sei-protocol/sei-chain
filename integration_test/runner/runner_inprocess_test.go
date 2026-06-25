@@ -37,25 +37,19 @@ func adminFunding() sdk.Coins {
 	return sdk.NewCoins(sdk.NewCoin("usei", amt))
 }
 
-// TestInProcessBankModule is the C2 end-to-end proof: it stands up an in-process
-// network with a genesis-funded `admin` on node 0 (the suite's signing key) and
-// runs bank_module/send_funds_test.yaml through the runner's in-process arm — a
-// real bank tx + historical balance queries, in-memory, no docker.
+// TestInProcessBankModule runs bank_module/send_funds_test.yaml end-to-end
+// through the runner's in-process arm: a genesis-funded `admin` on node 0
+// (the suite's signing key) drives a real bank tx + historical balance
+// queries, in-memory, no docker.
 func TestInProcessBankModule(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 
 	net, err := inprocess.Start(ctx, inprocess.Options{
-		// Three validators. send_funds asserts only node-0 state, but the N choice
-		// is constrained by CometBFT's block-sync handoff, NOT a voting-power quorum:
-		//   N=1  works  — a sole validator skips block-sync and proposes solo
-		//                 (sei-tendermint onlyValidatorIsUs).
-		//   N=2  HANGS  — each node has exactly 1 peer; BlockPool.IsCaughtUp requires
-		//                 >1 peer, so neither leaves block-sync (Start rejects N=2).
-		//   N>=3 works  — every node has >=2 peers, so IsCaughtUp can fire and hand
-		//                 off to consensus.
-		// N=3 is the smallest MULTI-NODE topology, the point of this end-to-end demo:
-		// admin lives on node 0 (the suite default); nodes 1-2 are real consensus peers.
+		// Three validators — the smallest real multi-node topology. send_funds
+		// asserts only node-0 state, but a single-node run wouldn't exercise
+		// cross-peer consensus. N is constrained to 1 or >=3 (never 2) by CometBFT's
+		// block-sync handoff; see inprocess.Options.Validators and the package doc.
 		Validators:    3,
 		ChainID:       chainID,
 		TimeoutCommit: time.Second,

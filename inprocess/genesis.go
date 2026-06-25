@@ -27,7 +27,7 @@ import (
 // genesisBuilder accumulates per-validator accounts, balances, and gentxs across
 // the key-generation pass, then assembles a shared genesis whose validator set
 // is left EMPTY so every node derives the consensus valset from its InitChain
-// response (the empty-valset invariant) — the single most important delta from
+// response (the empty-valset invariant), the load-bearing delta from
 // testutil/network.
 //
 // This is a self-contained reimplementation of the unexported initGenFiles /
