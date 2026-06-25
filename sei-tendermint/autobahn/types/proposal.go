@@ -167,19 +167,12 @@ func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange, app ut
 	}
 	gr.First += ep.FirstBlock
 	gr.Next += ep.FirstBlock
-	// Strip Committee: proposals store only wire-relevant epoch fields.
-	// Committee is always re-supplied via ViewSpec at verification time.
-	wireEpoch := &Epoch{
-		EpochIndex: ep.EpochIndex,
-		Timestamp:  ep.Timestamp,
-		FirstBlock: ep.FirstBlock,
-	}
 	return &Proposal{
 		view:        view,
 		timestamp:   timestamp,
 		laneRanges:  laneRangesM,
 		globalRange: gr,
-		epoch:       wireEpoch,
+		epoch:       ep,
 		app:         app,
 	}
 }
