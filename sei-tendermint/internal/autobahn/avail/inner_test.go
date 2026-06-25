@@ -50,10 +50,10 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	state, err = NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
 	for inner := range state.inner.Lock() {
-		_, err := inner.prune(registry.LatestEpoch().Committee, registry.FirstBlock(), makeAppQC(qc1, qc0), qc1)
+		_, err := inner.prune(registry.LatestEpoch().Committee, makeAppQC(qc1, qc0), qc1)
 		require.Error(t, err, "good range, bad index should fail")
 		require.False(t, inner.latestAppQC.IsPresent(), "latestAppQC should not have been updated")
-		_, err = inner.prune(registry.LatestEpoch().Committee, registry.FirstBlock(), makeAppQC(qc1, qc1), qc1)
+		_, err = inner.prune(registry.LatestEpoch().Committee, makeAppQC(qc1, qc1), qc1)
 		require.NoError(t, err, "good range, good index should succeed")
 	}
 }
@@ -431,7 +431,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 	appProposal := types.NewAppProposal(10, 2, types.GenAppHash(rng))
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
-	updated, err := i.prune(registry.LatestEpoch().Committee, 0, appQC, qcs[2])
+	updated, err := i.prune(registry.LatestEpoch().Committee, appQC, qcs[2])
 	require.NoError(t, err)
 	require.True(t, updated)
 

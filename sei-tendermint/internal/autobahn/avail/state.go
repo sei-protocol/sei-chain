@@ -314,7 +314,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		if !ok {
 			return nil
 		}
-		updated, err := inner.prune(committee, s.data.Registry().FirstBlock(), appQC, qc)
+		updated, err := inner.prune(committee, appQC, qc)
 		if err != nil {
 			return err
 		}
@@ -350,7 +350,7 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		updated, err := inner.prune(c, s.data.Registry().FirstBlock(), appQC, commitQC)
+		updated, err := inner.prune(c, appQC, commitQC)
 		if err != nil {
 			return err
 		}

@@ -93,7 +93,7 @@ func newInner(ep *types.Epoch, firstBlock types.GlobalBlockNumber, loaded utils.
 			slog.Uint64("roadIndex", uint64(anchor.AppQC.Proposal().RoadIndex())),
 			slog.Uint64("globalNumber", uint64(anchor.AppQC.Proposal().GlobalNumber())),
 		)
-		if _, err := i.prune(pruneCommittee, firstBlock, anchor.AppQC, anchor.CommitQC); err != nil {
+		if _, err := i.prune(pruneCommittee, anchor.AppQC, anchor.CommitQC); err != nil {
 			return nil, fmt.Errorf("prune: %w", err)
 		}
 		for lane := range i.blocks {
@@ -160,7 +160,7 @@ func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumbe
 
 // prune advances the state to account for a new AppQC/CommitQC pair.
 // Returns true if pruning occurred, false if the QC was stale.
-func (i *inner) prune(c *types.Committee, firstBlock types.GlobalBlockNumber, appQC *types.AppQC, commitQC *types.CommitQC) (bool, error) {
+func (i *inner) prune(c *types.Committee, appQC *types.AppQC, commitQC *types.CommitQC) (bool, error) {
 	idx := appQC.Proposal().RoadIndex()
 	if idx != commitQC.Proposal().Index() {
 		return false, fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", idx, commitQC.Proposal().Index())
