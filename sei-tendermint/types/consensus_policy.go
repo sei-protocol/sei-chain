@@ -56,6 +56,11 @@ var (
 	ErrLastCommitHash           = &ConsensusPolicyError{"last commit hash mismatch"}
 	ErrEvidenceHash             = &ConsensusPolicyError{"evidence hash mismatch"}
 	ErrPerEvidenceValidateBasic = &ConsensusPolicyError{"evidence failed ValidateBasic"}
+	// Raised by the x/upgrade BeginBlocker when the binary carries a handler
+	// for a pending upgrade whose height has not been reached. Swallow-eligible
+	// so a shadow build can replay a historical range past upgrade boundaries
+	// the binary already contains.
+	ErrUpgradeBeforeTrigger = &ConsensusPolicyError{"binary updated before upgrade trigger"}
 )
 
 // ValidationErrors returns the audit's swallow-eligible sentinel set.
@@ -75,5 +80,6 @@ func ValidationErrors() []error {
 		ErrLastCommitHash,
 		ErrEvidenceHash,
 		ErrPerEvidenceValidateBasic,
+		ErrUpgradeBeforeTrigger,
 	}
 }
