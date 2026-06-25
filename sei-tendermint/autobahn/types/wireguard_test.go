@@ -199,8 +199,6 @@ func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
 		secretKeyFor(keys, committee.Leader(View{})),
 		committee,
 		ViewSpec{},
-		0,
-		time.Time{},
 		time.Unix(1, 2),
 		laneQCs,
 		utils.None[*AppQC](),

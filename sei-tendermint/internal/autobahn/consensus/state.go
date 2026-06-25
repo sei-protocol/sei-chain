@@ -123,7 +123,7 @@ func newState(
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
 		commitVotes:  utils.NewMutex(newCommitVotes()),
 
-		myView:        utils.NewAtomicSend(types.ViewSpec{FirstBlock: data.Registry().FirstBlock()}),
+		myView:        utils.NewAtomicSend(types.ViewSpec{FirstBlock: data.Registry().FirstBlock(), EpochTimestamp: data.Registry().GenesisTimestamp()}),
 		myProposal:    utils.NewAtomicSend(utils.None[*types.FullProposal]()),
 		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusReqPrepareVote]()),
 		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusReqCommitVote]()),
@@ -226,8 +226,6 @@ func (s *State) runPropose(ctx context.Context) error {
 			s.cfg.Key,
 			committee,
 			vs,
-			s.Data().Registry().FirstBlock(),
-			s.Data().Registry().GenesisTimestamp(),
 			time.Now(),
 			laneQCsMap,
 			s.avail.LastAppQC(),
@@ -254,7 +252,7 @@ func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v 
 // timers, neither of which constitutes a vote.
 func (s *State) runOutputs(ctx context.Context) error {
 	return s.innerRecv.Iter(ctx, func(ctx context.Context, i inner) error {
-		vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, FirstBlock: s.Data().Registry().FirstBlock()}
+		vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, FirstBlock: s.Data().Registry().FirstBlock(), EpochTimestamp: s.Data().Registry().GenesisTimestamp()}
 		old := s.myView.Load()
 		if old.View().Less(vs.View()) {
 			s.myView.Store(vs)

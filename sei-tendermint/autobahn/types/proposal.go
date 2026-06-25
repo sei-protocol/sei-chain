@@ -111,9 +111,10 @@ type ViewSpec struct {
 	// WARNING: currently we have implicit assumption that
 	// TimeoutQC.View().Index == CommitQC.Index.Next(),
 	// I.e. that TimeoutQC comes from the expected consensus instance.
-	CommitQC   utils.Option[*CommitQC]
-	TimeoutQC  utils.Option[*TimeoutQC]
-	FirstBlock GlobalBlockNumber // genesis InitialHeight; added to lane-relative block numbers to produce absolute global block numbers
+	CommitQC       utils.Option[*CommitQC]
+	TimeoutQC      utils.Option[*TimeoutQC]
+	FirstBlock     GlobalBlockNumber // first global block number of this epoch
+	EpochTimestamp time.Time         // start time of this epoch
 }
 
 // NextGlobalBlock returns the first global block number expected in the next proposal.
@@ -134,11 +135,11 @@ func (vs *ViewSpec) View() View {
 	return View{Index: idx, Number: 0}
 }
 
-func (vs *ViewSpec) NextTimestamp(genesisTimestamp time.Time) time.Time {
+func (vs *ViewSpec) NextTimestamp() time.Time {
 	if cQC, ok := vs.CommitQC.Get(); ok {
 		return cQC.Proposal().NextTimestamp()
 	}
-	return genesisTimestamp
+	return vs.EpochTimestamp
 }
 
 // Proposal is the road tipcut proposal.
@@ -271,8 +272,6 @@ func NewProposal(
 	key SecretKey,
 	committee *Committee,
 	viewSpec ViewSpec,
-	firstBlock GlobalBlockNumber,
-	genesisTimestamp time.Time,
 	timestamp time.Time,
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
@@ -312,10 +311,10 @@ func NewProposal(
 		appQC = utils.None[*AppQC]()
 	}
 	// Normalize the creation timestamp.
-	if wantMin := viewSpec.NextTimestamp(genesisTimestamp); timestamp.Before(wantMin) {
+	if wantMin := viewSpec.NextTimestamp(); timestamp.Before(wantMin) {
 		timestamp = wantMin
 	}
-	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, app, firstBlock)
+	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, app, viewSpec.FirstBlock)
 
 	return &FullProposal{
 		proposal:  Sign(key, proposal),
@@ -345,7 +344,7 @@ func (m *FullProposal) TimeoutQC() utils.Option[*TimeoutQC] {
 }
 
 // Verify verifies the FullProposal against the current view.
-func (m *FullProposal) Verify(c *Committee, vs ViewSpec, genesisTimestamp time.Time) error {
+func (m *FullProposal) Verify(c *Committee, vs ViewSpec) error {
 	return scope.Parallel(func(s scope.ParallelScope) error {
 		// Does the view match?
 		if got, want := m.proposal.Msg().View(), vs.View(); got != want {
@@ -355,7 +354,7 @@ func (m *FullProposal) Verify(c *Committee, vs ViewSpec, genesisTimestamp time.T
 			return fmt.Errorf("proposal.GlobalRange().First = %v, want %v", got, want)
 		}
 		// Is the timestamp monotone?
-		if got, wantMin := m.proposal.Msg().Timestamp(), vs.NextTimestamp(genesisTimestamp); got.Before(wantMin) {
+		if got, wantMin := m.proposal.Msg().Timestamp(), vs.NextTimestamp(); got.Before(wantMin) {
 			return fmt.Errorf("proposal.Timestamp() = %v, want >= %v", got, wantMin)
 		}
 		// Is proposer valid?

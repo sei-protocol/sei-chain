@@ -35,8 +35,6 @@ func testCommitQC(
 		leaderKey,
 		committee,
 		vs,
-		0,
-		time.Time{},
 		time.Now(),
 		laneQCs,
 		appQC,

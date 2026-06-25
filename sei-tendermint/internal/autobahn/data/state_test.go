@@ -186,8 +186,6 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 		leaderKey,
 		committee,
 		viewSpec,
-		0,
-		time.Time{},
 		time.Now(),
 		laneQCs,
 		utils.None[*types.AppQC](),

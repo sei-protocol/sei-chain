@@ -340,8 +340,6 @@ func TestStateMismatchedQCs(t *testing.T) {
 			leaderKey(committee, keys, vs.View()),
 			committee,
 			vs,
-			initialBlock,
-			time.Time{},
 			time.Now(),
 			laneQCs,
 			utils.None[*types.AppQC](),

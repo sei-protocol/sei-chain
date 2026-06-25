@@ -22,7 +22,7 @@ func BuildCommitQC(
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
 ) *CommitQC {
-	vs := ViewSpec{CommitQC: prev, FirstBlock: firstBlock}
+	vs := ViewSpec{CommitQC: prev, FirstBlock: firstBlock, EpochTimestamp: genesisTimestamp}
 	leader := committee.Leader(vs.View())
 	var leaderKey SecretKey
 	for _, k := range keys {
@@ -31,7 +31,7 @@ func BuildCommitQC(
 			break
 		}
 	}
-	proposal := utils.OrPanic1(NewProposal(leaderKey, committee, vs, firstBlock, genesisTimestamp, time.Now(), laneQCs, appQC))
+	proposal := utils.OrPanic1(NewProposal(leaderKey, committee, vs, time.Now(), laneQCs, appQC))
 	votes := make([]*Signed[*CommitVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, Sign(k, NewCommitVote(proposal.Proposal().Msg())))
