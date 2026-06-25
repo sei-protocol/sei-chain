@@ -62,6 +62,10 @@ type RPCEndpointConfig struct {
 	batchItemLimit         int
 	batchResponseSizeLimit int
 	readLimit              int64
+	// maxRequestBodyBytes caps a single HTTP request body; 0 uses the go-ethereum default.
+	maxRequestBodyBytes int64
+	// maxConcurrentRequestBytes bounds total request bytes admitted concurrently; 0 disables.
+	maxConcurrentRequestBytes int64
 }
 
 type rpcHandler struct {
@@ -306,6 +310,9 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
+	if config.maxRequestBodyBytes > 0 {
+		srv.SetHTTPBodyLimit(int(config.maxRequestBodyBytes))
+	}
 	logger.Info("Registering apis for evm rpc")
 	if err := RegisterApis(apis, config.Modules, srv); err != nil {
 		return err
@@ -316,8 +323,14 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	}
 	h.HTTPConfig = config
 	base := NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.JwtSecret)
+
+	handler := newRequestSizeLimiter(
+		wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist),
+		config.maxRequestBodyBytes,
+		config.maxConcurrentRequestBytes,
+	)
 	h.httpHandler.Store(&rpcHandler{
-		Handler: wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist),
+		Handler: handler,
 		server:  srv,
 	})
 	return nil
