@@ -1,15 +1,16 @@
 package avail
 
 import (
-	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestPruneMismatchedIndices(t *testing.T) {
@@ -261,13 +262,13 @@ func TestNewInnerLoadedCommitQCsNoAppQC(t *testing.T) {
 	require.Equal(t, types.RoadIndex(0), inner.commitQCs.first)
 	require.Equal(t, types.RoadIndex(3), inner.commitQCs.next)
 	for i, qc := range qcs {
-		require.NoError(t, utils.TestDiff(qc, inner.commitQCs.q[types.RoadIndex(i)]))
+		require.True(t, proto.Equal(types.CommitQCConv.Encode(qc), types.CommitQCConv.Encode(inner.commitQCs.q[types.RoadIndex(i)])))
 	}
 
 	// latestCommitQC should be set to the last loaded one.
 	latest, ok := inner.latestCommitQC.Load().Get()
 	require.True(t, ok)
-	require.NoError(t, utils.TestDiff(qcs[2], latest))
+	require.True(t, proto.Equal(types.CommitQCConv.Encode(qcs[2]), types.CommitQCConv.Encode(latest)))
 }
 
 func TestNewInnerLoadedCommitQCsWithAppQC(t *testing.T) {
@@ -312,14 +313,14 @@ func TestNewInnerLoadedCommitQCsWithAppQC(t *testing.T) {
 	// Indices 2, 3 and 4 remain; earlier ones are pruned.
 	require.Equal(t, types.RoadIndex(2), inner.commitQCs.first)
 	require.Equal(t, types.RoadIndex(5), inner.commitQCs.next)
-	require.NoError(t, utils.TestDiff(qcs[2], inner.commitQCs.q[2]))
-	require.NoError(t, utils.TestDiff(qcs[3], inner.commitQCs.q[3]))
-	require.NoError(t, utils.TestDiff(qcs[4], inner.commitQCs.q[4]))
+	require.True(t, proto.Equal(types.CommitQCConv.Encode(qcs[2]), types.CommitQCConv.Encode(inner.commitQCs.q[2])))
+	require.True(t, proto.Equal(types.CommitQCConv.Encode(qcs[3]), types.CommitQCConv.Encode(inner.commitQCs.q[3])))
+	require.True(t, proto.Equal(types.CommitQCConv.Encode(qcs[4]), types.CommitQCConv.Encode(inner.commitQCs.q[4])))
 
 	// latestCommitQC should be the last restored one (index 4).
 	latest, ok := inner.latestCommitQC.Load().Get()
 	require.True(t, ok)
-	require.NoError(t, utils.TestDiff(qcs[4], latest))
+	require.True(t, proto.Equal(types.CommitQCConv.Encode(qcs[4]), types.CommitQCConv.Encode(latest)))
 }
 
 func TestNewInnerLoadedAllThree(t *testing.T) {
@@ -382,7 +383,7 @@ func TestNewInnerLoadedAllThree(t *testing.T) {
 	// latestCommitQC is the last loaded one.
 	latest, ok := inner.latestCommitQC.Load().Get()
 	require.True(t, ok)
-	require.NoError(t, utils.TestDiff(qcs[4], latest))
+	require.True(t, proto.Equal(types.CommitQCConv.Encode(qcs[4]), types.CommitQCConv.Encode(latest)))
 }
 
 func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
@@ -471,7 +472,7 @@ func TestNewInnerLoadedCommitQCsAllBeforeAppQCArePruned(t *testing.T) {
 	// prune() pushes the anchor's CommitQC into the queue.
 	require.Equal(t, types.RoadIndex(5), inner.commitQCs.first)
 	require.Equal(t, types.RoadIndex(6), inner.commitQCs.next)
-	require.NoError(t, utils.TestDiff(qcs[5], inner.commitQCs.q[5]))
+	require.True(t, proto.Equal(types.CommitQCConv.Encode(qcs[5]), types.CommitQCConv.Encode(inner.commitQCs.q[5])))
 }
 
 func TestNewInnerAnchorWithNoCommitQCFiles(t *testing.T) {
@@ -500,7 +501,7 @@ func TestNewInnerAnchorWithNoCommitQCFiles(t *testing.T) {
 	// prune() should push the anchor's CommitQC into the queue.
 	require.Equal(t, types.RoadIndex(3), inner.commitQCs.first)
 	require.Equal(t, types.RoadIndex(4), inner.commitQCs.next)
-	require.NoError(t, utils.TestDiff(qcs[3], inner.commitQCs.q[3]))
+	require.True(t, proto.Equal(types.CommitQCConv.Encode(qcs[3]), types.CommitQCConv.Encode(inner.commitQCs.q[3])))
 
 	// latestAppQC should be set.
 	aq, ok := inner.latestAppQC.Get()
@@ -591,11 +592,11 @@ func TestNewInnerLoadedCommitQCsGapWithAppQCAnchor(t *testing.T) {
 	// Only QC@10 loaded.
 	require.Equal(t, types.RoadIndex(10), inner.commitQCs.first)
 	require.Equal(t, types.RoadIndex(11), inner.commitQCs.next)
-	require.NoError(t, utils.TestDiff(qcs[10], inner.commitQCs.q[10]))
+	require.True(t, proto.Equal(types.CommitQCConv.Encode(qcs[10]), types.CommitQCConv.Encode(inner.commitQCs.q[10])))
 
 	latest, ok := inner.latestCommitQC.Load().Get()
 	require.True(t, ok)
-	require.NoError(t, utils.TestDiff(qcs[10], latest))
+	require.True(t, proto.Equal(types.CommitQCConv.Encode(qcs[10]), types.CommitQCConv.Encode(latest)))
 
 	// AppQC should be applied via prune.
 	aq, ok := inner.latestAppQC.Get()
@@ -642,7 +643,7 @@ func TestNewInnerLoadedCommitQCsBelowAnchorSkipped(t *testing.T) {
 	require.Equal(t, types.RoadIndex(6), inner.commitQCs.next)
 	latest, ok := inner.latestCommitQC.Load().Get()
 	require.True(t, ok)
-	require.NoError(t, utils.TestDiff(qcs[5], latest))
+	require.True(t, proto.Equal(types.CommitQCConv.Encode(qcs[5]), types.CommitQCConv.Encode(latest)))
 }
 
 func TestNewInnerLoadedCommitQCsGapAfterAnchorReturnsError(t *testing.T) {
