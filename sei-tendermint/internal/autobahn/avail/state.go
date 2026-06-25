@@ -156,7 +156,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		return nil, err
 	}
 
-	inner, err := newInner(data.Registry(), data.Registry().FirstBlock(), loaded)
+	inner, err := newInner(data.Registry().LatestEpoch(), data.Registry().FirstBlock(), loaded)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +165,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	// loadPersistedState.
 	if ls, ok := loaded.Get(); ok {
 		if anchor, ok := ls.pruneAnchor.Get(); ok {
-			for lane := range data.Registry().LatestCommittee().Lanes().All() {
+			for lane := range data.Registry().LatestEpoch().Committee.Lanes().All() {
 				if err := pers.blocks.MaybePruneAndPersistLane(lane, utils.Some(anchor.CommitQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
 					return nil, fmt.Errorf("prune stale block WAL entries: %w", err)
 				}
@@ -269,6 +269,12 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return nil
 		}
 		inner.commitQCs.pushBack(qc)
+		// TODO: rotate inner.ep when dynamic committees are wired up.
+		// if idx >= inner.ep.End {
+		//     next, ok := s.data.Registry().EpochByIndex(inner.ep.EpochIndex + 1)
+		//     if !ok { panic("epoch not registered") }
+		//     inner.ep = next
+		// }
 		// The persist goroutine publishes latestCommitQC after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance
 		// until the CommitQC is durable.
@@ -453,7 +459,6 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	}); err != nil {
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
-	window := s.data.Registry().EpochWindow()
 	h := vote.Msg().Header()
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.votes[h.Lane()]
@@ -471,7 +476,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= h.BlockNumber() {
 			q.pushBack(newBlockVotes())
 		}
-		if q.q[h.BlockNumber()].pushVote(window, vote) {
+		if q.q[h.BlockNumber()].pushVote(inner.ep, vote) {
 			ctrl.Updated()
 		}
 	}
@@ -546,17 +551,15 @@ func (s *State) WaitForLocalCapacity(ctx context.Context, toProduce types.BlockN
 // WaitForLaneQCs waits until there is at least 1 LaneQC (for the given epoch)
 // with a block not finalized by prev.
 func (s *State) WaitForLaneQCs(
-	ctx context.Context, prev utils.Option[*types.CommitQC], e epoch.Index,
+	ctx context.Context, prev utils.Option[*types.CommitQC], ep *epoch.Epoch,
 ) (map[types.LaneID]*types.LaneQC, error) {
-	window := s.data.Registry().EpochWindow()
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}
 		for {
 			for lane := range inner.blocks {
 				first := types.LaneRangeOpt(prev, lane).Next()
 				for i := range types.BlockNumber(BlocksPerLanePerCommit) {
-					qcs := inner.laneQCs(window, lane, first+i)
-					if qc, ok := qcs[e]; ok {
+					if qc, ok := inner.laneQCs(ep, lane, first+i); ok {
 						laneQCs[lane] = qc
 					} else {
 						break
@@ -707,18 +710,11 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 					s.markCommitQCsPersisted(qc)
 				}))
 			})
-			seenLane := map[types.LaneID]struct{}{}
-			for _, c := range s.data.Registry().EpochWindow() {
-				for lane := range c.Lanes().All() {
-					if _, ok := seenLane[lane]; ok {
-						continue
-					}
-					seenLane[lane] = struct{}{}
-					proposals := blocksByLane[lane]
-					ps.Spawn(func() error {
-						return pers.blocks.MaybePruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))
-					})
-				}
+			for lane := range s.data.Registry().LatestEpoch().Committee.Lanes().All() {
+				proposals := blocksByLane[lane]
+				ps.Spawn(func() error {
+					return pers.blocks.MaybePruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))
+				})
 			}
 			return nil
 		}); err != nil {

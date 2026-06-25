@@ -26,9 +26,9 @@ func newBlockVotes() blockVotes {
 	}
 }
 
-// pushVote records vote in every epoch where the voter is a member.
-// Returns true the first time any epoch's accumulated weight reaches its LaneQuorum.
-func (bv blockVotes) pushVote(window map[epoch.Index]*types.Committee, vote *types.Signed[*types.LaneVote]) bool {
+// pushVote records vote for the given epoch where the voter is a member.
+// Returns true the first time the epoch's accumulated weight reaches its LaneQuorum.
+func (bv blockVotes) pushVote(ep *epoch.Epoch, vote *types.Signed[*types.LaneVote]) bool {
 	k := vote.Key()
 	if _, ok := bv.byKey[k]; ok {
 		return false
@@ -43,21 +43,16 @@ func (bv blockVotes) pushVote(window map[epoch.Index]*types.Committee, vote *typ
 	}
 	entry.votes = append(entry.votes, vote)
 
-	quorumReached := false
-	for e, c := range window {
-		w := c.Weight(k)
-		if w == 0 {
-			continue
-		}
-		prev := entry.epochWeight[e]
-		quorum := c.LaneQuorum()
-		if prev >= quorum {
-			continue
-		}
-		entry.epochWeight[e] = prev + w
-		if prev+w >= quorum {
-			quorumReached = true
-		}
+	e, c := ep.EpochIndex, ep.Committee
+	w := c.Weight(k)
+	if w == 0 {
+		return false
 	}
-	return quorumReached
+	prev := entry.epochWeight[e]
+	quorum := c.LaneQuorum()
+	if prev >= quorum {
+		return false
+	}
+	entry.epochWeight[e] = prev + w
+	return prev+w >= quorum
 }

@@ -509,6 +509,6 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 // None if the caller should handle it locally. Overridden on
 // *gigaValidatorRouter to short-circuit self-shard sends.
 func (r *gigaRouterCommon) EvmProxy(sender common.Address) utils.Option[*url.URL] {
-	shardValidator := r.data.Registry().LatestCommittee().EvmShard(sender)
+	shardValidator := r.data.Registry().LatestEpoch().Committee.EvmShard(sender)
 	return utils.Some(r.cfg.ValidatorAddrs[shardValidator].EVMRPC)
 }

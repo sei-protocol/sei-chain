@@ -16,6 +16,7 @@ import (
 // BlockPersister creates lane WALs lazily inside MaybePruneAndPersistLane, but the new
 // member must also appear in inner.blocks before the next persist cycle.
 type inner struct {
+	ep             *epoch.Epoch
 	latestAppQC    utils.Option[*types.AppQC]
 	latestCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]]
 	appVotes       *queue[types.GlobalBlockNumber, appVotes]
@@ -56,28 +57,18 @@ type loadedAvailState struct {
 	blocks      map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(registry *epoch.Registry, firstBlock types.GlobalBlockNumber, loaded utils.Option[*loadedAvailState]) (*inner, error) {
-	// Use the anchor's own committee for prune() so range calculations use the
-	// correct epoch's lane boundaries. Fall back to the latest known committee.
-	pruneCommittee := registry.LatestCommittee()
-	if l, ok := loaded.Get(); ok {
-		if anchor, ok := l.pruneAnchor.Get(); ok {
-			pruneCommittee = registry.CommitteeFor(anchor.CommitQC.Proposal().Index())
-		}
-	}
+func newInner(ep *epoch.Epoch, firstBlock types.GlobalBlockNumber, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+	pruneCommittee := ep.Committee
 
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
-	for _, c := range registry.EpochWindow() {
-		for lane := range c.Lanes().All() {
-			if _, ok := votes[lane]; !ok {
-				votes[lane] = newQueue[types.BlockNumber, blockVotes]()
-				blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
-			}
-		}
+	for lane := range ep.Committee.Lanes().All() {
+		votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+		blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
 	}
 
 	i := &inner{
+		ep:                  ep,
 		latestAppQC:         utils.None[*types.AppQC](),
 		latestCommitQC:      utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		appVotes:            newQueue[types.GlobalBlockNumber, appVotes](),
@@ -157,27 +148,22 @@ func newInner(registry *epoch.Registry, firstBlock types.GlobalBlockNumber, load
 	return i, nil
 }
 
-// laneQCs returns one LaneQC per epoch that has accumulated sufficient weight,
-// filtering each QC to only the votes from that epoch's committee members.
-func (i *inner) laneQCs(window map[epoch.Index]*types.Committee, lane types.LaneID, n types.BlockNumber) map[epoch.Index]*types.LaneQC {
-	result := map[epoch.Index]*types.LaneQC{}
+// laneQCs returns a LaneQC for the given epoch if sufficient weight has accumulated,
+// filtering to only votes from that epoch's committee members.
+func (i *inner) laneQCs(ep *epoch.Epoch, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
+	e, c := ep.EpochIndex, ep.Committee
 	for _, entry := range i.votes[lane].q[n].byHash {
-		for e, c := range window {
-			if _, ok := result[e]; ok {
-				continue // already found a quorum hash for this epoch
-			}
-			if entry.epochWeight[e] >= c.LaneQuorum() {
-				var qualified []*types.Signed[*types.LaneVote]
-				for _, v := range entry.votes {
-					if c.Weight(v.Key()) > 0 {
-						qualified = append(qualified, v)
-					}
+		if entry.epochWeight[e] >= c.LaneQuorum() {
+			var qualified []*types.Signed[*types.LaneVote]
+			for _, v := range entry.votes {
+				if c.Weight(v.Key()) > 0 {
+					qualified = append(qualified, v)
 				}
-				result[e] = types.NewLaneQC(qualified)
 			}
+			return types.NewLaneQC(qualified), true
 		}
 	}
-	return result
+	return nil, false
 }
 
 // prune advances the state to account for a new AppQC/CommitQC pair.

@@ -135,6 +135,13 @@ func (s *State) pushCommitQC(qc *types.CommitQC) error {
 		iSend.Store(inner{persistedInner{
 			CommitQC: utils.Some(qc),
 		}})
+		// TODO: rotate epoch when dynamic committees are wired up.
+		// currentEpoch := s.Data().Registry().EpochFor(qc.Proposal().Index())
+		// if qc.Proposal().Index() >= currentEpoch.End {
+		//     next, ok := s.Data().Registry().EpochByIndex(currentEpoch.EpochIndex + 1)
+		//     if !ok { panic("epoch not registered") }
+		//     _ = next
+		// }
 	}
 	return nil
 }

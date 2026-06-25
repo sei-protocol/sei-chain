@@ -92,7 +92,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		ds := utils.OrPanic1(data.NewState(&data.Config{
@@ -144,7 +144,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Push a commit QC.")
-			laneQCs, err := state.WaitForLaneQCs(ctx, prev, 0)
+			laneQCs, err := state.WaitForLaneQCs(ctx, prev, registry.LatestEpoch())
 			if err != nil {
 				return fmt.Errorf("state.WaitForNewLaneQCs(): %w", err)
 			}
@@ -219,7 +219,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 func TestStateRestartFromPersisted(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	dir := t.TempDir()
 
 	// Phase 1: Run state with persistence through 2 iterations.
@@ -265,7 +265,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 				}
 			}
 
-			laneQCs, err := state.WaitForLaneQCs(ctx, prev, 0)
+			laneQCs, err := state.WaitForLaneQCs(ctx, prev, registry.LatestEpoch())
 			if err != nil {
 				return fmt.Errorf("WaitForLaneQCs: %w", err)
 			}
@@ -324,7 +324,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 func TestStateMismatchedQCs(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	committee := registry.LatestCommittee()
+	committee := registry.LatestEpoch().Committee
 	initialBlock := registry.FirstBlock()
 
 	ds := utils.OrPanic1(data.NewState(&data.Config{
