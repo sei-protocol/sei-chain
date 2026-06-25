@@ -106,17 +106,6 @@ func (v View) Next() View {
 	return v
 }
 
-// Epoch holds the complete context for a single epoch.
-// Callers retrieve it from the local Registry; it is never transmitted on the wire.
-type Epoch struct {
-	EpochIndex uint64
-	Start      RoadIndex // first RoadIndex of this epoch (inclusive)
-	End        RoadIndex // last RoadIndex of this epoch (inclusive)
-	Timestamp  time.Time // start time of this epoch
-	Committee  *Committee
-	FirstBlock GlobalBlockNumber // chain genesis first block (same for all epochs)
-}
-
 // ViewSpec is the full local context for starting a view: justification QCs plus
 // the epoch active at that view. It is constructed locally and never sent on the wire.
 type ViewSpec struct {
