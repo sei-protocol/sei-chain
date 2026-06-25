@@ -123,10 +123,9 @@ type node struct {
 	httpPort int    // EVM JSON-RPC HTTP
 	wsPort   int    // EVM JSON-RPC WS
 
-	app      *app.App
-	tmNode   rpclocal.NodeService
-	rpc      *rpclocal.Local
-	serveErr chan error // EVM listener Start() failures, diverted here instead of a process-wide panic
+	app    *app.App
+	tmNode rpclocal.NodeService
+	rpc    *rpclocal.Local
 }
 
 // Network is a handle to a running in-process mesh. It owns the lifecycle: Close
@@ -298,7 +297,6 @@ func (net *Network) provisionNodes(enc encoding, gb *genesisBuilder) error {
 			p2pHost: addrs.p2pHost, p2pPort: addrs.p2pPort,
 			rpcAddr:  addrs.rpcAddr,
 			httpPort: addrs.httpPort, wsPort: addrs.wsPort,
-			serveErr: make(chan error, 2), // one HTTP + one WS listener
 		})
 	}
 	return nil
@@ -330,13 +328,10 @@ func (net *Network) provisionExtraKeys(gb *genesisBuilder) error {
 }
 
 // startNode builds the app, constructs + starts the tendermint node, wires the
-// local RPC client, and registers the EVM listeners. The node's EVM Start()
-// failures land on n.serveErr instead of panicking (so a single bind failure
-// must not kill all N nodes). The genesis valset is N-dependent per the
-// empty-valset invariant — see the N=1 exception below.
+// local RPC client, and registers the EVM listeners. The genesis valset is
+// N-dependent per the empty-valset invariant — see the N=1 exception below.
 func (net *Network) startNode(ctx context.Context, n *node, enc encoding) error {
 	theApp := newNodeApp(n, enc)
-	theApp.SetEVMServeErr(n.serveErr)
 	n.app = theApp
 
 	// empty-valset invariant (N>=2): zero the validator set so every node derives

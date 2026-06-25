@@ -69,17 +69,6 @@ func (h Node) REST() string { return "" }
 // capability k8s mode never offers.
 func (h Node) Object() any { return h.n.tmNode }
 
-// ServeErr returns the channel EVM listener Start() failures are reported on
-// (instead of the process-wide panic the production path uses). A non-nil
-// receive means that node's EVM listener failed to bind; consensus may still be
-// healthy. Buffered (cap 2: HTTP + WS).
-//
-// Read it AFTER WaitReady returns, not concurrently with it. WaitReady's probe
-// drains and re-sends on this same channel, and the re-send is single-receiver-
-// at-a-time — a concurrent read can race WaitReady for the re-sent error. This is
-// within the documented "not goroutine-safe across calls" contract.
-func (h Node) ServeErr() <-chan error { return h.n.serveErr }
-
 // WaitReady blocks until this node has joined consensus (height advancing) and
 // its EVM listener is serving, or ctx fires. Its single-ctx signature mirrors
 // the SDK's sei.NodeHandle.WaitReady; the probe HTTP client is an internal
@@ -88,7 +77,7 @@ func (h Node) WaitReady(ctx context.Context) error {
 	if err := waitHeightAdvances(ctx, probeClient, h.TendermintRPC(), 1); err != nil {
 		return fmt.Errorf("%s tendermint: %w", h.n.moniker, err)
 	}
-	if err := waitEVMServing(ctx, probeClient, h.EVMRPC(), h.n.serveErr); err != nil {
+	if err := waitEVMServing(ctx, probeClient, h.EVMRPC()); err != nil {
 		return fmt.Errorf("%s evm: %w", h.n.moniker, err)
 	}
 	return nil

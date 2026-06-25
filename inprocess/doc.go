@@ -62,7 +62,11 @@
 //     the EVM HTTP/WS listeners bind all interfaces (0.0.0.0) for the harness
 //     lifetime; only TM RPC/P2P are loopback-scoped. They run on free ephemeral
 //     ports, dialed via 127.0.0.1. Tightening requires a bind-host option in
-//     evmrpc (not yet present).
+//     evmrpc (not yet present). A rare EVM port-bind collision (the free port is
+//     taken between FreeTCPAddr's probe-close and the listener's bind) panics the
+//     node's serve goroutine — the production fail-loud path, intentionally not
+//     diverted here. If it ever flakes, the fix is hardening the FreeTCPAddr
+//     bind-close-rebind TOCTOU window, NOT re-adding a serve-error diversion.
 //   - loopback conn-tracker ceiling: MaxIncomingConnectionAttempts raised —
 //     loopback collapses all peers onto 127.0.0.1, so the router's IP-keyed
 //     conn-tracker counts the startup burst on one key — without the raise the

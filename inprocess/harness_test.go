@@ -50,15 +50,6 @@ func TestInProcessNetwork(t *testing.T) {
 		t.Logf("node %s: tm=%s evm=%s ws=%s", nd.Name(), nd.TendermintRPC(), nd.EVMRPC(), nd.EVMWS())
 	}
 
-	// No EVM listener reported a bind failure.
-	for i := 0; i < n; i++ {
-		select {
-		case err := <-net.Node(i).ServeErr():
-			t.Fatalf("node %s EVM serve error: %v", net.Node(i).Name(), err)
-		default:
-		}
-	}
-
 	// VERIFY 3: tx broadcast on node 0 is observable on node 1's independent RPC.
 	assertCrossNodeTxRoundTrip(t, ctx, net)
 }

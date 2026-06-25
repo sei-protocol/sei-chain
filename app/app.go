@@ -485,14 +485,6 @@ type App struct {
 	// reaps the listeners.
 	evmHTTPServer evmrpc.EVMServer
 	evmWSServer   evmrpc.EVMServer
-	// evmServeErr, when non-nil, diverts an EVM listener Start() (listener-start)
-	// failure to the channel instead of panicking. Production leaves it nil: a
-	// listener-start failure panics and crashes the node. An in-process host sets
-	// it via SetEVMServeErr before the first block so one node's listener-start
-	// failure is a reportable error rather than a process-wide panic killing all N.
-	// Construct-time bind failures (NewEVM*Server below) are not covered — those
-	// stay fail-fast.
-	evmServeErr chan<- error
 
 	txPrioritizer sdk.TxPrioritizer
 
@@ -2744,10 +2736,9 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		}
 		app.evmHTTPServer = evmHTTPServer
 		go func() {
-			defer app.recoverEVMServe()
 			<-app.httpServerStartSignal
 			if err := evmHTTPServer.Start(); err != nil {
-				app.reportEVMServeErr(err)
+				panic(err)
 			}
 		}()
 	}
@@ -2760,10 +2751,9 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		}
 		app.evmWSServer = evmWSServer
 		go func() {
-			defer app.recoverEVMServe()
 			<-app.wsServerStartSignal
 			if err := evmWSServer.Start(); err != nil {
-				app.reportEVMServeErr(err)
+				panic(err)
 			}
 		}()
 	}
@@ -2776,38 +2766,6 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		app.adminServer = srv
 	} else {
 		logger.Debug("Admin gRPC server is disabled")
-	}
-}
-
-// reportEVMServeErr diverts an EVM listener Start() failure to the registered
-// error channel, or panics when no channel is set (production seid). The send is
-// non-blocking: the channel is buffered and a second listener's failure must not
-// deadlock the goroutine.
-func (app *App) reportEVMServeErr(err error) {
-	if app.evmServeErr == nil {
-		panic(err)
-	}
-	select {
-	case app.evmServeErr <- err:
-	default:
-	}
-}
-
-// recoverEVMServe is the deferred guard on the EVM listener goroutines. A panic
-// inside Start() (beyond the error it returns cleanly) is converted to a reported
-// error when a channel is registered, so one node's listener panic does not crash
-// an in-process host running N nodes. With no channel (production seid) it
-// re-panics, keeping the fail-loud contract.
-func (app *App) recoverEVMServe() {
-	if r := recover(); r != nil {
-		if app.evmServeErr == nil {
-			panic(r)
-		}
-		err, ok := r.(error)
-		if !ok {
-			err = fmt.Errorf("evm serve panic: %v", r)
-		}
-		app.reportEVMServeErr(err)
 	}
 }
 

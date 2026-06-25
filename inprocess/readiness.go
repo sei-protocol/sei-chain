@@ -51,17 +51,10 @@ func waitHeightAdvances(ctx context.Context, hc *http.Client, tmRPC string, delt
 
 // waitEVMServing blocks until evmRPC answers eth_blockNumber with a non-empty,
 // error-free result — proof the EVM JSON-RPC listener is bound and serving — or
-// until a listener-start failure arrives on serveErr, short-circuiting the poll
-// with the actual reported error rather than letting it time out generically.
-//
-// serveErr is the node's buffered (cap 2: HTTP+WS) EVM-serve channel; the app's
-// reportEVMServeErr diverts a listener Start() failure here instead of panicking.
-// Consumption is non-destructive: a received error is re-sent (non-blocking — we
-// just freed a slot, so the buffer has room) so the public Node.ServeErr()
-// accessor still observes it after WaitReady returns. It is passed bidirectional
-// (not <-chan) precisely so it can be re-sent. serveErr may be nil (no EVM
-// listeners registered), in which case the receive arm is never ready.
-func waitEVMServing(ctx context.Context, hc *http.Client, evmRPC string, serveErr chan error) error {
+// until ctx fires. A rare EVM port-bind collision panics the node's serve
+// goroutine (the production fail-loud path); the harness does not divert it, so
+// here it surfaces only as a poll that never succeeds before the deadline.
+func waitEVMServing(ctx context.Context, hc *http.Client, evmRPC string) error {
 	const body = `{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}`
 	tick := time.NewTicker(probeInterval)
 	defer tick.Stop()
@@ -80,14 +73,6 @@ func waitEVMServing(ctx context.Context, hc *http.Client, evmRPC string, serveEr
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("%s eth_blockNumber not serving before deadline: %w", evmRPC, ctx.Err())
-		case err := <-serveErr:
-			// Re-send so a later Node.ServeErr() read still sees it; non-blocking,
-			// and the slot we just drained guarantees room.
-			select {
-			case serveErr <- err:
-			default:
-			}
-			return fmt.Errorf("%s EVM serve failed: %w", evmRPC, err)
 		case <-tick.C:
 		}
 	}
