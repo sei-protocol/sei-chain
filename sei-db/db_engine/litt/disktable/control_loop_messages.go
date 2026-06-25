@@ -51,6 +51,11 @@ type controlLoopShutdownRequest struct {
 type controlLoopGCRequest struct {
 	controlLoopMessage
 
+	// deleteFilesOnly runs only phase 2 (deleting the files of segments whose keymap entries are already
+	// durably deleted) and skips phase 1 (scheduling new keymap deletes). RunGC uses this for its second pass
+	// so the GC filter is not evaluated twice per RunGC() call.
+	deleteFilesOnly bool
+
 	// completionChan produces a value when the garbage collection is complete.
 	completionChan chan struct{}
 }

@@ -83,9 +83,9 @@ type DiskTable struct {
 	// The flush loop is a goroutine responsible for blocking on flush operations.
 	flushLoop *flushLoop
 
-	// The keymap writer is a goroutine responsible for asynchronously writing keys into the keymap once their
-	// segment data is crash durable.
-	keymapWriter *keymapWriter
+	// The keymap manager is a goroutine responsible for asynchronously applying keymap mutations: puts (once
+	// segment data is crash durable) and deletes (during garbage collection).
+	keymapManager *keymapManager
 
 	// Encapsulates metrics for the database.
 	metrics *metrics.LittDBMetrics
@@ -245,35 +245,33 @@ func NewDiskTable(
 		}
 	}
 
-	// Start the keymap writer. The flush loop schedules keymap writes onto it once segment data is durable.
-	// At startup every loaded segment is sealed and its keys are present in the keymap (repair/reload ran
-	// above), while the mutable segment (highestSegmentIndex) is empty. The highest already-flushed segment is
-	// therefore the one just below the mutable segment, or none if this is a brand new table. This seeds the
-	// control loop's watermark; the writer publishes subsequent advances onto keymapWatermarkChan.
-	initialWatermark := int64(-1)
-	if !creatingFirstSegment {
-		initialWatermark = int64(highestSegmentIndex) - 1
-	}
-	keymapWatermarkChan := make(chan int64, config.KeymapWatermarkChannelSize)
-	kWriter := newKeymapWriter(
+	// Start the keymap manager. The flush loop schedules keymap puts onto it once segment data is durable, and
+	// the control loop schedules keymap deletes onto it during GC. At startup nothing has been GC-deleted this
+	// session and every segment below lowestSegmentIndex is already gone, so the deletion watermark (and the
+	// "scheduled for deletion" cursor) start just below the lowest live segment. The manager publishes
+	// subsequent deletion-watermark advances onto deletionWatermarkChan.
+	initialDeletionWatermark := int64(lowestSegmentIndex) - 1
+	deletionWatermarkChan := make(chan int64, config.KeymapManagerWatermarkChannelSize)
+	kManager := newKeymapManager(
 		errorMonitor,
 		keymap,
 		&table.unflushedDataCache,
 		metrics,
 		runtimeConfig.Clock,
 		name,
-		config.KeymapWriteChannelSize,
-		config.KeymapWriteMaxBatchSize,
-		config.KeymapWriteMaxInterval,
-		keymapWatermarkChan,
+		config.KeymapManagerChannelSize,
+		config.KeymapManagerMaxBatchSize,
+		config.GCBatchSize,
+		config.KeymapManagerMaxInterval,
+		deletionWatermarkChan,
 	)
-	table.keymapWriter = kWriter
-	go kWriter.run()
+	table.keymapManager = kManager
+	go kManager.run()
 
 	// Start the flush loop.
 	fLoop := &flushLoop{
 		logger:                 runtimeConfig.Logger,
-		keymapWriter:           kWriter,
+		keymapManager:          kManager,
 		errorMonitor:           errorMonitor,
 		flushChannel:           make(chan any, tableFlushChannelCapacity),
 		metrics:                metrics,
@@ -304,15 +302,15 @@ func NewDiskTable(
 		fsync:                   config.Fsync,
 		metrics:                 metrics,
 		name:                    name,
-		gcBatchSize:             config.GCBatchSize,
 		keymap:                  keymap,
-		keymapWriter:            kWriter,
+		keymapManager:           kManager,
 		flushLoop:               fLoop,
 		garbageCollectionPeriod: config.GCPeriod,
 		immutableSegmentSize:    immutableSegmentSize,
 		gcFilter:                tableConfig.GCFilter,
-		keymapWatermarkChan:     keymapWatermarkChan,
-		keymapFlushedWatermark:  initialWatermark,
+		deletionWatermarkChan:   deletionWatermarkChan,
+		keymapDeletionWatermark: initialDeletionWatermark,
+		deletionScheduledIndex:  initialDeletionWatermark,
 	}
 	cLoop.threadsafeHighestSegmentIndex.Store(highestSegmentIndex)
 	table.controlLoop = cLoop
@@ -942,24 +940,36 @@ func (d *DiskTable) RunGC() error {
 			"cannot process RunGC() request, DB is in panicked state due to error: %w", err)
 	}
 
-	// GC may only collect a segment once the keymap writer has persisted that segment's keys (see the flushed
-	// watermark). Sync the writer first so an explicit RunGC() deterministically collects every segment that
-	// is otherwise eligible, rather than deferring whatever the asynchronous writer has not yet caught up on.
-	if err := d.keymapWriter.sync(); err != nil {
-		return fmt.Errorf("failed to sync keymap writer before GC: %w", err)
+	// Segment GC is two-phase and the keymap deletes happen asynchronously on the keymap manager. To make an
+	// explicit RunGC() deterministic, run one pass to schedule keymap deletes for expired segments, sync the
+	// manager so those deletes are applied and the deletion watermark advances, then run a second pass to
+	// delete the now-eligible segment files.
+	if err := d.runGCPass(false); err != nil {
+		return err
+	}
+	if err := d.keymapManager.sync(); err != nil {
+		return fmt.Errorf("failed to sync keymap manager during GC: %w", err)
+	}
+	if err := d.runGCPass(true); err != nil {
+		return err
 	}
 
+	return nil
+}
+
+// runGCPass triggers a single garbage collection pass on the control loop and waits for it to complete. When
+// deleteFilesOnly is true the pass runs phase 2 only (file deletion), skipping phase-1 scheduling.
+func (d *DiskTable) runGCPass(deleteFilesOnly bool) error {
 	request := &controlLoopGCRequest{
-		completionChan: make(chan struct{}, 1),
+		deleteFilesOnly: deleteFilesOnly,
+		completionChan:  make(chan struct{}, 1),
 	}
 
-	err := d.controlLoop.enqueue(request)
-	if err != nil {
+	if err := d.controlLoop.enqueue(request); err != nil {
 		return fmt.Errorf("failed to send GC request: %w", err)
 	}
 
-	_, err = util.Await(d.errorMonitor, request.completionChan)
-	if err != nil {
+	if _, err := util.Await(d.errorMonitor, request.completionChan); err != nil {
 		return fmt.Errorf("failed to await GC completion: %w", err)
 	}
 
