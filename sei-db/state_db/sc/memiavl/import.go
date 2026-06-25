@@ -2,10 +2,13 @@ package memiavl
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -107,14 +110,18 @@ func (mti *MultiTreeImporter) Close() error {
 		return err
 	}
 
-	// State-sync can re-offer the same snapshot, so the final dir may already
-	// exist from a prior pass; restore must be idempotent.
+	// State-sync can re-offer the same snapshot (RETRY_SNAPSHOT or an equal-height
+	// re-select), and a background rewrite can target the same height, so the final
+	// dir may be produced concurrently. A rename is atomic, so if the target already
+	// exists the snapshot there is complete: accept it and drop our redundant temp.
 	finalDir := filepath.Join(mti.dir, mti.snapshotDir)
-	if err := os.RemoveAll(finalDir); err != nil {
-		return err
-	}
 	if err := os.Rename(tmpDir, finalDir); err != nil {
-		return err
+		if !errors.Is(err, fs.ErrExist) && !errors.Is(err, syscall.ENOTEMPTY) {
+			return err
+		}
+		if rmErr := os.RemoveAll(tmpDir); rmErr != nil {
+			return rmErr
+		}
 	}
 
 	if err := updateCurrentSymlink(mti.dir, mti.snapshotDir); err != nil {
