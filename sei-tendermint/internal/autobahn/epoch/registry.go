@@ -13,16 +13,6 @@ import (
 // Index is the epoch number.
 type Index uint64
 
-// Epoch is a self-contained description of one epoch: its identity, its
-// RoadIndex bounds, and the committee active during it.
-type Epoch struct {
-	EpochIndex Index
-	Start      types.RoadIndex // first RoadIndex of this epoch (inclusive)
-	End        types.RoadIndex // last RoadIndex of this epoch (inclusive)
-	Timestamp  time.Time       // start time of this epoch
-	Committee  *types.Committee
-}
-
 // Registry is the authoritative source of committee and stake information.
 // All layers (consensus, data, avail) read from it.
 //
@@ -31,7 +21,7 @@ type Epoch struct {
 // appends the new one atomically under a write lock.
 type Registry struct {
 	mu         sync.RWMutex
-	epochs     []*Epoch // sorted by Start ascending
+	epochs     []*types.Epoch // sorted by Start ascending
 	firstBlock types.GlobalBlockNumber
 }
 
@@ -46,12 +36,13 @@ func NewRegistry(
 		return nil, fmt.Errorf("genesis committee: %w", err)
 	}
 	return &Registry{
-		epochs: []*Epoch{{
+		epochs: []*types.Epoch{{
 			EpochIndex: 0,
 			Start:      0,
 			End:        math.MaxUint64,
 			Timestamp:  genesisTimestamp,
 			Committee:  committee,
+			FirstBlock: firstBlock,
 		}},
 		firstBlock: firstBlock,
 	}, nil
@@ -68,13 +59,13 @@ func (r *Registry) GenesisTimestamp() time.Time {
 }
 
 // EpochFor returns the epoch active at the given RoadIndex.
-func (r *Registry) EpochFor(road types.RoadIndex) *Epoch {
+func (r *Registry) EpochFor(road types.RoadIndex) *types.Epoch {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.epochForLocked(road)
 }
 
-func (r *Registry) epochForLocked(road types.RoadIndex) *Epoch {
+func (r *Registry) epochForLocked(road types.RoadIndex) *types.Epoch {
 	// find first epoch whose Start > road; the one before it is active
 	idx := sort.Search(len(r.epochs), func(i int) bool {
 		return r.epochs[i].Start > road
@@ -91,11 +82,11 @@ func (r *Registry) CommitteeFor(road types.RoadIndex) *types.Committee {
 }
 
 // EpochByIndex returns the epoch with the given index, if it exists.
-func (r *Registry) EpochByIndex(idx Index) (*Epoch, bool) {
+func (r *Registry) EpochByIndex(idx Index) (*types.Epoch, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, e := range r.epochs {
-		if e.EpochIndex == idx {
+		if e.EpochIndex == uint64(idx) {
 			return e, true
 		}
 	}
@@ -103,7 +94,7 @@ func (r *Registry) EpochByIndex(idx Index) (*Epoch, bool) {
 }
 
 // LatestEpoch returns the most recently activated epoch.
-func (r *Registry) LatestEpoch() *Epoch {
+func (r *Registry) LatestEpoch() *types.Epoch {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.epochs[len(r.epochs)-1]
@@ -124,12 +115,13 @@ func (r *Registry) AddEpoch(weights map[types.PublicKey]uint64, startRoad types.
 		return fmt.Errorf("new epoch start %d must be after current epoch start %d", startRoad, latest.Start)
 	}
 	latest.End = startRoad - 1
-	r.epochs = append(r.epochs, &Epoch{
+	r.epochs = append(r.epochs, &types.Epoch{
 		EpochIndex: latest.EpochIndex + 1,
 		Start:      startRoad,
 		End:        math.MaxUint64,
 		Timestamp:  timestamp,
 		Committee:  committee,
+		FirstBlock: r.firstBlock,
 	})
 	return nil
 }

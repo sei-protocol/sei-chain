@@ -9,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -551,7 +550,7 @@ func (s *State) WaitForLocalCapacity(ctx context.Context, toProduce types.BlockN
 // WaitForLaneQCs waits until there is at least 1 LaneQC (for the given epoch)
 // with a block not finalized by prev.
 func (s *State) WaitForLaneQCs(
-	ctx context.Context, prev utils.Option[*types.CommitQC], ep *epoch.Epoch,
+	ctx context.Context, prev utils.Option[*types.CommitQC], ep *types.Epoch,
 ) (map[types.LaneID]*types.LaneQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}

@@ -173,7 +173,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 			malBlocks = append(malBlocks, b)
 		}
 	}
-	viewSpec := types.ViewSpec{CommitQC: utils.None[*types.CommitQC]()}
+	viewSpec := types.ViewSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: &types.Epoch{Committee: committee}}
 	leader := committee.Leader(viewSpec.View())
 	var leaderKey types.SecretKey
 	for _, k := range keys {
@@ -184,8 +184,6 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	}
 	proposal := utils.OrPanic1(types.NewProposal(
 		leaderKey,
-		committee,
-		types.EpochInfo{},
 		viewSpec,
 		time.Now(),
 		laneQCs,

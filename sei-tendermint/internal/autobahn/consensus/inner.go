@@ -187,13 +187,8 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 	if vs.View() != proposal.View() {
 		return nil
 	}
-	ep := s.Data().Registry().EpochFor(vs.View().Index)
-	epochInfo := types.EpochInfo{
-		EpochIndex:     uint64(ep.EpochIndex),
-		FirstBlock:     s.Data().Registry().FirstBlock(),
-		EpochTimestamp: ep.Timestamp,
-	}
-	if err := proposal.Verify(ep.Committee, epochInfo, vs); err != nil {
+	vs.Epoch = s.Data().Registry().EpochFor(vs.View().Index)
+	if err := proposal.Verify(vs); err != nil {
 		return fmt.Errorf("proposal.Verify(): %w", err)
 	}
 	// Update.

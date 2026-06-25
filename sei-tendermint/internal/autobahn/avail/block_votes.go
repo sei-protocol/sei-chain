@@ -2,7 +2,6 @@ package avail
 
 import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 )
 
 // blockHashEntry accumulates votes for a single block hash across epochs.
@@ -11,7 +10,7 @@ import (
 // that quorum can be reached separately for each epoch's committee.
 type blockHashEntry struct {
 	votes       []*types.Signed[*types.LaneVote]
-	epochWeight map[epoch.Index]uint64
+	epochWeight map[uint64]uint64
 }
 
 type blockVotes struct {
@@ -28,7 +27,7 @@ func newBlockVotes() blockVotes {
 
 // pushVote records vote for the given epoch where the voter is a member.
 // Returns true the first time the epoch's accumulated weight reaches its LaneQuorum.
-func (bv blockVotes) pushVote(ep *epoch.Epoch, vote *types.Signed[*types.LaneVote]) bool {
+func (bv blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) bool {
 	k := vote.Key()
 	if _, ok := bv.byKey[k]; ok {
 		return false
@@ -38,7 +37,7 @@ func (bv blockVotes) pushVote(ep *epoch.Epoch, vote *types.Signed[*types.LaneVot
 	h := vote.Msg().Header().Hash()
 	entry, ok := bv.byHash[h]
 	if !ok {
-		entry = &blockHashEntry{epochWeight: map[epoch.Index]uint64{}}
+		entry = &blockHashEntry{epochWeight: map[uint64]uint64{}}
 		bv.byHash[h] = entry
 	}
 	entry.votes = append(entry.votes, vote)

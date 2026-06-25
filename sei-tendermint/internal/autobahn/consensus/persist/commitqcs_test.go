@@ -22,7 +22,7 @@ func testCommitQC(
 	laneQCs map[types.LaneID]*types.LaneQC,
 	appQC utils.Option[*types.AppQC],
 ) *types.CommitQC {
-	vs := types.ViewSpec{CommitQC: prev}
+	vs := types.ViewSpec{CommitQC: prev, Epoch: &types.Epoch{Committee: committee}}
 	leader := committee.Leader(vs.View())
 	var leaderKey types.SecretKey
 	for _, k := range keys {
@@ -33,8 +33,6 @@ func testCommitQC(
 	}
 	fullProposal := utils.OrPanic1(types.NewProposal(
 		leaderKey,
-		committee,
-		types.EpochInfo{},
 		vs,
 		time.Now(),
 		laneQCs,

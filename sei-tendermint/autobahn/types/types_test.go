@@ -115,7 +115,7 @@ func TestNewTimeoutQC(t *testing.T) {
 			Index:  view.Index,
 			Number: GenViewNumber(rng) % view.Number,
 		}
-		p := newProposal(pView, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), EpochInfo{FirstBlock: GlobalBlockNumber(rng.Uint64())})
+		p := newProposal(pView, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), &Epoch{FirstBlock: GlobalBlockNumber(rng.Uint64())})
 		if wantView.Less(pView) {
 			wantView = pView
 		}
@@ -147,7 +147,7 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 	view := View{Index: 0, Number: 0}
 
 	pqc := makePrepareQC(keys, NewPrepareVote(
-		newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), EpochInfo{FirstBlock: GlobalBlockNumber(rng.Uint64())}),
+		newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), &Epoch{FirstBlock: GlobalBlockNumber(rng.Uint64())}),
 	))
 
 	// Only keys[0] carries the PrepareQC; the rest carry None.
@@ -201,7 +201,7 @@ func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 	makePQCAt := func(vn ViewNumber) *PrepareQC {
 		pView := View{Index: view.Index, Number: vn}
 		return makePrepareQC(keys, NewPrepareVote(
-			newProposal(pView, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), EpochInfo{FirstBlock: GlobalBlockNumber(rng.Uint64())}),
+			newProposal(pView, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), &Epoch{FirstBlock: GlobalBlockNumber(rng.Uint64())}),
 		))
 	}
 

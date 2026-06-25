@@ -6,7 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -16,7 +16,7 @@ import (
 // BlockPersister creates lane WALs lazily inside MaybePruneAndPersistLane, but the new
 // member must also appear in inner.blocks before the next persist cycle.
 type inner struct {
-	ep             *epoch.Epoch
+	ep             *types.Epoch
 	latestAppQC    utils.Option[*types.AppQC]
 	latestCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]]
 	appVotes       *queue[types.GlobalBlockNumber, appVotes]
@@ -57,7 +57,7 @@ type loadedAvailState struct {
 	blocks      map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(ep *epoch.Epoch, firstBlock types.GlobalBlockNumber, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+func newInner(ep *types.Epoch, firstBlock types.GlobalBlockNumber, loaded utils.Option[*loadedAvailState]) (*inner, error) {
 	pruneCommittee := ep.Committee
 
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
@@ -150,7 +150,7 @@ func newInner(ep *epoch.Epoch, firstBlock types.GlobalBlockNumber, loaded utils.
 
 // laneQCs returns a LaneQC for the given epoch if sufficient weight has accumulated,
 // filtering to only votes from that epoch's committee members.
-func (i *inner) laneQCs(ep *epoch.Epoch, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
+func (i *inner) laneQCs(ep *types.Epoch, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
 	e, c := ep.EpochIndex, ep.Committee
 	for _, entry := range i.votes[lane].q[n].byHash {
 		if entry.epochWeight[e] >= c.LaneQuorum() {

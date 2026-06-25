@@ -207,8 +207,8 @@ func (s *State) Avail() *avail.State { return s.avail }
 // Constructs new proposals.
 func (s *State) runPropose(ctx context.Context) error {
 	return s.myView.Iter(ctx, func(ctx context.Context, vs types.ViewSpec) error {
-		committee := s.Data().Registry().CommitteeFor(vs.View().Index)
-		if committee.Leader(vs.View()) != s.cfg.Key.Public() {
+		vs.Epoch = s.Data().Registry().EpochFor(vs.View().Index)
+		if vs.Epoch.Committee.Leader(vs.View()) != s.cfg.Key.Public() {
 			return nil // not the leader.
 		}
 		// Try repropose.
@@ -217,21 +217,13 @@ func (s *State) runPropose(ctx context.Context) error {
 			return nil
 		}
 		// Wait for laneQCs.
-		laneQCsMap, err := s.avail.WaitForLaneQCs(ctx, vs.CommitQC, s.Data().Registry().EpochFor(vs.View().Index))
+		laneQCsMap, err := s.avail.WaitForLaneQCs(ctx, vs.CommitQC, vs.Epoch)
 		if err != nil {
 			return fmt.Errorf("s.avail.WaitForLaneQCs(): %w", err)
 		}
 		// Construct a full proposal.
-		ep := s.Data().Registry().EpochFor(vs.View().Index)
-		epochInfo := types.EpochInfo{
-			EpochIndex:     uint64(ep.EpochIndex),
-			FirstBlock:     s.Data().Registry().FirstBlock(),
-			EpochTimestamp: ep.Timestamp,
-		}
 		fullProposal, err := types.NewProposal(
 			s.cfg.Key,
-			committee,
-			epochInfo,
 			vs,
 			time.Now(),
 			laneQCsMap,
