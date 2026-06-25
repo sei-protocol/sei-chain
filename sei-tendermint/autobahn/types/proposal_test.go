@@ -585,7 +585,7 @@ func TestProposalVerifyRejectsUnnecessaryAppQC(t *testing.T) {
 func TestProposalVerifyRejectsMissingAppQC(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	firstBlock := GlobalBlockNumber(1) // non-zero so firstBlock-1 is valid
+	firstBlock := GlobalBlockNumber(1)     // non-zero so firstBlock-1 is valid
 	vs := ViewSpec{FirstBlock: firstBlock} // no previous commitQC
 	leader := leaderKey(committee, keys, vs.View())
 
