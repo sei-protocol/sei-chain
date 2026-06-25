@@ -344,22 +344,22 @@ func (m *FullProposal) TimeoutQC() utils.Option[*TimeoutQC] {
 }
 
 // Verify verifies the FullProposal against the current view.
-func (m *FullProposal) Verify(viewSpec ViewSpec) error {
-	c := viewSpec.Epoch.Committee
+func (m *FullProposal) Verify(vs ViewSpec) error {
+	c := vs.Epoch.Committee
 	return scope.Parallel(func(s scope.ParallelScope) error {
 		// Does the view match?
-		if got, want := m.proposal.Msg().View(), viewSpec.View(); got != want {
-			return fmt.Errorf("view = %v, want %v", m.View(), viewSpec.View())
+		if got, want := m.proposal.Msg().View(), vs.View(); got != want {
+			return fmt.Errorf("view = %v, want %v", m.View(), vs.View())
 		}
-		if got, want := m.proposal.Msg().GlobalRange().First, viewSpec.NextGlobalBlock(); got != want {
+		if got, want := m.proposal.Msg().GlobalRange().First, vs.NextGlobalBlock(); got != want {
 			return fmt.Errorf("proposal.GlobalRange().First = %v, want %v", got, want)
 		}
 		// Is the timestamp monotone?
-		if got, wantMin := m.proposal.Msg().Timestamp(), viewSpec.NextTimestamp(); got.Before(wantMin) {
+		if got, wantMin := m.proposal.Msg().Timestamp(), vs.NextTimestamp(); got.Before(wantMin) {
 			return fmt.Errorf("proposal.Timestamp() = %v, want >= %v", got, wantMin)
 		}
 		// Is proposer valid?
-		if got, want := m.proposal.sig.key, c.Leader(viewSpec.View()); got != want {
+		if got, want := m.proposal.sig.key, c.Leader(vs.View()); got != want {
 			return fmt.Errorf("proposer %q, want %q", got, want)
 		}
 		// Verify the proposer's signature.
@@ -367,13 +367,13 @@ func (m *FullProposal) Verify(viewSpec ViewSpec) error {
 			return fmt.Errorf("proposal signature: %w", err)
 		}
 		// Do we have the required timeoutQC?
-		if got, want := NextViewOpt(viewSpec.TimeoutQC), NextViewOpt(m.timeoutQC); got != want {
+		if got, want := NextViewOpt(vs.TimeoutQC), NextViewOpt(m.timeoutQC); got != want {
 			return errors.New("inconsistent timeoutQC")
 		}
 		// Verify timeoutQC.
 		if tQC, ok := m.timeoutQC.Get(); ok {
 			s.Spawn(func() error {
-				if err := tQC.Verify(c, viewSpec.CommitQC); err != nil {
+				if err := tQC.Verify(c, vs.CommitQC); err != nil {
 					return fmt.Errorf("timeoutQC: %w", err)
 				}
 				return nil
@@ -399,7 +399,7 @@ func (m *FullProposal) Verify(viewSpec ViewSpec) error {
 		for lane := range c.Lanes().All() {
 			r := proposal.LaneRange(lane)
 			// Verify that range matches previous commitQC.
-			if got, want := r.First(), LaneRangeOpt(viewSpec.CommitQC, r.Lane()).Next(); got != want {
+			if got, want := r.First(), LaneRangeOpt(vs.CommitQC, r.Lane()).Next(); got != want {
 				return fmt.Errorf("laneRange[%v].First() = %v, want %v", r.Lane(), got, want)
 			}
 			// Verify that the necessary laneQC is present and valid.
@@ -423,7 +423,7 @@ func (m *FullProposal) Verify(viewSpec ViewSpec) error {
 			}
 		}
 		// Verify the appQC.
-		if got, wantMin := NextOpt(m.proposal.Msg().App()), NextOpt(AppOpt(ProposalOpt(viewSpec.CommitQC))); got < wantMin {
+		if got, wantMin := NextOpt(m.proposal.Msg().App()), NextOpt(AppOpt(ProposalOpt(vs.CommitQC))); got < wantMin {
 			return errors.New("AppProposal lower than in previous CommitQC")
 		} else if got == wantMin {
 			if m.appQC.IsPresent() {
@@ -444,7 +444,7 @@ func (m *FullProposal) Verify(viewSpec ViewSpec) error {
 				}
 				return nil
 			})
-			if got, want := appQC.Proposal().GlobalNumber(), viewSpec.NextGlobalBlock(); got >= want {
+			if got, want := appQC.Proposal().GlobalNumber(), vs.NextGlobalBlock(); got >= want {
 				return fmt.Errorf("appQC for block %v, while only %v blocks were finalized", got, want)
 			}
 		}
