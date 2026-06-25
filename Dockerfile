@@ -29,7 +29,7 @@ ARG SEI_CHAIN_REF=""
 ARG GO_BUILD_TAGS=""
 ARG GO_BUILD_ARGS=""
 RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/root/.cache/go-build,id=gobuild-clean-shadow-20260625 \
     BUILD_TAGS="netgo ledger ${GO_BUILD_TAGS}" && \
     VERSION_PKG="github.com/sei-protocol/sei-chain/sei-cosmos/version" && \
     LDFLAGS="\
