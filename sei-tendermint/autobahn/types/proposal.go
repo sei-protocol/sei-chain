@@ -171,8 +171,6 @@ func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange, app ut
 	// Committee is always re-supplied via ViewSpec at verification time.
 	wireEpoch := &Epoch{
 		EpochIndex: ep.EpochIndex,
-		Start:      ep.Start,
-		End:        ep.End,
 		Timestamp:  ep.Timestamp,
 		FirstBlock: ep.FirstBlock,
 	}
