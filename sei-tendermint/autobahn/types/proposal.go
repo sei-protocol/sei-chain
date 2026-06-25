@@ -546,11 +546,10 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		if m.GlobalFirst == nil {
 			return nil, fmt.Errorf("global_first: missing")
 		}
-		epochTimestampOpt, err := TimeConv.DecodeOpt(m.EpochTimestamp)
+		epochTimestamp, err := TimeConv.DecodeReq(m.EpochTimestamp)
 		if err != nil {
 			return nil, fmt.Errorf("epoch_timestamp: %w", err)
 		}
-		epochTimestamp, _ := epochTimestampOpt.Get()
 		ep := &Epoch{
 			EpochIndex: m.GetEpochIndex(),
 			FirstBlock: GlobalBlockNumber(m.GetGlobalFirst()),
