@@ -83,6 +83,10 @@ type DiskTable struct {
 	// The flush loop is a goroutine responsible for blocking on flush operations.
 	flushLoop *flushLoop
 
+	// The keymap writer is a goroutine responsible for asynchronously writing keys into the keymap once their
+	// segment data is crash durable.
+	keymapWriter *keymapWriter
+
 	// Encapsulates metrics for the database.
 	metrics *metrics.LittDBMetrics
 
@@ -241,10 +245,35 @@ func NewDiskTable(
 		}
 	}
 
+	// Start the keymap writer. The flush loop schedules keymap writes onto it once segment data is durable.
+	// At startup every loaded segment is sealed and its keys are present in the keymap (repair/reload ran
+	// above), while the mutable segment (highestSegmentIndex) is empty. The highest already-flushed segment is
+	// therefore the one just below the mutable segment, or none if this is a brand new table. This seeds the
+	// control loop's watermark; the writer publishes subsequent advances onto keymapWatermarkChan.
+	initialWatermark := int64(-1)
+	if !creatingFirstSegment {
+		initialWatermark = int64(highestSegmentIndex) - 1
+	}
+	keymapWatermarkChan := make(chan int64, config.KeymapWatermarkChannelSize)
+	kWriter := newKeymapWriter(
+		errorMonitor,
+		keymap,
+		&table.unflushedDataCache,
+		metrics,
+		runtimeConfig.Clock,
+		name,
+		config.KeymapWriteChannelSize,
+		config.KeymapWriteMaxBatchSize,
+		config.KeymapWriteMaxInterval,
+		keymapWatermarkChan,
+	)
+	table.keymapWriter = kWriter
+	go kWriter.run()
+
 	// Start the flush loop.
 	fLoop := &flushLoop{
 		logger:                 runtimeConfig.Logger,
-		diskTable:              table,
+		keymapWriter:           kWriter,
 		errorMonitor:           errorMonitor,
 		flushChannel:           make(chan any, tableFlushChannelCapacity),
 		metrics:                metrics,
@@ -277,10 +306,13 @@ func NewDiskTable(
 		name:                    name,
 		gcBatchSize:             config.GCBatchSize,
 		keymap:                  keymap,
+		keymapWriter:            kWriter,
 		flushLoop:               fLoop,
 		garbageCollectionPeriod: config.GCPeriod,
 		immutableSegmentSize:    immutableSegmentSize,
 		gcFilter:                tableConfig.GCFilter,
+		keymapWatermarkChan:     keymapWatermarkChan,
+		keymapFlushedWatermark:  initialWatermark,
 	}
 	cLoop.threadsafeHighestSegmentIndex.Store(highestSegmentIndex)
 	table.controlLoop = cLoop
@@ -733,58 +765,6 @@ func (d *DiskTable) Get(key []byte) (value []byte, exists bool, err error) {
 	return data, true, nil
 }
 
-func (d *DiskTable) CacheAwareGet(
-	key []byte,
-	onlyReadFromCache bool,
-) (value []byte, exists bool, hot bool, err error) {
-
-	if ok, err := d.errorMonitor.IsOk(); !ok {
-		return nil, false, false, fmt.Errorf(
-			"cannot process CacheAwareGet() request, DB is in panicked state due to error: %w", err)
-	}
-
-	// First, check if the key is in the unflushed data map. If so, return it from there.
-	// Performance wise, this has equivalent semantics to reading the value from
-	// a cache, so we'd might as well count it as a cache hit.
-	var rawValue any
-	if rawValue, exists = d.unflushedDataCache.Load(util.UnsafeBytesToString(key)); exists {
-		value = rawValue.([]byte)
-		return value, true, true, nil
-	}
-
-	// Look up the address of the data.
-	var address types.Address
-	address, exists, err = d.keymap.Get(key)
-	if err != nil {
-		return nil, false, false, fmt.Errorf("failed to get address: %w", err)
-	}
-	if !exists {
-		return nil, false, false, nil
-	}
-
-	if onlyReadFromCache {
-		// The value exists but we are not allowed to read it from disk.
-		return nil, true, false, nil
-	}
-
-	// Reserve the segment that contains the data.
-	seg, ok := d.controlLoop.getReservedSegment(address.Index())
-	if !ok {
-		// This can happen if there is a race between this thread and the GC thread, i.e.
-		// if we start reading a value just as the garbage collector decides to delete it.
-		return nil, false, false, nil
-	}
-	defer seg.Release()
-
-	// Read the data from disk.
-	value, err = seg.Read(key, address)
-	if err != nil {
-		return nil, false, false, fmt.Errorf("failed to read data: %w", err)
-	}
-
-	return value, true, false, nil
-}
-
 func (d *DiskTable) Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error {
 	return d.PutBatch([]*types.PutRequest{{Key: key, Value: value, SecondaryKeys: secondaryKeys}})
 }
@@ -962,6 +942,13 @@ func (d *DiskTable) RunGC() error {
 			"cannot process RunGC() request, DB is in panicked state due to error: %w", err)
 	}
 
+	// GC may only collect a segment once the keymap writer has persisted that segment's keys (see the flushed
+	// watermark). Sync the writer first so an explicit RunGC() deterministically collects every segment that
+	// is otherwise eligible, rather than deferring whatever the asynchronous writer has not yet caught up on.
+	if err := d.keymapWriter.sync(); err != nil {
+		return fmt.Errorf("failed to sync keymap writer before GC: %w", err)
+	}
+
 	request := &controlLoopGCRequest{
 		completionChan: make(chan struct{}, 1),
 	}
@@ -1044,35 +1031,4 @@ func (d *DiskTable) boundaryKeys() (*boundaryKeysResponse, error) {
 		return nil, resp.err
 	}
 	return resp, nil
-}
-
-// writeKeysToKeymap flushes all keys to the keymap. Once they are flushed, it also removes the keys from the
-// unflushedDataCache.
-func (d *DiskTable) writeKeysToKeymap(keys []*types.ScopedKey) error {
-	if len(keys) == 0 {
-		// Nothing to flush.
-		return nil
-	}
-
-	if d.metrics != nil {
-		start := d.clock()
-		defer func() {
-			end := d.clock()
-			delta := end.Sub(start)
-			d.metrics.ReportKeymapFlushLatency(d.name, delta)
-		}()
-	}
-
-	err := d.keymap.Put(keys)
-	if err != nil {
-		return fmt.Errorf("failed to flush keys: %w", err)
-	}
-
-	// Keys are now durably written to both the segment and the keymap. It is therefore safe to remove them from the
-	// unflushed data cache.
-	for _, ka := range keys {
-		d.unflushedDataCache.Delete(util.UnsafeBytesToString(ka.Key))
-	}
-
-	return nil
 }

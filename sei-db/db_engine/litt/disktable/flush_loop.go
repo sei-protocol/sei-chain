@@ -13,8 +13,8 @@ import (
 type flushLoop struct {
 	logger *slog.Logger
 
-	// the parent disk table
-	diskTable *DiskTable
+	// the keymap writer that the now-durable keys are scheduled onto once a flush or seal completes
+	keymapWriter *keymapWriter
 
 	// Responsible for handling fatal DB errors.
 	errorMonitor *util.ErrorMonitor
@@ -81,10 +81,15 @@ func (f *flushLoop) handleSealRequest(req *flushLoopSealRequest) {
 		return
 	}
 
-	// Flush the keys that are now durable in the segment.
-	err = f.diskTable.writeKeysToKeymap(durableKeys)
+	// Schedule the now-durable keys to be written into the keymap asynchronously. The segment data is already
+	// crash durable, so we don't block the seal on the keymap write; a crash that loses the scheduled write is
+	// repaired from the segment key files on the next startup. A full writer channel backpressures here. The
+	// sealed segment index advances the writer's flushed watermark once this request is applied, which gates
+	// garbage collection of the segment.
+	err = f.keymapWriter.scheduleWrite(durableKeys, int64(req.segmentToSeal.SegmentIndex()))
 	if err != nil {
-		f.errorMonitor.Panic(fmt.Errorf("failed to flush keys: %w", err))
+		// The only error path is a panic-induced shutdown; the awaiting caller is released via the error
+		// monitor, so there is nothing more to do here.
 		return
 	}
 
@@ -126,9 +131,15 @@ func (f *flushLoop) handleFlushRequest(req *flushLoopFlushRequest) {
 		f.metrics.ReportSegmentFlushLatency(f.name, delta)
 	}
 
-	err = f.diskTable.writeKeysToKeymap(durableKeys)
+	// Schedule the now-durable keys to be written into the keymap asynchronously, then release the Flush()
+	// caller without waiting for the keymap write. The segment data is already crash durable; a crash that
+	// loses the scheduled write is repaired from the segment key files on the next startup. A full writer
+	// channel backpressures here, which propagates back to Flush(). A mutable-segment flush does not complete
+	// any segment, so it passes -1 for the sealed segment index.
+	err = f.keymapWriter.scheduleWrite(durableKeys, -1)
 	if err != nil {
-		f.errorMonitor.Panic(fmt.Errorf("failed to flush keys: %w", err))
+		// The only error path is a panic-induced shutdown; the awaiting caller is released via the error
+		// monitor, so there is nothing more to do here.
 		return
 	}
 

@@ -390,6 +390,50 @@ func TestRepairKeymapSingleBatch(t *testing.T) {
 	require.NoError(t, repaired.Close())
 }
 
+// TestCleanShutdownLeavesKeymapConsistent verifies that a clean Close drains the asynchronous keymap
+// writer, so that on the next startup the keymap is already fully caught up and repair has nothing to
+// rescue. Without the drain, the keymap would be missing the most recent writes after a clean shutdown
+// (repair would then silently paper over it), so we assert the stronger property: repair issues zero Puts.
+func TestCleanShutdownLeavesKeymapConsistent(t *testing.T) {
+	directory := t.TempDir()
+	tableName := "clean-shutdown"
+	logger := slog.Default()
+	keymapPath := filepath.Join(directory, tableName, keymap.KeymapDirectoryName)
+
+	key := func(i int) []byte { return []byte(fmt.Sprintf("key-%06d", i)) }
+	value := func(i int) []byte { return []byte(fmt.Sprintf("value-%06d", i)) }
+	keyCount := 200
+
+	// Session 1: write data with the asynchronous writer, then close cleanly (which drains the writer).
+	km1, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, true)
+	require.NoError(t, err)
+	table := openRepairTestTable(t, directory, tableName, keymapPath, km1, true)
+	for i := 0; i < keyCount; i++ {
+		require.NoError(t, table.Put(key(i), value(i)))
+	}
+	require.NoError(t, table.Flush())
+	require.NoError(t, table.Close())
+
+	// Session 2: reopen with a counting keymap. Because the clean shutdown drained the writer, the keymap is
+	// already complete, so repair must rescue nothing.
+	realKeymap, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, true)
+	require.NoError(t, err)
+	spy := &countingKeymap{Keymap: realKeymap}
+	reopened := openRepairTestTable(t, directory, tableName, keymapPath, spy, false)
+
+	require.Equal(t, 0, spy.putCalls, "clean shutdown should leave the keymap fully consistent (no repair)")
+
+	// Sanity check: every key is still readable after the clean restart.
+	for i := 0; i < keyCount; i++ {
+		v, ok, err := reopened.Get(key(i))
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, value(i), v)
+	}
+
+	require.NoError(t, reopened.Close())
+}
+
 func restartTest(t *testing.T, tableBuilder *tableBuilder) {
 	rand := util.NewTestRandom()
 

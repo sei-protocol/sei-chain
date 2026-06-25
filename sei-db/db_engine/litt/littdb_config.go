@@ -112,6 +112,29 @@ type Config struct {
 	// If Flush() is called more frequently than this interval, the flushes may be batched together to improve
 	// performance. If this is set to zero, then no batching is performed and all flushes are executed immediately.
 	MinimumFlushInterval time.Duration
+
+	// The capacity of the buffered channel feeding the asynchronous keymap writer. Keymap writes are scheduled
+	// (not executed) on the Flush() path; this bounds how many flush/seal operations may be queued for the keymap
+	// before backpressure is applied to writes, which in turn bounds how far the keymap may lag behind the
+	// segments. The default is 1024.
+	KeymapWriteChannelSize int
+
+	// The maximum number of keys the asynchronous keymap writer coalesces into a single keymap.Put. Larger values
+	// amortize the keymap's per-write fsync across more keys under load; the cap bounds the size and latency of any
+	// single Put. The default is 1024.
+	KeymapWriteMaxBatchSize int
+
+	// The maximum time the asynchronous keymap writer accumulates scheduled work before flushing a partial batch.
+	// The writer prefers to coalesce work into full batches (see KeymapWriteMaxBatchSize), but if a full batch does
+	// not accumulate within this interval it flushes whatever it has, bounding how long a key may wait before it is
+	// written into the keymap. The default is 1 second.
+	KeymapWriteMaxInterval time.Duration
+
+	// The capacity of the channel on which the keymap writer publishes its flushed-segment watermark to the
+	// control loop (which gates garbage collection). Sends are fire-and-forget: if the channel is full the update
+	// is dropped, since the watermark is monotonic and a later publish delivers an equal-or-newer value. A larger
+	// buffer makes drops (and the brief GC lag they cause) less likely. The default is 1024.
+	KeymapWatermarkChannelSize int
 }
 
 // DefaultConfig returns a Config with default values.
@@ -130,19 +153,23 @@ func DefaultConfig(paths ...string) (*Config, error) {
 // If paths are not set prior to use, then the DB will return an error at startup.
 func DefaultConfigNoPaths() *Config {
 	return &Config{
-		GCPeriod:                 5 * time.Minute,
-		GCBatchSize:              10_000,
-		KeymapType:               keymap.PebbleDBKeymapType,
-		ControlChannelSize:       64,
-		TargetSegmentFileSize:    math.MaxUint32,
-		MaxSegmentKeyCount:       50_000,
-		TargetSegmentKeyFileSize: 2 * unit.MB,
-		Fsync:                    true,
-		DoubleWriteProtection:    false,
-		MetricsEnabled:           false,
-		MetricsPort:              9101,
-		MetricsUpdateInterval:    time.Second,
-		PurgeLocks:               false,
+		GCPeriod:                   5 * time.Minute,
+		GCBatchSize:                10_000,
+		KeymapType:                 keymap.PebbleDBKeymapType,
+		ControlChannelSize:         64,
+		TargetSegmentFileSize:      math.MaxUint32,
+		MaxSegmentKeyCount:         50_000,
+		TargetSegmentKeyFileSize:   2 * unit.MB,
+		Fsync:                      true,
+		DoubleWriteProtection:      false,
+		MetricsEnabled:             false,
+		MetricsPort:                9101,
+		MetricsUpdateInterval:      time.Second,
+		PurgeLocks:                 false,
+		KeymapWriteChannelSize:     1024,
+		KeymapWriteMaxBatchSize:    1024,
+		KeymapWriteMaxInterval:     time.Second,
+		KeymapWatermarkChannelSize: 1024,
 	}
 }
 
@@ -193,6 +220,18 @@ func (c *Config) Validate() error {
 	}
 	if c.MetricsEnabled && c.MetricsUpdateInterval == 0 {
 		return fmt.Errorf("metrics update interval must be at least 1 if metrics are enabled")
+	}
+	if c.KeymapWriteChannelSize < 1 {
+		return fmt.Errorf("keymap write channel size must be at least 1")
+	}
+	if c.KeymapWriteMaxBatchSize < 1 {
+		return fmt.Errorf("keymap write max batch size must be at least 1")
+	}
+	if c.KeymapWriteMaxInterval <= 0 {
+		return fmt.Errorf("keymap write max interval must be greater than zero")
+	}
+	if c.KeymapWatermarkChannelSize < 1 {
+		return fmt.Errorf("keymap watermark channel size must be at least 1")
 	}
 
 	return nil

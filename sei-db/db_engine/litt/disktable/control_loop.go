@@ -98,6 +98,10 @@ type controlLoop struct {
 	// The keymap used to store key-to-address mappings.
 	keymap keymap.Keymap
 
+	// The goroutine responsible for asynchronously writing keys into the keymap. The control loop drains it on
+	// shutdown and writes the final sealed segment's keys through it.
+	keymapWriter *keymapWriter
+
 	// The goroutine responsible for blocking on flush operations.
 	flushLoop *flushLoop
 
@@ -138,6 +142,16 @@ type controlLoop struct {
 	// key even when the lowest remaining segment is the (unsealed) mutable segment, where GetKeys cannot be
 	// used. Only the control loop goroutine touches this field.
 	mutableFirstPrimaryKey []byte
+
+	// keymapWatermarkChan receives flushed-segment watermark updates published by the keymap writer (see
+	// keymapWriter.publishWatermark). The control loop drains it into keymapFlushedWatermark before each GC
+	// pass; this is the channel-based replacement for sharing the watermark via atomic.
+	keymapWatermarkChan chan int64
+
+	// keymapFlushedWatermark is the highest segment index whose keys are all durable in the keymap, as last
+	// reported by the keymap writer. GC must not collect a segment above this watermark. Only the control loop
+	// goroutine touches this field.
+	keymapFlushedWatermark int64
 }
 
 // enqueue enqueues a request to the control loop. Returns an error if the request could not be sent due to the
@@ -203,6 +217,10 @@ func (c *controlLoop) doGarbageCollection() {
 		return
 	}
 
+	// Pick up the latest flushed-segment watermark published by the keymap writer. GC may only collect
+	// segments at or below this watermark.
+	c.refreshKeymapWatermark()
+
 	defer func() {
 		if c.metrics != nil {
 			end := c.clock()
@@ -217,6 +235,14 @@ func (c *controlLoop) doGarbageCollection() {
 		seg := c.segments[index]
 		if !seg.IsSealed() {
 			// We can't delete an unsealed segment.
+			return
+		}
+
+		if int64(index) > c.keymapFlushedWatermark {
+			// The keymap writer has not yet persisted this segment's keys. Deleting the segment now would
+			// strand those keys in the unflushed data cache and let the writer later resurrect them as
+			// dangling keymap entries. Since segments are deleted strictly in order, no later segment can be
+			// deleted either, so defer GC for this pass; a future pass runs once the writer catches up.
 			return
 		}
 
@@ -296,6 +322,22 @@ func (c *controlLoop) doGarbageCollection() {
 		// Reset the cursor so the next (now-lowest) segment is scanned from the start.
 		c.gcCursorKeys = nil
 		c.gcCursorIndex = 0
+	}
+}
+
+// refreshKeymapWatermark drains all flushed-segment watermark updates published by the keymap writer and
+// advances the locally-tracked watermark to the highest value seen. The writer may publish several updates
+// (or drop some when its channel is full); draining to the maximum yields the freshest available watermark.
+func (c *controlLoop) refreshKeymapWatermark() {
+	for {
+		select {
+		case watermark := <-c.keymapWatermarkChan:
+			if watermark > c.keymapFlushedWatermark {
+				c.keymapFlushedWatermark = watermark
+			}
+		default:
+			return
+		}
 	}
 }
 
@@ -627,6 +669,16 @@ func (c *controlLoop) handleShutdownRequest(req *controlLoopShutdownRequest) {
 		return
 	}
 
+	// Drain the keymap writer. The flush loop has stopped, so no new keymap writes will be scheduled; draining
+	// applies every write already scheduled (and prunes the unflushed data cache) before we seal the final
+	// segment and stop the keymap. This is what keeps a clean shutdown fully consistent: the next startup's
+	// repair has nothing to rescue.
+	err = c.keymapWriter.drain()
+	if err != nil {
+		c.logger.Error("failed to drain keymap writer", "error", err)
+		return
+	}
+
 	// Seal the mutable segment
 	durableKeys, err := c.segments[c.highestSegmentIndex].Seal(c.clock())
 	if err != nil {
@@ -634,8 +686,9 @@ func (c *controlLoop) handleShutdownRequest(req *controlLoopShutdownRequest) {
 		return
 	}
 
-	// Flush the keys that are now durable in the segment.
-	err = c.diskTable.writeKeysToKeymap(durableKeys)
+	// Write the keys that are now durable in the segment into the keymap. The keymap writer has been drained
+	// above, so its goroutine has exited and this synchronous call cannot race with it.
+	err = c.keymapWriter.writeBatch(durableKeys)
 	if err != nil {
 		c.errorMonitor.Panic(fmt.Errorf("failed to flush keys: %w", err))
 		return
