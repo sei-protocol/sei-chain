@@ -20,9 +20,8 @@ type Index uint64
 // End = math.MaxUint64. AddEpoch closes off the current latest epoch and
 // appends the new one atomically under a write lock.
 type Registry struct {
-	mu         sync.RWMutex
-	epochs     []*types.Epoch // sorted by Start ascending
-	firstBlock types.GlobalBlockNumber
+	mu     sync.RWMutex
+	epochs []*types.Epoch // sorted by Start ascending
 }
 
 // NewRegistry creates a Registry with the genesis committee.
@@ -44,13 +43,14 @@ func NewRegistry(
 			Committee:  committee,
 			FirstBlock: firstBlock,
 		}},
-		firstBlock: firstBlock,
 	}, nil
 }
 
-// FirstBlock returns the first global block number of the chain.
+// FirstBlock returns the first global block number of the chain (epoch 0's FirstBlock).
 func (r *Registry) FirstBlock() types.GlobalBlockNumber {
-	return r.firstBlock
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.epochs[0].FirstBlock
 }
 
 // GenesisTimestamp returns the timestamp of the genesis epoch.
@@ -102,8 +102,9 @@ func (r *Registry) LatestEpoch() *types.Epoch {
 
 // AddEpoch registers a new epoch starting at startRoad with the given committee
 // weights. The current latest epoch's End is closed off at startRoad-1.
+// firstBlock is the first global block number of the new epoch.
 // Called by the execution bridge when a new committee is finalized.
-func (r *Registry) AddEpoch(weights map[types.PublicKey]uint64, startRoad types.RoadIndex, timestamp time.Time) error {
+func (r *Registry) AddEpoch(weights map[types.PublicKey]uint64, startRoad types.RoadIndex, timestamp time.Time, firstBlock types.GlobalBlockNumber) error {
 	committee, err := types.NewCommittee(weights)
 	if err != nil {
 		return fmt.Errorf("epoch committee: %w", err)
@@ -121,7 +122,7 @@ func (r *Registry) AddEpoch(weights map[types.PublicKey]uint64, startRoad types.
 		End:        math.MaxUint64,
 		Timestamp:  timestamp,
 		Committee:  committee,
-		FirstBlock: r.firstBlock,
+		FirstBlock: firstBlock,
 	})
 	return nil
 }

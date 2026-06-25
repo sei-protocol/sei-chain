@@ -10,5 +10,5 @@ type Epoch struct {
 	End        RoadIndex // last RoadIndex of this epoch (inclusive)
 	Timestamp  time.Time // start time of this epoch
 	Committee  *Committee
-	FirstBlock GlobalBlockNumber // chain genesis first block (same for all epochs)
+	FirstBlock GlobalBlockNumber // first global block of this epoch
 }
