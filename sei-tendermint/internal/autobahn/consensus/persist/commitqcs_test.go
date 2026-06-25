@@ -34,6 +34,7 @@ func testCommitQC(
 	fullProposal := utils.OrPanic1(types.NewProposal(
 		leaderKey,
 		committee,
+		types.EpochInfo{},
 		vs,
 		time.Now(),
 		laneQCs,

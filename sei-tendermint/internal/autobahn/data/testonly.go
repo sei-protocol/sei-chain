@@ -64,7 +64,7 @@ func TestCommitQC(
 	}
 	var appQC utils.Option[*types.AppQC]
 	if cqc, ok := prev.Get(); ok {
-		vs := types.ViewSpec{CommitQC: prev, FirstBlock: firstBlock}
+		vs := types.ViewSpec{CommitQC: prev}
 		p := types.NewAppProposal(cqc.GlobalRange().Next-1, vs.View().Index, types.GenAppHash(rng))
 		appQC = utils.Some(TestAppQC(keys, p))
 	} else {

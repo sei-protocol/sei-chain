@@ -22,7 +22,8 @@ func BuildCommitQC(
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
 ) *CommitQC {
-	vs := ViewSpec{CommitQC: prev, FirstBlock: firstBlock, EpochTimestamp: genesisTimestamp}
+	epochInfo := EpochInfo{FirstBlock: firstBlock, EpochTimestamp: genesisTimestamp}
+	vs := ViewSpec{CommitQC: prev}
 	leader := committee.Leader(vs.View())
 	var leaderKey SecretKey
 	for _, k := range keys {
@@ -31,7 +32,7 @@ func BuildCommitQC(
 			break
 		}
 	}
-	proposal := utils.OrPanic1(NewProposal(leaderKey, committee, vs, time.Now(), laneQCs, appQC))
+	proposal := utils.OrPanic1(NewProposal(leaderKey, committee, epochInfo, vs, time.Now(), laneQCs, appQC))
 	votes := make([]*Signed[*CommitVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, Sign(k, NewCommitVote(proposal.Proposal().Msg())))
@@ -208,12 +209,12 @@ func GenView(rng utils.Rng) View {
 
 // GenProposal generates a random Proposal.
 func GenProposal(rng utils.Rng) *Proposal {
-	return newProposal(GenView(rng), time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), GlobalBlockNumber(rng.Uint64()))
+	return newProposal(GenView(rng), time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), EpochInfo{FirstBlock: GlobalBlockNumber(rng.Uint64())})
 }
 
 // GenProposalAt generates a Proposal at a specific view.
 func GenProposalAt(rng utils.Rng, view View) *Proposal {
-	return newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), GlobalBlockNumber(rng.Uint64()))
+	return newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), EpochInfo{FirstBlock: GlobalBlockNumber(rng.Uint64())})
 }
 
 // GenAppHash generates a random AppHash.

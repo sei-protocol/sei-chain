@@ -60,7 +60,7 @@ func makeCommitQC(
 	laneQCs map[types.LaneID]*types.LaneQC,
 	appQC utils.Option[*types.AppQC],
 ) *types.CommitQC {
-	vs := types.ViewSpec{CommitQC: prev, FirstBlock: registry.FirstBlock()}
+	vs := types.ViewSpec{CommitQC: prev}
 	committee := registry.CommitteeFor(vs.View().Index)
 	return types.BuildCommitQC(committee, keys, prev, registry.FirstBlock(), time.Time{}, laneQCs, appQC)
 }
@@ -335,10 +335,12 @@ func TestStateMismatchedQCs(t *testing.T) {
 
 	// Helper to create a CommitQC for a specific index
 	makeQC := func(prev utils.Option[*types.CommitQC], laneQCs map[types.LaneID]*types.LaneQC) *types.CommitQC {
-		vs := types.ViewSpec{CommitQC: prev, FirstBlock: initialBlock}
+		vs := types.ViewSpec{CommitQC: prev}
+		epochInfo := types.EpochInfo{FirstBlock: initialBlock}
 		fullProposal := utils.OrPanic1(types.NewProposal(
 			leaderKey(committee, keys, vs.View()),
 			committee,
+			epochInfo,
 			vs,
 			time.Now(),
 			laneQCs,

@@ -185,6 +185,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	proposal := utils.OrPanic1(types.NewProposal(
 		leaderKey,
 		committee,
+		types.EpochInfo{},
 		viewSpec,
 		time.Now(),
 		laneQCs,

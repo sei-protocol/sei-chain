@@ -130,7 +130,9 @@ message Proposal {
   optional Timestamp timestamp = 5; // required
   repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 100]; // Sorted by lane.
   optional AppProposal app = 4; // optional
-  optional uint64 global_first = 6; // genesis InitialHeight; added to lane block numbers to produce absolute global block numbers
+  optional uint64 global_first = 6;     // genesis InitialHeight; added to lane block numbers to produce absolute global block numbers
+  optional uint64 epoch_index = 7;      // index of the epoch this proposal belongs to (debug)
+  optional Timestamp epoch_timestamp = 8; // start timestamp of the epoch (debug)
 }
 
 message FullProposal {
