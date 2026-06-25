@@ -44,7 +44,7 @@ func (*View) MaxSize() int {
 }
 
 func (*Proposal) MaxSize() int {
-	return 9517
+	return 9529
 }
 
 func (*FullProposal) MaxSize() int {
@@ -216,6 +216,8 @@ func init() {
 		3: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*LaneRange]())},
 		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
 		6: {MaxCount: 1},
+		7: {MaxCount: 1},
+		8: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Timestamp]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.FullProposal.
