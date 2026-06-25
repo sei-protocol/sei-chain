@@ -59,12 +59,13 @@ func (l *requestSizeLimiter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, l.maxBody)
 
 	if l.budget != nil {
-		// For non-chunked requests Go's HTTP server enforces Content-Length, so it is
-		// a sound upper bound on bytes read. Chunked requests report ContentLength <= 0;
-		// reserve the worst case (maxBody) for them. weight is therefore always in
-		// (0, maxBody], and the budget is >= maxBody, so the request can always fit.
+		// For requests with a known length Go's HTTP server enforces Content-Length,
+		// so it is a sound upper bound on bytes read (and 0 means an empty body that
+		// reserves nothing). Chunked / unknown-length requests report ContentLength
+		// == -1; reserve the worst case (maxBody) for them. weight is therefore always
+		// in [0, maxBody], and the budget is >= maxBody, so the request can always fit.
 		weight := r.ContentLength
-		if weight <= 0 {
+		if weight < 0 {
 			weight = l.maxBody
 		}
 		if !l.budget.TryAcquire(weight) {
