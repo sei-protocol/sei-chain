@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
@@ -37,6 +38,8 @@ func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)        { retur
 func (f *failingEVMStore) Importer(int64) (types.Importer, error)        { return nil, nil }
 func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer            { return nil }
 func (f *failingEVMStore) CommittedRootHash() []byte                     { return nil }
+func (f *failingEVMStore) HashCategories() []string                      { return nil }
+func (f *failingEVMStore) RecordHashes(hashlog.HashLogger, uint64) error { return nil }
 func (f *failingEVMStore) Close() error                                  { return nil }
 
 func TestCompositeStoreBasicOperations(t *testing.T) {

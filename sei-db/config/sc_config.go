@@ -57,6 +57,9 @@ type StateCommitConfig struct {
 
 	// Token bucket burst for historical proof queries.
 	HistoricalProofBurst int `mapstructure:"historical-proof-burst"`
+
+	// HashLogger configures the per-block hash logger (a debugging/forensics tool). Enabled by default.
+	HashLogger HashLoggerConfig `mapstructure:"hash-logger"`
 }
 
 // DefaultStateCommitConfig returns the default StateCommitConfig
@@ -72,6 +75,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
+		HashLogger:                 DefaultHashLoggerConfig(),
 	}
 }
 

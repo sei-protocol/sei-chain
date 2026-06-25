@@ -15,8 +15,10 @@ import (
 const ChangesetHashType = "changeset"
 
 // Hash type names are written verbatim into CSV headers and must not collide with the "," field
-// separator or any other structural character. We restrict them to a small, safe allowlist.
-var legalHashTypeRegex = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+// separator or any other structural character. We restrict them to a small, safe allowlist. "/" is
+// permitted so callers can namespace columns hierarchically (e.g. "memIAVL/mod/bank", "flatKV/root");
+// it is CSV-safe and hash type names never appear in file names (only the sanitized version does).
+var legalHashTypeRegex = regexp.MustCompile(`^[A-Za-z0-9_./-]+$`)
 
 // Configuration for a HashLogger.
 type HashLoggerConfig struct {

@@ -1,0 +1,180 @@
+package rootmulti
+
+import (
+	"fmt"
+	"path/filepath"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
+)
+
+// App-level hash logger categories owned by rootmulti. No backend can compute these:
+//   - appHashType:        the root application hash returned to consensus.
+//   - blockHashType:      the Tendermint block hash, supplied by baseapp via SetNextBlockHash.
+//   - memIAVLRootHashType: the simple-merkle root over memIAVL's per-module hashes (requires the cosmos
+//     hashing utilities, which sei-db cannot reach), computed here via convertCommitInfo(...).Hash().
+const (
+	appHashType         = "appHash"
+	blockHashType       = "blockHash"
+	memIAVLRootHashType = "memIAVL/root"
+)
+
+// hashReportingStore is the subset of the SC store that owns and reports its own hash categories. The
+// composite commit store implements it. Type-asserting keeps these methods out of the broad
+// sctypes.Committer interface. The caller registers the categories returned by HashCategories.
+type hashReportingStore interface {
+	HashCategories() []string
+	RecordHashes(hashlog.HashLogger, uint64) error
+	MemIAVLCommitInfo() *proto.CommitInfo
+}
+
+// SetNextBlockHash stashes the Tendermint block hash for the block currently being committed. baseapp
+// calls it just before Commit; rootmulti records it (under the committed version) inside Commit so every
+// hash for a block shares one block number. No-op when hash logging is disabled.
+func (rs *Store) SetNextBlockHash(blockHash []byte) {
+	if rs.hashLoggerDisabled {
+		return
+	}
+	rs.nextBlockHash = append([]byte(nil), blockHash...)
+}
+
+// hashLogDir returns the directory hash log files are written to, defaulting to a "hashlog" subdirectory
+// of the state-commit store directory.
+func (rs *Store) hashLogDir() string {
+	if rs.hashLoggerConfig.Directory != "" {
+		return rs.hashLoggerConfig.Directory
+	}
+	return filepath.Join(rs.scDir, "hashlog")
+}
+
+// desiredHashCategories computes the full caller-reported category set for the current backend state:
+// the app-level categories plus whatever the live backends report (and memIAVL/root when memIAVL is
+// present). Used both to register categories and to detect when the set has changed.
+func (rs *Store) desiredHashCategories() []string {
+	categories := []string{appHashType, blockHashType}
+	if h, ok := rs.scStore.(hashReportingStore); ok {
+		categories = append(categories, h.HashCategories()...)
+		if h.MemIAVLCommitInfo() != nil {
+			categories = append(categories, memIAVLRootHashType)
+		}
+	}
+	return categories
+}
+
+// openHashLogger constructs the logger once. It starts with no caller columns (just the changeset
+// column); syncHashCategories then registers the live categories, which the logger handles as runtime
+// column changes (each new column rotates to a fresh file, but the empty initial files are dropped).
+func (rs *Store) openHashLogger() error {
+	loggerVersion := rs.hashLoggerConfig.Version
+	if loggerVersion == "" {
+		loggerVersion = "unknown"
+	}
+	cfg := hashlog.DefaultHashLoggerConfig(rs.hashLogDir(), loggerVersion)
+	if rs.hashLoggerConfig.BlocksToRetain > 0 {
+		cfg.BlocksToRetain = rs.hashLoggerConfig.BlocksToRetain
+	}
+	if rs.hashLoggerConfig.TargetFileSize > 0 {
+		cfg.TargetFileSize = rs.hashLoggerConfig.TargetFileSize
+	}
+	if rs.hashLoggerConfig.MaxDiskSize > 0 {
+		cfg.MaxDiskSize = rs.hashLoggerConfig.MaxDiskSize
+	}
+
+	hl, err := hashlog.NewHashLogger(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create hash logger: %w", err)
+	}
+	rs.hashLogger = hl
+	return nil
+}
+
+// syncHashCategories brings the logger's column set in line with the desired set for the current backend
+// state, registering newly-present categories and unregistering departed ones. The logger rotates files
+// as needed on each change; a no-op when the set is unchanged (the common case after the first block).
+func (rs *Store) syncHashCategories() {
+	desired := rs.desiredHashCategories()
+	for _, category := range rs.hashCategories {
+		if !containsString(desired, category) {
+			if err := rs.hashLogger.UnregisterHashType(category); err != nil {
+				logger.Error("failed to unregister hash category", "category", category, "err", err)
+			}
+		}
+	}
+	for _, category := range desired {
+		if !containsString(rs.hashCategories, category) {
+			if err := rs.hashLogger.RegisterHashType(category); err != nil {
+				logger.Error("failed to register hash category", "category", category, "err", err)
+			}
+		}
+	}
+	rs.hashCategories = desired
+}
+
+// disableHashLogger turns hash logging off after a fatal error, closing the logger if it is open.
+func (rs *Store) disableHashLogger() {
+	rs.hashLoggerDisabled = true
+	if rs.hashLogger != nil {
+		_ = rs.hashLogger.Close()
+		rs.hashLogger = nil
+	}
+}
+
+// recordBlockHashes reports every hash for the just-committed block at the given version. It opens the
+// logger on first use and keeps its column set in sync with the live backends. On open failure it
+// disables hash logging rather than disrupting commit. Must be called with rs.mtx held (from Commit).
+func (rs *Store) recordBlockHashes(version int64) {
+	if rs.hashLoggerDisabled {
+		return
+	}
+
+	if rs.hashLogger == nil {
+		if err := rs.openHashLogger(); err != nil {
+			logger.Error("failed to open hash logger; disabling hash logging", "err", err)
+			rs.disableHashLogger()
+			return
+		}
+	}
+	rs.syncHashCategories()
+
+	blockNumber := uint64(version) //nolint:gosec // commit versions are non-negative
+
+	// Changeset: the aggregate of all modules' changes for this block, captured (sorted) in flush.
+	rs.hashLogger.ReportChangeset(blockNumber, rs.blockChangeSets)
+	rs.blockChangeSets = nil
+
+	// appHash: the root application hash returned to consensus.
+	if rs.lastCommitInfo != nil {
+		appHash := append([]byte(nil), rs.lastCommitInfo.CommitID().Hash...)
+		if err := rs.hashLogger.ReportHash(blockNumber, appHashType, appHash); err != nil {
+			logger.Error("failed to report app hash", "err", err)
+		}
+	}
+
+	// blockHash: supplied by baseapp before Commit. nil if it was not provided for this block.
+	if err := rs.hashLogger.ReportHash(blockNumber, blockHashType, rs.nextBlockHash); err != nil {
+		logger.Error("failed to report block hash", "err", err)
+	}
+	rs.nextBlockHash = nil
+
+	if h, ok := rs.scStore.(hashReportingStore); ok {
+		if memInfo := h.MemIAVLCommitInfo(); memInfo != nil {
+			root := convertCommitInfo(memInfo).Hash()
+			if err := rs.hashLogger.ReportHash(blockNumber, memIAVLRootHashType, root); err != nil {
+				logger.Error("failed to report memIAVL root hash", "err", err)
+			}
+		}
+		if err := h.RecordHashes(rs.hashLogger, blockNumber); err != nil {
+			logger.Error("failed to record backend hashes", "err", err)
+		}
+	}
+}
+
+// containsString reports whether s is present in xs.
+func containsString(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
