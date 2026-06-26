@@ -12,7 +12,6 @@ jobs:
       checks: write
       id-token: write
     secrets: inherit
-    if: !github.event.pull_request.head.repo.fork
     with:
       # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.12
       uci-ref: 258d2c3216d54872b33ac07430d23c847fc239ca
