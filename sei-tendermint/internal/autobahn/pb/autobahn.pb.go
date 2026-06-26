@@ -835,12 +835,12 @@ func (x *View) GetNumber() uint64 {
 
 type Proposal struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	View          *View                  `protobuf:"bytes,1,opt,name=view,proto3,oneof" json:"view,omitempty"`                                   // required.
-	Timestamp     *Timestamp             `protobuf:"bytes,5,opt,name=timestamp,proto3,oneof" json:"timestamp,omitempty"`                         // required
-	LaneRanges    []*LaneRange           `protobuf:"bytes,3,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"`           // Sorted by lane.
-	App           *AppProposal           `protobuf:"bytes,4,opt,name=app,proto3,oneof" json:"app,omitempty"`                                     // optional
-	GlobalFirst   *uint64                `protobuf:"varint,6,opt,name=global_first,json=globalFirst,proto3,oneof" json:"global_first,omitempty"` // genesis InitialHeight; added to lane block numbers to produce absolute global block numbers
-	EpochIndex    *uint64                `protobuf:"varint,7,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"`    // epoch this proposal belongs to
+	View          *View                  `protobuf:"bytes,1,opt,name=view,proto3,oneof" json:"view,omitempty"`                                // required.
+	Timestamp     *Timestamp             `protobuf:"bytes,5,opt,name=timestamp,proto3,oneof" json:"timestamp,omitempty"`                      // required
+	LaneRanges    []*LaneRange           `protobuf:"bytes,3,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"`        // Sorted by lane.
+	App           *AppProposal           `protobuf:"bytes,4,opt,name=app,proto3,oneof" json:"app,omitempty"`                                  // optional
+	FirstBlock    *uint64                `protobuf:"varint,6,opt,name=first_block,json=firstBlock,proto3,oneof" json:"first_block,omitempty"` // genesis InitialHeight; added to lane block numbers to produce absolute global block numbers
+	EpochIndex    *uint64                `protobuf:"varint,7,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"` // epoch this proposal belongs to
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -903,9 +903,9 @@ func (x *Proposal) GetApp() *AppProposal {
 	return nil
 }
 
-func (x *Proposal) GetGlobalFirst() uint64 {
-	if x != nil && x.GlobalFirst != nil {
-		return *x.GlobalFirst
+func (x *Proposal) GetFirstBlock() uint64 {
+	if x != nil && x.FirstBlock != nil {
+		return *x.FirstBlock
 	}
 	return 0
 }
@@ -2258,21 +2258,22 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x05index\x18\x01 \x01(\x04H\x00R\x05index\x88\x01\x01\x12\x1b\n" +
 	"\x06number\x18\x02 \x01(\x04H\x01R\x06number\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\b\n" +
 	"\x06_indexB\t\n" +
-	"\a_number\"\x85\x03\n" +
+	"\a_number\"\x82\x03\n" +
 	"\bProposal\x12'\n" +
 	"\x04view\x18\x01 \x01(\v2\x0e.autobahn.ViewH\x00R\x04view\x88\x01\x01\x126\n" +
 	"\ttimestamp\x18\x05 \x01(\v2\x13.autobahn.TimestampH\x01R\ttimestamp\x88\x01\x01\x12<\n" +
 	"\vlane_ranges\x18\x03 \x03(\v2\x13.autobahn.LaneRangeB\x06Ј\xe2\xab\fdR\n" +
 	"laneRanges\x12,\n" +
-	"\x03app\x18\x04 \x01(\v2\x15.autobahn.AppProposalH\x02R\x03app\x88\x01\x01\x12&\n" +
-	"\fglobal_first\x18\x06 \x01(\x04H\x03R\vglobalFirst\x88\x01\x01\x12$\n" +
+	"\x03app\x18\x04 \x01(\v2\x15.autobahn.AppProposalH\x02R\x03app\x88\x01\x01\x12$\n" +
+	"\vfirst_block\x18\x06 \x01(\x04H\x03R\n" +
+	"firstBlock\x88\x01\x01\x12$\n" +
 	"\vepoch_index\x18\a \x01(\x04H\x04R\n" +
 	"epochIndex\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
 	"\x05_viewB\f\n" +
 	"\n" +
 	"_timestampB\x06\n" +
-	"\x04_appB\x0f\n" +
-	"\r_global_firstB\x0e\n" +
+	"\x04_appB\x0e\n" +
+	"\f_first_blockB\x0e\n" +
 	"\f_epoch_indexJ\x04\b\x02\x10\x03R\n" +
 	"created_at\"\x96\x02\n" +
 	"\fFullProposal\x129\n" +

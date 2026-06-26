@@ -530,12 +530,12 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		}
 		sort.Slice(laneRanges, func(i, j int) bool { return laneRanges[i].Lane().Compare(laneRanges[j].Lane()) < 0 })
 		return &pb.Proposal{
-			View:        ViewConv.Encode(m.view),
-			Timestamp:   TimeConv.Encode(m.timestamp),
-			LaneRanges:  LaneRangeConv.EncodeSlice(laneRanges),
-			App:         AppProposalConv.EncodeOpt(m.app),
-			GlobalFirst: utils.Alloc(uint64(m.firstBlock)),
-			EpochIndex:  utils.Alloc(m.epochIndex),
+			View:       ViewConv.Encode(m.view),
+			Timestamp:  TimeConv.Encode(m.timestamp),
+			LaneRanges: LaneRangeConv.EncodeSlice(laneRanges),
+			App:        AppProposalConv.EncodeOpt(m.app),
+			FirstBlock: utils.Alloc(uint64(m.firstBlock)),
+			EpochIndex: utils.Alloc(m.epochIndex),
 		}
 	},
 	Decode: func(m *pb.Proposal) (*Proposal, error) {
@@ -555,13 +555,13 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		if err != nil {
 			return nil, fmt.Errorf("appQC: %w", err)
 		}
-		if m.GlobalFirst == nil {
-			return nil, fmt.Errorf("global_first: missing")
+		if m.FirstBlock == nil {
+			return nil, fmt.Errorf("first_block: missing")
 		}
 		if m.EpochIndex == nil {
 			return nil, fmt.Errorf("epoch_index: missing")
 		}
-		proposal := newProposal(view, timestamp, laneRanges, app, m.GetEpochIndex(), GlobalBlockNumber(m.GetGlobalFirst()))
+		proposal := newProposal(view, timestamp, laneRanges, app, m.GetEpochIndex(), GlobalBlockNumber(m.GetFirstBlock()))
 		if len(proposal.laneRanges) != len(laneRanges) {
 			return nil, fmt.Errorf("laneRanges: duplicate ranges")
 		}

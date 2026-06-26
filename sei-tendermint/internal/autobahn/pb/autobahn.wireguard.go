@@ -60,7 +60,7 @@ func (*CommitQC) MaxSize() int {
 }
 
 func (*FullCommitQC) MaxSize() int {
-	return 31635
+	return 136935
 }
 
 func (*TimeoutVote) MaxSize() int {
