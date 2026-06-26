@@ -346,7 +346,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	}()
 
 	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
-		if url, ok := t.tmClient.EvmProxy(address); ok {
+		if url, ok := t.tmClient.EvmProxy(address).Get(); ok {
 			recordRedirectedRequest(ctx, "eth_getTransactionCount", string(t.connectionType))
 
 			// HTTP transport pooling already happens globally underneath net/http, so

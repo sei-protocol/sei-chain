@@ -20,11 +20,16 @@ func firstErr(errs ...error) error {
 }
 
 // msgTest tests a converter, generalized msg converter and signed msg converter.
-func msgTest[T Msg, P protoutils.Message](rng utils.Rng, msg T, conv protoutils.Conv[T, P]) error {
+func msgTest[T Msg, P protoutils.Message, SP protoutils.Message](
+	rng utils.Rng,
+	msg T,
+	conv protoutils.Conv[T, P],
+	signedConv protoutils.Conv[*Signed[T], SP],
+) error {
 	return firstErr(
 		conv.Test(msg),
 		MsgConv.Test(msg),
-		SignedMsgConv[T]().Test(GenSigned(rng, msg)),
+		signedConv.Test(GenSigned(rng, msg)),
 	)
 }
 
@@ -57,13 +62,13 @@ func TestConv(t *testing.T) {
 			ConsensusReqConv.Test(&ConsensusReqCommitVote{GenSigned(rng, GenCommitVote(rng))}),
 			ConsensusReqConv.Test(GenFullTimeoutVote(rng)),
 			ConsensusReqConv.Test(GenTimeoutQC(rng)),
-			msgTest(rng, GenLaneProposal(rng), LaneProposalConv),
-			msgTest(rng, GenLaneVote(rng), LaneVoteConv),
-			msgTest(rng, GenProposal(rng), ProposalConv),
-			msgTest(rng, GenPrepareVote(rng), PrepareVoteConv),
-			msgTest(rng, GenCommitVote(rng), CommitVoteConv),
-			msgTest(rng, GenTimeoutVote(rng), TimeoutVoteConv),
-			msgTest(rng, GenAppVote(rng), AppVoteConv),
+			msgTest(rng, GenLaneProposal(rng), LaneProposalConv, SignedLaneProposalConv),
+			msgTest(rng, GenLaneVote(rng), LaneVoteConv, SignedLaneVoteConv),
+			msgTest(rng, GenProposal(rng), ProposalConv, SignedProposalConv),
+			msgTest(rng, GenPrepareVote(rng), PrepareVoteConv, SignedPrepareVoteConv),
+			msgTest(rng, GenCommitVote(rng), CommitVoteConv, SignedCommitVoteConv),
+			msgTest(rng, GenTimeoutVote(rng), TimeoutVoteConv, SignedTimeoutVoteConv),
+			msgTest(rng, GenAppVote(rng), AppVoteConv, SignedAppVoteConv),
 		); err != nil {
 			t.Error(err)
 		}

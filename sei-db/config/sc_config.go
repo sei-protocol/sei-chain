@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 const (
@@ -30,9 +31,9 @@ type StateCommitConfig struct {
 
 	// WriteMode defines the write routing mode for EVM data.
 	// Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
-	// all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write.
+	// all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write, auto.
 	// defaults to memiavl_only.
-	WriteMode WriteMode `mapstructure:"write-mode"`
+	WriteMode types.WriteMode `mapstructure:"write-mode"`
 
 	// MemIAVLConfig is the configuration for the MemIAVL (Cosmos) backend
 	MemIAVLConfig memiavl.Config
@@ -58,7 +59,7 @@ type StateCommitConfig struct {
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
 		Enable:                     true,
-		WriteMode:                  MemiavlOnly,
+		WriteMode:                  types.MemiavlOnly,
 		MemIAVLConfig:              memiavl.DefaultConfig(),
 		FlatKVConfig:               *config.DefaultConfig(),
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,

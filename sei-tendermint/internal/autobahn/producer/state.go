@@ -28,7 +28,6 @@ type Config struct {
 	// benchmarks with stable throughput, in case execution performance degrades
 	// when overloaded.
 	MaxTxsPerSecond utils.Option[uint64]
-	App             *proxy.Proxy
 }
 
 const minTxGas = 21000
@@ -40,6 +39,7 @@ func (c *Config) maxTxsPerBlock() uint64 {
 // State is the block producer state.
 type State struct {
 	cfg     *Config
+	app     *proxy.Proxy
 	mempool utils.Watch[*mempool]
 	// consensus state to which published blocks will be reported.
 	consensus *consensus.State
@@ -47,11 +47,12 @@ type State struct {
 
 // NewState constructs a new block producer state.
 // Returns an error if the current node is NOT a producer.
-func NewState(cfg *Config, consensus *consensus.State) *State {
+func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State {
 	lane := consensus.Avail().PublicKey()
 	n := consensus.Avail().NextBlock(lane)
 	return &State{
 		cfg: cfg,
+		app: app,
 		mempool: utils.NewWatch(&mempool{
 			capacity:  avail.BlocksPerLane,
 			first:     n,

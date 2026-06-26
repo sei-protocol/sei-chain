@@ -79,6 +79,23 @@ func TestPayloadWireguardRejectsTooManyTxs(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestLaneQCWireguardAcceptsMaxValidators(t *testing.T) {
+	committee, keys := maxValidatorCommittee(t)
+	rng := utils.TestRng()
+	lane := committee.Leader(View{})
+	vote := NewLaneVote(NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
+	votes := make([]*Signed[*LaneVote], len(keys))
+	for i, key := range keys {
+		votes[i] = Sign(key, vote)
+	}
+	qc := NewLaneQC(votes)
+
+	raw := protoutils.Marshal(LaneQCConv.Encode(qc))
+	decoded, err := protoutils.Unmarshal[*pb.LaneQC](raw)
+	require.NoError(t, err)
+	require.Len(t, decoded.Sigs, MaxValidators)
+}
+
 func TestPrepareQCWireguardAcceptsMaxValidators(t *testing.T) {
 	_, keys := maxValidatorCommittee(t)
 	rng := utils.TestRng()
@@ -111,6 +128,34 @@ func TestCommitQCWireguardAcceptsMaxValidators(t *testing.T) {
 	require.Len(t, decoded.Sigs, MaxValidators)
 }
 
+func TestFullCommitQCWireguardAcceptsMaxValidatorsAndHeaders(t *testing.T) {
+	committee, keys := maxValidatorCommittee(t)
+	rng := utils.TestRng()
+	laneRanges := make([]*LaneRange, 0, MaxValidators)
+	headers := make([]*BlockHeader, 0, MaxValidators*MaxLaneRangeInProposal)
+	for lane := range committee.Lanes().All() {
+		parentHash := GenBlockHeaderHash(rng)
+		var lastHeader *BlockHeader
+		for blockNumber := range BlockNumber(MaxLaneRangeInProposal) {
+			lastHeader = NewBlock(lane, blockNumber, parentHash, GenPayload(rng)).Header()
+			headers = append(headers, lastHeader)
+			parentHash = lastHeader.Hash()
+		}
+		laneRanges = append(laneRanges, NewLaneRange(lane, 0, utils.Some(lastHeader)))
+	}
+	proposal := newProposal(View{}, time.Unix(1, 2), laneRanges, utils.None[*AppProposal]())
+	vote := NewCommitVote(proposal)
+	votes := make([]*Signed[*CommitVote], len(keys))
+	for i, key := range keys {
+		votes[i] = Sign(key, vote)
+	}
+	qc := NewFullCommitQC(NewCommitQC(votes), headers)
+
+	raw := protoutils.Marshal(FullCommitQCConv.Encode(qc))
+	_, err := protoutils.Unmarshal[*pb.FullCommitQC](raw)
+	require.NoError(t, err)
+}
+
 func TestAppQCWireguardAcceptsMaxValidators(t *testing.T) {
 	_, keys := maxValidatorCommittee(t)
 	rng := utils.TestRng()
@@ -138,7 +183,7 @@ func TestTimeoutQCWireguardAcceptsMaxValidators(t *testing.T) {
 	raw := protoutils.Marshal(TimeoutQCConv.Encode(qc))
 	decoded, err := protoutils.Unmarshal[*pb.TimeoutQC](raw)
 	require.NoError(t, err)
-	require.Len(t, decoded.Votes, MaxValidators)
+	require.Len(t, decoded.VotesV2, MaxValidators)
 }
 
 func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
