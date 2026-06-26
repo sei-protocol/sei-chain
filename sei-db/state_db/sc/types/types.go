@@ -164,7 +164,7 @@ type Committer interface {
 	//
 	// Must be called between blocks, before the next block's first write
 	// batch, on the consensus goroutine.
-	SetMigrationBatchSize(batchSize int) error
+	SetMigrationBatchSize(batchSize uint64) error
 
 	// Closer releases all backing resources (open files, background
 	// goroutines, locks). After Close the Committer must not be used.

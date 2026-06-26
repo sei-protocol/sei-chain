@@ -105,7 +105,7 @@ func (cs *CommitStore) SetWriteMode(types.WriteMode) error {
 
 // SetMigrationBatchSize implements types.Committer. The memiavl commit
 // store runs no migration of its own, so this is a no-op.
-func (cs *CommitStore) SetMigrationBatchSize(int) error {
+func (cs *CommitStore) SetMigrationBatchSize(uint64) error {
 	return nil
 }
 

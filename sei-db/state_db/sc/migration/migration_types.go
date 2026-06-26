@@ -85,5 +85,5 @@ type Router interface {
 	// Must be called between blocks, on the same goroutine that drives
 	// ApplyChangeSets. threadSafeRouter additionally serializes it against
 	// concurrent reads.
-	SetMigrationBatchSize(batchSize int)
+	SetMigrationBatchSize(batchSize uint64)
 }

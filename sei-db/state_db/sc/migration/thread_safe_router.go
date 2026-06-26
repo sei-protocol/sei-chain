@@ -60,7 +60,7 @@ func (r *threadSafeRouter) GetProof(store string, key []byte) (*ics23.Commitment
 // SetMigrationBatchSize forwards to the inner router under the write lock,
 // so the update is serialized against in-flight Read / GetProof /
 // ApplyChangeSets calls.
-func (r *threadSafeRouter) SetMigrationBatchSize(batchSize int) {
+func (r *threadSafeRouter) SetMigrationBatchSize(batchSize uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.inner.SetMigrationBatchSize(batchSize)

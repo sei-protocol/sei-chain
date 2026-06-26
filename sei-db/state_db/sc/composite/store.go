@@ -104,7 +104,7 @@ type CompositeCommitStore struct {
 	// blocks) and the build paths that read it must not tear; it mirrors
 	// the between-blocks-write / unsynchronized-read contract used by the
 	// other sticky flags on this struct.
-	migrationBatchSize atomic.Int64
+	migrationBatchSize atomic.Uint64
 
 	// migrationAdvancedThisCommit gates per-block migration progress
 	// against rootmulti.Store's double-flush pattern. rootmulti calls
@@ -457,7 +457,7 @@ func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) er
 func (cs *CompositeCommitStore) buildRouter() error {
 	routerCtx, cancel := context.WithCancel(cs.ctx)
 	router, err := migration.BuildRouter(
-		routerCtx, cs.currentWriteMode, cs.memIAVL, cs.flatKV, int(cs.migrationBatchSize.Load()))
+		routerCtx, cs.currentWriteMode, cs.memIAVL, cs.flatKV, cs.migrationBatchSize.Load())
 	if err != nil {
 		cancel()
 		return fmt.Errorf("failed to build router: %w", err)
@@ -478,8 +478,8 @@ func (cs *CompositeCommitStore) buildRouter() error {
 // Must be called between blocks (the app calls it from BeginBlock, before any
 // ApplyChangeSets). The router's threadSafeRouter wrapper serializes the push
 // against concurrent reads.
-func (cs *CompositeCommitStore) SetMigrationBatchSize(batchSize int) error {
-	cs.migrationBatchSize.Store(int64(batchSize))
+func (cs *CompositeCommitStore) SetMigrationBatchSize(batchSize uint64) error {
+	cs.migrationBatchSize.Store(batchSize)
 	if cs.router != nil {
 		cs.router.SetMigrationBatchSize(batchSize)
 	}
@@ -489,8 +489,8 @@ func (cs *CompositeCommitStore) SetMigrationBatchSize(batchSize int) error {
 // GetMigrationBatchSize returns the governance-controlled migration batch size
 // most recently pushed via SetMigrationBatchSize (0 when never set / paused).
 // It is intended for observability and tests.
-func (cs *CompositeCommitStore) GetMigrationBatchSize() int {
-	return int(cs.migrationBatchSize.Load())
+func (cs *CompositeCommitStore) GetMigrationBatchSize() uint64 {
+	return cs.migrationBatchSize.Load()
 }
 
 // SetWriteMode transitions the effective write mode at runtime. Only legal

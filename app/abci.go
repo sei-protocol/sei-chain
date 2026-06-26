@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"math"
 	"math/big"
 	"time"
 
@@ -68,7 +67,7 @@ func (app *App) BeginBlock(
 // AppHash. 0 (the default until a gov proposal raises it) leaves the migration
 // paused; it is the sole source of the rate (there is no node-local fallback).
 func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
-	if app.rs == nil {
+	if app.rootStore == nil {
 		return
 	}
 	numKeys := migration.DefaultNumKeysToMigratePerBlock
@@ -83,10 +82,7 @@ func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 		}
 		subspace.GetIfExists(ctx, migration.KeyNumKeysToMigratePerBlock, &numKeys)
 	}
-	if numKeys > uint64(math.MaxInt64) {
-		numKeys = uint64(math.MaxInt64)
-	}
-	if err := app.rs.SetMigrationBatchSize(int(numKeys)); err != nil {
+	if err := app.rootStore.SetMigrationBatchSize(numKeys); err != nil {
 		logger.Error("failed to set SC migration batch size", "err", err)
 	}
 }

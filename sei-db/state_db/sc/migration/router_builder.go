@@ -21,7 +21,7 @@ func BuildRouter(
 	memIAVL *memiavl.CommitStore,
 	flatKV flatkv.Store,
 	// If this router will be doing data migration, this is the number of keys to migrate in each batch.
-	migrationBatchSize int,
+	migrationBatchSize uint64,
 ) (Router, error) {
 
 	switch writeMode {
@@ -149,7 +149,7 @@ func buildMigrateEVMRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
 	flatKV flatkv.Store,
-	migrationBatchSize int,
+	migrationBatchSize uint64,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -158,10 +158,6 @@ func buildMigrateEVMRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	if migrationBatchSize < 0 {
-		return nil, fmt.Errorf("migrationBatchSize must not be negative")
-	}
-
 	// Manages migration and routing for keys in the evm/ module.
 	migrationManager, err := NewMigrationManager(
 		migrationBatchSize,
@@ -273,7 +269,7 @@ func buildMigrateAllButBankRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
 	flatKV flatkv.Store,
-	migrationBatchSize int,
+	migrationBatchSize uint64,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -282,10 +278,6 @@ func buildMigrateAllButBankRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	if migrationBatchSize < 0 {
-		return nil, fmt.Errorf("migrationBatchSize must not be negative")
-	}
-
 	allModulesButEvmAndBank, err := keys.AllModulesExcept(keys.EVMStoreKey, keys.BankStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
@@ -402,7 +394,7 @@ func buildMigrateBankRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
 	flatKV flatkv.Store,
-	migrationBatchSize int,
+	migrationBatchSize uint64,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -411,10 +403,6 @@ func buildMigrateBankRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	if migrationBatchSize < 0 {
-		return nil, fmt.Errorf("migrationBatchSize must not be negative")
-	}
-
 	allButBankModules, err := keys.AllModulesExcept(keys.BankStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)

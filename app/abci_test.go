@@ -39,22 +39,22 @@ func TestApplyMigrationBatchSize(t *testing.T) {
 
 	// Unset param: the store receives the default (0 = paused).
 	a.applyMigrationBatchSize(ctx)
-	got, ok := a.rs.GetMigrationBatchSize()
+	got, ok := a.rootStore.GetMigrationBatchSize()
 	require.True(t, ok, "SC store should track a migration batch size")
-	require.Equal(t, 0, got)
+	require.Equal(t, uint64(0), got)
 
 	// Governance raises the rate: BeginBlock forwards the new value.
 	subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, uint64(500))
 	a.applyMigrationBatchSize(ctx)
-	got, _ = a.rs.GetMigrationBatchSize()
-	require.Equal(t, 500, got)
+	got, _ = a.rootStore.GetMigrationBatchSize()
+	require.Equal(t, uint64(500), got)
 
-	// Out-of-int64-range values are clamped to MaxInt64 (defensive; gov
-	// validation only type-checks).
+	// The whole batch-size path is uint64 end-to-end, so the full param
+	// range is forwarded verbatim with no conversion or clamping.
 	subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, uint64(math.MaxUint64))
 	a.applyMigrationBatchSize(ctx)
-	got, _ = a.rs.GetMigrationBatchSize()
-	require.Equal(t, math.MaxInt64, got)
+	got, _ = a.rootStore.GetMigrationBatchSize()
+	require.Equal(t, uint64(math.MaxUint64), got)
 }
 
 // TestBeginBlockAppliesMigrationBatchSize exercises the full BeginBlock path
@@ -66,9 +66,9 @@ func TestBeginBlockAppliesMigrationBatchSize(t *testing.T) {
 	ctx := a.NewContext(false, tmproto.Header{Height: 2, ChainID: "sei-test", Time: time.Now()})
 
 	// Sanity: nothing set yet, so the store is paused at 0.
-	before, ok := a.rs.GetMigrationBatchSize()
+	before, ok := a.rootStore.GetMigrationBatchSize()
 	require.True(t, ok)
-	require.Equal(t, 0, before)
+	require.Equal(t, uint64(0), before)
 
 	// Simulate the gov proposal landing in chain state.
 	subspace, ok := a.ParamsKeeper.GetSubspace(migration.SubspaceName)
@@ -80,8 +80,8 @@ func TestBeginBlockAppliesMigrationBatchSize(t *testing.T) {
 		a.BeginBlock(ctx, 2, nil, nil, false)
 	})
 
-	after, _ := a.rs.GetMigrationBatchSize()
-	require.Equal(t, 321, after, "BeginBlock should push the gov param into the SC store")
+	after, _ := a.rootStore.GetMigrationBatchSize()
+	require.Equal(t, uint64(321), after, "BeginBlock should push the gov param into the SC store")
 }
 
 // TestMigrationBatchSizeTakesEffectNextBlock is the full end-to-end timing
@@ -109,9 +109,9 @@ func TestMigrationBatchSizeTakesEffectNextBlock(t *testing.T) {
 
 	// The param was committed in block 1, but BeginBlock(1) ran before it
 	// existed, so the rate is still paused at this point.
-	got, ok := a.rs.GetMigrationBatchSize()
+	got, ok := a.rootStore.GetMigrationBatchSize()
 	require.True(t, ok)
-	require.Equal(t, 0, got, "param committed in block 1 must not take effect within block 1")
+	require.Equal(t, uint64(0), got, "param committed in block 1 must not take effect within block 1")
 
 	// Block 2: BeginBlock reads the now-committed param and applies it.
 	_, err = a.FinalizeBlock(bg, &abci.RequestFinalizeBlock{
@@ -119,6 +119,6 @@ func TestMigrationBatchSizeTakesEffectNextBlock(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	got, _ = a.rs.GetMigrationBatchSize()
-	require.Equal(t, 640, got, "migration rate must take effect on the block after the param is committed")
+	got, _ = a.rootStore.GetMigrationBatchSize()
+	require.Equal(t, uint64(640), got, "migration rate must take effect on the block after the param is committed")
 }

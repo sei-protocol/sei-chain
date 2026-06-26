@@ -86,7 +86,7 @@ func driveRootMultiMigration(
 	dir string,
 	phase1Blocks, phase2Blocks int,
 	phase1StorageKeysPerBlock int,
-	migrateBatchSize int,
+	migrateBatchSize uint64,
 ) (*Store, map[string]*types.KVStoreKey, []commitRecord) {
 	t.Helper()
 

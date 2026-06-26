@@ -11,21 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/proto"
 	"github.com/holiman/uint256"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
-	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	sdbm "github.com/sei-protocol/sei-tm-db/backends"
 	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 	leveldbutils "github.com/syndtr/goleveldb/leveldb/util"
@@ -35,6 +20,23 @@ import (
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	sdbm "github.com/sei-protocol/sei-tm-db/backends"
 )
 
 const (
@@ -439,6 +441,15 @@ func DefaultStoreLoader(ms sdk.CommitMultiStore) error {
 // UNSAFE: must not be used during the abci life cycle.
 func (app *BaseApp) CommitMultiStore() sdk.CommitMultiStore {
 	return app.cms
+}
+
+// V2RootMultiStore The v2 rootmulti store is the only supported commit multistore;
+// Fail fast if the legacy root multistore is somehow in use.
+func (app *BaseApp) V2RootMultiStore() *rootmulti.Store {
+	if cms, ok := app.cms.(*rootmulti.Store); ok {
+		return cms
+	}
+	panic(fmt.Sprintf("unsupported commit multistore %T: expected storeV2 CMS", app.CommitMultiStore()))
 }
 
 // SnapshotManager returns the snapshot manager.

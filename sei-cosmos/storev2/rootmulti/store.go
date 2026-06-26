@@ -656,7 +656,7 @@ func (rs *Store) SetInitialVersion(version int64) error {
 // Unlike SetWriteMode this does not swap the router or touch the cached
 // views, so no view rebuild (and no pending-changes guard) is needed. The
 // app calls it from BeginBlock, before the block's first write.
-func (rs *Store) SetMigrationBatchSize(batchSize int) error {
+func (rs *Store) SetMigrationBatchSize(batchSize uint64) error {
 	if err := rs.scStore.SetMigrationBatchSize(batchSize); err != nil {
 		return fmt.Errorf("failed to set SC store migration batch size: %w", err)
 	}
@@ -667,8 +667,8 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 // last pushed into the SC store via SetMigrationBatchSize. The bool is false
 // when the underlying SC store does not track one. Intended for observability
 // and tests.
-func (rs *Store) GetMigrationBatchSize() (int, bool) {
-	if g, ok := rs.scStore.(interface{ GetMigrationBatchSize() int }); ok {
+func (rs *Store) GetMigrationBatchSize() (uint64, bool) {
+	if g, ok := rs.scStore.(interface{ GetMigrationBatchSize() uint64 }); ok {
 		return g.GetMigrationBatchSize(), true
 	}
 	return 0, false
