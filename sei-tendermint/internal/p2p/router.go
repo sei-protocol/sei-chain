@@ -241,7 +241,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					release()
 					return r.runConn(ctx, hConn, info, utils.None[NodeAddress]())
 				})
-				logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
+				logger.Info("r.runConn(inbound)", "addr", addr, "err", err)
 				return nil
 			})
 		}
@@ -319,7 +319,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 					}
 					return nil
 				})
-				logger.Error("r.runConn(outbound)", "id", id, "err", err)
+				logger.Warn("r.runConn(outbound)", "id", id, "err", err)
 				return nil
 			})
 		}
@@ -364,7 +364,7 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 
 // Evict reports a peer misbehavior and forces peer to be disconnected.
 func (r *Router) Evict(id types.NodeID, err error) {
-	logger.Error("evicting", "peer", id, "err", err)
+	logger.Warn("evicting", "peer", id, "err", err)
 	r.peerManager.Evict(id)
 }
 

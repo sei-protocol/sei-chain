@@ -11,6 +11,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/spf13/viper"
 )
@@ -24,6 +25,10 @@ const (
 
 	// DefaultGRPCWebAddress defines the default address to bind the gRPC-web server to.
 	DefaultGRPCWebAddress = "0.0.0.0:9091"
+
+	// DefaultGRPCWebMaxOpenConnections defines the default maximum number of
+	// simultaneous open connections for the gRPC-web server.
+	DefaultGRPCWebMaxOpenConnections = 1000
 
 	// DefaultOccEanbled defines whether to use OCC for tx processing
 	DefaultOccEnabled = true
@@ -179,6 +184,9 @@ type GRPCWebConfig struct {
 
 	// EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk)
 	EnableUnsafeCORS bool `mapstructure:"enable-unsafe-cors"`
+
+	// MaxOpenConnections defines the maximum number of simultaneous open connections. 0 means unlimited.
+	MaxOpenConnections uint `mapstructure:"max-open-connections"`
 }
 
 // StateSyncConfig defines the state sync snapshot configuration.
@@ -291,8 +299,9 @@ func DefaultConfig() *Config {
 			Offline:    false,
 		},
 		GRPCWeb: GRPCWebConfig{
-			Enable:  true,
-			Address: DefaultGRPCWebAddress,
+			Enable:             true,
+			Address:            DefaultGRPCWebAddress,
+			MaxOpenConnections: DefaultGRPCWebMaxOpenConnections,
 		},
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   0,
@@ -332,7 +341,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	// default, matching the behavior of app/seidb.go.
 	scWriteMode := config.DefaultStateCommitConfig().WriteMode
 	if wm := v.GetString("state-commit.sc-write-mode"); wm != "" {
-		parsed, err := config.ParseWriteMode(wm)
+		parsed, err := sctypes.ParseWriteMode(wm)
 		if err != nil {
 			return Config{}, fmt.Errorf("invalid state-commit.sc-write-mode %q: %w", wm, err)
 		}
@@ -354,6 +363,14 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	}
 	if v.IsSet("state-commit.flatkv.enable-read-write-metrics") {
 		flatKVConfig.EnableReadWriteMetrics = v.GetBool("state-commit.flatkv.enable-read-write-metrics")
+	}
+
+	// Apply the in-code default when the key is absent so that nodes upgrading
+	// with an older app.toml (which lacks this key) are still bounded rather
+	// than running with unlimited connections.
+	grpcWebMaxOpenConnections := uint(DefaultGRPCWebMaxOpenConnections)
+	if v.IsSet("grpc-web.max-open-connections") {
+		grpcWebMaxOpenConnections = v.GetUint("grpc-web.max-open-connections")
 	}
 
 	return Config{
@@ -403,9 +420,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			Address: v.GetString("grpc.address"),
 		},
 		GRPCWeb: GRPCWebConfig{
-			Enable:           v.GetBool("grpc-web.enable"),
-			Address:          v.GetString("grpc-web.address"),
-			EnableUnsafeCORS: v.GetBool("grpc-web.enable-unsafe-cors"),
+			Enable:             v.GetBool("grpc-web.enable"),
+			Address:            v.GetString("grpc-web.address"),
+			EnableUnsafeCORS:   v.GetBool("grpc-web.enable-unsafe-cors"),
+			MaxOpenConnections: grpcWebMaxOpenConnections,
 		},
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   v.GetUint64("state-sync.snapshot-interval"),

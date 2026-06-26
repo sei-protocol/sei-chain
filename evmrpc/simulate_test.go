@@ -210,6 +210,62 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(8)
 }
 
+func TestEstimateGasAfterCallsMaxCalls(t *testing.T) {
+	testCtx := Ctx.WithBlockHeight(1)
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return testCtx.WithIsTracing(true)
+		}
+		return testCtx.WithBlockHeight(height).WithIsTracing(true)
+	}
+
+	const maxCalls = 2
+	config := &evmrpc.SimulateConfig{
+		GasCap:              1000000,
+		EVMTimeout:          5 * time.Second,
+		MaxEstimateGasCalls: maxCalls,
+	}
+
+	testApp := testkeeper.TestApp(t)
+	watermarks := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
+	simAPI := evmrpc.NewSimulationAPI(
+		ctxProvider,
+		EVMKeeper,
+		legacyabci.BeginBlockKeepers{},
+		func(int64) client.TxConfig { return TxConfig },
+		&MockClient{},
+		config,
+		testApp.BaseApp,
+		testApp.TracerAnteHandler,
+		evmrpc.ConnectionTypeHTTP,
+		evmrpc.NewBlockCache(3000),
+		&sync.Mutex{},
+		watermarks,
+	)
+
+	_, from := testkeeper.MockAddressPair()
+	_, to := testkeeper.MockAddressPair()
+	args := export.TransactionArgs{From: &from, To: &to}
+	call := export.TransactionArgs{From: &from, To: &to}
+
+	// Over the cap: rejected early with the "too many calls" error.
+	oversized := make([]export.TransactionArgs, maxCalls+1)
+	for i := range oversized {
+		oversized[i] = call
+	}
+	_, err := simAPI.EstimateGasAfterCalls(t.Context(), args, oversized, nil, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "too many calls")
+
+	// At the cap: the size guard is passed.
+	atCap := make([]export.TransactionArgs, maxCalls)
+	for i := range atCap {
+		atCap[i] = call
+	}
+	_, err = simAPI.EstimateGasAfterCalls(t.Context(), args, atCap, nil, nil)
+	require.Nil(t, err)
+}
+
 func TestCreateAccessList(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(1)
 
@@ -662,6 +718,48 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		require.Equal(t, numRequests, successCount+rejectedCount, "All estimateGas requests should be accounted for")
 
 		t.Logf("eth_estimateGas rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, numRequests)
+	})
+
+	t.Run("TestCreateAccessListRateLimiting", func(t *testing.T) {
+		tEnv := newTestEnv(t)
+		// Test eth_createAccessList rate limiting
+		numRequests := 8
+		results := make(chan error, numRequests)
+
+		// Start all requests concurrently
+		for i := 0; i < numRequests; i++ {
+			go func() {
+				_, err := tEnv.simAPI.CreateAccessList(t.Context(), tEnv.args, nil)
+				results <- err
+			}()
+		}
+
+		// Collect all results
+		var errors []error
+		for i := 0; i < numRequests; i++ {
+			errors = append(errors, <-results)
+		}
+
+		// Count successful vs rejected requests
+		successCount := 0
+		rejectedCount := 0
+		for _, err := range errors {
+			if err == nil {
+				successCount++
+			} else if strings.Contains(err.Error(), "eth_createAccessList rejected due to rate limit: server busy") {
+				rejectedCount++
+			} else {
+				t.Logf("Unexpected createAccessList error: %v", err)
+			}
+		}
+
+		// Under constrained scheduling these requests can serialize and avoid
+		// rejections. The stable invariant is that every response is either success or
+		// rate-limited.
+		require.Greater(t, successCount, 0, "Should have at least one successful createAccessList request")
+		require.Equal(t, numRequests, successCount+rejectedCount, "All createAccessList requests should be accounted for")
+
+		t.Logf("eth_createAccessList rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, numRequests)
 	})
 
 	t.Run("TestEstimateGasAfterCallsRateLimiting", func(t *testing.T) {
