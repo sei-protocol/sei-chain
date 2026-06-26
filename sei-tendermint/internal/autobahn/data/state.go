@@ -504,7 +504,7 @@ func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*typ
 		if !ok {
 			return utils.None[*types.GlobalBlock](), nil
 		}
-		return utils.Some(inner.globalBlockAt(s.cfg.Registry, n)), nil
+		return utils.Some(inner.globalBlockAt(n)), nil
 	}
 	panic("unreachable")
 }
@@ -547,7 +547,7 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 // globalBlockAt assembles the GlobalBlock at height n from inner state.
 // Caller must have verified n is in [inner.first, inner.nextBlock); n
 // outside that range nil-derefs on inner.blocks[n] / inner.qcs[n].
-func (i *inner) globalBlockAt(registry *epoch.Registry, n types.GlobalBlockNumber) *types.GlobalBlock {
+func (i *inner) globalBlockAt(n types.GlobalBlockNumber) *types.GlobalBlock {
 	b := i.blocks[n]
 	qc := i.qcs[n].QC()
 	return &types.GlobalBlock{
@@ -571,7 +571,7 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		if n < inner.first {
 			return nil, ErrPruned
 		}
-		return inner.globalBlockAt(s.cfg.Registry, n), nil
+		return inner.globalBlockAt(n), nil
 	}
 	panic("unreachable")
 }
