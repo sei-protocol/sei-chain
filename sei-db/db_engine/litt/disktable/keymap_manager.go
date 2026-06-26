@@ -38,6 +38,15 @@ type keymapManagerSyncRequest struct {
 	doneChan chan struct{}
 }
 
+// pendingDelete is a garbage-collected segment's keys awaiting deletion from the keymap. The manager drains
+// it incrementally (deleteBatchSize keys per sub-batch) so a large delete never blocks latency-critical
+// puts. offset is the number of keys already deleted from the front of keys.
+type pendingDelete struct {
+	segment int64
+	keys    []*types.ScopedKey
+	offset  int
+}
+
 // keymapManager asynchronously applies keymap mutations on a single goroutine, off the control loop: puts
 // (newly-durable keys from flushes and seals) and deletes (keys of garbage-collected segments). Keeping all
 // keymap mutation on one FIFO consumer means writes stay in key-file append order (repairKeymap relies on the
@@ -49,8 +58,13 @@ type keymapManagerSyncRequest struct {
 // deletion watermark after its keymap.Delete returns (a durable, synced delete for the production keymap), and
 // the control loop deletes a segment's files only after the watermark covers it.
 //
-// To amortize the keymap's per-write fsync, the manager coalesces scheduled work into a single Put and a
-// single Delete per cycle, up to maxBatchSize keys, flushing a partial batch once maxFlushInterval elapses.
+// Puts are latency-critical (they gate write throughput); deletes are background cleanup (they only gate
+// reclamation of segment files, which may lag freely). The manager therefore prioritizes puts: every cycle it
+// applies the accumulated put batch before applying a single delete sub-batch, and it drains a large delete
+// backlog incrementally so a garbage-collection burst cannot stall writes. To amortize the keymap's per-write
+// fsync, puts coalesce into a single Put of up to maxBatchSize keys, flushing a partial batch once
+// maxFlushInterval elapses. A runaway delete backlog is bounded by maxBufferedDeletes: at that high-water mark
+// the manager stops accepting new work (so the channel backpressures producers) until the backlog drains.
 type keymapManager struct {
 	// handles fatal DB errors and signals an immediate (panic) shutdown
 	errorMonitor *util.ErrorMonitor
@@ -85,6 +99,32 @@ type keymapManager struct {
 	// the maximum time a batch is allowed to accumulate before it is applied, even if not full
 	maxFlushInterval time.Duration
 
+	// maxBufferedDeletes is the high-water mark for bufferedDeleteCount; the manager applies backpressure
+	// (stops popping the channel) at this many buffered delete keys and resumes once it falls to half.
+	maxBufferedDeletes uint64
+
+	// The following fields are mutated only by the run goroutine and require no synchronization.
+
+	// puts is the put batch currently being accumulated. It is applied (one keymap.Put) before each delete
+	// sub-batch, so a put and a same-key delete in flight resolve to deleted (the delete wins).
+	puts []*types.ScopedKey
+
+	// deleteBacklog holds garbage-collected segments' keys awaiting deletion, in arrival (FIFO) order —
+	// oldest segment first. It is drained one sub-batch at a time, interleaved with puts, so a large delete
+	// burst cannot block writes.
+	deleteBacklog []*pendingDelete
+
+	// bufferedDeleteCount is the total number of un-applied keys across deleteBacklog.
+	bufferedDeleteCount uint64
+
+	// backpressure is true while the manager is shedding new work (not popping the channel) to drain a
+	// delete backlog that reached maxBufferedDeletes; it clears once the backlog falls to half.
+	backpressure bool
+
+	// flushTimer bounds how long a partial put batch waits before being applied. It is armed when a batch's
+	// first key is buffered and stopped when the batch is applied; nil when no put batch is pending.
+	flushTimer *time.Timer
+
 	// deletionWatermarkChan publishes the highest segment index whose keymap entries have been durably deleted
 	// to the control loop, which gates segment-file deletion on it. Sends are fire-and-forget (see
 	// publishDeletionWatermark): the manager must never block on the control loop, or it could deadlock the
@@ -105,6 +145,7 @@ func newKeymapManager(
 	maxBatchSize int,
 	deleteBatchSize uint64,
 	maxFlushInterval time.Duration,
+	maxBufferedDeletes uint64,
 	deletionWatermarkChan chan int64,
 ) *keymapManager {
 
@@ -119,6 +160,7 @@ func newKeymapManager(
 		maxBatchSize:          maxBatchSize,
 		deleteBatchSize:       deleteBatchSize,
 		maxFlushInterval:      maxFlushInterval,
+		maxBufferedDeletes:    maxBufferedDeletes,
 		deletionWatermarkChan: deletionWatermarkChan,
 	}
 }
@@ -184,110 +226,202 @@ func (m *keymapManager) sync() error {
 
 // run is the manager's event loop. It exits when it receives a shutdown request (clean shutdown, after
 // draining all queued work) or when the error monitor signals an immediate shutdown (panic).
+//
+// Each cycle coalesces immediately-available work, then either applies a batch or blocks for more. A batch is
+// applied once the put batch is full or a delete backlog exists: puts are applied first (so a put followed by
+// a delete of the same key resolves to deleted), then a single delete sub-batch, which keeps puts flowing
+// while still making steady progress on a delete backlog.
 func (m *keymapManager) run() {
 	for {
-		// Block until there is work to do (or a panic forces an immediate exit).
-		var message any
-		select {
-		case <-m.errorMonitor.ImmediateShutdownRequired():
+		if m.coalesce() {
 			return
-		case message = <-m.requestChan:
 		}
 
-		// A barrier (shutdown or sync) with no batch in progress: all prior work is already applied (FIFO).
-		switch barrier := message.(type) {
-		case *keymapManagerShutdownRequest:
-			barrier.shutdownCompleteChan <- struct{}{}
-			return
-		case *keymapManagerSyncRequest:
-			barrier.doneChan <- struct{}{}
+		if len(m.puts) >= m.maxBatchSize || len(m.deleteBacklog) > 0 {
+			// Enough work to apply: puts first (delete wins on a same-key collision), then one delete
+			// sub-batch so the backlog drains without starving puts.
+			if !m.flushPuts() {
+				return
+			}
+			if len(m.deleteBacklog) > 0 && !m.applyDeleteSubBatch() {
+				return
+			}
 			continue
 		}
 
-		// Start put and delete batches from the first request, then coalesce more work into them.
-		var puts []*types.ScopedKey
-		var deletes []*types.ScopedKey
-		maxDeletedSegment := int64(-1)
-		switch req := message.(type) {
-		case *keymapWriteRequest:
-			puts = req.keys
-		case *keymapDeleteRequest:
-			deletes = req.keys
-			maxDeletedSegment = req.segment
-		}
-
-		barrier, ok := m.accumulate(&puts, &deletes, &maxDeletedSegment)
-		if !ok {
-			// A panic forced an immediate shutdown; abandon the batch (repair restores puts on restart).
+		// Only a partial put batch (or nothing) is pending: block for more work, bounding a partial batch's
+		// wait with the flush timer.
+		if m.awaitWork() {
 			return
-		}
-
-		// Apply puts before deletes so a put followed by a delete of the same key resolves to deleted.
-		if err := m.writeBatch(puts); err != nil {
-			m.errorMonitor.Panic(fmt.Errorf("failed to write keys to keymap: %w", err))
-			return
-		}
-		if err := m.deleteBatch(deletes); err != nil {
-			m.errorMonitor.Panic(fmt.Errorf("failed to delete keys from keymap: %w", err))
-			return
-		}
-
-		// The deletes are now durable, so it is safe to let the control loop delete the corresponding segment
-		// files. maxDeletedSegment is monotonically non-decreasing across batches (FIFO, oldest-first).
-		if maxDeletedSegment >= 0 {
-			m.publishDeletionWatermark(maxDeletedSegment)
-		}
-
-		// Handle the barrier (if any) that ended accumulation, now that the batch has been applied.
-		switch b := barrier.(type) {
-		case *keymapManagerShutdownRequest:
-			b.shutdownCompleteChan <- struct{}{}
-			return
-		case *keymapManagerSyncRequest:
-			b.doneChan <- struct{}{}
 		}
 	}
 }
 
-// accumulate grows the put and delete batches with further scheduled work until their combined size reaches
-// maxBatchSize or maxFlushInterval elapses since the batch began, whichever comes first. maxDeletedSegment is
-// updated to the highest segment index seen across the coalesced delete requests.
-//
-// Returns a non-nil barrier request (shutdown or sync) if one is received, so the caller can apply the batch
-// before acting on it. The boolean is false if a panic-induced shutdown was signalled, in which case the
-// manager must abort without applying.
-func (m *keymapManager) accumulate(
-	puts *[]*types.ScopedKey,
-	deletes *[]*types.ScopedKey,
-	maxDeletedSegment *int64,
-) (any, bool) {
+// refreshBackpressure engages backpressure at the buffered-delete high-water mark and releases it once the
+// backlog falls to half (hysteresis to avoid thrashing). It is called wherever bufferedDeleteCount changes, so
+// coalesce always sees an up-to-date flag — including mid-coalesce, which is what stops an unbounded delete
+// stream from growing the backlog without limit. While engaged the manager stops popping the channel, so
+// producers block until the backlog drains.
+func (m *keymapManager) refreshBackpressure() {
+	if m.bufferedDeleteCount >= m.maxBufferedDeletes {
+		m.backpressure = true
+	} else if m.bufferedDeleteCount <= m.maxBufferedDeletes/2 {
+		m.backpressure = false
+	}
+}
 
-	timer := time.NewTimer(m.maxFlushInterval)
-	defer timer.Stop()
-
-	for len(*puts)+len(*deletes) < m.maxBatchSize {
+// coalesce drains immediately-available requests into the put batch and delete backlog without blocking,
+// stopping once the put batch is full, the delete backlog reaches its high-water mark (backpressure engages),
+// or no request is ready. Returns true if the manager must stop.
+func (m *keymapManager) coalesce() bool {
+	for len(m.puts) < m.maxBatchSize && !m.backpressure {
 		select {
 		case <-m.errorMonitor.ImmediateShutdownRequired():
-			return nil, false
-		case <-timer.C:
-			return nil, true
-		case message := <-m.requestChan:
-			switch req := message.(type) {
-			case *keymapManagerShutdownRequest:
-				return req, true
-			case *keymapManagerSyncRequest:
-				return req, true
-			case *keymapWriteRequest:
-				*puts = append(*puts, req.keys...)
-			case *keymapDeleteRequest:
-				*deletes = append(*deletes, req.keys...)
-				if req.segment > *maxDeletedSegment {
-					*maxDeletedSegment = req.segment
-				}
+			return true
+		case msg := <-m.requestChan:
+			if m.routeRequest(msg) {
+				return true
 			}
+		default:
+			return false
 		}
 	}
-	return nil, true
+	return false
+}
+
+// awaitWork blocks until the next request arrives, or until a pending partial put batch's flush timer fires
+// (whichever first), and applies the result. Returns true if the manager must stop.
+func (m *keymapManager) awaitWork() bool {
+	m.armFlushTimer()
+	select {
+	case <-m.errorMonitor.ImmediateShutdownRequired():
+		return true
+	case msg := <-m.requestChan:
+		return m.routeRequest(msg)
+	case <-m.flushTimerChan():
+		return !m.flushPuts()
+	}
+}
+
+// routeRequest dispatches one received request. Puts append to the put batch; deletes append to the backlog;
+// sync/shutdown barriers drain all buffered work first (FIFO guarantee) and then signal. Returns true iff the
+// manager must stop (shutdown, or a panic during a barrier drain).
+func (m *keymapManager) routeRequest(msg any) bool {
+	switch req := msg.(type) {
+	case *keymapWriteRequest:
+		m.puts = append(m.puts, req.keys...)
+	case *keymapDeleteRequest:
+		m.enqueueDelete(req)
+	case *keymapManagerSyncRequest:
+		if !m.drainAll() {
+			return true
+		}
+		req.doneChan <- struct{}{}
+	case *keymapManagerShutdownRequest:
+		m.drainAll()
+		req.shutdownCompleteChan <- struct{}{}
+		return true
+	default:
+		m.errorMonitor.Panic(fmt.Errorf("unknown keymap manager message type %T", msg))
+		return true
+	}
+	return false
+}
+
+// drainAll applies every buffered put and the entire delete backlog. Sync/shutdown barriers use it to honor
+// their contract that all previously-scheduled work is durable before they return. Returns false on a
+// panic-induced failure.
+func (m *keymapManager) drainAll() bool {
+	if !m.flushPuts() {
+		return false
+	}
+	for len(m.deleteBacklog) > 0 {
+		if !m.applyDeleteSubBatch() {
+			return false
+		}
+	}
+	return true
+}
+
+// flushPuts applies the accumulated put batch (if any) with a single keymap.Put() and stops the flush timer.
+// Returns false on a panic-induced failure, signalling that the manager must stop.
+func (m *keymapManager) flushPuts() bool {
+	if len(m.puts) > 0 {
+		if err := m.writeBatch(m.puts); err != nil {
+			m.errorMonitor.Panic(fmt.Errorf("failed to write keys to keymap: %w", err))
+			return false
+		}
+		m.puts = nil
+	}
+	m.stopFlushTimer()
+	return true
+}
+
+// armFlushTimer starts the flush-interval timer for the current put batch if a batch is pending and the timer
+// is not already running. Anchoring the timer to the batch's first key bounds any key's wait to
+// maxFlushInterval. A no-op when no put batch is pending.
+func (m *keymapManager) armFlushTimer() {
+	if len(m.puts) > 0 && m.flushTimer == nil {
+		m.flushTimer = time.NewTimer(m.maxFlushInterval)
+	}
+}
+
+// stopFlushTimer stops and clears the flush-interval timer if running.
+func (m *keymapManager) stopFlushTimer() {
+	if m.flushTimer != nil {
+		m.flushTimer.Stop()
+		m.flushTimer = nil
+	}
+}
+
+// flushTimerChan returns the flush-interval timer's channel, or nil (which blocks forever in a select) when
+// no put batch is pending.
+func (m *keymapManager) flushTimerChan() <-chan time.Time {
+	if m.flushTimer == nil {
+		return nil
+	}
+	return m.flushTimer.C
+}
+
+// enqueueDelete appends a garbage-collected segment's keys to the delete backlog.
+func (m *keymapManager) enqueueDelete(req *keymapDeleteRequest) {
+	if len(req.keys) == 0 {
+		return
+	}
+	m.deleteBacklog = append(m.deleteBacklog, &pendingDelete{segment: req.segment, keys: req.keys})
+	m.bufferedDeleteCount += uint64(len(req.keys))
+	m.refreshBackpressure()
+}
+
+// applyDeleteSubBatch deletes up to deleteBatchSize keys from the front backlog group. When that group is
+// fully drained it publishes the deletion watermark for its segment (which permits the control loop to delete
+// the segment's files) and removes the group. Backlog groups are FIFO oldest-segment-first, so the published
+// watermark is monotonically non-decreasing. Returns false on a panic-induced failure.
+func (m *keymapManager) applyDeleteSubBatch() bool {
+	front := m.deleteBacklog[0]
+	// deleteBatchSize is a bounded config value (GCBatchSize, validated >= 1), so it fits an int.
+	end := front.offset + int(m.deleteBatchSize) //nolint:gosec // bounded batch size, fits int
+	if end > len(front.keys) {
+		end = len(front.keys)
+	}
+	chunk := front.keys[front.offset:end]
+
+	if err := m.keymap.Delete(chunk); err != nil {
+		m.errorMonitor.Panic(fmt.Errorf("failed to delete keys from keymap: %w", err))
+		return false
+	}
+	m.bufferedDeleteCount -= uint64(len(chunk))
+	m.refreshBackpressure()
+	front.offset = end
+
+	if front.offset >= len(front.keys) {
+		// The whole segment's keymap entries are durably deleted; it is now safe for the control loop to
+		// delete the segment's files.
+		m.publishDeletionWatermark(front.segment)
+		m.deleteBacklog[0] = nil
+		m.deleteBacklog = m.deleteBacklog[1:]
+	}
+	return true
 }
 
 // writeBatch puts a batch of keys into the keymap and then prunes them from the unflushed data cache. The
@@ -313,27 +447,6 @@ func (m *keymapManager) writeBatch(keys []*types.ScopedKey) error {
 	// unflushed data cache.
 	for _, key := range keys {
 		m.unflushedDataCache.Delete(util.UnsafeBytesToString(key.Key))
-	}
-
-	return nil
-}
-
-// deleteBatch deletes a batch of garbage-collected keys from the keymap, in chunks of deleteBatchSize to bound
-// the size of any single keymap.Delete. An empty batch is a no-op. The keys belong to segments being
-// collected; they are long since flushed, so there is nothing to prune from the unflushed data cache.
-func (m *keymapManager) deleteBatch(keys []*types.ScopedKey) error {
-	if len(keys) == 0 {
-		return nil
-	}
-
-	for start := uint64(0); start < uint64(len(keys)); start += m.deleteBatchSize {
-		end := start + m.deleteBatchSize
-		if end > uint64(len(keys)) {
-			end = uint64(len(keys))
-		}
-		if err := m.keymap.Delete(keys[start:end]); err != nil {
-			return fmt.Errorf("failed to delete keys from keymap: %w", err)
-		}
 	}
 
 	return nil

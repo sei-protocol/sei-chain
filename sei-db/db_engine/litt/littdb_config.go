@@ -123,7 +123,7 @@ type Config struct {
 
 	// The maximum number of keys the asynchronous keymap manager coalesces into a single keymap Put or Delete.
 	// Larger values amortize the keymap's per-write fsync across more keys under load; the cap bounds the size
-	// and latency of any single operation. The default is 1024.
+	// and latency of any single operation. The default is 10000.
 	KeymapManagerMaxBatchSize int
 
 	// The maximum time the asynchronous keymap manager accumulates scheduled work before applying a partial batch.
@@ -131,6 +131,13 @@ type Config struct {
 	// does not accumulate within this interval it applies whatever it has, bounding how long a key may wait before
 	// it is written into the keymap. The default is 1 second.
 	KeymapManagerMaxInterval time.Duration
+
+	// The maximum number of garbage-collected keys the keymap manager will buffer awaiting deletion. Deletes are
+	// drained incrementally and always yield to latency-critical puts, so a large garbage-collection burst does
+	// not stall writes; this is the high-water mark at which the manager stops accepting new work (backpressuring
+	// producers via a full channel) until the backlog drains to half. Bounds the manager's peak memory. The
+	// default is 1000000.
+	KeymapManagerMaxBufferedDeletes uint64
 
 	// The capacity of the channel on which the keymap manager publishes its deletion watermark to the control
 	// loop (which gates garbage collection of segment files). Sends are fire-and-forget: if the channel is full
@@ -169,8 +176,9 @@ func DefaultConfigNoPaths() *Config {
 		MetricsUpdateInterval:             time.Second,
 		PurgeLocks:                        false,
 		KeymapManagerChannelSize:          1024,
-		KeymapManagerMaxBatchSize:         1024,
+		KeymapManagerMaxBatchSize:         10_000,
 		KeymapManagerMaxInterval:          time.Second,
+		KeymapManagerMaxBufferedDeletes:   1_000_000,
 		KeymapManagerWatermarkChannelSize: 1024,
 	}
 }
@@ -231,6 +239,9 @@ func (c *Config) Validate() error {
 	}
 	if c.KeymapManagerMaxInterval <= 0 {
 		return fmt.Errorf("keymap write max interval must be greater than zero")
+	}
+	if c.KeymapManagerMaxBufferedDeletes < 1 {
+		return fmt.Errorf("keymap max buffered deletes must be at least 1")
 	}
 	if c.KeymapManagerWatermarkChannelSize < 1 {
 		return fmt.Errorf("keymap watermark channel size must be at least 1")

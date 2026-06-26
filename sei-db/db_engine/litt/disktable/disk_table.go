@@ -263,6 +263,7 @@ func NewDiskTable(
 		config.KeymapManagerMaxBatchSize,
 		config.GCBatchSize,
 		config.KeymapManagerMaxInterval,
+		config.KeymapManagerMaxBufferedDeletes,
 		deletionWatermarkChan,
 	)
 	table.keymapManager = kManager
