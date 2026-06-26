@@ -49,6 +49,7 @@ func (g *seiLegacyHTTPGate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = r.Body.Close()
 	if err != nil {
 		if maxErr := (*http.MaxBytesError)(nil); errors.As(err, &maxErr) {
+			recordRequestRejected(r.Context(), rejectReasonOversize)
 			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 			return
 		}
@@ -56,6 +57,7 @@ func (g *seiLegacyHTTPGate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if int64(len(body)) > g.maxBody {
+		recordRequestRejected(r.Context(), rejectReasonOversize)
 		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
