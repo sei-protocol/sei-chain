@@ -3,7 +3,6 @@ package epoch
 import (
 	"fmt"
 	"math"
-	"sort"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -55,25 +54,6 @@ func (r *Registry) GenesisTimestamp() time.Time {
 		return r.epochs[0].FirstTimestamp()
 	}
 	panic("unreachable")
-}
-
-// EpochFor returns the epoch active at the given RoadIndex.
-func (r *Registry) EpochFor(road types.RoadIndex) *types.Epoch {
-	for range r.mu.RLock() {
-		return r.epochForLocked(road)
-	}
-	panic("unreachable")
-}
-
-func (r *Registry) epochForLocked(road types.RoadIndex) *types.Epoch {
-	// find first epoch whose Roads().First > road; the one before it is active
-	idx := sort.Search(len(r.epochs), func(i int) bool {
-		return r.epochs[i].Roads().First > road
-	})
-	if idx == 0 {
-		return r.epochs[0]
-	}
-	return r.epochs[idx-1]
 }
 
 // EpochForProposal returns the epoch declared by p.EpochIndex().

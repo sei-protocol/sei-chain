@@ -19,8 +19,8 @@ func makeSequentialFullCommitQCs(
 	qcs := make([]*types.FullCommitQC, n)
 	prev := utils.None[*types.CommitQC]()
 	for i := range n {
-		vs := types.ViewSpec{CommitQC: prev}
-		committee := registry.EpochFor(vs.View().Index).Committee()
+		vs := types.ViewSpec{CommitQC: prev, Epoch: registry.LatestEpoch()}
+		committee := vs.Epoch.Committee()
 		lane := committee.Lanes().At(rng.Intn(committee.Lanes().Len()))
 		b := types.NewBlock(lane, types.LaneRangeOpt(prev, lane).Next(), types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 		lv := types.NewLaneVote(b.Header())

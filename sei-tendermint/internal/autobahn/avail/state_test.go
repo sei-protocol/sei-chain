@@ -60,9 +60,8 @@ func makeCommitQC(
 	laneQCs map[types.LaneID]*types.LaneQC,
 	appQC utils.Option[*types.AppQC],
 ) *types.CommitQC {
-	vs := types.ViewSpec{CommitQC: prev}
-	committee := registry.EpochFor(vs.View().Index).Committee()
-	return types.BuildCommitQC(committee, keys, prev, registry.FirstBlock(), time.Time{}, laneQCs, appQC)
+	vs := types.ViewSpec{CommitQC: prev, Epoch: registry.LatestEpoch()}
+	return types.BuildCommitQC(vs.Epoch.Committee(), keys, prev, registry.FirstBlock(), time.Time{}, laneQCs, appQC)
 }
 
 func qcPayloadHashes(qc *types.FullCommitQC) byLane[types.PayloadHash] {
