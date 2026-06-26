@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"math"
 	"math/big"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	otelmetrics "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	"github.com/sei-protocol/sei-chain/app/migration"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/tasks"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -53,9 +55,31 @@ func (app *App) BeginBlock(
 	if app.HardForkManager.TargetHeightReached(ctx) {
 		app.HardForkManager.ExecuteForTargetHeight(ctx)
 	}
+	app.applyMigrationBatchSize(ctx)
 	legacyabci.BeginBlock(ctx, height, votes, byzantineValidators, app.BeginBlockKeepers)
 	return abci.ResponseBeginBlock{
 		Events: sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents),
+	}
+}
+
+// applyMigrationBatchSize paces the SC store's background data migration at the network-agreed rate.
+// The NumKeysToMigratePerBlock gov param is read from chain state so every node
+// applies the same value each block; a per-node rate would diverge the
+// AppHash. 0 (the default until a gov proposal raises it) leaves the migration
+// paused, falling back to the node-local sc-keys-to-migrate-per-block config.
+func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
+	if app.scStore == nil {
+		return
+	}
+	numKeys := migration.DefaultNumKeysToMigratePerBlock
+	if subspace, ok := app.ParamsKeeper.GetSubspace(migration.SubspaceName); ok {
+		subspace.GetIfExists(ctx, migration.KeyNumKeysToMigratePerBlock, &numKeys)
+	}
+	if numKeys > uint64(math.MaxInt64) {
+		numKeys = uint64(math.MaxInt64)
+	}
+	if err := app.scStore.SetMigrationBatchSize(int(numKeys)); err != nil {
+		logger.Error("failed to set SC migration batch size", "err", err)
 	}
 }
 

@@ -73,4 +73,17 @@ type Router interface {
 	// Get a proof of the value for a key in a store. Some stores may not support proofs,
 	// and this method will return an error in that case.
 	GetProof(store string, key []byte) (*ics23.CommitmentProof, error)
+
+	// SetMigrationBatchSize updates the number of keys migrated per block.
+	//
+	// Only routers that perform data migration act on this; every other
+	// router treats it as a no-op. Composite/wrapper routers forward it to
+	// the underlying migration manager. A value of 0 pauses the migration
+	// (caller writes still route normally; only the background key transfer
+	// stops advancing).
+	//
+	// Must be called between blocks, on the same goroutine that drives
+	// ApplyChangeSets. threadSafeRouter additionally serializes it against
+	// concurrent reads.
+	SetMigrationBatchSize(batchSize int)
 }

@@ -236,12 +236,14 @@ sc-snapshot-writer-limit = 2
 # CacheSize defines the size of the LRU cache for each store on top of the tree, default to 100000.
 sc-cache-size = 1000
 
-# KeysToMigratePerBlock controls how many EVM keys the in-flight migration
-# (sc-write-mode = migrate_evm / migrate_bank / migrate_all_but_bank) drains
-# from memiavl into flatkv per block. Default 1024 is appropriate for
-# production drains; tests lower it to spread the migration across more
-# blocks and exercise the resume / hybrid-read path.
-sc-keys-to-migrate-per-block = 1024
+# KeysToMigratePerBlock is the LOCAL FALLBACK for how many EVM keys the
+# in-flight migration (sc-write-mode = migrate_evm / migrate_bank /
+# migrate_all_but_bank) drains from memiavl into flatkv per block. It is only
+# used when the governance-controlled NumKeysToMigratePerBlock param is unset
+# (0); a positive param overrides it. Default 0 keeps the migration paused
+# until governance raises the param. Migration rate is consensus-relevant, so
+# do not set a non-zero value on a single node.
+sc-keys-to-migrate-per-block = 0
 
 [state-store]
 

@@ -649,6 +649,31 @@ func (rs *Store) SetInitialVersion(version int64) error {
 	return rs.scStore.SetInitialVersion(version)
 }
 
+// SetMigrationBatchSize forwards the governance-controlled number of keys
+// to migrate per block to the SC store. Only a composite store mid-
+// migration acts on it; every other SC store treats it as a no-op.
+//
+// Unlike SetWriteMode this does not swap the router or touch the cached
+// views, so no view rebuild (and no pending-changes guard) is needed. The
+// app calls it from BeginBlock, before the block's first write.
+func (rs *Store) SetMigrationBatchSize(batchSize int) error {
+	if err := rs.scStore.SetMigrationBatchSize(batchSize); err != nil {
+		return fmt.Errorf("failed to set SC store migration batch size: %w", err)
+	}
+	return nil
+}
+
+// GetMigrationBatchSize returns the governance-controlled migration batch size
+// last pushed into the SC store via SetMigrationBatchSize. The bool is false
+// when the underlying SC store does not track one. Intended for observability
+// and tests.
+func (rs *Store) GetMigrationBatchSize() (int, bool) {
+	if g, ok := rs.scStore.(interface{ GetMigrationBatchSize() int }); ok {
+		return g.GetMigrationBatchSize(), true
+	}
+	return 0, false
+}
+
 // Implements interface CommitMultiStore
 func (rs *Store) SetLazyLoading(_ bool) {
 }

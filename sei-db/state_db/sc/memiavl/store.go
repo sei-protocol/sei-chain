@@ -103,6 +103,12 @@ func (cs *CommitStore) SetWriteMode(types.WriteMode) error {
 	return fmt.Errorf("memiavl commit store does not support runtime write-mode changes")
 }
 
+// SetMigrationBatchSize implements types.Committer. The memiavl commit
+// store runs no migration of its own, so this is a no-op.
+func (cs *CommitStore) SetMigrationBatchSize(int) error {
+	return nil
+}
+
 // Copy returns an O(1) memiavl snapshot; COW nodes are shared with the live store.
 func (cs *CommitStore) Copy() types.Committer {
 	if cs == nil || cs.db == nil {

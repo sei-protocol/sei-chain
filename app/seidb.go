@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-
 	"github.com/spf13/cast"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"

@@ -158,8 +158,8 @@ func buildMigrateEVMRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	if migrationBatchSize <= 0 {
-		return nil, fmt.Errorf("migrationBatchSize must be greater than 0")
+	if migrationBatchSize < 0 {
+		return nil, fmt.Errorf("migrationBatchSize must not be negative")
 	}
 
 	// Manages migration and routing for keys in the evm/ module.
@@ -282,8 +282,8 @@ func buildMigrateAllButBankRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	if migrationBatchSize <= 0 {
-		return nil, fmt.Errorf("migrationBatchSize must be greater than 0")
+	if migrationBatchSize < 0 {
+		return nil, fmt.Errorf("migrationBatchSize must not be negative")
 	}
 
 	allModulesButEvmAndBank, err := keys.AllModulesExcept(keys.EVMStoreKey, keys.BankStoreKey)
@@ -411,8 +411,8 @@ func buildMigrateBankRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	if migrationBatchSize <= 0 {
-		return nil, fmt.Errorf("migrationBatchSize must be greater than 0")
+	if migrationBatchSize < 0 {
+		return nil, fmt.Errorf("migrationBatchSize must not be negative")
 	}
 
 	allButBankModules, err := keys.AllModulesExcept(keys.BankStoreKey)
