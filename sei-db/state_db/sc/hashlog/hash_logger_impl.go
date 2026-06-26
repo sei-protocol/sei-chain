@@ -777,14 +777,22 @@ func (h *hashLoggerImpl) handleWrite(log *HashLog) error {
 
 // rotateToColumns seals the current mutable file, records its bookkeeping, opens a fresh mutable file
 // with the given columns as its header, and runs GC. An empty current file (no blocks written) is
-// removed by recordSealedFile rather than sealed, so a burst of column changes between blocks leaves no
-// orphan files behind. The column set is owned by the writer (mutableFile.hashTypes); the control loop
-// hands new columns in via the rotate message, so the two goroutines never share the slice.
+// removed by recordSealedFile rather than sealed, and its file index is reused for the new file rather
+// than burned — so a burst of column changes between blocks (e.g. the startup registration of every
+// category) leaves neither orphan files nor index gaps behind. The column set is owned by the writer
+// (mutableFile.hashTypes); the control loop hands new columns in via the rotate message, so the two
+// goroutines never share the slice.
 func (h *hashLoggerImpl) rotateToColumns(columns []string) error {
-	if err := h.recordSealedFile(); err != nil {
+	hadBlocks, err := h.recordSealedFile()
+	if err != nil {
 		return err
 	}
-	h.mutableLogFileIndex++
+	// Only consume the index if the sealed file actually held blocks. An unwritten file was just removed
+	// and recorded nothing, so reuse its index. The reused index is always > every sealed index (it is
+	// the current mutable index), so this never collides with an existing sealed file.
+	if hadBlocks {
+		h.mutableLogFileIndex++
+	}
 	newFile, err := newHashLogFile(h.directory, h.mutableLogFileIndex, h.version, columns)
 	if err != nil {
 		return fmt.Errorf("failed to open new mutable hash log file: %w", err)
@@ -795,7 +803,7 @@ func (h *hashLoggerImpl) rotateToColumns(columns []string) error {
 }
 
 func (h *hashLoggerImpl) sealMutableAndGC() error {
-	if err := h.recordSealedFile(); err != nil {
+	if _, err := h.recordSealedFile(); err != nil {
 		return err
 	}
 	h.runGC()
@@ -803,8 +811,9 @@ func (h *hashLoggerImpl) sealMutableAndGC() error {
 }
 
 // recordSealedFile seals the current mutable file and, if it held any blocks, adds it to the sealed-file
-// bookkeeping. An empty file is removed by close() and leaves no bookkeeping behind.
-func (h *hashLoggerImpl) recordSealedFile() error {
+// bookkeeping. An empty file is removed by close() and leaves no bookkeeping behind. The returned bool
+// reports whether the file held any blocks (and thus consumed its file index).
+func (h *hashLoggerImpl) recordSealedFile() (bool, error) {
 	hadBlocks := h.mutableFile.hasBlocks
 	idx := h.mutableFile.index
 	first := h.mutableFile.firstBlockIndex
@@ -812,10 +821,10 @@ func (h *hashLoggerImpl) recordSealedFile() error {
 	size := h.mutableFile.size
 
 	if err := h.mutableFile.close(); err != nil {
-		return fmt.Errorf("failed to seal hash log file: %w", err)
+		return false, fmt.Errorf("failed to seal hash log file: %w", err)
 	}
 	if !hadBlocks {
-		return nil
+		return false, nil
 	}
 	h.sealedFiles[idx] = &sealedFileInfo{
 		name:       sealedFileName(idx, first, last, h.version),
@@ -824,7 +833,7 @@ func (h *hashLoggerImpl) recordSealedFile() error {
 		size:       size,
 	}
 	h.currentDiskSpaceUsed += size
-	return nil
+	return true, nil
 }
 
 // runGC deletes the oldest sealed files while either the block-count retention window or the disk-size cap is
@@ -841,9 +850,10 @@ func (h *hashLoggerImpl) runGC() {
 
 		// Retain exactly the most-recent blocksToRetain blocks: a file is over the window once its newest block
 		// is more than blocksToRetain-1 behind the latest. Written as an addition to avoid unsigned underflow
-		// when latestBlock < blocksToRetain (in which case nothing is over the window).
-		overBlockRetention := info.lastBlock+h.blocksToRetain <= h.latestBlock
-		overSizeCap := h.currentDiskSpaceUsed > h.maxDiskSize
+		// when latestBlock < blocksToRetain (in which case nothing is over the window). A zero limit disables
+		// that dimension entirely (no block-count window / no disk cap).
+		overBlockRetention := h.blocksToRetain > 0 && info.lastBlock+h.blocksToRetain <= h.latestBlock
+		overSizeCap := h.maxDiskSize > 0 && h.currentDiskSpaceUsed > h.maxDiskSize
 		if !overBlockRetention && !overSizeCap {
 			break
 		}
