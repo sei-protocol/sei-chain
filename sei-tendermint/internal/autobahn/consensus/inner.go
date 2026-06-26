@@ -111,20 +111,22 @@ func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (
 		persisted = *decoded
 	}
 
-	if err := persisted.validate(registry); err != nil {
+	ep := registry.LatestEpoch()
+	if err := persisted.validate(ep); err != nil {
 		return inner{}, err
 	}
 
 	logger.Info("restored consensus state", "state", innerProtoConv.Encode(&persisted))
 
-	return inner{persistedInner: persisted, ep: registry.LatestEpoch()}, nil
+	return inner{persistedInner: persisted, ep: ep}, nil
 }
 
 func (s *State) pushCommitQC(qc *types.CommitQC) error {
-	if i := s.innerRecv.Load(); qc.Proposal().Index() < i.View().Index {
+	i := s.innerRecv.Load()
+	if qc.Proposal().Index() < i.View().Index {
 		return nil
 	}
-	if err := qc.Verify(s.Data().Registry().CommitteeFor(qc.Proposal().Index())); err != nil {
+	if err := qc.Verify(i.ep.Committee); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for iSend := range s.inner.Lock() {
@@ -152,7 +154,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 		return nil
 	}
 	// Verify checks the invariant: TimeoutQC.View().Index == CommitQC.Index + 1
-	if err := qc.Verify(s.Data().Registry().CommitteeFor(qc.View().Index), i.CommitQC); err != nil {
+	if err := qc.Verify(i.ep.Committee, i.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for isend := range s.inner.Lock() {
@@ -203,7 +205,7 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 	if vs.View() != qc.Proposal().View() {
 		return nil
 	}
-	if err := qc.Verify(s.Data().Registry().CommitteeFor(qc.Proposal().View().Index)); err != nil {
+	if err := qc.Verify(vs.Epoch.Committee); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	// Update.

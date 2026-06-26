@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -82,15 +81,11 @@ func (p *persistedInner) View() types.View {
 
 // validate checks internal consistency and cryptographic signatures of persisted state.
 // Returns error on corrupt state.
-func (p *persistedInner) validate(registry *epoch.Registry) error {
-	// CommitQC was produced under its own epoch's committee.
-	// All other fields (votes, PrepareQC, TimeoutQC) belong to the active view,
-	// which may be one epoch ahead when a TimeoutQC bumped the index.
-	activeCommittee := registry.CommitteeFor(p.View().Index)
+func (p *persistedInner) validate(ep *types.Epoch) error {
+	activeCommittee := ep.Committee
 
 	if cqc, ok := p.CommitQC.Get(); ok {
-		commitCommittee := registry.CommitteeFor(cqc.Index())
-		if err := cqc.Verify(commitCommittee); err != nil {
+		if err := cqc.Verify(activeCommittee); err != nil {
 			return fmt.Errorf("corrupt persisted state: CommitQC failed verification: %w", err)
 		}
 	}

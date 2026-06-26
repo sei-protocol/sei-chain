@@ -189,6 +189,9 @@ func (m *Proposal) Timestamp() time.Time { return m.timestamp }
 // App .
 func (m *Proposal) App() utils.Option[*AppProposal] { return m.app }
 
+// Epoch returns the epoch info encoded in the proposal (Committee is always nil).
+func (m *Proposal) Epoch() *Epoch { return m.epoch }
+
 // GlobalRange returns the proposed global block range.
 func (m *Proposal) GlobalRange() GlobalRange {
 	return m.globalRange
@@ -347,6 +350,17 @@ func (m *FullProposal) TimeoutQC() utils.Option[*TimeoutQC] {
 func (m *FullProposal) Verify(vs ViewSpec) error {
 	c := vs.Epoch.Committee
 	return scope.Parallel(func(s scope.ParallelScope) error {
+		// Does the epoch info match?
+		ep := m.proposal.Msg().Epoch()
+		if got, want := ep.EpochIndex, vs.Epoch.EpochIndex; got != want {
+			return fmt.Errorf("epoch_index = %d, want %d", got, want)
+		}
+		if got, want := ep.FirstBlock, vs.Epoch.FirstBlock; got != want {
+			return fmt.Errorf("epoch_first_block = %v, want %v", got, want)
+		}
+		if got, want := ep.Timestamp, vs.Epoch.Timestamp; !got.Equal(want) {
+			return fmt.Errorf("epoch_timestamp = %v, want %v", got, want)
+		}
 		// Does the view match?
 		if got, want := m.proposal.Msg().View(), vs.View(); got != want {
 			return fmt.Errorf("view = %v, want %v", m.View(), vs.View())
