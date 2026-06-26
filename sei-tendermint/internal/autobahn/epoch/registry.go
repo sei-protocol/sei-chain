@@ -98,6 +98,9 @@ func (r *Registry) AddEpoch(committee *types.Committee, startRoad types.RoadInde
 		if startRoad <= latest.Roads().First {
 			return fmt.Errorf("new epoch start %d must be after current epoch start %d", startRoad, latest.Roads().First)
 		}
+		// TODO: also reject startRoad <= highest committed road index to prevent
+		// retroactively reassigning already-finalized roads to the new committee.
+		// Requires the caller to pass the commit watermark once the execution bridge is wired.
 		// Replace latest with a closed version (Roads().Last = startRoad-1).
 		r.epochs[len(r.epochs)-1] = types.NewEpoch(
 			latest.EpochIndex(),
