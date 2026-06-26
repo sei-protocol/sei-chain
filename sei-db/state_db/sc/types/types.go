@@ -159,8 +159,8 @@ type Committer interface {
 	//
 	// A value of 0 pauses the migration: caller writes still route
 	// normally, but no keys are pulled forward until the size is raised
-	// again. The composite store resolves this governance-supplied value
-	// against its local fallback config before applying it.
+	// again. This governance-supplied value is the sole source of the
+	// per-block rate; there is no node-local config fallback.
 	//
 	// Must be called between blocks, before the next block's first write
 	// batch, on the consensus goroutine.

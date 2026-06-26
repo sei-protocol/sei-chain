@@ -73,6 +73,14 @@ func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 	}
 	numKeys := migration.DefaultNumKeysToMigratePerBlock
 	if subspace, ok := app.ParamsKeeper.GetSubspace(migration.SubspaceName); ok {
+		// The migration subspace has no owning module to seed it in InitGenesis,
+		// so lazily persist the default the first time we see it unset. This is
+		// deterministic across nodes (every node runs BeginBlock identically) and
+		// makes the param visible to gov: ParameterChangeProposal submission only
+		// accepts a change when subspace.Has reports the key is already stored.
+		if !subspace.Has(ctx, migration.KeyNumKeysToMigratePerBlock) {
+			subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, migration.DefaultNumKeysToMigratePerBlock)
+		}
 		subspace.GetIfExists(ctx, migration.KeyNumKeysToMigratePerBlock, &numKeys)
 	}
 	if numKeys > uint64(math.MaxInt64) {
