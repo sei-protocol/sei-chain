@@ -207,18 +207,13 @@ func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filt
 	groups := criteriaTagGroups(crit)
 	nBlocks := int(toBlock - fromBlock + 1) //nolint:gosec // bounded by the caller's range cap
 
-	par := s.logFilterParallelism
-	if par < 1 {
-		par = 1
-	}
-
 	// One result slot per block, written by exactly one worker, so the merged
 	// output keeps block order regardless of completion order. errgroup caps
-	// concurrency at par and hands the next block to whichever worker frees up,
-	// load-balancing across the skewed per-block cost.
+	// concurrency at the configured limit and hands the next block to whichever
+	// worker frees up, load-balancing across the skewed per-block cost.
 	results := make([][]*ethtypes.Log, nBlocks)
 	var eg errgroup.Group
-	eg.SetLimit(par)
+	eg.SetLimit(s.logFilterParallelism)
 	for i := 0; i < nBlocks; i++ {
 		eg.Go(func() error {
 			blockLogs, err := s.blockLogs(fromBlock+uint64(i), groups, crit) //nolint:gosec // i < nBlocks
