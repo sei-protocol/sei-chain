@@ -32,7 +32,7 @@ func NewRegistry(
 	return &Registry{
 		epochs: []*types.Epoch{types.NewEpoch(
 			0,
-			types.RoadRange{First: 0, Last: math.MaxUint64},
+			types.OpenRoadRange(),
 			genesisTimestamp,
 			committee,
 			firstBlock,

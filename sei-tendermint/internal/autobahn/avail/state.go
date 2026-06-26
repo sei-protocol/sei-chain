@@ -360,6 +360,9 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
+	if got, want := appQC.Proposal().EpochIndex(), commitQC.Proposal().EpochIndex(); got != want {
+		return fmt.Errorf("appQC epoch_index %d != commitQC epoch_index %d", got, want)
+	}
 	// Defense-in-depth check, it should never happen that >f validators sign
 	// a proposal which does not match the commitQC's global range.
 	if !commitQC.GlobalRange().Has(appQC.Proposal().GlobalNumber()) {

@@ -51,6 +51,9 @@ func (m *AppProposal) Verify(c *Committee, qc *CommitQC) error {
 	if got, want := m.GlobalNumber(), qc.GlobalRange(); got < want.First || got >= want.Next {
 		return fmt.Errorf("globalNumber() = %v, want in range [%v,%v)", got, want.First, want.Next)
 	}
+	if got, want := m.EpochIndex(), qc.Proposal().EpochIndex(); got != want {
+		return fmt.Errorf("epoch_index = %d, want %d", got, want)
+	}
 	return nil
 }
 

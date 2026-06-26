@@ -402,6 +402,9 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 		if err := proposal.Verify(vs.Epoch); err != nil {
 			return fmt.Errorf("proposal: %w", err)
 		}
+		if roads := vs.Epoch.Roads(); proposal.Index() < roads.First || proposal.Index() > roads.Last {
+			return fmt.Errorf("proposal road_index %d not in epoch roads [%d, %d]", proposal.Index(), roads.First, roads.Last)
+		}
 		for _, r := range proposal.laneRanges {
 			if err := r.Verify(c); err != nil {
 				return fmt.Errorf("proposal: laneRange[%v]: %w", r.Lane(), err)

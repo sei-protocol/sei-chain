@@ -1,6 +1,7 @@
 package types
 
 import (
+	"math"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -11,6 +12,10 @@ type RoadRange struct {
 	First RoadIndex
 	Last  RoadIndex
 }
+
+// OpenRoadRange returns a RoadRange covering all road indices from 0.
+// Use in tests and genesis epochs where no upper bound is known yet.
+func OpenRoadRange() RoadRange { return RoadRange{First: 0, Last: math.MaxUint64} }
 
 // Epoch holds the complete context for a single epoch.
 // Retrieved from the local Registry; never transmitted on the wire.

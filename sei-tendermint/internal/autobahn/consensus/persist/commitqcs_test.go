@@ -28,7 +28,7 @@ func testCommitQC(
 	laneQCs map[types.LaneID]*types.LaneQC,
 	appQC utils.Option[*types.AppQC],
 ) *types.CommitQC {
-	vs := types.ViewSpec{CommitQC: prev, Epoch: types.NewEpoch(0, types.RoadRange{}, time.Time{}, committee, 0)}
+	vs := types.ViewSpec{CommitQC: prev, Epoch: types.NewEpoch(0, types.OpenRoadRange(), time.Time{}, committee, 0)}
 	leader := committee.Leader(vs.View())
 	var leaderKey types.SecretKey
 	for _, k := range keys {

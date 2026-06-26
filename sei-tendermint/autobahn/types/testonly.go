@@ -24,7 +24,7 @@ func BuildCommitQC(
 ) *CommitQC {
 	vs := ViewSpec{
 		CommitQC: prev,
-		Epoch:    NewEpoch(0, RoadRange{}, genesisTimestamp, committee, firstBlock),
+		Epoch:    NewEpoch(0, OpenRoadRange(), genesisTimestamp, committee, firstBlock),
 	}
 	leader := committee.Leader(vs.View())
 	var leaderKey SecretKey
