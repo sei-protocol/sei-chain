@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -44,6 +46,44 @@ func TestClassifyRPCMetricError(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBlockTagForNumber(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		bn   rpc.BlockNumber
+		want string
+	}{
+		{rpc.SafeBlockNumber, blockTagSafe},
+		{rpc.FinalizedBlockNumber, blockTagFinalized},
+		{rpc.LatestBlockNumber, blockTagLatest},
+		{rpc.PendingBlockNumber, blockTagPending},
+		{rpc.EarliestBlockNumber, blockTagEarliest},
+		// Concrete heights all collapse to one bounded bucket; this is what
+		// keeps the block_tag label from exploding in cardinality.
+		{rpc.BlockNumber(1), blockTagNumbered},
+		{rpc.BlockNumber(9_000_000), blockTagNumbered},
+	}
+	for _, tc := range cases {
+		if got := blockTagForNumber(tc.bn); got != tc.want {
+			t.Fatalf("blockTagForNumber(%d) = %q, want %q", tc.bn, got, tc.want)
+		}
+	}
+}
+
+func TestBlockTagForNumberOrHash(t *testing.T) {
+	t.Parallel()
+	if got := blockTagForNumberOrHash(rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)); got != blockTagLatest {
+		t.Fatalf("number-or-hash latest = %q, want %q", got, blockTagLatest)
+	}
+	if got := blockTagForNumberOrHash(rpc.BlockNumberOrHashWithHash(common.Hash{0x1}, false)); got != blockTagHash {
+		t.Fatalf("number-or-hash hash = %q, want %q", got, blockTagHash)
+	}
+}
+
+func TestRecordBlockTagNoPanic(t *testing.T) {
+	t.Parallel()
+	recordBlockTag(t.Context(), "eth_getBalance", blockTagLatest)
 }
 
 // NewRevertErrorFromError builds a *RevertError for tests (minimal valid instance).

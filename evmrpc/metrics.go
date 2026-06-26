@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -17,6 +18,18 @@ const (
 	successKey     = "success"
 	errorClassKey  = "error_class"
 	jsonrpcCodeKey = "jsonrpc_code"
+	blockTagKey    = "block_tag"
+	// block_tag bucket values: a bounded summary of the block parameter a
+	// state-read endpoint was called with. Keeps the param distribution
+	// observable without putting raw (unbounded) block numbers on labels.
+	blockTagSafe        = "safe"
+	blockTagFinalized   = "finalized"
+	blockTagLatest      = "latest"
+	blockTagPending     = "pending"
+	blockTagEarliest    = "earliest"
+	blockTagNumbered    = "numbered"
+	blockTagHash        = "hash"
+	blockTagUnspecified = "unspecified"
 	// error_class values; empty string ("") means success.
 	errorClassPanic              = "panic"
 	errorClassExecutionReverted  = "execution_reverted"
@@ -41,6 +54,7 @@ var (
 
 	metrics = struct {
 		requestLatencySeconds metric.Float64Histogram
+		requestBlockTag       metric.Int64Counter
 		wsConnectionCount     metric.Int64Counter
 	}{
 		requestLatencySeconds: must(rpcTelemetryMeter.Float64Histogram(
@@ -51,6 +65,11 @@ var (
 				0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25,
 				0.5, 1, 2.5, 5, 10, 30,
 			),
+		)),
+		requestBlockTag: must(rpcTelemetryMeter.Int64Counter(
+			"evmrpc_request_block_tag_total",
+			metric.WithDescription("State-read RPC requests by endpoint and resolved block tag (latest/pending/numbered/...). Bounded summary of the block parameter."),
+			metric.WithUnit("{count}"),
 		)),
 		wsConnectionCount: must(rpcTelemetryMeter.Int64Counter(
 			"evmrpc_websocket_connects_total",
@@ -118,6 +137,47 @@ func recordRPCLatency(ctx context.Context, endpoint, connection string, success 
 			attribute.Bool(successKey, success),
 			attribute.String(errorClassKey, errorClass),
 			attribute.String(jsonrpcCodeKey, jsonrpcCodeBucket),
+		),
+	)
+}
+
+// blockTagForNumber maps an rpc.BlockNumber to a bounded label value. Concrete
+// heights all collapse to blockTagNumbered so the label can never explode.
+func blockTagForNumber(bn rpc.BlockNumber) string {
+	switch bn {
+	case rpc.SafeBlockNumber:
+		return blockTagSafe
+	case rpc.FinalizedBlockNumber:
+		return blockTagFinalized
+	case rpc.LatestBlockNumber:
+		return blockTagLatest
+	case rpc.PendingBlockNumber:
+		return blockTagPending
+	case rpc.EarliestBlockNumber:
+		return blockTagEarliest
+	default:
+		return blockTagNumbered
+	}
+}
+
+// blockTagForNumberOrHash buckets an rpc.BlockNumberOrHash for the block_tag label.
+func blockTagForNumberOrHash(bnh rpc.BlockNumberOrHash) string {
+	if n, ok := bnh.Number(); ok {
+		return blockTagForNumber(n)
+	}
+	if _, ok := bnh.Hash(); ok {
+		return blockTagHash
+	}
+	return blockTagUnspecified
+}
+
+// recordBlockTag emits the bounded block-parameter distribution for a state-read
+// endpoint. It records what the caller asked for, regardless of request outcome.
+func recordBlockTag(ctx context.Context, endpoint, blockTag string) {
+	metrics.requestBlockTag.Add(ctx, 1,
+		metric.WithAttributes(
+			attribute.String(endpointKey, endpoint),
+			attribute.String(blockTagKey, blockTag),
 		),
 	)
 }

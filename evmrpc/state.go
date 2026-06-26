@@ -45,6 +45,7 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getBalance", a.connectionType, startTime, returnErr, recover())
 	}()
+	recordBlockTag(ctx, "eth_getBalance", blockTagForNumberOrHash(blockNrOrHash))
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -62,6 +63,7 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getCode", a.connectionType, startTime, returnErr, recover())
 	}()
+	recordBlockTag(ctx, "eth_getCode", blockTagForNumberOrHash(blockNrOrHash))
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -79,6 +81,7 @@ func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hex
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getStorageAt", a.connectionType, startTime, returnErr, recover())
 	}()
+	recordBlockTag(ctx, "eth_getStorageAt", blockTagForNumberOrHash(blockNrOrHash))
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -110,6 +113,7 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getProof", a.connectionType, startTime, returnErr, recover())
 	}()
+	recordBlockTag(ctx, "eth_getProof", blockTagForNumberOrHash(blockNrOrHash))
 	var block *coretypes.ResultBlock
 	var err error
 	if blockNr, ok := blockNrOrHash.Number(); ok {

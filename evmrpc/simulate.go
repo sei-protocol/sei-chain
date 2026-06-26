@@ -122,6 +122,7 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.Transaction
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
 	}
+	recordBlockTag(ctx, "eth_estimateGas", blockTagForNumberOrHash(bNrOrHash))
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
 	estimate, err := export.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, nil, s.backend.RPCGasCap())
 	return estimate, err
@@ -144,6 +145,7 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
 	}
+	recordBlockTag(ctx, "eth_estimateGasAfterCalls", blockTagForNumberOrHash(bNrOrHash))
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
 	estimate, err := export.DoEstimateGasAfterCalls(ctx, s.backend, args, calls, bNrOrHash, overrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
 	return estimate, err
@@ -175,6 +177,7 @@ func (s *SimulationAPI) Call(ctx context.Context, args export.TransactionArgs, b
 		latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 		blockNrOrHash = &latest
 	}
+	recordBlockTag(ctx, "eth_call", blockTagForNumberOrHash(*blockNrOrHash))
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
 	callResult, err := export.DoCall(ctx, s.backend, args, *blockNrOrHash, overrides, blockOverrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
 	if err != nil {
