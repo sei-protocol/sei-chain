@@ -583,7 +583,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		// LastCommitQC should be set to the last loaded one.
 		got2, ok2 := state.LastCommitQC().Load().Get()
 		require.True(t, ok2)
-		requireCommitQCEqual(t, qcs[2], got2)
+		require.NoError(t, utils.TestDiff(qcs[2], got2))
 	})
 
 	t.Run("loads persisted commitQCs with AppQC", func(t *testing.T) {
@@ -623,7 +623,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.Equal(t, types.RoadIndex(1), state.FirstCommitQC())
 		got4, ok4 := state.LastCommitQC().Load().Get()
 		require.True(t, ok4)
-		requireCommitQCEqual(t, qcs[4], got4)
+		require.NoError(t, utils.TestDiff(qcs[4], got4))
 	})
 
 	t.Run("non-contiguous commitQC files return error", func(t *testing.T) {
@@ -699,7 +699,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.Equal(t, types.RoadIndex(9), state.FirstCommitQC())
 		got9, ok9 := state.LastCommitQC().Load().Get()
 		require.True(t, ok9)
-		requireCommitQCEqual(t, qcs[9], got9)
+		require.NoError(t, utils.TestDiff(qcs[9], got9))
 
 		got, ok := state.LastAppQC().Get()
 		require.True(t, ok)

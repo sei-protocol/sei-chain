@@ -10,13 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-	"google.golang.org/protobuf/proto"
 )
-
-func requireCommitQCEqual(t *testing.T, want, got *types.CommitQC) {
-	t.Helper()
-	require.True(t, proto.Equal(types.CommitQCConv.Encode(want), types.CommitQCConv.Encode(got)))
-}
 
 var noQC = utils.None[*types.CommitQC]()
 var noCommitQCCB = utils.None[func(*types.CommitQC)]()
@@ -133,7 +127,7 @@ func TestPersistCommitQCAndLoad(t *testing.T) {
 	require.Equal(t, 3, len(loaded))
 	for i, lqc := range loaded {
 		require.Equal(t, types.RoadIndex(i), lqc.Index)
-		requireCommitQCEqual(t, qcs[i], lqc.QC)
+		require.NoError(t, utils.TestDiff(qcs[i], lqc.QC))
 	}
 	require.Equal(t, types.RoadIndex(3), cp2.LoadNext())
 	require.NoError(t, cp2.Close())
@@ -397,7 +391,7 @@ func TestCommitQCDeleteBeforeWithAnchorRecovers(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, len(loaded))
 	require.Equal(t, types.RoadIndex(4), loaded[0].Index)
-	requireCommitQCEqual(t, qcs[4], loaded[0].QC)
+	require.NoError(t, utils.TestDiff(qcs[4], loaded[0].QC))
 }
 
 func TestCommitQCDeleteBeforeThenPersistMore(t *testing.T) {

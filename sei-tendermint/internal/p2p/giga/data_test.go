@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	"google.golang.org/protobuf/proto"
 )
 
 type testNode struct {
@@ -134,8 +133,8 @@ func TestDataClientServer(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("clientState.CommitQC(): %w", err)
 			}
-			if !proto.Equal(types.FullCommitQCConv.Encode(wantQC), types.FullCommitQCConv.Encode(gotQC)) {
-				return fmt.Errorf("QC mismatch at block %d", n)
+			if err := utils.TestDiff(wantQC, gotQC); err != nil {
+				return err
 			}
 		}
 		return nil
