@@ -73,15 +73,10 @@ jobs:
       # Build inside Alpine (musl-native): Ubuntu's musl-gcc can't fully static-link
       # on 24.04 (glibc libgcc -> _dl_find_object, absent in musl), and zig cc rejects
       # the -z muldefs flag needed to link the libwasmvm v152/v155 archives. Alpine's
-      # gcc is GNU ld + musl, so it links cleanly. This is the same build the release
-      # prebuild runs; goreleaser then packages the binary via its prebuilt builder.
+      # gcc is GNU ld + musl, so it links cleanly. Same script the goreleaser release
+      # build runs (scripts/build-static.sh); goreleaser then packages it via the tool shim.
       - name: Build statically (Alpine / musl)
-        run: |
-          docker run --rm -v "$PWD":/src -w /src golang:1.25.6-alpine sh -c '
-            apk add --no-cache build-base git &&
-            git config --global --add safe.directory /src &&
-            LINK_STATICALLY=true BUILD_TAGS=muslc LEDGER_ENABLED=false make build
-          '
+        run: bash scripts/build-static.sh
 
       - name: Assert binary is statically linked
         run: |

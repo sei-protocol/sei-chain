@@ -6,22 +6,26 @@ before:
   hooks:
     - go mod download
     - bash scripts/check-libwasmvm-static.sh
+    - bash scripts/build-static.sh
 
 builds:
-  # The static seid is built in Alpine by the workflow prebuild (musl-native) —
-  # neither Ubuntu's musl-gcc nor zig cc can produce this static link on the runner.
-  # GoReleaser only packages that prebuilt binary. ledger is omitted from the static
-  # build (needs static HID/USB; not relevant for a server seid); make/source builds
-  # keep it (Makefile LEDGER_ENABLED defaults to true).
+  # The static seid is built in Alpine (musl-native) by the `before:` hook above
+  # (scripts/build-static.sh) — neither Ubuntu's musl-gcc nor zig cc can produce this
+  # static link on the runner. GoReleaser does NOT recompile: the `tool` shim hands it
+  # that prebuilt static binary (OSS-friendly equivalent of the Pro `prebuilt` builder;
+  # see scripts/goreleaser-shim.sh), so the released binary is byte-identical to
+  # `make build`. ledger is omitted from the static build (needs static HID/USB; not
+  # relevant for a server seid); make/source builds keep it (Makefile LEDGER_ENABLED
+  # defaults to true).
   - id: seid
-    builder: prebuilt
+    builder: go
+    tool: ./scripts/goreleaser-shim.sh
+    main: ./cmd/seid
+    binary: seid
     goos:
       - linux
     goarch:
       - amd64
-    binary: seid
-    prebuilt:
-      path: build/seid
 
 archives:
   - id: seid
