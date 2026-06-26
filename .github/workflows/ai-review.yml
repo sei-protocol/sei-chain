@@ -1,0 +1,16 @@
+name: AI Review
+on:
+  pull_request:
+    types: [ opened, ready_for_review, synchronize, reopened ]
+jobs:
+  ai-review:
+    uses: sei-protocol/uci/.github/workflows/ai-review.yml@v0.0.12
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+      id-token: write
+    secrets: inherit
+    with:
+      uci-ref: v0.0.12
+      enable-cursor: false # Disabled for now since there is a dedicated Bugbot flow built into Cursor currently enabled on repo. 
