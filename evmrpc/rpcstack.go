@@ -325,7 +325,7 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	base := NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.JwtSecret)
 
 	handler := newRequestSizeLimiter(
-		wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist),
+		wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist, config.maxRequestBodyBytes),
 		config.maxRequestBodyBytes,
 		config.maxConcurrentRequestBytes,
 	)

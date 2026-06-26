@@ -9,11 +9,6 @@ import (
 	"strconv"
 )
 
-// seiLegacyHTTPMaxBody matches github.com/ethereum/go-ethereum/rpc.defaultBodyLimit (5MiB), the
-// default HTTP request body cap used by rpc.Server before ServeHTTP. The legacy gate must not
-// read more than the inner JSON-RPC stack will accept (see rpc.Server.SetHTTPBodyLimit).
-const seiLegacyHTTPMaxBody = 5 * 1024 * 1024
-
 const (
 	invalidRequestCode  = -32600
 	seiLegacyNotEnabled = -32601
@@ -24,22 +19,31 @@ const (
 // gated sei_* and sei2_* methods. Disallowed calls get a JSON-RPC error without invoking the inner handler.
 // Single-object allowed calls pass through unchanged; batches forward a filtered subset and merge inner
 // results back by JSON-RPC id. Deprecation header on successful forwards of gated methods. nil allowlist = no wrap.
-func wrapSeiLegacyHTTP(inner http.Handler, allowlist map[string]struct{}) http.Handler {
+//
+// maxBody bounds the request body the gate buffers before JSON-RPC parsing. It must match the configured
+// per-request cap (rpc.Server.SetHTTPBodyLimit / requestSizeLimiter) so the gate never truncates a body the
+// inner stack would otherwise accept; maxBody <= 0 falls back to defaultMaxRequestBodyBytes (the 5MiB
+// go-ethereum default).
+func wrapSeiLegacyHTTP(inner http.Handler, allowlist map[string]struct{}, maxBody int64) http.Handler {
 	if allowlist == nil {
 		return inner
 	}
-	return &seiLegacyHTTPGate{inner: inner, allowlist: allowlist}
+	if maxBody <= 0 {
+		maxBody = defaultMaxRequestBodyBytes
+	}
+	return &seiLegacyHTTPGate{inner: inner, allowlist: allowlist, maxBody: maxBody}
 }
 
 type seiLegacyHTTPGate struct {
 	inner     http.Handler
 	allowlist map[string]struct{}
+	maxBody   int64
 }
 
 func (g *seiLegacyHTTPGate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Read the body once; delegate JSON-RPC validation to the inner handler. We only intercept
 	// when we can parse JSON-RPC and the method is a gated sei_* / sei2_* name.
-	body, err := io.ReadAll(io.LimitReader(r.Body, seiLegacyHTTPMaxBody))
+	body, err := io.ReadAll(io.LimitReader(r.Body, g.maxBody))
 	_ = r.Body.Close()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
