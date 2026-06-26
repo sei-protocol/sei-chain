@@ -11,11 +11,14 @@ import (
 // App-level hash logger categories owned by rootmulti. No backend can compute these:
 //   - appHashType:        the root application hash returned to consensus.
 //   - blockHashType:      the Tendermint block hash, supplied by baseapp via SetNextBlockHash.
+//   - resultHashType:     the result hash (merkle root over the block's deterministic tx results),
+//     supplied by baseapp via SetNextResultHash. Equals the next block's header.LastResultsHash.
 //   - memIAVLRootHashType: the simple-merkle root over memIAVL's per-module hashes (requires the cosmos
 //     hashing utilities, which sei-db cannot reach), computed here via convertCommitInfo(...).Hash().
 const (
 	appHashType         = "appHash"
 	blockHashType       = "blockHash"
+	resultHashType      = "resultHash"
 	memIAVLRootHashType = "memIAVL/root"
 )
 
@@ -38,6 +41,17 @@ func (rs *Store) SetNextBlockHash(blockHash []byte) {
 	rs.nextBlockHash = append([]byte(nil), blockHash...)
 }
 
+// SetNextResultHash stashes the result hash (merkle root over the block's deterministic tx results)
+// for the block currently being committed. baseapp calls it just before Commit; rootmulti records it
+// (under the committed version) inside Commit so every hash for a block shares one block number.
+// No-op when hash logging is disabled.
+func (rs *Store) SetNextResultHash(resultHash []byte) {
+	if rs.hashLoggerDisabled {
+		return
+	}
+	rs.nextResultHash = append([]byte(nil), resultHash...)
+}
+
 // hashLogDir returns the directory hash log files are written to, defaulting to a "hash.log" directory
 // under the state-commit store's data directory (sibling of committer.db / receipt.db). The ".log"
 // suffix mirrors the data/ naming convention (.db, .wal); the files inside keep the .hlog format.
@@ -52,7 +66,7 @@ func (rs *Store) hashLogDir() string {
 // the app-level categories plus whatever the live backends report (and memIAVL/root when memIAVL is
 // present). Used both to register categories and to detect when the set has changed.
 func (rs *Store) desiredHashCategories() []string {
-	categories := []string{appHashType, blockHashType}
+	categories := []string{appHashType, blockHashType, resultHashType}
 	if h, ok := rs.scStore.(hashReportingStore); ok {
 		categories = append(categories, h.HashCategories()...)
 		if h.MemIAVLCommitInfo() != nil {
@@ -154,6 +168,12 @@ func (rs *Store) recordBlockHashes(version int64) {
 		logger.Error("failed to report block hash", "err", err)
 	}
 	rs.nextBlockHash = nil
+
+	// resultHash: supplied by baseapp before Commit. nil if it was not provided for this block.
+	if err := rs.hashLogger.ReportHash(blockNumber, resultHashType, rs.nextResultHash); err != nil {
+		logger.Error("failed to report result hash", "err", err)
+	}
+	rs.nextResultHash = nil
 
 	if h, ok := rs.scStore.(hashReportingStore); ok {
 		if memInfo := h.MemIAVLCommitInfo(); memInfo != nil {

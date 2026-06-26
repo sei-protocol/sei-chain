@@ -29,12 +29,16 @@ func TestRootMultiHashLogging(t *testing.T) {
 	require.NoError(t, store.LoadLatestVersion())
 
 	blockHashes := map[int64][]byte{}
+	resultHashes := map[int64][]byte{}
 	for h := int64(1); h <= 3; h++ {
 		store.GetStoreByName("bank").(types.KVStore).Set([]byte("k"), []byte{byte(h)})
 		store.GetStoreByName("evm").(types.KVStore).Set([]byte("k"), []byte{byte(h + 10)})
 		blockHash := []byte{0xBB, byte(h)}
 		blockHashes[h] = blockHash
 		store.SetNextBlockHash(blockHash)
+		resultHash := []byte{0xCC, byte(h)}
+		resultHashes[h] = resultHash
+		store.SetNextResultHash(resultHash)
 		commitID := store.Commit(true)
 		require.Equal(t, h, commitID.Version)
 	}
@@ -45,7 +49,7 @@ func TestRootMultiHashLogging(t *testing.T) {
 
 	dir := filepath.Join(home, "data", "hash.log")
 	expectedColumns := []string{
-		"appHash", "blockHash", "memIAVL/root",
+		"appHash", "blockHash", "resultHash", "memIAVL/root",
 		"memIAVL/mod/bank", "memIAVL/mod/evm", hashlog.ChangesetHashType,
 	}
 	for h := int64(1); h <= 3; h++ {
@@ -58,6 +62,7 @@ func TestRootMultiHashLogging(t *testing.T) {
 			require.NotEmpty(t, hashes[column], "column %q for block %d should be populated", column, h)
 		}
 		require.Equal(t, blockHashes[h], hashes["blockHash"], "block hash for block %d", h)
+		require.Equal(t, resultHashes[h], hashes["resultHash"], "result hash for block %d", h)
 	}
 
 	// The last block's appHash column equals the store's committed app hash.

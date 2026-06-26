@@ -76,6 +76,9 @@ type Store struct {
 	changesetCapturedVersion int64
 	// nextBlockHash is the Tendermint block hash supplied by baseapp for the block being committed.
 	nextBlockHash []byte
+	// nextResultHash is the result hash (merkle root over the block's deterministic tx results)
+	// supplied by baseapp for the block being committed.
+	nextResultHash []byte
 }
 
 type VersionedChangesets struct {

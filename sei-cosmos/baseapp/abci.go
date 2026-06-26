@@ -22,6 +22,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -298,6 +299,12 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 	if reporter, ok := app.cms.(interface{ SetNextBlockHash([]byte) }); ok {
 		reporter.SetNextBlockHash(app.stateToCommit.ctx.HeaderHash())
 	}
+	// Hand the result hash (computed in FinalizeBlock from the block's tx results) to the commit
+	// store so it lands in the same per-block hash log row as the block and state hashes.
+	if reporter, ok := app.cms.(interface{ SetNextResultHash([]byte) }); ok {
+		reporter.SetNextResultHash(app.nextResultHash)
+	}
+	app.nextResultHash = nil
 	app.cms.Commit(true)
 
 	// Reset the Check state to the latest committed.
@@ -1077,6 +1084,20 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		res, err := app.finalizeBlocker(app.deliverState.ctx, req)
 		if err != nil {
 			return nil, err
+		}
+		// Compute the result hash (merkle root over the block's deterministic tx results: Code, Data,
+		// GasWanted, GasUsed) so Commit can record it in the hash log. This is the same value Tendermint
+		// stores as the next block's header.LastResultsHash; logging it per block surfaces gas/result
+		// divergence (e.g. between executors) independently of the state AppHash. Only computed when the
+		// commit store records hashes, and never fails the block on a marshal error.
+		if _, ok := app.cms.(interface{ SetNextResultHash([]byte) }); ok {
+			marshaled, mErr := abci.MarshalTxResults(res.TxResults)
+			if mErr != nil {
+				logger.Error("failed to marshal tx results for result hash", "err", mErr)
+				app.nextResultHash = nil
+			} else {
+				app.nextResultHash = merkle.HashFromByteSlices(marshaled)
+			}
 		}
 		res.Events = sdk.MarkEventsToIndex(res.Events, app.IndexEvents)
 		return res, nil
