@@ -55,6 +55,8 @@ func (r *Registry) FirstBlock() types.GlobalBlockNumber {
 
 // GenesisTimestamp returns the timestamp of the genesis epoch.
 func (r *Registry) GenesisTimestamp() time.Time {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.epochs[0].Timestamp
 }
 
