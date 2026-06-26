@@ -18,8 +18,7 @@ import (
 // ErrBadLane .
 var ErrBadLane = errors.New("bad lane")
 
-const BlocksPerLane = 3 * BlocksPerLanePerCommit
-const BlocksPerLanePerCommit = 10
+const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
 
 // State represents the Data Availability Plane and Ordered Event Log.
 // Although it resides in a sub-package, it serves as the "source of truth" for:
@@ -547,7 +546,7 @@ func (s *State) WaitForLaneQCs(
 		for {
 			for lane := range c.Lanes().All() {
 				first := types.LaneRangeOpt(prev, lane).Next()
-				for i := range types.BlockNumber(BlocksPerLanePerCommit) {
+				for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
 					if qc, ok := inner.laneQC(c, lane, first+i); ok {
 						laneQCs[lane] = qc
 					} else {
