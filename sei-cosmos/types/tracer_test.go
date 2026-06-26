@@ -55,3 +55,62 @@ func TestStoreTracerBoundsIteratorScanMemory(t *testing.T) {
 			got, numKeys, maxRetainedBytes, maxStoreTraceIteratorKeys)
 	}
 }
+
+// TestStoreTracerStatsAccurateWhenTruncated drives Get past
+// maxStoreTraceModuleBytes and asserts that per-op stats (Count/TotalNanos) still
+// count every access once the log is Truncated, while Reads keeps only the
+// retained prefix. These stats feed historicalLookupNanos (evmrpc/trace_profile.go).
+func TestStoreTracerStatsAccurateWhenTruncated(t *testing.T) {
+	const (
+		module    = "evm"
+		numGets   = 5_000            // each retained Get costs valueSize+keyLen+overhead;
+		valueSize = 4096             // ~4 KiB per access truncates well before all 5k retain
+		perGet    = time.Microsecond // known per-access duration to verify TotalNanos
+	)
+
+	st := NewStoreTracer()
+	value := make([]byte, valueSize)
+	for i := range numGets {
+		// Distinct keys so each retained Get is a distinct entry in Reads.
+		key := []byte{byte(i), byte(i >> 8), byte(i >> 16)}
+		st.Get(key, value, module, perGet)
+	}
+
+	mt, ok := st.Modules[module]
+	if !ok {
+		t.Fatalf("module %q missing from tracer", module)
+	}
+	if !mt.Truncated {
+		t.Fatalf("module not Truncated after %d Gets of %d-byte values; cap %d should have been exceeded",
+			numGets, valueSize, maxStoreTraceModuleBytes)
+	}
+	if len(mt.Accesses) >= numGets {
+		t.Fatalf("retained %d accesses; truncation should drop some of the %d Gets",
+			len(mt.Accesses), numGets)
+	}
+
+	// Internal running stats must count every access, truncated or not.
+	if got := mt.stats[Get]; got.Count != numGets || got.TotalNanos != int64(numGets)*perGet.Nanoseconds() {
+		t.Fatalf("module stats under truncation = {Count:%d TotalNanos:%d}; want {Count:%d TotalNanos:%d}",
+			got.Count, got.TotalNanos, numGets, int64(numGets)*perGet.Nanoseconds())
+	}
+
+	// The wire dump (what historicalLookupNanos reads) must agree, and Reads
+	// must reflect only the retained prefix.
+	d := st.Dump()
+	mtd := d.Modules[module]
+	if !mtd.Truncated {
+		t.Fatal("dump module not flagged Truncated")
+	}
+	if got := mtd.Stats[Get.String()]; got.Count != numGets || got.TotalNanos != int64(numGets)*perGet.Nanoseconds() {
+		t.Fatalf("dump module stats = {Count:%d TotalNanos:%d}; want {Count:%d TotalNanos:%d}",
+			got.Count, got.TotalNanos, numGets, int64(numGets)*perGet.Nanoseconds())
+	}
+	if top := d.Stats[Get.String()]; top.Count != numGets || top.TotalNanos != int64(numGets)*perGet.Nanoseconds() {
+		t.Fatalf("dump top-level stats = {Count:%d TotalNanos:%d}; want {Count:%d TotalNanos:%d}",
+			top.Count, top.TotalNanos, numGets, int64(numGets)*perGet.Nanoseconds())
+	}
+	if len(mtd.Reads) >= numGets {
+		t.Fatalf("dump retained %d reads; truncation should bound this below %d", len(mtd.Reads), numGets)
+	}
+}
