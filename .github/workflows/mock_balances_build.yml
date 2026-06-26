@@ -14,6 +14,10 @@ on:
       - main
       - release/**
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   mock-balances-build:
     name: Compile with Mock Balances

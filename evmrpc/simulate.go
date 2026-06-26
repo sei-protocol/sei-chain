@@ -88,6 +88,14 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.Transa
 	defer func() {
 		recordMetricsWithError(ctx, "eth_createAccessList", s.connectionType, startTime, returnErr, recover())
 	}()
+	/* ---------- fail‑fast limiter ---------- */
+	if s.requestLimiter != nil {
+		if !s.requestLimiter.TryAcquire(1) {
+			returnErr = errors.New("eth_createAccessList rejected due to rate limit: server busy")
+			return
+		}
+		defer s.requestLimiter.Release(1)
+	}
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -131,6 +139,11 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 	defer func() {
 		recordMetricsWithError(ctx, "eth_estimateGasAfterCalls", s.connectionType, startTime, returnErr, recover())
 	}()
+	// Reject over-sized requests early, before any state wrapping or resource acquisition.
+	if maxCalls := s.backend.MaxEstimateGasCalls(); maxCalls > 0 && len(calls) > maxCalls {
+		returnErr = fmt.Errorf("eth_estimateGasAfterCalls: too many calls (%d > %d)", len(calls), maxCalls)
+		return
+	}
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
@@ -220,6 +233,7 @@ type SimulateConfig struct {
 	GasCap                       uint64
 	EVMTimeout                   time.Duration
 	MaxConcurrentSimulationCalls int
+	MaxEstimateGasCalls          int
 }
 
 var _ tracers.Backend = (*Backend)(nil)
@@ -446,6 +460,8 @@ func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.B
 func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
 
 func (b *Backend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
+
+func (b *Backend) MaxEstimateGasCalls() int { return b.config.MaxEstimateGasCalls }
 
 func (b *Backend) chainConfigForHeight(height int64) *params.ChainConfig {
 	ctx := b.ctxProvider(height)

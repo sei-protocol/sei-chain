@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -231,7 +232,7 @@ func driveMigrationWorkload(
 	t.Helper()
 
 	memCfg := config.DefaultStateCommitConfig()
-	memCfg.WriteMode = config.MemiavlOnly
+	memCfg.WriteMode = types.MemiavlOnly
 	// AsyncCommitBuffer=0 keeps WAL writes synchronous; without it
 	// GetLatestVersion / on-disk reconcile races with the in-flight
 	// commit and the post-reopen version checks become flaky.
@@ -258,7 +259,7 @@ func driveMigrationWorkload(
 	require.NoError(t, cs.Close())
 
 	migCfg := config.DefaultStateCommitConfig()
-	migCfg.WriteMode = config.MigrateEVM
+	migCfg.WriteMode = types.MigrateEVM
 	migCfg.KeysToMigratePerBlock = keysToMigratePerBlock
 	migCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
@@ -286,7 +287,7 @@ func driveMigrationWorkload(
 func reopenInMigrateEVM(t *testing.T, dir string, batch int) *CompositeCommitStore {
 	t.Helper()
 	cfg := config.DefaultStateCommitConfig()
-	cfg.WriteMode = config.MigrateEVM
+	cfg.WriteMode = types.MigrateEVM
 	cfg.KeysToMigratePerBlock = batch
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
@@ -304,7 +305,7 @@ func TestComposite_MigrateEVM_SecondNonEmptyFlushDoesNotAdvanceMigration(t *test
 	key2 := evmStorageTestKey(0x02)
 
 	memCfg := config.DefaultStateCommitConfig()
-	memCfg.WriteMode = config.MemiavlOnly
+	memCfg.WriteMode = types.MemiavlOnly
 	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 	require.NoError(t, err)
@@ -442,7 +443,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	zeroKeyAfterBoundary := evmStorageTestKey(0x03)
 
 	memCfg := config.DefaultStateCommitConfig()
-	memCfg.WriteMode = config.MemiavlOnly
+	memCfg.WriteMode = types.MemiavlOnly
 	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 	require.NoError(t, err)
@@ -694,7 +695,7 @@ func TestComposite_MigrateEVM_CrashAndResume(t *testing.T) {
 		workload := newMigrationWorkload(seed)
 
 		memCfg := config.DefaultStateCommitConfig()
-		memCfg.WriteMode = config.MemiavlOnly
+		memCfg.WriteMode = types.MemiavlOnly
 		memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 		require.NoError(t, err)
@@ -783,7 +784,7 @@ func TestComposite_MigrateEVM_DeterministicAcrossTwoStores(t *testing.T) {
 		workload := newMigrationWorkload(seed)
 
 		memCfg := config.DefaultStateCommitConfig()
-		memCfg.WriteMode = config.MemiavlOnly
+		memCfg.WriteMode = types.MemiavlOnly
 		memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 		require.NoError(t, err)

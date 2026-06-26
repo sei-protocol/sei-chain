@@ -16,6 +16,10 @@ type Application interface {
 	Info(context.Context, *RequestInfo) (*ResponseInfo, error)    // Return application info
 	Query(context.Context, *RequestQuery) (*ResponseQuery, error) // Query for state
 	GetValidators() []ValidatorUpdate
+	// LastBlockHeight returns the height of the most recently committed
+	// block, as maintained by the app. Used by /status — must be a fast
+	// in-memory read; Info() is too heavy for the hot path.
+	LastBlockHeight() int64
 
 	// Mempool Connection
 	CheckTx(context.Context, *RequestCheckTxV2) *ResponseCheckTxV2                                      // Validate a tx for the mempool
@@ -49,6 +53,7 @@ func (BaseApplication) Info(_ context.Context, req *RequestInfo) (*ResponseInfo,
 	return &ResponseInfo{}, nil
 }
 func (BaseApplication) GetValidators() []ValidatorUpdate { return nil }
+func (BaseApplication) LastBlockHeight() int64           { return 0 }
 
 func (BaseApplication) CheckTx(_ context.Context, req *RequestCheckTxV2) *ResponseCheckTxV2 {
 	return &ResponseCheckTxV2{ResponseCheckTx: &ResponseCheckTx{Code: CodeTypeOK}}
