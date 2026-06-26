@@ -101,10 +101,9 @@ func NewMigrationManager(
 	// A batch size of 0 is a valid "paused" state: the migration manager
 	// is wired up and routes caller writes, but advances no keys per block
 	// until SetMigrationBatchSize raises it above 0 (the governance param
-	// acts as the migration trigger). Only a negative size is rejected.
-	if migrationBatchSize < 0 {
-		return nil, fmt.Errorf("migration batch size must not be negative, got %d", migrationBatchSize)
-	}
+	// acts as the migration trigger). The batch size is normalized to be
+	// non-negative by the caller (CompositeCommitStore.SetMigrationBatchSize),
+	// so no negativity check is needed here.
 	if startVersion >= targetVersion {
 		return nil, fmt.Errorf("startVersion (%d) must be strictly less than targetVersion (%d)",
 			startVersion, targetVersion)

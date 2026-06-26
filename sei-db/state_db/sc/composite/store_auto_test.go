@@ -38,6 +38,25 @@ func openAutoStore(t *testing.T, dir string, batch int) *CompositeCommitStore {
 	return cs
 }
 
+// TestComposite_SetMigrationBatchSize_ClampsNegative pins the top-layer
+// fallback: SetMigrationBatchSize is the single chokepoint feeding the router
+// builders and the MigrationManager, so a negative (meaningless) rate is
+// normalized to 0 (paused) here and the lower layers do no validation.
+func TestComposite_SetMigrationBatchSize_ClampsNegative(t *testing.T) {
+	dir := t.TempDir()
+	cs := openAutoStore(t, dir, 0)
+	defer func() { _ = cs.Close() }()
+
+	require.NoError(t, cs.SetMigrationBatchSize(-5))
+	require.Equal(t, 0, cs.GetMigrationBatchSize(), "negative batch size must clamp to 0")
+
+	require.NoError(t, cs.SetMigrationBatchSize(100))
+	require.Equal(t, 100, cs.GetMigrationBatchSize())
+
+	require.NoError(t, cs.SetMigrationBatchSize(-1))
+	require.Equal(t, 0, cs.GetMigrationBatchSize(), "negative batch size must re-clamp to 0")
+}
+
 // runBlocks applies and commits n workload blocks.
 func runBlocks(t *testing.T, cs *CompositeCommitStore, workload *migrationWorkload, n int) {
 	t.Helper()

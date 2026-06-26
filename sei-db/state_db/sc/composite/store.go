@@ -475,10 +475,18 @@ func (cs *CompositeCommitStore) buildRouter() error {
 // (every other router treats it as a no-op), so this is safe to call in any
 // write mode. A batch size of 0 pauses the migration.
 //
+// This is the single chokepoint feeding the router builders and the
+// MigrationManager, so it normalizes the value here: a negative rate is
+// meaningless and is clamped to 0 (paused). The lower layers therefore trust
+// the batch size to be non-negative and do no validation of their own.
+//
 // Must be called between blocks (the app calls it from BeginBlock, before any
 // ApplyChangeSets). The router's threadSafeRouter wrapper serializes the push
 // against concurrent reads.
 func (cs *CompositeCommitStore) SetMigrationBatchSize(batchSize int) error {
+	if batchSize < 0 {
+		batchSize = 0
+	}
 	cs.migrationBatchSize.Store(int64(batchSize))
 	if cs.router != nil {
 		cs.router.SetMigrationBatchSize(batchSize)

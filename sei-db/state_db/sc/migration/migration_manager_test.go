@@ -842,25 +842,6 @@ func fuzzApplyToReference(ref map[string]map[string][]byte, changesets []*proto.
 
 // --- Constructor validation (Issue 2, Issue 11) ---
 
-func TestNewMigrationManager_RejectsNegativeBatchSize(t *testing.T) {
-	cases := []int{-1, -100}
-	for _, size := range cases {
-		t.Run(fmt.Sprintf("size=%d", size), func(t *testing.T) {
-			oldDB := newMockDB()
-			newDB := newMockDB()
-			iter := NewMockMigrationIterator(nil, false)
-
-			_, err := newTestManager(t,
-				oldDB.reader(), oldDB.writer(),
-				newDB.reader(), newDB.writer(),
-				iter, size,
-			)
-			require.Error(t, err)
-			require.Contains(t, err.Error(), "batch size must not be negative")
-		})
-	}
-}
-
 // A batch size of 0 is valid: the migration manager comes up paused and
 // advances no keys until SetMigrationBatchSize raises it above 0.
 func TestNewMigrationManager_AcceptsZeroBatchSize(t *testing.T) {
