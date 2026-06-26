@@ -6,7 +6,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"google.golang.org/protobuf/proto"
 )
 
 // CommitQC .
@@ -102,14 +101,6 @@ func (m *FullCommitQC) Verify(c *Committee) error {
 		}
 	}
 	return nil
-}
-
-func (c *CommitQC) Equal(other *CommitQC) bool {
-	return proto.Equal(CommitQCConv.Encode(c), CommitQCConv.Encode(other))
-}
-
-func (c *FullCommitQC) Equal(other *FullCommitQC) bool {
-	return proto.Equal(FullCommitQCConv.Encode(c), FullCommitQCConv.Encode(other))
 }
 
 // CommitQCConv is a protobuf converter for CommitQC.

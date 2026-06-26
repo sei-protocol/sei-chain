@@ -10,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	"google.golang.org/protobuf/proto"
 )
 
 // MaxLaneRangeInProposal is the maximum number of blocks a proposal may advance a lane by.
@@ -507,10 +506,6 @@ var ViewConv = protoutils.Conv[View, *pb.View]{
 			Number: ViewNumber(*m.Number),
 		}, nil
 	},
-}
-
-func (p *Proposal) Equal(other *Proposal) bool {
-	return proto.Equal(ProposalConv.Encode(p), ProposalConv.Encode(other))
 }
 
 // ProposalConv is the protobuf converter for Proposal.
