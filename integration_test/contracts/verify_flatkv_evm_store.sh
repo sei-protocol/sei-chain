@@ -27,7 +27,7 @@ dump_flatkv_layout() {
   # to a different path than $flatkv_dir. Printing the layout removes that
   # ambiguity from the next CI run.
   echo "==================== app.toml FlatKV-related settings ====================" >&2
-  grep -E '^(sc-write-mode|sc-keys-to-migrate-per-block|evm-ss-split)' \
+  grep -E '^(sc-write-mode|evm-ss-split)' \
     /root/.sei/config/app.toml >&2 2>/dev/null || true
   for candidate in "$flatkv_dir" /root/.sei/data/flatkv; do
     echo "==================== FlatKV directory state at $candidate ====================" >&2

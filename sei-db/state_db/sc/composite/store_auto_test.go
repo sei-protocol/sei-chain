@@ -19,10 +19,9 @@ import (
 // transition-safety rules (only adjacent forward steps, no exits from an
 // in-flight migration).
 
-func autoConfig(batch int) config.StateCommitConfig {
+func autoConfig() config.StateCommitConfig {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = types.Auto
-	cfg.KeysToMigratePerBlock = batch
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	return cfg
 }
@@ -30,8 +29,9 @@ func autoConfig(batch int) config.StateCommitConfig {
 // openAutoStore opens (or reopens) a composite store at dir in Auto mode.
 func openAutoStore(t *testing.T, dir string, batch int) *CompositeCommitStore {
 	t.Helper()
-	cs, err := NewCompositeCommitStore(t.Context(), dir, autoConfig(batch))
+	cs, err := NewCompositeCommitStore(t.Context(), dir, autoConfig())
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(batch))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -225,7 +225,7 @@ func TestComposite_SetWriteModeRequiresAutoConfig(t *testing.T) {
 }
 
 func TestComposite_SetWriteModeBeforeLoadVersion(t *testing.T) {
-	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), autoConfig(10))
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), autoConfig())
 	require.NoError(t, err)
 	require.Error(t, cs.SetWriteMode(types.MigrateEVM))
 }
@@ -276,18 +276,19 @@ func TestComposite_Auto_RestartResume(t *testing.T) {
 
 // autoExportConfig is autoConfig with per-block memiavl snapshots so the
 // exporter can serve any committed version.
-func autoExportConfig(batch int) config.StateCommitConfig {
-	cfg := autoConfig(batch)
+func autoExportConfig() config.StateCommitConfig {
+	cfg := autoConfig()
 	cfg.MemIAVLConfig.SnapshotInterval = 1
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	return cfg
 }
 
 // openAutoStoreWithConfig mirrors openAutoStore for a caller-supplied config.
-func openAutoStoreWithConfig(t *testing.T, dir string, cfg config.StateCommitConfig) *CompositeCommitStore {
+func openAutoStoreWithConfig(t *testing.T, dir string, cfg config.StateCommitConfig, batch int) *CompositeCommitStore {
 	t.Helper()
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(batch))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -317,7 +318,7 @@ func TestComposite_Auto_ExportExcludesFlatKVUntilMigrationStarts(t *testing.T) {
 	dir := t.TempDir()
 	workload := newMigrationWorkload(0xA076)
 
-	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(100))
+	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(), 100)
 	defer func() { _ = cs.Close() }()
 	runBlocks(t, cs, workload, 3)
 	h := cs.Version()
@@ -353,9 +354,9 @@ func TestComposite_Auto_ExportExcludesFlatKVUntilMigrationStarts(t *testing.T) {
 // after which derivation and reads work from the imported state.
 func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 	workload := newMigrationWorkload(0xA077)
-	cfg := autoExportConfig(100)
+	cfg := autoExportConfig()
 
-	src := openAutoStoreWithConfig(t, t.TempDir(), cfg)
+	src := openAutoStoreWithConfig(t, t.TempDir(), cfg, 100)
 	runBlocks(t, src, workload, 3)
 	require.NoError(t, src.SetWriteMode(types.MigrateEVM))
 	runUntilAtMigrationVersion(t, src, workload, migration.Version1_MigrateEVM, 200)
@@ -372,7 +373,7 @@ func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 
 	// Fresh Auto destination: no flatkv directory, no flatkv instance.
 	dstDir := t.TempDir()
-	dst := openAutoStoreWithConfig(t, dstDir, cfg)
+	dst := openAutoStoreWithConfig(t, dstDir, cfg, 100)
 	require.NoError(t, dst.Close())
 	require.Nil(t, dst.flatKV)
 
@@ -556,7 +557,7 @@ func TestComposite_Auto_ReadOnlyHandle(t *testing.T) {
 // heights keep loading flatkv.
 func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
 	dir := t.TempDir()
-	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(100))
+	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(), 100)
 	defer func() { _ = cs.Close() }()
 
 	// Heights 1..5 in the memiavl-only era, with a known per-height value.
@@ -605,7 +606,7 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
 }
 
 func TestComposite_Auto_InitializeRejectsNonCanonicalStores(t *testing.T) {
-	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), autoConfig(10))
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), autoConfig())
 	require.NoError(t, err)
 	require.Error(t, cs.Initialize([]string{"not-a-canonical-store"}),
 		"Auto must enforce canonical store names since the mode may become mixed")

@@ -260,11 +260,11 @@ func driveMigrationWorkload(
 
 	migCfg := config.DefaultStateCommitConfig()
 	migCfg.WriteMode = types.MigrateEVM
-	migCfg.KeysToMigratePerBlock = keysToMigratePerBlock
 	migCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	cs, err = NewCompositeCommitStore(t.Context(), dir, migCfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(keysToMigratePerBlock))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -288,11 +288,11 @@ func reopenInMigrateEVM(t *testing.T, dir string, batch int) *CompositeCommitSto
 	t.Helper()
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = types.MigrateEVM
-	cfg.KeysToMigratePerBlock = batch
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(batch))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)

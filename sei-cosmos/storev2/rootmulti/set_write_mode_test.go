@@ -8,10 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func autoModeConfig(batch int) seidbconfig.StateCommitConfig {
+func autoModeConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
 	cfg.WriteMode = sctypes.Auto
-	cfg.KeysToMigratePerBlock = batch
 	return withTestMemIAVL(cfg)
 }
 
@@ -24,7 +23,8 @@ func autoModeConfig(batch int) seidbconfig.StateCommitConfig {
 // nil for migrated keys.
 func TestRootMultiSetWriteMode_StaleViewsRouteCorrectly(t *testing.T) {
 	dir := t.TempDir()
-	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig(100))
+	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+	require.NoError(t, store.SetMigrationBatchSize(100))
 	defer func() { require.NoError(t, store.Close()) }()
 
 	// Deposit EVM state while effectively MemiavlOnly.
@@ -67,7 +67,8 @@ func TestRootMultiSetWriteMode_StaleViewsRouteCorrectly(t *testing.T) {
 // must refuse to run.
 func TestRootMultiSetWriteMode_RejectsPendingChanges(t *testing.T) {
 	dir := t.TempDir()
-	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig(100))
+	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+	require.NoError(t, store.SetMigrationBatchSize(100))
 	defer func() { require.NoError(t, store.Close()) }()
 
 	addr := newEVMTestData(0xD2)

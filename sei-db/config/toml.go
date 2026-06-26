@@ -63,19 +63,6 @@ sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBp
 # memiavl. Nodes that start in flatkv mode must keep flatkv_only forever.
 sc-write-mode = "{{ .StateCommit.WriteMode }}"
 
-# KeysToMigratePerBlock is the LOCAL FALLBACK for how many EVM keys the
-# in-flight migration (sc-write-mode = migrate_evm / migrate_bank /
-# migrate_all_but_bank) drains from memiavl into flatkv per block. It is only
-# consulted when the governance-controlled NumKeysToMigratePerBlock param is
-# unset (0); whenever that param is positive it overrides this value. Default
-# 0 keeps the migration paused until governance raises the param. Must be >= 0;
-# ignored entirely when not in a migration mode.
-#
-# WARNING: this fallback is consensus-relevant — migration writes feed the
-# AppHash. Do not set a non-zero value on a single node; either leave it at 0
-# and drive the rate via governance, or set the same value fleet-wide.
-sc-keys-to-migrate-per-block = {{ .StateCommit.KeysToMigratePerBlock }}
-
 ###############################################################################
 ###                        FlatKV (EVM) Configuration                       ###
 ###############################################################################

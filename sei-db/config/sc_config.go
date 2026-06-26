@@ -50,14 +50,6 @@ type StateCommitConfig struct {
 
 	// Token bucket burst for historical proof queries.
 	HistoricalProofBurst int `mapstructure:"historical-proof-burst"`
-
-	// KeysToMigratePerBlock is the local fallback for the number of keys to
-	// migrate from memiavl to flatkv per block. It is only used when the
-	// governance-controlled NumKeysToMigratePerBlock param is unset (0);
-	// otherwise the governance value wins. Defaults to 0, which (together
-	// with the param's 0 default) leaves the migration paused until
-	// governance raises the param. Ignored entirely outside migration modes.
-	KeysToMigratePerBlock int `mapstructure:"keys-to-migrate-per-block"`
 }
 
 // DefaultStateCommitConfig returns the default StateCommitConfig
@@ -70,7 +62,6 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
-		KeysToMigratePerBlock:      0,
 	}
 }
 
@@ -78,9 +69,6 @@ func DefaultStateCommitConfig() StateCommitConfig {
 func (c StateCommitConfig) Validate() error {
 	if !c.WriteMode.IsValid() {
 		return fmt.Errorf("invalid write-mode: %s", c.WriteMode)
-	}
-	if c.KeysToMigratePerBlock < 0 {
-		return fmt.Errorf("keys-to-migrate-per-block must not be negative")
 	}
 	return nil
 }

@@ -39,21 +39,21 @@ func TestApplyMigrationBatchSize(t *testing.T) {
 
 	// Unset param: the store receives the default (0 = paused).
 	a.applyMigrationBatchSize(ctx)
-	got, ok := a.scStore.GetMigrationBatchSize()
+	got, ok := a.rs.GetMigrationBatchSize()
 	require.True(t, ok, "SC store should track a migration batch size")
 	require.Equal(t, 0, got)
 
 	// Governance raises the rate: BeginBlock forwards the new value.
 	subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, uint64(500))
 	a.applyMigrationBatchSize(ctx)
-	got, _ = a.scStore.GetMigrationBatchSize()
+	got, _ = a.rs.GetMigrationBatchSize()
 	require.Equal(t, 500, got)
 
 	// Out-of-int64-range values are clamped to MaxInt64 (defensive; gov
 	// validation only type-checks).
 	subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, uint64(math.MaxUint64))
 	a.applyMigrationBatchSize(ctx)
-	got, _ = a.scStore.GetMigrationBatchSize()
+	got, _ = a.rs.GetMigrationBatchSize()
 	require.Equal(t, math.MaxInt64, got)
 }
 
@@ -66,7 +66,7 @@ func TestBeginBlockAppliesMigrationBatchSize(t *testing.T) {
 	ctx := a.NewContext(false, tmproto.Header{Height: 2, ChainID: "sei-test", Time: time.Now()})
 
 	// Sanity: nothing set yet, so the store is paused at 0.
-	before, ok := a.scStore.GetMigrationBatchSize()
+	before, ok := a.rs.GetMigrationBatchSize()
 	require.True(t, ok)
 	require.Equal(t, 0, before)
 
@@ -80,7 +80,7 @@ func TestBeginBlockAppliesMigrationBatchSize(t *testing.T) {
 		a.BeginBlock(ctx, 2, nil, nil, false)
 	})
 
-	after, _ := a.scStore.GetMigrationBatchSize()
+	after, _ := a.rs.GetMigrationBatchSize()
 	require.Equal(t, 321, after, "BeginBlock should push the gov param into the SC store")
 }
 
@@ -109,7 +109,7 @@ func TestMigrationBatchSizeTakesEffectNextBlock(t *testing.T) {
 
 	// The param was committed in block 1, but BeginBlock(1) ran before it
 	// existed, so the rate is still paused at this point.
-	got, ok := a.scStore.GetMigrationBatchSize()
+	got, ok := a.rs.GetMigrationBatchSize()
 	require.True(t, ok)
 	require.Equal(t, 0, got, "param committed in block 1 must not take effect within block 1")
 
@@ -119,6 +119,6 @@ func TestMigrationBatchSizeTakesEffectNextBlock(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	got, _ = a.scStore.GetMigrationBatchSize()
+	got, _ = a.rs.GetMigrationBatchSize()
 	require.Equal(t, 640, got, "migration rate must take effect on the block after the param is committed")
 }

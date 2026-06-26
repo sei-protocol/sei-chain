@@ -17,16 +17,25 @@ progressively the deeper you go. Existing package guides include:
 
 ## Code style
 
-All Go files must be `gofmt`-compliant. After modifying any `.go` file, run:
+All Go files must be both `gofmt`- and `goimports`-compliant (`.golangci.yml`
+enables the `gofmt` and `goimports` formatters). After modifying **any** `.go`
+file, run **both** tools on **every** file you touched — not just the ones you
+think changed formatting:
 
 ```bash
-gofmt -s -w <file>
+gofmt -s -w <file>...
+goimports -w <file>...   # groups/orders imports; catches the goimports linter
 ```
 
-Or verify the whole tree (prints nothing when everything is clean):
+`goimports` is required in addition to `gofmt`: `gofmt` alone does not separate
+the stdlib import group from third-party imports, so a `gofmt`-clean file can
+still fail the `goimports` linter.
+
+Verify the whole tree (each prints nothing when everything is clean):
 
 ```bash
 gofmt -s -l .
+goimports -l .
 ```
 
 ## Lint, build & test

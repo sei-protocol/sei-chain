@@ -66,7 +66,7 @@ func (app *App) BeginBlock(
 // The NumKeysToMigratePerBlock gov param is read from chain state so every node
 // applies the same value each block; a per-node rate would diverge the
 // AppHash. 0 (the default until a gov proposal raises it) leaves the migration
-// paused, falling back to the node-local sc-keys-to-migrate-per-block config.
+// paused; it is the sole source of the rate (there is no node-local fallback).
 func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 	if app.rs == nil {
 		return

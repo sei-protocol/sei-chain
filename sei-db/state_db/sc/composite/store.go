@@ -96,9 +96,9 @@ type CompositeCommitStore struct {
 	// migrationBatchSize is the governance-controlled number of keys to
 	// migrate per block, pushed in via SetMigrationBatchSize (the app reads
 	// the NumKeysToMigratePerBlock gov param each BeginBlock and forwards it
-	// here through the rootmulti store). 0 means "unset": the effective rate
-	// then falls back to config.KeysToMigratePerBlock. See
-	// effectiveMigrationBatchSize.
+	// here through the rootmulti store). 0 means the migration is paused; it
+	// is the sole source of the per-block batch size (there is no node-local
+	// config fallback).
 	//
 	// Atomic because SetMigrationBatchSize (consensus goroutine, between
 	// blocks) and the build paths that read it must not tear; it mirrors
@@ -457,7 +457,7 @@ func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) er
 func (cs *CompositeCommitStore) buildRouter() error {
 	routerCtx, cancel := context.WithCancel(cs.ctx)
 	router, err := migration.BuildRouter(
-		routerCtx, cs.currentWriteMode, cs.memIAVL, cs.flatKV, cs.effectiveMigrationBatchSize())
+		routerCtx, cs.currentWriteMode, cs.memIAVL, cs.flatKV, int(cs.migrationBatchSize.Load()))
 	if err != nil {
 		cancel()
 		return fmt.Errorf("failed to build router: %w", err)
@@ -470,22 +470,10 @@ func (cs *CompositeCommitStore) buildRouter() error {
 	return nil
 }
 
-// effectiveMigrationBatchSize resolves the number of keys to migrate per
-// block. The governance-controlled value (pushed via SetMigrationBatchSize)
-// wins when set to a positive number; otherwise it falls back to the local
-// config.KeysToMigratePerBlock. With both at their 0 default the migration
-// is paused until governance raises the param.
-func (cs *CompositeCommitStore) effectiveMigrationBatchSize() int {
-	if gov := cs.migrationBatchSize.Load(); gov > 0 {
-		return int(gov)
-	}
-	return cs.config.KeysToMigratePerBlock
-}
-
 // SetMigrationBatchSize records the governance-controlled migration batch
-// size and pushes the newly-resolved effective size into the live router.
-// Only a migration router acts on it (every other router treats it as a
-// no-op), so this is safe to call in any write mode.
+// size and pushes it into the live router. Only a migration router acts on it
+// (every other router treats it as a no-op), so this is safe to call in any
+// write mode. A batch size of 0 pauses the migration.
 //
 // Must be called between blocks (the app calls it from BeginBlock, before any
 // ApplyChangeSets). The router's threadSafeRouter wrapper serializes the push
@@ -493,15 +481,14 @@ func (cs *CompositeCommitStore) effectiveMigrationBatchSize() int {
 func (cs *CompositeCommitStore) SetMigrationBatchSize(batchSize int) error {
 	cs.migrationBatchSize.Store(int64(batchSize))
 	if cs.router != nil {
-		cs.router.SetMigrationBatchSize(cs.effectiveMigrationBatchSize())
+		cs.router.SetMigrationBatchSize(batchSize)
 	}
 	return nil
 }
 
 // GetMigrationBatchSize returns the governance-controlled migration batch size
 // most recently pushed via SetMigrationBatchSize (0 when never set / paused).
-// This is the raw governance value before the config fallback applied by
-// effectiveMigrationBatchSize, and is intended for observability and tests.
+// It is intended for observability and tests.
 func (cs *CompositeCommitStore) GetMigrationBatchSize() int {
 	return int(cs.migrationBatchSize.Load())
 }

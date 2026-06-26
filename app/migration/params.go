@@ -24,8 +24,8 @@ const SubspaceName = "migration"
 var KeyNumKeysToMigratePerBlock = []byte("NumKeysToMigratePerBlock")
 
 // DefaultNumKeysToMigratePerBlock leaves the migration paused. While it is 0
-// (the default until a gov proposal sets it) the SC store falls back to the
-// node-local sc-keys-to-migrate-per-block config.
+// (the default until a gov proposal raises it) the SC store does no migration
+// work; this param is the sole source of the per-block rate.
 const DefaultNumKeysToMigratePerBlock uint64 = 0
 
 // ParamKeyTable returns the key table for the migration subspace.
