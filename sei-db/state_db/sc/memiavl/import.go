@@ -120,8 +120,6 @@ func (mti *MultiTreeImporter) Close() error {
 			return rmErr
 		}
 	} else if err := os.Rename(tmpDir, finalDir); err != nil {
-		fmt.Fprintf(os.Stderr, "RENAME-DIAG: rename %s -> %s: type=%T isExist=%v isNotEmpty=%v err=%v\n",
-			tmpDir, finalDir, err, errors.Is(err, fs.ErrExist), errors.Is(err, syscall.ENOTEMPTY), err)
 		if !errors.Is(err, fs.ErrExist) && !errors.Is(err, syscall.ENOTEMPTY) {
 			return err
 		}

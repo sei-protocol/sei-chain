@@ -578,11 +578,6 @@ func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, appVersion u
 		wrapped := fmt.Errorf(
 			"state-sync appHash mismatch: expected %X, got %X: %w",
 			snapshot.trustedAppHash, resp.LastBlockAppHash, types.ErrAppHash)
-		logger.Error("APPHASH-DIAG",
-			"policy_type", fmt.Sprintf("%T", types.DefaultConsensusPolicy()),
-			"is_wrapped", errors.Is(wrapped, types.ErrAppHash),
-			"handle_raw_nil", types.DefaultConsensusPolicy().HandleError(types.ErrAppHash) == nil,
-			"handle_wrapped_nil", types.DefaultConsensusPolicy().HandleError(wrapped) == nil)
 		if err := types.DefaultConsensusPolicy().HandleError(wrapped); err != nil {
 			logger.Error("appHash verification failed",
 				"expected", snapshot.trustedAppHash,
