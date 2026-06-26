@@ -470,7 +470,7 @@ type App struct {
 	genesisImportConfig genesistypes.GenesisImportConfig
 
 	stateStore   seidb.StateStore
-	rs           *rootmulti.Store
+	rootStore    *rootmulti.Store
 	receiptStore receipt.ReceiptStore
 
 	forkInitializer func(sdk.Context)
@@ -555,11 +555,11 @@ func New(
 	// composite SC backend drives the in-flight memiavl->flatkv migration that
 	// BeginBlock paces via the migration gov param. Fail fast if the legacy
 	// root multistore is somehow in use.
-	rs, ok := app.CommitMultiStore().(*rootmulti.Store)
+	rootStore, ok := app.CommitMultiStore().(*rootmulti.Store)
 	if !ok {
 		panic(fmt.Sprintf("unsupported commit multistore %T: expected *storev2_rootmulti.Store", app.CommitMultiStore()))
 	}
-	app.rs = rs
+	app.rootStore = rootStore
 
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
 
