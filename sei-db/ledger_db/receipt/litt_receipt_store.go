@@ -61,11 +61,12 @@ type littReceiptStore struct {
 	latestVersion   atomic.Int64
 	earliestVersion atomic.Int64
 
-	keepRecent     int64
-	pruneInterval  int64
-	stopBackground chan struct{}
-	backgroundWg   sync.WaitGroup
-	closeOnce      sync.Once
+	keepRecent           int64
+	pruneInterval        int64
+	logFilterParallelism int
+	stopBackground       chan struct{}
+	backgroundWg         sync.WaitGroup
+	closeOnce            sync.Once
 }
 
 var _ ReceiptStore = (*littReceiptStore)(nil)
@@ -143,14 +144,21 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 		return nil, fmt.Errorf("failed to open receipt log index: %w", err)
 	}
 
+	// getLogs per-query block fan-out; non-positive config falls back to the default.
+	logFilterParallelism := cfg.LogFilterParallelism
+	if logFilterParallelism <= 0 {
+		logFilterParallelism = dbconfig.DefaultReceiptLogFilterParallelism
+	}
+
 	s := &littReceiptStore{
-		values:         values,
-		receipts:       receipts,
-		index:          index,
-		storeKey:       storeKey,
-		keepRecent:     int64(cfg.KeepRecent),
-		pruneInterval:  int64(cfg.PruneIntervalSeconds),
-		stopBackground: make(chan struct{}),
+		values:               values,
+		receipts:             receipts,
+		index:                index,
+		storeKey:             storeKey,
+		keepRecent:           int64(cfg.KeepRecent),
+		pruneInterval:        int64(cfg.PruneIntervalSeconds),
+		logFilterParallelism: logFilterParallelism,
+		stopBackground:       make(chan struct{}),
 	}
 	s.latestVersion.Store(s.readMeta(receiptLatestVersionKey))
 	s.earliestVersion.Store(s.readMeta(receiptEarliestVersionKey))
