@@ -199,6 +199,69 @@ func TestWrapSeiLegacyHTTP_RaisedBodyLimitNotTruncated(t *testing.T) {
 	}
 }
 
+func TestWrapSeiLegacyHTTP_OverLimitBodyRejectedNotTruncated(t *testing.T) {
+	const maxBody = 1024
+	innerCalled := false
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		innerCalled = true
+	})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
+	h := wrapSeiLegacyHTTP(inner, enabled, maxBody)
+
+	// Body exceeds maxBody. The gate must reject with 413 rather than silently
+	// truncating to maxBody and forwarding to the inner handler.
+	pad := strings.Repeat("a", maxBody)
+	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["` + pad + `"]}`
+	if int64(len(body)) <= maxBody {
+		t.Fatalf("test body %d must exceed maxBody %d", len(body), maxBody)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("got status %d, want 413", rec.Code)
+	}
+	if innerCalled {
+		t.Fatal("inner handler must not be invoked for an over-limit body")
+	}
+}
+
+func TestWrapSeiLegacyHTTP_BodyExactlyAtLimitForwarded(t *testing.T) {
+	const maxBody = 4096
+	var gotLen int
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("inner read: %v", err)
+		}
+		gotLen = len(b)
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
+	})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
+	h := wrapSeiLegacyHTTP(inner, enabled, maxBody)
+
+	prefix := `{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["`
+	suffix := `"]}`
+	pad := strings.Repeat("a", maxBody-len(prefix)-len(suffix))
+	body := prefix + pad + suffix
+	if int64(len(body)) != maxBody {
+		t.Fatalf("test body %d must equal maxBody %d", len(body), maxBody)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got status %d, want 200 for body exactly at limit", rec.Code)
+	}
+	if gotLen != len(body) {
+		t.Fatalf("inner saw %d bytes, want full body %d", gotLen, len(body))
+	}
+}
+
 const seiLegacyHTTPDefault5MiB = 5 * 1024 * 1024
 
 func TestWrapSeiLegacyHTTP_AllowedMethodPassthroughAndDeprecationHeader(t *testing.T) {

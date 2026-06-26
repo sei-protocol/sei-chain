@@ -42,11 +42,20 @@ type seiLegacyHTTPGate struct {
 
 func (g *seiLegacyHTTPGate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Read the body once; delegate JSON-RPC validation to the inner handler. We only intercept
-	// when we can parse JSON-RPC and the method is a gated sei_* / sei2_* name.
-	body, err := io.ReadAll(io.LimitReader(r.Body, g.maxBody))
+	// when we can parse JSON-RPC and the method is a gated sei_* / sei2_* name. Read one byte
+	// past maxBody so an over-limit body is rejected with 413 rather than silently truncated:
+	// LimitReader(maxBody) would stop at exactly maxBody and never trip the outer
+	// http.MaxBytesReader, so a chunked / unknown-length body (ContentLength == -1, which slips
+	// past requestSizeLimiter's header-only check) would otherwise be forwarded truncated —
+	// inconsistent with the declared-Content-Length path, which returns 413.
+	body, err := io.ReadAll(io.LimitReader(r.Body, g.maxBody+1))
 	_ = r.Body.Close()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if int64(len(body)) > g.maxBody {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 	trim := bytes.TrimSpace(body)
