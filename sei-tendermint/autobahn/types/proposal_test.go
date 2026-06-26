@@ -84,6 +84,25 @@ func TestProposalVerifyFreshWithBlocks(t *testing.T) {
 	require.NoError(t, fp.Verify(committee, vs))
 }
 
+func TestNewProposalRejectsLaneRangeLongerThanMaxLaneRangeInProposal(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	vs := ViewSpec{}
+	proposerKey := leaderKey(committee, keys, vs.View())
+	lane := proposerKey.Public()
+
+	laneQC := makeLaneQC(rng, committee, keys, lane, MaxLaneRangeInProposal, GenBlockHeaderHash(rng))
+	_, err := NewProposal(
+		proposerKey,
+		committee,
+		vs,
+		time.Now(),
+		map[LaneID]*LaneQC{lane: laneQC},
+		utils.None[*AppQC](),
+	)
+	require.Error(t, err)
+}
+
 func TestProposalBlockTimestampStrictlyMonotone(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
@@ -479,6 +498,26 @@ func TestProposalConvDecode_RejectsDuplicateLaneRanges(t *testing.T) {
 	encoded.LaneRanges = append(encoded.LaneRanges, encoded.LaneRanges[0])
 	_, err = ProposalConv.Decode(encoded)
 	require.Error(t, err)
+}
+
+func TestProposalVerifyRejectsLaneRangeLongerThanMaxLaneRangeInProposal(t *testing.T) {
+	rng := utils.TestRng()
+	committee, _ := GenCommittee(rng, 4)
+	lane := slices.Collect(committee.Lanes().All())[0]
+	parentHash := GenBlockHeaderHash(rng)
+	var lastHeader *BlockHeader
+	for blockNumber := range BlockNumber(MaxLaneRangeInProposal + 1) {
+		lastHeader = NewBlock(lane, blockNumber, parentHash, GenPayload(rng)).Header()
+		parentHash = lastHeader.Hash()
+	}
+
+	proposal := newProposal(
+		View{},
+		time.Unix(1, 2),
+		[]*LaneRange{NewLaneRange(lane, 0, utils.Some(lastHeader))},
+		utils.None[*AppProposal](),
+	)
+	require.Error(t, proposal.Verify(committee))
 }
 
 func makeFullProposal(
