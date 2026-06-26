@@ -158,10 +158,10 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	if v := appOpts.Get(FlagSCHashLoggerDirectory); v != nil {
 		scConfig.HashLogger.Directory = cast.ToString(v)
 	}
+	// BlocksToRetain and MaxDiskSize take a configured value verbatim, including 0 (which disables that
+	// retention dimension). TargetFileSize must stay > 0, so a 0/absent value preserves the default.
 	if v := appOpts.Get(FlagSCHashLoggerBlocksToRetain); v != nil {
-		if n := cast.ToUint(v); n > 0 {
-			scConfig.HashLogger.BlocksToRetain = n
-		}
+		scConfig.HashLogger.BlocksToRetain = cast.ToUint(v)
 	}
 	if v := appOpts.Get(FlagSCHashLoggerTargetFileSize); v != nil {
 		if n := cast.ToUint(v); n > 0 {
@@ -169,9 +169,7 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 		}
 	}
 	if v := appOpts.Get(FlagSCHashLoggerMaxDiskSize); v != nil {
-		if n := cast.ToUint(v); n > 0 {
-			scConfig.HashLogger.MaxDiskSize = n
-		}
+		scConfig.HashLogger.MaxDiskSize = cast.ToUint(v)
 	}
 	// The software version is embedded in hash log file names so archives from different builds are
 	// distinguishable. Sourced from the node build version, not from app.toml.

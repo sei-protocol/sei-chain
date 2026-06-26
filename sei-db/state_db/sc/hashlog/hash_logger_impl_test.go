@@ -334,6 +334,56 @@ func TestImplGCHonorsMaxDiskSize(t *testing.T) {
 	require.Len(t, kept, 1, "the most recent block should be retained")
 }
 
+func TestImplGCDisabledWhenLimitsZero(t *testing.T) {
+	dir := t.TempDir()
+	config := testConfig(dir)
+	config.TargetFileSize = 1 // one block per file: 20 sealed files
+	config.BlocksToRetain = 0 // disabled
+	config.MaxDiskSize = 0    // disabled
+	l, err := NewHashLogger(config)
+	require.NoError(t, err)
+
+	const blocks = 20
+	for block := uint64(1); block <= blocks; block++ {
+		require.NoError(t, l.ReportHash(block, "a", []byte{byte(block)}))
+		require.NoError(t, l.ReportHash(block, "b", []byte{byte(block)}))
+	}
+	require.NoError(t, l.Close())
+
+	// With both retention dimensions disabled, nothing is garbage collected — even the oldest block survives.
+	oldest, err := ReadHashForBlock(dir, 1)
+	require.NoError(t, err)
+	require.Len(t, oldest, 1, "block 1 must be retained when both GC limits are disabled")
+	newest, err := ReadHashForBlock(dir, blocks)
+	require.NoError(t, err)
+	require.Len(t, newest, 1, "the most recent block must be retained")
+}
+
+func TestImplRotationReusesIndexForUnwrittenFiles(t *testing.T) {
+	dir := t.TempDir()
+	l, err := NewHashLogger(testConfig(dir)) // starts with columns "a", "b"
+	require.NoError(t, err)
+
+	// Register several new columns before any block is written. Each registration rotates the (still
+	// empty) mutable file; because nothing was written, the index must be reused, not burned.
+	for _, ht := range []string{"c", "d", "e"} {
+		require.NoError(t, l.RegisterHashType(ht))
+	}
+
+	for _, ht := range []string{"a", "b", "c", "d", "e"} {
+		require.NoError(t, l.ReportHash(1, ht, []byte{0x01}))
+	}
+	require.NoError(t, l.Close())
+
+	files, err := listArchiveFiles(dir)
+	require.NoError(t, err)
+	require.Len(t, files, 1, "the pre-block registration burst must not leave extra files")
+	parsed, ok := parseFileName(files[0].name)
+	require.True(t, ok)
+	require.Equal(t, uint64(0), parsed.index,
+		"an unwritten file's index must be reused, so the first file with data is index 0")
+}
+
 func TestImplResumesAfterReopen(t *testing.T) {
 	dir := t.TempDir()
 

@@ -38,13 +38,14 @@ func (rs *Store) SetNextBlockHash(blockHash []byte) {
 	rs.nextBlockHash = append([]byte(nil), blockHash...)
 }
 
-// hashLogDir returns the directory hash log files are written to, defaulting to a "hashlog" subdirectory
-// of the state-commit store directory.
+// hashLogDir returns the directory hash log files are written to, defaulting to a "hash.log" directory
+// under the state-commit store's data directory (sibling of committer.db / receipt.db). The ".log"
+// suffix mirrors the data/ naming convention (.db, .wal); the files inside keep the .hlog format.
 func (rs *Store) hashLogDir() string {
 	if rs.hashLoggerConfig.Directory != "" {
 		return rs.hashLoggerConfig.Directory
 	}
-	return filepath.Join(rs.scDir, "hashlog")
+	return filepath.Join(rs.scDir, "data", "hash.log")
 }
 
 // desiredHashCategories computes the full caller-reported category set for the current backend state:
@@ -63,22 +64,20 @@ func (rs *Store) desiredHashCategories() []string {
 
 // openHashLogger constructs the logger once. It starts with no caller columns (just the changeset
 // column); syncHashCategories then registers the live categories, which the logger handles as runtime
-// column changes (each new column rotates to a fresh file, but the empty initial files are dropped).
+// column changes (each new column rotates to a fresh file, but the empty initial files are dropped and
+// their indexes reused, so the first file with data starts at index 0).
 func (rs *Store) openHashLogger() error {
 	loggerVersion := rs.hashLoggerConfig.Version
 	if loggerVersion == "" {
 		loggerVersion = "unknown"
 	}
 	cfg := hashlog.DefaultHashLoggerConfig(rs.hashLogDir(), loggerVersion)
-	if rs.hashLoggerConfig.BlocksToRetain > 0 {
-		cfg.BlocksToRetain = rs.hashLoggerConfig.BlocksToRetain
-	}
-	if rs.hashLoggerConfig.TargetFileSize > 0 {
-		cfg.TargetFileSize = rs.hashLoggerConfig.TargetFileSize
-	}
-	if rs.hashLoggerConfig.MaxDiskSize > 0 {
-		cfg.MaxDiskSize = rs.hashLoggerConfig.MaxDiskSize
-	}
+	// Propagate the operator-configured retention tunables verbatim. A configured 0 must reach the logger
+	// (where it disables that dimension); the old `if > 0` guards swallowed it. Defaults are applied at
+	// config construction (config.DefaultHashLoggerConfig), so these always carry a meaningful value.
+	cfg.BlocksToRetain = rs.hashLoggerConfig.BlocksToRetain
+	cfg.TargetFileSize = rs.hashLoggerConfig.TargetFileSize
+	cfg.MaxDiskSize = rs.hashLoggerConfig.MaxDiskSize
 
 	hl, err := hashlog.NewHashLogger(cfg)
 	if err != nil {

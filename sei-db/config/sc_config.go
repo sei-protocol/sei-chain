@@ -55,7 +55,8 @@ type StateCommitConfig struct {
 	KeysToMigratePerBlock int `mapstructure:"keys-to-migrate-per-block"`
 
 	// HashLogger configures the per-block hash logger (a debugging/forensics tool). Enabled by default.
-	HashLogger HashLoggerConfig `mapstructure:"hash-logger"`
+	// Loaded via explicit sc-hash-logger-* flag reads in app.parseSCConfigs, not mapstructure.
+	HashLogger HashLoggerConfig
 }
 
 // DefaultStateCommitConfig returns the default StateCommitConfig

@@ -55,15 +55,17 @@ type HashLoggerConfig struct {
 	// This bounds memory if a registered hash type is never reported for some block.
 	MaxBufferedBlocks uint
 
-	// The number of HashLog entries to retain on disk.
+	// The number of HashLog entries to retain on disk. Zero disables block-count retention (the disk-size
+	// cap is then the only bound).
 	BlocksToRetain uint
 
-	// The size log files are allowed to get before we close one and open another.
+	// The size log files are allowed to get before we close one and open another. Must be greater than 0.
 	TargetFileSize uint
 
 	// A backstop against runaway disk growth. When the total size of sealed log files exceeds this
 	// value, the oldest sealed files are deleted until it no longer does, even if that means retaining
-	// fewer than BlocksToRetain blocks.
+	// fewer than BlocksToRetain blocks. Zero disables the disk-size cap (block-count retention is then the
+	// only bound).
 	MaxDiskSize uint
 }
 
@@ -91,9 +93,8 @@ func (c *HashLoggerConfig) Validate() error {
 	if c.Version == "" {
 		return fmt.Errorf("version is required")
 	}
-	if c.MaxDiskSize == 0 {
-		return fmt.Errorf("max disk size must be greater than 0")
-	}
+	// MaxDiskSize == 0 is allowed: it disables the disk-size cap (block-count retention is then the only
+	// bound; if both are disabled the logger grows without bound, which is a deliberate operator choice).
 	if c.MaxBufferedBlocks == 0 {
 		return fmt.Errorf("max buffered blocks must be greater than 0")
 	}

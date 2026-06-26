@@ -43,7 +43,7 @@ func TestRootMultiHashLogging(t *testing.T) {
 	// Close flushes the logger so all complete blocks are written.
 	require.NoError(t, store.Close())
 
-	dir := filepath.Join(home, "hashlog")
+	dir := filepath.Join(home, "data", "hash.log")
 	expectedColumns := []string{
 		"appHash", "blockHash", "memIAVL/root",
 		"memIAVL/mod/bank", "memIAVL/mod/evm", hashlog.ChangesetHashType,
@@ -84,7 +84,7 @@ func TestRootMultiHashLoggingDisabled(t *testing.T) {
 	require.Equal(t, int64(1), store.Commit(true).Version)
 	require.NoError(t, store.Close())
 
-	logs, err := hashlog.ReadHashForBlock(filepath.Join(home, "hashlog"), 1)
+	logs, err := hashlog.ReadHashForBlock(filepath.Join(home, "data", "hash.log"), 1)
 	// Either the directory does not exist (error) or there are no records.
 	if err == nil {
 		require.Empty(t, logs)
