@@ -404,6 +404,9 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			if err := r.Verify(c); err != nil {
 				return fmt.Errorf("proposal: laneRange[%v]: %w", r.Lane(), err)
 			}
+			if got := r.Len(); got > MaxLaneRangeInProposal {
+				return fmt.Errorf("proposal: laneRange[%v].Len() = %d, want <= %d", r.Lane(), got, MaxLaneRangeInProposal)
+			}
 		}
 		// Verify each lane range against the previous commitQC and its laneQC justification.
 		for lane := range c.Lanes().All() {
