@@ -132,7 +132,7 @@ func (g *BlockGenerator) buildFullCommitQC() (*types.FullCommitQC, []*types.Bloc
 		}
 	}
 
-	viewSpec := types.ViewSpec{CommitQC: prev, Epoch: &types.Epoch{Committee: committee, Timestamp: genesisTime}}
+	viewSpec := types.ViewSpec{CommitQC: prev, Epoch: types.NewEpoch(0, types.RoadRange{}, genesisTime, committee, 0)}
 	leader := committee.Leader(viewSpec.View())
 	var leaderKey types.SecretKey
 	for _, k := range keys {

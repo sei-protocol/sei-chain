@@ -222,17 +222,14 @@ func (m *Proposal) NextTimestamp() time.Time {
 	return m.Timestamp().Add(time.Duration(m.globalRange.Len()) * minTimestampDiff)
 }
 
-// Verify checks that every present lane range belongs to the committee
-// and is internally valid. Lanes may be omitted — omitted lanes are
-// treated as implicit empty ranges by FullProposal.Verify.
-func (m *Proposal) Verify(c *Committee) error {
-	for _, r := range m.laneRanges {
-		if err := r.Verify(c); err != nil {
-			return fmt.Errorf("laneRange[%v]: %w", r.Lane(), err)
-		}
-		if got, wantMax := r.Len(), uint64(MaxLaneRangeInProposal); got > wantMax {
-			return fmt.Errorf("laneRanges[%v]: len = %d, want <= %d", r.Lane(), got, wantMax)
-		}
+// Verify checks that the proposal's epoch fields match ep (epoch index and
+// first block). Road-range and lane-range checks are caller concerns.
+func (m *Proposal) Verify(ep *Epoch) error {
+	if got, want := m.EpochIndex(), ep.EpochIndex(); got != want {
+		return fmt.Errorf("epoch_index = %d, want %d", got, want)
+	}
+	if got, want := m.FirstBlock(), ep.FirstBlock(); got != want {
+		return fmt.Errorf("first_block = %v, want %v", got, want)
 	}
 	return nil
 }
@@ -355,14 +352,6 @@ func (m *FullProposal) TimeoutQC() utils.Option[*TimeoutQC] {
 func (m *FullProposal) Verify(vs ViewSpec) error {
 	c := vs.Epoch.Committee()
 	return scope.Parallel(func(s scope.ParallelScope) error {
-		// Does the epoch info match?
-		msg := m.proposal.Msg()
-		if got, want := msg.EpochIndex(), vs.Epoch.EpochIndex(); got != want {
-			return fmt.Errorf("epoch_index = %d, want %d", got, want)
-		}
-		if got, want := msg.FirstBlock(), vs.Epoch.FirstBlock(); got != want {
-			return fmt.Errorf("epoch_first_block = %v, want %v", got, want)
-		}
 		// Does the view match?
 		if got, want := m.proposal.Msg().View(), vs.View(); got != want {
 			return fmt.Errorf("view = %v, want %v", m.View(), vs.View())
@@ -389,7 +378,7 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 		// Verify timeoutQC.
 		if tQC, ok := m.timeoutQC.Get(); ok {
 			s.Spawn(func() error {
-				if err := tQC.Verify(c, vs.CommitQC); err != nil {
+				if err := tQC.Verify(vs.Epoch, vs.CommitQC); err != nil {
 					return fmt.Errorf("timeoutQC: %w", err)
 				}
 				return nil
@@ -406,10 +395,15 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 				return nil
 			}
 		}
-		// Verify the proposal's lane structure against the committee.
+		// Verify the proposal's epoch binding and lane structure.
 		proposal := m.proposal.Msg()
-		if err := proposal.Verify(c); err != nil {
+		if err := proposal.Verify(vs.Epoch); err != nil {
 			return fmt.Errorf("proposal: %w", err)
+		}
+		for _, r := range proposal.laneRanges {
+			if err := r.Verify(c); err != nil {
+				return fmt.Errorf("proposal: laneRange[%v]: %w", r.Lane(), err)
+			}
 		}
 		// Verify each lane range against the previous commitQC and its laneQC justification.
 		for lane := range c.Lanes().All() {

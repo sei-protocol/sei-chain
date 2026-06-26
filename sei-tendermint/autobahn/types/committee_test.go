@@ -73,92 +73,94 @@ func TestNewCommittee_RejectsTooManyValidators(t *testing.T) {
 	}
 }
 
-func makeCommittee() (*Committee, []SecretKey) {
+func makeEpoch(rng utils.Rng) (*Epoch, []SecretKey) {
 	keys := []SecretKey{
 		TestSecretKey("heavy"),
 		TestSecretKey("light1"),
 		TestSecretKey("light2"),
 	}
-	return utils.OrPanic1(NewCommittee(map[PublicKey]uint64{
+	committee := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{
 		keys[0].Public(): 5,
 		keys[1].Public(): 1,
 		keys[2].Public(): 1,
-	})), keys
+	}))
+	return GenEpochWithCommittee(rng, committee), keys
 }
 
 func TestLaneQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := makeCommittee()
+	ep, keys := makeEpoch(rng)
 	vote := NewLaneVote(NewBlock(keys[0].Public(), 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
 
 	heavyOnly := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[0], vote),
 	})
-	require.NoError(t, heavyOnly.Verify(committee))
+	require.NoError(t, heavyOnly.Verify(ep.Committee()))
 	lightMajority := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[1], vote),
 		Sign(keys[2], vote),
 	})
-	require.Error(t, lightMajority.Verify(committee))
+	require.Error(t, lightMajority.Verify(ep.Committee()))
 }
 
 func TestPrepareQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := makeCommittee()
-	vote := NewPrepareVote(GenProposalAt(rng, View{}))
+	ep, keys := makeEpoch(rng)
+	vote := NewPrepareVote(ProposalAt(ep, View{}))
 
 	heavyOnly := NewPrepareQC([]*Signed[*PrepareVote]{
 		Sign(keys[0], vote),
 	})
-	require.NoError(t, heavyOnly.Verify(committee))
+	require.NoError(t, heavyOnly.Verify(ep))
 	lightMajority := NewPrepareQC([]*Signed[*PrepareVote]{
 		Sign(keys[1], vote),
 		Sign(keys[2], vote),
 	})
-	require.Error(t, lightMajority.Verify(committee))
+	require.Error(t, lightMajority.Verify(ep))
 }
 
 func TestCommitQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := makeCommittee()
-	vote := NewCommitVote(GenProposalAt(rng, View{}))
+	ep, keys := makeEpoch(rng)
+	vote := NewCommitVote(ProposalAt(ep, View{}))
 
 	heavyOnly := NewCommitQC([]*Signed[*CommitVote]{
 		Sign(keys[0], vote),
 	})
-	require.NoError(t, heavyOnly.Verify(committee))
+	require.NoError(t, heavyOnly.Verify(ep))
 	lightMajority := NewCommitQC([]*Signed[*CommitVote]{
 		Sign(keys[1], vote),
 		Sign(keys[2], vote),
 	})
-	require.Error(t, lightMajority.Verify(committee))
+	require.Error(t, lightMajority.Verify(ep))
 }
 
 func TestAppQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := makeCommittee()
+	ep, keys := makeEpoch(rng)
 	vote := NewAppVote(NewAppProposal(0, 0, GenAppHash(rng)))
 
 	heavyOnly := NewAppQC([]*Signed[*AppVote]{
 		Sign(keys[0], vote),
 	})
-	require.NoError(t, heavyOnly.Verify(committee))
+	require.NoError(t, heavyOnly.Verify(ep.Committee()))
 
 	lightMajority := NewAppQC([]*Signed[*AppVote]{
 		Sign(keys[1], vote),
 		Sign(keys[2], vote),
 	})
-	require.Error(t, lightMajority.Verify(committee))
+	require.Error(t, lightMajority.Verify(ep.Committee()))
 }
 
 func TestTimeoutQCVerifyChecksWeight(t *testing.T) {
-	committee, keys := makeCommittee()
+	rng := utils.TestRng()
+	ep, keys := makeEpoch(rng)
 	view := View{}
 
 	heavyOnly := NewTimeoutQC([]*FullTimeoutVote{
 		NewFullTimeoutVote(keys[0], view, utils.None[*PrepareQC]()),
 	})
-	if err := heavyOnly.Verify(committee, utils.None[*CommitQC]()); err != nil {
+	if err := heavyOnly.Verify(ep, utils.None[*CommitQC]()); err != nil {
 		t.Fatalf("heavyOnly.Verify(): %v", err)
 	}
 
@@ -166,7 +168,7 @@ func TestTimeoutQCVerifyChecksWeight(t *testing.T) {
 		NewFullTimeoutVote(keys[1], view, utils.None[*PrepareQC]()),
 		NewFullTimeoutVote(keys[2], view, utils.None[*PrepareQC]()),
 	})
-	if err := lightMajority.Verify(committee, utils.None[*CommitQC]()); err == nil {
+	if err := lightMajority.Verify(ep, utils.None[*CommitQC]()); err == nil {
 		t.Fatal("lightMajority.Verify() succeeded, want error")
 	}
 }

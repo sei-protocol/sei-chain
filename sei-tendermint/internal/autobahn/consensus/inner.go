@@ -126,7 +126,7 @@ func (s *State) pushCommitQC(qc *types.CommitQC) error {
 	if qc.Proposal().Index() < i.View().Index {
 		return nil
 	}
-	if err := qc.Verify(i.ep.Committee()); err != nil {
+	if err := qc.Verify(i.ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for iSend := range s.inner.Lock() {
@@ -154,7 +154,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 		return nil
 	}
 	// Verify checks the invariant: TimeoutQC.View().Index == CommitQC.Index + 1
-	if err := qc.Verify(i.ep.Committee(), i.CommitQC); err != nil {
+	if err := qc.Verify(i.ep, i.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for isend := range s.inner.Lock() {
@@ -205,7 +205,7 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 	if vs.View() != qc.Proposal().View() {
 		return nil
 	}
-	if err := qc.Verify(vs.Epoch.Committee()); err != nil {
+	if err := qc.Verify(vs.Epoch); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	// Update.

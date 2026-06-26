@@ -204,8 +204,8 @@ func (i *inner) skipTo(n types.GlobalBlockNumber) {
 // insertQC verifies and inserts a FullCommitQC into the inner state.
 // Accepts QCs whose range starts at or before nextQC (partially pruned
 // prefix is silently skipped). Rejects gaps where gr.First > nextQC.
-func (i *inner) insertQC(committee *types.Committee, qc *types.FullCommitQC) error {
-	if err := qc.Verify(committee); err != nil {
+func (i *inner) insertQC(ep *epoch.Registry, qc *types.FullCommitQC) error {
+	if err := qc.Verify(ep.EpochFor(qc.QC().Proposal().Index())); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	gr := qc.QC().GlobalRange()
@@ -302,8 +302,7 @@ func NewState(cfg *Config, dataWAL *DataWAL) (*State, error) {
 	// Restore QCs. insertQC handles partially pruned QCs (range starts
 	// before inner.first) by skipping the pruned prefix.
 	for _, qc := range dataWAL.CommitQCs.ConsumeLoaded() {
-		committee := cfg.Registry.EpochFor(qc.QC().Proposal().Index()).Committee()
-		if err := inner.insertQC(committee, qc); err != nil {
+		if err := inner.insertQC(cfg.Registry, qc); err != nil {
 			return nil, fmt.Errorf("load QC from WAL: %w", err)
 		}
 	}
@@ -354,7 +353,7 @@ func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
 // Even if the qc was already pushed earlier, the blocks are pushed anyway.
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
 	// Wait until QC is needed.
-	committee := s.cfg.Registry.EpochFor(qc.QC().Proposal().Index()).Committee()
+	ep := s.cfg.Registry.EpochFor(qc.QC().Proposal().Index())
 	gr := qc.QC().GlobalRange()
 	needQC, err := func() (bool, error) {
 		for inner, ctrl := range s.inner.Lock() {
@@ -372,11 +371,12 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	}
 	// Verify data.
 	if needQC {
-		if err := qc.Verify(committee); err != nil {
+		if err := qc.Verify(ep); err != nil {
 			return fmt.Errorf("qc.Verify(): %w", err)
 		}
 	}
 	byHash := map[types.BlockHeaderHash]*types.Block{}
+	committee := ep.Committee()
 	for _, b := range blocks {
 		byHash[b.Header().Hash()] = b
 		if err := b.Verify(committee); err != nil {

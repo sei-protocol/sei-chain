@@ -45,9 +45,17 @@ func (m *CommitQC) GlobalRange() GlobalRange {
 	return m.Proposal().GlobalRange()
 }
 
-// Verify verifies the CommitQC against the committee.
-// Currently it doesn't require the previous CommitQC.
-func (m *CommitQC) Verify(c *Committee) error {
+// Verify verifies the CommitQC against the epoch.
+func (m *CommitQC) Verify(ep *Epoch) error {
+	p := m.Proposal()
+	if err := p.Verify(ep); err != nil {
+		return err
+	}
+	roads := ep.Roads()
+	if p.Index() < roads.First || p.Index() > roads.Last {
+		return fmt.Errorf("road_index %v not in epoch roads [%v, %v]", p.Index(), roads.First, roads.Last)
+	}
+	c := ep.Committee()
 	return m.vote.verifyQC(c, c.CommitQuorum(), m.sigs)
 }
 
@@ -77,16 +85,16 @@ func (m *FullCommitQC) Index() RoadIndex {
 	return m.qc.Index()
 }
 
-// Verify verifies the FullCommitQC against the committee.
-func (m *FullCommitQC) Verify(c *Committee) error {
-	if err := m.qc.Verify(c); err != nil {
+// Verify verifies the FullCommitQC against the epoch.
+func (m *FullCommitQC) Verify(ep *Epoch) error {
+	if err := m.qc.Verify(ep); err != nil {
 		return fmt.Errorf("qC: %w", err)
 	}
 	n := uint64(0)
 	if want, got := int(m.qc.GlobalRange().Len()), len(m.headers); want != got { //nolint:gosec // global range len is a small bounded value representing block count in a QC
 		return fmt.Errorf("len(headers) = %d, want %d", got, want)
 	}
-	for lane := range c.Lanes().All() {
+	for lane := range ep.Committee().Lanes().All() {
 		lr := m.qc.LaneRange(lane)
 		if lr.Len() == 0 {
 			continue

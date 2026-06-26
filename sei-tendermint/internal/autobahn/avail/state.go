@@ -261,7 +261,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	if err := qc.Verify(s.data.Registry().EpochFor(qc.Proposal().Index()).Committee()); err != nil {
+	if err := qc.Verify(s.data.Registry().EpochFor(qc.Proposal().Index())); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
@@ -335,11 +335,11 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			return nil
 		}
 	}
-	c := s.data.Registry().EpochFor(commitQC.Proposal().Index()).Committee()
-	if err := appQC.Verify(c); err != nil {
+	ep := s.data.Registry().EpochFor(commitQC.Proposal().Index())
+	if err := appQC.Verify(ep.Committee()); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
-	if err := commitQC.Verify(c); err != nil {
+	if err := commitQC.Verify(ep); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
 	}
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
@@ -351,7 +351,7 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		updated, err := inner.prune(c, appQC, commitQC)
+		updated, err := inner.prune(ep.Committee(), appQC, commitQC)
 		if err != nil {
 			return err
 		}
@@ -558,7 +558,7 @@ func (s *State) WaitForLaneQCs(
 		for {
 			for lane := range inner.blocks {
 				first := types.LaneRangeOpt(prev, lane).Next()
-				for i := range types.BlockNumber(BlocksPerLanePerCommit) {
+				for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
 					if qc, ok := inner.laneQC(ep.Committee(), lane, first+i); ok {
 						laneQCs[lane] = qc
 					} else {

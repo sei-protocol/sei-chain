@@ -190,12 +190,12 @@ func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
 
 // PushTimeoutVote processes an unverified FullTimeoutVote message.
 func (s *State) PushTimeoutVote(vote *types.FullTimeoutVote) error {
-	committee := s.myView.Load().Epoch.Committee()
-	if err := vote.Verify(committee); err != nil {
+	ep := s.myView.Load().Epoch
+	if err := vote.Verify(ep); err != nil {
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
 	for tv := range s.timeoutVotes.Lock() {
-		tv.pushVote(committee, vote)
+		tv.pushVote(ep.Committee(), vote)
 	}
 	return nil
 }

@@ -36,9 +36,17 @@ func (m *PrepareQC) View() View {
 	return m.vote.Msg().Proposal().View()
 }
 
-// Verify verifies the PrepareQC against the committee.
-// Currently it doesn't require the previous CommitQC.
-func (m *PrepareQC) Verify(c *Committee) error {
+// Verify verifies the PrepareQC against the epoch.
+func (m *PrepareQC) Verify(ep *Epoch) error {
+	p := m.Proposal()
+	if err := p.Verify(ep); err != nil {
+		return err
+	}
+	roads := ep.Roads()
+	if p.Index() < roads.First || p.Index() > roads.Last {
+		return fmt.Errorf("road_index %v not in epoch roads [%v, %v]", p.Index(), roads.First, roads.Last)
+	}
+	c := ep.Committee()
 	return m.vote.verifyQC(c, c.PrepareQuorum(), m.sigs)
 }
 
