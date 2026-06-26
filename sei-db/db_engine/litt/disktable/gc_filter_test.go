@@ -314,3 +314,57 @@ func TestGCFilterNilDeletesOnTTL(t *testing.T) {
 	requireKeyAbsent(t, table, "k3")
 	requireKeyPresent(t, table, "k4")
 }
+
+// TestTwoPhaseGCDeletesKeymapBeforeFiles verifies the two-phase GC ordering: GC first schedules a segment's
+// keymap-entry deletion on the keymap manager (phase 1), and deletes the segment's files (phase 2) only after
+// the manager has durably applied that deletion. We drive the phases explicitly and observe the intermediate
+// state: after phase 1 plus a manager sync the keys are already gone from the keymap (Get misses), but the
+// table still accounts for them because their files (and the key-count they contribute) are removed only in
+// phase 2.
+func TestTwoPhaseGCDeletesKeymapBeforeFiles(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	start := time.Unix(1_700_000_000, 0)
+	var fakeTime atomic.Pointer[time.Time]
+	fakeTime.Store(&start)
+	clock := func() time.Time { return *fakeTime.Load() }
+
+	// Seal after every 2 keys: seg0[k0,k1], seg1[k2,k3], seg2(mutable)[k4].
+	table := buildGCFilterTable(t, clock, "twophase", directory, 2, nil)
+	defer func() { require.NoError(t, table.Close()) }()
+	d := table.(*DiskTable)
+
+	require.NoError(t, table.SetTTL(10*time.Second))
+	for _, k := range []string{"k0", "k1", "k2", "k3", "k4"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+	require.NoError(t, table.Flush())
+	require.Equal(t, uint64(5), table.KeyCount())
+
+	// Expire the sealed segments.
+	expired := start.Add(time.Hour)
+	fakeTime.Store(&expired)
+
+	// Phase 1: schedule keymap deletion of the expired sealed segments (seg0, seg1), then sync the manager so
+	// the keymap entries are durably removed and the deletion watermark advances. seg2 is mutable and survives.
+	require.NoError(t, d.runGCPass(false))
+	require.NoError(t, d.keymapManager.sync())
+
+	// The keymap entries are now gone, so the keys are no longer readable...
+	requireKeyAbsent(t, table, "k0")
+	requireKeyAbsent(t, table, "k3")
+	requireKeyPresent(t, table, "k4")
+
+	// ...but the segment files have not been deleted yet (phase 2 hasn't run), so the table still accounts for
+	// their keys.
+	require.Equal(t, uint64(5), table.KeyCount())
+
+	// Phase 2: delete the files of the segments whose keymap entries are durably gone.
+	require.NoError(t, d.runGCPass(true))
+	require.Equal(t, uint64(1), table.KeyCount())
+
+	requireKeyAbsent(t, table, "k0")
+	requireKeyPresent(t, table, "k4")
+}
