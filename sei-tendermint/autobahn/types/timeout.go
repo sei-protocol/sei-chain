@@ -240,6 +240,9 @@ var TimeoutVoteConv = protoutils.Conv[*TimeoutVote, *pb.TimeoutVote]{
 		if err != nil {
 			return nil, fmt.Errorf("view: %w", err)
 		}
+		if m.EpochIndex == nil {
+			return nil, fmt.Errorf("EpochIndex: missing")
+		}
 		return &TimeoutVote{
 			view: view,
 			latestPrepareQC: func() utils.Option[ViewNumber] {
@@ -248,7 +251,7 @@ var TimeoutVoteConv = protoutils.Conv[*TimeoutVote, *pb.TimeoutVote]{
 				}
 				return utils.None[ViewNumber]()
 			}(),
-			epochIndex: m.GetEpochIndex(),
+			epochIndex: *m.EpochIndex,
 		}, nil
 	},
 }
