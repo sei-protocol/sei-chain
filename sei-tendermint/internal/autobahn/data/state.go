@@ -204,8 +204,8 @@ func (i *inner) skipTo(n types.GlobalBlockNumber) {
 // insertQC verifies and inserts a FullCommitQC into the inner state.
 // Accepts QCs whose range starts at or before nextQC (partially pruned
 // prefix is silently skipped). Rejects gaps where gr.First > nextQC.
-func (i *inner) insertQC(ep *epoch.Registry, qc *types.FullCommitQC) error {
-	e, err := ep.EpochForProposal(qc.QC().Proposal())
+func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error {
+	e, err := registry.EpochForProposal(qc.QC().Proposal())
 	if err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
