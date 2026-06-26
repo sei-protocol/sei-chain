@@ -227,7 +227,7 @@ func driveMigrationWorkload(
 	dir string,
 	workload *migrationWorkload,
 	phase1Blocks, phase2Blocks int,
-	keysToMigratePerBlock uint64,
+	keysToMigratePerBlock int,
 ) {
 	t.Helper()
 
@@ -284,7 +284,7 @@ func driveMigrationWorkload(
 
 // reopenInMigrateEVM is a small helper for the resume / migration paths
 // that need to peek at on-disk state from a MigrateEVM mode reopen.
-func reopenInMigrateEVM(t *testing.T, dir string, batch uint64) *CompositeCommitStore {
+func reopenInMigrateEVM(t *testing.T, dir string, batch int) *CompositeCommitStore {
 	t.Helper()
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = types.MigrateEVM

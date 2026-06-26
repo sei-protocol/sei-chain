@@ -180,7 +180,7 @@ func (m *ModuleRouter) GetProof(store string, key []byte) (*ics23.CommitmentProo
 // has an owning Router (e.g. a MigrationManager). Routes that point
 // directly at a single backend have no owner and are skipped. A given
 // owner is signalled at most once even if it backs multiple routes.
-func (m *ModuleRouter) SetMigrationBatchSize(batchSize uint64) {
+func (m *ModuleRouter) SetMigrationBatchSize(batchSize int) {
 	signalled := make(map[Router]struct{}, len(m.routes))
 	for _, r := range m.routes {
 		if r.owner == nil {

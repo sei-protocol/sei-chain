@@ -27,7 +27,7 @@ func autoConfig() config.StateCommitConfig {
 }
 
 // openAutoStore opens (or reopens) a composite store at dir in Auto mode.
-func openAutoStore(t *testing.T, dir string, batch uint64) *CompositeCommitStore {
+func openAutoStore(t *testing.T, dir string, batch int) *CompositeCommitStore {
 	t.Helper()
 	cs, err := NewCompositeCommitStore(t.Context(), dir, autoConfig())
 	require.NoError(t, err)
@@ -284,7 +284,7 @@ func autoExportConfig() config.StateCommitConfig {
 }
 
 // openAutoStoreWithConfig mirrors openAutoStore for a caller-supplied config.
-func openAutoStoreWithConfig(t *testing.T, dir string, cfg config.StateCommitConfig, batch uint64) *CompositeCommitStore {
+func openAutoStoreWithConfig(t *testing.T, dir string, cfg config.StateCommitConfig, batch int) *CompositeCommitStore {
 	t.Helper()
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)

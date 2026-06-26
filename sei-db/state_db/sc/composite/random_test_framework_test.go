@@ -1490,7 +1490,7 @@ func randomTestConfig(t *testing.T, rng *testutil.TestRandom, mode types.WriteMo
 // mirrors that by re-applying it whenever a store is (re)opened (open / restart
 // / state-sync clone). 0 leaves the migration paused, which is correct for the
 // steady-state scenarios; migration scenarios set it for their duration.
-var testMigrationBatchSize uint64
+var testMigrationBatchSize int
 
 // applyTestMigrationBatchSize re-applies testMigrationBatchSize to a freshly
 // opened store, mimicking the app's BeginBlock push of the gov param.

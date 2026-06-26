@@ -263,7 +263,7 @@ func runMigrationScenario(t *testing.T, sc migrationScenario) {
 	// The per-block rate is no longer a persisted config; mirror production
 	// (BeginBlock re-applies the gov param after every restart) by having the
 	// framework re-apply it on every store open for the rest of the scenario.
-	testMigrationBatchSize = uint64(migBatch)
+	testMigrationBatchSize = migBatch
 	defer func() { testMigrationBatchSize = 0 }()
 	t.Logf("migration scenario %s->%s keysToMigratePerBlock=%d",
 		sc.migrationMode, sc.successorMode, migBatch)

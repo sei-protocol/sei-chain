@@ -75,7 +75,7 @@ func (t *TestOnlyDualWriteRouter) Read(store string, key []byte) ([]byte, bool, 
 
 // SetMigrationBatchSize is a no-op: the dual-write router duplicates
 // traffic and performs no boundary-advancing data migration.
-func (t *TestOnlyDualWriteRouter) SetMigrationBatchSize(uint64) {}
+func (t *TestOnlyDualWriteRouter) SetMigrationBatchSize(int) {}
 
 // BuildRoute returns a Route that dispatches the given module names to
 // this DualWriteRouter. Reads, writes and proof requests for those

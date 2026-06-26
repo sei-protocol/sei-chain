@@ -48,7 +48,7 @@ func (b *blockingRouter) GetProof(_ string, _ []byte) (*ics23.CommitmentProof, e
 	return nil, errors.New("proof: not implemented in blockingRouter")
 }
 
-func (b *blockingRouter) SetMigrationBatchSize(uint64) {}
+func (b *blockingRouter) SetMigrationBatchSize(int) {}
 
 // expectEntered receives one message from ch and asserts it equals expected.
 // Fails the test if no message arrives within timeout.

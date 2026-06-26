@@ -53,7 +53,7 @@ func (m *TestMultiDB) GetProof(store string, key []byte) (*ics23.CommitmentProof
 	panic("not implemented")
 }
 
-func (m *TestMultiDB) SetMigrationBatchSize(batchSize uint64) {
+func (m *TestMultiDB) SetMigrationBatchSize(batchSize int) {
 	for _, nestedDB := range m.nestedDBs {
 		nestedDB.SetMigrationBatchSize(batchSize)
 	}
@@ -109,7 +109,7 @@ func (r *TestFlatKVRouter) GetProof(store string, key []byte) (*ics23.Commitment
 	return nil, errors.New("TestFlatKVRouter does not support proofs")
 }
 
-func (r *TestFlatKVRouter) SetMigrationBatchSize(uint64) {}
+func (r *TestFlatKVRouter) SetMigrationBatchSize(int) {}
 
 // TestMemIAVLRouter is a [Router] that sends all operations to a single underlying
 // memiavl.CommitStore. It does not support iteration or proofs.
@@ -140,7 +140,7 @@ func (r *TestMemIAVLRouter) GetProof(store string, key []byte) (*ics23.Commitmen
 	return nil, errors.New("TestMemIAVLRouter does not support proofs")
 }
 
-func (r *TestMemIAVLRouter) SetMigrationBatchSize(uint64) {}
+func (r *TestMemIAVLRouter) SetMigrationBatchSize(int) {}
 
 // TestInMemoryRouter is a [Router] backed by an in-memory map. The outer map keys
 // are store (module) names and the inner map keys are store keys. It does not
@@ -195,7 +195,7 @@ func (r *TestInMemoryRouter) GetProof(store string, key []byte) (*ics23.Commitme
 	return nil, errors.New("TestInMemoryRouter does not support proofs")
 }
 
-func (r *TestInMemoryRouter) SetMigrationBatchSize(uint64) {}
+func (r *TestInMemoryRouter) SetMigrationBatchSize(int) {}
 
 // VerifyKeyPlacement verifies that every key in the oracle is in the correct backend.
 // Keys whose store name appears in flatKVStores must be readable from flatKVRouter and

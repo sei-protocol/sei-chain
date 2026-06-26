@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	receiptStoreBackendKey              = "receipt-store.rootStore-backend"
+	receiptStoreBackendKey              = "receipt-store.rs-backend"
 	receiptStoreDBDirectoryKey          = "receipt-store.db-directory"
 	receiptStoreAsyncWriteBufferKey     = "receipt-store.async-write-buffer"
 	receiptStorePruneIntervalSecondsKey = "receipt-store.prune-interval-seconds"

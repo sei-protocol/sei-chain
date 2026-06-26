@@ -46,7 +46,7 @@ type MigrationManager struct {
 	boundary MigrationBoundary
 
 	// The number of key-value pairs to migrate after each write operation.
-	migrationBatchSize uint64
+	migrationBatchSize int
 
 	// The version we want to migrate to.
 	targetVersion uint64
@@ -61,7 +61,7 @@ type MigrationManager struct {
 // Handles the migration of data from one database to another.
 func NewMigrationManager(
 	// The number of key-value pairs to migrate after each write operation. Must be > 0.
-	migrationBatchSize uint64,
+	migrationBatchSize int,
 	// The migration version the stored data is expected to be at on entry. If no prior migration
 	// version is stored in the DB, startVersion should be 0.
 	startVersion uint64,
@@ -101,7 +101,10 @@ func NewMigrationManager(
 	// A batch size of 0 is a valid "paused" state: the migration manager
 	// is wired up and routes caller writes, but advances no keys per block
 	// until SetMigrationBatchSize raises it above 0 (the governance param
-	// acts as the migration trigger).
+	// acts as the migration trigger). Only a negative size is rejected.
+	if migrationBatchSize < 0 {
+		return nil, fmt.Errorf("migration batch size must not be negative, got %d", migrationBatchSize)
+	}
 	if startVersion >= targetVersion {
 		return nil, fmt.Errorf("startVersion (%d) must be strictly less than targetVersion (%d)",
 			startVersion, targetVersion)
@@ -296,7 +299,7 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet, f
 	batchStats := migrationBatchStats{}
 	if advanceMigration {
 		// Get the next batch of keys to migrate.
-		valuesToMigrate, newBoundary, err := m.iterator.NextBatch(int(m.migrationBatchSize))
+		valuesToMigrate, newBoundary, err := m.iterator.NextBatch(m.migrationBatchSize)
 		if err != nil {
 			return fmt.Errorf("failed to get next batch: %w", err)
 		}
@@ -487,7 +490,7 @@ func (m *MigrationManager) GetProof(store string, key []byte) (*ics23.Commitment
 // Not safe for concurrent use; wrap with NewThreadSafeRouter (BuildRouter
 // does this for migration modes, so the threadSafeRouter write lock
 // serializes this against ApplyChangeSets / Read).
-func (m *MigrationManager) SetMigrationBatchSize(batchSize uint64) {
+func (m *MigrationManager) SetMigrationBatchSize(batchSize int) {
 	m.migrationBatchSize = batchSize
 }
 
