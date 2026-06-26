@@ -311,6 +311,9 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		}
 		// Verify the vote against the CommitQC.
 		qc := inner.commitQCs.q[idx]
+		if got, want := v.Msg().Proposal().EpochIndex(), qc.Proposal().EpochIndex(); got != want {
+			return fmt.Errorf("app_proposal epoch_index %d != commit_qc epoch_index %d", got, want)
+		}
 		if err := v.Msg().Proposal().Verify(committee, qc); err != nil {
 			return fmt.Errorf("invalid vote: %w", err)
 		}
