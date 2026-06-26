@@ -68,7 +68,7 @@ func (app *App) BeginBlock(
 // AppHash. 0 (the default until a gov proposal raises it) leaves the migration
 // paused, falling back to the node-local sc-keys-to-migrate-per-block config.
 func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
-	if app.scStore == nil {
+	if app.rs == nil {
 		return
 	}
 	numKeys := migration.DefaultNumKeysToMigratePerBlock
@@ -78,7 +78,7 @@ func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 	if numKeys > uint64(math.MaxInt64) {
 		numKeys = uint64(math.MaxInt64)
 	}
-	if err := app.scStore.SetMigrationBatchSize(int(numKeys)); err != nil {
+	if err := app.rs.SetMigrationBatchSize(int(numKeys)); err != nil {
 		logger.Error("failed to set SC migration batch size", "err", err)
 	}
 }
