@@ -566,6 +566,9 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		if err != nil {
 			return nil, fmt.Errorf("appQC: %w", err)
 		}
+		// Hard-reject messages with absent first_block/epoch_index.
+		// Autobahn is pre-production; there is no rolling-upgrade path from
+		// messages encoded before these fields were added.
 		if m.FirstBlock == nil {
 			return nil, fmt.Errorf("first_block: missing")
 		}
