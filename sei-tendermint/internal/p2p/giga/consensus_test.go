@@ -45,6 +45,7 @@ func TestConsensusClientServer(t *testing.T) {
 				idx,
 				types.RoadIndex(offset),
 				types.GenAppHash(rng),
+				0,
 			)
 			wantAppProposal = utils.Some(p)
 			for _, n := range nodes {

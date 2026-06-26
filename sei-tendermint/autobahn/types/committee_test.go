@@ -94,12 +94,12 @@ func TestLaneQCVerifyChecksWeight(t *testing.T) {
 
 	heavyOnly := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[0], vote),
-	})
+	}, 0)
 	require.NoError(t, heavyOnly.Verify(ep.Committee()))
 	lightMajority := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[1], vote),
 		Sign(keys[2], vote),
-	})
+	}, 0)
 	require.Error(t, lightMajority.Verify(ep.Committee()))
 }
 
@@ -138,7 +138,7 @@ func TestCommitQCVerifyChecksWeight(t *testing.T) {
 func TestAppQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewAppVote(NewAppProposal(0, 0, GenAppHash(rng)))
+	vote := NewAppVote(NewAppProposal(0, 0, GenAppHash(rng), 0))
 
 	heavyOnly := NewAppQC([]*Signed[*AppVote]{
 		Sign(keys[0], vote),
@@ -158,15 +158,15 @@ func TestTimeoutQCVerifyChecksWeight(t *testing.T) {
 	view := View{}
 
 	heavyOnly := NewTimeoutQC([]*FullTimeoutVote{
-		NewFullTimeoutVote(keys[0], view, utils.None[*PrepareQC]()),
+		NewFullTimeoutVote(keys[0], view, utils.None[*PrepareQC](), ep.EpochIndex()),
 	})
 	if err := heavyOnly.Verify(ep, utils.None[*CommitQC]()); err != nil {
 		t.Fatalf("heavyOnly.Verify(): %v", err)
 	}
 
 	lightMajority := NewTimeoutQC([]*FullTimeoutVote{
-		NewFullTimeoutVote(keys[1], view, utils.None[*PrepareQC]()),
-		NewFullTimeoutVote(keys[2], view, utils.None[*PrepareQC]()),
+		NewFullTimeoutVote(keys[1], view, utils.None[*PrepareQC](), ep.EpochIndex()),
+		NewFullTimeoutVote(keys[2], view, utils.None[*PrepareQC](), ep.EpochIndex()),
 	})
 	if err := lightMajority.Verify(ep, utils.None[*CommitQC]()); err == nil {
 		t.Fatal("lightMajority.Verify() succeeded, want error")

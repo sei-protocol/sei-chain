@@ -28,7 +28,7 @@ func makeSequentialFullCommitQCs(
 		for _, k := range keys {
 			lvotes = append(lvotes, types.Sign(k, lv))
 		}
-		laneQCs := map[types.LaneID]*types.LaneQC{lane: types.NewLaneQC(lvotes)}
+		laneQCs := map[types.LaneID]*types.LaneQC{lane: types.NewLaneQC(lvotes, 0)}
 		cqc := types.BuildCommitQC(committee, keys, prev, registry.FirstBlock(), time.Time{}, laneQCs, utils.None[*types.AppQC]())
 		qcs[i] = types.NewFullCommitQC(cqc, []*types.BlockHeader{b.Header()})
 		prev = utils.Some(qcs[i].QC())

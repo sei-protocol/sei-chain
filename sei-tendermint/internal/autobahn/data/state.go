@@ -457,6 +457,10 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 			return err
 		}
 		qc := inner.qcs[n]
+		if qc == nil {
+			// Block arrived after pruning; drop silently so the sender keeps delivering future blocks.
+			return nil
+		}
 		blockEp, err := s.cfg.Registry.EpochForProposal(qc.QC().Proposal())
 		if err != nil {
 			return fmt.Errorf("unknown epoch: %w", err)
@@ -592,6 +596,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			n,
 			inner.qcs[n].QC().Proposal().Index(),
 			hash,
+			inner.qcs[n].QC().Proposal().EpochIndex(),
 		)
 		t := time.Now()
 		apt := appProposalWithTimestamp{

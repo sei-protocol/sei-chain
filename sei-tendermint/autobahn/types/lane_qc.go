@@ -11,12 +11,13 @@ import (
 // LaneQC .
 type LaneQC struct {
 	utils.ReadOnly
-	vote *Hashed[*LaneVote]
-	sigs []*Signature
+	vote       *Hashed[*LaneVote]
+	sigs       []*Signature
+	epochIndex uint64
 }
 
 // NewLaneQC constructs a new LaneQC.
-func NewLaneQC(votes []*Signed[*LaneVote]) *LaneQC {
+func NewLaneQC(votes []*Signed[*LaneVote], epochIndex uint64) *LaneQC {
 	if len(votes) == 0 {
 		panic("qc cannot be empty")
 	}
@@ -24,11 +25,14 @@ func NewLaneQC(votes []*Signed[*LaneVote]) *LaneQC {
 	for i, v := range votes {
 		sigs[i] = v.sig
 	}
-	return &LaneQC{vote: votes[0].hashed, sigs: sigs}
+	return &LaneQC{vote: votes[0].hashed, sigs: sigs, epochIndex: epochIndex}
 }
 
 // Header .
 func (m *LaneQC) Header() *BlockHeader { return m.vote.Msg().header }
+
+// EpochIndex returns the epoch this QC belongs to.
+func (m *LaneQC) EpochIndex() uint64 { return m.epochIndex }
 
 // Next is the number of the first block not known to be available.
 func (m *LaneQC) Next() BlockNumber { return m.Header().Next() }
@@ -42,8 +46,9 @@ func (m *LaneQC) Verify(c *Committee) error {
 var LaneQCConv = protoutils.Conv[*LaneQC, *pb.LaneQC]{
 	Encode: func(m *LaneQC) *pb.LaneQC {
 		return &pb.LaneQC{
-			Vote: LaneVoteConv.Encode(m.vote.Msg()),
-			Sigs: SignatureConv.EncodeSlice(m.sigs),
+			Vote:       LaneVoteConv.Encode(m.vote.Msg()),
+			Sigs:       SignatureConv.EncodeSlice(m.sigs),
+			EpochIndex: utils.Alloc(m.epochIndex),
 		}
 	},
 	Decode: func(m *pb.LaneQC) (*LaneQC, error) {
@@ -55,6 +60,6 @@ var LaneQCConv = protoutils.Conv[*LaneQC, *pb.LaneQC]{
 		if err != nil {
 			return nil, fmt.Errorf("sigs: %w", err)
 		}
-		return &LaneQC{vote: NewHashed(vote), sigs: sigs}, nil
+		return &LaneQC{vote: NewHashed(vote), sigs: sigs, epochIndex: m.GetEpochIndex()}, nil
 	},
 }

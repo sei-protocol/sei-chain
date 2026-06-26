@@ -34,7 +34,7 @@ func makeLaneQC(
 	for _, k := range TestKeysWithWeight(committee, keys, committee.LaneQuorum()) {
 		votes = append(votes, Sign(k, v))
 	}
-	return NewLaneQC(votes)
+	return NewLaneQC(votes, 0)
 }
 
 // makeCommitQCFromProposal creates a CommitQC for a FullProposal, signed by all keys.
@@ -49,7 +49,7 @@ func makeCommitQCFromProposal(keys []SecretKey, fp *FullProposal) *CommitQC {
 
 // makeAppQCFor creates an AppQC for the given parameters, signed by all keys.
 func makeAppQCFor(keys []SecretKey, globalNum GlobalBlockNumber, roadIdx RoadIndex, appHash AppHash) *AppQC {
-	appProposal := NewAppProposal(globalNum, roadIdx, appHash)
+	appProposal := NewAppProposal(globalNum, roadIdx, appHash, 0)
 	vote := NewAppVote(appProposal)
 	var votes []*Signed[*AppVote]
 	for _, k := range keys {
@@ -269,7 +269,7 @@ func TestProposalVerifyRejectsInconsistentTimeoutQC(t *testing.T) {
 	// Attach a timeoutQC that the ViewSpec doesn't expect.
 	var timeoutVotes []*FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0}, utils.None[*PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0}, utils.None[*PrepareQC](), 0))
 	}
 	tQC := NewTimeoutQC(timeoutVotes)
 
@@ -467,7 +467,7 @@ func TestProposalVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
 	for _, k := range otherKeys {
 		badVotes = append(badVotes, Sign(k, NewLaneVote(header)))
 	}
-	badLaneQC := NewLaneQC(badVotes)
+	badLaneQC := NewLaneQC(badVotes, 0)
 
 	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(),
 		map[LaneID]*LaneQC{lane: badLaneQC}, utils.None[*AppQC]()))
@@ -668,7 +668,7 @@ func TestProposalVerifyValidReproposal(t *testing.T) {
 	// Timeout at view (0, 0) with the PrepareQC → forces reproposal at (0, 1).
 	var timeoutVotes []*FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0}, utils.Some(prepareQC)))
+		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0}, utils.Some(prepareQC), 0))
 	}
 	timeoutQC := NewTimeoutQC(timeoutVotes)
 
@@ -700,7 +700,7 @@ func TestProposalVerifyRejectsReproposalWithUnnecessaryData(t *testing.T) {
 
 	var timeoutVotes []*FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0}, utils.Some(prepareQC)))
+		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0}, utils.Some(prepareQC), 0))
 	}
 	timeoutQC := NewTimeoutQC(timeoutVotes)
 
@@ -738,7 +738,7 @@ func TestProposalVerifyRejectsReproposalHashMismatch(t *testing.T) {
 
 	var timeoutVotes []*FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0}, utils.Some(prepareQC)))
+		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0}, utils.Some(prepareQC), 0))
 	}
 	timeoutQC := NewTimeoutQC(timeoutVotes)
 
@@ -773,7 +773,7 @@ func TestProposalVerifyRejectsInvalidTimeoutQCSignature(t *testing.T) {
 	}
 	var timeoutVotes []*FullTimeoutVote
 	for _, k := range otherKeys {
-		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0}, utils.None[*PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, NewFullTimeoutVote(k, View{Index: 0, Number: 0}, utils.None[*PrepareQC](), 0))
 	}
 	badTimeoutQC := NewTimeoutQC(timeoutVotes)
 

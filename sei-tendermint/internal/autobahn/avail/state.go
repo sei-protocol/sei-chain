@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -290,8 +291,12 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 
 // PushAppVote pushes an AppVote to the state.
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
+	ep, ok := s.data.Registry().EpochByIndex(epoch.Index(v.Msg().Proposal().EpochIndex()))
+	if !ok {
+		return fmt.Errorf("unknown epoch_index %d", v.Msg().Proposal().EpochIndex())
+	}
+	committee := ep.Committee()
 	idx := v.Msg().Proposal().RoadIndex()
-	committee := s.data.Registry().EpochFor(idx).Committee()
 	if err := v.VerifySig(committee); err != nil {
 		return fmt.Errorf("v.VerifySig(): %w", err)
 	}
@@ -483,7 +488,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= h.BlockNumber() {
 			q.pushBack(newBlockVotes())
 		}
-		if _, ok := q.q[h.BlockNumber()].pushVote(inner.ep.Committee(), vote); ok {
+		if _, ok := q.q[h.BlockNumber()].pushVote(inner.ep, vote); ok {
 			ctrl.Updated()
 		}
 	}
@@ -570,7 +575,7 @@ func (s *State) WaitForLaneQCs(
 			for lane := range inner.blocks {
 				first := types.LaneRangeOpt(prev, lane).Next()
 				for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
-					if qc, ok := inner.laneQC(ep.Committee(), lane, first+i); ok {
+					if qc, ok := inner.laneQC(ep, lane, first+i); ok {
 						laneQCs[lane] = qc
 					} else {
 						break

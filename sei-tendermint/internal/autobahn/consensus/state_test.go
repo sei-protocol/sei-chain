@@ -36,7 +36,7 @@ func newTestState(rng utils.Rng) (*State, []types.SecretKey, *epoch.Registry) {
 func makeTimeoutQC(keys []types.SecretKey, view types.View, pqc utils.Option[*types.PrepareQC]) *types.TimeoutQC {
 	votes := make([]*types.FullTimeoutVote, len(keys))
 	for i, k := range keys {
-		votes[i] = types.NewFullTimeoutVote(k, view, pqc)
+		votes[i] = types.NewFullTimeoutVote(k, view, pqc, 0)
 	}
 	return types.NewTimeoutQC(votes)
 }

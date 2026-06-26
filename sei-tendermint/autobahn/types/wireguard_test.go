@@ -88,7 +88,7 @@ func TestLaneQCWireguardAcceptsMaxValidators(t *testing.T) {
 	for i, key := range keys {
 		votes[i] = Sign(key, vote)
 	}
-	qc := NewLaneQC(votes)
+	qc := NewLaneQC(votes, 0)
 
 	raw := protoutils.Marshal(LaneQCConv.Encode(qc))
 	decoded, err := protoutils.Unmarshal[*pb.LaneQC](raw)
@@ -176,7 +176,7 @@ func TestTimeoutQCWireguardAcceptsMaxValidators(t *testing.T) {
 	_, keys := maxValidatorCommittee(t)
 	votes := make([]*FullTimeoutVote, len(keys))
 	for i, key := range keys {
-		votes[i] = NewFullTimeoutVote(key, View{}, utils.None[*PrepareQC]())
+		votes[i] = NewFullTimeoutVote(key, View{}, utils.None[*PrepareQC](), 0)
 	}
 	qc := NewTimeoutQC(votes)
 
@@ -193,7 +193,7 @@ func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
 	for lane := range committee.Lanes().All() {
 		key := secretKeyFor(keys, lane)
 		vote := NewLaneVote(NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
-		laneQCs[lane] = NewLaneQC([]*Signed[*LaneVote]{Sign(key, vote)})
+		laneQCs[lane] = NewLaneQC([]*Signed[*LaneVote]{Sign(key, vote)}, 0)
 	}
 	proposal, err := NewProposal(
 		secretKeyFor(keys, committee.Leader(View{})),

@@ -110,7 +110,7 @@ func TestNewInnerTimeoutVote(t *testing.T) {
 	// Create and persist a timeout vote at genesis view (0, 0)
 	registry, keys := epoch.GenRegistry(rng, 1)
 	key := keys[0]
-	vote := types.NewFullTimeoutVote(key, types.View{Index: 0, Number: 0}, utils.None[*types.PrepareQC]())
+	vote := types.NewFullTimeoutVote(key, types.View{Index: 0, Number: 0}, utils.None[*types.PrepareQC](), 0)
 
 	seedPersistedInner(dir, &persistedInner{
 		TimeoutVote: utils.Some(vote),
@@ -135,7 +135,7 @@ func TestNewInnerAllVotes(t *testing.T) {
 	prepareQC := makePrepareQC([]types.SecretKey{key}, genesisProposal)
 	prepareVote := types.Sign(key, types.NewPrepareVote(genesisProposal))
 	commitVote := types.Sign(key, types.NewCommitVote(genesisProposal))
-	timeoutVote := types.NewFullTimeoutVote(key, types.View{Index: 0, Number: 0}, utils.None[*types.PrepareQC]())
+	timeoutVote := types.NewFullTimeoutVote(key, types.View{Index: 0, Number: 0}, utils.None[*types.PrepareQC](), 0)
 
 	seedPersistedInner(dir, &persistedInner{
 		PrepareQC:   utils.Some(prepareQC),
@@ -220,7 +220,7 @@ func TestNewInnerTimeoutQC(t *testing.T) {
 	// Create TimeoutQC at (6, 2) - this advances view to (6, 3)
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 6, Number: 2}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 6, Number: 2}, utils.None[*types.PrepareQC](), 0))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
@@ -245,7 +245,7 @@ func TestNewInnerTimeoutQCOnlyGenesis(t *testing.T) {
 	// Create TimeoutQC at (0, 2) - no CommitQC needed for index 0
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 0, Number: 2}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 0, Number: 2}, utils.None[*types.PrepareQC](), 0))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
@@ -268,7 +268,7 @@ func TestNewInnerTimeoutQCWithoutCommitQCError(t *testing.T) {
 	// Create TimeoutQC at index 6 WITHOUT CommitQC at index 5
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 6, Number: 0}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 6, Number: 0}, utils.None[*types.PrepareQC](), 0))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
@@ -299,7 +299,7 @@ func TestNewInnerTimeoutQCAheadOfCommitQCError(t *testing.T) {
 	// Create TimeoutQC at index 10 (way ahead of CommitQC)
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 10, Number: 0}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 10, Number: 0}, utils.None[*types.PrepareQC](), 0))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
@@ -332,7 +332,7 @@ func TestNewInnerViewSpecStaleTimeoutQC(t *testing.T) {
 	// Since inner is persisted atomically, a mismatched index is always corrupt.
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 5, Number: 2}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 5, Number: 2}, utils.None[*types.PrepareQC](), 0))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
@@ -364,7 +364,7 @@ func TestNewInnerViewSpecValidBothQCs(t *testing.T) {
 	// Create TimeoutQC at index 6, number 2 (valid - exactly CommitQC.Index + 1)
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 6, Number: 2}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 6, Number: 2}, utils.None[*types.PrepareQC](), 0))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
@@ -484,7 +484,7 @@ func TestNewInnerFutureTimeoutVoteError(t *testing.T) {
 	commitQC := types.NewCommitQC(qcVotes)
 
 	// Create future timeout vote at view (10, 0)
-	futureVote := types.NewFullTimeoutVote(keys[0], types.View{Index: 10, Number: 0}, utils.None[*types.PrepareQC]())
+	futureVote := types.NewFullTimeoutVote(keys[0], types.View{Index: 10, Number: 0}, utils.None[*types.PrepareQC](), 0)
 
 	seedPersistedInner(dir, &persistedInner{
 		CommitQC:    utils.Some(commitQC),
@@ -575,7 +575,7 @@ func TestNewInnerTimeoutQCInvalidSignatureError(t *testing.T) {
 	}
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range otherKeys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 6, Number: 0}, utils.None[*types.PrepareQC]()))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 6, Number: 0}, utils.None[*types.PrepareQC](), 0))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 
@@ -839,7 +839,7 @@ func TestNewInnerPrepareQCIncludedInTimeoutVote(t *testing.T) {
 
 	// Simulate what voteTimeout does: create a FullTimeoutVote using i.PrepareQC
 	currentView := i.View()
-	timeoutVote := types.NewFullTimeoutVote(voteKey, currentView, i.PrepareQC)
+	timeoutVote := types.NewFullTimeoutVote(voteKey, currentView, i.PrepareQC, registry.LatestEpoch().EpochIndex())
 
 	// The timeoutVote should pass verification (which checks prepareQC is correctly included)
 	err = timeoutVote.Verify(registry.LatestEpoch())
@@ -874,7 +874,7 @@ func TestPushTimeoutQCClearsStaleState(t *testing.T) {
 	// Setup: Create votes at current view (6, 0)
 	prepareVote := types.Sign(keys[0], types.NewPrepareVote(currentProposal))
 	commitVote := types.Sign(keys[0], types.NewCommitVote(currentProposal))
-	timeoutVote := types.NewFullTimeoutVote(keys[0], types.View{Index: 6, Number: 0}, utils.Some(prepareQC))
+	timeoutVote := types.NewFullTimeoutVote(keys[0], types.View{Index: 6, Number: 0}, utils.Some(prepareQC), 0)
 
 	seedPersistedInner(dir, &persistedInner{
 		CommitQC:    utils.Some(commitQC),
@@ -896,7 +896,7 @@ func TestPushTimeoutQCClearsStaleState(t *testing.T) {
 	// Create a TimeoutQC for current view (6, 0) that advances to (6, 1)
 	var timeoutVotes []*types.FullTimeoutVote
 	for _, k := range keys {
-		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 6, Number: 0}, utils.Some(prepareQC)))
+		timeoutVotes = append(timeoutVotes, types.NewFullTimeoutVote(k, types.View{Index: 6, Number: 0}, utils.Some(prepareQC), 0))
 	}
 	timeoutQC := types.NewTimeoutQC(timeoutVotes)
 

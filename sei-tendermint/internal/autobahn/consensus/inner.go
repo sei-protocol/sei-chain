@@ -240,7 +240,7 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 		if tqc, ok := i.TimeoutQC.Get(); ok && !pqc.IsPresent() {
 			pqc = tqc.LatestPrepareQC()
 		}
-		v := types.NewFullTimeoutVote(s.cfg.Key, view, pqc)
+		v := types.NewFullTimeoutVote(s.cfg.Key, view, pqc, i.ep.EpochIndex())
 		i.TimeoutVote = utils.Some(v)
 		isend.Store(i)
 	}

@@ -188,7 +188,7 @@ func GenLaneQC(rng utils.Rng) *LaneQC {
 	return NewLaneQC(utils.GenSlice(
 		rng,
 		func(rng utils.Rng) *Signed[*LaneVote] { return GenSigned(rng, vote) },
-	))
+	), rng.Uint64())
 }
 
 // GenRoadIndex generates a random RoadIndex.
@@ -254,7 +254,7 @@ func GenAppHash(rng utils.Rng) AppHash {
 
 // GenAppProposal generates a random AppProposal.
 func GenAppProposal(rng utils.Rng) *AppProposal {
-	return NewAppProposal(GenGlobalBlockNumber(rng), GenRoadIndex(rng), GenAppHash(rng))
+	return NewAppProposal(GenGlobalBlockNumber(rng), GenRoadIndex(rng), GenAppHash(rng), rng.Uint64())
 }
 
 // GenAppVote generates a random AppVote.
@@ -337,12 +337,12 @@ func GenFullCommitQC(rng utils.Rng) *FullCommitQC {
 
 // GenTimeoutVote generates a random TimeoutVote.
 func GenTimeoutVote(rng utils.Rng) *TimeoutVote {
-	return NewTimeoutVote(GenView(rng), utils.Some(GenViewNumber(rng)))
+	return NewTimeoutVote(GenView(rng), utils.Some(GenViewNumber(rng)), rng.Uint64())
 }
 
 // GenFullTimeoutVote generates a random FullTimeoutVote.
 func GenFullTimeoutVote(rng utils.Rng) *FullTimeoutVote {
-	return NewFullTimeoutVote(GenSecretKey(rng), GenView(rng), utils.Some(GenPrepareQC(rng)))
+	return NewFullTimeoutVote(GenSecretKey(rng), GenView(rng), utils.Some(GenPrepareQC(rng)), rng.Uint64())
 }
 
 // GenTimeoutQC generates a random TimeoutQC.

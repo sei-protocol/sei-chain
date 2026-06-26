@@ -149,10 +149,11 @@ func newInner(ep *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inner, 
 }
 
 // TODO: filter votes per-epoch committee once epoch transitions are wired up.
-func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
+func (i *inner) laneQC(ep *types.Epoch, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
+	c := ep.Committee()
 	for _, byHash := range i.votes[lane].q[n].byHash {
 		if byHash.weight >= c.LaneQuorum() {
-			return types.NewLaneQC(byHash.votes[:]), true
+			return types.NewLaneQC(byHash.votes[:], ep.EpochIndex()), true
 		}
 	}
 	return nil, false

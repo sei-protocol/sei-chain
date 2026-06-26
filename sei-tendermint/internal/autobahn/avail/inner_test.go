@@ -21,14 +21,14 @@ func TestPruneMismatchedIndices(t *testing.T) {
 		lr := types.LaneRangeOpt(prev, l)
 		b := types.NewBlock(l, lr.Next(), lr.LastHash(), types.GenPayload(rng))
 		lqcs := map[types.LaneID]*types.LaneQC{
-			l: types.NewLaneQC(makeLaneVotes(keys, b.Header())),
+			l: types.NewLaneQC(makeLaneVotes(keys, b.Header()), 0),
 		}
 		return makeCommitQC(registry, keys, prev, lqcs, utils.None[*types.AppQC]())
 	}
 	makeAppQC := func(qcForRange *types.CommitQC, qcForIndex *types.CommitQC) *types.AppQC {
 		gr := qcForRange.GlobalRange()
 		require.True(t, gr.Len() > 0)
-		ap := types.NewAppProposal(gr.First, qcForIndex.Index(), types.GenAppHash(rng))
+		ap := types.NewAppProposal(gr.First, qcForIndex.Index(), types.GenAppHash(rng), 0)
 		return types.NewAppQC(makeAppVotes(keys, ap))
 	}
 
@@ -88,7 +88,7 @@ func TestDecodePruneAnchorIncomplete(t *testing.T) {
 	rng := utils.TestRng()
 	_, keys := epoch.GenRegistry(rng, 4)
 
-	appProposal := types.NewAppProposal(42, 5, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(42, 5, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	_, err := PruneAnchorConv.Decode(&pb.PersistedAvailPruneAnchor{
@@ -277,7 +277,7 @@ func TestNewInnerLoadedCommitQCsWithAppQC(t *testing.T) {
 	// AppQC at road index 2.
 	roadIdx := types.RoadIndex(2)
 	globalNum := types.GlobalBlockNumber(10)
-	appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	// Create 5 sequential CommitQCs (indices 0-4).
@@ -329,7 +329,7 @@ func TestNewInnerLoadedAllThree(t *testing.T) {
 
 	// AppQC at road index 2.
 	roadIdx := types.RoadIndex(2)
-	appProposal := types.NewAppProposal(10, roadIdx, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(10, roadIdx, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	// CommitQCs 0-4.
@@ -414,7 +414,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 			lane: types.NewLaneQC(makeLaneVotes(
 				types.TestKeysWithWeight(registry.LatestEpoch().Committee(), keys, registry.LatestEpoch().Committee().LaneQuorum()),
 				h,
-			)),
+			), 0),
 		}
 		qcs[j] = makeCommitQC(registry, keys, prev, laneQCs, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[j])
@@ -427,7 +427,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 		"CommitQC lane range should reference blocks for this test to be meaningful")
 
 	// AppQC at index 2 → prune will fast-forward blocks past the cursor.
-	appProposal := types.NewAppProposal(10, 2, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(10, 2, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	updated, err := i.prune(registry.LatestEpoch().Committee(), appQC, qcs[2])
@@ -458,7 +458,7 @@ func TestNewInnerLoadedCommitQCsAllBeforeAppQCArePruned(t *testing.T) {
 		prev = utils.Some(qcs[i])
 	}
 
-	appProposal := types.NewAppProposal(20, 5, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(20, 5, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loaded := &loadedAvailState{
@@ -487,7 +487,7 @@ func TestNewInnerAnchorWithNoCommitQCFiles(t *testing.T) {
 		prev = utils.Some(qcs[i])
 	}
 
-	appProposal := types.NewAppProposal(20, 3, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(20, 3, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loaded := &loadedAvailState{
@@ -573,7 +573,7 @@ func TestNewInnerLoadedCommitQCsGapWithAppQCAnchor(t *testing.T) {
 		prev = utils.Some(qcs[i])
 	}
 
-	appProposal := types.NewAppProposal(50, 10, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(50, 10, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loadedQCs := []persist.LoadedCommitQC{
@@ -618,7 +618,7 @@ func TestNewInnerLoadedCommitQCsBelowAnchorSkipped(t *testing.T) {
 		prev = utils.Some(qcs[i])
 	}
 
-	appProposal := types.NewAppProposal(20, 3, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(20, 3, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loadedQCs := []persist.LoadedCommitQC{
@@ -659,7 +659,7 @@ func TestNewInnerLoadedCommitQCsGapAfterAnchorReturnsError(t *testing.T) {
 		prev = utils.Some(qcs[i])
 	}
 
-	appProposal := types.NewAppProposal(10, 2, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(10, 2, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loadedQCs := []persist.LoadedCommitQC{
@@ -770,7 +770,7 @@ func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 	}
 
 	// AppQC at road index 2, prune anchor is CommitQC[2].
-	appProposal := types.NewAppProposal(initialBlock, 2, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(initialBlock, 2, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 	pruneQC := qcs[2]
 
@@ -819,7 +819,7 @@ func TestNewInnerPruneAnchorCommitQCUsedForPrune(t *testing.T) {
 	}
 
 	// AppQC at road index 1, prune anchor is CommitQC[1].
-	appProposal := types.NewAppProposal(initialBlock, 1, types.GenAppHash(rng))
+	appProposal := types.NewAppProposal(initialBlock, 1, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loaded := &loadedAvailState{

@@ -1002,7 +1002,7 @@ func buildFullCommitQC(
 	var blockList []*types.Block
 	for lane := range committee.Lanes().All() {
 		if bs := blocks[lane]; len(bs) > 0 {
-			laneQCs[lane] = testLaneQC(keys, bs[len(bs)-1].Header())
+			laneQCs[lane] = testLaneQC(keys, bs[len(bs)-1].Header(), 0)
 			for _, b := range bs {
 				headers = append(headers, b.Header())
 				blockList = append(blockList, b)
@@ -1012,7 +1012,7 @@ func buildFullCommitQC(
 	var appQC utils.Option[*types.AppQC]
 	if cqc, ok := prev.Get(); ok {
 		vs := types.ViewSpec{CommitQC: prev}
-		p := types.NewAppProposal(cqc.GlobalRange().Next-1, vs.View().Index, types.GenAppHash(rng))
+		p := types.NewAppProposal(cqc.GlobalRange().Next-1, vs.View().Index, types.GenAppHash(rng), cqc.Proposal().EpochIndex())
 		appQC = utils.Some(testAppQC(keys, p))
 	} else {
 		appQC = utils.None[*types.AppQC]()
@@ -1021,13 +1021,13 @@ func buildFullCommitQC(
 	return types.NewFullCommitQC(cqc, headers), blockList
 }
 
-func testLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC {
+func testLaneQC(keys []types.SecretKey, header *types.BlockHeader, epochIndex uint64) *types.LaneQC {
 	vote := types.NewLaneVote(header)
 	votes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, types.Sign(k, vote))
 	}
-	return types.NewLaneQC(votes)
+	return types.NewLaneQC(votes, epochIndex)
 }
 
 func testAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC {

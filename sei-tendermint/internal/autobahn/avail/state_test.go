@@ -154,7 +154,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Push app votes.")
-			appProposal := types.NewAppProposal(qc.GlobalRange().Next-1, qc.Proposal().Index(), types.GenAppHash(rng))
+			appProposal := types.NewAppProposal(qc.GlobalRange().Next-1, qc.Proposal().Index(), types.GenAppHash(rng), 0)
 			for _, vote := range makeAppVotes(keys, appProposal) {
 				if err := state.PushAppVote(ctx, vote); err != nil {
 					return fmt.Errorf("state.PushAppVote(): %w", err)
@@ -274,7 +274,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 				return fmt.Errorf("PushCommitQC: %w", err)
 			}
 
-			appProposal := types.NewAppProposal(qc.GlobalRange().Next-1, qc.Proposal().Index(), types.GenAppHash(rng))
+			appProposal := types.NewAppProposal(qc.GlobalRange().Next-1, qc.Proposal().Index(), types.GenAppHash(rng), 0)
 			for _, vote := range makeAppVotes(keys, appProposal) {
 				if err := state.PushAppVote(ctx, vote); err != nil {
 					return fmt.Errorf("PushAppVote: %w", err)
@@ -361,7 +361,7 @@ func TestStateMismatchedQCs(t *testing.T) {
 	laneQC := types.NewLaneQC(makeLaneVotes(
 		types.TestKeysWithWeight(committee, keys, committee.LaneQuorum()),
 		b.Msg().Block().Header(),
-	))
+	), 0)
 
 	// 3. Create CommitQC for index 0 (finalizes block 0)
 	qc0 := makeQC(utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{lane: laneQC})
@@ -371,7 +371,7 @@ func TestStateMismatchedQCs(t *testing.T) {
 	t.Run("PushAppQC mismatch", func(t *testing.T) {
 		require := require.New(t)
 		// AppQC for index 1, but paired with CommitQC for index 0
-		appProposal1 := types.NewAppProposal(initialBlock, 1, types.GenAppHash(rng))
+		appProposal1 := types.NewAppProposal(initialBlock, 1, types.GenAppHash(rng), 0)
 		appQC1 := types.NewAppQC(makeAppVotes(keys, appProposal1))
 
 		err := state.PushAppQC(appQC1, qc0)
@@ -447,7 +447,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 		roadIdx := types.RoadIndex(7)
 		globalNum := types.GlobalBlockNumber(50)
-		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng))
+		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng), 0)
 		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 		// Persist commitQCs 0-7 so the matching one at roadIdx exists.
@@ -513,7 +513,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 		roadIdx := types.RoadIndex(2)
 		globalNum := types.GlobalBlockNumber(5)
-		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng))
+		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng), 0)
 		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 		// Persist commitQCs 0-2 so the matching one at roadIdx exists.
@@ -593,7 +593,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		// Persist AppQC at road index 1.
 		roadIdx := types.RoadIndex(1)
 		globalNum := types.GlobalBlockNumber(5)
-		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng))
+		appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng), 0)
 		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 		// Persist CommitQCs 0-4.
@@ -638,7 +638,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		}
 
 		// Persist prune anchor (AppQC + CommitQC pair at road index 0).
-		appProposal := types.NewAppProposal(initialBlock, 0, types.GenAppHash(rng))
+		appProposal := types.NewAppProposal(initialBlock, 0, types.GenAppHash(rng), 0)
 		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 		prunePers, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(dir), innerFile)
 		require.NoError(t, err)
@@ -682,7 +682,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.NoError(t, cp.Close())
 
 		// Persist a prune anchor at index 9 — well past the persisted range.
-		appProposal := types.NewAppProposal(50, 9, types.GenAppHash(rng))
+		appProposal := types.NewAppProposal(50, 9, types.GenAppHash(rng), 0)
 		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 		prunePers, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(dir), innerFile)
 		require.NoError(t, err)
@@ -735,7 +735,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 		// Persist a prune anchor at index 9 with a laneRange that starts past
 		// all persisted blocks — MaybePruneAndPersistLane will TruncateAll the block WAL.
-		appProposal := types.NewAppProposal(50, 9, types.GenAppHash(rng))
+		appProposal := types.NewAppProposal(50, 9, types.GenAppHash(rng), 0)
 		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 		prunePers, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(dir), innerFile)
 		require.NoError(t, err)

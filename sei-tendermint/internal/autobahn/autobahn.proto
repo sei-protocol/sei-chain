@@ -103,6 +103,7 @@ message LaneQC {
   option (wireguard.sized) = true;
   BlockHeader vote = 1;
   repeated Signature sigs = 2 [(wireguard.max_count) = 100];
+  optional uint64 epoch_index = 3; // epoch this QC belongs to
 }
 
 message LaneRange {
@@ -167,6 +168,7 @@ message TimeoutVote {
   option (wireguard.sized) = true;
   optional View view = 1; // required
   optional uint64 latest_prepare_qc_view_number = 2; // optional
+  optional uint64 epoch_index = 3; // epoch this vote belongs to
 }
 
 message TimeoutQC {
@@ -223,6 +225,8 @@ message AppProposal {
   optional uint64 road_index = 2; // required
   // App hash at that block.
   optional bytes app_hash = 3 [(wireguard.max_size) = 32]; // required
+  // Epoch this proposal belongs to.
+  optional uint64 epoch_index = 4;
 }
 
 // This is the signable message.

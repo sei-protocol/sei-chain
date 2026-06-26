@@ -29,7 +29,7 @@ func (*LaneProposal) MaxSize() int {
 }
 
 func (*AppVote) MaxSize() int {
-	return 165
+	return 176
 }
 
 func (*StreamLaneProposalsReq) MaxSize() int {
@@ -41,7 +41,7 @@ func (*StreamAppQCsReq) MaxSize() int {
 }
 
 func (*StreamAppQCsResp) MaxSize() int {
-	return 30396
+	return 30418
 }
 
 func (*StreamCommitQCsReq) MaxSize() int {

@@ -119,7 +119,7 @@ func TestNewTimeoutQC(t *testing.T) {
 		if wantView.Less(pView) {
 			wantView = pView
 		}
-		votes = append(votes, NewFullTimeoutVote(k, view, utils.Some(makePrepareQC(keys, NewPrepareVote(p)))))
+		votes = append(votes, NewFullTimeoutVote(k, view, utils.Some(makePrepareQC(keys, NewPrepareVote(p))), 0))
 	}
 	tQC := NewTimeoutQC(votes)
 	pQC, ok := tQC.LatestPrepareQC().Get()
@@ -151,9 +151,9 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 
 	// Only keys[0] carries the PrepareQC; the rest carry None.
 	votes := make([]*FullTimeoutVote, len(keys))
-	votes[0] = NewFullTimeoutVote(keys[0], view, utils.Some(pqc))
+	votes[0] = NewFullTimeoutVote(keys[0], view, utils.Some(pqc), ep.EpochIndex())
 	for i := 1; i < len(keys); i++ {
-		votes[i] = NewFullTimeoutVote(keys[i], view, utils.None[*PrepareQC]())
+		votes[i] = NewFullTimeoutVote(keys[i], view, utils.None[*PrepareQC](), ep.EpochIndex())
 	}
 
 	tqc := NewTimeoutQC(votes)
@@ -179,7 +179,7 @@ func TestNewTimeoutQC_AllNone(t *testing.T) {
 
 	votes := make([]*FullTimeoutVote, len(keys))
 	for i, k := range keys {
-		votes[i] = NewFullTimeoutVote(k, view, utils.None[*PrepareQC]())
+		votes[i] = NewFullTimeoutVote(k, view, utils.None[*PrepareQC](), ep.EpochIndex())
 	}
 
 	tqc := NewTimeoutQC(votes)
@@ -206,10 +206,10 @@ func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 
 	// keys[0] has PrepareQC at view number 2, keys[1] at 4, rest None.
 	votes := make([]*FullTimeoutVote, len(keys))
-	votes[0] = NewFullTimeoutVote(keys[0], view, utils.Some(makePQCAt(2)))
-	votes[1] = NewFullTimeoutVote(keys[1], view, utils.Some(makePQCAt(4)))
-	votes[2] = NewFullTimeoutVote(keys[2], view, utils.None[*PrepareQC]())
-	votes[3] = NewFullTimeoutVote(keys[3], view, utils.None[*PrepareQC]())
+	votes[0] = NewFullTimeoutVote(keys[0], view, utils.Some(makePQCAt(2)), ep.EpochIndex())
+	votes[1] = NewFullTimeoutVote(keys[1], view, utils.Some(makePQCAt(4)), ep.EpochIndex())
+	votes[2] = NewFullTimeoutVote(keys[2], view, utils.None[*PrepareQC](), ep.EpochIndex())
+	votes[3] = NewFullTimeoutVote(keys[3], view, utils.None[*PrepareQC](), ep.EpochIndex())
 
 	tqc := NewTimeoutQC(votes)
 	got, ok := tqc.LatestPrepareQC().Get()
