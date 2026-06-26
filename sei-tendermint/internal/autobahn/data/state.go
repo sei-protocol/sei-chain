@@ -446,10 +446,11 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 // PushBlock pushes block to the state.
 // Waits until the block header is available.
 func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block *types.Block) error {
-	// Pre-verify outside the lock with the epoch window committee. Blocks from
-	// validators in adjacent epochs are accepted here; the precise committee
-	// check inside the lock provides the authoritative gate.
-	if err := s.cfg.Registry.VerifyInWindow(block.Verify); err != nil {
+	// Verify outside the lock against all window committees. A block may satisfy
+	// multiple committees during an epoch transition; we collect them all so the
+	// in-lock re-verify can be skipped when the authoritative epoch is already covered.
+	preEps, err := s.cfg.Registry.VerifyInWindow(block.Verify)
+	if err != nil {
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
@@ -466,8 +467,11 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 			return fmt.Errorf("unknown epoch: %w", err)
 		}
 		committee := blockEp.Committee()
-		if err := block.Verify(committee); err != nil {
-			return fmt.Errorf("block.Verify(): %w", err)
+		// Re-verify only when the authoritative epoch was not already checked pre-lock.
+		if !epochInSet(blockEp, preEps) {
+			if err := block.Verify(committee); err != nil {
+				return fmt.Errorf("block.Verify(): %w", err)
+			}
 		}
 		if err := inner.insertBlock(committee, n, block); err != nil {
 			return err
@@ -476,6 +480,15 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		ctrl.Updated()
 	}
 	return nil
+}
+
+func epochInSet(ep *types.Epoch, set []*types.Epoch) bool {
+	for _, e := range set {
+		if e.EpochIndex() == ep.EpochIndex() {
+			return true
+		}
+	}
+	return false
 }
 
 // NextBlock returns the index of the next block to be pushed.

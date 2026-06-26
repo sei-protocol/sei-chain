@@ -417,7 +417,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	if p.Key() != h.Lane() {
 		return fmt.Errorf("signer %v does not match lane %v", p.Key(), h.Lane())
 	}
-	if err := s.data.Registry().VerifyInWindow(func(c *types.Committee) error {
+	if _, err := s.data.Registry().VerifyInWindow(func(c *types.Committee) error {
 		if err := p.Msg().Verify(c); err != nil {
 			return err
 		}
@@ -469,7 +469,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 // Waits until the lane has enough capacity for the new vote.
 // It does NOT wait for the previous votes.
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
-	if err := s.data.Registry().VerifyInWindow(func(c *types.Committee) error {
+	if _, err := s.data.Registry().VerifyInWindow(func(c *types.Committee) error {
 		if err := vote.Msg().Verify(c); err != nil {
 			return err
 		}

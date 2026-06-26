@@ -665,7 +665,7 @@ type LaneQC struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Vote          *BlockHeader           `protobuf:"bytes,1,opt,name=vote,proto3" json:"vote,omitempty"`
 	Sigs          []*Signature           `protobuf:"bytes,2,rep,name=sigs,proto3" json:"sigs,omitempty"`
-	EpochIndex    *uint64                `protobuf:"varint,3,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"` // epoch this QC belongs to
+	EpochIndex    *uint64                `protobuf:"varint,3,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

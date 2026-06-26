@@ -118,11 +118,16 @@ func (r *Registry) AddEpoch(committee *types.Committee, startRoad types.RoadInde
 	panic("unreachable")
 }
 
-// VerifyInWindow calls fn against each committee in the epoch window until one succeeds.
-// The window is the current epoch plus its immediate neighbors (previous and next): during
-// an epoch transition, votes may still arrive under the outgoing committee while the
-// incoming one is already registered, so both must be accepted.
+// VerifyInWindow calls fn against every committee in the epoch window and returns all
+// epochs whose committee accepted it. The window is the current epoch plus its immediate
+// neighbors (previous and next): during an epoch transition, a block may be valid under
+// both the outgoing and incoming committees, so all matches are returned.
+// Returns an error only if no committee in the window accepted fn.
 // TODO: expand to the full window once multi-epoch transitions are wired up.
-func (r *Registry) VerifyInWindow(fn func(*types.Committee) error) error {
-	return fn(r.LatestEpoch().Committee())
+func (r *Registry) VerifyInWindow(fn func(*types.Committee) error) ([]*types.Epoch, error) {
+	ep := r.LatestEpoch()
+	if err := fn(ep.Committee()); err != nil {
+		return nil, err
+	}
+	return []*types.Epoch{ep}, nil
 }
