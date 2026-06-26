@@ -223,7 +223,9 @@ func (m *Proposal) NextTimestamp() time.Time {
 }
 
 // Verify checks that the proposal's epoch fields match ep (epoch index and
-// first block). Road-range and lane-range checks are caller concerns.
+// first block). Lane-range validity is not re-checked here: a CommitQC or
+// PrepareQC implies a committee quorum already accepted the proposal via
+// FullProposal.Verify, which enforces lane-range structure.
 func (m *Proposal) Verify(ep *Epoch) error {
 	if got, want := m.EpochIndex(), ep.EpochIndex(); got != want {
 		return fmt.Errorf("epoch_index = %d, want %d", got, want)
