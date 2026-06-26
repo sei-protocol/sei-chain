@@ -152,10 +152,11 @@ type Proposal struct {
 	laneRanges  map[LaneID]*LaneRange
 	app         utils.Option[*AppProposal]
 	globalRange GlobalRange
-	epoch       *Epoch
+	epochIndex  uint64
+	firstBlock  GlobalBlockNumber
 }
 
-func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange, app utils.Option[*AppProposal], ep *Epoch) *Proposal {
+func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange, app utils.Option[*AppProposal], epochIndex uint64, firstBlock GlobalBlockNumber) *Proposal {
 	laneRangesM := map[LaneID]*LaneRange{}
 	gr := GlobalRange{}
 	for _, r := range laneRanges {
@@ -165,14 +166,15 @@ func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange, app ut
 		gr.First += GlobalBlockNumber(r.First())
 		gr.Next += GlobalBlockNumber(r.Next())
 	}
-	gr.First += ep.FirstBlock()
-	gr.Next += ep.FirstBlock()
+	gr.First += firstBlock
+	gr.Next += firstBlock
 	return &Proposal{
 		view:        view,
 		timestamp:   timestamp,
 		laneRanges:  laneRangesM,
 		globalRange: gr,
-		epoch:       ep,
+		epochIndex:  epochIndex,
+		firstBlock:  firstBlock,
 		app:         app,
 	}
 }
@@ -189,8 +191,11 @@ func (m *Proposal) Timestamp() time.Time { return m.timestamp }
 // App .
 func (m *Proposal) App() utils.Option[*AppProposal] { return m.app }
 
-// Epoch returns the epoch info encoded in the proposal (Committee is always nil).
-func (m *Proposal) Epoch() *Epoch { return m.epoch }
+// EpochIndex returns the epoch index encoded in the proposal.
+func (m *Proposal) EpochIndex() uint64 { return m.epochIndex }
+
+// FirstBlock returns the first global block number of the epoch encoded in the proposal.
+func (m *Proposal) FirstBlock() GlobalBlockNumber { return m.firstBlock }
 
 // GlobalRange returns the proposed global block range.
 func (m *Proposal) GlobalRange() GlobalRange {
@@ -317,7 +322,7 @@ func NewProposal(
 	if wantMin := viewSpec.NextTimestamp(); timestamp.Before(wantMin) {
 		timestamp = wantMin
 	}
-	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, app, viewSpec.Epoch)
+	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, app, viewSpec.Epoch.EpochIndex(), viewSpec.Epoch.FirstBlock())
 
 	return &FullProposal{
 		proposal:  Sign(key, proposal),
@@ -351,11 +356,11 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 	c := vs.Epoch.Committee()
 	return scope.Parallel(func(s scope.ParallelScope) error {
 		// Does the epoch info match?
-		ep := m.proposal.Msg().Epoch()
-		if got, want := ep.EpochIndex(), vs.Epoch.EpochIndex(); got != want {
+		msg := m.proposal.Msg()
+		if got, want := msg.EpochIndex(), vs.Epoch.EpochIndex(); got != want {
 			return fmt.Errorf("epoch_index = %d, want %d", got, want)
 		}
-		if got, want := ep.FirstBlock(), vs.Epoch.FirstBlock(); got != want {
+		if got, want := msg.FirstBlock(), vs.Epoch.FirstBlock(); got != want {
 			return fmt.Errorf("epoch_first_block = %v, want %v", got, want)
 		}
 		// Does the view match?
@@ -532,8 +537,8 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 			Timestamp:   TimeConv.Encode(m.timestamp),
 			LaneRanges:  LaneRangeConv.EncodeSlice(laneRanges),
 			App:         AppProposalConv.EncodeOpt(m.app),
-			GlobalFirst: utils.Alloc(uint64(m.epoch.FirstBlock())),
-			EpochIndex:  utils.Alloc(m.epoch.EpochIndex()),
+			GlobalFirst: utils.Alloc(uint64(m.firstBlock)),
+			EpochIndex:  utils.Alloc(m.epochIndex),
 		}
 	},
 	Decode: func(m *pb.Proposal) (*Proposal, error) {
@@ -556,14 +561,10 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		if m.GlobalFirst == nil {
 			return nil, fmt.Errorf("global_first: missing")
 		}
-		ep := NewEpoch(
-			m.GetEpochIndex(),
-			RoadRange{},
-			time.Time{},
-			nil,
-			GlobalBlockNumber(m.GetGlobalFirst()),
-		)
-		proposal := newProposal(view, timestamp, laneRanges, app, ep)
+		if m.EpochIndex == nil {
+			return nil, fmt.Errorf("epoch_index: missing")
+		}
+		proposal := newProposal(view, timestamp, laneRanges, app, m.GetEpochIndex(), GlobalBlockNumber(m.GetGlobalFirst()))
 		if len(proposal.laneRanges) != len(laneRanges) {
 			return nil, fmt.Errorf("laneRanges: duplicate ranges")
 		}
