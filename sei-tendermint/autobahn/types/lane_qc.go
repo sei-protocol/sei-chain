@@ -11,8 +11,10 @@ import (
 // LaneQC .
 type LaneQC struct {
 	utils.ReadOnly
-	vote       *Hashed[*LaneVote]
-	sigs       []*Signature
+	vote *Hashed[*LaneVote]
+	sigs []*Signature
+	// Advisory: not part of the signed LaneVote payload. Verified against the
+	// signed proposal's epoch_index in FullProposal.Verify.
 	epochIndex uint64
 }
 
