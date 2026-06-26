@@ -16,7 +16,8 @@ func GenRegistry(rng utils.Rng, size int) (*Registry, []types.SecretKey) {
 	for _, sk := range sks {
 		weights[sk.Public()] = 1000 + uint64(rng.Intn(1000)) //nolint:gosec
 	}
+	committee := utils.OrPanic1(types.NewCommittee(weights))
 	firstBlock := types.GenGlobalBlockNumber(rng) % 1000000
-	registry := utils.OrPanic1(NewRegistry(weights, firstBlock, time.Now()))
+	registry := utils.OrPanic1(NewRegistry(committee, firstBlock, time.Now()))
 	return registry, sks
 }

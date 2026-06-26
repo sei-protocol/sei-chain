@@ -75,7 +75,11 @@ func buildDataState(cfg *GigaRouterCommonConfig) (*data.State, error) {
 	for k := range cfg.ValidatorAddrs {
 		genesisWeights[k] = 1
 	}
-	registry, err := epoch.NewRegistry(genesisWeights, firstBlock, cfg.GenDoc.GenesisTime)
+	genesisCommittee, err := atypes.NewCommittee(genesisWeights)
+	if err != nil {
+		return nil, fmt.Errorf("genesis committee: %w", err)
+	}
+	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime)
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
@@ -509,6 +513,6 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 // None if the caller should handle it locally. Overridden on
 // *gigaValidatorRouter to short-circuit self-shard sends.
 func (r *gigaRouterCommon) EvmProxy(sender common.Address) utils.Option[*url.URL] {
-	shardValidator := r.data.Registry().LatestEpoch().Committee.EvmShard(sender)
+	shardValidator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
 	return utils.Some(r.cfg.ValidatorAddrs[shardValidator].EVMRPC)
 }

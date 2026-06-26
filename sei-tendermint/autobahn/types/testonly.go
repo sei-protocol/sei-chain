@@ -24,7 +24,7 @@ func BuildCommitQC(
 ) *CommitQC {
 	vs := ViewSpec{
 		CommitQC: prev,
-		Epoch:    &Epoch{FirstBlock: firstBlock, Timestamp: genesisTimestamp, Committee: committee},
+		Epoch:    NewEpoch(0, RoadRange{}, genesisTimestamp, committee, firstBlock),
 	}
 	leader := committee.Leader(vs.View())
 	var leaderKey SecretKey
@@ -211,12 +211,12 @@ func GenView(rng utils.Rng) View {
 
 // GenProposal generates a random Proposal.
 func GenProposal(rng utils.Rng) *Proposal {
-	return newProposal(GenView(rng), time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), &Epoch{FirstBlock: GlobalBlockNumber(rng.Uint64())})
+	return newProposal(GenView(rng), time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), NewEpoch(0, RoadRange{}, time.Time{}, nil, GlobalBlockNumber(rng.Uint64())))
 }
 
 // GenProposalAt generates a Proposal at a specific view.
 func GenProposalAt(rng utils.Rng, view View) *Proposal {
-	return newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), &Epoch{FirstBlock: GlobalBlockNumber(rng.Uint64())})
+	return newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), NewEpoch(0, RoadRange{}, time.Time{}, nil, GlobalBlockNumber(rng.Uint64())))
 }
 
 // GenAppHash generates a random AppHash.

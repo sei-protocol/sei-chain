@@ -166,7 +166,7 @@ func (s *State) PushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 
 // PushPrepareVote processes an unverified Prepare vote message.
 func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
-	committee := s.myView.Load().Epoch.Committee
+	committee := s.myView.Load().Epoch.Committee()
 	if err := vote.VerifySig(committee); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
@@ -178,7 +178,7 @@ func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
 
 // PushCommitVote processes an unverified CommitVote message.
 func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
-	committee := s.myView.Load().Epoch.Committee
+	committee := s.myView.Load().Epoch.Committee()
 	if err := vote.VerifySig(committee); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
@@ -190,7 +190,7 @@ func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
 
 // PushTimeoutVote processes an unverified FullTimeoutVote message.
 func (s *State) PushTimeoutVote(vote *types.FullTimeoutVote) error {
-	committee := s.myView.Load().Epoch.Committee
+	committee := s.myView.Load().Epoch.Committee()
 	if err := vote.Verify(committee); err != nil {
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
@@ -207,7 +207,7 @@ func (s *State) Avail() *avail.State { return s.avail }
 // Constructs new proposals.
 func (s *State) runPropose(ctx context.Context) error {
 	return s.myView.Iter(ctx, func(ctx context.Context, vs types.ViewSpec) error {
-		if vs.Epoch.Committee.Leader(vs.View()) != s.cfg.Key.Public() {
+		if vs.Epoch.Committee().Leader(vs.View()) != s.cfg.Key.Public() {
 			return nil // not the leader.
 		}
 		// Try repropose.

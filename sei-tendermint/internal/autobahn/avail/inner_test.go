@@ -49,10 +49,10 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	state, err = NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
 	for inner := range state.inner.Lock() {
-		_, err := inner.prune(registry.LatestEpoch().Committee, makeAppQC(qc1, qc0), qc1)
+		_, err := inner.prune(registry.LatestEpoch().Committee(), makeAppQC(qc1, qc0), qc1)
 		require.Error(t, err, "good range, bad index should fail")
 		require.False(t, inner.latestAppQC.IsPresent(), "latestAppQC should not have been updated")
-		_, err = inner.prune(registry.LatestEpoch().Committee, makeAppQC(qc1, qc1), qc1)
+		_, err = inner.prune(registry.LatestEpoch().Committee(), makeAppQC(qc1, qc1), qc1)
 		require.NoError(t, err, "good range, good index should succeed")
 	}
 }
@@ -76,7 +76,7 @@ func TestNewInnerFreshStart(t *testing.T) {
 	require.Equal(t, types.RoadIndex(0), i.commitQCs.next)
 	require.Equal(t, registry.FirstBlock(), i.appVotes.first)
 	require.Equal(t, registry.FirstBlock(), i.appVotes.next)
-	for lane := range registry.LatestEpoch().Committee.Lanes().All() {
+	for lane := range registry.LatestEpoch().Committee().Lanes().All() {
 		require.Equal(t, types.BlockNumber(0), i.blocks[lane].first)
 		require.Equal(t, types.BlockNumber(0), i.blocks[lane].next)
 		require.Equal(t, types.BlockNumber(0), i.votes[lane].first)
@@ -144,7 +144,7 @@ func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
 	// nextBlockToPersist: loaded lane at q.next, other lanes at 0 (map zero-value).
 	require.NotNil(t, i.nextBlockToPersist)
 	require.Equal(t, types.BlockNumber(3), i.nextBlockToPersist[lane])
-	for other := range registry.LatestEpoch().Committee.Lanes().All() {
+	for other := range registry.LatestEpoch().Committee().Lanes().All() {
 		if other != lane {
 			require.Equal(t, types.BlockNumber(0), i.nextBlockToPersist[other])
 		}
@@ -183,7 +183,7 @@ func TestNewInnerLoadedBlocksUnknownLane(t *testing.T) {
 	i, err := newInner(registry.LatestEpoch(), utils.Some(loaded))
 	require.NoError(t, err)
 
-	for lane := range registry.LatestEpoch().Committee.Lanes().All() {
+	for lane := range registry.LatestEpoch().Committee().Lanes().All() {
 		q := i.blocks[lane]
 		require.Equal(t, types.BlockNumber(0), q.first)
 		require.Equal(t, types.BlockNumber(0), q.next)
@@ -412,7 +412,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 		h := i.blocks[lane].q[bn].Msg().Block().Header()
 		laneQCs := map[types.LaneID]*types.LaneQC{
 			lane: types.NewLaneQC(makeLaneVotes(
-				types.TestKeysWithWeight(registry.LatestEpoch().Committee, keys, registry.LatestEpoch().Committee.LaneQuorum()),
+				types.TestKeysWithWeight(registry.LatestEpoch().Committee(), keys, registry.LatestEpoch().Committee().LaneQuorum()),
 				h,
 			)),
 		}
@@ -430,7 +430,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 	appProposal := types.NewAppProposal(10, 2, types.GenAppHash(rng))
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
-	updated, err := i.prune(registry.LatestEpoch().Committee, appQC, qcs[2])
+	updated, err := i.prune(registry.LatestEpoch().Committee(), appQC, qcs[2])
 	require.NoError(t, err)
 	require.True(t, updated)
 
@@ -508,7 +508,7 @@ func TestNewInnerAnchorWithNoCommitQCFiles(t *testing.T) {
 	require.Equal(t, types.RoadIndex(3), aq.Proposal().RoadIndex())
 
 	// persistedBlockStart should be initialized from the anchor's CommitQC.
-	for lane := range registry.LatestEpoch().Committee.Lanes().All() {
+	for lane := range registry.LatestEpoch().Committee().Lanes().All() {
 		expected := qcs[3].LaneRange(lane).First()
 		require.Equal(t, expected, inner.persistedBlockStart[lane])
 	}
@@ -798,7 +798,7 @@ func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 	require.NoError(t, err)
 
 	// prune() should advance block queue first to the prune anchor's lane range.
-	for l := range registry.LatestEpoch().Committee.Lanes().All() {
+	for l := range registry.LatestEpoch().Committee().Lanes().All() {
 		expected := pruneQC.LaneRange(l).First()
 		require.Equal(t, expected, i.blocks[l].first,
 			"blocks[%v].first should be advanced by prune to prune anchor lane range", l)

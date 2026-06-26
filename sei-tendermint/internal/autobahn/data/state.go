@@ -302,7 +302,7 @@ func NewState(cfg *Config, dataWAL *DataWAL) (*State, error) {
 	// Restore QCs. insertQC handles partially pruned QCs (range starts
 	// before inner.first) by skipping the pruned prefix.
 	for _, qc := range dataWAL.CommitQCs.ConsumeLoaded() {
-		committee := cfg.Registry.CommitteeFor(qc.QC().Proposal().Index())
+		committee := cfg.Registry.EpochFor(qc.QC().Proposal().Index()).Committee()
 		if err := inner.insertQC(committee, qc); err != nil {
 			return nil, fmt.Errorf("load QC from WAL: %w", err)
 		}
@@ -318,7 +318,7 @@ func NewState(cfg *Config, dataWAL *DataWAL) (*State, error) {
 		}
 		expectedBlock = lb.Number + 1
 		qc := inner.qcs[lb.Number]
-		committee := cfg.Registry.CommitteeFor(qc.QC().Proposal().Index())
+		committee := cfg.Registry.EpochFor(qc.QC().Proposal().Index()).Committee()
 		if err := lb.Block.Verify(committee); err != nil {
 			return nil, fmt.Errorf("load block %d from WAL: %w", lb.Number, err)
 		}
@@ -354,7 +354,7 @@ func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
 // Even if the qc was already pushed earlier, the blocks are pushed anyway.
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
 	// Wait until QC is needed.
-	committee := s.cfg.Registry.CommitteeFor(qc.QC().Proposal().Index())
+	committee := s.cfg.Registry.EpochFor(qc.QC().Proposal().Index()).Committee()
 	gr := qc.QC().GlobalRange()
 	needQC, err := func() (bool, error) {
 		for inner, ctrl := range s.inner.Lock() {
@@ -399,7 +399,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 		for n := max(inner.nextBlock, gr.First); n < min(gr.Next, inner.nextQC); n += 1 {
 			storedQC := inner.qcs[n]
 			storedGR := storedQC.QC().GlobalRange()
-			storedCommittee := s.cfg.Registry.CommitteeFor(storedQC.QC().Proposal().Index())
+			storedCommittee := s.cfg.Registry.EpochFor(storedQC.QC().Proposal().Index()).Committee()
 			if b, ok := byHash[storedQC.Headers()[n-storedGR.First].Hash()]; ok {
 				if err := inner.insertBlock(storedCommittee, n, b); err != nil {
 					return err
@@ -442,7 +442,7 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 			return err
 		}
 		qc := inner.qcs[n]
-		committee := s.cfg.Registry.CommitteeFor(qc.QC().Proposal().Index())
+		committee := s.cfg.Registry.EpochFor(qc.QC().Proposal().Index()).Committee()
 		if err := block.Verify(committee); err != nil {
 			return fmt.Errorf("block.Verify(): %w", err)
 		}

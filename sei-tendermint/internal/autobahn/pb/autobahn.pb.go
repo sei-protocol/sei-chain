@@ -834,16 +834,15 @@ func (x *View) GetNumber() uint64 {
 }
 
 type Proposal struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	View           *View                  `protobuf:"bytes,1,opt,name=view,proto3,oneof" json:"view,omitempty"`                                           // required.
-	Timestamp      *Timestamp             `protobuf:"bytes,5,opt,name=timestamp,proto3,oneof" json:"timestamp,omitempty"`                                 // required
-	LaneRanges     []*LaneRange           `protobuf:"bytes,3,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"`                   // Sorted by lane.
-	App            *AppProposal           `protobuf:"bytes,4,opt,name=app,proto3,oneof" json:"app,omitempty"`                                             // optional
-	GlobalFirst    *uint64                `protobuf:"varint,6,opt,name=global_first,json=globalFirst,proto3,oneof" json:"global_first,omitempty"`         // genesis InitialHeight; added to lane block numbers to produce absolute global block numbers
-	EpochIndex     *uint64                `protobuf:"varint,7,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"`            // index of the epoch this proposal belongs to (debug)
-	EpochTimestamp *Timestamp             `protobuf:"bytes,8,opt,name=epoch_timestamp,json=epochTimestamp,proto3,oneof" json:"epoch_timestamp,omitempty"` // start timestamp of the epoch (debug)
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	View          *View                  `protobuf:"bytes,1,opt,name=view,proto3,oneof" json:"view,omitempty"`                                   // required.
+	Timestamp     *Timestamp             `protobuf:"bytes,5,opt,name=timestamp,proto3,oneof" json:"timestamp,omitempty"`                         // required
+	LaneRanges    []*LaneRange           `protobuf:"bytes,3,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"`           // Sorted by lane.
+	App           *AppProposal           `protobuf:"bytes,4,opt,name=app,proto3,oneof" json:"app,omitempty"`                                     // optional
+	GlobalFirst   *uint64                `protobuf:"varint,6,opt,name=global_first,json=globalFirst,proto3,oneof" json:"global_first,omitempty"` // genesis InitialHeight; added to lane block numbers to produce absolute global block numbers
+	EpochIndex    *uint64                `protobuf:"varint,7,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"`    // epoch this proposal belongs to
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Proposal) Reset() {
@@ -916,13 +915,6 @@ func (x *Proposal) GetEpochIndex() uint64 {
 		return *x.EpochIndex
 	}
 	return 0
-}
-
-func (x *Proposal) GetEpochTimestamp() *Timestamp {
-	if x != nil {
-		return x.EpochTimestamp
-	}
-	return nil
 }
 
 type FullProposal struct {
@@ -2266,7 +2258,7 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x05index\x18\x01 \x01(\x04H\x00R\x05index\x88\x01\x01\x12\x1b\n" +
 	"\x06number\x18\x02 \x01(\x04H\x01R\x06number\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\b\n" +
 	"\x06_indexB\t\n" +
-	"\a_number\"\xdc\x03\n" +
+	"\a_number\"\x85\x03\n" +
 	"\bProposal\x12'\n" +
 	"\x04view\x18\x01 \x01(\v2\x0e.autobahn.ViewH\x00R\x04view\x88\x01\x01\x126\n" +
 	"\ttimestamp\x18\x05 \x01(\v2\x13.autobahn.TimestampH\x01R\ttimestamp\x88\x01\x01\x12<\n" +
@@ -2275,15 +2267,13 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x03app\x18\x04 \x01(\v2\x15.autobahn.AppProposalH\x02R\x03app\x88\x01\x01\x12&\n" +
 	"\fglobal_first\x18\x06 \x01(\x04H\x03R\vglobalFirst\x88\x01\x01\x12$\n" +
 	"\vepoch_index\x18\a \x01(\x04H\x04R\n" +
-	"epochIndex\x88\x01\x01\x12A\n" +
-	"\x0fepoch_timestamp\x18\b \x01(\v2\x13.autobahn.TimestampH\x05R\x0eepochTimestamp\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
+	"epochIndex\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
 	"\x05_viewB\f\n" +
 	"\n" +
 	"_timestampB\x06\n" +
 	"\x04_appB\x0f\n" +
 	"\r_global_firstB\x0e\n" +
-	"\f_epoch_indexB\x12\n" +
-	"\x10_epoch_timestampJ\x04\b\x02\x10\x03R\n" +
+	"\f_epoch_indexJ\x04\b\x02\x10\x03R\n" +
 	"created_at\"\x96\x02\n" +
 	"\fFullProposal\x129\n" +
 	"\vproposal_v2\x18\x05 \x01(\v2\x18.autobahn.SignedProposalR\n" +
@@ -2452,61 +2442,60 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	0,  // 12: autobahn.Proposal.timestamp:type_name -> autobahn.Timestamp
 	12, // 13: autobahn.Proposal.lane_ranges:type_name -> autobahn.LaneRange
 	25, // 14: autobahn.Proposal.app:type_name -> autobahn.AppProposal
-	0,  // 15: autobahn.Proposal.epoch_timestamp:type_name -> autobahn.Timestamp
-	27, // 16: autobahn.FullProposal.proposal_v2:type_name -> autobahn.SignedProposal
-	11, // 17: autobahn.FullProposal.lane_qcs:type_name -> autobahn.LaneQC
-	24, // 18: autobahn.FullProposal.app_qc:type_name -> autobahn.AppQC
-	20, // 19: autobahn.FullProposal.timeout_qc:type_name -> autobahn.TimeoutQC
-	14, // 20: autobahn.PrepareQC.vote:type_name -> autobahn.Proposal
-	7,  // 21: autobahn.PrepareQC.sigs:type_name -> autobahn.Signature
-	14, // 22: autobahn.CommitQC.vote:type_name -> autobahn.Proposal
-	7,  // 23: autobahn.CommitQC.sigs:type_name -> autobahn.Signature
-	17, // 24: autobahn.FullCommitQC.qc:type_name -> autobahn.CommitQC
-	8,  // 25: autobahn.FullCommitQC.headers:type_name -> autobahn.BlockHeader
-	13, // 26: autobahn.TimeoutVote.view:type_name -> autobahn.View
-	28, // 27: autobahn.TimeoutQC.votes_v2:type_name -> autobahn.SignedTimeoutVote
-	16, // 28: autobahn.TimeoutQC.latest_prepare_qc:type_name -> autobahn.PrepareQC
-	28, // 29: autobahn.FullTimeoutVote.vote_v2:type_name -> autobahn.SignedTimeoutVote
-	16, // 30: autobahn.FullTimeoutVote.latest_prepare_qc:type_name -> autobahn.PrepareQC
-	17, // 31: autobahn.PersistedInner.commit_qc:type_name -> autobahn.CommitQC
-	16, // 32: autobahn.PersistedInner.prepare_qc:type_name -> autobahn.PrepareQC
-	20, // 33: autobahn.PersistedInner.timeout_qc:type_name -> autobahn.TimeoutQC
-	27, // 34: autobahn.PersistedInner.commit_vote_v2:type_name -> autobahn.SignedProposal
-	27, // 35: autobahn.PersistedInner.prepare_vote_v2:type_name -> autobahn.SignedProposal
-	21, // 36: autobahn.PersistedInner.timeout_vote:type_name -> autobahn.FullTimeoutVote
-	24, // 37: autobahn.PersistedAvailPruneAnchor.app_qc:type_name -> autobahn.AppQC
-	17, // 38: autobahn.PersistedAvailPruneAnchor.commit_qc:type_name -> autobahn.CommitQC
-	25, // 39: autobahn.AppQC.vote:type_name -> autobahn.AppProposal
-	7,  // 40: autobahn.AppQC.sigs:type_name -> autobahn.Signature
-	10, // 41: autobahn.Msg.lane_proposal:type_name -> autobahn.Block
-	8,  // 42: autobahn.Msg.lane_vote:type_name -> autobahn.BlockHeader
-	14, // 43: autobahn.Msg.proposal:type_name -> autobahn.Proposal
-	14, // 44: autobahn.Msg.prepare_vote:type_name -> autobahn.Proposal
-	14, // 45: autobahn.Msg.commit_vote:type_name -> autobahn.Proposal
-	19, // 46: autobahn.Msg.timeout_vote:type_name -> autobahn.TimeoutVote
-	25, // 47: autobahn.Msg.app_vote:type_name -> autobahn.AppProposal
-	14, // 48: autobahn.SignedProposal.msg:type_name -> autobahn.Proposal
-	7,  // 49: autobahn.SignedProposal.sig:type_name -> autobahn.Signature
-	19, // 50: autobahn.SignedTimeoutVote.msg:type_name -> autobahn.TimeoutVote
-	7,  // 51: autobahn.SignedTimeoutVote.sig:type_name -> autobahn.Signature
-	25, // 52: autobahn.SignedAppVote.msg:type_name -> autobahn.AppProposal
-	7,  // 53: autobahn.SignedAppVote.sig:type_name -> autobahn.Signature
-	10, // 54: autobahn.SignedBlock.msg:type_name -> autobahn.Block
-	7,  // 55: autobahn.SignedBlock.sig:type_name -> autobahn.Signature
-	8,  // 56: autobahn.SignedBlockHeader.msg:type_name -> autobahn.BlockHeader
-	7,  // 57: autobahn.SignedBlockHeader.sig:type_name -> autobahn.Signature
-	25, // 58: autobahn.SignedAppProposal.msg:type_name -> autobahn.AppProposal
-	7,  // 59: autobahn.SignedAppProposal.sig:type_name -> autobahn.Signature
-	15, // 60: autobahn.ConsensusReq.proposal:type_name -> autobahn.FullProposal
-	27, // 61: autobahn.ConsensusReq.prepare_vote_v2:type_name -> autobahn.SignedProposal
-	27, // 62: autobahn.ConsensusReq.commit_vote_v2:type_name -> autobahn.SignedProposal
-	21, // 63: autobahn.ConsensusReq.timeout_vote:type_name -> autobahn.FullTimeoutVote
-	20, // 64: autobahn.ConsensusReq.timeout_qc:type_name -> autobahn.TimeoutQC
-	65, // [65:65] is the sub-list for method output_type
-	65, // [65:65] is the sub-list for method input_type
-	65, // [65:65] is the sub-list for extension type_name
-	65, // [65:65] is the sub-list for extension extendee
-	0,  // [0:65] is the sub-list for field type_name
+	27, // 15: autobahn.FullProposal.proposal_v2:type_name -> autobahn.SignedProposal
+	11, // 16: autobahn.FullProposal.lane_qcs:type_name -> autobahn.LaneQC
+	24, // 17: autobahn.FullProposal.app_qc:type_name -> autobahn.AppQC
+	20, // 18: autobahn.FullProposal.timeout_qc:type_name -> autobahn.TimeoutQC
+	14, // 19: autobahn.PrepareQC.vote:type_name -> autobahn.Proposal
+	7,  // 20: autobahn.PrepareQC.sigs:type_name -> autobahn.Signature
+	14, // 21: autobahn.CommitQC.vote:type_name -> autobahn.Proposal
+	7,  // 22: autobahn.CommitQC.sigs:type_name -> autobahn.Signature
+	17, // 23: autobahn.FullCommitQC.qc:type_name -> autobahn.CommitQC
+	8,  // 24: autobahn.FullCommitQC.headers:type_name -> autobahn.BlockHeader
+	13, // 25: autobahn.TimeoutVote.view:type_name -> autobahn.View
+	28, // 26: autobahn.TimeoutQC.votes_v2:type_name -> autobahn.SignedTimeoutVote
+	16, // 27: autobahn.TimeoutQC.latest_prepare_qc:type_name -> autobahn.PrepareQC
+	28, // 28: autobahn.FullTimeoutVote.vote_v2:type_name -> autobahn.SignedTimeoutVote
+	16, // 29: autobahn.FullTimeoutVote.latest_prepare_qc:type_name -> autobahn.PrepareQC
+	17, // 30: autobahn.PersistedInner.commit_qc:type_name -> autobahn.CommitQC
+	16, // 31: autobahn.PersistedInner.prepare_qc:type_name -> autobahn.PrepareQC
+	20, // 32: autobahn.PersistedInner.timeout_qc:type_name -> autobahn.TimeoutQC
+	27, // 33: autobahn.PersistedInner.commit_vote_v2:type_name -> autobahn.SignedProposal
+	27, // 34: autobahn.PersistedInner.prepare_vote_v2:type_name -> autobahn.SignedProposal
+	21, // 35: autobahn.PersistedInner.timeout_vote:type_name -> autobahn.FullTimeoutVote
+	24, // 36: autobahn.PersistedAvailPruneAnchor.app_qc:type_name -> autobahn.AppQC
+	17, // 37: autobahn.PersistedAvailPruneAnchor.commit_qc:type_name -> autobahn.CommitQC
+	25, // 38: autobahn.AppQC.vote:type_name -> autobahn.AppProposal
+	7,  // 39: autobahn.AppQC.sigs:type_name -> autobahn.Signature
+	10, // 40: autobahn.Msg.lane_proposal:type_name -> autobahn.Block
+	8,  // 41: autobahn.Msg.lane_vote:type_name -> autobahn.BlockHeader
+	14, // 42: autobahn.Msg.proposal:type_name -> autobahn.Proposal
+	14, // 43: autobahn.Msg.prepare_vote:type_name -> autobahn.Proposal
+	14, // 44: autobahn.Msg.commit_vote:type_name -> autobahn.Proposal
+	19, // 45: autobahn.Msg.timeout_vote:type_name -> autobahn.TimeoutVote
+	25, // 46: autobahn.Msg.app_vote:type_name -> autobahn.AppProposal
+	14, // 47: autobahn.SignedProposal.msg:type_name -> autobahn.Proposal
+	7,  // 48: autobahn.SignedProposal.sig:type_name -> autobahn.Signature
+	19, // 49: autobahn.SignedTimeoutVote.msg:type_name -> autobahn.TimeoutVote
+	7,  // 50: autobahn.SignedTimeoutVote.sig:type_name -> autobahn.Signature
+	25, // 51: autobahn.SignedAppVote.msg:type_name -> autobahn.AppProposal
+	7,  // 52: autobahn.SignedAppVote.sig:type_name -> autobahn.Signature
+	10, // 53: autobahn.SignedBlock.msg:type_name -> autobahn.Block
+	7,  // 54: autobahn.SignedBlock.sig:type_name -> autobahn.Signature
+	8,  // 55: autobahn.SignedBlockHeader.msg:type_name -> autobahn.BlockHeader
+	7,  // 56: autobahn.SignedBlockHeader.sig:type_name -> autobahn.Signature
+	25, // 57: autobahn.SignedAppProposal.msg:type_name -> autobahn.AppProposal
+	7,  // 58: autobahn.SignedAppProposal.sig:type_name -> autobahn.Signature
+	15, // 59: autobahn.ConsensusReq.proposal:type_name -> autobahn.FullProposal
+	27, // 60: autobahn.ConsensusReq.prepare_vote_v2:type_name -> autobahn.SignedProposal
+	27, // 61: autobahn.ConsensusReq.commit_vote_v2:type_name -> autobahn.SignedProposal
+	21, // 62: autobahn.ConsensusReq.timeout_vote:type_name -> autobahn.FullTimeoutVote
+	20, // 63: autobahn.ConsensusReq.timeout_qc:type_name -> autobahn.TimeoutQC
+	64, // [64:64] is the sub-list for method output_type
+	64, // [64:64] is the sub-list for method input_type
+	64, // [64:64] is the sub-list for extension type_name
+	64, // [64:64] is the sub-list for extension extendee
+	0,  // [0:64] is the sub-list for field type_name
 }
 
 func init() { file_autobahn_autobahn_proto_init() }

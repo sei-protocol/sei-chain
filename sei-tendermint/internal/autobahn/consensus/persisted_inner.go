@@ -82,7 +82,7 @@ func (p *persistedInner) View() types.View {
 // validate checks internal consistency and cryptographic signatures of persisted state.
 // Returns error on corrupt state.
 func (p *persistedInner) validate(ep *types.Epoch) error {
-	activeCommittee := ep.Committee
+	activeCommittee := ep.Committee()
 
 	if cqc, ok := p.CommitQC.Get(); ok {
 		if err := cqc.Verify(activeCommittee); err != nil {

@@ -256,7 +256,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 
 	for range 200 {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.Registry().LatestEpoch().Committee.EvmShard(sender)
+		shardValidator := router.data.Registry().LatestEpoch().Committee().EvmShard(sender)
 
 		proxyURL, ok := router.EvmProxy(sender).Get()
 		expectedURL := urlByValidator[shardValidator]

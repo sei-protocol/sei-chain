@@ -165,7 +165,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	// loadPersistedState.
 	if ls, ok := loaded.Get(); ok {
 		if anchor, ok := ls.pruneAnchor.Get(); ok {
-			for lane := range ep.Committee.Lanes().All() {
+			for lane := range ep.Committee().Lanes().All() {
 				if err := pers.blocks.MaybePruneAndPersistLane(lane, utils.Some(anchor.CommitQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
 					return nil, fmt.Errorf("prune stale block WAL entries: %w", err)
 				}
@@ -261,7 +261,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	if err := qc.Verify(s.data.Registry().CommitteeFor(qc.Proposal().Index())); err != nil {
+	if err := qc.Verify(s.data.Registry().EpochFor(qc.Proposal().Index()).Committee()); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
@@ -270,8 +270,8 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		}
 		inner.commitQCs.pushBack(qc)
 		// TODO: rotate inner.ep when dynamic committees are wired up.
-		// if idx >= inner.ep.End {
-		//     next, ok := s.data.Registry().EpochByIndex(inner.ep.EpochIndex + 1)
+		// if idx >= inner.ep.Roads().Last {
+		//     next, ok := s.data.Registry().EpochByIndex(inner.ep.EpochIndex() + 1)
 		//     if !ok { panic("epoch not registered") }
 		//     inner.ep = next
 		// }
@@ -287,7 +287,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 // PushAppVote pushes an AppVote to the state.
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
 	idx := v.Msg().Proposal().RoadIndex()
-	committee := s.data.Registry().CommitteeFor(idx)
+	committee := s.data.Registry().EpochFor(idx).Committee()
 	if err := v.VerifySig(committee); err != nil {
 		return fmt.Errorf("v.VerifySig(): %w", err)
 	}
@@ -335,7 +335,7 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			return nil
 		}
 	}
-	c := s.data.Registry().CommitteeFor(commitQC.Proposal().Index())
+	c := s.data.Registry().EpochFor(commitQC.Proposal().Index()).Committee()
 	if err := appQC.Verify(c); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
@@ -476,7 +476,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= h.BlockNumber() {
 			q.pushBack(newBlockVotes())
 		}
-		if _, ok := q.q[h.BlockNumber()].pushVote(inner.ep.Committee, vote); ok {
+		if _, ok := q.q[h.BlockNumber()].pushVote(inner.ep.Committee(), vote); ok {
 			ctrl.Updated()
 		}
 	}
@@ -525,7 +525,7 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 	}
 	// Collect the headers from the votes.
 	var commitHeaders []*types.BlockHeader
-	for lane := range s.data.Registry().CommitteeFor(qc.Proposal().Index()).Lanes().All() {
+	for lane := range s.data.Registry().EpochFor(qc.Proposal().Index()).Committee().Lanes().All() {
 		headers, err := s.headers(ctx, qc.LaneRange(lane))
 		if err != nil {
 			return nil, err
@@ -559,7 +559,7 @@ func (s *State) WaitForLaneQCs(
 			for lane := range inner.blocks {
 				first := types.LaneRangeOpt(prev, lane).Next()
 				for i := range types.BlockNumber(BlocksPerLanePerCommit) {
-					if qc, ok := inner.laneQC(ep.Committee, lane, first+i); ok {
+					if qc, ok := inner.laneQC(ep.Committee(), lane, first+i); ok {
 						laneQCs[lane] = qc
 					} else {
 						break
@@ -633,7 +633,7 @@ func (s *State) Run(ctx context.Context) error {
 				}
 
 				// Collect the blocks we have locally.
-				c := s.data.Registry().CommitteeFor(qc.QC().Proposal().Index())
+				c := s.data.Registry().EpochFor(qc.QC().Proposal().Index()).Committee()
 				var blocks []*types.Block
 				for inner := range s.inner.Lock() {
 					for lane := range c.Lanes().All() {
@@ -710,7 +710,7 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 					s.markCommitQCsPersisted(qc)
 				}))
 			})
-			for lane := range s.data.Registry().LatestEpoch().Committee.Lanes().All() {
+			for lane := range s.data.Registry().LatestEpoch().Committee().Lanes().All() {
 				proposals := blocksByLane[lane]
 				ps.Spawn(func() error {
 					return pers.blocks.MaybePruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))

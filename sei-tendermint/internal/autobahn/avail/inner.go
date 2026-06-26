@@ -58,11 +58,11 @@ type loadedAvailState struct {
 }
 
 func newInner(ep *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inner, error) {
-	pruneCommittee := ep.Committee
+	pruneCommittee := ep.Committee()
 
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
-	for lane := range ep.Committee.Lanes().All() {
+	for lane := range ep.Committee().Lanes().All() {
 		votes[lane] = newQueue[types.BlockNumber, blockVotes]()
 		blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
 	}
@@ -78,7 +78,7 @@ func newInner(ep *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inner, 
 		nextBlockToPersist:  make(map[types.LaneID]types.BlockNumber, len(votes)),
 		persistedBlockStart: make(map[types.LaneID]types.BlockNumber, len(votes)),
 	}
-	i.appVotes.prune(ep.FirstBlock)
+	i.appVotes.prune(ep.FirstBlock())
 
 	l, ok := loaded.Get()
 	if !ok {

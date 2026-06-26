@@ -18,7 +18,7 @@ func TestAvailClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	committee := registry.LatestEpoch().Committee
+	committee := registry.LatestEpoch().Committee()
 	env := newTestEnv(registry)
 	var nodes []*testNode
 	activeKeys := keys[:3] // keys are sorted by weight, so that's ok.

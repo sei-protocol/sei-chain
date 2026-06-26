@@ -1,14 +1,41 @@
 package types
 
-import "time"
+import (
+	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+)
+
+// RoadRange is an inclusive range of RoadIndex values [First, Last].
+type RoadRange struct {
+	First RoadIndex
+	Last  RoadIndex
+}
 
 // Epoch holds the complete context for a single epoch.
-// Callers retrieve it from the local Registry; it is never transmitted on the wire.
+// Retrieved from the local Registry; never transmitted on the wire.
 type Epoch struct {
-	EpochIndex uint64
-	Start      RoadIndex // first RoadIndex of this epoch (inclusive)
-	End        RoadIndex // last RoadIndex of this epoch (inclusive)
-	Timestamp  time.Time // start time of this epoch
-	Committee  *Committee
-	FirstBlock GlobalBlockNumber // first global block of this epoch
+	utils.ReadOnly
+	epochIndex     uint64
+	roads          RoadRange
+	firstTimestamp time.Time
+	committee      *Committee
+	firstBlock     GlobalBlockNumber
 }
+
+// NewEpoch constructs an Epoch.
+func NewEpoch(index uint64, roads RoadRange, firstTimestamp time.Time, committee *Committee, firstBlock GlobalBlockNumber) *Epoch {
+	return &Epoch{
+		epochIndex:     index,
+		roads:          roads,
+		firstTimestamp: firstTimestamp,
+		committee:      committee,
+		firstBlock:     firstBlock,
+	}
+}
+
+func (e *Epoch) EpochIndex() uint64            { return e.epochIndex }
+func (e *Epoch) Roads() RoadRange              { return e.roads }
+func (e *Epoch) FirstTimestamp() time.Time     { return e.firstTimestamp }
+func (e *Epoch) Committee() *Committee         { return e.committee }
+func (e *Epoch) FirstBlock() GlobalBlockNumber { return e.firstBlock }

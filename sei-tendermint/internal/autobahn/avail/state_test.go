@@ -61,7 +61,7 @@ func makeCommitQC(
 	appQC utils.Option[*types.AppQC],
 ) *types.CommitQC {
 	vs := types.ViewSpec{CommitQC: prev}
-	committee := registry.CommitteeFor(vs.View().Index)
+	committee := registry.EpochFor(vs.View().Index).Committee()
 	return types.BuildCommitQC(committee, keys, prev, registry.FirstBlock(), time.Time{}, laneQCs, appQC)
 }
 
@@ -92,7 +92,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestEpoch().Committee
+	committee := registry.LatestEpoch().Committee()
 
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		ds := utils.OrPanic1(data.NewState(&data.Config{
@@ -219,7 +219,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 func TestStateRestartFromPersisted(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	committee := registry.LatestEpoch().Committee
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	// Phase 1: Run state with persistence through 2 iterations.
@@ -324,7 +324,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 func TestStateMismatchedQCs(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	committee := registry.LatestEpoch().Committee
+	committee := registry.LatestEpoch().Committee()
 	initialBlock := registry.FirstBlock()
 
 	ds := utils.OrPanic1(data.NewState(&data.Config{
@@ -335,7 +335,7 @@ func TestStateMismatchedQCs(t *testing.T) {
 
 	// Helper to create a CommitQC for a specific index
 	makeQC := func(prev utils.Option[*types.CommitQC], laneQCs map[types.LaneID]*types.LaneQC) *types.CommitQC {
-		vs := types.ViewSpec{CommitQC: prev, Epoch: &types.Epoch{Committee: committee, FirstBlock: initialBlock}}
+		vs := types.ViewSpec{CommitQC: prev, Epoch: types.NewEpoch(0, types.RoadRange{}, time.Time{}, committee, initialBlock)}
 		fullProposal := utils.OrPanic1(types.NewProposal(
 			leaderKey(committee, keys, vs.View()),
 			vs,

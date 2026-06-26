@@ -54,7 +54,7 @@ type testEnv struct {
 }
 
 func newTestEnv(registry *epoch.Registry) *testEnv {
-	return &testEnv{registry, registry.LatestEpoch().Committee, map[types.PublicKey]*testNode{}}
+	return &testEnv{registry, registry.LatestEpoch().Committee(), map[types.PublicKey]*testNode{}}
 }
 
 // Call AddNode BEFORE Run.
