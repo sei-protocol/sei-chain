@@ -45,7 +45,7 @@ func cmpComparer[T any, PT interface {
 
 var cmpOpts = []cmp.Option{
 	protocmp.Transform(),
-	cmp.Exporter(isReadOnly),
+	cmp.Exporter(func(reflect.Type) bool { return true }),
 	cmpopts.EquateEmpty(),
 	// Optimization for comparing slices of bytes.
 	// Applies iff any of the slices is non-empty to avoid collision with EquateEmpty.

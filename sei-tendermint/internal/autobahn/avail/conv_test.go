@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestPruneAnchorConv(t *testing.T) {
@@ -23,7 +24,8 @@ func TestPruneAnchorConv(t *testing.T) {
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	anchor := &PruneAnchor{AppQC: appQC, CommitQC: commitQC}
-	decoded, err := PruneAnchorConv.Decode(PruneAnchorConv.Encode(anchor))
+	pb1 := PruneAnchorConv.Encode(anchor)
+	decoded, err := PruneAnchorConv.Decode(pb1)
 	require.NoError(t, err)
-	require.NoError(t, utils.TestDiff(anchor, decoded))
+	require.True(t, proto.Equal(pb1, PruneAnchorConv.Encode(decoded)))
 }
