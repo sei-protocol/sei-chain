@@ -262,6 +262,60 @@ func TestWrapSeiLegacyHTTP_BodyExactlyAtLimitForwarded(t *testing.T) {
 	}
 }
 
+// TestComposedStack_OverLimitRejectedConsistently exercises the full production wrapping
+// (requestSizeLimiter -> seiLegacyHTTPGate -> base) so the gate and the limiter are tested in
+// composition, not just in isolation. Both an over-limit chunked body (ContentLength == -1,
+// which slips past the limiter's header-only check) and an over-limit declared-length body must
+// be rejected with 413 without reaching the inner handler, and an at-limit body must pass.
+func TestComposedStack_OverLimitRejectedConsistently(t *testing.T) {
+	const maxBody = 1024
+	prefix := `{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["`
+	suffix := `"]}`
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
+
+	mkBody := func(total int) string {
+		return prefix + strings.Repeat("a", total-len(prefix)-len(suffix)) + suffix
+	}
+
+	cases := []struct {
+		name          string
+		bodyLen       int
+		chunked       bool // ContentLength == -1
+		wantStatus    int
+		wantForwarded bool
+	}{
+		{"chunked oversize", maxBody + 64, true, http.StatusRequestEntityTooLarge, false},
+		{"declared oversize", maxBody + 64, false, http.StatusRequestEntityTooLarge, false},
+		{"at limit forwarded", maxBody, false, http.StatusOK, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			forwarded := false
+			base := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				forwarded = true
+				_, _ = io.ReadAll(r.Body)
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
+			})
+			stack := newRequestSizeLimiter(wrapSeiLegacyHTTP(base, enabled, maxBody), maxBody, 0)
+
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(mkBody(tc.bodyLen)))
+			req.Header.Set("Content-Type", "application/json")
+			if tc.chunked {
+				req.ContentLength = -1
+			}
+			rec := httptest.NewRecorder()
+			stack.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d (body %q)", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+			if forwarded != tc.wantForwarded {
+				t.Fatalf("forwarded to inner = %v, want %v", forwarded, tc.wantForwarded)
+			}
+		})
+	}
+}
+
 const seiLegacyHTTPDefault5MiB = 5 * 1024 * 1024
 
 func TestWrapSeiLegacyHTTP_AllowedMethodPassthroughAndDeprecationHeader(t *testing.T) {
