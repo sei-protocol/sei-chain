@@ -82,7 +82,19 @@ func GenBlockNumber(rng utils.Rng) BlockNumber {
 
 // GenLaneRange generates a random LaneRange.
 func GenLaneRange(rng utils.Rng) *LaneRange {
-	return NewLaneRange(GenLaneID(rng), GenBlockNumber(rng), utils.Some(GenBlockHeader(rng)))
+	lane := GenLaneID(rng)
+	first := GenBlockNumber(rng)
+	length := rng.Uint64() % (MaxLaneRangeInProposal + 1)
+	if length == 0 {
+		return NewLaneRange(lane, first, utils.None[*BlockHeader]())
+	}
+	header := NewBlock(
+		lane,
+		first+BlockNumber(length-1),
+		GenBlockHeaderHash(rng),
+		GenPayload(rng),
+	).Header()
+	return NewLaneRange(lane, first, utils.Some(header))
 }
 
 // GenBlockHeaderHash generates a random BlockHeaderHash.

@@ -8,6 +8,11 @@ on:
       - release/**
   pull_request:
   merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   # Optional: allow read access to pull request. Use with `only-new-issues` option.
