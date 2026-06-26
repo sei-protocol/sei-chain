@@ -19,6 +19,20 @@ import (
 // its private fields will be compared by TestEqual.
 type ReadOnly struct{}
 
+// isReadOnly returns true if t embeds ReadOnly.
+func isReadOnly(t reflect.Type) bool {
+	want := reflect.TypeFor[ReadOnly]()
+	if t.Kind() != reflect.Struct {
+		return false
+	}
+	for i := range t.NumField() {
+		if f := t.Field(i); f.Anonymous || f.Type == want {
+			return true
+		}
+	}
+	return false
+}
+
 func cmpComparer[T any, PT interface {
 	Cmp(b *T) int
 	*T
@@ -31,10 +45,7 @@ func cmpComparer[T any, PT interface {
 
 var cmpOpts = []cmp.Option{
 	protocmp.Transform(),
-	// Export all unexported fields so TestEqual can compare internal types directly.
-	// Types that embed ReadOnly are already opt-in, but many internal types do not,
-	// so we use an unconditional exporter rather than the narrower isReadOnly check.
-	cmp.Exporter(func(reflect.Type) bool { return true }),
+	cmp.Exporter(isReadOnly),
 	cmpopts.EquateEmpty(),
 	// Optimization for comparing slices of bytes.
 	// Applies iff any of the slices is non-empty to avoid collision with EquateEmpty.
