@@ -205,7 +205,11 @@ func (i *inner) skipTo(n types.GlobalBlockNumber) {
 // Accepts QCs whose range starts at or before nextQC (partially pruned
 // prefix is silently skipped). Rejects gaps where gr.First > nextQC.
 func (i *inner) insertQC(ep *epoch.Registry, qc *types.FullCommitQC) error {
-	if err := qc.Verify(ep.EpochFor(qc.QC().Proposal().Index())); err != nil {
+	e, err := ep.EpochForProposal(qc.QC().Proposal())
+	if err != nil {
+		return fmt.Errorf("qc.Verify(): %w", err)
+	}
+	if err := qc.Verify(e); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	gr := qc.QC().GlobalRange()
@@ -317,7 +321,11 @@ func NewState(cfg *Config, dataWAL *DataWAL) (*State, error) {
 		}
 		expectedBlock = lb.Number + 1
 		qc := inner.qcs[lb.Number]
-		committee := cfg.Registry.EpochFor(qc.QC().Proposal().Index()).Committee()
+		e, err := cfg.Registry.EpochForProposal(qc.QC().Proposal())
+		if err != nil {
+			return nil, fmt.Errorf("unknown epoch: %w", err)
+		}
+		committee := e.Committee()
 		if err := lb.Block.Verify(committee); err != nil {
 			return nil, fmt.Errorf("load block %d from WAL: %w", lb.Number, err)
 		}
@@ -353,7 +361,10 @@ func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
 // Even if the qc was already pushed earlier, the blocks are pushed anyway.
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
 	// Wait until QC is needed.
-	ep := s.cfg.Registry.EpochFor(qc.QC().Proposal().Index())
+	ep, err := s.cfg.Registry.EpochForProposal(qc.QC().Proposal())
+	if err != nil {
+		return fmt.Errorf("unknown epoch: %w", err)
+	}
 	gr := qc.QC().GlobalRange()
 	needQC, err := func() (bool, error) {
 		for inner, ctrl := range s.inner.Lock() {
@@ -399,7 +410,11 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 		for n := max(inner.nextBlock, gr.First); n < min(gr.Next, inner.nextQC); n += 1 {
 			storedQC := inner.qcs[n]
 			storedGR := storedQC.QC().GlobalRange()
-			storedCommittee := s.cfg.Registry.EpochFor(storedQC.QC().Proposal().Index()).Committee()
+			storedEp, err := s.cfg.Registry.EpochForProposal(storedQC.QC().Proposal())
+			if err != nil {
+				return fmt.Errorf("unknown epoch: %w", err)
+			}
+			storedCommittee := storedEp.Committee()
 			if b, ok := byHash[storedQC.Headers()[n-storedGR.First].Hash()]; ok {
 				if err := inner.insertBlock(storedCommittee, n, b); err != nil {
 					return err
@@ -442,7 +457,11 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 			return err
 		}
 		qc := inner.qcs[n]
-		committee := s.cfg.Registry.EpochFor(qc.QC().Proposal().Index()).Committee()
+		blockEp, err := s.cfg.Registry.EpochForProposal(qc.QC().Proposal())
+		if err != nil {
+			return fmt.Errorf("unknown epoch: %w", err)
+		}
+		committee := blockEp.Committee()
 		if err := block.Verify(committee); err != nil {
 			return fmt.Errorf("block.Verify(): %w", err)
 		}

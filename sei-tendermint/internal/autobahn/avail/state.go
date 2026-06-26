@@ -261,7 +261,11 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	if err := qc.Verify(s.data.Registry().EpochFor(qc.Proposal().Index())); err != nil {
+	ep, err := s.data.Registry().EpochForProposal(qc.Proposal())
+	if err != nil {
+		return fmt.Errorf("qc.Verify(): %w", err)
+	}
+	if err := qc.Verify(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
@@ -335,7 +339,10 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			return nil
 		}
 	}
-	ep := s.data.Registry().EpochFor(commitQC.Proposal().Index())
+	ep, err := s.data.Registry().EpochForProposal(commitQC.Proposal())
+	if err != nil {
+		return fmt.Errorf("unknown epoch: %w", err)
+	}
 	if err := appQC.Verify(ep.Committee()); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
@@ -525,7 +532,11 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 	}
 	// Collect the headers from the votes.
 	var commitHeaders []*types.BlockHeader
-	for lane := range s.data.Registry().EpochFor(qc.Proposal().Index()).Committee().Lanes().All() {
+	ep, err := s.data.Registry().EpochForProposal(qc.Proposal())
+	if err != nil {
+		return nil, fmt.Errorf("unknown epoch: %w", err)
+	}
+	for lane := range ep.Committee().Lanes().All() {
 		headers, err := s.headers(ctx, qc.LaneRange(lane))
 		if err != nil {
 			return nil, err
@@ -633,7 +644,11 @@ func (s *State) Run(ctx context.Context) error {
 				}
 
 				// Collect the blocks we have locally.
-				c := s.data.Registry().EpochFor(qc.QC().Proposal().Index()).Committee()
+				ep, err := s.data.Registry().EpochForProposal(qc.QC().Proposal())
+				if err != nil {
+					return fmt.Errorf("unknown epoch: %w", err)
+				}
+				c := ep.Committee()
 				var blocks []*types.Block
 				for inner := range s.inner.Lock() {
 					for lane := range c.Lanes().All() {
