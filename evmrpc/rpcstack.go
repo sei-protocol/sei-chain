@@ -324,6 +324,10 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	h.HTTPConfig = config
 	base := NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.JwtSecret)
 
+	// config.maxRequestBodyBytes feeds three layers so they agree on what to reject:
+	// newRequestSizeLimiter (outermost peak-memory/budget backstop), wrapSeiLegacyHTTP (the gate
+	// re-applies the cap on the body it buffers to replay), and srv.SetHTTPBodyLimit (go-eth's
+	// native limit, set above). Change the cap via the config value, not one layer.
 	handler := newRequestSizeLimiter(
 		wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist, config.maxRequestBodyBytes),
 		config.maxRequestBodyBytes,
