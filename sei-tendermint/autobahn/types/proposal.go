@@ -449,6 +449,9 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			}
 		} else {
 			app, _ := m.proposal.Msg().App().Get()
+			if got, want := app.EpochIndex(), m.proposal.Msg().EpochIndex(); got != want {
+				return fmt.Errorf("app epoch_index %d != proposal epoch_index %d", got, want)
+			}
 			appQC, ok := m.appQC.Get()
 			if !ok {
 				return errors.New("appQC missing")

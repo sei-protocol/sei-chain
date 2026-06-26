@@ -62,6 +62,9 @@ var LaneQCConv = protoutils.Conv[*LaneQC, *pb.LaneQC]{
 		if err != nil {
 			return nil, fmt.Errorf("sigs: %w", err)
 		}
-		return &LaneQC{vote: NewHashed(vote), sigs: sigs, epochIndex: m.GetEpochIndex()}, nil
+		if m.EpochIndex == nil {
+			return nil, fmt.Errorf("EpochIndex: missing")
+		}
+		return &LaneQC{vote: NewHashed(vote), sigs: sigs, epochIndex: *m.EpochIndex}, nil
 	},
 }
