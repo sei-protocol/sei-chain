@@ -32,13 +32,18 @@ type HashLoggerConfig struct {
 	Version string
 }
 
-// DefaultHashLoggerConfig returns the default HashLoggerConfig. Retention is disk-driven: keep up to
-// 16 GiB of sealed files (~7 weeks at tip), with block-count retention disabled.
+// DefaultHashLoggerConfig returns the default HashLoggerConfig.
+//
+// TEST-DEPLOYMENT CONFIG (cjl/hashlog-integration-v6.5.0 only — DO NOT carry upstream): these tiny
+// limits are sized so a node at tip wraps quickly enough to observe GC by hand. At ~2.65 blocks/s and
+// ~1.5 KiB/block: 256 KiB files seal ~every 1.1 min (~172 blocks each), and the 28 MiB disk cap fills
+// after ~112 files (~2 hours), after which the oldest file is evicted on every new seal. Block-count
+// retention is disabled so GC is purely disk-driven. Upstream (main) defaults are 16 MiB / 0 / 16 GiB.
 func DefaultHashLoggerConfig() HashLoggerConfig {
 	return HashLoggerConfig{
 		Enable:         true,
 		BlocksToRetain: 0, // disabled — retention is purely disk-driven
-		TargetFileSize: 16 * unit.MB,
-		MaxDiskSize:    16 * unit.GB,
+		TargetFileSize: 256 * unit.KB,
+		MaxDiskSize:    28 * unit.MB,
 	}
 }
