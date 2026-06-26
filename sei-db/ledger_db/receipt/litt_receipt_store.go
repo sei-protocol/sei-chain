@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -100,6 +101,15 @@ func littPartKey(blockNumber uint64, part uint32) []byte {
 	return key
 }
 
+func littEnvInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
 func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
 	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create receipt store directory: %w", err)
@@ -123,7 +133,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 		return nil, fmt.Errorf("failed to open littdb: %w", err)
 	}
 	tableConfig := litt.DefaultTableConfig(littReceiptTableName)
-	tableConfig.ShardingFactor = 16 // spread writes across shards (cores spare)
+	tableConfig.ShardingFactor = uint8(littEnvInt("LITT_SHARD_COUNT", 16)) //nolint:gosec // ablation knob
 	receipts, err := values.BuildTable(tableConfig)
 	if err != nil {
 		_ = values.Close()
@@ -344,7 +354,7 @@ func (s *littReceiptStore) startFlusher() {
 	s.backgroundWg.Add(1)
 	go func() {
 		defer s.backgroundWg.Done()
-		ticker := time.NewTicker(littFlushInterval)
+		ticker := time.NewTicker(time.Duration(littEnvInt("LITT_FLUSH_MS", 100)) * time.Millisecond)
 		defer ticker.Stop()
 		for {
 			select {

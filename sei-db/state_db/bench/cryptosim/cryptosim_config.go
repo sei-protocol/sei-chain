@@ -170,6 +170,9 @@ type CryptoSimConfig struct {
 	// feed those receipts into the receipt store.
 	GenerateReceipts bool
 
+	// ReceiptBackend selects the receipt-store backend ("pebbledb", "littidx").
+	ReceiptBackend string
+
 	// The capacity of the channel that holds blocks sent to the receipt store.
 	RecieptChannelCapacity int
 
@@ -279,6 +282,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		FlatKVConfig:                      flatkvConfig.DefaultConfig(),
 		BlockChannelCapacity:              8,
 		GenerateReceipts:                  false,
+		ReceiptBackend:                    "pebbledb",
 		RecieptChannelCapacity:            32,
 		DisableTransactionExecution:       false,
 		DisableTransactionReads:           false,

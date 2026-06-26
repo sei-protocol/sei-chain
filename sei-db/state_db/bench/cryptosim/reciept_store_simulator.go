@@ -127,6 +127,10 @@ type RecieptStoreSimulator struct {
 // Receipt-by-hash reads reconstruct tx hashes on the fly via SyntheticTxHash
 // (no storage needed). Log filter reads use the ring buffer to sample contract
 // addresses written by the write path. See SyntheticTxHash in receipt.go for details.
+// benchReceiptCacheWindowBlocks is the recent-block window the read-mode
+// selectors split on (litt has no decorator cache on main).
+const benchReceiptCacheWindowBlocks = 500
+
 func NewRecieptStoreSimulator(
 	ctx context.Context,
 	config *CryptoSimConfig,
@@ -138,7 +142,7 @@ func NewRecieptStoreSimulator(
 
 	storeCfg := dbconfig.ReceiptStoreConfig{
 		DBDirectory:          filepath.Join(config.DataDir, "receipts"),
-		Backend:              "pebbledb",
+		Backend:              config.ReceiptBackend,
 		KeepRecent:           int(config.ReceiptKeepRecent),
 		PruneIntervalSeconds: int(config.ReceiptPruneIntervalSeconds),
 	}
@@ -155,14 +159,15 @@ func NewRecieptStoreSimulator(
 	txRing := newTxHashRing(defaultTxHashRingSize)
 
 	r := &RecieptStoreSimulator{
-		ctx:          derivedCtx,
-		cancel:       cancel,
-		config:       config,
-		recieptsChan: recieptsChan,
-		store:        store,
-		crand:        crand,
-		txRing:       txRing,
-		metrics:      metrics,
+		ctx:                      derivedCtx,
+		cancel:                   cancel,
+		config:                   config,
+		recieptsChan:             recieptsChan,
+		store:                    store,
+		crand:                    crand,
+		txRing:                   txRing,
+		metrics:                  metrics,
+		receiptCacheWindowBlocks: benchReceiptCacheWindowBlocks,
 	}
 	go r.mainLoop()
 
