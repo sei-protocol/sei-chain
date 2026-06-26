@@ -466,14 +466,10 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		if err != nil {
 			return fmt.Errorf("unknown epoch: %w", err)
 		}
-		committee := blockEp.Committee()
-		// Re-verify only when the authoritative epoch was not already checked pre-lock.
 		if !epochInSet(blockEp, preEps) {
-			if err := block.Verify(committee); err != nil {
-				return fmt.Errorf("block.Verify(): %w", err)
-			}
+			return fmt.Errorf("block.Verify(): signed by epoch %d, not in window", blockEp.EpochIndex())
 		}
-		if err := inner.insertBlock(committee, n, block); err != nil {
+		if err := inner.insertBlock(blockEp.Committee(), n, block); err != nil {
 			return err
 		}
 		inner.updateNextBlock(s.metrics)
