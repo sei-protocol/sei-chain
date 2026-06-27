@@ -172,3 +172,10 @@ func TestTimeoutQCVerifyChecksWeight(t *testing.T) {
 		t.Fatal("lightMajority.Verify() succeeded, want error")
 	}
 }
+
+func TestNewCommittee_RejectsEmptyWeights(t *testing.T) {
+	_, err := NewCommittee(map[PublicKey]uint64{})
+	if err == nil {
+		t.Fatal("NewCommittee() succeeded with empty weights, want error")
+	}
+}
