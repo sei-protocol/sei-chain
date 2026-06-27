@@ -188,6 +188,12 @@ prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
 # receipt storage.
 # Default: false.
 enable-read-write-metrics = {{ .ReceiptStore.EnableReadWriteMetrics }}
+
+# LogFilterParallelism bounds how many blocks a single eth_getLogs query scans
+# concurrently. Applies only when rs-backend = "littidx".
+# Set <= 0 to use the default.
+# defaults to 16
+log-filter-parallelism = {{ .ReceiptStore.LogFilterParallelism }}
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility
