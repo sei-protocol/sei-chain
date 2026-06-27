@@ -366,12 +366,28 @@ func (k BaseSendKeeper) SubWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int
 			)
 		}
 	}()
+
+	// Check that the deduction does not exceed the spendable (unlocked) balance.
+	// This is consistent with SubUnlockedCoins, which checks LockedCoins before
+	// deducting usei. Without this check, vesting/locked tokens could be spent
+	// through the wei deduction path.
 	currentWeiBalance := k.GetWeiBalance(ctx, addr)
+	currentUseiBalance := k.GetBalance(ctx, addr, sdk.MustGetBaseDenom()).Amount
+	lockedCoins := k.LockedCoins(ctx, addr)
+	lockedUsei := lockedCoins.AmountOf(sdk.MustGetBaseDenom())
+	spendableUsei := currentUseiBalance.Sub(lockedUsei)
+	if spendableUsei.IsNegative() {
+		spendableUsei = sdk.ZeroInt()
+	}
+	spendableWei := spendableUsei.Mul(OneUseiInWei).Add(currentWeiBalance)
+	if amt.GT(spendableWei) {
+		return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%swei is smaller than %swei", spendableWei, amt)
+	}
+
 	if amt.LTE(currentWeiBalance) {
 		// no need to change usei balance
 		return k.setWeiBalance(ctx, addr, currentWeiBalance.Sub(amt))
 	}
-	currentUseiBalance := k.GetBalance(ctx, addr, sdk.MustGetBaseDenom()).Amount
 	currentAggregatedBalance := currentUseiBalance.Mul(OneUseiInWei).Add(currentWeiBalance)
 	postAggregatedbalance := currentAggregatedBalance.Sub(amt)
 	if postAggregatedbalance.IsNegative() {
