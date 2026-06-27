@@ -222,16 +222,27 @@ func (m *Proposal) NextTimestamp() time.Time {
 	return m.Timestamp().Add(time.Duration(m.globalRange.Len()) * minTimestampDiff)
 }
 
-// Verify checks that the proposal's epoch fields match ep (epoch index and
-// first block). Lane-range validity is not re-checked here: a CommitQC or
-// PrepareQC implies a committee quorum already accepted the proposal via
-// FullProposal.Verify, which enforces lane-range structure.
+// Verify checks epoch binding and structural lane-range validity (range bounds and
+// max-length). Lane membership is not checked here — it requires committee context
+// and is enforced by FullProposal.Verify. QC-chain continuity is likewise only
+// enforced there.
 func (m *Proposal) Verify(ep *Epoch) error {
 	if got, want := m.EpochIndex(), ep.EpochIndex(); got != want {
 		return fmt.Errorf("epoch_index = %d, want %d", got, want)
 	}
 	if got, want := m.FirstBlock(), ep.FirstBlock(); got != want {
 		return fmt.Errorf("first_block = %v, want %v", got, want)
+	}
+	for _, r := range m.laneRanges {
+		if r.first > r.next {
+			return fmt.Errorf("laneRange[%v]: invalid range [%v,%v)", r.Lane(), r.first, r.next)
+		}
+		if r.first == r.next && r.lastHash != (BlockHeaderHash{}) {
+			return fmt.Errorf("laneRange[%v]: non-zero hash for empty range", r.Lane())
+		}
+		if got := r.Len(); got > MaxLaneRangeInProposal {
+			return fmt.Errorf("laneRange[%v].Len() = %d, want <= %d", r.Lane(), got, MaxLaneRangeInProposal)
+		}
 	}
 	return nil
 }
