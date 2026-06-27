@@ -264,6 +264,8 @@ func (mt *ModuleTrace) record(access Access) {
 		return
 	}
 	cost := len(access.Key) + len(access.Value) + perAccessOverheadBytes
+	// An access whose own payload exceeds the cap trips truncation on the first
+	// access (nothing retained); intended — we never retain an oversized blob.
 	if mt.accessBytes+cost > maxStoreTraceModuleBytes {
 		mt.Truncated = true
 		return
