@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -32,12 +31,11 @@ func TestLaneQC(keys []types.SecretKey, header *types.BlockHeader, epochIndex ui
 
 func TestCommitQC(
 	rng utils.Rng,
-	committee *types.Committee,
+	ep *types.Epoch,
 	keys []types.SecretKey,
 	prev utils.Option[*types.CommitQC],
-	firstBlock types.GlobalBlockNumber,
-	genesisTimestamp time.Time,
 ) (*types.FullCommitQC, []*types.Block) {
+	committee := ep.Committee()
 	blocks := map[types.LaneID][]*types.Block{}
 	makeBlock := func(producer types.LaneID) *types.Block {
 		if bs := blocks[producer]; len(bs) > 0 {
@@ -55,7 +53,7 @@ func TestCommitQC(
 	var blockList []*types.Block
 	for lane := range committee.Lanes().All() {
 		if bs := blocks[lane]; len(bs) > 0 {
-			laneQCs[lane] = TestLaneQC(keys, bs[len(bs)-1].Header(), 0)
+			laneQCs[lane] = TestLaneQC(keys, bs[len(bs)-1].Header(), ep.EpochIndex())
 			for _, b := range bs {
 				headers = append(headers, b.Header())
 				blockList = append(blockList, b)
@@ -64,13 +62,13 @@ func TestCommitQC(
 	}
 	var appQC utils.Option[*types.AppQC]
 	if cqc, ok := prev.Get(); ok {
-		vs := types.ViewSpec{CommitQC: prev}
-		p := types.NewAppProposal(cqc.GlobalRange().Next-1, vs.View().Index, types.GenAppHash(rng), cqc.Proposal().EpochIndex())
+		vs := types.ViewSpec{CommitQC: prev, Epoch: ep}
+		p := types.NewAppProposal(cqc.GlobalRange().Next-1, vs.View().Index, types.GenAppHash(rng), ep.EpochIndex())
 		appQC = utils.Some(TestAppQC(keys, p))
 	} else {
 		appQC = utils.None[*types.AppQC]()
 	}
-	cqc := types.BuildCommitQC(committee, keys, prev, firstBlock, genesisTimestamp, laneQCs, appQC)
+	cqc := types.BuildCommitQC(committee, keys, prev, ep.FirstBlock(), ep.FirstTimestamp(), laneQCs, appQC)
 	return types.NewFullCommitQC(cqc, headers), blockList
 }
 

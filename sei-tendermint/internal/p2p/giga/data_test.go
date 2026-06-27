@@ -95,7 +95,6 @@ func TestDataClientServer(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	env := newTestEnv(registry)
-	committee := env.committee
 	server := env.AddNode(keys[0])
 	client := env.AddNode(keys[1])
 	firstBlock := server.data.Registry().FirstBlock()
@@ -106,7 +105,7 @@ func TestDataClientServer(t *testing.T) {
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := data.TestCommitQC(rng, committee, keys, prev, server.data.Registry().FirstBlock(), time.Time{})
+			qc, blocks := data.TestCommitQC(rng, server.data.Registry().LatestEpoch(), keys, prev)
 			if err := server.data.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("serverState.PushQC(): %w", err)
 			}
