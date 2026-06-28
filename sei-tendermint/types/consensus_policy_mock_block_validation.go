@@ -17,3 +17,7 @@ func (ConsensusPolicy) HandleError(err error) error {
 	}
 	return err
 }
+
+// TolerateLastCommitMismatch is false: this tag never swallows ErrLastCommitVerify,
+// so the downstream commit-info size invariant still holds and must panic if violated.
+func (ConsensusPolicy) TolerateLastCommitMismatch() bool { return false }

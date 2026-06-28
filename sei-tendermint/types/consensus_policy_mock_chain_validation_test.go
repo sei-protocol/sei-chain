@@ -13,16 +13,17 @@ func TestConsensusPolicy_MockChainValidation_SwallowMatrix(t *testing.T) {
 	for _, sentinel := range ValidationErrors() {
 		// A contextual error wrapping the sentinel must match it under errors.Is.
 		err := fmt.Errorf("validation failed: %w", sentinel)
-		got := policy.HandleError(err)
-		if sentinel == ErrLastCommitVerify {
-			if got != err {
-				t.Errorf("mock_chain_validation ConsensusPolicy.HandleError(%v) = %v, want the input error (excluded from swallow set)", sentinel, got)
-			}
-			continue
+		if got := policy.HandleError(err); got != nil {
+			t.Errorf("mock_chain_validation ConsensusPolicy.HandleError(%v) = %v, want nil (every sentinel is swallowed, incl. ErrLastCommitVerify)", sentinel, got)
 		}
-		if got != nil {
-			t.Errorf("mock_chain_validation ConsensusPolicy.HandleError(%v) = %v, want nil", sentinel, got)
-		}
+	}
+}
+
+// mock_chain_validation swallows ErrLastCommitVerify, so buildLastCommitInfo must
+// be told to tolerate a commit/validator-set size divergence rather than panic.
+func TestConsensusPolicy_MockChainValidation_TolerateLastCommitMismatch(t *testing.T) {
+	if !DefaultConsensusPolicy().TolerateLastCommitMismatch() {
+		t.Error("mock_chain_validation ConsensusPolicy.TolerateLastCommitMismatch() = false, want true")
 	}
 }
 

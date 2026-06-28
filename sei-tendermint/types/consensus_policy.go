@@ -1,16 +1,18 @@
 // Package types — ConsensusPolicy is a zero-sized, build-tag-selected gate
 // that decides, per validation failure, whether a halting validation failure
 // halts (default) or is swallowed (counter incremented, then continued). The
-// single method HandleError(err) is declared in exactly one of three per-tag
-// files, so each binary compiles in one fixed policy with no runtime branch:
+// methods HandleError(err) and TolerateLastCommitMismatch() are declared in
+// exactly one of three per-tag files, so each binary compiles in one fixed
+// policy with no runtime branch:
 //
 //	default (production)   → returns err for every failure; production halting
 //	                         semantics are unchanged
 //	mock_block_validation  → returns nil for ErrAppHash and ErrDataHash;
 //	                         preserves the long-standing behavior of that tag
 //	mock_chain_validation  → returns nil for every swallow-eligible audit-row
-//	                         sentinel except ErrLastCommitVerify, excluded to
-//	                         avoid a downstream buildLastCommitInfo panic
+//	                         sentinel, including ErrLastCommitVerify;
+//	                         buildLastCommitInfo tolerates the resulting commit/
+//	                         validator-set drift under this build
 //
 // Validation failures are modeled as *ConsensusPolicyError sentinels. Call sites
 // attach context with idiomatic fmt.Errorf("...: %w", ErrX): wrapping keeps

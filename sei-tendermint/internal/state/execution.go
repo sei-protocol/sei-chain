@@ -514,21 +514,28 @@ func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) a
 		valSetLen  = len(lastValSet.Validators)
 	)
 
-	// ensure that the size of the validator set in the last commit matches
-	// the size of the validator set in the state store.
-	if commitSize != valSetLen {
+	// The commit normally carries one signature slot per validator in the stored
+	// set. In production a divergence is a fatal invariant violation. Under a
+	// shadow build that swallows ErrLastCommitVerify (mock_chain_validation), the
+	// replayed chain's validator set can drift from the one reconstructed locally,
+	// so tolerate the mismatch and build best-effort commit info — LastCommitInfo
+	// feeds staking rewards/downtime, never EVM state, which is what that build compares.
+	if commitSize != valSetLen && !types.DefaultConsensusPolicy().TolerateLastCommitMismatch() {
 		panic(fmt.Sprintf(
 			"commit size (%d) doesn't match validator set length (%d) at height %d\n\n%v\n\n%v",
 			commitSize, valSetLen, block.Height, block.LastCommit.Signatures, lastValSet.Validators,
 		))
 	}
 
-	votes := make([]abci.VoteInfo, block.LastCommit.Size())
+	votes := make([]abci.VoteInfo, valSetLen)
 	for i, val := range lastValSet.Validators {
-		commitSig := block.LastCommit.Signatures[i]
+		signedLastBlock := false
+		if i < commitSize {
+			signedLastBlock = block.LastCommit.Signatures[i].BlockIDFlag != types.BlockIDFlagAbsent
+		}
 		votes[i] = abci.VoteInfo{
 			Validator:       types.TM2PB.Validator(val),
-			SignedLastBlock: commitSig.BlockIDFlag != types.BlockIDFlagAbsent,
+			SignedLastBlock: signedLastBlock,
 		}
 	}
 
