@@ -246,6 +246,17 @@ func NewDiskTable(
 		}
 	}
 
+	// Purge keymap entries for segments GC logically deleted (the durable gc-watermark was advanced past them)
+	// but whose asynchronous keymap deletes may have been lost in a crash. repair/reload never delete, so
+	// without this a lost delete would leave entries pointing at segments [lowestSegmentIndex,
+	// lowestReadableSegment) that the control loop is about to reclaim, resurrecting collected keys. Doing it
+	// here, synchronously and before any goroutine can reclaim files, restores keymap-delete-before-file-delete
+	// ordering across a crash.
+	err = table.purgeCollectedKeymapEntries(segments, lowestSegmentIndex, lowestReadableSegment)
+	if err != nil {
+		return nil, fmt.Errorf("failed to purge collected keymap entries: %w", err)
+	}
+
 	var upperBoundSnapshotFile *BoundaryFile
 	if config.SnapshotDirectory != "" {
 		// Initialize snapshot files if snapshotting is enabled.
@@ -598,6 +609,68 @@ func (d *DiskTable) repairKeymap(
 	return nil
 }
 
+// purgeCollectedKeymapEntries deletes keymap entries for the segments in [lowestSegmentIndex,
+// lowestReadableSegment): segments that garbage collection logically deleted (the durable gc-watermark was
+// advanced past them) but whose asynchronous keymap deletes may have been lost in a crash before they were
+// applied. repairKeymap and reloadKeymap only add keys, never remove them, so a lost delete would otherwise
+// leave entries pointing at segments the control loop is about to reclaim, resurrecting collected keys via
+// Get/Exists. This runs synchronously at startup, before any goroutine can reclaim files, so a segment's keymap
+// entries are durably gone before its files are deleted (preserving keymap-delete-before-file-delete ordering
+// across a crash). Deleting an already-absent key is a no-op, so this is safe to repeat and is a complete no-op
+// on a clean restart, where lowestReadableSegment == lowestSegmentIndex.
+func (d *DiskTable) purgeCollectedKeymapEntries(
+	segments map[uint32]*segment.Segment,
+	lowestSegmentIndex uint32,
+	lowestReadableSegment uint32,
+) error {
+
+	if lowestReadableSegment <= lowestSegmentIndex {
+		// No collected-but-unreclaimed segments (the common case on a clean restart).
+		return nil
+	}
+
+	start := d.clock()
+	purged := 0
+	defer func() {
+		d.logger.Debug("purged collected keymap entries", "keysPurged", purged, "duration", d.clock().Sub(start))
+	}()
+
+	batch := make([]*types.ScopedKey, 0, keymapReloadBatchSize)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if err := d.keymap.Delete(batch); err != nil {
+			return fmt.Errorf("failed to delete keys from keymap: %w", err)
+		}
+		purged += len(batch)
+		batch = make([]*types.ScopedKey, 0, keymapReloadBatchSize)
+		return nil
+	}
+
+	for i := lowestSegmentIndex; i < lowestReadableSegment; i++ {
+		seg := segments[i]
+		if !seg.IsSealed() {
+			// Defensive: collected segments are always sealed, so they have durable keys to purge.
+			continue
+		}
+		keys, err := seg.GetKeys()
+		if err != nil {
+			return fmt.Errorf("failed to get keys from segment %d: %w", i, err)
+		}
+		for _, key := range keys {
+			batch = append(batch, key)
+			if len(batch) == keymapReloadBatchSize {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return flush()
+}
+
 func (d *DiskTable) Name() string {
 	return d.name
 }
@@ -919,12 +992,24 @@ func (d *DiskTable) Exists(key []byte) (bool, error) {
 		return true, nil
 	}
 
-	_, ok, err := d.keymap.Get(key)
+	address, ok, err := d.keymap.Get(key)
 	if err != nil {
 		return false, fmt.Errorf("failed to get address: %w", err)
 	}
+	if !ok {
+		return false, nil
+	}
 
-	return ok, nil
+	// A keymap entry can outlive its segment: a keymap delete lost in a crash leaves a stale entry pointing at
+	// a segment the control loop then reclaims. Confirm the backing segment is still live (mirroring Get) so a
+	// stale entry never reports a key that Get would not return. This is a map lookup + reservation, no disk read.
+	seg, ok := d.controlLoop.getReservedSegment(address.Index())
+	if !ok {
+		return false, nil
+	}
+	seg.Release()
+
+	return true, nil
 }
 
 // Flush flushes all data to disk. Blocks until all data previously submitted to Put has been written to disk.

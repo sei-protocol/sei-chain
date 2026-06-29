@@ -624,3 +624,130 @@ func TestReadsSkipCollectedSegmentsAfterCrash(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok)
 }
+
+// TestCollectedKeymapEntriesPurgedAfterCrash is the regression test for Finding 2. It reproduces the state a
+// crash leaves when GC advanced the durable gc-watermark past some segments but the asynchronous keymap deletes
+// were lost (and the segment files were not yet reclaimed): the keymap still holds the collected keys. On
+// restart the startup purge must delete those entries before the control loop can reclaim the files, so a
+// collected key is never resurrected via Get or Exists.
+//
+// The lost-delete state is constructed directly rather than via a real GC pass: a clean Close drains the keymap
+// manager and would apply the deletes, so instead we write cleanly and then advance the gc-watermark file
+// out-of-band, mimicking "watermark durable, deletes lost".
+func TestCollectedKeymapEntriesPurgedAfterCrash(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	tableName := "purge-crash-gc"
+	logger := slog.Default()
+	keymapPath := filepath.Join(directory, keymap.KeymapDirectoryName)
+	tableRoot := filepath.Join(directory, tableName)
+
+	start := time.Unix(1_700_000_000, 0)
+	clock := func() time.Time { return start }
+
+	build := func(km keymap.Keymap, reload bool) *DiskTable {
+		keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafePebbleDBKeymapType)
+		require.NoError(t, err)
+
+		config, err := litt.DefaultConfig(directory)
+		require.NoError(t, err)
+		config.TargetSegmentFileSize = math.MaxUint32
+		config.MaxSegmentKeyCount = 2
+		config.GCPeriod = time.Hour
+		config.Fsync = false
+
+		tableConfig := litt.DefaultTableConfig(tableName)
+		tableConfig.ShardingFactor = 1
+
+		runtimeConfig := litt.DefaultRuntimeConfig()
+		runtimeConfig.Clock = clock
+		runtimeConfig.Logger = logger
+
+		table, err := NewDiskTable(
+			config, runtimeConfig, tableName, tableConfig, km, keymapPath, keymapTypeFile,
+			[]string{directory}, reload, nil)
+		require.NoError(t, err)
+		return table.(*DiskTable)
+	}
+
+	// Session 1: write k0..k4 -> seg0[k0,k1], seg1[k2,k3], seg2(mutable)[k4]; clean Close. No GC ran, so the
+	// keymap holds all of k0..k4 and every segment file is on disk.
+	km1, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	table := build(km1, true)
+	for _, k := range []string{"k0", "k1", "k2", "k3", "k4"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+	require.NoError(t, table.Flush())
+	require.NoError(t, table.Close())
+
+	// Out-of-band, advance the durable gc-watermark to 2: this is the state a crash leaves after GC advanced
+	// the watermark past seg0/seg1 but their keymap deletes were lost and their files not yet reclaimed.
+	wmFile, err := LoadGCWatermarkFile(tableRoot)
+	require.NoError(t, err)
+	require.NoError(t, wmFile.Update(2))
+
+	// Session 2: reopen (repair path). The startup purge must delete the keymap entries for seg0/seg1 (k0..k3),
+	// which repair never would, so the collected keys are gone from both Get and Exists.
+	km2, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	reopened := build(km2, false)
+	defer func() { require.NoError(t, reopened.Close()) }()
+
+	for _, k := range []string{"k0", "k1", "k2", "k3"} {
+		_, ok, err := reopened.Get([]byte(k))
+		require.NoError(t, err)
+		require.False(t, ok, "collected key %s must not be readable via Get after restart", k)
+
+		ok, err = reopened.Exists([]byte(k))
+		require.NoError(t, err)
+		require.False(t, ok, "collected key %s must not be reported by Exists after restart", k)
+	}
+
+	// k4 is in seg2 (>= the gc-watermark), so it survives and stays readable.
+	v, ok, err := reopened.Get([]byte("k4"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("value-k4"), v)
+	ok, err = reopened.Exists([]byte("k4"))
+	require.NoError(t, err)
+	require.True(t, ok)
+}
+
+// TestExistsRequiresLiveSegment isolates the Exists hardening: a keymap entry whose backing segment is not in
+// the live set (e.g. a stale entry a lost crash-time delete left behind, pointing at a since-reclaimed segment)
+// must not be reported by Exists, matching Get. A bogus entry is inserted out-of-band to model that state.
+func TestExistsRequiresLiveSegment(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	start := time.Unix(1_700_000_000, 0)
+	clock := func() time.Time { return start }
+
+	table := buildGCFilterTable(t, clock, "exists-live-seg", directory, 2, nil)
+	defer func() { require.NoError(t, table.Close()) }()
+	d := table.(*DiskTable)
+
+	// A real, flushed key resolves through the keymap to a live segment: Exists must report it.
+	require.NoError(t, table.Put([]byte("real"), []byte("value")))
+	require.NoError(t, table.Flush())
+	ok, err := table.Exists([]byte("real"))
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// Insert a stale keymap entry pointing at a segment index that does not exist in the live set.
+	require.NoError(t, d.keymap.Put([]*types.ScopedKey{
+		{Key: []byte("ghost"), Address: types.NewAddress(9999, 0, 0, 0)},
+	}))
+
+	// Exists must not report the ghost (its segment is gone), and must agree with Get.
+	ok, err = table.Exists([]byte("ghost"))
+	require.NoError(t, err)
+	require.False(t, ok, "Exists must not report a key whose backing segment is missing")
+
+	_, ok, err = table.Get([]byte("ghost"))
+	require.NoError(t, err)
+	require.False(t, ok)
+}
