@@ -39,7 +39,8 @@ jobs:
       GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
       GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
     steps:
-      - uses: actions/checkout@v5
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Login to Docker Hub
         # See: https://github.com/docker/login-action/releases/tag/v4.2.0
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
@@ -402,7 +403,8 @@ jobs:
           },
         ]
     steps:
-      - uses: actions/checkout@v3
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
