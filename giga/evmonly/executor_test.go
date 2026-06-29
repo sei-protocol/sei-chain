@@ -85,6 +85,85 @@ func TestExecutorDynamicFeeTx(t *testing.T) {
 	require.Equal(t, big.NewInt(11), state.GetBalance(recipient))
 }
 
+func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
+	chainID := big.NewInt(713715)
+	txCount := 12
+	rawTxs := make([][]byte, 0, txCount)
+	senders := make([]common.Address, 0, txCount)
+	recipients := make([]common.Address, 0, txCount)
+	seqState := NewMemoryState()
+	occState := NewMemoryState()
+
+	for i := 0; i < txCount; i++ {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+		recipient := common.BigToAddress(big.NewInt(int64(10_000 + i)))
+		senders = append(senders, sender)
+		recipients = append(recipients, recipient)
+		seqState.SetBalance(sender, big.NewInt(1_000_000))
+		occState.SetBalance(sender, big.NewInt(1_000_000))
+		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(7), nil, 100_000, big.NewInt(0)))
+	}
+
+	cfg := Config{MinGasPrice: big.NewInt(0)}
+	seqExecutor := NewExecutor(cfg, WithState(seqState))
+	occExecutor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(occState))
+	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
+
+	seqResult, err := seqExecutor.ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	occResult, err := occExecutor.ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+
+	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
+	require.Len(t, occResult.Txs, txCount)
+	require.Len(t, occResult.Receipts, txCount)
+	for i := range txCount {
+		require.Equal(t, seqResult.Txs[i].Hash, occResult.Txs[i].Hash)
+		require.Equal(t, seqResult.Txs[i].Status, occResult.Txs[i].Status)
+		require.Equal(t, seqResult.Receipts[i].CumulativeGasUsed, occResult.Receipts[i].CumulativeGasUsed)
+	}
+
+	seqState.ApplyChangeSet(seqResult.ChangeSet)
+	occState.ApplyChangeSet(occResult.ChangeSet)
+	for i := range txCount {
+		require.Equal(t, seqState.GetBalance(senders[i]), occState.GetBalance(senders[i]))
+		require.Equal(t, seqState.GetNonce(senders[i]), occState.GetNonce(senders[i]))
+		require.Equal(t, seqState.GetBalance(recipients[i]), occState.GetBalance(recipients[i]))
+	}
+}
+
+func TestExecutorOCCConflictingTransfersMatchSequential(t *testing.T) {
+	chainID := big.NewInt(713715)
+	txCount := 8
+	recipient := testAddress(0xdd)
+	rawTxs := make([][]byte, 0, txCount)
+	seqState := NewMemoryState()
+	occState := NewMemoryState()
+
+	for i := 0; i < txCount; i++ {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+		seqState.SetBalance(sender, big.NewInt(1_000_000))
+		occState.SetBalance(sender, big.NewInt(1_000_000))
+		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(3), nil, 100_000, big.NewInt(0)))
+	}
+
+	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+
+	seqState.ApplyChangeSet(seqResult.ChangeSet)
+	occState.ApplyChangeSet(occResult.ChangeSet)
+	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
+	require.Equal(t, seqState.GetBalance(recipient), occState.GetBalance(recipient))
+	require.Equal(t, big.NewInt(int64(txCount*3)), occState.GetBalance(recipient))
+}
+
 func TestExecutorReceiptAndLogMetadata(t *testing.T) {
 	chainID := big.NewInt(713715)
 	key, err := crypto.GenerateKey()

@@ -31,7 +31,11 @@ type nativeStateDB struct {
 
 	accessList      accessList
 	transientStates map[common.Address]map[common.Hash]common.Hash
+	finaliseAddrs   map[common.Address]struct{}
+	journal         []nativeJournalEntry
 	snapshots       []nativeSnapshot
+	readSet         map[stateAccessKey]struct{}
+	writeSet        map[stateAccessKey]struct{}
 
 	txHash      common.Hash
 	txIndex     int
@@ -50,19 +54,48 @@ type nativeAccount struct {
 }
 
 type nativeSnapshot struct {
-	accounts        map[common.Address]*nativeAccount
-	base            map[common.Address]*nativeAccount
+	journalLen      int
 	refund          uint64
-	logs            []*ethtypes.Log
+	logsLen         int
 	accessList      accessList
 	transientStates map[common.Address]map[common.Hash]common.Hash
+	finaliseAddrs   map[common.Address]struct{}
 	preimages       map[common.Hash][]byte
+	journaledAddrs  map[common.Address]struct{}
 	err             error
+}
+
+type nativeJournalKind uint8
+
+const (
+	nativeJournalAccount nativeJournalKind = iota
+)
+
+type nativeJournalEntry struct {
+	kind    nativeJournalKind
+	address common.Address
+	account *nativeAccount
 }
 
 type accessList struct {
 	addresses map[common.Address]struct{}
 	slots     map[common.Address]map[common.Hash]struct{}
+}
+
+type stateAccessKind uint8
+
+const (
+	stateAccessAccount stateAccessKind = iota
+	stateAccessBalance
+	stateAccessNonce
+	stateAccessCode
+	stateAccessStorage
+)
+
+type stateAccessKey struct {
+	kind    stateAccessKind
+	address common.Address
+	slot    common.Hash
 }
 
 func newNativeStateDB(source StateReader) *nativeStateDB {
@@ -76,6 +109,7 @@ func newNativeStateDB(source StateReader) *nativeStateDB {
 		preimages:       map[common.Hash][]byte{},
 		accessList:      newAccessList(),
 		transientStates: map[common.Address]map[common.Hash]common.Hash{},
+		finaliseAddrs:   map[common.Address]struct{}{},
 	}
 }
 
@@ -132,16 +166,23 @@ func (s *nativeStateDB) ChangeSet() StateChangeSet {
 
 func (s *nativeStateDB) CreateAccount(addr common.Address) {
 	acct := s.account(addr)
+	s.recordAccount(addr)
+	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
 	balance := acct.Balance.Clone()
 	*acct = nativeAccount{
 		Balance: balance,
 		Storage: map[common.Hash]common.Hash{},
 		Created: true,
 	}
+	s.markForFinalise(addr)
 }
 
 func (s *nativeStateDB) CreateContract(addr common.Address) {
-	s.account(addr).Created = true
+	acct := s.account(addr)
+	s.recordAccount(addr)
+	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
+	acct.Created = true
+	s.markForFinalise(addr)
 }
 
 func (s *nativeStateDB) SubBalance(addr common.Address, amount *uint256.Int, _ tracing.BalanceChangeReason) uint256.Int {
@@ -154,6 +195,8 @@ func (s *nativeStateDB) SubBalance(addr common.Address, amount *uint256.Int, _ t
 		s.err = errInsufficientBalance
 		return prev
 	}
+	s.recordAccount(addr)
+	s.markWrite(stateAccessKey{kind: stateAccessBalance, address: addr})
 	acct.Balance.Sub(acct.Balance, amount)
 	return prev
 }
@@ -164,16 +207,21 @@ func (s *nativeStateDB) AddBalance(addr common.Address, amount *uint256.Int, _ t
 		return prev
 	}
 	acct := s.account(addr)
+	s.recordAccount(addr)
+	s.markWrite(stateAccessKey{kind: stateAccessBalance, address: addr})
 	acct.Balance.Add(acct.Balance, amount)
 	return prev
 }
 
 func (s *nativeStateDB) GetBalance(addr common.Address) *uint256.Int {
+	s.markRead(stateAccessKey{kind: stateAccessBalance, address: addr})
 	return s.account(addr).Balance.Clone()
 }
 
 func (s *nativeStateDB) SetBalance(addr common.Address, balance *uint256.Int, _ tracing.BalanceChangeReason) {
 	acct := s.account(addr)
+	s.recordAccount(addr)
+	s.markWrite(stateAccessKey{kind: stateAccessBalance, address: addr})
 	if balance == nil {
 		acct.Balance = uint256.NewInt(0)
 		return
@@ -182,11 +230,15 @@ func (s *nativeStateDB) SetBalance(addr common.Address, balance *uint256.Int, _ 
 }
 
 func (s *nativeStateDB) GetNonce(addr common.Address) uint64 {
+	s.markRead(stateAccessKey{kind: stateAccessNonce, address: addr})
 	return s.account(addr).Nonce
 }
 
 func (s *nativeStateDB) SetNonce(addr common.Address, nonce uint64, _ tracing.NonceChangeReason) {
-	s.account(addr).Nonce = nonce
+	acct := s.account(addr)
+	s.recordAccount(addr)
+	s.markWrite(stateAccessKey{kind: stateAccessNonce, address: addr})
+	acct.Nonce = nonce
 }
 
 func (s *nativeStateDB) GetCodeHash(addr common.Address) common.Hash {
@@ -198,17 +250,21 @@ func (s *nativeStateDB) GetCodeHash(addr common.Address) common.Hash {
 }
 
 func (s *nativeStateDB) GetCode(addr common.Address) []byte {
+	s.markRead(stateAccessKey{kind: stateAccessCode, address: addr})
 	return cloneBytes(s.account(addr).Code)
 }
 
 func (s *nativeStateDB) SetCode(addr common.Address, code []byte) []byte {
 	acct := s.account(addr)
 	prev := cloneBytes(acct.Code)
+	s.recordAccount(addr)
+	s.markWrite(stateAccessKey{kind: stateAccessCode, address: addr})
 	acct.Code = cloneBytes(code)
 	return prev
 }
 
 func (s *nativeStateDB) GetCodeSize(addr common.Address) int {
+	s.markRead(stateAccessKey{kind: stateAccessCode, address: addr})
 	return len(s.account(addr).Code)
 }
 
@@ -228,11 +284,13 @@ func (s *nativeStateDB) GetRefund() uint64 {
 }
 
 func (s *nativeStateDB) GetCommittedState(addr common.Address, key common.Hash) common.Hash {
+	s.markRead(stateAccessKey{kind: stateAccessStorage, address: addr, slot: key})
 	s.ensureStorage(addr, key)
 	return s.baseAccount(addr).Storage[key]
 }
 
 func (s *nativeStateDB) GetState(addr common.Address, key common.Hash) common.Hash {
+	s.markRead(stateAccessKey{kind: stateAccessStorage, address: addr, slot: key})
 	s.ensureStorage(addr, key)
 	return s.account(addr).Storage[key]
 }
@@ -241,6 +299,8 @@ func (s *nativeStateDB) SetState(addr common.Address, key common.Hash, value com
 	s.ensureStorage(addr, key)
 	acct := s.account(addr)
 	prev := acct.Storage[key]
+	s.recordAccount(addr)
+	s.markWrite(stateAccessKey{kind: stateAccessStorage, address: addr, slot: key})
 	if value == (common.Hash{}) {
 		delete(acct.Storage, key)
 	} else {
@@ -251,6 +311,8 @@ func (s *nativeStateDB) SetState(addr common.Address, key common.Hash, value com
 
 func (s *nativeStateDB) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {
 	acct := s.account(addr)
+	s.recordAccount(addr)
+	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
 	acct.Storage = map[common.Hash]common.Hash{}
 	for key, value := range states {
 		if value != (common.Hash{}) {
@@ -286,8 +348,11 @@ func (s *nativeStateDB) SetTransientState(addr common.Address, key, value common
 func (s *nativeStateDB) SelfDestruct(addr common.Address) uint256.Int {
 	acct := s.account(addr)
 	prev := *acct.Balance.Clone()
+	s.recordAccount(addr)
+	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
 	acct.Balance.Clear()
 	acct.SelfDestructed = true
+	s.markForFinalise(addr)
 	return prev
 }
 
@@ -304,11 +369,13 @@ func (s *nativeStateDB) HasSelfDestructed(addr common.Address) bool {
 }
 
 func (s *nativeStateDB) Exist(addr common.Address) bool {
+	s.markRead(stateAccessKey{kind: stateAccessAccount, address: addr})
 	acct := s.account(addr)
 	return acct.SelfDestructed || acct.Nonce != 0 || !acct.Balance.IsZero() || len(acct.Code) != 0
 }
 
 func (s *nativeStateDB) Empty(addr common.Address) bool {
+	s.markRead(stateAccessKey{kind: stateAccessAccount, address: addr})
 	acct := s.account(addr)
 	return acct.Nonce == 0 && acct.Balance.IsZero() && len(acct.Code) == 0
 }
@@ -371,13 +438,14 @@ func (s *nativeStateDB) PointCache() *ethutils.PointCache {
 func (s *nativeStateDB) Snapshot() int {
 	id := len(s.snapshots)
 	s.snapshots = append(s.snapshots, nativeSnapshot{
-		accounts:        cloneAccounts(s.accounts),
-		base:            cloneAccounts(s.base),
+		journalLen:      len(s.journal),
 		refund:          s.refund,
-		logs:            append([]*ethtypes.Log(nil), s.logs...),
+		logsLen:         len(s.logs),
 		accessList:      cloneAccessList(s.accessList),
 		transientStates: cloneTransientStates(s.transientStates),
+		finaliseAddrs:   cloneAddressSet(s.finaliseAddrs),
 		preimages:       clonePreimages(s.preimages),
+		journaledAddrs:  map[common.Address]struct{}{},
 		err:             s.err,
 	})
 	return id
@@ -388,12 +456,15 @@ func (s *nativeStateDB) RevertToSnapshot(id int) {
 		panic("invalid state snapshot")
 	}
 	snapshot := s.snapshots[id]
-	s.accounts = cloneAccounts(snapshot.accounts)
-	s.base = cloneAccounts(snapshot.base)
+	for i := len(s.journal) - 1; i >= snapshot.journalLen; i-- {
+		s.journal[i].revert(s)
+	}
+	s.journal = s.journal[:snapshot.journalLen]
 	s.refund = snapshot.refund
-	s.logs = append([]*ethtypes.Log(nil), snapshot.logs...)
+	s.logs = s.logs[:snapshot.logsLen]
 	s.accessList = cloneAccessList(snapshot.accessList)
 	s.transientStates = cloneTransientStates(snapshot.transientStates)
+	s.finaliseAddrs = cloneAddressSet(snapshot.finaliseAddrs)
 	s.preimages = clonePreimages(snapshot.preimages)
 	s.err = snapshot.err
 	s.snapshots = s.snapshots[:id]
@@ -419,15 +490,21 @@ func (s *nativeStateDB) AccessEvents() *vm.AccessEvents {
 }
 
 func (s *nativeStateDB) Finalise(bool) {
-	for _, acct := range s.accounts {
+	for addr := range s.finaliseAddrs {
+		acct := s.account(addr)
 		if acct.SelfDestructed {
+			s.recordAccount(addr)
 			acct.Code = nil
 			acct.Storage = map[common.Hash]common.Hash{}
 			acct.Nonce = 0
 			acct.SelfDestructed = false
 		}
-		acct.Created = false
+		if acct.Created {
+			s.recordAccount(addr)
+			acct.Created = false
+		}
 	}
+	clear(s.finaliseAddrs)
 	s.refund = 0
 }
 
@@ -460,7 +537,11 @@ func (s *nativeStateDB) Copy() vm.StateDB {
 		preimages:       clonePreimages(s.preimages),
 		accessList:      cloneAccessList(s.accessList),
 		transientStates: cloneTransientStates(s.transientStates),
+		finaliseAddrs:   cloneAddressSet(s.finaliseAddrs),
+		journal:         cloneJournal(s.journal),
 		snapshots:       cloneSnapshots(s.snapshots),
+		readSet:         cloneAccessSet(s.readSet),
+		writeSet:        cloneAccessSet(s.writeSet),
 		txHash:          s.txHash,
 		txIndex:         s.txIndex,
 		txIndexUint:     s.txIndexUint,
@@ -492,6 +573,61 @@ func (s *nativeStateDB) Logs() []*ethtypes.Log {
 
 func (s *nativeStateDB) SetEVM(evm *vm.EVM) {
 	s.evm = evm
+}
+
+func (s *nativeStateDB) enableAccessTracking() {
+	s.readSet = map[stateAccessKey]struct{}{}
+	s.writeSet = map[stateAccessKey]struct{}{}
+}
+
+func (s *nativeStateDB) accessSets() (map[stateAccessKey]struct{}, map[stateAccessKey]struct{}) {
+	return cloneAccessSet(s.readSet), cloneAccessSet(s.writeSet)
+}
+
+func (s *nativeStateDB) markRead(key stateAccessKey) {
+	if s.readSet != nil {
+		s.readSet[key] = struct{}{}
+	}
+}
+
+func (s *nativeStateDB) markWrite(key stateAccessKey) {
+	if s.writeSet != nil {
+		s.writeSet[key] = struct{}{}
+	}
+}
+
+func (s *nativeStateDB) recordAccount(addr common.Address) {
+	if len(s.snapshots) == 0 {
+		return
+	}
+	snapshot := &s.snapshots[len(s.snapshots)-1]
+	if _, ok := snapshot.journaledAddrs[addr]; ok {
+		return
+	}
+	snapshot.journaledAddrs[addr] = struct{}{}
+	s.journal = append(s.journal, nativeJournalEntry{
+		kind:    nativeJournalAccount,
+		address: addr,
+		account: s.account(addr).clone(),
+	})
+}
+
+func (e nativeJournalEntry) revert(s *nativeStateDB) {
+	switch e.kind {
+	case nativeJournalAccount:
+		s.accounts[e.address] = e.account.clone()
+	default:
+		panic("unknown native state journal entry")
+	}
+}
+
+func (s *nativeStateDB) markForFinalise(addr common.Address) {
+	s.finaliseAddrs[addr] = struct{}{}
+}
+
+func (s *nativeStateDB) clearSnapshots() {
+	s.journal = s.journal[:0]
+	s.snapshots = s.snapshots[:0]
 }
 
 func (s *nativeStateDB) account(addr common.Address) *nativeAccount {
@@ -602,6 +738,25 @@ func cloneTransientStates(states map[common.Address]map[common.Hash]common.Hash)
 	return cp
 }
 
+func cloneAddressSet(addrs map[common.Address]struct{}) map[common.Address]struct{} {
+	cp := make(map[common.Address]struct{}, len(addrs))
+	for addr := range addrs {
+		cp[addr] = struct{}{}
+	}
+	return cp
+}
+
+func cloneAccessSet(set map[stateAccessKey]struct{}) map[stateAccessKey]struct{} {
+	if set == nil {
+		return nil
+	}
+	cp := make(map[stateAccessKey]struct{}, len(set))
+	for key := range set {
+		cp[key] = struct{}{}
+	}
+	return cp
+}
+
 func clonePreimages(preimages map[common.Hash][]byte) map[common.Hash][]byte {
 	cp := make(map[common.Hash][]byte, len(preimages))
 	for hash, preimage := range preimages {
@@ -610,17 +765,30 @@ func clonePreimages(preimages map[common.Hash][]byte) map[common.Hash][]byte {
 	return cp
 }
 
+func cloneJournal(journal []nativeJournalEntry) []nativeJournalEntry {
+	cp := make([]nativeJournalEntry, len(journal))
+	for i, entry := range journal {
+		cp[i] = nativeJournalEntry{
+			kind:    entry.kind,
+			address: entry.address,
+			account: entry.account.clone(),
+		}
+	}
+	return cp
+}
+
 func cloneSnapshots(snapshots []nativeSnapshot) []nativeSnapshot {
 	cp := make([]nativeSnapshot, len(snapshots))
 	for i, snapshot := range snapshots {
 		cp[i] = nativeSnapshot{
-			accounts:        cloneAccounts(snapshot.accounts),
-			base:            cloneAccounts(snapshot.base),
+			journalLen:      snapshot.journalLen,
 			refund:          snapshot.refund,
-			logs:            append([]*ethtypes.Log(nil), snapshot.logs...),
+			logsLen:         snapshot.logsLen,
 			accessList:      cloneAccessList(snapshot.accessList),
 			transientStates: cloneTransientStates(snapshot.transientStates),
+			finaliseAddrs:   cloneAddressSet(snapshot.finaliseAddrs),
 			preimages:       clonePreimages(snapshot.preimages),
+			journaledAddrs:  cloneAddressSet(snapshot.journaledAddrs),
 			err:             snapshot.err,
 		}
 	}

@@ -28,6 +28,7 @@ The `evmonly` package currently provides:
 - go-ethereum `core.ApplyMessage` execution against an SDK-free `vm.StateDB`
 - key-addressable state reads for balance, nonce, code, and storage
 - deterministic post-block `StateChangeSet` construction
+- optional executor-internal OCC for non-conflicting transaction sets
 - Ethereum receipt construction with logs, bloom, gas, tx hash, block metadata,
   contract address, and effective gas price
 - a map-backed `MemoryState` for tests and early integration
