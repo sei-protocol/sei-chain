@@ -54,6 +54,50 @@ jobs:
 
       - name: Verify build binary
         run: ./build/seid version --long
+  linux-amd64-static:
+    name: "Linux AMD64 (static)"
+    runs-on: ubuntu-latest
+    # The static seid is a release artefact, so only build it for release work,
+    # not on every PR: PRs into release/**, pushes to release/**, or merge-queue
+    # entries targeting release/**.
+    if: >-
+      startsWith(github.base_ref, 'release/') ||
+      startsWith(github.ref, 'refs/heads/release/') ||
+      startsWith(github.event.merge_group.base_ref, 'refs/heads/release/')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      # Build inside Alpine (musl-native): Ubuntu's musl-gcc can't fully static-link
+      # on 24.04 (glibc libgcc -> _dl_find_object, absent in musl), and zig cc rejects
+      # the -z muldefs flag needed to link the libwasmvm v152/v155 archives. Alpine's
+      # gcc is GNU ld + musl, so it links cleanly. Same script the goreleaser release
+      # build runs (scripts/build-static.sh); goreleaser then packages it via the tool shim.
+      - name: Build statically (Alpine / musl)
+        run: bash scripts/build-static.sh
+
+      - name: Assert binary is statically linked
+        run: |
+          info=$(file ./build/seid)
+          echo "$info"
+          echo "$info" | grep -q "statically linked" \
+            || { echo "ERROR: seid is not statically linked"; exit 1; }
+
+      - name: Assert no dynamic dependencies
+        run: |
+          # On a true static binary, ldd reports "not a dynamic executable".
+          ldd ./build/seid 2>&1 | grep -qE "not a dynamic|statically linked" \
+            || { echo "ERROR: seid has dynamic dependencies:"; ldd ./build/seid; exit 1; }
+
+      - name: Smoke test
+        run: ./build/seid version --long
+
+      - name: Upload artifact for inspection
+        uses: actions/upload-artifact@v5
+        with:
+          name: seid-linux-amd64-static
+          path: ./build/seid
+          retention-days: 14
   macos-arm64:
     name: "macOS ARM64"
     runs-on: macos-latest
