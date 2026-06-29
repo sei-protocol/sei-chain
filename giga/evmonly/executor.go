@@ -102,7 +102,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	}
 	var result *BlockResult
 	var err error
-	if len(req.Txs) == 0 {
+	if len(req.Txs) == 0 && !e.hasCustomPrecompiles() {
 		result, err = e.acquireBlockResult(ctx, 0)
 	} else if e.useOCC(len(req.Txs)) {
 		result, err = e.executeBlockOCC(ctx, req)
@@ -140,14 +140,18 @@ func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *B
 	return nil
 }
 
+func (e *Executor) hasCustomPrecompiles() bool {
+	if e.cfg.CustomPrecompiles == nil {
+		return false
+	}
+	return len(e.cfg.CustomPrecompiles.Addresses()) > 0
+}
+
 func (e *Executor) useOCC(txCount int) bool {
 	if e.cfg.OCCWorkers <= 1 || txCount <= 1 {
 		return false
 	}
-	if e.cfg.CustomPrecompiles == nil {
-		return true
-	}
-	return len(e.cfg.CustomPrecompiles.Addresses()) == 0
+	return !e.hasCustomPrecompiles()
 }
 
 func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
