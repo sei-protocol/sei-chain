@@ -92,6 +92,11 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 }
 
 func (w *gzipResponseWriter) Flush() {
+	// Decide the encoding before headers are committed: a bare Flush() before
+	// any Write() would otherwise commit identity-encoded headers, after which a
+	// later Write() sets Content-Encoding: gzip too late and emits gzip bytes
+	// under an identity encoding.
+	w.init()
 	if w.gz != nil {
 		_ = w.gz.Flush()
 	}
