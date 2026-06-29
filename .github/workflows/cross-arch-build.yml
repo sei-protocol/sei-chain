@@ -59,10 +59,7 @@ jobs:
     # The static seid is a release artefact, so only build it for release work,
     # not on every PR: PRs into release/**, pushes to release/**, or merge-queue
     # entries targeting release/**.
-    # TODO(PLT-41): the github.head_ref clause runs it on this PR
-    # (monty/release-binaries) for pre-merge testing — REMOVE before merging.
     if: >-
-      github.head_ref == 'monty/release-binaries' ||
       startsWith(github.base_ref, 'release/') ||
       startsWith(github.ref, 'refs/heads/release/') ||
       startsWith(github.event.merge_group.base_ref, 'refs/heads/release/')

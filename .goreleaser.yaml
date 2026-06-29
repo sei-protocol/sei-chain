@@ -63,7 +63,7 @@ release:
   github:
     owner: sei-protocol
     name: sei-chain
-  draft: true
+  draft: false
   prerelease: auto
   mode: append
   name_template: '{{ .Tag }}'
