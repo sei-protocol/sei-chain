@@ -15,6 +15,8 @@ import (
 
 var logger = seilog.NewLogger("app", "antedecorators")
 
+const MaxGaslessTxBytes = 16 * 1024
+
 type GaslessDecorator struct {
 	wrapped      []sdk.AnteDecorator
 	oracleKeeper oraclekeeper.Keeper
@@ -34,6 +36,11 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	if err != nil {
 		return ctx, err
 	}
+	if isGasless {
+		if err := ValidateGaslessTxSize(ctx); err != nil {
+			return ctx, err
+		}
+	}
 	if !isGasless {
 		ctx = ctx.WithGasMeter(originalGasMeter)
 	}
@@ -51,6 +58,14 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	}
 
 	return next(ctx, tx, simulate)
+}
+
+func ValidateGaslessTxSize(ctx sdk.Context) error {
+	txSize := len(ctx.TxBytes())
+	if txSize > MaxGaslessTxBytes {
+		return sdkerrors.Wrapf(sdkerrors.ErrTxTooLarge, "gasless tx size %d exceeds max %d", txSize, MaxGaslessTxBytes)
+	}
+	return nil
 }
 
 func (gd GaslessDecorator) handleWrapped(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {

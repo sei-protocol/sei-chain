@@ -1,12 +1,21 @@
 package ante_test
 
 import (
+	"strings"
 	"testing"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
 	"github.com/stretchr/testify/require"
 )
+
+func TestValidateFeeAmount(t *testing.T) {
+	require.NoError(t, ante.ValidateFeeAmount(sdk.Coins{sdk.NewInt64Coin("usei", 0)}))
+
+	err := ante.ValidateFeeAmount(sdk.Coins{{Denom: strings.Repeat("x", 129), Amount: sdk.OneInt()}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid fee denom")
+}
 
 func TestGetMinimumGasWanted(t *testing.T) {
 	// Test case 1: Both global and validator minimum gas prices are empty.

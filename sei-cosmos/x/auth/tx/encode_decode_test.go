@@ -6,6 +6,7 @@ import (
 	"math"
 	"testing"
 
+	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
@@ -17,6 +18,11 @@ import (
 	signingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 )
+
+func appendProtoBytesField(dst []byte, field protowire.Number, value []byte) []byte {
+	dst = protowire.AppendTag(dst, field, protowire.BytesType)
+	return protowire.AppendBytes(dst, value)
+}
 
 func TestDefaultTxDecoderError(t *testing.T) {
 	registry := codectypes.NewInterfaceRegistry()
@@ -90,6 +96,94 @@ func TestDefaultTxDecoderWithoutBodyBloatRejection(t *testing.T) {
 			decoded, err := DefaultTxDecoderWithoutBodyBloatRejection(cdc)(bloatedTxBz)
 			require.NoError(t, err)
 			tt.assert(t, decoded.(*wrapper))
+		})
+	}
+}
+
+func TestDefaultTxDecoderCanonicalRejectionAndCompat(t *testing.T) {
+	registry := codectypes.NewInterfaceRegistry()
+	testdata.RegisterInterfaces(registry)
+	cdc := codec.NewProtoCodec(registry)
+
+	builder := newBuilder()
+	require.NoError(t, builder.SetMsgs(testdata.NewTestMsg()))
+
+	txBz, err := DefaultTxEncoder()(builder.GetTx())
+	require.NoError(t, err)
+
+	var raw tx.TxRaw
+	require.NoError(t, raw.Unmarshal(txBz))
+
+	emptyFeeBz, err := gogoproto.Marshal(&tx.Fee{})
+	require.NoError(t, err)
+	bloatedFeeBz, err := gogoproto.Marshal(&tx.Fee{Payer: "sei1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq4qvh7h"})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		mutate      func(tx.TxRaw) []byte
+		strictError string
+	}{
+		{
+			name: "same length non-canonical body field order",
+			mutate: func(raw tx.TxRaw) []byte {
+				raw.BodyBytes = []byte{0x18, 0x01, 0x12, 0x01, 'a'}
+				bz, err := raw.Marshal()
+				require.NoError(t, err)
+				return bz
+			},
+			strictError: "tx body bytes are not canonical",
+		},
+		{
+			name: "duplicate auth info fee field",
+			mutate: func(raw tx.TxRaw) []byte {
+				authInfoBz := appendProtoBytesField(nil, 2, bloatedFeeBz)
+				authInfoBz = appendProtoBytesField(authInfoBz, 2, emptyFeeBz)
+				raw.AuthInfoBytes = authInfoBz
+				bz, err := raw.Marshal()
+				require.NoError(t, err)
+				return bz
+			},
+			strictError: "auth info wire size",
+		},
+		{
+			name: "duplicate root body bytes",
+			mutate: func(raw tx.TxRaw) []byte {
+				txRawBz := appendProtoBytesField(nil, 1, []byte("junk"))
+				txRawBz = appendProtoBytesField(txRawBz, 1, raw.BodyBytes)
+				txRawBz = appendProtoBytesField(txRawBz, 2, raw.AuthInfoBytes)
+				for _, sig := range raw.Signatures {
+					txRawBz = appendProtoBytesField(txRawBz, 3, sig)
+				}
+				return txRawBz
+			},
+			strictError: "duplicate body_bytes",
+		},
+		{
+			name: "duplicate root auth info bytes",
+			mutate: func(raw tx.TxRaw) []byte {
+				txRawBz := appendProtoBytesField(nil, 1, raw.BodyBytes)
+				txRawBz = appendProtoBytesField(txRawBz, 2, []byte("junk"))
+				txRawBz = appendProtoBytesField(txRawBz, 2, raw.AuthInfoBytes)
+				for _, sig := range raw.Signatures {
+					txRawBz = appendProtoBytesField(txRawBz, 3, sig)
+				}
+				return txRawBz
+			},
+			strictError: "duplicate auth_info_bytes",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mutatedTxBz := tt.mutate(raw)
+
+			_, err := DefaultTxDecoder(cdc)(mutatedTxBz)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.strictError)
+
+			_, err = DefaultTxDecoderWithoutBodyBloatRejection(cdc)(mutatedTxBz)
+			require.NoError(t, err)
 		})
 	}
 }

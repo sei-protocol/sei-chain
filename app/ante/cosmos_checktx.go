@@ -86,7 +86,11 @@ func CosmosCheckTxAnte(
 	if err != nil {
 		return ctx, err
 	}
-	if !isGasless {
+	if isGasless {
+		if err := antedecorators.ValidateGaslessTxSize(ctx); err != nil {
+			return ctx, err
+		}
+	} else {
 		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 	}
 
@@ -250,11 +254,14 @@ func SetGasMeter(ctx sdk.Context, gasLimit uint64, paramsKeeper paramskeeper.Kee
 }
 
 func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper, isGasless bool) (priority int64, err error) {
+	feeTx := tx.(sdk.FeeTx)
+	feeCoins := feeTx.GetFee()
+	if err := authante.ValidateFeeAmount(feeCoins); err != nil {
+		return priority, err
+	}
 	if isGasless {
 		return 0, nil
 	}
-	feeTx := tx.(sdk.FeeTx)
-	feeCoins := feeTx.GetFee()
 	feeParams := paramsKeeper.GetFeesParams(ctx)
 	feeCoins = feeCoins.NonZeroAmountsOf(append([]string{sdk.DefaultBondDenom}, feeParams.GetAllowedFeeDenoms()...))
 	gas := feeTx.GetGas()
