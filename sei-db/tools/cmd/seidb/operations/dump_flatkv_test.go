@@ -9,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,7 +48,7 @@ func TestDumpFlatKVFromStoreAllBuckets(t *testing.T) {
 	require.NoError(t, err)
 
 	outDir := t.TempDir()
-	require.NoError(t, dumpFlatKVFromStore(store, outDir, store.Version(), ""))
+	require.NoError(t, dumpFlatKVFromStore(store, outDir, store.Version(), "", true, 0))
 
 	type expect struct {
 		lines int
@@ -111,7 +112,7 @@ func TestDumpFlatKVFromStoreSingleBucket(t *testing.T) {
 	require.NoError(t, err)
 
 	outDir := t.TempDir()
-	require.NoError(t, dumpFlatKVFromStore(store, outDir, store.Version(), "storage"))
+	require.NoError(t, dumpFlatKVFromStore(store, outDir, store.Version(), "storage", true, 0))
 
 	// Only storage file should exist; the others must not be created.
 	for _, name := range flatkvBucketOrder {
@@ -125,6 +126,47 @@ func TestDumpFlatKVFromStoreSingleBucket(t *testing.T) {
 				name, statErr)
 		}
 	}
+}
+
+// TestBucketLtHasherMatchesSingleShot proves the streaming, batched
+// bucketLtHasher produces the same checksum as a single ComputeLtHash over the
+// same pairs (associativity of the LtHash group), and that the MixIn of the
+// per-bucket accumulators equals a single LtHash over the union — the exact
+// per-module + total relationship the dump command reports.
+func TestBucketLtHasherMatchesSingleShot(t *testing.T) {
+	// More than one batch so the incremental MixIn path is exercised.
+	n := lthashBatchCap*2 + 17
+	all := make([]lthash.KVPairWithLastValue, 0, n)
+	hashers := map[string]*bucketLtHasher{
+		flatkvBucketAccount: newBucketLtHasher(),
+		flatkvBucketStorage: newBucketLtHasher(),
+	}
+	bucketPairs := map[string][]lthash.KVPairWithLastValue{}
+
+	for i := 0; i < n; i++ {
+		bucket := flatkvBucketAccount
+		if i%2 == 0 {
+			bucket = flatkvBucketStorage
+		}
+		key := []byte{byte(bucket[0]), byte(i), byte(i >> 8), byte(i >> 16)}
+		val := []byte{byte(i), 0xAB, byte(i >> 8)}
+		hashers[bucket].add(key, val)
+		bucketPairs[bucket] = append(bucketPairs[bucket], lthash.KVPairWithLastValue{Key: key, Value: val})
+		all = append(all, lthash.KVPairWithLastValue{Key: key, Value: val})
+	}
+
+	total := lthash.New()
+	for bucket, h := range hashers {
+		h.flush()
+		single, _ := lthash.ComputeLtHash(nil, bucketPairs[bucket])
+		require.Equal(t, single.Checksum(), h.acc.Checksum(),
+			"batched bucket hash for %s must equal single-shot ComputeLtHash", bucket)
+		total.MixIn(h.acc)
+	}
+
+	unionSingle, _ := lthash.ComputeLtHash(nil, all)
+	require.Equal(t, unionSingle.Checksum(), total.Checksum(),
+		"MixIn of per-bucket hashes must equal the LtHash over the union of all pairs")
 }
 
 func TestIsFlatKVBucket(t *testing.T) {
