@@ -11,24 +11,17 @@ import (
 // max_request_body_bytes is left at 0 ("use the default").
 const defaultMaxRequestBodyBytes int64 = 5 * 1024 * 1024
 
-// requestSizeLimiter is an HTTP middleware that applies admission control to
-// JSON-RPC requests *before* the body is buffered or JSON-decoded, bounding the
-// peak memory that concurrent large simulation payloads (eth_call, estimateGas,
-// debug_trace*, …) can allocate during decode.
+// requestSizeLimiter is an HTTP middleware that bounds peak decode-time memory by
+// admitting JSON-RPC requests *before* the body is buffered or decoded. It enforces:
 //
-// It enforces two limits:
-//
-//   - maxBody: a per-request body-size cap. Requests whose declared Content-Length
-//     exceeds it are rejected with 413; the body reader is also wrapped in
-//     http.MaxBytesReader so chunked / mis-declared bodies cannot exceed it either.
-//   - budget: a global semaphore weighted by request size, bounding the total bytes
-//     admitted concurrently. Requests that would exceed it are rejected fast with 429.
-//     The reservation is held for the full inner request (execution + response write),
-//     not just body decode, so enough slow simulations can exhaust the budget and 429
-//     even when little memory is buffered — conservative by design. The weight trusts the
-//     declared Content-Length, so a client trickling a large declared body can cheaply hold
-//     budget; actual bytes stay hard-capped by MaxBytesReader and IP rate limiting mitigates
-//     the availability angle.
+//   - maxBody: per-request body cap. Over-Content-Length requests get 413; the body is
+//     also wrapped in http.MaxBytesReader so chunked / mis-declared bodies can't exceed it.
+//   - budget: a size-weighted global semaphore bounding bytes admitted concurrently;
+//     over-budget requests get 429. The reservation is held for the full inner request
+//     (not just decode) and trusts the declared Content-Length — conservative by design,
+//     so slow or trickled requests can exhaust the budget even when little is buffered.
+//     Actual bytes stay hard-capped by MaxBytesReader; per-IP rate limiting will be
+//     wired in front of this handler.
 type requestSizeLimiter struct {
 	inner   http.Handler
 	maxBody int64               // always > 0 after construction
