@@ -120,7 +120,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
-	if len(req.Txs) == 0 {
+	if len(req.Txs) == 0 && !e.hasCustomPrecompiles() {
 		return e.acquireBlockResult(ctx, 0)
 	}
 	if e.useOCC(len(req.Txs)) {
@@ -150,14 +150,18 @@ func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *B
 	return nil
 }
 
+func (e *Executor) hasCustomPrecompiles() bool {
+	if e.cfg.CustomPrecompiles == nil {
+		return false
+	}
+	return len(e.cfg.CustomPrecompiles.Addresses()) > 0
+}
+
 func (e *Executor) useOCC(txCount int) bool {
 	if e.closed.Load() || e.cfg.OCCWorkers <= 1 || txCount <= 1 {
 		return false
 	}
-	if e.cfg.CustomPrecompiles == nil {
-		return true
-	}
-	return len(e.cfg.CustomPrecompiles.Addresses()) == 0
+	return !e.hasCustomPrecompiles()
 }
 
 func (e *Executor) acquireStateDB(source StateReader) *nativeStateDB {
