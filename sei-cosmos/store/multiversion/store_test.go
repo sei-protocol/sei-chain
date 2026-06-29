@@ -2,14 +2,104 @@ package multiversion_test
 
 import (
 	"bytes"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/dbadapter"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/multiversion"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 )
+
+type blockingIteratorStore struct {
+	dbadapter.Store
+
+	mu      sync.Mutex
+	block   bool
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newBlockingIteratorStore() *blockingIteratorStore {
+	return &blockingIteratorStore{
+		Store:   dbadapter.Store{DB: dbm.NewMemDB()},
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (s *blockingIteratorStore) blockNextIterator() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.block = true
+}
+
+func (s *blockingIteratorStore) maybeBlockIterator() {
+	s.mu.Lock()
+	block := s.block
+	s.block = false
+	s.mu.Unlock()
+	if !block {
+		return
+	}
+	s.once.Do(func() {
+		close(s.entered)
+	})
+	<-s.release
+}
+
+func (s *blockingIteratorStore) Iterator(start, end []byte) storetypes.Iterator {
+	s.maybeBlockIterator()
+	return s.Store.Iterator(start, end)
+}
+
+func (s *blockingIteratorStore) ReverseIterator(start, end []byte) storetypes.Iterator {
+	s.maybeBlockIterator()
+	return s.Store.ReverseIterator(start, end)
+}
+
+type panicIteratorStore struct {
+	dbadapter.Store
+
+	mu            sync.Mutex
+	panicIterator bool
+}
+
+func newPanicIteratorStore() *panicIteratorStore {
+	return &panicIteratorStore{
+		Store: dbadapter.Store{DB: dbm.NewMemDB()},
+	}
+}
+
+func (s *panicIteratorStore) setPanicIterator(panicIterator bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.panicIterator = panicIterator
+}
+
+func (s *panicIteratorStore) shouldPanicIterator() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.panicIterator
+}
+
+func (s *panicIteratorStore) Iterator(start, end []byte) storetypes.Iterator {
+	if s.shouldPanicIterator() {
+		panic("injected iterator panic")
+	}
+	return s.Store.Iterator(start, end)
+}
+
+func (s *panicIteratorStore) ReverseIterator(start, end []byte) storetypes.Iterator {
+	if s.shouldPanicIterator() {
+		panic("injected reverse iterator panic")
+	}
+	return s.Store.ReverseIterator(start, end)
+}
 
 func TestMultiVersionStore(t *testing.T) {
 	store := multiversion.NewMultiVersionStore(nil)
@@ -822,4 +912,128 @@ func TestMVSIteratorValidationEarlyStopIncludedInIterateset(t *testing.T) {
 	valid, conflicts := mvs.ValidateTransactionState(2)
 	require.True(t, valid)
 	require.Empty(t, conflicts)
+}
+
+func TestMVSIteratorValidationLowerIndexRewriteRemovesCapturedKey(t *testing.T) {
+	const validationTimeout = 5 * time.Second
+
+	parentKVStore := newBlockingIteratorStore()
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+
+	mvs.SetWriteset(1, 1, multiversion.WriteSet{
+		"balance/denom-a": []byte("100"),
+		"balance/denom-b": []byte("200"),
+	})
+
+	iter := vis.Iterator([]byte("balance/"), []byte("balance0"))
+	for ; iter.Valid(); iter.Next() {
+		iter.Value()
+	}
+	require.NoError(t, iter.Close())
+	vis.WriteToMultiVersionStore()
+
+	parentKVStore.blockNextIterator()
+
+	type validationResult struct {
+		valid     bool
+		conflicts []int
+	}
+	done := make(chan validationResult, 1)
+	go func() {
+		valid, conflicts := mvs.ValidateTransactionState(5)
+		done <- validationResult{valid: valid, conflicts: conflicts}
+	}()
+
+	select {
+	case <-parentKVStore.entered:
+	case <-time.After(validationTimeout):
+		t.Fatal("timed out waiting for iterator validation to capture writeset keys")
+	}
+
+	// Validation has already captured the old writeset keys, so this rewrite
+	// removes denom-b from the multiversion value map while it remains in the
+	// validation iterator's key list.
+	mvs.SetWriteset(1, 2, multiversion.WriteSet{
+		"balance/denom-a": []byte("100"),
+	})
+	close(parentKVStore.release)
+
+	select {
+	case res := <-done:
+		require.False(t, res.valid)
+		require.Empty(t, res.conflicts)
+	case <-time.After(validationTimeout):
+		t.Fatal("timed out waiting for iterator validation")
+	}
+}
+
+func TestMVSIteratorValidationPanicRecovery(t *testing.T) {
+	parentKVStore := newPanicIteratorStore()
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+
+	parentKVStore.Set([]byte("balance/denom-a"), []byte("100"))
+
+	iter := vis.Iterator([]byte("balance/"), []byte("balance0"))
+	for ; iter.Valid(); iter.Next() {
+		iter.Value()
+	}
+	require.NoError(t, iter.Close())
+	vis.WriteToMultiVersionStore()
+
+	parentKVStore.setPanicIterator(true)
+
+	var valid bool
+	var conflicts []int
+	require.NotPanics(t, func() {
+		valid, conflicts = mvs.ValidateTransactionState(5)
+	})
+	require.False(t, valid)
+	require.Empty(t, conflicts)
+}
+
+func TestMVSIteratorValidationMultipleEstimatesDoNotBlock(t *testing.T) {
+	const validationTimeout = 5 * time.Second
+
+	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort, 1))
+
+	mvs.SetWriteset(1, 1, multiversion.WriteSet{
+		"balance/denom-a": []byte("100"),
+		"balance/denom-b": []byte("200"),
+		"balance/denom-c": []byte("300"),
+	})
+
+	iter := vis.Iterator([]byte("balance/"), []byte("balance0"))
+	for ; iter.Valid(); iter.Next() {
+		iter.Value()
+	}
+	require.NoError(t, iter.Close())
+	vis.WriteToMultiVersionStore()
+
+	mvs.SetEstimatedWriteset(1, 2, multiversion.WriteSet{
+		"balance/denom-a": nil,
+		"balance/denom-b": nil,
+		"balance/denom-c": nil,
+	})
+
+	type validationResult struct {
+		valid     bool
+		conflicts []int
+	}
+	done := make(chan validationResult, 1)
+	go func() {
+		valid, conflicts := mvs.ValidateTransactionState(5)
+		done <- validationResult{valid: valid, conflicts: conflicts}
+	}()
+
+	select {
+	case res := <-done:
+		require.False(t, res.valid)
+		require.Equal(t, []int{1}, res.conflicts)
+	case <-time.After(validationTimeout):
+		t.Fatal("timed out waiting for iterator validation with multiple estimates")
+	}
 }
