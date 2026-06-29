@@ -51,7 +51,23 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 	if len(req.Txs) == 0 {
 		return &BlockResult{}, nil
 	}
+	if e.useOCC(req) {
+		return e.executeBlockOCC(ctx, req)
+	}
+	return e.executeBlockSequential(ctx, req)
+}
 
+func (e *Executor) useOCC(req BlockRequest) bool {
+	if e.cfg.OCCWorkers <= 1 || len(req.Txs) <= 1 {
+		return false
+	}
+	if e.cfg.CustomPrecompiles == nil {
+		return true
+	}
+	return len(e.cfg.CustomPrecompiles.Addresses()) == 0
+}
+
+func (e *Executor) executeBlockSequential(ctx context.Context, req BlockRequest) (*BlockResult, error) {
 	chainConfig := e.chainConfig(req.Context)
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
 	parsed, err := parseBlockTxs(ctx, req.Txs, signer)
@@ -93,6 +109,7 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 		result.GasUsed += txResult.GasUsed
 		txIndexUint++
 	}
+	stateDB.clearSnapshots()
 	stateDB.Finalise(true)
 	result.ChangeSet = stateDB.ChangeSet()
 	return result, nil
@@ -133,6 +150,7 @@ func (e *Executor) executeTx(
 	if err != nil {
 		return TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: err}, nil, err
 	}
+	stateDB.clearSnapshots()
 	stateDB.Finalise(true)
 
 	txLogs := append([]*ethtypes.Log(nil), stateDB.logs[logStart:]...)

@@ -15,6 +15,7 @@ type Config struct {
 	MinGasPrice          *big.Int
 	ChainConfig          *params.ChainConfig
 	CustomPrecompiles    precompiles.Registry
+	OCCWorkers           int
 }
 
 func DefaultConfig() Config {
