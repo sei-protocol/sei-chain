@@ -220,12 +220,15 @@ func NewEVMHTTPServer(
 		logger.Info("Disabling Test EVM APIs", "liveChainID", evmCfg.IsLiveChainID(ctx), "enableTestAPI", config.EnableTestAPI)
 	}
 
-	if err := httpServer.EnableRPC(apis, HTTPConfig{
+	httpConfig := HTTPConfig{
 		CorsAllowedOrigins: strings.Split(config.CORSOrigins, ","),
 		Vhosts:             []string{"*"},
 		DenyList:           config.DenyList,
 		SeiLegacyAllowlist: seiLegacyAllowlist,
-	}); err != nil {
+	}
+	httpConfig.batchItemLimit = config.BatchRequestLimit
+	httpConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
+	if err := httpServer.EnableRPC(apis, httpConfig); err != nil {
 		return nil, err
 	}
 
@@ -319,7 +322,7 @@ func NewEVMWebSocketServer(
 				cacheCreationMutex: cacheCreationMutex,
 				globalLogSlicePool: globalLogSlicePool,
 				watermarks:         watermarks,
-			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS, blockHeaderNotifier),
+			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead, logLimit: config.MaxSubscriptionsLogs}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS, blockHeaderNotifier),
 		},
 		{
 			Namespace: "web3",
@@ -329,6 +332,8 @@ func NewEVMWebSocketServer(
 
 	wsConfig := WsConfig{Origins: strings.Split(config.WSOrigins, ",")}
 	wsConfig.readLimit = DefaultWebsocketMaxMessageSize
+	wsConfig.batchItemLimit = config.BatchRequestLimit
+	wsConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
 	if err := httpServer.EnableWS(apis, wsConfig); err != nil {
 		return nil, err
 	}

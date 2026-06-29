@@ -31,6 +31,7 @@ type opts struct {
 	maxBlocksForLog              interface{}
 	maxEstimateGasCalls          interface{}
 	maxSubscriptionsNewHead      interface{}
+	maxSubscriptionsLogs         interface{}
 	enableTestAPI                interface{}
 	maxConcurrentTraceCalls      interface{}
 	maxConcurrentSimulationCalls interface{}
@@ -42,6 +43,8 @@ type opts struct {
 	workerQueueSize              interface{}
 	ipRateLimitRPS               interface{}
 	ipRateLimitBurst             interface{}
+	batchRequestLimit            interface{}
+	batchResponseMaxSize         interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -111,6 +114,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_subscriptions_new_head" {
 		return o.maxSubscriptionsNewHead
 	}
+	if k == "evm.max_subscriptions_logs" {
+		return o.maxSubscriptionsLogs
+	}
 	if k == "evm.enable_test_api" {
 		return o.enableTestAPI
 	}
@@ -156,6 +162,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.ip_rate_limit_burst" {
 		return o.ipRateLimitBurst
 	}
+	if k == "evm.batch_request_limit" {
+		return o.batchRequestLimit
+	}
+	if k == "evm.batch_response_max_size" {
+		return o.batchResponseMaxSize
+	}
 	panic("unknown key")
 }
 
@@ -184,6 +196,7 @@ func getDefaultOpts() opts {
 		1000,
 		100,
 		10000,
+		1000,
 		false,
 		uint64(10),
 		uint64(10),
@@ -195,6 +208,8 @@ func getDefaultOpts() opts {
 		1000,
 		200.0,
 		400,
+		1000,
+		25 * 1000 * 1000,
 	}
 }
 
@@ -321,6 +336,17 @@ func TestReadConfig(t *testing.T) {
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
+	// Test bad types for batch limit config
+	badOpts = goodOpts
+	badOpts.batchRequestLimit = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.batchResponseMaxSize = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
 }
 
 // Test worker pool configuration values
@@ -380,6 +406,23 @@ func TestReadConfigWorkerPool(t *testing.T) {
 	}
 }
 
+func TestReadConfigBatchLimits(t *testing.T) {
+	// Defaults flow through when not overridden.
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, config.DefaultConfig.BatchRequestLimit, cfg.BatchRequestLimit)
+	require.Equal(t, config.DefaultConfig.BatchResponseMaxSize, cfg.BatchResponseMaxSize)
+
+	// Custom values (including 0 to disable) flow through.
+	o := getDefaultOpts()
+	o.batchRequestLimit = 50
+	o.batchResponseMaxSize = 0
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Equal(t, 50, cfg.BatchRequestLimit)
+	require.Equal(t, 0, cfg.BatchResponseMaxSize)
+}
+
 func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {
 	opts := getDefaultOpts()
 	opts.enableParallelizedBlockTrace = true
@@ -387,4 +430,17 @@ func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {
 	cfg, err := config.ReadConfig(&opts)
 	require.NoError(t, err)
 	require.True(t, cfg.EnableParallelizedBlockTrace)
+}
+
+func TestReadConfigMaxSubscriptionsLogs(t *testing.T) {
+	opts := getDefaultOpts()
+	opts.maxSubscriptionsLogs = uint64(42)
+	cfg, err := config.ReadConfig(&opts)
+	require.NoError(t, err)
+	require.Equal(t, uint64(42), cfg.MaxSubscriptionsLogs)
+
+	// A non-numeric value is rejected.
+	opts.maxSubscriptionsLogs = "bad"
+	_, err = config.ReadConfig(&opts)
+	require.Error(t, err)
 }

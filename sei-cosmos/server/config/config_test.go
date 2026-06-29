@@ -11,6 +11,7 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -73,6 +74,7 @@ func TestDefaultGRPCWebConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.True(t, cfg.GRPCWeb.Enable)
 	require.Equal(t, DefaultGRPCWebAddress, cfg.GRPCWeb.Address)
+	require.Equal(t, uint(DefaultGRPCWebMaxOpenConnections), cfg.GRPCWeb.MaxOpenConnections)
 }
 
 func TestDefaultRosettaConfig(t *testing.T) {
@@ -282,6 +284,40 @@ func TestSetAndGetMinGasPrices(t *testing.T) {
 	require.Equal(t, "uatom", parsed[1].Denom)
 }
 
+func TestGetConfigGRPCWebMaxOpenConnections(t *testing.T) {
+	baseViper := func() *viper.Viper {
+		v := viper.New()
+		v.Set("minimum-gas-prices", DefaultMinGasPrices)
+		v.Set("telemetry.global-labels", []interface{}{})
+		return v
+	}
+
+	t.Run("missing key falls back to the in-code default", func(t *testing.T) {
+		// Mirrors a node upgrading with an older app.toml that predates the
+		// grpc-web.max-open-connections key
+		cfg, err := GetConfig(baseViper())
+		require.NoError(t, err)
+		require.Equal(t, uint(DefaultGRPCWebMaxOpenConnections), cfg.GRPCWeb.MaxOpenConnections)
+	})
+
+	t.Run("explicit zero is preserved as unlimited", func(t *testing.T) {
+		v := baseViper()
+		v.Set("grpc-web.max-open-connections", 0)
+		cfg, err := GetConfig(v)
+		require.NoError(t, err)
+		require.Equal(t, uint(0), cfg.GRPCWeb.MaxOpenConnections,
+			"explicit 0 must remain an opt-in to unlimited connections")
+	})
+
+	t.Run("explicit value overrides the default", func(t *testing.T) {
+		v := baseViper()
+		v.Set("grpc-web.max-open-connections", 250)
+		cfg, err := GetConfig(v)
+		require.NoError(t, err)
+		require.Equal(t, uint(250), cfg.GRPCWeb.MaxOpenConnections)
+	})
+}
+
 func TestGetConfigStateCommit(t *testing.T) {
 	v := viper.New()
 
@@ -304,7 +340,7 @@ func TestGetConfigStateCommit(t *testing.T) {
 
 	require.True(t, cfg.StateCommit.Enable)
 	require.Equal(t, "/custom/path", cfg.StateCommit.Directory)
-	require.Equal(t, seidbconfig.TestOnlyDualWrite, cfg.StateCommit.WriteMode)
+	require.Equal(t, sctypes.TestOnlyDualWrite, cfg.StateCommit.WriteMode)
 
 	// Verify MemIAVLConfig fields
 	require.Equal(t, 200, cfg.StateCommit.MemIAVLConfig.AsyncCommitBuffer)
@@ -337,7 +373,7 @@ func TestGetConfigEmptyWriteModeUsesDefault(t *testing.T) {
 
 	cfg, err := GetConfig(v)
 	require.NoError(t, err)
-	require.Equal(t, seidbconfig.MemiavlOnly, cfg.StateCommit.WriteMode,
+	require.Equal(t, sctypes.MemiavlOnly, cfg.StateCommit.WriteMode,
 		"unset sc-write-mode must fall back to the in-code default")
 }
 
@@ -381,7 +417,7 @@ func TestDefaultStateCommitConfig(t *testing.T) {
 
 	require.True(t, cfg.StateCommit.Enable)
 	require.Empty(t, cfg.StateCommit.Directory)
-	require.Equal(t, seidbconfig.MemiavlOnly, cfg.StateCommit.WriteMode)
+	require.Equal(t, sctypes.MemiavlOnly, cfg.StateCommit.WriteMode)
 }
 
 func TestDefaultStateStoreConfig(t *testing.T) {

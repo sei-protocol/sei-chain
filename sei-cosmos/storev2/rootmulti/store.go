@@ -462,6 +462,59 @@ func (rs *Store) GetCommitKVStore(key types.StoreKey) types.CommitKVStore {
 	return rs.ckvStores[key]
 }
 
+// SetWriteMode transitions the SC store's effective write mode at runtime
+// and refreshes the cached per-module store views so reads route per the
+// new mode immediately (the views' write buffers are recreated empty,
+// which is why the pending-changes assertion below is load-bearing).
+//
+// Contract: must be called between blocks — after this store's Commit has
+// completed (all flushes done, every cached view's changeset buffer
+// popped) and before the next block's first write. The intended call site
+// is baseapp.Commit, between cms.Commit() and the check-state reset, so
+// that both deliver- and check-state are rebuilt from post-transition
+// views. Calling it with buffered writes would silently drop them; that
+// contract violation is rejected loudly here instead.
+//
+// Because migration writes feed the AppHash, the trigger driving this
+// method must be deterministic across all nodes (same transition at the
+// same height) and level-triggered: the underlying transition is not
+// persisted until the next commit, so a node restarting inside that
+// window reverts to the prior mode and the trigger must re-fire. See
+// composite.SetWriteMode for the transition-legality rules.
+func (rs *Store) SetWriteMode(mode sctypes.WriteMode) error {
+	rs.mtx.Lock()
+	defer rs.mtx.Unlock()
+
+	for key, store := range rs.ckvStores {
+		if commitStore, ok := store.(*commitment.Store); ok && commitStore.HasPendingChanges() {
+			return fmt.Errorf(
+				"SetWriteMode called with pending uncommitted changes in store %q; "+
+					"write-mode transitions must run between blocks, after Commit",
+				key.Name())
+		}
+	}
+
+	if err := rs.scStore.SetWriteMode(mode); err != nil {
+		return fmt.Errorf("failed to set SC store write mode: %w", err)
+	}
+
+	// Refresh the cached views exactly like the post-Commit reload does:
+	// the SC store's router has been replaced, and although the views
+	// resolve the router dynamically, rebuilding keeps this path on the
+	// same invalidation contract as Commit.
+	for key := range rs.ckvStores {
+		store := rs.ckvStores[key]
+		if store.GetStoreType() == types.StoreTypeIAVL {
+			reloaded, err := rs.loadCommitStoreFromParams(key, rs.storesParams[key])
+			if err != nil {
+				return fmt.Errorf("failed to reload store %q after write mode change: %w", key.Name(), err)
+			}
+			rs.ckvStores[key] = reloaded
+		}
+	}
+	return nil
+}
+
 // Implements interface CommitMultiStore
 // used by normal node startup.
 func (rs *Store) LoadLatestVersion() error {

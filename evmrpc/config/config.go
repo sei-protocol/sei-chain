@@ -110,6 +110,9 @@ type Config struct {
 	// max number of concurrent NewHead subscriptions
 	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
 
+	// max number of concurrent logs subscriptions
+	MaxSubscriptionsLogs uint64 `mapstructure:"max_subscriptions_logs"`
+
 	// test api enables certain override apis for integration test situations
 	EnableTestAPI bool `mapstructure:"enable_test_api"`
 
@@ -166,6 +169,14 @@ type Config struct {
 
 	// IPRateLimitBurst is the maximum per-IP burst size.
 	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
+
+	// BatchRequestLimit is the maximum number of requests allowed in a single
+	// JSON-RPC batch (HTTP and WebSocket). Set to 0 to disable the limit.
+	BatchRequestLimit int `mapstructure:"batch_request_limit"`
+
+	// BatchResponseMaxSize is the maximum number of bytes returned from a
+	// batched JSON-RPC call (HTTP and WebSocket). Set to 0 to disable the limit.
+	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
 }
 
 var DefaultConfig = Config{
@@ -190,6 +201,7 @@ var DefaultConfig = Config{
 	MaxBlocksForLog:              2000,
 	MaxEstimateGasCalls:          100,
 	MaxSubscriptionsNewHead:      10000,
+	MaxSubscriptionsLogs:         1000,
 	EnableTestAPI:                false,
 	MaxConcurrentTraceCalls:      10,
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
@@ -213,6 +225,8 @@ var DefaultConfig = Config{
 	TraceBakeSnapshotWindow: 64,
 	IPRateLimitRPS:          200,
 	IPRateLimitBurst:        400,
+	BatchRequestLimit:       1000,
+	BatchResponseMaxSize:    25 * 1000 * 1000, // 25MB
 }
 
 const (
@@ -237,6 +251,7 @@ const (
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
 	flagMaxEstimateGasCalls          = "evm.max_estimate_gas_calls"
 	flagMaxSubscriptionsNewHead      = "evm.max_subscriptions_new_head"
+	flagMaxSubscriptionsLogs         = "evm.max_subscriptions_logs"
 	flagEnableTestAPI                = "evm.enable_test_api"
 	flagMaxConcurrentTraceCalls      = "evm.max_concurrent_trace_calls"
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
@@ -256,6 +271,8 @@ const (
 	flagTraceBakeSnapshotWindow      = "evm.trace_bake_snapshot_window"
 	flagIPRateLimitRPS               = "evm.ip_rate_limit_rps"
 	flagIPRateLimitBurst             = "evm.ip_rate_limit_burst"
+	flagBatchRequestLimit            = "evm.batch_request_limit"
+	flagBatchResponseMaxSize         = "evm.batch_response_max_size"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -366,6 +383,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagMaxSubscriptionsLogs); v != nil {
+		if cfg.MaxSubscriptionsLogs, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+	}
 	if v := opts.Get(flagEnableTestAPI); v != nil {
 		if cfg.EnableTestAPI, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
@@ -458,6 +480,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagIPRateLimitBurst); v != nil {
 		if cfg.IPRateLimitBurst, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagBatchRequestLimit); v != nil {
+		if cfg.BatchRequestLimit, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagBatchResponseMaxSize); v != nil {
+		if cfg.BatchResponseMaxSize, err = cast.ToIntE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -594,6 +626,9 @@ max_estimate_gas_calls = {{ .EVM.MaxEstimateGasCalls }}
 # max number of concurrent NewHead subscriptions
 max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
 
+# max number of concurrent logs subscriptions
+max_subscriptions_logs = {{ .EVM.MaxSubscriptionsLogs }}
+
 # MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls.
 # Set to 0 for unlimited.
 max_concurrent_trace_calls = {{ .EVM.MaxConcurrentTraceCalls }}
@@ -656,5 +691,13 @@ ip_rate_limit_rps = {{ .EVM.IPRateLimitRPS }}
 
 # ip_rate_limit_burst is the maximum per-IP burst above the sustained rate.
 ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
+
+# batch_request_limit is the maximum number of requests allowed in a single
+# JSON-RPC batch (HTTP and WebSocket). Set to 0 to disable the limit.
+batch_request_limit = {{ .EVM.BatchRequestLimit }}
+
+# batch_response_max_size is the maximum number of bytes returned from a
+# batched JSON-RPC call (HTTP and WebSocket). Set to 0 to disable the limit.
+batch_response_max_size = {{ .EVM.BatchResponseMaxSize }}
 
 `
