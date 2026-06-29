@@ -21,4 +21,4 @@ jobs:
     with:
       ref: ${{ inputs.tag }}
       go-version: '1.25.6'
-      submodules: 'true'
+      submodules: 'false'

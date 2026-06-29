@@ -15,10 +15,12 @@ set -euo pipefail
 PREBUILT="${PREBUILT_SEID:-build/seid}"
 
 if [ "${1:-}" = "build" ]; then
-  # Extract the `-o <path>` GoReleaser asked us to write the binary to.
+  # Extract the output path GoReleaser asked us to write the binary to. Handle both
+  # `-o <path>` (what goreleaser emits) and `-o=<path>`, so the shim is robust either way.
   out=""
   prev=""
   for a in "$@"; do
+    case "$a" in -o=*) out="${a#-o=}" ;; esac
     [ "$prev" = "-o" ] && out="$a"
     prev="$a"
   done

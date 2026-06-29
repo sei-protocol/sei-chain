@@ -26,4 +26,6 @@ jobs:
     with:
       ref: ${{ needs.publish.outputs.version }}
       go-version: '1.25.6'
-      submodules: 'true'
+      # Repo submodules are Solidity test libs (forge-std/openzeppelin/solmate); the
+      # seid binary build doesn't use them, so skip the fetch.
+      submodules: 'false'
