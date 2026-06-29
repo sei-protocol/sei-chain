@@ -32,7 +32,9 @@ type StateCommitConfig struct {
 	// WriteMode defines the write routing mode for EVM data.
 	// Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
 	// all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write, auto.
-	// defaults to memiavl_only.
+	// defaults to migrate_evm. While the NumKeysToMigratePerBlock gov param is 0
+	// (the default), migrate_evm is paused and produces the same app hash as
+	// memiavl_only; raising the param via governance is the sole migration trigger.
 	WriteMode types.WriteMode `mapstructure:"write-mode"`
 
 	// MemIAVLConfig is the configuration for the MemIAVL (Cosmos) backend
@@ -56,7 +58,7 @@ type StateCommitConfig struct {
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
 		Enable:                     true,
-		WriteMode:                  types.MemiavlOnly,
+		WriteMode:                  types.MigrateEVM,
 		MemIAVLConfig:              memiavl.DefaultConfig(),
 		FlatKVConfig:               *config.DefaultConfig(),
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
