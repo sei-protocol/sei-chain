@@ -7,6 +7,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/stretchr/testify/require"
 )
 
@@ -127,4 +129,28 @@ func nonceBytes(n uint64) []byte {
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, n)
 	return bz
+}
+
+func TestCompositeAccountMergeCombinesFlatKVAndMemiavlFragments(t *testing.T) {
+	addr := bytesOfLen(keys.AddressLen, 0x55)
+	codeHash := bytesOfLen(32, 0xCC)
+	balance := bytesOfLen(32, 0x11)
+	bal, err := vtype.ParseBalance(balance)
+	require.NoError(t, err)
+
+	flatKVAccount := vtype.NewAccountData().SetBlockHeight(123).SetBalance(bal).SetNonce(9)
+	accounts := make(map[string]*semanticAccountDigestState)
+	require.NoError(t, mergeCompositeFlatKVAccount(accounts, ktype.EVMPhysicalKey(keys.EVMKeyNonce, addr), flatKVAccount.Serialize()))
+
+	composite := evmDigest{}
+	require.NoError(t, composite.consumeSemanticMemiavlLeaf(accounts, keys.BuildEVMKey(keys.EVMKeyCodeHash, addr), codeHash))
+	composite.finalizeSemanticAccounts(accounts)
+
+	expected := evmDigest{}
+	codeHashParsed, err := vtype.ParseCodeHash(codeHash)
+	require.NoError(t, err)
+	fullAccount := vtype.NewAccountData().SetBlockHeight(456).SetBalance(bal).SetNonce(9).SetCodeHash(codeHashParsed)
+	require.NoError(t, expected.consume(ktype.EVMPhysicalKey(keys.EVMKeyNonce, addr), fullAccount.Serialize()))
+
+	require.Equal(t, expected.account, composite.account)
 }

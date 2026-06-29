@@ -90,11 +90,18 @@ func executeMigrateEvmStatus(cmd *cobra.Command, _ []string) {
 		BoundaryPresent    bool   `json:"boundary_present"`
 		BoundaryHex        string `json:"boundary_hex,omitempty"`
 		VersionRawHex      string `json:"version_raw_hex,omitempty"`
+		// CommittedRootHex is the FlatKV committed lattice root hash at
+		// VersionAt. This is the exact value the composite store feeds
+		// into the synthetic evm_lattice StoreInfo, so comparing it
+		// across nodes at the same height isolates whether a post-rollback
+		// AppHash divergence lives in the FlatKV lattice or elsewhere.
+		CommittedRootHex string `json:"committed_root_hex,omitempty"`
 	}{
 		VersionAt:          versionAt,
 		MigrationVersion:   migrationVersion,
 		MigrateEVMComplete: migrationVersion >= uint64(migration.Version1_MigrateEVM),
 		BoundaryPresent:    hasBoundary,
+		CommittedRootHex:   hex.EncodeToString(store.CommittedRootHash()),
 	}
 	if hasBoundary {
 		out.BoundaryHex = hex.EncodeToString(boundaryRaw)
