@@ -12,6 +12,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
+// MaxLaneRangeInProposal is the maximum number of blocks a proposal may advance a lane by.
+const MaxLaneRangeInProposal = 10
+
 // LaneRange represents a range [first,next) of blocks of a lane.
 type LaneRange struct {
 	utils.ReadOnly
@@ -214,6 +217,9 @@ func (m *Proposal) Verify(c *Committee) error {
 		if err := r.Verify(c); err != nil {
 			return fmt.Errorf("laneRange[%v]: %w", r.Lane(), err)
 		}
+		if got, wantMax := r.Len(), uint64(MaxLaneRangeInProposal); got > wantMax {
+			return fmt.Errorf("laneRanges[%v]: len = %d, want <= %d", r.Lane(), got, wantMax)
+		}
 	}
 	return nil
 }
@@ -278,7 +284,11 @@ func NewProposal(
 			if lQC.Header().Lane() != lane {
 				return nil, fmt.Errorf("laneQC %v for lane %v", lQC.Header().Lane(), lane)
 			}
-			laneRanges = append(laneRanges, NewLaneRange(lane, first, utils.Some(lQC.Header())))
+			laneRange := NewLaneRange(lane, first, utils.Some(lQC.Header()))
+			if got := laneRange.Len(); got > MaxLaneRangeInProposal {
+				return nil, fmt.Errorf("laneRange[%v].Len() = %d, want <= %d", lane, got, MaxLaneRangeInProposal)
+			}
+			laneRanges = append(laneRanges, laneRange)
 		} else {
 			laneRanges = append(laneRanges, NewLaneRange(lane, first, utils.None[*BlockHeader]()))
 		}
@@ -545,14 +555,14 @@ var FullProposalConv = protoutils.Conv[*FullProposal, *pb.FullProposal]{
 			laneQCs = append(laneQCs, qc)
 		}
 		return &pb.FullProposal{
-			Proposal:  SignedMsgConv[*Proposal]().Encode(m.proposal),
-			LaneQcs:   LaneQCConv.EncodeSlice(laneQCs),
-			AppQc:     AppQCConv.EncodeOpt(m.appQC),
-			TimeoutQc: TimeoutQCConv.EncodeOpt(m.timeoutQC),
+			ProposalV2: SignedProposalConv.Encode(m.proposal),
+			LaneQcs:    LaneQCConv.EncodeSlice(laneQCs),
+			AppQc:      AppQCConv.EncodeOpt(m.appQC),
+			TimeoutQc:  TimeoutQCConv.EncodeOpt(m.timeoutQC),
 		}
 	},
 	Decode: func(m *pb.FullProposal) (*FullProposal, error) {
-		proposal, err := SignedMsgConv[*Proposal]().DecodeReq(m.Proposal)
+		proposal, err := SignedProposalConv.DecodeReq(m.ProposalV2)
 		if err != nil {
 			return nil, fmt.Errorf("proposal: %w", err)
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 const (
@@ -35,7 +36,8 @@ const (
 	// which is appropriate for production drains. Lowering it spreads the
 	// migration across more blocks, which is useful for tests that need to
 	// exercise the resume / hybrid-read path mid-flight.
-	FlagSCKeysToMigratePerBlock = "state-commit.sc-keys-to-migrate-per-block"
+	FlagSCKeysToMigratePerBlock  = "state-commit.sc-keys-to-migrate-per-block"
+	FlagSCFlatKVReadWriteMetrics = "state-commit.flatkv.enable-read-write-metrics"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -45,6 +47,7 @@ const (
 	FlagSSKeepRecent        = "state-store.ss-keep-recent"
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
+	FlagSSReadWriteMetrics  = "state-store.ss-enable-read-write-metrics"
 
 	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
 	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
@@ -109,9 +112,10 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.MemIAVLConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
 	scConfig.MemIAVLConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
 	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
+	scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(appOpts.Get(FlagSCFlatKVReadWriteMetrics))
 
 	if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
-		parsedWM, err := config.ParseWriteMode(wm)
+		parsedWM, err := sctypes.ParseWriteMode(wm)
 		if err != nil {
 			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
 		}
@@ -150,6 +154,7 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.PruneIntervalSeconds = cast.ToInt(appOpts.Get(FlagSSPruneInterval))
 	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
+	ssConfig.EnableReadWriteMetrics = cast.ToBool(appOpts.Get(FlagSSReadWriteMetrics))
 
 	// EVM optimization fields (embedded in SS config)
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))

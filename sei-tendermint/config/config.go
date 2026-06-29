@@ -76,23 +76,33 @@ type Config struct {
 	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
 
 	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
-	// configuration. Leave empty to disable Autobahn.
+	// configuration. Leave empty to disable Autobahn. The autobahn role
+	// follows the top-level `mode` field: "validator" runs the validator
+	// path; any other mode runs as a fullnode (loads the committee as a
+	// routing table and pulls blocks from committee members). A warning is
+	// logged at startup if mode disagrees with committee membership.
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
+
+	// HashVaultDisabledUnsafe disables the app-hash equivocation guard (HashVault). The vault is
+	// on by default (false). Setting this to true is an explicit, last-resort operator decision to
+	// run WITHOUT equivocation protection; the node logs loudly that it is unsafe.
+	HashVaultDisabledUnsafe bool `mapstructure:"hash-vault-disabled-unsafe"`
 }
 
 // DefaultConfig returns a default configuration for a Tendermint node
 func DefaultConfig() *Config {
 	return &Config{
-		BaseConfig:      DefaultBaseConfig(),
-		RPC:             DefaultRPCConfig(),
-		P2P:             DefaultP2PConfig(),
-		Mempool:         DefaultMempoolConfig(),
-		StateSync:       DefaultStateSyncConfig(),
-		Consensus:       DefaultConsensusConfig(),
-		TxIndex:         DefaultTxIndexConfig(),
-		Instrumentation: DefaultInstrumentationConfig(),
-		PrivValidator:   DefaultPrivValidatorConfig(),
-		SelfRemediation: DefaultSelfRemediationConfig(),
+		BaseConfig:              DefaultBaseConfig(),
+		RPC:                     DefaultRPCConfig(),
+		P2P:                     DefaultP2PConfig(),
+		Mempool:                 DefaultMempoolConfig(),
+		StateSync:               DefaultStateSyncConfig(),
+		Consensus:               DefaultConsensusConfig(),
+		TxIndex:                 DefaultTxIndexConfig(),
+		Instrumentation:         DefaultInstrumentationConfig(),
+		PrivValidator:           DefaultPrivValidatorConfig(),
+		SelfRemediation:         DefaultSelfRemediationConfig(),
+		HashVaultDisabledUnsafe: false,
 	}
 }
 

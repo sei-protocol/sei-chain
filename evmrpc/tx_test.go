@@ -58,11 +58,11 @@ func (c *pendingNonceClient) EvmNextPendingNonce(common.Address) uint64 {
 	return c.nextNonce
 }
 
-func (c *pendingNonceClient) EvmProxy(common.Address) (*url.URL, bool) {
+func (c *pendingNonceClient) EvmProxy(common.Address) utils.Option[*url.URL] {
 	if c.proxyURL == nil {
-		return nil, false
+		return utils.None[*url.URL]()
 	}
-	return c.proxyURL, true
+	return utils.Some(c.proxyURL)
 }
 
 func TestGetTransactionCount(t *testing.T) {
@@ -305,7 +305,9 @@ func (c *lowLatestTMClient) EvmNextPendingNonce(common.Address) uint64 { return 
 
 func (c *lowLatestTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) { return nil, false }
 
-func (c *lowLatestTMClient) EvmProxy(common.Address) (*url.URL, bool) { return nil, false }
+func (c *lowLatestTMClient) EvmProxy(common.Address) utils.Option[*url.URL] {
+	return utils.None[*url.URL]()
+}
 
 func (c *lowLatestTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {
 	return &coretypes.ResultStatus{

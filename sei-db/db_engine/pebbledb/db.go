@@ -22,8 +22,9 @@ import (
 
 // pebbleDB implements the db_engine.DB interface using PebbleDB.
 type pebbleDB struct {
-	db            *pebble.DB
-	metricsCancel context.CancelFunc
+	db               *pebble.DB
+	metricsCancel    context.CancelFunc
+	operationMetrics *OperationMetrics
 }
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
@@ -92,8 +93,9 @@ func Open(
 	}
 
 	return &pebbleDB{
-		db:            db,
-		metricsCancel: cancel,
+		db:               db,
+		metricsCancel:    cancel,
+		operationMetrics: NewOperationMetrics(config.EnableReadWriteMetrics, filepath.Base(config.DataDir)),
 	}, nil
 }
 
@@ -121,6 +123,11 @@ func OpenWithCache(
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, error) {
+	p.operationMetrics.AddRead(1)
+	return p.get(key)
+}
+
+func (p *pebbleDB) get(key []byte) ([]byte, error) {
 	val, closer, err := p.db.Get(key)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
@@ -134,8 +141,9 @@ func (p *pebbleDB) Get(key []byte) ([]byte, error) {
 }
 
 func (p *pebbleDB) BatchGet(keys map[string]types.BatchGetResult) error {
+	p.operationMetrics.AddRead(int64(len(keys)))
 	for k := range keys {
-		val, err := p.Get([]byte(k))
+		val, err := p.get([]byte(k))
 		if err != nil {
 			if errorutils.IsNotFound(err) {
 				keys[k] = types.BatchGetResult{}
@@ -154,6 +162,7 @@ func (p *pebbleDB) Set(key, value []byte, opts types.WriteOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to set value in database: %w", err)
 	}
+	p.operationMetrics.AddWrite(1)
 	return nil
 }
 
@@ -161,6 +170,16 @@ func (p *pebbleDB) Delete(key []byte, opts types.WriteOptions) error {
 	err := p.db.Delete(key, toPebbleWriteOpts(opts))
 	if err != nil {
 		return fmt.Errorf("failed to delete value in database: %w", err)
+	}
+	p.operationMetrics.AddWrite(1)
+	return nil
+}
+
+// DeleteRange deletes every key in [start, end) with a single range tombstone
+// (O(1) write) rather than iterating and point-deleting each key.
+func (p *pebbleDB) DeleteRange(start, end []byte, opts types.WriteOptions) error {
+	if err := p.db.DeleteRange(start, end, toPebbleWriteOpts(opts)); err != nil {
+		return fmt.Errorf("failed to delete range in database: %w", err)
 	}
 	return nil
 }
@@ -177,7 +196,7 @@ func (p *pebbleDB) NewIter(opts *types.IterOptions) (dbm.Iterator, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newPebbleIterator(it, opts), nil
+	return newPebbleIterator(it, opts, p.operationMetrics), nil
 }
 
 func (p *pebbleDB) Flush() error {

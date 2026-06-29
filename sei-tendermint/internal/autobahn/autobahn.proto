@@ -133,8 +133,10 @@ message Proposal {
 }
 
 message FullProposal {
+  reserved "proposal";
+  reserved 1;
   option (wireguard.sized) = true;
-  SignedMsg proposal = 1;
+  SignedProposal proposal_v2 = 5;
   repeated LaneQC lane_qcs = 2 [(wireguard.max_count) = 100];
   optional AppQC app_qc = 3;
   optional TimeoutQC timeout_qc = 4; // justifies the proposal.
@@ -153,8 +155,9 @@ message CommitQC {
 }
 
 message FullCommitQC {
+  option (wireguard.sized) = true;
   CommitQC qc = 1;
-  repeated BlockHeader headers = 2 [(wireguard.max_count) = 100];
+  repeated BlockHeader headers = 2 [(wireguard.max_count) = 1000];
 }
 
 message TimeoutVote {
@@ -166,13 +169,17 @@ message TimeoutVote {
 
 message TimeoutQC {
   option (wireguard.sized) = true;
-  repeated SignedMsg votes = 1 [(wireguard.max_count) = 100];
+  reserved "votes";
+  reserved 1;
+  repeated SignedTimeoutVote votes_v2 = 3 [(wireguard.max_count) = 100];
   optional PrepareQC latest_prepare_qc = 2;
 }
 
 message FullTimeoutVote {
+  reserved "vote";
+  reserved 1;
   option (wireguard.sized) = true;
-  SignedMsg vote = 1;
+  SignedTimeoutVote vote_v2 = 3;
   optional PrepareQC latest_prepare_qc = 2;
 }
 
@@ -181,12 +188,14 @@ message FullTimeoutVote {
 // Do NOT persist internal derived fields (e.g., cached computations, runtime state).
 // Derived fields are implementation-dependent and should be recomputed on load.
 message PersistedInner {
+  reserved "commit_vote", "prepare_vote";
+  reserved 4, 5;
   optional CommitQC commit_qc = 1;
   optional PrepareQC prepare_qc = 2;
   optional TimeoutQC timeout_qc = 3;
 
-  optional SignedMsg commit_vote = 4;
-  optional SignedMsg prepare_vote = 5;
+  optional SignedProposal commit_vote_v2 = 7;
+  optional SignedProposal prepare_vote_v2 = 8;
   optional FullTimeoutVote timeout_vote = 6;
 }
 
@@ -235,19 +244,51 @@ message Msg {
   }
 }
 
-message SignedMsg {
+message SignedProposal {
   option (wireguard.sized) = true;
-  Msg msg = 1;
+  Proposal msg = 1;
+  Signature sig = 2;
+}
+
+message SignedTimeoutVote {
+  option (wireguard.sized) = true;
+  TimeoutVote msg = 1;
+  Signature sig = 2;
+}
+
+message SignedAppVote {
+  option (wireguard.sized) = true;
+  AppProposal msg = 1;
+  Signature sig = 2;
+}
+
+message SignedBlock {
+  option (wireguard.sized) = true;
+  Block msg = 1;
+  Signature sig = 2;
+}
+
+message SignedBlockHeader {
+  option (wireguard.sized) = true;
+  BlockHeader msg = 1;
+  Signature sig = 2;
+}
+
+message SignedAppProposal {
+  option (wireguard.sized) = true;
+  AppProposal msg = 1;
   Signature sig = 2;
 }
 
 // TODO(gprusak): rename to ConsensusMsg
 message ConsensusReq {
+  reserved "prepare_vote", "commit_vote";
+  reserved 2, 3;
   option (wireguard.sized) = true;
   oneof t {
     FullProposal proposal = 1;
-    SignedMsg prepare_vote = 2;
-    SignedMsg commit_vote = 3;
+    SignedProposal prepare_vote_v2 = 6;
+    SignedProposal commit_vote_v2 = 7;
     FullTimeoutVote timeout_vote = 4;
     TimeoutQC timeout_qc = 5;
   }

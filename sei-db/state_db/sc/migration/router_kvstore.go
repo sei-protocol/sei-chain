@@ -24,7 +24,14 @@ var _ types.CommitKVStore = (*RouterCommitKVStore)(nil)
 // underlying router is therefore surfaced as a panic. This is a short-term
 // limitation; the long-term plan is to plumb errors through the interface.
 type RouterCommitKVStore struct {
-	router          Router
+	// routerProvider resolves the owner's current router at call time
+	// rather than binding one instance at construction. The owner's
+	// router can be replaced while this view is alive (the composite
+	// store rebuilds it on a runtime write-mode transition, see
+	// composite.SetWriteMode), and views are cached by rootmulti across
+	// that boundary — a captured router value would keep routing reads
+	// per the pre-transition mode for the rest of the block.
+	routerProvider  func() Router
 	storeName       string
 	versionProvider func() int64
 	// iterator builds an iterator over this store's keyspace. Iteration no
@@ -35,13 +42,13 @@ type RouterCommitKVStore struct {
 }
 
 func NewRouterCommitKVStore(
-	router Router,
+	routerProvider func() Router,
 	storeName string,
 	versionProvider func() int64,
 	iterator func(start, end []byte, ascending bool) (db.Iterator, error),
 ) *RouterCommitKVStore {
 	return &RouterCommitKVStore{
-		router:          router,
+		routerProvider:  routerProvider,
 		storeName:       storeName,
 		versionProvider: versionProvider,
 		iterator:        iterator,
@@ -55,7 +62,7 @@ func (r *RouterCommitKVStore) Close() error {
 }
 
 func (r *RouterCommitKVStore) Get(key []byte) []byte {
-	value, _, err := r.router.Read(r.storeName, key)
+	value, _, err := r.routerProvider().Read(r.storeName, key)
 	if err != nil {
 		panic(fmt.Errorf("RouterCommitKVStore.Get(store=%q): %w", r.storeName, err))
 	}
@@ -63,7 +70,7 @@ func (r *RouterCommitKVStore) Get(key []byte) []byte {
 }
 
 func (r *RouterCommitKVStore) Has(key []byte) bool {
-	_, found, err := r.router.Read(r.storeName, key)
+	_, found, err := r.routerProvider().Read(r.storeName, key)
 	if err != nil {
 		panic(fmt.Errorf("RouterCommitKVStore.Has(store=%q): %w", r.storeName, err))
 	}
@@ -85,7 +92,7 @@ func (r *RouterCommitKVStore) applyOne(pair *proto.KVPair) {
 		Name:      r.storeName,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{pair}},
 	}}
-	if err := r.router.ApplyChangeSets(cs, false); err != nil {
+	if err := r.routerProvider().ApplyChangeSets(cs, false); err != nil {
 		panic(fmt.Errorf("RouterCommitKVStore.ApplyChangeSets(store=%q): %w", r.storeName, err))
 	}
 }
@@ -102,7 +109,7 @@ func (r *RouterCommitKVStore) Iterator(start []byte, end []byte, ascending bool)
 }
 
 func (r *RouterCommitKVStore) GetProof(key []byte) *ics23.CommitmentProof {
-	proof, err := r.router.GetProof(r.storeName, key)
+	proof, err := r.routerProvider().GetProof(r.storeName, key)
 	if err != nil {
 		panic(fmt.Errorf("RouterCommitKVStore.GetProof(store=%q): %w", r.storeName, err))
 	}

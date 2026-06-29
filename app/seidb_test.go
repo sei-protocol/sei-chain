@@ -36,6 +36,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSCConfig.MemIAVLConfig.SnapshotPrefetchThreshold
 	case FlagSCSnapshotWriteRateMBps:
 		return defaultSCConfig.MemIAVLConfig.SnapshotWriteRateMBps
+	case FlagSCFlatKVReadWriteMetrics:
+		return defaultSCConfig.FlatKVConfig.EnableReadWriteMetrics
 	case FlagSSEnable:
 		return defaultSSConfig.Enable
 	case FlagSSBackend:
@@ -50,8 +52,12 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.PruneIntervalSeconds
 	case FlagSSImportNumWorkers:
 		return defaultSSConfig.ImportNumWorkers
+	case FlagSSReadWriteMetrics:
+		return defaultSSConfig.EnableReadWriteMetrics
 	case receiptStoreBackendKey:
 		return defaultReceiptConfig.Backend
+	case receiptStoreReadWriteMetricsKey:
+		return defaultReceiptConfig.EnableReadWriteMetrics
 	case FlagEVMSSDirectory:
 		return defaultSSConfig.EVMDBDirectory
 	case FlagEVMSSSplit:
@@ -95,6 +101,15 @@ func TestParseSCConfigs_HistoricalProofFlags(t *testing.T) {
 	assert.Equal(t, 3, scConfig.HistoricalProofBurst)
 }
 
+func TestParseSCConfigs_FlatKVReadWriteMetrics(t *testing.T) {
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable:                 true,
+		FlagSCFlatKVReadWriteMetrics: true,
+	})
+
+	assert.True(t, scConfig.FlatKVConfig.EnableReadWriteMetrics)
+}
+
 func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	appOpts := mapAppOpts{
 		FlagSSEnable:            true,
@@ -109,6 +124,15 @@ func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	assert.Equal(t, "/tmp/evm-ss", ssConfig.EVMDBDirectory)
 	assert.True(t, ssConfig.EVMSplit)
 	assert.True(t, ssConfig.SeparateEVMSubDBs)
+}
+
+func TestParseSSConfigs_ReadWriteMetrics(t *testing.T) {
+	ssConfig := parseSSConfigs(mapAppOpts{
+		FlagSSEnable:           true,
+		FlagSSReadWriteMetrics: true,
+	})
+
+	assert.True(t, ssConfig.EnableReadWriteMetrics)
 }
 
 func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
@@ -133,6 +157,7 @@ func TestParseReceiptConfigs_UsesConfiguredValues(t *testing.T) {
 		receiptStoreBackendKey:              "pebbledb",
 		receiptStoreAsyncWriteBufferKey:     7,
 		receiptStorePruneIntervalSecondsKey: 9,
+		receiptStoreReadWriteMetricsKey:     true,
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, "/tmp/custom-receipt-db", receiptConfig.DBDirectory)
@@ -140,6 +165,7 @@ func TestParseReceiptConfigs_UsesConfiguredValues(t *testing.T) {
 	assert.Equal(t, 7, receiptConfig.AsyncWriteBuffer)
 	assert.Equal(t, 0, receiptConfig.KeepRecent)
 	assert.Equal(t, 9, receiptConfig.PruneIntervalSeconds)
+	assert.True(t, receiptConfig.EnableReadWriteMetrics)
 }
 
 func TestParseReceiptConfigs_RejectsInvalidBackend(t *testing.T) {

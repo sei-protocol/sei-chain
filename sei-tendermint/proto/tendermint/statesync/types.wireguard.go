@@ -11,12 +11,63 @@ import (
 func init() {
 	// Register the wireguard.Schema generated for tendermint.statesync.Message.
 	runtime.MustRegister[*Message](runtime.Schema{
-		6: {Nested: utils.Some(reflect.TypeFor[*LightBlockResponse]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SnapshotsRequest]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SnapshotsResponse]())},
+		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*ChunkRequest]())},
+		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*ChunkResponse]())},
+		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LightBlockRequest]())},
+		6: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LightBlockResponse]())},
+		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*ParamsRequest]())},
+		8: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*ParamsResponse]())},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.statesync.SnapshotsRequest.
+	runtime.MustRegister[*SnapshotsRequest](runtime.Schema{})
+
+	// Register the wireguard.Schema generated for tendermint.statesync.SnapshotsResponse.
+	runtime.MustRegister[*SnapshotsResponse](runtime.Schema{
+		1: {MaxCount: 1},
+		2: {MaxCount: 1},
+		3: {MaxCount: 1},
+		4: {MaxCount: 1},
+		5: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.statesync.ChunkRequest.
+	runtime.MustRegister[*ChunkRequest](runtime.Schema{
+		1: {MaxCount: 1},
+		2: {MaxCount: 1},
+		3: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.statesync.ChunkResponse.
+	runtime.MustRegister[*ChunkResponse](runtime.Schema{
+		1: {MaxCount: 1},
+		2: {MaxCount: 1},
+		3: {MaxCount: 1},
+		4: {MaxCount: 1},
+		5: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.statesync.LightBlockRequest.
+	runtime.MustRegister[*LightBlockRequest](runtime.Schema{
+		1: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.statesync.LightBlockResponse.
 	runtime.MustRegister[*LightBlockResponse](runtime.Schema{
-		1: {Nested: utils.Some(reflect.TypeFor[*types.LightBlock]())},
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*types.LightBlock]())},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.statesync.ParamsRequest.
+	runtime.MustRegister[*ParamsRequest](runtime.Schema{
+		1: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for tendermint.statesync.ParamsResponse.
+	runtime.MustRegister[*ParamsResponse](runtime.Schema{
+		1: {MaxCount: 1},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*types.ConsensusParams]())},
 	})
 
 }

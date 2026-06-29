@@ -40,6 +40,10 @@ message SizedOk {
   repeated float f_count = 15 [(wireguard.max_count) = 4];
   repeated double d_count = 16 [(wireguard.max_count) = 4];
   repeated Sized s_count = 17 [(wireguard.max_count) = 4];
+  repeated bool bool_count_unpacked = 29 [
+    (wireguard.max_count) = 1,
+    packed = false
+  ];
 
   // Repeated fields bounded by max_count + max_size
   repeated bytes b_count_size = 18 [
@@ -103,6 +107,14 @@ message OuterNotSized {
   SizedOk a = 1;
   repeated SizedOk b = 2 [(wireguard.max_count) = 7];
   NotSized c = 3;
+}
+
+message PackedFalseSized {
+  option (wireguard.sized) = true;
+  repeated bool flags = 1 [
+    (wireguard.max_count) = 1,
+    packed = false
+  ];
 }
 
 message Msg {

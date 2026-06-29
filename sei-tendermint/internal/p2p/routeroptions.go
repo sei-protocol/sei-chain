@@ -46,8 +46,11 @@ type RouterOptions struct {
 	// (it is getting large anyway) but thats a major refactor.
 	PexOnHandshake bool
 
-	// Whether sei giga connections should be established.
-	Giga utils.Option[*GigaRouterConfig]
+	// Giga, if Some, is the already-constructed GigaRouter the Router
+	// should attach. Setup-side code (node/setup.go) picks the right
+	// constructor — NewGigaValidatorRouter or NewGigaFullnodeRouter —
+	// based on whether the node has a local validator key.
+	Giga utils.Option[GigaRouter]
 
 	// Local endpoint to listen for p2p connections on.
 	// SelfAddress should point to this endpoint.

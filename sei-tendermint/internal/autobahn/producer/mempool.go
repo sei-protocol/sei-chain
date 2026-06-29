@@ -68,7 +68,7 @@ func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 			return nonce
 		}
 	}
-	return s.cfg.App.EvmNonce(addr)
+	return s.app.EvmNonce(addr)
 }
 
 func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
@@ -104,7 +104,7 @@ func (s *State) pruneMempool(n types.BlockNumber) {
 				if wantNonce == m.evmNonces[addr] {
 					// Happy path: all account's txs got executed.
 					delete(m.evmNonces, addr)
-				} else if gotNonce := s.cfg.App.EvmNonce(addr); gotNonce < wantNonce {
+				} else if gotNonce := s.app.EvmNonce(addr); gotNonce < wantNonce {
 					// Some txs have not been executed - reset account tracking.
 					// NOTE: app execution is not synchronized with mempool, so nonce could have already
 					// proceeded past wantNonce and that is expected.
@@ -144,7 +144,7 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 	if uint64(len(tx)) > types.MaxTxsBytesPerBlock {
 		return nil, errTooLarge
 	}
-	resp, err := s.cfg.App.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
+	resp, err := s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +182,7 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 			addr := resp.EVMSenderAddress
 			nonce, ok := m.evmNonces[addr]
 			if !ok {
-				nonce = s.cfg.App.EvmNonce(addr)
+				nonce = s.app.EvmNonce(addr)
 			}
 			if nonce != resp.EVMNonce {
 				return nil, fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, nonce)

@@ -11,6 +11,8 @@ type PebbleDBConfig struct {
 	DataDir string
 	// Whether to enable pebble-internal metrics.
 	EnableMetrics bool
+	// Whether to emit simple estimated logical read/write counters.
+	EnableReadWriteMetrics bool
 	// How often to scrape pebble-internal metrics.
 	MetricsScrapeInterval time.Duration
 }

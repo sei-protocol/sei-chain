@@ -52,7 +52,15 @@ sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBp
 
 # WriteMode defines the write routing mode for EVM data in the SC layer.
 # Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
-# all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write
+# all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write, auto
+#
+# auto derives the effective mode from the on-disk migration state and
+# allows coordinated runtime transitions without restarts. It is only
+# valid for nodes whose history began in memiavl (e.g. switching from
+# memiavl_only). WARNING: never set auto on an existing flatkv_only node —
+# depending on its on-disk metadata the node either fails every commit
+# with a version-mismatch error or silently serves reads from an empty
+# memiavl. Nodes that start in flatkv mode must keep flatkv_only forever.
 sc-write-mode = "{{ .StateCommit.WriteMode }}"
 
 # KeysToMigratePerBlock controls how many EVM keys the in-flight migration
@@ -84,6 +92,10 @@ snapshot-interval = {{ .StateCommit.FlatKVConfig.SnapshotInterval }}
 # SnapshotKeepRecent defines how many old snapshots to keep besides the latest one.
 # 0 = keep only the current snapshot. Default: 2.
 snapshot-keep-recent = {{ .StateCommit.FlatKVConfig.SnapshotKeepRecent }}
+
+# EnableReadWriteMetrics emits estimated read/write counters for FlatKV's Pebble DBs.
+# Default: false.
+enable-read-write-metrics = {{ .StateCommit.FlatKVConfig.EnableReadWriteMetrics }}
 `
 
 // StateStoreConfigTemplate defines the configuration template for state-store
@@ -125,6 +137,10 @@ ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 # ImportNumWorkers defines the concurrency for state sync import
 # defaults to 1
 ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
+
+# EnableReadWriteMetrics emits estimated PebbleDB MVCC read/write counters.
+# Applies when ss-backend = "pebbledb". Default: false.
+ss-enable-read-write-metrics = {{ .StateStore.EnableReadWriteMetrics }}
 
 # EVMDBDirectory defines the directory for the optional EVM state-store DB(s).
 # If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
@@ -173,6 +189,17 @@ async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
 # Receipt retention is controlled by the global min-retain-blocks flag.
 # defaults to 600 seconds
 prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
+
+# EnableReadWriteMetrics emits estimated read/write counters for Pebble-backed
+# receipt storage.
+# Default: false.
+enable-read-write-metrics = {{ .ReceiptStore.EnableReadWriteMetrics }}
+
+# LogFilterParallelism bounds how many blocks a single eth_getLogs query scans
+# concurrently. Applies only when rs-backend = "littidx".
+# Set <= 0 to use the default.
+# defaults to 16
+log-filter-parallelism = {{ .ReceiptStore.LogFilterParallelism }}
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility
