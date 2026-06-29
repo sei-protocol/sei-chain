@@ -494,6 +494,16 @@ func (h *Handshaker) replayEvents(height int64) error {
 }
 
 func checkAppHashEqualsOneFromBlock(appHash []byte, block *types.Block) error {
+	// Shadow migration builds intentionally diverge from the canonical
+	// AppHash recorded in block headers (they move EVM data into FlatKV and
+	// append the evm_lattice to their local AppHash). The same build flag
+	// that relaxes block validation in state.validateBlock must also relax
+	// the handshake/replay checks here; otherwise `seid rollback`, which
+	// rebuilds Tendermint state.AppHash from the canonical block header,
+	// leaves the node unbootable because the app reports its local AppHash.
+	if types.SkipAppHashValidationForBuild() {
+		return nil
+	}
 	if !bytes.Equal(appHash, block.AppHash) {
 		return fmt.Errorf(`block.AppHash does not match AppHash after replay. Got '%X', expected '%X'.
 
@@ -504,6 +514,13 @@ Block: %v`,
 }
 
 func checkAppHashEqualsOneFromState(appHash []byte, state sm.State) error {
+	// See checkAppHashEqualsOneFromBlock: shadow migration builds skip the
+	// handshake AppHash comparison so a post-rollback restart is not blocked
+	// by the expected divergence between the app's local AppHash and the
+	// canonical AppHash that Tendermint state was rebuilt from.
+	if types.SkipAppHashValidationForBuild() {
+		return nil
+	}
 	if !bytes.Equal(appHash, state.AppHash) {
 		return fmt.Errorf(`state.AppHash does not match AppHash after replay. Got '%X', expected '%X'.
 
