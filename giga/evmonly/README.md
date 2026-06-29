@@ -34,6 +34,8 @@ The `evmonly` package currently provides:
   contract address, and effective gas price
 - a map-backed `MemoryState` for tests and early integration
 - fail-closed custom precompile placeholders plus an SDK-free staking precompile
+- a standalone load harness at `giga/evmonly/cmd/evmonly-loadtest` that feeds
+  generated transfer blocks into the executor with mock state and receipt sinks
 
 The executor accepts config for nonce checks, gas-price checks, minimum gas
 price, chain config, and the custom precompile registry. A nil chain config
