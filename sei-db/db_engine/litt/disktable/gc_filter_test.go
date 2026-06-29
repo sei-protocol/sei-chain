@@ -751,3 +751,67 @@ func TestExistsRequiresLiveSegment(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok)
 }
+
+// TestGCWatermarkAboveHighestSegmentFailsToOpen verifies that a gc-watermark file pointing above the highest
+// segment present on disk (the inconsistency a corrupted or externally-edited watermark file would produce)
+// makes NewDiskTable return an error rather than nil-dereferencing a missing segment during startup
+// purge/repair or boundary-key reads.
+func TestGCWatermarkAboveHighestSegmentFailsToOpen(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	tableName := "watermark-too-high"
+	logger := slog.Default()
+	keymapPath := filepath.Join(directory, keymap.KeymapDirectoryName)
+	tableRoot := filepath.Join(directory, tableName)
+
+	start := time.Unix(1_700_000_000, 0)
+	clock := func() time.Time { return start }
+
+	build := func(km keymap.Keymap, reload bool) (litt.ManagedTable, error) {
+		keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafePebbleDBKeymapType)
+		require.NoError(t, err)
+
+		config, err := litt.DefaultConfig(directory)
+		require.NoError(t, err)
+		config.TargetSegmentFileSize = math.MaxUint32
+		config.MaxSegmentKeyCount = 2
+		config.GCPeriod = time.Hour
+		config.Fsync = false
+
+		tableConfig := litt.DefaultTableConfig(tableName)
+		tableConfig.ShardingFactor = 1
+
+		runtimeConfig := litt.DefaultRuntimeConfig()
+		runtimeConfig.Clock = clock
+		runtimeConfig.Logger = logger
+
+		return NewDiskTable(
+			config, runtimeConfig, tableName, tableConfig, km, keymapPath, keymapTypeFile,
+			[]string{directory}, reload, nil)
+	}
+
+	// Session 1: write k0..k4 across several segments (MaxSegmentKeyCount=2), then clean Close.
+	km1, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	table, err := build(km1, true)
+	require.NoError(t, err)
+	for _, k := range []string{"k0", "k1", "k2", "k3", "k4"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+	require.NoError(t, table.Flush())
+	require.NoError(t, table.Close())
+
+	// Corrupt the durable gc-watermark to a value far above any segment on disk.
+	wmFile, err := LoadGCWatermarkFile(tableRoot)
+	require.NoError(t, err)
+	require.NoError(t, wmFile.Update(1000))
+
+	// Session 2: reopening must fail cleanly with a descriptive error, not panic.
+	km2, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	reopened, err := build(km2, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "gc-watermark")
+	require.Nil(t, reopened)
+}

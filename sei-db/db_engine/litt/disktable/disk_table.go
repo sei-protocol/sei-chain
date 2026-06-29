@@ -233,6 +233,19 @@ func NewDiskTable(
 		lowestReadableSegment = gcWatermarkFile.LowestReadableSegment()
 	}
 
+	// The gc-watermark must never point above the highest segment on disk. Reclamation removes a contiguous
+	// prefix, so the surviving segments [lowestSegmentIndex, highestSegmentIndex] are contiguous and all present
+	// in the map, and the mutable segment at highestSegmentIndex is never collected — so a readable floor at or
+	// below highestSegmentIndex always lands on a segment that exists. A value above it means the durable
+	// gc-watermark file is inconsistent with the segment files on disk (corruption or an external edit); refuse to
+	// start rather than nil-dereference a missing segment during keymap repair/purge or boundary-key reads.
+	if lowestReadableSegment > highestSegmentIndex {
+		return nil, fmt.Errorf(
+			"gc-watermark (lowest readable segment %d) exceeds highest segment %d on disk; "+
+				"the gc-watermark file is inconsistent with the segment files",
+			lowestReadableSegment, highestSegmentIndex)
+	}
+
 	if reloadKeymap {
 		runtimeConfig.Logger.Info("reloading keymap from segments")
 		err = table.reloadKeymap(segments, lowestReadableSegment, highestSegmentIndex)
@@ -650,6 +663,12 @@ func (d *DiskTable) purgeCollectedKeymapEntries(
 
 	for i := lowestSegmentIndex; i < lowestReadableSegment; i++ {
 		seg := segments[i]
+		if seg == nil {
+			// Should be impossible: collected-but-unreclaimed segments are a contiguous prefix and are all
+			// present in the map (the load-time gc-watermark check guarantees lowestReadableSegment is in range).
+			// Bubble up rather than nil-dereference if that invariant is ever violated.
+			return fmt.Errorf("segment %d missing while purging collected keymap entries", i)
+		}
 		if !seg.IsSealed() {
 			// Defensive: collected segments are always sealed, so they have durable keys to purge.
 			continue

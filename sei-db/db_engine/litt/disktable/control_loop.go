@@ -365,6 +365,11 @@ func (c *controlLoop) computeNewestPrimaryKey() ([]byte, error) {
 	floor := c.readableFloor()
 	for index := c.highestSegmentIndex; ; index-- {
 		seg := c.segments[index]
+		if seg == nil {
+			// Should be impossible: [floor, highestSegmentIndex] is a contiguous, fully-populated range. Bubble
+			// up rather than nil-dereference if that invariant is ever violated.
+			return nil, fmt.Errorf("segment %d missing while computing newest primary key", index)
+		}
 		if seg.IsSealed() {
 			keys, err := seg.GetKeys()
 			if err != nil {
@@ -393,6 +398,11 @@ func (c *controlLoop) computeOldestPrimaryKey() ([]byte, bool, error) {
 	// durably deleted and may linger in the map until reclaimed; reading them would resurrect collected keys.
 	for index := c.readableFloor(); index <= c.highestSegmentIndex; index++ {
 		seg := c.segments[index]
+		if seg == nil {
+			// Should be impossible: [readableFloor, highestSegmentIndex] is a contiguous, fully-populated range.
+			// Bubble up rather than nil-dereference if that invariant is ever violated.
+			return nil, false, fmt.Errorf("segment %d missing while computing oldest primary key", index)
+		}
 
 		if !seg.IsSealed() {
 			// The mutable segment cannot be read via GetKeys; fall back to the tracked first key.
