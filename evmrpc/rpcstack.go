@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"sort"
@@ -311,7 +312,11 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
 	if config.maxRequestBodyBytes > 0 {
-		srv.SetHTTPBodyLimit(int(config.maxRequestBodyBytes))
+		bodyLimit := config.maxRequestBodyBytes
+		if bodyLimit > math.MaxInt {
+			bodyLimit = math.MaxInt
+		}
+		srv.SetHTTPBodyLimit(int(bodyLimit))
 	}
 	logger.Info("Registering apis for evm rpc")
 	if err := RegisterApis(apis, config.Modules, srv); err != nil {
