@@ -167,9 +167,14 @@ func newKeymapManager(
 
 // publishDeletionWatermark notifies the control loop that every segment up to and including watermark has had
 // its keymap entries durably deleted. The send is fire-and-forget and never blocks the manager (blocking here
-// could deadlock the seal path). If the channel is full the update is dropped: the watermark is monotonic and
-// the control loop drains it each GC pass, so a later publish delivers an equal-or-newer value. A dropped
-// update only delays file deletion, which is always safe.
+// could deadlock the seal path). If the channel is full the update is dropped. Dropping is always safe — the
+// watermark is monotonic, so it can never cause a premature file deletion — but recovery of a dropped value
+// is not automatic: it is only superseded when a LATER delete publishes a higher watermark. Under continued
+// collection that happens promptly (self-healing); if collection then goes idle, the files of the segments
+// covered by the dropped value stay unreclaimed until the next collection advances past them. In practice the
+// channel (KeymapManagerWatermarkChannelSize, default 1024) is sized so a drop requires more segments
+// collected in one pass than the control loop has drained — rare outside an explicit RunGC over a huge
+// backlog (see RunGC).
 func (m *keymapManager) publishDeletionWatermark(watermark int64) {
 	select {
 	case m.deletionWatermarkChan <- watermark:

@@ -141,8 +141,11 @@ type Config struct {
 
 	// The capacity of the channel on which the keymap manager publishes its deletion watermark to the control
 	// loop (which gates garbage collection of segment files). Sends are fire-and-forget: if the channel is full
-	// the update is dropped, since the watermark is monotonic and a later publish delivers an equal-or-newer
-	// value. A larger buffer makes drops (and the brief GC lag they cause) less likely. The default is 1024.
+	// the update is dropped. The watermark is monotonic so a drop is always safe (it never causes a premature
+	// file deletion), but a dropped value is only superseded by a subsequent, higher publish — so a single
+	// pass that collects more than this many segments before the control loop drains may defer reclaiming some
+	// files until a later collection. Sizing this at or above the largest expected single-pass collection keeps
+	// reclamation complete in one pass (relevant to explicit RunGC). The default is 1024.
 	KeymapManagerWatermarkChannelSize int
 }
 

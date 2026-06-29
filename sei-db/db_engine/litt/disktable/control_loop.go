@@ -121,8 +121,9 @@ type controlLoop struct {
 	mutableFirstPrimaryKey []byte
 
 	// deletionWatermarkChan receives deletion-watermark updates published by the keymap manager (see
-	// keymapManager.publishDeletionWatermark). The control loop drains it into keymapDeletionWatermark before
-	// each GC pass.
+	// keymapManager.publishDeletionWatermark). The control loop drains it into keymapDeletionWatermark (via
+	// refreshDeletionWatermark) before each GC pass and before serving iterator-open and boundary-key reads, so
+	// those reads floor at the freshest readable segment.
 	deletionWatermarkChan chan int64
 
 	// keymapDeletionWatermark is the highest segment index whose keymap entries the manager has durably
