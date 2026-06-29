@@ -626,16 +626,20 @@ func init() {
 		_ = store.SetEarliestVersion(1)
 	}
 	ctxProvider := func(height int64) sdk.Context {
+		// All branches set ClosestUpgradeName so any upgrade-name-sensitive
+		// gate (e.g. isReceiptFromAnteError) hits the production post-v5.8.0
+		// path; see LatestCtxUpgradeName above.
 		if height == MockHeight2 {
-			return MultiTxCtx.WithIsTracing(true)
+			return MultiTxCtx.WithIsTracing(true).WithClosestUpgradeName(LatestCtxUpgradeName)
 		}
 		if height == evmrpc.LatestCtxHeight {
-			// See LatestCtxUpgradeName above — make the latest ctx look
-			// post-v5.8.0 so any consumer that branches on upgrade name
-			// sees the production path, not the pre-v5.8.0 fallback.
-			return baseCtx.WithIsTracing(true).WithClosestUpgradeName(LatestCtxUpgradeName)
+			// Report MockHeight103 so the WatermarkManager's latest watermark
+			// covers every block the mocks produce — taking the minimum
+			// across height sources, a stale height here would cap log
+			// queries below the mocked blocks.
+			return baseCtx.WithBlockHeight(MockHeight103).WithIsTracing(true).WithClosestUpgradeName(LatestCtxUpgradeName)
 		}
-		return Ctx.WithIsTracing(true)
+		return Ctx.WithIsTracing(true).WithClosestUpgradeName(LatestCtxUpgradeName)
 	}
 	// Start good http server
 	goodConfig := evmrpcconfig.DefaultConfig
@@ -1078,7 +1082,13 @@ func setupLogs() {
 			Topics:    []string{"0x0000000000000000000000000000000000000000000000000000000000000234", "0x0000000000000000000000000000000000000000000000000000000000000789"},
 			Synthetic: true,
 		}},
-		EffectiveGasPrice: 0,
+		// Non-zero EffectiveGasPrice avoids the Status==0 && EGP==0
+		// ante-error nonce-continuity check in filterTransactions, which
+		// would otherwise wrongly exclude this synthetic receipt because the
+		// test sender's nonce state isn't seeded for synthetic-tx ordering.
+		// The TxType=ShellEVMTxType marker still gates eth-namespace
+		// inclusion, so eth-side tests keep filtering it out.
+		EffectiveGasPrice: 100,
 	})
 	// Also create a normal (non-synthetic) receipt in block 100 with two logs
 	CtxBlock100 := Ctx.WithBlockHeight(MockHeight100)
@@ -1098,18 +1108,35 @@ func setupLogs() {
 		EffectiveGasPrice: 100,
 	})
 	CtxMock = Ctx.WithBlockHeight(MockHeight103)
+	// Synthetic log at latest (MockHeight103) so default-range eth_getLogs
+	// queries — which resolve to [latest, latest] — can exercise the
+	// sei-namespace synthetic-inclusion path.
+	bloomSynth103 := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111116"),
+		Topics: []common.Hash{
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234"),
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000789"),
+		},
+	}}})
 	EVMKeeper.MockReceipt(CtxMock, common.HexToHash(TestSyntheticTxHash), &types.Receipt{
 		TxType:           types.ShellEVMTxType,
 		BlockNumber:      MockHeight103,
 		TransactionIndex: 2,
 		TxHashHex:        TestSyntheticTxHash,
+		LogsBloom:        bloomSynth103[:],
+		Logs: []*types.Log{{
+			Address:   "0x1111111111111111111111111111111111111116",
+			Topics:    []string{"0x0000000000000000000000000000000000000000000000000000000000000234", "0x0000000000000000000000000000000000000000000000000000000000000789"},
+			Synthetic: true,
+		}},
+		// Non-zero EGP so this synthetic receipt isn't excluded by the
+		// Status==0 && EGP==0 ante-error nonce-continuity gate in
+		// filterTransactions; see the block-100 synth receipt above for the
+		// same rationale.
+		EffectiveGasPrice: 100,
 	})
-	CtxDebugTrace := Ctx.WithBlockHeight(MockHeight8)
-	EVMKeeper.MockReceipt(CtxDebugTrace, common.HexToHash(DebugTraceHashHex), &types.Receipt{
-		BlockNumber:      MockHeight8,
-		TransactionIndex: 0,
-		TxHashHex:        DebugTraceHashHex,
-	})
+	// DebugTraceHashHex == tx1.Hash(); tx1's receipt (mocked earlier with full
+	// Logs) is what debug_traceTransaction and log-filter queries both rely on.
 	CtxDebugTracePanic := Ctx.WithBlockHeight(MockHeight103)
 	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestNonPanicTxHash), &types.Receipt{
 		BlockNumber:       MockHeight103,
