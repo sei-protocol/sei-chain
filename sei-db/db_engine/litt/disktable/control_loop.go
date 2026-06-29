@@ -243,6 +243,20 @@ func (c *controlLoop) refreshDeletionWatermark() {
 	}
 }
 
+// readableFloor returns the lowest segment index that is still logically readable. Segments below it have had
+// their keymap entries durably deleted (their files may linger in the segments map until the control loop
+// reclaims them — notably right after a crash, before the first reclamation pass), so reading them directly
+// would resurrect garbage-collected keys. Iteration and boundary-key queries must start no lower than this.
+//
+// keymapDeletionWatermark is the highest segment index whose keymap entries are durably gone; it is seeded at
+// construction to lowestReadableSegment-1 (the durable gc-watermark) and advanced as deletes are applied. The
+// floor is keymapDeletionWatermark+1, which is always >= 0 (the watermark is >= -1) and >= lowestSegmentIndex
+// (deleteCollectedSegments only advances lowestSegmentIndex up to the watermark). Control-loop goroutine only;
+// callers should refreshDeletionWatermark() first to floor against the freshest value.
+func (c *controlLoop) readableFloor() uint32 {
+	return uint32(c.keymapDeletionWatermark + 1) //nolint:gosec // watermark >= -1, so floor >= 0
+}
+
 // handleOpenIteratorRequest handles a request to open an iterator. It seals the current mutable segment
 // (if it has any keys) so that all keys in scope are readable, reserves each segment the iterator will walk,
 // and returns the ordered snapshot of those sealed segments.
@@ -263,14 +277,18 @@ func (c *controlLoop) handleOpenIteratorRequest(req *controlLoopOpenIteratorRequ
 		}
 	}
 
-	// The in-scope segments are all sealed segments: [lowestSegmentIndex, highestSegmentIndex). The
-	// highest segment is the (now empty) mutable segment and is excluded. Reserve each so its files survive
-	// until the iterator closes, even if GC collects it in the meantime. Reserving here on the control loop
-	// cannot race deleteCollectedSegments (also on the control loop), so every snapshot segment is live and
-	// Reserve always succeeds.
-	lowest := c.lowestSegmentIndex.Load()
-	segs := make([]*segment.Segment, 0, c.highestSegmentIndex-lowest)
-	for index := lowest; index < c.highestSegmentIndex; index++ {
+	// The in-scope segments are the sealed, still-readable segments: [readableFloor, highestSegmentIndex).
+	// The highest segment is the (now empty) mutable segment and is excluded. Segments below readableFloor
+	// have had their keymap entries durably deleted but may still linger in the map until the control loop
+	// reclaims their files; including them would surface garbage-collected keys (iterators read segment files
+	// directly, bypassing the keymap), so the snapshot starts at the floor, not at lowestSegmentIndex. Reserve
+	// each so its files survive until the iterator closes, even if GC collects it in the meantime. Reserving
+	// here on the control loop cannot race deleteCollectedSegments (also on the control loop), so every
+	// snapshot segment is live and Reserve always succeeds.
+	c.refreshDeletionWatermark()
+	floor := c.readableFloor()
+	segs := make([]*segment.Segment, 0, c.highestSegmentIndex-floor)
+	for index := floor; index < c.highestSegmentIndex; index++ {
 		seg := c.segments[index]
 		if !seg.Reserve() {
 			c.errorMonitor.Panic(fmt.Errorf("failed to reserve segment %d for iterator", index))
@@ -298,6 +316,10 @@ func (c *controlLoop) handleCloseIteratorRequest(req *controlLoopCloseIteratorRe
 // handleBoundaryKeysRequest handles a request for the oldest and newest primary keys.
 func (c *controlLoop) handleBoundaryKeysRequest(req *controlLoopBoundaryKeysRequest) {
 	resp := &boundaryKeysResponse{}
+
+	// Pick up the freshest deletion watermark so the boundary computations floor at the lowest still-readable
+	// segment (readableFloor) and never report a key from a logically-deleted-but-not-yet-reclaimed segment.
+	c.refreshDeletionWatermark()
 
 	oldest, oldestExists, err := c.computeOldestPrimaryKey()
 	if err != nil {
@@ -337,7 +359,9 @@ func (c *controlLoop) computeNewestPrimaryKey() ([]byte, error) {
 	}
 
 	// No write has been processed this session, so the mutable (highest) segment is empty and the
-	// newest key lives in the highest sealed segment. Walk downward and return its last primary key.
+	// newest key lives in the highest sealed segment. Walk downward and return its last primary key, stopping
+	// at readableFloor so a logically-deleted-but-not-yet-reclaimed segment is never reported.
+	floor := c.readableFloor()
 	for index := c.highestSegmentIndex; ; index-- {
 		seg := c.segments[index]
 		if seg.IsSealed() {
@@ -351,7 +375,7 @@ func (c *controlLoop) computeNewestPrimaryKey() ([]byte, error) {
 				}
 			}
 		}
-		if index == c.lowestSegmentIndex.Load() {
+		if index == floor {
 			break
 		}
 	}
@@ -360,11 +384,13 @@ func (c *controlLoop) computeNewestPrimaryKey() ([]byte, error) {
 }
 
 // computeOldestPrimaryKey returns the oldest non-deleted primary key in the table. It walks segments from
-// the lowest index upward, returning the first primary key it finds. Sealed segments are read via
-// GetKeys; if the lowest remaining segment is the (unsealed) mutable segment, the in-memory
+// the lowest readable index (readableFloor) upward, returning the first primary key it finds. Sealed segments
+// are read via GetKeys; if the lowest readable segment is the (unsealed) mutable segment, the in-memory
 // mutableFirstPrimaryKey is used instead.
 func (c *controlLoop) computeOldestPrimaryKey() ([]byte, bool, error) {
-	for index := c.lowestSegmentIndex.Load(); index <= c.highestSegmentIndex; index++ {
+	// Start at readableFloor, not lowestSegmentIndex: segments below the floor have had their keymap entries
+	// durably deleted and may linger in the map until reclaimed; reading them would resurrect collected keys.
+	for index := c.readableFloor(); index <= c.highestSegmentIndex; index++ {
 		seg := c.segments[index]
 
 		if !seg.IsSealed() {

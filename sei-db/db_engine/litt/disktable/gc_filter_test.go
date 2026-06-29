@@ -478,3 +478,149 @@ func TestGCWatermarkPreventsResurrectionAfterCrash(t *testing.T) {
 	require.True(t, ok, "rescued orphan key k4 should be readable")
 	require.Equal(t, []byte("value-k4"), v)
 }
+
+// TestReadsSkipCollectedSegmentsBeforeReclaim is the regression test for Finding 1 on a live table. After a
+// segment is logically deleted (its keymap entries durably removed and the gc-watermark advanced) but before
+// the control loop reclaims its files, the segment still lives in the segments map. Iteration reads segment
+// files directly (bypassing the keymap), and GetOldestKey walks the map, so without flooring at the deletion
+// watermark they would surface the garbage-collected keys. This drives the runtime path: the deletion
+// watermark is advanced at run time and refreshDeletionWatermark must pick it up at read time.
+func TestReadsSkipCollectedSegmentsBeforeReclaim(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	start := time.Unix(1_700_000_000, 0)
+	var fakeTime atomic.Pointer[time.Time]
+	fakeTime.Store(&start)
+	clock := func() time.Time { return *fakeTime.Load() }
+
+	// Seal after every 2 keys: seg0[k0,k1], seg1[k2,k3], seg2(mutable)[k4].
+	table := buildGCFilterTable(t, clock, "iter-live-gc", directory, 2, nil)
+	defer func() { require.NoError(t, table.Close()) }()
+	d := table.(*DiskTable)
+
+	require.NoError(t, table.SetTTL(10*time.Second))
+	for _, k := range []string{"k0", "k1", "k2", "k3", "k4"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+	require.NoError(t, table.Flush())
+
+	// Expire and logically delete the sealed segments (advance the durable gc-watermark, apply the keymap
+	// deletes) WITHOUT reclaiming their files: seg0/seg1 are now logically deleted but still in the map.
+	expired := start.Add(time.Hour)
+	fakeTime.Store(&expired)
+	require.NoError(t, d.gcManager.runOnce())
+	require.NoError(t, d.keymapManager.sync())
+
+	// Iteration (forward and reverse) and GetOldestKey must skip the collected segments, even though their
+	// files have not been reclaimed yet.
+	fwd, err := table.Iterator(false)
+	require.NoError(t, err)
+	require.Equal(t, []string{"k4"}, entryKeys(drainIterator(t, fwd)))
+	require.NoError(t, fwd.Close())
+
+	rev, err := table.Iterator(true)
+	require.NoError(t, err)
+	require.Equal(t, []string{"k4"}, entryKeys(drainIterator(t, rev)))
+	require.NoError(t, rev.Close())
+
+	oldest, ok, err := table.GetOldestKey()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "k4", string(oldest), "GetOldestKey must not report a collected key")
+}
+
+// TestReadsSkipCollectedSegmentsAfterCrash is the regression test for Finding 1 across a crash. It reproduces
+// the crashed-mid-collection state (a segment's keymap entries durably deleted and the gc-watermark advanced
+// past it, but its files not yet removed), then restarts. On restart the leftover segment files are present in
+// the map and the control loop has not yet run a reclamation pass, so iteration / GetOldestKey would resurrect
+// the garbage-collected keys unless they floor at the gc-watermark seeded at construction.
+func TestReadsSkipCollectedSegmentsAfterCrash(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	tableName := "iter-crash-gc"
+	logger := slog.Default()
+	keymapPath := filepath.Join(directory, keymap.KeymapDirectoryName)
+
+	start := time.Unix(1_700_000_000, 0)
+	var fakeTime atomic.Pointer[time.Time]
+	fakeTime.Store(&start)
+	clock := func() time.Time { return *fakeTime.Load() }
+
+	build := func(km keymap.Keymap, reload bool) *DiskTable {
+		keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafePebbleDBKeymapType)
+		require.NoError(t, err)
+
+		config, err := litt.DefaultConfig(directory)
+		require.NoError(t, err)
+		config.TargetSegmentFileSize = math.MaxUint32
+		config.MaxSegmentKeyCount = 2
+		config.GCPeriod = time.Hour
+		config.Fsync = false
+
+		tableConfig := litt.DefaultTableConfig(tableName)
+		tableConfig.ShardingFactor = 1
+
+		runtimeConfig := litt.DefaultRuntimeConfig()
+		runtimeConfig.Clock = clock
+		runtimeConfig.Logger = logger
+
+		table, err := NewDiskTable(
+			config, runtimeConfig, tableName, tableConfig, km, keymapPath, keymapTypeFile,
+			[]string{directory}, reload, nil)
+		require.NoError(t, err)
+		return table.(*DiskTable)
+	}
+
+	// Session 1: write k0..k4 -> seg0[k0,k1], seg1[k2,k3], seg2(mutable)[k4]. Expire and logically delete the
+	// sealed segments, then Close WITHOUT reclaiming their files (a clean Close does not delete segment files),
+	// leaving seg0/seg1 on disk with the gc-watermark advanced to 2.
+	km1, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	table := build(km1, true)
+	require.NoError(t, table.SetTTL(10*time.Second))
+	for _, k := range []string{"k0", "k1", "k2", "k3", "k4"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+	require.NoError(t, table.Flush())
+
+	expired := start.Add(time.Hour)
+	fakeTime.Store(&expired)
+	require.NoError(t, table.gcManager.runOnce())
+	require.NoError(t, table.keymapManager.sync())
+	require.NoError(t, table.Close())
+
+	wmFile, err := LoadGCWatermarkFile(filepath.Join(directory, tableName))
+	require.NoError(t, err)
+	require.True(t, wmFile.IsDefined())
+	require.Equal(t, uint32(2), wmFile.LowestReadableSegment())
+
+	// Session 2: reopen on the same directory (repair path). seg0/seg1 files are still present but below the
+	// durable gc-watermark; reads must not surface their keys.
+	km2, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	reopened := build(km2, false)
+	defer func() { require.NoError(t, reopened.Close()) }()
+
+	fwd, err := reopened.Iterator(false)
+	require.NoError(t, err)
+	require.Equal(t, []string{"k4"}, entryKeys(drainIterator(t, fwd)))
+	require.NoError(t, fwd.Close())
+
+	rev, err := reopened.Iterator(true)
+	require.NoError(t, err)
+	require.Equal(t, []string{"k4"}, entryKeys(drainIterator(t, rev)))
+	require.NoError(t, rev.Close())
+
+	oldest, ok, err := reopened.GetOldestKey()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "k4", string(oldest), "GetOldestKey must not resurrect a collected key after restart")
+
+	// Sanity: the collected keys are gone from point reads too.
+	_, ok, err = reopened.Get([]byte("k0"))
+	require.NoError(t, err)
+	require.False(t, ok)
+}
