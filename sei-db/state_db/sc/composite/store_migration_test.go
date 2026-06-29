@@ -1,6 +1,7 @@
 package composite
 
 import (
+	"encoding/hex"
 	"sort"
 	"testing"
 
@@ -886,4 +887,308 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 	t.Cleanup(func() { _ = iter.Close() })
 	require.False(t, iter.Valid(),
 		"post-flip memiavl evm tree must remain empty (EVM writes route to flatkv)")
+}
+
+// cloneCommitInfo deep-copies a *proto.CommitInfo so a captured snapshot
+// survives later commits / reopens that mutate the live store.
+func cloneCommitInfo(ci *proto.CommitInfo) *proto.CommitInfo {
+	if ci == nil {
+		return nil
+	}
+	out := &proto.CommitInfo{
+		Version:    ci.Version,
+		StoreInfos: make([]proto.StoreInfo, len(ci.StoreInfos)),
+	}
+	for i, si := range ci.StoreInfos {
+		out.StoreInfos[i] = proto.StoreInfo{
+			Name: si.Name,
+			CommitId: proto.CommitID{
+				Version: si.CommitId.Version,
+				Hash:    append([]byte(nil), si.CommitId.Hash...),
+			},
+		}
+	}
+	return out
+}
+
+// requireCommitInfoEqual asserts two commit infos carry the same version
+// and the same per-store hashes. It compares name->hex maps so a failure
+// names exactly which store (e.g. evm_lattice vs a memiavl module)
+// diverged and by how much, rather than dumping opaque byte slices.
+func requireCommitInfoEqual(t *testing.T, want, got *proto.CommitInfo, msg string) {
+	t.Helper()
+	require.NotNilf(t, want, "%s: no canonical commit info captured", msg)
+	require.NotNilf(t, got, "%s: got nil commit info", msg)
+	require.Equalf(t, want.Version, got.Version, "%s: version", msg)
+
+	hashByName := func(ci *proto.CommitInfo) map[string]string {
+		m := make(map[string]string, len(ci.StoreInfos))
+		for _, si := range ci.StoreInfos {
+			m[si.Name] = hex.EncodeToString(si.CommitId.Hash)
+		}
+		return m
+	}
+	require.Equalf(t, hashByName(want), hashByName(got), "%s: per-store hashes", msg)
+}
+
+// rollbackSnapSettings selects the snapshot cadence applied to both
+// backends in the rollback reproduction test. Zero disables periodic
+// snapshots (everything replays from the genesis snapshot); a small
+// positive interval forces snapshots mid-run so rollback must seek a
+// snapshot below the target and discard snapshots above it.
+type rollbackSnapSettings struct {
+	memiavlInterval uint32
+	flatkvInterval  uint32
+}
+
+// openCompositeForRollback opens a composite store with deterministic,
+// synchronous commit settings and the requested snapshot cadence. Used
+// by the rollback reproduction test so the same forward/rollback driver
+// runs with and without snapshot boundaries straddling the target.
+func openCompositeForRollback(
+	t *testing.T, dir string, mode config.WriteMode, batch int, snap rollbackSnapSettings,
+) *CompositeCommitStore {
+	t.Helper()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = mode
+	cfg.KeysToMigratePerBlock = batch
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cfg.MemIAVLConfig.SnapshotInterval = snap.memiavlInterval
+	// Disable the time throttle so snapshots fire on the block interval
+	// alone, and keep several so the rollback target sits below the
+	// newest snapshot but above an older retained one.
+	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	cfg.MemIAVLConfig.SnapshotKeepRecent = 5
+	cfg.FlatKVConfig.SnapshotInterval = snap.flatkvInterval
+	cfg.FlatKVConfig.SnapshotKeepRecent = 5
+
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	return cs
+}
+
+// openCompositeWithStartHeight is openCompositeForRollback plus an
+// explicit MigrateEVMStartHeight gate, used to exercise rollbacks that
+// cross the memiavl-only -> migrate_evm activation boundary.
+func openCompositeWithStartHeight(
+	t *testing.T, dir string, mode config.WriteMode, batch int, startHeight int64,
+) *CompositeCommitStore {
+	t.Helper()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = mode
+	cfg.KeysToMigratePerBlock = batch
+	cfg.MigrateEVMStartHeight = startHeight
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	return cs
+}
+
+// TestComposite_MigrateEVM_RollbackAcrossStartHeightBoundary reproduces
+// the suspected hstart-2 rollback failure. With sc-migrate-evm-start-height
+// set, blocks before H_start commit a memiavl-only AppHash (the evm_lattice
+// is suppressed so the node stays compatible with memiavl-only peers); at
+// H_start the migration boundary opens and every later AppHash includes
+// the lattice. CompositeCommitStore.latticeAppendLatched latches to true
+// the first time it observes the open boundary and is NEVER reset by
+// Rollback. So a node opened at a post-H_start height (latch=true) that is
+// rolled back to a pre-H_start height will wrongly append the lattice to
+// LastCommitInfo, producing a non-canonical AppHash and the
+// "Did you reset Tendermint..." handshake failure on restart.
+func TestComposite_MigrateEVM_RollbackAcrossStartHeightBoundary(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0x5701)
+
+	const phase1Blocks = 8
+	const batch = 4
+	// H_start sits a few blocks into phase 2 so there are committed
+	// versions on both sides of the activation boundary.
+	const startHeight = int64(phase1Blocks + 3) // version 11
+
+	// Phase 1: MemiavlOnly bootstrap.
+	cs := openCompositeWithStartHeight(t, dir, config.MemiavlOnly, batch, 0)
+	for i := 0; i < phase1Blocks; i++ {
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(30, 0, 0, 5, 0)))
+		_, err := cs.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs.Close())
+
+	// Phase 2: MigrateEVM with a deferred start gate. Capture the
+	// canonical commit info at each version. Versions <= startHeight-1
+	// must NOT carry an evm_lattice; versions >= startHeight must.
+	cs = openCompositeWithStartHeight(t, dir, config.MigrateEVM, batch, startHeight)
+	canonical := map[int64]*proto.CommitInfo{}
+	const phase2Blocks = 10
+	for i := 0; i < phase2Blocks; i++ {
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(8, 4, 1, 2, 1)))
+		v, err := cs.Commit()
+		require.NoError(t, err)
+		canonical[v] = cloneCommitInfo(cs.LastCommitInfo())
+	}
+	finalVer := cs.Version()
+	require.NoError(t, cs.Close())
+
+	// Pick a rollback target strictly below H_start: its canonical
+	// AppHash is memiavl-only (no lattice).
+	target := startHeight - 1 // version 10, pre-activation
+	require.Contains(t, canonical, target)
+	require.False(t, hasLattice(canonical[target]),
+		"sanity: canonical pre-H_start commit info must not contain evm_lattice")
+	require.Contains(t, canonical, finalVer)
+	require.True(t, hasLattice(canonical[finalVer]),
+		"sanity: canonical post-H_start commit info must contain evm_lattice")
+
+	// Reopen fresh at the latest (post-H_start) height, then roll back
+	// across the boundary exactly as `seid rollback` would.
+	//
+	// The CLI reads the latest commit info before rolling back (it
+	// prints "Initial App state height=.. hash=.."), and
+	// rootmulti.loadVersion itself calls scStore.LastCommitInfo()
+	// during load. Either path observes the open migration boundary at
+	// the post-H_start height and latches latticeAppendLatched=true.
+	// We reproduce that read here so the rollback runs with the flag
+	// already latched, as it is in production.
+	cs = openCompositeWithStartHeight(t, dir, config.MigrateEVM, batch, startHeight)
+	preRollback := cs.LastCommitInfo()
+	require.True(t, hasLattice(preRollback),
+		"sanity: latest commit info is post-H_start and must carry the lattice (this latches the flag)")
+
+	require.NoError(t, cs.Rollback(target))
+	require.Equal(t, target, cs.Version())
+
+	// In-process post-rollback view: the AppHash the `seid rollback` CLI
+	// prints and the value rootmulti caches in rs.lastCommitInfo. Before
+	// the latch reset in Rollback this wrongly included the evm_lattice
+	// for a pre-H_start height.
+	require.False(t, hasLattice(cs.LastCommitInfo()),
+		"post-rollback commit info for a pre-H_start height must not carry evm_lattice")
+	requireCommitInfoEqual(t, canonical[target], cs.LastCommitInfo(),
+		"post-rollback LastCommitInfo across the H_start boundary (same process)")
+	require.NoError(t, cs.Close())
+
+	// Post-restart view: the AppHash `seid start` hands to Tendermint.
+	cs = openCompositeWithStartHeight(t, dir, config.MigrateEVM, batch, startHeight)
+	defer func() { _ = cs.Close() }()
+	require.Equal(t, target, cs.Version())
+	requireCommitInfoEqual(t, canonical[target], cs.LastCommitInfo(),
+		"post-restart LastCommitInfo across the H_start boundary (fresh process)")
+}
+
+// hasLattice reports whether a commit info carries the synthetic
+// evm_lattice store info contributed by the flatkv backend.
+func hasLattice(ci *proto.CommitInfo) bool {
+	if ci == nil {
+		return false
+	}
+	for _, si := range ci.StoreInfos {
+		if si.Name == "evm_lattice" {
+			return true
+		}
+	}
+	return false
+}
+
+// TestComposite_MigrateEVM_RollbackRestoresCanonicalCommitInfo pins the
+// invariant that `seid rollback` violated on the mid-migration hstart-2
+// node: rolling a migrate_evm composite store back to version T must
+// reproduce the exact commit info (and therefore AppHash) the chain
+// committed at T during forward progress. If the post-rollback
+// LastCommitInfo diverges, Tendermint's handshake at restart fails with
+// "Did you reset Tendermint without resetting your application's data?"
+// because the app's AppHash no longer matches the value Tendermint
+// recorded for that height.
+//
+// The test captures the canonical commit info at every committed version
+// during forward migration, then reopens fresh (mirroring the CLI
+// constructing the app and loading latest), rolls back into the middle
+// of the run, and asserts the commit info matches — both immediately
+// after Rollback (the hash the CLI prints) and after a subsequent reopen
+// (the hash `seid start` hands to Tendermint).
+//
+// The snapshots_across_boundary subtest reproduces the production
+// conditions most likely to break rollback: both backends took periodic
+// snapshots, so the rollback target lands between an older retained
+// snapshot and newer snapshots that must be discarded and replayed past.
+func TestComposite_MigrateEVM_RollbackRestoresCanonicalCommitInfo(t *testing.T) {
+	cases := []struct {
+		name string
+		snap rollbackSnapSettings
+	}{
+		{name: "no_periodic_snapshots", snap: rollbackSnapSettings{}},
+		{name: "snapshots_across_boundary", snap: rollbackSnapSettings{memiavlInterval: 2, flatkvInterval: 2}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			workload := newMigrationWorkload(0x5701)
+
+			const phase1Blocks = 8
+			const phase2Blocks = 16
+			const batch = 4
+
+			// Phase 1: MemiavlOnly bootstrap so there is pre-migration
+			// state living on memiavl when the boundary opens.
+			cs := openCompositeForRollback(t, dir, config.MemiavlOnly, batch, tc.snap)
+			for i := 0; i < phase1Blocks; i++ {
+				require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(30, 0, 0, 5, 0)))
+				_, err := cs.Commit()
+				require.NoError(t, err)
+			}
+			require.NoError(t, cs.Close())
+
+			// Phase 2: MigrateEVM. Record the canonical commit info at
+			// each committed version. A small batch relative to the live
+			// EVM key count keeps the migration in progress across the
+			// whole run, so every captured version carries the
+			// evm_lattice store info.
+			cs = openCompositeForRollback(t, dir, config.MigrateEVM, batch, tc.snap)
+			canonical := map[int64]*proto.CommitInfo{}
+			for i := 0; i < phase2Blocks; i++ {
+				require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(8, 4, 1, 2, 1)))
+				v, err := cs.Commit()
+				require.NoError(t, err)
+				canonical[v] = cloneCommitInfo(cs.LastCommitInfo())
+			}
+
+			done, err := migration.IsAtVersion(flatKVReaderFor(cs), uint64(migration.Version1_MigrateEVM))
+			require.NoError(t, err)
+			require.False(t, done,
+				"migration must still be in progress for this test to exercise the migrate_evm rollback path")
+
+			finalVer := cs.Version()
+			require.NoError(t, cs.Close())
+
+			target := finalVer - 5
+			require.Contains(t, canonical, target, "target must be a captured version")
+
+			// Reopen fresh, mirroring `seid rollback` building the app
+			// via appCreator and LoadVersion(0), then perform the
+			// rollback exactly as rootmulti.RollbackToVersion does.
+			cs = openCompositeForRollback(t, dir, config.MigrateEVM, batch, tc.snap)
+			require.NoError(t, cs.Rollback(target))
+			require.Equal(t, target, cs.Version())
+
+			requireCommitInfoEqual(t, canonical[target], cs.LastCommitInfo(),
+				"post-rollback LastCommitInfo (the AppHash the CLI prints)")
+			require.NoError(t, cs.Close())
+
+			// Reopen once more, mirroring `seid start` after the
+			// rollback. The AppHash Tendermint validates during the
+			// handshake is derived from this freshly-loaded
+			// LastCommitInfo.
+			cs = openCompositeForRollback(t, dir, config.MigrateEVM, batch, tc.snap)
+			defer func() { _ = cs.Close() }()
+			require.Equal(t, target, cs.Version())
+			requireCommitInfoEqual(t, canonical[target], cs.LastCommitInfo(),
+				"post-restart LastCommitInfo (the AppHash `seid start` hands to Tendermint)")
+		})
+	}
 }

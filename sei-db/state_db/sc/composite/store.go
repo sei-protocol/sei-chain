@@ -827,6 +827,26 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 		}
 	}
 
+	// Clear the sticky lattice-append latch so the next LastCommitInfo /
+	// WorkingCommitInfo re-derives the append decision from the
+	// just-rolled-back on-disk migration boundary. Rollback can move the
+	// boundary backwards across the MigrateEVMStartHeight activation
+	// point: a store opened at a post-H_start height latches the flag to
+	// true (the boundary was in_progress), but the rolled-back height may
+	// predate H_start, where the canonical AppHash is memiavl-only and
+	// must NOT carry the evm_lattice. Without this reset the in-process
+	// post-rollback commit info wrongly includes the lattice and diverges
+	// from the canonical AppHash for the target height (the value the
+	// `seid rollback` CLI prints, and the cached rs.lastCommitInfo in
+	// rootmulti). shouldAppendLatticeHash re-latches correctly on the
+	// next call against the new boundary state.
+	cs.latticeAppendLatched.Store(false)
+
+	// Rollback is an offline operation, so no commit cycle is in flight;
+	// clear the per-block migration-advance gate defensively so a
+	// subsequent live commit starts from a clean slate.
+	cs.migrationAdvancedThisCommit = false
+
 	return nil
 }
 
