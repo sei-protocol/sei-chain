@@ -7,11 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -28,9 +26,10 @@ type controlLoop struct {
 	// controllerChannel is the channel for messages sent to the control loop.
 	controllerChannel chan any
 
-	// The index of the lowest numbered segment. After initial creation, only the garbage collection
-	// thread is permitted to read/write this value for the sake of thread safety.
-	lowestSegmentIndex uint32
+	// The index of the lowest numbered segment. It is advanced only by the control loop, in
+	// deleteCollectedSegments, as collected segments' files are removed. It is atomic because the GC manager
+	// goroutine reads it while choosing segments to collect (see gcManager.collectExpiredSegments).
+	lowestSegmentIndex atomic.Uint32
 
 	// The index of the highest numbered segment. All writes are applied to this segment.
 	highestSegmentIndex uint32
@@ -102,32 +101,13 @@ type controlLoop struct {
 	// The goroutine responsible for blocking on flush operations.
 	flushLoop *flushLoop
 
-	// garbageCollectionPeriod is the period at which garbage collection is run.
+	// garbageCollectionPeriod is the period at which the control loop reclaims collected segments' files. The GC
+	// manager schedules the collection itself on its own ticker of the same period.
 	garbageCollectionPeriod time.Duration
 
-	// gcFilter, if non-nil, is consulted before a TTL-expired segment is deleted. A segment may only be
-	// deleted once gcFilter returns true for every key in its key file. If nil, only TTL determines GC
-	// eligibility. Only invoked from the control loop goroutine.
-	gcFilter litt.GCFilter
-
-	// The following three fields form a resumable cursor used by gcFilter scanning. When gcFilter blocks
-	// (returns false) on a key, GC stops and remembers its position so that the next GC pass resumes where
-	// it left off instead of re-scanning keys already known to pass. The cursor is scoped to a single
-	// segment (always the current lowestSegmentIndex, since segments are deleted strictly in order), so it
-	// self-invalidates when the lowest segment advances.
-
-	// gcCursorSegment is the segment index the cursor currently refers to.
-	gcCursorSegment uint32
-
-	// gcCursorKeys caches the keys for gcCursorSegment, read once and reused across passes. A sealed
-	// segment's key file is immutable, so this cache is always safe. nil means no keys are loaded.
-	gcCursorKeys []*types.ScopedKey
-
-	// gcCursorIndex is the index into gcCursorKeys of the next key to test with gcFilter.
-	gcCursorIndex int
-
-	// openIteratorCount is the number of currently-open iterators. Garbage collection is suspended while
-	// this is greater than zero (see Table.Iterator). Only the control loop goroutine touches this field.
+	// openIteratorCount is the number of currently-open iterators, maintained only for the open-iterator metric.
+	// Iterators pin their snapshot segments via reservations rather than by suspending GC, so this no longer
+	// gates collection. Touched only by the control loop (on iterator open/close).
 	openIteratorCount int
 
 	// newestPrimaryKey is a copy of the primary key of the most recently written Put. Used to serve
@@ -146,14 +126,9 @@ type controlLoop struct {
 	deletionWatermarkChan chan int64
 
 	// keymapDeletionWatermark is the highest segment index whose keymap entries the manager has durably
-	// deleted, as last reported. Phase 2 of GC deletes a segment's files only once this watermark covers it.
+	// deleted, as last reported. The control loop deletes a segment's files only once this watermark covers it.
 	// Only the control loop goroutine touches this field.
 	keymapDeletionWatermark int64
-
-	// deletionScheduledIndex is the highest segment index whose keymap-entry deletion has been scheduled on the
-	// keymap manager (phase 1 of GC). Phase 1 resumes scheduling from just above it. Only the control loop
-	// goroutine touches this field.
-	deletionScheduledIndex int64
 }
 
 // enqueue enqueues a request to the control loop. Returns an error if the request could not be sent due to the
@@ -185,18 +160,9 @@ func (c *controlLoop) run() {
 				c.handleShutdownRequest(req)
 				return
 			} else if req, ok := message.(*controlLoopGCRequest); ok {
-				if req.deleteFilesOnly {
-					// RunGC's second pass: phase 2 only (delete the files of segments the manager has
-					// finished deleting from the keymap). Skipping phase 1 means the GC filter is not
-					// evaluated a second time per RunGC() call.
-					if c.openIteratorCount == 0 {
-						c.refreshDeletionWatermark()
-						c.deleteCollectedSegments()
-						c.updateCurrentSize()
-					}
-				} else {
-					c.doGarbageCollection()
-				}
+				// Delete the files of segments whose keymap entries the manager has finished deleting. The
+				// collection that schedules those deletes runs on the GC manager; RunGC drives it separately.
+				c.doGarbageCollection()
 				req.completionChan <- struct{}{}
 			} else if req, ok := message.(*controlLoopOpenIteratorRequest); ok {
 				c.handleOpenIteratorRequest(req)
@@ -214,48 +180,31 @@ func (c *controlLoop) run() {
 	}
 }
 
-// doGarbageCollection runs one garbage-collection pass. GC is two-phase so that a segment's files are never
-// removed before its keymap entries are durably deleted (a crash in the other order would leave keymap
-// entries pointing at deleted files, which repair cannot fix). Phase 2 deletes the files of segments whose
-// keymap entries the keymap manager has already durably removed; phase 1 schedules the keymap-entry deletion
-// of newly-expired segments onto the manager. Each pass is cheap on the control loop (the keymap I/O happens
-// on the manager), so GC can run frequently; a segment is fully collected over consecutive passes.
+// doGarbageCollection reclaims the files of segments whose keymap entries the keymap manager has already durably
+// removed. Choosing which segments to collect — durably advancing the gc-watermark and scheduling the keymap
+// deletes for newly-expired segments — happens separately on the GC manager, off the control loop. Deletion is
+// ordered keymap-first: a segment's files are never removed before its keymap entries are durably deleted. The
+// durable read barrier (lowestReadableSegment, the gc-watermark) is what protects against a crash in between, so
+// repair can no longer resurrect a half-collected segment's keys.
+//
+// An open iterator does not block this: a segment is released here (and dropped from the live map) regardless,
+// but an iterator holds a reservation on each segment in its snapshot, so the files survive until the iterator
+// closes. The iterator reads the segment objects it holds directly, not via the live map.
 func (c *controlLoop) doGarbageCollection() {
-	if c.openIteratorCount > 0 {
-		// GC is suspended while one or more iterators are open. Deleting a segment (or its keymap entries) out
-		// from under an open iterator would corrupt its snapshot, so we skip GC until every iterator is closed.
-		return
-	}
+	defer c.updateCurrentSize()
 
-	start := c.clock()
-	defer func() {
-		if c.metrics != nil {
-			c.metrics.ReportGarbageCollectionLatency(c.name, c.clock().Sub(start))
-		}
-		c.updateCurrentSize()
-	}()
-
-	// Pick up the latest deletion watermark published by the keymap manager.
+	// Pick up the latest deletion watermark published by the keymap manager, then delete the files of every
+	// segment it now covers.
 	c.refreshDeletionWatermark()
-
-	// Phase 2: delete the files of segments whose keymap entries are durably deleted.
 	c.deleteCollectedSegments()
-
-	// Phase 1: schedule keymap-entry deletion for newly-expired segments. Skipped when no TTL is configured
-	// (nothing new expires), but phase 2 above still drains any deletions scheduled before TTL was cleared.
-	ttl := c.diskTable.getTTL()
-	if ttl.Nanoseconds() <= 0 {
-		return
-	}
-	c.scheduleExpiredSegmentDeletions(start, ttl)
 }
 
-// deleteCollectedSegments (phase 2) deletes the files of every segment at or below the deletion watermark —
-// i.e. every segment whose keymap entries the manager has durably removed. The segment is released for async
-// file deletion (reservation holders keep it alive until they finish reading) and removed from the live set.
+// deleteCollectedSegments deletes the files of every segment at or below the deletion watermark — i.e. every
+// segment whose keymap entries the manager has durably removed. The segment is released for async file deletion
+// (reservation holders keep it alive until they finish reading) and removed from the live set.
 func (c *controlLoop) deleteCollectedSegments() {
-	for int64(c.lowestSegmentIndex) <= c.keymapDeletionWatermark {
-		index := c.lowestSegmentIndex
+	for int64(c.lowestSegmentIndex.Load()) <= c.keymapDeletionWatermark {
+		index := c.lowestSegmentIndex.Load()
 		seg := c.segments[index]
 
 		if seg.Size() > c.immutableSegmentSize {
@@ -273,77 +222,8 @@ func (c *controlLoop) deleteCollectedSegments() {
 		seg.Release()
 		c.segmentLock.Lock()
 		delete(c.segments, index)
+		c.lowestSegmentIndex.Add(1)
 		c.segmentLock.Unlock()
-
-		c.lowestSegmentIndex++
-	}
-}
-
-// scheduleExpiredSegmentDeletions (phase 1) walks sealed, TTL-expired segments that have not yet been
-// scheduled for deletion and sends their keys to the keymap manager for deletion, advancing
-// deletionScheduledIndex. A GC filter, if configured, can block a segment (and therefore every later one);
-// the resume cursor remembers where to continue on the next pass.
-func (c *controlLoop) scheduleExpiredSegmentDeletions(start time.Time, ttl time.Duration) {
-	index := c.lowestSegmentIndex
-	if c.deletionScheduledIndex >= int64(index) {
-		// deletionScheduledIndex is a segment index in [lowestSegmentIndex, highestSegmentIndex] here, so it
-		// fits a uint32.
-		index = uint32(c.deletionScheduledIndex) + 1 //nolint:gosec // bounded segment index, fits uint32
-	}
-
-	for ; index <= c.highestSegmentIndex; index++ {
-		seg := c.segments[index]
-		if !seg.IsSealed() {
-			// Can't delete the (unsealed) mutable segment.
-			return
-		}
-
-		if start.Sub(seg.GetSealTime()) < ttl {
-			// Not old enough; since segments expire in order, neither is any later one, so stop this pass.
-			return
-		}
-
-		// Load the segment's keys once and cache them while it remains the segment under consideration. A
-		// sealed segment's key file is immutable, so the cache stays valid across passes.
-		if c.gcCursorKeys == nil || c.gcCursorSegment != index {
-			keys, err := seg.GetKeys()
-			if err != nil {
-				c.errorMonitor.Panic(fmt.Errorf("failed to get keys: %w", err))
-				return
-			}
-			c.gcCursorKeys = keys
-			c.gcCursorSegment = index
-			c.gcCursorIndex = 0
-		}
-
-		// If a GC filter is configured, the segment may only be deleted once the filter returns true for every
-		// key. Walk from where the previous pass left off; if the filter blocks, keep the cursor and stop.
-		if c.gcFilter != nil {
-			for ; c.gcCursorIndex < len(c.gcCursorKeys); c.gcCursorIndex++ {
-				sk := c.gcCursorKeys[c.gcCursorIndex]
-				ok, err := c.gcFilter(sk.Key, sk.Kind.IsPrimary())
-				if err != nil {
-					c.errorMonitor.Panic(fmt.Errorf("gc filter failed: %w", err))
-					return
-				}
-				if !ok {
-					// The filter blocks this key, and therefore this and all later segments, for this pass.
-					return
-				}
-			}
-		}
-
-		// Schedule the segment's keymap entries for deletion. The manager applies it asynchronously and then
-		// advances the deletion watermark, which lets a later phase 2 delete this segment's files.
-		if err := c.keymapManager.scheduleDelete(c.gcCursorKeys, int64(index)); err != nil {
-			// The only error path is a panic-induced shutdown; nothing more to do.
-			return
-		}
-		c.deletionScheduledIndex = int64(index)
-
-		// Reset the cursor for the next segment.
-		c.gcCursorKeys = nil
-		c.gcCursorIndex = 0
 	}
 }
 
@@ -364,13 +244,13 @@ func (c *controlLoop) refreshDeletionWatermark() {
 }
 
 // handleOpenIteratorRequest handles a request to open an iterator. It seals the current mutable segment
-// (if it has any keys) so that all keys in scope are readable, suspends garbage collection by
-// incrementing the open-iterator count, and returns the ordered snapshot of sealed segments the iterator
-// will walk.
+// (if it has any keys) so that all keys in scope are readable, reserves each segment the iterator will walk,
+// and returns the ordered snapshot of those sealed segments.
 //
-// Reservations are not taken on the snapshot segments: garbage collection is fully suspended for the
-// entire lifetime of the iterator (while openIteratorCount > 0), so no segment in the snapshot can be
-// deleted before the iterator is closed.
+// The reservations are what keep the iterator's view stable: garbage collection runs freely while the iterator
+// is open (it may delete the segments' keymap entries and remove them from the live map), but a reserved
+// segment's files are not actually deleted until the reservation is released, which the iterator does on Close.
+// The iterator reads the segment objects it holds directly, so it never needs them in the live map.
 func (c *controlLoop) handleOpenIteratorRequest(req *controlLoopOpenIteratorRequest) {
 	// Seal the current mutable segment so that the keys written so far are readable. Skip the seal if the
 	// mutable segment is empty, to avoid accumulating empty sealed segments when iterators are opened
@@ -384,10 +264,19 @@ func (c *controlLoop) handleOpenIteratorRequest(req *controlLoopOpenIteratorRequ
 	}
 
 	// The in-scope segments are all sealed segments: [lowestSegmentIndex, highestSegmentIndex). The
-	// highest segment is the (now empty) mutable segment and is excluded.
-	segs := make([]*segment.Segment, 0, c.highestSegmentIndex-c.lowestSegmentIndex)
-	for index := c.lowestSegmentIndex; index < c.highestSegmentIndex; index++ {
-		segs = append(segs, c.segments[index])
+	// highest segment is the (now empty) mutable segment and is excluded. Reserve each so its files survive
+	// until the iterator closes, even if GC collects it in the meantime. Reserving here on the control loop
+	// cannot race deleteCollectedSegments (also on the control loop), so every snapshot segment is live and
+	// Reserve always succeeds.
+	lowest := c.lowestSegmentIndex.Load()
+	segs := make([]*segment.Segment, 0, c.highestSegmentIndex-lowest)
+	for index := lowest; index < c.highestSegmentIndex; index++ {
+		seg := c.segments[index]
+		if !seg.Reserve() {
+			c.errorMonitor.Panic(fmt.Errorf("failed to reserve segment %d for iterator", index))
+			return
+		}
+		segs = append(segs, seg)
 	}
 
 	c.openIteratorCount++
@@ -396,8 +285,8 @@ func (c *controlLoop) handleOpenIteratorRequest(req *controlLoopOpenIteratorRequ
 	req.responseChan <- segs
 }
 
-// handleCloseIteratorRequest handles a request to close an iterator, decrementing the open-iterator count
-// and thereby re-enabling garbage collection once the last iterator is closed.
+// handleCloseIteratorRequest handles a request to close an iterator. The iterator releases its segment
+// reservations itself (on Close); this only updates the open-iterator metric.
 func (c *controlLoop) handleCloseIteratorRequest(req *controlLoopCloseIteratorRequest) {
 	if c.openIteratorCount > 0 {
 		c.openIteratorCount--
@@ -462,7 +351,7 @@ func (c *controlLoop) computeNewestPrimaryKey() ([]byte, error) {
 				}
 			}
 		}
-		if index == c.lowestSegmentIndex {
+		if index == c.lowestSegmentIndex.Load() {
 			break
 		}
 	}
@@ -475,7 +364,7 @@ func (c *controlLoop) computeNewestPrimaryKey() ([]byte, error) {
 // GetKeys; if the lowest remaining segment is the (unsealed) mutable segment, the in-memory
 // mutableFirstPrimaryKey is used instead.
 func (c *controlLoop) computeOldestPrimaryKey() ([]byte, bool, error) {
-	for index := c.lowestSegmentIndex; index <= c.highestSegmentIndex; index++ {
+	for index := c.lowestSegmentIndex.Load(); index <= c.highestSegmentIndex; index++ {
 		seg := c.segments[index]
 
 		if !seg.IsSealed() {
@@ -519,6 +408,17 @@ func (c *controlLoop) getReservedSegment(index uint32) (*segment.Segment, bool) 
 	}
 
 	return seg, true
+}
+
+// gcGetSegment returns the segment with the given index, or nil if it is not present. It is used by the GC
+// manager goroutine to read a (sealed, immutable) segment while choosing what to collect. The RLock guards
+// against the control loop's concurrent map writes (segment creation in expandSegments, segment removal in
+// deleteCollectedSegments); no reservation is taken because the GC manager only reads sealed segments whose files
+// the control loop has not yet deleted.
+func (c *controlLoop) gcGetSegment(index uint32) *segment.Segment {
+	c.segmentLock.RLock()
+	defer c.segmentLock.RUnlock()
+	return c.segments[index]
 }
 
 // getSegments returns the segments of the disk table. It is only legal to call this after the control loop has been
@@ -674,6 +574,14 @@ func (c *controlLoop) handleControlLoopSetShardingFactorRequest(req *controlLoop
 
 // handleShutdownRequest performs tasks necessary to cleanly shut down the disk table.
 func (c *controlLoop) handleShutdownRequest(req *controlLoopShutdownRequest) {
+	// Stop the GC manager first, so it schedules no more keymap deletes. Otherwise it could enqueue work onto
+	// the keymap manager after (or during) the drain below, racing the drain. The GC manager never calls back
+	// into the control loop, so stopping it here cannot deadlock.
+	if err := c.diskTable.gcManager.stop(); err != nil {
+		c.logger.Error("failed to stop gc manager", "error", err)
+		return
+	}
+
 	// Instruct the flush loop to stop.
 	shutdownCompleteChan := make(chan struct{})
 	request := &flushLoopShutdownRequest{

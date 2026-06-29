@@ -46,10 +46,6 @@ type DiskTable struct {
 	// The table's name.
 	name string
 
-	// The table's TTL, supplied at creation time and held only in memory (not persisted across restarts).
-	// Accessed/modified by concurrent goroutines (the caller via SetTTL and the control loop).
-	ttl atomic.Pointer[time.Duration]
-
 	// The table's sharding factor, supplied at creation time and held only in memory (not persisted across
 	// restarts). Accessed/modified by concurrent goroutines (the control loop and read sites).
 	shardingFactor atomic.Uint32
@@ -79,6 +75,10 @@ type DiskTable struct {
 
 	// The control loop is a goroutine responsible for scheduling operations that mutate the table.
 	controlLoop *controlLoop
+
+	// The GC manager is a goroutine that performs garbage collection: it schedules keymap deletes for expired
+	// segments and durably advances the gc-watermark. The control loop later reclaims the collected files.
+	gcManager *gcManager
 
 	// The flush loop is a goroutine responsible for blocking on flush operations.
 	flushLoop *flushLoop
@@ -160,9 +160,8 @@ func NewDiskTable(
 		metrics:        metrics,
 		fsync:          config.Fsync,
 	}
-	// TTL and sharding factor are supplied at creation time and held only in memory; they are not persisted
-	// across restarts.
-	table.setTTL(tableConfig.TTL)
+	// Sharding factor is supplied at creation time and held only in memory; it is not persisted across restarts.
+	// (TTL is likewise in-memory, but it lives on the GC manager — its only consumer — and is seeded there.)
 	table.setShardingFactor(tableConfig.ShardingFactor)
 	table.flushCoordinator = newFlushCoordinator(errorMonitor, table.flushInternal, config.MinimumFlushInterval)
 
@@ -219,14 +218,29 @@ func NewDiskTable(
 	}
 	segments[nextSegmentIndex] = mutableSegment
 
+	// Load the durable GC watermark (lowest readable segment). It lives at the table root so it survives a
+	// keymap rebuild. Reconcile against the lowest segment actually present on disk: a value at or below it
+	// means those segments were already physically deleted (clamp up to the lowest present); a value above it
+	// means GC durably deleted some segments' keymap entries but crashed before their files were removed, so
+	// segments [lowestSegmentIndex, lowestReadableSegment) are still on disk but logically deleted (the control
+	// loop will reclaim their files, and repair/reload will not resurrect them).
+	gcWatermarkFile, err := LoadGCWatermarkFile(qualifiedRoots[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to load gc-watermark file: %w", err)
+	}
+	lowestReadableSegment := lowestSegmentIndex
+	if gcWatermarkFile.IsDefined() && gcWatermarkFile.LowestReadableSegment() > lowestReadableSegment {
+		lowestReadableSegment = gcWatermarkFile.LowestReadableSegment()
+	}
+
 	if reloadKeymap {
 		runtimeConfig.Logger.Info("reloading keymap from segments")
-		err = table.reloadKeymap(segments, lowestSegmentIndex, highestSegmentIndex)
+		err = table.reloadKeymap(segments, lowestReadableSegment, highestSegmentIndex)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load keymap from segments: %w", err)
 		}
 	} else {
-		err = table.repairKeymap(segments, lowestSegmentIndex, highestSegmentIndex)
+		err = table.repairKeymap(segments, lowestReadableSegment, highestSegmentIndex)
 		if err != nil {
 			return nil, fmt.Errorf("failed to repair keymap: %w", err)
 		}
@@ -246,11 +260,14 @@ func NewDiskTable(
 	}
 
 	// Start the keymap manager. The flush loop schedules keymap puts onto it once segment data is durable, and
-	// the control loop schedules keymap deletes onto it during GC. At startup nothing has been GC-deleted this
-	// session and every segment below lowestSegmentIndex is already gone, so the deletion watermark (and the
-	// "scheduled for deletion" cursor) start just below the lowest live segment. The manager publishes
-	// subsequent deletion-watermark advances onto deletionWatermarkChan.
-	initialDeletionWatermark := int64(lowestSegmentIndex) - 1
+	// the GC manager schedules keymap deletes onto it during collection. At startup every segment below
+	// lowestReadableSegment is logically deleted (its keymap entries are durably gone), so both the deletion
+	// watermark (which gates the control loop's file deletion) and the GC manager's "scheduled for deletion"
+	// cursor start just below the lowest readable segment. Seeding the watermark this way makes the control
+	// loop's first file-deletion pass reclaim any files in [lowestSegmentIndex, lowestReadableSegment) left
+	// behind by a crash after the keymap entries were deleted but before the files were removed. The manager
+	// publishes subsequent deletion-watermark advances onto deletionWatermarkChan.
+	initialDeletionWatermark := int64(lowestReadableSegment) - 1
 	deletionWatermarkChan := make(chan int64, config.KeymapManagerWatermarkChannelSize)
 	kManager := newKeymapManager(
 		errorMonitor,
@@ -289,7 +306,6 @@ func NewDiskTable(
 		diskTable:               table,
 		errorMonitor:            errorMonitor,
 		controllerChannel:       make(chan any, config.ControlChannelSize),
-		lowestSegmentIndex:      lowestSegmentIndex,
 		highestSegmentIndex:     highestSegmentIndex,
 		segments:                segments,
 		size:                    &table.size,
@@ -308,15 +324,36 @@ func NewDiskTable(
 		flushLoop:               fLoop,
 		garbageCollectionPeriod: config.GCPeriod,
 		immutableSegmentSize:    immutableSegmentSize,
-		gcFilter:                tableConfig.GCFilter,
 		deletionWatermarkChan:   deletionWatermarkChan,
 		keymapDeletionWatermark: initialDeletionWatermark,
-		deletionScheduledIndex:  initialDeletionWatermark,
 	}
+	cLoop.lowestSegmentIndex.Store(lowestSegmentIndex)
 	cLoop.threadsafeHighestSegmentIndex.Store(highestSegmentIndex)
 	table.controlLoop = cLoop
 	cLoop.updateCurrentSize()
+
+	// Start the GC manager. It performs collection off the control loop: reading expired segments' keys,
+	// advancing the durable gc-watermark, and scheduling their keymap deletes. Its "scheduled for deletion"
+	// cursor starts just below the lowest readable segment, so it does not re-schedule deletes for segments
+	// already collected before a crash.
+	gcMgr := newGCManager(
+		runtimeConfig.Logger,
+		errorMonitor,
+		cLoop,
+		kManager,
+		runtimeConfig.Clock,
+		metrics,
+		name,
+		config.GCPeriod,
+		gcWatermarkFile,
+		tableConfig.GCFilter,
+		initialDeletionWatermark,
+		tableConfig.TTL,
+	)
+	table.gcManager = gcMgr
+
 	go cLoop.run()
+	go gcMgr.run()
 
 	return table, nil
 }
@@ -418,9 +455,15 @@ func (d *DiskTable) repairSnapshot(
 
 // reloadKeymap reloads the keymap from the segments. This is necessary when the keymap is lost, the keymap doesn't
 // save its data on disk, or we are migrating from one keymap type to another.
+//
+// Segments below lowestReadableSegment are skipped: their keys were durably deleted by garbage collection (the
+// gc-watermark survives a keymap rebuild precisely so this rebuild can honor it). Reloading them would resurrect
+// keys that were already collected. NOTE: if BOTH the keymap and the gc-watermark file are lost, this rebuild
+// has no record of in-flight GC and may resurrect keys from segments that were being collected; that
+// total-loss case predates the gc-watermark and remains the only window in which it can happen.
 func (d *DiskTable) reloadKeymap(
 	segments map[uint32]*segment.Segment,
-	lowestSegmentIndex uint32,
+	lowestReadableSegment uint32,
 	highestSegmentIndex uint32,
 ) error {
 
@@ -431,7 +474,7 @@ func (d *DiskTable) reloadKeymap(
 
 	batch := make([]*types.ScopedKey, 0, keymapReloadBatchSize)
 
-	for i := lowestSegmentIndex; i <= highestSegmentIndex; i++ {
+	for i := lowestReadableSegment; i <= highestSegmentIndex; i++ {
 		if !segments[i].IsSealed() {
 			// ignore unsealed segment, this will have been created in the current session and will not
 			// yet contain any data.
@@ -485,9 +528,15 @@ func (d *DiskTable) reloadKeymap(
 
 // After a crash, it's possible that there may be a small number of key-value pairs in segment files that
 // never made it into the keymap. This method detects these orphaned key-value pairs and puts them into the keymap.
+//
+// Segments below lowestReadableSegment are never examined: their keys were durably deleted by garbage collection
+// (the gc-watermark advanced past them before their keymap entries were deleted), so a key of theirs missing
+// from the keymap is an intentional GC deletion, not a lost async write. Rescuing it would resurrect collected
+// data. This is the durable barrier that lets repair distinguish the two; the in-memory deletion watermark used
+// to be reset on reboot, which is what allowed the resurrection bug.
 func (d *DiskTable) repairKeymap(
 	segments map[uint32]*segment.Segment,
-	lowestSegmentIndex uint32,
+	lowestReadableSegment uint32,
 	highestSegmentIndex uint32,
 ) error {
 
@@ -533,7 +582,7 @@ func (d *DiskTable) repairKeymap(
 			}
 		}
 
-		if i == lowestSegmentIndex {
+		if i == lowestReadableSegment {
 			break
 		}
 	}
@@ -662,6 +711,21 @@ func (d *DiskTable) Drop() error {
 		}
 	}
 
+	// Delete the gc-watermark file (it lives at the table root, so the root cannot be removed while it remains).
+	for _, root := range d.roots {
+		gcWatermarkPath := path.Join(root, GCWatermarkFileName)
+		exists, err := util.Exists(gcWatermarkPath)
+		if err != nil {
+			return fmt.Errorf("failed to check if gc-watermark file exists: %w", err)
+		}
+		if exists {
+			err = os.Remove(gcWatermarkPath)
+			if err != nil {
+				return fmt.Errorf("failed to remove gc-watermark file: %w", err)
+			}
+		}
+	}
+
 	// delete the root directories for the table
 	for _, root := range d.roots {
 		err = os.Remove(root)
@@ -671,16 +735,6 @@ func (d *DiskTable) Drop() error {
 	}
 
 	return nil
-}
-
-// getTTL returns the in-memory TTL for the table.
-func (d *DiskTable) getTTL() time.Duration {
-	return *d.ttl.Load()
-}
-
-// setTTL sets the in-memory TTL for the table.
-func (d *DiskTable) setTTL(ttl time.Duration) {
-	d.ttl.Store(&ttl)
 }
 
 // getShardingFactor returns the in-memory sharding factor for the table. Capped at litt.MaxShardingFactor
@@ -695,13 +749,13 @@ func (d *DiskTable) setShardingFactor(shardingFactor uint8) {
 }
 
 // SetTTL sets the TTL for the disk table. If set to 0, no TTL is enforced. This setting affects both new
-// data and data already written.
+// data and data already written. The TTL is consumed only by the GC manager, so it is pushed there directly.
 func (d *DiskTable) SetTTL(ttl time.Duration) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf("cannot process SetTTL() request, DB is in panicked state due to error: %w", err)
 	}
 
-	d.setTTL(ttl)
+	d.gcManager.setTTL(ttl)
 	return nil
 }
 
@@ -941,29 +995,28 @@ func (d *DiskTable) RunGC() error {
 			"cannot process RunGC() request, DB is in panicked state due to error: %w", err)
 	}
 
-	// Segment GC is two-phase and the keymap deletes happen asynchronously on the keymap manager. To make an
-	// explicit RunGC() deterministic, run one pass to schedule keymap deletes for expired segments, sync the
-	// manager so those deletes are applied and the deletion watermark advances, then run a second pass to
-	// delete the now-eligible segment files.
-	if err := d.runGCPass(false); err != nil {
+	// Collection and the keymap deletes it schedules happen asynchronously across the GC manager and the keymap
+	// manager. To make an explicit RunGC() deterministic, drive the steps in order: run a collection pass on the
+	// GC manager (scheduling keymap deletes for expired segments and durably advancing the gc-watermark), sync
+	// the keymap manager so those deletes are applied and the deletion watermark advances, then have the control
+	// loop delete the now-eligible segment files.
+	if err := d.gcManager.runOnce(); err != nil {
 		return err
 	}
 	if err := d.keymapManager.sync(); err != nil {
 		return fmt.Errorf("failed to sync keymap manager during GC: %w", err)
 	}
-	if err := d.runGCPass(true); err != nil {
+	if err := d.runGCPass(); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// runGCPass triggers a single garbage collection pass on the control loop and waits for it to complete. When
-// deleteFilesOnly is true the pass runs phase 2 only (file deletion), skipping phase-1 scheduling.
-func (d *DiskTable) runGCPass(deleteFilesOnly bool) error {
+// runGCPass triggers the control loop's collected-segment file deletion and waits for it to complete.
+func (d *DiskTable) runGCPass() error {
 	request := &controlLoopGCRequest{
-		deleteFilesOnly: deleteFilesOnly,
-		completionChan:  make(chan struct{}, 1),
+		completionChan: make(chan struct{}, 1),
 	}
 
 	if err := d.controlLoop.enqueue(request); err != nil {

@@ -47,16 +47,13 @@ type controlLoopShutdownRequest struct {
 	shutdownCompleteChan chan struct{}
 }
 
-// controlLoopGCRequest is a request to run garbage collection that is sent to the control loop.
+// controlLoopGCRequest is a request for the control loop to delete the files of segments whose keymap entries the
+// keymap manager has already durably deleted. Choosing which segments to collect (and scheduling those keymap
+// deletes) happens on the GC manager; RunGC drives the two separately.
 type controlLoopGCRequest struct {
 	controlLoopMessage
 
-	// deleteFilesOnly runs only phase 2 (deleting the files of segments whose keymap entries are already
-	// durably deleted) and skips phase 1 (scheduling new keymap deletes). RunGC uses this for its second pass
-	// so the GC filter is not evaluated twice per RunGC() call.
-	deleteFilesOnly bool
-
-	// completionChan produces a value when the garbage collection is complete.
+	// completionChan produces a value when the file deletion is complete.
 	completionChan chan struct{}
 }
 

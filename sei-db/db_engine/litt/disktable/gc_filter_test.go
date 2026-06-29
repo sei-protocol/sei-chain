@@ -315,13 +315,12 @@ func TestGCFilterNilDeletesOnTTL(t *testing.T) {
 	requireKeyPresent(t, table, "k4")
 }
 
-// TestTwoPhaseGCDeletesKeymapBeforeFiles verifies the two-phase GC ordering: GC first schedules a segment's
-// keymap-entry deletion on the keymap manager (phase 1), and deletes the segment's files (phase 2) only after
-// the manager has durably applied that deletion. We drive the phases explicitly and observe the intermediate
-// state: after phase 1 plus a manager sync the keys are already gone from the keymap (Get misses), but the
-// table still accounts for them because their files (and the key-count they contribute) are removed only in
-// phase 2.
-func TestTwoPhaseGCDeletesKeymapBeforeFiles(t *testing.T) {
+// TestGCDeletesKeymapBeforeFiles verifies the GC ordering: GC first schedules a segment's keymap-entry deletion
+// on the keymap manager, and deletes the segment's files only after the manager has durably applied that
+// deletion. We drive the steps explicitly and observe the intermediate state: once the keymap deletion is
+// scheduled and the manager synced, the keys are already gone from the keymap (Get misses), but the table still
+// accounts for them because their files (and the key-count they contribute) are removed only afterward.
+func TestGCDeletesKeymapBeforeFiles(t *testing.T) {
 	t.Parallel()
 
 	directory := t.TempDir()
@@ -332,7 +331,7 @@ func TestTwoPhaseGCDeletesKeymapBeforeFiles(t *testing.T) {
 	clock := func() time.Time { return *fakeTime.Load() }
 
 	// Seal after every 2 keys: seg0[k0,k1], seg1[k2,k3], seg2(mutable)[k4].
-	table := buildGCFilterTable(t, clock, "twophase", directory, 2, nil)
+	table := buildGCFilterTable(t, clock, "gcordering", directory, 2, nil)
 	defer func() { require.NoError(t, table.Close()) }()
 	d := table.(*DiskTable)
 
@@ -347,9 +346,10 @@ func TestTwoPhaseGCDeletesKeymapBeforeFiles(t *testing.T) {
 	expired := start.Add(time.Hour)
 	fakeTime.Store(&expired)
 
-	// Phase 1: schedule keymap deletion of the expired sealed segments (seg0, seg1), then sync the manager so
-	// the keymap entries are durably removed and the deletion watermark advances. seg2 is mutable and survives.
-	require.NoError(t, d.runGCPass(false))
+	// Collect the expired sealed segments (seg0, seg1): schedule their keymap-entry deletion and advance the
+	// durable gc-watermark past them, then sync the manager so the keymap entries are durably removed and the
+	// deletion watermark advances. seg2 is mutable and survives.
+	require.NoError(t, d.gcManager.runOnce())
 	require.NoError(t, d.keymapManager.sync())
 
 	// The keymap entries are now gone, so the keys are no longer readable...
@@ -357,14 +357,124 @@ func TestTwoPhaseGCDeletesKeymapBeforeFiles(t *testing.T) {
 	requireKeyAbsent(t, table, "k3")
 	requireKeyPresent(t, table, "k4")
 
-	// ...but the segment files have not been deleted yet (phase 2 hasn't run), so the table still accounts for
-	// their keys.
+	// ...but the segment files have not been deleted yet, so the table still accounts for their keys.
 	require.Equal(t, uint64(5), table.KeyCount())
 
-	// Phase 2: delete the files of the segments whose keymap entries are durably gone.
-	require.NoError(t, d.runGCPass(true))
+	// Now delete the files of the segments whose keymap entries are durably gone.
+	require.NoError(t, d.runGCPass())
 	require.Equal(t, uint64(1), table.KeyCount())
 
 	requireKeyAbsent(t, table, "k0")
 	requireKeyPresent(t, table, "k4")
+}
+
+// TestGCWatermarkPreventsResurrectionAfterCrash is the regression test for the durable gc-watermark. It
+// reproduces a crash at the worst moment during collection: a segment's keymap entries are durably deleted and
+// the gc-watermark advanced past it, but its files have not yet been removed. On restart, repairKeymap finds
+// those keys present in the segment files but missing from the keymap. Without the durable watermark it would
+// mistake them for lost async writes and resurrect garbage-collected data; with it, repair refuses to touch
+// segments below the watermark.
+func TestGCWatermarkPreventsResurrectionAfterCrash(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	tableName := "gc-watermark-repair"
+	logger := slog.Default()
+	keymapPath := filepath.Join(directory, keymap.KeymapDirectoryName)
+	tableRoot := filepath.Join(directory, tableName)
+
+	start := time.Unix(1_700_000_000, 0)
+	var fakeTime atomic.Pointer[time.Time]
+	fakeTime.Store(&start)
+	clock := func() time.Time { return *fakeTime.Load() }
+
+	// build opens a single-shard PebbleDB-keymap table that seals after every 2 keys and never runs GC in the
+	// background (GCPeriod is large), so the test can drive GC deterministically.
+	build := func(km keymap.Keymap, reload bool) *DiskTable {
+		keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafePebbleDBKeymapType)
+		require.NoError(t, err)
+
+		config, err := litt.DefaultConfig(directory)
+		require.NoError(t, err)
+		config.TargetSegmentFileSize = math.MaxUint32
+		config.MaxSegmentKeyCount = 2
+		config.GCPeriod = time.Hour
+		config.Fsync = false
+
+		tableConfig := litt.DefaultTableConfig(tableName)
+		tableConfig.ShardingFactor = 1
+
+		runtimeConfig := litt.DefaultRuntimeConfig()
+		runtimeConfig.Clock = clock
+		runtimeConfig.Logger = logger
+
+		table, err := NewDiskTable(
+			config, runtimeConfig, tableName, tableConfig, km, keymapPath, keymapTypeFile,
+			[]string{directory}, reload, nil)
+		require.NoError(t, err)
+		return table.(*DiskTable)
+	}
+
+	// Session 1: write k0..k4 -> seg0[k0,k1], seg1[k2,k3], seg2(mutable)[k4]. Expire the sealed segments and run
+	// a collection pass only (schedule keymap deletes + advance the durable gc-watermark), then sync the manager
+	// so the keymap entries are durably gone. A clean Close does NOT delete the segment files, so this leaves
+	// exactly the crashed-mid-collection state: seg0/seg1 files on disk, keymap entries gone, watermark = 2.
+	km1, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	table := build(km1, true)
+	require.NoError(t, table.SetTTL(10*time.Second))
+	for _, k := range []string{"k0", "k1", "k2", "k3", "k4"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+	require.NoError(t, table.Flush())
+
+	expired := start.Add(time.Hour)
+	fakeTime.Store(&expired)
+
+	require.NoError(t, table.gcManager.runOnce())
+	require.NoError(t, table.keymapManager.sync())
+	require.NoError(t, table.Close())
+
+	// The gc-watermark file persisted at the table root and covers the collected segments (seg0, seg1).
+	wmFile, err := LoadGCWatermarkFile(tableRoot)
+	require.NoError(t, err)
+	require.True(t, wmFile.IsDefined())
+	require.Equal(t, uint32(2), wmFile.LowestReadableSegment())
+
+	// Out-of-band, delete the newest key (k4, in the still-live seg2) from the keymap. This simulates a lost
+	// async keymap write — a genuine orphan that repair SHOULD rescue. With no present key left in the keymap,
+	// repair walks newest-first all the way down; without the watermark floor it would continue past seg2 and
+	// resurrect the four garbage-collected keys in seg0/seg1.
+	kmOOB, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	require.NoError(t, kmOOB.Delete([]*types.ScopedKey{{Key: []byte("k4")}}))
+	require.NoError(t, kmOOB.Stop())
+
+	// Session 2: reopen on the same directory (repair path). Wrap the keymap so we can assert repair rescues
+	// only the real orphan (k4) and skips the garbage-collected segments below the watermark.
+	km2, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	spy := &countingKeymap{Keymap: km2}
+	reopened := build(spy, false)
+	defer func() { require.NoError(t, reopened.Close()) }()
+
+	// Repair must rescue exactly the one real orphan (k4), not the four garbage-collected keys below the
+	// watermark. Without the fix it would rescue all five.
+	require.Equal(t, 1, spy.putKeys, "repair must rescue only the orphan, not garbage-collected keys")
+
+	for _, k := range []string{"k0", "k1", "k2", "k3"} {
+		_, ok, err := reopened.Get([]byte(k))
+		require.NoError(t, err)
+		require.False(t, ok, "garbage-collected key %s must not be resurrected after restart", k)
+
+		ok, err = reopened.Exists([]byte(k))
+		require.NoError(t, err)
+		require.False(t, ok, "Exists must not report resurrected key %s after restart", k)
+	}
+
+	// k4 (the rescued orphan, in the still-live seg2) must be readable again.
+	v, ok, err := reopened.Get([]byte("k4"))
+	require.NoError(t, err)
+	require.True(t, ok, "rescued orphan key k4 should be readable")
+	require.Equal(t, []byte("value-k4"), v)
 }

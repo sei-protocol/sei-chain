@@ -1770,8 +1770,9 @@ func settingsResetOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
 	}
 	require.Equal(t, tableName, table.Name())
 
-	// Capture the initial settings, which come from the table config supplied at creation time.
-	initialTTL := (table.(*DiskTable)).getTTL()
+	// Capture the initial sharding factor, which comes from the table config supplied at creation time.
+	// (TTL is likewise an in-memory-only setting that resets on restart — it is never persisted — but it has no
+	// read accessor; its expiry behavior is covered by the GC/TTL tests, e.g. gc_filter_test.go.)
 	initialShardingFactor := (table.(*DiskTable)).getShardingFactor()
 
 	// Change the settings at runtime.
@@ -1792,9 +1793,8 @@ func settingsResetOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
 	table, err = tableBuilder.builder(time.Now, tableName, []string{directory})
 	require.NoError(t, err)
 
-	// Settings are not persisted to disk, so after a restart they revert to the values supplied at creation
-	// time rather than the values set at runtime.
-	require.Equal(t, initialTTL, (table.(*DiskTable)).getTTL())
+	// Settings are not persisted to disk, so after a restart they revert to the value supplied at creation
+	// time rather than the value set at runtime.
 	require.Equal(t, initialShardingFactor, (table.(*DiskTable)).getShardingFactor())
 
 	err = table.Drop()
@@ -2348,6 +2348,10 @@ func tableSizeTest(t *testing.T, tableBuilder *tableBuilder) {
 				// table size does not currently include the keymap size
 				return nil
 			}
+			if strings.Contains(path, GCWatermarkFileName) {
+				// the gc-watermark file is table metadata, not data, and is not counted in the reported size
+				return nil
+			}
 			actualSize += uint64(info.Size())
 			return nil
 		})
@@ -2387,6 +2391,10 @@ func tableSizeTest(t *testing.T, tableBuilder *tableBuilder) {
 			}
 			if strings.Contains(path, "keymap") {
 				// table size does not currently include the keymap size
+				return nil
+			}
+			if strings.Contains(path, GCWatermarkFileName) {
+				// the gc-watermark file is table metadata, not data, and is not counted in the reported size
 				return nil
 			}
 
