@@ -6,6 +6,7 @@ release/
 .cursor/
 .DS_Store
 build/
+dist/
 cache/
 ./evm_stress
 *.iml

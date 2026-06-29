@@ -1,0 +1,83 @@
+version: 2
+
+project_name: sei-chain
+
+before:
+  hooks:
+    - go mod download
+    # build-static.sh self-verifies (libwasmvm archives present + output is static).
+    - bash scripts/build-static.sh
+
+builds:
+  # The static seid is built in Alpine (musl-native) by the `before:` hook above
+  # (scripts/build-static.sh); neither Ubuntu's musl-gcc nor zig cc can produce this
+  # static link on the runner. GoReleaser does NOT recompile: the `tool` shim hands it
+  # that prebuilt static binary (OSS-friendly equivalent of the Pro `prebuilt` builder;
+  # see scripts/goreleaser-shim.sh), so the released binary is byte-identical to the
+  # static muslc `make build` (LINK_STATICALLY/muslc, ledger off). ledger is omitted from
+  # the static build (needs static HID/USB; not relevant for a server seid); make/source
+  # builds keep it (Makefile LEDGER_ENABLED defaults to true).
+  - id: seid
+    builder: go
+    tool: ./scripts/goreleaser-shim.sh
+    main: ./cmd/seid
+    binary: seid
+    goos:
+      - linux
+    goarch:
+      - amd64
+
+archives:
+  - id: seid
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - LICENSE*
+      - README.md
+      - CHANGELOG*
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}'
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'merge conflict'
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+
+release:
+  github:
+    owner: sei-protocol
+    name: sei-chain
+  draft: false
+  prerelease: auto
+  mode: append
+  name_template: '{{ .Tag }}'
+  header: |
+    # Sei {{ .Tag }}
+
+    Pre-built **statically-linked** `seid` binary attached below for `linux/amd64`.
+
+    Verify your download:
+
+    ```
+    sha256sum -c checksums.txt --ignore-missing
+    ```
+
+    For Docker images, see `ghcr.io/sei-protocol/sei`.
+  footer: |
+    **Full Changelog**: https://github.com/sei-protocol/sei-chain/compare/{{ .PreviousTag }}...{{ .Tag }}
