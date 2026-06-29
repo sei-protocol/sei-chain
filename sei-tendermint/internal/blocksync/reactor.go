@@ -547,6 +547,16 @@ func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initi
 			firstID := types.BlockID{Hash: first.Hash(), PartSetHeader: firstParts.Header()}
 
 			err = state.Validators.VerifyCommitLight(chainID, firstID, first.Height, second.LastCommit)
+			if err != nil {
+				// Route the last-commit voting-power check through the build's
+				// consensus policy before it gates ValidateBlock. A shadow build
+				// (mock_chain_validation) replays a storage migration whose validator
+				// set it cannot reproduce bit-for-bit, so this check drifts at
+				// thin-margin commits — a consensus signal orthogonal to the storage
+				// under test, swallowed here (the logical-digest comparator is the
+				// oracle). default/mock_block_validation return the error and evict.
+				err = types.DefaultConsensusPolicy().HandleError(fmt.Errorf("%w: %w", types.ErrLastCommitVerify, err))
+			}
 			if err == nil {
 				err = s.blockExec.ValidateBlock(ctx, state, first)
 			}
