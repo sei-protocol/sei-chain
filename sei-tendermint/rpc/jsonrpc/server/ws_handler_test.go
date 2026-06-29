@@ -81,6 +81,50 @@ func TestWebsocketReadRoutineNoLeakOnFullWriteChan(t *testing.T) {
 	require.NoError(t, c.Close())
 }
 
+// TestWebsocketReadRoutineNoLeakOnPanicWithFullWriteChan exercises the panic
+// recovery path in readRoutine. When a handler panics, recover() writes an error
+// response into writeChan and then relaunches readRoutine. If writeChan is full
+// and writeRoutine has stopped draining it, that recovery send must not block
+// forever, and neither the recovering goroutine nor its relaunched successor may
+// leak.
+func TestWebsocketReadRoutineNoLeakOnPanicWithFullWriteChan(t *testing.T) {
+	s := newEchoWSServer(t)
+	defer s.Close()
+
+	t.Cleanup(leaktest.Check(t))
+
+	d := websocket.Dialer{}
+	c, dialResp, err := d.Dial("ws://"+s.Listener.Addr().String()+"/websocket", nil)
+	require.NoError(t, err)
+	dialResp.Body.Close()
+
+	// As in the full-writeChan test, never read responses. The huge first
+	// response makes writeRoutine block on the socket write and stop draining.
+	bigReq := rpctypes.NewRequest(1)
+	require.NoError(t, bigReq.SetMethodAndParams("echo", map[string]any{"size": 32 * 1024 * 1024}))
+	require.NoError(t, c.WriteJSON(bigReq))
+
+	// Exactly fill writeChan with tiny responses. writeRoutine pulls only the
+	// big response (then blocks), so these defaultWSWriteChanCapacity sends all
+	// succeed and leave writeChan full when readRoutine reads the next request.
+	for i := range defaultWSWriteChanCapacity {
+		req := rpctypes.NewRequest(i + 2)
+		require.NoError(t, req.SetMethodAndParams("echo", map[string]any{"size": 0}))
+		require.NoError(t, c.WriteJSON(req))
+	}
+
+	// The next request panics in the handler. readRoutine's recover() then tries
+	// to push an error response into the already-full writeChan.
+	panicReq := rpctypes.NewRequest(defaultWSWriteChanCapacity + 2)
+	require.NoError(t, panicReq.SetMethodAndParams("panic", map[string]any{"size": 0}))
+	require.NoError(t, c.WriteJSON(panicReq))
+
+	// Closing the client makes writeRoutine's blocked write fail, cancelling the
+	// connection context. That must release the recovery send and let any
+	// relaunched readRoutine exit instead of leaking.
+	require.NoError(t, c.Close())
+}
+
 func newEchoWSServer(t *testing.T) *httptest.Server {
 	type sizeArgs struct {
 		Size json.Number `json:"size"`
@@ -92,6 +136,9 @@ func newEchoWSServer(t *testing.T) *httptest.Server {
 				return "", err
 			}
 			return strings.Repeat("x", int(n)), nil
+		}),
+		"panic": NewWSRPCFunc(func(_ context.Context, _ *sizeArgs) (string, error) {
+			panic("boom in WSJSONRPC handler")
 		}),
 	}
 	wm := NewWebsocketManager(funcMap)
