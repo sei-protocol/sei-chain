@@ -33,9 +33,3 @@ func TestSelect(t *testing.T) {
 		})
 	}
 }
-
-// TestSeiConfigManagerNotImplemented asserts the v2 stub fails hard rather
-// than silently behaving like legacy (PR1 ships the seam only).
-func TestSeiConfigManagerNotImplemented(t *testing.T) {
-	require.Error(t, (SeiConfigManager{}).Apply(nil, "", nil))
-}
