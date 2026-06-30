@@ -3,7 +3,10 @@ package configmanager
 import (
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 )
 
 // TestSelect covers the dispatch table: unset and "legacy" select the
@@ -32,4 +35,20 @@ func TestSelect(t *testing.T) {
 			require.IsType(t, tc.want, mgr)
 		})
 	}
+}
+
+// TestResolveHomeDir_Flag confirms resolveHomeDir reads the --home flag — the
+// value v2 validates against must be the dir the re-entered handler reads. (Env
+// precedence follows viper, mirrored from the legacy handler; the env case is
+// awkward to exercise here because the prefix is the test binary's basename,
+// not SEID_, so it rides the generate-path PR — the boot differential already
+// proves passthrough parity regardless of where home resolves.)
+func TestResolveHomeDir_Flag(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().String(flags.FlagHome, "", "")
+	require.NoError(t, cmd.Flags().Set(flags.FlagHome, "/tmp/seid-test-home"))
+
+	got, err := resolveHomeDir(cmd)
+	require.NoError(t, err)
+	require.Equal(t, "/tmp/seid-test-home", got)
 }

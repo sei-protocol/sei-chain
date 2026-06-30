@@ -3,9 +3,10 @@
 // SEI_CONFIG_MANAGER environment variable.
 //
 // LegacyConfigManager re-enters the unchanged legacy handler verbatim (the
-// default). SeiConfigManager re-authors the existing config through the
-// sei-config library and then re-enters the same reader, so both channels are
-// produced identically to legacy. See PLT-775 and the canonical design
+// default). SeiConfigManager reads the existing config through the sei-config
+// library to *validate* it, then re-enters the same reader on the operator's
+// original files (it does not rewrite them), so both channels are produced
+// identically to legacy. See PLT-775 and the canonical design
 // (bdchatham-designs designs/config-manager/DESIGN.md).
 package configmanager
 
@@ -75,17 +76,30 @@ type SeiConfigManager struct{}
 // Apply surfaces sei-config validation diagnostics (advisory) and re-enters the
 // legacy handler on the operator's original files. It does not write to disk,
 // and never refuses boot on a read or validate problem.
+//
+// Validation runs against the on-disk config.toml/app.toml only (via
+// ReadConfigFromDir) — NOT the fully-merged AppOptions the node boots on (no
+// flag/env/in-code-default layering). So a default node logs a benign advisory
+// today (e.g. `storage.pruning` empty, because the template omits the key that
+// cosmos defaults in code); this is expected, not a regression. That lower
+// fidelity is acceptable precisely because validation is advisory here — parity
+// comes from re-entry, not from the validated struct.
 func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
 	if home, err := resolveHomeDir(cmd); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: could not resolve home dir for validation (advisory): %v\n", err)
 	} else if cfg, err := seiconfig.ReadConfigFromDir(home); err != nil {
-		// A missing config file (fresh/partial home) is normal — the legacy
-		// handler creates it. Any other read error is advisory, not fatal.
+		// A missing config.toml/app.toml (fresh home, or a partial home with one
+		// file absent) is normal — the legacy handler creates it. Any other read
+		// error is advisory, not fatal.
 		if !errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: could not read config for validation (advisory): %v\n", err)
 		}
 	} else if res := seiconfig.Validate(cfg); res.HasErrors() {
-		fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: validation found issues (advisory, not enforced): %v\n", res.Errors())
+		// Advisory in this MVP: the node still boots. These are SeverityError
+		// findings — the same class (e.g. sc-write-mode) that legacy panics on
+		// later at app.New(); surfacing them here is earlier warning, not
+		// enforcement. Fatal refuse-on-error is the un-defer.
+		fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: ADVISORY config validation errors (not enforced; the node will boot, but these may surface later, e.g. at app.New()): %v\n", res.Errors())
 	}
 
 	// Re-enter the unchanged legacy reader on the operator's original files.
