@@ -45,6 +45,8 @@ type opts struct {
 	ipRateLimitBurst             interface{}
 	batchRequestLimit            interface{}
 	batchResponseMaxSize         interface{}
+	maxRequestBodyBytes          interface{}
+	maxConcurrentRequestBytes    interface{}
 	maxOpenConnections           interface{}
 }
 
@@ -169,6 +171,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.batch_response_max_size" {
 		return o.batchResponseMaxSize
 	}
+	if k == "evm.max_request_body_bytes" {
+		return o.maxRequestBodyBytes
+	}
+	if k == "evm.max_concurrent_request_bytes" {
+		return o.maxConcurrentRequestBytes
+	}
 	if k == "evm.max_open_connections" {
 		return o.maxOpenConnections
 	}
@@ -214,6 +222,8 @@ func getDefaultOpts() opts {
 		400,
 		1000,
 		25 * 1000 * 1000,
+		int64(5 * 1024 * 1024),
+		int64(128 * 1024 * 1024),
 		2000,
 	}
 }
@@ -426,6 +436,23 @@ func TestReadConfigBatchLimits(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 50, cfg.BatchRequestLimit)
 	require.Equal(t, 0, cfg.BatchResponseMaxSize)
+}
+
+func TestReadConfigRequestSizeLimits(t *testing.T) {
+	// Defaults flow through when not overridden.
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, config.DefaultConfig.MaxRequestBodyBytes, cfg.MaxRequestBodyBytes)
+	require.Equal(t, config.DefaultConfig.MaxConcurrentRequestBytes, cfg.MaxConcurrentRequestBytes)
+
+	// Custom values (including 0 to use default / disable) flow through.
+	o := getDefaultOpts()
+	o.maxRequestBodyBytes = int64(1024)
+	o.maxConcurrentRequestBytes = int64(0)
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Equal(t, int64(1024), cfg.MaxRequestBodyBytes)
+	require.Equal(t, int64(0), cfg.MaxConcurrentRequestBytes)
 }
 
 func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {

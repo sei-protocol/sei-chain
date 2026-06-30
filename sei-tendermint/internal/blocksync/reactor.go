@@ -546,6 +546,9 @@ func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initi
 			firstID := types.BlockID{Hash: first.Hash(), PartSetHeader: firstParts.Header()}
 
 			err = state.Validators.VerifyCommitLight(chainID, firstID, first.Height, second.LastCommit)
+			if err != nil {
+				err = types.DefaultConsensusPolicy().HandleError(fmt.Errorf("%w: %w", types.ErrLastCommitVerify, err))
+			}
 			if err == nil {
 				err = s.blockExec.ValidateBlock(ctx, state, first)
 			}

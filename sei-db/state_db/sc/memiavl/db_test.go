@@ -1101,3 +1101,16 @@ func TestCloseWithSuccessfulBackgroundSnapshot(t *testing.T) {
 	err = db.Close()
 	require.NoError(t, err)
 }
+
+// A crash between Symlink and Rename can leave current-tmp behind; a re-offered
+// restore must still repoint current rather than failing with EEXIST.
+func TestUpdateCurrentSymlinkClearsStaleTmp(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Symlink("snapshot-0", currentTmpPath(dir)))
+
+	require.NoError(t, updateCurrentSymlink(dir, "snapshot-1"))
+
+	target, err := os.Readlink(currentPath(dir))
+	require.NoError(t, err)
+	require.Equal(t, "snapshot-1", target)
+}

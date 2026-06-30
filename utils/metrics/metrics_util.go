@@ -9,6 +9,7 @@ import (
 	"time"
 
 	metrics "github.com/armon/go-metrics"
+	"github.com/prometheus/otlptranslator"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"go.opentelemetry.io/otel"
@@ -17,7 +18,10 @@ import (
 )
 
 func SetupOtelMetricsProvider() error {
-	metricsExporter, err := prometheus.New(prometheus.WithNamespace("sei_chain"))
+	metricsExporter, err := prometheus.New(
+		prometheus.WithNamespace("sei_chain"),
+		prometheus.WithTranslationStrategy(otlptranslator.UnderscoreEscapingWithSuffixes),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create Prometheus exporter: %w", err)
 	}
