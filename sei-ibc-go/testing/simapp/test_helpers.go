@@ -34,6 +34,7 @@ import (
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -73,6 +74,11 @@ func setup(withGenesis bool, invCheckPeriod uint) (*SimApp, GenesisState) {
 		panic(err)
 	}
 	scConfig := seidbconfig.DefaultStateCommitConfig()
+	// This simapp mounts non-canonical store names (e.g. icacontroller,
+	// icahost) that are not in keys.MemIAVLStoreKeys, so it cannot use the
+	// default auto mode (which validates store names for migration
+	// routability). Pin memiavl_only: this app never migrates.
+	scConfig.WriteMode = sctypes.MemiavlOnly
 	scConfig.MemIAVLConfig.AsyncCommitBuffer = 0
 	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	scConfig.HistoricalProofRateLimit = 0
