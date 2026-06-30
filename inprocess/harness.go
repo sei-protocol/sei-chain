@@ -175,12 +175,6 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 	if opts.Validators == 2 {
 		return nil, fmt.Errorf("inprocess: Options.Validators == 2 deadlocks in CometBFT block-sync (BlockPool.IsCaughtUp requires >1 peer); use 1 or >= 3")
 	}
-	// One network per process (see networkStarted): claim the slot only after the
-	// input is validated, so a rejected N never burns it. Not released on failure —
-	// a partially built network may already have touched the EVM singletons.
-	if !networkStarted.CompareAndSwap(false, true) {
-		return nil, fmt.Errorf("inprocess: a network was already started in this process; only one is supported (EVM worker pool / metrics printer / Prometheus registries are process-global singletons)")
-	}
 
 	baseDir, ownBaseDir, err := resolveBaseDir(opts.BaseDir)
 	if err != nil {
@@ -236,6 +230,14 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 		}
 	}
 
+	// One network per process (see networkStarted): claim the slot here, right
+	// before the first app.New (in startNode) — the first point that touches the
+	// process-global EVM singletons. Every step above (base dir, provisioning,
+	// genesis) can fail recoverably without burning the slot. Once claimed it is
+	// never released: app.New's singletons can't re-init.
+	if !networkStarted.CompareAndSwap(false, true) {
+		return nil, fmt.Errorf("inprocess: a network was already started in this process; only one is supported (EVM worker pool / metrics printer / Prometheus registries are process-global singletons)")
+	}
 	for _, n := range net.nodes {
 		if err := net.startNode(ctx, n, enc); err != nil {
 			return nil, fmt.Errorf("start %s: %w", n.moniker, err)
