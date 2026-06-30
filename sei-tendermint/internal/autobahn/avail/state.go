@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -18,8 +18,7 @@ import (
 // ErrBadLane .
 var ErrBadLane = errors.New("bad lane")
 
-const BlocksPerLane = 3 * BlocksPerLanePerCommit
-const BlocksPerLanePerCommit = 10
+const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
 
 // State represents the Data Availability Plane and Ordered Event Log.
 // Although it resides in a sub-package, it serves as the "source of truth" for:
@@ -38,6 +37,10 @@ type State struct {
 	// persisters groups all disk persistence components.
 	// Always initialized: real when stateDir is set, no-op otherwise.
 	persisters persisters
+}
+
+func (s *State) PublicKey() types.PublicKey {
+	return s.key.Public()
 }
 
 // persisters holds all disk persistence components. Either all are present
@@ -486,8 +489,8 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 					return nil, data.ErrPruned
 				}
 				// Check if we have the header.
-				if vs := q.q[n].byHeader[want]; len(vs) > 0 {
-					h := vs[0].Msg().Header()
+				if byHash, ok := q.q[n].byHash[want]; ok {
+					h := byHash.votes[0].Msg().Header()
 					want = h.ParentHash()
 					headers[len(headers)-i-1] = h
 					break
@@ -520,12 +523,12 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 	return types.NewFullCommitQC(qc, commitHeaders), nil
 }
 
-// WaitForCapacity waits until the given lane has enough capacity for a new block.
-func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID) error {
+// WaitForLocalCapacity waits until the lane owned by this node has capacity for toProduce block.
+func (s *State) WaitForLocalCapacity(ctx context.Context, toProduce types.BlockNumber) error {
+	lane := s.key.Public()
 	for inner, ctrl := range s.inner.Lock() {
-		q := inner.blocks[lane]
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return q.next < inner.persistedBlockStart[lane]+BlocksPerLane
+			return toProduce < inner.persistedBlockStart[lane]+BlocksPerLane
 		}); err != nil {
 			return err
 		}
@@ -543,7 +546,7 @@ func (s *State) WaitForLaneQCs(
 		for {
 			for lane := range c.Lanes().All() {
 				first := types.LaneRangeOpt(prev, lane).Next()
-				for i := range types.BlockNumber(BlocksPerLanePerCommit) {
+				for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
 					if qc, ok := inner.laneQC(c, lane, first+i); ok {
 						laneQCs[lane] = qc
 					} else {
@@ -562,14 +565,14 @@ func (s *State) WaitForLaneQCs(
 	panic("unreachable")
 }
 
-// ProduceBlock appends a new block to the producers lane.
-// Blocks until the lane has enough capacity for the new block.
-func (s *State) ProduceBlock(ctx context.Context, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
-	return s.produceBlock(ctx, s.key, payload)
+// ProduceLocalBlock appends a new block to the producers lane.
+// Fails in case there is not enough capacity in the lane, or it is not the next block expected.
+func (s *State) ProduceLocalBlock(n types.BlockNumber, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+	return s.produceLocalBlock(n, s.key, payload)
 }
 
-// TODO: produceBlock is a separate function for testing - consider improving the tests to use ProduceBlock only.
-func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+// TODO: produceLocalBlock is a separate function for testing - consider improving the tests to use ProduceBlock only.
+func (s *State) produceLocalBlock(n types.BlockNumber, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	lane := key.Public()
 	var result *types.Signed[*types.LaneProposal]
 	for inner, ctrl := range s.inner.Lock() {
@@ -577,10 +580,11 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 		if !ok {
 			return nil, ErrBadLane
 		}
-		if err := ctrl.WaitUntil(ctx, func() bool {
-			return q.next < inner.persistedBlockStart[lane]+BlocksPerLane
-		}); err != nil {
-			return nil, err
+		if n >= inner.persistedBlockStart[lane]+BlocksPerLane {
+			return nil, fmt.Errorf("lane full")
+		}
+		if q.next != n {
+			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, q.next)
 		}
 		var parent types.BlockHeaderHash
 		if q.first < q.next {

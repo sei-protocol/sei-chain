@@ -42,43 +42,52 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 	}
 	// Validate prev block info.
 	if !block.LastBlockID.Equals(state.LastBlockID) {
-		return fmt.Errorf("wrong Block.Header.LastBlockID.  Expected %v, got %v",
-			state.LastBlockID,
-			block.LastBlockID,
-		)
+		if err := policy.HandleError(fmt.Errorf(
+			"wrong Block.Header.LastBlockID: expected %v, got %v: %w",
+			state.LastBlockID, block.LastBlockID, types.ErrLastBlockID)); err != nil {
+			return err
+		}
 	}
 
-	// Validate app info
-	if !policy.SkipAppHashValidation() && !bytes.Equal(block.AppHash, state.AppHash) {
-		return fmt.Errorf("wrong Block.Header.AppHash.  Expected %X, got %v",
-			state.AppHash,
-			block.AppHash,
-		)
+	// Validate app info.
+	if !bytes.Equal(block.AppHash, state.AppHash) {
+		if err := policy.HandleError(fmt.Errorf(
+			"wrong Block.Header.AppHash: expected %X, got %X: %w",
+			state.AppHash, block.AppHash, types.ErrAppHash)); err != nil {
+			return err
+		}
 	}
 	hashCP := state.ConsensusParams.HashConsensusParams()
 	if !bytes.Equal(block.ConsensusHash, hashCP) {
-		return fmt.Errorf("wrong Block.Header.ConsensusHash.  Expected %X, got %v",
-			hashCP,
-			block.ConsensusHash,
-		)
+		if err := policy.HandleError(fmt.Errorf(
+			"wrong Block.Header.ConsensusHash: expected %X, got %X: %w",
+			hashCP, block.ConsensusHash, types.ErrConsensusHash)); err != nil {
+			return err
+		}
 	}
-	if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
-		return fmt.Errorf("wrong Block.Header.LastResultsHash.  Expected %X, got %v",
-			state.LastResultsHash,
-			block.LastResultsHash,
-		)
+	// Giga escape hatch (set in app.go via tmtypes.SkipLastResultsHashValidation.Store) — only Skip-style guard preserved.
+	if !types.SkipLastResultsHashValidation.Load() {
+		if !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
+			if err := policy.HandleError(fmt.Errorf(
+				"wrong Block.Header.LastResultsHash: expected %X, got %X: %w",
+				state.LastResultsHash, block.LastResultsHash, types.ErrLastResultsHash)); err != nil {
+				return err
+			}
+		}
 	}
 	if !bytes.Equal(block.ValidatorsHash, state.Validators.Hash()) {
-		return fmt.Errorf("wrong Block.Header.ValidatorsHash.  Expected %X, got %v",
-			state.Validators.Hash(),
-			block.ValidatorsHash,
-		)
+		if err := policy.HandleError(fmt.Errorf(
+			"wrong Block.Header.ValidatorsHash: expected %X, got %X: %w",
+			state.Validators.Hash(), block.ValidatorsHash, types.ErrValidatorsHash)); err != nil {
+			return err
+		}
 	}
 	if !bytes.Equal(block.NextValidatorsHash, state.NextValidators.Hash()) {
-		return fmt.Errorf("wrong Block.Header.NextValidatorsHash.  Expected %X, got %v",
-			state.NextValidators.Hash(),
-			block.NextValidatorsHash,
-		)
+		if err := policy.HandleError(fmt.Errorf(
+			"wrong Block.Header.NextValidatorsHash: expected %X, got %X: %w",
+			state.NextValidators.Hash(), block.NextValidatorsHash, types.ErrNextValidatorsHash)); err != nil {
+			return err
+		}
 	}
 
 	// Validate block LastCommit.
@@ -90,7 +99,10 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 		// LastCommit.Signatures length is checked in VerifyCommit.
 		if err := state.LastValidators.VerifyCommit(
 			state.ChainID, state.LastBlockID, block.Height-1, block.LastCommit); err != nil {
-			return fmt.Errorf("VerifyCommit(): %w", err)
+			if swErr := policy.HandleError(fmt.Errorf(
+				"%w: %w", types.ErrLastCommitVerify, err)); swErr != nil {
+				return swErr
+			}
 		}
 	}
 
@@ -99,9 +111,11 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 	// a legit address and a known validator.
 	// The length is checked in ValidateBasic above.
 	if !state.Validators.HasAddress(block.ProposerAddress) {
-		return fmt.Errorf("block.Header.ProposerAddress %X is not a validator",
-			block.ProposerAddress,
-		)
+		if err := policy.HandleError(fmt.Errorf(
+			"block.Header.ProposerAddress %X is not a validator: %w",
+			block.ProposerAddress, types.ErrProposerNotInValidatorSet)); err != nil {
+			return err
+		}
 	}
 
 	// Validate block Time
@@ -130,7 +144,10 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 
 	// Check evidence doesn't exceed the limit amount of bytes.
 	if max, got := state.ConsensusParams.Evidence.MaxBytes, block.Evidence.ByteSize(); got > max {
-		return types.NewErrEvidenceOverflow(max, got)
+		if err := policy.HandleError(fmt.Errorf(
+			"%w: %w", types.ErrTooMuchEvidence, types.NewErrEvidenceOverflow(max, got))); err != nil {
+			return err
+		}
 	}
 
 	return nil

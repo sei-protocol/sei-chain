@@ -30,19 +30,12 @@ var (
 	ErrNotFound               = errors.New("receipt not found")
 	ErrNotConfigured          = errors.New("receipt store not configured")
 	ErrRangeQueryNotSupported = errors.New("range query not supported by this backend")
-	// ErrTxIndexDisabled indicates that a receipt-by-tx-hash lookup missed the
-	// in-memory cache and cannot be served because the parquet backend's pebble
-	// tx hash index is disabled. A full parquet scan would require reading every
-	// file on disk and is intentionally not attempted. The error wraps
-	// ErrNotFound so callers that treat "not found" as a null/nil result (e.g.
-	// eth_getTransactionReceipt) continue to behave correctly; the wrapping
-	// preserves the underlying reason for operators and tests via errors.Is.
-	ErrTxIndexDisabled = fmt.Errorf("receipt tx hash index is disabled; parquet fallback scan is not allowed: %w", ErrNotFound)
 )
 
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.
 type ReceiptStore interface {
 	LatestVersion() int64
+	EarliestVersion() int64
 	SetLatestVersion(version int64) error
 	SetEarliestVersion(version int64) error
 	GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
@@ -80,23 +73,20 @@ type receiptStore struct {
 }
 
 const (
-	receiptBackendPebble  = "pebble"
-	receiptBackendParquet = "parquet"
+	receiptBackendPebble = "pebble"
 )
 
 func normalizeReceiptBackend(backend string) string {
 	switch strings.ToLower(strings.TrimSpace(backend)) {
 	case "", "pebbledb", receiptBackendPebble:
 		return receiptBackendPebble
-	case receiptBackendParquet:
-		return receiptBackendParquet
 	default:
 		return strings.ToLower(strings.TrimSpace(backend))
 	}
 }
 
 func NewReceiptStore(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
-	return NewReceiptStoreWithReadMetrics(config, storeKey, nil)
+	return NewReceiptStoreWithReadMetrics(config, storeKey)
 }
 
 // NewReceiptStoreWithReadMetrics constructs a receipt store and optionally
@@ -104,29 +94,21 @@ func NewReceiptStore(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) 
 func NewReceiptStoreWithReadMetrics(
 	config dbconfig.ReceiptStoreConfig,
 	storeKey sdk.StoreKey,
-	metrics ReceiptReadMetrics,
 ) (ReceiptStore, error) {
-	backend, err := newReceiptBackend(config, storeKey)
-	if err != nil {
-		return nil, err
-	}
-	return newCachedReceiptStore(backend, metrics), nil
+	return newReceiptBackend(config, storeKey)
 }
 
-// BackendTypeName returns the backend implementation name ("parquet" or "pebble") for testing.
+// BackendTypeName returns the backend implementation name for testing.
 // Returns "" if store is nil or the backend type is unknown.
 func BackendTypeName(store ReceiptStore) string {
 	if store == nil {
 		return ""
 	}
-	if c, ok := store.(*cachedReceiptStore); ok {
-		store = c.backend
-	}
 	switch store.(type) {
-	case *parquetReceiptStore:
-		return receiptBackendParquet
 	case *receiptStore:
 		return receiptBackendPebble
+	case *littReceiptStore:
+		return receiptBackendLittIdx
 	default:
 		return "unknown"
 	}
@@ -139,13 +121,14 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 
 	backend := normalizeReceiptBackend(config.Backend)
 	switch backend {
-	case receiptBackendParquet:
-		return newParquetReceiptStore(config, storeKey)
+	case receiptBackendLittIdx:
+		return newLittReceiptStore(config, storeKey)
 	case receiptBackendPebble:
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory
 		ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer
 		ssConfig.KeepRecent = config.KeepRecent
+		ssConfig.EnableReadWriteMetrics = config.EnableReadWriteMetrics
 		if config.PruneIntervalSeconds > 0 {
 			ssConfig.PruneIntervalSeconds = config.PruneIntervalSeconds
 		}
@@ -178,6 +161,10 @@ func (s *receiptStore) LatestVersion() int64 {
 
 func (s *receiptStore) SetLatestVersion(version int64) error {
 	return s.db.SetLatestVersion(version)
+}
+
+func (s *receiptStore) EarliestVersion() int64 {
+	return s.db.GetEarliestVersion()
 }
 
 func (s *receiptStore) SetEarliestVersion(version int64) error {

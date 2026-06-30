@@ -1,0 +1,198 @@
+name: Sei-DB
+on:
+  workflow_call:
+  pull_request:
+  merge_group:
+  push:
+    branches:
+      - main
+      - release/**
+
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+
+env:
+  GO_VERSION: '1.25.6'
+  GO_TEST_TIMEOUT: 30m
+  STATE_DB_PKG_PREFIX: github.com/sei-protocol/sei-chain/sei-db/state_db
+
+jobs:
+  test:
+    name: Race Detection
+    runs-on: uci-default
+    env:
+      GOFLAGS: -race -tags=ledger,test_ledger_mock
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Login to Docker Hub
+        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
+        if: env.DOCKERHUB_USERNAME != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Go test
+        run: |
+          go test \
+            -timeout=${{ env.GO_TEST_TIMEOUT }} \
+            ./sei-db/state_db/...
+
+  coverage:
+    name: Coverage
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-latest' || 'uci-default' }}
+    # Skip coverage report for merge groups, since the queue is about safety check. The merge to main will run coverage anyway.
+    # GitHub does not support setting "Required" CI workflows for merge queue separately from PRs. If we skip the job at top
+    # level we then have to work around result not being present. Hence, the repeated if statements per step.
+    env:
+      GOFLAGS: -tags=ledger,test_ledger_mock
+    steps:
+      - name: Check trigger
+        if: github.event_name == 'merge_group'
+        run: echo 'Coverage skipped in merge queue'
+
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        if: github.event_name != 'merge_group'
+        with:
+          # Depth 0 for PRs so merge-base diff against the base branch works.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+
+      - uses: actions/setup-go@v6
+        if: github.event_name != 'merge_group'
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Login to Docker Hub
+        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
+        if: github.event_name != 'merge_group' && env.DOCKERHUB_USERNAME != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Download modules
+        if: github.event_name != 'merge_group'
+        run: go mod download
+
+      - name: Determine coverage packages (PR)
+        id: cov-pkgs
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          # Use explicit SHAs — works regardless of checkout depth.
+          CHANGED=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA")
+
+          # Keep only existing .go files (filters out deletions).
+          CHANGED_GO=$(printf "%s\n" "$CHANGED" \
+            | grep -E '\.go$' \
+            | while read -r f; do [ -f "$f" ] && echo "$f"; done \
+            || true)
+
+          if [[ -z "$CHANGED_GO" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Resolve changed directories to Go packages, then keep only
+          # the state_db subtree — this workflow exclusively owns those
+          # packages, and the main go-test.yml workflow owns the rest.
+          DIRECT_PKGS=$(printf "%s\n" "$CHANGED_GO" \
+            | xargs -r -n1 dirname \
+            | sort -u \
+            | while read -r d; do go list "./$d" 2>/dev/null || true; done \
+            | sort -u \
+            | grep "^${STATE_DB_PKG_PREFIX}" || true)
+
+          if [[ -z "$DIRECT_PKGS" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Find one level of reverse dependencies (packages that import
+          # the changed packages) so their tests exercise our changes too.
+          # Restrict reverse deps to the state_db subtree as well.
+          ALL_IMPORTS=$(go list -f '{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}}' ./...)
+
+          REV_DEPS=$(awk '
+            NR == FNR { if (NF) targets[$1] = 1; next }
+            {
+              pkg = $1
+              for (i = 2; i <= NF; i++) {
+                if ($i in targets) { print pkg; break }
+              }
+            }
+          ' <(printf "%s\n" "$DIRECT_PKGS") <(printf "%s\n" "$ALL_IMPORTS") \
+            | sort -u \
+            | grep "^${STATE_DB_PKG_PREFIX}" || true)
+
+          # Merge direct + reverse-dep packages, deduplicate.
+          TEST_PKGS=$(printf "%s\n%s\n" "$DIRECT_PKGS" "$REV_DEPS" \
+            | awk 'NF && !seen[$0]++ { printf "%s ", $0 }')
+          TEST_PKGS="${TEST_PKGS% }"
+
+          # coverpkg stays as the direct changed packages — we want coverage
+          # measured on the code that actually changed, but tested via a wider
+          # set of packages (including reverse deps).
+          COV_PKGS=$(printf "%s\n" "$DIRECT_PKGS" \
+            | awk 'NF { printf "%s%s", sep, $0; sep = "," }')
+
+          echo "test_packages=$TEST_PKGS" >> "$GITHUB_OUTPUT"
+          echo "coverpkg=$COV_PKGS" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Go test with coverage (PR fast path)
+        if: github.event_name == 'pull_request' && steps.cov-pkgs.outputs.skip != 'true'
+        run: |
+          go test \
+            -timeout=${{ env.GO_TEST_TIMEOUT }} \
+            -covermode=atomic \
+            -coverprofile=coverage.out \
+            -coverpkg=${{ steps.cov-pkgs.outputs.coverpkg }} \
+            ${{ steps.cov-pkgs.outputs.test_packages }}
+
+      - name: Go test with coverage (full path)
+        if: github.event_name != 'merge_group' && github.event_name != 'pull_request'
+        run: |
+          go test \
+            -timeout=${{ env.GO_TEST_TIMEOUT }} \
+            -covermode=atomic \
+            -coverprofile=coverage.out \
+            -coverpkg=./sei-db/state_db/... \
+            ./sei-db/state_db/...
+
+      - name: Upload coverage to Codecov
+        if: github.event_name != 'merge_group' && (github.event_name != 'pull_request' || steps.cov-pkgs.outputs.skip != 'true')
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          # Hard-fail on main (full path); soft on PRs (partial data).
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' }}
+          disable_search: 'true'
+          # PR fast-path coverage is intentionally partial.
+          # Upload under a separate flag to avoid apples-to-oranges project comparisons.
+          name: ${{ github.event_name == 'pull_request' && 'sei-db-state-db-pr-coverage' || 'sei-db-state-db-coverage' }}
+          files: ./coverage.out
+          flags: ${{ github.event_name == 'pull_request' && 'sei-db-state-db-pr' || 'sei-db-state-db' }}

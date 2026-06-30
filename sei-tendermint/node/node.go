@@ -13,9 +13,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/sdk/trace"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
@@ -58,7 +58,8 @@ type nodeImpl struct {
 
 	// network
 	router           *p2p.Router
-	ServiceRestartCh chan []string
+	giga             utils.Option[p2p.GigaRouter]
+	ServiceRestartCh utils.Option[chan []string]
 	nodeInfo         types.NodeInfo
 	nodeKey          types.NodeKey // our node privkey
 
@@ -67,14 +68,14 @@ type nodeImpl struct {
 	initialState   sm.State
 	stateStore     sm.Store
 	blockStore     *store.BlockStore // store the blockchain to disk
-	mempool        *mempool.TxMempool
-	evPool         *evidence.Pool
+	mempool        utils.Option[*mempool.TxMempool]
+	evPool         utils.Option[*evidence.Pool]
 	indexerService *indexer.Service
 	services       []service.Service
 	rpcListeners   []net.Listener // rpc servers
 	shutdownOps    closer
 	rpcEnv         *rpccore.Environment
-	prometheusSrv  *http.Server
+	prometheusSrv  utils.Option[*http.Server]
 }
 
 // makeNode returns a new, ready to go, Tendermint Node.
@@ -158,6 +159,10 @@ func makeNode(
 		}
 		pubKey = utils.Some(key)
 	}
+	eventLogOpt := utils.None[*eventlog.Log]()
+	if eventLog != nil {
+		eventLogOpt = utils.Some(eventLog)
+	}
 	// TODO construct node here:
 	node := &nodeImpl{
 		config:          cfg,
@@ -183,24 +188,26 @@ func makeNode(
 			GenDoc:     genDoc,
 			EventSinks: eventSinks,
 			EventBus:   eventBus,
-			EventLog:   eventLog,
+			EventLog:   eventLogOpt,
 			Config:     *cfg.RPC,
 		},
 	}
 
-	// Autobahn requires a local validator key; remote signers are not supported.
-	if cfg.AutobahnConfigFile != "" && cfg.PrivValidator.ListenAddr != "" {
-		return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
-	}
 	gigaEnabled := cfg.AutobahnConfigFile != ""
-	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+	// Pass the local key when autobahn is on; setup.go's
+	// buildGigaRouter picks validator-vs-fullnode by cfg.Mode and
+	// uses the key to check that a validator-mode node is in the committee.
+	gigaValidatorKey := utils.None[atypes.SecretKey]()
+	if gigaEnabled {
+		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
+	}
 	router, peerCloser, err := createRouter(
 		nodeMetrics.p2p,
 		node.NodeInfo,
 		nodeKey,
-		utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey)),
+		gigaValidatorKey,
 		cfg,
-		utils.Some(mp),
+		utils.Some(proxyApp),
 		genDoc,
 		dbProvider,
 	)
@@ -209,19 +216,8 @@ func makeNode(
 		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
 	node.router = router
-	node.mempool = mp
+	node.giga = router.Giga()
 	node.rpcEnv.Router = router
-
-	// Mempool gossiping is not compatible with Giga,
-	// so we disable the mempool reactor.
-	if !gigaEnabled {
-		mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
-		if err != nil {
-			return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
-		}
-		mpReactor.MarkReadyToStart()
-		node.services = append(node.services, mpReactor)
-	}
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
@@ -230,110 +226,8 @@ func makeNode(
 		return nil, fmt.Errorf("createEvidenceReactor(): %w", err)
 	}
 	node.services = append(node.services, evReactor)
-	node.rpcEnv.EvidencePool = evPool
-	node.evPool = evPool
-
-	node.rpcEnv.Mempool = mp
-
-	// make block executor for consensus and blockchain reactors to execute blocks
-	blockExec := sm.NewBlockExecutor(
-		stateStore,
-		proxyApp,
-		mp,
-		evPool,
-		blockStore,
-		eventBus,
-		nodeMetrics.state,
-		consensusPolicy,
-	)
-
-	// Determine whether we should attempt state sync.
-	stateSync := cfg.StateSync.Enable && !onlyValidatorIsUs(state, pubKey)
-	if stateSync && state.LastBlockHeight > 0 {
-		logger.Info("Found local state with non-zero height, skipping state sync")
-		stateSync = false
-	}
-
-	// Determine whether we should do block sync. This must happen after the handshake, since the
-	// app may modify the validator set, specifying ourself as the only validator.
-	blockSync := !onlyValidatorIsUs(state, pubKey)
-	if gigaEnabled {
-		// TODO(autobahn-recovery): handles only restart with local disk intact.
-		// A node that lost its WAL + app CMS (new validator, disk wipe) needs both
-		// app state sync and an autobahn WAL sync to catch up. Not yet supported.
-		stateSync = false
-		blockSync = false
-	}
-	waitSync := stateSync || blockSync
-
-	consensusWAL, err := consensus.OpenWAL(cfg.Consensus.WalFile())
-	if err != nil {
-		return nil, fmt.Errorf("consensus.OpenWAL(): %w", err)
-	}
-	closers = append(closers, func() error {
-		consensusWAL.Close()
-		return nil
-	})
-
-	csState := consensus.NewState(
-		cfg.Consensus,
-		consensusWAL,
-		stateStore,
-		blockExec,
-		blockStore,
-		mp,
-		evPool,
-		eventBus,
-		tracerProviderOptions,
-		nodeMetrics.consensus,
-	)
-	node.rpcEnv.ConsensusState = csState
-
-	var csReactor *consensus.Reactor
-	if !gigaEnabled {
-		csReactor, err = consensus.NewReactor(
-			csState,
-			node.router,
-			eventBus,
-			waitSync,
-			nodeMetrics.consensus,
-			cfg,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("consensus.NewReactor(): %w", err)
-		}
-
-		node.services = append(node.services, csReactor)
-		node.rpcEnv.ConsensusReactor = csReactor
-	}
-
-	// Create the blockchain reactor. Note, we do not start block sync if we're
-	// doing a state sync first.
-	bcReactor, err := blocksync.NewReactor(
-		stateStore,
-		blockExec,
-		blockStore,
-		csReactor,
-		node.router,
-		blockSync && !stateSync,
-		nodeMetrics.consensus,
-		eventBus,
-		restartEvent,
-		cfg.SelfRemediation,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
-	}
-	node.services = append(node.services, bcReactor)
-	node.rpcEnv.BlockSyncReactor = bcReactor
-
-	// Make ConsensusReactor. Don't enable fully if doing a state sync and/or block sync first.
-	// FIXME We need to update metrics here, since other reactors don't have access to them.
-	if stateSync {
-		nodeMetrics.consensus.StateSyncing.Set(1)
-	} else if blockSync {
-		nodeMetrics.consensus.BlockSyncing.Set(1)
-	}
+	node.rpcEnv.EvidencePool = utils.Some[sm.EvidencePool](evPool)
+	node.evPool = utils.Some(evPool)
 
 	if cfg.P2P.PexReactor {
 		pxReactor, err := pex.NewReactor(
@@ -346,34 +240,135 @@ func makeNode(
 		node.services = append(node.services, pxReactor)
 	}
 
-	postSyncHook := func(ctx context.Context, state sm.State) error {
-		csReactor.SetStateSyncingMetrics(0)
+	if !gigaEnabled {
+		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+		node.mempool = utils.Some(mp)
+		node.rpcEnv.Mempool = utils.Some(mp)
+		mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
+		if err != nil {
+			return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
+		}
+		mpReactor.MarkReadyToStart()
+		node.services = append(node.services, mpReactor)
 
-		// TODO: Some form of orchestrator is needed here between the state
-		// advancing reactors to be able to control which one of the three
-		// is running
-		// FIXME Very ugly to have these metrics bleed through here.
-		csReactor.SetBlockSyncingMetrics(1)
-		if err := bcReactor.SwitchToBlockSync(ctx, state); err != nil {
-			logger.Error("failed to switch to block sync", "err", err)
-			return err
+		// make block executor for consensus and blockchain reactors to execute blocks
+		blockExec := sm.NewBlockExecutor(
+			stateStore,
+			proxyApp,
+			mp,
+			evPool,
+			blockStore,
+			eventBus,
+			nodeMetrics.state,
+			consensusPolicy,
+		)
+
+		// Determine whether we should attempt state sync.
+		stateSync := cfg.StateSync.Enable && !onlyValidatorIsUs(state, pubKey)
+		if stateSync && state.LastBlockHeight > 0 {
+			logger.Info("Found local state with non-zero height, skipping state sync")
+			stateSync = false
+		}
+		// Determine whether we should do block sync. This must happen after the handshake, since the
+		// app may modify the validator set, specifying ourself as the only validator.
+		blockSync := !onlyValidatorIsUs(state, pubKey)
+		waitSync := stateSync || blockSync
+
+		consensusWAL, err := consensus.OpenWAL(cfg.Consensus.WalFile())
+		if err != nil {
+			return nil, fmt.Errorf("consensus.OpenWAL(): %w", err)
+		}
+		closers = append(closers, func() error {
+			consensusWAL.Close()
+			return nil
+		})
+		csState := consensus.NewState(
+			cfg.Consensus,
+			consensusWAL,
+			stateStore,
+			blockExec,
+			blockStore,
+			mp,
+			evPool,
+			eventBus,
+			tracerProviderOptions,
+			nodeMetrics.consensus,
+		)
+		node.rpcEnv.ConsensusState = utils.Some[rpccore.ConsensusState](csState)
+
+		csReactor, err := consensus.NewReactor(
+			csState,
+			node.router,
+			eventBus,
+			waitSync,
+			nodeMetrics.consensus,
+			cfg,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("consensus.NewReactor(): %w", err)
 		}
 
-		return nil
-	}
-	// Set up state sync reactor, and schedule a sync if requested.
-	// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
-	// we should clean this whole thing up. See:
-	// https://github.com/tendermint/tendermint/issues/4644
-	// The CometBFT handshaker reconciles the block store and state store with the app
-	// by replaying blocks and calling InitChain at genesis. Autobahn (giga) maintains
-	// its own data WAL and does not update the CometBFT block/state stores, so on
-	// restart the handshaker would observe storeHeight=0 < appHeight=N and fail with
-	// ErrAppBlockHeightTooHigh. We skip the handshaker in giga mode; instead the
-	// giga router's runExecute owns InitChain on fresh start (appHeight==0) and
-	// relies on the app's committed CMS to rebuild deliverState on restart.
-	node.shouldHandshake = !stateSync && !gigaEnabled
-	if !gigaEnabled {
+		node.services = append(node.services, csReactor)
+		node.rpcEnv.ConsensusReactor = utils.Some(csReactor)
+
+		// Create the blockchain reactor. Note, we do not start block sync if we're
+		// doing a state sync first.
+		bcReactor, err := blocksync.NewReactor(
+			stateStore,
+			blockStore,
+			node.router,
+			utils.Some(blocksync.SyncerConfig{
+				BlockExec:             blockExec,
+				ConsReactor:           utils.Some[blocksync.ConsensusReactor](csReactor),
+				BlockSync:             blockSync && !stateSync,
+				Metrics:               nodeMetrics.consensus,
+				EventBus:              eventBus,
+				RestartEvent:          restartEvent,
+				SelfRemediationConfig: cfg.SelfRemediation,
+			}),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
+		}
+		node.services = append(node.services, bcReactor)
+		node.rpcEnv.BlockSyncReactor = utils.Some(bcReactor)
+
+		// Make ConsensusReactor. Don't enable fully if doing a state sync and/or block sync first.
+		// FIXME We need to update metrics here, since other reactors don't have access to them.
+		if stateSync {
+			nodeMetrics.consensus.StateSyncing.Set(1)
+		} else if blockSync {
+			nodeMetrics.consensus.BlockSyncing.Set(1)
+		}
+
+		postSyncHook := func(ctx context.Context, state sm.State) error {
+			csReactor.SetStateSyncingMetrics(0)
+
+			// TODO: Some form of orchestrator is needed here between the state
+			// advancing reactors to be able to control which one of the three
+			// is running
+			// FIXME Very ugly to have these metrics bleed through here.
+			csReactor.SetBlockSyncingMetrics(1)
+			if err := bcReactor.SwitchToBlockSync(state); err != nil {
+				logger.Error("failed to switch to block sync", "err", err)
+				return err
+			}
+
+			return nil
+		}
+
+		// Set up state sync reactor, and schedule a sync if requested.
+		// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
+		// we should clean this whole thing up. See:
+		// https://github.com/tendermint/tendermint/issues/4644
+		// The CometBFT handshaker reconciles the block store and state store with the app
+		// by replaying blocks and calling InitChain at genesis. Autobahn (giga) maintains
+		// its own data WAL and does not update the CometBFT block/state stores, so on
+		// restart the handshaker would observe storeHeight=0 < appHeight=N and fail with
+		// ErrAppBlockHeightTooHigh. We skip the handshaker in giga mode; instead the
+		// giga router's runExecute owns InitChain on fresh start (appHeight==0) and
+		// relies on the app's committed CMS to rebuild deliverState on restart.
+		node.shouldHandshake = !stateSync
 		ssReactor, err := statesync.NewReactor(
 			genDoc.ChainID,
 			genDoc.InitialHeight,
@@ -395,13 +390,26 @@ func makeNode(
 			return nil, fmt.Errorf("statesync.NewReactor(): %w", err)
 		}
 		node.services = append(node.services, ssReactor)
+
+		if cfg.Mode == config.ModeValidator {
+			if privValidator != nil {
+				csState.SetPrivValidator(ctx, utils.Some(privValidator))
+			}
+		}
+	} else {
+		bcReactor, err := blocksync.NewReactor(
+			stateStore,
+			blockStore,
+			node.router,
+			utils.None[blocksync.SyncerConfig](),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
+		}
+		node.rpcEnv.BlockSyncReactor = utils.Some(bcReactor)
+		node.services = append(node.services, bcReactor)
 	}
 
-	if cfg.Mode == config.ModeValidator {
-		if privValidator != nil {
-			csState.SetPrivValidator(ctx, utils.Some(privValidator))
-		}
-	}
 	node.rpcEnv.PubKey = pubKey
 
 	node.BaseService = *service.NewBaseService("Node", node)
@@ -500,12 +508,14 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := n.evPool.Start(state); err != nil {
-		return err
+	if evPool, ok := n.evPool.Get(); ok {
+		if err := evPool.Start(state); err != nil {
+			return err
+		}
 	}
 
 	if n.config.Instrumentation.Prometheus && n.config.Instrumentation.PrometheusListenAddr != "" {
-		n.prometheusSrv = n.startPrometheusServer(ctx, n.config.Instrumentation.PrometheusListenAddr)
+		n.prometheusSrv = utils.Some(n.startPrometheusServer(ctx, n.config.Instrumentation.PrometheusListenAddr))
 	}
 
 	// Start the transport.
@@ -513,7 +523,15 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		return err
 	}
 	n.rpcEnv.IsListening = true
-	n.SpawnCritical("mempool", n.mempool.Run)
+	if m, ok := n.mempool.Get(); ok {
+		n.SpawnCritical("mempool", m.Run)
+	}
+	// Run the GigaRouter alongside the transport. n.giga is the canonical
+	// reference; the Router holds a copy only for its own internal use
+	// (dispatching inbound giga connections). Lifecycle is owned here.
+	if giga, ok := n.giga.Get(); ok {
+		n.SpawnCritical("giga", giga.Run)
+	}
 
 	for _, reactor := range n.services {
 		if err := reactor.Start(ctx); err != nil {
@@ -565,12 +583,11 @@ func (n *nodeImpl) OnStop() {
 		pvsc.Wait()
 	}
 
-	if n.prometheusSrv != nil {
-		if err := n.prometheusSrv.Shutdown(context.Background()); err != nil {
+	if srv, ok := n.prometheusSrv.Get(); ok {
+		if err := srv.Shutdown(context.Background()); err != nil {
 			// Error from closing listeners, or context timeout:
 			logger.Error("Prometheus HTTP server Shutdown", "err", err)
 		}
-
 	}
 	if err := n.shutdownOps(); err != nil {
 		if strings.TrimSpace(err.Error()) != "" {

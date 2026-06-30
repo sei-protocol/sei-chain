@@ -3,6 +3,7 @@ package flatkv
 import (
 	"context"
 	"encoding/binary"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -160,6 +161,9 @@ func TestSetInitialVersion_HappyPath(t *testing.T) {
 
 	require.NoError(t, s.SetInitialVersion(100))
 	require.Equal(t, int64(99), s.committedVersion)
+	target, err := os.Readlink(currentPath(s.flatkvDir()))
+	require.NoError(t, err)
+	require.Equal(t, snapshotName(99), target)
 
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
@@ -170,6 +174,48 @@ func TestSetInitialVersion_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(100), v, "first Commit after SetInitialVersion(100) must produce version 100")
 	require.Equal(t, int64(100), s.Version())
+}
+
+func TestSetInitialVersion_GenesisSkipsSeededSnapshot(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.SetInitialVersion(1))
+	require.Equal(t, int64(0), s.committedVersion)
+	target, err := os.Readlink(currentPath(s.flatkvDir()))
+	require.NoError(t, err)
+	require.Equal(t, snapshotName(0), target)
+
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
+	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0xCC), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+
+	v, err := s.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), v, "first Commit after SetInitialVersion(1) must produce version 1")
+}
+
+func TestSetInitialVersion_PersistsEarliestVersion(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), s.EarliestVersion(),
+		"a fresh store has no earliest-version record")
+
+	require.NoError(t, s.SetInitialVersion(100))
+	require.Equal(t, int64(99), s.EarliestVersion())
+	require.NoError(t, s.Close())
+
+	reopened, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = reopened.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer reopened.Close()
+	require.Equal(t, int64(99), reopened.EarliestVersion(),
+		"the earliest-version record must survive reopen")
 }
 
 func TestSetInitialVersion_RejectsAfterCommit(t *testing.T) {

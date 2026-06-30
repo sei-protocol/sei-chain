@@ -19,20 +19,13 @@ const (
 	flagRSMisnamedBackend      = "receipt-store.backend"
 	flagRSAsyncWriteBuffer     = "receipt-store.async-write-buffer"
 	flagRSPruneIntervalSeconds = "receipt-store.prune-interval-seconds"
-	flagRSTxIndexBackend       = "receipt-store.tx-index-backend"
-
-	ReceiptTxIndexBackendNone   = ""
-	ReceiptTxIndexBackendPebble = "pebbledb"
+	flagRSReadWriteMetrics     = "receipt-store.enable-read-write-metrics"
+	flagRSLogFilterParallelism = "receipt-store.log-filter-parallelism"
 )
 
-func NormalizeReceiptTxIndexBackend(backend string) string {
-	switch strings.ToLower(strings.TrimSpace(backend)) {
-	case "pebbledb":
-		return ReceiptTxIndexBackendPebble
-	default:
-		return ReceiptTxIndexBackendNone
-	}
-}
+// DefaultReceiptLogFilterParallelism is the default per-query block fan-out for
+// littidx eth_getLogs (see ReceiptStoreConfig.LogFilterParallelism).
+const DefaultReceiptLogFilterParallelism = 16
 
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
@@ -42,7 +35,7 @@ type ReceiptStoreConfig struct {
 	DBDirectory string `mapstructure:"db-directory"`
 
 	// Backend defines the backend database used for receipt-store.
-	// Supported backends: pebbledb (aka pebble), parquet
+	// Supported backends: pebbledb (aka pebble)
 	// defaults to pebbledb
 	Backend string `mapstructure:"rs-backend"`
 
@@ -62,14 +55,16 @@ type ReceiptStoreConfig struct {
 	// default to every 600 seconds
 	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
 
-	// TxIndexBackend selects the tx-hash index implementation used by the
-	// parquet receipt store. Set to "pebbledb" (the default) to maintain a
-	// Pebble-backed tx_hash -> block_number index alongside parquet files so
-	// receipt-by-hash lookups can target a single file instead of scanning all
-	// files. Set to "" to disable the index; receipt-by-hash lookups that miss
-	// the in-memory cache then fail (no full-parquet scan). Ignored when the
-	// receipt backend is not parquet.
-	TxIndexBackend string `mapstructure:"tx-index-backend"`
+	// EnableReadWriteMetrics emits simple estimated read/write counters for Pebble-backed receipt storage.
+	// defaults to false
+	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
+
+	// LogFilterParallelism bounds how many blocks a single eth_getLogs query
+	// scans concurrently in the littidx backend; per-block tag scans and litt
+	// body reads are independent, so a range fans across this many workers.
+	// Applies only to the littidx backend. <= 0 falls back to the default.
+	// defaults to 16
+	LogFilterParallelism int `mapstructure:"log-filter-parallelism"`
 }
 
 // DefaultReceiptStoreConfig returns the default ReceiptStoreConfig.
@@ -81,7 +76,7 @@ func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
 		KeepRecent:           0,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
-		TxIndexBackend:       ReceiptTxIndexBackendPebble,
+		LogFilterParallelism: DefaultReceiptLogFilterParallelism,
 	}
 }
 
@@ -105,10 +100,10 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 		}
 		backend = strings.ToLower(strings.TrimSpace(backend))
 		switch backend {
-		case "pebbledb", "pebble", "parquet":
+		case "pebbledb", "pebble", "littidx":
 			cfg.Backend = backend
 		default:
-			return cfg, fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb, parquet", backend)
+			return cfg, fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb, littidx", backend)
 		}
 	}
 	if v := opts.Get(flagRSAsyncWriteBuffer); v != nil {
@@ -125,12 +120,19 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 		}
 		cfg.PruneIntervalSeconds = pruneIntervalSeconds
 	}
-	if v := opts.Get(flagRSTxIndexBackend); v != nil {
-		txIndexBackend, err := cast.ToStringE(v)
+	if v := opts.Get(flagRSReadWriteMetrics); v != nil {
+		enableReadWriteMetrics, err := cast.ToBoolE(v)
 		if err != nil {
 			return cfg, err
 		}
-		cfg.TxIndexBackend = NormalizeReceiptTxIndexBackend(txIndexBackend)
+		cfg.EnableReadWriteMetrics = enableReadWriteMetrics
+	}
+	if v := opts.Get(flagRSLogFilterParallelism); v != nil {
+		logFilterParallelism, err := cast.ToIntE(v)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.LogFilterParallelism = logFilterParallelism
 	}
 	return cfg, nil
 }

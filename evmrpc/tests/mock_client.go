@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -41,8 +42,12 @@ func (c *MockClient) EvmNextPendingNonce(_ common.Address) uint64 {
 	return 0
 }
 
-func (c *MockClient) EvmProxy(common.Address) (*url.URL, bool) {
+func (*MockClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
+}
+
+func (c *MockClient) EvmProxy(common.Address) utils.Option[*url.URL] {
+	return utils.None[*url.URL]()
 }
 
 func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {

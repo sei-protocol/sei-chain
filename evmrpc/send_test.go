@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -19,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -28,11 +30,11 @@ type sendProxyClient struct {
 	proxyURL *url.URL
 }
 
-func (c *sendProxyClient) EvmProxy(common.Address) (*url.URL, bool) {
+func (c *sendProxyClient) EvmProxy(common.Address) utils.Option[*url.URL] {
 	if c.proxyURL == nil {
-		return nil, false
+		return utils.None[*url.URL]()
 	}
-	return c.proxyURL, true
+	return utils.Some(c.proxyURL)
 }
 
 func TestMnemonicToPrivateKey(t *testing.T) {
@@ -137,6 +139,7 @@ func TestSendRawTransactionUsesProxy(t *testing.T) {
 		nil,
 		nil,
 		evmrpc.ConnectionTypeHTTP,
+		utils.None[time.Duration](),
 		evmrpc.NewBlockCache(1),
 		nil,
 		nil,

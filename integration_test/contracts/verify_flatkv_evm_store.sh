@@ -20,6 +20,34 @@ fi
 rm -rf "$dump_dir"
 mkdir -p "$dump_dir"
 
+dump_flatkv_layout() {
+  # Snapshot the on-disk state of $flatkv_dir for triage. dump-flatkv fails
+  # opaquely ("clone aborted after 3 retries...") when, for example, the
+  # live node never wrote a snapshot (=> no `current` symlink) or wrote it
+  # to a different path than $flatkv_dir. Printing the layout removes that
+  # ambiguity from the next CI run.
+  echo "==================== app.toml FlatKV-related settings ====================" >&2
+  grep -E '^(sc-write-mode|sc-keys-to-migrate-per-block|evm-ss-split)' \
+    /root/.sei/config/app.toml >&2 2>/dev/null || true
+  for candidate in "$flatkv_dir" /root/.sei/data/flatkv; do
+    echo "==================== FlatKV directory state at $candidate ====================" >&2
+    if [ ! -d "$candidate" ]; then
+      echo "(directory $candidate does not exist)" >&2
+    else
+      ls -la "$candidate" >&2 || true
+      for snap in "$candidate"/snapshot-*; do
+        [ -d "$snap" ] || continue
+        echo "---- $snap ----" >&2
+        ls -la "$snap" >&2 || true
+      done
+    fi
+  done
+  local seid_log="/sei-protocol/sei-chain/build/generated/logs/seid-0.log"
+  echo "==================== seid-0.log (head 60) ====================" >&2
+  head -60 "$seid_log" >&2 2>/dev/null || echo "(no seid-0.log)" >&2
+}
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then dump_flatkv_layout; fi; exit $rc' EXIT
+
 echo "Dumping FlatKV storage bucket from $flatkv_dir..."
 build/seidb dump-flatkv --db-dir "$flatkv_dir" --output-dir "$dump_dir" --bucket storage
 

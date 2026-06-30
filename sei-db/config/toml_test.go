@@ -6,6 +6,7 @@ import (
 	"testing"
 	"text/template"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,6 +49,8 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "sc-historical-proof-max-inflight = 1", "Missing or incorrect sc-historical-proof-max-inflight")
 	require.Contains(t, output, "sc-historical-proof-rate-limit = 1", "Missing or incorrect sc-historical-proof-rate-limit")
 	require.Contains(t, output, "sc-historical-proof-burst = 1", "Missing or incorrect sc-historical-proof-burst")
+	require.Contains(t, output, "[state-commit.flatkv]", "Missing FlatKV section")
+	require.Contains(t, output, "enable-read-write-metrics = false", "Missing FlatKV read/write metrics flag")
 
 	// sc-snapshot-writer-limit is intentionally removed from template (hardcoded to 4)
 	// but old configs with this field still parse fine via mapstructure
@@ -85,6 +88,7 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "ss-keep-recent =", "Missing ss-keep-recent")
 	require.Contains(t, output, "ss-prune-interval =", "Missing ss-prune-interval")
 	require.Contains(t, output, "ss-import-num-workers =", "Missing ss-import-num-workers")
+	require.Contains(t, output, "ss-enable-read-write-metrics = false", "Missing state-store read/write metrics flag")
 	require.Contains(t, output, `evm-ss-db-directory = ""`, "Missing evm-ss-db-directory")
 	require.Contains(t, output, `evm-ss-split = false`, "Missing or incorrect evm-ss-split")
 	require.Contains(t, output, "evm-ss-separate-dbs = false", "Missing or incorrect evm-ss-separate-dbs")
@@ -115,8 +119,8 @@ func TestReceiptStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, `db-directory = ""`, "Missing or incorrect db-directory")
 	require.Contains(t, output, "async-write-buffer =", "Missing async-write-buffer")
 	require.Contains(t, output, "prune-interval-seconds =", "Missing prune-interval-seconds")
+	require.Contains(t, output, "enable-read-write-metrics = false", "Missing receipt read/write metrics flag")
 	require.NotContains(t, output, "keep-recent", "keep-recent should not be in receipt-store template (controlled by min-retain-blocks)")
-	require.Contains(t, output, `tx-index-backend = "pebbledb"`, "Missing or incorrect tx-index-backend")
 	require.Contains(t, output, `Applies only when rs-backend = "pebbledb"`, "Missing pebble-only async-write-buffer note")
 	require.NotContains(t, output, "use-default-comparer", "use-default-comparer should not be in receipt-store template")
 }
@@ -150,23 +154,23 @@ func TestDefaultConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "[receipt-store]")
 	require.Contains(t, output, "async-write-buffer =")
 	require.Contains(t, output, "prune-interval-seconds =")
-	require.Contains(t, output, `tx-index-backend = "pebbledb"`)
 }
 
 // TestWriteModeValues verifies WriteMode enum values match template output
 func TestWriteModeValues(t *testing.T) {
 	tests := []struct {
-		mode     WriteMode
+		mode     types.WriteMode
 		expected string
 	}{
-		{MemiavlOnly, "memiavl_only"},
-		{MigrateEVM, "migrate_evm"},
-		{EVMMigrated, "evm_migrated"},
-		{MigrateAllButBank, "migrate_all_but_bank"},
-		{AllMigratedButBank, "all_migrated_but_bank"},
-		{MigrateBank, "migrate_bank"},
-		{FlatKVOnly, "flatkv_only"},
-		{TestOnlyDualWrite, "test_only_dual_write"},
+		{types.MemiavlOnly, "memiavl_only"},
+		{types.MigrateEVM, "migrate_evm"},
+		{types.EVMMigrated, "evm_migrated"},
+		{types.MigrateAllButBank, "migrate_all_but_bank"},
+		{types.AllMigratedButBank, "all_migrated_but_bank"},
+		{types.MigrateBank, "migrate_bank"},
+		{types.FlatKVOnly, "flatkv_only"},
+		{types.TestOnlyDualWrite, "test_only_dual_write"},
+		{types.Auto, "auto"},
 	}
 
 	for _, tc := range tests {
@@ -176,31 +180,32 @@ func TestWriteModeValues(t *testing.T) {
 		})
 	}
 
-	require.False(t, WriteMode("invalid").IsValid())
+	require.False(t, types.WriteMode("invalid").IsValid())
 }
 
 // TestParseWriteMode verifies string to WriteMode conversion
 func TestParseWriteMode(t *testing.T) {
 	tests := []struct {
 		input    string
-		expected WriteMode
+		expected types.WriteMode
 		hasError bool
 	}{
-		{"memiavl_only", MemiavlOnly, false},
-		{"migrate_evm", MigrateEVM, false},
-		{"evm_migrated", EVMMigrated, false},
-		{"migrate_all_but_bank", MigrateAllButBank, false},
-		{"all_migrated_but_bank", AllMigratedButBank, false},
-		{"migrate_bank", MigrateBank, false},
-		{"flatkv_only", FlatKVOnly, false},
-		{"test_only_dual_write", TestOnlyDualWrite, false},
+		{"memiavl_only", types.MemiavlOnly, false},
+		{"migrate_evm", types.MigrateEVM, false},
+		{"evm_migrated", types.EVMMigrated, false},
+		{"migrate_all_but_bank", types.MigrateAllButBank, false},
+		{"all_migrated_but_bank", types.AllMigratedButBank, false},
+		{"migrate_bank", types.MigrateBank, false},
+		{"flatkv_only", types.FlatKVOnly, false},
+		{"test_only_dual_write", types.TestOnlyDualWrite, false},
+		{"auto", types.Auto, false},
 		{"invalid", "", true},
 		{"", "", true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
-			mode, err := ParseWriteMode(tc.input)
+			mode, err := types.ParseWriteMode(tc.input)
 			if tc.hasError {
 				require.Error(t, err)
 			} else {
@@ -215,14 +220,15 @@ func TestParseWriteMode(t *testing.T) {
 func TestStateCommitConfigValidate(t *testing.T) {
 	tests := []struct {
 		name      string
-		writeMode WriteMode
+		writeMode types.WriteMode
 		hasError  bool
 	}{
-		{"valid memiavl_only", MemiavlOnly, false},
-		{"valid test_only_dual_write", TestOnlyDualWrite, false},
-		{"valid evm_migrated", EVMMigrated, false},
-		{"valid flatkv_only", FlatKVOnly, false},
-		{"invalid write mode", WriteMode("invalid"), true},
+		{"valid memiavl_only", types.MemiavlOnly, false},
+		{"valid test_only_dual_write", types.TestOnlyDualWrite, false},
+		{"valid evm_migrated", types.EVMMigrated, false},
+		{"valid flatkv_only", types.FlatKVOnly, false},
+		{"valid auto", types.Auto, false},
+		{"invalid write mode", types.WriteMode("invalid"), true},
 	}
 
 	for _, tc := range tests {

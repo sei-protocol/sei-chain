@@ -95,9 +95,9 @@ func TestSyncer_SyncAny(t *testing.T) {
 	}
 
 	rts := setup(t, app, stateProvider, true)
-	peerA := rts.AddPeer(t)
-	peerB := rts.AddPeer(t)
-	peerC := rts.AddPeer(t)
+	peerA := utils.OrPanic1(rts.AddPeer(t.Context(), t))
+	peerB := utils.OrPanic1(rts.AddPeer(t.Context(), t))
+	peerC := utils.OrPanic1(rts.AddPeer(t.Context(), t))
 
 	// Adding a chunk should error when no sync is in progress
 	_, err := rts.reactor.syncer.AddChunk(&chunk{Height: 1, Format: 1, Index: 0, Chunk: []byte{1}})
@@ -375,9 +375,9 @@ func TestSyncer_SyncAny_reject_sender(t *testing.T) {
 	rts := setup(t, nil, stateProvider, true)
 	app := rts.conn
 
-	peerA := rts.AddPeer(t)
-	peerB := rts.AddPeer(t)
-	peerC := rts.AddPeer(t)
+	peerA := utils.OrPanic1(rts.AddPeer(t.Context(), t))
+	peerB := utils.OrPanic1(rts.AddPeer(t.Context(), t))
+	peerC := utils.OrPanic1(rts.AddPeer(t.Context(), t))
 
 	// sbc will be offered first, which will be rejected with reject_sender, causing all snapshots
 	// submitted by both b and c (i.e. sb, sc, sbc) to be rejected. Finally, sa will reject and

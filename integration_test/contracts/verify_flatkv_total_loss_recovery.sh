@@ -19,6 +19,7 @@ CATCHUP_TIMEOUT=${FLATKV_TOTAL_LOSS_CATCHUP_TIMEOUT:-300}
 IMPORT_HEIGHT_FILE=${FLATKV_IMPORT_HEIGHT_FILE:-$(pwd)/integration_test/contracts/flatkv_import_height.txt}
 MIN_SNAPSHOT_HEIGHT_OVERRIDE=${FLATKV_TOTAL_LOSS_MIN_SNAPSHOT_HEIGHT:-}
 SNAPSHOT_WAIT_TIMEOUT=${FLATKV_TOTAL_LOSS_SNAPSHOT_WAIT_TIMEOUT:-420}
+STOP_TIMEOUT=${FLATKV_TOTAL_LOSS_STOP_TIMEOUT:-30}
 
 echo "verify_flatkv_total_loss_recovery: victim=$VICTIM_NODE donor=$DONOR_NODE"
 
@@ -37,6 +38,13 @@ dump_node_log() {
   echo "==================== ${node} docker logs (last 200 lines) ====================" >&2
   docker logs --tail 200 "$node" >&2 || true
   echo "==================== ${node} end log ====================" >&2
+}
+
+dump_statesync_config() {
+  local node=$1
+  echo "--- ${node} effective [statesync] section of /root/.sei/config/config.toml ---" >&2
+  docker exec "$node" bash -lc \
+    "awk '/^\[statesync\]/{flag=1;print;next} /^\[/{flag=0} flag' /root/.sei/config/config.toml" >&2 || true
 }
 
 node_height() {
@@ -206,27 +214,59 @@ configure_statesync() {
 }
 
 assert_statesync_configured() {
-  local victim=$1
+  local node=$1
   local trust_height=$2
   local trust_hash=$3
-  if ! docker exec "$victim" bash -lc "
+  if docker exec "$node" bash -lc "
     set -euo pipefail
-    section=\$(awk '/^\[statesync\]/{flag=1;print;next} /^\[/{flag=0} flag' /root/.sei/config/config.toml)
-    echo \"--- effective [statesync] for $victim ---\"
-    printf '%s\n' \"\$section\"
-    printf '%s\n' \"\$section\" | grep -qx 'enable = true'
-    printf '%s\n' \"\$section\" | grep -qx 'rpc-servers = \"${DONOR_NODE}:26657,${SECOND_RPC_NODE}:26657\"'
-    printf '%s\n' \"\$section\" | grep -qx 'trust-height = ${trust_height}'
-    printf '%s\n' \"\$section\" | grep -qx 'trust-hash = \"${trust_hash}\"'
+    section=\$(awk '/^\[statesync\]/{flag=1;next} /^\[/{flag=0} flag' /root/.sei/config/config.toml)
+    printf '%s\n' \"\$section\" | awk '
+      /^enable[[:space:]]*=/ { enable=\$3 }
+      /^rpc-servers[[:space:]]*=/ { rpc=\$0 }
+      /^trust-height[[:space:]]*=/ { height=\$3 }
+      /^trust-hash[[:space:]]*=/ { hash=\$3; gsub(/\\\"/, \"\", hash) }
+      END {
+        if (enable != \"true\") exit 10
+        if (height != \"${trust_height}\") exit 11
+        if (hash != \"${trust_hash}\") exit 12
+        if (rpc !~ /${DONOR_NODE}:26657/ || rpc !~ /${SECOND_RPC_NODE}:26657/) exit 13
+      }'
   "; then
-    echo "ERROR: failed to configure state-sync for $victim" >&2
-    dump_node_log "$victim"
-    return 1
+    return 0
   fi
+  echo "ERROR: $node state-sync config was not written as expected" >&2
+  dump_statesync_config "$node"
+  dump_node_log "$node"
+  return 1
 }
 
 start_victim() {
   docker exec -d -e "ID=${VICTIM_INDEX}" "$VICTIM_NODE" /usr/bin/start_sei.sh
+}
+
+stop_victim() {
+  local timeout=$1
+  local elapsed=0
+
+  docker exec "$VICTIM_NODE" pkill -TERM -f "seid start" >/dev/null 2>&1 || true
+  while [ "$elapsed" -lt "$timeout" ]; do
+    if ! docker exec "$VICTIM_NODE" pgrep -f "seid start" >/dev/null 2>&1; then
+      echo "$VICTIM_NODE seid process stopped"
+      return 0
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  echo "WARN: $VICTIM_NODE did not stop within ${timeout}s after SIGTERM; sending SIGKILL" >&2
+  docker exec "$VICTIM_NODE" pkill -9 -f "seid start" >/dev/null 2>&1 || true
+  sleep 1
+  if docker exec "$VICTIM_NODE" pgrep -f "seid start" >/dev/null 2>&1; then
+    echo "ERROR: $VICTIM_NODE did not stop before total-loss recovery setup" >&2
+    dump_node_log "$VICTIM_NODE"
+    return 1
+  fi
+  echo "$VICTIM_NODE seid process stopped after SIGKILL"
 }
 
 wait_for_process() {
@@ -473,8 +513,7 @@ echo "Using state-sync trust_height=$trust_height trust_hash=$trust_hash"
 
 stop_height=$(node_height "$VICTIM_NODE")
 echo "Stopping $VICTIM_NODE at height $stop_height before total-loss state-sync test"
-docker exec "$VICTIM_NODE" pkill -f "seid start" >/dev/null 2>&1 || true
-sleep 2
+stop_victim "$STOP_TIMEOUT"
 
 echo "Wiping $VICTIM_NODE data and wasm directories while preserving priv_validator_state.json"
 docker exec "$VICTIM_NODE" bash -lc "

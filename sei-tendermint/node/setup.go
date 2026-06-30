@@ -12,20 +12,19 @@ import (
 	"strings"
 	"time"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	autobahnConsensus "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync"
@@ -190,38 +189,48 @@ func loadAutobahnFileConfig(path string) (*config.AutobahnFileConfig, error) {
 	return &fc, nil
 }
 
-// buildGigaConfig constructs a GigaRouterConfig from the autobahn config file, node key, and genesis doc.
-func buildGigaConfig(
-	autobahnConfigFile string,
-	nodeKey types.NodeKey,
-	validatorKey atypes.SecretKey,
-	txMempool *mempool.TxMempool,
-	genDoc *types.GenesisDoc,
-) (*p2p.GigaRouterConfig, error) {
+// loadAutobahnCommittee reads the autobahn config file and builds the
+// committee map (validator pubkey → GigaNodeAddr) used by both router
+// modes. Rejects duplicate validator/node keys.
+func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfig, map[atypes.PublicKey]p2p.GigaNodeAddr, error) {
 	if autobahnConfigFile == "" {
-		return nil, errors.New("autobahn config file path must not be empty")
+		return nil, nil, errors.New("autobahn config file path must not be empty")
 	}
 	fc, err := loadAutobahnFileConfig(autobahnConfigFile)
 	if err != nil {
-		return nil, fmt.Errorf("loading autobahn config from %q: %w", autobahnConfigFile, err)
+		return nil, nil, fmt.Errorf("loading autobahn config from %q: %w", autobahnConfigFile, err)
 	}
-
 	validatorAddrs := map[atypes.PublicKey]p2p.GigaNodeAddr{}
 	seenNodeKeys := map[p2p.NodePublicKey]bool{}
-
 	for _, entry := range fc.Validators {
 		if _, exists := validatorAddrs[entry.ValidatorKey]; exists {
-			return nil, fmt.Errorf("duplicate validator key in autobahn validators: %s", entry.ValidatorKey)
+			return nil, nil, fmt.Errorf("duplicate validator key in autobahn validators: %s", entry.ValidatorKey)
 		}
 		if seenNodeKeys[entry.NodeKey] {
-			return nil, fmt.Errorf("duplicate node key in autobahn validators: %s", entry.NodeKey)
+			return nil, nil, fmt.Errorf("duplicate node key in autobahn validators: %s", entry.NodeKey)
 		}
 		seenNodeKeys[entry.NodeKey] = true
 		validatorAddrs[entry.ValidatorKey] = p2p.GigaNodeAddr{
 			Key:      entry.NodeKey,
 			HostPort: entry.Address,
-			EVMRPC:   entry.GetEVMRPC(),
+			EVMRPC:   entry.EVMRPC.URL,
 		}
+	}
+	return fc, validatorAddrs, nil
+}
+
+// buildValidatorGigaConfig assembles a GigaValidatorConfig. Errors if
+// self isn't in the committee or the node key doesn't match.
+func buildValidatorGigaConfig(
+	autobahnConfigFile string,
+	nodeKey types.NodeKey,
+	validatorKey atypes.SecretKey,
+	app *proxy.Proxy,
+	genDoc *types.GenesisDoc,
+) (*p2p.GigaValidatorConfig, error) {
+	fc, validatorAddrs, err := loadAutobahnCommittee(autobahnConfigFile)
+	if err != nil {
+		return nil, err
 	}
 
 	// Verify self is in the validator set.
@@ -233,35 +242,147 @@ func buildGigaConfig(
 	if selfAddr.Key != selfNodePub {
 		return nil, fmt.Errorf("node key mismatch for own validator entry: config has %s, but node key is %s", selfAddr.Key, selfNodePub)
 	}
-
-	// The producer's max-gas-per-block is the chain's gas-limit consensus
-	// rule, which lives in genesis (consensus_params.block.max_gas) — the
-	// same number the EVM runtime reads via ctx.ConsensusParams().Block.MaxGas.
-	if genDoc.ConsensusParams == nil || genDoc.ConsensusParams.Block.MaxGas <= 0 {
-		return nil, fmt.Errorf("%w (got %v)", ErrGenesisMaxGasInvalid, genDoc.ConsensusParams)
+	if _, err := genesisMaxGas(genDoc); err != nil {
+		return nil, err
 	}
-	maxGasPerBlock := uint64(genDoc.ConsensusParams.Block.MaxGas) //nolint:gosec // validated > 0 above
-
-	return &p2p.GigaRouterConfig{
-		DialInterval:   time.Duration(fc.DialInterval),
-		ValidatorAddrs: validatorAddrs,
-		Consensus: &autobahnConsensus.Config{
-			Key: validatorKey,
-			ViewTimeout: func(atypes.View) time.Duration {
-				return time.Duration(fc.ViewTimeout)
-			},
-			PersistentStateDir: fc.PersistentStateDir,
+	return &p2p.GigaValidatorConfig{
+		GigaRouterCommonConfig: p2p.GigaRouterCommonConfig{
+			DialInterval:            time.Duration(fc.DialInterval),
+			ValidatorAddrs:          validatorAddrs,
+			PersistentStateDir:      fc.PersistentStateDir,
+			App:                     app,
+			GenDoc:                  genDoc,
+			MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
+		},
+		ValidatorKey: validatorKey,
+		ViewTimeout: func(atypes.View) time.Duration {
+			return time.Duration(fc.ViewTimeout)
 		},
 		Producer: &producer.Config{
-			MaxGasPerBlock:   maxGasPerBlock,
-			MaxTxsPerBlock:   fc.MaxTxsPerBlock,
-			MaxTxsPerSecond:  fc.MaxTxsPerSecond,
-			MempoolSize:      fc.MempoolSize,
-			BlockInterval:    time.Duration(fc.BlockInterval),
-			AllowEmptyBlocks: fc.AllowEmptyBlocks,
+			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
+			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),
+			MaxTxsPerBlock:          fc.MaxTxsPerBlock,
+			MaxTxsPerSecond:         fc.MaxTxsPerSecond,
+			AllowEmptyBlocks:        fc.AllowEmptyBlocks,
+			BlockInterval:           time.Duration(fc.BlockInterval),
 		},
-		TxMempool: txMempool,
-		GenDoc:    genDoc,
+	}, nil
+}
+
+// buildGigaRouter picks validator-vs-fullnode by cfg.Mode:
+// "validator" runs the validator path, any other mode runs as a fullnode.
+// Mode is the operator's explicit role declaration, kept separate from
+// committee membership so a newly-joined committee member can finish
+// catch-up as a fullnode before the operator flips to mode = "validator".
+// A warning is logged if mode and committee membership disagree so an
+// operator misconfiguration is visible at startup.
+func buildGigaRouter(
+	cfg *config.Config,
+	nodeKey types.NodeKey,
+	validatorKey utils.Option[atypes.SecretKey],
+	app *proxy.Proxy,
+	genDoc *types.GenesisDoc,
+) (p2p.GigaRouter, error) {
+	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	if valKey, ok := validatorKey.Get(); ok {
+		_, inCommittee := validatorAddrs[valKey.Public()]
+		switch {
+		case cfg.Mode == config.ModeValidator && !inCommittee:
+			logger.Warn("Autobahn: mode is \"validator\" but local validator key is not in the committee", "valKey", valKey.Public())
+		case cfg.Mode != config.ModeValidator && inCommittee:
+			logger.Warn("Autobahn: local validator key is in the committee but mode is not \"validator\"; starting as fullnode", "mode", cfg.Mode)
+		}
+	}
+	if cfg.Mode == config.ModeValidator {
+		valKey, ok := validatorKey.Get()
+		if !ok {
+			return nil, fmt.Errorf("autobahn: mode = %q requires a local validator key", cfg.Mode)
+		}
+		// Remote signers aren't supported on the validator path —
+		// autobahn signs in-process. Fullnodes don't sign and aren't
+		// penalised for having priv-validator.laddr set.
+		if cfg.PrivValidator.ListenAddr != "" {
+			return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
+		}
+		valCfg, err := buildValidatorGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, app, genDoc)
+		if err != nil {
+			return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
+		}
+		rootifyPersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig)
+		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
+		// enable/disable decision through as plain config.
+		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
+		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
+		return p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey))
+	}
+	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, app, genDoc)
+	if err != nil {
+		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
+	}
+	rootifyPersistentStateDir(cfg.RootDir, fnCfg)
+	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
+	// enable/disable decision through as plain config.
+	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
+	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
+	return p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey))
+}
+
+// rootifyPersistentStateDir resolves a relative PersistentStateDir
+// against the node's --home dir (mirrors config.go's rootify). Absolute
+// paths pass through; None stays None.
+func rootifyPersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) {
+	if dir, ok := c.PersistentStateDir.Get(); ok && !filepath.IsAbs(dir) {
+		c.PersistentStateDir = utils.Some(filepath.Join(rootDir, dir))
+	}
+}
+
+// resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject all,
+// Some(n) ⇒ n. The default lives in the config package so giga_router
+// doesn't carry an operator-facing knob.
+func resolveMaxInboundFullnodePeers(o utils.Option[uint64]) int {
+	if v, ok := o.Get(); ok {
+		return int(v) //nolint:gosec // bounded by maxInboundFullnodePeers in giga_router_common
+	}
+	return config.DefaultMaxInboundFullnodePeers
+}
+
+// genesisMaxGas returns consensus_params.block.max_gas as uint64. Errors
+// when missing or <= 0 (CometBFT uses -1 for "unlimited" which neither
+// path supports).
+func genesisMaxGas(genDoc *types.GenesisDoc) (uint64, error) {
+	if genDoc.ConsensusParams == nil || genDoc.ConsensusParams.Block.MaxGas <= 0 {
+		return 0, fmt.Errorf("%w (got %v)", ErrGenesisMaxGasInvalid, genDoc.ConsensusParams)
+	}
+	return uint64(genDoc.ConsensusParams.Block.MaxGas), nil //nolint:gosec // validated > 0 above
+}
+
+// buildFullnodeGigaConfig assembles the common config for a fullnode
+// GigaRouter. No consensus/producer/mempool — fullnodes pull blocks rather
+// than producing them and forward every EVM tx to the shard owner.
+func buildFullnodeGigaConfig(
+	autobahnConfigFile string,
+	app *proxy.Proxy,
+	genDoc *types.GenesisDoc,
+) (*p2p.GigaRouterCommonConfig, error) {
+	fc, validatorAddrs, err := loadAutobahnCommittee(autobahnConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	// MaxGasEstimatedPerBlock reads through to genDoc; validate the source
+	// so a malformed genesis can't silently expose 0 to clients.
+	if _, err := genesisMaxGas(genDoc); err != nil {
+		return nil, err
+	}
+	return &p2p.GigaRouterCommonConfig{
+		DialInterval:            time.Duration(fc.DialInterval),
+		ValidatorAddrs:          validatorAddrs,
+		PersistentStateDir:      fc.PersistentStateDir,
+		App:                     app,
+		GenDoc:                  genDoc,
+		MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
 	}, nil
 }
 
@@ -271,7 +392,7 @@ func createRouter(
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
 	cfg *config.Config,
-	txMempool utils.Option[*mempool.TxMempool],
+	app utils.Option[*proxy.Proxy],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
@@ -355,31 +476,19 @@ func createRouter(
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.UnconditionalPeerIDs, ",", " ") {
 		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
 	}
-	// Wire up Autobahn (GigaRouter) if enabled.
+	// Wire up Autobahn if enabled. Role dispatch (validator vs fullnode)
+	// happens inside buildGigaRouter based on cfg.Mode.
 	if cfg.AutobahnConfigFile != "" {
-		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile)
-		// TODO: add support for autobahn non-validator (observer) nodes that don't need a signing key.
-		valKey, ok := validatorKey.Get()
+		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile, "mode", cfg.Mode)
+		proxyApp, ok := app.Get()
 		if !ok {
-			return nil, closer, fmt.Errorf("autobahn non-validator nodes are not supported yet; a local validator key is required")
+			return nil, closer, fmt.Errorf("autobahn requires app")
 		}
-		mp, ok := txMempool.Get()
-		if !ok {
-			return nil, closer, errors.New("autobahn requires a tx mempool")
-		}
-		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, mp, genDoc)
+		giga, err := buildGigaRouter(cfg, nodeKey, validatorKey, proxyApp, genDoc)
 		if err != nil {
-			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
+			return nil, closer, err
 		}
-		// Resolve a relative persistent_state_dir against the node's --home dir,
-		// matching how other paths in the tendermint config are handled
-		// (config.go's rootify). Absolute paths pass through unchanged. None
-		// means the operator opted into in-memory-only mode and stays None.
-		if dir, ok := gigaCfg.Consensus.PersistentStateDir.Get(); ok && !filepath.IsAbs(dir) {
-			gigaCfg.Consensus.PersistentStateDir = utils.Some(filepath.Join(cfg.RootDir, dir))
-		}
-		logger.Info("Autobahn config loaded", "validators", len(gigaCfg.ValidatorAddrs))
-		options.Giga = utils.Some(gigaCfg)
+		options.Giga = utils.Some(giga)
 	}
 
 	peerDB, err := dbProvider(&config.DBContext{ID: "peerstore", Config: cfg})

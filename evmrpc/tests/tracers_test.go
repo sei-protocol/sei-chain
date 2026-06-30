@@ -38,46 +38,6 @@ func TestTraceBlockByNumber(t *testing.T) {
 	)
 }
 
-func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
-	txBz := signAndEncodeTx(send(0), mnemonic1)
-	panicTxBz := signAndEncodeTx(send(100), mnemonic1)
-	SetupTestServer(t, [][][]byte{{txBz, panicTxBz}}, mnemonicInitializer(mnemonic1)).Run(
-		func(port int) {
-			res := sendRequestWithNamespace("sei", port, "traceBlockByNumberExcludeTraceFail", "0x2", map[string]interface{}{
-				"timeout": "60s", "tracer": "flatCallTracer",
-			})
-			txs := res["result"].([]interface{})
-			require.Len(t, txs, 1)
-			blockHash := txs[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
-			// assert that the block hash has been overwritten instead of the RLP hash.
-			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
-		},
-	)
-}
-
-// Correct-nonce ante failures (insufficient funds / fee / etc.) land a
-// deferred-info stub receipt with EffectiveGasPrice=0 && GasUsed=0. With
-// callTracer / flatCallTracer the tracer embeds the error in the JSON and
-// leaves trace.Error empty, so the legacy trace.Error filter doesn't catch
-// them. The receipt-shape check in dropUntraceableTraces does.
-//
-// Block layout exercises both directions of the discriminator:
-//   - send(0): successful tx (Status=1, EffGP>0, GasUsed>0) → INCLUDED
-//   - sendInsufficientFunds(1): correct-nonce ante stub → EXCLUDED
-func TestTraceBlockByNumberExcludeTraceFail_AnteStub(t *testing.T) {
-	successTxBz := signAndEncodeTx(send(0), mnemonic1)
-	stubTxBz := signAndEncodeTx(sendInsufficientFunds(1), mnemonic1)
-	SetupTestServer(t, [][][]byte{{successTxBz, stubTxBz}}, mnemonicInitializer(mnemonic1)).Run(
-		func(port int) {
-			res := sendRequestWithNamespace("sei", port, "traceBlockByNumberExcludeTraceFail", "0x2", map[string]interface{}{
-				"timeout": "60s", "tracer": "callTracer",
-			})
-			txs := res["result"].([]interface{})
-			require.Len(t, txs, 1, "ante stub filtered, successful tx kept; got %v", txs)
-		},
-	)
-}
-
 func TestTraceBlockByHash(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
 	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
@@ -86,23 +46,6 @@ func TestTraceBlockByHash(t *testing.T) {
 				"timeout": "60s", "tracer": "flatCallTracer",
 			})
 			blockHash := res["result"].([]interface{})[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
-			// assert that the block hash has been overwritten instead of the RLP hash.
-			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
-		},
-	)
-}
-
-func TestTraceBlockByHashExcludeTraceFail(t *testing.T) {
-	txBz := signAndEncodeTx(send(0), mnemonic1)
-	panicTxBz := signAndEncodeTx(send(100), mnemonic1)
-	SetupTestServer(t, [][][]byte{{txBz, panicTxBz}}, mnemonicInitializer(mnemonic1)).Run(
-		func(port int) {
-			res := sendRequestWithNamespace("sei", port, "traceBlockByHashExcludeTraceFail", "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", map[string]interface{}{
-				"timeout": "60s", "tracer": "flatCallTracer",
-			})
-			txs := res["result"].([]interface{})
-			require.Len(t, txs, 1)
-			blockHash := txs[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
 			// assert that the block hash has been overwritten instead of the RLP hash.
 			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
 		},

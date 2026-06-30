@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
@@ -94,9 +95,19 @@ type DataTracker struct {
 	// The size of the values in bytes for new cohorts.
 	valueSize uint64
 
-	// This channel has capacity one and initially has one value in it. This value is drained when the DataTracker is
-	// fully stopped. Other threads can use this to block until the DataTracker is fully stopped.
-	closedChan chan struct{}
+	// Closed by Close() to signal the data generator goroutine to drain any pending
+	// reports from writtenKeyIndicesChan and then exit. This is what makes Close()
+	// deterministic with respect to ReportWrite: any ReportWrite call that has
+	// returned before Close() is invoked is guaranteed to be processed by the time
+	// Close() returns.
+	shutdownChan chan struct{}
+
+	// Closed by the data generator goroutine when it has fully exited. Used by
+	// Close() to wait for the goroutine to finish.
+	doneChan chan struct{}
+
+	// Ensures Close() is idempotent.
+	closeOnce sync.Once
 
 	// Used to handle fatal errors in the DataTracker.
 	errorMonitor *util.ErrorMonitor
@@ -165,9 +176,6 @@ func NewDataTracker(
 	safetyMargin := time.Duration(config.ReadSafetyMarginMinutes * float64(time.Minute))
 	safeTTL := ttl - safetyMargin
 
-	closedChan := make(chan struct{}, 1)
-	closedChan <- struct{}{} // Will be drained when the DataTracker is closed.
-
 	ctx, cancel := context.WithCancel(ctx)
 
 	tracker := &DataTracker{
@@ -190,7 +198,8 @@ func NewDataTracker(
 		safeTTL:                   safeTTL,
 		valueSize:                 valueSize,
 		generator:                 NewDataGenerator(config.Seed, config.RandomPoolSize),
-		closedChan:                closedChan,
+		shutdownChan:              make(chan struct{}),
+		doneChan:                  make(chan struct{}),
 		errorMonitor:              errorMonitor,
 	}
 
@@ -298,11 +307,16 @@ func (t *DataTracker) GetWriteInfo() *WriteInfo {
 }
 
 // ReportWrite is called when a key has been written to the database. This means that the key is now safe to be read.
+// Reports submitted before Close() is invoked are guaranteed to be processed by the time Close() returns.
+// Once shutdown has been initiated (via Close() or context cancellation), subsequent ReportWrite calls return
+// immediately without queuing the report.
 func (t *DataTracker) ReportWrite(index uint64) {
 	select {
 	case t.writtenKeyIndicesChan <- index:
 		return
 	case <-t.ctx.Done():
+		return
+	case <-t.shutdownChan:
 		return
 	}
 }
@@ -331,11 +345,24 @@ func (t *DataTracker) GetReadInfoWithTimeout(timeout time.Duration) *ReadInfo {
 	}
 }
 
-// Close stops the key manager's background tasks.
+// Close stops the key manager's background tasks. Close is idempotent.
+//
+// Close performs a graceful shutdown: any ReportWrite call that returned before Close was invoked
+// is guaranteed to be processed (and any cohort completion side effects persisted) by the time
+// Close returns. After Close starts, additional ReportWrite calls return immediately without
+// queuing the report.
 func (t *DataTracker) Close() {
-	t.cancel()
-	t.closedChan <- struct{}{}
-	<-t.closedChan
+	t.closeOnce.Do(func() {
+		// Signal the data generator goroutine to drain pending reports and exit. Without this
+		// step, cancelling the context first could cause the goroutine to exit before
+		// processing reports that ReportWrite already enqueued, leaving on-disk cohort
+		// completion state inconsistent with what the caller has reported.
+		close(t.shutdownChan)
+		<-t.doneChan
+		// Cancel the context to unblock any callers still waiting in
+		// GetWriteInfo/GetReadInfo/GetReadInfoWithTimeout.
+		t.cancel()
+	})
 }
 
 // dataGenerator is responsible for generating data in the background.
@@ -343,7 +370,7 @@ func (t *DataTracker) dataGenerator() {
 	ticker := time.NewTicker(time.Duration(t.config.CohortGCPeriodSeconds * float64(time.Second)))
 	defer func() {
 		ticker.Stop()
-		<-t.closedChan
+		close(t.doneChan)
 	}()
 
 	nextWriteInfo := t.generateNextWriteInfo()
@@ -359,6 +386,10 @@ func (t *DataTracker) dataGenerator() {
 			case <-t.errorMonitor.ImmediateShutdownRequired():
 				return
 			case <-t.ctx.Done():
+				return
+			case <-t.shutdownChan:
+				// graceful shutdown initiated by Close()
+				t.drainPendingReports()
 				return
 			case keyIndex := <-t.writtenKeyIndicesChan:
 				// track keys that have been written so that we can read them in the future
@@ -381,6 +412,10 @@ func (t *DataTracker) dataGenerator() {
 				return
 			case <-t.ctx.Done():
 				return
+			case <-t.shutdownChan:
+				// graceful shutdown initiated by Close()
+				t.drainPendingReports()
+				return
 			case keyIndex := <-t.writtenKeyIndicesChan:
 				// track keys that have been written so that we can read them in the future
 				t.handleWrittenKey(keyIndex)
@@ -394,6 +429,26 @@ func (t *DataTracker) dataGenerator() {
 				// perform garbage collection on cohorts
 				t.DoCohortGC()
 			}
+		}
+	}
+}
+
+// drainPendingReports processes any reports currently buffered in writtenKeyIndicesChan.
+// Called by the data generator goroutine during graceful shutdown so that any ReportWrite
+// call that returned before Close() is fully processed (i.e. cohort completion state
+// persisted to disk reflects those reports).
+//
+// This is a best-effort drain of the channel buffer at the moment the goroutine sees the
+// shutdown signal. ReportWrite stops accepting new submissions once shutdownChan is closed
+// (and Close itself runs after all caller-side ReportWrite calls have returned), so by the
+// time we get here the buffer is bounded and no new items can be enqueued.
+func (t *DataTracker) drainPendingReports() {
+	for {
+		select {
+		case keyIndex := <-t.writtenKeyIndicesChan:
+			t.handleWrittenKey(keyIndex)
+		default:
+			return
 		}
 	}
 }

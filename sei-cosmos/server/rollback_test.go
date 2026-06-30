@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,6 +13,7 @@ import (
 	"github.com/gogo/protobuf/grpc"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/orderedcode"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
@@ -51,6 +51,10 @@ func (m *mockApplication) GetValidators() []abci.ValidatorUpdate {
 	return nil
 }
 
+func (m *mockApplication) LastBlockHeight() int64 {
+	return 0
+}
+
 func (m *mockApplication) Close() error {
 	return m.cms.Close()
 }
@@ -80,8 +84,8 @@ func (m *mockApplication) EvmNonce(common.Address) uint64 {
 	return 0
 }
 
-func (m *mockApplication) EvmBalance(common.Address, []byte) *big.Int {
-	return big.NewInt(0)
+func (m *mockApplication) EvmBalance(common.Address, []byte) uint256.Int {
+	return uint256.Int{}
 }
 
 func (m *mockApplication) BeginBlock(ctx context.Context, req *abci.RequestBeginBlock) (*abci.ResponseBeginBlock, error) {

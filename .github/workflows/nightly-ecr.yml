@@ -1,0 +1,104 @@
+name: Nightly ECR
+
+on:
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-ecr
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish nightly containers
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout main HEAD
+        # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: main
+
+      - name: Compute tag components
+        id: tag
+        run: |
+          SHA=$(git rev-parse HEAD)
+          SHA7=$(git rev-parse --short=7 HEAD)
+          DATE=$(date -u +%Y%m%d)
+          echo "sha=${SHA}"     >> "$GITHUB_OUTPUT"
+          echo "sha7=${SHA7}"   >> "$GITHUB_OUTPUT"
+          echo "date=${DATE}"   >> "$GITHUB_OUTPUT"
+          echo "nightly=nightly-${DATE}-${SHA7}"   >> "$GITHUB_OUTPUT"
+          echo "mock=mock-nightly-${DATE}-${SHA7}" >> "$GITHUB_OUTPUT"
+          echo "mock_chain=mock_chain_validation-nightly-${DATE}-${SHA7}" >> "$GITHUB_OUTPUT"
+
+      - name: AWS Login
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::189176372795:role/common/gha
+          role-duration-seconds: 7200
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        # See: https://github.com/docker/setup-buildx-action/releases/tag/v4.1.0
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+
+      # Regular build -- consumed by release-test SEID_IMAGE.
+      - name: Build and push nightly (regular)
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.nightly }}
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-regular
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-regular,mode=max
+          build-args: |
+            SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
+
+      # mock_balances -- consumed by nightly-load SEID_IMAGE (pre-funded EVM accounts).
+      - name: Build and push mock-nightly (mock_balances)
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.mock }}
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock,mode=max
+          build-args: |
+            SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
+            GO_BUILD_TAGS=mock_balances
+
+      # mock_chain_validation -- consumed by chaos-lab forked-state replays;
+      # swallows every swallow-eligible halting validation failure.
+      - name: Build and push mock_chain_validation-nightly (mock_balances + mock_chain_validation)
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.mock_chain }}
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock-chain
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock-chain,mode=max
+          build-args: |
+            SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
+            GO_BUILD_TAGS=mock_balances mock_chain_validation
+
+      - name: Summary
+        run: |
+          echo "### Nightly ECR publish" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tag | Variant |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|---------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`${{ steps.tag.outputs.nightly }}\` | regular |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`${{ steps.tag.outputs.mock }}\` | mock_balances |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`${{ steps.tag.outputs.mock_chain }}\` | mock_balances + mock_chain_validation |" >> "$GITHUB_STEP_SUMMARY"

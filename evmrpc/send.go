@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -34,6 +35,7 @@ type SendAPI struct {
 	homeDir          string
 	backend          *Backend
 	connectionType   ConnectionType
+	methodTimeout    utils.Option[time.Duration]
 }
 
 type SendConfig struct {
@@ -52,6 +54,7 @@ func NewSendAPI(
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
+	methodTimeout utils.Option[time.Duration],
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 	watermarks *WatermarkManager,
@@ -65,10 +68,17 @@ func NewSendAPI(
 		homeDir:          homeDir,
 		backend:          NewBackend(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, simulateConfig, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks),
 		connectionType:   connectionType,
+		methodTimeout:    methodTimeout,
 	}
 }
 
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
+	if timeout, ok := s.methodTimeout.Get(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, "eth_sendRawTransaction", s.connectionType, startTime, err, recover())
@@ -82,7 +92,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	// but we still need to handle it.
 	sender, senderErr := getSender(tx, s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
 	if senderErr == nil {
-		if url, ok := s.tmClient.EvmProxy(sender); ok {
+		if url, ok := s.tmClient.EvmProxy(sender).Get(); ok {
 			recordRedirectedRequest(ctx, "eth_sendRawTransaction", string(s.connectionType))
 			// HTTP transport pooling already happens globally underneath net/http, so
 			// creating a fresh RPC client per proxied request is fine here. If we
@@ -95,7 +105,8 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 			defer client.Close()
 
 			if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
-				return hash, fmt.Errorf("eth_sendRawTransaction(%q): %w", url.String(), err)
+				// No error wrapping, because evm server is too dumb to handle wrapped error.
+				return hash, err
 			}
 			return hash, nil
 		}

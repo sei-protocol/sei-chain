@@ -806,7 +806,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Range-query receipt stores only constrain by numeric block range and
 	// do not enforce crit.BlockHash.
 	if crit.BlockHash == nil {
-		// Try efficient range query first (supported by parquet/DuckDB backend)
+		// Try efficient range query first
 		// #nosec G115 -- begin and end are validated to be positive block heights above
 		if logs, rangeErr := f.tryFilterLogsRange(ctx, uint64(begin), uint64(end), crit); rangeErr == nil {
 			return logs, end, nil
@@ -893,12 +893,14 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		}
 	}()
 
-	res = f.mergeSortedLogs(sortedBatches)
-
-	// Apply rate limit
-	if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
-		res = res[:int(f.filterConfig.maxLog)]
+	// Push the cap into the merge so it stops popping once the limit is reached,
+	// bounding the merged result allocation to O(maxLog) instead of O(total
+	// matching logs). A limit of 0 means no cap.
+	var limit int64
+	if applyOpenEndedLogLimit {
+		limit = f.filterConfig.maxLog
 	}
+	res = f.mergeSortedLogs(sortedBatches, limit)
 
 	// Ensure we never return nil, always return an array (even if empty)
 	if res == nil {
@@ -908,7 +910,11 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	return res, end, err
 }
 
-func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log {
+// mergeSortedLogs k-way merges the per-batch sorted slices into a single sorted
+// slice. When limit > 0 it stops once limit logs have been collected, bounding
+// both the result allocation and the work done to O(limit) rather than O(total
+// matching logs). A limit of 0 means no cap.
+func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log, limit int64) []*ethtypes.Log {
 	totalSize := 0
 	for _, b := range batches {
 		totalSize += len(b)
@@ -917,7 +923,12 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log 
 		return []*ethtypes.Log{}
 	}
 
-	res := make([]*ethtypes.Log, 0, totalSize)
+	capSize := totalSize
+	if limit > 0 && int64(capSize) > limit {
+		capSize = int(limit)
+	}
+
+	res := make([]*ethtypes.Log, 0, capSize)
 	h := &logMergeHeap{}
 
 	// Initialize the heap with the first element from each non-empty batch
@@ -931,8 +942,11 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log 
 		}
 	}
 
-	// Process the heap until it's empty
+	// Process the heap until it's empty, or until we've collected `limit` logs.
 	for h.Len() > 0 {
+		if limit > 0 && int64(len(res)) >= limit {
+			break
+		}
 		item := heap.Pop(h).(*kWayMergeItem)
 		res = append(res, item.log)
 
@@ -985,7 +999,7 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 // normalizeRangeQueryLogs corrects BlockHash, TxIndex, and LogIndex on logs
 // returned from range-query backends.
 //
-// Range-query backends (parquet/cache) store logs with:
+// Range-query backends store logs with:
 //   - BlockHash = zero (unknown at receipt flush time)
 //   - TxIndex = raw Cosmos block position (includes non-EVM txs)
 //   - LogIndex = absolute position across ALL receipts (includes filtered-out txs)

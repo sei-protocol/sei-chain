@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/rs/cors"
 	"github.com/sei-protocol/seilog"
@@ -121,12 +120,7 @@ func serverRPCConfig(r *config.RPCConfig) *server.Config {
 	cfg := server.DefaultConfig()
 	cfg.MaxBodyBytes = r.MaxBodyBytes
 	cfg.MaxHeaderBytes = r.MaxHeaderBytes
-	// If necessary adjust global WriteTimeout to ensure it's greater than
-	// TimeoutBroadcastTxCommit.
-	// See https://github.com/tendermint/tendermint/issues/3435
-	// Note we don't need to adjust anything if the timeout is already unlimited.
-	if cfg.WriteTimeout > 0 && cfg.WriteTimeout <= r.TimeoutBroadcastTxCommit {
-		cfg.WriteTimeout = r.TimeoutBroadcastTxCommit + 1*time.Second
-	}
+	cfg.ReadHeaderTimeout = r.TimeoutReadHeader
+	cfg.WriteTimeout = r.TimeoutWrite
 	return cfg
 }

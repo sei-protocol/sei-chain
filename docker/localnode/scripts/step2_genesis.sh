@@ -13,7 +13,6 @@ override_genesis() {
   cat ~/.sei/config/genesis.json | jq "$1" > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json;
 }
 
-override_genesis '.app_state["crisis"]["constant_fee"]["denom"]="usei"'
 override_genesis '.app_state["mint"]["params"]["mint_denom"]="usei"'
 override_genesis '.app_state["staking"]["params"]["bond_denom"]="usei"'
 override_genesis '.app_state["oracle"]["params"]["vote_period"]="2"'
