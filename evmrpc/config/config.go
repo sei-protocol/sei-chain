@@ -131,6 +131,12 @@ type Config struct {
 	// Timeout for each trace call
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
 
+	// MaxTraceStructLogBytes bounds the retained struct-logger output (in bytes) for a
+	// single default debug_trace* call (debug_traceCall/traceTransaction/traceBlock*),
+	// guarding against quadratic memory growth from traces that read many distinct
+	// storage slots. Set to 0 for unlimited (matches upstream geth behavior).
+	MaxTraceStructLogBytes uint64 `mapstructure:"max_trace_struct_log_bytes"`
+
 	// EnableParallelizedBlockTrace enables the parallelized default debug_traceBlock* path.
 	EnableParallelizedBlockTrace bool `mapstructure:"enable_parallelized_block_trace"`
 
@@ -227,6 +233,7 @@ var DefaultConfig = Config{
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
+	MaxTraceStructLogBytes:       256 * 1024 * 1024, // 256 MiB
 	EnableParallelizedBlockTrace: false,
 	RPCStatsInterval:             10 * time.Second,
 	WorkerPoolSize:               min(MaxWorkerPoolSize, runtime.NumCPU()*2), // Default: min(64, CPU cores × 2)
@@ -280,6 +287,7 @@ const (
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout                 = "evm.trace_timeout"
+	flagMaxTraceStructLogBytes       = "evm.max_trace_struct_log_bytes"
 	flagEnableParallelizedBlockTrace = "evm.enable_parallelized_block_trace"
 	flagRPCStatsInterval             = "evm.rpc_stats_interval"
 	flagWorkerPoolSize               = "evm.worker_pool_size"
@@ -436,6 +444,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagTraceTimeout); v != nil {
 		if cfg.TraceTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxTraceStructLogBytes); v != nil {
+		if cfg.MaxTraceStructLogBytes, err = cast.ToUint64E(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -683,6 +696,11 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 
 # Timeout for each trace call
 trace_timeout = "{{ .EVM.TraceTimeout }}"
+
+# MaxTraceStructLogBytes bounds the retained struct-logger output (in bytes) for a single
+# default debug_trace* call, guarding against quadratic memory growth from traces that read
+# many distinct storage slots. Set to 0 for unlimited (matches upstream geth behavior).
+max_trace_struct_log_bytes = {{ .EVM.MaxTraceStructLogBytes }}
 
 # Enable the parallelized default debug_traceBlock* path.
 enable_parallelized_block_trace = {{ .EVM.EnableParallelizedBlockTrace }}

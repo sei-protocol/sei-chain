@@ -13,7 +13,8 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/tracers"
-	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // run init()s to register JS tracers
+	_ "github.com/ethereum/go-ethereum/eth/tracers/js" // run init()s to register JS tracers
+	traceLogger "github.com/ethereum/go-ethereum/eth/tracers/logger"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -50,6 +51,7 @@ type DebugAPI struct {
 	traceCallSemaphore chan struct{} // Semaphore for limiting concurrent trace calls
 	maxBlockLookback   int64
 	traceTimeout       time.Duration
+	maxStructLogBytes  int // per-call cap on retained default struct-logger output; 0 = unlimited
 	profiledBlockTrace bool
 }
 
@@ -203,7 +205,23 @@ func NewDebugAPI(
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
+		maxStructLogBytes:  int(debugCfg.MaxTraceStructLogBytes), //nolint:gosec // bounded operator config
 		profiledBlockTrace: debugCfg.EnableParallelizedBlockTrace,
+	}
+}
+
+// clampDefaultStructLogLimit caps the default struct logger's retained output at
+// api.maxStructLogBytes. No-op for custom tracers, a disabled cap (0), or a
+// smaller caller-supplied Limit.
+func (api *DebugAPI) clampDefaultStructLogLimit(config *tracers.TraceConfig) {
+	if config == nil || config.Tracer != nil || api.maxStructLogBytes <= 0 {
+		return
+	}
+	if config.Config == nil {
+		config.Config = &traceLogger.Config{}
+	}
+	if config.Config.Limit <= 0 || config.Config.Limit > api.maxStructLogBytes {
+		config.Config.Limit = api.maxStructLogBytes
 	}
 }
 
@@ -227,6 +245,10 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
+	if config == nil {
+		config = &tracers.TraceConfig{}
+	}
+	api.clampDefaultStructLogLimit(config)
 	return api.tracersAPI.TraceTransaction(ctx, hash, config)
 }
 
@@ -430,6 +452,10 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 		return cached, nil
 	}
 
+	if config == nil {
+		config = &tracers.TraceConfig{}
+	}
+	api.clampDefaultStructLogLimit(config)
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
 	} else {
@@ -458,6 +484,10 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 		return cached, nil
 	}
 
+	if config == nil {
+		config = &tracers.TraceConfig{}
+	}
+	api.clampDefaultStructLogLimit(config)
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
 	} else {
@@ -482,6 +512,10 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		return nil, returnErr
 	}
 
+	if config == nil {
+		config = &tracers.TraceCallConfig{}
+	}
+	api.clampDefaultStructLogLimit(&config.TraceConfig)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
 }
