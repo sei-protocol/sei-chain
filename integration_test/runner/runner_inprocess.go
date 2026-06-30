@@ -125,12 +125,24 @@ func (e *inProcessExecer) nodeFor(node string) (inprocess.Node, error) {
 	return e.net.Node(idx), nil
 }
 
+// prepare is the backendPreparer hook: it runs the one-time build (via ensureBin)
+// against the parent test. See ensureBin for why the parent owns the cleanup.
+func (e *inProcessExecer) prepare(t *testing.T) error {
+	t.Helper()
+	return e.ensureBin(t)
+}
+
 // ensureBin builds the seid binary once and writes a `seid` shim alongside it,
 // in a dir prepended to PATH. The shim redirects bare `seid` calls (inside
 // opaque sourced helpers) to the per-command node home + RPC without rewriting
 // the commands — see shimScript for the --home/--node split. The build is on the
 // same branch as the harness, so the CLI and the in-process app are the same
-// code. The temp build dir is removed via t.Cleanup so each run leaves none.
+// code. The binary is shared across the cases of one RunFile (one execer, one
+// sync.Once).
+//
+// t.Cleanup registers on whichever test first triggers the build; prepare makes
+// that the parent test, so the binary outlives every per-case subtest. Cases run
+// serially — the unsynchronized binDir read in run is safe only without t.Parallel.
 func (e *inProcessExecer) ensureBin(t *testing.T) error {
 	e.once.Do(func() {
 		dir, err := os.MkdirTemp("", "sei-inprocess-bin-")
@@ -139,8 +151,6 @@ func (e *inProcessExecer) ensureBin(t *testing.T) error {
 			return
 		}
 		e.binDir = dir
-		// Remove the build dir at test end so repeated runs don't accrue a binary
-		// per run.
 		t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 		root, err := repoRoot()
@@ -167,18 +177,21 @@ func (e *inProcessExecer) ensureBin(t *testing.T) error {
 	return e.setup
 }
 
-// shimScript builds the `seid` shim. It always prepends --home (a root
-// persistent flag) and appends --node only for client subcommands (query/q/tx/
-// status), where --node is registered — appending it to `keys` or other
-// non-client subcommands would fail cobra flag parsing.
+// shimScript builds the `seid` shim. Rule: always prepend --home; prepend --node
+// only for client subcommands (q/query/tx/status). Passing --node to a non-client
+// subcommand (keys, etc.) fails cobra flag parsing — only the client leaves
+// register it (AddQueryFlagsToCmd / AddTxFlagsToCmd / StatusCommand).
+//
+// Assumes the subcommand is $1 (the suites' `seid <subcommand> …` form). Args are
+// quoted and passed positionally, so a home path containing a space is safe.
 func shimScript(realBin string) string {
 	return "#!/bin/sh\n" +
-		"home_args=\"--home $SEID_HOME\"\n" +
 		"case \"$1\" in\n" +
-		"  q|query|tx|status) node_args=\"--node $SEID_NODE\" ;;\n" +
-		"  *) node_args=\"\" ;;\n" +
-		"esac\n" +
-		"exec \"" + realBin + "\" $home_args $node_args \"$@\"\n"
+		"  q|query|tx|status)\n" +
+		"    exec \"" + realBin + "\" --home \"$SEID_HOME\" --node \"$SEID_NODE\" \"$@\" ;;\n" +
+		"  *)\n" +
+		"    exec \"" + realBin + "\" --home \"$SEID_HOME\" \"$@\" ;;\n" +
+		"esac\n"
 }
 
 // repoRoot returns the sei-chain repo root by walking up from this source file's

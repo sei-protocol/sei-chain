@@ -61,6 +61,15 @@ type execer interface {
 	run(t *testing.T, cmd, node string, env map[string]string, opts Options) (string, error)
 }
 
+// backendPreparer is an optional execer capability: a backend whose one-time
+// setup must be scoped to the parent test rather than a per-case subtest
+// implements it, and RunFile invokes it before running any case. The in-process
+// arm uses it to build its shared seid binary; the docker arm needs no setup and
+// does not implement it.
+type backendPreparer interface {
+	prepare(t *testing.T) error
+}
+
 // Options controls how RunFile executes commands.
 type Options struct {
 	// DefaultContainer is the docker container used when an Input has no Node set.
@@ -121,6 +130,12 @@ func newOptions(opts []Option) Options {
 func RunFile(t *testing.T, path string, opts ...Option) {
 	t.Helper()
 	o := newOptions(opts)
+	// One-time backend setup, scoped to the parent test so it runs before — and
+	// outlives — every per-case subtest (see ensureBin). The docker arm implements
+	// nothing here.
+	if p, ok := o.exec.(backendPreparer); ok {
+		require.NoError(t, p.prepare(t), "prepare backend")
+	}
 	data, err := os.ReadFile(path) //nolint:gosec
 	require.NoError(t, err, "read %s: %v", path, err)
 	var cases []TestCase
