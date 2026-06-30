@@ -510,6 +510,17 @@ func (cs *CompositeCommitStore) GetWriteMode() types.WriteMode {
 	return cs.currentWriteMode
 }
 
+// ConfiguredWriteMode reports the write mode set by configuration, before any
+// Auto derivation. It is types.Auto for an auto store (whose effective
+// GetWriteMode is derived from migration metadata) and the pinned mode for any
+// fixed configuration. The migration kick-off needs this to tell an auto store
+// resting in memiavl_only (which it may advance to migrate_evm) apart from a
+// node pinned to fixed memiavl_only — the two report the same effective mode,
+// but only the former is allowed to transition at runtime.
+func (cs *CompositeCommitStore) ConfiguredWriteMode() types.WriteMode {
+	return cs.config.WriteMode
+}
+
 // SetWriteMode transitions the effective write mode at runtime. Only legal
 // when the configured mode is types.Auto; with any fixed configuration the
 // write mode cannot change without a restart.

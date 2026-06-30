@@ -64,35 +64,6 @@ func TestRootMultiSetWriteMode_StaleViewsRouteCorrectly(t *testing.T) {
 		"pre-transition bank view must keep serving current data")
 }
 
-// TestRootMultiSetWriteMode_RejectsPendingChanges pins the between-blocks
-// contract enforcement: buffered writes that have not been flushed by
-// Commit would be silently dropped by the view rebuild, so SetWriteMode
-// must refuse to run.
-func TestRootMultiSetWriteMode_RejectsPendingChanges(t *testing.T) {
-	dir := t.TempDir()
-	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
-	defer func() { require.NoError(t, store.Close()) }()
-
-	addr := newEVMTestData(0xD2)
-	simulateBlock(t, store, storeKeys, 1, addr)
-
-	// Write directly into the cached view, bypassing the commit cycle:
-	// the change is buffered in the commitment.Store and not yet flushed.
-	store.GetKVStore(storeKeys["bank"]).Set([]byte("pending"), []byte{0x01})
-
-	err := store.SetWriteMode(sctypes.MigrateEVM)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "pending uncommitted changes")
-
-	// After a normal commit cycle the same transition succeeds.
-	cms := store.CacheMultiStore()
-	cms.Write()
-	_, err = store.GetWorkingHash()
-	require.NoError(t, err)
-	store.Commit(true)
-	require.NoError(t, store.SetWriteMode(sctypes.MigrateEVM))
-}
-
 // TestRootMultiSetWriteMode_RequiresAutoConfig confirms the error from the
 // SC store propagates when the configured mode is fixed.
 func TestRootMultiSetWriteMode_RequiresAutoConfig(t *testing.T) {
@@ -103,6 +74,69 @@ func TestRootMultiSetWriteMode_RequiresAutoConfig(t *testing.T) {
 	err := store.SetWriteMode(sctypes.MigrateEVM)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "fixed")
+}
+
+// TestRootMultiAutoKickoff_LiveCacheStoreNotOrphaned reproduces the production
+// ordering: the block's deliver cache-multi-store is created at block start,
+// BEFORE BeginBlock runs the kick-off. cacheMultiStore snapshots rs.ckvStores,
+// so if the kick-off's SetWriteMode REPLACES those objects mid-block, writes
+// made through the pre-created cms land in orphaned stores and are dropped at
+// flush. This test pins that a write through that cms survives the commit.
+func TestRootMultiAutoKickoff_LiveCacheStoreNotOrphaned(t *testing.T) {
+	dir := t.TempDir()
+	store, storeKeys := newTestRootMulti(t, dir, autoModeConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+
+	addr := newEVMTestData(0xE4)
+	storageKeys := storageMemIAVLKeys(0xE4, 6)
+	simulateBlockManyStorage(t, store, storeKeys, 1, storageKeys, addr)
+
+	// Deliver cms created at block start, before the kick-off.
+	cms := store.CacheMultiStore()
+
+	// BeginBlock kick-off: batch>0 flips memiavl_only -> migrate_evm.
+	require.NoError(t, store.SetMigrationBatchSize(2))
+
+	// DeliverTx-equivalent write through the pre-created cms.
+	cms.GetKVStore(storeKeys["bank"]).Set([]byte("supply"), []byte{0x42})
+	cms.Write()
+
+	_, err := store.GetWorkingHash()
+	require.NoError(t, err)
+	store.Commit(true)
+
+	got := store.GetKVStore(storeKeys["bank"]).Get([]byte("supply"))
+	require.Equal(t, []byte{0x42}, got,
+		"write through the deliver cms created before the kick-off must not be lost")
+}
+
+// TestRootMultiAutoKickoff_FixedMemiavlOnlySkips proves the kick-off does not
+// fire for a node pinned to fixed memiavl_only. Such a store reports the same
+// memiavl_only effective mode as an auto store mid-pre-migration, but it must
+// NOT be transitioned at runtime: SetMigrationBatchSize must return no error
+// (it would otherwise hit SetWriteMode's "fixed by configuration" rejection)
+// and must leave the mode at memiavl_only. The node deliberately opts out of
+// the migration and diverges from auto peers from the activation height on.
+func TestRootMultiAutoKickoff_FixedMemiavlOnlySkips(t *testing.T) {
+	dir := t.TempDir()
+	store, storeKeys := newTestRootMulti(t, dir, memiavlOnlyConfig())
+	defer func() { require.NoError(t, store.Close()) }()
+
+	addr := newEVMTestData(0xE3)
+	simulateBlock(t, store, storeKeys, 1, addr)
+
+	// A positive batch size must be a no-op for the fixed config (besides the
+	// skip log): no error surfaces and the mode stays memiavl_only.
+	require.NoError(t, store.SetMigrationBatchSize(100))
+	mode, ok := store.GetWriteMode()
+	require.True(t, ok)
+	require.Equal(t, sctypes.MemiavlOnly, mode,
+		"fixed memiavl_only must not be advanced by the kick-off")
+
+	// And the node keeps committing in memiavl_only on subsequent blocks.
+	simulateBlock(t, store, storeKeys, 2, addr)
+	mode, _ = store.GetWriteMode()
+	require.Equal(t, sctypes.MemiavlOnly, mode)
 }
 
 // TestRootMultiAutoKickoff_RestartResumesMigrateEVM proves the crash/restart

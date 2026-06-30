@@ -87,7 +87,15 @@ func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 		numKeys = uint64(math.MaxInt64)
 	}
 	if err := app.rootStore.SetMigrationBatchSize(int(numKeys)); err != nil {
-		logger.Error("failed to set SC migration batch size", "err", err)
+		// Never panic on the migration-rate update: log and continue. AppHash
+		// verification is the safety net. If the rate/mode update fails on only
+		// some nodes, those nodes' AppHash diverges and the normal AppHash
+		// comparison halts them at the next block — no proactive panic needed.
+		// If it fails on every node, all stay in the same (old) mode with an
+		// identical AppHash, so the chain keeps moving and the level-triggered
+		// trigger re-fires on a later block. Panicking here would needlessly
+		// halt the whole chain in that all-fail case.
+		logger.Error("failed to set SC migration batch size; continuing", "err", err)
 	}
 }
 
