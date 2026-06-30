@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -12,7 +13,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
@@ -406,9 +409,29 @@ func TestGetOldestKeyAdvancesAfterGC(t *testing.T) {
 	require.Equal(t, "k4", string(oldest))
 }
 
-// TestIteratorPausesGC verifies that GC does not delete any segment while an iterator is open, and that
-// GC resumes once the iterator is closed.
-func TestIteratorPausesGC(t *testing.T) {
+// countSegmentsOnDisk returns the number of segments with files present under dir, counted by their metadata
+// files (exactly one per segment). Snapshotting is disabled in these tests, so every .metadata file is a live
+// segment's.
+func countSegmentsOnDisk(t *testing.T, dir string) int {
+	t.Helper()
+	count := 0
+	require.NoError(t, filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // files may be deleted out from under the walk
+		}
+		if !info.IsDir() && strings.HasSuffix(path, segment.MetadataFileExtension) {
+			count++
+		}
+		return nil
+	}))
+	return count
+}
+
+// TestIteratorRetainsSnapshotDespiteGC verifies that an open iterator does NOT pause garbage collection: while
+// the iterator is open, GC collects its snapshot segments (so the keys vanish from Get), yet the iterator still
+// yields its complete snapshot because it holds a reservation on each segment, keeping the files on disk until
+// it closes. Once it closes, those reservations drop and the collected segments' files are reclaimed.
+func TestIteratorRetainsSnapshotDespiteGC(t *testing.T) {
 	t.Parallel()
 
 	directory := t.TempDir()
@@ -418,7 +441,7 @@ func TestIteratorPausesGC(t *testing.T) {
 	fakeTime.Store(&start)
 	clock := func() time.Time { return *fakeTime.Load() }
 
-	table := buildGCFilterTable(t, clock, "gcpause", directory, 2, nil)
+	table := buildGCFilterTable(t, clock, "gciter", directory, 2, nil)
 	defer func() { require.NoError(t, table.Close()) }()
 
 	require.NoError(t, table.SetTTL(10*time.Second))
@@ -428,33 +451,35 @@ func TestIteratorPausesGC(t *testing.T) {
 	}
 	require.NoError(t, table.Flush())
 
+	// Opening the iterator seals the previously-mutable segment, so all keys now live in its snapshot of
+	// sealed segments.
 	it, err := table.Iterator(false)
 	require.NoError(t, err)
 
-	// Expire everything. Opening the iterator sealed the previously-mutable segment, so all keys now
-	// live in sealed, TTL-expired segments.
+	// Expire everything, then run GC. GC is NOT paused by the open iterator: the snapshot segments are
+	// collected and the keys disappear from Get.
 	expired := start.Add(time.Hour)
 	fakeTime.Store(&expired)
-
-	// GC must be suspended while the iterator is open: nothing is deleted.
-	require.NoError(t, table.RunGC())
-	for _, k := range keyOrder {
-		requireKeyPresent(t, table, k)
-	}
-
-	// The iterator still observes the full snapshot.
-	require.Equal(t, keyOrder, entryKeys(drainIterator(t, it)))
-
-	// Closing the iterator re-enables GC.
-	require.NoError(t, it.Close())
 	require.NoError(t, table.RunGC())
 	for _, k := range keyOrder {
 		requireKeyAbsent(t, table, k)
 	}
+
+	// The open iterator nonetheless still observes its full snapshot: its reservations kept the files alive.
+	require.Equal(t, keyOrder, entryKeys(drainIterator(t, it)))
+
+	// Closing the iterator releases the reservations; the collected segments' files are then reclaimed,
+	// leaving only the (empty) mutable segment on disk.
+	require.NoError(t, it.Close())
+	util.AssertEventuallyTrue(t, func() bool {
+		return countSegmentsOnDisk(t, directory) == 1
+	}, 5*time.Second, "collected segment files should be reclaimed after the iterator closes")
 }
 
-// TestConcurrentIteratorsPauseGC verifies that GC stays suspended until the last open iterator is closed.
-func TestConcurrentIteratorsPauseGC(t *testing.T) {
+// TestConcurrentIteratorsRetainSnapshots verifies that segments collected while iterators are open are retained
+// until the LAST iterator referencing them closes: each iterator's reservation independently keeps the files
+// alive, so closing one iterator does not reclaim segments the other still holds.
+func TestConcurrentIteratorsRetainSnapshots(t *testing.T) {
 	t.Parallel()
 
 	directory := t.TempDir()
@@ -464,7 +489,7 @@ func TestConcurrentIteratorsPauseGC(t *testing.T) {
 	fakeTime.Store(&start)
 	clock := func() time.Time { return *fakeTime.Load() }
 
-	table := buildGCFilterTable(t, clock, "gcpausemulti", directory, 2, nil)
+	table := buildGCFilterTable(t, clock, "gcitermulti", directory, 2, nil)
 	defer func() { require.NoError(t, table.Close()) }()
 
 	require.NoError(t, table.SetTTL(10*time.Second))
@@ -474,33 +499,33 @@ func TestConcurrentIteratorsPauseGC(t *testing.T) {
 	}
 	require.NoError(t, table.Flush())
 
+	// Two iterators capture the same snapshot; each reserves its segments. The first open seals the mutable
+	// segment, so both snapshots cover the same sealed segments.
 	it1, err := table.Iterator(false)
 	require.NoError(t, err)
 	it2, err := table.Iterator(false)
 	require.NoError(t, err)
+	segmentsBefore := countSegmentsOnDisk(t, directory)
 
+	// Collect everything. The keys disappear from Get, but both iterators still observe the full snapshot.
 	expired := start.Add(time.Hour)
 	fakeTime.Store(&expired)
-
-	// Both open: GC suspended.
-	require.NoError(t, table.RunGC())
-	for _, k := range keyOrder {
-		requireKeyPresent(t, table, k)
-	}
-
-	// One closed, one still open: GC still suspended.
-	require.NoError(t, it1.Close())
-	require.NoError(t, table.RunGC())
-	for _, k := range keyOrder {
-		requireKeyPresent(t, table, k)
-	}
-
-	// All closed: GC resumes.
-	require.NoError(t, it2.Close())
 	require.NoError(t, table.RunGC())
 	for _, k := range keyOrder {
 		requireKeyAbsent(t, table, k)
 	}
+	require.Equal(t, keyOrder, entryKeys(drainIterator(t, it1)))
+	require.Equal(t, keyOrder, entryKeys(drainIterator(t, it2)))
+
+	// Closing the first iterator must not reclaim anything: it2 still reserves every segment.
+	require.NoError(t, it1.Close())
+	require.Equal(t, segmentsBefore, countSegmentsOnDisk(t, directory))
+
+	// Closing the last iterator drops the final reservations; the collected segments are reclaimed.
+	require.NoError(t, it2.Close())
+	util.AssertEventuallyTrue(t, func() bool {
+		return countSegmentsOnDisk(t, directory) == 1
+	}, 5*time.Second, "collected segment files should be reclaimed after the last iterator closes")
 }
 
 // TestIteratorSkipValues verifies value correctness when GetValue is called for only a subset of keys,
