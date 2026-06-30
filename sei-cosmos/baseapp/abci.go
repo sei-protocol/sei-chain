@@ -1089,8 +1089,9 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		// GasWanted, GasUsed) so Commit can record it in the hash log. This is the same value Tendermint
 		// stores as the next block's header.LastResultsHash; logging it per block surfaces gas/result
 		// divergence (e.g. between executors) independently of the state AppHash. Only computed when the
-		// commit store records hashes, and never fails the block on a marshal error.
-		if _, ok := app.cms.(interface{ SetNextResultHash([]byte) }); ok {
+		// commit store is actively recording hashes (HashLoggingEnabled, not just method presence — the
+		// store always defines SetNextResultHash), and never fails the block on a marshal error.
+		if r, ok := app.cms.(interface{ HashLoggingEnabled() bool }); ok && r.HashLoggingEnabled() {
 			marshaled, mErr := abci.MarshalTxResults(res.TxResults)
 			if mErr != nil {
 				logger.Error("failed to marshal tx results for result hash", "err", mErr)

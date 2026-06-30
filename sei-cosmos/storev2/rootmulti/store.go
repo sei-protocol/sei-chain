@@ -67,8 +67,8 @@ type Store struct {
 	hashLoggerConfig   config.HashLoggerConfig
 	hashLoggerDisabled bool
 	hashLogger         hashlog.HashLogger
-	hashCategories     []string // the category set the current logger was opened with
-	scDir              string   // state-commit directory, for the default hash log location
+	hashCategories     map[string]struct{} // the category set the current logger was opened with
+	scDir              string              // state-commit directory, for the default hash log location
 	// blockChangeSets is the aggregate changeset captured in flush for the block being committed, then
 	// reported (and cleared) in Commit. changesetCapturedVersion guards against the double-flush so it is
 	// captured only once (with the real, non-empty changeset) per block.

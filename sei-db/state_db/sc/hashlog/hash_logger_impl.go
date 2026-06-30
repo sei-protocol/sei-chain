@@ -384,8 +384,8 @@ func (h *hashLoggerImpl) UnregisterHashType(hashType string) error {
 // sendColumnChange forwards a column add/remove to the control loop and waits for it to be applied (the
 // loop flushes/seals/rotates and updates hashTypes/hashTypeSet before acking). The synchronous handshake
 // guarantees that a subsequent ReportHash for the new column is accepted, and establishes happens-before
-// for the caller's later reads of hashTypeSet. Returns nil if the logger is shutting down (the change is
-// simply dropped, like a late report).
+// for the caller's later reads of hashTypeSet. If the logger is shutting down before the change is
+// applied, it returns the relevant context error so the caller knows the registration did not land.
 func (h *hashLoggerImpl) sendColumnChange(hashType string, add bool) error {
 	if h.closed.Load() {
 		return fmt.Errorf("hash logger is closed")
@@ -395,11 +395,13 @@ func (h *hashLoggerImpl) sendColumnChange(hashType string, add bool) error {
 	case h.controlChan <- controlMessage{kind: ctrlColumnChange, hashType: hashType, add: add, done: done}:
 		select {
 		case <-done:
+			return nil
 		case <-h.ctx.Done():
+			return h.ctx.Err()
 		}
 	case <-h.senderCtx.Done():
+		return h.senderCtx.Err()
 	}
-	return nil
 }
 
 func (h *hashLoggerImpl) ReportChangeset(blockNumber uint64, cs []*proto.NamedChangeSet) {

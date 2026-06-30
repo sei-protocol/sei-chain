@@ -64,13 +64,20 @@ func (rs *Store) hashLogDir() string {
 
 // desiredHashCategories computes the full caller-reported category set for the current backend state:
 // the app-level categories plus whatever the live backends report (and memIAVL/root when memIAVL is
-// present). Used both to register categories and to detect when the set has changed.
-func (rs *Store) desiredHashCategories() []string {
-	categories := []string{appHashType, blockHashType, resultHashType}
+// present). The backend set is dynamic (memIAVL departs and flatKV arrives during migration), so this
+// is recomputed each block and used to detect when the logger's column set must change.
+func (rs *Store) desiredHashCategories() map[string]struct{} {
+	categories := map[string]struct{}{
+		appHashType:    {},
+		blockHashType:  {},
+		resultHashType: {},
+	}
 	if h, ok := rs.scStore.(hashReportingStore); ok {
-		categories = append(categories, h.HashCategories()...)
+		for _, category := range h.HashCategories() {
+			categories[category] = struct{}{}
+		}
 		if h.MemIAVLCommitInfo() != nil {
-			categories = append(categories, memIAVLRootHashType)
+			categories[memIAVLRootHashType] = struct{}{}
 		}
 	}
 	return categories
@@ -106,21 +113,27 @@ func (rs *Store) openHashLogger() error {
 // as needed on each change; a no-op when the set is unchanged (the common case after the first block).
 func (rs *Store) syncHashCategories() {
 	desired := rs.desiredHashCategories()
-	for _, category := range rs.hashCategories {
-		if !containsString(desired, category) {
+	for category := range rs.hashCategories {
+		if _, ok := desired[category]; !ok {
 			if err := rs.hashLogger.UnregisterHashType(category); err != nil {
 				logger.Error("failed to unregister hash category", "category", category, "err", err)
 			}
 		}
 	}
-	for _, category := range desired {
-		if !containsString(rs.hashCategories, category) {
+	for category := range desired {
+		if _, ok := rs.hashCategories[category]; !ok {
 			if err := rs.hashLogger.RegisterHashType(category); err != nil {
 				logger.Error("failed to register hash category", "category", category, "err", err)
 			}
 		}
 	}
 	rs.hashCategories = desired
+}
+
+// HashLoggingEnabled reports whether the store is actively recording hashes (config-enabled and not
+// disabled by a prior fatal error). baseapp uses it to skip per-block hash computation when off.
+func (rs *Store) HashLoggingEnabled() bool {
+	return !rs.hashLoggerDisabled
 }
 
 // disableHashLogger turns hash logging off after a fatal error, closing the logger if it is open.
@@ -186,14 +199,4 @@ func (rs *Store) recordBlockHashes(version int64) {
 			logger.Error("failed to record backend hashes", "err", err)
 		}
 	}
-}
-
-// containsString reports whether s is present in xs.
-func containsString(xs []string, s string) bool {
-	for _, x := range xs {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
