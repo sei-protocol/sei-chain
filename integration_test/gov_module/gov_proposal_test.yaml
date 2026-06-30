@@ -34,6 +34,11 @@
     - type: eval
       expr: NEW_ABCI_PARAM == "true"
 
+# Scope: this case verifies only the governance plumbing for the migration
+# rate — that a ParameterChangeProposal lands NumKeysToMigratePerBlock in the
+# migration subspace. It intentionally does not assert that keys actually drain
+# memiavl->flatkv; the end-to-end migration behavior is covered separately by
+# integration_test/contracts/verify_flatkv_evm_migrate.sh.
 - name: Test migration param change proposal should update NumKeysToMigratePerBlock
   inputs:
     # Get the current migration batch size param (defaults to 0 = paused)

@@ -557,7 +557,7 @@ func New(
 	// root multistore is somehow in use.
 	rootStore, ok := app.CommitMultiStore().(*rootmulti.Store)
 	if !ok {
-		panic(fmt.Sprintf("unsupported commit multistore %T: expected *storev2_rootmulti.Store", app.CommitMultiStore()))
+		panic(fmt.Sprintf("unsupported commit multistore %T: expected *rootmulti.Store", app.CommitMultiStore()))
 	}
 	app.rootStore = rootStore
 

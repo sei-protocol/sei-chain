@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"math"
 	"math/big"
 	"time"
 
@@ -83,8 +82,13 @@ func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 		}
 		subspace.GetIfExists(ctx, migration.KeyNumKeysToMigratePerBlock, &numKeys)
 	}
-	if numKeys > uint64(math.MaxInt64) {
-		numKeys = uint64(math.MaxInt64)
+	// Defense-in-depth: gov validation already rejects values above
+	// MaxNumKeysToMigratePerBlock, but clamp here too so an out-of-range value
+	// reaching state via any path can never overflow the int cast or trigger an
+	// oversized preallocation in the migration iterator. The clamp is
+	// deterministic across nodes.
+	if numKeys > migration.MaxNumKeysToMigratePerBlock {
+		numKeys = migration.MaxNumKeysToMigratePerBlock
 	}
 	if err := app.rootStore.SetMigrationBatchSize(int(numKeys)); err != nil {
 		// Never panic on the migration-rate update: log and continue. AppHash

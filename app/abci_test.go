@@ -49,12 +49,13 @@ func TestApplyMigrationBatchSize(t *testing.T) {
 	got, _ = a.rootStore.GetMigrationBatchSize()
 	require.Equal(t, 500, got)
 
-	// Out-of-int64-range values are clamped to MaxInt64 (defensive; gov
-	// validation only type-checks).
+	// Defense-in-depth: an out-of-range value reaching state (gov validation
+	// already rejects these) is clamped to the sane maximum, never overflowing
+	// the int cast or the migration iterator preallocation.
 	subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, uint64(math.MaxUint64))
 	a.applyMigrationBatchSize(ctx)
 	got, _ = a.rootStore.GetMigrationBatchSize()
-	require.Equal(t, math.MaxInt64, got)
+	require.Equal(t, int(migration.MaxNumKeysToMigratePerBlock), got)
 }
 
 // TestBeginBlockAppliesMigrationBatchSize exercises the full BeginBlock path
