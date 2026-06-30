@@ -224,9 +224,19 @@ func NewDiskTable(
 	// means GC durably deleted some segments' keymap entries but crashed before their files were removed, so
 	// segments [lowestSegmentIndex, lowestReadableSegment) are still on disk but logically deleted (the control
 	// loop will reclaim their files, and repair/reload will not resurrect them).
-	gcWatermarkFile, err := LoadGCWatermarkFile(qualifiedRoots[0])
-	if err != nil {
-		return nil, fmt.Errorf("failed to load gc-watermark file: %w", err)
+	var gcWatermarkFile *GCWatermarkFile
+	for _, root := range qualifiedRoots {
+		f, err := LoadGCWatermarkFile(root)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load gc-watermark file from %s: %w", root, err)
+		}
+		if f.IsDefined() {
+			gcWatermarkFile = f
+			break
+		}
+		if gcWatermarkFile == nil {
+			gcWatermarkFile = f
+		}
 	}
 	lowestReadableSegment := lowestSegmentIndex
 	if gcWatermarkFile.IsDefined() && gcWatermarkFile.LowestReadableSegment() > lowestReadableSegment {

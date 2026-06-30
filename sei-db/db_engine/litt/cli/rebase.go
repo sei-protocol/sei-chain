@@ -275,6 +275,11 @@ func transferDataInTable(
 		return fmt.Errorf("failed to transfer keymap for table %s: %w", tableName, err)
 	}
 
+	err = transferGCWatermark(source, tableName, destinations, preserveOriginal, fsync)
+	if err != nil {
+		return fmt.Errorf("failed to transfer gc-watermark for table %s: %w", tableName, err)
+	}
+
 	err = transferSegmentData(
 		source,
 		tableName,
@@ -418,6 +423,45 @@ func transferKeymap(
 	if err != nil {
 		return fmt.Errorf("failed to copy keymap from %s to %s: %w",
 			sourceKeymapPath, destinationKeymapPath, err)
+	}
+
+	return nil
+}
+
+// Transfer the gc-watermark file (if it is present in the source table directory). The watermark lives at
+// the table root and must follow the keymap to the same destination root, so it is routed with the keymap's
+// source path. Leaving it behind would both orphan the watermark (a later session reading the new root would
+// not find it) and make the source table directory's removal fail with "directory not empty".
+func transferGCWatermark(
+	source string,
+	tableName string,
+	destinations []string,
+	preserveOriginal bool,
+	fsync bool,
+) error {
+
+	sourceWatermarkPath := filepath.Join(source, tableName, disktable.GCWatermarkFileName)
+	exists, err := util.Exists(sourceWatermarkPath)
+	if err != nil {
+		return fmt.Errorf("failed to check if gc-watermark file %s exists: %w", sourceWatermarkPath, err)
+	}
+	if !exists {
+		return nil
+	}
+
+	// Route the watermark with the keymap (same hash input) so it lands in the keymap's destination root.
+	sourceKeymapPath := filepath.Join(source, tableName, keymap.KeymapDirectoryName)
+	destination, err := determineDestination(sourceKeymapPath, destinations)
+	if err != nil {
+		return fmt.Errorf("failed to determine destination for gc-watermark %s: %w", sourceWatermarkPath, err)
+	}
+
+	destinationWatermarkPath := filepath.Join(destination, tableName, disktable.GCWatermarkFileName)
+
+	err = util.RecursiveMove(sourceWatermarkPath, destinationWatermarkPath, preserveOriginal, fsync)
+	if err != nil {
+		return fmt.Errorf("failed to move gc-watermark from %s to %s: %w",
+			sourceWatermarkPath, destinationWatermarkPath, err)
 	}
 
 	return nil

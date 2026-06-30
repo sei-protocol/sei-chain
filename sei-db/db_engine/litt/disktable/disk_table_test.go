@@ -434,6 +434,93 @@ func TestCleanShutdownLeavesKeymapConsistent(t *testing.T) {
 	require.NoError(t, reopened.Close())
 }
 
+// TestGCWatermarkLoadAfterPathReorder verifies that the durable gc-watermark is honored even when the keymap
+// (and therefore the watermark, which is co-located with it) does not live in the first configured root. The
+// watermark root is not pinned to Paths[0]: config.Paths can be reordered between sessions, and the rebase CLI
+// can move the keymap to any root. If the load path only checks the first root, a reordered session sees no
+// watermark, floors the lowest readable segment at 0, and a keymap rebuild resurrects keys from segments that
+// garbage collection had already logically deleted.
+func TestGCWatermarkLoadAfterPathReorder(t *testing.T) {
+	logger := slog.Default()
+	tableName := "reorder"
+	base := t.TempDir()
+	dirA := filepath.Join(base, "a")
+	dirB := filepath.Join(base, "b")
+
+	// The keymap (and its co-located watermark) lives under dirA for both sessions.
+	keymapPath := filepath.Join(dirA, tableName, keymap.KeymapDirectoryName)
+
+	key := func(i int) []byte { return []byte(fmt.Sprintf("key-%06d", i)) }
+	value := func(i int) []byte { return []byte(fmt.Sprintf("value-%06d", i)) }
+	keyCount := 200
+
+	// build opens the table with the given root order and a fresh (in-memory) keymap, reloading it from the
+	// segments on disk. A fresh keymap + reload models the keymap-loss case the watermark exists to guard.
+	build := func(roots []string) litt.ManagedTable {
+		keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
+		require.NoError(t, err)
+		km, _, err := keymap.NewMemKeymap(logger, "", true)
+		require.NoError(t, err)
+
+		config, err := litt.DefaultConfig(roots...)
+		require.NoError(t, err)
+		config.Fsync = false
+		config.TargetSegmentFileSize = 100 // tiny segments so many of them seal
+		config.GCPeriod = time.Hour        // keep GC from reclaiming files during the test
+
+		runtimeConfig := litt.DefaultRuntimeConfig()
+		runtimeConfig.Clock = time.Now
+		runtimeConfig.Logger = logger
+
+		table, err := NewDiskTable(
+			config,
+			runtimeConfig,
+			tableName,
+			litt.DefaultTableConfig(tableName),
+			km,
+			keymapPath,
+			keymapTypeFile,
+			roots,
+			true,
+			nil)
+		require.NoError(t, err)
+		return table
+	}
+
+	// Session 1: keymap lives in dirA (roots = [dirA, dirB]). Write enough keys that segment 0 seals, then
+	// close cleanly so every segment file (including segment 0's) remains on disk.
+	table := build([]string{dirA, dirB})
+	for i := 0; i < keyCount; i++ {
+		require.NoError(t, table.Put(key(i), value(i)))
+	}
+	require.NoError(t, table.Flush())
+	require.NoError(t, table.Close())
+
+	// Simulate "GC advanced the watermark to 1 (writing it next to the keymap in dirA), then crashed before
+	// reclaiming segment 0's files." Segment 0 is now logically deleted but its files still exist.
+	watermark, err := LoadGCWatermarkFile(filepath.Join(dirA, tableName))
+	require.NoError(t, err)
+	require.NoError(t, watermark.Update(1))
+
+	// Session 2: the operator reordered config.Paths to [dirB, dirA]; the keymap is still in dirA. Reopen
+	// with a lost keymap and rebuild it from the segments.
+	reopened := build([]string{dirB, dirA})
+	defer func() { require.NoError(t, reopened.Close()) }()
+
+	// key(0) lives in segment 0, which is below the watermark (lowest readable segment is 1). A load that
+	// honors the watermark does not rescan segment 0, so the key stays collected. The buggy load reads the
+	// watermark from dirB/<name> (absent), floors at 0, rescans segment 0, and resurrects the key.
+	_, ok, err := reopened.Get(key(0))
+	require.NoError(t, err)
+	require.False(t, ok, "key in logically-deleted segment 0 must not be resurrected after a path reorder")
+
+	// A key above the watermark must still be readable.
+	v, ok, err := reopened.Get(key(keyCount - 1))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, value(keyCount-1), v)
+}
+
 func restartTest(t *testing.T, tableBuilder *tableBuilder) {
 	rand := util.NewTestRandom()
 
