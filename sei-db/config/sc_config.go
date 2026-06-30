@@ -65,6 +65,10 @@ type StateCommitConfig struct {
 	// which preserves the historical behavior. Ignored when WriteMode is not
 	// MigrateEVM.
 	MigrateEVMStartHeight int64 `mapstructure:"migrate-evm-start-height"`
+
+	// HashLogger configures the per-block hash logger (a debugging/forensics tool). Enabled by default.
+	// Loaded via explicit sc-hash-logger-* flag reads in app.parseSCConfigs, not mapstructure.
+	HashLogger HashLoggerConfig
 }
 
 // DefaultStateCommitConfig returns the default StateCommitConfig
@@ -78,6 +82,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
 		KeysToMigratePerBlock:      1024,
+		HashLogger:                 DefaultHashLoggerConfig(),
 	}
 }
 
