@@ -67,6 +67,7 @@ type config struct {
 	coinbase            common.Address
 	fixedRecipient      *common.Address
 	disableGasPriceRule bool
+	prebuildBlocks      bool
 }
 
 type blockEnvelope struct {
@@ -112,6 +113,7 @@ func parseConfig(args []string) (config, error) {
 	fs.Uint64Var(&cfg.txGasLimit, "tx-gas-limit", defaultTxGasLimit, "gas limit for each generated transaction")
 	fs.Uint64Var(&cfg.blockGasLimit, "block-gas-limit", 0, "block gas limit; 0 lets the executor use its maximum")
 	fs.BoolVar(&cfg.disableGasPriceRule, "disable-gas-price-rule", false, "disable the executor min-gas-price validity rule")
+	fs.BoolVar(&cfg.prebuildBlocks, "prebuild-blocks", false, "generate all bounded blocks before starting executor workers")
 
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
@@ -171,6 +173,9 @@ func parseConfig(args []string) (config, error) {
 	if cfg.txGasLimit == 0 {
 		return config{}, fmt.Errorf("tx-gas-limit must be positive")
 	}
+	if cfg.prebuildBlocks && cfg.blocks == 0 {
+		return config{}, fmt.Errorf("prebuild-blocks requires --blocks > 0")
+	}
 	if !cfg.disableGasPriceRule && cfg.gasPrice.Cmp(cfg.minGasPrice) < 0 {
 		return config{}, fmt.Errorf("gas-price-wei must be greater than or equal to min-gas-price-wei unless disable-gas-price-rule is set")
 	}
@@ -228,7 +233,6 @@ func run(cfg config) error {
 	workload := newTransferWorkload(cfg, state)
 	registry := prometheus.NewRegistry()
 	metrics := newLoadMetrics(registry)
-	blocks := make(chan blockEnvelope, cfg.queueSize)
 
 	var server *metricsServer
 	if cfg.metricsAddr != "" {
@@ -245,6 +249,14 @@ func run(cfg config) error {
 		fmt.Printf("metrics listening on http://%s/metrics\n", cfg.metricsAddr)
 	}
 
+	if cfg.prebuildBlocks {
+		return runPrebuilt(ctx, cfg, state, workload, metrics)
+	}
+	return runStreaming(ctx, cfg, state, workload, metrics)
+}
+
+func runStreaming(ctx context.Context, cfg config, state *generatedState, workload *transferWorkload, metrics *loadMetrics) error {
+	blocks := make(chan blockEnvelope, cfg.queueSize)
 	reportCtx, stopReporter := context.WithCancel(ctx)
 	reportDone := make(chan struct{})
 	go func() {
@@ -271,6 +283,52 @@ func run(cfg config) error {
 	}
 
 	err := group.Wait()
+	stopReporter()
+	<-reportDone
+
+	if errors.Is(err, context.Canceled) {
+		err = nil
+	}
+	printFinalReport(startedAt, metrics.snapshot())
+	return err
+}
+
+func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workload *transferWorkload, metrics *loadMetrics) error {
+	prebuildStartedAt := time.Now()
+	prebuilt, err := prebuildBlockRequests(ctx, cfg, workload)
+	if err != nil {
+		return err
+	}
+	prebuildElapsed := time.Since(prebuildStartedAt)
+	printPrebuildReport(prebuildElapsed, prebuilt, cfg.txsPerBlock)
+
+	blocks := make(chan blockEnvelope, cfg.queueSize)
+	reportCtx, stopReporter := context.WithCancel(ctx)
+	reportDone := make(chan struct{})
+	go func() {
+		defer close(reportDone)
+		reportLoop(reportCtx, cfg.reportInterval, metrics, blocks)
+	}()
+
+	startedAt := time.Now()
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		defer close(blocks)
+		return feedPrebuiltBlocks(groupCtx, prebuilt, blocks, metrics)
+	})
+	for workerID := 0; workerID < cfg.workers; workerID++ {
+		workerID := workerID
+		group.Go(func() error {
+			executor := evmonly.NewExecutor(evmonly.Config{
+				MinGasPrice:          new(big.Int).Set(cfg.minGasPrice),
+				DisableGasPriceCheck: cfg.disableGasPriceRule,
+				OCCWorkers:           cfg.executorWorkers,
+			}, evmonly.WithState(state))
+			return executeBlocks(groupCtx, workerID, executor, blocks, &discardStateWriter{}, discardReceiptSink{}, metrics)
+		})
+	}
+
+	err = group.Wait()
 	stopReporter()
 	<-reportDone
 
@@ -323,6 +381,56 @@ func produceBlocks(ctx context.Context, cfg config, workload *transferWorkload, 
 		})
 	}
 	return group.Wait()
+}
+
+func prebuildBlockRequests(ctx context.Context, cfg config, workload *transferWorkload) ([]blockEnvelope, error) {
+	if cfg.blocks > uint64(maxInt()) {
+		return nil, fmt.Errorf("prebuild-blocks cannot allocate %d blocks on this platform", cfg.blocks)
+	}
+	prebuilt := make([]blockEnvelope, int(cfg.blocks))
+	var nextBlock atomic.Uint64
+	group, groupCtx := errgroup.WithContext(ctx)
+	for builderID := 0; builderID < cfg.builders; builderID++ {
+		group.Go(func() error {
+			for {
+				number := nextBlock.Add(1)
+				if number > cfg.blocks {
+					return nil
+				}
+				request, err := workload.buildBlock(groupCtx, number)
+				if err != nil {
+					if groupCtx.Err() != nil {
+						return nil
+					}
+					return err
+				}
+				prebuilt[number-1] = blockEnvelope{
+					number:  number,
+					request: request,
+				}
+			}
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+	return prebuilt, nil
+}
+
+func feedPrebuiltBlocks(ctx context.Context, prebuilt []blockEnvelope, out chan<- blockEnvelope, metrics *loadMetrics) error {
+	for _, block := range prebuilt {
+		select {
+		case out <- block:
+			metrics.recordInput()
+		case <-ctx.Done():
+			return nil
+		}
+	}
+	return nil
+}
+
+func maxInt() int {
+	return int(^uint(0) >> 1)
 }
 
 func executeBlocks(
@@ -764,6 +872,22 @@ func printFinalReport(startedAt time.Time, snapshot metricsSnapshot) {
 		float64(snapshot.finishedBlocks)/elapsed,
 		float64(snapshot.finishedTxs)/elapsed,
 		float64(snapshot.gasConsumed)/elapsed,
+	)
+}
+
+func printPrebuildReport(elapsed time.Duration, blocks []blockEnvelope, txsPerBlock int) {
+	seconds := elapsed.Seconds()
+	if seconds <= 0 {
+		seconds = 1
+	}
+	txCount := len(blocks) * txsPerBlock
+	fmt.Printf(
+		"prebuild complete elapsed=%s blocks=%d txs=%d build_blocks/s=%.2f build_tx/s=%.2f\n",
+		elapsed.Round(time.Millisecond),
+		len(blocks),
+		txCount,
+		float64(len(blocks))/seconds,
+		float64(txCount)/seconds,
 	)
 }
 

@@ -41,6 +41,25 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	discardReceiptSink{}.StoreReceipts(request.Context.Number, result.Receipts)
 }
 
+func TestPrebuildBlocksRequiresBoundedRun(t *testing.T) {
+	_, err := parseConfig([]string{
+		"--prebuild-blocks",
+	})
+	require.ErrorContains(t, err, "prebuild-blocks requires --blocks > 0")
+}
+
+func TestRunPrebuiltBlocks(t *testing.T) {
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--report-interval=0",
+		"--prebuild-blocks",
+		"--blocks=2",
+		"--txs-per-block=2",
+	})
+	require.NoError(t, err)
+	require.NoError(t, run(cfg))
+}
+
 func BenchmarkExecuteTransferBlock(b *testing.B) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
