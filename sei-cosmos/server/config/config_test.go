@@ -113,6 +113,9 @@ address = "0.0.0.0:9090"
 	require.False(t, v.IsSet("grpc.max-recv-msg-size"))
 	require.False(t, v.IsSet("grpc.max-open-connections"))
 	require.False(t, v.IsSet("grpc.max-connection-idle"))
+	require.False(t, v.IsSet("grpc.max-connection-age"))
+	require.False(t, v.IsSet("grpc.max-connection-age-grace"))
+	require.False(t, v.IsSet("grpc.keepalive-permit-without-stream"))
 
 	cfg, err := GetConfig(v)
 	require.NoError(t, err)
@@ -120,6 +123,33 @@ address = "0.0.0.0:9090"
 	require.Equal(t, uint(DefaultGRPCMaxOpenConnections), cfg.GRPC.MaxOpenConnections)
 	// The bounded idle default must survive an older app.toml that omits the key.
 	require.Equal(t, DefaultGRPCMaxConnectionIdle, cfg.GRPC.MaxConnectionIdle)
+	require.Equal(t, DefaultGRPCKeepaliveTime, cfg.GRPC.KeepaliveTime)
+	require.Equal(t, DefaultGRPCKeepaliveTimeout, cfg.GRPC.KeepaliveTimeout)
+	require.Equal(t, DefaultGRPCKeepaliveMinTime, cfg.GRPC.KeepaliveMinTime)
+	// The directly-read fields (no IsSet guard) must still resolve to their
+	// in-code defaults when the keys are absent.
+	require.Equal(t, DefaultGRPCMaxConnectionAge, cfg.GRPC.MaxConnectionAge)
+	require.Equal(t, DefaultGRPCMaxConnectionAgeGrace, cfg.GRPC.MaxConnectionAgeGrace)
+	require.Equal(t, DefaultGRPCKeepalivePermitWithoutStream, cfg.GRPC.KeepalivePermitWithoutStream)
+}
+
+// TestGetConfigGRPCClampsNegativeDurations ensures a misconfigured negative
+// keepalive/connection-age duration falls back to the safe in-code default
+// rather than being passed verbatim to the gRPC server.
+func TestGetConfigGRPCClampsNegativeDurations(t *testing.T) {
+	v := seedViperWithDefaultConfig(t)
+	v.Set("grpc.max-connection-idle", "-1s")
+	v.Set("grpc.max-connection-age", "-1s")
+	v.Set("grpc.max-connection-age-grace", "-1s")
+	v.Set("grpc.keepalive-time", "-1s")
+	v.Set("grpc.keepalive-timeout", "-1s")
+	v.Set("grpc.keepalive-min-time", "-1s")
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, DefaultGRPCMaxConnectionIdle, cfg.GRPC.MaxConnectionIdle)
+	require.Equal(t, DefaultGRPCMaxConnectionAge, cfg.GRPC.MaxConnectionAge)
+	require.Equal(t, DefaultGRPCMaxConnectionAgeGrace, cfg.GRPC.MaxConnectionAgeGrace)
 	require.Equal(t, DefaultGRPCKeepaliveTime, cfg.GRPC.KeepaliveTime)
 	require.Equal(t, DefaultGRPCKeepaliveTimeout, cfg.GRPC.KeepaliveTimeout)
 	require.Equal(t, DefaultGRPCKeepaliveMinTime, cfg.GRPC.KeepaliveMinTime)

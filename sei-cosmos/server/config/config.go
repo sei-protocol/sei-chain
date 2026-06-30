@@ -407,6 +407,16 @@ func DefaultConfig() *Config {
 	}
 }
 
+// clampNonNegativeDuration returns fallback when d is negative; zero and
+// positive values (zero is gRPC's "infinity" for several keepalive fields) pass
+// through unchanged.
+func clampNonNegativeDuration(d, fallback time.Duration) time.Duration {
+	if d < 0 {
+		return fallback
+	}
+	return d
+}
+
 // GetConfig returns a fully parsed Config object.
 func GetConfig(v *viper.Viper) (Config, error) {
 	globalLabelsRaw, ok := v.Get("telemetry.global-labels").([]interface{})
@@ -474,22 +484,29 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	if v.IsSet("grpc.max-open-connections") {
 		grpcMaxOpenConnections = v.GetUint("grpc.max-open-connections")
 	}
+	// Clamp negative durations back to their in-code defaults. A negative
+	// keepalive/connection-age value is a misconfiguration that gRPC would
+	// otherwise accept verbatim, so fall back to the safe default instead.
 	grpcMaxConnectionIdle := DefaultGRPCMaxConnectionIdle
 	if v.IsSet("grpc.max-connection-idle") {
-		grpcMaxConnectionIdle = v.GetDuration("grpc.max-connection-idle")
+		grpcMaxConnectionIdle = clampNonNegativeDuration(v.GetDuration("grpc.max-connection-idle"), DefaultGRPCMaxConnectionIdle)
 	}
 	grpcKeepaliveTime := DefaultGRPCKeepaliveTime
 	if v.IsSet("grpc.keepalive-time") {
-		grpcKeepaliveTime = v.GetDuration("grpc.keepalive-time")
+		grpcKeepaliveTime = clampNonNegativeDuration(v.GetDuration("grpc.keepalive-time"), DefaultGRPCKeepaliveTime)
 	}
 	grpcKeepaliveTimeout := DefaultGRPCKeepaliveTimeout
 	if v.IsSet("grpc.keepalive-timeout") {
-		grpcKeepaliveTimeout = v.GetDuration("grpc.keepalive-timeout")
+		grpcKeepaliveTimeout = clampNonNegativeDuration(v.GetDuration("grpc.keepalive-timeout"), DefaultGRPCKeepaliveTimeout)
 	}
 	grpcKeepaliveMinTime := DefaultGRPCKeepaliveMinTime
 	if v.IsSet("grpc.keepalive-min-time") {
-		grpcKeepaliveMinTime = v.GetDuration("grpc.keepalive-min-time")
+		grpcKeepaliveMinTime = clampNonNegativeDuration(v.GetDuration("grpc.keepalive-min-time"), DefaultGRPCKeepaliveMinTime)
 	}
+	// MaxConnectionAge and MaxConnectionAgeGrace default to 0 (gRPC's "infinity"),
+	// which is a valid value, so only a negative override needs clamping.
+	grpcMaxConnectionAge := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age"), DefaultGRPCMaxConnectionAge)
+	grpcMaxConnectionAgeGrace := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age-grace"), DefaultGRPCMaxConnectionAgeGrace)
 
 	return Config{
 		BaseConfig: BaseConfig{
@@ -539,8 +556,8 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			MaxRecvMsgSize:               grpcMaxRecvMsgSize,
 			MaxOpenConnections:           grpcMaxOpenConnections,
 			MaxConnectionIdle:            grpcMaxConnectionIdle,
-			MaxConnectionAge:             v.GetDuration("grpc.max-connection-age"),
-			MaxConnectionAgeGrace:        v.GetDuration("grpc.max-connection-age-grace"),
+			MaxConnectionAge:             grpcMaxConnectionAge,
+			MaxConnectionAgeGrace:        grpcMaxConnectionAgeGrace,
 			KeepaliveTime:                grpcKeepaliveTime,
 			KeepaliveTimeout:             grpcKeepaliveTimeout,
 			KeepaliveMinTime:             grpcKeepaliveMinTime,
