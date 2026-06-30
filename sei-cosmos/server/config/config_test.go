@@ -373,7 +373,7 @@ func TestGetConfigEmptyWriteModeUsesDefault(t *testing.T) {
 
 	cfg, err := GetConfig(v)
 	require.NoError(t, err)
-	require.Equal(t, sctypes.MemiavlOnly, cfg.StateCommit.WriteMode,
+	require.Equal(t, sctypes.Auto, cfg.StateCommit.WriteMode,
 		"unset sc-write-mode must fall back to the in-code default")
 }
 
@@ -417,7 +417,7 @@ func TestDefaultStateCommitConfig(t *testing.T) {
 
 	require.True(t, cfg.StateCommit.Enable)
 	require.Empty(t, cfg.StateCommit.Directory)
-	require.Equal(t, sctypes.MemiavlOnly, cfg.StateCommit.WriteMode)
+	require.Equal(t, sctypes.Auto, cfg.StateCommit.WriteMode)
 }
 
 func TestDefaultStateStoreConfig(t *testing.T) {
