@@ -122,7 +122,8 @@ type controlLoop struct {
 	// deletionWatermarkChan receives deletion-watermark updates from the keymap manager, which writes them via
 	// publishDeletionWatermark. The control loop owns this channel and drains it into keymapDeletionWatermark
 	// (via refreshDeletionWatermark) before each GC pass and before serving iterator-open and boundary-key reads,
-	// so those reads floor at the freshest readable segment.
+	// so those reads floor at the freshest readable segment. It is a latest-value channel: publishDeletionWatermark
+	// uses drain-then-send so the freshest (highest) monotonic watermark is never the one dropped on overflow.
 	deletionWatermarkChan chan int64
 
 	// keymapDeletionWatermark is the highest segment index whose keymap entries the manager has durably
@@ -215,8 +216,18 @@ func (c *controlLoop) deleteEligibleSegments() {
 }
 
 // publishDeletionWatermark records that every segment up to and including watermark has had its keymap entries
-// durably deleted, so the control loop may reclaim their files.
+// durably deleted, so the control loop may reclaim their files. The watermark channel is latest-value: any stale
+// buffered watermark is discarded before the fresher one is enqueued, so an overflow never drops the newest
+// (highest) value, leaving readableFloor stuck below the true durable-delete frontier. This is safe because there
+// is a single producer (the keymap-manager goroutine), the published watermarks are strictly monotonic, and the
+// single consumer (the control loop) takes the max on drain. Both sends are non-blocking, so the keymap manager
+// never blocks on the control loop (which would risk deadlocking the seal path). Mirrors gcManager.setTTL.
 func (c *controlLoop) publishDeletionWatermark(watermark int64) {
+	// Discard any stale buffered watermark, then enqueue the fresher one.
+	select {
+	case <-c.deletionWatermarkChan:
+	default:
+	}
 	select {
 	case c.deletionWatermarkChan <- watermark:
 	default:

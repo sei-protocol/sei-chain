@@ -640,6 +640,107 @@ func TestReadsSkipCollectedSegmentsBeforeReclaim(t *testing.T) {
 	require.Equal(t, "k4", string(oldest), "GetOldestKey must not report a collected key")
 }
 
+// TestReadsSkipCollectedSegmentsAfterWatermarkOverflow is the regression test for the deletion-watermark
+// channel overflow. A single RunGC collects more segments than the watermark channel can buffer, so the
+// keymap manager publishes more monotonic watermarks (one per collected segment) than the channel holds.
+// With a bare non-blocking send the newest (highest) watermarks would be dropped, leaving readableFloor stuck
+// below the true durable-delete frontier — so GetOldestKey/GetNewestKey and iteration would surface keys from
+// segments whose keymap entries were already deleted (keys that Get reports as absent). The drain-then-send
+// (latest-value) publish keeps the freshest watermark, so the floor is correct.
+func TestReadsSkipCollectedSegmentsAfterWatermarkOverflow(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	tableName := "iter-watermark-overflow"
+	logger := slog.Default()
+	keymapPath := filepath.Join(directory, keymap.KeymapDirectoryName)
+
+	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
+	require.NoError(t, err)
+	keys, _, err := keymap.NewMemKeymap(logger, "", true)
+	require.NoError(t, err)
+
+	start := time.Unix(1_700_000_000, 0)
+	var fakeTime atomic.Pointer[time.Time]
+	fakeTime.Store(&start)
+	clock := func() time.Time { return *fakeTime.Load() }
+
+	config, err := litt.DefaultConfig(directory)
+	require.NoError(t, err)
+	config.TargetSegmentFileSize = math.MaxUint32
+	config.MaxSegmentKeyCount = 1 // seal after every key, so each key gets its own segment
+	config.GCPeriod = time.Hour   // disable background GC; the test drives it explicitly
+	config.Fsync = false
+	// Force overflow: collecting 6 segments in one RunGC publishes 6 monotonic watermarks into a 2-deep channel.
+	config.KeymapManagerWatermarkChannelSize = 2
+
+	tableConfig := litt.DefaultTableConfig(tableName)
+	tableConfig.ShardingFactor = 1
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
+
+	table, err := NewDiskTable(
+		config, runtimeConfig, tableName, tableConfig, keys, keymapPath, keymapTypeFile,
+		[]string{directory}, true, nil)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	require.NoError(t, table.SetTTL(10*time.Second))
+
+	// Write k0..k5, each in its own sealed segment (seg0..seg5).
+	for i := 0; i < 6; i++ {
+		k := fmt.Sprintf("k%d", i)
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+	require.NoError(t, table.Flush())
+
+	// Advance past the TTL so seg0..seg5 are all expired, then write one fresh key that stays live.
+	expired := start.Add(time.Hour)
+	fakeTime.Store(&expired)
+	require.NoError(t, table.Put([]byte("k-live"), []byte("value-live")))
+	require.NoError(t, table.Flush())
+
+	// One RunGC collects all 6 expired segments. The keymap manager publishes watermarks 0..5 back-to-back
+	// during the sync; the channel only holds 2. With the latest-value publish, the floor advances to cover
+	// every collected segment.
+	require.NoError(t, table.RunGC())
+
+	// The collected keys are gone from point reads.
+	for i := 0; i < 6; i++ {
+		k := fmt.Sprintf("k%d", i)
+		_, ok, err := table.Get([]byte(k))
+		require.NoError(t, err)
+		require.False(t, ok, "collected key %q must be absent from Get", k)
+	}
+	_, ok, err := table.Get([]byte("k-live"))
+	require.NoError(t, err)
+	require.True(t, ok, "live key must still be present")
+
+	// Boundary-key reads must not report a key below the true deletion frontier: only k-live survives.
+	oldest, ok, err := table.GetOldestKey()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "k-live", string(oldest), "GetOldestKey must not report a collected key after watermark overflow")
+
+	newest, ok, err := table.GetNewestKey()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "k-live", string(newest), "GetNewestKey must not report a collected key after watermark overflow")
+
+	// Iteration (forward and reverse) must not surface any collected key either.
+	fwd, err := table.Iterator(false)
+	require.NoError(t, err)
+	require.Equal(t, []string{"k-live"}, entryKeys(drainIterator(t, fwd)))
+	require.NoError(t, fwd.Close())
+
+	rev, err := table.Iterator(true)
+	require.NoError(t, err)
+	require.Equal(t, []string{"k-live"}, entryKeys(drainIterator(t, rev)))
+	require.NoError(t, rev.Close())
+}
+
 // TestReadsSkipCollectedSegmentsAfterCrash is the regression test for Finding 1 across a crash. It reproduces
 // the crashed-mid-collection state (a segment's keymap entries durably deleted and the gc-watermark advanced
 // past it, but its files not yet removed), then restarts. On restart the leftover segment files are present in
