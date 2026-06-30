@@ -74,6 +74,7 @@ func TestDefaultGRPCWebConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.True(t, cfg.GRPCWeb.Enable)
 	require.Equal(t, DefaultGRPCWebAddress, cfg.GRPCWeb.Address)
+	require.Equal(t, uint(DefaultGRPCWebMaxOpenConnections), cfg.GRPCWeb.MaxOpenConnections)
 }
 
 func TestDefaultRosettaConfig(t *testing.T) {
@@ -281,6 +282,40 @@ func TestSetAndGetMinGasPrices(t *testing.T) {
 	require.Equal(t, 2, len(parsed))
 	require.Equal(t, "usei", parsed[0].Denom)
 	require.Equal(t, "uatom", parsed[1].Denom)
+}
+
+func TestGetConfigGRPCWebMaxOpenConnections(t *testing.T) {
+	baseViper := func() *viper.Viper {
+		v := viper.New()
+		v.Set("minimum-gas-prices", DefaultMinGasPrices)
+		v.Set("telemetry.global-labels", []interface{}{})
+		return v
+	}
+
+	t.Run("missing key falls back to the in-code default", func(t *testing.T) {
+		// Mirrors a node upgrading with an older app.toml that predates the
+		// grpc-web.max-open-connections key
+		cfg, err := GetConfig(baseViper())
+		require.NoError(t, err)
+		require.Equal(t, uint(DefaultGRPCWebMaxOpenConnections), cfg.GRPCWeb.MaxOpenConnections)
+	})
+
+	t.Run("explicit zero is preserved as unlimited", func(t *testing.T) {
+		v := baseViper()
+		v.Set("grpc-web.max-open-connections", 0)
+		cfg, err := GetConfig(v)
+		require.NoError(t, err)
+		require.Equal(t, uint(0), cfg.GRPCWeb.MaxOpenConnections,
+			"explicit 0 must remain an opt-in to unlimited connections")
+	})
+
+	t.Run("explicit value overrides the default", func(t *testing.T) {
+		v := baseViper()
+		v.Set("grpc-web.max-open-connections", 250)
+		cfg, err := GetConfig(v)
+		require.NoError(t, err)
+		require.Equal(t, uint(250), cfg.GRPCWeb.MaxOpenConnections)
+	})
 }
 
 func TestGetConfigStateCommit(t *testing.T) {

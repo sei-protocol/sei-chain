@@ -720,6 +720,48 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		t.Logf("eth_estimateGas rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, numRequests)
 	})
 
+	t.Run("TestCreateAccessListRateLimiting", func(t *testing.T) {
+		tEnv := newTestEnv(t)
+		// Test eth_createAccessList rate limiting
+		numRequests := 8
+		results := make(chan error, numRequests)
+
+		// Start all requests concurrently
+		for i := 0; i < numRequests; i++ {
+			go func() {
+				_, err := tEnv.simAPI.CreateAccessList(t.Context(), tEnv.args, nil)
+				results <- err
+			}()
+		}
+
+		// Collect all results
+		var errors []error
+		for i := 0; i < numRequests; i++ {
+			errors = append(errors, <-results)
+		}
+
+		// Count successful vs rejected requests
+		successCount := 0
+		rejectedCount := 0
+		for _, err := range errors {
+			if err == nil {
+				successCount++
+			} else if strings.Contains(err.Error(), "eth_createAccessList rejected due to rate limit: server busy") {
+				rejectedCount++
+			} else {
+				t.Logf("Unexpected createAccessList error: %v", err)
+			}
+		}
+
+		// Under constrained scheduling these requests can serialize and avoid
+		// rejections. The stable invariant is that every response is either success or
+		// rate-limited.
+		require.Greater(t, successCount, 0, "Should have at least one successful createAccessList request")
+		require.Equal(t, numRequests, successCount+rejectedCount, "All createAccessList requests should be accounted for")
+
+		t.Logf("eth_createAccessList rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, numRequests)
+	})
+
 	t.Run("TestEstimateGasAfterCallsRateLimiting", func(t *testing.T) {
 		tEnv := newTestEnv(t)
 		// Test eth_estimateGasAfterCalls rate limiting

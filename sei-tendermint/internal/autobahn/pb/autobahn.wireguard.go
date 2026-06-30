@@ -60,7 +60,7 @@ func (*CommitQC) MaxSize() int {
 }
 
 func (*FullCommitQC) MaxSize() int {
-	return 31613
+	return 136913
 }
 
 func (*TimeoutVote) MaxSize() int {
@@ -240,7 +240,7 @@ func init() {
 	// Register the wireguard.Schema generated for autobahn.FullCommitQC.
 	runtime.MustRegister[*FullCommitQC](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*CommitQC]())},
-		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
+		2: {MaxCount: 1000, Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.TimeoutVote.

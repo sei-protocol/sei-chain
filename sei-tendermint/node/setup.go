@@ -312,6 +312,9 @@ func buildGigaRouter(
 			return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
 		}
 		rootifyPersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig)
+		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
+		// enable/disable decision through as plain config.
+		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		return p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey))
 	}
@@ -320,6 +323,9 @@ func buildGigaRouter(
 		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
 	rootifyPersistentStateDir(cfg.RootDir, fnCfg)
+	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
+	// enable/disable decision through as plain config.
+	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	return p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey))
 }

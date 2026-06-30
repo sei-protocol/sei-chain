@@ -10,6 +10,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -107,7 +108,9 @@ func BeginBlocker(k keeper.Keeper, ctx sdk.Context) {
 	if k.HasHandler(plan.Name) {
 		downgradeMsg := fmt.Sprintf("BINARY UPDATED BEFORE TRIGGER! UPGRADE \"%s\" - in binary but not executed on chain", plan.Name)
 		logger.Error(downgradeMsg)
-		panic(downgradeMsg)
+		if err := tmtypes.DefaultConsensusPolicy().HandleError(fmt.Errorf("%s: %w", downgradeMsg, tmtypes.ErrUpgradeBeforeTrigger)); err != nil {
+			panic(downgradeMsg)
+		}
 	}
 }
 

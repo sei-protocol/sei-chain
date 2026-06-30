@@ -24,7 +24,8 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ inputs.ref || github.sha }}
       - name: AWS Login
@@ -63,7 +64,7 @@ jobs:
           build-args: |
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
             GO_BUILD_TAGS=mock_block_validation
-      - name: Build and push seid with mock balances + mock chain validation
+      - name: Build and push seid with mock chain validation
         uses: docker/build-push-action@v6
         with:
           context: '.'
@@ -74,7 +75,7 @@ jobs:
           tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock_chain_validation-${{ inputs.tag || inputs.ref || github.sha }}
           build-args: |
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
-            GO_BUILD_TAGS=mock_balances mock_chain_validation
+            GO_BUILD_TAGS=mock_chain_validation
       - name: Build and push seid
         uses: docker/build-push-action@v6
         with:
