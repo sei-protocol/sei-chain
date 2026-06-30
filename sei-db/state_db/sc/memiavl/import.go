@@ -2,10 +2,13 @@ package memiavl
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -48,13 +51,20 @@ func NewMultiTreeImporter(dir string, height uint64) (*MultiTreeImporter, error)
 		return nil, fmt.Errorf("fail to lock db: %w", err)
 	}
 
-	return &MultiTreeImporter{
+	mti := &MultiTreeImporter{
 		dir:         dir,
 		height:      int64(height),
 		snapshotDir: snapshotName(int64(height)),
 		fileLock:    fileLock,
 		ctx:         context.Background(), // Default to background context for backward compatibility
-	}, nil
+	}
+	// State-sync can re-offer the same snapshot, so a prior pass may have left a
+	// temp dir at this height; clear it so it can't poison this import.
+	if err := os.RemoveAll(mti.tmpDir()); err != nil {
+		_ = fileLock.Unlock()
+		return nil, fmt.Errorf("fail to clear stale import tmp dir: %w", err)
+	}
+	return mti, nil
 }
 
 func (mti *MultiTreeImporter) tmpDir() string {
@@ -87,7 +97,15 @@ func (mti *MultiTreeImporter) AddNode(node *types.SnapshotNode) {
 	mti.importer.Add(node)
 }
 
-func (mti *MultiTreeImporter) Close() error {
+func (mti *MultiTreeImporter) Close() (err error) {
+	// Release the import flock on every return path; a leaked lock fails a
+	// same-process restore re-offer with ErrLocked.
+	defer func() {
+		if unlockErr := mti.fileLock.Unlock(); unlockErr != nil && err == nil {
+			err = unlockErr
+		}
+	}()
+
 	if mti.importer != nil {
 		if err := mti.importer.Close(); err != nil {
 			return err
@@ -100,14 +118,34 @@ func (mti *MultiTreeImporter) Close() error {
 		return err
 	}
 
-	if err := os.Rename(tmpDir, filepath.Join(mti.dir, mti.snapshotDir)); err != nil {
-		return err
+	// A re-offered restore may have already produced snapshot-<h>; adopt it and
+	// drop our temp instead of failing. The ErrExist/ENOTEMPTY arm covers
+	// rename-into-existing-dir across kernels (EEXIST darwin, ENOTEMPTY linux).
+	finalDir := filepath.Join(mti.dir, mti.snapshotDir)
+	if info, statErr := os.Stat(finalDir); statErr == nil {
+		// Only a directory is a valid prior snapshot; a non-directory at this path
+		// is corruption/external interference and must not be adopted.
+		if !info.IsDir() {
+			return fmt.Errorf("snapshot path %q exists but is not a directory", finalDir)
+		}
+		if rmErr := os.RemoveAll(tmpDir); rmErr != nil {
+			return rmErr
+		}
+	} else if err := os.Rename(tmpDir, finalDir); err != nil {
+		if !errors.Is(err, fs.ErrExist) && !errors.Is(err, syscall.ENOTEMPTY) {
+			return err
+		}
+		// finalDir appeared between the stat and the rename; only a directory is a
+		// valid prior snapshot, so don't adopt a non-directory.
+		if info, statErr := os.Stat(finalDir); statErr != nil || !info.IsDir() {
+			return fmt.Errorf("snapshot path %q exists but is not a directory: %w", finalDir, err)
+		}
+		if rmErr := os.RemoveAll(tmpDir); rmErr != nil {
+			return rmErr
+		}
 	}
 
-	if err := updateCurrentSymlink(mti.dir, mti.snapshotDir); err != nil {
-		return err
-	}
-	return mti.fileLock.Unlock()
+	return updateCurrentSymlink(mti.dir, mti.snapshotDir)
 }
 
 // TreeImporter import a single memiavl tree from state-sync snapshot

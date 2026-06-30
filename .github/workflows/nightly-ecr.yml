@@ -35,6 +35,7 @@ jobs:
           echo "nightly=nightly-${DATE}-${SHA7}"   >> "$GITHUB_OUTPUT"
           echo "mock=mock-nightly-${DATE}-${SHA7}" >> "$GITHUB_OUTPUT"
           echo "mock_chain=mock_chain_validation-nightly-${DATE}-${SHA7}" >> "$GITHUB_OUTPUT"
+          echo "mock_chain_balances=mock_chain_validation-mock_balances-nightly-${DATE}-${SHA7}" >> "$GITHUB_OUTPUT"
 
       - name: AWS Login
         uses: aws-actions/configure-aws-credentials@v4
@@ -78,9 +79,10 @@ jobs:
             SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
             GO_BUILD_TAGS=mock_balances
 
-      # mock_chain_validation -- consumed by chaos-lab forked-state replays;
-      # swallows every swallow-eligible halting validation failure.
-      - name: Build and push mock_chain_validation-nightly (mock_balances + mock_chain_validation)
+      # mock_chain_validation -- faithful real-history replay (e.g. the memIAVL->flatKV
+      # migration shadow). No mock_balances, so real transactions execute against real
+      # balances. Matches the on-demand ecr.yml mock_chain_validation-<ref> image.
+      - name: Build and push mock_chain_validation-nightly (mock_chain_validation)
         uses: docker/build-push-action@v6
         with:
           context: '.'
@@ -89,6 +91,22 @@ jobs:
           tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.mock_chain }}
           cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock-chain
           cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock-chain,mode=max
+          build-args: |
+            SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
+            GO_BUILD_TAGS=mock_chain_validation
+
+      # mock_balances + mock_chain_validation -- benchmark/chaos replays that run on a
+      # fresh chain, submit synthetic txs, and need pre-funded accounts (consumed by
+      # chaos-lab forked-state replays).
+      - name: Build and push mock_chain_validation-mock_balances-nightly (mock_balances + mock_chain_validation)
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.mock_chain_balances }}
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock-chain-balances
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock-chain-balances,mode=max
           build-args: |
             SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
             GO_BUILD_TAGS=mock_balances mock_chain_validation
@@ -101,4 +119,5 @@ jobs:
           echo "|-----|---------|" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`${{ steps.tag.outputs.nightly }}\` | regular |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`${{ steps.tag.outputs.mock }}\` | mock_balances |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| \`${{ steps.tag.outputs.mock_chain }}\` | mock_balances + mock_chain_validation |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`${{ steps.tag.outputs.mock_chain }}\` | mock_chain_validation |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`${{ steps.tag.outputs.mock_chain_balances }}\` | mock_balances + mock_chain_validation |" >> "$GITHUB_STEP_SUMMARY"
