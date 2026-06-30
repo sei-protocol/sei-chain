@@ -25,6 +25,11 @@ type occTxExecution struct {
 	gasUsed   uint64
 }
 
+type occTxRange struct {
+	start int
+	end   int
+}
+
 func (e *Executor) executeBlockOCC(ctx context.Context, req BlockRequest) (*BlockResult, error) {
 	chainConfig := e.chainConfig(req.Context)
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
@@ -36,18 +41,24 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req BlockRequest) (*Bloc
 	}
 
 	workers := e.cfg.OCCWorkers
-	if workers > len(req.Txs) {
-		workers = len(req.Txs)
+	txCount := len(req.Txs)
+	if workers > txCount {
+		workers = txCount
 	}
-	results := make([]occTxExecution, len(req.Txs))
-	jobs := make(chan int)
+	results := make([]occTxExecution, txCount)
+	chunkSize := occChunkSize(txCount, workers)
+	jobs := make(chan occTxRange)
 	group, groupCtx := errgroup.WithContext(ctx)
 
 	group.Go(func() error {
 		defer close(jobs)
-		for i := range req.Txs {
+		for start := 0; start < txCount; start += chunkSize {
+			end := start + chunkSize
+			if end > txCount {
+				end = txCount
+			}
 			select {
-			case jobs <- i:
+			case jobs <- occTxRange{start: start, end: end}:
 			case <-groupCtx.Done():
 				return groupCtx.Err()
 			}
@@ -60,15 +71,17 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req BlockRequest) (*Bloc
 				select {
 				case <-groupCtx.Done():
 					return groupCtx.Err()
-				case idx, ok := <-jobs:
+				case txRange, ok := <-jobs:
 					if !ok {
 						return nil
 					}
-					result, err := e.executeTxSpeculative(groupCtx, req, idx, signer, chainConfig, blockCtx, baseFee, gasLimit)
-					if err != nil {
-						return err
+					for idx := txRange.start; idx < txRange.end; idx++ {
+						result, err := e.executeTxSpeculative(groupCtx, req, idx, signer, chainConfig, blockCtx, baseFee, gasLimit)
+						if err != nil {
+							return err
+						}
+						results[idx] = result
 					}
-					results[idx] = result
 				}
 			}
 		})
@@ -80,6 +93,21 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req BlockRequest) (*Bloc
 		return e.executeBlockSequential(ctx, req)
 	}
 	return mergeOCCResults(results), nil
+}
+
+func occChunkSize(txCount int, workers int) int {
+	if txCount <= 0 || workers <= 0 {
+		return 1
+	}
+	targetChunks := workers * 8
+	chunkSize := (txCount + targetChunks - 1) / targetChunks
+	if chunkSize < 16 {
+		return 16
+	}
+	if chunkSize > 256 {
+		return 256
+	}
+	return chunkSize
 }
 
 func (e *Executor) executeTxSpeculative(
@@ -96,6 +124,7 @@ func (e *Executor) executeTxSpeculative(
 	if err != nil {
 		return occTxExecution{}, fmt.Errorf("parse tx %d: %w", txIndex, err)
 	}
+	p := parsedTx{tx: tx, sender: sender}
 	stateDB := newNativeStateDB(e.state)
 	stateDB.enableAccessTracking()
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
@@ -106,14 +135,14 @@ func (e *Executor) executeTxSpeculative(
 		stateDB,
 		gasPool,
 		req.Context,
-		parsedTx{tx: tx, sender: sender},
+		p,
 		txIndex,
 		uint(txIndex),
 		baseFee,
 		signer,
 	)
 	if err != nil {
-		return occTxExecution{}, fmt.Errorf("execute tx %d %s: %w", txIndex, tx.Hash(), err)
+		return occTxExecution{}, fmt.Errorf("execute tx %d %s: %w", txIndex, p.tx.Hash(), err)
 	}
 	readSet, writeSet := stateDB.accessSets()
 	return occTxExecution{
