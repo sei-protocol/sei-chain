@@ -21,7 +21,8 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
-      - uses: actions/checkout@v5
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
       - name: Install RocksDB dependencies
         run: |

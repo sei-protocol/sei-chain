@@ -17,6 +17,12 @@ import (
 
 func setupLittIdx(t *testing.T, dir string) (receipt.ReceiptStore, sdk.Context) {
 	t.Helper()
+	return setupLittIdxPar(t, dir, dbconfig.DefaultReceiptLogFilterParallelism)
+}
+
+// setupLittIdxPar is setupLittIdx with an explicit getLogs parallelism degree.
+func setupLittIdxPar(t *testing.T, dir string, parallelism int) (receipt.ReceiptStore, sdk.Context) {
+	t.Helper()
 	storeKey := storetypes.NewKVStoreKey("evm")
 	tkey := storetypes.NewTransientStoreKey("evm_transient")
 	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
@@ -24,6 +30,7 @@ func setupLittIdx(t *testing.T, dir string) (receipt.ReceiptStore, sdk.Context) 
 	cfg.Backend = "littidx"
 	cfg.DBDirectory = dir
 	cfg.KeepRecent = 0
+	cfg.LogFilterParallelism = parallelism
 	store, err := receipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	return store, ctx
@@ -307,4 +314,40 @@ func TestLittIdxPrune(t *testing.T) {
 	logs, err = store.FilterLogs(ctx, 1, 10, filters.FilterCriteria{Addresses: []common.Address{addr}})
 	require.NoError(t, err)
 	require.Len(t, logs, 5)
+}
+
+// TestLittIdxFilterLogsParallelOrder verifies the parallel block fan-out returns
+// logs in strict (block, txIndex) order and yields identical results whether run
+// sequentially (parallelism 1) or in parallel.
+func TestLittIdxFilterLogsParallelOrder(t *testing.T) {
+	addr := common.HexToAddress("0xfeed")
+	topic := common.HexToHash("0x2222")
+	const blocks, txPerBlock = 25, 3
+
+	want := make([]string, 0, blocks*txPerBlock)
+	for b := uint64(1); b <= blocks; b++ {
+		for tx := uint32(0); tx < txPerBlock; tx++ {
+			want = append(want, fmt.Sprintf("%d-%d", b, tx))
+		}
+	}
+
+	for _, parallelism := range []int{1, 8} {
+		store, ctx := setupLittIdxPar(t, t.TempDir(), parallelism)
+		for b := uint64(1); b <= blocks; b++ {
+			recs := make([]receipt.ReceiptRecord, 0, txPerBlock)
+			for tx := uint32(0); tx < txPerBlock; tx++ {
+				recs = append(recs, litReceipt(b, tx, addr, topic))
+			}
+			writeLitBlock(t, store, ctx, b, recs...)
+		}
+
+		logs, err := store.FilterLogs(ctx, 1, blocks, filters.FilterCriteria{Addresses: []common.Address{addr}})
+		require.NoError(t, err)
+		got := make([]string, len(logs))
+		for i, lg := range logs {
+			got[i] = fmt.Sprintf("%d-%d", lg.BlockNumber, lg.TxIndex)
+		}
+		require.Equal(t, want, got, "parallelism=%d should return logs in (block, txIndex) order", parallelism)
+		require.NoError(t, store.Close())
+	}
 }

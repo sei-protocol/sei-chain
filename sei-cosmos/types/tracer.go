@@ -15,6 +15,18 @@ import (
 const (
 	maxStoreTraceIterators    = 16
 	maxStoreTraceIteratorKeys = 64
+
+	// maxStoreTraceModuleBytes caps the key/value payload retained in a
+	// module's access log. Past this the log is truncated (ModuleTrace.Truncated
+	// set) and further accesses are dropped from it, bounding a pathological tx
+	// (e.g. a huge iterator scan) that would otherwise grow the response without
+	// limit — the cause of the debug_traceStateAccess OOM. Running stats stay
+	// accurate regardless of truncation.
+	maxStoreTraceModuleBytes = 4 << 20 // 4 MiB
+	// perAccessOverheadBytes charges each retained access a fixed cost on top of
+	// its payload so high-count, near-zero-payload patterns (e.g. iterator
+	// Next() floods) are bounded by the same cap.
+	perAccessOverheadBytes = 64
 )
 
 // StoreTracer collects every KVStore access (Get/Has/Set/Delete/iterator)
@@ -28,12 +40,16 @@ type StoreTracer struct {
 	mu             *sync.Mutex
 }
 
-// ModuleTrace holds every access event for a single module within a trace,
-// plus a per-iterator roll-up.
+// ModuleTrace holds the access events for a single module within a trace
+// (capped at maxStoreTraceModuleBytes of retained payload), plus a per-iterator
+// roll-up and running, always-accurate operation stats.
 type ModuleTrace struct {
 	Accesses        []Access
 	Iterators       []*IteratorTrace
 	iteratorIndexBy map[int]int
+	stats           map[OpType]OperationSummary
+	accessBytes     int
+	Truncated       bool
 }
 
 // IteratorTrace aggregates one opened iterator: its bounds, direction, the
@@ -148,7 +164,7 @@ func (st *StoreTracer) StartIterator(start, end []byte, ascending bool, module s
 	st.nextIteratorID++
 	iteratorID := st.nextIteratorID
 
-	mt.Accesses = append(mt.Accesses, Access{
+	mt.record(Access{
 		Op:            IteratorOpen,
 		Key:           slices.Clone(start),
 		Value:         slices.Clone(end),
@@ -179,7 +195,7 @@ func (st *StoreTracer) RecordIteratorValue(iteratorID int, key []byte, value []b
 	defer st.mu.Unlock()
 
 	mt := st.getOrSetModuleTrace(module)
-	mt.Accesses = append(mt.Accesses, Access{
+	mt.record(Access{
 		Op:    IteratorValue,
 		Key:   slices.Clone(key),
 		Value: slices.Clone(value),
@@ -204,7 +220,7 @@ func (st *StoreTracer) RecordIteratorNext(iteratorID int, module string, duratio
 	defer st.mu.Unlock()
 
 	mt := st.getOrSetModuleTrace(module)
-	mt.Accesses = append(mt.Accesses, Access{
+	mt.record(Access{
 		Op:            IteratorNext,
 		DurationNanos: duration.Nanoseconds(),
 	})
@@ -224,6 +240,7 @@ func (st *StoreTracer) getOrSetModuleTrace(module string) (mt *ModuleTrace) {
 			Accesses:        []Access{},
 			Iterators:       []*IteratorTrace{},
 			iteratorIndexBy: map[int]int{},
+			stats:           map[OpType]OperationSummary{},
 		}
 		st.Modules[module] = mt
 	} else {
@@ -232,11 +249,36 @@ func (st *StoreTracer) getOrSetModuleTrace(module string) (mt *ModuleTrace) {
 	return
 }
 
+// record updates the module's running op stats and appends the access to the
+// log, retaining its cloned key/value only while the module stays under
+// maxStoreTraceModuleBytes. Past the cap the log is marked Truncated and the
+// access is dropped from it; stats are updated unconditionally so op
+// counts/durations remain accurate.
+func (mt *ModuleTrace) record(access Access) {
+	s := mt.stats[access.Op]
+	s.Count++
+	s.TotalNanos += access.DurationNanos
+	mt.stats[access.Op] = s
+
+	if mt.Truncated {
+		return
+	}
+	cost := len(access.Key) + len(access.Value) + perAccessOverheadBytes
+	// An access whose own payload exceeds the cap trips truncation on the first
+	// access (nothing retained); intended — we never retain an oversized blob.
+	if mt.accessBytes+cost > maxStoreTraceModuleBytes {
+		mt.Truncated = true
+		return
+	}
+	mt.accessBytes += cost
+	mt.Accesses = append(mt.Accesses, access)
+}
+
 func (st *StoreTracer) recordAccess(module string, access Access) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	mt := st.getOrSetModuleTrace(module)
-	mt.Accesses = append(mt.Accesses, access)
+	mt.record(access)
 }
 
 // Clear resets the tracer to its empty state so a single StoreTracer can be
@@ -263,6 +305,9 @@ type ModuleTraceDump struct {
 	Has       []string                    `json:"has"`
 	Stats     map[string]OperationSummary `json:"stats,omitempty"`
 	Iterators []IteratorTraceDump         `json:"iterators,omitempty"`
+	// Truncated is set when the module's access log hit maxStoreTraceModuleBytes;
+	// Reads/Has then reflect only the retained prefix while Stats stay complete.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 type IteratorTraceDump struct {
@@ -294,16 +339,25 @@ func (st *StoreTracer) dumpLocked() StoreTraceDump {
 		mtd := ModuleTraceDump{
 			Reads:     make(map[string]string),
 			Has:       []string{},
-			Stats:     map[string]OperationSummary{},
+			Stats:     make(map[string]OperationSummary, len(module.stats)),
 			Iterators: make([]IteratorTraceDump, 0, len(module.Iterators)),
+			Truncated: module.Truncated,
+		}
+		// Stats are accumulated at record time, so they stay complete even when
+		// the access log below was truncated.
+		for op, s := range module.stats {
+			key := op.String()
+			mtd.Stats[key] = s
+			agg := d.Stats[key]
+			agg.Count += s.Count
+			agg.TotalNanos += s.TotalNanos
+			d.Stats[key] = agg
 		}
 		// any read for key XYZ after a Set/Delete to XYZ is discarded
 		// because the result doesn't represent prestate.
 		writtenKey := map[string]struct{}{}
 		hasMap := map[string]struct{}{}
 		for _, a := range module.Accesses {
-			updateSummary(d.Stats, a.Op, a.DurationNanos)
-			updateSummary(mtd.Stats, a.Op, a.DurationNanos)
 			switch a.Op {
 			case Get, IteratorValue:
 				if _, ok := writtenKey[string(a.Key)]; ok {
@@ -340,14 +394,6 @@ func (st *StoreTracer) dumpLocked() StoreTraceDump {
 		d.Modules[name] = mtd
 	}
 	return d
-}
-
-func updateSummary(stats map[string]OperationSummary, op OpType, durationNanos int64) {
-	key := op.String()
-	summary := stats[key]
-	summary.Count++
-	summary.TotalNanos += durationNanos
-	stats[key] = summary
 }
 
 // DerivePrestateToJson returns a JSON encoding of the current trace state,
