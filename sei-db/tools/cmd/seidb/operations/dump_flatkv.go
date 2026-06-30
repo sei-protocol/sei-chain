@@ -7,8 +7,13 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"strconv"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	"github.com/spf13/cobra"
@@ -32,6 +37,8 @@ const (
 	minReadBurstBytes = 4 << 20
 
 	bytesPerMiB = 1 << 20
+
+	flatkvMetadataDir = "metadata"
 )
 
 const (
@@ -72,6 +79,8 @@ var flatkvBucketOrder = []string{flatkvBucketAccount, flatkvBucketCode, flatkvBu
 //	                    covers all four buckets, so the LtHash total stays valid.
 //	    --lthash        Compute per-bucket + total LtHash and verify the total
 //	                    against committed snapshot metadata. Default: true.
+//	    --lthash-only   Compute and verify LtHash without writing any KV dump
+//	                    files. Requires --lthash=true and ignores --output-dir.
 //	    --read-limit-mb Throttle the scan to at most this many MiB/s of
 //	                    (key+value) bytes read. Default: 64. 0 = unlimited.
 //	                    Keep it low (default or less) on a shared/live node;
@@ -100,6 +109,9 @@ var flatkvBucketOrder = []string{flatkvBucketAccount, flatkvBucketCode, flatkvBu
 //	seidb dump-flatkv -d /.sei/data/state_commit/flatkv -o /tmp/flatkv-dump \
 //	    --read-limit-mb 0 --lthash=false
 //
+//	# Verify the FlatKV lattice hash only, without writing key/value dump files.
+//	seidb dump-flatkv -d /.sei/data/state_commit/flatkv --lthash-only
+//
 //	# Against a running node in Kubernetes (build a static linux/amd64 binary,
 //	# copy it in, run in the background, then read the result):
 //	#   GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/seidb ./sei-db/tools/cmd/seidb
@@ -118,6 +130,7 @@ func DumpFlatKVCmd() *cobra.Command {
 	cmd.PersistentFlags().Int64("height", 0, "FlatKV target version; 0 selects the latest available version")
 	cmd.PersistentFlags().StringP("bucket", "b", "", "Restrict dump to a single bucket (account|code|storage|legacy). Default: all buckets")
 	cmd.PersistentFlags().Bool("lthash", true, "Also compute per-bucket and total LtHash (lattice hash) over the scanned state. Computed for all buckets regardless of --bucket so the total matches the node's committed LtHash")
+	cmd.PersistentFlags().Bool("lthash-only", false, "Only compute and verify LtHash; do not write bucket dump files. Requires --lthash=true and does not require --output-dir")
 	cmd.PersistentFlags().Float64("read-limit-mb", defaultReadLimitMiBps, "Throttle the scan to at most this many MiB/s of (key+value) bytes read, so a dump against a running node does not starve the chain of disk bandwidth. 0 = unlimited")
 	return cmd
 }
@@ -128,22 +141,29 @@ func executeDumpFlatKV(cmd *cobra.Command, _ []string) {
 	height, _ := cmd.Flags().GetInt64("height")
 	bucket, _ := cmd.Flags().GetString("bucket")
 	withLtHash, _ := cmd.Flags().GetBool("lthash")
+	lthashOnly, _ := cmd.Flags().GetBool("lthash-only")
 	readLimitMiBps, _ := cmd.Flags().GetFloat64("read-limit-mb")
 
 	if dbDir == "" {
 		panic("Must provide --db-dir pointing at a FlatKV data directory")
 	}
-	if outputDir == "" {
+	if outputDir == "" && !lthashOnly {
 		panic("Must provide --output-dir")
 	}
 	if bucket != "" && !isFlatKVBucket(bucket) {
 		panic(fmt.Sprintf("Unknown --bucket %q. Valid: account, code, storage, legacy", bucket))
 	}
+	if lthashOnly && !withLtHash {
+		panic("--lthash-only requires --lthash=true")
+	}
+	if lthashOnly && bucket != "" {
+		panic("--bucket cannot be used with --lthash-only (LtHash always covers all buckets)")
+	}
 	if readLimitMiBps < 0 {
 		panic("--read-limit-mb must be >= 0 (0 = unlimited)")
 	}
 
-	if err := DumpFlatKVData(dbDir, outputDir, height, bucket, withLtHash, readLimitMiBps); err != nil {
+	if err := DumpFlatKVData(dbDir, outputDir, height, bucket, withLtHash, lthashOnly, readLimitMiBps); err != nil {
 		panic(err)
 	}
 }
@@ -172,7 +192,21 @@ func isFlatKVBucket(name string) bool {
 // FlatKV metadataDB and the per-DB _meta/* rows are intentionally excluded:
 // they are internal bookkeeping and RawGlobalIterator already filters the
 // per-DB ones for us.
-func DumpFlatKVData(dbDir, outputDir string, height int64, bucket string, withLtHash bool, readLimitMiBps float64) error {
+func DumpFlatKVData(dbDir, outputDir string, height int64, bucket string, withLtHash bool, lthashOnly bool, readLimitMiBps float64) error {
+	// Determine, before the main scan, whether the snapshot selected for this
+	// height carries an LtHash watermark. CommittedRootHash() on the opened
+	// store cannot tell a full-state hash apart from a partial WAL-deltas-only
+	// hash, so we check the selected snapshot's metadata DB directly. See
+	// snapshotCommittedLtHashIsFullState.
+	committedIsFullState := true
+	if withLtHash {
+		var probeErr error
+		committedIsFullState, probeErr = snapshotCommittedLtHashIsFullState(dbDir, height)
+		if probeErr != nil {
+			return fmt.Errorf("probe snapshot lthash watermark: %w", probeErr)
+		}
+	}
+
 	store, err := openFlatKVReadOnly(dbDir, height)
 	if err != nil {
 		return fmt.Errorf("open flatkv read-only: %w", err)
@@ -182,23 +216,118 @@ func DumpFlatKVData(dbDir, outputDir string, height int64, bucket string, withLt
 	version := store.Version()
 	fmt.Printf("Opened FlatKV at version %d\n", version)
 
-	return dumpFlatKVFromStore(store.CommitStore, outputDir, version, bucket, withLtHash, readLimitMiBps)
+	return dumpFlatKVFromStore(store.CommitStore, outputDir, version, bucket, withLtHash, lthashOnly, committedIsFullState, readLimitMiBps)
+}
+
+// snapshotMetadataMakesCommittedHashFullState decides, from the snapshot's own
+// version and whether its metadata DB contains a global LtHash watermark,
+// whether a store opened on top of that snapshot will carry a full-state
+// committed LtHash (verifiable against a full re-scan).
+//
+//   - snapshotVersion == 0: a genesis/empty baseline contributes nothing, so
+//     the committed hash is built entirely from replayed history and is
+//     full-state.
+//   - snapshotVersion > 0 without MetaLtHashKey: the snapshot had committed
+//     data but no LtHash watermark, so once any WAL replays on top the
+//     committed hash becomes a partial (deltas-only) hash. Not full-state.
+//   - snapshotVersion > 0 with MetaLtHashKey present (even if the stored
+//     checksum is all-zero): the snapshot's watermark exists and seeds the
+//     committed hash. Full-state.
+func snapshotMetadataMakesCommittedHashFullState(snapshotVersion int64, hasLtHashMetadata bool) bool {
+	if snapshotVersion == 0 {
+		return true
+	}
+	return hasLtHashMetadata
+}
+
+// snapshotCommittedLtHashIsFullState probes the FlatKV snapshot selected for
+// height and reports whether a store opened on top of it will have a
+// full-state committed LtHash. It checks the selected snapshot's metadata DB
+// for ktype.MetaLtHashKey directly instead of using CommittedRootHash(): a
+// legitimate LtHash watermark may be all-zero, so hash value alone cannot
+// distinguish "metadata present" from "metadata absent".
+func snapshotCommittedLtHashIsFullState(dbDir string, height int64) (bool, error) {
+	snapshotName, err := selectFlatKVSnapshot(dbDir, height)
+	if err != nil {
+		return false, fmt.Errorf("select snapshot: %w", err)
+	}
+	snapshotVersion, err := strconv.ParseInt(snapshotName[len(flatkvSnapshotPrefix):], 10, 64)
+	if err != nil {
+		return false, fmt.Errorf("parse snapshot version from %q: %w", snapshotName, err)
+	}
+	if snapshotVersion == 0 {
+		return true, nil
+	}
+
+	hasMetadata, err := selectedSnapshotHasLtHashMetadata(dbDir, snapshotName)
+	if err != nil {
+		return false, err
+	}
+	return snapshotMetadataMakesCommittedHashFullState(snapshotVersion, hasMetadata), nil
+}
+
+// selectedSnapshotHasLtHashMetadata checks whether the selected immutable
+// snapshot's metadata DB contains the global LtHash watermark key. The source
+// snapshot is not opened directly: Pebble would create lock/log files. Instead
+// we hardlink-clone just the metadata DB into a temp dir under dbDir, open that
+// clone, and read ktype.MetaLtHashKey.
+func selectedSnapshotHasLtHashMetadata(dbDir, snapshotName string) (bool, error) {
+	srcMetadataDir := filepath.Join(dbDir, snapshotName, flatkvMetadataDir)
+	if _, err := os.Stat(srcMetadataDir); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat snapshot metadata dir %s: %w", srcMetadataDir, err)
+	}
+
+	tempDir, err := os.MkdirTemp(dbDir, ".seidb-flatkv-meta-probe-*")
+	if err != nil {
+		return false, fmt.Errorf("create metadata probe dir under %s: %w", dbDir, err)
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	probeMetadataDir := filepath.Join(tempDir, flatkvMetadataDir)
+	if err := cloneDirRecursive(srcMetadataDir, probeMetadataDir); err != nil {
+		return false, fmt.Errorf("clone snapshot metadata %s: %w", srcMetadataDir, err)
+	}
+
+	cfg := pebbledb.DefaultConfig()
+	cfg.DataDir = probeMetadataDir
+	cfg.EnableMetrics = false
+	db, err := pebbledb.Open(context.Background(), &cfg)
+	if err != nil {
+		return false, fmt.Errorf("open cloned snapshot metadata %s: %w", probeMetadataDir, err)
+	}
+	defer func() { _ = db.Close() }()
+
+	_, err = db.Get(ktype.MetaLtHashKey)
+	if errorutils.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read snapshot LtHash metadata key: %w", err)
+	}
+	return true, nil
 }
 
 // dumpFlatKVFromStore is the core scan+write path, split out so tests can
 // exercise it against an in-memory store without going through the
 // snapshot clone machinery used by the CLI.
-func dumpFlatKVFromStore(store *flatkv.CommitStore, outputDir string, version int64, bucket string, withLtHash bool, readLimitMiBps float64) error {
-	if err := os.MkdirAll(outputDir, fs.ModePerm); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
-	}
-
+func dumpFlatKVFromStore(store *flatkv.CommitStore, outputDir string, version int64, bucket string, withLtHash bool, lthashOnly bool, committedIsFullState bool, readLimitMiBps float64) error {
 	limiter := newReadLimiter(readLimitMiBps)
 	ctx := context.Background()
 
-	files, writers, err := openBucketWriters(outputDir, version, bucket)
-	if err != nil {
-		return err
+	var files map[string]*os.File
+	var writers map[string]*bufio.Writer
+	if !lthashOnly {
+		if err := os.MkdirAll(outputDir, fs.ModePerm); err != nil {
+			return fmt.Errorf("create output dir: %w", err)
+		}
+		var err error
+		files, writers, err = openBucketWriters(outputDir, version, bucket)
+		if err != nil {
+			return err
+		}
 	}
 	defer func() {
 		for _, w := range writers {
@@ -278,7 +407,16 @@ func dumpFlatKVFromStore(store *flatkv.CommitStore, outputDir string, version in
 
 	if withLtHash {
 		printFlatKVLtHash(hashers, version)
-		if err := verifyFlatKVLtHash(store, hashers); err != nil {
+		// committedIsFullState is false when the selected snapshot predates
+		// LtHash metadata: the store opened with a zero baseline LtHash and
+		// catchup only mixed in the deltas of the WAL blocks replayed on top,
+		// so CommittedRootHash() is a partial hash (WAL deltas only, not the
+		// snapshot's pre-existing rows). Cross-checking a full re-scan against
+		// it would falsely fail, so skip verification; it becomes verifiable
+		// again once a new snapshot with LtHash metadata exists.
+		if !committedIsFullState {
+			fmt.Println("\nLtHash verification: skipped (snapshot predates LtHash metadata; committed hash covers only replayed WAL deltas, not full state)")
+		} else if err := verifyFlatKVLtHash(store, hashers); err != nil {
 			return err
 		}
 	}
