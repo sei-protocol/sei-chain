@@ -290,9 +290,22 @@ func NewDiskTable(
 	// cursor start just below the lowest readable segment. Seeding the watermark this way makes the control
 	// loop's first file-deletion pass reclaim any files in [lowestSegmentIndex, lowestReadableSegment) left
 	// behind by a crash after the keymap entries were deleted but before the files were removed. The manager
-	// publishes subsequent deletion-watermark advances onto deletionWatermarkChan.
+	// reports subsequent deletion-watermark advances by calling controlLoop.publishDeletionWatermark.
 	initialDeletionWatermark := int64(lowestReadableSegment) - 1
-	deletionWatermarkChan := make(chan int64, config.KeymapManagerWatermarkChannelSize)
+
+	// The control loop hands each segment to the GC manager (via gcManager.registerImmutableSegment) as it is
+	// sealed; the GC manager keeps its own local view of sealed segments rather than reading the control loop's
+	// map. Seed that view with the sealed segments already on disk: [lowestReadableSegment, highestSegmentIndex).
+	// The range is contiguous and fully present (see above), excludes the mutable highest segment, and excludes
+	// the already-collected [lowestSegmentIndex, lowestReadableSegment) prefix the control loop reclaims first.
+	initialSealedSegments := make(map[uint32]*segment.Segment)
+	for i := lowestReadableSegment; i < highestSegmentIndex; i++ {
+		initialSealedSegments[i] = segments[i]
+	}
+
+	// Build the goroutines' structs first, then wire their cross-references, then start them. The keymap manager
+	// writes to the control-loop-owned deletion-watermark channel via controlLoop.publishDeletionWatermark, so
+	// kManager.controlLoop must be set before kManager.run() starts (established below, before the go statements).
 	kManager := newKeymapManager(
 		errorMonitor,
 		keymap,
@@ -305,12 +318,9 @@ func NewDiskTable(
 		config.GCBatchSize,
 		config.KeymapManagerMaxInterval,
 		config.KeymapManagerMaxBufferedDeletes,
-		deletionWatermarkChan,
 	)
 	table.keymapManager = kManager
-	go kManager.run()
 
-	// Start the flush loop.
 	fLoop := &flushLoop{
 		logger:                 runtimeConfig.Logger,
 		keymapManager:          kManager,
@@ -322,9 +332,7 @@ func NewDiskTable(
 		upperBoundSnapshotFile: upperBoundSnapshotFile,
 	}
 	table.flushLoop = fLoop
-	go fLoop.run()
 
-	// Start the control loop.
 	cLoop := &controlLoop{
 		logger:                  runtimeConfig.Logger,
 		diskTable:               table,
@@ -348,22 +356,27 @@ func NewDiskTable(
 		flushLoop:               fLoop,
 		garbageCollectionPeriod: config.GCPeriod,
 		immutableSegmentSize:    immutableSegmentSize,
-		deletionWatermarkChan:   deletionWatermarkChan,
+		deletionWatermarkChan:   make(chan int64, config.KeymapManagerWatermarkChannelSize),
 		keymapDeletionWatermark: initialDeletionWatermark,
 	}
-	cLoop.lowestSegmentIndex.Store(lowestSegmentIndex)
+	cLoop.lowestSegmentIndex = lowestSegmentIndex
 	cLoop.threadsafeHighestSegmentIndex.Store(highestSegmentIndex)
 	table.controlLoop = cLoop
 	cLoop.updateCurrentSize()
 
+	// The keymap manager reports deletion-watermark advances by calling cLoop.publishDeletionWatermark; give it
+	// the reference now, before its goroutine starts.
+	kManager.controlLoop = cLoop
+
 	// Start the GC manager. It performs collection off the control loop: reading expired segments' keys,
 	// advancing the durable gc-watermark, and scheduling their keymap deletes. Its "scheduled for deletion"
 	// cursor starts just below the lowest readable segment, so it does not re-schedule deletes for segments
-	// already collected before a crash.
+	// already collected before a crash. It owns the channel by which the control loop hands over sealed segments.
 	gcMgr := newGCManager(
 		runtimeConfig.Logger,
 		errorMonitor,
-		cLoop,
+		config.GCSegmentChannelSize,
+		initialSealedSegments,
 		kManager,
 		runtimeConfig.Clock,
 		metrics,
@@ -376,6 +389,9 @@ func NewDiskTable(
 	)
 	table.gcManager = gcMgr
 
+	// Everything is wired; start the goroutines.
+	go kManager.run()
+	go fLoop.run()
 	go cLoop.run()
 	go gcMgr.run()
 

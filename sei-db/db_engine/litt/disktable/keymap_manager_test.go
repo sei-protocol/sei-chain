@@ -30,7 +30,6 @@ func buildTestKeymapManager(
 	require.NoError(t, err)
 
 	var cache sync.Map
-	wmChan := make(chan int64, 1024)
 	m := newKeymapManager(
 		em,
 		km,
@@ -43,8 +42,11 @@ func buildTestKeymapManager(
 		deleteBatchSize,
 		time.Second,
 		maxBufferedDeletes,
-		wmChan,
 	)
+	// The manager reports deletion watermarks via controlLoop.publishDeletionWatermark; attach a minimal control
+	// loop that owns the watermark channel so the tests can observe what the manager publishes. Set before run().
+	wmChan := make(chan int64, 1024)
+	m.controlLoop = &controlLoop{deletionWatermarkChan: wmChan}
 	return m, wmChan
 }
 

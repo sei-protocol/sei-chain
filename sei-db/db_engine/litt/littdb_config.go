@@ -147,6 +147,13 @@ type Config struct {
 	// files until a later collection. Sizing this at or above the largest expected single-pass collection keeps
 	// reclamation complete in one pass (relevant to explicit RunGC). The default is 1024.
 	KeymapManagerWatermarkChannelSize int
+
+	// The capacity of the channel over which the control loop hands sealed segments to the GC manager (the GC
+	// manager keeps its own local view of sealed segments rather than reading the control loop's segment map).
+	// A segment is sent the moment it is sealed; the GC manager drains the channel between collection passes, so
+	// this only needs to absorb the seals that occur during a single pass. If it fills, the control loop applies
+	// brief backpressure to writes until the GC manager drains it. The default is 1024.
+	GCSegmentChannelSize int
 }
 
 // DefaultConfig returns a Config with default values.
@@ -183,6 +190,7 @@ func DefaultConfigNoPaths() *Config {
 		KeymapManagerMaxInterval:          time.Second,
 		KeymapManagerMaxBufferedDeletes:   1_000_000,
 		KeymapManagerWatermarkChannelSize: 1024,
+		GCSegmentChannelSize:              1024,
 	}
 }
 
@@ -248,6 +256,9 @@ func (c *Config) Validate() error {
 	}
 	if c.KeymapManagerWatermarkChannelSize < 1 {
 		return fmt.Errorf("keymap watermark channel size must be at least 1")
+	}
+	if c.GCSegmentChannelSize < 1 {
+		return fmt.Errorf("gc segment channel size must be at least 1")
 	}
 
 	return nil

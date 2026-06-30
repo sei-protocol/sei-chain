@@ -27,9 +27,8 @@ type controlLoop struct {
 	controllerChannel chan any
 
 	// The index of the lowest numbered segment. It is advanced only by the control loop, in
-	// deleteCollectedSegments, as collected segments' files are removed. It is atomic because the GC manager
-	// goroutine reads it while choosing segments to collect (see gcManager.collectExpiredSegments).
-	lowestSegmentIndex atomic.Uint32
+	// deleteEligibleSegments, as collected segments' files are removed. Only the control loop goroutine touches it.
+	lowestSegmentIndex uint32
 
 	// The index of the highest numbered segment. All writes are applied to this segment.
 	highestSegmentIndex uint32
@@ -120,10 +119,10 @@ type controlLoop struct {
 	// used. Only the control loop goroutine touches this field.
 	mutableFirstPrimaryKey []byte
 
-	// deletionWatermarkChan receives deletion-watermark updates published by the keymap manager (see
-	// keymapManager.publishDeletionWatermark). The control loop drains it into keymapDeletionWatermark (via
-	// refreshDeletionWatermark) before each GC pass and before serving iterator-open and boundary-key reads, so
-	// those reads floor at the freshest readable segment.
+	// deletionWatermarkChan receives deletion-watermark updates from the keymap manager, which writes them via
+	// publishDeletionWatermark. The control loop owns this channel and drains it into keymapDeletionWatermark
+	// (via refreshDeletionWatermark) before each GC pass and before serving iterator-open and boundary-key reads,
+	// so those reads floor at the freshest readable segment.
 	deletionWatermarkChan chan int64
 
 	// keymapDeletionWatermark is the highest segment index whose keymap entries the manager has durably
@@ -191,8 +190,8 @@ func (c *controlLoop) deleteEligibleSegments() {
 	// segment it now covers.
 	c.refreshDeletionWatermark()
 
-	for int64(c.lowestSegmentIndex.Load()) <= c.keymapDeletionWatermark {
-		index := c.lowestSegmentIndex.Load()
+	for int64(c.lowestSegmentIndex) <= c.keymapDeletionWatermark {
+		index := c.lowestSegmentIndex
 		seg := c.segments[index]
 
 		if seg.Size() > c.immutableSegmentSize {
@@ -210,8 +209,26 @@ func (c *controlLoop) deleteEligibleSegments() {
 		seg.Release()
 		c.segmentLock.Lock()
 		delete(c.segments, index)
-		c.lowestSegmentIndex.Add(1)
+		c.lowestSegmentIndex++
 		c.segmentLock.Unlock()
+	}
+}
+
+// publishDeletionWatermark records that every segment up to and including watermark has had its keymap entries
+// durably deleted, so the control loop may reclaim their files. It is called by the keymap manager (the writer)
+// on the control-loop-owned deletionWatermarkChan. The send is fire-and-forget and never blocks the caller:
+// blocking here could deadlock the seal path (control loop -> flush loop -> keymap manager -> control loop). If
+// the channel is full the update is dropped. Dropping is always safe — the watermark is monotonic, so it can
+// never cause a premature file deletion — but recovery of a dropped value is not automatic: it is only
+// superseded when a LATER delete publishes a higher watermark. Under continued collection that happens promptly
+// (self-healing); if collection then goes idle, the files of the segments covered by the dropped value stay
+// unreclaimed until the next collection advances past them. In practice the channel
+// (KeymapManagerWatermarkChannelSize, default 1024) is sized so a drop requires more segments collected in one
+// pass than the control loop has drained — rare outside an explicit RunGC over a huge backlog (see RunGC).
+func (c *controlLoop) publishDeletionWatermark(watermark int64) {
+	select {
+	case c.deletionWatermarkChan <- watermark:
+	default:
 	}
 }
 
@@ -416,17 +433,6 @@ func (c *controlLoop) getReservedSegment(index uint32) (*segment.Segment, bool) 
 	return seg, true
 }
 
-// gcGetSegment returns the segment with the given index, or nil if it is not present. It is used by the GC
-// manager goroutine to read a (sealed, immutable) segment while choosing what to collect. The RLock guards
-// against the control loop's concurrent map writes (segment creation in expandSegments, segment removal in
-// deleteCollectedSegments); no reservation is taken because the GC manager only reads sealed segments whose files
-// the control loop has not yet deleted.
-func (c *controlLoop) gcGetSegment(index uint32) *segment.Segment {
-	c.segmentLock.RLock()
-	defer c.segmentLock.RUnlock()
-	return c.segments[index]
-}
-
 // getSegments returns the segments of the disk table. It is only legal to call this after the control loop has been
 // stopped.
 func (c *controlLoop) getSegments() (map[uint32]*segment.Segment, error) {
@@ -505,7 +511,16 @@ func (c *controlLoop) expandSegments() error {
 	}
 
 	// Record the size of the segment.
-	c.immutableSegmentSize += c.segments[c.highestSegmentIndex].Size()
+	sealedSegment := c.segments[c.highestSegmentIndex]
+	c.immutableSegmentSize += sealedSegment.Size()
+
+	// Hand the freshly-sealed segment to the GC manager. It keeps its own local view of sealed segments and
+	// considers them for collection; this is the only way it learns of them. Segments are sealed in index order,
+	// so they are delivered in order, exactly once. (The final mutable segment is sealed directly in
+	// handleShutdownRequest, not here, and is intentionally not handed over: the GC manager is already stopped.)
+	if err := c.diskTable.gcManager.registerImmutableSegment(sealedSegment); err != nil {
+		return fmt.Errorf("failed to hand sealed segment to gc manager: %w", err)
+	}
 
 	// Create a new segment.
 	newSegment, err := segment.CreateSegment(

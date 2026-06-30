@@ -125,12 +125,13 @@ type keymapManager struct {
 	// first key is buffered and stopped when the batch is applied; nil when no put batch is pending.
 	flushTimer *time.Timer
 
-	// deletionWatermarkChan publishes the highest segment index whose keymap entries have been durably deleted
-	// to the control loop, which gates segment-file deletion on it. Sends are fire-and-forget (see
-	// publishDeletionWatermark): the manager must never block on the control loop, or it could deadlock the
-	// seal path (control loop -> flush loop -> manager -> control loop). A lagging watermark only delays file
-	// deletion, never causing a premature one.
-	deletionWatermarkChan chan int64
+	// controlLoop is the reader and owner of the deletion-watermark channel. After the manager durably deletes a
+	// segment's keymap entries it reports the highest such segment index by calling
+	// controlLoop.publishDeletionWatermark, which gates segment-file reclamation. That call is fire-and-forget:
+	// the manager must never block on the control loop, or it could deadlock the seal path
+	// (control loop -> flush loop -> manager -> control loop). A lagging watermark only delays file deletion,
+	// never causing a premature one.
+	controlLoop *controlLoop
 }
 
 // newKeymapManager creates a keymap manager. Call run() in a dedicated goroutine to start it.
@@ -146,39 +147,20 @@ func newKeymapManager(
 	deleteBatchSize uint64,
 	maxFlushInterval time.Duration,
 	maxBufferedDeletes uint64,
-	deletionWatermarkChan chan int64,
 ) *keymapManager {
 
 	return &keymapManager{
-		errorMonitor:          errorMonitor,
-		keymap:                keymap,
-		unflushedDataCache:    unflushedDataCache,
-		metrics:               metrics,
-		clock:                 clock,
-		name:                  name,
-		requestChan:           make(chan any, channelSize),
-		maxBatchSize:          maxBatchSize,
-		deleteBatchSize:       deleteBatchSize,
-		maxFlushInterval:      maxFlushInterval,
-		maxBufferedDeletes:    maxBufferedDeletes,
-		deletionWatermarkChan: deletionWatermarkChan,
-	}
-}
-
-// publishDeletionWatermark notifies the control loop that every segment up to and including watermark has had
-// its keymap entries durably deleted. The send is fire-and-forget and never blocks the manager (blocking here
-// could deadlock the seal path). If the channel is full the update is dropped. Dropping is always safe — the
-// watermark is monotonic, so it can never cause a premature file deletion — but recovery of a dropped value
-// is not automatic: it is only superseded when a LATER delete publishes a higher watermark. Under continued
-// collection that happens promptly (self-healing); if collection then goes idle, the files of the segments
-// covered by the dropped value stay unreclaimed until the next collection advances past them. In practice the
-// channel (KeymapManagerWatermarkChannelSize, default 1024) is sized so a drop requires more segments
-// collected in one pass than the control loop has drained — rare outside an explicit RunGC over a huge
-// backlog (see RunGC).
-func (m *keymapManager) publishDeletionWatermark(watermark int64) {
-	select {
-	case m.deletionWatermarkChan <- watermark:
-	default:
+		errorMonitor:       errorMonitor,
+		keymap:             keymap,
+		unflushedDataCache: unflushedDataCache,
+		metrics:            metrics,
+		clock:              clock,
+		name:               name,
+		requestChan:        make(chan any, channelSize),
+		maxBatchSize:       maxBatchSize,
+		deleteBatchSize:    deleteBatchSize,
+		maxFlushInterval:   maxFlushInterval,
+		maxBufferedDeletes: maxBufferedDeletes,
 	}
 }
 
@@ -422,7 +404,7 @@ func (m *keymapManager) applyDeleteSubBatch() bool {
 	if front.offset >= len(front.keys) {
 		// The whole segment's keymap entries are durably deleted; it is now safe for the control loop to
 		// delete the segment's files.
-		m.publishDeletionWatermark(front.segment)
+		m.controlLoop.publishDeletionWatermark(front.segment)
 		m.deleteBacklog[0] = nil
 		m.deleteBacklog = m.deleteBacklog[1:]
 	}

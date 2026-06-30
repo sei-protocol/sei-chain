@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
@@ -30,10 +31,12 @@ type gcManagerShutdownRequest struct {
 // manager. Keeping this off the control loop means collection never blocks writes, and the watermark fsync never
 // runs on the latency-critical path.
 //
-// Reclaiming a collected segment's files is left to the control loop (deleteCollectedSegments): file removal
-// mutates the segments map, which must stay single-writer. The two sides communicate only through the keymap
-// manager's deletion watermark — the GC manager schedules a segment's keymap-entry deletion, and once the manager
-// reports those entries durably gone the control loop removes the files. There is no synchronous
+// Reclaiming a collected segment's files is left to the control loop (deleteEligibleSegments): file removal
+// mutates the segments map, which must stay single-writer. The GC manager never reads that map: the control loop
+// hands it each segment over sealedSegmentChan the moment the segment is sealed, and the GC manager keeps its own
+// local view (sealedSegments) of the segments it has not yet collected. Progress flows back only through the
+// keymap manager's deletion watermark — the GC manager schedules a segment's keymap-entry deletion, and once the
+// manager reports those entries durably gone the control loop removes the files. There is no synchronous
 // GC-manager -> control-loop call, so the two cannot deadlock at shutdown. Open iterators do not pause any of
 // this: an iterator reserves its snapshot segments, so their files survive until it closes even as collection
 // and file removal proceed (see handleOpenIteratorRequest).
@@ -47,9 +50,17 @@ type gcManager struct {
 	logger       *slog.Logger
 	errorMonitor *util.ErrorMonitor
 
-	// controlLoop owns the segment bookkeeping that collection reads (the segments map, lowestSegmentIndex,
-	// highestSegmentIndex).
-	controlLoop *controlLoop
+	// sealedSegments is the GC manager's local view of sealed segments it has not yet scheduled for deletion,
+	// keyed by segment index. It is seeded at construction with the sealed segments already on disk and grown as
+	// the control loop hands over newly-sealed segments on sealedSegmentChan. A segment is dropped from this map
+	// once its keymap-entry deletion is scheduled. Only the GC manager goroutine touches it.
+	sealedSegments map[uint32]*segment.Segment
+
+	// sealedSegmentChan delivers segments from the control loop the moment they are sealed (the control loop
+	// calls registerImmutableSegment from expandSegments). The GC manager owns this channel and drains it into
+	// sealedSegments. This is the only way the GC manager learns about segments; it never reads the control
+	// loop's segment map.
+	sealedSegmentChan chan *segment.Segment
 
 	// keymapManager applies the keymap deletes the GC manager schedules.
 	keymapManager *keymapManager
@@ -96,7 +107,8 @@ type gcManager struct {
 func newGCManager(
 	logger *slog.Logger,
 	errorMonitor *util.ErrorMonitor,
-	controlLoop *controlLoop,
+	sealedSegmentChannelSize int,
+	initialSealedSegments map[uint32]*segment.Segment,
 	keymapManager *keymapManager,
 	clock func() time.Time,
 	metrics *metrics.LittDBMetrics,
@@ -111,7 +123,8 @@ func newGCManager(
 	return &gcManager{
 		logger:                  logger,
 		errorMonitor:            errorMonitor,
-		controlLoop:             controlLoop,
+		sealedSegments:          initialSealedSegments,
+		sealedSegmentChan:       make(chan *segment.Segment, sealedSegmentChannelSize),
 		keymapManager:           keymapManager,
 		ttl:                     initialTTL,
 		ttlChan:                 make(chan time.Duration, 1),
@@ -123,6 +136,20 @@ func newGCManager(
 		gcFilter:                gcFilter,
 		deletionScheduledIndex:  deletionScheduledIndex,
 		requestChan:             make(chan any, 1),
+	}
+}
+
+// registerImmutableSegment hands a freshly-sealed (immutable) segment to the GC manager, which adds it to its
+// local view of collectable segments. Called by the control loop from expandSegments the moment a segment is
+// sealed. Blocks if the hand-off channel is full (brief write backpressure during a long GC pass); returns an
+// error only if the DB is shutting down. The GC manager never synchronously waits on the control loop, so this
+// cannot deadlock.
+func (g *gcManager) registerImmutableSegment(seg *segment.Segment) error {
+	select {
+	case g.sealedSegmentChan <- seg:
+		return nil
+	case <-g.errorMonitor.ImmediateShutdownRequired():
+		return fmt.Errorf("gc manager shutting down; dropping sealed segment %d", seg.SegmentIndex())
 	}
 }
 
@@ -162,6 +189,11 @@ func (g *gcManager) run() {
 		select {
 		case <-g.errorMonitor.ImmediateShutdownRequired():
 			return
+		case seg := <-g.sealedSegmentChan:
+			// The control loop sealed a segment and handed it over. Absorbing it here (rather than only at the
+			// start of a pass) keeps the channel drained between passes, so the control loop rarely blocks on the
+			// hand-off.
+			g.sealedSegments[seg.SegmentIndex()] = seg
 		case msg := <-g.requestChan:
 			switch req := msg.(type) {
 			case *gcManagerRunRequest:
@@ -232,26 +264,24 @@ func (g *gcManager) collectExpiredSegments() {
 		}()
 	}
 
-	index := g.controlLoop.lowestSegmentIndex.Load()
-	if g.deletionScheduledIndex >= int64(index) {
-		// deletionScheduledIndex is a segment index in [lowestSegmentIndex, highestSegmentIndex] here, so it
-		// fits a uint32.
-		index = uint32(g.deletionScheduledIndex) + 1 //nolint:gosec // bounded segment index, fits uint32
-	}
+	// Absorb any segments the control loop sealed since the last pass. The run() select also drains the channel
+	// between passes, but draining here too guarantees this pass (notably an explicit RunGC) sees every segment
+	// sealed before it began, regardless of how the select happened to interleave.
+	g.drainSealedSegments()
 
-	// Iterate only the sealed segments [lowestSegmentIndex, highestSegmentIndex); the highest segment is the
-	// mutable one. Excluding it is required for thread safety: the mutable segment's sealed state is written by
-	// the flush loop, so reading it here would race. Every segment below the (atomically read) highest index is
-	// already sealed and immutable, with a happens-before from the seal through threadsafeHighestSegmentIndex.
-	highest := g.controlLoop.threadsafeHighestSegmentIndex.Load()
-	for ; index < highest; index++ {
-		seg := g.controlLoop.gcGetSegment(index)
-		if seg == nil {
-			// The segment is gone (e.g. the control loop's file deletion raced ahead); nothing more to do.
+	// Walk the sealed segments the GC manager knows about, in index order, starting just past the highest segment
+	// already scheduled for deletion. The local view never holds the mutable segment (only sealed segments are
+	// handed over by the control loop) and never holds an already-collected segment (each is dropped once its
+	// delete is scheduled), so iterating it directly needs no separate floor or ceiling. A missing index means the
+	// next segment has not been sealed yet, which also ends the pass.
+	for index := uint32(g.deletionScheduledIndex + 1); ; index++ { //nolint:gosec // watermark >= -1, so index >= 0
+		seg, ok := g.sealedSegments[index]
+		if !ok {
+			// The next segment has not been sealed/handed over yet, or there are none left; stop this pass.
 			return
 		}
 		if !seg.IsSealed() {
-			// Defensive: segments below the highest index are always sealed, so this should not happen.
+			// Defensive: only sealed segments are handed over, so this should never happen.
 			return
 		}
 
@@ -306,9 +336,27 @@ func (g *gcManager) collectExpiredSegments() {
 		}
 		g.deletionScheduledIndex = int64(index)
 
+		// This segment is now scheduled for deletion; the GC manager is done with it. Drop it from the local view
+		// so the map only ever holds not-yet-collected sealed segments.
+		delete(g.sealedSegments, index)
+
 		// Reset the cursor for the next segment.
 		g.gcCursorKeys = nil
 		g.gcCursorIndex = 0
+	}
+}
+
+// drainSealedSegments absorbs every sealed segment currently waiting on sealedSegmentChan into the local view,
+// without blocking. The control loop hands a segment over the moment it is sealed; this is how the GC manager
+// learns of segments to consider for collection.
+func (g *gcManager) drainSealedSegments() {
+	for {
+		select {
+		case seg := <-g.sealedSegmentChan:
+			g.sealedSegments[seg.SegmentIndex()] = seg
+		default:
+			return
+		}
 	}
 }
 
