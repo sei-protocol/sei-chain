@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
@@ -99,7 +100,11 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
+			mgr, err := configmanager.Select(os.Getenv)
+			if err != nil {
+				return err
+			}
+			return mgr.Apply(cmd, customAppTemplate, customAppConfig)
 		},
 	}
 
