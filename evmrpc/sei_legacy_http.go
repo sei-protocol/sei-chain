@@ -3,16 +3,12 @@ package evmrpc
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 )
-
-// seiLegacyHTTPMaxBody matches github.com/ethereum/go-ethereum/rpc.defaultBodyLimit (5MiB), the
-// default HTTP request body cap used by rpc.Server before ServeHTTP. The legacy gate must not
-// read more than the inner JSON-RPC stack will accept (see rpc.Server.SetHTTPBodyLimit).
-const seiLegacyHTTPMaxBody = 5 * 1024 * 1024
 
 const (
 	invalidRequestCode  = -32600
@@ -24,25 +20,45 @@ const (
 // gated sei_* and sei2_* methods. Disallowed calls get a JSON-RPC error without invoking the inner handler.
 // Single-object allowed calls pass through unchanged; batches forward a filtered subset and merge inner
 // results back by JSON-RPC id. Deprecation header on successful forwards of gated methods. nil allowlist = no wrap.
-func wrapSeiLegacyHTTP(inner http.Handler, allowlist map[string]struct{}) http.Handler {
+//
+// maxBody bounds the request body the gate buffers before JSON-RPC parsing. It must match the configured
+// per-request cap (rpc.Server.SetHTTPBodyLimit / requestSizeLimiter) so the gate never truncates a body the
+// inner stack would otherwise accept; maxBody <= 0 falls back to defaultMaxRequestBodyBytes (the 5MiB
+// go-ethereum default).
+func wrapSeiLegacyHTTP(inner http.Handler, allowlist map[string]struct{}, maxBody int64) http.Handler {
 	if allowlist == nil {
 		return inner
 	}
-	return &seiLegacyHTTPGate{inner: inner, allowlist: allowlist}
+	if maxBody <= 0 {
+		maxBody = defaultMaxRequestBodyBytes
+	}
+	return &seiLegacyHTTPGate{inner: inner, allowlist: allowlist, maxBody: maxBody}
 }
 
 type seiLegacyHTTPGate struct {
 	inner     http.Handler
 	allowlist map[string]struct{}
+	maxBody   int64
 }
 
 func (g *seiLegacyHTTPGate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Read the body once; delegate JSON-RPC validation to the inner handler. We only intercept
-	// when we can parse JSON-RPC and the method is a gated sei_* / sei2_* name.
-	body, err := io.ReadAll(io.LimitReader(r.Body, seiLegacyHTTPMaxBody))
+	// Read maxBody+1 so an over-limit body is rejected with 413, not silently truncated to
+	// maxBody and forwarded. The outer MaxBytesReader trips here for chunked bodies; the length
+	// check below covers the gate running standalone. Both return 413.
+	body, err := io.ReadAll(io.LimitReader(r.Body, g.maxBody+1))
 	_ = r.Body.Close()
 	if err != nil {
+		if maxErr := (*http.MaxBytesError)(nil); errors.As(err, &maxErr) {
+			recordRequestRejected(r.Context(), rejectReasonOversize)
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if int64(len(body)) > g.maxBody {
+		recordRequestRejected(r.Context(), rejectReasonOversize)
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 	trim := bytes.TrimSpace(body)

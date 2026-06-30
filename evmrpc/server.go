@@ -73,6 +73,7 @@ func NewEVMHTTPServer(
 		IdleTimeout:       config.IdleTimeout,
 	})
 	methodTimeout := tmutils.Some(httpServer.timeouts.WriteTimeout)
+	httpServer.SetMaxOpenConns(config.MaxOpenConnections)
 	if err := httpServer.SetListenAddr(LocalAddress, config.HTTPPort); err != nil {
 		return nil, err
 	}
@@ -228,6 +229,8 @@ func NewEVMHTTPServer(
 	}
 	httpConfig.batchItemLimit = config.BatchRequestLimit
 	httpConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
+	httpConfig.maxRequestBodyBytes = config.MaxRequestBodyBytes
+	httpConfig.maxConcurrentRequestBytes = config.MaxConcurrentRequestBytes
 	if err := httpServer.EnableRPC(apis, httpConfig); err != nil {
 		return nil, err
 	}
@@ -262,6 +265,7 @@ func NewEVMWebSocketServer(
 		IdleTimeout:       config.IdleTimeout,
 	})
 	methodTimeout := tmutils.Some(httpServer.timeouts.WriteTimeout)
+	httpServer.SetMaxOpenConns(config.MaxOpenConnections)
 	if err := httpServer.SetListenAddr(LocalAddress, config.WSPort); err != nil {
 		return nil, err
 	}

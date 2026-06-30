@@ -14,6 +14,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  releaser:
+  publish:
     name: Release
-    uses: sei-protocol/uci/.github/workflows/release-publish.yml@v0.0.9
+    uses: sei-protocol/uci/.github/workflows/release-publish.yml@v0.0.11
+
+  goreleaser:
+    name: GoReleaser
+    needs: publish
+    if: needs.publish.outputs.release_created == 'true'
+    uses: sei-protocol/uci/.github/workflows/goreleaser-release.yml@v0.0.11
+    with:
+      ref: ${{ needs.publish.outputs.version }}
+      go-version: '1.25.6'
+      # Repo submodules are Solidity test libs (forge-std/openzeppelin/solmate); the
+      # seid binary build doesn't use them, so skip the fetch.
+      submodules: 'false'

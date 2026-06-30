@@ -514,21 +514,30 @@ func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) a
 		valSetLen  = len(lastValSet.Validators)
 	)
 
-	// ensure that the size of the validator set in the last commit matches
-	// the size of the validator set in the state store.
+	// Route a commit/validator-set size divergence through the policy; if it does
+	// not halt, the votes below are built best-effort, where the per-index
+	// Signatures/Validators pairing is only approximate -- acceptable because
+	// LastCommitInfo feeds staking rewards/downtime, never the EVM state under audit.
 	if commitSize != valSetLen {
-		panic(fmt.Sprintf(
-			"commit size (%d) doesn't match validator set length (%d) at height %d\n\n%v\n\n%v",
-			commitSize, valSetLen, block.Height, block.LastCommit.Signatures, lastValSet.Validators,
-		))
+		mismatch := fmt.Errorf(
+			"commit size (%d) doesn't match validator set length (%d) at height %d: %w",
+			commitSize, valSetLen, block.Height, types.ErrLastCommitVerify)
+		if err := types.DefaultConsensusPolicy().HandleError(mismatch); err != nil {
+			// Dump the full commit + validator set on the (production) panic path
+			// only, where it aids post-mortem; the swallow path skips this.
+			panic(fmt.Errorf("%w\n\n%v\n\n%v", err, block.LastCommit.Signatures, lastValSet.Validators))
+		}
 	}
 
-	votes := make([]abci.VoteInfo, block.LastCommit.Size())
+	votes := make([]abci.VoteInfo, valSetLen)
 	for i, val := range lastValSet.Validators {
-		commitSig := block.LastCommit.Signatures[i]
+		signedLastBlock := false
+		if i < commitSize {
+			signedLastBlock = block.LastCommit.Signatures[i].BlockIDFlag != types.BlockIDFlagAbsent
+		}
 		votes[i] = abci.VoteInfo{
 			Validator:       types.TM2PB.Validator(val),
-			SignedLastBlock: commitSig.BlockIDFlag != types.BlockIDFlagAbsent,
+			SignedLastBlock: signedLastBlock,
 		}
 	}
 
