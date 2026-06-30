@@ -650,17 +650,48 @@ func (rs *Store) SetInitialVersion(version int64) error {
 }
 
 // SetMigrationBatchSize forwards the governance-controlled number of keys
-// to migrate per block to the SC store. Only a composite store mid-
-// migration acts on it; every other SC store treats it as a no-op.
+// to migrate per block to the SC store, and — when migration has been
+// requested (batch size > 0) while the store is still in the pre-migration
+// steady state — kicks it off by transitioning memiavl_only -> migrate_evm.
+// Only a composite store under types.Auto acts on either; every other SC
+// store treats the forward as a no-op and never reports a memiavl_only
+// effective mode, so the kick-off is skipped.
 //
-// Unlike SetWriteMode this does not swap the router or touch the cached
-// views, so no view rebuild (and no pending-changes guard) is needed. The
-// app calls it from BeginBlock, before the block's first write.
+// The kick-off is level-triggered, not edge-triggered: it fires whenever
+// batchSize > 0 and the effective mode is still memiavl_only. This is the
+// determinism contract SetWriteMode requires — every node reads the same
+// gov param at the same height and transitions together; the transition is
+// not persisted until the next commit, so a node crashing in that window
+// re-derives memiavl_only on restart and re-fires, while a node past the
+// persisted boundary derives migrate_evm directly and the guard makes the
+// re-fire a no-op.
+//
+// The app calls this from BeginBlock before the block's first write, so the
+// empty-buffer precondition of SetWriteMode (which rebuilds the cached
+// views) holds. Forwarding the batch size first means the migration router
+// built by the transition already observes the new rate.
 func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 	if err := rs.scStore.SetMigrationBatchSize(batchSize); err != nil {
 		return fmt.Errorf("failed to set SC store migration batch size: %w", err)
 	}
+	if batchSize > 0 {
+		if mode, ok := rs.GetWriteMode(); ok && mode == sctypes.MemiavlOnly {
+			if err := rs.SetWriteMode(sctypes.MigrateEVM); err != nil {
+				return fmt.Errorf("failed to start EVM migration (memiavl_only -> migrate_evm): %w", err)
+			}
+		}
+	}
 	return nil
+}
+
+// GetWriteMode returns the SC store's effective write mode. The bool is
+// false when the underlying SC store does not expose one. Intended for the
+// migration kick-off in SetMigrationBatchSize, observability, and tests.
+func (rs *Store) GetWriteMode() (sctypes.WriteMode, bool) {
+	if g, ok := rs.scStore.(interface{ GetWriteMode() sctypes.WriteMode }); ok {
+		return g.GetWriteMode(), true
+	}
+	return "", false
 }
 
 // GetMigrationBatchSize returns the governance-controlled migration batch size

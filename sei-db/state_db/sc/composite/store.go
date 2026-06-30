@@ -501,6 +501,15 @@ func (cs *CompositeCommitStore) GetMigrationBatchSize() int {
 	return int(cs.migrationBatchSize.Load())
 }
 
+// GetWriteMode returns the effective write mode currently driving routing.
+// Under types.Auto this is the mode derived from migration metadata (and
+// advanced by SetWriteMode); under a fixed configuration it equals the
+// configured mode. Callers that gate consensus-relevant transitions on it
+// must observe it between blocks for the same reasons SetWriteMode documents.
+func (cs *CompositeCommitStore) GetWriteMode() types.WriteMode {
+	return cs.currentWriteMode
+}
+
 // SetWriteMode transitions the effective write mode at runtime. Only legal
 // when the configured mode is types.Auto; with any fixed configuration the
 // write mode cannot change without a restart.
