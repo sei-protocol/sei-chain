@@ -1,0 +1,24 @@
+name: GoReleaser (manual)
+run-name: GoReleaser / manual ${{ inputs.tag }}
+
+# Automatic releases attach binaries via the chained job in uci-release-publish.yml
+# (publish -> goreleaser). This is a manual escape hatch: (re)build + attach artifacts to
+# an existing tag — e.g. backfill a release cut before this tooling, or re-run after a
+# failure. The static build lives in .goreleaser.yaml's before: hook (scripts/build-static.sh).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build and attach artifacts to (e.g. v6.1.13)."
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    uses: sei-protocol/uci/.github/workflows/goreleaser-release.yml@v0.0.11
+    with:
+      ref: ${{ inputs.tag }}
+      go-version: '1.25.6'
+      submodules: 'false'
