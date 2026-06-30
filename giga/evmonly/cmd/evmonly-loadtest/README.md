@@ -38,6 +38,26 @@ go run ./giga/evmonly/cmd/evmonly-loadtest \
   --queue-size=512
 ```
 
+To isolate executor throughput from block generation, prebuild a bounded run
+before starting executor workers:
+
+```bash
+go run ./giga/evmonly/cmd/evmonly-loadtest \
+  --metrics-addr= \
+  --report-interval=5s \
+  --prebuild-blocks \
+  --blocks=400 \
+  --txs-per-block=5000 \
+  --builders=48 \
+  --workers=1 \
+  --executor-workers=24 \
+  --gas-price-wei=0 \
+  --min-gas-price-wei=0 \
+  --queue-size=512
+```
+
+Prebuilding requires `--blocks > 0` and stores every raw block in memory.
+
 The zero gas price/min-gas settings keep the transfer workload focused on the
 optimistic no-overlap case. Non-zero fees make every transaction update the
 same coinbase balance, which is a real intra-block conflict.
@@ -52,6 +72,8 @@ Useful knobs:
 - `--queue-size`: buffered blocks ready for workers. The default is `64`.
 - `--target-blocks-per-sec`: cap block input rate. The default `0` feeds as
   fast as block generation and the queue allow.
+- `--prebuild-blocks`: generate all bounded blocks before starting executor
+  workers. This separates build throughput from executor throughput.
 - `--metrics-addr`: Prometheus endpoint. The default is
   `127.0.0.1:9698`; set it to empty to disable HTTP metrics.
 - `--report-interval`: stdout rate reporting interval. The default is `5s`.
