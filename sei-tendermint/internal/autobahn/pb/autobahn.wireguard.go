@@ -32,7 +32,7 @@ func (*Block) MaxSize() int {
 }
 
 func (*LaneQC) MaxSize() int {
-	return 10528
+	return 10517
 }
 
 func (*LaneRange) MaxSize() int {
@@ -48,7 +48,7 @@ func (*Proposal) MaxSize() int {
 }
 
 func (*FullProposal) MaxSize() int {
-	return 1108671
+	return 1107571
 }
 
 func (*PrepareQC) MaxSize() int {
@@ -112,7 +112,7 @@ func (*SignedAppProposal) MaxSize() int {
 }
 
 func (*ConsensusReq) MaxSize() int {
-	return 1108675
+	return 1107575
 }
 
 func init() {
@@ -193,7 +193,6 @@ func init() {
 	runtime.MustRegister[*LaneQC](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*BlockHeader]())},
 		2: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*Signature]())},
-		3: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.LaneRange.

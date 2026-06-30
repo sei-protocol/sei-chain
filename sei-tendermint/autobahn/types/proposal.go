@@ -443,9 +443,6 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 				if got, want := qc.Header().Hash(), r.LastHash(); got != want {
 					return fmt.Errorf("qc[%v].Header().Hash() = %v, want %v", r.Lane(), got, want)
 				}
-				if got, want := qc.EpochIndex(), proposal.EpochIndex(); got != want {
-					return fmt.Errorf("qc[%v].epoch_index = %d, want %d", r.Lane(), got, want)
-				}
 				s.Spawn(func() error {
 					if err := qc.Verify(c); err != nil {
 						return fmt.Errorf("qc[%v]: %w", r.Lane(), err)

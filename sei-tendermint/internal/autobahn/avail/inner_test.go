@@ -21,7 +21,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 		lr := types.LaneRangeOpt(prev, l)
 		b := types.NewBlock(l, lr.Next(), lr.LastHash(), types.GenPayload(rng))
 		lqcs := map[types.LaneID]*types.LaneQC{
-			l: types.NewLaneQC(makeLaneVotes(keys, b.Header()), 0),
+			l: types.NewLaneQC(makeLaneVotes(keys, b.Header())),
 		}
 		return makeCommitQC(registry, keys, prev, lqcs, utils.None[*types.AppQC]())
 	}
@@ -414,7 +414,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 			lane: types.NewLaneQC(makeLaneVotes(
 				types.TestKeysWithWeight(registry.LatestEpoch().Committee(), keys, registry.LatestEpoch().Committee().LaneQuorum()),
 				h,
-			), 0),
+			)),
 		}
 		qcs[j] = makeCommitQC(registry, keys, prev, laneQCs, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[j])

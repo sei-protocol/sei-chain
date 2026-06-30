@@ -188,7 +188,7 @@ func GenLaneQC(rng utils.Rng) *LaneQC {
 	return NewLaneQC(utils.GenSlice(
 		rng,
 		func(rng utils.Rng) *Signed[*LaneVote] { return GenSigned(rng, vote) },
-	), rng.Uint64())
+	))
 }
 
 // GenRoadIndex generates a random RoadIndex.

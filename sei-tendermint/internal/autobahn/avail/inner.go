@@ -153,7 +153,7 @@ func (i *inner) laneQC(ep *types.Epoch, lane types.LaneID, n types.BlockNumber) 
 	c := ep.Committee()
 	for _, byHash := range i.votes[lane].q[n].byHash {
 		if byHash.weight >= c.LaneQuorum() {
-			return types.NewLaneQC(byHash.votes[:], ep.EpochIndex()), true
+			return types.NewLaneQC(byHash.votes[:]), true
 		}
 	}
 	return nil, false

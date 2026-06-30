@@ -94,12 +94,12 @@ func TestLaneQCVerifyChecksWeight(t *testing.T) {
 
 	heavyOnly := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[0], vote),
-	}, 0)
+	})
 	require.NoError(t, heavyOnly.Verify(ep.Committee()))
 	lightMajority := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[1], vote),
 		Sign(keys[2], vote),
-	}, 0)
+	})
 	require.Error(t, lightMajority.Verify(ep.Committee()))
 }
 

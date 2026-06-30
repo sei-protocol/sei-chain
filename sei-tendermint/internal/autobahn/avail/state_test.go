@@ -360,7 +360,7 @@ func TestStateMismatchedQCs(t *testing.T) {
 	laneQC := types.NewLaneQC(makeLaneVotes(
 		types.TestKeysWithWeight(committee, keys, committee.LaneQuorum()),
 		b.Msg().Block().Header(),
-	), 0)
+	))
 
 	// 3. Create CommitQC for index 0 (finalizes block 0)
 	qc0 := makeQC(utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{lane: laneQC})

@@ -665,7 +665,6 @@ type LaneQC struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Vote          *BlockHeader           `protobuf:"bytes,1,opt,name=vote,proto3" json:"vote,omitempty"`
 	Sigs          []*Signature           `protobuf:"bytes,2,rep,name=sigs,proto3" json:"sigs,omitempty"`
-	EpochIndex    *uint64                `protobuf:"varint,3,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -712,13 +711,6 @@ func (x *LaneQC) GetSigs() []*Signature {
 		return x.Sigs
 	}
 	return nil
-}
-
-func (x *LaneQC) GetEpochIndex() uint64 {
-	if x != nil && x.EpochIndex != nil {
-		return *x.EpochIndex
-	}
-	return 0
 }
 
 type LaneRange struct {
@@ -2265,13 +2257,10 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\apayload\x18\x02 \x01(\v2\x11.autobahn.PayloadH\x01R\apayload\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\t\n" +
 	"\a_headerB\n" +
 	"\n" +
-	"\b_payload\"\xa2\x01\n" +
+	"\b_payload\"l\n" +
 	"\x06LaneQC\x12)\n" +
 	"\x04vote\x18\x01 \x01(\v2\x15.autobahn.BlockHeaderR\x04vote\x12/\n" +
-	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs\x12$\n" +
-	"\vepoch_index\x18\x03 \x01(\x04H\x00R\n" +
-	"epochIndex\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\x0e\n" +
-	"\f_epoch_index\"\xcf\x01\n" +
+	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01\"\xcf\x01\n" +
 	"\tLaneRange\x12,\n" +
 	"\x04lane\x18\x01 \x01(\v2\x13.autobahn.PublicKeyH\x00R\x04lane\x88\x01\x01\x12\x19\n" +
 	"\x05first\x18\x02 \x01(\x04H\x01R\x05first\x88\x01\x01\x12\x17\n" +
@@ -2545,7 +2534,6 @@ func file_autobahn_autobahn_proto_init() {
 	file_autobahn_autobahn_proto_msgTypes[8].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[9].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[10].OneofWrappers = []any{}
-	file_autobahn_autobahn_proto_msgTypes[11].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[12].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[13].OneofWrappers = []any{}
 	file_autobahn_autobahn_proto_msgTypes[14].OneofWrappers = []any{}

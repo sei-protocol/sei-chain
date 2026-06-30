@@ -34,7 +34,7 @@ func makeLaneQC(
 	for _, k := range TestKeysWithWeight(committee, keys, committee.LaneQuorum()) {
 		votes = append(votes, Sign(k, v))
 	}
-	return NewLaneQC(votes, 0)
+	return NewLaneQC(votes)
 }
 
 // makeCommitQCFromProposal creates a CommitQC for a FullProposal, signed by all keys.
@@ -467,7 +467,7 @@ func TestProposalVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
 	for _, k := range otherKeys {
 		badVotes = append(badVotes, Sign(k, NewLaneVote(header)))
 	}
-	badLaneQC := NewLaneQC(badVotes, 0)
+	badLaneQC := NewLaneQC(badVotes)
 
 	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(),
 		map[LaneID]*LaneQC{lane: badLaneQC}, utils.None[*AppQC]()))
