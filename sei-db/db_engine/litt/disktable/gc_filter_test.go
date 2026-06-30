@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,6 +15,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/stretchr/testify/require"
 )
@@ -477,6 +481,111 @@ func TestGCWatermarkPreventsResurrectionAfterCrash(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok, "rescued orphan key k4 should be readable")
 	require.Equal(t, []byte("value-k4"), v)
+}
+
+// segmentIndexFromSnapshotFile extracts the segment index from a snapshot segment file name. Segment files are
+// named "<index>.<ext>" (metadata/keys) or "<index>-<shard>.<ext>" (values), so the index is the leading run of
+// digits up to the first '.' or '-'.
+func segmentIndexFromSnapshotFile(t *testing.T, name string) uint32 {
+	end := strings.IndexAny(name, ".-")
+	require.GreaterOrEqual(t, end, 0, "unexpected snapshot file name %s", name)
+	idx, err := strconv.ParseUint(name[:end], 10, 32)
+	require.NoError(t, err)
+	return uint32(idx)
+}
+
+// TestSnapshotSkipsCollectedSegments is the regression test for the snapshot resurrection bug: repairSnapshot
+// must floor at the durable gc-watermark, not at the lowest segment physically present on disk. It reproduces
+// the same crash-mid-collection state as TestGCWatermarkPreventsResurrectionAfterCrash (seg0/seg1 logically
+// deleted, gc-watermark advanced to 2, their files still on disk) but with snapshotting enabled. On reopen the
+// snapshot directory is rebuilt from scratch; without the fix repairSnapshot would symlink the garbage-collected
+// seg0/seg1 into it, and an external restore of that snapshot — which lands in a fresh LittDB with no
+// gc-watermark — would rescan those segments and resurrect the collected keys.
+func TestSnapshotSkipsCollectedSegments(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	snapshotDirectory := t.TempDir()
+	tableName := "snapshot-gc-watermark"
+	logger := slog.Default()
+	keymapPath := filepath.Join(directory, keymap.KeymapDirectoryName)
+	tableRoot := filepath.Join(directory, tableName)
+
+	start := time.Unix(1_700_000_000, 0)
+	var fakeTime atomic.Pointer[time.Time]
+	fakeTime.Store(&start)
+	clock := func() time.Time { return *fakeTime.Load() }
+
+	// build opens a single-shard PebbleDB-keymap table with snapshotting enabled, sealing after every 2 keys and
+	// never running GC in the background (GCPeriod is large), so the test can drive GC deterministically.
+	build := func(km keymap.Keymap, reload bool) *DiskTable {
+		keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafePebbleDBKeymapType)
+		require.NoError(t, err)
+
+		config, err := litt.DefaultConfig(directory)
+		require.NoError(t, err)
+		config.TargetSegmentFileSize = math.MaxUint32
+		config.MaxSegmentKeyCount = 2
+		config.GCPeriod = time.Hour
+		config.Fsync = false
+		config.SnapshotDirectory = snapshotDirectory
+
+		tableConfig := litt.DefaultTableConfig(tableName)
+		tableConfig.ShardingFactor = 1
+
+		runtimeConfig := litt.DefaultRuntimeConfig()
+		runtimeConfig.Clock = clock
+		runtimeConfig.Logger = logger
+
+		table, err := NewDiskTable(
+			config, runtimeConfig, tableName, tableConfig, km, keymapPath, keymapTypeFile,
+			[]string{directory}, reload, nil)
+		require.NoError(t, err)
+		return table.(*DiskTable)
+	}
+
+	// Session 1: write k0..k4 -> seg0[k0,k1], seg1[k2,k3], seg2(mutable)[k4]. Expire the sealed segments and run a
+	// collection pass only (schedule keymap deletes + advance the durable gc-watermark), then sync the manager so
+	// the keymap entries are durably gone. A clean Close does NOT delete the segment files, so this leaves exactly
+	// the crashed-mid-collection state: seg0/seg1 files on disk, keymap entries gone, watermark = 2.
+	km1, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	table := build(km1, true)
+	require.NoError(t, table.SetTTL(10*time.Second))
+	for _, k := range []string{"k0", "k1", "k2", "k3", "k4"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+	require.NoError(t, table.Flush())
+
+	expired := start.Add(time.Hour)
+	fakeTime.Store(&expired)
+
+	require.NoError(t, table.gcManager.runOnce())
+	require.NoError(t, table.keymapManager.sync())
+	require.NoError(t, table.Close())
+
+	wmFile, err := LoadGCWatermarkFile(tableRoot)
+	require.NoError(t, err)
+	require.True(t, wmFile.IsDefined())
+	require.Equal(t, uint32(2), wmFile.LowestReadableSegment())
+
+	// Session 2: reopen on the same directory (repair path). NewDiskTable rebuilds the snapshot segments
+	// directory from scratch via repairSnapshot.
+	km2, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	reopened := build(km2, false)
+	defer func() { require.NoError(t, reopened.Close()) }()
+
+	// The rebuilt snapshot must not contain the garbage-collected segments (seg0, seg1). Only segments at or
+	// above the gc-watermark (seg2 onward) may appear, otherwise an external restore would resurrect their keys.
+	snapshotSegments := filepath.Join(snapshotDirectory, tableName, segment.SegmentDirectory)
+	entries, err := os.ReadDir(snapshotSegments)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		idx := segmentIndexFromSnapshotFile(t, entry.Name())
+		require.GreaterOrEqual(t, idx, uint32(2),
+			"snapshot must not contain garbage-collected segment file %s (below gc-watermark)", entry.Name())
+	}
 }
 
 // TestReadsSkipCollectedSegmentsBeforeReclaim is the regression test for Finding 1 on a live table. After a

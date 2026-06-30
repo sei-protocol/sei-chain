@@ -285,7 +285,7 @@ func NewDiskTable(
 		// Initialize snapshot files if snapshotting is enabled.
 		upperBoundSnapshotFile, err = table.repairSnapshot(
 			config.SnapshotDirectory,
-			lowestSegmentIndex,
+			lowestReadableSegment,
 			highestSegmentIndex,
 			segments)
 		if err != nil {
@@ -422,7 +422,7 @@ func (d *DiskTable) Size() uint64 {
 // file for the repaired snapshot.
 func (d *DiskTable) repairSnapshot(
 	symlinkDirectory string,
-	lowestSegmentIndex uint32,
+	lowestReadableSegment uint32,
 	highestSegmentIndex uint32,
 	segments map[uint32]*segment.Segment) (*BoundaryFile, error) {
 
@@ -476,11 +476,15 @@ func (d *DiskTable) repairSnapshot(
 		return nil, fmt.Errorf("failed to load snapshot boundary file: %w", err)
 	}
 
-	firstSegmentToConsider := lowestSegmentIndex
+	firstSegmentToConsider := lowestReadableSegment
 	if lowerBoundSnapshotFile.IsDefined() {
 		// The lower bound file contains the index of the highest segment that has been GC'd by an external process.
-		// We should ignore the segment at this index, and all segments with lower indices.
-		firstSegmentToConsider = lowerBoundSnapshotFile.BoundaryIndex() + 1
+		// We should ignore the segment at this index, and all segments with lower indices. But never drop below the
+		// gc-watermark (lowestReadableSegment): a stale external bound below the watermark must not pull
+		// logically-deleted segments back into the snapshot, which would resurrect collected keys on restore.
+		if next := lowerBoundSnapshotFile.BoundaryIndex() + 1; next > firstSegmentToConsider {
+			firstSegmentToConsider = next
+		}
 	}
 
 	// Skip iterating over the highest segment index (i.e. don't do i <= highestSegmentIndex). The highest segment
