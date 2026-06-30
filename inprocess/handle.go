@@ -125,12 +125,13 @@ func (net *Network) Close() {
 	for _, n := range net.nodes {
 		stopNode(n)
 	}
-	// The EVM worker pool (evmrpc.GetGlobalWorkerPool) is a process-wide
-	// sync.Once singleton, NOT Network-owned. Deliberately not Closed here:
-	// Close is permanent (the Once never re-fires), so a second Start in the
-	// same process would inherit a closed pool and every EVM request would fail.
-	// Its goroutines are reaped at process exit. De-globalizing the pool in
-	// evmrpc is the proper fix for repeated Start/Close in one process.
+	// The EVM worker pool (evmrpc.GetGlobalWorkerPool) and the metrics printer
+	// (evmrpc.StopMetricsPrinter, a sync.Once) are process-wide singletons, NOT
+	// Network-owned. The pool is deliberately not Closed here: Close is permanent
+	// (the Once never re-fires), so a second Start would inherit a dead pool — which
+	// is why Start refuses one (see networkStarted). Their goroutines are reaped at
+	// process exit; de-globalizing these in evmrpc is the proper fix for repeated
+	// Start/Close in one process.
 
 	if net.ownBaseDir && net.baseDir != "" {
 		_ = os.RemoveAll(net.baseDir)
@@ -139,6 +140,13 @@ func (net *Network) Close() {
 
 // stopNode shuts one node's tendermint service and EVM listeners. Each step is
 // guarded so a nil (never-started) field on a partial-start path is a no-op.
+//
+// Caveat: an EVM serve goroutine parks on the node's first-block start signal
+// (RegisterLocalServices), which only fires once the node commits a block. If a
+// node is stopped before that — a partial start or a WaitReady timeout — the
+// listener never binds, its Stop is a no-op, and the parked goroutine (with its
+// app references) lives until process exit. Bounded under one network per process;
+// it compounds that limit rather than breaking teardown.
 func stopNode(n *node) {
 	if n.tmNode != nil && n.tmNode.IsRunning() {
 		n.tmNode.Stop()

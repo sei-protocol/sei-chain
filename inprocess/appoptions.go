@@ -9,11 +9,14 @@ import (
 )
 
 // appOptions is the per-node servertypes.AppOptions the harness injects into
-// app.New. app.TestAppOpts hard-disables the EVM HTTP/WS listeners to avoid port
-// clashes in single-app tests; the harness needs the opposite — EVM enabled on
-// distinct per-node ports (the EVM-enable injection invariant) — plus the chain-id the sei-chain helpers
-// hardcode. Unknown keys return nil, matching servertypes.AppOptions semantics
-// (callers treat a nil as "unset, use the default").
+// app.New. It enables EVM HTTP/WS on distinct per-node ports (the EVM-enable
+// injection invariant — app.TestAppOpts disables them to dodge a fixed-port
+// clash), sets the per-run chain-id, and disables the EVM stats tracker. The
+// SeiDB flags are pinned explicitly rather than delegated to app.TestAppOpts:
+// delegating would also adopt its giga-OFF default, flipping the in-process app
+// off the production Giga execution engine (which an unset giga flag selects).
+// Unknown keys return nil (the servertypes.AppOptions "unset, use default"
+// contract).
 type appOptions struct {
 	chainID  string
 	httpPort int

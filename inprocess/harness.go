@@ -7,9 +7,12 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	dbm "github.com/tendermint/tm-db"
@@ -138,6 +141,13 @@ type Network struct {
 	closed     bool
 }
 
+// networkStarted enforces one in-process network per process. app.New wires the
+// EVM worker pool, the metrics printer, and Prometheus registries — all
+// process-global singletons created via sync.Once that never cleanly re-init, so
+// a second Start would silently inherit a closed/dead set. Start fails loudly
+// instead. Never reset (not even on Close): the singletons cannot be revived.
+var networkStarted atomic.Bool
+
 // Start stands up opts.Validators in-process validators, starts each node's RPC
 // + EVM listeners, and returns once every node is constructed and started (NOT
 // once consensus is live — call WaitReady for that).
@@ -164,6 +174,12 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 	// (>=2 peers each) both work — see startNode and doc.go.
 	if opts.Validators == 2 {
 		return nil, fmt.Errorf("inprocess: Options.Validators == 2 deadlocks in CometBFT block-sync (BlockPool.IsCaughtUp requires >1 peer); use 1 or >= 3")
+	}
+	// One network per process (see networkStarted): claim the slot only after the
+	// input is validated, so a rejected N never burns it. Not released on failure —
+	// a partially built network may already have touched the EVM singletons.
+	if !networkStarted.CompareAndSwap(false, true) {
+		return nil, fmt.Errorf("inprocess: a network was already started in this process; only one is supported (EVM worker pool / metrics printer / Prometheus registries are process-global singletons)")
 	}
 
 	baseDir, ownBaseDir, err := resolveBaseDir(opts.BaseDir)
@@ -436,9 +452,9 @@ func buildNodeConfig(nodeDir, moniker string, timeoutCommit time.Duration) (*con
 	// that reintroduces the panic.
 	tmCfg.Instrumentation.Prometheus = false
 
-	// loopback bind scope: server.FreeTCPAddr composes tcp://0.0.0.0:PORT — a publicly-bound
-	// listener. An in-process harness must scope every listener to loopback, so we
-	// take only the free port and compose the 127.0.0.1 address ourselves.
+	// loopback bind scope: freePort returns a bare port (probed free on 127.0.0.1);
+	// we compose the tcp://127.0.0.1 address ourselves so every TM listener is
+	// loopback-scoped rather than the default all-interfaces bind.
 	var a nodeAddrs
 	rpcPort, err := freePort()
 	if err != nil {
@@ -524,11 +540,33 @@ func writeClientConfig(path, chainID, rpcAddr string) error {
 	return os.WriteFile(path, []byte(fmt.Sprintf(clientConfigTemplate, chainID, rpcAddr)), 0o600)
 }
 
-// freePort allocates a free loopback TCP port via server.FreeTCPAddr.
+var (
+	allocatedPortsMu sync.Mutex
+	allocatedPorts   = map[int]struct{}{}
+)
+
+// freePort returns a TCP port free on the IPv4 loopback that this process has not
+// already handed out. Two hazards make a bare "probe :0, close, return" flaky
+// across the harness's 4*N allocations: on a dual-stack host "localhost" can
+// resolve to ::1, verifying the port free on IPv6 while it stays bound on IPv4
+// (independent namespaces) — so probe 127.0.0.1 explicitly; and two probes can
+// return the same port intra-process — so the allocated set rejects a repeat. A
+// bind-time race with an unrelated process is the only residual TOCTOU (see doc.go).
 func freePort() (int, error) {
-	_, portStr, err := server.FreeTCPAddr()
-	if err != nil {
-		return 0, err
+	allocatedPortsMu.Lock()
+	defer allocatedPortsMu.Unlock()
+	for attempt := 0; attempt < 100; attempt++ {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return 0, fmt.Errorf("inprocess: allocate loopback port: %w", err)
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+		_ = l.Close()
+		if _, taken := allocatedPorts[port]; taken {
+			continue
+		}
+		allocatedPorts[port] = struct{}{}
+		return port, nil
 	}
-	return strconv.Atoi(portStr)
+	return 0, fmt.Errorf("inprocess: no free loopback port after 100 attempts")
 }

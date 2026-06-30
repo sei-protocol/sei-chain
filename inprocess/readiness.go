@@ -79,8 +79,10 @@ func waitEVMServing(ctx context.Context, hc *http.Client, evmRPC string) error {
 }
 
 // latestHeight reads tmRPC's committed block height from /status. ok=false on an
-// unreachable endpoint or unparseable body. Accepts both the enveloped and
-// unwrapped /status shapes the Sei fork emits.
+// unreachable endpoint or unparseable body. The in-process node's HTTP /status
+// returns the UNWRAPPED shape (top-level sync_info); the enveloped result.sync_info
+// branch covers the standard JSON-RPC shape. Both are live — keep both (an
+// enveloped-only parse hangs WaitReady against the in-process node).
 func latestHeight(ctx context.Context, hc *http.Client, tmRPC string) (int64, bool) {
 	body, ok := getJSON(ctx, hc, http.MethodGet, tmRPC+"/status", "")
 	if !ok {
@@ -108,7 +110,6 @@ func latestHeight(ctx context.Context, hc *http.Client, tmRPC string) (int64, bo
 
 type syncInfo struct {
 	LatestBlockHeight string `json:"latest_block_height"`
-	CatchingUp        bool   `json:"catching_up"`
 }
 
 // getJSON performs one request and returns the body on HTTP 200, else ok=false

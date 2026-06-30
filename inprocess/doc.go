@@ -71,10 +71,10 @@
 //     exception: they bind all interfaces (0.0.0.0) because evmrpc has no
 //     bind-host option yet, but run on free ephemeral ports dialed via
 //     127.0.0.1. A rare port-bind collision — the free port is taken between
-//     FreeTCPAddr's probe-close and the listener's bind — panics the node's
-//     serve goroutine (the production fail-loud path, intentionally not
-//     diverted). If that ever flakes, harden the FreeTCPAddr TOCTOU window
-//     rather than re-add a serve-error diversion.
+//     freePort's probe-close (net.Listen on 127.0.0.1:0) and the listener's bind —
+//     panics the node's serve goroutine (the production fail-loud path,
+//     intentionally not diverted). If that ever flakes, harden the freePort
+//     probe-to-bind window rather than re-add a serve-error diversion.
 //   - loopback conn-tracker ceiling: raise MaxIncomingConnectionAttempts.
 //     Loopback collapses every peer onto 127.0.0.1, so the router's IP-keyed
 //     conn-tracker counts the whole startup burst against one key; without the

@@ -178,20 +178,30 @@ func (e *inProcessExecer) ensureBin(t *testing.T) error {
 }
 
 // shimScript builds the `seid` shim. Rule: always prepend --home; prepend --node
-// only for client subcommands (q/query/tx/status). Passing --node to a non-client
-// subcommand (keys, etc.) fails cobra flag parsing — only the client leaves
-// register it (AddQueryFlagsToCmd / AddTxFlagsToCmd / StatusCommand).
+// only for client subcommands (q/query/tx/status), which register it
+// (AddQueryFlagsToCmd / AddTxFlagsToCmd / StatusCommand) — passing --node to
+// `keys` or another non-client subcommand fails cobra flag parsing. The allowlist
+// is the maintained contract: a new RPC-reading subcommand must be added here.
 //
-// Assumes the subcommand is $1 (the suites' `seid <subcommand> …` form). Args are
-// quoted and passed positionally, so a home path containing a space is safe.
+// The subcommand is taken as $1. A leading global flag (`seid --output json query
+// …`) makes $1 a flag, not the subcommand, so --node targeting can't be resolved —
+// the shim errors (exit 64) rather than silently target the default RPC.
+//
+// Built as a raw-string template; %q renders the path as a quoted shell token, and
+// args are quoted and passed positionally, so a home path with a space is safe.
 func shimScript(realBin string) string {
-	return "#!/bin/sh\n" +
-		"case \"$1\" in\n" +
-		"  q|query|tx|status)\n" +
-		"    exec \"" + realBin + "\" --home \"$SEID_HOME\" --node \"$SEID_NODE\" \"$@\" ;;\n" +
-		"  *)\n" +
-		"    exec \"" + realBin + "\" --home \"$SEID_HOME\" \"$@\" ;;\n" +
-		"esac\n"
+	return fmt.Sprintf(`#!/bin/sh
+bin=%q
+case "$1" in
+  -*)
+    echo "inprocess seid shim: leading global flag '$1' blocks --node targeting; call as 'seid <subcommand> ...'" >&2
+    exit 64 ;;
+  q|query|tx|status)
+    exec "$bin" --home "$SEID_HOME" --node "$SEID_NODE" "$@" ;;
+  *)
+    exec "$bin" --home "$SEID_HOME" "$@" ;;
+esac
+`, realBin)
 }
 
 // repoRoot returns the sei-chain repo root by walking up from this source file's
