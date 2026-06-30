@@ -95,8 +95,10 @@ from the keymap, and only later are the segment's files deleted. The `gc-waterma
 (and fsynced) before a segment's keymap entries are deleted, recording that everything below the new watermark
 is logically gone. This lets LittDB distinguish, after a crash, between a key that is missing from the keymap
 because it was garbage collected (everything below the watermark) and a key that is missing because its
-asynchronous keymap write was lost (a recently written key, which keymap repair must restore). Reads also
-consult the watermark and treat any key in a below-watermark segment as absent.
+asynchronous keymap write was lost (a recently written key, which keymap repair must restore). The watermark is
+consulted only at startup, to floor keymap repair/reload; there is no in-memory read barrier. At runtime a key
+in a below-watermark segment stays readable until its keymap entry is actually deleted (the key is expiring
+anyway), so this is functionally harmless.
 
 Unlike the keymap, the `gc-watermark` file must NOT be deleted: it lives outside the keymap directory precisely
 so that it survives a keymap rebuild. If it is lost together with the keymap, a rebuild may resurrect keys from

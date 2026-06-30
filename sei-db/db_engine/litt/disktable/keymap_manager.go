@@ -305,7 +305,11 @@ func (m *keymapManager) routeRequest(msg any) bool {
 		}
 		req.doneChan <- struct{}{}
 	case *keymapManagerShutdownRequest:
-		m.drainAll()
+		if !m.drainAll() {
+			// drainAll only fails after calling Panic(); leave the completion unsignaled so the awaiting
+			// drain() observes the cancelled context and reports the failure, mirroring the sync barrier.
+			return true
+		}
 		req.shutdownCompleteChan <- struct{}{}
 		return true
 	default:
