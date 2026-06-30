@@ -32,8 +32,28 @@ type HashLogger interface {
 	// treated differently.
 	ReportChangeset(blockNumber uint64, cs []*proto.NamedChangeSet)
 
+	// Register an additional caller-reported hash type (CSV column). This supplements the types supplied at
+	// construction via HashLoggerConfig.HashTypes, letting a caller (e.g. a database that owns its own hash
+	// categories) populate the column set without knowing every type up front.
+	//
+	// It may be called at any time, including after blocks have been logged. Because a hash log file's
+	// header is fixed, changing the column set rotates the file: the logger flushes all complete blocks to
+	// the current file, seals it, and opens a fresh file whose header includes the new column. Registering a
+	// type that is already present is a no-op (no rotation). The reserved changeset type is rejected, as are
+	// names containing characters outside the legal allow-list. Returns nil once the change has been applied
+	// (the call blocks until then), so a subsequent ReportHash for the new column is accepted.
+	//
+	// Callers must not invoke the Register/Unregister/Report methods concurrently from multiple goroutines.
+	RegisterHashType(hashType string) error
+
+	// Unregister a previously registered caller-reported hash type, removing its column. Like
+	// RegisterHashType this rotates to a fresh file whose header omits the column. Removing a type that is
+	// not present is a no-op; the reserved changeset column cannot be removed.
+	UnregisterHashType(hashType string) error
+
 	// Report a hash for a block under the given type. The type must be one of the types this logger was
-	// configured to record, otherwise an error is returned. The changeset hash type is reserved for the
+	// configured to record (via HashLoggerConfig.HashTypes or RegisterHashType), otherwise an error is
+	// returned. The changeset hash type is reserved for the
 	// logger-computed changeset column (use ReportChangeset) and is also rejected when changeset hashing is enabled. A
 	// subsystem that is disabled should report a nil hash for its type rather than skipping the call, so that
 	// the block can still be completed.

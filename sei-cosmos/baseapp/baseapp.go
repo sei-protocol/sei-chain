@@ -122,6 +122,10 @@ type BaseApp struct {
 	processProposalCleanCtx sdk.Context // snapshot before optimistic processing
 	stateToCommit           *state
 
+	// nextResultHash is the result hash (merkle root over the block's deterministic tx results)
+	// computed in FinalizeBlock and handed to the commit store in Commit, mirroring nextBlockHash.
+	nextResultHash []byte
+
 	// paramStore is used to query for ABCI consensus parameters from an
 	// application parameter store.
 	paramStore ParamStore

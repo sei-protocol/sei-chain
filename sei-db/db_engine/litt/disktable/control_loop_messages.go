@@ -47,18 +47,21 @@ type controlLoopShutdownRequest struct {
 	shutdownCompleteChan chan struct{}
 }
 
-// controlLoopGCRequest is a request to run garbage collection that is sent to the control loop.
+// controlLoopGCRequest is a request for the control loop to delete the files of segments whose keymap entries the
+// keymap manager has already durably deleted. Choosing which segments to collect (and scheduling those keymap
+// deletes) happens on the GC manager; RunGC drives the two separately.
 type controlLoopGCRequest struct {
 	controlLoopMessage
 
-	// completionChan produces a value when the garbage collection is complete.
+	// completionChan produces a value when the file deletion is complete.
 	completionChan chan struct{}
 }
 
 // controlLoopOpenIteratorRequest is a request to open an iterator that is sent to the control loop. The
 // control loop seals the current mutable segment (if it has any keys) so that the full set of keys in
-// scope is readable, increments the open-iterator count (disabling GC on the 0->1 transition), and
-// returns the ordered snapshot of sealed segments the iterator will walk.
+// scope is readable, reserves each snapshot segment (so its files survive until the iterator closes even
+// if GC collects it meanwhile), bumps the open-iterator count (used only for the open-iterator metric, not
+// to gate GC), and returns the ordered snapshot of sealed segments the iterator will walk.
 type controlLoopOpenIteratorRequest struct {
 	controlLoopMessage
 
@@ -67,7 +70,8 @@ type controlLoopOpenIteratorRequest struct {
 }
 
 // controlLoopCloseIteratorRequest is a request to close an iterator that is sent to the control loop. The
-// control loop decrements the open-iterator count, re-enabling GC on the 1->0 transition.
+// iterator releases its own segment reservations on Close; this only decrements the open-iterator count for
+// the metric (GC is not gated on open iterators).
 type controlLoopCloseIteratorRequest struct {
 	controlLoopMessage
 

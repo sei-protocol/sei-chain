@@ -281,6 +281,246 @@ func buildPebbleDBKeyDiskTableMultiShard(
 	return table, nil
 }
 
+// countingKeymap wraps a Keymap and records how many times Put was called and how many keys were written.
+// Used to assert that keymap repair rescues missing keys in a single atomic batch.
+type countingKeymap struct {
+	keymap.Keymap
+	putCalls int
+	putKeys  int
+}
+
+func (c *countingKeymap) Put(keys []*types.ScopedKey) error {
+	c.putCalls++
+	c.putKeys += len(keys)
+	return c.Keymap.Put(keys)
+}
+
+// openRepairTestTable opens a disk table at directory using the provided keymap. reload selects between a full
+// keymap reload (true) and the tail-repair path (false).
+func openRepairTestTable(
+	t *testing.T,
+	directory string,
+	tableName string,
+	keymapPath string,
+	km keymap.Keymap,
+	reload bool,
+) litt.ManagedTable {
+
+	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafePebbleDBKeymapType)
+	require.NoError(t, err)
+
+	config, err := litt.DefaultConfig(directory)
+	require.NoError(t, err)
+	config.Fsync = false
+
+	tableConfig := litt.DefaultTableConfig(tableName)
+	tableConfig.ShardingFactor = 4
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Logger = slog.Default()
+
+	table, err := NewDiskTable(
+		config,
+		runtimeConfig,
+		tableName,
+		tableConfig,
+		km,
+		keymapPath,
+		keymapTypeFile,
+		[]string{directory},
+		reload,
+		nil)
+	require.NoError(t, err)
+
+	return table
+}
+
+// TestRepairKeymapSingleBatch verifies that repairKeymap rescues all missing keys in a single keymap.Put,
+// even when the missing tail is larger than keymapReloadBatchSize. Writing the rescued keys incrementally
+// would let a crash mid-repair leave the newest keys present and older keys still missing; a subsequent
+// repair stops at the first present key and would never rescue the older ones, losing data permanently.
+func TestRepairKeymapSingleBatch(t *testing.T) {
+	directory := t.TempDir()
+	tableName := "repair-batch"
+	logger := slog.Default()
+	keymapPath := filepath.Join(directory, tableName, keymap.KeymapDirectoryName)
+
+	key := func(i int) []byte { return []byte(fmt.Sprintf("key-%06d", i)) }
+	value := func(i int) []byte { return []byte(fmt.Sprintf("value-%06d", i)) }
+	keyCount := keymapReloadBatchSize + 100
+
+	// Phase 1: populate the table and close it cleanly.
+	km1, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, true)
+	require.NoError(t, err)
+	table := openRepairTestTable(t, directory, tableName, keymapPath, km1, true)
+	for i := 0; i < keyCount; i++ {
+		require.NoError(t, table.Put(key(i), value(i)))
+	}
+	require.NoError(t, table.Flush())
+	require.NoError(t, table.Close())
+
+	// Phase 2: out-of-band, delete the newest keys from the keymap. The deleted tail is larger than one
+	// batch, so an incremental repair would split it into multiple Put calls.
+	deletedCount := keymapReloadBatchSize + 50
+	km2, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
+	require.NoError(t, err)
+	for i := keyCount - deletedCount; i < keyCount; i++ {
+		require.NoError(t, km2.Delete([]*types.ScopedKey{{Key: key(i)}}))
+	}
+	require.NoError(t, km2.Stop())
+
+	// Phase 3: reopen with a counting keymap and let NewDiskTable run repairKeymap.
+	realKeymap, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, true)
+	require.NoError(t, err)
+	spy := &countingKeymap{Keymap: realKeymap}
+	repaired := openRepairTestTable(t, directory, tableName, keymapPath, spy, false)
+
+	// repairKeymap must have rescued the entire deleted tail in exactly one Put.
+	require.Equal(t, 1, spy.putCalls)
+	require.Equal(t, deletedCount, spy.putKeys)
+
+	// The rescued keys must be readable again with their original values.
+	for i := keyCount - deletedCount; i < keyCount; i++ {
+		v, ok, err := repaired.Get(key(i))
+		require.NoError(t, err)
+		require.True(t, ok, "key %s should have been repaired", key(i))
+		require.Equal(t, value(i), v)
+	}
+
+	require.NoError(t, repaired.Close())
+}
+
+// TestCleanShutdownLeavesKeymapConsistent verifies that a clean Close drains the asynchronous keymap
+// writer, so that on the next startup the keymap is already fully caught up and repair has nothing to
+// rescue. Without the drain, the keymap would be missing the most recent writes after a clean shutdown
+// (repair would then silently paper over it), so we assert the stronger property: repair issues zero Puts.
+func TestCleanShutdownLeavesKeymapConsistent(t *testing.T) {
+	directory := t.TempDir()
+	tableName := "clean-shutdown"
+	logger := slog.Default()
+	keymapPath := filepath.Join(directory, tableName, keymap.KeymapDirectoryName)
+
+	key := func(i int) []byte { return []byte(fmt.Sprintf("key-%06d", i)) }
+	value := func(i int) []byte { return []byte(fmt.Sprintf("value-%06d", i)) }
+	keyCount := 200
+
+	// Session 1: write data with the asynchronous writer, then close cleanly (which drains the writer).
+	km1, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, true)
+	require.NoError(t, err)
+	table := openRepairTestTable(t, directory, tableName, keymapPath, km1, true)
+	for i := 0; i < keyCount; i++ {
+		require.NoError(t, table.Put(key(i), value(i)))
+	}
+	require.NoError(t, table.Flush())
+	require.NoError(t, table.Close())
+
+	// Session 2: reopen with a counting keymap. Because the clean shutdown drained the writer, the keymap is
+	// already complete, so repair must rescue nothing.
+	realKeymap, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, true)
+	require.NoError(t, err)
+	spy := &countingKeymap{Keymap: realKeymap}
+	reopened := openRepairTestTable(t, directory, tableName, keymapPath, spy, false)
+
+	require.Equal(t, 0, spy.putCalls, "clean shutdown should leave the keymap fully consistent (no repair)")
+
+	// Sanity check: every key is still readable after the clean restart.
+	for i := 0; i < keyCount; i++ {
+		v, ok, err := reopened.Get(key(i))
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, value(i), v)
+	}
+
+	require.NoError(t, reopened.Close())
+}
+
+// TestGCWatermarkLoadAfterPathReorder verifies that the durable gc-watermark is honored even when the keymap
+// (and therefore the watermark, which is co-located with it) does not live in the first configured root. The
+// watermark root is not pinned to Paths[0]: config.Paths can be reordered between sessions, and the rebase CLI
+// can move the keymap to any root. If the load path only checks the first root, a reordered session sees no
+// watermark, floors the lowest readable segment at 0, and a keymap rebuild resurrects keys from segments that
+// garbage collection had already logically deleted.
+func TestGCWatermarkLoadAfterPathReorder(t *testing.T) {
+	logger := slog.Default()
+	tableName := "reorder"
+	base := t.TempDir()
+	dirA := filepath.Join(base, "a")
+	dirB := filepath.Join(base, "b")
+
+	// The keymap (and its co-located watermark) lives under dirA for both sessions.
+	keymapPath := filepath.Join(dirA, tableName, keymap.KeymapDirectoryName)
+
+	key := func(i int) []byte { return []byte(fmt.Sprintf("key-%06d", i)) }
+	value := func(i int) []byte { return []byte(fmt.Sprintf("value-%06d", i)) }
+	keyCount := 200
+
+	// build opens the table with the given root order and a fresh (in-memory) keymap, reloading it from the
+	// segments on disk. A fresh keymap + reload models the keymap-loss case the watermark exists to guard.
+	build := func(roots []string) litt.ManagedTable {
+		keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
+		require.NoError(t, err)
+		km, _, err := keymap.NewMemKeymap(logger, "", true)
+		require.NoError(t, err)
+
+		config, err := litt.DefaultConfig(roots...)
+		require.NoError(t, err)
+		config.Fsync = false
+		config.TargetSegmentFileSize = 100 // tiny segments so many of them seal
+		config.GCPeriod = time.Hour        // keep GC from reclaiming files during the test
+
+		runtimeConfig := litt.DefaultRuntimeConfig()
+		runtimeConfig.Clock = time.Now
+		runtimeConfig.Logger = logger
+
+		table, err := NewDiskTable(
+			config,
+			runtimeConfig,
+			tableName,
+			litt.DefaultTableConfig(tableName),
+			km,
+			keymapPath,
+			keymapTypeFile,
+			roots,
+			true,
+			nil)
+		require.NoError(t, err)
+		return table
+	}
+
+	// Session 1: keymap lives in dirA (roots = [dirA, dirB]). Write enough keys that segment 0 seals, then
+	// close cleanly so every segment file (including segment 0's) remains on disk.
+	table := build([]string{dirA, dirB})
+	for i := 0; i < keyCount; i++ {
+		require.NoError(t, table.Put(key(i), value(i)))
+	}
+	require.NoError(t, table.Flush())
+	require.NoError(t, table.Close())
+
+	// Simulate "GC advanced the watermark to 1 (writing it next to the keymap in dirA), then crashed before
+	// reclaiming segment 0's files." Segment 0 is now logically deleted but its files still exist.
+	watermark, err := LoadGCWatermarkFile(filepath.Join(dirA, tableName))
+	require.NoError(t, err)
+	require.NoError(t, watermark.Update(1))
+
+	// Session 2: the operator reordered config.Paths to [dirB, dirA]; the keymap is still in dirA. Reopen
+	// with a lost keymap and rebuild it from the segments.
+	reopened := build([]string{dirB, dirA})
+	defer func() { require.NoError(t, reopened.Close()) }()
+
+	// key(0) lives in segment 0, which is below the watermark (lowest readable segment is 1). A load that
+	// honors the watermark does not rescan segment 0, so the key stays collected. The buggy load reads the
+	// watermark from dirB/<name> (absent), floors at 0, rescans segment 0, and resurrects the key.
+	_, ok, err := reopened.Get(key(0))
+	require.NoError(t, err)
+	require.False(t, ok, "key in logically-deleted segment 0 must not be resurrected after a path reorder")
+
+	// A key above the watermark must still be readable.
+	v, ok, err := reopened.Get(key(keyCount - 1))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, value(keyCount-1), v)
+}
+
 func restartTest(t *testing.T, tableBuilder *tableBuilder) {
 	rand := util.NewTestRandom()
 
@@ -1617,8 +1857,9 @@ func settingsResetOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
 	}
 	require.Equal(t, tableName, table.Name())
 
-	// Capture the initial settings, which come from the table config supplied at creation time.
-	initialTTL := (table.(*DiskTable)).getTTL()
+	// Capture the initial sharding factor, which comes from the table config supplied at creation time.
+	// (TTL is likewise an in-memory-only setting that resets on restart — it is never persisted — but it has no
+	// read accessor; its expiry behavior is covered by the GC/TTL tests, e.g. gc_filter_test.go.)
 	initialShardingFactor := (table.(*DiskTable)).getShardingFactor()
 
 	// Change the settings at runtime.
@@ -1639,9 +1880,8 @@ func settingsResetOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
 	table, err = tableBuilder.builder(time.Now, tableName, []string{directory})
 	require.NoError(t, err)
 
-	// Settings are not persisted to disk, so after a restart they revert to the values supplied at creation
-	// time rather than the values set at runtime.
-	require.Equal(t, initialTTL, (table.(*DiskTable)).getTTL())
+	// Settings are not persisted to disk, so after a restart they revert to the value supplied at creation
+	// time rather than the value set at runtime.
 	require.Equal(t, initialShardingFactor, (table.(*DiskTable)).getShardingFactor())
 
 	err = table.Drop()
@@ -2195,6 +2435,10 @@ func tableSizeTest(t *testing.T, tableBuilder *tableBuilder) {
 				// table size does not currently include the keymap size
 				return nil
 			}
+			if strings.Contains(path, GCWatermarkFileName) {
+				// the gc-watermark file is table metadata, not data, and is not counted in the reported size
+				return nil
+			}
 			actualSize += uint64(info.Size())
 			return nil
 		})
@@ -2234,6 +2478,10 @@ func tableSizeTest(t *testing.T, tableBuilder *tableBuilder) {
 			}
 			if strings.Contains(path, "keymap") {
 				// table size does not currently include the keymap size
+				return nil
+			}
+			if strings.Contains(path, GCWatermarkFileName) {
+				// the gc-watermark file is table metadata, not data, and is not counted in the reported size
 				return nil
 			}
 

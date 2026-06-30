@@ -16,9 +16,9 @@ var _ litt.Iterator = (*forwardIterator)(nil)
 // group (a primary key followed by its secondary keys) is scanned, each secondary key's value is served
 // as a sub-slice of the primary's value with no additional IO.
 //
-// The snapshot is captured when the iterator is created. Garbage collection is suspended for the entire
-// lifetime of the iterator, so the snapshot segments remain on disk until Close is called. Close is
-// therefore mandatory: a leaked iterator suspends GC indefinitely.
+// The snapshot is captured when the iterator is created, and the iterator holds a reservation on each of its
+// segments, so their files remain on disk until Close releases them — even if garbage collection collects those
+// segments meanwhile. Close is therefore mandatory: a leaked iterator pins its segments' files indefinitely.
 type forwardIterator struct {
 	// table is the owning disk table, used to issue the close request.
 	table *DiskTable
@@ -192,22 +192,29 @@ func (it *forwardIterator) secondaryWithinGroup(addr types.Address) bool {
 		uint64(addr.Offset())+uint64(addr.ValueSize()) <= end
 }
 
-// Close releases the resources held by the iterator and re-enables garbage collection (once all open
-// iterators are closed).
+// Close releases the resources held by the iterator, including the reservations on its snapshot segments
+// (allowing any segment GC collected while it was open to finally be deleted from disk).
 func (it *forwardIterator) Close() error {
 	if it.closed {
 		return nil
 	}
 	it.closed = true
 
-	// Close the buffered reader, but always proceed to notify the control loop: failing to decrement the
-	// open-iterator count would leave GC suspended (an unbounded disk leak).
+	// Close the buffered reader.
 	var readerErr error
 	if it.reader != nil {
 		readerErr = it.reader.Close()
 		it.reader = nil
 	}
 
+	// Release the reservation on each snapshot segment. This must happen even on the error paths below: a missed
+	// release pins those segments' files on disk indefinitely.
+	for _, seg := range it.segs {
+		seg.Release()
+	}
+	it.segs = nil
+
+	// Notify the control loop so the open-iterator metric is updated.
 	request := &controlLoopCloseIteratorRequest{
 		completionChan: make(chan struct{}, 1),
 	}
