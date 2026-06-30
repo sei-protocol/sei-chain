@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"runtime"
 	"time"
 
@@ -531,6 +532,9 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	if v := opts.Get(flagMaxOpenConnections); v != nil {
 		if cfg.MaxOpenConnections, err = cast.ToIntE(v); err != nil {
 			return cfg, err
+		}
+		if cfg.MaxOpenConnections < 0 {
+			return cfg, fmt.Errorf("%s must be >= 0 (0 disables the limit), got %d", flagMaxOpenConnections, cfg.MaxOpenConnections)
 		}
 	}
 	return cfg, nil
