@@ -20,10 +20,22 @@ import (
 // EnvVar is the experimental gate that selects the configuration manager.
 const EnvVar = "SEI_CONFIG_MANAGER"
 
-// ConfigManager resolves a seid node's configuration during
-// PersistentPreRunE. An implementation must populate both channels the app
-// consumes — serverCtx.Config and serverCtx.Viper — exactly as the legacy
-// path does. The signature mirrors server.InterceptConfigsPreRunHandler.
+// ConfigManager resolves a seid node's configuration during PersistentPreRunE.
+//
+// Load-bearing contract: an implementation must leave both channels the app
+// consumes — serverCtx.Config and serverCtx.Viper — populated exactly as the
+// legacy path does, and must be all-or-nothing with respect to on-disk state
+// (no partial config.toml/app.toml materialization on error). A v2 manager
+// that authors the two files from the sei-config library must write BOTH
+// atomically and then re-enter the legacy read tail so the channels are
+// produced identically — it must not feed app.New from an in-memory struct.
+//
+// The Apply signature matches server.InterceptConfigsPreRunHandler so the
+// legacy implementation forwards verbatim. This is an internal,
+// single-consumer contract (only root.go calls it) and is free to grow — an
+// explicit home dir or a Prepare/Apply split — when the v2 write-then-re-enter
+// body lands in a follow-up PR; the node dir is resolvable from cmd, so the
+// signature is sufficient for PR1's seam.
 type ConfigManager interface {
 	Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error
 }
@@ -52,6 +64,10 @@ func (SeiConfigManager) Apply(_ *cobra.Command, _ string, _ any) error {
 // unset or "legacy" -> LegacyConfigManager (the default); "v2" ->
 // SeiConfigManager; any other value -> error (never a silent fallback).
 // getenv is injected for testability; production callers pass os.Getenv.
+//
+// The value is matched exactly — no trimming or case-folding. This is
+// deliberate: normalizing would broaden the gate, and the error names the
+// legal tokens so an operator can self-correct.
 func Select(getenv func(string) string) (ConfigManager, error) {
 	switch v := getenv(EnvVar); v {
 	case "", "legacy":

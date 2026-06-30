@@ -100,6 +100,10 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
+			// SEI_CONFIG_MANAGER is read once per PersistentPreRunE invocation
+			// (a clean two-way door). When PR2 adds the `seid config ...` subtree
+			// (which skips PersistentPreRunE), it must own single-read discipline
+			// so one process cannot select two different managers.
 			mgr, err := configmanager.Select(os.Getenv)
 			if err != nil {
 				return err

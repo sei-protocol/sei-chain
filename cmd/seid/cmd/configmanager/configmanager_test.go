@@ -1,8 +1,9 @@
 package configmanager
 
 import (
-	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestSelect covers the dispatch table: unset and "legacy" select the
@@ -24,17 +25,11 @@ func TestSelect(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mgr, err := Select(func(string) string { return tc.val })
 			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("Select(%q): want error, got nil", tc.val)
-				}
+				require.Error(t, err)
 				return
 			}
-			if err != nil {
-				t.Fatalf("Select(%q): unexpected error: %v", tc.val, err)
-			}
-			if got, want := fmt.Sprintf("%T", mgr), fmt.Sprintf("%T", tc.want); got != want {
-				t.Errorf("Select(%q) = %s, want %s", tc.val, got, want)
-			}
+			require.NoError(t, err)
+			require.IsType(t, tc.want, mgr)
 		})
 	}
 }
@@ -42,7 +37,5 @@ func TestSelect(t *testing.T) {
 // TestSeiConfigManagerNotImplemented asserts the v2 stub fails hard rather
 // than silently behaving like legacy (PR1 ships the seam only).
 func TestSeiConfigManagerNotImplemented(t *testing.T) {
-	if err := (SeiConfigManager{}).Apply(nil, "", nil); err == nil {
-		t.Fatal("SeiConfigManager.Apply: want not-implemented error, got nil")
-	}
+	require.Error(t, (SeiConfigManager{}).Apply(nil, "", nil))
 }
