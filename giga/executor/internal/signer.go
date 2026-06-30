@@ -29,6 +29,7 @@ func (sig *Signer) Hash(_ *types.Transaction) common.Hash {
 	panic("signer.Hash not implemented")
 }
 
-func (sig *Signer) Equal(_ types.Signer) bool {
-	panic("signer.Equal not implemented")
+func (sig *Signer) Equal(signer types.Signer) bool {
+	other, ok := signer.(*Signer)
+	return ok && sig.From == other.From
 }
