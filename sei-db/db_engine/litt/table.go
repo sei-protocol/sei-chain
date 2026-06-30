@@ -74,13 +74,6 @@ type Table interface {
 	// method.
 	Get(key []byte) (value []byte, exists bool, err error)
 
-	// CacheAwareGet is identical to Get, except that it permits the caller to determine whether the value
-	// should still be read if it is not present in the cache. If read, it also returns whether the value
-	// was present in the cache. Note that the 'exists' return value is always accurate even if onlyReadFromCache
-	// is true. If onlyReadFromCache is true and the value exists but is not in the cache, the returned values are
-	// (nil, true, false, nil).
-	CacheAwareGet(key []byte, onlyReadFromCache bool) (value []byte, exists bool, hot bool, err error)
-
 	// Exists returns true if the key exists in the database, and false otherwise. This is faster than calling Get.
 	//
 	// It is not safe to modify the key byte slice after it is passed to this method.

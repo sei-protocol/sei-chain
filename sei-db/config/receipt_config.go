@@ -20,7 +20,12 @@ const (
 	flagRSAsyncWriteBuffer     = "receipt-store.async-write-buffer"
 	flagRSPruneIntervalSeconds = "receipt-store.prune-interval-seconds"
 	flagRSReadWriteMetrics     = "receipt-store.enable-read-write-metrics"
+	flagRSLogFilterParallelism = "receipt-store.log-filter-parallelism"
 )
+
+// DefaultReceiptLogFilterParallelism is the default per-query block fan-out for
+// littidx eth_getLogs (see ReceiptStoreConfig.LogFilterParallelism).
+const DefaultReceiptLogFilterParallelism = 16
 
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
@@ -53,6 +58,13 @@ type ReceiptStoreConfig struct {
 	// EnableReadWriteMetrics emits simple estimated read/write counters for Pebble-backed receipt storage.
 	// defaults to false
 	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
+
+	// LogFilterParallelism bounds how many blocks a single eth_getLogs query
+	// scans concurrently in the littidx backend; per-block tag scans and litt
+	// body reads are independent, so a range fans across this many workers.
+	// Applies only to the littidx backend. <= 0 falls back to the default.
+	// defaults to 16
+	LogFilterParallelism int `mapstructure:"log-filter-parallelism"`
 }
 
 // DefaultReceiptStoreConfig returns the default ReceiptStoreConfig.
@@ -64,6 +76,7 @@ func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
 		KeepRecent:           0,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
+		LogFilterParallelism: DefaultReceiptLogFilterParallelism,
 	}
 }
 
@@ -113,6 +126,13 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 			return cfg, err
 		}
 		cfg.EnableReadWriteMetrics = enableReadWriteMetrics
+	}
+	if v := opts.Get(flagRSLogFilterParallelism); v != nil {
+		logFilterParallelism, err := cast.ToIntE(v)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.LogFilterParallelism = logFilterParallelism
 	}
 	return cfg, nil
 }

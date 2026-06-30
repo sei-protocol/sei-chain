@@ -449,9 +449,17 @@ func lookForFile(paths []*SegmentPath, fileName string) (*SegmentPath, error) {
 	return locations[0], nil
 }
 
-// SetNextSegment sets the next segment in the chain.
+// SetNextSegment sets the next segment in the chain. The next segment is reserved so that it cannot be deleted
+// until this segment's own deletion releases it (delete -> nextSegment.Release), which is what enforces in-order
+// segment reclamation. The next segment is always freshly created here with a positive reservation count, so
+// Reserve cannot fail; a false return means the chained-reservation invariant is broken, so fail loudly rather
+// than wiring up a dead segment that would later be released below zero.
 func (s *Segment) SetNextSegment(nextSegment *Segment) {
-	nextSegment.Reserve()
+	if !nextSegment.Reserve() {
+		s.errorMonitor.Panic(fmt.Errorf(
+			"failed to reserve next segment %d from segment %d", nextSegment.index, s.index))
+		return
+	}
 	s.nextSegment = nextSegment
 }
 

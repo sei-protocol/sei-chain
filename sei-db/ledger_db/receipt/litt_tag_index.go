@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"golang.org/x/sync/errgroup"
 )
 
 // The tag index is the "littidx" filtering layer. litt holds the receipt
@@ -185,10 +186,13 @@ func (s *littReceiptStore) stageTagKeys(batch dbtypes.Batch, blockNumber uint64,
 	return nil
 }
 
-// filterLogsByTags answers a getLogs query from the tag index: per block,
-// intersect the candidate transactions across criteria dimensions, then
-// point-read only the surviving receipts from litt. Results are exact —
-// matchLog re-verifies after decode.
+// filterLogsByTags answers a getLogs query from the tag index. Each block is
+// independent — its candidate intersection and the point-reads of the surviving
+// receipts touch only that block's keys — so a range is fanned across a bounded
+// worker pool (logFilterParallelism) instead of walked one block at a time.
+// This parallelizes both the per-block index scans and the litt body reads,
+// which dominate wide-range latency. Results are exact (matchLog re-verifies
+// after decode) and stay in (block, txIndex) order via the indexed buffer.
 func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
 	if latest := s.latestVersion.Load(); latest >= 0 && toBlock > uint64(latest) { //nolint:gosec // latest is non-negative
 		toBlock = uint64(latest) //nolint:gosec // latest is non-negative
@@ -201,22 +205,47 @@ func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filt
 	}
 
 	groups := criteriaTagGroups(crit)
+	nBlocks := int(toBlock - fromBlock + 1) //nolint:gosec // bounded by the caller's range cap
+
+	// One result slot per block, written by exactly one worker, so the merged
+	// output keeps block order regardless of completion order. errgroup caps
+	// concurrency at the configured limit and hands the next block to whichever
+	// worker frees up, load-balancing across the skewed per-block cost.
+	results := make([][]*ethtypes.Log, nBlocks)
+	var eg errgroup.Group
+	eg.SetLimit(s.logFilterParallelism)
+	for i := 0; i < nBlocks; i++ {
+		eg.Go(func() error {
+			blockLogs, err := s.blockLogs(fromBlock+uint64(i), groups, crit) //nolint:gosec // i < nBlocks
+			if err != nil {
+				return err
+			}
+			results[i] = blockLogs
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
 	var logs []*ethtypes.Log
-	for block := fromBlock; block <= toBlock; block++ {
-		candidates, err := s.blockTagCandidates(block, groups)
-		if err != nil {
-			return nil, err
-		}
-		if len(candidates) == 0 {
-			continue
-		}
-		blockLogs, err := s.candidateBlockLogs(candidates, crit)
-		if err != nil {
-			return nil, err
-		}
+	for _, blockLogs := range results {
 		logs = append(logs, blockLogs...)
 	}
 	return logs, nil
+}
+
+// blockLogs answers the query for one block: intersect the tag candidates, then
+// point-read and match the surviving receipts. Returns nil when nothing matches.
+func (s *littReceiptStore) blockLogs(block uint64, groups [][][]byte, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+	candidates, err := s.blockTagCandidates(block, groups)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	return s.candidateBlockLogs(candidates, crit)
 }
 
 // blockTagCandidates returns the block's candidate transactions. With no

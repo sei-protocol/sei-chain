@@ -16,9 +16,9 @@ var _ litt.Iterator = (*reverseIterator)(nil)
 // secondary key is reached before its primary, so its value is always read directly. As a result
 // reverse iteration may incur nontrivial random IO when reading values.
 //
-// The snapshot is captured when the iterator is created. Garbage collection is suspended for the entire
-// lifetime of the iterator, so the snapshot segments remain on disk until Close is called. Close is
-// therefore mandatory: a leaked iterator suspends GC indefinitely.
+// The snapshot is captured when the iterator is created, and the iterator holds a reservation on each of its
+// segments, so their files remain on disk until Close releases them — even if garbage collection collects those
+// segments meanwhile. Close is therefore mandatory: a leaked iterator pins its segments' files indefinitely.
 type reverseIterator struct {
 	// table is the owning disk table, used to issue the close request.
 	table *DiskTable
@@ -106,14 +106,22 @@ func (it *reverseIterator) GetValue() (value []byte, err error) {
 	return value, nil
 }
 
-// Close releases the resources held by the iterator and re-enables garbage collection (once all open
-// iterators are closed).
+// Close releases the resources held by the iterator, including the reservations on its snapshot segments
+// (allowing any segment GC collected while it was open to finally be deleted from disk).
 func (it *reverseIterator) Close() error {
 	if it.closed {
 		return nil
 	}
 	it.closed = true
 
+	// Release the reservation on each snapshot segment. This must happen even on the error paths below: a missed
+	// release pins those segments' files on disk indefinitely.
+	for _, seg := range it.segs {
+		seg.Release()
+	}
+	it.segs = nil
+
+	// Notify the control loop so the open-iterator metric is updated.
 	request := &controlLoopCloseIteratorRequest{
 		completionChan: make(chan struct{}, 1),
 	}

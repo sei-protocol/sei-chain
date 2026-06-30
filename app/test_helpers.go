@@ -92,6 +92,13 @@ func (t TestAppOpts) Get(s string) interface{} {
 	if s == FlagSCSnapshotInterval {
 		return uint32(0) // 0 = disabled
 	}
+	// Disable hash logging in tests. It runs background writer/control goroutines that are only
+	// joined by Store.Close(); tests that don't close the app would otherwise leave those goroutines
+	// rotating files in the temp data dir while t.TempDir() cleanup removes it, failing with
+	// "directory not empty".
+	if s == FlagSCHashLoggerEnable {
+		return false
+	}
 	if s == FlagSSEnable {
 		return true
 	}
