@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
@@ -81,14 +82,64 @@ func TestRenderGetBlockJSON(t *testing.T) {
 func TestRenderCompareTextIdentical(t *testing.T) {
 	var buf bytes.Buffer
 	result := compareResult{archiveA: "a", archiveB: "b", maxDiffs: -1}
-	require.NoError(t, renderCompare(&buf, result, false))
+	require.NoError(t, renderCompare(&buf, result, false, false))
 
 	out := buf.String()
 	require.Contains(t, out, "Comparing archive A (a) against archive B (b)")
 	require.Contains(t, out, "Archives are identical over the compared range.")
 }
 
-func TestRenderCompareTextDiffs(t *testing.T) {
+// TestRenderCompareTextCompact covers the default rendering: only the columns that differ are shown.
+func TestRenderCompareTextCompact(t *testing.T) {
+	var buf bytes.Buffer
+	result := compareResult{
+		archiveA: "a",
+		archiveB: "b",
+		maxDiffs: -1,
+		diffs: []*hashlog.HashLogPair{
+			{
+				HashesFromA: []*hashlog.HashLog{hl(7, "v1", map[string][]byte{
+					"root": {0x01}, "memIAVL": {0x02}, "app": {0x03},
+				})},
+				HashesFromB: []*hashlog.HashLog{hl(7, "v1", map[string][]byte{
+					"root": {0xff}, "memIAVL": {0x02}, "app": {0x03},
+				})},
+			},
+		},
+	}
+	require.NoError(t, renderCompare(&buf, result, false, false))
+
+	out := buf.String()
+	require.Contains(t, out, "block 7 differs (1 of 3 columns):")
+	require.Contains(t, out, "A: 01")
+	require.Contains(t, out, "B: ff")
+	// Unchanged columns must be omitted in compact mode.
+	require.NotContains(t, out, "memIAVL:")
+	require.NotContains(t, out, "app:")
+}
+
+// TestRenderCompareTextCompactRollbackFallback covers the compact-mode fallback when record counts differ.
+func TestRenderCompareTextCompactRollbackFallback(t *testing.T) {
+	var buf bytes.Buffer
+	result := compareResult{
+		archiveA: "a",
+		archiveB: "b",
+		maxDiffs: -1,
+		diffs: []*hashlog.HashLogPair{
+			{
+				HashesFromA: []*hashlog.HashLog{
+					hl(4, "v1", map[string][]byte{"root": {0x04}}),
+					hl(4, "v1", map[string][]byte{"root": {0x44}}),
+				},
+				HashesFromB: nil,
+			},
+		},
+	}
+	require.NoError(t, renderCompare(&buf, result, false, false))
+	require.Contains(t, buf.String(), "block 4 differs: 2 record(s) in A vs 0 in B (use --full to see them)")
+}
+
+func TestRenderCompareTextFull(t *testing.T) {
 	var buf bytes.Buffer
 	result := compareResult{
 		archiveA: "a",
@@ -108,7 +159,7 @@ func TestRenderCompareTextDiffs(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, renderCompare(&buf, result, false))
+	require.NoError(t, renderCompare(&buf, result, false, true))
 
 	out := buf.String()
 	require.Contains(t, out, "Restricted to blocks [1, 10]")
@@ -136,7 +187,7 @@ func TestRenderCompareJSON(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, renderCompare(&buf, result, true))
+	require.NoError(t, renderCompare(&buf, result, true, false))
 
 	var got []hashLogPairJSON
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &got))
@@ -144,6 +195,51 @@ func TestRenderCompareJSON(t *testing.T) {
 	require.Equal(t, uint64(2), got[0].Block)
 	require.Equal(t, "02", *got[0].HashesFromA[0].Hashes["root"])
 	require.Equal(t, "ff", *got[0].HashesFromB[0].Hashes["root"])
+}
+
+// TestRenderCompareJSONColumnFiltering checks that JSON honors compact-by-default (only differing columns) and
+// emits every column under --full.
+func TestRenderCompareJSONColumnFiltering(t *testing.T) {
+	result := compareResult{
+		archiveA: "a",
+		archiveB: "b",
+		maxDiffs: -1,
+		diffs: []*hashlog.HashLogPair{
+			{
+				HashesFromA: []*hashlog.HashLog{hl(7, "v1", map[string][]byte{
+					"root": {0x01}, "memIAVL": {0x02}, "app": {0x03},
+				})},
+				HashesFromB: []*hashlog.HashLog{hl(7, "v1", map[string][]byte{
+					"root": {0xff}, "memIAVL": {0x02}, "app": {0x03},
+				})},
+			},
+		},
+	}
+
+	var compactBuf bytes.Buffer
+	require.NoError(t, renderCompare(&compactBuf, result, true, false))
+	var compact []hashLogPairJSON
+	require.NoError(t, json.Unmarshal(compactBuf.Bytes(), &compact))
+	require.Len(t, compact, 1)
+	// Only the differing column survives on each side.
+	require.Equal(t, []string{"root"}, keysOf(compact[0].HashesFromA[0].Hashes))
+	require.Equal(t, []string{"root"}, keysOf(compact[0].HashesFromB[0].Hashes))
+
+	var fullBuf bytes.Buffer
+	require.NoError(t, renderCompare(&fullBuf, result, true, true))
+	var full []hashLogPairJSON
+	require.NoError(t, json.Unmarshal(fullBuf.Bytes(), &full))
+	require.Len(t, full, 1)
+	require.Len(t, full[0].HashesFromA[0].Hashes, 3)
+}
+
+func keysOf(m map[string]*string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // TestHashLogReadEndToEnd builds a real archive through the public hashlogger writer and reads it back through
@@ -182,8 +278,13 @@ func writeHashArchive(t *testing.T, dir string, version string, blocks map[uint6
 	cfg.DisableChangesetHashing = true
 	hashLogger, err := hashlog.NewHashLogger(cfg)
 	require.NoError(t, err)
-	for block, hash := range blocks {
-		require.NoError(t, hashLogger.ReportHash(block, "root", hash))
+	ordered := make([]uint64, 0, len(blocks))
+	for block := range blocks {
+		ordered = append(ordered, block)
+	}
+	sort.Slice(ordered, func(i int, j int) bool { return ordered[i] < ordered[j] })
+	for _, block := range ordered {
+		require.NoError(t, hashLogger.ReportHash(block, "root", blocks[block]))
 	}
 	require.NoError(t, hashLogger.Close())
 }

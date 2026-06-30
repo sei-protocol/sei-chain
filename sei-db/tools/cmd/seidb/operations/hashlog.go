@@ -1,11 +1,13 @@
 package operations
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	"github.com/spf13/cobra"
@@ -27,24 +29,22 @@ func HashLogCmd() *cobra.Command {
 
 func hashLogGetBlockCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "get-block",
+		Use:   "get-block <archive> <block>",
 		Short: "Print every hash recorded for a single block in a hash log archive",
+		Args:  cobra.ExactArgs(2),
 		Run:   executeHashLogGetBlock,
 	}
-	cmd.PersistentFlags().StringP("archive", "a", "", "Hash log archive directory")
-	cmd.PersistentFlags().Uint64P("block", "n", 0, "Block number to look up")
 	cmd.PersistentFlags().Bool("json", false, "Emit JSON instead of human-readable text")
 	return cmd
 }
 
-func executeHashLogGetBlock(cmd *cobra.Command, _ []string) {
-	archive, _ := cmd.Flags().GetString("archive")
-	block, _ := cmd.Flags().GetUint64("block")
-	asJSON, _ := cmd.Flags().GetBool("json")
-
-	if archive == "" {
-		panic("Must provide --archive pointing at a hash log archive directory")
+func executeHashLogGetBlock(cmd *cobra.Command, args []string) {
+	archive := args[0]
+	block, err := strconv.ParseUint(args[1], 10, 64)
+	if err != nil {
+		panic(fmt.Errorf("invalid block number %q: %w", args[1], err))
 	}
+	asJSON, _ := cmd.Flags().GetBool("json")
 
 	logs, err := hashlog.ReadHashForBlock(archive, block)
 	if err != nil {
@@ -58,28 +58,26 @@ func executeHashLogGetBlock(cmd *cobra.Command, _ []string) {
 
 func hashLogCompareCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "compare",
+		Use:   "compare <archive-a> <archive-b>",
 		Short: "Compare two hash log archives and report blocks whose hashes differ",
+		Args:  cobra.ExactArgs(2),
 		Run:   executeHashLogCompare,
 	}
-	cmd.PersistentFlags().StringP("archive-a", "a", "", "First hash log archive directory")
-	cmd.PersistentFlags().StringP("archive-b", "b", "", "Second hash log archive directory")
 	cmd.PersistentFlags().Uint64("low", 0, "Lowest block to compare (inclusive); requires --high")
 	cmd.PersistentFlags().Uint64("high", 0, "Highest block to compare (inclusive); requires --low")
 	cmd.PersistentFlags().Int("max-diffs", -1, "Maximum number of differing blocks to report, or -1 for all")
+	cmd.PersistentFlags().Bool("full", false,
+		"Show every column for each differing block (default shows only the columns that differ)")
 	cmd.PersistentFlags().Bool("json", false, "Emit JSON instead of human-readable text")
 	return cmd
 }
 
-func executeHashLogCompare(cmd *cobra.Command, _ []string) {
-	archiveA, _ := cmd.Flags().GetString("archive-a")
-	archiveB, _ := cmd.Flags().GetString("archive-b")
+func executeHashLogCompare(cmd *cobra.Command, args []string) {
+	archiveA := args[0]
+	archiveB := args[1]
 	maxDiffs, _ := cmd.Flags().GetInt("max-diffs")
+	full, _ := cmd.Flags().GetBool("full")
 	asJSON, _ := cmd.Flags().GetBool("json")
-
-	if archiveA == "" || archiveB == "" {
-		panic("Must provide both --archive-a and --archive-b")
-	}
 
 	result := compareResult{archiveA: archiveA, archiveB: archiveB, maxDiffs: maxDiffs}
 
@@ -104,7 +102,7 @@ func executeHashLogCompare(cmd *cobra.Command, _ []string) {
 	}
 	result.diffs = diffs
 
-	if err := renderCompare(cmd.OutOrStdout(), result, asJSON); err != nil {
+	if err := renderCompare(cmd.OutOrStdout(), result, asJSON, full); err != nil {
 		panic(err)
 	}
 }
@@ -138,7 +136,7 @@ func (e *errWriter) printf(format string, args ...any) {
 // renderGetBlock writes the hashes recorded for a single block, either as JSON or human-readable text.
 func renderGetBlock(w io.Writer, block uint64, logs []*hashlog.HashLog, asJSON bool) error {
 	if asJSON {
-		return encodeJSON(w, toHashLogJSONSlice(logs))
+		return encodeJSON(w, toHashLogJSONSlice(logs, nil))
 	}
 
 	ew := &errWriter{w: w}
@@ -163,12 +161,14 @@ func renderGetBlock(w io.Writer, block uint64, logs []*hashlog.HashLog, asJSON b
 	return ew.err
 }
 
-// renderCompare writes the result of comparing two archives, either as JSON or human-readable text.
-func renderCompare(w io.Writer, result compareResult, asJSON bool) error {
+// renderCompare writes the result of comparing two archives, either as JSON or human-readable text. The default
+// is compact (only the columns that differ); full includes every column for both sides. This applies to both
+// text and JSON output.
+func renderCompare(w io.Writer, result compareResult, asJSON bool, full bool) error {
 	if asJSON {
 		out := make([]hashLogPairJSON, 0, len(result.diffs))
 		for _, pair := range result.diffs {
-			out = append(out, toHashLogPairJSON(pair))
+			out = append(out, toHashLogPairJSON(pair, full))
 		}
 		return encodeJSON(w, out)
 	}
@@ -183,11 +183,11 @@ func renderCompare(w io.Writer, result compareResult, asJSON bool) error {
 		return ew.err
 	}
 	for _, pair := range result.diffs {
-		ew.printf("block %d differs:\n", pairBlock(pair))
-		ew.printf("  archive A:\n")
-		writeHashLogSet(ew, pair.HashesFromA, "    ")
-		ew.printf("  archive B:\n")
-		writeHashLogSet(ew, pair.HashesFromB, "    ")
+		if full {
+			writeFullPair(ew, pair)
+		} else {
+			writeCompactPair(ew, pair)
+		}
 	}
 	ew.printf("%d differing block(s) reported.\n", len(result.diffs))
 	// CompareHashes stops as soon as it has collected maxDiffs diffs, so an exactly-full result may be a
@@ -198,25 +198,89 @@ func renderCompare(w io.Writer, result compareResult, asJSON bool) error {
 	return ew.err
 }
 
+// writeFullPair renders both sides of a differing block in full: every column of every record. This is the
+// behaviour behind --full, and the only sensible rendering when record counts differ (a rollback), since there
+// is no single pair of records to diff column-by-column.
+func writeFullPair(ew *errWriter, pair *hashlog.HashLogPair) {
+	ew.printf("block %d differs:\n", pairBlock(pair))
+	ew.printf("  archive A:\n")
+	writeHashLogSet(ew, pair.HashesFromA, "    ")
+	ew.printf("  archive B:\n")
+	writeHashLogSet(ew, pair.HashesFromB, "    ")
+}
+
+// writeCompactPair renders only the columns that differ between the two sides. Column-level diffing is only
+// well-defined when each side holds exactly one record; when the record counts differ (a rollback re-executed
+// the block a different number of times) there is no record pairing to diff, so we report the counts and defer
+// to --full for the details.
+func writeCompactPair(ew *errWriter, pair *hashlog.HashLogPair) {
+	block := pairBlock(pair)
+	if len(pair.HashesFromA) != 1 || len(pair.HashesFromB) != 1 {
+		ew.printf("block %d differs: %d record(s) in A vs %d in B (use --full to see them)\n",
+			block, len(pair.HashesFromA), len(pair.HashesFromB))
+		return
+	}
+	a := pair.HashesFromA[0].Hashes
+	b := pair.HashesFromB[0].Hashes
+	columns := unionKeys(a, b)
+	differing := make([]string, 0, len(columns))
+	for _, column := range columns {
+		if !bytes.Equal(a[column], b[column]) {
+			differing = append(differing, column)
+		}
+	}
+	ew.printf("block %d differs (%d of %d columns):\n", block, len(differing), len(columns))
+	for _, column := range differing {
+		ew.printf("  %s:\n", column)
+		ew.printf("    A: %s\n", hexOrNone(a[column]))
+		ew.printf("    B: %s\n", hexOrNone(b[column]))
+	}
+}
+
 // writeHashLogText renders one record's version (when present) and its hashes, sorted by hash type for stable
 // output. A nil hash (the type was registered but not recorded for this block) prints as "<none>".
 func writeHashLogText(ew *errWriter, log *hashlog.HashLog, indent string) {
 	if log.Version != "" {
 		ew.printf("%sversion: %s\n", indent, log.Version)
 	}
-	hashTypes := make([]string, 0, len(log.Hashes))
-	for hashType := range log.Hashes {
-		hashTypes = append(hashTypes, hashType)
+	for _, hashType := range sortedKeys(log.Hashes) {
+		ew.printf("%s%s: %s\n", indent, hashType, hexOrNone(log.Hashes[hashType]))
 	}
-	sort.Strings(hashTypes)
-	for _, hashType := range hashTypes {
-		hash := log.Hashes[hashType]
-		if hash == nil {
-			ew.printf("%s%s: <none>\n", indent, hashType)
-			continue
-		}
-		ew.printf("%s%s: %s\n", indent, hashType, hex.EncodeToString(hash))
+}
+
+// hexOrNone hex-encodes a hash, or returns "<none>" for a nil hash (the type was registered but not recorded).
+func hexOrNone(hash []byte) string {
+	if hash == nil {
+		return "<none>"
 	}
+	return hex.EncodeToString(hash)
+}
+
+// sortedKeys returns the keys of a hash map in sorted order, for stable output.
+func sortedKeys(hashes map[string][]byte) []string {
+	keys := make([]string, 0, len(hashes))
+	for key := range hashes {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// unionKeys returns the sorted union of the keys of two hash maps.
+func unionKeys(a map[string][]byte, b map[string][]byte) []string {
+	set := make(map[string]struct{}, len(a)+len(b))
+	for key := range a {
+		set[key] = struct{}{}
+	}
+	for key := range b {
+		set[key] = struct{}{}
+	}
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // writeHashLogSet renders one side of a comparison, which may hold several records (rollback) or none at all (the
@@ -263,9 +327,16 @@ type hashLogPairJSON struct {
 	HashesFromB []hashLogJSON `json:"hashes_from_b"`
 }
 
-func toHashLogJSON(log *hashlog.HashLog) hashLogJSON {
+// toHashLogJSON converts a record to its JSON shape. When keep is non-nil, only those columns are emitted (used
+// for compact compare output); a nil keep emits every column.
+func toHashLogJSON(log *hashlog.HashLog, keep map[string]struct{}) hashLogJSON {
 	hashes := make(map[string]*string, len(log.Hashes))
 	for hashType, hash := range log.Hashes {
+		if keep != nil {
+			if _, ok := keep[hashType]; !ok {
+				continue
+			}
+		}
 		if hash == nil {
 			hashes[hashType] = nil
 			continue
@@ -276,20 +347,39 @@ func toHashLogJSON(log *hashlog.HashLog) hashLogJSON {
 	return hashLogJSON{BlockNumber: log.BlockNumber, Version: log.Version, Hashes: hashes}
 }
 
-func toHashLogJSONSlice(logs []*hashlog.HashLog) []hashLogJSON {
+func toHashLogJSONSlice(logs []*hashlog.HashLog, keep map[string]struct{}) []hashLogJSON {
 	out := make([]hashLogJSON, 0, len(logs))
 	for _, log := range logs {
-		out = append(out, toHashLogJSON(log))
+		out = append(out, toHashLogJSON(log, keep))
 	}
 	return out
 }
 
-func toHashLogPairJSON(pair *hashlog.HashLogPair) hashLogPairJSON {
+func toHashLogPairJSON(pair *hashlog.HashLogPair, full bool) hashLogPairJSON {
+	keep := diffColumnSet(pair, full)
 	return hashLogPairJSON{
 		Block:       pairBlock(pair),
-		HashesFromA: toHashLogJSONSlice(pair.HashesFromA),
-		HashesFromB: toHashLogJSONSlice(pair.HashesFromB),
+		HashesFromA: toHashLogJSONSlice(pair.HashesFromA, keep),
+		HashesFromB: toHashLogJSONSlice(pair.HashesFromB, keep),
 	}
+}
+
+// diffColumnSet returns the set of columns to emit for a compact diff, or nil to emit every column. It returns
+// nil (all columns) when full is requested, or when the record counts differ (a rollback) and there is no single
+// pair of records to diff column-by-column — matching the text renderer's fallback to the full record set.
+func diffColumnSet(pair *hashlog.HashLogPair, full bool) map[string]struct{} {
+	if full || len(pair.HashesFromA) != 1 || len(pair.HashesFromB) != 1 {
+		return nil
+	}
+	a := pair.HashesFromA[0].Hashes
+	b := pair.HashesFromB[0].Hashes
+	keep := make(map[string]struct{})
+	for _, column := range unionKeys(a, b) {
+		if !bytes.Equal(a[column], b[column]) {
+			keep[column] = struct{}{}
+		}
+	}
+	return keep
 }
 
 func encodeJSON(w io.Writer, v any) error {
