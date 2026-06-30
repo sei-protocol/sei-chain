@@ -24,6 +24,7 @@ func TestConsensusPolicy_MockBlockValidation_Matrix(t *testing.T) {
 		ErrLastCommitHash:            false,
 		ErrEvidenceHash:              false,
 		ErrPerEvidenceValidateBasic:  false,
+		ErrUpgradeBeforeTrigger:      true,
 	}
 	for _, sentinel := range ValidationErrors() {
 		swallow, ok := swallowExpected[sentinel]

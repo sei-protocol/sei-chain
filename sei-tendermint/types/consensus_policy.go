@@ -1,16 +1,19 @@
 // Package types — ConsensusPolicy is a zero-sized, build-tag-selected gate
 // that decides, per validation failure, whether a halting validation failure
-// halts (default) or is swallowed (counter incremented, then continued). The
-// single method HandleError(err) is declared in exactly one of three per-tag
-// files, so each binary compiles in one fixed policy with no runtime branch:
+// halts (default) or is swallowed (counter incremented, then continued). Its
+// HandleError(err) method is declared in exactly one of three per-tag files, so
+// each binary compiles in one fixed policy with no runtime branch:
 //
 //	default (production)   → returns err for every failure; production halting
 //	                         semantics are unchanged
-//	mock_block_validation  → returns nil for ErrAppHash and ErrDataHash;
-//	                         preserves the long-standing behavior of that tag
-//	mock_chain_validation  → returns nil for every swallow-eligible audit-row
-//	                         sentinel except ErrLastCommitVerify, excluded to
-//	                         avoid a downstream buildLastCommitInfo panic
+//	mock_block_validation  → returns nil for ErrAppHash, ErrDataHash, and
+//	                         ErrUpgradeBeforeTrigger
+//	mock_chain_validation  → returns nil for every audit-row sentinel except the
+//	                         peer-content-integrity trio (ErrDataHash,
+//	                         ErrEvidenceHash, ErrPerEvidenceValidateBasic), which
+//	                         still halt; the swallowed set includes
+//	                         ErrLastCommitVerify, whose commit/validator-set drift
+//	                         buildLastCommitInfo tolerates
 //
 // Validation failures are modeled as *ConsensusPolicyError sentinels. Call sites
 // attach context with idiomatic fmt.Errorf("...: %w", ErrX): wrapping keeps
@@ -56,6 +59,9 @@ var (
 	ErrLastCommitHash           = &ConsensusPolicyError{"last commit hash mismatch"}
 	ErrEvidenceHash             = &ConsensusPolicyError{"evidence hash mismatch"}
 	ErrPerEvidenceValidateBasic = &ConsensusPolicyError{"evidence failed ValidateBasic"}
+	// x/upgrade BeginBlocker raises this for a not-yet-reached upgrade the binary
+	// already handles; swallow-eligible so a replay can run past it.
+	ErrUpgradeBeforeTrigger = &ConsensusPolicyError{"binary updated before upgrade trigger"}
 )
 
 // ValidationErrors returns the audit's swallow-eligible sentinel set.
@@ -75,5 +81,6 @@ func ValidationErrors() []error {
 		ErrLastCommitHash,
 		ErrEvidenceHash,
 		ErrPerEvidenceValidateBasic,
+		ErrUpgradeBeforeTrigger,
 	}
 }
