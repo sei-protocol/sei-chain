@@ -2,13 +2,17 @@ package multiversion
 
 import (
 	"bytes"
+	"runtime/debug"
 	"sort"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/occ"
+	"github.com/sei-protocol/seilog"
 	db "github.com/tendermint/tm-db"
 )
+
+var logger = seilog.NewLogger("cosmos", "store", "multiversion")
 
 type MultiVersionStore interface {
 	GetLatest(key []byte) (value MultiVersionValueItem)
@@ -269,51 +273,104 @@ func (s *Store) validateIterator(index int, tracker iterationTracker) bool {
 	validChannel := make(chan bool, 1)
 	abortChannel := make(chan occ.Abort, 1)
 
-	// listen for abort while iterating
+	// Run validation in a goroutine so unexpected iterator panics can be
+	// contained and converted into validation failure.
 	go func(iterationTracker iterationTracker, items *db.MemDB, returnChan chan bool, abortChan chan occ.Abort) {
-		var parentIter types.Iterator
-		expectedKeys := iterationTracker.iteratedKeys
-		foundKeys := 0
-		iter := s.newMVSValidationIterator(index, iterationTracker.startKey, iterationTracker.endKey, items, iterationTracker.ascending, iterationTracker.writeset, abortChan)
-		if iterationTracker.ascending {
-			parentIter = s.parentStore.Iterator(iterationTracker.startKey, iterationTracker.endKey)
-		} else {
-			parentIter = s.parentStore.ReverseIterator(iterationTracker.startKey, iterationTracker.endKey)
-		}
-		// create a new MVSMergeiterator
-		mergeIterator := NewMVSMergeIterator(parentIter, iter, iterationTracker.ascending, NoOpHandler{})
-		defer func() { _ = mergeIterator.Close() }()
-		for ; mergeIterator.Valid(); mergeIterator.Next() {
-			if (len(expectedKeys) - foundKeys) == 0 {
-				// if we have no more expected keys, then the iterator is invalid
-				returnChan <- false
-				return
+		valid := false
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error(
+					"panic during multiversion iterator validation",
+					"panic", r,
+					"tx_index", index,
+					"start", iterationTracker.startKey,
+					"end", iterationTracker.endKey,
+					"ascending", iterationTracker.ascending,
+					"stack", string(debug.Stack()),
+				)
 			}
-			key := mergeIterator.Key()
-			// TODO: is this ok to not delete the key since we shouldnt have duplicate keys?
-			if _, ok := expectedKeys[string(key)]; !ok {
-				// if key isn't found
-				returnChan <- false
-				return
-			}
-			// remove from expected keys
-			foundKeys += 1
-			// delete(expectedKeys, string(key))
+			returnChan <- valid
+		}()
 
-			// if our iterator key was the early stop, then we can break
-			if bytes.Equal(key, iterationTracker.earlyStopKey) {
-				break
-			}
-		}
-		// return whether we found the exact number of expected keys
-		returnChan <- foundKeys >= len(expectedKeys)
+		valid = s.validateIteratorReplay(index, iterationTracker, items, abortChan)
 	}(tracker, sortedItems, validChannel, abortChannel)
-	select {
-	case <-abortChannel:
-		// if we get an abort, then we know that the iterator is invalid
+
+	return <-validChannel
+}
+
+func (s *Store) validateIteratorReplay(index int, iterationTracker iterationTracker, items *db.MemDB, abortChan chan occ.Abort) bool {
+	var parentIter types.Iterator
+	var iter types.Iterator
+	var mergeIterator *mvsMergeIterator
+	expectedKeys := iterationTracker.iteratedKeys
+	foundKeys := 0
+	defer func() {
+		if mergeIterator != nil {
+			_ = mergeIterator.Close()
+			return
+		}
+		if parentIter != nil {
+			_ = parentIter.Close()
+		}
+		if iter != nil {
+			_ = iter.Close()
+		}
+	}()
+
+	if iterationTracker.ascending {
+		parentIter = s.parentStore.Iterator(iterationTracker.startKey, iterationTracker.endKey)
+	} else {
+		parentIter = s.parentStore.ReverseIterator(iterationTracker.startKey, iterationTracker.endKey)
+	}
+	iter = s.newMVSValidationIterator(index, iterationTracker.startKey, iterationTracker.endKey, items, iterationTracker.ascending, iterationTracker.writeset, abortChan)
+	// create a new MVSMergeiterator
+	mergeIterator = NewMVSMergeIterator(parentIter, iter, iterationTracker.ascending, NoOpHandler{})
+	for {
+		if iteratorValidationAborted(abortChan) {
+			return false
+		}
+		if !mergeIterator.Valid() {
+			break
+		}
+		if iteratorValidationAborted(abortChan) {
+			return false
+		}
+		if (len(expectedKeys) - foundKeys) == 0 {
+			// if we have no more expected keys, then the iterator is invalid
+			return false
+		}
+		key := mergeIterator.Key()
+		if iteratorValidationAborted(abortChan) {
+			return false
+		}
+		// TODO: is this ok to not delete the key since we shouldnt have duplicate keys?
+		if _, ok := expectedKeys[string(key)]; !ok {
+			// if key isn't found
+			return false
+		}
+		// remove from expected keys
+		foundKeys += 1
+		// delete(expectedKeys, string(key))
+
+		// if our iterator key was the early stop, then we can break
+		if bytes.Equal(key, iterationTracker.earlyStopKey) {
+			break
+		}
+		mergeIterator.Next()
+	}
+	if iteratorValidationAborted(abortChan) {
 		return false
-	case valid := <-validChannel:
-		return valid
+	}
+	// return whether we found the exact number of expected keys
+	return foundKeys >= len(expectedKeys)
+}
+
+func iteratorValidationAborted(abortChan <-chan occ.Abort) bool {
+	select {
+	case <-abortChan:
+		return true
+	default:
+		return false
 	}
 }
 
