@@ -461,7 +461,7 @@ func executeBlocks(
 			}
 			stateWriter.ApplyChangeSet(result.ChangeSet)
 			receiptSink.StoreReceipts(block.number, result.Receipts)
-			metrics.recordFinished(len(result.Txs), result.GasUsed)
+			metrics.recordFinished(len(result.Txs), result.GasUsed, result.OCCStats)
 		}
 	}
 }
@@ -724,12 +724,21 @@ type loadMetrics struct {
 	finishedTxs     atomic.Uint64
 	gasConsumed     atomic.Uint64
 	executionErrors atomic.Uint64
+	occAttempts     atomic.Uint64
+	occFallbacks    atomic.Uint64
+	occConflicts    atomic.Uint64
 
 	inputBlocksTotal     prometheus.Counter
 	finishedBlocksTotal  prometheus.Counter
 	finishedTxsTotal     prometheus.Counter
 	gasConsumedTotal     prometheus.Counter
 	executionErrorsTotal prometheus.Counter
+	occAttemptsTotal     prometheus.Counter
+	occFallbacksTotal    prometheus.Counter
+	occConflictsTotal    prometheus.Counter
+
+	occFallbackReasonTotal *prometheus.CounterVec
+	occConflictTotal       *prometheus.CounterVec
 
 	inputBlockRate    prometheus.Gauge
 	finishedBlockRate prometheus.Gauge
@@ -745,6 +754,9 @@ type metricsSnapshot struct {
 	finishedTxs     uint64
 	gasConsumed     uint64
 	executionErrors uint64
+	occAttempts     uint64
+	occFallbacks    uint64
+	occConflicts    uint64
 }
 
 func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
@@ -769,6 +781,26 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 			Name: "evmonly_loadtest_execution_errors_total",
 			Help: "Total block execution errors returned by the EVM-only executor.",
 		}),
+		occAttemptsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_occ_attempts_total",
+			Help: "Total blocks executed with optimistic concurrency control.",
+		}),
+		occFallbacksTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_occ_fallbacks_total",
+			Help: "Total OCC blocks that fell back to sequential execution.",
+		}),
+		occConflictsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_occ_conflicts_total",
+			Help: "Total OCC conflict accesses observed before sequential fallback.",
+		}),
+		occFallbackReasonTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_occ_fallback_reasons_total",
+			Help: "OCC fallback count by reason.",
+		}, []string{"reason"}),
+		occConflictTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_occ_conflict_keys_total",
+			Help: "OCC conflict accesses by access type, state kind, address, and slot.",
+		}, []string{"access", "kind", "address", "slot"}),
 		inputBlockRate: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "evmonly_loadtest_block_input_throughput",
 			Help: "Most recent measured block input throughput in blocks per second.",
@@ -796,6 +828,11 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		m.finishedTxsTotal,
 		m.gasConsumedTotal,
 		m.executionErrorsTotal,
+		m.occAttemptsTotal,
+		m.occFallbacksTotal,
+		m.occConflictsTotal,
+		m.occFallbackReasonTotal,
+		m.occConflictTotal,
 		m.inputBlockRate,
 		m.finishedBlockRate,
 		m.txRate,
@@ -810,13 +847,51 @@ func (m *loadMetrics) recordInput() {
 	m.inputBlocksTotal.Inc()
 }
 
-func (m *loadMetrics) recordFinished(txCount int, gasUsed uint64) {
+func (m *loadMetrics) recordFinished(txCount int, gasUsed uint64, occStats evmonly.OCCStats) {
 	m.finishedBlocks.Add(1)
 	m.finishedTxs.Add(uint64(txCount))
 	m.gasConsumed.Add(gasUsed)
 	m.finishedBlocksTotal.Inc()
 	m.finishedTxsTotal.Add(float64(txCount))
 	m.gasConsumedTotal.Add(float64(gasUsed))
+	m.recordOCC(occStats)
+}
+
+func (m *loadMetrics) recordOCC(stats evmonly.OCCStats) {
+	if !stats.Attempted {
+		return
+	}
+	m.occAttempts.Add(1)
+	m.occAttemptsTotal.Inc()
+	if stats.Fallback {
+		reason := stats.FallbackReason
+		if reason == "" {
+			reason = "unknown"
+		}
+		m.occFallbacks.Add(1)
+		m.occFallbacksTotal.Inc()
+		m.occFallbackReasonTotal.WithLabelValues(reason).Inc()
+	}
+	if stats.ConflictCount == 0 {
+		return
+	}
+	m.occConflicts.Add(stats.ConflictCount)
+	m.occConflictsTotal.Add(float64(stats.ConflictCount))
+	for _, conflict := range stats.ConflictSamples {
+		m.occConflictTotal.WithLabelValues(
+			conflict.Access,
+			conflict.Kind,
+			conflict.Address.Hex(),
+			conflictSlotLabel(conflict),
+		).Add(float64(conflict.Count))
+	}
+}
+
+func conflictSlotLabel(conflict evmonly.OCCConflictCount) string {
+	if conflict.Kind != "storage" {
+		return ""
+	}
+	return conflict.Slot.Hex()
 }
 
 func (m *loadMetrics) recordExecutionError() {
@@ -832,6 +907,9 @@ func (m *loadMetrics) snapshot() metricsSnapshot {
 		finishedTxs:     m.finishedTxs.Load(),
 		gasConsumed:     m.gasConsumed.Load(),
 		executionErrors: m.executionErrors.Load(),
+		occAttempts:     m.occAttempts.Load(),
+		occFallbacks:    m.occFallbacks.Load(),
+		occConflicts:    m.occConflicts.Load(),
 	}
 }
 
@@ -874,7 +952,7 @@ func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetric
 				continue
 			}
 			fmt.Printf(
-				"input_blocks/s=%.2f finished_blocks/s=%.2f tx/s=%.2f gas/s=%.2f queued_blocks=%d totals(input_blocks=%d finished_blocks=%d txs=%d gas=%d errors=%d)\n",
+				"input_blocks/s=%.2f finished_blocks/s=%.2f tx/s=%.2f gas/s=%.2f queued_blocks=%d totals(input_blocks=%d finished_blocks=%d txs=%d gas=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_conflicts=%d)\n",
 				float64(curr.inputBlocks-prev.inputBlocks)/elapsed,
 				float64(curr.finishedBlocks-prev.finishedBlocks)/elapsed,
 				float64(curr.finishedTxs-prev.finishedTxs)/elapsed,
@@ -885,6 +963,9 @@ func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetric
 				curr.finishedTxs,
 				curr.gasConsumed,
 				curr.executionErrors,
+				curr.occAttempts,
+				curr.occFallbacks,
+				curr.occConflicts,
 			)
 			prev = curr
 		}
@@ -897,13 +978,16 @@ func printFinalReport(startedAt time.Time, snapshot metricsSnapshot) {
 		elapsed = 1
 	}
 	fmt.Printf(
-		"complete elapsed=%s input_blocks=%d finished_blocks=%d txs=%d gas=%d errors=%d avg_input_blocks/s=%.2f avg_finished_blocks/s=%.2f avg_tx/s=%.2f avg_gas/s=%.2f\n",
+		"complete elapsed=%s input_blocks=%d finished_blocks=%d txs=%d gas=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_conflicts=%d avg_input_blocks/s=%.2f avg_finished_blocks/s=%.2f avg_tx/s=%.2f avg_gas/s=%.2f\n",
 		snapshot.at.Sub(startedAt).Round(time.Millisecond),
 		snapshot.inputBlocks,
 		snapshot.finishedBlocks,
 		snapshot.finishedTxs,
 		snapshot.gasConsumed,
 		snapshot.executionErrors,
+		snapshot.occAttempts,
+		snapshot.occFallbacks,
+		snapshot.occConflicts,
 		float64(snapshot.inputBlocks)/elapsed,
 		float64(snapshot.finishedBlocks)/elapsed,
 		float64(snapshot.finishedTxs)/elapsed,
