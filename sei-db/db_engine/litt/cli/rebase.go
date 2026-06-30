@@ -275,6 +275,11 @@ func transferDataInTable(
 		return fmt.Errorf("failed to transfer keymap for table %s: %w", tableName, err)
 	}
 
+	err = transferGCWatermark(source, tableName, destinations, preserveOriginal, fsync)
+	if err != nil {
+		return fmt.Errorf("failed to transfer gc-watermark for table %s: %w", tableName, err)
+	}
+
 	err = transferSegmentData(
 		source,
 		tableName,
@@ -418,6 +423,47 @@ func transferKeymap(
 	if err != nil {
 		return fmt.Errorf("failed to copy keymap from %s to %s: %w",
 			sourceKeymapPath, destinationKeymapPath, err)
+	}
+
+	return nil
+}
+
+// Transfer the gc-watermark file (if it is present in the source table directory). The watermark lives at
+// the table root (outside the keymap directory) and only needs to land in one of the destination roots, since
+// startup scans every root to find it. We route it by hashing the table's keymap path purely to pick a
+// deterministic destination. Leaving it behind would both orphan the watermark (the source roots go away after
+// the rebase) and make the source table directory's removal fail with "directory not empty".
+func transferGCWatermark(
+	source string,
+	tableName string,
+	destinations []string,
+	preserveOriginal bool,
+	fsync bool,
+) error {
+
+	sourceWatermarkPath := filepath.Join(source, tableName, disktable.GCWatermarkFileName)
+	exists, err := util.Exists(sourceWatermarkPath)
+	if err != nil {
+		return fmt.Errorf("failed to check if gc-watermark file %s exists: %w", sourceWatermarkPath, err)
+	}
+	if !exists {
+		return nil
+	}
+
+	// Hash the table's keymap path to pick a deterministic destination root for the watermark. It need not be
+	// the keymap's actual root: startup scans all roots, so wherever it lands it will be found.
+	sourceKeymapPath := filepath.Join(source, tableName, keymap.KeymapDirectoryName)
+	destination, err := determineDestination(sourceKeymapPath, destinations)
+	if err != nil {
+		return fmt.Errorf("failed to determine destination for gc-watermark %s: %w", sourceWatermarkPath, err)
+	}
+
+	destinationWatermarkPath := filepath.Join(destination, tableName, disktable.GCWatermarkFileName)
+
+	err = util.RecursiveMove(sourceWatermarkPath, destinationWatermarkPath, preserveOriginal, fsync)
+	if err != nil {
+		return fmt.Errorf("failed to move gc-watermark from %s to %s: %w",
+			sourceWatermarkPath, destinationWatermarkPath, err)
 	}
 
 	return nil
