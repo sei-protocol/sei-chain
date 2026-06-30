@@ -163,7 +163,7 @@ func (c *controlLoop) run() {
 			} else if req, ok := message.(*controlLoopGCRequest); ok {
 				// Delete the files of segments whose keymap entries the manager has finished deleting. The
 				// collection that schedules those deletes runs on the GC manager; RunGC drives it separately.
-				c.doGarbageCollection()
+				c.deleteEligibleSegments()
 				req.completionChan <- struct{}{}
 			} else if req, ok := message.(*controlLoopOpenIteratorRequest); ok {
 				c.handleOpenIteratorRequest(req)
@@ -176,34 +176,21 @@ func (c *controlLoop) run() {
 				return
 			}
 		case <-ticker.C:
-			c.doGarbageCollection()
+			c.deleteEligibleSegments()
 		}
 	}
 }
 
-// doGarbageCollection reclaims the files of segments whose keymap entries the keymap manager has already durably
-// removed. Choosing which segments to collect — durably advancing the gc-watermark and scheduling the keymap
-// deletes for newly-expired segments — happens separately on the GC manager, off the control loop. Deletion is
-// ordered keymap-first: a segment's files are never removed before its keymap entries are durably deleted. The
-// durable read barrier (lowestReadableSegment, the gc-watermark) is what protects against a crash in between, so
-// repair can no longer resurrect a half-collected segment's keys.
-//
-// An open iterator does not block this: a segment is released here (and dropped from the live map) regardless,
-// but an iterator holds a reservation on each segment in its snapshot, so the files survive until the iterator
-// closes. The iterator reads the segment objects it holds directly, not via the live map.
-func (c *controlLoop) doGarbageCollection() {
+// deleteEligibleSegments picks up the latest deletion watermark published by the keymap manager and reclaims the
+// files of every segment at or below it — i.e. every segment whose keymap entries the manager has already durably
+// removed.
+func (c *controlLoop) deleteEligibleSegments() {
 	defer c.updateCurrentSize()
 
 	// Pick up the latest deletion watermark published by the keymap manager, then delete the files of every
 	// segment it now covers.
 	c.refreshDeletionWatermark()
-	c.deleteCollectedSegments()
-}
 
-// deleteCollectedSegments deletes the files of every segment at or below the deletion watermark — i.e. every
-// segment whose keymap entries the manager has durably removed. The segment is released for async file deletion
-// (reservation holders keep it alive until they finish reading) and removed from the live set.
-func (c *controlLoop) deleteCollectedSegments() {
 	for int64(c.lowestSegmentIndex.Load()) <= c.keymapDeletionWatermark {
 		index := c.lowestSegmentIndex.Load()
 		seg := c.segments[index]
@@ -246,14 +233,7 @@ func (c *controlLoop) refreshDeletionWatermark() {
 
 // readableFloor returns the lowest segment index that is still logically readable. Segments below it have had
 // their keymap entries durably deleted (their files may linger in the segments map until the control loop
-// reclaims them — notably right after a crash, before the first reclamation pass), so reading them directly
-// would resurrect garbage-collected keys. Iteration and boundary-key queries must start no lower than this.
-//
-// keymapDeletionWatermark is the highest segment index whose keymap entries are durably gone; it is seeded at
-// construction to lowestReadableSegment-1 (the durable gc-watermark) and advanced as deletes are applied. The
-// floor is keymapDeletionWatermark+1, which is always >= 0 (the watermark is >= -1) and >= lowestSegmentIndex
-// (deleteCollectedSegments only advances lowestSegmentIndex up to the watermark). Control-loop goroutine only;
-// callers should refreshDeletionWatermark() first to floor against the freshest value.
+// reclaims them).
 func (c *controlLoop) readableFloor() uint32 {
 	return uint32(c.keymapDeletionWatermark + 1) //nolint:gosec // watermark >= -1, so floor >= 0
 }
@@ -261,11 +241,6 @@ func (c *controlLoop) readableFloor() uint32 {
 // handleOpenIteratorRequest handles a request to open an iterator. It seals the current mutable segment
 // (if it has any keys) so that all keys in scope are readable, reserves each segment the iterator will walk,
 // and returns the ordered snapshot of those sealed segments.
-//
-// The reservations are what keep the iterator's view stable: garbage collection runs freely while the iterator
-// is open (it may delete the segments' keymap entries and remove them from the live map), but a reserved
-// segment's files are not actually deleted until the reservation is released, which the iterator does on Close.
-// The iterator reads the segment objects it holds directly, so it never needs them in the live map.
 func (c *controlLoop) handleOpenIteratorRequest(req *controlLoopOpenIteratorRequest) {
 	// Seal the current mutable segment so that the keys written so far are readable. Skip the seal if the
 	// mutable segment is empty, to avoid accumulating empty sealed segments when iterators are opened
@@ -279,13 +254,7 @@ func (c *controlLoop) handleOpenIteratorRequest(req *controlLoopOpenIteratorRequ
 	}
 
 	// The in-scope segments are the sealed, still-readable segments: [readableFloor, highestSegmentIndex).
-	// The highest segment is the (now empty) mutable segment and is excluded. Segments below readableFloor
-	// have had their keymap entries durably deleted but may still linger in the map until the control loop
-	// reclaims their files; including them would surface garbage-collected keys (iterators read segment files
-	// directly, bypassing the keymap), so the snapshot starts at the floor, not at lowestSegmentIndex. Reserve
-	// each so its files survive until the iterator closes, even if GC collects it in the meantime. Reserving
-	// here on the control loop cannot race deleteCollectedSegments (also on the control loop), so every
-	// snapshot segment is live and Reserve always succeeds.
+	// The highest segment is the (now empty) mutable segment and is excluded.
 	c.refreshDeletionWatermark()
 	floor := c.readableFloor()
 	segs := make([]*segment.Segment, 0, c.highestSegmentIndex-floor)
