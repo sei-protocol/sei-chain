@@ -205,6 +205,9 @@ address = "{{ .GRPCWeb.Address }}"
 # EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk).
 enable-unsafe-cors = {{ .GRPCWeb.EnableUnsafeCORS }}
 
+# MaxOpenConnections defines the number of maximum open connections. 0 means unlimited.
+max-open-connections = {{ .GRPCWeb.MaxOpenConnections }}
+
 ###############################################################################
 ###                         Genesis Configuration (Auto-managed)            ###
 ###############################################################################

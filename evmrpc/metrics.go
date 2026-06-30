@@ -12,11 +12,15 @@ import (
 )
 
 const (
-	endpointKey    = "endpoint"
-	connectionKey  = "connection"
-	successKey     = "success"
-	errorClassKey  = "error_class"
-	jsonrpcCodeKey = "jsonrpc_code"
+	endpointKey     = "endpoint"
+	connectionKey   = "connection"
+	successKey      = "success"
+	errorClassKey   = "error_class"
+	jsonrpcCodeKey  = "jsonrpc_code"
+	rejectReasonKey = "reason"
+	// reject reason values for requestRejectedCount.
+	rejectReasonOversize = "oversize" // body exceeded max_request_body_bytes
+	rejectReasonBusy     = "busy"     // max_concurrent_request_bytes budget exhausted
 	// error_class values; empty string ("") means success.
 	errorClassPanic              = "panic"
 	errorClassExecutionReverted  = "execution_reverted"
@@ -44,6 +48,7 @@ var (
 		wsConnectionCount                metric.Int64Counter
 		redirectedRequestCount           metric.Int64Counter
 		historicalDebugTraceAttemptCount metric.Int64Counter
+		requestRejectedCount             metric.Int64Counter
 	}{
 		requestLatencySeconds: must(rpcTelemetryMeter.Float64Histogram(
 			"evmrpc_request_latency_seconds",
@@ -67,6 +72,11 @@ var (
 		historicalDebugTraceAttemptCount: must(rpcTelemetryMeter.Int64Counter(
 			"evmrpc_historical_debug_trace_attempts_total",
 			metric.WithDescription("Number of debug_trace* requests targeting historical blocks"),
+			metric.WithUnit("{count}"),
+		)),
+		requestRejectedCount: must(rpcTelemetryMeter.Int64Counter(
+			"evmrpc_requests_rejected_total",
+			metric.WithDescription("Number of HTTP JSON-RPC requests rejected by pre-decode admission control (labeled by reason)"),
 			metric.WithUnit("{count}"),
 		)),
 	}
@@ -152,6 +162,18 @@ func recordHistoricalDebugTraceAttempt(ctx context.Context, endpoint, connection
 		metric.WithAttributes(
 			attribute.String(endpointKey, endpoint),
 			attribute.String(connectionKey, connection),
+		),
+	)
+}
+
+// recordRequestRejected counts an HTTP JSON-RPC request dropped by pre-decode
+// admission control. reason is one of rejectReasonOversize / rejectReasonBusy.
+// No endpoint dimension is recorded: the rejection happens before the JSON-RPC
+// method is decoded, so it is not yet known.
+func recordRequestRejected(ctx context.Context, reason string) {
+	metrics.requestRejectedCount.Add(ctx, 1,
+		metric.WithAttributes(
+			attribute.String(rejectReasonKey, reason),
 		),
 	)
 }
