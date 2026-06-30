@@ -62,6 +62,9 @@ func InitEvmoneVM() (*evmc.VM, error) {
 func resolveLibPath() (string, error) {
 	dirs := make([]string, 0, 3)
 	if dir := os.Getenv(libDirEnv); dir != "" {
+		if !filepath.IsAbs(dir) {
+			return "", fmt.Errorf("%s must be an absolute path, got %q", libDirEnv, dir)
+		}
 		dirs = append(dirs, dir)
 	}
 	dirs = append(dirs, installLibDir)

@@ -13,7 +13,8 @@ jobs:
   push:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - uses: bufbuild/buf-setup-action@v1.26.1
       - uses: bufbuild/buf-push-action@v1
         with:

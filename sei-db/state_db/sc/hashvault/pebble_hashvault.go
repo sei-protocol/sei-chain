@@ -80,7 +80,30 @@ func newPebbleHashVault(_ context.Context, config HashVaultConfig) (*PebbleHashV
 		return nil, err
 	}
 
+	empty, err := p.isEmpty()
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if empty {
+		// Surface the fresh-start case: an operator who expected this node to already have an
+		// equivocation history on disk (e.g. after a restart) should notice an empty vault.
+		logger.Info("opened hashvault with no data on disk; starting with an empty equivocation history",
+			"dataDir", config.DataDir)
+	}
+
 	return p, nil
+}
+
+// isEmpty reports whether the underlying DB holds no keys at all (a freshly created vault with no
+// committed hashes and no prune boundary).
+func (p *PebbleHashVault) isEmpty() (bool, error) {
+	iter, err := p.db.NewIter(nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to open hashvault iterator: %w", err)
+	}
+	defer func() { _ = iter.Close() }()
+	return !iter.First(), nil
 }
 
 // loadPruneBoundary reads the on-disk prune boundary (if any) and populates p.pruneBoundary.
@@ -216,10 +239,15 @@ func (p *PebbleHashVault) Close(_ context.Context) error {
 }
 
 func (p *PebbleHashVault) logHashMismatch(blockHeight uint64, existing, incoming []byte) {
-	logger.Error("Hashvault detected hash mismatch; node attempted to change its mind. "+
-		"DO NOT RESTART WITHOUT HUMAN INVESTIGATION.",
+	logger.Error("Hashvault detected app hash mismatch; node attempted to change its mind. "+
+		"DO NOT RESTART WITHOUT HUMAN INVESTIGATION. If you are CERTAIN this is not a real "+
+		"equivocation, you can bypass this guard by stopping the node and deleting the HashVault "+
+		"data directory (hashVaultDir below), then restarting. WARNING: deleting it removes "+
+		"equivocation protection — if the node then commits a conflicting hash for a height it has "+
+		"already finalized, the validator may be SLASHED.",
 		"blockHeight", blockHeight,
 		"existingHex", hex.EncodeToString(existing),
 		"incomingHex", hex.EncodeToString(incoming),
+		"hashVaultDir", p.config.DataDir,
 	)
 }

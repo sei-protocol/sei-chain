@@ -220,12 +220,17 @@ func NewEVMHTTPServer(
 		logger.Info("Disabling Test EVM APIs", "liveChainID", evmCfg.IsLiveChainID(ctx), "enableTestAPI", config.EnableTestAPI)
 	}
 
-	if err := httpServer.EnableRPC(apis, HTTPConfig{
+	httpConfig := HTTPConfig{
 		CorsAllowedOrigins: strings.Split(config.CORSOrigins, ","),
 		Vhosts:             []string{"*"},
 		DenyList:           config.DenyList,
 		SeiLegacyAllowlist: seiLegacyAllowlist,
-	}); err != nil {
+	}
+	httpConfig.batchItemLimit = config.BatchRequestLimit
+	httpConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
+	httpConfig.maxRequestBodyBytes = config.MaxRequestBodyBytes
+	httpConfig.maxConcurrentRequestBytes = config.MaxConcurrentRequestBytes
+	if err := httpServer.EnableRPC(apis, httpConfig); err != nil {
 		return nil, err
 	}
 
@@ -329,6 +334,8 @@ func NewEVMWebSocketServer(
 
 	wsConfig := WsConfig{Origins: strings.Split(config.WSOrigins, ",")}
 	wsConfig.readLimit = DefaultWebsocketMaxMessageSize
+	wsConfig.batchItemLimit = config.BatchRequestLimit
+	wsConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
 	if err := httpServer.EnableWS(apis, wsConfig); err != nil {
 		return nil, err
 	}
