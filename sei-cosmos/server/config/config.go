@@ -347,6 +347,16 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		}
 		scWriteMode = parsed
 	}
+	// sc-write-mode-enable-auto (default true) overrides sc-write-mode with
+	// auto. An absent key keeps the default so older configs (explicit
+	// memiavl_only, no auto key) still resolve to auto, mirroring app/seidb.go.
+	scWriteModeEnableAuto := config.DefaultStateCommitConfig().WriteModeEnableAuto
+	if v.IsSet("state-commit.sc-write-mode-enable-auto") {
+		scWriteModeEnableAuto = v.GetBool("state-commit.sc-write-mode-enable-auto")
+	}
+	if scWriteModeEnableAuto {
+		scWriteMode = sctypes.Auto
+	}
 
 	flatKVConfig := config.DefaultStateCommitConfig().FlatKVConfig
 	if v.IsSet("state-commit.flatkv.fsync") {
@@ -431,9 +441,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			SnapshotDirectory:  v.GetString("state-sync.snapshot-directory"),
 		},
 		StateCommit: config.StateCommitConfig{
-			Enable:    v.GetBool("state-commit.sc-enable"),
-			Directory: v.GetString("state-commit.sc-directory"),
-			WriteMode: scWriteMode,
+			Enable:              v.GetBool("state-commit.sc-enable"),
+			Directory:           v.GetString("state-commit.sc-directory"),
+			WriteMode:           scWriteMode,
+			WriteModeEnableAuto: scWriteModeEnableAuto,
 			MemIAVLConfig: memiavl.Config{
 				AsyncCommitBuffer:         v.GetInt("state-commit.sc-async-commit-buffer"),
 				SnapshotKeepRecent:        v.GetUint32("state-commit.sc-keep-recent"),

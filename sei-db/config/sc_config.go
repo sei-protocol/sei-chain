@@ -29,16 +29,28 @@ type StateCommitConfig struct {
 	// defaults to 100
 	AsyncCommitBuffer int `mapstructure:"async-commit-buffer"`
 
-	// WriteMode defines the write routing mode for EVM data.
-	// Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
-	// all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write, auto.
-	// Defaults to auto: the effective mode is derived at startup from the
-	// persisted migration metadata (memiavl_only before migration has started,
-	// migrate_evm while EVM keys are still draining, evm_migrated once complete).
-	// Raising the NumKeysToMigratePerBlock gov param above 0 is the sole
-	// migration trigger — it advances an auto store from memiavl_only to
-	// migrate_evm. The other values pin a fixed mode and disable derivation.
+	// WriteMode is the fixed write routing mode used only when WriteModeEnableAuto
+	// is false. Valid values: memiavl_only, migrate_evm, evm_migrated,
+	// migrate_all_but_bank, all_migrated_but_bank, migrate_bank, flatkv_only,
+	// test_only_dual_write, auto. Defaults to memiavl_only — the safe
+	// pre-migration fallback for a node that has explicitly opted out of auto.
 	WriteMode types.WriteMode `mapstructure:"write-mode"`
+
+	// WriteModeEnableAuto, when true (the default), makes the node ignore WriteMode
+	// and run in auto: the effective mode is derived at startup from the
+	// persisted migration metadata (memiavl_only before migration has started,
+	// migrate_evm while EVM keys are still draining, evm_migrated once
+	// complete), and raising the NumKeysToMigratePerBlock gov param above 0
+	// advances an auto store from memiavl_only to migrate_evm.
+	//
+	// Defaulting to true (and treating an absent config key as true) is what
+	// lets the existing fleet participate: nodes provisioned by older binaries
+	// carry an explicit sc-write-mode = "memiavl_only" but no
+	// sc-write-mode-enable-auto key, so they still resolve to auto and follow a
+	// governance-driven migration without any app.toml edit. Set this to false
+	// to pin WriteMode (deliberate opt-out; such a node diverges once the chain
+	// migrates).
+	WriteModeEnableAuto bool `mapstructure:"write-mode-enable-auto"`
 
 	// MemIAVLConfig is the configuration for the MemIAVL (Cosmos) backend
 	MemIAVLConfig memiavl.Config
@@ -61,7 +73,8 @@ type StateCommitConfig struct {
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
 		Enable:                     true,
-		WriteMode:                  types.Auto,
+		WriteMode:                  types.MemiavlOnly,
+		WriteModeEnableAuto:        true,
 		MemIAVLConfig:              memiavl.DefaultConfig(),
 		FlatKVConfig:               *config.DefaultConfig(),
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,

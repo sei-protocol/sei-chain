@@ -655,10 +655,12 @@ func (rs *Store) SetInitialVersion(version int64) error {
 // past the persisted boundary derives migrate_evm directly and the guard
 // makes the re-fire a no-op.
 //
-// The app calls this from BeginBlock before the block's first write, so the
-// empty-buffer precondition of SetWriteMode (which rebuilds the cached
-// views) holds. Forwarding the batch size first means the migration router
-// built by the transition already observes the new rate.
+// The app calls this from BeginBlock. Forwarding the batch size to the SC
+// store first means the migration router installed by the memiavl_only ->
+// migrate_evm transition already observes the new rate. SetWriteMode only
+// swaps the composite store's router — it does not rebuild rootmulti's
+// cached views or require an empty write buffer — so it is safe to call
+// mid-block without orphaning the block's live cache-multi-store.
 func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 	if err := rs.scStore.SetMigrationBatchSize(batchSize); err != nil {
 		return fmt.Errorf("failed to set SC store migration batch size: %w", err)
@@ -672,12 +674,24 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 	}
 	// Effective mode is memiavl_only. Only an auto store may be advanced to
 	// migrate_evm at runtime; a node pinned to fixed memiavl_only must not.
-	if configured, _ := rs.ConfiguredWriteMode(); configured != sctypes.Auto {
+	configured, hasConfigured := rs.ConfiguredWriteMode()
+	if !hasConfigured {
+		// The underlying SC store does not expose a configured mode, so we
+		// cannot tell whether this is an auto store. Don't assume a deliberate
+		// opt-out — skip with a distinct message so it isn't mistaken for the
+		// pinned-memiavl_only case below during debugging.
+		logger.Info(
+			"migration requested (batch size > 0) but the SC store does not expose a "+
+				"configured write mode; skipping migration kick-off",
+			"effectiveWriteMode", mode, "batchSize", batchSize)
+		return nil
+	}
+	if configured != sctypes.Auto {
 		logger.Info(
 			"migration requested (batch size > 0) but the SC write mode is pinned to fixed "+
 				"memiavl_only by configuration; skipping migration kick-off. This node opts out of "+
 				"the migration and will intentionally diverge from the network at the activation "+
-				"height — set sc-write-mode to auto to participate.",
+				"height — set sc-write-mode-enable-auto = true (the default) to participate.",
 			"configuredWriteMode", configured, "batchSize", batchSize)
 		return nil
 	}

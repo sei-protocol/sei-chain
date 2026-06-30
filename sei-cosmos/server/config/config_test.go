@@ -327,6 +327,8 @@ func TestGetConfigStateCommit(t *testing.T) {
 
 	v.Set("state-commit.sc-enable", true)
 	v.Set("state-commit.sc-directory", "/custom/path")
+	// Opt out of auto so the explicit sc-write-mode is honored.
+	v.Set("state-commit.sc-write-mode-enable-auto", false)
 	v.Set("state-commit.sc-write-mode", "test_only_dual_write")
 	v.Set("state-commit.sc-async-commit-buffer", 200)
 	v.Set("state-commit.sc-keep-recent", 5)
@@ -340,6 +342,7 @@ func TestGetConfigStateCommit(t *testing.T) {
 
 	require.True(t, cfg.StateCommit.Enable)
 	require.Equal(t, "/custom/path", cfg.StateCommit.Directory)
+	require.False(t, cfg.StateCommit.WriteModeEnableAuto)
 	require.Equal(t, sctypes.TestOnlyDualWrite, cfg.StateCommit.WriteMode)
 
 	// Verify MemIAVLConfig fields
@@ -363,6 +366,25 @@ func TestGetConfigRejectsInvalidWriteMode(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "state-commit.sc-write-mode")
 	require.Contains(t, err.Error(), "bogus_mode")
+}
+
+// TestGetConfigLegacyMemiavlOnlyResolvesToAuto guards the existing-fleet
+// upgrade path: a config written by an older binary carries an explicit
+// sc-write-mode = "memiavl_only" but no sc-write-mode-enable-auto key. The absent
+// key must default to true so the node resolves to auto and can follow a
+// governance-driven migration without any app.toml edit.
+func TestGetConfigLegacyMemiavlOnlyResolvesToAuto(t *testing.T) {
+	v := viper.New()
+
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+	v.Set("state-commit.sc-write-mode", "memiavl_only")
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.True(t, cfg.StateCommit.WriteModeEnableAuto)
+	require.Equal(t, sctypes.Auto, cfg.StateCommit.WriteMode,
+		"absent sc-write-mode-enable-auto must default to true and override an explicit memiavl_only")
 }
 
 func TestGetConfigEmptyWriteModeUsesDefault(t *testing.T) {
@@ -417,7 +439,10 @@ func TestDefaultStateCommitConfig(t *testing.T) {
 
 	require.True(t, cfg.StateCommit.Enable)
 	require.Empty(t, cfg.StateCommit.Directory)
-	require.Equal(t, sctypes.Auto, cfg.StateCommit.WriteMode)
+	// WriteMode is the fixed fallback (memiavl_only); WriteModeEnableAuto
+	// defaults true, so the effective default after resolution is auto.
+	require.Equal(t, sctypes.MemiavlOnly, cfg.StateCommit.WriteMode)
+	require.True(t, cfg.StateCommit.WriteModeEnableAuto)
 }
 
 func TestDefaultStateStoreConfig(t *testing.T) {

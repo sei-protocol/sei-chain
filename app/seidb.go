@@ -29,6 +29,7 @@ const (
 	FlagSCHistoricalProofRateLimit   = "state-commit.sc-historical-proof-rate-limit"
 	FlagSCHistoricalProofBurst       = "state-commit.sc-historical-proof-burst"
 	FlagSCWriteMode                  = "state-commit.sc-write-mode"
+	FlagSCWriteModeEnableAuto        = "state-commit.sc-write-mode-enable-auto"
 	FlagSCFlatKVReadWriteMetrics     = "state-commit.flatkv.enable-read-write-metrics"
 
 	// SS Store configs
@@ -106,7 +107,19 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
 	scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(appOpts.Get(FlagSCFlatKVReadWriteMetrics))
 
-	if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
+	// sc-write-mode-enable-auto (default true) decides whether the node derives
+	// its write mode automatically or honors the explicit sc-write-mode. An
+	// ABSENT key must keep the default (true): nodes provisioned by older
+	// binaries carry an explicit sc-write-mode = "memiavl_only" but no
+	// sc-write-mode-enable-auto key, and must still resolve to auto so a
+	// governance-driven migration can start without an app.toml edit. Only an
+	// explicit key flips it.
+	if v := appOpts.Get(FlagSCWriteModeEnableAuto); v != nil {
+		scConfig.WriteModeEnableAuto = cast.ToBool(v)
+	}
+	if scConfig.WriteModeEnableAuto {
+		scConfig.WriteMode = sctypes.Auto
+	} else if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
 		parsedWM, err := sctypes.ParseWriteMode(wm)
 		if err != nil {
 			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
