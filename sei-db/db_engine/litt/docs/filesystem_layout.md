@@ -86,9 +86,9 @@ In the example below, segment files can be found in the following paths:
 
 ## GC Watermark File
 
-Each table has a single `gc-watermark` file, located in the table directory in one of the root directories
-(the same root that holds the keymap directory). It contains a single human-readable integer: the index of the
-lowest segment that is still logically readable (`lowestReadableSegment`).
+Each table has a single `gc-watermark` file, located in the table directory in one of the root directories. It
+contains a single human-readable integer: the index of the lowest segment that is still logically readable
+(`lowestReadableSegment`). It need not share a root with the keymap; startup scans every root to find it.
 
 When the garbage collector deletes a segment, it is a two-step process: first the segment's entries are removed
 from the keymap, and only later are the segment's files deleted. The `gc-watermark` file is durably updated

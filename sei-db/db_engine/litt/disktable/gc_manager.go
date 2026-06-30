@@ -144,11 +144,24 @@ func newGCManager(
 // sealed. Blocks if the hand-off channel is full (brief write backpressure during a long GC pass); returns an
 // error only if the DB is shutting down. The GC manager never synchronously waits on the control loop, so this
 // cannot deadlock.
+//
+// The segment is reserved here, before the hand-off, so its files cannot be reclaimed while it sits in the GC
+// manager's local view (where collectExpiredSegments may still read its keys via GetKeys). The matching release
+// happens once the GC manager is done with the segment (collectExpiredSegments after scheduling its delete, or
+// releaseAllSealedSegments on clean shutdown). The control loop still holds the owning reservation here, so
+// Reserve cannot fail; a false return signals a broken reservation invariant.
 func (g *gcManager) registerImmutableSegment(seg *segment.Segment) error {
+	if !seg.Reserve() {
+		err := fmt.Errorf("failed to reserve sealed segment %d for gc manager", seg.SegmentIndex())
+		g.errorMonitor.Panic(err)
+		return err
+	}
 	select {
 	case g.sealedSegmentChan <- seg:
 		return nil
 	case <-g.errorMonitor.ImmediateShutdownRequired():
+		// Hand-off failed: the segment never entered sealedSegments, so release the reservation taken above.
+		seg.Release()
 		return fmt.Errorf("gc manager shutting down; dropping sealed segment %d", seg.SegmentIndex())
 	}
 }
@@ -200,6 +213,11 @@ func (g *gcManager) run() {
 				g.collectExpiredSegments()
 				req.completionChan <- struct{}{}
 			case *gcManagerShutdownRequest:
+				// Release the reservation on every segment still in the local view before acking, so no
+				// reservation leaks. This must complete before the ack: the control loop calls stop()
+				// (which awaits this ack) before Drop's single release-per-segment runs, so a leaked
+				// reservation here would leave a segment's count above zero and hang Drop forever.
+				g.releaseAllSealedSegments()
 				req.shutdownCompleteChan <- struct{}{}
 				return
 			default:
@@ -337,8 +355,12 @@ func (g *gcManager) collectExpiredSegments() {
 		g.deletionScheduledIndex = int64(index)
 
 		// This segment is now scheduled for deletion; the GC manager is done with it. Drop it from the local view
-		// so the map only ever holds not-yet-collected sealed segments.
+		// so the map only ever holds not-yet-collected sealed segments, and release the reservation taken when it
+		// was handed over (registerImmutableSegment) or seeded. Releasing here does not delay reclamation: the
+		// control loop still holds the owning reservation and only releases it once the keymap delete scheduled
+		// just above is durable and the deletion watermark advances past this segment.
 		delete(g.sealedSegments, index)
+		seg.Release()
 
 		// Reset the cursor for the next segment.
 		g.gcCursorKeys = nil
@@ -357,6 +379,23 @@ func (g *gcManager) drainSealedSegments() {
 		default:
 			return
 		}
+	}
+}
+
+// releaseAllSealedSegments releases the GC manager's reservation on every segment it is responsible for and
+// clears the local view. Called once on clean shutdown so that no reservation is leaked for a segment that was
+// handed over but never scheduled for deletion; without this, Drop's single release-per-segment could not drive
+// such a segment's reservation count to zero.
+//
+// It first drains any segments still buffered on sealedSegmentChan: registerImmutableSegment reserves a segment
+// before sending it, so a reservation exists even for segments not yet absorbed into the local view. The control
+// loop (the only producer) is blocked awaiting this shutdown's ack, so no further segments can arrive and a
+// single drain captures them all.
+func (g *gcManager) releaseAllSealedSegments() {
+	g.drainSealedSegments()
+	for index, seg := range g.sealedSegments {
+		seg.Release()
+		delete(g.sealedSegments, index)
 	}
 }
 

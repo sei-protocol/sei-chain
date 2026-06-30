@@ -429,9 +429,10 @@ func transferKeymap(
 }
 
 // Transfer the gc-watermark file (if it is present in the source table directory). The watermark lives at
-// the table root and must follow the keymap to the same destination root, so it is routed with the keymap's
-// source path. Leaving it behind would both orphan the watermark (a later session reading the new root would
-// not find it) and make the source table directory's removal fail with "directory not empty".
+// the table root (outside the keymap directory) and only needs to land in one of the destination roots, since
+// startup scans every root to find it. We route it by hashing the table's keymap path purely to pick a
+// deterministic destination. Leaving it behind would both orphan the watermark (the source roots go away after
+// the rebase) and make the source table directory's removal fail with "directory not empty".
 func transferGCWatermark(
 	source string,
 	tableName string,
@@ -449,7 +450,8 @@ func transferGCWatermark(
 		return nil
 	}
 
-	// Route the watermark with the keymap (same hash input) so it lands in the keymap's destination root.
+	// Hash the table's keymap path to pick a deterministic destination root for the watermark. It need not be
+	// the keymap's actual root: startup scans all roots, so wherever it lands it will be found.
 	sourceKeymapPath := filepath.Join(source, tableName, keymap.KeymapDirectoryName)
 	destination, err := determineDestination(sourceKeymapPath, destinations)
 	if err != nil {

@@ -308,8 +308,15 @@ func NewDiskTable(
 	// map. Seed that view with the sealed segments already on disk: [lowestReadableSegment, highestSegmentIndex).
 	// The range is contiguous and fully present (see above), excludes the mutable highest segment, and excludes
 	// the already-collected [lowestSegmentIndex, lowestReadableSegment) prefix the control loop reclaims first.
+	// Reserve each seeded segment so its files survive while it sits in the GC manager's local view (where
+	// collectExpiredSegments may read its keys). The GC manager releases the reservation once it is done with the
+	// segment, mirroring registerImmutableSegment for segments sealed later. This runs synchronously before any
+	// goroutine starts and each segment has a reservation count of exactly 1, so Reserve always succeeds.
 	initialSealedSegments := make(map[uint32]*segment.Segment)
 	for i := lowestReadableSegment; i < highestSegmentIndex; i++ {
+		if !segments[i].Reserve() {
+			return nil, fmt.Errorf("failed to reserve sealed segment %d for gc manager seeding", i)
+		}
 		initialSealedSegments[i] = segments[i]
 	}
 
