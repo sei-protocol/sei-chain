@@ -36,20 +36,23 @@ type StateCommitConfig struct {
 	// pre-migration fallback for a node that has explicitly opted out of auto.
 	WriteMode types.WriteMode `mapstructure:"write-mode"`
 
-	// WriteModeEnableAuto, when true (the default), makes the node ignore WriteMode
-	// and run in auto: the effective mode is derived at startup from the
-	// persisted migration metadata (memiavl_only before migration has started,
-	// migrate_evm while EVM keys are still draining, evm_migrated once
-	// complete), and raising the NumKeysToMigratePerBlock gov param above 0
-	// advances an auto store from memiavl_only to migrate_evm.
+	// WriteModeEnableAuto, when true (the default), forces the node to run in
+	// auto and ignores any explicit WriteMode: the effective mode is derived at
+	// startup from the persisted migration metadata (memiavl_only before
+	// migration has started, migrate_evm while EVM keys are still draining,
+	// evm_migrated once complete), and raising the NumKeysToMigratePerBlock gov
+	// param above 0 advances an auto store from memiavl_only to migrate_evm.
 	//
 	// Defaulting to true (and treating an absent config key as true) is what
 	// lets the existing fleet participate: nodes provisioned by older binaries
 	// carry an explicit sc-write-mode = "memiavl_only" but no
 	// sc-write-mode-enable-auto key, so they still resolve to auto and follow a
-	// governance-driven migration without any app.toml edit. Set this to false
-	// to pin WriteMode (deliberate opt-out; such a node diverges once the chain
-	// migrates).
+	// governance-driven migration without any app.toml edit.
+	//
+	// Set this to false to honor the explicit WriteMode (memiavl_only,
+	// flatkv_only, test_only_dual_write, ...) as a deliberate pin. A node pinned
+	// this way does not participate in a governance-driven migration and will
+	// diverge once the chain migrates.
 	WriteModeEnableAuto bool `mapstructure:"write-mode-enable-auto"`
 
 	// MemIAVLConfig is the configuration for the MemIAVL (Cosmos) backend
@@ -68,9 +71,6 @@ type StateCommitConfig struct {
 	// Token bucket burst for historical proof queries.
 	HistoricalProofBurst int `mapstructure:"historical-proof-burst"`
 
-	// The number of keys to migrate from memiavl to flatkv per block. Ignored if not in a migration mode.
-	KeysToMigratePerBlock int `mapstructure:"keys-to-migrate-per-block"`
-
 	// HashLogger configures the per-block hash logger (a debugging/forensics tool). Enabled by default.
 	// Loaded via explicit sc-hash-logger-* flag reads in app.parseSCConfigs, not mapstructure.
 	HashLogger HashLoggerConfig
@@ -87,9 +87,23 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
-		KeysToMigratePerBlock:      1024,
 		HashLogger:                 DefaultHashLoggerConfig(),
 	}
+}
+
+// ApplyWriteModeAuto resolves the effective write mode from the
+// sc-write-mode-enable-auto flag and the explicitly configured sc-write-mode.
+//
+// When auto is enabled the node always runs in auto, regardless of any explicit
+// sc-write-mode — the explicit value is ignored. To pin an explicit mode
+// (memiavl_only, flatkv_only, test_only_dual_write, ...) the operator must set
+// sc-write-mode-enable-auto = false; only then is the configured sc-write-mode
+// honored.
+func ApplyWriteModeAuto(enableAuto bool, mode types.WriteMode) types.WriteMode {
+	if enableAuto {
+		return types.Auto
+	}
+	return mode
 }
 
 // Validate checks if the StateCommitConfig is valid

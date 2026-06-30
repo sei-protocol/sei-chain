@@ -50,18 +50,20 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchT
 # Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
-# sc-write-mode is the fixed write routing mode. By default the node ignores
-# this value and runs in auto (the effective mode is derived from the on-disk
-# migration state and advanced by the NumKeysToMigratePerBlock gov param), so
-# the node follows a governance-driven EVM migration with no edits here.
+# sc-write-mode is the write routing mode. By default it is IGNORED: the
+# advanced, unrendered state-commit.sc-write-mode-enable-auto defaults to true,
+# which forces the node to run in auto regardless of this value. In auto the
+# effective mode is derived from the on-disk migration state and advanced by the
+# NumKeysToMigratePerBlock gov param, so the node follows a governance-driven EVM
+# migration with no edits here.
 #
-# This value only takes effect for nodes that explicitly opt out of auto via
-# the advanced, unrendered state-commit.sc-write-mode-enable-auto = false. Such
-# a node pins this mode and diverges from the network once the chain migrates.
-# A node whose history began in flatkv_only is the main reason to opt out: it
-# must keep sc-write-mode = "flatkv_only", because auto on a flatkv_only node
-# either fails every commit with a version-mismatch error or silently serves
-# reads from an empty memiavl.
+# To pin an explicit mode (memiavl_only, flatkv_only, evm_migrated,
+# test_only_dual_write, ...) you MUST also set
+# state-commit.sc-write-mode-enable-auto = false; only then is this value
+# honored. A pinned node does not participate in a governance-driven migration
+# and diverges from the network once the chain migrates (e.g. auto left enabled
+# on a flatkv_only-style node would either fail every commit with a
+# version-mismatch error or silently serve reads from an empty memiavl).
 #
 # Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
 # all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write, auto.

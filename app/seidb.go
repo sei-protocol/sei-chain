@@ -115,25 +115,28 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
 	scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(appOpts.Get(FlagSCFlatKVReadWriteMetrics))
 
-	// sc-write-mode-enable-auto (default true) decides whether the node derives
-	// its write mode automatically or honors the explicit sc-write-mode. An
-	// ABSENT key must keep the default (true): nodes provisioned by older
-	// binaries carry an explicit sc-write-mode = "memiavl_only" but no
+	// sc-write-mode-enable-auto (default true) decides whether the node may run
+	// in auto. An ABSENT key keeps the default (true): nodes provisioned by
+	// older binaries carry an explicit sc-write-mode = "memiavl_only" but no
 	// sc-write-mode-enable-auto key, and must still resolve to auto so a
 	// governance-driven migration can start without an app.toml edit. Only an
 	// explicit key flips it.
 	if v := appOpts.Get(FlagSCWriteModeEnableAuto); v != nil {
 		scConfig.WriteModeEnableAuto = cast.ToBool(v)
 	}
-	if scConfig.WriteModeEnableAuto {
-		scConfig.WriteMode = sctypes.Auto
-	} else if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
+	// Always parse sc-write-mode (even when auto is on) so a typo'd value fails
+	// fast here exactly as it does in server/config.GetConfig.
+	if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
 		parsedWM, err := sctypes.ParseWriteMode(wm)
 		if err != nil {
 			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
 		}
 		scConfig.WriteMode = parsedWM
 	}
+	// When auto is enabled the explicit sc-write-mode is ignored and the node
+	// runs in auto; only when auto is disabled is the parsed mode honored (see
+	// config.ApplyWriteModeAuto).
+	scConfig.WriteMode = config.ApplyWriteModeAuto(scConfig.WriteModeEnableAuto, scConfig.WriteMode)
 
 	if v := appOpts.Get(FlagSCHistoricalProofMaxInFlight); v != nil {
 		scConfig.HistoricalProofMaxInFlight = cast.ToInt(v)

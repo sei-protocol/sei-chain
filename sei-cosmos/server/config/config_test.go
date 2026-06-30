@@ -387,6 +387,44 @@ func TestGetConfigLegacyMemiavlOnlyResolvesToAuto(t *testing.T) {
 		"absent sc-write-mode-enable-auto must default to true and override an explicit memiavl_only")
 }
 
+// TestGetConfigPinnedModeRequiresAutoDisabled verifies that an explicit
+// sc-write-mode is only honored when sc-write-mode-enable-auto = false. With auto
+// enabled (the default), the explicit mode is ignored and the node runs in auto.
+func TestGetConfigPinnedModeRequiresAutoDisabled(t *testing.T) {
+	for _, mode := range []sctypes.WriteMode{
+		sctypes.FlatKVOnly,
+		sctypes.EVMMigrated,
+		sctypes.TestOnlyDualWrite,
+	} {
+		t.Run(string(mode)+"/auto-disabled-pins", func(t *testing.T) {
+			v := viper.New()
+			v.Set("minimum-gas-prices", DefaultMinGasPrices)
+			v.Set("telemetry.global-labels", []interface{}{})
+			v.Set("state-commit.sc-write-mode-enable-auto", false)
+			v.Set("state-commit.sc-write-mode", string(mode))
+
+			cfg, err := GetConfig(v)
+			require.NoError(t, err)
+			require.False(t, cfg.StateCommit.WriteModeEnableAuto)
+			require.Equal(t, mode, cfg.StateCommit.WriteMode,
+				"with auto disabled the explicit mode must be honored as a pin")
+		})
+
+		t.Run(string(mode)+"/auto-enabled-overrides", func(t *testing.T) {
+			v := viper.New()
+			v.Set("minimum-gas-prices", DefaultMinGasPrices)
+			v.Set("telemetry.global-labels", []interface{}{})
+			v.Set("state-commit.sc-write-mode", string(mode))
+
+			cfg, err := GetConfig(v)
+			require.NoError(t, err)
+			require.True(t, cfg.StateCommit.WriteModeEnableAuto)
+			require.Equal(t, sctypes.Auto, cfg.StateCommit.WriteMode,
+				"with auto enabled (default) the explicit mode must be ignored in favor of auto")
+		})
+	}
+}
+
 func TestGetConfigEmptyWriteModeUsesDefault(t *testing.T) {
 	v := viper.New()
 

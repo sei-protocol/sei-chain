@@ -42,6 +42,28 @@ cp docker/rpcnode/config/app.toml ~/.sei/config/app.toml
 cp docker/rpcnode/config/config.toml ~/.sei/config/config.toml
 cp "$GENESIS_SRC" ~/.sei/config/genesis.json
 
+# pin_sc_write_mode MODE: set sc-write-mode = "MODE" and pin
+# sc-write-mode-enable-auto = false so the explicit mode is actually honored.
+# sc-write-mode-enable-auto defaults to true, which forces the node into auto
+# and ignores any explicit sc-write-mode; the RPC node must match the
+# validators' pinned backend exactly, so it must opt out of auto.
+pin_sc_write_mode() {
+  mode="$1"
+  cfg="$HOME/.sei/config/app.toml"
+  if grep -q '^sc-write-mode[[:space:]]*=' "$cfg"; then
+    sed -i "s/^sc-write-mode[[:space:]]*=.*/sc-write-mode = \"$mode\"/" "$cfg"
+  else
+    sed -i "/^\[state-store\]/i sc-write-mode = \"$mode\"" "$cfg"
+  fi
+  if grep -q '^sc-write-mode-enable-auto[[:space:]]*=' "$cfg"; then
+    sed -i "s/^sc-write-mode-enable-auto[[:space:]]*=.*/sc-write-mode-enable-auto = false/" "$cfg"
+  elif grep -q '^sc-write-mode[[:space:]]*=' "$cfg"; then
+    sed -i "/^sc-write-mode[[:space:]]*=/a sc-write-mode-enable-auto = false" "$cfg"
+  else
+    sed -i "/^\[state-store\]/i sc-write-mode-enable-auto = false" "$cfg"
+  fi
+}
+
 # Apply Giga Storage overrides so the RPC node's app hash matches the validators.
 GIGA_STORAGE=${GIGA_STORAGE:-false}
 GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY:-false}
@@ -52,11 +74,7 @@ if [ "$GIGA_STORAGE" = "true" ] && [ "$GIGA_FLATKV_ONLY" != "true" ]; then
   echo "Enabling Giga Storage for RPC node..."
 
   # SC layer: must match validators (test_only_dual_write)
-  if grep -q '^sc-write-mode[[:space:]]*=' ~/.sei/config/app.toml; then
-    sed -i 's/^sc-write-mode[[:space:]]*=.*/sc-write-mode = "test_only_dual_write"/' ~/.sei/config/app.toml
-  else
-    sed -i '/^\[state-store\]/i sc-write-mode = "test_only_dual_write"' ~/.sei/config/app.toml
-  fi
+  pin_sc_write_mode "test_only_dual_write"
 
   # SS layer: enable EVM split
   sed -i 's/^evm-ss-split[[:space:]]*=.*/evm-ss-split = true/' ~/.sei/config/app.toml
@@ -64,11 +82,7 @@ fi
 
 if [ "$GIGA_FLATKV_ONLY" = "true" ]; then
   echo "Booting RPC node in flatkv_only mode..."
-  if grep -q '^sc-write-mode[[:space:]]*=' ~/.sei/config/app.toml; then
-    sed -i 's/^sc-write-mode[[:space:]]*=.*/sc-write-mode = "flatkv_only"/' ~/.sei/config/app.toml
-  else
-    sed -i '/^\[state-store\]/i sc-write-mode = "flatkv_only"' ~/.sei/config/app.toml
-  fi
+  pin_sc_write_mode "flatkv_only"
   sed -i 's/^evm-ss-split[[:space:]]*=.*/evm-ss-split = false/' ~/.sei/config/app.toml
 fi
 
