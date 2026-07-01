@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"encoding/binary"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -23,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
@@ -44,10 +47,13 @@ const (
 	defaultTxGasLimit      = 21_000
 	defaultERC20TxGasLimit = 100_000
 	defaultTxsPerBlock     = 1_000
+	defaultPersistBuffer   = 4 << 20
 	defaultWorkerCount     = 1
 	defaultCoinbaseAddress = "0x00000000000000000000000000000000000000cb"
 	workloadTransfer       = "transfer"
 	workloadERC20Transfer  = "erc20-transfer"
+	resultSinkDiscard      = "discard"
+	resultSinkFile         = "file"
 )
 
 type config struct {
@@ -60,6 +66,10 @@ type config struct {
 	targetBlocksPerSec  float64
 	reportInterval      time.Duration
 	metricsAddr         string
+	resultSink          string
+	persistDir          string
+	persistSync         bool
+	persistBufferSize   int
 	workload            string
 	chainID             *big.Int
 	gasPrice            *big.Int
@@ -115,6 +125,10 @@ func parseConfig(args []string) (config, error) {
 	fs.Float64Var(&cfg.targetBlocksPerSec, "target-blocks-per-sec", 0, "input block rate cap; 0 means unlimited")
 	fs.DurationVar(&cfg.reportInterval, "report-interval", defaultReportInterval, "stdout and rate-gauge reporting interval; 0 disables periodic reports")
 	fs.StringVar(&cfg.metricsAddr, "metrics-addr", defaultMetricsAddr, "Prometheus listen address; empty disables HTTP metrics")
+	fs.StringVar(&cfg.resultSink, "result-sink", resultSinkDiscard, "result sink mode: discard or file")
+	fs.StringVar(&cfg.persistDir, "persist-dir", "", "directory for --result-sink=file append-only changeset and receipt files")
+	fs.BoolVar(&cfg.persistSync, "persist-sync", false, "fsync persistent result files after every block; file sink always flushes each block")
+	fs.IntVar(&cfg.persistBufferSize, "persist-buffer-size", defaultPersistBuffer, "buffer size in bytes for --result-sink=file")
 	fs.StringVar(&cfg.workload, "workload", workloadTransfer, "workload type: transfer or erc20-transfer")
 	fs.Uint64Var(&cfg.txGasLimit, "tx-gas-limit", defaultTxGasLimit, "gas limit for each generated transaction")
 	fs.Uint64Var(&cfg.blockGasLimit, "block-gas-limit", 0, "block gas limit; 0 lets the executor use its maximum")
@@ -189,6 +203,16 @@ func parseConfig(args []string) (config, error) {
 	if cfg.reportInterval < 0 {
 		return config{}, fmt.Errorf("report-interval must be non-negative")
 	}
+	cfg.resultSink = strings.ToLower(strings.TrimSpace(cfg.resultSink))
+	if cfg.resultSink != resultSinkDiscard && cfg.resultSink != resultSinkFile {
+		return config{}, fmt.Errorf("unsupported result-sink %q", cfg.resultSink)
+	}
+	if cfg.persistBufferSize <= 0 {
+		return config{}, fmt.Errorf("persist-buffer-size must be positive")
+	}
+	if cfg.resultSink == resultSinkFile && strings.TrimSpace(cfg.persistDir) == "" {
+		return config{}, fmt.Errorf("persist-dir is required when result-sink=file")
+	}
 	if cfg.txGasLimit == 0 {
 		return config{}, fmt.Errorf("tx-gas-limit must be positive")
 	}
@@ -262,6 +286,10 @@ func run(cfg config) error {
 	}
 	registry := prometheus.NewRegistry()
 	metrics := newLoadMetrics(registry)
+	sinks, err := newResultSinks(cfg)
+	if err != nil {
+		return err
+	}
 
 	var server *metricsServer
 	if cfg.metricsAddr != "" {
@@ -278,10 +306,20 @@ func run(cfg config) error {
 		fmt.Printf("metrics listening on http://%s/metrics\n", cfg.metricsAddr)
 	}
 
+	var runErr error
 	if cfg.prebuildBlocks {
-		return runPrebuilt(ctx, cfg, state, workload, metrics)
+		runErr = runPrebuilt(ctx, cfg, state, workload, sinks, metrics)
+	} else {
+		runErr = runStreaming(ctx, cfg, state, workload, sinks, metrics)
 	}
-	return runStreaming(ctx, cfg, state, workload, metrics)
+	if closeErr := sinks.Close(); closeErr != nil {
+		if runErr != nil {
+			fmt.Fprintf(os.Stderr, "evmonly-loadtest: result sink close: %v\n", closeErr)
+			return runErr
+		}
+		return closeErr
+	}
+	return runErr
 }
 
 type blockWorkload interface {
@@ -299,7 +337,7 @@ func newWorkload(cfg config, state *generatedState) (blockWorkload, error) {
 	}
 }
 
-func runStreaming(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, metrics *loadMetrics) error {
+func runStreaming(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, sinks *resultSinks, metrics *loadMetrics) error {
 	blocks := make(chan blockEnvelope, cfg.queueSize)
 	reportCtx, stopReporter := context.WithCancel(ctx)
 	reportDone := make(chan struct{})
@@ -322,7 +360,7 @@ func runStreaming(ctx context.Context, cfg config, state *generatedState, worklo
 				DisableGasPriceCheck: cfg.disableGasPriceRule,
 				OCCWorkers:           cfg.executorWorkers,
 			}, evmonly.WithState(state))
-			return executeBlocks(groupCtx, workerID, executor, blocks, &discardStateWriter{}, discardReceiptSink{}, metrics)
+			return executeBlocks(groupCtx, workerID, executor, blocks, sinks, metrics)
 		})
 	}
 
@@ -337,7 +375,7 @@ func runStreaming(ctx context.Context, cfg config, state *generatedState, worklo
 	return err
 }
 
-func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, metrics *loadMetrics) error {
+func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, sinks *resultSinks, metrics *loadMetrics) error {
 	prebuildStartedAt := time.Now()
 	prebuilt, err := prebuildBlockRequests(ctx, cfg, workload)
 	if err != nil {
@@ -369,7 +407,7 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 				DisableGasPriceCheck: cfg.disableGasPriceRule,
 				OCCWorkers:           cfg.executorWorkers,
 			}, evmonly.WithState(state))
-			return executeBlocks(groupCtx, workerID, executor, blocks, &discardStateWriter{}, discardReceiptSink{}, metrics)
+			return executeBlocks(groupCtx, workerID, executor, blocks, sinks, metrics)
 		})
 	}
 
@@ -483,8 +521,7 @@ func executeBlocks(
 	workerID int,
 	executor evmonly.BlockExecutor,
 	blocks <-chan blockEnvelope,
-	stateWriter evmonly.StateWriter,
-	receiptSink receiptSink,
+	sinks *resultSinks,
 	metrics *loadMetrics,
 ) error {
 	for {
@@ -503,8 +540,14 @@ func executeBlocks(
 				}
 				return fmt.Errorf("worker %d execute block %d: %w", workerID, block.number, err)
 			}
-			stateWriter.ApplyChangeSet(result.ChangeSet)
-			receiptSink.StoreReceipts(block.number, result.Receipts)
+			if err := sinks.StoreChangeSet(block.number, result.ChangeSet); err != nil {
+				metrics.recordExecutionError()
+				return fmt.Errorf("worker %d store changeset for block %d: %w", workerID, block.number, err)
+			}
+			if err := sinks.StoreReceipts(block.number, result.Receipts); err != nil {
+				metrics.recordExecutionError()
+				return fmt.Errorf("worker %d store receipts for block %d: %w", workerID, block.number, err)
+			}
 			metrics.recordFinished(len(result.Txs), result.GasUsed, result.OCCStats)
 		}
 	}
@@ -847,13 +890,181 @@ var _ evmonly.StateWriter = (*discardStateWriter)(nil)
 
 func (*discardStateWriter) ApplyChangeSet(evmonly.StateChangeSet) {}
 
+type changeSetSink interface {
+	StoreChangeSet(height uint64, changeSet evmonly.StateChangeSet) error
+}
+
 type receiptSink interface {
-	StoreReceipts(height uint64, receipts ethtypes.Receipts)
+	StoreReceipts(height uint64, receipts ethtypes.Receipts) error
+}
+
+type resultSinks struct {
+	changeSets changeSetSink
+	receipts   receiptSink
+	close      func() error
+}
+
+func newResultSinks(cfg config) (*resultSinks, error) {
+	switch cfg.resultSink {
+	case resultSinkDiscard:
+		return &resultSinks{
+			changeSets: discardChangeSetSink{writer: &discardStateWriter{}},
+			receipts:   discardReceiptSink{},
+		}, nil
+	case resultSinkFile:
+		return newFileResultSinks(cfg)
+	default:
+		return nil, fmt.Errorf("unsupported result-sink %q", cfg.resultSink)
+	}
+}
+
+func (s *resultSinks) StoreChangeSet(height uint64, changeSet evmonly.StateChangeSet) error {
+	return s.changeSets.StoreChangeSet(height, changeSet)
+}
+
+func (s *resultSinks) StoreReceipts(height uint64, receipts ethtypes.Receipts) error {
+	return s.receipts.StoreReceipts(height, receipts)
+}
+
+func (s *resultSinks) Close() error {
+	if s.close == nil {
+		return nil
+	}
+	return s.close()
+}
+
+type discardChangeSetSink struct {
+	writer evmonly.StateWriter
+}
+
+func (s discardChangeSetSink) StoreChangeSet(_ uint64, changeSet evmonly.StateChangeSet) error {
+	s.writer.ApplyChangeSet(changeSet)
+	return nil
 }
 
 type discardReceiptSink struct{}
 
-func (discardReceiptSink) StoreReceipts(uint64, ethtypes.Receipts) {}
+func (discardReceiptSink) StoreReceipts(uint64, ethtypes.Receipts) error {
+	return nil
+}
+
+type fileResultSinks struct {
+	changeSetFile *appendRLPFile
+	receiptFile   *appendRLPFile
+}
+
+func newFileResultSinks(cfg config) (*resultSinks, error) {
+	if err := os.MkdirAll(cfg.persistDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create persist dir %s: %w", cfg.persistDir, err)
+	}
+	files := &fileResultSinks{}
+	var err error
+	files.changeSetFile, err = newAppendRLPFile(filepath.Join(cfg.persistDir, "changesets.rlp"), cfg.persistBufferSize, cfg.persistSync)
+	if err != nil {
+		return nil, err
+	}
+	files.receiptFile, err = newAppendRLPFile(filepath.Join(cfg.persistDir, "receipts.rlp"), cfg.persistBufferSize, cfg.persistSync)
+	if err != nil {
+		closeErr := files.changeSetFile.Close()
+		return nil, errors.Join(err, closeErr)
+	}
+	return &resultSinks{
+		changeSets: fileChangeSetSink{file: files.changeSetFile},
+		receipts:   fileReceiptSink{file: files.receiptFile},
+		close:      files.Close,
+	}, nil
+}
+
+func (s *fileResultSinks) Close() error {
+	return errors.Join(s.changeSetFile.Close(), s.receiptFile.Close())
+}
+
+type fileChangeSetSink struct {
+	file *appendRLPFile
+}
+
+func (s fileChangeSetSink) StoreChangeSet(height uint64, changeSet evmonly.StateChangeSet) error {
+	return s.file.WriteRecord(height, changeSet)
+}
+
+type fileReceiptSink struct {
+	file *appendRLPFile
+}
+
+func (s fileReceiptSink) StoreReceipts(height uint64, receipts ethtypes.Receipts) error {
+	return s.file.WriteRecord(height, receipts)
+}
+
+type appendRLPFile struct {
+	mu          sync.Mutex
+	file        *os.File
+	writer      *bufio.Writer
+	syncOnWrite bool
+	closed      bool
+}
+
+func newAppendRLPFile(path string, bufferSize int, syncOnWrite bool) (*appendRLPFile, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open persist file %s: %w", path, err)
+	}
+	return &appendRLPFile{
+		file:        file,
+		writer:      bufio.NewWriterSize(file, bufferSize),
+		syncOnWrite: syncOnWrite,
+	}, nil
+}
+
+func (f *appendRLPFile) WriteRecord(height uint64, value any) error {
+	payload, err := rlp.EncodeToBytes(value)
+	if err != nil {
+		return fmt.Errorf("encode rlp record for height %d: %w", height, err)
+	}
+	var header [16]byte
+	binary.BigEndian.PutUint64(header[:8], height)
+	binary.BigEndian.PutUint64(header[8:], uint64(len(payload)))
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return fmt.Errorf("write record for height %d: persist file is closed", height)
+	}
+	if _, err := f.writer.Write(header[:]); err != nil {
+		return fmt.Errorf("write record header for height %d: %w", height, err)
+	}
+	if _, err := f.writer.Write(payload); err != nil {
+		return fmt.Errorf("write record payload for height %d: %w", height, err)
+	}
+	if err := f.writer.Flush(); err != nil {
+		return fmt.Errorf("flush record for height %d: %w", height, err)
+	}
+	if f.syncOnWrite {
+		if err := f.file.Sync(); err != nil {
+			return fmt.Errorf("sync record for height %d: %w", height, err)
+		}
+	}
+	return nil
+}
+
+func (f *appendRLPFile) sync() error {
+	if err := f.writer.Flush(); err != nil {
+		return err
+	}
+	if err := f.file.Sync(); err != nil {
+		return fmt.Errorf("sync persist file: %w", err)
+	}
+	return nil
+}
+
+func (f *appendRLPFile) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return nil
+	}
+	f.closed = true
+	return errors.Join(f.sync(), f.file.Close())
+}
 
 type loadMetrics struct {
 	inputBlocks     atomic.Uint64

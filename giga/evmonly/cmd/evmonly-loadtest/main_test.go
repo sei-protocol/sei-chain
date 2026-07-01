@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
@@ -134,6 +139,46 @@ func TestRunPrebuiltBlocks(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, run(cfg))
+}
+
+func TestRunPrebuiltBlocksWithFileResultSink(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--report-interval=0",
+		"--prebuild-blocks",
+		"--blocks=2",
+		"--txs-per-block=2",
+		"--gas-price-wei=0",
+		"--min-gas-price-wei=0",
+		"--result-sink=file",
+		"--persist-dir=" + dir,
+	})
+	require.NoError(t, err)
+	require.NoError(t, run(cfg))
+
+	var changeSet evmonly.StateChangeSet
+	height := readPersistedRLPRecord(t, filepath.Join(dir, "changesets.rlp"), &changeSet)
+	require.Equal(t, uint64(1), height)
+	require.NotEmpty(t, changeSet.Balances)
+
+	var receipts ethtypes.Receipts
+	height = readPersistedRLPRecord(t, filepath.Join(dir, "receipts.rlp"), &receipts)
+	require.Equal(t, uint64(1), height)
+	require.Len(t, receipts, cfg.txsPerBlock)
+}
+
+func readPersistedRLPRecord(t *testing.T, path string, out any) uint64 {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(data), 16)
+	height := binary.BigEndian.Uint64(data[:8])
+	payloadLen := binary.BigEndian.Uint64(data[8:16])
+	require.LessOrEqual(t, payloadLen, uint64(len(data)-16))
+	payload := data[16 : 16+payloadLen]
+	require.NoError(t, rlp.DecodeBytes(payload, out), fmt.Sprintf("decode %s", path))
+	return height
 }
 
 func BenchmarkExecuteTransferBlock(b *testing.B) {
