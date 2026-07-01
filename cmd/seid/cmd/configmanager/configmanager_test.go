@@ -1,10 +1,13 @@
 package configmanager
 
 import (
+	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+
+	seiconfig "github.com/sei-protocol/sei-config"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 )
@@ -51,4 +54,14 @@ func TestResolveHomeDir_Flag(t *testing.T) {
 	got, err := resolveHomeDir(cmd)
 	require.NoError(t, err)
 	require.Equal(t, "/tmp/seid-test-home", got)
+}
+
+// TestReadConfigFromDirMissingIsErrNotExist pins the contract validateAdvisory's
+// silent-skip depends on: a missing config file must yield an error that
+// errors.Is(os.ErrNotExist) recognizes, so a fresh-home boot skips the advisory
+// read quietly instead of logging a spurious warning. If sei-config ever swaps
+// to a custom not-found error, this fails here rather than going noisy in prod.
+func TestReadConfigFromDirMissingIsErrNotExist(t *testing.T) {
+	_, err := seiconfig.ReadConfigFromDir(t.TempDir())
+	require.ErrorIs(t, err, os.ErrNotExist)
 }

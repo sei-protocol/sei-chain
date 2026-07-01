@@ -288,6 +288,18 @@ func TestConfigManagerV2AdvisoryNeverRefusesBoot(t *testing.T) {
 	require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings())
 }
 
+// TestConfigManagerV2FreshHomeBoots exercises the fresh-home first-boot path: v2's
+// advisory read hits os.ErrNotExist (no config yet), silently skips, then
+// re-enters the legacy handler, which creates the files. It must not refuse boot.
+// Every other test pre-seeds the config, so this is the only cover of the
+// ErrNotExist branch — the common case for a brand-new node.
+func TestConfigManagerV2FreshHomeBoots(t *testing.T) {
+	home := t.TempDir()
+	v2Ctx, v2Err := runManager(t, configmanager.SeiConfigManager{}, startCmdForHome(t, home))
+	require.NoError(t, v2Err, "v2 on a fresh home must not refuse boot on the missing-config read")
+	require.NotNil(t, v2Ctx.Config)
+}
+
 // TestConfigManagerV2AdvisoryReadErrorMatchesLegacy pins the other half of the
 // invariant: when the config is unreadable, v2 must not mask the failure or
 // invent a new one. It logs an advisory read error (via seilog), then re-enters
