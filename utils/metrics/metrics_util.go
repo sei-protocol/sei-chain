@@ -13,19 +13,42 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	sdk "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
 )
 
-func SetupOtelMetricsProvider() error {
+func SetupOtelMetricsProvider(chainID string) error {
+	if chainID == "" {
+		return fmt.Errorf("chainID must not be empty")
+	}
+
+	res, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			"",
+			attribute.String("chain_id", chainID),
+		),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create OTel resource: %w", err)
+	}
+
 	metricsExporter, err := prometheus.New(
 		prometheus.WithNamespace("sei_chain"),
 		prometheus.WithTranslationStrategy(otlptranslator.UnderscoreEscapingWithSuffixes),
+		prometheus.WithResourceAsConstantLabels(
+			attribute.NewAllowKeysFilter("chain_id"),
+		),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create Prometheus exporter: %w", err)
 	}
-	otel.SetMeterProvider(sdk.NewMeterProvider(sdk.WithReader(metricsExporter)))
+	otel.SetMeterProvider(sdk.NewMeterProvider(
+		sdk.WithResource(res),
+		sdk.WithReader(metricsExporter),
+	))
 	return nil
 }
 

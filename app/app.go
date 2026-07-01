@@ -519,7 +519,7 @@ func New(
 	bApp.SetInterfaceRegistry(interfaceRegistry)
 
 	// Bind OTEL metrics provider once at application construction
-	if err := utilmetrics.SetupOtelMetricsProvider(); err != nil {
+	if err := utilmetrics.SetupOtelMetricsProvider(bApp.ChainID); err != nil {
 		logger.Error(err.Error())
 	}
 
