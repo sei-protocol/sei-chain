@@ -76,6 +76,18 @@ jobs:
           build-args: |
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
             GO_BUILD_TAGS=mock_chain_validation
+      - name: Build and push seid with mock chain validation + historical replay
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock_chain_validation-historical_replay-${{ inputs.tag || inputs.ref || github.sha }}
+          build-args: |
+            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
+            GO_BUILD_TAGS=mock_chain_validation historical_replay
       - name: Build and push seid
         uses: docker/build-push-action@v6
         with:
