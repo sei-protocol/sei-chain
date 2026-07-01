@@ -7,7 +7,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -40,13 +39,11 @@ type RPC[API any, Req, Resp protoutils.Sized] struct {
 	Limit Limit
 	Req   Msg[Req]
 	Resp  Msg[Resp]
-
-	ServerAttrs metrics.Attrs
-	ClientAttrs metrics.Attrs
 }
 
 type rpcConfig struct {
 	limit Limit
+	name  string
 }
 
 type service map[mux.StreamKind]*rpcConfig
@@ -55,6 +52,7 @@ func (s service) muxServerConfig() *mux.Config {
 	kinds := map[mux.StreamKind]*mux.StreamKindConfig{}
 	for kind, rpc := range s {
 		kinds[kind] = &mux.StreamKindConfig{
+			Name:        rpc.name,
 			MaxConnects: rpc.limit.Concurrent,
 		}
 	}
@@ -90,16 +88,15 @@ func Register[API any, Req, Resp protoutils.Sized](kind mux.StreamKind, limit Li
 	if err := resp.Verify(); err != nil {
 		panic(fmt.Errorf("RPC %v: %w", kind, err))
 	}
-	service[kind] = &rpcConfig{limit: limit}
-	rpcName := fmt.Sprintf("%T", utils.Zero[Req]())
+	service[kind] = &rpcConfig{
+		limit: limit,
+		name:  fmt.Sprintf("%T", utils.Zero[Req]()),
+	}
 	return &RPC[API, Req, Resp]{
 		Kind:  kind,
 		Limit: limit,
 		Req:   req,
 		Resp:  resp,
-
-		ServerAttrs: metrics.NewAttrs(metrics.RoleServer, rpcName),
-		ClientAttrs: metrics.NewAttrs(metrics.RoleClient, rpcName),
 	}
 }
 
@@ -125,10 +122,7 @@ func (r *RPC[API, Req, Resp]) Call(ctx context.Context, client Client[API]) (Str
 	if err != nil {
 		return Stream[Req, Resp]{}, err
 	}
-	return Stream[Req, Resp]{
-		call:  metrics.StartCall(r.ClientAttrs),
-		inner: s,
-	}, nil
+	return Stream[Req, Resp]{inner: s}, nil
 }
 
 func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], handler func(context.Context, Stream[Resp, Req]) error) error {
@@ -144,10 +138,7 @@ func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], han
 					if err != nil {
 						return err
 					}
-					stream := Stream[Resp, Req]{
-						call:  metrics.StartCall(r.ServerAttrs),
-						inner: muxStream,
-					}
+					stream := Stream[Resp, Req]{inner: muxStream}
 					err = handler(ctx, stream)
 					stream.Close()
 					if err != nil {
@@ -161,25 +152,18 @@ func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], han
 	})
 }
 
-type Stream[SendT, RecvT protoutils.Message] struct {
-	call  metrics.Call
-	inner *mux.Stream
+type Stream[SendT, RecvT protoutils.Message] struct{ inner *mux.Stream }
+
+func (s Stream[SendT, RecvT]) Close() { s.inner.Close() }
+
+func (s Stream[SendT, RecvT]) Send(ctx context.Context, msg SendT) error {
+	return s.inner.Send(ctx, protoutils.Marshal(msg))
 }
 
-func (s Stream[SendT, RecvT]) Close() {
-	s.inner.Close()
-	s.call.Stop()
-}
-func (s Stream[SendT, RecvT]) Send(ctx context.Context, msg SendT) error {
-	raw := protoutils.Marshal(msg)
-	s.call.Send(len(raw))
-	return s.inner.Send(ctx, raw)
-}
 func (s Stream[SendT, RecvT]) Recv(ctx context.Context) (RecvT, error) {
 	raw, err := s.inner.Recv(ctx, true)
 	if err != nil {
 		return utils.Zero[RecvT](), err
 	}
-	s.call.Recv(len(raw))
 	return protoutils.Unmarshal[RecvT](raw)
 }

@@ -16,7 +16,7 @@ func buckets(start float64, factor float64, count int) metric.HistogramOption {
 	return metric.WithExplicitBucketBoundaries(prometheus.ExponentialBuckets(start, factor, count)...)
 }
 
-var meter = otel.Meter("tendermint_internal_p2p_rpc")
+var meter = otel.Meter("tendermint_internal_p2p_mux")
 var latency = utils.OrPanic1(meter.Float64Histogram("latency", metric.WithUnit("s"), buckets(0.001, 1.3, 30)))
 var inFlight = utils.OrPanic1(meter.Int64UpDownCounter("inflight"))
 var sendMsgs = utils.OrPanic1(meter.Int64UpDownCounter("send_msgs"))
@@ -26,8 +26,8 @@ var recvBytes = utils.OrPanic1(meter.Int64UpDownCounter("recv_bytes", metric.Wit
 
 type Role string
 
-const RoleServer = Role("server")
-const RoleClient = Role("client")
+const RoleAccept = Role("accept")
+const RoleConnect = Role("connect")
 
 type Attrs metric.MeasurementOption
 
@@ -38,32 +38,41 @@ func NewAttrs(role Role, rpcName string) Attrs {
 	)))
 }
 
-type Call struct {
+type Stream struct {
 	opts  metric.MeasurementOption
-	start time.Time
+	start utils.Option[time.Time]
 }
 
-func StartCall(attrs Attrs) Call {
-	ctx := context.Background()
-	opts := metric.MeasurementOption(attrs)
-	inFlight.Add(ctx, 1, opts)
-	return Call{opts, time.Now()}
+func NewStream(attrs Attrs) *Stream {
+	return &Stream{opts: metric.MeasurementOption(attrs)}
 }
 
-func (c Call) Send(size int) {
+func (s *Stream) Open() {
+	if s.start.IsPresent() {
+		return
+	}
+	s.start = utils.Some(time.Now())
 	ctx := context.Background()
-	sendMsgs.Add(ctx, 1, c.opts)
-	sendBytes.Add(ctx, int64(size), c.opts)
+	inFlight.Add(ctx, 1, s.opts)
 }
 
-func (c Call) Recv(size int) {
+func (s *Stream) Send(size int) {
 	ctx := context.Background()
-	recvMsgs.Add(ctx, 1, c.opts)
-	recvBytes.Add(ctx, int64(size), c.opts)
+	sendMsgs.Add(ctx, 1, s.opts)
+	sendBytes.Add(ctx, int64(size), s.opts)
 }
 
-func (c Call) Stop() {
+func (s *Stream) Recv(size int) {
 	ctx := context.Background()
-	inFlight.Add(ctx, -1, c.opts)
-	latency.Record(ctx, time.Since(c.start).Seconds(), c.opts)
+	recvMsgs.Add(ctx, 1, s.opts)
+	recvBytes.Add(ctx, int64(size), s.opts)
+}
+
+func (s *Stream) Close() {
+	if start, ok := s.start.Get(); ok {
+		ctx := context.Background()
+		inFlight.Add(ctx, -1, s.opts)
+		latency.Record(ctx, time.Since(start).Seconds(), s.opts)
+		s.start = utils.None[time.Time]()
+	}
 }
