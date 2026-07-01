@@ -275,7 +275,7 @@ func parseBig(name, raw string) (*big.Int, error) {
 	return v, nil
 }
 
-func run(cfg config) error {
+func run(cfg config) (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -290,6 +290,17 @@ func run(cfg config) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if closeErr := sinks.Close(); closeErr != nil {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "evmonly-loadtest: result sink close: %v\n", closeErr)
+				return
+			}
+			err = closeErr
+		}
+	}()
+	stopSinkSignalCleanup := cleanupSinksOnContextCancel(ctx, sinks)
+	defer stopSinkSignalCleanup()
 
 	var server *metricsServer
 	if cfg.metricsAddr != "" {
@@ -306,20 +317,33 @@ func run(cfg config) error {
 		fmt.Printf("metrics listening on http://%s/metrics\n", cfg.metricsAddr)
 	}
 
-	var runErr error
 	if cfg.prebuildBlocks {
-		runErr = runPrebuilt(ctx, cfg, state, workload, sinks, metrics)
-	} else {
-		runErr = runStreaming(ctx, cfg, state, workload, sinks, metrics)
+		return runPrebuilt(ctx, cfg, state, workload, sinks, metrics)
 	}
-	if closeErr := sinks.Close(); closeErr != nil {
-		if runErr != nil {
-			fmt.Fprintf(os.Stderr, "evmonly-loadtest: result sink close: %v\n", closeErr)
-			return runErr
+	return runStreaming(ctx, cfg, state, workload, sinks, metrics)
+}
+
+func cleanupSinksOnContextCancel(ctx context.Context, sinks *resultSinks) func() {
+	cleanupCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		select {
+		case <-ctx.Done():
+			if err := sinks.Cleanup(); err != nil {
+				fmt.Fprintf(os.Stderr, "evmonly-loadtest: result sink cleanup: %v\n", err)
+			}
+		case <-cleanupCtx.Done():
 		}
-		return closeErr
+	}()
+	return func() {
+		select {
+		case <-ctx.Done():
+		default:
+			cancel()
+		}
+		<-done
 	}
-	return runErr
 }
 
 type blockWorkload interface {
@@ -902,6 +926,7 @@ type resultSinks struct {
 	changeSets changeSetSink
 	receipts   receiptSink
 	close      func() error
+	cleanup    func() error
 }
 
 func newResultSinks(cfg config) (*resultSinks, error) {
@@ -927,10 +952,20 @@ func (s *resultSinks) StoreReceipts(height uint64, receipts ethtypes.Receipts) e
 }
 
 func (s *resultSinks) Close() error {
+	var closeErr error
 	if s.close == nil {
+		closeErr = nil
+	} else {
+		closeErr = s.close()
+	}
+	return errors.Join(closeErr, s.Cleanup())
+}
+
+func (s *resultSinks) Cleanup() error {
+	if s.cleanup == nil {
 		return nil
 	}
-	return s.close()
+	return s.cleanup()
 }
 
 type discardChangeSetSink struct {
@@ -951,32 +986,66 @@ func (discardReceiptSink) StoreReceipts(uint64, ethtypes.Receipts) error {
 type fileResultSinks struct {
 	changeSetFile *appendRLPFile
 	receiptFile   *appendRLPFile
+	cleanupMu     sync.Mutex
+	paths         []string
+	cleaned       map[string]struct{}
 }
 
 func newFileResultSinks(cfg config) (*resultSinks, error) {
 	if err := os.MkdirAll(cfg.persistDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create persist dir %s: %w", cfg.persistDir, err)
 	}
-	files := &fileResultSinks{}
+	changeSetPath := filepath.Join(cfg.persistDir, "changesets.rlp")
+	receiptPath := filepath.Join(cfg.persistDir, "receipts.rlp")
+	files := &fileResultSinks{
+		paths:   []string{changeSetPath, receiptPath},
+		cleaned: map[string]struct{}{},
+	}
 	var err error
-	files.changeSetFile, err = newAppendRLPFile(filepath.Join(cfg.persistDir, "changesets.rlp"), cfg.persistBufferSize, cfg.persistSync)
+	files.changeSetFile, err = newAppendRLPFile(changeSetPath, cfg.persistBufferSize, cfg.persistSync)
 	if err != nil {
 		return nil, err
 	}
-	files.receiptFile, err = newAppendRLPFile(filepath.Join(cfg.persistDir, "receipts.rlp"), cfg.persistBufferSize, cfg.persistSync)
+	files.receiptFile, err = newAppendRLPFile(receiptPath, cfg.persistBufferSize, cfg.persistSync)
 	if err != nil {
-		closeErr := files.changeSetFile.Close()
-		return nil, errors.Join(err, closeErr)
+		return nil, errors.Join(err, files.Close())
 	}
 	return &resultSinks{
 		changeSets: fileChangeSetSink{file: files.changeSetFile},
 		receipts:   fileReceiptSink{file: files.receiptFile},
 		close:      files.Close,
+		cleanup:    files.Cleanup,
 	}, nil
 }
 
 func (s *fileResultSinks) Close() error {
-	return errors.Join(s.changeSetFile.Close(), s.receiptFile.Close())
+	var errs []error
+	if s.changeSetFile != nil {
+		errs = append(errs, s.changeSetFile.Close())
+	}
+	if s.receiptFile != nil {
+		errs = append(errs, s.receiptFile.Close())
+	}
+	errs = append(errs, s.Cleanup())
+	return errors.Join(errs...)
+}
+
+func (s *fileResultSinks) Cleanup() error {
+	s.cleanupMu.Lock()
+	defer s.cleanupMu.Unlock()
+
+	var errs []error
+	for _, path := range s.paths {
+		if _, ok := s.cleaned[path]; ok {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, fmt.Errorf("remove persist file %s: %w", path, err))
+			continue
+		}
+		s.cleaned[path] = struct{}{}
+	}
+	return errors.Join(errs...)
 }
 
 type fileChangeSetSink struct {

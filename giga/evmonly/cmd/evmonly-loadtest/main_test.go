@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -141,7 +143,57 @@ func TestRunPrebuiltBlocks(t *testing.T) {
 	require.NoError(t, run(cfg))
 }
 
-func TestRunPrebuiltBlocksWithFileResultSink(t *testing.T) {
+func TestFileResultSinkWritesRLPRecordsAndCleansUpOnCancel(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--result-sink=file",
+		"--persist-dir=" + dir,
+	})
+	require.NoError(t, err)
+	sinks, err := newResultSinks(cfg)
+	require.NoError(t, err)
+
+	changePath := filepath.Join(dir, "changesets.rlp")
+	receiptPath := filepath.Join(dir, "receipts.rlp")
+	writtenChangeSet := evmonly.StateChangeSet{
+		Balances: []evmonly.BalanceChange{{
+			Address: common.HexToAddress("0x0000000000000000000000000000000000000001"),
+			Balance: big.NewInt(7),
+		}},
+	}
+	writtenReceipts := ethtypes.Receipts{{
+		Type:   ethtypes.LegacyTxType,
+		Status: ethtypes.ReceiptStatusSuccessful,
+		TxHash: common.HexToHash("0x01"),
+	}}
+	require.NoError(t, sinks.StoreChangeSet(1, writtenChangeSet))
+	require.NoError(t, sinks.StoreReceipts(1, writtenReceipts))
+
+	requireFileExists(t, changePath)
+	requireFileExists(t, receiptPath)
+	var changeSet evmonly.StateChangeSet
+	height := readPersistedRLPRecord(t, changePath, &changeSet)
+	require.Equal(t, uint64(1), height)
+	require.NotEmpty(t, changeSet.Balances)
+
+	var receipts ethtypes.Receipts
+	height = readPersistedRLPRecord(t, receiptPath, &receipts)
+	require.Equal(t, uint64(1), height)
+	require.Len(t, receipts, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stopCleanup := cleanupSinksOnContextCancel(ctx, sinks)
+	cancel()
+	stopCleanup()
+	requireNoFileExists(t, changePath)
+	requireNoFileExists(t, receiptPath)
+	require.NoError(t, sinks.Close())
+	requireNoFileExists(t, changePath)
+	requireNoFileExists(t, receiptPath)
+}
+
+func TestRunPrebuiltBlocksWithFileResultSinkCleansUp(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
@@ -156,16 +208,8 @@ func TestRunPrebuiltBlocksWithFileResultSink(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, run(cfg))
-
-	var changeSet evmonly.StateChangeSet
-	height := readPersistedRLPRecord(t, filepath.Join(dir, "changesets.rlp"), &changeSet)
-	require.Equal(t, uint64(1), height)
-	require.NotEmpty(t, changeSet.Balances)
-
-	var receipts ethtypes.Receipts
-	height = readPersistedRLPRecord(t, filepath.Join(dir, "receipts.rlp"), &receipts)
-	require.Equal(t, uint64(1), height)
-	require.Len(t, receipts, cfg.txsPerBlock)
+	requireNoFileExists(t, filepath.Join(dir, "changesets.rlp"))
+	requireNoFileExists(t, filepath.Join(dir, "receipts.rlp"))
 }
 
 func readPersistedRLPRecord(t *testing.T, path string, out any) uint64 {
@@ -179,6 +223,18 @@ func readPersistedRLPRecord(t *testing.T, path string, out any) uint64 {
 	payload := data[16 : 16+payloadLen]
 	require.NoError(t, rlp.DecodeBytes(payload, out), fmt.Sprintf("decode %s", path))
 	return height
+}
+
+func requireFileExists(t *testing.T, path string) {
+	t.Helper()
+	_, err := os.Stat(path)
+	require.NoError(t, err)
+}
+
+func requireNoFileExists(t *testing.T, path string) {
+	t.Helper()
+	_, err := os.Stat(path)
+	require.Truef(t, errors.Is(err, os.ErrNotExist), "expected %s to be removed, got %v", path, err)
 }
 
 func BenchmarkExecuteTransferBlock(b *testing.B) {
