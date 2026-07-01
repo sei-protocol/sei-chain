@@ -12,10 +12,20 @@ import (
 
 func TestBlockedAddr(t *testing.T) {
 	k := keeper.NewBaseSendKeeper(nil, nil, nil, paramtypes.Subspace{}, map[string]bool{})
-	txIndexBz := make([]byte, 8)
-	binary.BigEndian.PutUint64(txIndexBz, uint64(5))
-	addr := sdk.AccAddress(append(keeper.CoinbaseAddressPrefix, txIndexBz...))
-	require.True(t, k.BlockedAddr(addr))
+
+	// A coinbase address is the CoinbaseAddressPrefix followed by an 8-byte
+	// big-endian tx index. Such addresses must be blocked from receiving funds.
+	coinbaseAddr := func(txIndex uint64) sdk.AccAddress {
+		idx := make([]byte, 8)
+		binary.BigEndian.PutUint64(idx, txIndex)
+		return sdk.AccAddress(append(keeper.CoinbaseAddressPrefix, idx...))
+	}
+
+	addr := coinbaseAddr(5)
+	require.True(t, k.BlockedAddr(addr), "coinbase address should be blocked")
+
+	// Mutating any prefix byte breaks the coinbase pattern, so the address
+	// should no longer be blocked.
 	addr[0] = 'q'
-	require.False(t, k.BlockedAddr(addr))
+	require.False(t, k.BlockedAddr(addr), "non-coinbase address should not be blocked")
 }
