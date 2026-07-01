@@ -2,6 +2,7 @@ package types
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"time"
 
@@ -72,6 +73,46 @@ func GenSignature(rng utils.Rng) *Signature {
 	return &Signature{
 		key: key.Public(),
 		sig: key.key.Sign(utils.GenBytes(rng, 10)),
+	}
+}
+
+// SignatureForTesting builds a Signature from a public key and raw signature bytes
+// WITHOUT performing any real signing. FOR TESTS/BENCHMARKS ONLY: the resulting
+// signature is arbitrary bytes and will NOT verify. sigBytes must be exactly
+// ed25519.SignatureSize (64) bytes.
+func SignatureForTesting(key PublicKey, sigBytes []byte) (*Signature, error) {
+	sig, err := ed25519.SignatureFromBytes(sigBytes)
+	if err != nil {
+		return nil, fmt.Errorf("sig: %w", err)
+	}
+	return &Signature{key: key, sig: sig}, nil
+}
+
+// SignedForTesting attaches a precomputed (typically fake) signature to a message
+// WITHOUT signing. FOR TESTS/BENCHMARKS ONLY: the result will NOT verify. The message is
+// still hashed (cheap), only the expensive signing operation is skipped.
+func SignedForTesting[T Msg](msg T, sig *Signature) *Signed[T] {
+	return newSigned(msg, sig)
+}
+
+// NewBlockForTesting builds a Block with an injected payload hash instead of computing
+// payload.Hash(). FOR TESTS/BENCHMARKS ONLY: the header's payloadHash need not match the
+// payload, so Block.Verify will fail. This skips a full marshal + SHA-256 of the payload.
+func NewBlockForTesting(
+	lane LaneID,
+	blockNumber BlockNumber,
+	parentHash BlockHeaderHash,
+	payload *Payload,
+	payloadHash PayloadHash,
+) *Block {
+	return &Block{
+		header: &BlockHeader{
+			lane:        lane,
+			blockNumber: blockNumber,
+			parentHash:  parentHash,
+			payloadHash: payloadHash,
+		},
+		payload: payload,
 	}
 }
 

@@ -972,7 +972,7 @@ func (d *DiskTable) PutBatch(batch []*types.PutRequest) error {
 			return fmt.Errorf("key is too large, length must not exceed 2^16 bytes: %d bytes", len(kv.Key))
 		}
 		if len(kv.Value) > math.MaxUint32 {
-			return fmt.Errorf("value is too large, length must not exceed 2^32 bytes: %d bytes", len(kv.Value))
+			return fmt.Errorf("value is too large, length must not exceed 2^32 - 1 bytes: %d bytes", len(kv.Value))
 		}
 
 		// Validate every secondary key in this request, and detect duplicate keys (primary vs
