@@ -3,6 +3,7 @@ package disktable
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -457,6 +458,17 @@ func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
 	for _, kv := range req.values {
 		// Do the write.
 		seg := c.segments[c.highestSegmentIndex]
+
+		// Roll to a fresh segment before writing if this value's bytes would cross the 2^32 addressable
+		// limit of the segment's value files (offsets are stored as uint32, so a value's first byte must
+		// sit below 2^32).
+		if seg.GetMaxShardSize()+uint64(len(kv.Value)) > math.MaxUint32 {
+			if err := c.expandSegments(); err != nil {
+				c.errorMonitor.Panic(fmt.Errorf("failed to expand segments: %w", err))
+				return
+			}
+			seg = c.segments[c.highestSegmentIndex]
+		}
 
 		// Track boundary keys. The newest primary key is simply the most recently written key. The
 		// mutable segment's first primary key is recorded the first time a key is written to a fresh

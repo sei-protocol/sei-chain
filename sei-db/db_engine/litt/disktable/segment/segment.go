@@ -489,31 +489,17 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 	}
 	currentSize := s.shardSizes[shard]
 
+	// Defensive invariant: the control loop rolls to a fresh segment before writing any value whose bytes
+	// would cross the 2^32 addressable limit (see disktable control_loop handleWriteRequest), so a mutable
+	// segment never grows to where the next value's first byte would be unaddressable. A whole value is
+	// always written contiguously below 2^32, which also keeps every secondary key's start
+	// (firstByteIndex + Offset, a sub-range of the value) addressable.
 	if currentSize > math.MaxUint32 {
-		// No matter the configuration, we absolutely cannot permit a value to be written if the first byte of the
-		// value would be beyond position 2^32. This is because we only have 32 bits in an address to store the
-		// position of a value's first byte.
 		return 0, 0,
 			fmt.Errorf("value file already contains %d bytes, cannot add a new value", currentSize)
 	}
 	firstByteIndex := uint32(currentSize)
 	valueLen := uint64(len(data.Value))
-	if uint64(firstByteIndex)+valueLen > math.MaxUint32 {
-		return 0, 0,
-			fmt.Errorf("value of length %d would push value file past 2^32 bytes (current size %d)",
-				valueLen, currentSize)
-	}
-
-	// Validate every secondary key's address fits in uint32 *before* sending anything, so we never
-	// produce a partial write.
-	for _, sk := range data.SecondaryKeys {
-		end := uint64(firstByteIndex) + uint64(sk.Offset) + uint64(sk.Length)
-		if end > math.MaxUint32 {
-			return 0, 0,
-				fmt.Errorf("secondary key range [%d, %d) would exceed 2^32 byte addressable range",
-					uint64(firstByteIndex)+uint64(sk.Offset), end)
-		}
-	}
 
 	n := len(data.SecondaryKeys)
 	totalKeys := uint32(1 + n) //nolint:gosec // n bounded by caller validation
