@@ -14,11 +14,65 @@ export async function gasPrice(provider: ethers.JsonRpcProvider): Promise<bigint
 /** Sei's idle-chain default priority fee (1 gwei), returned when the latest block is uncongested. */
 export const DEFAULT_PRIORITY_FEE_WEI = ethers.parseUnits('1', 'gwei');
 
-/** Sei treats a block as congested once it burns > 80% of the block gas limit. */
+/** Sei treats a block as congested once EVM receipt gas burns > 80% of the block gas limit. */
 export const CONGESTION_THRESHOLD = 0.8;
 
 export async function maxPriorityFeePerGas(provider: ethers.JsonRpcProvider): Promise<bigint> {
     return BigInt(await provider.send('eth_maxPriorityFeePerGas', []));
+}
+
+export interface PriorityFeeSample {
+    tip: bigint;
+    block: number;
+    gasUsed: bigint;
+    evmGasUsed: bigint;
+    gasLimit: bigint;
+    ratio: number;
+    evmRatio: number;
+}
+
+/**
+ * Read eth_maxPriorityFeePerGas and the latest block it was derived from without
+ * crossing a block boundary. The fee RPC has no block tag, so callers that assert
+ * against latest-block gas usage must pin a stable head themselves.
+ */
+export async function maxPriorityFeePerGasAtStableBlock(
+    provider: ethers.JsonRpcProvider,
+): Promise<PriorityFeeSample> {
+    for (let i = 0; i < 20; i++) {
+        const b1 = await provider.getBlockNumber();
+        const tip = await maxPriorityFeePerGas(provider);
+        const info = await blockGasInfo(provider, 'latest');
+        const evmGasUsed = await evmGasUsedForBlock(provider, info.number);
+        const b2 = await provider.getBlockNumber();
+        if (b1 === b2 && info.number === b1) {
+            return {
+                tip,
+                block: info.number,
+                gasUsed: info.gasUsed,
+                evmGasUsed,
+                gasLimit: info.gasLimit,
+                ratio: Number(info.gasUsed) / Number(info.gasLimit),
+                evmRatio: Number(evmGasUsed) / Number(info.gasLimit),
+            };
+        }
+    }
+    throw new Error('maxPriorityFeePerGasAtStableBlock: block kept advancing across the sample');
+}
+
+export async function evmGasUsedForBlock(
+    provider: ethers.JsonRpcProvider,
+    block: number,
+): Promise<bigint> {
+    const receipts = await provider.send('eth_getBlockReceipts', [ethers.toQuantity(block)]);
+    return (receipts ?? []).reduce(
+        (sum: bigint, receipt: { gasUsed: string }) => sum + BigInt(receipt.gasUsed),
+        0n,
+    );
+}
+
+export function isCongested(sample: { evmGasUsed: bigint; gasLimit: bigint }): boolean {
+    return sample.evmGasUsed > (sample.gasLimit * 80n) / 100n;
 }
 
 /**
@@ -55,10 +109,11 @@ export async function assertSeiGasPriceTracks(
     const head = await provider.getBlockNumber();
     const heights = [block - 1, block, block + 1, block + 2].filter(h => h >= 0 && h <= head);
     const infos = await Promise.all(heights.map(h => blockGasInfo(provider, h)));
+    const evmGasUsed = await Promise.all(heights.map(h => evmGasUsedForBlock(provider, h)));
 
     if (infos.some(b => (b.baseFee * 110n) / 100n === gasPriceWei)) return;
 
-    const congested = infos.some(b => b.gasUsed > (b.gasLimit * 80n) / 100n);
+    const congested = infos.some((b, i) => evmGasUsed[i] > (b.gasLimit * 80n) / 100n);
     const minBase = infos.reduce((m, b) => (b.baseFee < m ? b.baseFee : m), infos[0].baseFee);
     expect(
         congested && gasPriceWei >= minBase,
