@@ -13,6 +13,10 @@
 // validation pass is advisory because sei-config's read fidelity is still being
 // hardened, and a gap in the model must not fail a valid node.
 //
+// The node boots on those two channels, never on the SeiConfig model; that is
+// why differential tests suffice — proving v2's channels equal legacy's, which
+// legacy is already trusted to boot on, is the whole correctness argument.
+//
 // Two things are deferred: making validation fatal, and authoring a canonical
 // sei.toml to render the legacy files from (the generate path). See PLT-775 and
 // the design (bdchatham-designs designs/config-manager/DESIGN.md).

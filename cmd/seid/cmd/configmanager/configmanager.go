@@ -41,19 +41,35 @@ func (LegacyConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate str
 // writes, migrates, or refuses boot.
 type SeiConfigManager struct{}
 
-// Apply prints advisory validation diagnostics, then re-enters the legacy
-// handler. A missing config file is not an error, and nothing here refuses boot.
+// Apply runs the advisory validation pass, then re-enters the legacy handler on
+// the operator's original files. Nothing in the validation pass refuses boot.
 func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
-	if home, err := resolveHomeDir(cmd); err != nil {
+	validateAdvisory(cmd)
+	return server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
+}
+
+// validateAdvisory resolves the home dir, reads the on-disk config, and prints
+// any validation diagnostics to stderr. Every step is advisory: a failure is
+// logged and swallowed so the pass can never change what the node boots on. A
+// missing config file is normal (the legacy handler creates it) and is not
+// surfaced. Keeping this a distinct step from Apply is what lets the generate
+// path add its authoring/render step as a sibling.
+func validateAdvisory(cmd *cobra.Command) {
+	home, err := resolveHomeDir(cmd)
+	if err != nil {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: could not resolve home dir for validation (advisory): %v\n", err)
-	} else if cfg, err := seiconfig.ReadConfigFromDir(home); err != nil {
+		return
+	}
+	cfg, err := seiconfig.ReadConfigFromDir(home)
+	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: could not read config for validation (advisory): %v\n", err)
 		}
-	} else if diags := seiconfig.Validate(cfg).Diagnostics; len(diags) > 0 {
+		return
+	}
+	if diags := seiconfig.Validate(cfg).Diagnostics; len(diags) > 0 {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: advisory validation diagnostics (not enforced; node will boot): %v\n", diags)
 	}
-	return server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
 }
 
 // resolveHomeDir resolves --home the same way the legacy handler does

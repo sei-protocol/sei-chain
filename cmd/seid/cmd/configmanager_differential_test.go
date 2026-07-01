@@ -133,6 +133,52 @@ func prependToFile(t *testing.T, path, s string) {
 	require.NoError(t, os.WriteFile(path, append([]byte(s), b...), 0o600))
 }
 
+// replaceInFile replaces old with new in the file at path, asserting old was
+// present so a corpus mutation can never silently become a no-op.
+func replaceInFile(t *testing.T, path, old, new string) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(b), old, "replace target %q not found — fixture would be vacuous", old)
+	require.NoError(t, os.WriteFile(path, []byte(strings.ReplaceAll(string(b), old, new)), 0o600))
+}
+
+// corpusCase is one realistic on-disk config shape, applied to a freshly-seeded
+// default home. It is the shared unit both the table-driven differential and the
+// fuzz target consume, so the set of "interesting shapes" lives in one place.
+type corpusCase struct {
+	name   string
+	mutate func(t *testing.T, home string)
+}
+
+// configCorpus is the single source of the config shapes the parity proof runs
+// over. Each case mutates a default home in place; parity must hold for all of
+// them because v2 re-enters the legacy reader regardless of what it read.
+func configCorpus() []corpusCase {
+	return []corpusCase{
+		{"default", func(t *testing.T, home string) {}},
+		{"leading-comments-and-blanks", func(t *testing.T, home string) {
+			prependToFile(t, appTOMLPath(home), "# corpus: a leading comment\n\n")
+		}},
+		{"unknown-section", func(t *testing.T, home string) {
+			appendToFile(t, appTOMLPath(home), "\n[sei-corpus-unknown]\nkey = \"value\"\n")
+		}},
+		{"quoted-scalar", func(t *testing.T, home string) {
+			// A number written as a quoted string — the sei-config lenient-decode
+			// case (#36). v2 reads it; the channels must still match legacy.
+			appendToFile(t, appTOMLPath(home), "\n[sei-corpus-scalar]\ncount = \"100000\"\n")
+		}},
+		{"cosmos-only-write-mode", func(t *testing.T, home string) {
+			// The version-skew class: a config carrying the deprecated
+			// state-commit.sc-write-mode "cosmos_only". sei-config still accepts it
+			// as valid, so v2 raises no diagnostic today; the point here is that
+			// both managers read it identically (parity). It becomes a *caught*
+			// case only once fatal validation + a sei-config deprecation rule land.
+			replaceInFile(t, appTOMLPath(home), `sc-write-mode = "memiavl_only"`, `sc-write-mode = "cosmos_only"`)
+		}},
+	}
+}
+
 // TestConfigManagerLegacyVsV2Differential is the core safety property: the v2
 // manager must produce the SAME consumed config as the legacy path. v2 reads
 // the config (to validate it) and then re-enters the legacy reader on the
@@ -212,24 +258,7 @@ func TestConfigManagerLegacyVsV2Differential_EnvHome(t *testing.T) {
 // sei-config's own reader (quoted scalars, unknown keys), whose advisory read
 // still must not perturb what the node boots on.
 func TestConfigManagerLegacyVsV2Differential_Corpus(t *testing.T) {
-	cases := []struct {
-		name   string
-		mutate func(t *testing.T, home string)
-	}{
-		{"default", func(t *testing.T, home string) {}},
-		{"leading-comments-and-blanks", func(t *testing.T, home string) {
-			prependToFile(t, appTOMLPath(home), "# corpus: a leading comment\n\n")
-		}},
-		{"unknown-section", func(t *testing.T, home string) {
-			appendToFile(t, appTOMLPath(home), "\n[sei-corpus-unknown]\nkey = \"value\"\n")
-		}},
-		{"quoted-scalar", func(t *testing.T, home string) {
-			// A number written as a quoted string — the sei-config lenient-decode
-			// case (#36). v2 reads it; the channels must still match legacy.
-			appendToFile(t, appTOMLPath(home), "\n[sei-corpus-scalar]\ncount = \"100000\"\n")
-		}},
-	}
-	for _, tc := range cases {
+	for _, tc := range configCorpus() {
 		t.Run(tc.name, func(t *testing.T) {
 			home := seedDefaultConfig(t)
 			tc.mutate(t, home)
@@ -278,37 +307,42 @@ func TestConfigManagerV2AdvisoryReadErrorMatchesLegacy(t *testing.T) {
 		"v2 should log the advisory read failure before re-entering legacy")
 }
 
-// FuzzConfigManagerLegacyVsV2Parity is the exhaustive form of the corpus: for an
-// arbitrary suffix appended to a valid app.toml, legacy and v2 must reach the
-// same outcome — identical channels when both succeed, the identical error when
-// both fail. Parity is by construction, so the fuzzer should never find a
-// divergence. Under `go test` (no -fuzz) it runs the seed corpus, which is a
-// deterministic differential in CI.
+// FuzzConfigManagerLegacyVsV2Parity is the exhaustive form of the corpus: it
+// crosses every corpus shape with an arbitrary appended app.toml suffix, and
+// asserts legacy and v2 reach the same outcome — identical channels when both
+// succeed, the identical error when both fail. Parity is by construction, so the
+// fuzzer should never find a divergence. Under `go test` (no -fuzz) it runs the
+// seed corpus (each shape × a few suffixes), a deterministic differential in CI;
+// under -fuzz it explores suffixes against every shape.
 func FuzzConfigManagerLegacyVsV2Parity(f *testing.F) {
-	for _, seed := range []string{
-		"",
-		"\n# a trailing comment\n",
-		"\n[fuzz-extra]\nk = \"v\"\n",
-		"\n[fuzz-scalar]\nn = \"100000\"\n",
-		"\nnot valid toml ][",
-	} {
-		f.Add(seed)
+	corpus := configCorpus()
+	for i := range corpus {
+		f.Add(i, "")
+		f.Add(i, "\n# a trailing comment\n")
+		f.Add(i, "\nnot valid toml ][")
 	}
-	f.Fuzz(func(t *testing.T, appTOMLSuffix string) {
+
+	f.Fuzz(func(t *testing.T, corpusIdx int, appTOMLSuffix string) {
+		if corpusIdx < 0 {
+			corpusIdx = -corpusIdx
+		}
+		tc := corpus[corpusIdx%len(corpus)]
+
 		home := seedDefaultConfig(t)
+		tc.mutate(t, home)
 		appendToFile(t, appTOMLPath(home), appTOMLSuffix)
 
 		legacyCtx, _, legacyErr := runManager(t, configmanager.LegacyConfigManager{}, startCmdForHome(t, home))
 		v2Ctx, _, v2Err := runManager(t, configmanager.SeiConfigManager{}, startCmdForHome(t, home))
 
 		if (legacyErr == nil) != (v2Err == nil) {
-			t.Fatalf("divergent outcome for suffix %q: legacyErr=%v v2Err=%v", appTOMLSuffix, legacyErr, v2Err)
+			t.Fatalf("divergent outcome (case %q, suffix %q): legacyErr=%v v2Err=%v", tc.name, appTOMLSuffix, legacyErr, v2Err)
 		}
 		if legacyErr != nil {
-			require.Equal(t, legacyErr.Error(), v2Err.Error(), "divergent error for suffix %q", appTOMLSuffix)
+			require.Equal(t, legacyErr.Error(), v2Err.Error(), "divergent error (case %q, suffix %q)", tc.name, appTOMLSuffix)
 			return
 		}
-		require.Equal(t, legacyCtx.Config, v2Ctx.Config, "Config diverges for suffix %q", appTOMLSuffix)
-		require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings(), "settings diverge for suffix %q", appTOMLSuffix)
+		require.Equal(t, legacyCtx.Config, v2Ctx.Config, "Config diverges (case %q, suffix %q)", tc.name, appTOMLSuffix)
+		require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings(), "settings diverge (case %q, suffix %q)", tc.name, appTOMLSuffix)
 	})
 }
