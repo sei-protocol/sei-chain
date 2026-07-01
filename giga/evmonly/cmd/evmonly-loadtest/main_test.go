@@ -4,7 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
@@ -78,6 +80,40 @@ func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	}
 	for _, receipt := range result.Receipts {
 		require.Len(t, receipt.Logs, 1)
+	}
+
+	applyGeneratedStateChangeSet(state, result.ChangeSet)
+	transferWorkload := workload.(*erc20TransferWorkload)
+	for i := uint64(1); i <= uint64(cfg.txsPerBlock); i++ {
+		key, err := deterministicPrivateKey(i)
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+		recipient := transferWorkload.recipient(i)
+		require.Equal(t, common.Hash{}, state.GetState(cfg.erc20Contract, erc20BalanceSlot(sender)))
+		require.Equal(t, common.BigToHash(cfg.transferValue), state.GetState(cfg.erc20Contract, erc20BalanceSlot(recipient)))
+	}
+}
+
+func applyGeneratedStateChangeSet(state *generatedState, changeSet evmonly.StateChangeSet) {
+	for _, change := range changeSet.Balances {
+		state.SetBalance(change.Address, change.Balance)
+	}
+	for _, change := range changeSet.Nonces {
+		state.SetNonce(change.Address, change.Nonce)
+	}
+	for _, change := range changeSet.Code {
+		if change.Delete {
+			state.SetCode(change.Address, nil)
+		} else {
+			state.SetCode(change.Address, change.Code)
+		}
+	}
+	for _, change := range changeSet.Storage {
+		value := change.Value
+		if change.Delete {
+			value = common.Hash{}
+		}
+		state.SetState(change.Address, change.Key, value)
 	}
 }
 
