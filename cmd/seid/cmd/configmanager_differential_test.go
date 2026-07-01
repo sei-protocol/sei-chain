@@ -133,14 +133,14 @@ func prependToFile(t *testing.T, path, s string) {
 	require.NoError(t, os.WriteFile(path, append([]byte(s), b...), 0o600))
 }
 
-// replaceInFile replaces old with new in the file at path, asserting old was
-// present so a corpus mutation can never silently become a no-op.
-func replaceInFile(t *testing.T, path, old, new string) {
+// replaceInFile replaces oldStr with newStr in the file at path, asserting
+// oldStr was present so a corpus mutation can never silently become a no-op.
+func replaceInFile(t *testing.T, path, oldStr, newStr string) {
 	t.Helper()
 	b, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Contains(t, string(b), old, "replace target %q not found — fixture would be vacuous", old)
-	require.NoError(t, os.WriteFile(path, []byte(strings.ReplaceAll(string(b), old, new)), 0o600))
+	require.Contains(t, string(b), oldStr, "replace target %q not found — fixture would be vacuous", oldStr)
+	require.NoError(t, os.WriteFile(path, []byte(strings.ReplaceAll(string(b), oldStr, newStr)), 0o600))
 }
 
 // corpusCase is one realistic on-disk config shape, applied to a freshly-seeded
@@ -317,16 +317,15 @@ func TestConfigManagerV2AdvisoryReadErrorMatchesLegacy(t *testing.T) {
 func FuzzConfigManagerLegacyVsV2Parity(f *testing.F) {
 	corpus := configCorpus()
 	for i := range corpus {
-		f.Add(i, "")
-		f.Add(i, "\n# a trailing comment\n")
-		f.Add(i, "\nnot valid toml ][")
+		f.Add(uint(i), "")
+		f.Add(uint(i), "\n# a trailing comment\n")
+		f.Add(uint(i), "\nnot valid toml ][")
 	}
 
-	f.Fuzz(func(t *testing.T, corpusIdx int, appTOMLSuffix string) {
-		if corpusIdx < 0 {
-			corpusIdx = -corpusIdx
-		}
-		tc := corpus[corpusIdx%len(corpus)]
+	// corpusIdx is unsigned so a fuzzed index maps to a case with a plain modulo
+	// — no sign guard, no math.MinInt negation edge.
+	f.Fuzz(func(t *testing.T, corpusIdx uint, appTOMLSuffix string) {
+		tc := corpus[corpusIdx%uint(len(corpus))]
 
 		home := seedDefaultConfig(t)
 		tc.mutate(t, home)
