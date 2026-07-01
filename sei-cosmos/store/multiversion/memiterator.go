@@ -95,9 +95,48 @@ func (store *Store) newMVSValidationIterator(
 	}
 }
 
+func (vi *validationIterator) hasCurrentValue(key []byte) bool {
+	strKey := string(key)
+	if _, ok := vi.writeset[strKey]; ok {
+		return true
+	}
+	if _, ok := vi.readCache[strKey]; ok {
+		return true
+	}
+	return vi.mvStore.GetLatestBeforeIndex(vi.index, key) != nil
+}
+
+func (vi *validationIterator) skipRemovedKeys() {
+	for vi.Iterator.Valid() && !vi.hasCurrentValue(vi.Iterator.Key()) {
+		vi.Iterator.Next()
+	}
+}
+
+func (vi *validationIterator) Valid() bool {
+	vi.skipRemovedKeys()
+	return vi.Iterator.Valid()
+}
+
+func (vi *validationIterator) Next() {
+	vi.Iterator.Next()
+	vi.skipRemovedKeys()
+}
+
+func (vi *validationIterator) Key() []byte {
+	vi.skipRemovedKeys()
+	return vi.Iterator.Key()
+}
+
+func (vi *validationIterator) WriteAbort(abort occtypes.Abort) {
+	select {
+	case vi.abortChannel <- abort:
+	default:
+	}
+}
+
 // try to get value from the writeset, otherwise try to get from multiversion store, otherwise try to get from parent iterator
 func (vi *validationIterator) Value() []byte {
-	key := vi.Key()
+	key := vi.Iterator.Key()
 
 	// try fetch from writeset - return if exists
 	if val, ok := vi.writeset[string(key)]; ok {
@@ -110,10 +149,13 @@ func (vi *validationIterator) Value() []byte {
 
 	// get the value from the multiversion store
 	val := vi.mvStore.GetLatestBeforeIndex(vi.index, key)
+	if val == nil {
+		return nil
+	}
 
 	// if we have an estimate, write to abort channel
 	if val.IsEstimate() {
-		vi.abortChannel <- occtypes.NewEstimateAbort(val.Index())
+		vi.WriteAbort(occtypes.NewEstimateAbort(val.Index()))
 	}
 
 	// if we have a deleted value, return nil
