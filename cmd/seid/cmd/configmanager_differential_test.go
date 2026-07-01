@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,9 +29,15 @@ var errStopPreRun = errors.New("stop after prerun")
 // consume). It mirrors the harness in sei-cosmos/server/util_test.go.
 func runConfigManager(t *testing.T, mgr configmanager.ConfigManager, homeDir string) *server.Context {
 	t.Helper()
+	return execConfigManager(t, mgr, startCmdForHome(t, homeDir))
+}
+
+// startCmdForHome builds a StartCmd with --home set to homeDir.
+func startCmdForHome(t *testing.T, homeDir string) *cobra.Command {
+	t.Helper()
 	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
 	require.NoError(t, cmd.Flags().Set(flags.FlagHome, homeDir))
-	return execConfigManager(t, mgr, cmd)
+	return cmd
 }
 
 // runConfigManagerEnvHome is runConfigManager's twin that supplies homeDir
@@ -54,23 +62,75 @@ func runConfigManagerEnvHome(t *testing.T, mgr configmanager.ConfigManager, home
 	return execConfigManager(t, mgr, cmd)
 }
 
-// execConfigManager runs mgr.Apply inside cmd's PreRunE (aborting before the
-// node boots) and returns the populated server context. The caller configures
-// how home is supplied (flag vs env) on cmd beforehand.
+// execConfigManager runs mgr.Apply on the happy path (Apply succeeds; boot is
+// aborted with errStopPreRun) and returns the populated server context. The
+// caller configures how home is supplied (flag vs env) on cmd beforehand.
 func execConfigManager(t *testing.T, mgr configmanager.ConfigManager, cmd *cobra.Command) *server.Context {
 	t.Helper()
+	ctx, _, err := runManager(t, mgr, cmd)
+	require.NoError(t, err)
+	return ctx
+}
+
+// runManager runs mgr.Apply inside cmd's PreRunE, capturing what an operator
+// would see and do: the populated server context, whatever Apply wrote to
+// stderr (advisory diagnostics), and the error Apply returned. Apply is the
+// only boot-refusing call, so on the happy path it returns nil and boot is
+// aborted with errStopPreRun; on a real config error it returns that error and
+// runManager surfaces it unchanged. The caller sets home on cmd beforehand.
+func runManager(t *testing.T, mgr configmanager.ConfigManager, cmd *cobra.Command) (*server.Context, string, error) {
+	t.Helper()
 	template, appCfg := initAppConfig()
+
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+
+	var applyErr error
 	cmd.PreRunE = func(c *cobra.Command, _ []string) error {
-		if err := mgr.Apply(c, template, appCfg); err != nil {
-			return err
+		if applyErr = mgr.Apply(c, template, appCfg); applyErr != nil {
+			return applyErr
 		}
 		return errStopPreRun
 	}
 
 	serverCtx := &server.Context{}
 	ctx := context.WithValue(context.Background(), server.ServerContextKey, serverCtx)
-	require.ErrorIs(t, cmd.ExecuteContext(ctx), errStopPreRun)
-	return serverCtx
+	execErr := cmd.ExecuteContext(ctx)
+	if applyErr == nil {
+		require.ErrorIs(t, execErr, errStopPreRun)
+	}
+	return serverCtx, stderr.String(), applyErr
+}
+
+// appTOMLPath and cfgTOMLPath are the two files the legacy creator writes into a
+// home and both managers then read.
+func appTOMLPath(home string) string { return filepath.Join(home, "config", "app.toml") }
+func cfgTOMLPath(home string) string { return filepath.Join(home, "config", "config.toml") }
+
+// seedDefaultConfig generates a complete, realistic config (all Sei sections) by
+// letting the legacy creator write into a fresh home, and returns that home.
+func seedDefaultConfig(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	_ = runConfigManager(t, configmanager.LegacyConfigManager{}, home)
+	return home
+}
+
+// appendToFile appends s to the file at path (both managers must still agree on
+// the result).
+func appendToFile(t *testing.T, path, s string) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, append(b, []byte(s)...), 0o600))
+}
+
+// prependToFile prepends s to the file at path.
+func prependToFile(t *testing.T, path, s string) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, append([]byte(s), b...), 0o600))
 }
 
 // TestConfigManagerLegacyVsV2Differential is the core safety property: the v2
@@ -143,4 +203,112 @@ func TestConfigManagerLegacyVsV2Differential_EnvHome(t *testing.T) {
 		"serverCtx.Config differs between legacy and v2 on the env-home path")
 	require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings(),
 		"serverCtx.Viper settings differ between legacy and v2 on the env-home path")
+}
+
+// TestConfigManagerLegacyVsV2Differential_Corpus widens the parity proof from
+// the single default fixture to a corpus of realistic on-disk shapes. Parity is
+// by construction (v2 re-enters the legacy reader), so any shape an operator
+// could present must produce identical channels — including shapes that exercise
+// sei-config's own reader (quoted scalars, unknown keys), whose advisory read
+// still must not perturb what the node boots on.
+func TestConfigManagerLegacyVsV2Differential_Corpus(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(t *testing.T, home string)
+	}{
+		{"default", func(t *testing.T, home string) {}},
+		{"leading-comments-and-blanks", func(t *testing.T, home string) {
+			prependToFile(t, appTOMLPath(home), "# corpus: a leading comment\n\n")
+		}},
+		{"unknown-section", func(t *testing.T, home string) {
+			appendToFile(t, appTOMLPath(home), "\n[sei-corpus-unknown]\nkey = \"value\"\n")
+		}},
+		{"quoted-scalar", func(t *testing.T, home string) {
+			// A number written as a quoted string — the sei-config lenient-decode
+			// case (#36). v2 reads it; the channels must still match legacy.
+			appendToFile(t, appTOMLPath(home), "\n[sei-corpus-scalar]\ncount = \"100000\"\n")
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := seedDefaultConfig(t)
+			tc.mutate(t, home)
+
+			legacyCtx := runConfigManager(t, configmanager.LegacyConfigManager{}, home)
+			v2Ctx := runConfigManager(t, configmanager.SeiConfigManager{}, home)
+
+			require.Equal(t, legacyCtx.Config, v2Ctx.Config,
+				"serverCtx.Config differs between legacy and v2 (%s)", tc.name)
+			require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings(),
+				"serverCtx.Viper settings differ between legacy and v2 (%s)", tc.name)
+		})
+	}
+}
+
+// TestConfigManagerV2AdvisoryNeverRefusesBoot pins the advisory invariant: on a
+// valid config, v2 boots exactly as legacy does (Apply returns nil, both
+// channels match), regardless of any diagnostics it prints. v2 adds
+// observability, never a new boot outcome.
+func TestConfigManagerV2AdvisoryNeverRefusesBoot(t *testing.T) {
+	home := seedDefaultConfig(t)
+
+	v2Ctx, _, v2Err := runManager(t, configmanager.SeiConfigManager{}, startCmdForHome(t, home))
+	require.NoError(t, v2Err, "advisory validation must never refuse boot on a valid config")
+
+	legacyCtx := runConfigManager(t, configmanager.LegacyConfigManager{}, home)
+	require.Equal(t, legacyCtx.Config, v2Ctx.Config)
+	require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings())
+}
+
+// TestConfigManagerV2AdvisoryReadErrorMatchesLegacy pins the other half of the
+// invariant: when the config is unreadable, v2 must not mask the failure or
+// invent a new one. It logs an advisory read error, then re-enters the legacy
+// handler and returns exactly the error legacy returns.
+func TestConfigManagerV2AdvisoryReadErrorMatchesLegacy(t *testing.T) {
+	home := seedDefaultConfig(t)
+	require.NoError(t, os.WriteFile(cfgTOMLPath(home), []byte("this is ] not [ valid toml"), 0o600))
+
+	_, _, legacyErr := runManager(t, configmanager.LegacyConfigManager{}, startCmdForHome(t, home))
+	_, v2Stderr, v2Err := runManager(t, configmanager.SeiConfigManager{}, startCmdForHome(t, home))
+
+	require.Error(t, legacyErr, "corrupt config.toml should fail the legacy reader")
+	require.Equal(t, legacyErr.Error(), v2Err.Error(),
+		"v2 must return the same boot error as legacy, not mask or add one")
+	require.Contains(t, v2Stderr, "could not read config for validation",
+		"v2 should log the advisory read failure before re-entering legacy")
+}
+
+// FuzzConfigManagerLegacyVsV2Parity is the exhaustive form of the corpus: for an
+// arbitrary suffix appended to a valid app.toml, legacy and v2 must reach the
+// same outcome — identical channels when both succeed, the identical error when
+// both fail. Parity is by construction, so the fuzzer should never find a
+// divergence. Under `go test` (no -fuzz) it runs the seed corpus, which is a
+// deterministic differential in CI.
+func FuzzConfigManagerLegacyVsV2Parity(f *testing.F) {
+	for _, seed := range []string{
+		"",
+		"\n# a trailing comment\n",
+		"\n[fuzz-extra]\nk = \"v\"\n",
+		"\n[fuzz-scalar]\nn = \"100000\"\n",
+		"\nnot valid toml ][",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, appTOMLSuffix string) {
+		home := seedDefaultConfig(t)
+		appendToFile(t, appTOMLPath(home), appTOMLSuffix)
+
+		legacyCtx, _, legacyErr := runManager(t, configmanager.LegacyConfigManager{}, startCmdForHome(t, home))
+		v2Ctx, _, v2Err := runManager(t, configmanager.SeiConfigManager{}, startCmdForHome(t, home))
+
+		if (legacyErr == nil) != (v2Err == nil) {
+			t.Fatalf("divergent outcome for suffix %q: legacyErr=%v v2Err=%v", appTOMLSuffix, legacyErr, v2Err)
+		}
+		if legacyErr != nil {
+			require.Equal(t, legacyErr.Error(), v2Err.Error(), "divergent error for suffix %q", appTOMLSuffix)
+			return
+		}
+		require.Equal(t, legacyCtx.Config, v2Ctx.Config, "Config diverges for suffix %q", appTOMLSuffix)
+		require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings(), "settings diverge for suffix %q", appTOMLSuffix)
+	})
 }
