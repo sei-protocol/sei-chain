@@ -39,10 +39,10 @@ func TestSelect(t *testing.T) {
 
 // TestResolveHomeDir_Flag confirms resolveHomeDir reads the --home flag — the
 // value v2 validates against must be the dir the re-entered handler reads. (Env
-// precedence follows viper, mirrored from the legacy handler; the env case is
-// awkward to exercise here because the prefix is the test binary's basename,
-// not SEID_, so it rides the generate-path PR — the boot differential already
-// proves passthrough parity regardless of where home resolves.)
+// precedence follows viper, mirrored from the legacy handler; the end-to-end
+// env-driven case is exercised by TestConfigManagerLegacyVsV2Differential_EnvHome
+// in the cmd package, which resolves the test-binary-basename prefix and asserts
+// legacy/v2 parity.)
 func TestResolveHomeDir_Flag(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.Flags().String(flags.FlagHome, "", "")
