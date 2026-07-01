@@ -37,13 +37,17 @@ const (
 	defaultMinGasPriceWei  = "1000000000"
 	defaultSenderBalance   = "1000000000000000000"
 	defaultTransferValue   = "1"
+	defaultERC20Contract   = "0x000000000000000000000000000000000000e20c"
 	defaultMetricsAddr     = "127.0.0.1:9698"
 	defaultReportInterval  = 5 * time.Second
 	defaultQueueSize       = 64
 	defaultTxGasLimit      = 21_000
+	defaultERC20TxGasLimit = 100_000
 	defaultTxsPerBlock     = 1_000
 	defaultWorkerCount     = 1
 	defaultCoinbaseAddress = "0x00000000000000000000000000000000000000cb"
+	workloadTransfer       = "transfer"
+	workloadERC20Transfer  = "erc20-transfer"
 )
 
 type config struct {
@@ -65,6 +69,7 @@ type config struct {
 	txGasLimit          uint64
 	blockGasLimit       uint64
 	coinbase            common.Address
+	erc20Contract       common.Address
 	fixedRecipient      *common.Address
 	disableGasPriceRule bool
 	prebuildBlocks      bool
@@ -96,8 +101,9 @@ func parseConfig(args []string) (config, error) {
 	gasPrice := fs.String("gas-price-wei", defaultGasPriceWei, "legacy transaction gas price in wei")
 	minGasPrice := fs.String("min-gas-price-wei", defaultMinGasPriceWei, "executor minimum gas price in wei")
 	senderBalance := fs.String("sender-balance-wei", defaultSenderBalance, "generated sender genesis balance in wei")
-	transferValue := fs.String("transfer-value-wei", defaultTransferValue, "wei transferred by each generated transaction")
+	transferValue := fs.String("transfer-value-wei", defaultTransferValue, "wei or token units transferred by each generated transaction")
 	coinbase := fs.String("coinbase", defaultCoinbaseAddress, "block coinbase address")
+	erc20Contract := fs.String("erc20-contract", defaultERC20Contract, "EVM address for the generated ERC20 transfer contract")
 	recipient := fs.String("recipient", "", "optional fixed transfer recipient; empty creates one recipient per tx")
 
 	fs.Uint64Var(&cfg.blocks, "blocks", 0, "number of blocks to feed; 0 runs until interrupted")
@@ -109,7 +115,7 @@ func parseConfig(args []string) (config, error) {
 	fs.Float64Var(&cfg.targetBlocksPerSec, "target-blocks-per-sec", 0, "input block rate cap; 0 means unlimited")
 	fs.DurationVar(&cfg.reportInterval, "report-interval", defaultReportInterval, "stdout and rate-gauge reporting interval; 0 disables periodic reports")
 	fs.StringVar(&cfg.metricsAddr, "metrics-addr", defaultMetricsAddr, "Prometheus listen address; empty disables HTTP metrics")
-	fs.StringVar(&cfg.workload, "workload", "transfer", "workload type; currently transfer")
+	fs.StringVar(&cfg.workload, "workload", workloadTransfer, "workload type: transfer or erc20-transfer")
 	fs.Uint64Var(&cfg.txGasLimit, "tx-gas-limit", defaultTxGasLimit, "gas limit for each generated transaction")
 	fs.Uint64Var(&cfg.blockGasLimit, "block-gas-limit", 0, "block gas limit; 0 lets the executor use its maximum")
 	fs.BoolVar(&cfg.disableGasPriceRule, "disable-gas-price-rule", false, "disable the executor min-gas-price validity rule")
@@ -145,9 +151,22 @@ func parseConfig(args []string) (config, error) {
 		addr := common.HexToAddress(*recipient)
 		cfg.fixedRecipient = &addr
 	}
+	if !common.IsHexAddress(*erc20Contract) {
+		return config{}, fmt.Errorf("erc20-contract must be a hex EVM address")
+	}
+	cfg.erc20Contract = common.HexToAddress(*erc20Contract)
 	cfg.workload = strings.ToLower(strings.TrimSpace(cfg.workload))
-	if cfg.workload != "transfer" {
+	if cfg.workload != workloadTransfer && cfg.workload != workloadERC20Transfer {
 		return config{}, fmt.Errorf("unsupported workload %q", cfg.workload)
+	}
+	txGasLimitSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "tx-gas-limit" {
+			txGasLimitSet = true
+		}
+	})
+	if cfg.workload == workloadERC20Transfer && !txGasLimitSet {
+		cfg.txGasLimit = defaultERC20TxGasLimit
 	}
 	if cfg.txsPerBlock <= 0 {
 		return config{}, fmt.Errorf("txs-per-block must be positive")
@@ -173,6 +192,9 @@ func parseConfig(args []string) (config, error) {
 	if cfg.txGasLimit == 0 {
 		return config{}, fmt.Errorf("tx-gas-limit must be positive")
 	}
+	if cfg.transferValue.BitLen() > 256 {
+		return config{}, fmt.Errorf("transfer-value-wei must fit in uint256")
+	}
 	if cfg.prebuildBlocks && cfg.blocks == 0 {
 		return config{}, fmt.Errorf("prebuild-blocks requires --blocks > 0")
 	}
@@ -180,9 +202,13 @@ func parseConfig(args []string) (config, error) {
 		return config{}, fmt.Errorf("gas-price-wei must be greater than or equal to min-gas-price-wei unless disable-gas-price-rule is set")
 	}
 	requiredBalance := new(big.Int).Mul(new(big.Int).SetUint64(cfg.txGasLimit), cfg.gasPrice)
-	requiredBalance.Add(requiredBalance, cfg.transferValue)
+	requiredBalanceReason := "max gas cost"
+	if cfg.workload == workloadTransfer {
+		requiredBalance.Add(requiredBalance, cfg.transferValue)
+		requiredBalanceReason = "transfer value plus max gas cost"
+	}
 	if cfg.senderBalance.Cmp(requiredBalance) < 0 {
-		return config{}, fmt.Errorf("sender-balance-wei must cover transfer value plus max gas cost: need at least %s", requiredBalance.String())
+		return config{}, fmt.Errorf("sender-balance-wei must cover %s: need at least %s", requiredBalanceReason, requiredBalance.String())
 	}
 	return cfg, nil
 }
@@ -230,7 +256,10 @@ func run(cfg config) error {
 	defer stop()
 
 	state := newGeneratedState()
-	workload := newTransferWorkload(cfg, state)
+	workload, err := newWorkload(cfg, state)
+	if err != nil {
+		return err
+	}
 	registry := prometheus.NewRegistry()
 	metrics := newLoadMetrics(registry)
 
@@ -255,7 +284,22 @@ func run(cfg config) error {
 	return runStreaming(ctx, cfg, state, workload, metrics)
 }
 
-func runStreaming(ctx context.Context, cfg config, state *generatedState, workload *transferWorkload, metrics *loadMetrics) error {
+type blockWorkload interface {
+	buildBlock(context.Context, uint64) (evmonly.BlockRequest, error)
+}
+
+func newWorkload(cfg config, state *generatedState) (blockWorkload, error) {
+	switch cfg.workload {
+	case workloadTransfer:
+		return newTransferWorkload(cfg, state), nil
+	case workloadERC20Transfer:
+		return newERC20TransferWorkload(cfg, state), nil
+	default:
+		return nil, fmt.Errorf("unsupported workload %q", cfg.workload)
+	}
+}
+
+func runStreaming(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, metrics *loadMetrics) error {
 	blocks := make(chan blockEnvelope, cfg.queueSize)
 	reportCtx, stopReporter := context.WithCancel(ctx)
 	reportDone := make(chan struct{})
@@ -293,7 +337,7 @@ func runStreaming(ctx context.Context, cfg config, state *generatedState, worklo
 	return err
 }
 
-func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workload *transferWorkload, metrics *loadMetrics) error {
+func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, metrics *loadMetrics) error {
 	prebuildStartedAt := time.Now()
 	prebuilt, err := prebuildBlockRequests(ctx, cfg, workload)
 	if err != nil {
@@ -340,7 +384,7 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	return err
 }
 
-func produceBlocks(ctx context.Context, cfg config, workload *transferWorkload, out chan<- blockEnvelope, metrics *loadMetrics) error {
+func produceBlocks(ctx context.Context, cfg config, workload blockWorkload, out chan<- blockEnvelope, metrics *loadMetrics) error {
 	var limiter *rate.Limiter
 	if cfg.targetBlocksPerSec > 0 {
 		burst := int(math.Ceil(cfg.targetBlocksPerSec))
@@ -384,7 +428,7 @@ func produceBlocks(ctx context.Context, cfg config, workload *transferWorkload, 
 	return group.Wait()
 }
 
-func prebuildBlockRequests(ctx context.Context, cfg config, workload *transferWorkload) ([]blockEnvelope, error) {
+func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorkload) ([]blockEnvelope, error) {
 	if cfg.blocks > uint64(maxInt()) {
 		return nil, fmt.Errorf("prebuild-blocks cannot allocate %d blocks on this platform", cfg.blocks)
 	}
@@ -498,7 +542,7 @@ func (w *transferWorkload) buildBlock(ctx context.Context, number uint64) (evmon
 		txs[i] = raw
 	}
 	return evmonly.BlockRequest{
-		Context: w.blockContext(number),
+		Context: blockContext(w.cfg, number),
 		Txs:     txs,
 	}, nil
 }
@@ -535,14 +579,107 @@ func (w *transferWorkload) recipient(accountIndex uint64) common.Address {
 	return addressFromSeed("sei-evmonly-loadtest-recipient", accountIndex)
 }
 
-func (w *transferWorkload) blockContext(number uint64) evmonly.BlockContext {
+type erc20TransferWorkload struct {
+	cfg           config
+	state         *generatedState
+	signer        ethtypes.Signer
+	accountCursor atomic.Uint64
+}
+
+var (
+	erc20TransferSelector = [4]byte{0xa9, 0x05, 0x9c, 0xbb}
+	// Minimal ERC20-like runtime for transfer(address,uint256), with balances at
+	// storage slot 0 and a standard Transfer(address,address,uint256) log.
+	erc20TransferRuntimeCode = common.FromHex("0x60003560e01c63a9059cbb1460145760006000fd5b60243560043533600052600060205260406000208054831060805780548303905580600052600060205260406000208054830190558160005280337fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef60206000a3600160005260206000f35b60006000fd")
+)
+
+func newERC20TransferWorkload(cfg config, state *generatedState) *erc20TransferWorkload {
+	state.SetCode(cfg.erc20Contract, erc20TransferRuntimeCode)
+	return &erc20TransferWorkload{
+		cfg:    cfg,
+		state:  state,
+		signer: ethtypes.LatestSignerForChainID(cfg.chainID),
+	}
+}
+
+func (w *erc20TransferWorkload) buildBlock(ctx context.Context, number uint64) (evmonly.BlockRequest, error) {
+	txs := make([][]byte, w.cfg.txsPerBlock)
+	for i := 0; i < w.cfg.txsPerBlock; i++ {
+		select {
+		case <-ctx.Done():
+			return evmonly.BlockRequest{}, ctx.Err()
+		default:
+		}
+		accountIndex := w.accountCursor.Add(1)
+		raw, sender, err := w.buildTransferTx(accountIndex)
+		if err != nil {
+			return evmonly.BlockRequest{}, err
+		}
+		w.state.SetBalance(sender, w.cfg.senderBalance)
+		w.state.SetState(w.cfg.erc20Contract, erc20BalanceSlot(sender), common.BigToHash(w.cfg.transferValue))
+		txs[i] = raw
+	}
+	return evmonly.BlockRequest{
+		Context: blockContext(w.cfg, number),
+		Txs:     txs,
+	}, nil
+}
+
+func (w *erc20TransferWorkload) buildTransferTx(accountIndex uint64) ([]byte, common.Address, error) {
+	key, err := deterministicPrivateKey(accountIndex)
+	if err != nil {
+		return nil, common.Address{}, err
+	}
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := w.recipient(accountIndex)
+	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    0,
+		GasPrice: new(big.Int).Set(w.cfg.gasPrice),
+		Gas:      w.cfg.txGasLimit,
+		To:       &w.cfg.erc20Contract,
+		Value:    new(big.Int),
+		Data:     erc20TransferCalldata(recipient, w.cfg.transferValue),
+	})
+	signed, err := ethtypes.SignTx(tx, w.signer, key)
+	if err != nil {
+		return nil, common.Address{}, err
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		return nil, common.Address{}, err
+	}
+	return raw, sender, nil
+}
+
+func (w *erc20TransferWorkload) recipient(accountIndex uint64) common.Address {
+	if w.cfg.fixedRecipient != nil {
+		return *w.cfg.fixedRecipient
+	}
+	return addressFromSeed("sei-evmonly-loadtest-erc20-recipient", accountIndex)
+}
+
+func erc20TransferCalldata(recipient common.Address, amount *big.Int) []byte {
+	data := make([]byte, 4+32+32)
+	copy(data[:4], erc20TransferSelector[:])
+	copy(data[4+12:36], recipient.Bytes())
+	amount.FillBytes(data[36:68])
+	return data
+}
+
+func erc20BalanceSlot(owner common.Address) common.Hash {
+	var encoded [64]byte
+	copy(encoded[12:32], owner.Bytes())
+	return crypto.Keccak256Hash(encoded[:])
+}
+
+func blockContext(cfg config, number uint64) evmonly.BlockContext {
 	return evmonly.BlockContext{
 		Number:     number,
 		Time:       uint64(time.Now().Unix()),
-		GasLimit:   w.cfg.blockGasLimit,
-		ChainID:    new(big.Int).Set(w.cfg.chainID),
+		GasLimit:   cfg.blockGasLimit,
+		ChainID:    new(big.Int).Set(cfg.chainID),
 		BaseFee:    big.NewInt(0),
-		Coinbase:   w.cfg.coinbase,
+		Coinbase:   cfg.coinbase,
 		ParentHash: hashFromSeed("sei-evmonly-loadtest-parent", number-1),
 		BlockHash:  hashFromSeed("sei-evmonly-loadtest-block", number),
 		PrevRandao: hashFromSeed("sei-evmonly-loadtest-randao", number),

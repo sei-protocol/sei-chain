@@ -41,6 +41,46 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	discardReceiptSink{}.StoreReceipts(request.Context.Number, result.Receipts)
 }
 
+func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--workload=erc20-transfer",
+		"--txs-per-block=4",
+		"--gas-price-wei=0",
+		"--min-gas-price-wei=0",
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(defaultERC20TxGasLimit), cfg.txGasLimit)
+
+	state := newGeneratedState()
+	workload, err := newWorkload(cfg, state)
+	require.NoError(t, err)
+	request, err := workload.buildBlock(context.Background(), 1)
+	require.NoError(t, err)
+
+	executor := evmonly.NewExecutor(evmonly.Config{
+		MinGasPrice: cfg.minGasPrice,
+		OCCWorkers:  cfg.executorWorkers,
+	}, evmonly.WithState(state))
+	result, err := executor.ExecuteBlock(context.Background(), request)
+	require.NoError(t, err)
+
+	require.Len(t, result.Txs, cfg.txsPerBlock)
+	require.Len(t, result.Receipts, cfg.txsPerBlock)
+	require.NotEmpty(t, result.ChangeSet.Storage)
+	require.True(t, result.OCCStats.Attempted)
+	require.False(t, result.OCCStats.Fallback)
+	for _, tx := range result.Txs {
+		require.Equal(t, ethtypes.ReceiptStatusSuccessful, tx.Status)
+		require.NoError(t, tx.Err)
+		require.Greater(t, tx.GasUsed, uint64(21_000))
+		require.Len(t, tx.Logs, 1)
+	}
+	for _, receipt := range result.Receipts {
+		require.Len(t, receipt.Logs, 1)
+	}
+}
+
 func TestPrebuildBlocksRequiresBoundedRun(t *testing.T) {
 	_, err := parseConfig([]string{
 		"--prebuild-blocks",
