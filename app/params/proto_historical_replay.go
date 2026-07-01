@@ -10,8 +10,9 @@ import (
 
 // This variant swaps the block-execution tx decoder to the lenient one that does
 // not reject non-canonical protobuf tx bodies, so a tagged build can replay
-// pre-v6.5 pacific-1 blocks. It is consensus-unsafe for live paths and must only
-// be reachable via the historical_replay build tag.
+// historical blocks whose tx bodies predate strict body-bloat rejection. It is
+// consensus-unsafe for live paths and must only be reachable via the
+// historical_replay build tag.
 
 // MakeEncodingConfig creates an EncodingConfig for an amino based test configuration.
 func MakeEncodingConfig() EncodingConfig {

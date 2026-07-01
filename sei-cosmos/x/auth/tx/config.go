@@ -41,9 +41,10 @@ func NewTxConfigWithHandler(protoCodec codec.ProtoCodecMarshaler, handler signin
 	}
 }
 
-// NewTxConfigWithoutBodyBloatRejection returns a TxConfig whose decoder preserves
-// pre-v6.5 decode behavior (no body-bloat rejection). This is consensus-unsafe for
-// live paths and exists only for historical replay tooling gated behind a build tag.
+// NewTxConfigWithoutBodyBloatRejection returns a TxConfig whose decoder does not
+// reject non-canonical (body-bloat) protobuf tx bodies, so historical blocks whose
+// tx bodies predate that check can be decoded and executed. This is consensus-unsafe
+// for live paths and exists only for historical replay tooling gated behind a build tag.
 func NewTxConfigWithoutBodyBloatRejection(protoCodec codec.ProtoCodecMarshaler, enabledSignModes []signingtypes.SignMode) client.TxConfig {
 	return &config{
 		handler:     makeSignModeHandler(enabledSignModes),
