@@ -7,6 +7,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -39,6 +40,9 @@ type RPC[API any, Req, Resp protoutils.Sized] struct {
 	Limit Limit
 	Req   Msg[Req]
 	Resp  Msg[Resp]
+
+	ServerAttrs metrics.Attrs
+	ClientAttrs metrics.Attrs
 }
 
 type rpcConfig struct {
@@ -87,7 +91,16 @@ func Register[API any, Req, Resp protoutils.Sized](kind mux.StreamKind, limit Li
 		panic(fmt.Errorf("RPC %v: %w", kind, err))
 	}
 	service[kind] = &rpcConfig{limit: limit}
-	return &RPC[API, Req, Resp]{kind, limit, req, resp}
+	rpcName := fmt.Sprintf("%T", utils.Zero[Req]())
+	return &RPC[API, Req, Resp]{
+		Kind:  kind,
+		Limit: limit,
+		Req:   req,
+		Resp:  resp,
+
+		ServerAttrs: metrics.NewAttrs(metrics.RoleServer, rpcName),
+		ClientAttrs: metrics.NewAttrs(metrics.RoleClient, rpcName),
+	}
 }
 
 type Server[API any] struct{ mux *mux.Mux }
@@ -106,13 +119,16 @@ func NewClient[API any]() Client[API] {
 
 func (c Client[API]) Run(ctx context.Context, conn conn.Conn) error { return c.mux.Run(ctx, conn) }
 
-// TODO: add client-size rate limiting.
+// TODO: add client-side rate limiting.
 func (r *RPC[API, Req, Resp]) Call(ctx context.Context, client Client[API]) (Stream[Req, Resp], error) {
 	s, err := client.mux.Accept(ctx, r.Kind, uint64(r.Resp.MsgSize), uint64(r.Resp.Window))
 	if err != nil {
 		return Stream[Req, Resp]{}, err
 	}
-	return Stream[Req, Resp]{inner: s}, nil
+	return Stream[Req, Resp]{
+		call:  metrics.StartCall(r.ClientAttrs),
+		inner: s,
+	}, nil
 }
 
 func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], handler func(context.Context, Stream[Resp, Req]) error) error {
@@ -124,11 +140,15 @@ func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], han
 					if err := limiter.Wait(ctx); err != nil {
 						return err
 					}
-					stream, err := server.mux.Connect(ctx, r.Kind, uint64(r.Req.MsgSize), uint64(r.Req.Window)) //nolint:gosec // MsgSize and Window are validated config values
+					muxStream, err := server.mux.Connect(ctx, r.Kind, uint64(r.Req.MsgSize), uint64(r.Req.Window)) //nolint:gosec // MsgSize and Window are validated config values
 					if err != nil {
 						return err
 					}
-					err = handler(ctx, Stream[Resp, Req]{inner: stream})
+					stream := Stream[Resp, Req]{
+						call:  metrics.StartCall(r.ServerAttrs),
+						inner: muxStream,
+					}
+					err = handler(ctx, stream)
 					stream.Close()
 					if err != nil {
 						return err
@@ -141,16 +161,25 @@ func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], han
 	})
 }
 
-type Stream[SendT, RecvT protoutils.Message] struct{ inner *mux.Stream }
+type Stream[SendT, RecvT protoutils.Message] struct {
+	call  metrics.Call
+	inner *mux.Stream
+}
 
-func (s Stream[SendT, RecvT]) Close() { s.inner.Close() }
+func (s Stream[SendT, RecvT]) Close() {
+	s.inner.Close()
+	s.call.Stop()
+}
 func (s Stream[SendT, RecvT]) Send(ctx context.Context, msg SendT) error {
-	return s.inner.Send(ctx, protoutils.Marshal(msg))
+	raw := protoutils.Marshal(msg)
+	s.call.Send(len(raw))
+	return s.inner.Send(ctx, raw)
 }
 func (s Stream[SendT, RecvT]) Recv(ctx context.Context) (RecvT, error) {
 	raw, err := s.inner.Recv(ctx, true)
 	if err != nil {
 		return utils.Zero[RecvT](), err
 	}
+	s.call.Recv(len(raw))
 	return protoutils.Unmarshal[RecvT](raw)
 }
