@@ -369,7 +369,7 @@ func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 		b.totalBlocksWritten++
 		b.totalBytesWritten += blockBytes
 		b.highestBlockHeight = uint64(n)
-		b.metrics.ReportBlockWritten(blockBytes)
+		b.metrics.ReportBlockWritten(blockBytes, int64(len(blk.Payload().Txs())))
 	}
 	b.metrics.RecordHighestHeight(b.highestBlockHeight)
 

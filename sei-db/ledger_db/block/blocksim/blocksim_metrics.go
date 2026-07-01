@@ -14,11 +14,12 @@ const blocksimMeterName = "blocksim"
 type BlocksimMetrics struct {
 	ctx context.Context
 
-	blocksWrittenTotal metric.Int64Counter
-	qcsWrittenTotal    metric.Int64Counter
-	bytesWrittenTotal  metric.Int64Counter
-	pruneCallsTotal    metric.Int64Counter
-	flushCallsTotal    metric.Int64Counter
+	blocksWrittenTotal       metric.Int64Counter
+	transactionsWrittenTotal metric.Int64Counter
+	qcsWrittenTotal          metric.Int64Counter
+	bytesWrittenTotal        metric.Int64Counter
+	pruneCallsTotal          metric.Int64Counter
+	flushCallsTotal          metric.Int64Counter
 
 	lowestBlockHeight  metric.Int64Gauge
 	highestBlockHeight metric.Int64Gauge
@@ -36,6 +37,11 @@ func NewBlocksimMetrics(ctx context.Context, config *BlocksimConfig) *BlocksimMe
 	blocksWrittenTotal, _ := meter.Int64Counter(
 		"blocksim_blocks_written_total",
 		metric.WithDescription("Total number of blocks written to the database"),
+		metric.WithUnit("{count}"),
+	)
+	transactionsWrittenTotal, _ := meter.Int64Counter(
+		"blocksim_transactions_written_total",
+		metric.WithDescription("Total number of transactions written to the database (summed across all block payloads)"),
 		metric.WithUnit("{count}"),
 	)
 	qcsWrittenTotal, _ := meter.Int64Counter(
@@ -77,16 +83,17 @@ func NewBlocksimMetrics(ctx context.Context, config *BlocksimConfig) *BlocksimMe
 	mainThreadPhase := metrics.NewPhaseTimer(meter, "blocksim_main_thread")
 
 	m := &BlocksimMetrics{
-		ctx:                ctx,
-		blocksWrittenTotal: blocksWrittenTotal,
-		qcsWrittenTotal:    qcsWrittenTotal,
-		bytesWrittenTotal:  bytesWrittenTotal,
-		pruneCallsTotal:    pruneCallsTotal,
-		flushCallsTotal:    flushCallsTotal,
-		lowestBlockHeight:  lowestBlockHeight,
-		highestBlockHeight: highestBlockHeight,
-		blockSizeBytes:     blockSizeBytes,
-		mainThreadPhase:    mainThreadPhase,
+		ctx:                      ctx,
+		blocksWrittenTotal:       blocksWrittenTotal,
+		transactionsWrittenTotal: transactionsWrittenTotal,
+		qcsWrittenTotal:          qcsWrittenTotal,
+		bytesWrittenTotal:        bytesWrittenTotal,
+		pruneCallsTotal:          pruneCallsTotal,
+		flushCallsTotal:          flushCallsTotal,
+		lowestBlockHeight:        lowestBlockHeight,
+		highestBlockHeight:       highestBlockHeight,
+		blockSizeBytes:           blockSizeBytes,
+		mainThreadPhase:          mainThreadPhase,
 	}
 
 	m.recordBlockSize(config)
@@ -117,13 +124,16 @@ func (m *BlocksimMetrics) RecordHighestHeight(height uint64) {
 	m.highestBlockHeight.Record(context.Background(), int64(height)) //nolint:gosec
 }
 
-func (m *BlocksimMetrics) ReportBlockWritten(byteCount int64) {
+func (m *BlocksimMetrics) ReportBlockWritten(byteCount int64, txCount int64) {
 	if m == nil {
 		return
 	}
 	ctx := context.Background()
 	if m.blocksWrittenTotal != nil {
 		m.blocksWrittenTotal.Add(ctx, 1)
+	}
+	if m.transactionsWrittenTotal != nil {
+		m.transactionsWrittenTotal.Add(ctx, txCount)
 	}
 	if m.bytesWrittenTotal != nil {
 		m.bytesWrittenTotal.Add(ctx, byteCount)
