@@ -11,10 +11,13 @@ import (
 	"github.com/spf13/viper"
 
 	seiconfig "github.com/sei-protocol/sei-config"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 )
+
+var logger = seilog.NewLogger("cmd", "seid", "configmanager")
 
 // EnvVar gates which configuration manager seid uses.
 const EnvVar = "SEI_CONFIG_MANAGER"
@@ -48,27 +51,28 @@ func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string
 	return server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
 }
 
-// validateAdvisory resolves the home dir, reads the on-disk config, and prints
-// any validation diagnostics to stderr. Every step is advisory: a failure is
-// logged and swallowed so the pass can never change what the node boots on. A
+// validateAdvisory resolves the home dir, reads the on-disk config, and logs any
+// validation diagnostics via seilog at Warn. Every step is advisory: a failure
+// is logged and swallowed so the pass can never change what the node boots on. A
 // missing config file is normal (the legacy handler creates it) and is not
 // surfaced. Keeping this a distinct step from Apply is what lets the generate
 // path add its authoring/render step as a sibling.
 func validateAdvisory(cmd *cobra.Command) {
 	home, err := resolveHomeDir(cmd)
 	if err != nil {
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: could not resolve home dir for validation (advisory): %v\n", err)
+		logger.Warn("could not resolve home dir for config validation (advisory)", "err", err)
 		return
 	}
 	cfg, err := seiconfig.ReadConfigFromDir(home)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: could not read config for validation (advisory): %v\n", err)
+			logger.Warn("could not read config for validation (advisory)", "err", err)
 		}
 		return
 	}
 	if diags := seiconfig.Validate(cfg).Diagnostics; len(diags) > 0 {
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: advisory validation diagnostics (not enforced; node will boot): %v\n", diags)
+		logger.Warn("advisory config validation diagnostics (not enforced; node will boot)",
+			"count", len(diags), "diagnostics", fmt.Sprintf("%v", diags))
 	}
 }
 

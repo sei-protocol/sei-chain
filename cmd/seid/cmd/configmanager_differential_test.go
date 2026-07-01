@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -67,23 +67,22 @@ func runConfigManagerEnvHome(t *testing.T, mgr configmanager.ConfigManager, home
 // caller configures how home is supplied (flag vs env) on cmd beforehand.
 func execConfigManager(t *testing.T, mgr configmanager.ConfigManager, cmd *cobra.Command) *server.Context {
 	t.Helper()
-	ctx, _, err := runManager(t, mgr, cmd)
+	ctx, err := runManager(t, mgr, cmd)
 	require.NoError(t, err)
 	return ctx
 }
 
-// runManager runs mgr.Apply inside cmd's PreRunE, capturing what an operator
-// would see and do: the populated server context, whatever Apply wrote to
-// stderr (advisory diagnostics), and the error Apply returned. Apply is the
-// only boot-refusing call, so on the happy path it returns nil and boot is
-// aborted with errStopPreRun; on a real config error it returns that error and
-// runManager surfaces it unchanged. The caller sets home on cmd beforehand.
-func runManager(t *testing.T, mgr configmanager.ConfigManager, cmd *cobra.Command) (*server.Context, string, error) {
+// runManager runs mgr.Apply inside cmd's PreRunE and returns the populated
+// server context and the error Apply returned. Apply is the only boot-refusing
+// call, so on the happy path it returns nil and boot is aborted with
+// errStopPreRun; on a real config error it returns that error and runManager
+// surfaces it unchanged. Advisory diagnostics go to seilog (not cmd's stderr),
+// so they are not captured here — the invariants under test are the returned
+// context and error, not the log text. The caller sets home on cmd beforehand.
+func runManager(t *testing.T, mgr configmanager.ConfigManager, cmd *cobra.Command) (*server.Context, error) {
 	t.Helper()
 	template, appCfg := initAppConfig()
-
-	var stderr bytes.Buffer
-	cmd.SetErr(&stderr)
+	cmd.SetErr(io.Discard) // swallow cobra's own error echo; advisory logs go to seilog
 
 	var applyErr error
 	cmd.PreRunE = func(c *cobra.Command, _ []string) error {
@@ -99,7 +98,7 @@ func runManager(t *testing.T, mgr configmanager.ConfigManager, cmd *cobra.Comman
 	if applyErr == nil {
 		require.ErrorIs(t, execErr, errStopPreRun)
 	}
-	return serverCtx, stderr.String(), applyErr
+	return serverCtx, applyErr
 }
 
 // appTOMLPath and cfgTOMLPath are the two files the legacy creator writes into a
@@ -281,7 +280,7 @@ func TestConfigManagerLegacyVsV2Differential_Corpus(t *testing.T) {
 func TestConfigManagerV2AdvisoryNeverRefusesBoot(t *testing.T) {
 	home := seedDefaultConfig(t)
 
-	v2Ctx, _, v2Err := runManager(t, configmanager.SeiConfigManager{}, startCmdForHome(t, home))
+	v2Ctx, v2Err := runManager(t, configmanager.SeiConfigManager{}, startCmdForHome(t, home))
 	require.NoError(t, v2Err, "advisory validation must never refuse boot on a valid config")
 
 	legacyCtx := runConfigManager(t, configmanager.LegacyConfigManager{}, home)
@@ -291,20 +290,18 @@ func TestConfigManagerV2AdvisoryNeverRefusesBoot(t *testing.T) {
 
 // TestConfigManagerV2AdvisoryReadErrorMatchesLegacy pins the other half of the
 // invariant: when the config is unreadable, v2 must not mask the failure or
-// invent a new one. It logs an advisory read error, then re-enters the legacy
-// handler and returns exactly the error legacy returns.
+// invent a new one. It logs an advisory read error (via seilog), then re-enters
+// the legacy handler and returns exactly the error legacy returns.
 func TestConfigManagerV2AdvisoryReadErrorMatchesLegacy(t *testing.T) {
 	home := seedDefaultConfig(t)
 	require.NoError(t, os.WriteFile(cfgTOMLPath(home), []byte("this is ] not [ valid toml"), 0o600))
 
-	_, _, legacyErr := runManager(t, configmanager.LegacyConfigManager{}, startCmdForHome(t, home))
-	_, v2Stderr, v2Err := runManager(t, configmanager.SeiConfigManager{}, startCmdForHome(t, home))
+	_, legacyErr := runManager(t, configmanager.LegacyConfigManager{}, startCmdForHome(t, home))
+	_, v2Err := runManager(t, configmanager.SeiConfigManager{}, startCmdForHome(t, home))
 
 	require.Error(t, legacyErr, "corrupt config.toml should fail the legacy reader")
 	require.Equal(t, legacyErr.Error(), v2Err.Error(),
 		"v2 must return the same boot error as legacy, not mask or add one")
-	require.Contains(t, v2Stderr, "could not read config for validation",
-		"v2 should log the advisory read failure before re-entering legacy")
 }
 
 // FuzzConfigManagerLegacyVsV2Parity is the exhaustive form of the corpus: it
@@ -331,8 +328,8 @@ func FuzzConfigManagerLegacyVsV2Parity(f *testing.F) {
 		tc.mutate(t, home)
 		appendToFile(t, appTOMLPath(home), appTOMLSuffix)
 
-		legacyCtx, _, legacyErr := runManager(t, configmanager.LegacyConfigManager{}, startCmdForHome(t, home))
-		v2Ctx, _, v2Err := runManager(t, configmanager.SeiConfigManager{}, startCmdForHome(t, home))
+		legacyCtx, legacyErr := runManager(t, configmanager.LegacyConfigManager{}, startCmdForHome(t, home))
+		v2Ctx, v2Err := runManager(t, configmanager.SeiConfigManager{}, startCmdForHome(t, home))
 
 		if (legacyErr == nil) != (v2Err == nil) {
 			t.Fatalf("divergent outcome (case %q, suffix %q): legacyErr=%v v2Err=%v", tc.name, appTOMLSuffix, legacyErr, v2Err)
