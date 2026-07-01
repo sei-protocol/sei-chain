@@ -3,6 +3,9 @@ package cmd
 import (
 	"context"
 	"errors"
+	"os"
+	"path"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -18,16 +21,45 @@ import (
 // StartCmd's RunE tries to boot a node.
 var errStopPreRun = errors.New("stop after prerun")
 
-// runConfigManager runs mgr.Apply inside a StartCmd's PreRunE against homeDir,
-// using seid's real app-config template, and returns the populated server
-// context (the two channels start.go/app.New consume). It mirrors the harness
-// in sei-cosmos/server/util_test.go.
+// runConfigManager runs mgr.Apply inside a StartCmd's PreRunE against homeDir
+// supplied via the --home flag, using seid's real app-config template, and
+// returns the populated server context (the two channels start.go/app.New
+// consume). It mirrors the harness in sei-cosmos/server/util_test.go.
 func runConfigManager(t *testing.T, mgr configmanager.ConfigManager, homeDir string) *server.Context {
 	t.Helper()
-	template, appCfg := initAppConfig()
-
 	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
 	require.NoError(t, cmd.Flags().Set(flags.FlagHome, homeDir))
+	return execConfigManager(t, mgr, cmd)
+}
+
+// runConfigManagerEnvHome is runConfigManager's twin that supplies homeDir
+// through the environment instead of --home, exercising the
+// SetEnvPrefix/AutomaticEnv/replacer machinery that resolveHomeDir mirrors from
+// the legacy handler (the flag-driven path never touches it). The env prefix is
+// path.Base(os.Executable()) — the test binary — derived identically by BOTH
+// the legacy handler (sei-cosmos/server/util.go:152,162-164) and v2's
+// resolveHomeDir, so both resolve the same home. viper's lookup key for "home"
+// is ToUpper(prefix + "_" + "home") with the ".","-" -> "_" replacer applied.
+func runConfigManagerEnvHome(t *testing.T, mgr configmanager.ConfigManager, homeDir string) *server.Context {
+	t.Helper()
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	envKey := strings.NewReplacer(".", "_", "-", "_").Replace(
+		strings.ToUpper(path.Base(exe) + "_" + flags.FlagHome))
+	t.Setenv(envKey, homeDir)
+
+	// Leave --home unset: an unchanged flag default ranks below AutomaticEnv in
+	// viper's precedence, so the env value is what resolves.
+	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
+	return execConfigManager(t, mgr, cmd)
+}
+
+// execConfigManager runs mgr.Apply inside cmd's PreRunE (aborting before the
+// node boots) and returns the populated server context. The caller configures
+// how home is supplied (flag vs env) on cmd beforehand.
+func execConfigManager(t *testing.T, mgr configmanager.ConfigManager, cmd *cobra.Command) *server.Context {
+	t.Helper()
+	template, appCfg := initAppConfig()
 	cmd.PreRunE = func(c *cobra.Command, _ []string) error {
 		if err := mgr.Apply(c, template, appCfg); err != nil {
 			return err
@@ -78,4 +110,37 @@ func TestConfigManagerLegacyVsV2Differential(t *testing.T) {
 	v2Ctx.Viper.Set(flags.FlagChainID, chainID)
 	require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings(),
 		"settings diverge after the start.go chain-id mutation")
+}
+
+// TestConfigManagerLegacyVsV2Differential_EnvHome exercises the env-precedence
+// half of resolveHomeDir's mirror of the legacy handler — the flag-driven
+// differential above never touches SetEnvPrefix/AutomaticEnv. When home is
+// supplied via the environment (not --home), v2 must resolve the SAME home the
+// legacy handler does; otherwise v2 would advisorily validate one dir while the
+// re-entered legacy reader boots on another — a silent drift the advisory
+// design cannot surface (no error, no diagnostic). This pins the seam so a
+// future change to the legacy env-resolution can't diverge undetected.
+func TestConfigManagerLegacyVsV2Differential_EnvHome(t *testing.T) {
+	home := t.TempDir()
+
+	// Populate a complete realistic config in `home` via the fresh-home legacy
+	// creator, driven entirely through the env var (no --home).
+	_ = runConfigManagerEnvHome(t, configmanager.LegacyConfigManager{}, home)
+
+	legacyCtx := runConfigManagerEnvHome(t, configmanager.LegacyConfigManager{}, home)
+	v2Ctx := runConfigManagerEnvHome(t, configmanager.SeiConfigManager{}, home)
+
+	// Non-vacuous guard: the env var actually drove resolution. If the key were
+	// wrong, both would fall back to StartCmd's "/foobar" default (and the
+	// legacy creator would fail writing under it) — this asserts the env path
+	// resolved to the temp home, for both managers.
+	require.Equal(t, home, v2Ctx.Viper.GetString(flags.FlagHome),
+		"env-provided home did not drive v2 resolution")
+	require.Equal(t, home, legacyCtx.Viper.GetString(flags.FlagHome),
+		"env-provided home did not drive legacy resolution")
+
+	require.Equal(t, legacyCtx.Config, v2Ctx.Config,
+		"serverCtx.Config differs between legacy and v2 on the env-home path")
+	require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings(),
+		"serverCtx.Viper settings differ between legacy and v2 on the env-home path")
 }
