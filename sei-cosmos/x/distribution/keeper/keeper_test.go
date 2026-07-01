@@ -11,6 +11,7 @@ import (
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 )
 
@@ -38,6 +39,11 @@ func TestSetWithdrawAddr(t *testing.T) {
 	castAddr := sdk.AccAddress(evmAddr[:])
 	app.EvmKeeper.SetAddressMapping(ctx, associatedAddr, evmAddr)
 	require.Error(t, app.DistrKeeper.SetWithdrawAddr(ctx, addr[0], castAddr))
+
+	coinbaseAddr := makeCoinbaseAddr()
+	require.True(t, app.BankKeeper.BlockedAddr(coinbaseAddr))
+	require.True(t, app.BankKeeper.CanSendTo(ctx, coinbaseAddr))
+	require.Error(t, app.DistrKeeper.SetWithdrawAddr(ctx, addr[0], coinbaseAddr))
 
 	require.Error(t, app.DistrKeeper.SetWithdrawAddr(ctx, addr[0], distrAcc.GetAddress()))
 }
@@ -80,6 +86,43 @@ func TestAfterValidatorRemovedFallsBackForInvalidWithdrawAddress(t *testing.T) {
 	})
 	balanceAfter := app.BankKeeper.GetBalance(ctx, valAccAddr, "usei")
 	require.Equal(t, balanceBefore.Amount.Add(sdk.NewInt(10)), balanceAfter.Amount)
+}
+
+func TestAfterValidatorRemovedFallsBackForBlockedWithdrawAddress(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	addr := seiapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(1000000000))
+	valAddr := seiapp.ConvertAddrsToValAddrs(addr)[0]
+	valAccAddr := sdk.AccAddress(valAddr)
+	coinbaseAddr := makeCoinbaseAddr()
+
+	require.True(t, app.BankKeeper.BlockedAddr(coinbaseAddr))
+	require.True(t, app.BankKeeper.CanSendTo(ctx, coinbaseAddr))
+	app.DistrKeeper.SetDelegatorWithdrawAddr(ctx, valAccAddr, coinbaseAddr)
+	require.Equal(t, valAccAddr.String(), app.DistrKeeper.GetDelegatorWithdrawAddr(ctx, valAccAddr).String())
+
+	commission := sdk.DecCoins{sdk.NewDecCoin("usei", sdk.NewInt(10))}
+	coins := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))
+	distrAcc := app.DistrKeeper.GetDistributionAccount(ctx)
+	require.NoError(t, apptesting.FundModuleAccount(app.BankKeeper, ctx, distrAcc.GetName(), coins))
+	app.AccountKeeper.SetModuleAccount(ctx, distrAcc)
+
+	app.DistrKeeper.SetValidatorOutstandingRewards(ctx, valAddr, types.ValidatorOutstandingRewards{Rewards: commission})
+	app.DistrKeeper.SetValidatorAccumulatedCommission(ctx, valAddr, types.ValidatorAccumulatedCommission{Commission: commission})
+
+	balanceBefore := app.BankKeeper.GetBalance(ctx, valAccAddr, "usei")
+	require.NotPanics(t, func() {
+		app.DistrKeeper.Hooks().AfterValidatorRemoved(ctx, sdk.ConsAddress{}, valAddr)
+	})
+	balanceAfter := app.BankKeeper.GetBalance(ctx, valAccAddr, "usei")
+	require.Equal(t, balanceBefore.Amount.Add(sdk.NewInt(10)), balanceAfter.Amount)
+}
+
+func makeCoinbaseAddr() sdk.AccAddress {
+	bz := append([]byte{}, bankkeeper.CoinbaseAddressPrefix...)
+	bz = append(bz, []byte("12345678")...)
+	return sdk.AccAddress(bz)
 }
 
 func TestWithdrawValidatorCommission(t *testing.T) {
