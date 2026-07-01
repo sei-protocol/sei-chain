@@ -301,6 +301,9 @@ func (env *Environment) BlockResults(ctx context.Context, req *coretypes.Request
 	}, nil
 }
 
+const AscendingOrder = "asc"
+const DescendingOrder = "desc"
+
 // BlockSearch searches for a paginated set of blocks matching the provided query.
 func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestBlockSearch) (*coretypes.ResultBlockSearch, error) {
 	if !indexer.KVSinkEnabled(env.EventSinks) {
@@ -324,10 +327,10 @@ func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestB
 	// path rather than after materializing and sorting the full match set.
 	var orderDesc bool
 	switch req.OrderBy {
-	case "desc", "":
+	case DescendingOrder, "":
 		orderDesc = true
 
-	case "asc":
+	case AscendingOrder:
 		orderDesc = false
 
 	default:

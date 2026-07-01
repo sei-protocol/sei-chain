@@ -73,7 +73,7 @@ func (env *Environment) TxSearch(ctx context.Context, req *coretypes.RequestTxSe
 			// and ordering down to the scan.
 			results, err := sink.SearchTxEvents(ctx, q, indexer.SearchOptions{
 				Limit:     env.Config.MaxTxSearchResults,
-				OrderDesc: req.OrderBy != "asc",
+				OrderDesc: req.OrderBy != AscendingOrder,
 			})
 			if err != nil {
 				return nil, err
@@ -81,14 +81,14 @@ func (env *Environment) TxSearch(ctx context.Context, req *coretypes.RequestTxSe
 
 			// sort results (must be done before cap and pagination)
 			switch req.OrderBy {
-			case "desc", "":
+			case DescendingOrder, "":
 				sort.Slice(results, func(i, j int) bool {
 					if results[i].Height == results[j].Height {
 						return results[i].Index > results[j].Index
 					}
 					return results[i].Height > results[j].Height
 				})
-			case "asc":
+			case AscendingOrder:
 				sort.Slice(results, func(i, j int) bool {
 					if results[i].Height == results[j].Height {
 						return results[i].Index < results[j].Index
