@@ -52,6 +52,11 @@ type BlocksimConfig struct {
 	// reclamation on top of this). Must be positive.
 	LittRetentionSeconds int
 
+	// If true, the "litt" backend records its litt_* metrics into blocksim's global OTel MeterProvider,
+	// so they are exported on the same /metrics endpoint as the blocksim_* metrics (see MetricsAddr).
+	// Only meaningful when Backend is "litt" and MetricsAddr is set.
+	LittMetricsEnabled bool
+
 	// If this many seconds go by without a console update, the benchmark will print a report.
 	ConsoleUpdateIntervalSeconds float64
 
@@ -110,7 +115,8 @@ func DefaultBlocksimConfig() *BlocksimConfig {
 		BlocksPerQc:                     1,
 		StagedBlockQueueSize:            8,
 		LittRetentionSeconds:            2 * 60 * 60, // 2 hours
-		UnprunedBlocks:                  100_000, 
+		LittMetricsEnabled:              true,
+		UnprunedBlocks:                  100_000,
 		Seed:                            1337,
 		DataDir:                         "data",
 		Backend:                         "litt",

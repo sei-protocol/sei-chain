@@ -79,12 +79,18 @@ type Config struct {
 	// than keymap.MemKeymapType, performing this check may be very expensive. By default, this is false.
 	DoubleWriteProtection bool
 
-	// If enabled, collect DB metrics and export them via the global OTel MeterProvider. By default, this is false.
-	// When enabled, the database configures a Prometheus exporter on the global provider and serves /metrics on
-	// MetricsPort.
+	// If enabled, collect DB metrics and record them via the global OTel MeterProvider. By default, this is false.
+	// How the metrics are exported depends on MetricsServeEndpoint.
 	MetricsEnabled bool
 
-	// The port to use for the metrics server. Ignored if MetricsEnabled is false. The default is 9101.
+	// If true, the database sets up its own Prometheus exporter on the global OTel MeterProvider and serves
+	// /metrics on MetricsPort. If false (the default), the database records into the already-configured global
+	// MeterProvider and leaves exporting to the embedding application (which is responsible for calling
+	// SetupOtelPrometheus and serving the registry). Ignored if MetricsEnabled is false.
+	MetricsServeEndpoint bool
+
+	// The port to use for the metrics server. Ignored unless both MetricsEnabled and MetricsServeEndpoint are
+	// true. The default is 9101.
 	MetricsPort int
 
 	// The interval at which various DB metrics are updated. The default is 1 second.
@@ -182,6 +188,7 @@ func DefaultConfigNoPaths() *Config {
 		Fsync:                             true,
 		DoubleWriteProtection:             false,
 		MetricsEnabled:                    false,
+		MetricsServeEndpoint:              false,
 		MetricsPort:                       9101,
 		MetricsUpdateInterval:             time.Second,
 		PurgeLocks:                        false,
