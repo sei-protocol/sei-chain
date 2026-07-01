@@ -29,6 +29,14 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.6
 sei-chain
+* [#3679](https://github.com/sei-protocol/sei-chain/pull/3679) Backport `release/v6.6`: State Store: Compact pruned key range after each prune
+* [#3673](https://github.com/sei-protocol/sei-chain/pull/3673) Backport `release/v6.6`: fix(metrics): Prometheus metrics output
+* [#3672](https://github.com/sei-protocol/sei-chain/pull/3672) Backport `release/v6.6`: [codex] Harden multiversion iterator validation
+* [#3669](https://github.com/sei-protocol/sei-chain/pull/3669) Backport `release/v6.6`: Require absolute path for evmone lib
+* [#3662](https://github.com/sei-protocol/sei-chain/pull/3662) Backport `release/v6.6`: [codex] bump go-ethereum to v1.15.7-sei-17
+* [#3661](https://github.com/sei-protocol/sei-chain/pull/3661) Update checkout GHA step across all workflows
+* [#3635](https://github.com/sei-protocol/sei-chain/pull/3635) Backport `release/v6.6`: Generate v6.6 CHANGELOG
+* [#3627](https://github.com/sei-protocol/sei-chain/pull/3627) Backport `release/v6.6`: Co-broadcast rich block CW20 transfer with EVM batch
 * [#3625](https://github.com/sei-protocol/sei-chain/pull/3625) Generate v6.6 pre-compiles in prep to freeze feature releases
 * [#3624](https://github.com/sei-protocol/sei-chain/pull/3624) Load evmone from a trusted absolute path and verify its SHA-256
 * [#3622](https://github.com/sei-protocol/sei-chain/pull/3622) ci: add retry/backoff to GHCR docker pull in integration-test workflow (PLT-753)
