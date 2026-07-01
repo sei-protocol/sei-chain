@@ -1,9 +1,15 @@
 package configmanager
 
 import (
+	"os"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+
+	seiconfig "github.com/sei-protocol/sei-config"
+
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 )
 
 // TestSelect covers the dispatch table: unset and "legacy" select the
@@ -34,8 +40,28 @@ func TestSelect(t *testing.T) {
 	}
 }
 
-// TestSeiConfigManagerNotImplemented asserts the v2 stub fails hard rather
-// than silently behaving like legacy (PR1 ships the seam only).
-func TestSeiConfigManagerNotImplemented(t *testing.T) {
-	require.Error(t, (SeiConfigManager{}).Apply(nil, "", nil))
+// TestResolveHomeDir_Flag confirms resolveHomeDir reads the --home flag — the
+// value v2 validates against must be the dir the re-entered handler reads. (Env
+// precedence follows viper, mirrored from the legacy handler; the end-to-end
+// env-driven case is exercised by TestConfigManagerLegacyVsV2Differential_EnvHome
+// in the cmd package, which resolves the test-binary-basename prefix and asserts
+// legacy/v2 parity.)
+func TestResolveHomeDir_Flag(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().String(flags.FlagHome, "", "")
+	require.NoError(t, cmd.Flags().Set(flags.FlagHome, "/tmp/seid-test-home"))
+
+	got, err := resolveHomeDir(cmd)
+	require.NoError(t, err)
+	require.Equal(t, "/tmp/seid-test-home", got)
+}
+
+// TestReadConfigFromDirMissingIsErrNotExist pins the contract validateAdvisory's
+// silent-skip depends on: a missing config file must yield an error that
+// errors.Is(os.ErrNotExist) recognizes, so a fresh-home boot skips the advisory
+// read quietly instead of logging a spurious warning. If sei-config ever swaps
+// to a custom not-found error, this fails here rather than going noisy in prod.
+func TestReadConfigFromDirMissingIsErrNotExist(t *testing.T) {
+	_, err := seiconfig.ReadConfigFromDir(t.TempDir())
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
