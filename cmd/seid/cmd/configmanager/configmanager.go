@@ -1,6 +1,6 @@
 // Package configmanager is the selection seam between the legacy config
-// loader and the (forthcoming) sei-config-backed manager, gated by the
-// SEI_CONFIG_MANAGER environment variable.
+// loader and the sei-config-backed manager, gated by the SEI_CONFIG_MANAGER
+// environment variable.
 //
 // LegacyConfigManager re-enters the unchanged legacy handler verbatim (the
 // default). SeiConfigManager reads the existing config through the sei-config
@@ -86,20 +86,22 @@ type SeiConfigManager struct{}
 // comes from re-entry, not from the validated struct.
 func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
 	if home, err := resolveHomeDir(cmd); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: could not resolve home dir for validation (advisory): %v\n", err)
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: could not resolve home dir for validation (advisory): %v\n", err)
 	} else if cfg, err := seiconfig.ReadConfigFromDir(home); err != nil {
 		// A missing config.toml/app.toml (fresh home, or a partial home with one
 		// file absent) is normal — the legacy handler creates it. Any other read
 		// error is advisory, not fatal.
 		if !errors.Is(err, os.ErrNotExist) {
-			fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: could not read config for validation (advisory): %v\n", err)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: could not read config for validation (advisory): %v\n", err)
 		}
-	} else if res := seiconfig.Validate(cfg); res.HasErrors() {
-		// Advisory in this MVP: the node still boots. These are SeverityError
-		// findings — the same class (e.g. sc-write-mode) that legacy panics on
-		// later at app.New(); surfacing them here is earlier warning, not
-		// enforcement. Fatal refuse-on-error is the un-defer.
-		fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: ADVISORY config validation errors (not enforced; the node will boot, but these may surface later, e.g. at app.New()): %v\n", res.Errors())
+	} else if diags := seiconfig.Validate(cfg).Diagnostics; len(diags) > 0 {
+		// Advisory in this MVP: the node still boots. Surface ALL diagnostics —
+		// each carries its own [ERROR]/[WARNING]/[INFO] severity — so warnings
+		// are not silently dropped alongside errors. SeverityError findings (e.g.
+		// sc-write-mode) are the class legacy panics on later at app.New();
+		// surfacing them here is earlier warning, not enforcement. Fatal
+		// refuse-on-error is the un-defer.
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "config-manager v2: ADVISORY config validation diagnostics (not enforced; the node will boot, but SeverityError items may surface later, e.g. at app.New()): %v\n", diags)
 	}
 
 	// Re-enter the unchanged legacy reader on the operator's original files.
