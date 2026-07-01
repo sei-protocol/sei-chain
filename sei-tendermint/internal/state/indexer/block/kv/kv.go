@@ -78,13 +78,10 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockHeader) error {
 // of height queries, i.e. block.height=H, if the height is indexed, that height
 // alone will be returned. An error and nil slice is returned. Otherwise, a
 // non-nil slice and nil error is returned.
-func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query) ([]int64, error) {
+func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query, opts indexer.SearchOptions) ([]int64, error) {
 	results := make([]int64, 0)
-	select {
-	case <-ctx.Done():
+	if ctx.Err() != nil {
 		return results, nil
-
-	default:
 	}
 
 	conditions := q.Syntax()
@@ -105,15 +102,46 @@ func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query) ([]int64,
 		return results, nil
 	}
 
+	// Extract ranges. If both upper and lower bounds exist, it's better to get
+	// them in order as to not iterate over kvs that are not within range.
+	ranges, rangeIndexes := indexer.LookForRanges(conditions)
+
+	// Fast path: when every condition can be driven by a single height-ordered
+	// scan and point-probed, stream candidates in order_by order and stop at
+	// the limit, so a broad query does not materialize and sort the full match
+	// set.
+	if plan, ok := planBounded(conditions, ranges, rangeIndexes); ok {
+		return idx.searchBounded(ctx, plan, opts)
+	}
+
+	// Fallback: queries containing CONTAINS/MATCHES/EXISTS or non-height ranges
+	// cannot be point-probed against a candidate height (the block's events
+	// live only in the index, so there is nothing cheap to fetch). Materialize
+	// the intersection as before, then bound and order the result set.
+	filteredHeights, err := idx.intersect(ctx, conditions, ranges, rangeIndexes)
+	if err != nil {
+		return nil, err
+	}
+
+	return idx.collectBounded(ctx, filteredHeights, opts)
+}
+
+// intersect returns the set of height-encoded values that satisfy every
+// condition (implicit AND). It seeds the set from the first condition's index
+// matches, then intersects each remaining condition against it, so a height
+// survives only if it matches all of them.
+func (idx *BlockerIndexer) intersect(
+	ctx context.Context,
+	conditions []syntax.Condition,
+	ranges indexer.QueryRanges,
+	rangeIndexes []int,
+) (map[string][]byte, error) {
 	var heightsInitialized bool
 	filteredHeights := make(map[string][]byte)
 
 	// conditions to skip because they're handled before "everything else"
 	skipIndexes := make([]int, 0)
 
-	// Extract ranges. If both upper and lower bounds exist, it's better to get
-	// them in order as to not iterate over kvs that are not within range.
-	ranges, rangeIndexes := indexer.LookForRanges(conditions)
 	if len(ranges) > 0 {
 		skipIndexes = append(skipIndexes, rangeIndexes...)
 
@@ -177,9 +205,15 @@ func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query) ([]int64,
 		}
 	}
 
-	// fetch matching heights
-	results = make([]int64, 0, len(filteredHeights))
-heights:
+	return filteredHeights, nil
+}
+
+// collectBounded materializes filteredHeights into heights, orders them per
+// opts.OrderDesc and truncates to opts.Limit. The intermediate match set is
+// still fully materialized by intersect; only the returned slice and the sort
+// cost are bounded here.
+func (idx *BlockerIndexer) collectBounded(ctx context.Context, filteredHeights map[string][]byte, opts indexer.SearchOptions) ([]int64, error) {
+	results := make([]int64, 0, len(filteredHeights))
 	for _, hBz := range filteredHeights {
 		h := int64FromBytes(hBz)
 
@@ -191,17 +225,209 @@ heights:
 			results = append(results, h)
 		}
 
-		select {
-		case <-ctx.Done():
-			break heights
-
-		default:
+		if ctx.Err() != nil {
+			break
 		}
 	}
 
-	sort.Slice(results, func(i, j int) bool { return results[i] < results[j] })
+	if opts.OrderDesc {
+		sort.Slice(results, func(i, j int) bool { return results[i] > results[j] })
+	} else {
+		sort.Slice(results, func(i, j int) bool { return results[i] < results[j] })
+	}
+
+	if opts.Limit > 0 && len(results) > opts.Limit {
+		results = results[:opts.Limit]
+	}
 
 	return results, nil
+}
+
+// searchBounded executes a boundedPlan: it scans the driver prefix in
+// order_by order, point-probes the remaining conditions per candidate height,
+// and stops as soon as opts.Limit matches are collected. Memory is bounded by
+// the number of results kept rather than by the full match cardinality.
+func (idx *BlockerIndexer) searchBounded(ctx context.Context, plan boundedPlan, opts indexer.SearchOptions) ([]int64, error) {
+	var (
+		prefix []byte
+		err    error
+	)
+	if plan.driverEquality != nil {
+		prefix, err = orderedcode.Append(nil, plan.driverEquality.Tag, plan.driverEquality.Arg.Value())
+	} else {
+		// Drive off the primary block.height key range.
+		prefix, err = orderedcode.Append(nil, types.BlockHeightKey)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to create driver prefix key: %w", err)
+	}
+
+	it, err := idx.prefixIterator(prefix, opts.OrderDesc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create driver iterator: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+
+	results := make([]int64, 0, boundedCap(opts.Limit))
+	seen := make(map[int64]struct{})
+
+	for ; it.Valid(); it.Next() {
+		if ctx.Err() != nil {
+			break
+		}
+
+		h := int64FromBytes(it.Value())
+		if _, dup := seen[h]; dup {
+			continue
+		}
+
+		match, err := idx.candidateMatches(h, plan)
+		if err != nil {
+			return nil, err
+		}
+		if !match {
+			continue
+		}
+
+		seen[h] = struct{}{}
+		results = append(results, h)
+
+		if opts.Limit > 0 && len(results) >= opts.Limit {
+			break
+		}
+	}
+
+	if err := it.Error(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+// candidateMatches reports whether the block at height h satisfies every
+// non-driver condition in the plan: height-range bounds are evaluated directly
+// from h, and equality probes are tested with a single point lookup against the
+// event index.
+func (idx *BlockerIndexer) candidateMatches(h int64, plan boundedPlan) (bool, error) {
+	for i := range plan.heightRanges {
+		if !heightInRange(h, plan.heightRanges[i]) {
+			return false, nil
+		}
+	}
+
+	for i := range plan.equalityProbes {
+		c := plan.equalityProbes[i]
+		ok, err := idx.hasEvent(c.Tag, c.Arg.Value(), h)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, nil
+		}
+	}
+
+	// Confirm the height is indexed. Events and the height key are written in
+	// the same atomic batch, so this is normally redundant, but it preserves
+	// the historical guarantee and guards against partially written state.
+	return idx.Has(h)
+}
+
+// prefixIterator returns an iterator over the given key prefix. When desc is
+// true it iterates in descending (most-recent-height-first) order.
+func (idx *BlockerIndexer) prefixIterator(prefix []byte, desc bool) (dbm.Iterator, error) {
+	if !desc {
+		return dbm.IteratePrefix(idx.store, prefix)
+	}
+	return idx.store.ReverseIterator(prefix, prefixUpperBound(prefix))
+}
+
+// hasEvent reports whether the block at the given height has an indexed event
+// matching compositeKey=eventValue, regardless of the event type suffix.
+func (idx *BlockerIndexer) hasEvent(compositeKey, eventValue string, height int64) (bool, error) {
+	prefix, err := orderedcode.Append(nil, compositeKey, eventValue, height)
+	if err != nil {
+		return false, err
+	}
+
+	it, err := dbm.IteratePrefix(idx.store, prefix)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = it.Close() }()
+
+	return it.Valid(), it.Error()
+}
+
+// boundedPlan describes a fast-path execution that bounds memory by driving a
+// single height-ordered scan and point-probing the remaining conditions,
+// rather than materializing and sorting the full match set.
+type boundedPlan struct {
+	// driverEquality, when non-nil, is the equality condition whose event-key
+	// prefix is scanned in height order. Exactly one of driverEquality /
+	// driverHeightRange is set.
+	driverEquality *syntax.Condition
+	// driverHeightRange, when non-nil, drives the scan off the primary
+	// block.height key range.
+	driverHeightRange *indexer.QueryRange
+	// equalityProbes are the remaining equality conditions, tested per
+	// candidate height with a point lookup.
+	equalityProbes []syntax.Condition
+	// heightRanges are block.height bounds evaluated directly from a candidate
+	// height. When driving off the height range it is included here too so it
+	// also filters candidates.
+	heightRanges []indexer.QueryRange
+}
+
+// planBounded decides whether a query is eligible for the bounded fast path and
+// builds its plan. A query qualifies only when every condition is either an
+// equality (point-probeable) or a block.height range (evaluable from the
+// candidate height), and there is at least one such condition to drive a
+// height-ordered scan.
+func planBounded(conditions []syntax.Condition, ranges indexer.QueryRanges, rangeIndexes []int) (boundedPlan, bool) {
+	var plan boundedPlan
+
+	// Every range must be a numeric block.height range; any other range needs
+	// the attribute's value, which cannot be derived from the height alone.
+	for key, qr := range ranges {
+		if key != types.BlockHeightKey {
+			return boundedPlan{}, false
+		}
+		if _, ok := qr.AnyBound().(int64); !ok {
+			return boundedPlan{}, false
+		}
+		plan.heightRanges = append(plan.heightRanges, qr)
+	}
+
+	// Every non-range condition must be an equality to be point-probeable.
+	var equalities []syntax.Condition
+	for i, c := range conditions {
+		if intInSlice(i, rangeIndexes) {
+			continue
+		}
+		if c.Op != syntax.TEq {
+			return boundedPlan{}, false
+		}
+		equalities = append(equalities, c)
+	}
+
+	switch {
+	case len(equalities) > 0:
+		// Drive off the first equality; its event-key prefix is height-ordered.
+		plan.driverEquality = &equalities[0]
+		plan.equalityProbes = equalities[1:]
+	case len(plan.heightRanges) > 0:
+		// No equality to drive off; drive off the primary block.height range.
+		// LookForRanges merges all block.height bounds into a single range, so
+		// heightRanges has exactly one element here, which also filters
+		// candidates during the scan.
+		qr := plan.heightRanges[0]
+		plan.driverHeightRange = &qr
+	default:
+		// No sorted driver (e.g. an empty query); fall back.
+		return boundedPlan{}, false
+	}
+
+	return plan, true
 }
 
 // matchRange returns all matching block heights that match a given QueryRange
