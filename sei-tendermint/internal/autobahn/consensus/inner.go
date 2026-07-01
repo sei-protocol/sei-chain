@@ -111,6 +111,9 @@ func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (
 		persisted = *decoded
 	}
 
+	// TODO: when AddEpoch is wired, resolve the epoch from the persisted QC/proposal
+	// rather than assuming LatestEpoch — otherwise a restart after an epoch transition
+	// fails validation with an epoch/road mismatch.
 	ep := registry.LatestEpoch()
 	if err := persisted.validate(ep); err != nil {
 		return inner{}, err
