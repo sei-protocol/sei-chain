@@ -25,6 +25,7 @@ type controlMsgKind int
 const (
 	ctrlHashReport       controlMsgKind = iota // a caller-reported hash for a block
 	ctrlChangesetRequest                       // a changeset to be hashed on the hasher thread
+	ctrlColumnChange                           // add or remove a hash column (sent by Register/UnregisterHashType)
 	ctrlClose                                  // a graceful-shutdown signal (sent by Close)
 )
 
@@ -46,10 +47,11 @@ const (
 type controlMessage struct {
 	kind        controlMsgKind
 	blockNumber uint64
-	hashType    string                  // ctrlHashReport: the type being reported
+	hashType    string                  // ctrlHashReport / ctrlColumnChange: the type being reported/changed
 	hash        []byte                  // ctrlHashReport: the reported hash (may be nil)
 	cs          []*proto.NamedChangeSet // ctrlChangesetRequest: the change set to hash
-	done        chan struct{}           // ctrlClose: closed once the drain completes
+	add         bool                    // ctrlColumnChange: true to add the column, false to remove it
+	done        chan struct{}           // ctrlColumnChange / ctrlClose: closed once the loop has applied the message
 }
 
 // A change set dispatched from the control loop to the hasher.
@@ -64,9 +66,15 @@ type hashResult struct {
 	hash        []byte
 }
 
-// A message destined for the writer: a block to append to the current file.
+// A message destined for the writer: either a block to append to the current file, or (when rotate is
+// true) a directive to seal the current file and open a fresh one with the given columns. The control
+// loop sends complete blocks ahead of a rotate so they land in the file whose header matches their
+// columns; messages are processed in FIFO order so blocks before a column change go to the old file and
+// blocks after go to the new one.
 type writerMessage struct {
-	log *HashLog
+	log       *HashLog
+	rotate    bool
+	hashTypes []string // rotate: the column set (header) for the new file
 }
 
 // Bookkeeping for a sealed hash log file (owned by the writer goroutine).
@@ -86,10 +94,14 @@ type hashLoggerImpl struct {
 	version string
 
 	// The ordered set of hash columns recorded per block; the changeset column is prepended when changeset hashing is
-	// enabled.
+	// enabled. Mutated only by the control loop (handling a ctrlColumnChange), so the loop reads len(hashTypes) for
+	// block completion without synchronization. Register/UnregisterHashType change it through that message.
 	hashTypes []string
 
-	// The membership set over hashTypes, for O(1) validation of caller-supplied hash types in ReportHash.
+	// The membership set over hashTypes, for O(1) validation of caller-supplied hash types in ReportHash. Written
+	// only by the control loop (handling ctrlColumnChange) and read by the caller in Register/Unregister/ReportHash.
+	// These callers are serialized (Register/Unregister block on the loop's ack via the done channel, establishing
+	// happens-before), so the read is race-free as long as callers do not invoke the API concurrently.
 	hashTypeSet map[string]struct{}
 
 	// When true, changeset hashing is disabled: no hasher thread, ReportChangeset is a no-op, and no changeset column is
@@ -338,6 +350,60 @@ func (h *hashLoggerImpl) scanDirectory() error {
 	return nil
 }
 
+// RegisterHashType adds a caller-reported hash column. May be called at any time, including after blocks
+// have been logged: the logger flushes complete blocks to the current file, seals it, and opens a fresh
+// file whose header includes the new column, so every file's header matches its rows. Registering a type
+// that is already present is a no-op (no rotation). See the HashLogger interface for the full contract.
+func (h *hashLoggerImpl) RegisterHashType(hashType string) error {
+	if !h.changesetHashingDisabled && hashType == ChangesetHashType {
+		return fmt.Errorf("hash type %q is reserved for the logger-computed changeset column", hashType)
+	}
+	if !legalHashTypeRegex.MatchString(hashType) {
+		return fmt.Errorf("hash type %q contains illegal characters (must match %s)",
+			hashType, legalHashTypeRegex.String())
+	}
+	if _, ok := h.hashTypeSet[hashType]; ok {
+		return nil // already registered; idempotent no-op (no rotation)
+	}
+	return h.sendColumnChange(hashType, true)
+}
+
+// UnregisterHashType removes a caller-reported hash column, rotating to a fresh file whose header omits
+// it (same flush/seal/open sequence as RegisterHashType). Removing a type that is not present is a no-op.
+// The reserved changeset column cannot be removed.
+func (h *hashLoggerImpl) UnregisterHashType(hashType string) error {
+	if !h.changesetHashingDisabled && hashType == ChangesetHashType {
+		return fmt.Errorf("hash type %q is the logger-computed changeset column and cannot be removed", hashType)
+	}
+	if _, ok := h.hashTypeSet[hashType]; !ok {
+		return nil // not registered; idempotent no-op (no rotation)
+	}
+	return h.sendColumnChange(hashType, false)
+}
+
+// sendColumnChange forwards a column add/remove to the control loop and waits for it to be applied (the
+// loop flushes/seals/rotates and updates hashTypes/hashTypeSet before acking). The synchronous handshake
+// guarantees that a subsequent ReportHash for the new column is accepted, and establishes happens-before
+// for the caller's later reads of hashTypeSet. If the logger is shutting down before the change is
+// applied, it returns the relevant context error so the caller knows the registration did not land.
+func (h *hashLoggerImpl) sendColumnChange(hashType string, add bool) error {
+	if h.closed.Load() {
+		return fmt.Errorf("hash logger is closed")
+	}
+	done := make(chan struct{})
+	select {
+	case h.controlChan <- controlMessage{kind: ctrlColumnChange, hashType: hashType, add: add, done: done}:
+		select {
+		case <-done:
+			return nil
+		case <-h.ctx.Done():
+			return h.ctx.Err()
+		}
+	case <-h.senderCtx.Done():
+		return h.senderCtx.Err()
+	}
+}
+
 func (h *hashLoggerImpl) ReportChangeset(blockNumber uint64, cs []*proto.NamedChangeSet) {
 	// Calling Report* after Close() violates the contract; fail fast (no-op) rather than risk a send on a
 	// closed channel.
@@ -483,7 +549,48 @@ func (h *hashLoggerImpl) handleControlMessage(msg controlMessage) {
 		h.handleHashReport(msg.blockNumber, msg.hashType, msg.hash)
 	case ctrlChangesetRequest:
 		h.handleChangesetRequest(msg.blockNumber, msg.cs)
+	case ctrlColumnChange:
+		h.handleColumnChange(msg.hashType, msg.add)
+		close(msg.done)
 	}
+}
+
+// handleColumnChange adds or removes a hash column and rotates to a fresh file whose header reflects the
+// new column set. Complete blocks are flushed to the current file first so they keep the header that
+// matches their columns; the rotation directive is then enqueued behind them, and subsequent blocks land
+// in the new file. Any still-incomplete buffered block carries over and is written to the new file once
+// complete (callers are expected to change columns at block boundaries, where nothing is buffered).
+func (h *hashLoggerImpl) handleColumnChange(hashType string, add bool) {
+	_, present := h.hashTypeSet[hashType]
+	if add == present {
+		return // already in the desired state; nothing to do (defensive — callers pre-check)
+	}
+
+	// Flush everything that is complete under the current columns to the current file.
+	h.drainComplete()
+
+	// Always build a fresh slice rather than appending in place: the writer may still hold the current
+	// hashTypes backing array (it became the initial file's header), so mutating it would race.
+	if add {
+		updated := make([]string, len(h.hashTypes), len(h.hashTypes)+1)
+		copy(updated, h.hashTypes)
+		h.hashTypes = append(updated, hashType)
+		h.hashTypeSet[hashType] = struct{}{}
+	} else {
+		delete(h.hashTypeSet, hashType)
+		remaining := make([]string, 0, len(h.hashTypes)-1)
+		for _, t := range h.hashTypes {
+			if t != hashType {
+				remaining = append(remaining, t)
+			}
+		}
+		h.hashTypes = remaining
+	}
+
+	// Direct the writer to seal the current file and open a fresh one with the new header. Pass a copy so a
+	// later column change cannot mutate the slice the writer holds.
+	newColumns := append([]string(nil), h.hashTypes...)
+	h.blockingSendToWriter(writerMessage{rotate: true, hashTypes: newColumns})
 }
 
 // handleHashReport records a caller-reported hash, discarding it if the block has already been flushed.
@@ -638,6 +745,14 @@ func (h *hashLoggerImpl) writer() {
 				}
 				return
 			}
+			if msg.rotate {
+				// Column change: seal the current file and open a fresh one with the new header.
+				if err := h.rotateToColumns(msg.hashTypes); err != nil {
+					h.fail(err)
+					return
+				}
+				continue
+			}
 			if err := h.handleWrite(msg.log); err != nil {
 				h.fail(err)
 				return
@@ -654,20 +769,33 @@ func (h *hashLoggerImpl) handleWrite(log *HashLog) error {
 		h.latestBlock = log.BlockNumber
 	}
 	if h.mutableFile.size >= h.targetFileSize {
-		if err := h.rotate(); err != nil {
+		// Size-based rotation keeps the current column set (the new file has the same header).
+		if err := h.rotateToColumns(h.mutableFile.hashTypes); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// rotate seals the current mutable file, records its bookkeeping, opens a fresh mutable file, and runs GC.
-func (h *hashLoggerImpl) rotate() error {
-	if err := h.recordSealedFile(); err != nil {
+// rotateToColumns seals the current mutable file, records its bookkeeping, opens a fresh mutable file
+// with the given columns as its header, and runs GC. An empty current file (no blocks written) is
+// removed by recordSealedFile rather than sealed, and its file index is reused for the new file rather
+// than burned — so a burst of column changes between blocks (e.g. the startup registration of every
+// category) leaves neither orphan files nor index gaps behind. The column set is owned by the writer
+// (mutableFile.hashTypes); the control loop hands new columns in via the rotate message, so the two
+// goroutines never share the slice.
+func (h *hashLoggerImpl) rotateToColumns(columns []string) error {
+	hadBlocks, err := h.recordSealedFile()
+	if err != nil {
 		return err
 	}
-	h.mutableLogFileIndex++
-	newFile, err := newHashLogFile(h.directory, h.mutableLogFileIndex, h.version, h.hashTypes)
+	// Only consume the index if the sealed file actually held blocks. An unwritten file was just removed
+	// and recorded nothing, so reuse its index. The reused index is always > every sealed index (it is
+	// the current mutable index), so this never collides with an existing sealed file.
+	if hadBlocks {
+		h.mutableLogFileIndex++
+	}
+	newFile, err := newHashLogFile(h.directory, h.mutableLogFileIndex, h.version, columns)
 	if err != nil {
 		return fmt.Errorf("failed to open new mutable hash log file: %w", err)
 	}
@@ -677,7 +805,7 @@ func (h *hashLoggerImpl) rotate() error {
 }
 
 func (h *hashLoggerImpl) sealMutableAndGC() error {
-	if err := h.recordSealedFile(); err != nil {
+	if _, err := h.recordSealedFile(); err != nil {
 		return err
 	}
 	h.runGC()
@@ -685,8 +813,9 @@ func (h *hashLoggerImpl) sealMutableAndGC() error {
 }
 
 // recordSealedFile seals the current mutable file and, if it held any blocks, adds it to the sealed-file
-// bookkeeping. An empty file is removed by close() and leaves no bookkeeping behind.
-func (h *hashLoggerImpl) recordSealedFile() error {
+// bookkeeping. An empty file is removed by close() and leaves no bookkeeping behind. The returned bool
+// reports whether the file held any blocks (and thus consumed its file index).
+func (h *hashLoggerImpl) recordSealedFile() (bool, error) {
 	hadBlocks := h.mutableFile.hasBlocks
 	idx := h.mutableFile.index
 	first := h.mutableFile.firstBlockIndex
@@ -694,10 +823,10 @@ func (h *hashLoggerImpl) recordSealedFile() error {
 	size := h.mutableFile.size
 
 	if err := h.mutableFile.close(); err != nil {
-		return fmt.Errorf("failed to seal hash log file: %w", err)
+		return false, fmt.Errorf("failed to seal hash log file: %w", err)
 	}
 	if !hadBlocks {
-		return nil
+		return false, nil
 	}
 	h.sealedFiles[idx] = &sealedFileInfo{
 		name:       sealedFileName(idx, first, last, h.version),
@@ -706,7 +835,7 @@ func (h *hashLoggerImpl) recordSealedFile() error {
 		size:       size,
 	}
 	h.currentDiskSpaceUsed += size
-	return nil
+	return true, nil
 }
 
 // runGC deletes the oldest sealed files while either the block-count retention window or the disk-size cap is
@@ -723,9 +852,10 @@ func (h *hashLoggerImpl) runGC() {
 
 		// Retain exactly the most-recent blocksToRetain blocks: a file is over the window once its newest block
 		// is more than blocksToRetain-1 behind the latest. Written as an addition to avoid unsigned underflow
-		// when latestBlock < blocksToRetain (in which case nothing is over the window).
-		overBlockRetention := info.lastBlock+h.blocksToRetain <= h.latestBlock
-		overSizeCap := h.currentDiskSpaceUsed > h.maxDiskSize
+		// when latestBlock < blocksToRetain (in which case nothing is over the window). A zero limit disables
+		// that dimension entirely (no block-count window / no disk cap).
+		overBlockRetention := h.blocksToRetain > 0 && info.lastBlock+h.blocksToRetain <= h.latestBlock
+		overSizeCap := h.maxDiskSize > 0 && h.currentDiskSpaceUsed > h.maxDiskSize
 		if !overBlockRetention && !overSizeCap {
 			break
 		}

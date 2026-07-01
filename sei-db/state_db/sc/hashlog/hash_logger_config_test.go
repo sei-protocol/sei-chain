@@ -20,10 +20,11 @@ func TestConfigValidateEmptyVersion(t *testing.T) {
 	require.ErrorContains(t, c.Validate(), "version is required")
 }
 
-func TestConfigValidateZeroMaxDiskSize(t *testing.T) {
+func TestConfigValidateZeroMaxDiskSizeIsAllowed(t *testing.T) {
+	// MaxDiskSize == 0 disables the disk-size cap rather than being an error.
 	c := DefaultHashLoggerConfig("/tmp/hashlog", "v1.0.0")
 	c.MaxDiskSize = 0
-	require.ErrorContains(t, c.Validate(), "max disk size")
+	require.NoError(t, c.Validate())
 }
 
 func TestConfigValidateZeroMaxBufferedBlocks(t *testing.T) {

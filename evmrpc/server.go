@@ -73,6 +73,7 @@ func NewEVMHTTPServer(
 		IdleTimeout:       config.IdleTimeout,
 	})
 	methodTimeout := tmutils.Some(httpServer.timeouts.WriteTimeout)
+	httpServer.SetMaxOpenConns(config.MaxOpenConnections)
 	if err := httpServer.SetListenAddr(LocalAddress, config.HTTPPort); err != nil {
 		return nil, err
 	}
@@ -264,6 +265,7 @@ func NewEVMWebSocketServer(
 		IdleTimeout:       config.IdleTimeout,
 	})
 	methodTimeout := tmutils.Some(httpServer.timeouts.WriteTimeout)
+	httpServer.SetMaxOpenConns(config.MaxOpenConnections)
 	if err := httpServer.SetListenAddr(LocalAddress, config.WSPort); err != nil {
 		return nil, err
 	}

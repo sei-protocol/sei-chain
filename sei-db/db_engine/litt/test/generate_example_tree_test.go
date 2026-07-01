@@ -82,6 +82,15 @@ func TestGenerateExampleTree(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	// Simulate a gc-watermark file. This normally only gets created once garbage collection has run. It lives in
+	// the table directory in root0 (the same root that holds the keymap), so it survives a keymap rebuild.
+	for _, tableName := range []string{"tableA", "tableB", "tableC"} {
+		gcWatermarkFile, err := disktable.LoadGCWatermarkFile(path.Join(rootDirectories[0], tableName))
+		require.NoError(t, err)
+		err = gcWatermarkFile.Update(0)
+		require.NoError(t, err)
+	}
+
 	// Run the tree command on testDir
 	output, err := exec.Command("tree", testDir).CombinedOutput()
 	if err != nil {

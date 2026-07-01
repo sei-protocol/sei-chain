@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/spf13/viper"
@@ -68,6 +69,117 @@ func TestDefaultGRPCConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.True(t, cfg.GRPC.Enable)
 	require.Equal(t, DefaultGRPCAddress, cfg.GRPC.Address)
+	require.Equal(t, DefaultGRPCMaxRecvMsgSize, cfg.GRPC.MaxRecvMsgSize)
+	require.Equal(t, uint(DefaultGRPCMaxOpenConnections), cfg.GRPC.MaxOpenConnections)
+	require.Equal(t, DefaultGRPCMaxConnectionIdle, cfg.GRPC.MaxConnectionIdle)
+	require.Equal(t, 5*time.Minute, cfg.GRPC.MaxConnectionIdle)
+	require.Equal(t, DefaultGRPCMaxConnectionAge, cfg.GRPC.MaxConnectionAge)
+	require.Equal(t, DefaultGRPCMaxConnectionAgeGrace, cfg.GRPC.MaxConnectionAgeGrace)
+	require.Equal(t, DefaultGRPCKeepaliveTime, cfg.GRPC.KeepaliveTime)
+	require.Equal(t, DefaultGRPCKeepaliveTimeout, cfg.GRPC.KeepaliveTimeout)
+	require.Equal(t, DefaultGRPCKeepaliveMinTime, cfg.GRPC.KeepaliveMinTime)
+	require.Equal(t, DefaultGRPCKeepalivePermitWithoutStream, cfg.GRPC.KeepalivePermitWithoutStream)
+}
+
+// seedViperWithDefaultConfig renders the default app config template and reads
+// it into a fresh viper instance, mirroring how seid loads app.toml.
+func seedViperWithDefaultConfig(t *testing.T) *viper.Viper {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, configTemplate.Execute(&buf, DefaultConfig()))
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(&buf))
+	return v
+}
+
+// TestGetConfigGRPCDefaultsWhenAbsent ensures a node upgrading with an older
+// app.toml (which lacks the new gRPC keys) still gets the bounded in-code
+// defaults rather than zero/unlimited values.
+func TestGetConfigGRPCDefaultsWhenAbsent(t *testing.T) {
+	// Minimal app.toml that predates the new gRPC keys. global-labels is the
+	// only key GetConfig hard-requires.
+	const legacyAppToml = `
+[telemetry]
+global-labels = []
+
+[grpc]
+enable = true
+address = "0.0.0.0:9090"
+`
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(bytes.NewBufferString(legacyAppToml)))
+	require.False(t, v.IsSet("grpc.max-recv-msg-size"))
+	require.False(t, v.IsSet("grpc.max-open-connections"))
+	require.False(t, v.IsSet("grpc.max-connection-idle"))
+	require.False(t, v.IsSet("grpc.max-connection-age"))
+	require.False(t, v.IsSet("grpc.max-connection-age-grace"))
+	require.False(t, v.IsSet("grpc.keepalive-permit-without-stream"))
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, DefaultGRPCMaxRecvMsgSize, cfg.GRPC.MaxRecvMsgSize)
+	require.Equal(t, uint(DefaultGRPCMaxOpenConnections), cfg.GRPC.MaxOpenConnections)
+	// The bounded idle default must survive an older app.toml that omits the key.
+	require.Equal(t, DefaultGRPCMaxConnectionIdle, cfg.GRPC.MaxConnectionIdle)
+	require.Equal(t, DefaultGRPCKeepaliveTime, cfg.GRPC.KeepaliveTime)
+	require.Equal(t, DefaultGRPCKeepaliveTimeout, cfg.GRPC.KeepaliveTimeout)
+	require.Equal(t, DefaultGRPCKeepaliveMinTime, cfg.GRPC.KeepaliveMinTime)
+	// The directly-read fields (no IsSet guard) must still resolve to their
+	// in-code defaults when the keys are absent.
+	require.Equal(t, DefaultGRPCMaxConnectionAge, cfg.GRPC.MaxConnectionAge)
+	require.Equal(t, DefaultGRPCMaxConnectionAgeGrace, cfg.GRPC.MaxConnectionAgeGrace)
+	require.Equal(t, DefaultGRPCKeepalivePermitWithoutStream, cfg.GRPC.KeepalivePermitWithoutStream)
+}
+
+// TestGetConfigGRPCClampsNegativeDurations ensures a misconfigured negative
+// keepalive/connection-age duration falls back to the safe in-code default
+// rather than being passed verbatim to the gRPC server.
+func TestGetConfigGRPCClampsNegativeDurations(t *testing.T) {
+	v := seedViperWithDefaultConfig(t)
+	v.Set("grpc.max-connection-idle", "-1s")
+	v.Set("grpc.max-connection-age", "-1s")
+	v.Set("grpc.max-connection-age-grace", "-1s")
+	v.Set("grpc.keepalive-time", "-1s")
+	v.Set("grpc.keepalive-timeout", "-1s")
+	v.Set("grpc.keepalive-min-time", "-1s")
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, DefaultGRPCMaxConnectionIdle, cfg.GRPC.MaxConnectionIdle)
+	require.Equal(t, DefaultGRPCMaxConnectionAge, cfg.GRPC.MaxConnectionAge)
+	require.Equal(t, DefaultGRPCMaxConnectionAgeGrace, cfg.GRPC.MaxConnectionAgeGrace)
+	require.Equal(t, DefaultGRPCKeepaliveTime, cfg.GRPC.KeepaliveTime)
+	require.Equal(t, DefaultGRPCKeepaliveTimeout, cfg.GRPC.KeepaliveTimeout)
+	require.Equal(t, DefaultGRPCKeepaliveMinTime, cfg.GRPC.KeepaliveMinTime)
+}
+
+// TestGetConfigGRPCOverrides ensures operator-provided values override the
+// in-code defaults.
+func TestGetConfigGRPCOverrides(t *testing.T) {
+	v := seedViperWithDefaultConfig(t)
+	v.Set("grpc.max-recv-msg-size", 8*1024*1024)
+	v.Set("grpc.max-open-connections", 50)
+	v.Set("grpc.max-connection-idle", "5m")
+	v.Set("grpc.max-connection-age", "30m")
+	v.Set("grpc.max-connection-age-grace", "1m")
+	v.Set("grpc.keepalive-time", "1m")
+	v.Set("grpc.keepalive-timeout", "10s")
+	v.Set("grpc.keepalive-min-time", "30s")
+	v.Set("grpc.keepalive-permit-without-stream", true)
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, 8*1024*1024, cfg.GRPC.MaxRecvMsgSize)
+	require.Equal(t, uint(50), cfg.GRPC.MaxOpenConnections)
+	require.Equal(t, 5*time.Minute, cfg.GRPC.MaxConnectionIdle)
+	require.Equal(t, 30*time.Minute, cfg.GRPC.MaxConnectionAge)
+	require.Equal(t, time.Minute, cfg.GRPC.MaxConnectionAgeGrace)
+	require.Equal(t, time.Minute, cfg.GRPC.KeepaliveTime)
+	require.Equal(t, 10*time.Second, cfg.GRPC.KeepaliveTimeout)
+	require.Equal(t, 30*time.Second, cfg.GRPC.KeepaliveMinTime)
+	require.True(t, cfg.GRPC.KeepalivePermitWithoutStream)
 }
 
 func TestDefaultGRPCWebConfig(t *testing.T) {
