@@ -124,6 +124,7 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 		prevVersionDecoded                      int64
 		prevStore                               string
 		scanReads                               int64
+		firstDeletedKey, lastDeletedKey         []byte
 	)
 
 	for itr.First(); itr.Valid(); {
@@ -181,6 +182,14 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 				return err
 			}
 
+			// Track the deleted span (keys are visited in comparer order, so the
+			// first delete is the smallest and the last is the largest) to compact
+			// just that range once pruning completes.
+			if firstDeletedKey == nil {
+				firstDeletedKey = prevKeyEncoded
+			}
+			lastDeletedKey = prevKeyEncoded
+
 			counter++
 			if counter >= PruneCommitBatchSize {
 				writeCount := int64(batch.Count())
@@ -215,7 +224,10 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 	}
 	db.operationMetrics.AddRead(scanReads)
 
-	return db.SetEarliestVersion(earliestVersion, false)
+	if err := db.SetEarliestVersion(earliestVersion, false); err != nil {
+		return err
+	}
+	return db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
 }
 
 func (db *Database) iteratorAscending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
