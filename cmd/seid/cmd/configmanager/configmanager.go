@@ -60,19 +60,23 @@ func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string
 func validateAdvisory(cmd *cobra.Command) {
 	home, err := resolveHomeDir(cmd)
 	if err != nil {
-		logger.Warn("could not resolve home dir for config validation (advisory)", "err", err)
+		logger.Warn("could not resolve home dir for config validation (advisory)", "error", err)
 		return
 	}
 	cfg, err := seiconfig.ReadConfigFromDir(home)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			logger.Warn("could not read config for validation (advisory)", "err", err)
+			logger.Warn("could not read config for validation (advisory)", "error", err)
 		}
 		return
 	}
 	if diags := seiconfig.Validate(cfg).Diagnostics; len(diags) > 0 {
+		msgs := make([]string, len(diags))
+		for i, d := range diags {
+			msgs[i] = d.String()
+		}
 		logger.Warn("advisory config validation diagnostics (not enforced; node will boot)",
-			"count", len(diags), "diagnostics", fmt.Sprintf("%v", diags))
+			"count", len(diags), "diagnostics", msgs)
 	}
 }
 
