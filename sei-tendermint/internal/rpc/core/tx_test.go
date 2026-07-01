@@ -25,7 +25,7 @@ func txSearchEnv(t *testing.T, maxResults int, txs []*abci.TxResultV2) *Environm
 	t.Helper()
 	sink := indexermocks.NewEventSink(t)
 	sink.On("Type").Return(indexer.KV)
-	sink.On("SearchTxEvents", mock.Anything, mock.Anything).Return(txs, nil)
+	sink.On("SearchTxEvents", mock.Anything, mock.Anything, mock.Anything).Return(txs, nil)
 	return &Environment{
 		EventSinks: []indexer.EventSink{sink},
 		Config:     config.RPCConfig{MaxTxSearchResults: maxResults},

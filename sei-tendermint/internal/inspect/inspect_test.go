@@ -121,7 +121,7 @@ func TestTxSearch(t *testing.T) {
 	eventSinkMock.On("Stop").Return(nil)
 	eventSinkMock.On("Type").Return(indexer.KV)
 	eventSinkMock.On("SearchTxEvents", mock.Anything,
-		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() })).
+		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() }), mock.Anything).
 		Return([]*abcitypes.TxResultV2{testTxResult}, nil)
 
 	rpcConfig := config.TestRPCConfig()
@@ -535,7 +535,7 @@ func TestBlockSearch(t *testing.T) {
 		},
 	})
 	eventSinkMock.On("SearchBlockEvents", mock.Anything,
-		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() })).
+		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() }), mock.Anything).
 		Return([]int64{testHeight}, nil)
 	rpcConfig := config.TestRPCConfig()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})

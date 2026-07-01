@@ -9,6 +9,21 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+// SearchOptions bounds and orders the results of a Search. It lets the RPC
+// layer push its result cap and ordering down into the indexer so that broad
+// queries do not materialize and sort the entire match set before being
+// capped at the RPC layer.
+type SearchOptions struct {
+	// Limit caps the number of results returned. A value <= 0 means no limit (return the full match set)
+	Limit int
+
+	// OrderDesc selects which end of the height ordering the Limit retains so
+	// that the capped set matches what the RPC layer returns after sorting.
+	// When true the highest-ordered results (e.g. most-recent heights) are
+	// kept; when false the lowest-ordered results are kept.
+	OrderDesc bool
+}
+
 // TxIndexer interface defines methods to index and search transactions.
 type TxIndexer interface {
 	// Index analyzes, indexes and stores transactions. For indexing multiple
@@ -20,8 +35,9 @@ type TxIndexer interface {
 	// or stored.
 	Get(hash []byte) (*abci.TxResultV2, error)
 
-	// Search allows you to query for transactions.
-	Search(ctx context.Context, q *query.Query) ([]*abci.TxResultV2, error)
+	// Search allows you to query for transactions. opts bounds and orders the
+	// result set; see SearchOptions.
+	Search(ctx context.Context, q *query.Query, opts SearchOptions) ([]*abci.TxResultV2, error)
 }
 
 // BlockIndexer defines an interface contract for indexing block events.
@@ -34,8 +50,8 @@ type BlockIndexer interface {
 	Index(types.EventDataNewBlockHeader) error
 
 	// Search performs a query for block heights that match a given FinalizeBlock
-	// event search criteria.
-	Search(ctx context.Context, q *query.Query) ([]int64, error)
+	// event search criteria. opts bounds and orders the result set
+	Search(ctx context.Context, q *query.Query, opts SearchOptions) ([]int64, error)
 }
 
 // Batch groups together multiple Index operations to be performed at the same time.

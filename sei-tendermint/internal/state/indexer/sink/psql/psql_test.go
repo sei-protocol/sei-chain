@@ -28,6 +28,10 @@ import (
 // Verify that the type satisfies the EventSink interface.
 var _ indexer.EventSink = (*EventSink)(nil)
 
+// searchOpts is the zero-value options passed by these tests; the psql sink
+// ignores it and returns an unsupported error regardless.
+var searchOpts = indexer.SearchOptions{}
+
 var (
 	doPauseAtExit = flag.Bool("pause-at-exit", false,
 		"If true, pause the test until interrupted at shutdown, to allow debugging")
@@ -164,7 +168,7 @@ func TestIndexing(t *testing.T) {
 		verifyNotImplemented(t, "hasBlock", func() (bool, error) { return indexer.HasBlock(2) })
 
 		verifyNotImplemented(t, "block search", func() (bool, error) {
-			v, err := indexer.SearchBlockEvents(ctx, nil)
+			v, err := indexer.SearchBlockEvents(ctx, nil, searchOpts)
 			return v != nil, err
 		})
 
@@ -198,7 +202,7 @@ func TestIndexing(t *testing.T) {
 			return txr != nil, err
 		})
 		verifyNotImplemented(t, "tx search", func() (bool, error) {
-			txr, err := indexer.SearchTxEvents(ctx, nil)
+			txr, err := indexer.SearchTxEvents(ctx, nil, searchOpts)
 			return txr != nil, err
 		})
 

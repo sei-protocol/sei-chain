@@ -67,7 +67,14 @@ func (env *Environment) TxSearch(ctx context.Context, req *coretypes.RequestTxSe
 
 	for _, sink := range env.EventSinks {
 		if sink.Type() == indexer.KV {
-			results, err := sink.SearchTxEvents(ctx, q)
+			// TODO(PLT-748): the kv tx indexer currently ignores these opts and
+			// the cap below still applies after sort (PLT-700). Once the tx
+			// scan path is bounded like the block indexer, this pushes the cap
+			// and ordering down to the scan.
+			results, err := sink.SearchTxEvents(ctx, q, indexer.SearchOptions{
+				Limit:     env.Config.MaxTxSearchResults,
+				OrderDesc: req.OrderBy != "asc",
+			})
 			if err != nil {
 				return nil, err
 			}
