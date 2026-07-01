@@ -21,6 +21,44 @@ export async function maxPriorityFeePerGas(provider: ethers.JsonRpcProvider): Pr
     return BigInt(await provider.send('eth_maxPriorityFeePerGas', []));
 }
 
+export interface PriorityFeeSample {
+    tip: bigint;
+    block: number;
+    gasUsed: bigint;
+    gasLimit: bigint;
+    ratio: number;
+}
+
+/**
+ * Read eth_maxPriorityFeePerGas and the latest block it was derived from without
+ * crossing a block boundary. The fee RPC has no block tag, so callers that assert
+ * against latest-block gas usage must pin a stable head themselves.
+ */
+export async function maxPriorityFeePerGasAtStableBlock(
+    provider: ethers.JsonRpcProvider,
+): Promise<PriorityFeeSample> {
+    for (let i = 0; i < 20; i++) {
+        const b1 = await provider.getBlockNumber();
+        const tip = await maxPriorityFeePerGas(provider);
+        const info = await blockGasInfo(provider, 'latest');
+        const b2 = await provider.getBlockNumber();
+        if (b1 === b2 && info.number === b1) {
+            return {
+                tip,
+                block: info.number,
+                gasUsed: info.gasUsed,
+                gasLimit: info.gasLimit,
+                ratio: Number(info.gasUsed) / Number(info.gasLimit),
+            };
+        }
+    }
+    throw new Error('maxPriorityFeePerGasAtStableBlock: block kept advancing across the sample');
+}
+
+export function isCongested(sample: { gasUsed: bigint; gasLimit: bigint }): boolean {
+    return sample.gasUsed > (sample.gasLimit * 80n) / 100n;
+}
+
 /**
  * Read eth_gasPrice with the latest height pinned: only accept a reading where no new
  * block landed across the call, so the returned price provably derives from
