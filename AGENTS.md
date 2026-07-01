@@ -58,3 +58,33 @@ v2.8.0 and `.github/workflows/go-test.yml` runs `go test -race` on Go 1.25.6.
 
 See [`benchmark/CLAUDE.md`](benchmark/CLAUDE.md) for benchmark usage, environment
 variables, and comparison workflows.
+
+## Cursor Cloud specific instructions
+
+The startup update script only runs `go mod download`. Build the node yourself
+with `make install` (outputs `~/go/bin/seid`); it is not part of the update
+script. Add `~/go/bin` to `PATH` before invoking `seid`.
+
+Run a local single-node chain with `./scripts/initialize_local_chain.sh` (see
+`scripts/initialize_local_chain.sh`). It runs `make install`, wipes `~/.sei`,
+inits chain-id `sei-chain` with a pre-funded `admin` key (keyring backend
+`test`), and then `seid start`. Do not run it in the foreground of a
+short-lived shell — start it in a long-lived tmux session, since `seid start`
+runs until killed.
+
+Gotcha: the script tests `$NO_RUN` unquoted under `set -e`, so `NO_RUN` MUST be
+set or the script errors before starting. Use `NO_RUN=0 ./scripts/initialize_local_chain.sh`
+to init and start, or `NO_RUN=1 ./scripts/initialize_local_chain.sh` to only
+init (then `seid start --chain-id sei-chain` yourself).
+
+Default endpoints after startup: Tendermint RPC `:26657`, Cosmos REST `:1317`,
+gRPC `:9090`, EVM JSON-RPC HTTP `:8545`, EVM WS `:8546`. EVM `eth_chainId`
+returns `0xae3f2`.
+
+Quick smoke test once running: `seid status --node tcp://localhost:26657`,
+`curl -s -X POST http://localhost:8545 -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}'`,
+and a bank send `seid tx bank send admin <addr> 1000000usei --chain-id sei-chain --keyring-backend test --fees 20000usei -y`.
+
+`make lint` runs golangci-lint over the whole tree plus `go mod tidy`/`verify`
+(slow); scope to a package with `go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run ./<pkg>/...`
+while iterating.
