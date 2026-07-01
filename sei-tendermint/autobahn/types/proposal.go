@@ -277,16 +277,38 @@ func NewProposal(
 	if p, ok := NewReproposal(key, viewSpec); ok {
 		return p, nil
 	}
+	proposal, appQC, err := buildProposal(committee, viewSpec, timestamp, laneQCs, appQC)
+	if err != nil {
+		return nil, err
+	}
+	return &FullProposal{
+		proposal:  Sign(key, proposal),
+		laneQCs:   laneQCs,
+		appQC:     appQC,
+		timeoutQC: viewSpec.TimeoutQC,
+	}, nil
+}
+
+// buildProposal constructs the unsigned Proposal message and returns it along with the
+// (possibly cleared) appQC. It contains the non-signing body shared by NewProposal and
+// NewProposalForTesting.
+func buildProposal(
+	committee *Committee,
+	viewSpec ViewSpec,
+	timestamp time.Time,
+	laneQCs map[LaneID]*LaneQC,
+	appQC utils.Option[*AppQC],
+) (*Proposal, utils.Option[*AppQC], error) {
 	var laneRanges []*LaneRange
 	for lane := range committee.Lanes().All() {
 		first := LaneRangeOpt(viewSpec.CommitQC, lane).Next()
 		if lQC, ok := laneQCs[lane]; ok {
 			if lQC.Header().Lane() != lane {
-				return nil, fmt.Errorf("laneQC %v for lane %v", lQC.Header().Lane(), lane)
+				return nil, appQC, fmt.Errorf("laneQC %v for lane %v", lQC.Header().Lane(), lane)
 			}
 			laneRange := NewLaneRange(lane, first, utils.Some(lQC.Header()))
 			if got := laneRange.Len(); got > MaxLaneRangeInProposal {
-				return nil, fmt.Errorf("laneRange[%v].Len() = %d, want <= %d", lane, got, MaxLaneRangeInProposal)
+				return nil, appQC, fmt.Errorf("laneRange[%v].Len() = %d, want <= %d", lane, got, MaxLaneRangeInProposal)
 			}
 			laneRanges = append(laneRanges, laneRange)
 		} else {
@@ -309,10 +331,27 @@ func NewProposal(
 	if wantMin := viewSpec.NextTimestamp(committee); timestamp.Before(wantMin) {
 		timestamp = wantMin
 	}
-	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, app)
+	return newProposal(viewSpec.View(), timestamp, laneRanges, app), appQC, nil
+}
 
+// NewProposalForTesting builds a FullProposal exactly like NewProposal but attaches the
+// provided (typically fake) signature instead of signing with a secret key. FOR
+// TESTS/BENCHMARKS ONLY: the resulting proposal will NOT verify. Unlike NewProposal it
+// does not support the reproposal path, so viewSpec.TimeoutQC must be None.
+func NewProposalForTesting(
+	committee *Committee,
+	viewSpec ViewSpec,
+	timestamp time.Time,
+	laneQCs map[LaneID]*LaneQC,
+	appQC utils.Option[*AppQC],
+	sig *Signature,
+) (*FullProposal, error) {
+	proposal, appQC, err := buildProposal(committee, viewSpec, timestamp, laneQCs, appQC)
+	if err != nil {
+		return nil, err
+	}
 	return &FullProposal{
-		proposal:  Sign(key, proposal),
+		proposal:  newSigned(proposal, sig),
 		laneQCs:   laneQCs,
 		appQC:     appQC,
 		timeoutQC: viewSpec.TimeoutQC,

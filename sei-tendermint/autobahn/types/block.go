@@ -156,6 +156,12 @@ func (h *BlockHeader) Hash() BlockHeaderHash {
 // PayloadHash is the hash of a Payload.
 type PayloadHash hashable.Hash[*pb.Payload]
 
+// ParsePayloadHash constructs a PayloadHash from its raw bytes.
+func ParsePayloadHash(bytes []byte) (PayloadHash, error) {
+	h, err := hashable.ParseHash[*pb.Payload](bytes)
+	return PayloadHash(h), err
+}
+
 // PayloadBuilder builds a Payload.
 type PayloadBuilder struct {
 	CreatedAt         time.Time

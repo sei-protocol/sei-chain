@@ -30,6 +30,13 @@ type BlocksimConfig struct {
 	// benchmark. A larger queue allows the block generator to run further ahead of the consumer.
 	StagedBlockQueueSize uint64
 
+	// Size in bytes of the pre-generated random buffer used to synthesize block payloads and fake
+	// signatures. The buffer is filled once at startup and sliced (zero-copy) thereafter, so the
+	// generator never runs math/rand or allocates payload bytes on the hot path. Must be at least
+	// BytesPerTransaction (the largest single request). Larger values give a longer runway before
+	// the byte sequence repeats.
+	RandomDataBufferSizeBytes uint64
+
 	// The number of blocks to keep in the database after pruning.
 	UnprunedBlocks uint64
 
@@ -114,7 +121,8 @@ func DefaultBlocksimConfig() *BlocksimConfig {
 		CommitteeSize:                   4,
 		BlocksPerQc:                     1,
 		StagedBlockQueueSize:            8,
-		LittRetentionSeconds:            2 * 60 * 60, // 2 hours
+		RandomDataBufferSizeBytes:       64 * 1024 * 1024, // 64 MiB
+		LittRetentionSeconds:            2 * 60 * 60,      // 2 hours
 		LittMetricsEnabled:              true,
 		UnprunedBlocks:                  100_000,
 		Seed:                            1337,
@@ -159,6 +167,10 @@ func (c *BlocksimConfig) Validate() error {
 	}
 	if c.StagedBlockQueueSize < 1 {
 		return fmt.Errorf("StagedBlockQueueSize must be at least 1 (got %d)", c.StagedBlockQueueSize)
+	}
+	if c.RandomDataBufferSizeBytes < c.BytesPerTransaction {
+		return fmt.Errorf("RandomDataBufferSizeBytes must be at least BytesPerTransaction %d (got %d)",
+			c.BytesPerTransaction, c.RandomDataBufferSizeBytes)
 	}
 	if c.LittRetentionSeconds < 1 {
 		return fmt.Errorf("LittRetentionSeconds must be positive (got %d)", c.LittRetentionSeconds)

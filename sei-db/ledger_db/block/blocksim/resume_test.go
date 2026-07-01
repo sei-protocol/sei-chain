@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -23,11 +24,17 @@ func TestRecoverResumeState(t *testing.T) {
 	cfg.TransactionsPerBlock = 1
 	cfg.BytesPerTransaction = 16
 
-	// Mirror NewBlockSim: build the RNG, then the committee (which consumes it),
-	// then hand the same RNG to the generator.
+	// Mirror NewBlockSim: build the keygen RNG and the committee, then a CannedRandom
+	// for the generator's data.
 	rng := tmutils.TestRngFromSeed(cfg.Seed)
 	committee, keys, err := buildCommittee(rng, int(cfg.CommitteeSize)) //nolint:gosec // small config value
 	require.NoError(t, err)
+	cannedRand := crand.NewCannedRandom(int(cfg.RandomDataBufferSizeBytes), cfg.Seed) //nolint:gosec // bounded by config
+
+	pubKeys := make([]types.PublicKey, len(keys))
+	for i, k := range keys {
+		pubKeys[i] = k.Public()
+	}
 
 	db, err := openBlockDB(cfg)
 	require.NoError(t, err)
@@ -37,9 +44,9 @@ func TestRecoverResumeState(t *testing.T) {
 	gen := &BlockGenerator{
 		ctx:       context.Background(),
 		config:    cfg,
-		rng:       rng,
+		rand:      cannedRand,
 		committee: committee,
-		keys:      keys,
+		pubKeys:   pubKeys,
 		prev:      tmutils.None[*types.CommitQC](),
 	}
 	var last *generatedBatch
