@@ -61,7 +61,7 @@ func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string
 func validateAdvisory(cmd *cobra.Command) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Warn("config validation panicked (advisory; recovered, node will boot)", "panic", r)
+			logger.Error("config validation panicked (advisory; recovered, node will boot)", "panic", r)
 		}
 	}()
 
