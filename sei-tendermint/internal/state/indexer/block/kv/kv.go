@@ -126,8 +126,10 @@ func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query, opts inde
 	return idx.collectBounded(ctx, filteredHeights, opts)
 }
 
-// intersect reproduces the historical match/intersect behavior, returning the
-// set of height-encoded values that satisfy every condition (implicit AND).
+// intersect returns the set of height-encoded values that satisfy every
+// condition (implicit AND). It seeds the set from the first condition's index
+// matches, then intersects each remaining condition against it, so a height
+// survives only if it matches all of them.
 func (idx *BlockerIndexer) intersect(
 	ctx context.Context,
 	conditions []syntax.Condition,
