@@ -345,7 +345,10 @@ func (i *stateAccessIndex) conflictsWith(key stateAccessKey) bool {
 func (i *stateAccessIndex) addAll(set map[stateAccessKey]struct{}) {
 	for key := range set {
 		i.exact[key] = struct{}{}
-		i.touched[key.address] = struct{}{}
+		// Exist/Empty account reads depend on account metadata, not storage slots.
+		if key.kind != stateAccessStorage {
+			i.touched[key.address] = struct{}{}
+		}
 		if key.kind == stateAccessAccount {
 			i.account[key.address] = struct{}{}
 		}
