@@ -4,5 +4,4 @@
   "DataDir": "~/blocksim/data",
   "LogDir": "~/blocksim/logs",
   "Backend": "litt"
-
 }
