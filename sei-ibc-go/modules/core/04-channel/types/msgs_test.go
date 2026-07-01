@@ -75,6 +75,9 @@ func (suite *TypesTestSuite) SetupTest() {
 	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	ssConfig := seidbconfig.StateStoreConfig{}
 	store := storev2rootmulti.NewStore(suite.T().TempDir(), scConfig, ssConfig, nil)
+	defer func() {
+		suite.Require().NoError(store.Close())
+	}()
 	storeKey := storetypes.NewKVStoreKey("iavlStoreKey")
 
 	store.MountStoreWithDB(storeKey, storetypes.StoreTypeIAVL, nil)
