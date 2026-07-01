@@ -52,12 +52,19 @@ func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string
 }
 
 // validateAdvisory resolves the home dir, reads the on-disk config, and logs any
-// validation diagnostics via seilog at Warn. Every step is advisory: a failure
-// is logged and swallowed so the pass can never change what the node boots on. A
-// missing config file is normal (the legacy handler creates it) and is not
-// surfaced. Keeping this a distinct step from Apply is what lets the generate
-// path add its authoring/render step as a sibling.
+// validation diagnostics via seilog at Warn. Every step is advisory: a failure —
+// or a panic in the sei-config read/validate, whose fidelity is still being
+// hardened — is logged and swallowed so the pass can never change what the node
+// boots on. A missing config file is normal (the legacy handler creates it) and
+// is not surfaced. Keeping this a distinct step from Apply is what lets the
+// generate path add its authoring/render step as a sibling.
 func validateAdvisory(cmd *cobra.Command) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Warn("config validation panicked (advisory; recovered, node will boot)", "panic", r)
+		}
+	}()
+
 	home, err := resolveHomeDir(cmd)
 	if err != nil {
 		logger.Warn("could not resolve home dir for config validation (advisory)", "error", err)
