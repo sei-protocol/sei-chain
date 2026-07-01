@@ -53,6 +53,8 @@ func validationLabel(err error) string {
 		return "evidence_hash"
 	case errors.Is(err, ErrPerEvidenceValidateBasic):
 		return "per_evidence_validate_basic"
+	case errors.Is(err, ErrUpgradeBeforeTrigger):
+		return "upgrade_before_trigger"
 	default:
 		return "unknown"
 	}

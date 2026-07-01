@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -38,6 +39,13 @@ const (
 	// exercise the resume / hybrid-read path mid-flight.
 	FlagSCKeysToMigratePerBlock  = "state-commit.sc-keys-to-migrate-per-block"
 	FlagSCFlatKVReadWriteMetrics = "state-commit.flatkv.enable-read-write-metrics"
+
+	// Hash logger configs (per-block hash logging; enabled by default)
+	FlagSCHashLoggerEnable         = "state-commit.sc-hash-logger-enable"
+	FlagSCHashLoggerDirectory      = "state-commit.sc-hash-logger-directory"
+	FlagSCHashLoggerBlocksToRetain = "state-commit.sc-hash-logger-blocks-to-retain"
+	FlagSCHashLoggerTargetFileSize = "state-commit.sc-hash-logger-target-file-size"
+	FlagSCHashLoggerMaxDiskSize    = "state-commit.sc-hash-logger-max-disk-size"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -141,6 +149,31 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 			scConfig.KeysToMigratePerBlock = n
 		}
 	}
+
+	// Hash logger. Guard each read with v != nil so an absent app.toml entry preserves the default
+	// (notably Enable, which defaults to true) instead of clobbering it to the zero value.
+	if v := appOpts.Get(FlagSCHashLoggerEnable); v != nil {
+		scConfig.HashLogger.Enable = cast.ToBool(v)
+	}
+	if v := appOpts.Get(FlagSCHashLoggerDirectory); v != nil {
+		scConfig.HashLogger.Directory = cast.ToString(v)
+	}
+	// BlocksToRetain and MaxDiskSize take a configured value verbatim, including 0 (which disables that
+	// retention dimension). TargetFileSize must stay > 0, so a 0/absent value preserves the default.
+	if v := appOpts.Get(FlagSCHashLoggerBlocksToRetain); v != nil {
+		scConfig.HashLogger.BlocksToRetain = cast.ToUint(v)
+	}
+	if v := appOpts.Get(FlagSCHashLoggerTargetFileSize); v != nil {
+		if n := cast.ToUint(v); n > 0 {
+			scConfig.HashLogger.TargetFileSize = n
+		}
+	}
+	if v := appOpts.Get(FlagSCHashLoggerMaxDiskSize); v != nil {
+		scConfig.HashLogger.MaxDiskSize = cast.ToUint(v)
+	}
+	// The software version is embedded in hash log file names so archives from different builds are
+	// distinguishable. Sourced from the node build version, not from app.toml.
+	scConfig.HashLogger.Version = version.Version
 
 	return scConfig
 }

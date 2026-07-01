@@ -180,6 +180,10 @@ func ReadLimit(readLimit int64) func(*wsConnection) {
 func (wsc *wsConnection) Start(ctx context.Context) error {
 	wsc.writeChan = make(chan rpctypes.RPCResponse, defaultWSWriteChanCapacity)
 
+	// Derive a connection-scoped context that is canceled as soon as Start returns.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	// Read subscriptions/unsubscriptions to events
 	go wsc.readRoutine(ctx)
 	// Write responses, BLOCKING.
@@ -243,8 +247,10 @@ func (wsc *wsConnection) Context() context.Context {
 
 // Read from the socket and subscribe to or unsubscribe from events
 func (wsc *wsConnection) readRoutine(ctx context.Context) {
-	// readRoutine will block until response is written or WS connection is closed
-	writeCtx := context.Background()
+	// readRoutine will block until response is written or the connection's
+	// context is canceled. Using ctx here ensures a send blocked on a full writeChan is released when writeRoutine
+	// exits, instead of leaking this goroutine.
+	writeCtx := ctx
 
 	defer func() {
 		if r := recover(); r != nil {

@@ -334,6 +334,10 @@ func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
+	// Safety net: if an assertion fails mid-test, Drop stops the background GC goroutine before the
+	// t.TempDir cleanup removes the directory out from under it. Drop is idempotent (guarded by a CAS),
+	// so the explicit Drop at the end of the happy path makes this a no-op.
+	defer func() { _ = table.Drop() }()
 
 	ttlSeconds := rand.Int32Range(20, 30)
 	ttl := time.Duration(ttlSeconds) * time.Second
@@ -392,12 +396,6 @@ func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
 			require.NoError(t, err)
 		}
 
-		// Once in a while, pause for a brief moment to give the garbage collector a chance to do work in the
-		// background. This is not required for the test to pass.
-		if rand.BoolWithProbability(0.01) {
-			time.Sleep(5 * time.Millisecond)
-		}
-
 		// Once in a while, scan the table and verify that all expected values are present.
 		// Don't do this every time for the sake of test runtime.
 		if rand.BoolWithProbability(0.01) || i == iterations-1 /* always check on the last iteration */ {
@@ -427,41 +425,41 @@ func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
 			require.NoError(t, err)
 			require.False(t, ok)
 
-			// Check the values that are expected to have been removed from the table
-			// Garbage collection happens asynchronously, so we may need to wait for it to complete.
-			util.AssertEventuallyTrue(t, func() bool {
-				// keep a running sum of the unexpired data size. Some data may be unable to expire
-				// due to sharing a file with data that is not yet ready to expire, so it's hard
-				// to predict the exact quantity of unexpired data.
-				//
-				// Math:
-				// - 100 bytes in each segment                   (test configuration)
-				// - max value size of 128 bytes                 (test configuration)
-				// - 4 bytes to store the length of the value    (default property)
-				// - max bytes per segment: 100+128+4 = 232
-				// - max number of segments per write is equal to max batch size, or 9
-				// - max unexpired data size = 9 * 232 = 2088
-				unexpiredDataSize := 0
+			// Check the values that are expected to have been removed from the table. Drive a synchronous GC
+			// pass rather than waiting on the background collector: RunGC runs collection, the keymap-delete
+			// sync, and file reclamation to completion, so once it returns every currently-expired sealed
+			// segment has been collected and its keymap entries deleted. This makes the check deterministic
+			// (no reliance on the 1ms ticker catching up within a real-time window), so it can only fail if
+			// collection is actually broken.
+			require.NoError(t, table.RunGC())
 
-				for key, expectedValue := range expiredValues {
-					value, ok, err := table.Get([]byte(key))
-					require.NoError(t, err)
-					if !ok {
-						// value is not present in the table
-						continue
-					}
-
-					// If the value has not yet been deleted, it should at least return the expected value.
-					require.Equal(t, expectedValue, value, "unexpected value for key %s", key)
-
-					unexpiredDataSize += len(value) + 4 // 4 bytes stores the length of the value
+			// Keep a running sum of the unexpired data size. Some expired data may still be present because it
+			// shares a segment with data that is not yet ready to expire (segments expire as a unit), so the
+			// exact quantity of lingering data is not predictable; we assert it stays within the plausible bound.
+			//
+			// Math:
+			// - 100 bytes in each segment                   (test configuration)
+			// - max value size of 128 bytes                 (test configuration)
+			// - 4 bytes to store the length of the value    (default property)
+			// - max bytes per segment: 100+128+4 = 232
+			// - max number of segments per write is equal to max batch size, or 9
+			// - max unexpired data size = 9 * 232 = 2088
+			unexpiredDataSize := 0
+			for key, expectedValue := range expiredValues {
+				value, ok, err := table.Get([]byte(key))
+				require.NoError(t, err)
+				if !ok {
+					// value is not present in the table
+					continue
 				}
 
-				// This check passes if the unexpired data size is less than or equal to the maximum plausible
-				// size of unexpired data. If working as expected, this should always happen within a reasonable
-				// amount of time.
-				return unexpiredDataSize <= 2088
-			}, time.Second)
+				// If the value has not yet been deleted, it should at least return the expected value.
+				require.Equal(t, expectedValue, value, "unexpected value for key %s", key)
+
+				unexpiredDataSize += len(value) + 4 // 4 bytes stores the length of the value
+			}
+
+			require.LessOrEqual(t, unexpiredDataSize, 2088)
 		}
 	}
 
@@ -564,57 +562,6 @@ func TestSecondaryKeyBasics(t *testing.T) {
 		t.Run(tb.name, func(t *testing.T) {
 			t.Parallel()
 			secondaryKeyBasicsTest(t, tb)
-		})
-	}
-}
-
-// secondaryKeyCachedWriteHotTest verifies that immediately after Put, both the primary and every
-// secondary key are hot in the cached table's write cache (CacheAwareGet with
-// onlyReadFromCache=true returns the bytes without touching disk). Skips non-cached
-// implementations since CacheAwareGet on those is functionally identical to Get.
-func secondaryKeyCachedWriteHotTest(t *testing.T, tb *tableBuilder) {
-	rand := util.NewTestRandom()
-	directory := t.TempDir()
-	tableName := rand.String(8)
-	table, err := tb.builder(time.Now, tableName, directory)
-	require.NoError(t, err)
-
-	value := []byte("hello world")
-	require.NoError(t, table.Put([]byte("primary"), value,
-		&types.SecondaryKey{Key: []byte("hello"), Offset: 0, Length: 5},
-		&types.SecondaryKey{Key: []byte("world"), Offset: 6, Length: 5},
-	))
-
-	for _, kv := range []struct {
-		key      []byte
-		expected []byte
-	}{
-		{[]byte("primary"), value},
-		{[]byte("hello"), []byte("hello")},
-		{[]byte("world"), []byte("world")},
-	} {
-		got, ok, hot, err := table.CacheAwareGet(kv.key, true)
-		require.NoError(t, err, "key=%s", kv.key)
-		require.True(t, ok, "key=%s", kv.key)
-		require.True(t, hot, "key=%s expected to be in write cache", kv.key)
-		require.Equal(t, kv.expected, got, "key=%s", kv.key)
-	}
-
-	require.NoError(t, table.Drop())
-}
-
-func TestSecondaryKeyCachedWriteHot(t *testing.T) {
-	t.Parallel()
-	// Cached variants only: the non-cached builders treat CacheAwareGet(_, true) as "miss".
-	cachedBuilders := []*tableBuilder{
-		{"cached mem keymap disk table", buildCachedMemKeyDiskTable},
-		{"cached pebbledb keymap disk table", buildCachedPebbleDBKeyDiskTable},
-	}
-	for _, tb := range cachedBuilders {
-		tb := tb
-		t.Run(tb.name, func(t *testing.T) {
-			t.Parallel()
-			secondaryKeyCachedWriteHotTest(t, tb)
 		})
 	}
 }

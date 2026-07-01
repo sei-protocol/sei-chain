@@ -34,6 +34,7 @@ import (
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -61,6 +62,23 @@ type Store struct {
 	histProofLimiter *rate.Limiter
 
 	snapshotSCStoreWarnOnce sync.Once
+
+	// Hash logger state (per-block hash logging; a debugging/forensics tool). See hashlog.go.
+	hashLoggerConfig   config.HashLoggerConfig
+	hashLoggerDisabled bool
+	hashLogger         hashlog.HashLogger
+	hashCategories     map[string]struct{} // the category set the current logger was opened with
+	scDir              string              // state-commit directory, for the default hash log location
+	// blockChangeSets is the aggregate changeset captured in flush for the block being committed, then
+	// reported (and cleared) in Commit. changesetCapturedVersion guards against the double-flush so it is
+	// captured only once (with the real, non-empty changeset) per block.
+	blockChangeSets          []*proto.NamedChangeSet
+	changesetCapturedVersion int64
+	// nextBlockHash is the Tendermint block hash supplied by baseapp for the block being committed.
+	nextBlockHash []byte
+	// nextResultHash is the result hash (merkle root over the block's deterministic tx results)
+	// supplied by baseapp for the block being committed.
+	nextResultHash []byte
 }
 
 type VersionedChangesets struct {
@@ -106,13 +124,16 @@ func NewStore(
 		}
 	}
 	store := &Store{
-		scStore:          scStore,
-		storesParams:     make(map[types.StoreKey]storeParams),
-		storeKeys:        make(map[string]types.StoreKey),
-		ckvStores:        make(map[types.StoreKey]types.CommitKVStore),
-		gigaKeys:         gigaKeys,
-		histProofSem:     make(chan struct{}, maxInFlight),
-		histProofLimiter: limiter,
+		scStore:            scStore,
+		storesParams:       make(map[types.StoreKey]storeParams),
+		storeKeys:          make(map[string]types.StoreKey),
+		ckvStores:          make(map[types.StoreKey]types.CommitKVStore),
+		gigaKeys:           gigaKeys,
+		histProofSem:       make(chan struct{}, maxInFlight),
+		histProofLimiter:   limiter,
+		hashLoggerConfig:   scConfig.HashLogger,
+		hashLoggerDisabled: !scConfig.HashLogger.Enable,
+		scDir:              scDir,
 	}
 	if ssConfig.Enable {
 		ssStore, err := ss.NewStateStore(homeDir, ssConfig)
@@ -175,6 +196,7 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 
 	rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
 	rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
+	rs.recordBlockHashes(rs.lastCommitInfo.Version)
 	return rs.lastCommitInfo.CommitID()
 }
 
@@ -199,6 +221,21 @@ func (rs *Store) flush() error {
 		sort.SliceStable(changeSets, func(i, j int) bool {
 			return changeSets[i].Name < changeSets[j].Name
 		})
+	}
+	// Capture the (sorted) aggregate changeset for hash logging once per block. rootmulti flushes twice
+	// per block (GetWorkingHash then Commit) but only the first flush carries the real changeset — the
+	// second sees an empty set because PopChangeSet already drained it — so capture only the first time.
+	// nil is normalized to an empty (non-nil) set so an empty block records the stable empty-changeset
+	// hash rather than a nil one.
+	if !rs.hashLoggerDisabled && rs.changesetCapturedVersion != currentVersion {
+		if changeSets == nil {
+			rs.blockChangeSets = []*proto.NamedChangeSet{}
+		} else {
+			rs.blockChangeSets = changeSets
+		}
+		rs.changesetCapturedVersion = currentVersion
+	}
+	if len(changeSets) > 0 {
 		if rs.ssStore != nil {
 			if err := rs.ssStore.ApplyChangesetAsync(currentVersion, changeSets); err != nil {
 				return err
@@ -225,6 +262,9 @@ func (rs *Store) Close() error {
 	err := rs.scStore.Close()
 	if rs.ssStore != nil {
 		err = commonerrors.Join(err, rs.ssStore.Close())
+	}
+	if rs.hashLogger != nil {
+		err = commonerrors.Join(err, rs.hashLogger.Close())
 	}
 	return err
 }

@@ -53,6 +53,10 @@ type StateCommitConfig struct {
 
 	// The number of keys to migrate from memiavl to flatkv per block. Ignored if not in a migration mode.
 	KeysToMigratePerBlock int `mapstructure:"keys-to-migrate-per-block"`
+
+	// HashLogger configures the per-block hash logger (a debugging/forensics tool). Enabled by default.
+	// Loaded via explicit sc-hash-logger-* flag reads in app.parseSCConfigs, not mapstructure.
+	HashLogger HashLoggerConfig
 }
 
 // DefaultStateCommitConfig returns the default StateCommitConfig
@@ -66,6 +70,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
 		KeysToMigratePerBlock:      1024,
+		HashLogger:                 DefaultHashLoggerConfig(),
 	}
 }
 

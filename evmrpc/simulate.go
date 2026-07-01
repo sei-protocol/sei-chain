@@ -565,6 +565,9 @@ func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtype
 		if idx > txIndex {
 			break
 		}
+		if err := ctx.Err(); err != nil {
+			return nil, nil, emptyRelease, err
+		}
 		sdkTx, err := traceCompatTxDecoder(b.txConfigProvider(block.Number().Int64()), b.isV65ActiveAtHeight(block.Number().Int64()))(tx)
 		if err != nil {
 			panic(err)

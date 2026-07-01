@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"runtime"
 	"time"
 
@@ -177,6 +178,25 @@ type Config struct {
 	// BatchResponseMaxSize is the maximum number of bytes returned from a
 	// batched JSON-RPC call (HTTP and WebSocket). Set to 0 to disable the limit.
 	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
+
+	// MaxRequestBodyBytes is the maximum size, in bytes, of a single HTTP
+	// JSON-RPC request body. Requests larger than this are rejected (HTTP 413)
+	// before the body is buffered or JSON-decoded. 0 uses the go-ethereum
+	// default (5 MiB).
+	MaxRequestBodyBytes int64 `mapstructure:"max_request_body_bytes"`
+
+	// MaxConcurrentRequestBytes bounds the total size, in bytes, of HTTP
+	// JSON-RPC request bodies admitted for processing concurrently, weighted by
+	// each request's Content-Length. Requests that would exceed the budget are
+	// rejected fast (HTTP 429) before decode, capping peak memory under load.
+	// Set to 0 to disable the limit.
+	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
+
+	// MaxOpenConnections caps the number of simultaneously accepted connections
+	// on the EVM HTTP and WebSocket listeners. The limit is applied per listener
+	// (HTTP and WS each get their own budget). Excess connections block in the
+	// accept queue until an active connection closes. Zero disables the limit.
+	MaxOpenConnections int `mapstructure:"max_open_connections"`
 }
 
 var DefaultConfig = Config{
@@ -216,17 +236,20 @@ var DefaultConfig = Config{
 		"sei_getEVMAddress",
 		"sei_getCosmosTx",
 	},
-	TraceBakeEnabled:        false,
-	TraceBakeWorkers:        1,
-	TraceBakeQueueSize:      4096,
-	TraceBakeTracers:        []string{"callTracer"},
-	TraceBakeWindowBlocks:   0,
-	TraceBakeUseSnapshot:    false,
-	TraceBakeSnapshotWindow: 64,
-	IPRateLimitRPS:          200,
-	IPRateLimitBurst:        400,
-	BatchRequestLimit:       1000,
-	BatchResponseMaxSize:    25 * 1000 * 1000, // 25MB
+	TraceBakeEnabled:          false,
+	TraceBakeWorkers:          1,
+	TraceBakeQueueSize:        4096,
+	TraceBakeTracers:          []string{"callTracer"},
+	TraceBakeWindowBlocks:     0,
+	TraceBakeUseSnapshot:      false,
+	TraceBakeSnapshotWindow:   64,
+	IPRateLimitRPS:            200,
+	IPRateLimitBurst:          400,
+	BatchRequestLimit:         1000,
+	BatchResponseMaxSize:      25 * 1000 * 1000,  // 25MB
+	MaxRequestBodyBytes:       5 * 1024 * 1024,   // 5 MiB (matches go-ethereum rpc default body limit)
+	MaxConcurrentRequestBytes: 128 * 1024 * 1024, // 128 MiB of request bodies admitted concurrently
+	MaxOpenConnections:        2000,
 }
 
 const (
@@ -273,6 +296,9 @@ const (
 	flagIPRateLimitBurst             = "evm.ip_rate_limit_burst"
 	flagBatchRequestLimit            = "evm.batch_request_limit"
 	flagBatchResponseMaxSize         = "evm.batch_response_max_size"
+	flagMaxRequestBodyBytes          = "evm.max_request_body_bytes"
+	flagMaxConcurrentRequestBytes    = "evm.max_concurrent_request_bytes"
+	flagMaxOpenConnections           = "evm.max_open_connections"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -493,6 +519,24 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagMaxRequestBodyBytes); v != nil {
+		if cfg.MaxRequestBodyBytes, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxConcurrentRequestBytes); v != nil {
+		if cfg.MaxConcurrentRequestBytes, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxOpenConnections); v != nil {
+		if cfg.MaxOpenConnections, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+		if cfg.MaxOpenConnections < 0 {
+			return cfg, fmt.Errorf("%s must be >= 0 (0 disables the limit), got %d", flagMaxOpenConnections, cfg.MaxOpenConnections)
+		}
+	}
 	return cfg, nil
 }
 
@@ -699,5 +743,20 @@ batch_request_limit = {{ .EVM.BatchRequestLimit }}
 # batch_response_max_size is the maximum number of bytes returned from a
 # batched JSON-RPC call (HTTP and WebSocket). Set to 0 to disable the limit.
 batch_response_max_size = {{ .EVM.BatchResponseMaxSize }}
+
+# max_request_body_bytes is the maximum size, in bytes, of a single HTTP
+# JSON-RPC request body. Larger requests are rejected (HTTP 413) before the body
+# is buffered or JSON-decoded. Set to 0 to use the default (5 MiB).
+max_request_body_bytes = {{ .EVM.MaxRequestBodyBytes }}
+
+# max_concurrent_request_bytes bounds the total size, in bytes, of HTTP JSON-RPC
+# request bodies admitted for processing concurrently (weighted by each request's
+# Content-Length). Requests that would exceed the budget are rejected fast
+# (HTTP 429) before decode, capping peak memory under load. Set to 0 to disable.
+max_concurrent_request_bytes = {{ .EVM.MaxConcurrentRequestBytes }}
+
+# max_open_connections caps the number of simultaneously accepted connections on
+# the EVM HTTP and WebSocket listeners. Set to 0 to disable the limit.
+max_open_connections = {{ .EVM.MaxOpenConnections }}
 
 `

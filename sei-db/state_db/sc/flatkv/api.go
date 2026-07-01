@@ -7,6 +7,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -106,6 +107,13 @@ type Store interface {
 
 	// CommittedRootHash returns the 32-byte checksum of the last committed LtHash.
 	CommittedRootHash() []byte
+
+	// HashCategories returns the hash logger category names this store reports (the global root plus one
+	// per data DB). The set is fixed. The caller registers these on the logger.
+	HashCategories() []string
+
+	// RecordHashes reports this store's hashes (root + per-DB) for blockNumber. Call right after Commit.
+	RecordHashes(hl hashlog.HashLogger, blockNumber uint64) error
 
 	// Version returns the latest committed version.
 	Version() int64

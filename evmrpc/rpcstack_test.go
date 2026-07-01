@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -578,6 +579,57 @@ func TestHTTPWriteTimeout(t *testing.T) {
 			t.Errorf("wrong response. have %s, want %s", string(body), want)
 		}
 	})
+}
+
+// TestMaxOpenConns verifies that SetMaxOpenConns wraps the listener so that no
+// more than the configured number of connections are accepted at once. With a
+// cap of 1, a second connection is not served until the first one is closed.
+func TestMaxOpenConns(t *testing.T) {
+	srv := evmrpc.NewHTTPServer(rpc.DefaultHTTPTimeouts)
+	srv.SetMaxOpenConns(1)
+	assert.NoError(t, srv.EnableRPC(apis(), evmrpc.HTTPConfig{}))
+	assert.NoError(t, srv.SetListenAddr("localhost", 0))
+	assert.NoError(t, srv.Start())
+	defer srv.Stop()
+
+	addr := srv.ListenAddr()
+
+	// Open the first connection and send only request headers advertising a body
+	// that never arrives. The server accepts it (consuming the single slot), and
+	// its serving goroutine blocks reading the body, holding the slot open.
+	c1, err := net.Dial("tcp", addr)
+	assert.NoError(t, err)
+	defer func() {
+		_ = c1.Close()
+	}()
+	_, err = c1.Write([]byte("POST / HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 4096\r\n\r\n"))
+	assert.NoError(t, err)
+
+	// Give the accepting loop time to accept c1 and consume the slot.
+	time.Sleep(200 * time.Millisecond)
+
+	// While c1 holds the only slot, a second connection is not accepted, so a
+	// complete request over it receives no response before the read deadline.
+	body := `{"jsonrpc":"2.0","id":1,"method":"test_greet","params":[]}`
+	req := fmt.Sprintf("POST / HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s", len(body), body)
+	c2, err := net.DialTimeout("tcp", addr, time.Second)
+	assert.NoError(t, err)
+	defer func() {
+		_ = c2.Close()
+	}()
+	_, err = c2.Write([]byte(req))
+	assert.NoError(t, err)
+	assert.NoError(t, c2.SetReadDeadline(time.Now().Add(500*time.Millisecond)))
+	buf := make([]byte, 64)
+	_, err = c2.Read(buf)
+	assert.Error(t, err, "second connection should not be served while the slot is held")
+
+	// Closing c1 frees the slot; c2 is then accepted and served.
+	assert.NoError(t, c1.Close())
+	assert.NoError(t, c2.SetReadDeadline(time.Now().Add(5*time.Second)))
+	n, err := c2.Read(buf)
+	assert.NoError(t, err)
+	assert.Greater(t, n, 0)
 }
 
 func apis() []rpc.API {

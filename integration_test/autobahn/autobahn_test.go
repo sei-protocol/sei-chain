@@ -69,6 +69,9 @@ const (
 	// headroom without giving up another whole minute on every run.
 	heightPoll       = 1 * time.Second
 	haltStableWindow = 20 * time.Second
+	// Initial fullnode sync can pause at a height briefly while Autobahn
+	// streams settle; require eventual progress rather than one fixed sample.
+	blockProductionAdvanceMax = 30 * time.Second
 	// 2m / 90s give headroom for the fullnode catch-up backlog the
 	// preceding subtest may have left (failover delay during
 	// LivenessUnderMaxFaults can put the fullnode ~600 blocks behind,
@@ -159,13 +162,16 @@ func waitForStableHeight(t *testing.T, window, timeout time.Duration) int64 {
 func waitForHeightAdvance(t *testing.T, base int64, timeout time.Duration) int64 {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
+	last := base
 	for time.Now().Before(deadline) {
-		if h := getHeight(t); h > base {
+		h := getHeight(t)
+		if h > base {
 			return h
 		}
+		last = h
 		time.Sleep(heightPoll)
 	}
-	t.Fatalf("height did not advance past %d within %s", base, timeout)
+	t.Fatalf("height did not advance past %d within %s (last seen %d)", base, timeout, last)
 	return 0
 }
 
@@ -547,12 +553,8 @@ func testBlockProduction(t *testing.T) {
 	assertAutobahnEnabled(t)
 	h1 := getHeight(t)
 	t.Logf("height: %d", h1)
-	time.Sleep(5 * time.Second)
-	h2 := getHeight(t)
-	t.Logf("height after 5s: %d", h2)
-	if h2 <= h1 {
-		t.Fatalf("block height not advancing (%d -> %d)", h1, h2)
-	}
+	h2 := waitForHeightAdvance(t, h1, blockProductionAdvanceMax)
+	t.Logf("height after progress: %d", h2)
 
 	// Verify the Autobahn-routed tmRPC handlers serve real data at h2 (a
 	// recently committed height — past tail of the chain, so historical

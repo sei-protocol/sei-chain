@@ -535,6 +535,13 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	if returnErr = api.guardHistoricalDebugTraceByTxHash(ctx, "debug_traceStateAccess", hash); returnErr != nil {
 		return nil, returnErr
 	}
+
+	ctx, done, err := api.prepareTraceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	tendermintTraces := &TendermintTraces{Traces: []TendermintTrace{}}
 	ctx = WithTendermintTraces(ctx, tendermintTraces)
 	receiptTraces := &ReceiptTraces{Traces: []RawResponseReceipt{}}
@@ -561,6 +568,11 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	}
 	stateDB, _, err := tracingBackend.ReplayTransactionTillIndex(ctx, block, int(index)) //nolint:gosec
 	if err != nil {
+		return nil, err
+	}
+	// Bail before the potentially expensive prestate/trace serialization if the
+	// trace deadline has already elapsed during replay.
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	response := StateAccessResponse{

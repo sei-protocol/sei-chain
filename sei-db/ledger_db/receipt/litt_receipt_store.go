@@ -44,11 +44,12 @@ import (
 // metadata (m:latest / m:earliest).
 //
 // Durability: a background flusher bounds litt durability lag to
-// littFlushInterval without putting fsync on the commit path; Close flushes the
-// remainder. Accepted tradeoff: a hard crash can lose up to littFlushInterval
-// of the most recent receipt bodies (litt buffers in memory, no WAL) while the
-// index still lists them — tolerable for auxiliary, non-consensus RPC data,
-// since reads return not-found for a missing body. Retention: receipt values
+// littFlushInterval (~one block) without putting fsync on the commit path;
+// Close flushes the remainder. A hard crash can lose up to littFlushInterval of
+// the most recent receipt bodies while the index still lists them — tolerable
+// for auxiliary, non-consensus RPC data, since reads return not-found for a
+// missing body. The tight interval is only affordable because litt flushes its
+// keymap asynchronously off the control loop. Retention: receipt values
 // expire via litt's per-table TTL (time based), tag keys are pruned by block
 // range, and reads enforce the KeepRecent floor, so visible retention never
 // exceeds KeepRecent regardless of GC timing.
@@ -61,11 +62,12 @@ type littReceiptStore struct {
 	latestVersion   atomic.Int64
 	earliestVersion atomic.Int64
 
-	keepRecent     int64
-	pruneInterval  int64
-	stopBackground chan struct{}
-	backgroundWg   sync.WaitGroup
-	closeOnce      sync.Once
+	keepRecent           int64
+	pruneInterval        int64
+	logFilterParallelism int
+	stopBackground       chan struct{}
+	backgroundWg         sync.WaitGroup
+	closeOnce            sync.Once
 }
 
 var _ ReceiptStore = (*littReceiptStore)(nil)
@@ -79,7 +81,12 @@ const (
 	receiptBackendLittIdx = "littidx"
 
 	littReceiptTableName = "receipts"
-	littFlushInterval    = 100 * time.Millisecond
+	// littFlushInterval is roughly one flush per block at Giga throughput (a
+	// block is ~7ms), bounding crash loss to about a single block. Flushing this
+	// often is only cheap because litt flushes its keymap asynchronously, off the
+	// control loop; without that, a per-block flush regresses write throughput
+	// badly (≈-48% observed before the async keymap landed).
+	littFlushInterval = 5 * time.Millisecond
 	// littTTLPerBlock converts the KeepRecent block count into litt's wall-clock
 	// TTL (KeepRecent * littTTLPerBlock). Set above Giga block times so the TTL
 	// over-retains; only a sustained block time above this would expire a body
@@ -122,7 +129,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 		return nil, fmt.Errorf("failed to open littdb: %w", err)
 	}
 	tableConfig := litt.DefaultTableConfig(littReceiptTableName)
-	tableConfig.ShardingFactor = 16 // spread writes across shards (cores spare)
+	tableConfig.ShardingFactor = 1 // single shard: flushing one file is cheaper; sharding mainly helps across multiple disks
 	receipts, err := values.BuildTable(tableConfig)
 	if err != nil {
 		_ = values.Close()
@@ -143,14 +150,21 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 		return nil, fmt.Errorf("failed to open receipt log index: %w", err)
 	}
 
+	// getLogs per-query block fan-out; non-positive config falls back to the default.
+	logFilterParallelism := cfg.LogFilterParallelism
+	if logFilterParallelism <= 0 {
+		logFilterParallelism = dbconfig.DefaultReceiptLogFilterParallelism
+	}
+
 	s := &littReceiptStore{
-		values:         values,
-		receipts:       receipts,
-		index:          index,
-		storeKey:       storeKey,
-		keepRecent:     int64(cfg.KeepRecent),
-		pruneInterval:  int64(cfg.PruneIntervalSeconds),
-		stopBackground: make(chan struct{}),
+		values:               values,
+		receipts:             receipts,
+		index:                index,
+		storeKey:             storeKey,
+		keepRecent:           int64(cfg.KeepRecent),
+		pruneInterval:        int64(cfg.PruneIntervalSeconds),
+		logFilterParallelism: logFilterParallelism,
+		stopBackground:       make(chan struct{}),
 	}
 	s.latestVersion.Store(s.readMeta(receiptLatestVersionKey))
 	s.earliestVersion.Store(s.readMeta(receiptEarliestVersionKey))

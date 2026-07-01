@@ -71,6 +71,25 @@ sc-write-mode = "{{ .StateCommit.WriteMode }}"
 # Must be > 0; ignored entirely when not in a migration mode.
 sc-keys-to-migrate-per-block = {{ .StateCommit.KeysToMigratePerBlock }}
 
+# HashLogger records a per-block CSV of named hashes (memIAVL module/root hashes, flatKV DB/root
+# hashes, the app hash, the block hash, and the changeset hash) so block-hash computation can be
+# studied and compared across nodes. It is a debugging/forensics tool; enabled by default.
+sc-hash-logger-enable = {{ .StateCommit.HashLogger.Enable }}
+
+# Directory for hash log files. If empty, defaults to a "hash.log" directory under the SC store's data
+# directory (i.e. <home>/data/hash.log).
+sc-hash-logger-directory = "{{ .StateCommit.HashLogger.Directory }}"
+
+# Number of most-recent blocks to retain on disk. 0 disables block-count retention (disk-size cap only).
+sc-hash-logger-blocks-to-retain = {{ .StateCommit.HashLogger.BlocksToRetain }}
+
+# Size in bytes a hash log file may reach before it is sealed and rotated. Must be > 0.
+sc-hash-logger-target-file-size = {{ .StateCommit.HashLogger.TargetFileSize }}
+
+# Backstop cap in bytes on the total size of sealed hash log files. 0 disables the disk-size cap
+# (block-count retention only).
+sc-hash-logger-max-disk-size = {{ .StateCommit.HashLogger.MaxDiskSize }}
+
 ###############################################################################
 ###                        FlatKV (EVM) Configuration                       ###
 ###############################################################################
@@ -188,6 +207,12 @@ prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
 # receipt storage.
 # Default: false.
 enable-read-write-metrics = {{ .ReceiptStore.EnableReadWriteMetrics }}
+
+# LogFilterParallelism bounds how many blocks a single eth_getLogs query scans
+# concurrently. Applies only when rs-backend = "littidx".
+# Set <= 0 to use the default.
+# defaults to 16
+log-filter-parallelism = {{ .ReceiptStore.LogFilterParallelism }}
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility

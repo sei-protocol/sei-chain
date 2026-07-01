@@ -28,8 +28,8 @@ func TestConsensusPolicy_Default_UnknownErrorReturnsErr(t *testing.T) {
 
 func TestValidationErrors_Count(t *testing.T) {
 	got := len(ValidationErrors())
-	if got != 13 {
-		t.Errorf("ValidationErrors() returned %d sentinels, want 13 (per M1.0 audit)", got)
+	if got != 14 {
+		t.Errorf("ValidationErrors() returned %d sentinels, want 14", got)
 	}
 }
 

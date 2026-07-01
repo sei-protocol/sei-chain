@@ -84,6 +84,32 @@ In the example below, segment files can be found in the following paths:
 - `root/root1/tableC/segments`
 - `root/root2/tableC/segments`
 
+## GC Watermark File
+
+Each table has a single `gc-watermark` file, located in the table directory in one of the root directories. It
+contains a single human-readable integer: the index of the lowest segment that is still logically readable
+(`lowestReadableSegment`). It need not share a root with the keymap; startup scans every root to find it.
+
+When the garbage collector deletes a segment, it is a two-step process: first the segment's entries are removed
+from the keymap, and only later are the segment's files deleted. The `gc-watermark` file is durably updated
+(and fsynced) before a segment's keymap entries are deleted, recording that everything below the new watermark
+is logically gone. This lets LittDB distinguish, after a crash, between a key that is missing from the keymap
+because it was garbage collected (everything below the watermark) and a key that is missing because its
+asynchronous keymap write was lost (a recently written key, which keymap repair must restore). The watermark is
+consulted only at startup, to floor keymap repair/reload; there is no in-memory read barrier. At runtime a key
+in a below-watermark segment stays readable until its keymap entry is actually deleted (the key is expiring
+anyway), so this is functionally harmless.
+
+Unlike the keymap, the `gc-watermark` file must NOT be deleted: it lives outside the keymap directory precisely
+so that it survives a keymap rebuild. If it is lost together with the keymap, a rebuild may resurrect keys from
+segments that were mid-collection at the time of the crash.
+
+In the example below, the gc-watermark files are located at the following paths:
+
+- `root/root0/tableA/gc-watermark`
+- `root/root0/tableB/gc-watermark`
+- `root/root0/tableC/gc-watermark`
+
 ## Snapshot Files
 
 If enabled, LittDB will periodically capture a rolling snapshot of its data. This snapshot can be used to make backups.
@@ -157,6 +183,11 @@ A little data has been written to the DB.
 
 The keymap is implemented using PebbleDB.
 
+### GC Watermark
+
+Each table has a `gc-watermark` file recording its lowest readable segment index. (This file is normally only
+created once garbage collection has run; the example fabricates it to illustrate its location.)
+
 ### Snapshot
 
 The DB has been configured to take a rolling snapshot, and the target directory is `root/rolling_snapshot`.
@@ -210,6 +241,7 @@ root
 ├── root0
 │   ├── litt.lock
 │   ├── tableA
+│   │   ├── gc-watermark
 │   │   ├── keymap
 │   │   │   ├── data
 │   │   │   │   ├── 000001.log
@@ -243,6 +275,7 @@ root
 │   │       ├── 2.keys
 │   │       └── 2.metadata
 │   ├── tableB
+│   │   ├── gc-watermark
 │   │   ├── keymap
 │   │   │   ├── data
 │   │   │   │   ├── 000001.log
@@ -270,6 +303,7 @@ root
 │   │       ├── 1.keys
 │   │       └── 1.metadata
 │   └── tableC
+│       ├── gc-watermark
 │       ├── keymap
 │       │   ├── data
 │       │   │   ├── 000001.log
