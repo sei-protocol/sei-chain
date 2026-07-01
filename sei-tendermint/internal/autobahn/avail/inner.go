@@ -168,6 +168,7 @@ func (i *inner) prune(c *types.Committee, appQC *types.AppQC, commitQC *types.Co
 	i.commitQCs.prune(idx)
 	if i.commitQCs.next == idx {
 		i.commitQCs.pushBack(commitQC)
+		metrics.ObserveCommitQC(c, commitQC)
 	}
 	i.appVotes.prune(commitQC.GlobalRange(c).First)
 	for lane := range i.votes {

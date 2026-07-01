@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
+	prometheus "github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	prometheus "github.com/prometheus/client_golang/prometheus"
-	
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -17,12 +17,12 @@ func buckets(start float64, factor float64, count int) metric.HistogramOption {
 }
 
 var meter = otel.Meter("tendermint_internal_p2p_mux")
-var latency = utils.OrPanic1(meter.Float64Histogram("latency", metric.WithUnit("s"), buckets(0.001, 1.3, 30)))
-var inFlight = utils.OrPanic1(meter.Int64UpDownCounter("inflight"))
-var sendMsgs = utils.OrPanic1(meter.Int64UpDownCounter("send_msgs"))
-var sendBytes = utils.OrPanic1(meter.Int64UpDownCounter("send_bytes", metric.WithUnit("B")))
-var recvMsgs = utils.OrPanic1(meter.Int64UpDownCounter("recv_msgs"))
-var recvBytes = utils.OrPanic1(meter.Int64UpDownCounter("recv_bytes", metric.WithUnit("B")))
+var latency = utils.OrPanic1(meter.Float64Histogram("tendermint_internal_p2p_mux__latency", metric.WithUnit("s"), buckets(0.001, 1.3, 30)))
+var inFlight = utils.OrPanic1(meter.Int64UpDownCounter("tendermint_internal_p2p_mux__inflight"))
+var sendMsgs = utils.OrPanic1(meter.Int64UpDownCounter("tendermint_internal_p2p_mux__send_msgs"))
+var sendBytes = utils.OrPanic1(meter.Int64UpDownCounter("tendermint_internal_p2p_mux__send_bytes", metric.WithUnit("B")))
+var recvMsgs = utils.OrPanic1(meter.Int64UpDownCounter("tendermint_internal_p2p_mux__recv_msgs"))
+var recvBytes = utils.OrPanic1(meter.Int64UpDownCounter("tendermint_internal_p2p_mux__recv_bytes", metric.WithUnit("B")))
 
 type Role string
 
