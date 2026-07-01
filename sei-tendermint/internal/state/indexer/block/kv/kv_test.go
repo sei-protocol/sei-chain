@@ -1,6 +1,7 @@
 package kv_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -216,6 +217,18 @@ func TestBlockIndexerBounded(t *testing.T) {
 			opts:    indexer.SearchOptions{Limit: 3, OrderDesc: true},
 			results: []int64{10, 9, 8},
 		},
+		// Fast path: pure block.height range driver scanned ascending.
+		"height range asc limit 3": {
+			q:       `block.height >= 6`,
+			opts:    indexer.SearchOptions{Limit: 3, OrderDesc: false},
+			results: []int64{6, 7, 8},
+		},
+		// Fast path: a dual-bounded block.height range (lower AND upper bound).
+		"height range dual-bounded desc unbounded": {
+			q:       `block.height >= 4 AND block.height <= 7`,
+			opts:    indexer.SearchOptions{Limit: 0, OrderDesc: true},
+			results: []int64{7, 6, 5, 4},
+		},
 		// Fallback path: CONTAINS cannot be point-probed, but the result set is
 		// still ordered and capped.
 		"contains fallback desc limit 3": {
@@ -237,4 +250,14 @@ func TestBlockIndexerBounded(t *testing.T) {
 			require.Equal(t, tc.results, results)
 		})
 	}
+
+	// A cancelled context makes the bounded scan return the results gathered so
+	// far without an error, rather than failing the whole query.
+	t.Run("cancelled context returns partial results", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		results, err := idx.Search(ctx, query.MustCompile(`app.name = 'sei'`), indexer.SearchOptions{Limit: 5, OrderDesc: true})
+		require.NoError(t, err)
+		require.Empty(t, results)
+	})
 }
