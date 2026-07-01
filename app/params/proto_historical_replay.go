@@ -14,7 +14,8 @@ import (
 // consensus-unsafe for live paths and must only be reachable via the
 // historical_replay build tag.
 
-// MakeEncodingConfig creates an EncodingConfig for an amino based test configuration.
+// MakeEncodingConfig creates an EncodingConfig whose TxConfig uses the lenient
+// (no body-bloat rejection) decoder, for historical-replay builds only.
 func MakeEncodingConfig() EncodingConfig {
 	amino := codec.NewLegacyAmino()
 	interfaceRegistry := types.NewInterfaceRegistry()
@@ -29,7 +30,8 @@ func MakeEncodingConfig() EncodingConfig {
 	}
 }
 
-// MakeLegacyEncodingConfig creates an EncodingConfig for an amino based test configuration.
+// MakeLegacyEncodingConfig creates a legacy EncodingConfig whose TxConfig uses the
+// lenient (no body-bloat rejection) decoder, for historical-replay builds only.
 func MakeLegacyEncodingConfig() EncodingConfig {
 	amino := codec.NewLegacyAmino()
 	interfaceRegistry := types.NewLegacyInterfaceRegistry()
