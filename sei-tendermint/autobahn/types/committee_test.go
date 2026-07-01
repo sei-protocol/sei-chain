@@ -3,6 +3,7 @@ package types
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -117,6 +118,25 @@ func TestPrepareQCVerifyChecksWeight(t *testing.T) {
 		Sign(keys[2], vote),
 	})
 	require.Error(t, lightMajority.Verify(ep))
+}
+
+func TestPrepareQCVerifyChecksEpochBinding(t *testing.T) {
+	rng := utils.TestRng()
+	ep, keys := makeEpoch(rng)
+	sign := func(p *Proposal) *PrepareQC {
+		return NewPrepareQC([]*Signed[*PrepareVote]{Sign(keys[0], NewPrepareVote(p))})
+	}
+
+	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.Roads().First})).Verify(ep))
+
+	wrongEpoch := newProposal(View{Index: ep.Roads().First}, time.Time{}, nil, utils.None[*AppProposal](), ep.EpochIndex()+1, ep.FirstBlock())
+	require.Error(t, sign(wrongEpoch).Verify(ep))
+
+	wrongFirst := newProposal(View{Index: ep.Roads().First}, time.Time{}, nil, utils.None[*AppProposal](), ep.EpochIndex(), ep.FirstBlock()+1)
+	require.Error(t, sign(wrongFirst).Verify(ep))
+
+	outOfRoads := newProposal(View{Index: ep.Roads().Last + 1}, time.Time{}, nil, utils.None[*AppProposal](), ep.EpochIndex(), ep.FirstBlock())
+	require.Error(t, sign(outOfRoads).Verify(ep))
 }
 
 func TestCommitQCVerifyChecksWeight(t *testing.T) {
