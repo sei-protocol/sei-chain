@@ -50,7 +50,7 @@ describe('eth_maxPriorityFeePerGas', function () {
                     const stable = await maxPriorityFeePerGasAtStableBlock(sei);
                     return isCongested(stable) ? null : stable;
                 },
-                { timeoutMs: 60_000, intervalMs: 250, label: 'uncongested priority-fee head' },
+                { timeoutMs: 60_000, intervalMs: 250, label: 'EVM-uncongested priority-fee head' },
             );
             expect(sample.tip, 'uncongested tip == 1 gwei default').to.equal(
                 DEFAULT_PRIORITY_FEE_WEI,

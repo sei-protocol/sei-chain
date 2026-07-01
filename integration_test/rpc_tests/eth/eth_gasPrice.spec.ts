@@ -80,7 +80,7 @@ describe('eth_gasPrice', function () {
                     const stable = await maxPriorityFeePerGasAtStableBlock(sei);
                     return isCongested(stable) ? null : stable;
                 },
-                { timeoutMs: 60_000, intervalMs: 250, label: 'uncongested gas-price head' },
+                { timeoutMs: 60_000, intervalMs: 250, label: 'EVM-uncongested gas-price head' },
             );
             expect(sample.tip).to.equal(DEFAULT_PRIORITY_FEE_WEI);
         });
