@@ -163,9 +163,13 @@ func configCorpus() []corpusCase {
 			appendToFile(t, appTOMLPath(home), "\n[sei-corpus-unknown]\nkey = \"value\"\n")
 		}},
 		{"quoted-scalar", func(t *testing.T, home string) {
-			// A number written as a quoted string — the sei-config lenient-decode
-			// case (#36). v2 reads it; the channels must still match legacy.
-			appendToFile(t, appTOMLPath(home), "\n[sei-corpus-scalar]\ncount = \"100000\"\n")
+			// A real numeric field written as a quoted string (sei-config #36's
+			// lenient-decode shape). Both paths re-enter the same legacy reader, so
+			// the channels match regardless — parity holds because v2's read is
+			// advisory. Coercion of quoted primitives is verified in sei-config's
+			// own tests; the differential only observes channel parity, not the
+			// advisory read's outcome.
+			replaceInFile(t, appTOMLPath(home), "ss-keep-recent = 100000", `ss-keep-recent = "100000"`)
 		}},
 		{"cosmos-only-write-mode", func(t *testing.T, home string) {
 			// The version-skew class: a config carrying the deprecated
