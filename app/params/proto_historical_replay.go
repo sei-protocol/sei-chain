@@ -1,4 +1,4 @@
-//go:build !test_amino && !historical_replay
+//go:build !test_amino && historical_replay
 
 package params
 
@@ -8,12 +8,17 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
 )
 
+// This variant swaps the block-execution tx decoder to the lenient one that does
+// not reject non-canonical protobuf tx bodies, so a tagged build can replay
+// pre-v6.5 pacific-1 blocks. It is consensus-unsafe for live paths and must only
+// be reachable via the historical_replay build tag.
+
 // MakeEncodingConfig creates an EncodingConfig for an amino based test configuration.
 func MakeEncodingConfig() EncodingConfig {
 	amino := codec.NewLegacyAmino()
 	interfaceRegistry := types.NewInterfaceRegistry()
 	marshaler := codec.NewProtoCodec(interfaceRegistry)
-	txCfg := tx.NewTxConfig(marshaler, tx.DefaultSignModes)
+	txCfg := tx.NewTxConfigWithoutBodyBloatRejection(marshaler, tx.DefaultSignModes)
 
 	return EncodingConfig{
 		InterfaceRegistry: interfaceRegistry,
@@ -28,7 +33,7 @@ func MakeLegacyEncodingConfig() EncodingConfig {
 	amino := codec.NewLegacyAmino()
 	interfaceRegistry := types.NewLegacyInterfaceRegistry()
 	marshaler := codec.NewProtoCodec(interfaceRegistry)
-	txCfg := tx.NewTxConfig(marshaler, tx.DefaultSignModes)
+	txCfg := tx.NewTxConfigWithoutBodyBloatRejection(marshaler, tx.DefaultSignModes)
 
 	return EncodingConfig{
 		InterfaceRegistry: interfaceRegistry,
