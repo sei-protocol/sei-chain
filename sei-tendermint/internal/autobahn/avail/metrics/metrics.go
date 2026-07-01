@@ -73,7 +73,8 @@ func ObserveCommitQC(c *types.Committee, qc *types.CommitQC) {
 			}
 			// Constructed once per CommitQC, which we should afford.
 			attrs := metric.WithAttributeSet(attribute.NewSet(
-				attribute.Int64("timeouts", int64(qc.Proposal().View().Number)), // nolint: gosec
+				// Timeouts capped: 20 means [20,inf)
+				attribute.Int64("timeouts", int64(min(qc.Proposal().View().Number, 20))), // nolint: gosec
 			))
 			commitToCommitLatencySum.Add(ctx, now.Sub(last.time).Seconds(), attrs)
 			commitToCommitLatencyCount.Add(ctx, 1, attrs)
