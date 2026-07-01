@@ -220,8 +220,8 @@ func (api *DebugAPI) clampDefaultStructLogLimit(config *tracers.TraceConfig) {
 	if config.Config == nil {
 		config.Config = &traceLogger.Config{}
 	}
-	if config.Config.Limit <= 0 || config.Config.Limit > api.maxStructLogBytes {
-		config.Config.Limit = api.maxStructLogBytes
+	if config.Limit <= 0 || config.Limit > api.maxStructLogBytes {
+		config.Limit = api.maxStructLogBytes
 	}
 }
 
