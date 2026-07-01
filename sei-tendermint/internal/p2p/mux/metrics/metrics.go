@@ -7,8 +7,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-
 	prometheus "github.com/prometheus/client_golang/prometheus"
+	
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
