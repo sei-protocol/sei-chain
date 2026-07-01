@@ -34,16 +34,25 @@
     - type: eval
       expr: NEW_ABCI_PARAM == "true"
 
-# Scope: this case verifies only the governance plumbing for the migration
-# rate — that a ParameterChangeProposal lands NumKeysToMigratePerBlock in the
-# migration subspace. It intentionally does not assert that keys actually drain
-# memiavl->flatkv; the end-to-end migration behavior is covered separately by
-# integration_test/contracts/verify_flatkv_evm_migrate.sh.
-- name: Test migration param change proposal should update NumKeysToMigratePerBlock
+# Scope: this case verifies the governance plumbing for the migration rate —
+# that a ParameterChangeProposal lands NumKeysToMigratePerBlock in the migration
+# subspace — AND that raising it above 0 actually triggers the migration on an
+# auto node. The Gov job boots a default cluster, which now runs in auto mode
+# (sc-write-mode-enable-auto defaults to true), so the first BeginBlock after the
+# rate goes positive performs the live memiavl_only -> migrate_evm kick-off. We
+# assert that transition via the composite store's "write mode transitioned"
+# log. The full cross-validator key-drain / digest agreement is still covered
+# separately by integration_test/contracts/verify_flatkv_evm_migrate.sh.
+- name: Test migration param change proposal should update NumKeysToMigratePerBlock and start migration
   inputs:
     # Get the current migration batch size param (defaults to 0 = paused)
     - cmd: seid q params subspace migration NumKeysToMigratePerBlock --output json | jq -r .value | tr -d "\""
       env: OLD_PARAM
+    # Baseline: how many times the auto memiavl_only -> migrate_evm kick-off has
+    # been logged so far. On a fresh auto cluster this is 0; capturing it lets us
+    # attribute the transition below to THIS proposal rather than any prior state.
+    - cmd: c=$(grep -c 'write mode transitioned.*to=migrate_evm' /sei-protocol/sei-chain/build/generated/logs/seid-0.log 2>/dev/null || true); echo "${c:-0}"
+      env: OLD_MIGRATION_STARTED
     # Make a new proposal to raise the migration rate
     - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_gov_proposal admin "Update Migration Batch Size" gov submit-proposal param-change ./integration_test/gov_module/proposal/migration_param_change_proposal.json --fees 2000usei
       env: PROPOSAL_ID
@@ -66,13 +75,26 @@
     # Get the migration batch size param again after proposal is passed
     - cmd: seid q params subspace migration NumKeysToMigratePerBlock --output json | jq -r .value | tr -d "\""
       env: NEW_PARAM
+    # The kick-off is level-triggered in BeginBlock the block after the rate goes
+    # positive. Poll node-0's log (up to ~60s) for the composite store's
+    # memiavl_only -> migrate_evm transition, then report the match count.
+    - cmd: c=0; for i in $(seq 1 30); do c=$(grep -c 'write mode transitioned.*to=migrate_evm' /sei-protocol/sei-chain/build/generated/logs/seid-0.log 2>/dev/null || true); [ "${c:-0}" -gt 0 ] && break; sleep 2; done; echo "${c:-0}"
+      env: NEW_MIGRATION_STARTED
   verifiers:
     # The proposal must have passed
     - type: eval
       expr: PROPOSAL_STATUS == "PROPOSAL_STATUS_PASSED"
-    # The migration batch size param must reflect the new value
+    # The migration batch size param must reflect the new value. The value is a
+    # string (piped through tr -d "\""), so quote the literal to match the
+    # sibling verifiers; the eval engine coerces both sides to big.Int anyway.
     - type: eval
-      expr: NEW_PARAM == 12345
+      expr: NEW_PARAM == "12345"
+    # The auto kick-off must have fired (migration actually started)...
+    - type: eval
+      expr: NEW_MIGRATION_STARTED >= 1
+    # ...and it must be attributable to this proposal (not pre-existing state).
+    - type: eval
+      expr: NEW_MIGRATION_STARTED > OLD_MIGRATION_STARTED
 
 - name: Test expedited proposal should respect expedited_voting_period
   inputs:
