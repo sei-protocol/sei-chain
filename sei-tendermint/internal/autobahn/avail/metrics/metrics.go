@@ -66,7 +66,6 @@ func ObserveCommitQC(c *types.Committee, qc *types.CommitQC) {
 	ctx := context.Background()
 	now := time.Now()
 	for mLast := range observedCommitQC.Lock() {
-		proposalToCommitLatency.Record(ctx, now.Sub(qc.Proposal().Timestamp()).Seconds())
 		if last, ok := mLast.Get(); ok {
 			if last.val.Index() >= qc.Index() {
 				return
@@ -79,6 +78,7 @@ func ObserveCommitQC(c *types.Committee, qc *types.CommitQC) {
 			commitToCommitLatencySum.Add(ctx, now.Sub(last.time).Seconds(), attrs)
 			commitToCommitLatencyCount.Add(ctx, 1, attrs)
 		}
+		proposalToCommitLatency.Record(ctx, now.Sub(qc.Proposal().Timestamp()).Seconds())
 		commitRoadIndex.Record(ctx, int64(qc.Index()))                     // nolint: gosec
 		commitGlobalBlockNumber.Record(ctx, int64(qc.GlobalRange(c).Next)) // nolint: gosec
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
