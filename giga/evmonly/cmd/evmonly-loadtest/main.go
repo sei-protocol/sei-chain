@@ -54,6 +54,8 @@ const (
 	workloadERC20Transfer  = "erc20-transfer"
 	resultSinkDiscard      = "discard"
 	resultSinkFile         = "file"
+	resultSinkChangeSet    = "changeset"
+	resultSinkReceipts     = "receipts"
 )
 
 type config struct {
@@ -69,7 +71,9 @@ type config struct {
 	resultSink          string
 	persistDir          string
 	persistSync         bool
+	persistAsync        bool
 	persistBufferSize   int
+	persistQueueSize    int
 	workload            string
 	chainID             *big.Int
 	gasPrice            *big.Int
@@ -128,7 +132,9 @@ func parseConfig(args []string) (config, error) {
 	fs.StringVar(&cfg.resultSink, "result-sink", resultSinkDiscard, "result sink mode: discard or file")
 	fs.StringVar(&cfg.persistDir, "persist-dir", "", "directory for --result-sink=file append-only changeset and receipt files")
 	fs.BoolVar(&cfg.persistSync, "persist-sync", false, "fsync persistent result files after every block; file sink always flushes each block")
+	fs.BoolVar(&cfg.persistAsync, "persist-async", true, "write persistent result files from a bounded async queue")
 	fs.IntVar(&cfg.persistBufferSize, "persist-buffer-size", defaultPersistBuffer, "buffer size in bytes for --result-sink=file")
+	fs.IntVar(&cfg.persistQueueSize, "persist-queue-size", 0, "record queue size for --persist-async; 0 defaults to 2*queue-size")
 	fs.StringVar(&cfg.workload, "workload", workloadTransfer, "workload type: transfer or erc20-transfer")
 	fs.Uint64Var(&cfg.txGasLimit, "tx-gas-limit", defaultTxGasLimit, "gas limit for each generated transaction")
 	fs.Uint64Var(&cfg.blockGasLimit, "block-gas-limit", 0, "block gas limit; 0 lets the executor use its maximum")
@@ -210,6 +216,12 @@ func parseConfig(args []string) (config, error) {
 	if cfg.persistBufferSize <= 0 {
 		return config{}, fmt.Errorf("persist-buffer-size must be positive")
 	}
+	if cfg.persistQueueSize < 0 {
+		return config{}, fmt.Errorf("persist-queue-size must be non-negative")
+	}
+	if cfg.persistQueueSize == 0 {
+		cfg.persistQueueSize = 2 * cfg.queueSize
+	}
 	if cfg.resultSink == resultSinkFile && strings.TrimSpace(cfg.persistDir) == "" {
 		return config{}, fmt.Errorf("persist-dir is required when result-sink=file")
 	}
@@ -286,17 +298,21 @@ func run(cfg config) (err error) {
 	}
 	registry := prometheus.NewRegistry()
 	metrics := newLoadMetrics(registry)
-	sinks, err := newResultSinks(cfg)
+	sinks, err := newResultSinks(cfg, metrics)
 	if err != nil {
 		return err
 	}
 	defer func() {
+		closeStartedAt := time.Now()
 		if closeErr := sinks.Close(); closeErr != nil {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "evmonly-loadtest: result sink close: %v\n", closeErr)
 				return
 			}
 			err = closeErr
+		}
+		if cfg.resultSink == resultSinkFile {
+			printResultSinkReport(time.Since(closeStartedAt), metrics.snapshot())
 		}
 	}()
 	stopSinkSignalCleanup := cleanupSinksOnContextCancel(ctx, sinks)
@@ -564,11 +580,11 @@ func executeBlocks(
 				}
 				return fmt.Errorf("worker %d execute block %d: %w", workerID, block.number, err)
 			}
-			if err := sinks.StoreChangeSet(block.number, result.ChangeSet); err != nil {
+			if err := sinks.StoreChangeSet(ctx, block.number, result.ChangeSet); err != nil {
 				metrics.recordExecutionError()
 				return fmt.Errorf("worker %d store changeset for block %d: %w", workerID, block.number, err)
 			}
-			if err := sinks.StoreReceipts(block.number, result.Receipts); err != nil {
+			if err := sinks.StoreReceipts(ctx, block.number, result.Receipts); err != nil {
 				metrics.recordExecutionError()
 				return fmt.Errorf("worker %d store receipts for block %d: %w", workerID, block.number, err)
 			}
@@ -915,11 +931,11 @@ var _ evmonly.StateWriter = (*discardStateWriter)(nil)
 func (*discardStateWriter) ApplyChangeSet(evmonly.StateChangeSet) {}
 
 type changeSetSink interface {
-	StoreChangeSet(height uint64, changeSet evmonly.StateChangeSet) error
+	StoreChangeSet(ctx context.Context, height uint64, changeSet evmonly.StateChangeSet) error
 }
 
 type receiptSink interface {
-	StoreReceipts(height uint64, receipts ethtypes.Receipts) error
+	StoreReceipts(ctx context.Context, height uint64, receipts ethtypes.Receipts) error
 }
 
 type resultSinks struct {
@@ -929,7 +945,7 @@ type resultSinks struct {
 	cleanup    func() error
 }
 
-func newResultSinks(cfg config) (*resultSinks, error) {
+func newResultSinks(cfg config, metrics *loadMetrics) (*resultSinks, error) {
 	switch cfg.resultSink {
 	case resultSinkDiscard:
 		return &resultSinks{
@@ -937,18 +953,18 @@ func newResultSinks(cfg config) (*resultSinks, error) {
 			receipts:   discardReceiptSink{},
 		}, nil
 	case resultSinkFile:
-		return newFileResultSinks(cfg)
+		return newFileResultSinks(cfg, metrics)
 	default:
 		return nil, fmt.Errorf("unsupported result-sink %q", cfg.resultSink)
 	}
 }
 
-func (s *resultSinks) StoreChangeSet(height uint64, changeSet evmonly.StateChangeSet) error {
-	return s.changeSets.StoreChangeSet(height, changeSet)
+func (s *resultSinks) StoreChangeSet(ctx context.Context, height uint64, changeSet evmonly.StateChangeSet) error {
+	return s.changeSets.StoreChangeSet(ctx, height, changeSet)
 }
 
-func (s *resultSinks) StoreReceipts(height uint64, receipts ethtypes.Receipts) error {
-	return s.receipts.StoreReceipts(height, receipts)
+func (s *resultSinks) StoreReceipts(ctx context.Context, height uint64, receipts ethtypes.Receipts) error {
+	return s.receipts.StoreReceipts(ctx, height, receipts)
 }
 
 func (s *resultSinks) Close() error {
@@ -972,32 +988,34 @@ type discardChangeSetSink struct {
 	writer evmonly.StateWriter
 }
 
-func (s discardChangeSetSink) StoreChangeSet(_ uint64, changeSet evmonly.StateChangeSet) error {
+func (s discardChangeSetSink) StoreChangeSet(_ context.Context, _ uint64, changeSet evmonly.StateChangeSet) error {
 	s.writer.ApplyChangeSet(changeSet)
 	return nil
 }
 
 type discardReceiptSink struct{}
 
-func (discardReceiptSink) StoreReceipts(uint64, ethtypes.Receipts) error {
+func (discardReceiptSink) StoreReceipts(context.Context, uint64, ethtypes.Receipts) error {
 	return nil
 }
 
 type fileResultSinks struct {
 	changeSetFile *appendRLPFile
 	receiptFile   *appendRLPFile
+	metrics       *loadMetrics
 	cleanupMu     sync.Mutex
 	paths         []string
 	cleaned       map[string]struct{}
 }
 
-func newFileResultSinks(cfg config) (*resultSinks, error) {
+func newFileResultSinks(cfg config, metrics *loadMetrics) (*resultSinks, error) {
 	if err := os.MkdirAll(cfg.persistDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create persist dir %s: %w", cfg.persistDir, err)
 	}
 	changeSetPath := filepath.Join(cfg.persistDir, "changesets.rlp")
 	receiptPath := filepath.Join(cfg.persistDir, "receipts.rlp")
 	files := &fileResultSinks{
+		metrics: metrics,
 		paths:   []string{changeSetPath, receiptPath},
 		cleaned: map[string]struct{}{},
 	}
@@ -1010,9 +1028,18 @@ func newFileResultSinks(cfg config) (*resultSinks, error) {
 	if err != nil {
 		return nil, errors.Join(err, files.Close())
 	}
+	if cfg.persistAsync {
+		async := newAsyncFileResultSinks(files, cfg.persistQueueSize, metrics)
+		return &resultSinks{
+			changeSets: async,
+			receipts:   async,
+			close:      async.Close,
+			cleanup:    files.Cleanup,
+		}, nil
+	}
 	return &resultSinks{
-		changeSets: fileChangeSetSink{file: files.changeSetFile},
-		receipts:   fileReceiptSink{file: files.receiptFile},
+		changeSets: fileChangeSetSink{files: files},
+		receipts:   fileReceiptSink{files: files},
 		close:      files.Close,
 		cleanup:    files.Cleanup,
 	}, nil
@@ -1048,20 +1075,171 @@ func (s *fileResultSinks) Cleanup() error {
 	return errors.Join(errs...)
 }
 
-type fileChangeSetSink struct {
-	file *appendRLPFile
+func (s *fileResultSinks) WriteRecord(kind string, height uint64, value any) error {
+	var file *appendRLPFile
+	switch kind {
+	case resultSinkChangeSet:
+		file = s.changeSetFile
+	case resultSinkReceipts:
+		file = s.receiptFile
+	default:
+		return fmt.Errorf("unsupported result sink record kind %q", kind)
+	}
+	startedAt := time.Now()
+	bytes, err := file.WriteRecord(height, value)
+	elapsed := time.Since(startedAt)
+	if s.metrics != nil {
+		s.metrics.recordSinkWrite(kind, bytes, elapsed, err == nil)
+	}
+	return err
 }
 
-func (s fileChangeSetSink) StoreChangeSet(height uint64, changeSet evmonly.StateChangeSet) error {
-	return s.file.WriteRecord(height, changeSet)
+type fileChangeSetSink struct {
+	files *fileResultSinks
+}
+
+func (s fileChangeSetSink) StoreChangeSet(_ context.Context, height uint64, changeSet evmonly.StateChangeSet) error {
+	return s.files.WriteRecord(resultSinkChangeSet, height, changeSet)
 }
 
 type fileReceiptSink struct {
-	file *appendRLPFile
+	files *fileResultSinks
 }
 
-func (s fileReceiptSink) StoreReceipts(height uint64, receipts ethtypes.Receipts) error {
-	return s.file.WriteRecord(height, receipts)
+func (s fileReceiptSink) StoreReceipts(_ context.Context, height uint64, receipts ethtypes.Receipts) error {
+	return s.files.WriteRecord(resultSinkReceipts, height, receipts)
+}
+
+type resultSinkRecord struct {
+	kind   string
+	height uint64
+	value  any
+}
+
+type asyncFileResultSinks struct {
+	files    *fileResultSinks
+	metrics  *loadMetrics
+	records  chan resultSinkRecord
+	done     chan struct{}
+	closeErr error
+	close    sync.Once
+	errMu    sync.Mutex
+	err      error
+}
+
+func newAsyncFileResultSinks(files *fileResultSinks, queueSize int, metrics *loadMetrics) *asyncFileResultSinks {
+	s := &asyncFileResultSinks{
+		files:   files,
+		metrics: metrics,
+		records: make(chan resultSinkRecord, queueSize),
+		done:    make(chan struct{}),
+	}
+	if metrics != nil {
+		metrics.setSinkQueueCapacity(queueSize)
+	}
+	go s.run()
+	return s
+}
+
+func (s *asyncFileResultSinks) StoreChangeSet(ctx context.Context, height uint64, changeSet evmonly.StateChangeSet) error {
+	return s.enqueue(ctx, resultSinkRecord{
+		kind:   resultSinkChangeSet,
+		height: height,
+		value:  changeSet,
+	})
+}
+
+func (s *asyncFileResultSinks) StoreReceipts(ctx context.Context, height uint64, receipts ethtypes.Receipts) error {
+	return s.enqueue(ctx, resultSinkRecord{
+		kind:   resultSinkReceipts,
+		height: height,
+		value:  receipts,
+	})
+}
+
+func (s *asyncFileResultSinks) enqueue(ctx context.Context, record resultSinkRecord) error {
+	if err := s.getErr(); err != nil {
+		return err
+	}
+	select {
+	case s.records <- record:
+		s.recordEnqueued(record.kind)
+		return nil
+	default:
+	}
+
+	startedAt := time.Now()
+	select {
+	case s.records <- record:
+		if s.metrics != nil {
+			s.metrics.recordSinkEnqueueWait(time.Since(startedAt))
+		}
+		s.recordEnqueued(record.kind)
+		return nil
+	case <-s.done:
+		if err := s.getErr(); err != nil {
+			return err
+		}
+		return fmt.Errorf("result sink is closed")
+	case <-ctx.Done():
+		if s.metrics != nil {
+			s.metrics.recordSinkEnqueueWait(time.Since(startedAt))
+		}
+		return ctx.Err()
+	}
+}
+
+func (s *asyncFileResultSinks) recordEnqueued(kind string) {
+	if s.metrics == nil {
+		return
+	}
+	s.metrics.recordSinkEnqueued(kind)
+	s.metrics.setSinkQueued(len(s.records))
+}
+
+func (s *asyncFileResultSinks) run() {
+	defer close(s.done)
+	for record := range s.records {
+		if s.metrics != nil {
+			s.metrics.setSinkQueued(len(s.records))
+		}
+		if err := s.files.WriteRecord(record.kind, record.height, record.value); err != nil {
+			s.setErr(err)
+			return
+		}
+		if s.metrics != nil {
+			s.metrics.setSinkQueued(len(s.records))
+		}
+	}
+	if s.metrics != nil {
+		s.metrics.setSinkQueued(0)
+	}
+}
+
+func (s *asyncFileResultSinks) Close() error {
+	s.close.Do(func() {
+		close(s.records)
+		<-s.done
+		if s.metrics != nil {
+			s.metrics.setSinkQueued(0)
+		}
+		s.closeErr = errors.Join(s.getErr(), s.files.Close())
+	})
+	return s.closeErr
+}
+
+func (s *asyncFileResultSinks) setErr(err error) {
+	s.errMu.Lock()
+	defer s.errMu.Unlock()
+	if s.err == nil {
+		s.err = err
+	}
+}
+
+func (s *asyncFileResultSinks) getErr() error {
+	s.errMu.Lock()
+	defer s.errMu.Unlock()
+	return s.err
 }
 
 type appendRLPFile struct {
@@ -1084,10 +1262,10 @@ func newAppendRLPFile(path string, bufferSize int, syncOnWrite bool) (*appendRLP
 	}, nil
 }
 
-func (f *appendRLPFile) WriteRecord(height uint64, value any) error {
+func (f *appendRLPFile) WriteRecord(height uint64, value any) (int, error) {
 	payload, err := rlp.EncodeToBytes(value)
 	if err != nil {
-		return fmt.Errorf("encode rlp record for height %d: %w", height, err)
+		return 0, fmt.Errorf("encode rlp record for height %d: %w", height, err)
 	}
 	var header [16]byte
 	binary.BigEndian.PutUint64(header[:8], height)
@@ -1096,23 +1274,23 @@ func (f *appendRLPFile) WriteRecord(height uint64, value any) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.closed {
-		return fmt.Errorf("write record for height %d: persist file is closed", height)
+		return 0, fmt.Errorf("write record for height %d: persist file is closed", height)
 	}
 	if _, err := f.writer.Write(header[:]); err != nil {
-		return fmt.Errorf("write record header for height %d: %w", height, err)
+		return 0, fmt.Errorf("write record header for height %d: %w", height, err)
 	}
 	if _, err := f.writer.Write(payload); err != nil {
-		return fmt.Errorf("write record payload for height %d: %w", height, err)
+		return 0, fmt.Errorf("write record payload for height %d: %w", height, err)
 	}
 	if err := f.writer.Flush(); err != nil {
-		return fmt.Errorf("flush record for height %d: %w", height, err)
+		return 0, fmt.Errorf("flush record for height %d: %w", height, err)
 	}
 	if f.syncOnWrite {
 		if err := f.file.Sync(); err != nil {
-			return fmt.Errorf("sync record for height %d: %w", height, err)
+			return 0, fmt.Errorf("sync record for height %d: %w", height, err)
 		}
 	}
-	return nil
+	return len(header) + len(payload), nil
 }
 
 func (f *appendRLPFile) sync() error {
@@ -1144,6 +1322,13 @@ type loadMetrics struct {
 	occAttempts     atomic.Uint64
 	occFallbacks    atomic.Uint64
 	occConflicts    atomic.Uint64
+	sinkEnqueued    atomic.Uint64
+	sinkWritten     atomic.Uint64
+	sinkBytes       atomic.Uint64
+	sinkWaitNanos   atomic.Uint64
+	sinkWaitEvents  atomic.Uint64
+	sinkWriteNanos  atomic.Uint64
+	sinkQueued      atomic.Int64
 
 	inputBlocksTotal     prometheus.Counter
 	finishedBlocksTotal  prometheus.Counter
@@ -1156,12 +1341,20 @@ type loadMetrics struct {
 
 	occFallbackReasonTotal *prometheus.CounterVec
 	occConflictTotal       *prometheus.CounterVec
+	sinkEnqueuedTotal      *prometheus.CounterVec
+	sinkWrittenTotal       *prometheus.CounterVec
+	sinkBytesTotal         *prometheus.CounterVec
+	sinkEnqueueWaitTotal   prometheus.Counter
+	sinkEnqueueWaitEvents  prometheus.Counter
+	sinkWriteSecondsTotal  *prometheus.CounterVec
 
 	inputBlockRate    prometheus.Gauge
 	finishedBlockRate prometheus.Gauge
 	txRate            prometheus.Gauge
 	gasRate           prometheus.Gauge
 	queuedBlocks      prometheus.Gauge
+	sinkQueuedRecords prometheus.Gauge
+	sinkQueueCapacity prometheus.Gauge
 }
 
 type metricsSnapshot struct {
@@ -1174,6 +1367,13 @@ type metricsSnapshot struct {
 	occAttempts     uint64
 	occFallbacks    uint64
 	occConflicts    uint64
+	sinkEnqueued    uint64
+	sinkWritten     uint64
+	sinkBytes       uint64
+	sinkWaitNanos   uint64
+	sinkWaitEvents  uint64
+	sinkWriteNanos  uint64
+	sinkQueued      int64
 }
 
 func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
@@ -1218,6 +1418,30 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 			Name: "evmonly_loadtest_occ_conflict_keys_total",
 			Help: "OCC conflict accesses by access type, state kind, address, and slot.",
 		}, []string{"access", "kind", "address", "slot"}),
+		sinkEnqueuedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_result_sink_records_enqueued_total",
+			Help: "Total records accepted by the result sink.",
+		}, []string{"kind"}),
+		sinkWrittenTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_result_sink_records_written_total",
+			Help: "Total records written by the result sink.",
+		}, []string{"kind"}),
+		sinkBytesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_result_sink_bytes_written_total",
+			Help: "Total bytes written by the result sink, including record framing.",
+		}, []string{"kind"}),
+		sinkEnqueueWaitTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_result_sink_enqueue_wait_seconds_total",
+			Help: "Total time executor workers spent blocked enqueueing result sink records.",
+		}),
+		sinkEnqueueWaitEvents: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_result_sink_enqueue_wait_events_total",
+			Help: "Total result sink enqueue attempts that had to wait for queue capacity or cancellation.",
+		}),
+		sinkWriteSecondsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_result_sink_write_seconds_total",
+			Help: "Total time spent by result sink writers serializing, writing, flushing, and optionally syncing records.",
+		}, []string{"kind"}),
 		inputBlockRate: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "evmonly_loadtest_block_input_throughput",
 			Help: "Most recent measured block input throughput in blocks per second.",
@@ -1238,6 +1462,14 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 			Name: "evmonly_loadtest_queued_blocks",
 			Help: "Blocks currently waiting in the executor input queue.",
 		}),
+		sinkQueuedRecords: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "evmonly_loadtest_result_sink_queued_records",
+			Help: "Persistent result sink records currently waiting for the async writer.",
+		}),
+		sinkQueueCapacity: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "evmonly_loadtest_result_sink_queue_capacity",
+			Help: "Capacity of the persistent result sink async record queue.",
+		}),
 	}
 	registry.MustRegister(
 		m.inputBlocksTotal,
@@ -1250,11 +1482,19 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		m.occConflictsTotal,
 		m.occFallbackReasonTotal,
 		m.occConflictTotal,
+		m.sinkEnqueuedTotal,
+		m.sinkWrittenTotal,
+		m.sinkBytesTotal,
+		m.sinkEnqueueWaitTotal,
+		m.sinkEnqueueWaitEvents,
+		m.sinkWriteSecondsTotal,
 		m.inputBlockRate,
 		m.finishedBlockRate,
 		m.txRate,
 		m.gasRate,
 		m.queuedBlocks,
+		m.sinkQueuedRecords,
+		m.sinkQueueCapacity,
 	)
 	return m
 }
@@ -1316,6 +1556,44 @@ func (m *loadMetrics) recordExecutionError() {
 	m.executionErrorsTotal.Inc()
 }
 
+func (m *loadMetrics) recordSinkEnqueued(kind string) {
+	m.sinkEnqueued.Add(1)
+	m.sinkEnqueuedTotal.WithLabelValues(kind).Inc()
+}
+
+func (m *loadMetrics) recordSinkEnqueueWait(elapsed time.Duration) {
+	if elapsed <= 0 {
+		return
+	}
+	m.sinkWaitNanos.Add(uint64(elapsed.Nanoseconds()))
+	m.sinkWaitEvents.Add(1)
+	m.sinkEnqueueWaitTotal.Add(elapsed.Seconds())
+	m.sinkEnqueueWaitEvents.Inc()
+}
+
+func (m *loadMetrics) recordSinkWrite(kind string, bytes int, elapsed time.Duration, completed bool) {
+	if elapsed > 0 {
+		m.sinkWriteNanos.Add(uint64(elapsed.Nanoseconds()))
+		m.sinkWriteSecondsTotal.WithLabelValues(kind).Add(elapsed.Seconds())
+	}
+	if !completed {
+		return
+	}
+	m.sinkWritten.Add(1)
+	m.sinkBytes.Add(uint64(bytes))
+	m.sinkWrittenTotal.WithLabelValues(kind).Inc()
+	m.sinkBytesTotal.WithLabelValues(kind).Add(float64(bytes))
+}
+
+func (m *loadMetrics) setSinkQueued(records int) {
+	m.sinkQueued.Store(int64(records))
+	m.sinkQueuedRecords.Set(float64(records))
+}
+
+func (m *loadMetrics) setSinkQueueCapacity(records int) {
+	m.sinkQueueCapacity.Set(float64(records))
+}
+
 func (m *loadMetrics) snapshot() metricsSnapshot {
 	return metricsSnapshot{
 		at:              time.Now(),
@@ -1327,6 +1605,13 @@ func (m *loadMetrics) snapshot() metricsSnapshot {
 		occAttempts:     m.occAttempts.Load(),
 		occFallbacks:    m.occFallbacks.Load(),
 		occConflicts:    m.occConflicts.Load(),
+		sinkEnqueued:    m.sinkEnqueued.Load(),
+		sinkWritten:     m.sinkWritten.Load(),
+		sinkBytes:       m.sinkBytes.Load(),
+		sinkWaitNanos:   m.sinkWaitNanos.Load(),
+		sinkWaitEvents:  m.sinkWaitEvents.Load(),
+		sinkWriteNanos:  m.sinkWriteNanos.Load(),
+		sinkQueued:      m.sinkQueued.Load(),
 	}
 }
 
@@ -1368,13 +1653,18 @@ func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetric
 				prev = curr
 				continue
 			}
+			sinkWaitSeconds := float64(curr.sinkWaitNanos-prev.sinkWaitNanos) / float64(time.Second)
+			sinkWriteSeconds := float64(curr.sinkWriteNanos-prev.sinkWriteNanos) / float64(time.Second)
 			fmt.Printf(
-				"input_blocks/s=%.2f finished_blocks/s=%.2f tx/s=%.2f gas/s=%.2f queued_blocks=%d totals(input_blocks=%d finished_blocks=%d txs=%d gas=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_conflicts=%d)\n",
+				"input_blocks/s=%.2f finished_blocks/s=%.2f tx/s=%.2f gas/s=%.2f queued_blocks=%d sink_queue=%d sink_enqueue_wait/s=%.6f sink_write/s=%.6f totals(input_blocks=%d finished_blocks=%d txs=%d gas=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_conflicts=%d sink_enqueued=%d sink_written=%d)\n",
 				float64(curr.inputBlocks-prev.inputBlocks)/elapsed,
 				float64(curr.finishedBlocks-prev.finishedBlocks)/elapsed,
 				float64(curr.finishedTxs-prev.finishedTxs)/elapsed,
 				float64(curr.gasConsumed-prev.gasConsumed)/elapsed,
 				queued,
+				curr.sinkQueued,
+				sinkWaitSeconds/elapsed,
+				sinkWriteSeconds/elapsed,
 				curr.inputBlocks,
 				curr.finishedBlocks,
 				curr.finishedTxs,
@@ -1383,6 +1673,8 @@ func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetric
 				curr.occAttempts,
 				curr.occFallbacks,
 				curr.occConflicts,
+				curr.sinkEnqueued,
+				curr.sinkWritten,
 			)
 			prev = curr
 		}
@@ -1395,7 +1687,7 @@ func printFinalReport(startedAt time.Time, snapshot metricsSnapshot) {
 		elapsed = 1
 	}
 	fmt.Printf(
-		"complete elapsed=%s input_blocks=%d finished_blocks=%d txs=%d gas=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_conflicts=%d avg_input_blocks/s=%.2f avg_finished_blocks/s=%.2f avg_tx/s=%.2f avg_gas/s=%.2f\n",
+		"complete elapsed=%s input_blocks=%d finished_blocks=%d txs=%d gas=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_conflicts=%d sink_queue=%d sink_enqueued=%d sink_written=%d sink_bytes=%d sink_enqueue_wait=%s sink_enqueue_wait_events=%d sink_write=%s avg_input_blocks/s=%.2f avg_finished_blocks/s=%.2f avg_tx/s=%.2f avg_gas/s=%.2f\n",
 		snapshot.at.Sub(startedAt).Round(time.Millisecond),
 		snapshot.inputBlocks,
 		snapshot.finishedBlocks,
@@ -1405,10 +1697,31 @@ func printFinalReport(startedAt time.Time, snapshot metricsSnapshot) {
 		snapshot.occAttempts,
 		snapshot.occFallbacks,
 		snapshot.occConflicts,
+		snapshot.sinkQueued,
+		snapshot.sinkEnqueued,
+		snapshot.sinkWritten,
+		snapshot.sinkBytes,
+		time.Duration(snapshot.sinkWaitNanos).Round(time.Microsecond),
+		snapshot.sinkWaitEvents,
+		time.Duration(snapshot.sinkWriteNanos).Round(time.Microsecond),
 		float64(snapshot.inputBlocks)/elapsed,
 		float64(snapshot.finishedBlocks)/elapsed,
 		float64(snapshot.finishedTxs)/elapsed,
 		float64(snapshot.gasConsumed)/elapsed,
+	)
+}
+
+func printResultSinkReport(closeElapsed time.Duration, snapshot metricsSnapshot) {
+	fmt.Printf(
+		"result sink close elapsed=%s sink_queue=%d sink_enqueued=%d sink_written=%d sink_bytes=%d sink_enqueue_wait=%s sink_enqueue_wait_events=%d sink_write=%s\n",
+		closeElapsed.Round(time.Millisecond),
+		snapshot.sinkQueued,
+		snapshot.sinkEnqueued,
+		snapshot.sinkWritten,
+		snapshot.sinkBytes,
+		time.Duration(snapshot.sinkWaitNanos).Round(time.Microsecond),
+		snapshot.sinkWaitEvents,
+		time.Duration(snapshot.sinkWriteNanos).Round(time.Microsecond),
 	)
 }
 
