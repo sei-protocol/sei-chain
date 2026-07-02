@@ -120,6 +120,8 @@ func (cs *StateChangeSet) resetForReuse() {
 	cs.Nonces = cs.Nonces[:0]
 	clear(cs.Code)
 	cs.Code = cs.Code[:0]
+	clear(cs.StorageClears)
+	cs.StorageClears = cs.StorageClears[:0]
 	clear(cs.Storage)
 	cs.Storage = cs.Storage[:0]
 }

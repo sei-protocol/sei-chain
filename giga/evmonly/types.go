@@ -115,10 +115,11 @@ type OCCConflictCount struct {
 // StateChangeSet is the deterministic EVM-native state output for a block.
 // Values are post-block values, not deltas.
 type StateChangeSet struct {
-	Balances []BalanceChange
-	Nonces   []NonceChange
-	Code     []CodeChange
-	Storage  []StorageChange
+	Balances      []BalanceChange
+	Nonces        []NonceChange
+	Code          []CodeChange
+	StorageClears []common.Address
+	Storage       []StorageChange
 }
 
 type BalanceChange struct {
