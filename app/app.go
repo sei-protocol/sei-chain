@@ -42,7 +42,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	storev2_rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
@@ -110,6 +109,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
@@ -140,6 +140,7 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/utils"
 	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -469,6 +470,7 @@ type App struct {
 	genesisImportConfig genesistypes.GenesisImportConfig
 
 	stateStore   seidb.StateStore
+	rootStore    *rootmulti.Store
 	receiptStore receipt.ReceiptStore
 
 	forkInitializer func(sdk.Context)
@@ -548,6 +550,16 @@ func New(
 	for _, option := range appOptions {
 		option(app)
 	}
+
+	// The storev2 rootmulti store is the only supported commit multistore; its
+	// composite SC backend drives the in-flight memiavl->flatkv migration that
+	// BeginBlock paces via the migration gov param. Fail fast if the legacy
+	// root multistore is somehow in use.
+	rootStore, ok := app.CommitMultiStore().(*rootmulti.Store)
+	if !ok {
+		panic(fmt.Sprintf("unsupported commit multistore %T: expected *rootmulti.Store", app.CommitMultiStore()))
+	}
+	app.rootStore = rootStore
 
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
 
@@ -746,7 +758,7 @@ func New(
 		app.EvmKeeper.SetTraceDB(traceDB)
 
 		if app.evmRPCConfig.TraceBakeUseSnapshot {
-			if rs, ok := app.CommitMultiStore().(*storev2_rootmulti.Store); ok {
+			if rs, ok := app.CommitMultiStore().(*rootmulti.Store); ok {
 				app.EvmKeeper.SetTraceSnapshotStore(evmkeeper.NewTraceSnapshotStore(app.evmRPCConfig.TraceBakeSnapshotWindow))
 				app.EvmKeeper.SetTraceSnapshotCapture(rs.SnapshotSCStore)
 			} else {
@@ -2670,7 +2682,7 @@ func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 			return app.RPCContextProvider(i), func() {}
 		})
 	}
-	rs, ok := app.CommitMultiStore().(*storev2_rootmulti.Store)
+	rs, ok := app.CommitMultiStore().(*rootmulti.Store)
 	if !ok {
 		return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
 			return app.RPCContextProvider(i), func() {}
@@ -2933,6 +2945,7 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(evmtypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
 	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)
+	paramsKeeper.Subspace(migration.SubspaceName).WithKeyTable(migration.ParamKeyTable())
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper
