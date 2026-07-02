@@ -20,6 +20,25 @@ import (
 
 const testGasPriceWei = 1_000_000_000
 
+type recordingResultSink struct {
+	changeSetHeights []uint64
+	receiptHeights   []uint64
+	changeSets       []StateChangeSet
+	receipts         []ethtypes.Receipts
+}
+
+func (s *recordingResultSink) StoreChangeSet(_ context.Context, height uint64, changeSet StateChangeSet) error {
+	s.changeSetHeights = append(s.changeSetHeights, height)
+	s.changeSets = append(s.changeSets, changeSet)
+	return nil
+}
+
+func (s *recordingResultSink) StoreReceipts(_ context.Context, height uint64, receipts ethtypes.Receipts) error {
+	s.receiptHeights = append(s.receiptHeights, height)
+	s.receipts = append(s.receipts, receipts)
+	return nil
+}
+
 func TestExecutorEmptyBlock(t *testing.T) {
 	executor := NewExecutor(Config{})
 
@@ -57,6 +76,36 @@ func TestExecutorTransferTx(t *testing.T) {
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, big.NewInt(7), state.GetBalance(recipient))
 	require.Equal(t, uint64(1), state.GetNonce(sender))
+}
+
+func TestExecutorInvokesResultSink(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := common.HexToAddress("0x00000000000000000000000000000000000000a7")
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	sink := &recordingResultSink{}
+
+	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
+	executor := NewExecutor(Config{}, WithState(state), WithResultSink(sink))
+	ctx := blockContext(chainID)
+	ctx.Number = 77
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: ctx,
+		Txs:     [][]byte{rawTx},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, sink.changeSets, 1)
+	require.Len(t, sink.receipts, 1)
+	require.Equal(t, []uint64{ctx.Number}, sink.changeSetHeights)
+	require.Equal(t, []uint64{ctx.Number}, sink.receiptHeights)
+	require.Equal(t, result.ChangeSet, sink.changeSets[0])
+	require.Equal(t, result.Receipts, sink.receipts[0])
 }
 
 func TestExecutorDynamicFeeTx(t *testing.T) {
