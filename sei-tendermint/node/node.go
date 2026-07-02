@@ -59,13 +59,15 @@ func (g chainIDGatherer) Gather() ([]*dto.MetricFamily, error) {
 			if hasMetricLabel(metric, "chain_id") {
 				continue
 			}
-			metric.Label = append(metric.Label, &dto.LabelPair{
+			labels := slices.Clone(metric.Label)
+			labels = append(labels, &dto.LabelPair{
 				Name:  proto.String("chain_id"),
 				Value: proto.String(g.chainID),
 			})
-			slices.SortFunc(metric.Label, func(a, b *dto.LabelPair) int {
+			slices.SortFunc(labels, func(a, b *dto.LabelPair) int {
 				return strings.Compare(a.GetName(), b.GetName())
 			})
+			metric.Label = labels
 		}
 	}
 	return metricFamilies, nil
