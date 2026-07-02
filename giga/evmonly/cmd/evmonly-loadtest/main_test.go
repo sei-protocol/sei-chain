@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -223,6 +224,46 @@ func TestAsyncFileResultSinkReportsMetrics(t *testing.T) {
 	require.Equal(t, uint64(2), snapshot.sinkWritten)
 	require.Equal(t, int64(0), snapshot.sinkQueued)
 	require.Greater(t, snapshot.sinkBytes, uint64(0))
+}
+
+func TestAsyncFileResultSinkStoresBlockResultAndReleases(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--result-sink=file",
+		"--persist-dir=" + dir,
+		"--persist-queue-size=1",
+	})
+	require.NoError(t, err)
+	metrics := newLoadMetrics(prometheus.NewRegistry())
+	sinks, err := newResultSinks(cfg, metrics)
+	require.NoError(t, err)
+
+	result := &evmonly.BlockResult{
+		ChangeSet: evmonly.StateChangeSet{
+			Balances: []evmonly.BalanceChange{{
+				Address: common.HexToAddress("0x0000000000000000000000000000000000000001"),
+				Balance: big.NewInt(7),
+			}},
+		},
+		Receipts: ethtypes.Receipts{{
+			Type:   ethtypes.LegacyTxType,
+			Status: ethtypes.ReceiptStatusSuccessful,
+			TxHash: common.HexToHash("0x02"),
+		}},
+	}
+	var released atomic.Bool
+	require.NoError(t, sinks.StoreBlockResult(context.Background(), 1, result, func() {
+		released.Store(true)
+	}))
+	require.Eventually(t, func() bool {
+		return metrics.snapshot().sinkWritten == 2 && released.Load()
+	}, time.Second, time.Millisecond)
+	require.NoError(t, sinks.Close())
+
+	snapshot := metrics.snapshot()
+	require.Equal(t, uint64(2), snapshot.sinkEnqueued)
+	require.Equal(t, uint64(2), snapshot.sinkWritten)
 }
 
 func TestRunPrebuiltBlocksWithFileResultSinkCleansUp(t *testing.T) {
