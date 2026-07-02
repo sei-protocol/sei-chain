@@ -215,6 +215,9 @@ func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
 	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
 	require.Len(t, occResult.Txs, txCount)
 	require.Len(t, occResult.Receipts, txCount)
+	require.True(t, occResult.OCCStats.Attempted)
+	require.False(t, occResult.OCCStats.Fallback)
+	require.Zero(t, occResult.OCCStats.ConflictCount)
 	for i := range txCount {
 		require.Equal(t, seqResult.Txs[i].Hash, occResult.Txs[i].Hash)
 		require.Equal(t, seqResult.Txs[i].Status, occResult.Txs[i].Status)
@@ -256,6 +259,19 @@ func TestExecutorOCCConflictingTransfersMatchSequential(t *testing.T) {
 	seqState.ApplyChangeSet(seqResult.ChangeSet)
 	occState.ApplyChangeSet(occResult.ChangeSet)
 	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
+	require.True(t, occResult.OCCStats.Attempted)
+	require.True(t, occResult.OCCStats.Fallback)
+	require.Equal(t, "conflict", occResult.OCCStats.FallbackReason)
+	require.Greater(t, occResult.OCCStats.ConflictCount, uint64(0))
+	require.NotEmpty(t, occResult.OCCStats.ConflictSamples)
+	foundRecipientBalanceConflict := false
+	for _, conflict := range occResult.OCCStats.ConflictSamples {
+		if conflict.Kind == "balance" && conflict.Address == recipient {
+			foundRecipientBalanceConflict = true
+			require.Greater(t, conflict.Count, uint64(0))
+		}
+	}
+	require.True(t, foundRecipientBalanceConflict)
 	require.Equal(t, seqState.GetBalance(recipient), occState.GetBalance(recipient))
 	require.Equal(t, big.NewInt(int64(txCount*3)), occState.GetBalance(recipient))
 }

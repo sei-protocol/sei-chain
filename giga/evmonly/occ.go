@@ -62,10 +62,21 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 	}); err != nil {
 		return nil, err
 	}
-	if !validateOCCResults(results, gasLimit) {
-		return e.executeBlockSequential(ctx, req)
+	validation := validateOCCResults(results, gasLimit)
+	if !validation.valid {
+		result, err := e.executeBlockSequential(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		result.OCCStats = validation.stats(true)
+		return result, nil
 	}
-	return e.mergeOCCResults(ctx, results)
+	result, err := e.mergeOCCResults(ctx, results)
+	if err != nil {
+		return nil, err
+	}
+	result.OCCStats = validation.stats(false)
+	return result, nil
 }
 
 func occRanges(txCount int, chunkSize int) []occTxRange {
@@ -139,23 +150,125 @@ func (e *Executor) executeTxSpeculative(
 	}, nil
 }
 
-func validateOCCResults(results []occTxExecution, gasLimit uint64) bool {
+type occValidationResult struct {
+	valid          bool
+	fallbackReason string
+	conflictCount  uint64
+	conflicts      map[occConflictAggregationKey]uint64
+}
+
+type occConflictAggregationKey struct {
+	access  string
+	kind    stateAccessKind
+	address common.Address
+	slot    common.Hash
+}
+
+const (
+	occFallbackReasonConflict    = "conflict"
+	occFallbackReasonGasLimit    = "gas_limit"
+	occFallbackReasonGasOverflow = "gas_overflow"
+)
+
+func validateOCCResults(results []occTxExecution, gasLimit uint64) occValidationResult {
 	writes := newStateAccessIndex()
 	var totalGas uint64
+	validation := occValidationResult{valid: true}
 	for _, result := range results {
 		if result.gasUsed > math.MaxUint64-totalGas {
-			return false
+			validation.valid = false
+			validation.fallbackReason = occFallbackReasonGasOverflow
+			return validation
 		}
 		totalGas += result.gasUsed
 		if totalGas > gasLimit {
-			return false
+			validation.valid = false
+			validation.fallbackReason = occFallbackReasonGasLimit
+			return validation
 		}
-		if writes.conflictsWithAny(result.readSet) || writes.conflictsWithAny(result.writeSet) {
-			return false
-		}
+		validation.addConflicts("read", writes, result.readSet)
+		validation.addConflicts("write", writes, result.writeSet)
 		writes.addAll(result.writeSet)
 	}
-	return true
+	if validation.conflictCount > 0 {
+		validation.valid = false
+		validation.fallbackReason = occFallbackReasonConflict
+	}
+	return validation
+}
+
+func (r *occValidationResult) addConflicts(access string, writes *stateAccessIndex, set map[stateAccessKey]struct{}) {
+	for key := range set {
+		if !writes.conflictsWith(key) {
+			continue
+		}
+		if r.conflicts == nil {
+			r.conflicts = map[occConflictAggregationKey]uint64{}
+		}
+		r.conflictCount++
+		r.conflicts[occConflictAggregationKey{
+			access:  access,
+			kind:    key.kind,
+			address: key.address,
+			slot:    key.slot,
+		}]++
+	}
+}
+
+func (r occValidationResult) stats(fallback bool) OCCStats {
+	stats := OCCStats{
+		Attempted:      true,
+		Fallback:       fallback,
+		FallbackReason: r.fallbackReason,
+		ConflictCount:  r.conflictCount,
+	}
+	if len(r.conflicts) == 0 {
+		return stats
+	}
+	keys := make([]occConflictAggregationKey, 0, len(r.conflicts))
+	for key := range r.conflicts {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		left, right := keys[i], keys[j]
+		if left.access != right.access {
+			return left.access < right.access
+		}
+		if left.kind != right.kind {
+			return left.kind < right.kind
+		}
+		if cmp := bytes.Compare(left.address[:], right.address[:]); cmp != 0 {
+			return cmp < 0
+		}
+		return bytes.Compare(left.slot[:], right.slot[:]) < 0
+	})
+	for _, key := range keys {
+		stats.ConflictSamples = append(stats.ConflictSamples, OCCConflictCount{
+			Access:  key.access,
+			Kind:    key.kind.String(),
+			Address: key.address,
+			Slot:    key.slot,
+			Count:   r.conflicts[key],
+		})
+	}
+	return stats
+}
+
+func (k stateAccessKind) String() string {
+	switch k {
+	case stateAccessAccount:
+		return "account"
+	case stateAccessBalance:
+		return "balance"
+	case stateAccessNonce:
+		return "nonce"
+	case stateAccessCode:
+		return "code"
+	case stateAccessStorage:
+		return "storage"
+	default:
+		return "unknown"
+	}
 }
 
 func (e *Executor) mergeOCCResults(ctx context.Context, results []occTxExecution) (*BlockResult, error) {
@@ -220,7 +333,10 @@ func (i *stateAccessIndex) conflictsWith(key stateAccessKey) bool {
 func (i *stateAccessIndex) addAll(set map[stateAccessKey]struct{}) {
 	for key := range set {
 		i.exact[key] = struct{}{}
-		i.touched[key.address] = struct{}{}
+		// Exist/Empty account reads depend on account metadata, not storage slots.
+		if key.kind != stateAccessStorage {
+			i.touched[key.address] = struct{}{}
+		}
 		if key.kind == stateAccessAccount {
 			i.account[key.address] = struct{}{}
 		}

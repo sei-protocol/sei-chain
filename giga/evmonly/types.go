@@ -77,6 +77,7 @@ type BlockResult struct {
 	Txs       []TxResult
 	Receipts  ethtypes.Receipts
 	GasUsed   uint64
+	OCCStats  OCCStats
 
 	lease *blockResultLease
 }
@@ -90,6 +91,25 @@ func (r *BlockResult) Release() {
 	lease := r.lease
 	r.lease = nil
 	lease.release()
+}
+
+// OCCStats reports optimistic concurrency control behavior for a block.
+type OCCStats struct {
+	Attempted       bool
+	Fallback        bool
+	FallbackReason  string
+	ConflictCount   uint64
+	ConflictSamples []OCCConflictCount
+}
+
+// OCCConflictCount aggregates conflicts by the access key that forced OCC to
+// fall back to sequential execution.
+type OCCConflictCount struct {
+	Access  string
+	Kind    string
+	Address common.Address
+	Slot    common.Hash
+	Count   uint64
 }
 
 // StateChangeSet is the deterministic EVM-native state output for a block.
