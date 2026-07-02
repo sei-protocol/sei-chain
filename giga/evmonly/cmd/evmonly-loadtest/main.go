@@ -56,6 +56,7 @@ const (
 	workloadERC20Transfer  = "erc20-transfer"
 	resultSinkDiscard      = "discard"
 	resultSinkFile         = "file"
+	resultSinkBlock        = "block"
 	resultSinkChangeSet    = "changeset"
 	resultSinkReceipts     = "receipts"
 )
@@ -72,6 +73,7 @@ type config struct {
 	reportInterval      time.Duration
 	metricsAddr         string
 	resultSink          string
+	resultPoolSize      int
 	persistDir          string
 	persistSync         bool
 	persistBufferSize   int
@@ -141,6 +143,7 @@ func parseConfig(args []string) (config, error) {
 	fs.DurationVar(&cfg.reportInterval, "report-interval", defaultReportInterval, "stdout and rate-gauge reporting interval; 0 disables periodic reports")
 	fs.StringVar(&cfg.metricsAddr, "metrics-addr", defaultMetricsAddr, "Prometheus listen address; empty disables HTTP metrics")
 	fs.StringVar(&cfg.resultSink, "result-sink", resultSinkDiscard, "result sink mode: discard or file")
+	fs.IntVar(&cfg.resultPoolSize, "result-pool-size", 0, "pooled executor BlockResult slots; 0 sizes for in-flight sink results, negative disables pooling")
 	fs.StringVar(&cfg.persistDir, "persist-dir", "", "directory for --result-sink=file append-only changeset and receipt files")
 	fs.BoolVar(&cfg.persistSync, "persist-sync", false, "fsync persistent result files from the async sink writer")
 	fs.IntVar(&cfg.persistBufferSize, "persist-buffer-size", defaultPersistBuffer, "buffer size in bytes for --result-sink=file")
@@ -238,6 +241,11 @@ func parseConfig(args []string) (config, error) {
 	if cfg.persistQueueSize == 0 {
 		cfg.persistQueueSize = 2 * cfg.queueSize
 	}
+	if cfg.resultPoolSize < 0 {
+		cfg.resultPoolSize = 0
+	} else if cfg.resultPoolSize == 0 {
+		cfg.resultPoolSize = defaultResultPoolSize(cfg)
+	}
 	if cfg.resultSink == resultSinkFile && strings.TrimSpace(cfg.persistDir) == "" {
 		return config{}, fmt.Errorf("persist-dir is required when result-sink=file")
 	}
@@ -275,6 +283,14 @@ func defaultExecutorWorkers() int {
 		return 12
 	}
 	return workers
+}
+
+func defaultResultPoolSize(cfg config) int {
+	size := cfg.workers + 1
+	if cfg.resultSink == resultSinkFile {
+		size += cfg.persistQueueSize
+	}
+	return size
 }
 
 func parsePositiveBig(name, raw string) (*big.Int, error) {
@@ -522,6 +538,7 @@ func runStreaming(ctx context.Context, cfg config, state *generatedState, worklo
 		MinGasPrice:          new(big.Int).Set(cfg.minGasPrice),
 		DisableGasPriceCheck: cfg.disableGasPriceRule,
 		OCCWorkers:           cfg.executorWorkers,
+		BlockResultPoolSize:  cfg.resultPoolSize,
 	}, evmonly.WithState(state), evmonly.WithResultSink(sinks))
 	defer executor.Close()
 	group.Go(func() error {
@@ -581,6 +598,7 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 		MinGasPrice:          new(big.Int).Set(cfg.minGasPrice),
 		DisableGasPriceCheck: cfg.disableGasPriceRule,
 		OCCWorkers:           cfg.executorWorkers,
+		BlockResultPoolSize:  cfg.resultPoolSize,
 	}, evmonly.WithState(state), evmonly.WithResultSink(sinks))
 	defer executor.Close()
 	group.Go(func() error {
@@ -846,6 +864,7 @@ func executeBlocks(
 				return fmt.Errorf("worker %d execute block %d: %w", workerID, block.number, err)
 			}
 			metrics.recordFinished(len(result.Txs), result.GasUsed, result.OCCStats)
+			result.Release()
 		}
 	}
 }
@@ -1203,6 +1222,7 @@ type resultSinks struct {
 }
 
 var _ evmonly.ResultSink = (*resultSinks)(nil)
+var _ evmonly.BlockResultSink = (*resultSinks)(nil)
 
 func newResultSinks(cfg config, metrics *loadMetrics) (*resultSinks, error) {
 	switch cfg.resultSink {
@@ -1224,6 +1244,20 @@ func (s *resultSinks) StoreChangeSet(ctx context.Context, height uint64, changeS
 
 func (s *resultSinks) StoreReceipts(ctx context.Context, height uint64, receipts ethtypes.Receipts) error {
 	return s.receipts.StoreReceipts(ctx, height, receipts)
+}
+
+func (s *resultSinks) StoreBlockResult(ctx context.Context, height uint64, result *evmonly.BlockResult, release func()) error {
+	if sink, ok := s.changeSets.(evmonly.BlockResultSink); ok {
+		return sink.StoreBlockResult(ctx, height, result, release)
+	}
+	if err := s.StoreChangeSet(ctx, height, result.ChangeSet); err != nil {
+		return err
+	}
+	if err := s.StoreReceipts(ctx, height, result.Receipts); err != nil {
+		return err
+	}
+	release()
+	return nil
 }
 
 func (s *resultSinks) Close() error {
@@ -1346,9 +1380,11 @@ func (s *fileResultSinks) WriteRecord(kind string, height uint64, value any) err
 }
 
 type resultSinkRecord struct {
-	kind   string
-	height uint64
-	value  any
+	kind    string
+	height  uint64
+	value   any
+	result  *evmonly.BlockResult
+	release func()
 }
 
 type asyncFileResultSinks struct {
@@ -1392,6 +1428,15 @@ func (s *asyncFileResultSinks) StoreReceipts(ctx context.Context, height uint64,
 	})
 }
 
+func (s *asyncFileResultSinks) StoreBlockResult(ctx context.Context, height uint64, result *evmonly.BlockResult, release func()) error {
+	return s.enqueue(ctx, resultSinkRecord{
+		kind:    resultSinkBlock,
+		height:  height,
+		result:  result,
+		release: release,
+	})
+}
+
 func (s *asyncFileResultSinks) enqueue(ctx context.Context, record resultSinkRecord) error {
 	if err := s.getErr(); err != nil {
 		return err
@@ -1428,6 +1473,12 @@ func (s *asyncFileResultSinks) recordEnqueued(kind string) {
 	if s.metrics == nil {
 		return
 	}
+	if kind == resultSinkBlock {
+		s.metrics.recordSinkEnqueued(resultSinkChangeSet)
+		s.metrics.recordSinkEnqueued(resultSinkReceipts)
+		s.metrics.setSinkQueued(len(s.records))
+		return
+	}
 	s.metrics.recordSinkEnqueued(kind)
 	s.metrics.setSinkQueued(len(s.records))
 }
@@ -1438,16 +1489,49 @@ func (s *asyncFileResultSinks) run() {
 		if s.metrics != nil {
 			s.metrics.setSinkQueued(len(s.records))
 		}
-		if err := s.files.WriteRecord(record.kind, record.height, record.value); err != nil {
+		if err := s.writeRecord(record); err != nil {
+			record.releaseResult()
 			s.setErr(err)
+			s.releaseQueuedResults()
 			return
 		}
+		record.releaseResult()
 		if s.metrics != nil {
 			s.metrics.setSinkQueued(len(s.records))
 		}
 	}
 	if s.metrics != nil {
 		s.metrics.setSinkQueued(0)
+	}
+}
+
+func (s *asyncFileResultSinks) releaseQueuedResults() {
+	for {
+		select {
+		case record, ok := <-s.records:
+			if !ok {
+				return
+			}
+			record.releaseResult()
+		default:
+			return
+		}
+	}
+}
+
+func (s *asyncFileResultSinks) writeRecord(record resultSinkRecord) error {
+	if record.kind == resultSinkBlock {
+		if err := s.files.WriteRecord(resultSinkChangeSet, record.height, record.result.ChangeSet); err != nil {
+			return err
+		}
+		return s.files.WriteRecord(resultSinkReceipts, record.height, record.result.Receipts)
+	}
+	return s.files.WriteRecord(record.kind, record.height, record.value)
+}
+
+func (r resultSinkRecord) releaseResult() {
+	if r.release != nil {
+		r.release()
 	}
 }
 
