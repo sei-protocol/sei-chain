@@ -16,6 +16,8 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
+	"runtime/trace"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -73,6 +75,9 @@ type config struct {
 	persistSync         bool
 	persistBufferSize   int
 	persistQueueSize    int
+	cpuProfile          string
+	heapProfile         string
+	traceProfile        string
 	workload            string
 	chainID             *big.Int
 	gasPrice            *big.Int
@@ -133,6 +138,9 @@ func parseConfig(args []string) (config, error) {
 	fs.BoolVar(&cfg.persistSync, "persist-sync", false, "fsync persistent result files from the async sink writer")
 	fs.IntVar(&cfg.persistBufferSize, "persist-buffer-size", defaultPersistBuffer, "buffer size in bytes for --result-sink=file")
 	fs.IntVar(&cfg.persistQueueSize, "persist-queue-size", 0, "record queue size for async file persistence; 0 defaults to 2*queue-size")
+	fs.StringVar(&cfg.cpuProfile, "cpu-profile", "", "write Go CPU profile to this file; starts after prebuild when --prebuild-blocks is set")
+	fs.StringVar(&cfg.heapProfile, "heap-profile", "", "write Go heap profile to this file after execution")
+	fs.StringVar(&cfg.traceProfile, "trace-profile", "", "write Go runtime trace to this file; starts after prebuild when --prebuild-blocks is set")
 	fs.StringVar(&cfg.workload, "workload", workloadTransfer, "workload type: transfer or erc20-transfer")
 	fs.Uint64Var(&cfg.txGasLimit, "tx-gas-limit", defaultTxGasLimit, "gas limit for each generated transaction")
 	fs.Uint64Var(&cfg.blockGasLimit, "block-gas-limit", 0, "block gas limit; 0 lets the executor use its maximum")
@@ -337,6 +345,110 @@ func run(cfg config) (err error) {
 	return runStreaming(ctx, cfg, state, workload, sinks, metrics)
 }
 
+type profileSession struct {
+	cpuFile      *os.File
+	traceFile    *os.File
+	heapPath     string
+	cpuActive    bool
+	traceActive  bool
+	heapComplete bool
+}
+
+func startProfiles(cfg config) (*profileSession, error) {
+	if cfg.cpuProfile == "" && cfg.heapProfile == "" && cfg.traceProfile == "" {
+		return nil, nil
+	}
+	session := &profileSession{heapPath: cfg.heapProfile}
+	if cfg.cpuProfile != "" {
+		file, err := createProfileFile(cfg.cpuProfile)
+		if err != nil {
+			return nil, err
+		}
+		session.cpuFile = file
+		if err := pprof.StartCPUProfile(file); err != nil {
+			_ = session.Close()
+			return nil, fmt.Errorf("start CPU profile: %w", err)
+		}
+		session.cpuActive = true
+	}
+	if cfg.traceProfile != "" {
+		file, err := createProfileFile(cfg.traceProfile)
+		if err != nil {
+			_ = session.Close()
+			return nil, err
+		}
+		session.traceFile = file
+		if err := trace.Start(file); err != nil {
+			_ = session.Close()
+			return nil, fmt.Errorf("start runtime trace: %w", err)
+		}
+		session.traceActive = true
+	}
+	return session, nil
+}
+
+func createProfileFile(path string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create profile dir for %s: %w", path, err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return nil, fmt.Errorf("create profile file %s: %w", path, err)
+	}
+	return file, nil
+}
+
+func (p *profileSession) Close() error {
+	if p == nil {
+		return nil
+	}
+	var errs []error
+	if p.traceActive {
+		trace.Stop()
+		p.traceActive = false
+	}
+	if p.cpuActive {
+		pprof.StopCPUProfile()
+		p.cpuActive = false
+	}
+	if p.cpuFile != nil {
+		errs = append(errs, p.cpuFile.Close())
+		p.cpuFile = nil
+	}
+	if p.traceFile != nil {
+		errs = append(errs, p.traceFile.Close())
+		p.traceFile = nil
+	}
+	if p.heapPath != "" && !p.heapComplete {
+		errs = append(errs, writeHeapProfile(p.heapPath))
+		p.heapComplete = true
+	}
+	return errors.Join(errs...)
+}
+
+func writeHeapProfile(path string) error {
+	file, err := createProfileFile(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	runtime.GC()
+	if err := pprof.WriteHeapProfile(file); err != nil {
+		return fmt.Errorf("write heap profile %s: %w", path, err)
+	}
+	return nil
+}
+
+func finishProfiles(session *profileSession, err *error) {
+	if closeErr := session.Close(); closeErr != nil {
+		if *err != nil {
+			fmt.Fprintf(os.Stderr, "evmonly-loadtest: write profile: %v\n", closeErr)
+			return
+		}
+		*err = closeErr
+	}
+}
+
 func cleanupSinksOnContextCancel(ctx context.Context, sinks *resultSinks) func() {
 	cleanupCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -375,7 +487,12 @@ func newWorkload(cfg config, state *generatedState) (blockWorkload, error) {
 	}
 }
 
-func runStreaming(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, sinks *resultSinks, metrics *loadMetrics) error {
+func runStreaming(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, sinks *resultSinks, metrics *loadMetrics) (err error) {
+	profiles, err := startProfiles(cfg)
+	if err != nil {
+		return err
+	}
+
 	blocks := make(chan blockEnvelope, cfg.queueSize)
 	reportCtx, stopReporter := context.WithCancel(ctx)
 	reportDone := make(chan struct{})
@@ -402,7 +519,7 @@ func runStreaming(ctx context.Context, cfg config, state *generatedState, worklo
 		})
 	}
 
-	err := group.Wait()
+	err = group.Wait()
 	stopReporter()
 	<-reportDone
 
@@ -410,10 +527,11 @@ func runStreaming(ctx context.Context, cfg config, state *generatedState, worklo
 		err = nil
 	}
 	printFinalReport(startedAt, metrics.snapshot())
+	finishProfiles(profiles, &err)
 	return err
 }
 
-func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, sinks *resultSinks, metrics *loadMetrics) error {
+func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, sinks *resultSinks, metrics *loadMetrics) (err error) {
 	prebuildStartedAt := time.Now()
 	prebuilt, err := prebuildBlockRequests(ctx, cfg, workload)
 	if err != nil {
@@ -422,6 +540,11 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	state.Freeze()
 	prebuildElapsed := time.Since(prebuildStartedAt)
 	printPrebuildReport(prebuildElapsed, prebuilt, cfg.txsPerBlock)
+
+	profiles, err := startProfiles(cfg)
+	if err != nil {
+		return err
+	}
 
 	blocks := make(chan blockEnvelope, cfg.queueSize)
 	reportCtx, stopReporter := context.WithCancel(ctx)
@@ -457,6 +580,8 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 		err = nil
 	}
 	printFinalReport(startedAt, metrics.snapshot())
+	prebuilt = nil
+	finishProfiles(profiles, &err)
 	return err
 }
 
