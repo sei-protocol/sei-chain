@@ -8,13 +8,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
-type parsedTx struct {
-	tx     *ethtypes.Transaction
-	sender common.Address
-}
-
-func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer) ([]parsedTx, error) {
-	parsed := make([]parsedTx, len(txs))
+func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer) ([]PreparedTx, error) {
+	parsed := make([]PreparedTx, len(txs))
 	for i, raw := range txs {
 		select {
 		case <-ctx.Done():
@@ -25,7 +20,7 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer) ([
 		if err != nil {
 			return nil, fmt.Errorf("parse tx %d: %w", i, err)
 		}
-		parsed[i] = parsedTx{tx: tx, sender: sender}
+		parsed[i] = PreparedTx{Tx: tx, Sender: sender}
 	}
 	return parsed, nil
 }

@@ -13,6 +13,15 @@ type BlockExecutor interface {
 	ExecuteBlock(context.Context, BlockRequest) (*BlockResult, error)
 }
 
+// PreparedBlockExecutor exposes the split transaction preparation and block
+// execution phases. Preparation is stateless, so callers may pipeline it ahead
+// of ordered block execution.
+type PreparedBlockExecutor interface {
+	BlockExecutor
+	PrepareBlock(context.Context, BlockRequest) (PreparedBlock, error)
+	ExecutePreparedBlock(context.Context, PreparedBlock) (*BlockResult, error)
+}
+
 // ResultSink persists executor-produced block outputs.
 type ResultSink interface {
 	StoreChangeSet(ctx context.Context, height uint64, changeSet StateChangeSet) error
@@ -24,6 +33,19 @@ type ResultSink interface {
 type BlockRequest struct {
 	Context BlockContext
 	Txs     [][]byte
+}
+
+// PreparedBlock contains decoded transactions with recovered senders. The
+// executor treats prepared transactions as immutable.
+type PreparedBlock struct {
+	Context BlockContext
+	Txs     []PreparedTx
+}
+
+// PreparedTx is the stateless per-transaction work needed before EVM execution.
+type PreparedTx struct {
+	Tx     *ethtypes.Transaction
+	Sender common.Address
 }
 
 // BlockContext contains block-constant EVM execution data.

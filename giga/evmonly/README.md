@@ -45,6 +45,19 @@ The boundary is:
 ExecuteBlock(context.Context, BlockRequest) (*BlockResult, error)
 ```
 
+For callers that can pipeline stateless work across blocks, the concrete
+executor also supports:
+
+```go
+PrepareBlock(context.Context, BlockRequest) (PreparedBlock, error)
+ExecutePreparedBlock(context.Context, PreparedBlock) (*BlockResult, error)
+```
+
+`PrepareBlock` decodes transaction RLP and recovers senders. This work does not
+touch state, so block N+1 can be prepared while block N is still executing.
+`ExecuteBlock` remains the convenience path and performs prepare then execute in
+one call.
+
 The executor should be commit-neutral. It executes an ordered EVM block and
 returns the state writes and receipts produced by that block. The caller owns
 durable persistence, state commitment, block indexing, and receipt publication.

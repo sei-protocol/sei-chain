@@ -55,11 +55,32 @@ func (e *Executor) Config() Config {
 }
 
 func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockResult, error) {
+	prepared, err := e.PrepareBlock(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return e.ExecutePreparedBlock(ctx, prepared)
+}
+
+func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
+	chainConfig := e.chainConfig(req.Context)
+	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
+	parsed, err := parseBlockTxs(ctx, req.Txs, signer)
+	if err != nil {
+		return PreparedBlock{}, err
+	}
+	return PreparedBlock{
+		Context: req.Context,
+		Txs:     parsed,
+	}, nil
+}
+
+func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	var result *BlockResult
 	var err error
 	if len(req.Txs) == 0 {
 		result = &BlockResult{}
-	} else if e.useOCC(req) {
+	} else if e.useOCC(len(req.Txs)) {
 		result, err = e.executeBlockOCC(ctx, req)
 	} else {
 		result, err = e.executeBlockSequential(ctx, req)
@@ -86,8 +107,8 @@ func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *B
 	return nil
 }
 
-func (e *Executor) useOCC(req BlockRequest) bool {
-	if e.cfg.OCCWorkers <= 1 || len(req.Txs) <= 1 {
+func (e *Executor) useOCC(txCount int) bool {
+	if e.cfg.OCCWorkers <= 1 || txCount <= 1 {
 		return false
 	}
 	if e.cfg.CustomPrecompiles == nil {
@@ -96,13 +117,8 @@ func (e *Executor) useOCC(req BlockRequest) bool {
 	return len(e.cfg.CustomPrecompiles.Addresses()) == 0
 }
 
-func (e *Executor) executeBlockSequential(ctx context.Context, req BlockRequest) (*BlockResult, error) {
+func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	chainConfig := e.chainConfig(req.Context)
-	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
-	parsed, err := parseBlockTxs(ctx, req.Txs, signer)
-	if err != nil {
-		return nil, err
-	}
 
 	stateDB := newNativeStateDB(e.state)
 	blockCtx := buildBlockContext(req.Context)
@@ -117,19 +133,19 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req BlockRequest)
 	baseFee := cloneBig(req.Context.BaseFee)
 
 	result := &BlockResult{
-		Txs:      make([]TxResult, 0, len(parsed)),
-		Receipts: make(ethtypes.Receipts, 0, len(parsed)),
+		Txs:      make([]TxResult, 0, len(req.Txs)),
+		Receipts: make(ethtypes.Receipts, 0, len(req.Txs)),
 	}
 	var txIndexUint uint
-	for txIndex, p := range parsed {
+	for txIndex, p := range req.Txs {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
 		}
-		txResult, receipt, err := e.executeTx(evm, stateDB, gasPool, req.Context, p, txIndex, txIndexUint, baseFee, signer)
+		txResult, receipt, err := e.executeTx(evm, stateDB, gasPool, req.Context, p, txIndex, txIndexUint, baseFee)
 		if err != nil {
-			return nil, fmt.Errorf("execute tx %d %s: %w", txIndex, p.tx.Hash(), err)
+			return nil, fmt.Errorf("execute tx %d %s: %w", txIndex, p.Tx.Hash(), err)
 		}
 		txResult.CumulativeGasUsed = result.GasUsed + txResult.GasUsed
 		receipt.CumulativeGasUsed = txResult.CumulativeGasUsed
@@ -149,27 +165,23 @@ func (e *Executor) executeTx(
 	stateDB *nativeStateDB,
 	gasPool *core.GasPool,
 	block BlockContext,
-	p parsedTx,
+	p PreparedTx,
 	txIndex int,
 	txIndexUint uint,
 	baseFee *big.Int,
-	signer ethtypes.Signer,
 ) (TxResult, *ethtypes.Receipt, error) {
-	tx := p.tx
+	tx := p.Tx
 	if !e.cfg.DisableGasPriceCheck && e.cfg.MinGasPrice != nil {
 		// MinGasPrice is block-validity policy; unlike EVM call failures, it
 		// does not produce a receipt for an otherwise invalid block.
 		if effectiveGasPrice(tx, baseFee).Cmp(e.cfg.MinGasPrice) < 0 {
-			return TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: errInsufficientGasPrice},
+			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: errInsufficientGasPrice},
 				nil,
 				errInsufficientGasPrice
 		}
 	}
 
-	msg, err := core.TransactionToMessage(tx, signer, baseFee)
-	if err != nil {
-		return TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: err}, nil, err
-	}
+	msg := transactionToPreparedMessage(p, baseFee)
 	msg.SkipNonceChecks = e.cfg.DisableNonceCheck
 
 	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
@@ -177,7 +189,7 @@ func (e *Executor) executeTx(
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 	execResult, err := core.ApplyMessage(evm, msg, gasPool)
 	if err != nil {
-		return TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: err}, nil, err
+		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
 	}
 	stateDB.clearSnapshots()
 	stateDB.Finalise(true)
@@ -206,13 +218,13 @@ func (e *Executor) executeTx(
 		TransactionIndex:  txIndexUint,
 	}
 	if tx.To() == nil {
-		receipt.ContractAddress = crypto.CreateAddress(p.sender, tx.Nonce())
+		receipt.ContractAddress = crypto.CreateAddress(p.Sender, tx.Nonce())
 	}
 	receipt.Bloom = ethtypes.CreateBloom(receipt)
 
 	txResult := TxResult{
 		Hash:              tx.Hash(),
-		Sender:            p.sender,
+		Sender:            p.Sender,
 		To:                tx.To(),
 		ContractAddress:   receipt.ContractAddress,
 		Status:            status,
@@ -222,6 +234,34 @@ func (e *Executor) executeTx(
 		Err:               execResult.Err,
 	}
 	return txResult, receipt, nil
+}
+
+func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) *core.Message {
+	tx := p.Tx
+	msg := &core.Message{
+		From:                  p.Sender,
+		Nonce:                 tx.Nonce(),
+		GasLimit:              tx.Gas(),
+		GasPrice:              new(big.Int).Set(tx.GasPrice()),
+		GasFeeCap:             new(big.Int).Set(tx.GasFeeCap()),
+		GasTipCap:             new(big.Int).Set(tx.GasTipCap()),
+		To:                    tx.To(),
+		Value:                 tx.Value(),
+		Data:                  tx.Data(),
+		AccessList:            tx.AccessList(),
+		SetCodeAuthorizations: tx.SetCodeAuthorizations(),
+		SkipNonceChecks:       false,
+		SkipFromEOACheck:      false,
+		BlobHashes:            tx.BlobHashes(),
+		BlobGasFeeCap:         tx.BlobGasFeeCap(),
+	}
+	if baseFee != nil {
+		msg.GasPrice = msg.GasPrice.Add(msg.GasTipCap, baseFee)
+		if msg.GasPrice.Cmp(msg.GasFeeCap) > 0 {
+			msg.GasPrice = msg.GasFeeCap
+		}
+	}
+	return msg
 }
 
 func buildBlockContext(ctx BlockContext) vm.BlockContext {
