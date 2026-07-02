@@ -363,12 +363,9 @@ func (idx *BlockerIndexer) hasEvent(compositeKey, eventValue string, height int6
 // rather than materializing and sorting the full match set.
 type boundedPlan struct {
 	// driverEquality, when non-nil, is the equality condition whose event-key
-	// prefix is scanned in height order. Exactly one of driverEquality /
-	// driverHeightRange is set.
+	// prefix is scanned in height order. When nil, the scan is driven off the
+	// primary block.height key range instead.
 	driverEquality *syntax.Condition
-	// driverHeightRange, when non-nil, drives the scan off the primary
-	// block.height key range.
-	driverHeightRange *indexer.QueryRange
 	// equalityProbes are the remaining equality conditions, tested per
 	// candidate height with a point lookup.
 	equalityProbes []syntax.Condition
@@ -416,12 +413,9 @@ func planBounded(conditions []syntax.Condition, ranges indexer.QueryRanges, rang
 		plan.driverEquality = &equalities[0]
 		plan.equalityProbes = equalities[1:]
 	case len(plan.heightRanges) > 0:
-		// No equality to drive off; drive off the primary block.height range.
-		// LookForRanges merges all block.height bounds into a single range, so
-		// heightRanges has exactly one element here, which also filters
-		// candidates during the scan.
-		qr := plan.heightRanges[0]
-		plan.driverHeightRange = &qr
+		// No equality to drive off; searchBounded drives off the primary
+		// block.height key range. heightRanges (populated above) already
+		// filters candidates during the scan.
 	default:
 		// No sorted driver (e.g. an empty query); fall back.
 		return boundedPlan{}, false
