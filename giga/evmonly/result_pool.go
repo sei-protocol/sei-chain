@@ -109,6 +109,7 @@ func (r *BlockResult) resetForPool() {
 	clear(r.Receipts)
 	r.Receipts = r.Receipts[:0]
 	r.GasUsed = 0
+	r.OCCStats = OCCStats{}
 	r.lease = nil
 }
 
