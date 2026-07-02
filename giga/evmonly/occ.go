@@ -22,6 +22,7 @@ type occTxExecution struct {
 	readSet   map[stateAccessKey]struct{}
 	writeSet  map[stateAccessKey]struct{}
 	gasUsed   uint64
+	gasLimit  uint64
 }
 
 type occTxRange struct {
@@ -32,7 +33,7 @@ type occTxRange struct {
 func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	chainConfig := e.chainConfig(req.Context)
 	blockCtx := buildBlockContext(req.Context)
-	baseFee := cloneBig(req.Context.BaseFee)
+	baseFee := cloneOptionalBig(req.Context.BaseFee)
 	gasLimit := req.Context.GasLimit
 	if gasLimit == 0 {
 		gasLimit = math.MaxUint64
@@ -147,6 +148,7 @@ func (e *Executor) executeTxSpeculative(
 		readSet:   readSet,
 		writeSet:  writeSet,
 		gasUsed:   txResult.GasUsed,
+		gasLimit:  p.Tx.Gas(),
 	}, nil
 }
 
@@ -172,16 +174,23 @@ const (
 
 func validateOCCResults(results []occTxExecution, gasLimit uint64) occValidationResult {
 	writes := newStateAccessIndex()
-	var totalGas uint64
+	var totalGasLimit uint64
+	var totalGasUsed uint64
 	validation := occValidationResult{valid: true}
 	for _, result := range results {
-		if result.gasUsed > math.MaxUint64-totalGas {
+		if len(result.changeSet.StorageClears) > 0 {
+			validation.valid = false
+			validation.fallbackReason = occFallbackReasonConflict
+			return validation
+		}
+		if result.gasLimit > math.MaxUint64-totalGasLimit || result.gasUsed > math.MaxUint64-totalGasUsed {
 			validation.valid = false
 			validation.fallbackReason = occFallbackReasonGasOverflow
 			return validation
 		}
-		totalGas += result.gasUsed
-		if totalGas > gasLimit {
+		totalGasLimit += result.gasLimit
+		totalGasUsed += result.gasUsed
+		if totalGasLimit > gasLimit {
 			validation.valid = false
 			validation.fallbackReason = occFallbackReasonGasLimit
 			return validation
@@ -307,15 +316,6 @@ func newStateAccessIndex() *stateAccessIndex {
 	}
 }
 
-func (i *stateAccessIndex) conflictsWithAny(set map[stateAccessKey]struct{}) bool {
-	for key := range set {
-		if i.conflictsWith(key) {
-			return true
-		}
-	}
-	return false
-}
-
 func (i *stateAccessIndex) conflictsWith(key stateAccessKey) bool {
 	if _, ok := i.exact[key]; ok {
 		return true
@@ -348,17 +348,12 @@ type storageChangeKey struct {
 	key     common.Hash
 }
 
-func mergeChangeSets(results []occTxExecution) StateChangeSet {
-	var merged StateChangeSet
-	mergeChangeSetsInto(results, &merged)
-	return merged
-}
-
 func mergeChangeSetsInto(results []occTxExecution, merged *StateChangeSet) {
 	merged.resetForReuse()
 	balances := map[common.Address]*big.Int{}
 	nonces := map[common.Address]uint64{}
 	code := map[common.Address]CodeChange{}
+	storageClears := map[common.Address]struct{}{}
 	storage := map[storageChangeKey]StorageChange{}
 
 	for _, result := range results {
@@ -373,6 +368,14 @@ func mergeChangeSetsInto(results []occTxExecution, merged *StateChangeSet) {
 				Address: change.Address,
 				Code:    cloneBytes(change.Code),
 				Delete:  change.Delete,
+			}
+		}
+		for _, addr := range result.changeSet.StorageClears {
+			storageClears[addr] = struct{}{}
+			for key := range storage {
+				if key.address == addr {
+					delete(storage, key)
+				}
 			}
 		}
 		for _, change := range result.changeSet.Storage {
@@ -394,6 +397,8 @@ func mergeChangeSetsInto(results []occTxExecution, merged *StateChangeSet) {
 		change.Code = cloneBytes(change.Code)
 		merged.Code = append(merged.Code, change)
 	}
+	storageClearAddrs := sortedAddressesFromSet(storageClears)
+	merged.StorageClears = append(merged.StorageClears, storageClearAddrs...)
 	storageKeys := make([]storageChangeKey, 0, len(storage))
 	for key := range storage {
 		storageKeys = append(storageKeys, key)
@@ -432,6 +437,17 @@ func sortedAddressesFromUint64Map(values map[common.Address]uint64) []common.Add
 }
 
 func sortedAddressesFromCodeMap(values map[common.Address]CodeChange) []common.Address {
+	addrs := make([]common.Address, 0, len(values))
+	for addr := range values {
+		addrs = append(addrs, addr)
+	}
+	sort.Slice(addrs, func(i, j int) bool {
+		return bytes.Compare(addrs[i][:], addrs[j][:]) < 0
+	})
+	return addrs
+}
+
+func sortedAddressesFromSet(values map[common.Address]struct{}) []common.Address {
 	addrs := make([]common.Address, 0, len(values))
 	for addr := range values {
 		addrs = append(addrs, addr)

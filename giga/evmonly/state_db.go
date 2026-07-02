@@ -48,9 +48,14 @@ type nativeAccount struct {
 	Balance        *uint256.Int
 	Nonce          uint64
 	Code           []byte
-	Storage        map[common.Hash]common.Hash
+	Storage        map[common.Hash]storageValue
+	StorageCleared bool
 	SelfDestructed bool
 	Created        bool
+}
+
+type storageValue struct {
+	value common.Hash
 }
 
 type nativeSnapshot struct {
@@ -154,8 +159,11 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 		}
 		storageKeys := storageKeyUnion(base.Storage, acct.Storage)
 		for _, key := range storageKeys {
-			oldValue := base.Storage[key]
-			newValue := acct.Storage[key]
+			oldValue := storageHash(base.Storage, key)
+			newValue := storageHash(acct.Storage, key)
+			if acct.StorageCleared {
+				oldValue = common.Hash{}
+			}
 			if oldValue == newValue {
 				continue
 			}
@@ -165,6 +173,9 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 				Value:   newValue,
 				Delete:  newValue == (common.Hash{}),
 			})
+		}
+		if acct.StorageCleared {
+			changes.StorageClears = append(changes.StorageClears, addr)
 		}
 	}
 }
@@ -176,7 +187,7 @@ func (s *nativeStateDB) CreateAccount(addr common.Address) {
 	balance := acct.Balance.Clone()
 	*acct = nativeAccount{
 		Balance: balance,
-		Storage: map[common.Hash]common.Hash{},
+		Storage: map[common.Hash]storageValue{},
 		Created: true,
 	}
 	s.markForFinalise(addr)
@@ -247,11 +258,15 @@ func (s *nativeStateDB) SetNonce(addr common.Address, nonce uint64, _ tracing.No
 }
 
 func (s *nativeStateDB) GetCodeHash(addr common.Address) common.Hash {
-	code := s.GetCode(addr)
-	if len(code) == 0 {
+	s.markRead(stateAccessKey{kind: stateAccessCode, address: addr})
+	acct := s.account(addr)
+	if len(acct.Code) > 0 {
+		return crypto.Keccak256Hash(acct.Code)
+	}
+	if acct.Nonce == 0 && acct.Balance.IsZero() {
 		return common.Hash{}
 	}
-	return crypto.Keccak256Hash(code)
+	return ethtypes.EmptyCodeHash
 }
 
 func (s *nativeStateDB) GetCode(addr common.Address) []byte {
@@ -291,26 +306,22 @@ func (s *nativeStateDB) GetRefund() uint64 {
 func (s *nativeStateDB) GetCommittedState(addr common.Address, key common.Hash) common.Hash {
 	s.markRead(stateAccessKey{kind: stateAccessStorage, address: addr, slot: key})
 	s.ensureStorage(addr, key)
-	return s.baseAccount(addr).Storage[key]
+	return storageHash(s.baseAccount(addr).Storage, key)
 }
 
 func (s *nativeStateDB) GetState(addr common.Address, key common.Hash) common.Hash {
 	s.markRead(stateAccessKey{kind: stateAccessStorage, address: addr, slot: key})
 	s.ensureStorage(addr, key)
-	return s.account(addr).Storage[key]
+	return storageHash(s.account(addr).Storage, key)
 }
 
 func (s *nativeStateDB) SetState(addr common.Address, key common.Hash, value common.Hash) common.Hash {
 	s.ensureStorage(addr, key)
 	acct := s.account(addr)
-	prev := acct.Storage[key]
+	prev := storageHash(acct.Storage, key)
 	s.recordAccount(addr)
 	s.markWrite(stateAccessKey{kind: stateAccessStorage, address: addr, slot: key})
-	if value == (common.Hash{}) {
-		delete(acct.Storage, key)
-	} else {
-		acct.Storage[key] = value
-	}
+	acct.Storage[key] = storageValue{value: value}
 	return prev
 }
 
@@ -318,11 +329,9 @@ func (s *nativeStateDB) SetStorage(addr common.Address, states map[common.Hash]c
 	acct := s.account(addr)
 	s.recordAccount(addr)
 	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
-	acct.Storage = map[common.Hash]common.Hash{}
+	acct.Storage = map[common.Hash]storageValue{}
 	for key, value := range states {
-		if value != (common.Hash{}) {
-			acct.Storage[key] = value
-		}
+		acct.Storage[key] = storageValue{value: value}
 	}
 }
 
@@ -500,7 +509,8 @@ func (s *nativeStateDB) Finalise(bool) {
 		if acct.SelfDestructed {
 			s.recordAccount(addr)
 			acct.Code = nil
-			acct.Storage = map[common.Hash]common.Hash{}
+			acct.Storage = map[common.Hash]storageValue{}
+			acct.StorageCleared = true
 			acct.Nonce = 0
 			acct.SelfDestructed = false
 		}
@@ -702,13 +712,13 @@ func (s *nativeStateDB) ensureStorage(addr common.Address, key common.Hash) {
 	base := s.baseAccount(addr)
 	if _, ok := base.Storage[key]; !ok {
 		if value := s.source.GetState(addr, key); value != (common.Hash{}) {
-			base.Storage[key] = value
+			base.Storage[key] = storageValue{value: value}
 		}
 	}
 	acct := s.account(addr)
 	if _, ok := acct.Storage[key]; !ok {
-		if value := base.Storage[key]; value != (common.Hash{}) {
-			acct.Storage[key] = value
+		if value := storageHash(base.Storage, key); value != (common.Hash{}) {
+			acct.Storage[key] = storageValue{value: value}
 		}
 	}
 }
@@ -718,20 +728,21 @@ func (s *nativeStateDB) loadAccount(addr common.Address) *nativeAccount {
 		Balance: uint256FromBig(s.source.GetBalance(addr)),
 		Nonce:   s.source.GetNonce(addr),
 		Code:    cloneBytes(s.source.GetCode(addr)),
-		Storage: map[common.Hash]common.Hash{},
+		Storage: map[common.Hash]storageValue{},
 	}
 	return acct
 }
 
 func (a *nativeAccount) clone() *nativeAccount {
 	if a == nil {
-		return &nativeAccount{Balance: uint256.NewInt(0), Storage: map[common.Hash]common.Hash{}}
+		return &nativeAccount{Balance: uint256.NewInt(0), Storage: map[common.Hash]storageValue{}}
 	}
 	cp := &nativeAccount{
 		Balance:        uint256.NewInt(0),
 		Nonce:          a.Nonce,
 		Code:           cloneBytes(a.Code),
-		Storage:        map[common.Hash]common.Hash{},
+		Storage:        map[common.Hash]storageValue{},
+		StorageCleared: a.StorageCleared,
 		SelfDestructed: a.SelfDestructed,
 		Created:        a.Created,
 	}
@@ -870,7 +881,11 @@ func cloneSnapshots(snapshots []nativeSnapshot) []nativeSnapshot {
 	return cp
 }
 
-func storageKeyUnion(a, b map[common.Hash]common.Hash) []common.Hash {
+func storageHash(values map[common.Hash]storageValue, key common.Hash) common.Hash {
+	return values[key].value
+}
+
+func storageKeyUnion(a, b map[common.Hash]storageValue) []common.Hash {
 	seen := map[common.Hash]struct{}{}
 	for key := range a {
 		seen[key] = struct{}{}

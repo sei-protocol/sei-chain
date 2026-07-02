@@ -81,6 +81,9 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 
 func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
 	chainConfig := e.chainConfig(req.Context)
+	if err := validateBlockContext(chainConfig, req.Context); err != nil {
+		return PreparedBlock{}, err
+	}
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
 	parsed, err := parseBlockTxs(ctx, req.Txs, signer)
 	if err != nil {
@@ -93,6 +96,9 @@ func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (Prepared
 }
 
 func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
+	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
+		return nil, err
+	}
 	var result *BlockResult
 	var err error
 	if len(req.Txs) == 0 {
@@ -173,7 +179,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 		gasLimit = math.MaxUint64
 	}
 	gasPool := new(core.GasPool).AddGas(gasLimit)
-	baseFee := cloneBig(req.Context.BaseFee)
+	baseFee := cloneOptionalBig(req.Context.BaseFee)
 
 	result, err := e.acquireBlockResult(ctx, len(req.Txs))
 	if err != nil {
@@ -316,8 +322,8 @@ func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) *core.Message 
 
 func buildBlockContext(ctx BlockContext) vm.BlockContext {
 	prevRandao := ctx.PrevRandao
-	baseFee := cloneBig(ctx.BaseFee)
-	blobBaseFee := cloneBig(ctx.BlobBaseFee)
+	baseFee := cloneOptionalBig(ctx.BaseFee)
+	blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee)
 	gasLimit := ctx.GasLimit
 	if gasLimit == 0 {
 		gasLimit = math.MaxUint64
@@ -384,6 +390,13 @@ func (e *Executor) chainConfig(ctx BlockContext) *params.ChainConfig {
 	return &cfg
 }
 
+func validateBlockContext(chainConfig *params.ChainConfig, ctx BlockContext) error {
+	if chainConfig != nil && chainConfig.IsLondon(new(big.Int).SetUint64(ctx.Number)) && ctx.BaseFee == nil {
+		return errMissingBaseFee
+	}
+	return nil
+}
+
 func effectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return tx.GasPrice()
@@ -394,4 +407,7 @@ func effectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 	return tx.GasPrice()
 }
 
-var errInsufficientGasPrice = fmt.Errorf("insufficient gas price")
+var (
+	errInsufficientGasPrice = fmt.Errorf("insufficient gas price")
+	errMissingBaseFee       = fmt.Errorf("missing base fee for post-London block")
+)
