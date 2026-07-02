@@ -16,16 +16,13 @@ type iteratorResult struct {
 }
 
 // iteratorFile is one entry in an iterator's file snapshot, captured on the writer goroutine when the iterator
-// is created (see startIterator). Sealed files carry their immutable name and are opened lazily by the reader;
-// the single mutable file carries a handle pre-opened on the writer goroutine so a later seal/rename cannot
-// invalidate its path (an open handle survives a rename).
+// is created (see startIterator). Every snapshot file is sealed and immutable: it carries its immutable name
+// and is opened lazily by the reader, held against pruning by the iterator's read lease.
 type iteratorFile struct {
 	index      uint64
 	name       string
 	firstBlock uint64
 	lastBlock  uint64
-	sealed     bool
-	handle     *os.File
 }
 
 // walIterator iterates the WAL a block at a time, in ascending block order. A dedicated reader goroutine reads
@@ -35,8 +32,9 @@ type iteratorFile struct {
 // loads one file at a time, so its memory use is bounded by a single WAL file plus the prefetch buffer.
 //
 // The set of files to read is snapshotted once at creation (files), so the reader walks it in O(n) without
-// re-scanning the directory. A read lease (pinnedBlock) holds the files the reader needs against concurrent
-// pruning; Close releases it.
+// re-scanning the directory. Every snapshot file is sealed and immutable (the mutable file is sealed at
+// creation, see startIterator), so its contents cannot change under the reader. A read lease (pinnedBlock)
+// holds the files the reader needs against concurrent pruning; Close releases it.
 type walIterator struct {
 	// The WAL this iterator reads from.
 	wal *flatKVWalImpl
@@ -137,7 +135,6 @@ func (it *walIterator) Close() error {
 // exhausted (then closes the channel), a read fails (then sends the error), or Close signals a stop.
 func (it *walIterator) read() {
 	defer close(it.readerExited)
-	defer it.closeUnreadHandles() // runs before readerExited is signalled, so Close never races these handles
 	for {
 		block, ok, err := it.nextBlock()
 		if err != nil {
@@ -223,7 +220,7 @@ func (it *walIterator) loadNextFile() (bool, error) {
 		it.filePos++
 		it.buffer = nil
 
-		if f.sealed && f.lastBlock < it.start {
+		if f.lastBlock < it.start {
 			continue // entirely below the start block; skip without opening
 		}
 
@@ -232,7 +229,7 @@ func (it *walIterator) loadNextFile() (bool, error) {
 			return false, err
 		}
 
-		parsed := parsedFileName{index: f.index, firstBlock: f.firstBlock, lastBlock: f.lastBlock, sealed: f.sealed}
+		parsed := parsedFileName{index: f.index, firstBlock: f.firstBlock, lastBlock: f.lastBlock, sealed: true}
 		contents, err := readWalFileFromHandle(handle, parsed)
 		if err != nil {
 			return false, fmt.Errorf("failed to read WAL file (index %d) during iteration: %w", f.index, err)
@@ -250,31 +247,13 @@ func (it *walIterator) loadNextFile() (bool, error) {
 	}
 }
 
-// openFile returns a handle for a snapshot entry. The mutable file was pre-opened on the writer goroutine (its
-// handle is consumed here, so it is not double-closed by closeUnreadHandles). Sealed files have immutable names
-// and are opened lazily; the read lease keeps them alive against pruning, so the open cannot miss the file.
+// openFile opens a snapshot file by its immutable sealed name. The read lease keeps the file alive against
+// pruning, so the open cannot miss it. readWalFileFromHandle closes the returned handle after reading.
 func (it *walIterator) openFile(f *iteratorFile) (*os.File, error) {
-	if f.handle != nil {
-		handle := f.handle
-		f.handle = nil
-		return handle, nil
-	}
 	path := filepath.Join(it.wal.config.Path, f.name)
 	handle, err := os.Open(path) //nolint:gosec // path derived from the writer's file snapshot
 	if err != nil {
 		return nil, fmt.Errorf("failed to open WAL file %s during iteration: %w", f.name, err)
 	}
 	return handle, nil
-}
-
-// closeUnreadHandles closes any pre-opened handles the reader never consumed (e.g. when Close stops iteration
-// before the mutable file is reached, or a read fails first), so they are not leaked. Runs on the reader
-// goroutine as it exits; consumed handles have already been nil'd, so none is closed twice.
-func (it *walIterator) closeUnreadHandles() {
-	for i := range it.files {
-		if it.files[i].handle != nil {
-			_ = it.files[i].handle.Close()
-			it.files[i].handle = nil
-		}
-	}
 }

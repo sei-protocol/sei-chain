@@ -193,6 +193,47 @@ func (f *walFile) writeEntry(entry *FlatKVWalEntry) error {
 	return f.writeRecord(frameRecord(payload), entry.BlockNumber, entry.EndOfBlock)
 }
 
+// readIncompleteTail returns the raw framed bytes of the in-progress block — everything written past the
+// last end-of-block marker — so a caller sealing the file for iteration can carry those records into a
+// fresh file rather than losing them to the seal's truncation. Returns nil when the file already ends on a
+// block boundary. Only meaningful when hasCompleteBlock is true (completeSize marks the last boundary).
+func (f *walFile) readIncompleteTail() ([]byte, error) {
+	if f.size <= f.completeSize {
+		return nil, nil
+	}
+	if err := f.writer.Flush(); err != nil {
+		return nil, fmt.Errorf("failed to flush before reading incomplete tail: %w", err)
+	}
+	length := f.size - f.completeSize
+	buf := make([]byte, length)
+	n, err := f.file.ReadAt(buf, int64(f.completeSize)) //nolint:gosec // completeSize <= size
+	if err != nil && !(err == io.EOF && uint64(n) == length) {
+		return nil, fmt.Errorf("failed to read incomplete tail: %w", err)
+	}
+	if uint64(n) != length {
+		return nil, fmt.Errorf("short read of incomplete tail: read %d of %d bytes", n, length)
+	}
+	return buf, nil
+}
+
+// appendIncompleteTail re-appends the raw framed bytes of an in-progress block (captured by
+// readIncompleteTail from the file being sealed) to this fresh mutable file, restoring the block-tracking
+// state so subsequent writes and the eventual end-of-block marker behave as if the block had been written
+// here all along. block is the in-progress block's number (a single block, by the write-ordering contract).
+func (f *walFile) appendIncompleteTail(tail []byte, block uint64) error {
+	if f.sealed {
+		return fmt.Errorf("cannot write to a sealed WAL file")
+	}
+	if _, err := f.writer.Write(tail); err != nil {
+		return fmt.Errorf("failed to write carried-forward block: %w", err)
+	}
+	f.size += uint64(len(tail))
+	f.firstBlock = block
+	f.lastBlock = block
+	f.hasBlocks = true
+	return nil
+}
+
 // Flush buffered data to the OS. When fsync is true, also fsync the file so the data survives power loss.
 func (f *walFile) flush(fsync bool) error {
 	if f.writer != nil {

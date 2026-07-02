@@ -533,39 +533,61 @@ func (w *flatKVWalImpl) pruneSealedFiles(pruneThrough uint64) error {
 	return nil
 }
 
-// startIterator builds an iterator on the writer goroutine. It flushes the mutable file so the iterator's file
-// handles observe every previously scheduled write, snapshots the current set of files in ascending block
-// order, registers the read lease, and constructs the iterator (which launches its reader goroutine). Running
-// here serializes construction with rotation, seal, and prune, so the snapshot is a consistent point-in-time
-// view: sealed files have immutable names (opened lazily by the reader, protected from pruning by the lease),
-// and the mutable file is pre-opened now so a later seal/rename cannot invalidate its path — an open handle
-// survives a rename.
+// startIterator builds an iterator on the writer goroutine. It first seals the mutable file (see
+// sealForIterator) so every complete block written so far lives in an immutable sealed file, then snapshots
+// the sealed files in ascending block order, registers the read lease, and constructs the iterator (which
+// launches its reader goroutine). Running here serializes construction with rotation, seal, and prune, so the
+// snapshot is a consistent point-in-time view: every file the iterator reads is sealed and immutable, opened
+// lazily by name and protected from pruning by the lease, so its contents cannot change underneath the reader.
 func (w *flatKVWalImpl) startIterator(startBlock uint64) iteratorStartResponse {
-	if err := w.mutableFile.flush(w.config.FsyncOnFlush); err != nil {
-		return iteratorStartResponse{err: fmt.Errorf("failed to flush before creating iterator: %w", err)}
+	if err := w.sealForIterator(); err != nil {
+		return iteratorStartResponse{err: fmt.Errorf("failed to seal mutable file before creating iterator: %w", err)}
 	}
 
-	files := make([]iteratorFile, 0, w.sealedFiles.Size()+1)
+	files := make([]iteratorFile, 0, w.sealedFiles.Size())
 	for _, info := range w.sealedFiles.Iterator() {
 		files = append(files, iteratorFile{
 			index:      info.index,
 			name:       info.name,
 			firstBlock: info.firstBlock,
 			lastBlock:  info.lastBlock,
-			sealed:     true,
 		})
 	}
-
-	mutablePath := filepath.Join(w.config.Path, unsealedFileName(w.mutableFile.index))
-	handle, err := os.Open(mutablePath) //nolint:gosec // path derived from the writer's own bookkeeping
-	if err != nil {
-		return iteratorStartResponse{err: fmt.Errorf("failed to open mutable WAL file for iteration: %w", err)}
-	}
-	files = append(files, iteratorFile{index: w.mutableFile.index, sealed: false, handle: handle})
 
 	pinned := w.pinLowestReadableBlock(startBlock)
 	it := newWalIterator(w, startBlock, pinned, files, w.config.IteratorPrefetchSize)
 	return iteratorStartResponse{iterator: it}
+}
+
+// sealForIterator seals the mutable file so a newly-created iterator sees a snapshot that cannot change
+// underneath it: after this call every complete block lives in an immutable sealed file. Any in-progress
+// (unended) block is carried forward into the fresh mutable file so no scheduled write is lost. It is a no-op
+// when the mutable file holds no complete block — the iterator reads only sealed files and never yields an
+// unended block, so the mutable file (and any in-progress block) is simply left in place.
+func (w *flatKVWalImpl) sealForIterator() error {
+	if !w.mutableFile.hasCompleteBlock {
+		return nil
+	}
+
+	// Capture any in-progress block (records past the last end-of-block marker) before the seal truncates
+	// it away, so it can be re-appended to the fresh mutable file. The write-ordering contract guarantees
+	// these records all belong to a single block, namely the mutable file's last block.
+	tail, err := w.mutableFile.readIncompleteTail()
+	if err != nil {
+		return fmt.Errorf("failed to capture in-progress block: %w", err)
+	}
+	tailBlock := w.mutableFile.lastBlock
+
+	if err := w.rotate(); err != nil {
+		return fmt.Errorf("failed to seal mutable file: %w", err)
+	}
+
+	if len(tail) > 0 {
+		if err := w.mutableFile.appendIncompleteTail(tail, tailBlock); err != nil {
+			return fmt.Errorf("failed to carry in-progress block forward: %w", err)
+		}
+	}
+	return nil
 }
 
 // pinLowestReadableBlock records a read lease and returns the pinned block. An iterator reads blocks at or

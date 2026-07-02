@@ -127,8 +127,8 @@ func TestIteratorYieldsChangesetContents(t *testing.T) {
 }
 
 // TestConcurrentIterationDuringRotation hammers the writer with rotate-on-every-block churn while several
-// iterators read concurrently. Each iterator snapshots its file set at creation on the writer goroutine (sealed
-// files by immutable name, the mutable file by a pre-opened handle), so a file can never be renamed (sealed)
+// iterators read concurrently. Each iterator seals the mutable file and snapshots its file set at creation on
+// the writer goroutine, so every file it reads is sealed and immutable and can never be renamed or rewritten
 // out from under an in-flight read; every iteration must be error-free and gap-free.
 func TestConcurrentIterationDuringRotation(t *testing.T) {
 	cfg := testConfig(t.TempDir())
@@ -208,6 +208,86 @@ func drainContiguousFrom(w FlatKVWAL, start uint64) error {
 		prev = b
 	}
 	return it.Close()
+}
+
+// TestIteratorDoesNotSeePostConstructionBlocks pins down the snapshot contract: an iterator yields only
+// blocks that were complete when it was created, never blocks written afterward. The setup makes the check
+// deterministic (no timing race): one block per file plus a prefetch of 1 means the reader blocks on the full
+// results channel after the first block and cannot reach later files until the consumer drains, which happens
+// only after block 4 is written. Because Iterator() now seals the mutable file at creation, block 4 lands in a
+// fresh file outside the snapshot and must not appear.
+func TestIteratorDoesNotSeePostConstructionBlocks(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.TargetFileSize = 1
+	cfg.IteratorPrefetchSize = 1
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+
+	for block := uint64(1); block <= 3; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+
+	it, err := w.Iterator(1)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	// Written after the iterator exists, before draining: must not be observed.
+	require.NoError(t, w.Write(4, []*proto.NamedChangeSet{makeChangeSet("evm", []byte{4}, []byte{4})}))
+	require.NoError(t, w.SignalEndOfBlock())
+	require.NoError(t, w.Flush())
+
+	var got []uint64
+	for {
+		ok, err := it.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		got = append(got, it.Entry().BlockNumber)
+	}
+	require.Equal(t, []uint64{1, 2, 3}, got, "post-construction block 4 must not be iterated")
+}
+
+// TestIteratorSealPreservesInProgressBlock verifies the correctness subtlety of sealing at iterator creation:
+// when a block is only partially written (several Writes, no end-of-block marker yet), sealing must capture the
+// completed blocks for the snapshot AND carry the in-progress block forward without dropping any changeset
+// already accepted by Write.
+func TestIteratorSealPreservesInProgressBlock(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir())) // large target: everything begins in one mutable file
+	defer func() { require.NoError(t, w.Close()) }()
+
+	// Block 1 complete.
+	require.NoError(t, w.Write(1, []*proto.NamedChangeSet{makeChangeSet("a", []byte("k1"), []byte("v1"))}))
+	require.NoError(t, w.SignalEndOfBlock())
+	// Block 2 partially written: one changeset, no end-of-block marker yet.
+	require.NoError(t, w.Write(2, []*proto.NamedChangeSet{makeChangeSet("b", []byte("k2"), []byte("v2"))}))
+
+	// Opening the iterator seals block 1 and carries block 2's in-progress record into a fresh mutable file.
+	// The incomplete block 2 must not be yielded.
+	require.Equal(t, []uint64{1}, collectBlocks(t, w, 1))
+
+	// Finish block 2 with a second changeset, then end it.
+	require.NoError(t, w.Write(2, []*proto.NamedChangeSet{makeChangeSet("c", []byte("k3"), []byte("v3"))}))
+	require.NoError(t, w.SignalEndOfBlock())
+	require.NoError(t, w.Flush())
+
+	// Block 2 must contain BOTH changesets, in write order — nothing lost to the mid-block seal.
+	it, err := w.Iterator(2)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+	ok, err := it.Next()
+	require.NoError(t, err)
+	require.True(t, ok)
+	entry := it.Entry()
+	require.Equal(t, uint64(2), entry.BlockNumber)
+	require.Len(t, entry.Changeset, 2)
+	require.Equal(t, "b", entry.Changeset[0].Name)
+	require.Equal(t, "c", entry.Changeset[1].Name)
+
+	ok, err = it.Next()
+	require.NoError(t, err)
+	require.False(t, ok)
 }
 
 func TestIteratorCoalescesMultipleWritesInOrder(t *testing.T) {
