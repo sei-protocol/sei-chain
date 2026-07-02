@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -148,7 +149,6 @@ func TestFileResultSinkWritesRLPRecordsAndCleansUpOnCancel(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
-		"--persist-async=false",
 		"--result-sink=file",
 		"--persist-dir=" + dir,
 	})
@@ -172,6 +172,9 @@ func TestFileResultSinkWritesRLPRecordsAndCleansUpOnCancel(t *testing.T) {
 	}}
 	require.NoError(t, sinks.StoreChangeSet(context.Background(), 1, writtenChangeSet))
 	require.NoError(t, sinks.StoreReceipts(context.Background(), 1, writtenReceipts))
+	require.Eventually(t, func() bool {
+		return metrics.snapshot().sinkWritten == 2
+	}, time.Second, time.Millisecond)
 
 	requireFileExists(t, changePath)
 	requireFileExists(t, receiptPath)
