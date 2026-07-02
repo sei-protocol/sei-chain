@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"runtime"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -21,6 +22,7 @@ type Executor struct {
 	cfg        Config
 	state      StateReader
 	resultSink ResultSink
+	occPool    *occWorkerPool
 }
 
 type Option func(*Executor)
@@ -44,10 +46,23 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 		cfg:   cfg.WithDefaults(),
 		state: NewMemoryState(),
 	}
+	if e.cfg.OCCWorkers > 1 {
+		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers, e.cfg.PinOCCWorkers, e.cfg.OCCWorkerCPUOffset)
+		runtime.SetFinalizer(e, (*Executor).Close)
+	}
 	for _, opt := range opts {
 		opt(e)
 	}
 	return e
+}
+
+func (e *Executor) Close() {
+	if e == nil || e.occPool == nil {
+		return
+	}
+	runtime.SetFinalizer(e, nil)
+	e.occPool.Close()
+	e.occPool = nil
 }
 
 func (e *Executor) Config() Config {

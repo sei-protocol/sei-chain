@@ -13,7 +13,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
-	"golang.org/x/sync/errgroup"
 )
 
 type occTxExecution struct {
@@ -46,52 +45,42 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 	}
 	results := make([]occTxExecution, txCount)
 	chunkSize := occChunkSize(txCount, workers)
-	jobs := make(chan occTxRange)
-	group, groupCtx := errgroup.WithContext(ctx)
-
-	group.Go(func() error {
-		defer close(jobs)
-		for start := 0; start < txCount; start += chunkSize {
-			end := start + chunkSize
-			if end > txCount {
-				end = txCount
+	pool := e.occPool
+	if pool == nil {
+		pool = newOCCWorkerPool(workers, e.cfg.PinOCCWorkers, e.cfg.OCCWorkerCPUOffset)
+		defer pool.Close()
+	}
+	if err := pool.Run(ctx, occRanges(txCount, chunkSize), func(workerCtx context.Context, txRange occTxRange) error {
+		for idx := txRange.start; idx < txRange.end; idx++ {
+			result, err := e.executeTxSpeculative(workerCtx, req, idx, chainConfig, blockCtx, baseFee, gasLimit)
+			if err != nil {
+				return err
 			}
-			select {
-			case jobs <- occTxRange{start: start, end: end}:
-			case <-groupCtx.Done():
-				return groupCtx.Err()
-			}
+			results[idx] = result
 		}
 		return nil
-	})
-	for range workers {
-		group.Go(func() error {
-			for {
-				select {
-				case <-groupCtx.Done():
-					return groupCtx.Err()
-				case txRange, ok := <-jobs:
-					if !ok {
-						return nil
-					}
-					for idx := txRange.start; idx < txRange.end; idx++ {
-						result, err := e.executeTxSpeculative(groupCtx, req, idx, chainConfig, blockCtx, baseFee, gasLimit)
-						if err != nil {
-							return err
-						}
-						results[idx] = result
-					}
-				}
-			}
-		})
-	}
-	if err := group.Wait(); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	if !validateOCCResults(results, gasLimit) {
 		return e.executeBlockSequential(ctx, req)
 	}
 	return mergeOCCResults(results), nil
+}
+
+func occRanges(txCount int, chunkSize int) []occTxRange {
+	if chunkSize <= 0 {
+		chunkSize = 1
+	}
+	ranges := make([]occTxRange, 0, (txCount+chunkSize-1)/chunkSize)
+	for start := 0; start < txCount; start += chunkSize {
+		end := start + chunkSize
+		if end > txCount {
+			end = txCount
+		}
+		ranges = append(ranges, occTxRange{start: start, end: end})
+	}
+	return ranges
 }
 
 func occChunkSize(txCount int, workers int) int {
