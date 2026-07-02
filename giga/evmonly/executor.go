@@ -18,8 +18,9 @@ import (
 
 // Executor runs raw EVM transactions against an EVM-native state backend.
 type Executor struct {
-	cfg   Config
-	state StateReader
+	cfg        Config
+	state      StateReader
+	resultSink ResultSink
 }
 
 type Option func(*Executor)
@@ -29,6 +30,12 @@ func WithState(state StateReader) Option {
 		if state != nil {
 			e.state = state
 		}
+	}
+}
+
+func WithResultSink(sink ResultSink) Option {
+	return func(e *Executor) {
+		e.resultSink = sink
 	}
 }
 
@@ -48,13 +55,35 @@ func (e *Executor) Config() Config {
 }
 
 func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockResult, error) {
+	var result *BlockResult
+	var err error
 	if len(req.Txs) == 0 {
-		return &BlockResult{}, nil
+		result = &BlockResult{}
+	} else if e.useOCC(req) {
+		result, err = e.executeBlockOCC(ctx, req)
+	} else {
+		result, err = e.executeBlockSequential(ctx, req)
 	}
-	if e.useOCC(req) {
-		return e.executeBlockOCC(ctx, req)
+	if err != nil {
+		return nil, err
 	}
-	return e.executeBlockSequential(ctx, req)
+	if err := e.sinkBlockResult(ctx, req.Context.Number, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *BlockResult) error {
+	if e.resultSink == nil || result == nil {
+		return nil
+	}
+	if err := e.resultSink.StoreChangeSet(ctx, height, result.ChangeSet); err != nil {
+		return fmt.Errorf("store changeset for block %d: %w", height, err)
+	}
+	if err := e.resultSink.StoreReceipts(ctx, height, result.Receipts); err != nil {
+		return fmt.Errorf("store receipts for block %d: %w", height, err)
+	}
+	return nil
 }
 
 func (e *Executor) useOCC(req BlockRequest) bool {
