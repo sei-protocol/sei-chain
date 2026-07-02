@@ -308,9 +308,9 @@ func readWalFile(path string) (*walFileContents, error) {
 }
 
 // readWalFileFromHandle reads and parses a WAL file from an already-open handle, then closes the handle. The
-// handle is opened by the writer goroutine (see openIteratorFile) so that neither a rename nor a removal can
-// occur between resolving the file and opening it; the heavy read happens here, on the iterator's reader
-// goroutine. parsed carries the file-name components the handle was opened for.
+// mutable file's handle is pre-opened on the writer goroutine (see startIterator) so a later rename cannot
+// invalidate it; sealed files are opened lazily by name (see walIterator.openFile). Either way the heavy read
+// happens here, on the iterator's reader goroutine. parsed carries the file-name components for error context.
 func readWalFileFromHandle(file *os.File, parsed parsedFileName) (*walFileContents, error) {
 	defer func() { _ = file.Close() }()
 	data, err := io.ReadAll(file)

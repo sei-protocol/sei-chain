@@ -56,8 +56,8 @@ type unpinRequest struct {
 }
 
 // iteratorStartRequest asks the writer to construct an iterator. The writer flushes the mutable file (so the
-// iterator's independent file handles observe all prior writes), registers the read lease, and builds the
-// iterator, all on its own goroutine so construction is serialized with rotation/seal/prune.
+// iterator observes all prior writes), snapshots the current set of files, registers the read lease, and builds
+// the iterator, all on its own goroutine so construction is serialized with rotation/seal/prune.
 type iteratorStartRequest struct {
 	startBlock uint64
 	reply      chan iteratorStartResponse
@@ -67,26 +67,6 @@ type iteratorStartRequest struct {
 type iteratorStartResponse struct {
 	iterator *walIterator
 	err      error
-}
-
-// iteratorFileRequest asks the writer to open the WAL file with the smallest index >= minIndex and hand the
-// open file handle back to the iterator's reader goroutine. Resolving and opening on the writer goroutine makes
-// it impossible for a file to be renamed (sealed) or removed (pruned) between resolution and open: those
-// mutations run on the same goroutine, and an already-open handle survives a later rename or unlink.
-type iteratorFileRequest struct {
-	minIndex uint64
-	start    uint64
-	reply    chan iteratorFileResponse
-}
-
-// The open file handle (or an error) produced by the writer in response to an iteratorFileRequest. When ok is
-// true but file is nil, the resolved file lies entirely below the iterator's start block: the reader should
-// advance past it without reading.
-type iteratorFileResponse struct {
-	file   *os.File
-	parsed parsedFileName
-	ok     bool
-	err    error
 }
 
 // The block range reported by GetStoredRange.
@@ -475,8 +455,6 @@ func (w *flatKVWalImpl) writerLoop() {
 			}
 		case iteratorStartRequest:
 			m.reply <- w.startIterator(m.startBlock)
-		case iteratorFileRequest:
-			m.reply <- w.openIteratorFile(m.minIndex, m.start)
 		case unpinRequest:
 			w.releaseBlock(m.block)
 		case closeRequest:
@@ -555,64 +533,39 @@ func (w *flatKVWalImpl) pruneSealedFiles(pruneThrough uint64) error {
 	return nil
 }
 
-// startIterator builds an iterator on the writer goroutine. It flushes the mutable file so the iterator's
-// independent file handles observe every previously scheduled write, registers the read lease, and constructs
-// the iterator (which launches its reader goroutine). Running here serializes construction with rotation, seal,
-// and prune, so the iterator's view of the on-disk files is consistent from its very first read.
+// startIterator builds an iterator on the writer goroutine. It flushes the mutable file so the iterator's file
+// handles observe every previously scheduled write, snapshots the current set of files in ascending block
+// order, registers the read lease, and constructs the iterator (which launches its reader goroutine). Running
+// here serializes construction with rotation, seal, and prune, so the snapshot is a consistent point-in-time
+// view: sealed files have immutable names (opened lazily by the reader, protected from pruning by the lease),
+// and the mutable file is pre-opened now so a later seal/rename cannot invalidate its path — an open handle
+// survives a rename.
 func (w *flatKVWalImpl) startIterator(startBlock uint64) iteratorStartResponse {
 	if err := w.mutableFile.flush(w.config.FsyncOnFlush); err != nil {
 		return iteratorStartResponse{err: fmt.Errorf("failed to flush before creating iterator: %w", err)}
 	}
-	pinned := w.pinLowestReadableBlock(startBlock)
-	it := newWalIterator(w, startBlock, pinned, w.config.IteratorPrefetchSize)
-	return iteratorStartResponse{iterator: it}
-}
 
-// openIteratorFile resolves the WAL file with the smallest index >= minIndex and opens it for an iterator's
-// reader goroutine. Both the resolution (against the writer's in-memory bookkeeping) and the open run on the
-// writer goroutine, so no rename (seal) or removal (prune) can occur between them; the returned handle stays
-// valid for the reader even if the file is later sealed or pruned. The reader owns closing the handle.
-func (w *flatKVWalImpl) openIteratorFile(minIndex uint64, start uint64) iteratorFileResponse {
-	name, parsed, ok := w.resolveFileByMinIndex(minIndex)
-	if !ok {
-		return iteratorFileResponse{ok: false}
-	}
-	// A sealed file whose highest block is below the start block holds nothing the iterator wants; report it so
-	// the reader can advance past it, but do not bother opening it.
-	if parsed.sealed && parsed.lastBlock < start {
-		return iteratorFileResponse{parsed: parsed, ok: true}
-	}
-	path := filepath.Join(w.config.Path, name)
-	file, err := os.Open(path) //nolint:gosec // path derived from the writer's own bookkeeping
-	if err != nil {
-		return iteratorFileResponse{err: fmt.Errorf("failed to open WAL file %s for iteration: %w", name, err)}
-	}
-	return iteratorFileResponse{file: file, parsed: parsed, ok: true}
-}
-
-// resolveFileByMinIndex returns the WAL file with the smallest index >= minIndex, drawn from the writer's live
-// bookkeeping (the sealed-file deque plus the mutable file) rather than a directory scan. Returns ok=false when
-// no such file exists. Owned by the writer goroutine.
-func (w *flatKVWalImpl) resolveFileByMinIndex(minIndex uint64) (string, parsedFileName, bool) {
-	// Sealed files are held in ascending index order, so the first one at or above minIndex is the smallest.
+	files := make([]iteratorFile, 0, w.sealedFiles.Size()+1)
 	for _, info := range w.sealedFiles.Iterator() {
-		if info.index < minIndex {
-			continue
-		}
-		parsed := parsedFileName{
+		files = append(files, iteratorFile{
 			index:      info.index,
+			name:       info.name,
 			firstBlock: info.firstBlock,
 			lastBlock:  info.lastBlock,
 			sealed:     true,
-		}
-		return info.name, parsed, true
+		})
 	}
-	// The mutable file always has the highest index, so it is only a match once no sealed file qualifies.
-	if w.mutableFile.index >= minIndex {
-		return unsealedFileName(w.mutableFile.index),
-			parsedFileName{index: w.mutableFile.index, sealed: false}, true
+
+	mutablePath := filepath.Join(w.config.Path, unsealedFileName(w.mutableFile.index))
+	handle, err := os.Open(mutablePath) //nolint:gosec // path derived from the writer's own bookkeeping
+	if err != nil {
+		return iteratorStartResponse{err: fmt.Errorf("failed to open mutable WAL file for iteration: %w", err)}
 	}
-	return "", parsedFileName{}, false
+	files = append(files, iteratorFile{index: w.mutableFile.index, sealed: false, handle: handle})
+
+	pinned := w.pinLowestReadableBlock(startBlock)
+	it := newWalIterator(w, startBlock, pinned, files, w.config.IteratorPrefetchSize)
+	return iteratorStartResponse{iterator: it}
 }
 
 // pinLowestReadableBlock records a read lease and returns the pinned block. An iterator reads blocks at or

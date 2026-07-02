@@ -55,8 +55,7 @@ type FlatKVWAL interface {
 	Prune(lowestBlockNumberToKeep uint64) error
 
 	// Create an iterator over the WAL, starting at the given block number. Iterates all data passed to Write()
-	// before this call, but may also iterate over data after this call if the iterator is not fully consumed before
-	// more data is written.
+	// before this call. Data written after this call is not iterated.
 	Iterator(startingBlockNumber uint64) (FlatKVWalIterator, error)
 
 	// Close the WAL, flushing any pending writes and releasing resources.

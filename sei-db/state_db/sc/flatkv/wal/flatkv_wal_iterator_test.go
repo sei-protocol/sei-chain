@@ -127,8 +127,9 @@ func TestIteratorYieldsChangesetContents(t *testing.T) {
 }
 
 // TestConcurrentIterationDuringRotation hammers the writer with rotate-on-every-block churn while several
-// iterators read concurrently. File resolution and opening happen on the writer goroutine, so a file can never
-// be renamed (sealed) out from under an in-flight read; every iteration must be error-free and gap-free.
+// iterators read concurrently. Each iterator snapshots its file set at creation on the writer goroutine (sealed
+// files by immutable name, the mutable file by a pre-opened handle), so a file can never be renamed (sealed)
+// out from under an in-flight read; every iteration must be error-free and gap-free.
 func TestConcurrentIterationDuringRotation(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	cfg.TargetFileSize = 1 // rotate (rename) after every block, maximizing the seal/rename churn
