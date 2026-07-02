@@ -2,6 +2,11 @@ package basic
 
 import "github.com/go-kit/kit/metrics"
 
+const (
+	MetricsNamespace = "tendermint"
+	MetricsSubsystem = "basic"
+)
+
 //go:generate go run ../../../../scripts/metricsgen -struct=Metrics
 
 // Metrics contains metrics exposed by this package.

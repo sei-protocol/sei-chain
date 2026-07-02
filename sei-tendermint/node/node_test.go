@@ -47,7 +47,7 @@ func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Servi
 		app,
 		nil,
 		nil,
-		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+		DefaultMetricsProvider(cfg.Instrumentation)(),
 		types.DefaultConsensusPolicy(),
 	)
 }
@@ -115,7 +115,7 @@ func TestNodeRestartEventAllowsRecreate(t *testing.T) {
 			app,
 			nil,
 			nil,
-			DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+			DefaultMetricsProvider(cfg.Instrumentation)(),
 			types.DefaultConsensusPolicy(),
 		)
 		require.NoError(t, err)
@@ -605,7 +605,7 @@ func TestNodeNewSeedNode(t *testing.T) {
 		config.DefaultDBProvider,
 		nodeKey,
 		defaultGenesisDocProviderFunc(cfg),
-		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+		DefaultMetricsProvider(cfg.Instrumentation)(),
 	)
 	t.Cleanup(ns.Wait)
 	t.Cleanup(leaktest.CheckTimeout(t, time.Second))

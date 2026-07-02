@@ -5,6 +5,8 @@ import (
 )
 
 const (
+	// MetricsNamespace is the namespace shared by all Tendermint Prometheus metrics.
+	MetricsNamespace = "tendermint"
 	// MetricsSubsystem is a subsystem shared by all metrics exposed by this package.
 	MetricsSubsystem = "statesync"
 )

@@ -2,6 +2,11 @@ package commented
 
 import "github.com/go-kit/kit/metrics"
 
+const (
+	MetricsNamespace = "tendermint"
+	MetricsSubsystem = "commented"
+)
+
 //go:generate go run ../../../../scripts/metricsgen -struct=Metrics
 
 type Metrics struct {

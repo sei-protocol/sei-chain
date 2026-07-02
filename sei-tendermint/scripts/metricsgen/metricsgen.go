@@ -68,15 +68,11 @@ import (
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics(namespace string, labelsAndValues...string) *Metrics {
-	labels := []string{}
-	for i := 0; i < len(labelsAndValues); i += 2 {
-		labels = append(labels, labelsAndValues[i])
-	}
+func PrometheusMetrics() *Metrics {
 	return &Metrics{
 		{{ range $metric := .ParsedMetrics }}
 		{{- $metric.FieldName }}: prometheus.New{{ $metric.TypeName }}From(stdprometheus.{{$metric.TypeName }}Opts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "{{$metric.MetricName }}",
 			Help:      "{{ $metric.Description }}",
@@ -86,9 +82,9 @@ func PrometheusMetrics(namespace string, labelsAndValues...string) *Metrics {
 			Buckets: []float64{ {{ $metric.HistogramOptions.BucketSizes }} },
 			{{ end }}
 		{{- if eq (len $metric.Labels) 0 }}
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		{{ else }}
-		}, append(labels, {{$metric.Labels}})).With(labelsAndValues...),
+		}, []string{ {{$metric.Labels}} }),
 		{{ end }}
 		{{- end }}
 	}

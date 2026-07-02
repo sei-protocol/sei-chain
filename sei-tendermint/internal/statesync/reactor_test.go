@@ -30,7 +30,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
-var m = PrometheusMetrics(config.TestConfig().Instrumentation.Namespace)
+var m = PrometheusMetrics()
 
 type reactorTestSuite struct {
 	network *p2p.TestNetwork

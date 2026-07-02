@@ -8,72 +8,68 @@ import (
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
-	labels := []string{}
-	for i := 0; i < len(labelsAndValues); i += 2 {
-		labels = append(labels, labelsAndValues[i])
-	}
+func PrometheusMetrics() *Metrics {
 	return &Metrics{
 		Peers: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peers",
 			Help:      "Number of peers.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		PeerReceiveBytesTotal: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peer_receive_bytes_total",
 			Help:      "Number of bytes per channel received from a given peer.",
-		}, append(labels, "peer_id", "chID", "message_type")).With(labelsAndValues...),
+		}, []string{"peer_id", "chID", "message_type"}),
 		PeerSendBytesTotal: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peer_send_bytes_total",
 			Help:      "Number of bytes per channel sent to a given peer.",
-		}, append(labels, "peer_id", "chID", "message_type")).With(labelsAndValues...),
+		}, []string{"peer_id", "chID", "message_type"}),
 		PeerPendingSendBytes: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peer_pending_send_bytes",
 			Help:      "Number of bytes pending being sent to a given peer.",
-		}, append(labels, "peer_id")).With(labelsAndValues...),
+		}, []string{"peer_id"}),
 		NewConnections: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "new_connections",
 			Help:      "Number of newly established connections.",
-		}, append(labels, "direction", "success")).With(labelsAndValues...),
+		}, []string{"direction", "success"}),
 		RouterPeerQueueRecv: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "router_peer_queue_recv",
 			Help:      "The time taken to read off of a peer's queue before sending on the connection.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		RouterPeerQueueSend: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "router_peer_queue_send",
 			Help:      "The time taken to send on a peer's queue which will later be read and sent on the connection.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		RouterChannelQueueSend: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "router_channel_queue_send",
 			Help:      "The time taken to send on a p2p channel's queue which will later be consued by the corresponding reactor/service.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		ChannelMsgs: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "channel_msgs",
 			Help:      "",
-		}, append(labels, "ch_id", "direction")).With(labelsAndValues...),
+		}, []string{"ch_id", "direction"}),
 		QueueDroppedMsgs: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "queue_dropped_msgs",
 			Help:      "The number of messages dropped from router's queues.",
-		}, append(labels, "ch_id", "direction")).With(labelsAndValues...),
+		}, []string{"ch_id", "direction"}),
 	}
 }
 

@@ -8,96 +8,92 @@ import (
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
-	labels := []string{}
-	for i := 0; i < len(labelsAndValues); i += 2 {
-		labels = append(labels, labelsAndValues[i])
-	}
+func PrometheusMetrics() *Metrics {
 	return &Metrics{
 		BlockProcessingTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_processing_time",
 			Help:      "Time between BeginBlock and EndBlock.",
 
 			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		ConsensusParamUpdates: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "consensus_param_updates",
 			Help:      "Number of consensus parameter updates returned by the application since process start.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		ValidatorSetUpdates: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validator_set_updates",
 			Help:      "Number of validator set updates returned by the application since process start.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		ApplicationCommitTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "application_commit_time",
 			Help:      "ApplicationCommitTime measures how long it takes to commit application state",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		UpdateMempoolTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "update_mempool_time",
 			Help:      "UpdateMempoolTime measures how long it takes to update mempool after committing, including reCheckTx",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		FinalizeBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "finalize_block_latency",
 			Help:      "FinalizeBlockLatency measures how long it takes to run abci FinalizeBlock",
 
 			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		SaveBlockResponseLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "save_block_response_latency",
 			Help:      "SaveBlockResponseLatency measures how long it takes to run save the FinalizeBlockRes",
 
 			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		SaveBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "save_block_latency",
 			Help:      "SaveBlockLatency measure how long it takes to save the block",
 
 			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		PruneBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "prune_block_latency",
 			Help:      "PruneBlockLatency measures how long it takes to prune block from blockstore",
 
 			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		FireEventsLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "fire_events_latency",
 			Help:      "FireEventsLatency measures how long it takes to fire events for indexing",
 
 			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		ProposerPriorityHash: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposer_priority_hash",
 			Help:      "ProposerPriorityHash encodes the first 6 bytes of the hash of the current validator set's proposer priorities as a float64 value. Exported periodically (every proposerPriorityHashInterval heights) for operator visibility; divergence between validators at the same ProposerPriorityHashHeight indicates corrupted ProposerPriority state. Paired with ProposerPriorityHashHeight so operators can correlate.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		ProposerPriorityHashHeight: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposer_priority_hash_height",
 			Help:      "ProposerPriorityHashHeight is the block height at which the most recent ProposerPriorityHash was computed. Operators comparing hashes across validators should only compare samples at the same height.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 	}
 }
 

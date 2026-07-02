@@ -6,8 +6,12 @@ import (
 
 //go:generate go run ../../../scripts/metricsgen -struct=Metrics
 
-// MetricsSubsystem is a the subsystem label for the indexer package.
-const MetricsSubsystem = "indexer"
+const (
+	// MetricsNamespace is the namespace shared by all Tendermint Prometheus metrics.
+	MetricsNamespace = "tendermint"
+	// MetricsSubsystem is a the subsystem label for the indexer package.
+	MetricsSubsystem = "indexer"
+)
 
 // Metrics contains metrics exposed by this package.
 type Metrics struct {

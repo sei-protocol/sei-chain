@@ -618,9 +618,6 @@ prometheus-listen-addr = "{{ .Instrumentation.PrometheusListenAddr }}"
 # 0 - unlimited.
 max-open-connections = {{ .Instrumentation.MaxOpenConnections }}
 
-# Instrumentation namespace
-namespace = "{{ .Instrumentation.Namespace }}"
-
 #######################################################################
 ###       Priv Validator Configuration (Auto-managed)              ###
 #######################################################################

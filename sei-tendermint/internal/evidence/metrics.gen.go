@@ -8,18 +8,14 @@ import (
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
-	labels := []string{}
-	for i := 0; i < len(labelsAndValues); i += 2 {
-		labels = append(labels, labelsAndValues[i])
-	}
+func PrometheusMetrics() *Metrics {
 	return &Metrics{
 		NumEvidence: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "num_evidence",
 			Help:      "Number of pending evidence in the evidence pool.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 	}
 }
 

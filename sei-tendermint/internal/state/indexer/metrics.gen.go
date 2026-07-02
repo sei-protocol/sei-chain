@@ -8,36 +8,32 @@ import (
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
-	labels := []string{}
-	for i := 0; i < len(labelsAndValues); i += 2 {
-		labels = append(labels, labelsAndValues[i])
-	}
+func PrometheusMetrics() *Metrics {
 	return &Metrics{
 		BlockEventsSeconds: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_events_seconds",
 			Help:      "Latency for indexing block events.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		TxEventsSeconds: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "tx_events_seconds",
 			Help:      "Latency for indexing transaction events.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		BlocksIndexed: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "blocks_indexed",
 			Help:      "Number of complete blocks indexed.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		TransactionsIndexed: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "transactions_indexed",
 			Help:      "Number of transactions indexed.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 	}
 }
 

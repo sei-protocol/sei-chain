@@ -8,54 +8,50 @@ import (
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
-	labels := []string{}
-	for i := 0; i < len(labelsAndValues); i += 2 {
-		labels = append(labels, labelsAndValues[i])
-	}
+func PrometheusMetrics() *Metrics {
 	return &Metrics{
 		TotalSnapshots: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "total_snapshots",
 			Help:      "The total number of snapshots discovered.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		ChunkProcessAvgTime: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "chunk_process_avg_time",
 			Help:      "The average processing time per chunk.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		SnapshotHeight: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "snapshot_height",
 			Help:      "The height of the current snapshot the has been processed.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		SnapshotChunk: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "snapshot_chunk",
 			Help:      "The current number of chunks that have been processed.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		SnapshotChunkTotal: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "snapshot_chunk_total",
 			Help:      "The total number of chunks in the current snapshot.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		BackFilledBlocks: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "back_filled_blocks",
 			Help:      "The current number of blocks that have been back-filled.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 		BackFillBlocksTotal: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "back_fill_blocks_total",
 			Help:      "The total number of blocks that need to be back-filled.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 	}
 }
 

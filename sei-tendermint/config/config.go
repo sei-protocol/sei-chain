@@ -1447,7 +1447,8 @@ type InstrumentationConfig struct {
 	// 0 - unlimited.
 	MaxOpenConnections int `mapstructure:"max-open-connections"`
 
-	// Instrumentation namespace.
+	// Deprecated: Instrumentation namespace is ignored. Tendermint Prometheus
+	// metrics always use the fixed "tendermint" namespace.
 	Namespace string `mapstructure:"namespace"`
 }
 

@@ -166,7 +166,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			}
 
 			logger.Info("Creating node metrics provider")
-			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)(clientCtx.ChainID)
+			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)
 
 			config, err := config.GetConfig(serverCtx.Viper)
 			if err != nil {

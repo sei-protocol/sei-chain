@@ -3,6 +3,8 @@ package proxy
 import "github.com/go-kit/kit/metrics"
 
 const (
+	// MetricsNamespace is the namespace shared by all Tendermint Prometheus metrics.
+	MetricsNamespace = "tendermint"
 	// MetricsSubsystem is a subsystem shared by all metrics exposed by this package.
 	MetricsSubsystem = "abci_connection"
 )
