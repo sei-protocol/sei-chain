@@ -51,6 +51,7 @@ var errAlreadyOpened = errors.New("stream already opened")
 var errAlreadyClosed = errors.New("stream already closed")
 
 type Config struct {
+	ChainID string
 	// Maximal number of bytes in a frame (excluding header).
 	FrameSize uint64
 	// Limits on the number of concurrent streams of each kind.
@@ -103,8 +104,8 @@ type kindState struct {
 	connectsQueue chan *streamState
 	acceptsQueue  chan *streamState
 
-	connectAttrs metrics.Attrs
-	acceptAttrs  metrics.Attrs
+	connectMetrics *metrics.Metrics
+	acceptMetrics  *metrics.Metrics
 }
 
 type runnerInner struct {
@@ -153,7 +154,7 @@ func (r *runner) getOrAccept(h *pb.Header) (*streamState, error) {
 			return nil, errTooManyAccepts
 		}
 		inner.acceptsSem[kind] -= 1
-		s := newStreamState(id, kind, r.mux.kinds[kind].acceptAttrs)
+		s := newStreamState(id, kind, r.mux.kinds[kind].acceptMetrics)
 		inner.streams[id] = s
 		return s, nil
 	}
@@ -162,7 +163,7 @@ func (r *runner) getOrAccept(h *pb.Header) (*streamState, error) {
 
 func (r *runner) newConnectStream(kind StreamKind, inner *runnerInner) *streamState {
 	// Non-blocking since we just closed a connect Stream.
-	s := newStreamState(inner.nextID, kind, r.mux.kinds[kind].connectAttrs)
+	s := newStreamState(inner.nextID, kind, r.mux.kinds[kind].connectMetrics)
 	inner.streams[s.id] = s
 	inner.nextID += 2
 	return s
@@ -437,8 +438,8 @@ func NewMux(cfg *Config) *Mux {
 			acceptsQueue:  make(chan *streamState, c.MaxAccepts),
 			connectsQueue: make(chan *streamState, c.MaxConnects),
 
-			acceptAttrs:  metrics.NewAttrs(metrics.RoleAccept, c.Name),
-			connectAttrs: metrics.NewAttrs(metrics.RoleConnect, c.Name),
+			acceptMetrics:  metrics.Attrs{ChainID: cfg.ChainID, Role: metrics.RoleAccept, RPCName: c.Name}.Metrics(),
+			connectMetrics: metrics.Attrs{ChainID: cfg.ChainID, Role: metrics.RoleConnect, RPCName: c.Name}.Metrics(),
 		}
 	}
 	queue := utils.NewWatch(queue{})

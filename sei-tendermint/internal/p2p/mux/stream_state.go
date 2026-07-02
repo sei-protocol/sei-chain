@@ -52,11 +52,11 @@ type streamState struct {
 	inner utils.Watch[*streamStateInner]
 }
 
-func newStreamState(id streamID, kind StreamKind, attrs metrics.Attrs) *streamState {
+func newStreamState(id streamID, kind StreamKind, m *metrics.Metrics) *streamState {
 	return &streamState{
 		id:    id,
 		kind:  kind,
-		inner: utils.NewWatch(&streamStateInner{metrics: metrics.NewStream(attrs)}),
+		inner: utils.NewWatch(&streamStateInner{metrics: metrics.NewStream(m)}),
 	}
 }
 
