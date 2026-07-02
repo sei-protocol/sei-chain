@@ -114,6 +114,13 @@ func newNativeStateDB(source StateReader) *nativeStateDB {
 }
 
 func (s *nativeStateDB) ChangeSet() StateChangeSet {
+	var changes StateChangeSet
+	s.ChangeSetInto(&changes)
+	return changes
+}
+
+func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
+	changes.resetForReuse()
 	addresses := make([]common.Address, 0, len(s.accounts))
 	for addr := range s.accounts {
 		addresses = append(addresses, addr)
@@ -122,7 +129,6 @@ func (s *nativeStateDB) ChangeSet() StateChangeSet {
 		return bytes.Compare(addresses[i][:], addresses[j][:]) < 0
 	})
 
-	var changes StateChangeSet
 	for _, addr := range addresses {
 		acct := s.accounts[addr]
 		base := s.baseAccount(addr)
@@ -161,7 +167,6 @@ func (s *nativeStateDB) ChangeSet() StateChangeSet {
 			})
 		}
 	}
-	return changes
 }
 
 func (s *nativeStateDB) CreateAccount(addr common.Address) {
@@ -413,8 +418,8 @@ func (s *nativeStateDB) AddSlotToAccessList(addr common.Address, slot common.Has
 }
 
 func (s *nativeStateDB) Prepare(_ params.Rules, sender, coinbase common.Address, dest *common.Address, precompiles []common.Address, txAccesses ethtypes.AccessList) {
-	s.accessList = newAccessList()
-	s.transientStates = map[common.Address]map[common.Hash]common.Hash{}
+	s.accessList.reset()
+	clearNestedHashMaps(s.transientStates)
 	s.AddAddressToAccessList(sender)
 	s.AddAddressToAccessList(coinbase)
 	if dest != nil {
@@ -576,8 +581,16 @@ func (s *nativeStateDB) SetEVM(evm *vm.EVM) {
 }
 
 func (s *nativeStateDB) enableAccessTracking() {
-	s.readSet = map[stateAccessKey]struct{}{}
-	s.writeSet = map[stateAccessKey]struct{}{}
+	if s.readSet == nil {
+		s.readSet = map[stateAccessKey]struct{}{}
+	} else {
+		clear(s.readSet)
+	}
+	if s.writeSet == nil {
+		s.writeSet = map[stateAccessKey]struct{}{}
+	} else {
+		clear(s.writeSet)
+	}
 }
 
 func (s *nativeStateDB) accessSets() (map[stateAccessKey]struct{}, map[stateAccessKey]struct{}) {
@@ -626,8 +639,41 @@ func (s *nativeStateDB) markForFinalise(addr common.Address) {
 }
 
 func (s *nativeStateDB) clearSnapshots() {
+	clear(s.journal)
 	s.journal = s.journal[:0]
+	clear(s.snapshots)
 	s.snapshots = s.snapshots[:0]
+}
+
+func (s *nativeStateDB) reset(source StateReader) {
+	if source == nil {
+		source = NewMemoryState()
+	}
+	s.source = source
+	clear(s.accounts)
+	clear(s.base)
+	s.refund = 0
+	clear(s.logs)
+	s.logs = s.logs[:0]
+	clearBytesMap(s.preimages)
+	s.accessList.reset()
+	clearNestedHashMaps(s.transientStates)
+	clear(s.finaliseAddrs)
+	clear(s.journal)
+	s.journal = s.journal[:0]
+	clear(s.snapshots)
+	s.snapshots = s.snapshots[:0]
+	if s.readSet != nil {
+		clear(s.readSet)
+	}
+	if s.writeSet != nil {
+		clear(s.writeSet)
+	}
+	s.txHash = common.Hash{}
+	s.txIndex = 0
+	s.txIndexUint = 0
+	s.err = nil
+	s.evm = nil
 }
 
 func (s *nativeStateDB) account(addr common.Address) *nativeAccount {
@@ -705,6 +751,22 @@ func newAccessList() accessList {
 	}
 }
 
+func (al *accessList) reset() {
+	if al.addresses == nil {
+		al.addresses = map[common.Address]struct{}{}
+	} else {
+		clear(al.addresses)
+	}
+	if al.slots == nil {
+		al.slots = map[common.Address]map[common.Hash]struct{}{}
+		return
+	}
+	for _, slots := range al.slots {
+		clear(slots)
+	}
+	clear(al.slots)
+}
+
 func cloneAccessList(al accessList) accessList {
 	cp := newAccessList()
 	for addr := range al.addresses {
@@ -763,6 +825,19 @@ func clonePreimages(preimages map[common.Hash][]byte) map[common.Hash][]byte {
 		cp[hash] = cloneBytes(preimage)
 	}
 	return cp
+}
+
+func clearBytesMap(values map[common.Hash][]byte) {
+	for key := range values {
+		delete(values, key)
+	}
+}
+
+func clearNestedHashMaps(values map[common.Address]map[common.Hash]common.Hash) {
+	for _, slots := range values {
+		clear(slots)
+	}
+	clear(values)
 }
 
 func cloneJournal(journal []nativeJournalEntry) []nativeJournalEntry {

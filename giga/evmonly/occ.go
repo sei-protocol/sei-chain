@@ -29,6 +29,19 @@ type occTxRange struct {
 	end   int
 }
 
+type occWorkerScratch struct {
+	stateDB *nativeStateDB
+}
+
+func (s *occWorkerScratch) resetStateDB(source StateReader) *nativeStateDB {
+	if s.stateDB == nil {
+		s.stateDB = newNativeStateDB(source)
+	} else {
+		s.stateDB.reset(source)
+	}
+	return s.stateDB
+}
+
 func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	chainConfig := e.chainConfig(req.Context)
 	blockCtx := buildBlockContext(req.Context)
@@ -50,9 +63,9 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 		pool = newOCCWorkerPool(workers)
 		defer pool.Close()
 	}
-	if err := pool.Run(ctx, occRanges(txCount, chunkSize), func(workerCtx context.Context, txRange occTxRange) error {
+	if err := pool.Run(ctx, occRanges(txCount, chunkSize), func(workerCtx context.Context, txRange occTxRange, scratch *occWorkerScratch) error {
 		for idx := txRange.start; idx < txRange.end; idx++ {
-			result, err := e.executeTxSpeculative(workerCtx, req, idx, chainConfig, blockCtx, baseFee, gasLimit)
+			result, err := e.executeTxSpeculative(workerCtx, scratch, req, idx, chainConfig, blockCtx, baseFee, gasLimit)
 			if err != nil {
 				return err
 			}
@@ -65,7 +78,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 	if !validateOCCResults(results, gasLimit) {
 		return e.executeBlockSequential(ctx, req)
 	}
-	return mergeOCCResults(results), nil
+	return e.mergeOCCResults(ctx, results)
 }
 
 func occRanges(txCount int, chunkSize int) []occTxRange {
@@ -100,6 +113,7 @@ func occChunkSize(txCount int, workers int) int {
 
 func (e *Executor) executeTxSpeculative(
 	ctx context.Context,
+	scratch *occWorkerScratch,
 	req PreparedBlock,
 	txIndex int,
 	chainConfig *params.ChainConfig,
@@ -107,8 +121,11 @@ func (e *Executor) executeTxSpeculative(
 	baseFee *big.Int,
 	gasLimit uint64,
 ) (occTxExecution, error) {
+	if scratch == nil {
+		scratch = &occWorkerScratch{}
+	}
 	p := req.Txs[txIndex]
-	stateDB := newNativeStateDB(e.state)
+	stateDB := scratch.resetStateDB(e.state)
 	stateDB.enableAccessTracking()
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
 	stateDB.SetEVM(evm)
@@ -127,10 +144,12 @@ func (e *Executor) executeTxSpeculative(
 		return occTxExecution{}, fmt.Errorf("execute tx %d %s: %w", txIndex, p.Tx.Hash(), err)
 	}
 	readSet, writeSet := stateDB.accessSets()
+	var changeSet StateChangeSet
+	stateDB.ChangeSetInto(&changeSet)
 	return occTxExecution{
 		txResult:  txResult,
 		receipt:   receipt,
-		changeSet: stateDB.ChangeSet(),
+		changeSet: changeSet,
 		readSet:   readSet,
 		writeSet:  writeSet,
 		gasUsed:   txResult.GasUsed,
@@ -156,11 +175,12 @@ func validateOCCResults(results []occTxExecution, gasLimit uint64) bool {
 	return true
 }
 
-func mergeOCCResults(results []occTxExecution) *BlockResult {
-	blockResult := &BlockResult{
-		Txs:      make([]TxResult, len(results)),
-		Receipts: make(ethtypes.Receipts, len(results)),
+func (e *Executor) mergeOCCResults(ctx context.Context, results []occTxExecution) (*BlockResult, error) {
+	blockResult, err := e.acquireBlockResult(ctx, len(results))
+	if err != nil {
+		return nil, err
 	}
+	blockResult.prepareIndexedResults(len(results))
 	var logIndex uint
 	for i, result := range results {
 		blockResult.GasUsed += result.gasUsed
@@ -173,8 +193,8 @@ func mergeOCCResults(results []occTxExecution) *BlockResult {
 		blockResult.Txs[i] = result.txResult
 		blockResult.Receipts[i] = result.receipt
 	}
-	blockResult.ChangeSet = mergeChangeSets(results)
-	return blockResult
+	mergeChangeSetsInto(results, &blockResult.ChangeSet)
+	return blockResult, nil
 }
 
 type stateAccessIndex struct {
@@ -230,6 +250,13 @@ type storageChangeKey struct {
 }
 
 func mergeChangeSets(results []occTxExecution) StateChangeSet {
+	var merged StateChangeSet
+	mergeChangeSetsInto(results, &merged)
+	return merged
+}
+
+func mergeChangeSetsInto(results []occTxExecution, merged *StateChangeSet) {
+	merged.resetForReuse()
 	balances := map[common.Address]*big.Int{}
 	nonces := map[common.Address]uint64{}
 	code := map[common.Address]CodeChange{}
@@ -254,7 +281,6 @@ func mergeChangeSets(results []occTxExecution) StateChangeSet {
 		}
 	}
 
-	var merged StateChangeSet
 	balanceAddrs := sortedAddressesFromBigMap(balances)
 	for _, addr := range balanceAddrs {
 		merged.Balances = append(merged.Balances, BalanceChange{Address: addr, Balance: cloneBig(balances[addr])})
@@ -282,7 +308,6 @@ func mergeChangeSets(results []occTxExecution) StateChangeSet {
 	for _, key := range storageKeys {
 		merged.Storage = append(merged.Storage, storage[key])
 	}
-	return merged
 }
 
 func sortedAddressesFromBigMap(values map[common.Address]*big.Int) []common.Address {
