@@ -88,9 +88,18 @@ func (r *BlockResult) prepareForBlock(txCapacity int) {
 }
 
 func (r *BlockResult) prepareIndexedResults(txCount int) {
-	r.prepareForBlock(txCount)
-	r.Txs = r.Txs[:txCount]
-	r.Receipts = r.Receipts[:txCount]
+	if cap(r.Txs) < txCount {
+		r.Txs = make([]TxResult, txCount)
+	} else {
+		r.Txs = r.Txs[:txCount]
+		clear(r.Txs)
+	}
+	if cap(r.Receipts) < txCount {
+		r.Receipts = make(ethtypes.Receipts, txCount)
+	} else {
+		r.Receipts = r.Receipts[:txCount]
+		clear(r.Receipts)
+	}
 }
 
 func (r *BlockResult) resetForPool() {
