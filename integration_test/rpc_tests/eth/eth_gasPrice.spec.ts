@@ -4,7 +4,14 @@ import { readRuntimeState, RuntimeState, expectSameError, claimPool } from '../u
 import { EvmAccount } from '../utils/evmUtils';
 import { burnGasBurst } from '../utils/txUtils';
 import { HEX_QUANTITY } from '../utils/format';
-import { gasPrice, gasPriceAtStableBlock, assertSeiGasPriceTracks } from '../utils/gasPriceUtils';
+import {
+    gasPrice,
+    gasPriceAtStableBlock,
+    assertSeiGasPriceTracks,
+    DEFAULT_PRIORITY_FEE_WEI,
+    isCongested,
+    maxPriorityFeePerGasAtStableBlock,
+} from '../utils/gasPriceUtils';
 
 describe('eth_gasPrice', function () {
     this.timeout(240 * 1000);
@@ -68,9 +75,14 @@ describe('eth_gasPrice', function () {
         });
 
         it('[Sei] maxPriorityFeePerGas defaults to 1 gwei while the chain is uncongested', async () => {
-            // Quiescent runs sit well under the 80% congestion threshold.
-            const tip = BigInt(await sei.send('eth_maxPriorityFeePerGas', []));
-            expect(tip).to.equal(1_000_000_000n);
+            const sample = await waitUntil(
+                async () => {
+                    const stable = await maxPriorityFeePerGasAtStableBlock(sei);
+                    return isCongested(stable) ? null : stable;
+                },
+                { timeoutMs: 60_000, intervalMs: 250, label: 'EVM-uncongested gas-price head' },
+            );
+            expect(sample.tip).to.equal(DEFAULT_PRIORITY_FEE_WEI);
         });
     });
 
