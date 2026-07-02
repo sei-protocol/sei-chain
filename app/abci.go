@@ -13,6 +13,7 @@ import (
 	otelmetrics "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	"github.com/sei-protocol/sei-chain/app/migration"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/tasks"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -53,9 +54,52 @@ func (app *App) BeginBlock(
 	if app.HardForkManager.TargetHeightReached(ctx) {
 		app.HardForkManager.ExecuteForTargetHeight(ctx)
 	}
+	app.applyMigrationBatchSize(ctx)
 	legacyabci.BeginBlock(ctx, height, votes, byzantineValidators, app.BeginBlockKeepers)
 	return abci.ResponseBeginBlock{
 		Events: sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents),
+	}
+}
+
+// applyMigrationBatchSize paces the SC store's background data migration at the network-agreed rate.
+// The NumKeysToMigratePerBlock gov param is read from chain state so every node
+// applies the same value each block; a per-node rate would diverge the
+// AppHash. 0 (the default until a gov proposal raises it) leaves the migration
+// paused; it is the sole source of the rate (there is no node-local fallback).
+func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
+	if app.rootStore == nil {
+		return
+	}
+	numKeys := migration.DefaultNumKeysToMigratePerBlock
+	if subspace, ok := app.ParamsKeeper.GetSubspace(migration.SubspaceName); ok {
+		// The migration subspace has no owning module to seed it in InitGenesis,
+		// so lazily persist the default the first time we see it unset. This is
+		// deterministic across nodes (every node runs BeginBlock identically) and
+		// makes the param visible to gov: ParameterChangeProposal submission only
+		// accepts a change when subspace.Has reports the key is already stored.
+		if !subspace.Has(ctx, migration.KeyNumKeysToMigratePerBlock) {
+			subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, migration.DefaultNumKeysToMigratePerBlock)
+		}
+		subspace.GetIfExists(ctx, migration.KeyNumKeysToMigratePerBlock, &numKeys)
+	}
+	// Defense-in-depth: gov validation already rejects values above
+	// MaxNumKeysToMigratePerBlock, but clamp here too so an out-of-range value
+	// reaching state via any path can never overflow the int cast or trigger an
+	// oversized preallocation in the migration iterator. The clamp is
+	// deterministic across nodes.
+	if numKeys > migration.MaxNumKeysToMigratePerBlock {
+		numKeys = migration.MaxNumKeysToMigratePerBlock
+	}
+	if err := app.rootStore.SetMigrationBatchSize(int(numKeys)); err != nil {
+		// Never panic on the migration-rate update: log and continue. AppHash
+		// verification is the safety net. If the rate/mode update fails on only
+		// some nodes, those nodes' AppHash diverges and the normal AppHash
+		// comparison halts them at the next block — no proactive panic needed.
+		// If it fails on every node, all stay in the same (old) mode with an
+		// identical AppHash, so the chain keeps moving and the level-triggered
+		// trigger re-fires on a later block. Panicking here would needlessly
+		// halt the whole chain in that all-fail case.
+		logger.Error("failed to set SC migration batch size; continuing", "err", err)
 	}
 }
 
