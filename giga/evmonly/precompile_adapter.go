@@ -36,23 +36,22 @@ func (p registeredCustomPrecompile) RequiredGas(input []byte) uint64 {
 }
 
 func (p registeredCustomPrecompile) Run(evm *vm.EVM, caller common.Address, _ common.Address, input []byte, value *big.Int, readOnly bool, isFromDelegateCall bool, _ *tracing.Hooks) ([]byte, error) {
-	return p.run(evm, caller, input, value, readOnly, isFromDelegateCall, 0)
+	return p.run(evm, caller, input, value, readOnly, isFromDelegateCall, 0, nil)
 }
 
 func (p registeredCustomPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ common.Address, input []byte, suppliedGas uint64, value *big.Int, hooks *tracing.Hooks, readOnly bool, isFromDelegateCall bool) ([]byte, uint64, error) {
-	gasCost := p.RequiredGas(input)
-	if suppliedGas < gasCost {
+	meter := newPrecompileGasMeter(suppliedGas, hooks)
+	if !meter.charge(p.RequiredGas(input), tracing.GasChangeCallPrecompiledContract) {
 		return nil, 0, vm.ErrOutOfGas
 	}
-	remainingGas := suppliedGas - gasCost
-	if hooks != nil && hooks.OnGasChange != nil {
-		hooks.OnGasChange(suppliedGas, remainingGas, tracing.GasChangeCallPrecompiledContract)
+	ret, err := p.run(evm, caller, input, value, readOnly, isFromDelegateCall, meter.remainingGas(), meter)
+	if meter.err != nil {
+		return nil, meter.remainingGas(), meter.err
 	}
-	ret, err := p.run(evm, caller, input, value, readOnly, isFromDelegateCall, remainingGas)
-	return ret, remainingGas, err
+	return ret, meter.remainingGas(), err
 }
 
-func (p registeredCustomPrecompile) run(evm *vm.EVM, caller common.Address, input []byte, value *big.Int, readOnly bool, isFromDelegateCall bool, remainingGas uint64) ([]byte, error) {
+func (p registeredCustomPrecompile) run(evm *vm.EVM, caller common.Address, input []byte, value *big.Int, readOnly bool, isFromDelegateCall bool, remainingGas uint64, meter *precompileGasMeter) ([]byte, error) {
 	stateDB, ok := evm.StateDB.(*nativeStateDB)
 	if !ok {
 		return nil, errInvalidPrecompileStateDB
@@ -65,9 +64,9 @@ func (p registeredCustomPrecompile) run(evm *vm.EVM, caller common.Address, inpu
 		DelegateCall:  isFromDelegateCall,
 		GasRemaining:  remainingGas,
 		Block:         evmPrecompileBlockContext(evm),
-		Store:         storageBackedStore{db: stateDB, address: p.address},
-		Balances:      nativeBalanceTransfer{db: stateDB},
-		Logs:          stateDB,
+		Store:         storageBackedStore{db: stateDB, address: p.address, meter: meter},
+		Balances:      nativeBalanceTransfer{db: stateDB, meter: meter},
+		Logs:          meteredLogSink{sink: stateDB, meter: meter},
 	}
 	return p.contract.Run(ctx, input)
 }
@@ -155,12 +154,16 @@ func evmPrecompileBlockContext(evm *vm.EVM) precompiles.BlockContext {
 }
 
 type nativeBalanceTransfer struct {
-	db *nativeStateDB
+	db    *nativeStateDB
+	meter *precompileGasMeter
 }
 
 func (t nativeBalanceTransfer) Transfer(from common.Address, to common.Address, amount *big.Int) error {
 	if amount == nil || amount.Sign() == 0 {
 		return nil
+	}
+	if t.meter != nil && !t.meter.chargeNativeTransfer(t.db, from, to, amount) {
+		return t.meter.err
 	}
 	if t.db.err != nil {
 		return t.db.err
@@ -207,9 +210,13 @@ const (
 type storageBackedStore struct {
 	db      *nativeStateDB
 	address common.Address
+	meter   *precompileGasMeter
 }
 
 func (s storageBackedStore) Get(key []byte) ([]byte, bool) {
+	if !s.chargeStoreBaseSlot(key) {
+		return nil, false
+	}
 	baseSlot := storeBaseSlot(key)
 	length, ok := s.length(baseSlot)
 	if !ok {
@@ -221,13 +228,23 @@ func (s storageBackedStore) Get(key []byte) ([]byte, bool) {
 	chunks := chunkCount(length)
 	out := make([]byte, 0, int(chunks*32)) //nolint:gosec // length was bounded by max int above.
 	for i := uint64(0); i < chunks; i++ {
-		chunk := s.db.GetState(s.address, storeChunkSlot(baseSlot, i))
+		if !s.chargeStoreChunkSlot(baseSlot, i) {
+			return nil, false
+		}
+		chunkSlot := storeChunkSlot(baseSlot, i)
+		if !s.chargeSLoad(chunkSlot) {
+			return nil, false
+		}
+		chunk := s.db.GetState(s.address, chunkSlot)
 		out = append(out, chunk.Bytes()...)
 	}
 	return out[:int(length)], true //nolint:gosec // length was bounded by max int above.
 }
 
 func (s storageBackedStore) Set(key []byte, value []byte) {
+	if !s.chargeStoreBaseSlot(key) {
+		return
+	}
 	baseSlot := storeBaseSlot(key)
 	oldLength, oldOK := s.length(baseSlot)
 	oldChunks := uint64(0)
@@ -236,6 +253,9 @@ func (s storageBackedStore) Set(key []byte, value []byte) {
 	}
 	newLength := uint64(len(value)) //nolint:gosec // slices cannot exceed max int.
 	newChunks := chunkCount(newLength)
+	if !s.chargeSStore(baseSlot, encodedStoredLength(newLength)) {
+		return
+	}
 	s.db.SetState(s.address, baseSlot, encodedStoredLength(newLength))
 	for i := uint64(0); i < newChunks; i++ {
 		start := int(i * 32) //nolint:gosec // i is bounded by len(value) chunks.
@@ -245,26 +265,56 @@ func (s storageBackedStore) Set(key []byte, value []byte) {
 		}
 		var chunk common.Hash
 		copy(chunk[:], value[start:end])
-		s.db.SetState(s.address, storeChunkSlot(baseSlot, i), chunk)
+		if !s.chargeStoreChunkSlot(baseSlot, i) {
+			return
+		}
+		chunkSlot := storeChunkSlot(baseSlot, i)
+		if !s.chargeSStore(chunkSlot, chunk) {
+			return
+		}
+		s.db.SetState(s.address, chunkSlot, chunk)
 	}
 	for i := newChunks; i < oldChunks; i++ {
-		s.db.SetState(s.address, storeChunkSlot(baseSlot, i), common.Hash{})
+		if !s.chargeStoreChunkSlot(baseSlot, i) {
+			return
+		}
+		chunkSlot := storeChunkSlot(baseSlot, i)
+		if !s.chargeSStore(chunkSlot, common.Hash{}) {
+			return
+		}
+		s.db.SetState(s.address, chunkSlot, common.Hash{})
 	}
 }
 
 func (s storageBackedStore) Delete(key []byte) {
+	if !s.chargeStoreBaseSlot(key) {
+		return
+	}
 	baseSlot := storeBaseSlot(key)
 	length, ok := s.length(baseSlot)
 	if !ok {
 		return
 	}
 	for i := uint64(0); i < chunkCount(length); i++ {
-		s.db.SetState(s.address, storeChunkSlot(baseSlot, i), common.Hash{})
+		if !s.chargeStoreChunkSlot(baseSlot, i) {
+			return
+		}
+		chunkSlot := storeChunkSlot(baseSlot, i)
+		if !s.chargeSStore(chunkSlot, common.Hash{}) {
+			return
+		}
+		s.db.SetState(s.address, chunkSlot, common.Hash{})
+	}
+	if !s.chargeSStore(baseSlot, common.Hash{}) {
+		return
 	}
 	s.db.SetState(s.address, baseSlot, common.Hash{})
 }
 
 func (s storageBackedStore) length(baseSlot common.Hash) (uint64, bool) {
+	if !s.chargeSLoad(baseSlot) {
+		return 0, false
+	}
 	encoded := s.db.GetState(s.address, baseSlot)
 	if encoded == (common.Hash{}) {
 		return 0, false
