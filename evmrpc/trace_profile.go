@@ -108,6 +108,10 @@ func (api *DebugAPI) TraceTransactionProfile(ctx context.Context, hash common.Ha
 		TxHash:      tx.Hash(),
 	}
 
+	if config == nil {
+		config = &tracers.TraceConfig{}
+	}
+	api.clampDefaultStructLogLimit(config)
 	traceResult, err := api.profiledTraceTx(ctx, tx, msg, txctx, blockCtx, statedb, config, nil, false, &phases.traceExecutionPhaseDurations)
 	if err != nil {
 		return nil, err
