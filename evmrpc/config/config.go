@@ -131,10 +131,14 @@ type Config struct {
 	// Timeout for each trace call
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
 
-	// MaxTraceStructLogBytes bounds the retained struct-logger output (in bytes) for a
-	// single default debug_trace* call (debug_traceCall/traceTransaction/traceBlock*),
-	// guarding against quadratic memory growth from traces that read many distinct
-	// storage slots. Set to 0 for unlimited (matches upstream geth behavior).
+	// MaxTraceStructLogBytes bounds the retained struct-logger output (in bytes) per
+	// traced transaction on the default debug_trace* endpoints
+	// (debug_traceCall/traceTransaction/traceBlock*), guarding against quadratic memory
+	// growth from traces that read many distinct storage slots. The bound is per
+	// transaction, not per RPC call: geth builds a fresh struct logger for each tx, so a
+	// debug_traceBlock* call over N transactions retains up to N times this value (and the
+	// parallelized path holds several concurrent traces live). Set to 0 for unlimited
+	// (matches upstream geth behavior).
 	MaxTraceStructLogBytes uint64 `mapstructure:"max_trace_struct_log_bytes"`
 
 	// EnableParallelizedBlockTrace enables the parallelized default debug_traceBlock* path.
@@ -233,7 +237,7 @@ var DefaultConfig = Config{
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
-	MaxTraceStructLogBytes:       256 * 1024 * 1024, // 256 MiB
+	MaxTraceStructLogBytes:       32 * 1024 * 1024, // 32 MiB
 	EnableParallelizedBlockTrace: false,
 	RPCStatsInterval:             10 * time.Second,
 	WorkerPoolSize:               min(MaxWorkerPoolSize, runtime.NumCPU()*2), // Default: min(64, CPU cores × 2)
@@ -697,9 +701,12 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 # Timeout for each trace call
 trace_timeout = "{{ .EVM.TraceTimeout }}"
 
-# MaxTraceStructLogBytes bounds the retained struct-logger output (in bytes) for a single
-# default debug_trace* call, guarding against quadratic memory growth from traces that read
-# many distinct storage slots. Set to 0 for unlimited (matches upstream geth behavior).
+# MaxTraceStructLogBytes bounds the retained struct-logger output (in bytes) per traced
+# transaction on the default debug_trace* endpoints, guarding against quadratic memory growth
+# from traces that read many distinct storage slots. The bound is per transaction, not per RPC
+# call: a debug_traceBlock* call over N transactions retains up to N times this value (and the
+# parallelized path holds several concurrent traces live). Set to 0 for unlimited (matches
+# upstream geth behavior).
 max_trace_struct_log_bytes = {{ .EVM.MaxTraceStructLogBytes }}
 
 # Enable the parallelized default debug_traceBlock* path.
