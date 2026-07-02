@@ -65,6 +65,7 @@ type config struct {
 	txsPerBlock         int
 	queueSize           int
 	builders            int
+	prepareWorkers      int
 	workers             int
 	executorWorkers     int
 	targetBlocksPerSec  float64
@@ -98,6 +99,11 @@ type blockEnvelope struct {
 	request evmonly.BlockRequest
 }
 
+type preparedBlockEnvelope struct {
+	number uint64
+	block  evmonly.PreparedBlock
+}
+
 func main() {
 	cfg, err := parseConfig(os.Args[1:])
 	if err != nil {
@@ -128,6 +134,7 @@ func parseConfig(args []string) (config, error) {
 	fs.IntVar(&cfg.txsPerBlock, "txs-per-block", defaultTxsPerBlock, "transactions generated per block")
 	fs.IntVar(&cfg.queueSize, "queue-size", defaultQueueSize, "buffered blocks waiting for executor workers")
 	fs.IntVar(&cfg.builders, "builders", runtime.GOMAXPROCS(0), "parallel block builder goroutines")
+	fs.IntVar(&cfg.prepareWorkers, "prepare-workers", defaultPrepareWorkers(), "parallel block preparation workers for transaction decode and sender recovery")
 	fs.IntVar(&cfg.workers, "workers", defaultWorkerCount, "parallel executor workers")
 	fs.IntVar(&cfg.executorWorkers, "executor-workers", defaultExecutorWorkers(), "parallel OCC workers inside each executor")
 	fs.Float64Var(&cfg.targetBlocksPerSec, "target-blocks-per-sec", 0, "input block rate cap; 0 means unlimited")
@@ -203,6 +210,9 @@ func parseConfig(args []string) (config, error) {
 	if cfg.builders <= 0 {
 		return config{}, fmt.Errorf("builders must be positive")
 	}
+	if cfg.prepareWorkers <= 0 {
+		return config{}, fmt.Errorf("prepare-workers must be positive")
+	}
 	if cfg.workers <= 0 {
 		return config{}, fmt.Errorf("workers must be positive")
 	}
@@ -253,6 +263,10 @@ func parseConfig(args []string) (config, error) {
 		return config{}, fmt.Errorf("sender-balance-wei must cover %s: need at least %s", requiredBalanceReason, requiredBalance.String())
 	}
 	return cfg, nil
+}
+
+func defaultPrepareWorkers() int {
+	return runtime.GOMAXPROCS(0)
 }
 
 func defaultExecutorWorkers() int {
@@ -494,28 +508,33 @@ func runStreaming(ctx context.Context, cfg config, state *generatedState, worklo
 	}
 
 	blocks := make(chan blockEnvelope, cfg.queueSize)
+	preparedBlocks := make(chan preparedBlockEnvelope, cfg.queueSize)
 	reportCtx, stopReporter := context.WithCancel(ctx)
 	reportDone := make(chan struct{})
 	go func() {
 		defer close(reportDone)
-		reportLoop(reportCtx, cfg.reportInterval, metrics, blocks)
+		reportLoop(reportCtx, cfg.reportInterval, metrics, preparedBlocks)
 	}()
 
 	startedAt := time.Now()
 	group, groupCtx := errgroup.WithContext(ctx)
+	executor := evmonly.NewExecutor(evmonly.Config{
+		MinGasPrice:          new(big.Int).Set(cfg.minGasPrice),
+		DisableGasPriceCheck: cfg.disableGasPriceRule,
+		OCCWorkers:           cfg.executorWorkers,
+	}, evmonly.WithState(state), evmonly.WithResultSink(sinks))
 	group.Go(func() error {
 		defer close(blocks)
 		return produceBlocks(groupCtx, cfg, workload, blocks, metrics)
 	})
+	group.Go(func() error {
+		defer close(preparedBlocks)
+		return prepareBlocks(groupCtx, cfg, executor, blocks, preparedBlocks, metrics)
+	})
 	for workerID := 0; workerID < cfg.workers; workerID++ {
 		workerID := workerID
 		group.Go(func() error {
-			executor := evmonly.NewExecutor(evmonly.Config{
-				MinGasPrice:          new(big.Int).Set(cfg.minGasPrice),
-				DisableGasPriceCheck: cfg.disableGasPriceRule,
-				OCCWorkers:           cfg.executorWorkers,
-			}, evmonly.WithState(state), evmonly.WithResultSink(sinks))
-			return executeBlocks(groupCtx, workerID, executor, blocks, metrics)
+			return executeBlocks(groupCtx, workerID, executor, preparedBlocks, metrics)
 		})
 	}
 
@@ -547,28 +566,33 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	}
 
 	blocks := make(chan blockEnvelope, cfg.queueSize)
+	preparedBlocks := make(chan preparedBlockEnvelope, cfg.queueSize)
 	reportCtx, stopReporter := context.WithCancel(ctx)
 	reportDone := make(chan struct{})
 	go func() {
 		defer close(reportDone)
-		reportLoop(reportCtx, cfg.reportInterval, metrics, blocks)
+		reportLoop(reportCtx, cfg.reportInterval, metrics, preparedBlocks)
 	}()
 
 	startedAt := time.Now()
 	group, groupCtx := errgroup.WithContext(ctx)
+	executor := evmonly.NewExecutor(evmonly.Config{
+		MinGasPrice:          new(big.Int).Set(cfg.minGasPrice),
+		DisableGasPriceCheck: cfg.disableGasPriceRule,
+		OCCWorkers:           cfg.executorWorkers,
+	}, evmonly.WithState(state), evmonly.WithResultSink(sinks))
 	group.Go(func() error {
 		defer close(blocks)
 		return feedPrebuiltBlocks(groupCtx, prebuilt, blocks, metrics)
 	})
+	group.Go(func() error {
+		defer close(preparedBlocks)
+		return prepareBlocks(groupCtx, cfg, executor, blocks, preparedBlocks, metrics)
+	})
 	for workerID := 0; workerID < cfg.workers; workerID++ {
 		workerID := workerID
 		group.Go(func() error {
-			executor := evmonly.NewExecutor(evmonly.Config{
-				MinGasPrice:          new(big.Int).Set(cfg.minGasPrice),
-				DisableGasPriceCheck: cfg.disableGasPriceRule,
-				OCCWorkers:           cfg.executorWorkers,
-			}, evmonly.WithState(state), evmonly.WithResultSink(sinks))
-			return executeBlocks(groupCtx, workerID, executor, blocks, metrics)
+			return executeBlocks(groupCtx, workerID, executor, preparedBlocks, metrics)
 		})
 	}
 
@@ -675,6 +699,123 @@ func feedPrebuiltBlocks(ctx context.Context, prebuilt []blockEnvelope, out chan<
 	return nil
 }
 
+func prepareBlocks(
+	ctx context.Context,
+	cfg config,
+	executor evmonly.PreparedBlockExecutor,
+	blocks <-chan blockEnvelope,
+	out chan<- preparedBlockEnvelope,
+	metrics *loadMetrics,
+) error {
+	unordered := make(chan preparedBlockEnvelope, cfg.queueSize)
+	group, groupCtx := errgroup.WithContext(ctx)
+	for workerID := 0; workerID < cfg.prepareWorkers; workerID++ {
+		workerID := workerID
+		group.Go(func() error {
+			for {
+				select {
+				case <-groupCtx.Done():
+					return nil
+				case block, ok := <-blocks:
+					if !ok {
+						return nil
+					}
+					prepared, err := executor.PrepareBlock(groupCtx, block.request)
+					if err != nil {
+						metrics.recordPrepareError()
+						if groupCtx.Err() != nil {
+							return nil
+						}
+						return fmt.Errorf("prepare worker %d prepare block %d: %w", workerID, block.number, err)
+					}
+					select {
+					case unordered <- preparedBlockEnvelope{number: block.number, block: prepared}:
+						metrics.recordPrepared(len(prepared.Txs))
+					case <-groupCtx.Done():
+						return nil
+					}
+				}
+			}
+		})
+	}
+	done := make(chan error, 1)
+	go func() {
+		err := group.Wait()
+		close(unordered)
+		done <- err
+	}()
+	orderErr := forwardPreparedBlocksInOrder(ctx, unordered, out)
+	workerErr := <-done
+	if orderErr != nil {
+		return orderErr
+	}
+	return workerErr
+}
+
+func forwardPreparedBlocksInOrder(ctx context.Context, in <-chan preparedBlockEnvelope, out chan<- preparedBlockEnvelope) error {
+	next := uint64(1)
+	pending := make(map[uint64]preparedBlockEnvelope)
+	for {
+		for {
+			block, ok := pending[next]
+			if !ok {
+				break
+			}
+			if err := sendPreparedBlock(ctx, out, block); err != nil {
+				return err
+			}
+			delete(pending, next)
+			next++
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case block, ok := <-in:
+			if !ok {
+				for len(pending) > 0 {
+					block, ok := pending[next]
+					if !ok {
+						if ctx.Err() != nil {
+							return nil
+						}
+						return fmt.Errorf("prepared block stream closed before block %d", next)
+					}
+					if err := sendPreparedBlock(ctx, out, block); err != nil {
+						return err
+					}
+					delete(pending, next)
+					next++
+				}
+				return nil
+			}
+			if block.number < next {
+				return fmt.Errorf("prepared block %d arrived after block %d", block.number, next-1)
+			}
+			if block.number == next {
+				if err := sendPreparedBlock(ctx, out, block); err != nil {
+					return err
+				}
+				next++
+				continue
+			}
+			if _, exists := pending[block.number]; exists {
+				return fmt.Errorf("duplicate prepared block %d", block.number)
+			}
+			pending[block.number] = block
+		}
+	}
+}
+
+func sendPreparedBlock(ctx context.Context, out chan<- preparedBlockEnvelope, block preparedBlockEnvelope) error {
+	select {
+	case out <- block:
+		return nil
+	case <-ctx.Done():
+		return nil
+	}
+}
+
 func maxInt() int {
 	return int(^uint(0) >> 1)
 }
@@ -682,8 +823,8 @@ func maxInt() int {
 func executeBlocks(
 	ctx context.Context,
 	workerID int,
-	executor evmonly.BlockExecutor,
-	blocks <-chan blockEnvelope,
+	executor evmonly.PreparedBlockExecutor,
+	blocks <-chan preparedBlockEnvelope,
 	metrics *loadMetrics,
 ) error {
 	for {
@@ -694,7 +835,7 @@ func executeBlocks(
 			if !ok {
 				return nil
 			}
-			result, err := executor.ExecuteBlock(ctx, block.request)
+			result, err := executor.ExecutePreparedBlock(ctx, block.block)
 			if err != nil {
 				metrics.recordExecutionError()
 				if ctx.Err() != nil {
@@ -1407,9 +1548,12 @@ func (f *appendRLPFile) Close() error {
 
 type loadMetrics struct {
 	inputBlocks     atomic.Uint64
+	preparedBlocks  atomic.Uint64
+	preparedTxs     atomic.Uint64
 	finishedBlocks  atomic.Uint64
 	finishedTxs     atomic.Uint64
 	gasConsumed     atomic.Uint64
+	prepareErrors   atomic.Uint64
 	executionErrors atomic.Uint64
 	occAttempts     atomic.Uint64
 	occFallbacks    atomic.Uint64
@@ -1423,9 +1567,12 @@ type loadMetrics struct {
 	sinkQueued      atomic.Int64
 
 	inputBlocksTotal     prometheus.Counter
+	preparedBlocksTotal  prometheus.Counter
+	preparedTxsTotal     prometheus.Counter
 	finishedBlocksTotal  prometheus.Counter
 	finishedTxsTotal     prometheus.Counter
 	gasConsumedTotal     prometheus.Counter
+	prepareErrorsTotal   prometheus.Counter
 	executionErrorsTotal prometheus.Counter
 	occAttemptsTotal     prometheus.Counter
 	occFallbacksTotal    prometheus.Counter
@@ -1441,6 +1588,8 @@ type loadMetrics struct {
 	sinkWriteSecondsTotal  *prometheus.CounterVec
 
 	inputBlockRate    prometheus.Gauge
+	preparedBlockRate prometheus.Gauge
+	preparedTxRate    prometheus.Gauge
 	finishedBlockRate prometheus.Gauge
 	txRate            prometheus.Gauge
 	gasRate           prometheus.Gauge
@@ -1452,9 +1601,12 @@ type loadMetrics struct {
 type metricsSnapshot struct {
 	at              time.Time
 	inputBlocks     uint64
+	preparedBlocks  uint64
+	preparedTxs     uint64
 	finishedBlocks  uint64
 	finishedTxs     uint64
 	gasConsumed     uint64
+	prepareErrors   uint64
 	executionErrors uint64
 	occAttempts     uint64
 	occFallbacks    uint64
@@ -1474,6 +1626,14 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 			Name: "evmonly_loadtest_block_input_total",
 			Help: "Total blocks fed to the EVM-only executor input queue.",
 		}),
+		preparedBlocksTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_block_prepared_total",
+			Help: "Total blocks decoded and sender-recovered before EVM-only executor execution.",
+		}),
+		preparedTxsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_transactions_prepared_total",
+			Help: "Total transactions decoded and sender-recovered before EVM-only executor execution.",
+		}),
 		finishedBlocksTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_block_finished_total",
 			Help: "Total blocks that finished EVM-only executor execution.",
@@ -1485,6 +1645,10 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		gasConsumedTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_gas_consumed_total",
 			Help: "Total EVM gas consumed by finished blocks.",
+		}),
+		prepareErrorsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_prepare_errors_total",
+			Help: "Total block preparation errors returned while decoding transactions or recovering senders.",
 		}),
 		executionErrorsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_execution_errors_total",
@@ -1538,6 +1702,14 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 			Name: "evmonly_loadtest_block_input_throughput",
 			Help: "Most recent measured block input throughput in blocks per second.",
 		}),
+		preparedBlockRate: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "evmonly_loadtest_block_prepared_throughput",
+			Help: "Most recent measured block preparation throughput in blocks per second.",
+		}),
+		preparedTxRate: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "evmonly_loadtest_transactions_prepared_per_second",
+			Help: "Most recent measured transaction decode and sender recovery throughput in transactions per second.",
+		}),
 		finishedBlockRate: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "evmonly_loadtest_block_finished_throughput",
 			Help: "Most recent measured block completion throughput in blocks per second.",
@@ -1565,9 +1737,12 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 	}
 	registry.MustRegister(
 		m.inputBlocksTotal,
+		m.preparedBlocksTotal,
+		m.preparedTxsTotal,
 		m.finishedBlocksTotal,
 		m.finishedTxsTotal,
 		m.gasConsumedTotal,
+		m.prepareErrorsTotal,
 		m.executionErrorsTotal,
 		m.occAttemptsTotal,
 		m.occFallbacksTotal,
@@ -1581,6 +1756,8 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		m.sinkEnqueueWaitEvents,
 		m.sinkWriteSecondsTotal,
 		m.inputBlockRate,
+		m.preparedBlockRate,
+		m.preparedTxRate,
 		m.finishedBlockRate,
 		m.txRate,
 		m.gasRate,
@@ -1594,6 +1771,18 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 func (m *loadMetrics) recordInput() {
 	m.inputBlocks.Add(1)
 	m.inputBlocksTotal.Inc()
+}
+
+func (m *loadMetrics) recordPrepared(txCount int) {
+	m.preparedBlocks.Add(1)
+	m.preparedTxs.Add(uint64(txCount))
+	m.preparedBlocksTotal.Inc()
+	m.preparedTxsTotal.Add(float64(txCount))
+}
+
+func (m *loadMetrics) recordPrepareError() {
+	m.prepareErrors.Add(1)
+	m.prepareErrorsTotal.Inc()
 }
 
 func (m *loadMetrics) recordFinished(txCount int, gasUsed uint64, occStats evmonly.OCCStats) {
@@ -1690,9 +1879,12 @@ func (m *loadMetrics) snapshot() metricsSnapshot {
 	return metricsSnapshot{
 		at:              time.Now(),
 		inputBlocks:     m.inputBlocks.Load(),
+		preparedBlocks:  m.preparedBlocks.Load(),
+		preparedTxs:     m.preparedTxs.Load(),
 		finishedBlocks:  m.finishedBlocks.Load(),
 		finishedTxs:     m.finishedTxs.Load(),
 		gasConsumed:     m.gasConsumed.Load(),
+		prepareErrors:   m.prepareErrors.Load(),
 		executionErrors: m.executionErrors.Load(),
 		occAttempts:     m.occAttempts.Load(),
 		occFallbacks:    m.occFallbacks.Load(),
@@ -1713,17 +1905,21 @@ func (m *loadMetrics) setRates(prev, curr metricsSnapshot, queued int) {
 		return
 	}
 	inputRate := float64(curr.inputBlocks-prev.inputBlocks) / elapsed
+	preparedRate := float64(curr.preparedBlocks-prev.preparedBlocks) / elapsed
+	preparedTxRate := float64(curr.preparedTxs-prev.preparedTxs) / elapsed
 	finishedRate := float64(curr.finishedBlocks-prev.finishedBlocks) / elapsed
 	txRate := float64(curr.finishedTxs-prev.finishedTxs) / elapsed
 	gasRate := float64(curr.gasConsumed-prev.gasConsumed) / elapsed
 	m.inputBlockRate.Set(inputRate)
+	m.preparedBlockRate.Set(preparedRate)
+	m.preparedTxRate.Set(preparedTxRate)
 	m.finishedBlockRate.Set(finishedRate)
 	m.txRate.Set(txRate)
 	m.gasRate.Set(gasRate)
 	m.queuedBlocks.Set(float64(queued))
 }
 
-func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetrics, blocks <-chan blockEnvelope) {
+func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetrics, blocks <-chan preparedBlockEnvelope) {
 	if interval == 0 {
 		<-ctx.Done()
 		return
@@ -1748,8 +1944,10 @@ func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetric
 			sinkWaitSeconds := float64(curr.sinkWaitNanos-prev.sinkWaitNanos) / float64(time.Second)
 			sinkWriteSeconds := float64(curr.sinkWriteNanos-prev.sinkWriteNanos) / float64(time.Second)
 			fmt.Printf(
-				"input_blocks/s=%.2f finished_blocks/s=%.2f tx/s=%.2f gas/s=%.2f queued_blocks=%d sink_queue=%d sink_enqueue_wait/s=%.6f sink_write/s=%.6f totals(input_blocks=%d finished_blocks=%d txs=%d gas=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_conflicts=%d sink_enqueued=%d sink_written=%d)\n",
+				"input_blocks/s=%.2f prepared_blocks/s=%.2f prepared_tx/s=%.2f finished_blocks/s=%.2f tx/s=%.2f gas/s=%.2f queued_blocks=%d sink_queue=%d sink_enqueue_wait/s=%.6f sink_write/s=%.6f totals(input_blocks=%d prepared_blocks=%d prepared_txs=%d finished_blocks=%d txs=%d gas=%d prepare_errors=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_conflicts=%d sink_enqueued=%d sink_written=%d)\n",
 				float64(curr.inputBlocks-prev.inputBlocks)/elapsed,
+				float64(curr.preparedBlocks-prev.preparedBlocks)/elapsed,
+				float64(curr.preparedTxs-prev.preparedTxs)/elapsed,
 				float64(curr.finishedBlocks-prev.finishedBlocks)/elapsed,
 				float64(curr.finishedTxs-prev.finishedTxs)/elapsed,
 				float64(curr.gasConsumed-prev.gasConsumed)/elapsed,
@@ -1758,9 +1956,12 @@ func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetric
 				sinkWaitSeconds/elapsed,
 				sinkWriteSeconds/elapsed,
 				curr.inputBlocks,
+				curr.preparedBlocks,
+				curr.preparedTxs,
 				curr.finishedBlocks,
 				curr.finishedTxs,
 				curr.gasConsumed,
+				curr.prepareErrors,
 				curr.executionErrors,
 				curr.occAttempts,
 				curr.occFallbacks,
@@ -1779,12 +1980,15 @@ func printFinalReport(startedAt time.Time, snapshot metricsSnapshot) {
 		elapsed = 1
 	}
 	fmt.Printf(
-		"complete elapsed=%s input_blocks=%d finished_blocks=%d txs=%d gas=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_conflicts=%d sink_queue=%d sink_enqueued=%d sink_written=%d sink_bytes=%d sink_enqueue_wait=%s sink_enqueue_wait_events=%d sink_write=%s avg_input_blocks/s=%.2f avg_finished_blocks/s=%.2f avg_tx/s=%.2f avg_gas/s=%.2f\n",
+		"complete elapsed=%s input_blocks=%d prepared_blocks=%d prepared_txs=%d finished_blocks=%d txs=%d gas=%d prepare_errors=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_conflicts=%d sink_queue=%d sink_enqueued=%d sink_written=%d sink_bytes=%d sink_enqueue_wait=%s sink_enqueue_wait_events=%d sink_write=%s avg_input_blocks/s=%.2f avg_prepared_blocks/s=%.2f avg_prepared_tx/s=%.2f avg_finished_blocks/s=%.2f avg_tx/s=%.2f avg_gas/s=%.2f\n",
 		snapshot.at.Sub(startedAt).Round(time.Millisecond),
 		snapshot.inputBlocks,
+		snapshot.preparedBlocks,
+		snapshot.preparedTxs,
 		snapshot.finishedBlocks,
 		snapshot.finishedTxs,
 		snapshot.gasConsumed,
+		snapshot.prepareErrors,
 		snapshot.executionErrors,
 		snapshot.occAttempts,
 		snapshot.occFallbacks,
@@ -1797,6 +2001,8 @@ func printFinalReport(startedAt time.Time, snapshot metricsSnapshot) {
 		snapshot.sinkWaitEvents,
 		time.Duration(snapshot.sinkWriteNanos).Round(time.Microsecond),
 		float64(snapshot.inputBlocks)/elapsed,
+		float64(snapshot.preparedBlocks)/elapsed,
+		float64(snapshot.preparedTxs)/elapsed,
 		float64(snapshot.finishedBlocks)/elapsed,
 		float64(snapshot.finishedTxs)/elapsed,
 		float64(snapshot.gasConsumed)/elapsed,
