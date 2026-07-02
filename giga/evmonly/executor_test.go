@@ -39,6 +39,25 @@ func (s *recordingResultSink) StoreReceipts(_ context.Context, height uint64, re
 	return nil
 }
 
+type recordingBlockResultSink struct {
+	result  *BlockResult
+	release func()
+}
+
+func (s *recordingBlockResultSink) StoreChangeSet(context.Context, uint64, StateChangeSet) error {
+	return nil
+}
+
+func (s *recordingBlockResultSink) StoreReceipts(context.Context, uint64, ethtypes.Receipts) error {
+	return nil
+}
+
+func (s *recordingBlockResultSink) StoreBlockResult(_ context.Context, _ uint64, result *BlockResult, release func()) error {
+	s.result = result
+	s.release = release
+	return nil
+}
+
 func TestExecutorEmptyBlock(t *testing.T) {
 	executor := NewExecutor(Config{})
 
@@ -106,6 +125,34 @@ func TestExecutorInvokesResultSink(t *testing.T) {
 	require.Equal(t, []uint64{ctx.Number}, sink.receiptHeights)
 	require.Equal(t, result.ChangeSet, sink.changeSets[0])
 	require.Equal(t, result.Receipts, sink.receipts[0])
+}
+
+func TestExecutorPooledResultRelease(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := common.HexToAddress("0x00000000000000000000000000000000000000a8")
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	sink := &recordingBlockResultSink{}
+	executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithState(state), WithResultSink(sink))
+	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
+	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
+
+	first, err := executor.ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	require.Same(t, first, sink.result)
+	require.NotNil(t, sink.release)
+	sink.release()
+	first.Release()
+
+	second, err := executor.ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	require.Same(t, first, second)
+	sink.release()
+	second.Release()
 }
 
 func TestExecutorDynamicFeeTx(t *testing.T) {

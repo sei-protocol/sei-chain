@@ -16,6 +16,11 @@ type Config struct {
 	ChainConfig          *params.ChainConfig
 	CustomPrecompiles    precompiles.Registry
 	OCCWorkers           int
+	// BlockResultPoolSize enables a bounded reusable output pool. Callers that
+	// enable it must call BlockResult.Release when they are done with returned
+	// results. Async sinks should implement BlockResultSink so the executor can
+	// retain results until the sink releases them.
+	BlockResultPoolSize int
 }
 
 func DefaultConfig() Config {

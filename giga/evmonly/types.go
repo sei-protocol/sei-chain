@@ -28,6 +28,15 @@ type ResultSink interface {
 	StoreReceipts(ctx context.Context, height uint64, receipts ethtypes.Receipts) error
 }
 
+// BlockResultSink can retain a complete BlockResult without forcing the
+// executor to copy changesets or receipts before handing them to an async sink.
+// The sink must invoke release exactly once after it no longer references
+// result. If StoreBlockResult returns an error, the executor releases that sink
+// reference.
+type BlockResultSink interface {
+	StoreBlockResult(ctx context.Context, height uint64, result *BlockResult, release func()) error
+}
+
 // BlockRequest contains all consensus/runtime inputs needed to execute a block.
 // Txs must be raw Ethereum transaction RLP bytes.
 type BlockRequest struct {
@@ -68,6 +77,19 @@ type BlockResult struct {
 	Txs       []TxResult
 	Receipts  ethtypes.Receipts
 	GasUsed   uint64
+
+	lease *blockResultLease
+}
+
+// Release returns a pooled BlockResult to its executor-owned pool. It is a
+// no-op for results that were not allocated from a pool.
+func (r *BlockResult) Release() {
+	if r == nil || r.lease == nil {
+		return
+	}
+	lease := r.lease
+	r.lease = nil
+	lease.release()
 }
 
 // StateChangeSet is the deterministic EVM-native state output for a block.
