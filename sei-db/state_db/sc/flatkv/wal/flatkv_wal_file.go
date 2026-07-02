@@ -1,0 +1,432 @@
+package wal
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"hash/crc32"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
+)
+
+// FlatKV WAL files use the following naming schema (mirroring the hashlog package):
+//
+// For mutable files: {index}.fkvwal.u
+// For sealed files:  {index}-{first block}-{last block}.fkvwal
+//
+// The on-disk serialization version is recorded in each file's header rather than its name.
+
+const (
+	// The file extension for unsealed (mutable) WAL files.
+	walUnsealedExtension = ".fkvwal.u"
+	// The file extension for sealed (immutable) WAL files.
+	walSealedExtension = ".fkvwal"
+	// The serialization version written into each file's header. Bumped if the on-disk format changes.
+	walFormatVersion = byte(1)
+)
+
+// The magic prefix written at the start of every WAL file, followed by a single format-version byte.
+var walFileMagic = []byte("FKVWAL")
+
+// The length of a WAL file header: magic prefix plus the format-version byte.
+const walHeaderSize = 7 // len("FKVWAL") + 1
+
+var (
+	unsealedFileRegex = regexp.MustCompile(`^(\d+)\.fkvwal\.u$`)
+	sealedFileRegex   = regexp.MustCompile(`^(\d+)-(\d+)-(\d+)\.fkvwal$`)
+)
+
+// The result of parsing a WAL file name.
+type parsedFileName struct {
+	index      uint64
+	firstBlock uint64
+	lastBlock  uint64
+	sealed     bool
+}
+
+// Parse a WAL file name into its components. Returns false if the name is not a WAL file name.
+func parseFileName(fileName string) (parsedFileName, bool) {
+	if m := sealedFileRegex.FindStringSubmatch(fileName); m != nil {
+		index, err1 := strconv.ParseUint(m[1], 10, 64)
+		first, err2 := strconv.ParseUint(m[2], 10, 64)
+		last, err3 := strconv.ParseUint(m[3], 10, 64)
+		if err1 != nil || err2 != nil || err3 != nil {
+			return parsedFileName{}, false
+		}
+		return parsedFileName{index: index, firstBlock: first, lastBlock: last, sealed: true}, true
+	}
+	if m := unsealedFileRegex.FindStringSubmatch(fileName); m != nil {
+		index, err := strconv.ParseUint(m[1], 10, 64)
+		if err != nil {
+			return parsedFileName{}, false
+		}
+		return parsedFileName{index: index, sealed: false}, true
+	}
+	return parsedFileName{}, false
+}
+
+// Build the name of an unsealed (mutable) WAL file.
+func unsealedFileName(index uint64) string {
+	return fmt.Sprintf("%d%s", index, walUnsealedExtension)
+}
+
+// Build the name of a sealed WAL file.
+func sealedFileName(index uint64, firstBlock uint64, lastBlock uint64) string {
+	return fmt.Sprintf("%d-%d-%d%s", index, firstBlock, lastBlock, walSealedExtension)
+}
+
+// A single WAL file on disk, either the current mutable file being appended to or a sealed file.
+type walFile struct {
+	// The directory this file lives in.
+	directory string
+
+	// The open file handle and buffered writer. Only set for the mutable file being written this session.
+	file   *os.File
+	writer *bufio.Writer
+
+	// The unique, monotonically increasing index of this file.
+	index uint64
+
+	// If true, this file is sealed and rejects writes.
+	sealed bool
+
+	// The first and last block numbers that appear in this file, valid only when hasBlocks is true.
+	firstBlock uint64
+	lastBlock  uint64
+	hasBlocks  bool
+
+	// The highest block number in this file terminated by an end-of-block marker, and the file size at that
+	// marker. Valid only when hasCompleteBlock is true. On seal, any records past completeSize (an incomplete
+	// trailing block) are truncated so the sealed file ends cleanly on a block boundary.
+	lastCompleteBlock uint64
+	completeSize      uint64
+	hasCompleteBlock  bool
+
+	// The number of bytes written to this file so far, including the header.
+	size uint64
+}
+
+// Create a new mutable WAL file on disk, writing its header, ready to accept records.
+func newWalFile(directory string, index uint64) (*walFile, error) {
+	path := filepath.Join(directory, unsealedFileName(index))
+	file, err := os.Create(path) //nolint:gosec // path derived from a validated directory
+	if err != nil {
+		return nil, fmt.Errorf("failed to create WAL file %s: %w", path, err)
+	}
+
+	writer := bufio.NewWriter(file)
+	header := append(append([]byte(nil), walFileMagic...), walFormatVersion)
+	if _, err := writer.Write(header); err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("failed to write WAL header to %s: %w", path, err)
+	}
+
+	return &walFile{
+		directory: directory,
+		file:      file,
+		writer:    writer,
+		index:     index,
+		size:      walHeaderSize,
+	}, nil
+}
+
+// frameRecord wraps a serialized payload in its on-disk framing:
+// [uvarint payload length][payload][uint32 CRC32(payload)].
+func frameRecord(payload []byte) []byte {
+	var lenBuf [binary.MaxVarintLen64]byte
+	lenN := binary.PutUvarint(lenBuf[:], uint64(len(payload)))
+
+	record := make([]byte, 0, lenN+len(payload)+4)
+	record = append(record, lenBuf[:lenN]...)
+	record = append(record, payload...)
+	var crcBuf [4]byte
+	binary.BigEndian.PutUint32(crcBuf[:], crc32.ChecksumIEEE(payload))
+	record = append(record, crcBuf[:]...)
+	return record
+}
+
+// Append a pre-framed record (see frameRecord) for the given block number to this file. endOfBlock marks the
+// record as an end-of-block marker, which advances the file's completed-block boundary.
+func (f *walFile) writeRecord(record []byte, blockNumber uint64, endOfBlock bool) error {
+	if f.sealed {
+		return fmt.Errorf("cannot write to a sealed WAL file")
+	}
+	if _, err := f.writer.Write(record); err != nil {
+		return fmt.Errorf("failed to write WAL record: %w", err)
+	}
+	f.size += uint64(len(record))
+
+	if !f.hasBlocks {
+		f.firstBlock = blockNumber
+		f.hasBlocks = true
+	}
+	f.lastBlock = blockNumber
+	if endOfBlock {
+		f.lastCompleteBlock = blockNumber
+		f.completeSize = f.size
+		f.hasCompleteBlock = true
+	}
+	return nil
+}
+
+// Serialize, frame, and append a WAL entry to this file. A convenience wrapper over frameRecord and
+// writeRecord for callers (rollback rewrite, tests) that hold entries rather than pre-framed bytes.
+func (f *walFile) writeEntry(entry *FlatKVWalEntry) error {
+	payload, err := entry.Serialize()
+	if err != nil {
+		return fmt.Errorf("failed to serialize WAL entry: %w", err)
+	}
+	return f.writeRecord(frameRecord(payload), entry.BlockNumber, entry.EndOfBlock)
+}
+
+// Flush buffered data to the OS. When fsync is true, also fsync the file so the data survives power loss.
+func (f *walFile) flush(fsync bool) error {
+	if f.writer != nil {
+		if err := f.writer.Flush(); err != nil {
+			return fmt.Errorf("failed to flush WAL file: %w", err)
+		}
+	}
+	if fsync && f.file != nil {
+		if err := f.file.Sync(); err != nil {
+			return fmt.Errorf("failed to fsync WAL file: %w", err)
+		}
+	}
+	return nil
+}
+
+// Seal this file: flush it, truncate away any incomplete trailing block, then atomically rename it to its
+// sealed name. A file with no complete blocks (including one that never received a record) is removed rather
+// than sealed. Idempotent. Returns the sealed file name, or "" if the file was removed.
+func (f *walFile) seal() (string, error) {
+	if f.sealed {
+		return "", nil
+	}
+	if err := f.flush(true); err != nil {
+		return "", fmt.Errorf("failed to flush before sealing: %w", err)
+	}
+
+	unsealedPath := filepath.Join(f.directory, unsealedFileName(f.index))
+	if !f.hasCompleteBlock {
+		if f.file != nil {
+			if err := f.file.Close(); err != nil {
+				return "", fmt.Errorf("failed to close WAL file: %w", err)
+			}
+		}
+		if err := os.Remove(unsealedPath); err != nil && !os.IsNotExist(err) {
+			return "", fmt.Errorf("failed to remove empty WAL file: %w", err)
+		}
+		f.sealed = true
+		return "", nil
+	}
+
+	if f.file != nil {
+		// Drop any records past the last end-of-block marker so the sealed file ends on a block boundary.
+		if f.size > f.completeSize {
+			if err := f.file.Truncate(int64(f.completeSize)); err != nil { //nolint:gosec // completeSize <= size
+				return "", fmt.Errorf("failed to truncate incomplete trailing block: %w", err)
+			}
+			if err := f.file.Sync(); err != nil {
+				return "", fmt.Errorf("failed to fsync WAL file after truncation: %w", err)
+			}
+		}
+		if err := f.file.Close(); err != nil {
+			return "", fmt.Errorf("failed to close WAL file: %w", err)
+		}
+	}
+
+	sealedName := sealedFileName(f.index, f.firstBlock, f.lastCompleteBlock)
+	sealedPath := filepath.Join(f.directory, sealedName)
+	if err := util.AtomicRename(unsealedPath, sealedPath, true); err != nil {
+		return "", fmt.Errorf("failed to seal WAL file: %w", err)
+	}
+	f.sealed = true
+	return sealedName, nil
+}
+
+// The result of reading a WAL file from disk.
+type walFileContents struct {
+	// The parsed file name components.
+	parsed parsedFileName
+
+	// The intact entries read from the file, in order. Excludes any torn trailing record.
+	entries []*FlatKVWalEntry
+
+	// The first and last block numbers across the intact entries, valid only when hasBlocks is true.
+	firstBlock uint64
+	lastBlock  uint64
+	hasBlocks  bool
+
+	// The byte offset just past the last record terminated by an end-of-block marker. Data beyond this offset
+	// belongs to an incomplete (uncommitted) block, or is a torn trailing record, and is discarded on recovery.
+	lastCompleteBlockOffset int64
+
+	// The highest block number terminated by an end-of-block marker, valid only when hasCompleteBlock is true.
+	lastCompleteBlock uint64
+	hasCompleteBlock  bool
+
+	// One entry per end-of-block marker, recording the marker's block number and the byte offset just past its
+	// record. Ordered by ascending offset. Used to truncate the file at a block boundary (e.g. for rollback).
+	blockBoundaries []blockBoundary
+}
+
+// The byte offset just past an end-of-block marker for a given block number.
+type blockBoundary struct {
+	block  uint64
+	offset int64
+}
+
+// Read a WAL file from disk, tolerating a torn trailing record (a crash mid-write can leave a final record
+// whose length prefix, payload, or checksum is incomplete). Any bytes past the last intact record are
+// discarded; the last intact record's boundaries are reported so callers can recover incomplete tail blocks.
+func readWalFile(path string) (*walFileContents, error) {
+	name := filepath.Base(path)
+	parsed, ok := parseFileName(name)
+	if !ok {
+		return nil, fmt.Errorf("not a WAL file: %s", name)
+	}
+
+	data, err := os.ReadFile(path) //nolint:gosec // caller-supplied path
+	if err != nil {
+		return nil, fmt.Errorf("failed to read WAL file %s: %w", path, err)
+	}
+
+	contents := &walFileContents{parsed: parsed}
+
+	if len(data) < walHeaderSize {
+		// A file too short to even contain a header carries no committed data.
+		return contents, nil
+	}
+	if !bytes.Equal(data[:len(walFileMagic)], walFileMagic) {
+		return nil, fmt.Errorf("WAL file %s has an invalid magic prefix", path)
+	}
+	if version := data[len(walFileMagic)]; version != walFormatVersion {
+		return nil, fmt.Errorf("WAL file %s has unsupported format version %d", path, version)
+	}
+	contents.lastCompleteBlockOffset = walHeaderSize
+
+	offset := walHeaderSize
+	for offset < len(data) {
+		length, lenN := binary.Uvarint(data[offset:])
+		if lenN <= 0 {
+			break // torn or incomplete length prefix
+		}
+		payloadStart := offset + lenN
+		remaining := uint64(len(data) - payloadStart) //nolint:gosec // payloadStart <= len(data), so non-negative
+		if remaining < 4 || length > remaining-4 {
+			break // torn record: payload or checksum truncated (4 trailing bytes are the CRC32)
+		}
+		payloadLen := int(length) //nolint:gosec // bounded above by remaining-4, which is <= len(data)
+		payload := data[payloadStart : payloadStart+payloadLen]
+		recordEnd := payloadStart + payloadLen + 4
+		gotCRC := binary.BigEndian.Uint32(data[payloadStart+payloadLen : recordEnd])
+		if gotCRC != crc32.ChecksumIEEE(payload) {
+			break // torn or corrupt record
+		}
+
+		entry, entryOK, err := DeserializeFlatKVWalEntry(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize record in %s: %w", path, err)
+		}
+		if !entryOK {
+			break // torn payload
+		}
+
+		contents.entries = append(contents.entries, entry)
+		if !contents.hasBlocks {
+			contents.firstBlock = entry.BlockNumber
+			contents.hasBlocks = true
+		}
+		contents.lastBlock = entry.BlockNumber
+		if entry.EndOfBlock {
+			contents.lastCompleteBlockOffset = int64(recordEnd)
+			contents.lastCompleteBlock = entry.BlockNumber
+			contents.hasCompleteBlock = true
+			contents.blockBoundaries = append(contents.blockBoundaries,
+				blockBoundary{block: entry.BlockNumber, offset: int64(recordEnd)})
+		}
+
+		offset = recordEnd
+	}
+
+	return contents, nil
+}
+
+// Seal an orphaned mutable file discovered on disk at startup (left behind by a crash before it could be
+// sealed). Any incomplete trailing block (records not terminated by an end-of-block marker) or torn trailing
+// record is truncated away first, so the sealed file ends cleanly on a block boundary. A file left with no
+// complete blocks is removed.
+func sealOrphanFile(directory string, name string) error {
+	path := filepath.Join(directory, name)
+	contents, err := readWalFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read orphaned WAL file %s: %w", path, err)
+	}
+
+	if !contents.hasCompleteBlock {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove empty orphaned WAL file %s: %w", path, err)
+		}
+		return nil
+	}
+
+	if err := os.Truncate(path, contents.lastCompleteBlockOffset); err != nil {
+		return fmt.Errorf("failed to truncate orphaned WAL file %s: %w", path, err)
+	}
+	sealedPath := filepath.Join(directory,
+		sealedFileName(contents.parsed.index, contents.firstBlock, contents.lastCompleteBlock))
+	if err := util.AtomicRename(path, sealedPath, true); err != nil {
+		return fmt.Errorf("failed to seal orphaned WAL file %s: %w", path, err)
+	}
+	return nil
+}
+
+// Truncate a sealed file to drop every block beyond rollbackThrough, renaming it to reflect the reduced block
+// range. A file whose blocks all lie beyond rollbackThrough is removed entirely. Used by the rollback
+// constructor after all orphans have been sealed.
+func rollbackFile(directory string, name string, rollbackThrough uint64) error {
+	path := filepath.Join(directory, name)
+	contents, err := readWalFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read WAL file %s during rollback: %w", path, err)
+	}
+
+	truncateTo := int64(walHeaderSize)
+	var lastKept uint64
+	kept := false
+	for _, boundary := range contents.blockBoundaries {
+		if boundary.block > rollbackThrough {
+			break
+		}
+		truncateTo = boundary.offset
+		lastKept = boundary.block
+		kept = true
+	}
+
+	if !kept {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove WAL file %s during rollback: %w", path, err)
+		}
+		return nil
+	}
+	if lastKept == contents.lastBlock {
+		return nil // nothing beyond the rollback point; leave the file untouched
+	}
+
+	if err := os.Truncate(path, truncateTo); err != nil {
+		return fmt.Errorf("failed to truncate WAL file %s during rollback: %w", path, err)
+	}
+	newPath := filepath.Join(directory,
+		sealedFileName(contents.parsed.index, contents.firstBlock, lastKept))
+	if newPath == path {
+		return nil
+	}
+	if err := util.AtomicRename(path, newPath, true); err != nil {
+		return fmt.Errorf("failed to rename WAL file %s during rollback: %w", path, err)
+	}
+	return nil
+}

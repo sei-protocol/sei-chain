@@ -1,0 +1,122 @@
+package wal
+
+import (
+	"testing"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/stretchr/testify/require"
+)
+
+func TestIteratorEmpty(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir()))
+	defer func() { require.NoError(t, w.Close()) }()
+
+	it, err := w.Iterator(0)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	ok, err := it.Next()
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+func TestIteratorFromMiddle(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir()))
+	defer func() { require.NoError(t, w.Close()) }()
+	for block := uint64(1); block <= 5; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+
+	require.Equal(t, []uint64{3, 4, 5}, collectBlocks(t, w, 3))
+}
+
+func TestIteratorAcrossFiles(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.TargetFileSize = 1 // one block per file
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+	for block := uint64(1); block <= 5; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+
+	require.Equal(t, []uint64{2, 3, 4, 5}, collectBlocks(t, w, 2))
+}
+
+func TestIteratorStopsBeforeIncompleteTail(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir()))
+	defer func() { require.NoError(t, w.Close()) }()
+	for block := uint64(1); block <= 3; block++ {
+		writeBlock(t, w, block)
+	}
+	// Block 4 written but not ended.
+	require.NoError(t, w.Write(4, []*proto.NamedChangeSet{makeChangeSet("evm", []byte{4}, []byte{4})}))
+	require.NoError(t, w.Flush())
+
+	require.Equal(t, []uint64{1, 2, 3}, collectBlocks(t, w, 1))
+}
+
+func TestIteratorYieldsChangesetContents(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir()))
+	defer func() { require.NoError(t, w.Close()) }()
+
+	cs := []*proto.NamedChangeSet{makeChangeSet("evm", []byte("key"), []byte("value"))}
+	require.NoError(t, w.Write(1, cs))
+	require.NoError(t, w.SignalEndOfBlock())
+	require.NoError(t, w.Flush())
+
+	it, err := w.Iterator(1)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	ok, err := it.Next()
+	require.NoError(t, err)
+	require.True(t, ok)
+	entry := it.Entry()
+	require.Equal(t, uint64(1), entry.BlockNumber)
+	require.False(t, entry.EndOfBlock)
+	require.Len(t, entry.Changeset, 1)
+	require.Equal(t, "evm", entry.Changeset[0].Name)
+	require.Equal(t, []byte("key"), entry.Changeset[0].Changeset.Pairs[0].Key)
+	require.Equal(t, []byte("value"), entry.Changeset[0].Changeset.Pairs[0].Value)
+
+	// The end-of-block marker is folded into the block's single entry, not surfaced separately.
+	ok, err = it.Next()
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+func TestIteratorCoalescesMultipleWritesInOrder(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir()))
+	defer func() { require.NoError(t, w.Close()) }()
+
+	require.NoError(t, w.Write(1, []*proto.NamedChangeSet{makeChangeSet("a", []byte("k1"), []byte("v1"))}))
+	require.NoError(t, w.Write(1, []*proto.NamedChangeSet{
+		makeChangeSet("b", []byte("k2"), []byte("v2")),
+		makeChangeSet("c", []byte("k3"), []byte("v3")),
+	}))
+	require.NoError(t, w.SignalEndOfBlock())
+	require.NoError(t, w.Flush())
+
+	it, err := w.Iterator(1)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	ok, err := it.Next()
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	entry := it.Entry()
+	require.Equal(t, uint64(1), entry.BlockNumber)
+	require.False(t, entry.EndOfBlock)
+	// Three changesets total (1 from the first Write, 2 from the second), concatenated in write order.
+	require.Len(t, entry.Changeset, 3)
+	require.Equal(t, "a", entry.Changeset[0].Name)
+	require.Equal(t, "b", entry.Changeset[1].Name)
+	require.Equal(t, "c", entry.Changeset[2].Name)
+
+	ok, err = it.Next()
+	require.NoError(t, err)
+	require.False(t, ok)
+}
