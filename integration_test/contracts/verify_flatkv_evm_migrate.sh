@@ -39,8 +39,17 @@ GO_BIN=${GO_BIN:-/usr/local/go/bin/go}
 # default fixture (~4000 EVM keys), 400 keys/block gives roughly ten batches
 # and exercises the resume / hybrid-read path. Override to 1024+ for a
 # production-equivalent one-shot drain when sanity-checking the script.
+#
+# The rate is consensus-relevant (migration writes feed the AppHash), so it
+# is NOT a node-local config: every validator reads the governance-controlled
+# migration.NumKeysToMigratePerBlock param from chain state each BeginBlock.
+# This script raises that param from its 0 (paused) default via a single
+# param-change proposal (step 4b) so all nodes drain at the identical rate.
 KEYS_TO_MIGRATE_PER_BLOCK=${MIGRATE_KEYS_PER_BLOCK:-400}
 MIN_KEYS_MIGRATED=${MIGRATE_MIN_KEYS_MIGRATED:-3500}
+# Upper bound on how long to wait for the migration param-change proposal to
+# move from submission through the voting period to PROPOSAL_STATUS_PASSED.
+GOV_PASS_TIMEOUT=${MIGRATE_GOV_PASS_TIMEOUT:-120}
 
 STOP_TIMEOUT=${MIGRATE_STOP_TIMEOUT:-30}
 HALT_TIMEOUT=${MIGRATE_HALT_TIMEOUT:-120}
@@ -627,41 +636,31 @@ wait_for_safe_halt_height
 
 # --- step 3: flip sc-write-mode on every node -------------------------
 #
-# memiavl_only -> migrate_evm, and inject keys-to-migrate-per-block so
-# the test runner controls how aggressive the per-block batch copier is.
-# Both edits are idempotent: running this script twice in a row is safe
-# (second flip is a no-op).
+# memiavl_only -> migrate_evm. The per-block migration rate is no longer a
+# node-local config: it is driven entirely by the consensus-relevant
+# migration.NumKeysToMigratePerBlock gov param, raised via a proposal in
+# step 4b below. Until that param is positive the migration stays paused, so
+# flipping the write mode alone is a safe no-op copy boundary. The edit is
+# idempotent: running this script twice in a row is safe (second flip is a
+# no-op).
 
 for i in $(seq 0 $((NODE_COUNT - 1))); do
   node="sei-node-$i"
-  # The TOML key must match the FlagSC* constant in app/seidb.go
-  # (sc-keys-to-migrate-per-block, prefix matches sibling state-commit
-  # keys like sc-write-mode / sc-async-commit-buffer). The earlier
-  # un-prefixed name "keys-to-migrate-per-block" matched the mapstructure
-  # tag but not the FlagSC* viper key, so parseSCConfigs silently never
-  # read it -- the seid log showed KeysToMigratePerBlock:1024 (default)
-  # regardless of what we wrote here.
   docker exec "$node" bash -c "
     sed -i 's/^halt-height = .*/halt-height = 0/' '$APP_CONFIG'
     sed -i 's/^sc-write-mode = .*/sc-write-mode = \"migrate_evm\"/' '$APP_CONFIG'
-    if grep -q '^sc-keys-to-migrate-per-block' '$APP_CONFIG'; then
-      sed -i 's/^sc-keys-to-migrate-per-block = .*/sc-keys-to-migrate-per-block = $KEYS_TO_MIGRATE_PER_BLOCK/' '$APP_CONFIG'
-    else
-      sed -i '/^sc-write-mode/a sc-keys-to-migrate-per-block = $KEYS_TO_MIGRATE_PER_BLOCK' '$APP_CONFIG'
-    fi
   "
 done
-echo "Flipped sc-write-mode to migrate_evm on all $NODE_COUNT nodes (batch=$KEYS_TO_MIGRATE_PER_BLOCK)"
+echo "Flipped sc-write-mode to migrate_evm on all $NODE_COUNT nodes (migration rate driven by gov param)"
 
-# Belt-and-suspenders: confirm the rewrite actually landed on node 0.
-# If it didn't (e.g. unexpected app.toml format change), the migration
-# would silently run at the 1024 default rather than the requested batch
-# size, and the resume / hybrid-read coverage we want from this test
-# would degrade to a one-shot drain.
-written_batch=$(docker exec "sei-node-0" grep -E '^sc-keys-to-migrate-per-block' "$APP_CONFIG" \
+# Belt-and-suspenders: confirm the write-mode rewrite actually landed on
+# node 0. If it didn't (e.g. unexpected app.toml format change), the nodes
+# would restart in memiavl_only and the "migration" would silently do
+# nothing, masking real bugs.
+written_mode=$(docker exec "sei-node-0" grep -E '^sc-write-mode' "$APP_CONFIG" \
   | tail -1 | awk -F'=' '{print $2}' | tr -d ' "' || true)
-if [ -z "$written_batch" ] || [ "$written_batch" != "$KEYS_TO_MIGRATE_PER_BLOCK" ]; then
-  echo "ERROR: sei-node-0 app.toml has sc-keys-to-migrate-per-block='$written_batch' after rewrite; expected '$KEYS_TO_MIGRATE_PER_BLOCK'" >&2
+if [ "$written_mode" != "migrate_evm" ]; then
+  echo "ERROR: sei-node-0 app.toml has sc-write-mode='$written_mode' after rewrite; expected 'migrate_evm'" >&2
   exit 1
 fi
 
@@ -692,6 +691,108 @@ if $SETTLE_FAIL; then
   exit 1
 fi
 echo "All $NODE_COUNT validators restarted in migrate_evm mode and survived a 5s settle"
+
+# --- step 4b: drive the migration via a governance param change -------
+#
+# The per-block migration rate is consensus-relevant (migration writes feed
+# the AppHash), so a per-node config would diverge the chain. Instead every
+# validator reads migration.NumKeysToMigratePerBlock from chain state in
+# BeginBlock and applies the same value. We raise it from its 0 (paused)
+# default to $KEYS_TO_MIGRATE_PER_BLOCK with a single param-change proposal
+# voted through by a quorum; once it passes, all nodes begin draining at the
+# identical rate on the same height. Uses the same gov helpers as
+# integration_test/gov_module/gov_proposal_test.yaml.
+
+drive_migration_via_gov() {
+  local rate="$1"
+  local title="FlatKV migrate: set NumKeysToMigratePerBlock=${rate}"
+
+  # Generate the param-change proposal JSON inside node 0.
+  docker exec "sei-node-0" bash -lc "cat > /tmp/migration_param_change_proposal.json <<EOF
+{
+  \"title\": \"${title}\",
+  \"description\": \"Set migration.NumKeysToMigratePerBlock to ${rate} to drive the SC memiavl->flatkv migration\",
+  \"changes\": [
+    {
+      \"subspace\": \"migration\",
+      \"key\": \"NumKeysToMigratePerBlock\",
+      \"value\": \"${rate}\"
+    }
+  ],
+  \"deposit\": \"10000000usei\",
+  \"is_expedited\": false
+}
+EOF"
+
+  # Submit from node 0's admin key; capture the new proposal id.
+  local proposal_id
+  proposal_id=$(docker exec "sei-node-0" bash -lc "
+    cd /sei-protocol/sei-chain
+    seidbin=build/seid chainid=sei
+    source integration_test/utils/_tx_helpers.sh
+    submit_gov_proposal admin '${title}' gov submit-proposal param-change /tmp/migration_param_change_proposal.json --fees 2000usei
+  ")
+  if [ -z "$proposal_id" ]; then
+    echo "ERROR: failed to submit migration param-change proposal" >&2
+    for i in $(seq 0 $((NODE_COUNT - 1))); do dump_node_log "sei-node-$i"; done
+    exit 1
+  fi
+  echo "Submitted migration param-change proposal id=$proposal_id (rate=$rate)"
+
+  # Top up the deposit to clear the min-deposit threshold (mirrors the yaml).
+  docker exec "sei-node-0" bash -lc "
+    cd /sei-protocol/sei-chain
+    seidbin=build/seid chainid=sei
+    source integration_test/utils/_tx_helpers.sh
+    submit_tx_and_wait admin gov deposit $proposal_id 10000000usei --fees 2000usei
+  " >/dev/null
+
+  # Vote yes from a quorum (2/4 with the devnet's 0.5 quorum).
+  for i in 0 1; do
+    docker exec "sei-node-$i" bash -lc "
+      cd /sei-protocol/sei-chain
+      seidbin=build/seid chainid=sei
+      source integration_test/utils/_tx_helpers.sh
+      submit_tx_and_wait node_admin gov vote $proposal_id yes --fees 2000usei
+    " >/dev/null
+  done
+  echo "Voted yes on proposal $proposal_id from a quorum of validators; waiting for it to pass..."
+
+  # Poll for PASSED rather than a fixed sleep so a slow voting period does
+  # not flake the test (and a rejection fails fast).
+  local elapsed=0
+  local status=""
+  while [ "$elapsed" -lt "$GOV_PASS_TIMEOUT" ]; do
+    status=$(docker exec "sei-node-0" build/seid q gov proposal "$proposal_id" --output json 2>/dev/null \
+      | jq -r '.status // ""' 2>/dev/null || true)
+    if [ "$status" = "PROPOSAL_STATUS_PASSED" ]; then
+      break
+    fi
+    if [ "$status" = "PROPOSAL_STATUS_REJECTED" ] || [ "$status" = "PROPOSAL_STATUS_FAILED" ]; then
+      echo "ERROR: migration param-change proposal $proposal_id ended in status $status" >&2
+      exit 1
+    fi
+    echo "Waiting for proposal $proposal_id to pass (elapsed=${elapsed}s/${GOV_PASS_TIMEOUT}s, status=${status:-unknown})"
+    sleep 5
+    elapsed=$((elapsed + 5))
+  done
+  if [ "$status" != "PROPOSAL_STATUS_PASSED" ]; then
+    echo "ERROR: migration param-change proposal $proposal_id did not pass within ${GOV_PASS_TIMEOUT}s (last status=$status)" >&2
+    exit 1
+  fi
+
+  # Confirm the param actually took the requested value on chain.
+  local on_chain
+  on_chain=$(docker exec "sei-node-0" build/seid q params subspace migration NumKeysToMigratePerBlock --output json 2>/dev/null \
+    | jq -r '.value' 2>/dev/null | tr -d '"' || true)
+  if [ "$on_chain" != "$rate" ]; then
+    echo "ERROR: migration.NumKeysToMigratePerBlock='$on_chain' after proposal $proposal_id passed; expected '$rate'" >&2
+    exit 1
+  fi
+  echo "Governance raised migration.NumKeysToMigratePerBlock to $rate; migration now draining on all validators"
+}
+
+drive_migration_via_gov "$KEYS_TO_MIGRATE_PER_BLOCK"
 
 # --- step 5: wait for migration completion on every node --------------
 #
