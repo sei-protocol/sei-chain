@@ -5,7 +5,7 @@ import (
 
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
-	
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -83,8 +83,9 @@ func TestCounterIntVec(t *testing.T) {
 	require.NoError(t, counter.Write(dtoMetric))
 	require.Equal(t, float64(3), dtoMetric.GetCounter().GetValue())
 	require.Len(t, dtoMetric.Label, 2)
-	require.Equal(t, "peer", dtoMetric.Label[0].GetName())
-	require.Equal(t, "p1", dtoMetric.Label[0].GetValue())
-	require.Equal(t, "direction", dtoMetric.Label[1].GetName())
-	require.Equal(t, "in", dtoMetric.Label[1].GetValue())
+	// MakeLabelPairs normalizes labels to lexicographic order by label name.
+	require.Equal(t, "direction", dtoMetric.Label[0].GetName())
+	require.Equal(t, "in", dtoMetric.Label[0].GetValue())
+	require.Equal(t, "peer", dtoMetric.Label[1].GetName())
+	require.Equal(t, "p1", dtoMetric.Label[1].GetValue())
 }
