@@ -73,6 +73,9 @@ Useful knobs:
 - `--builders`: parallel block builders used to keep the input queue full. The
   default is `GOMAXPROCS`.
 - `--queue-size`: buffered raw and prepared blocks. The default is `64`.
+- `--result-pool-size`: reusable executor result slots. The default `0`
+  sizes the pool for in-flight executor and async sink results; negative
+  disables result pooling.
 - `--target-blocks-per-sec`: cap block input rate. The default `0` feeds as
   fast as block generation and the queue allow.
 - `--prebuild-blocks`: generate all bounded blocks before starting executor
