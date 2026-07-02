@@ -134,6 +134,10 @@ func (s *MemoryState) ApplyChangeSet(cs StateChangeSet) {
 			acct.Code = cloneBytes(change.Code)
 		}
 	}
+	for _, addr := range cs.StorageClears {
+		acct := s.getOrCreateAccountLocked(addr)
+		acct.Storage = map[common.Hash]common.Hash{}
+	}
 	for _, change := range cs.Storage {
 		acct := s.getOrCreateAccountLocked(change.Address)
 		if acct.Storage == nil {
@@ -159,6 +163,13 @@ func (s *MemoryState) getOrCreateAccountLocked(addr common.Address) *StateAccoun
 func cloneBig(v *big.Int) *big.Int {
 	if v == nil {
 		return new(big.Int)
+	}
+	return new(big.Int).Set(v)
+}
+
+func cloneOptionalBig(v *big.Int) *big.Int {
+	if v == nil {
+		return nil
 	}
 	return new(big.Int).Set(v)
 }

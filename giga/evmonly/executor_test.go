@@ -61,7 +61,9 @@ func (s *recordingBlockResultSink) StoreBlockResult(_ context.Context, _ uint64,
 func TestExecutorEmptyBlock(t *testing.T) {
 	executor := NewExecutor(Config{})
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{})
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: blockContext(big.NewInt(713715)),
+	})
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -181,6 +183,29 @@ func TestExecutorDynamicFeeTx(t *testing.T) {
 	require.Equal(t, big.NewInt(11), state.GetBalance(recipient))
 }
 
+func TestExecutorRequiresBaseFeeAfterLondon(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xb4)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
+	ctx := blockContext(chainID)
+	ctx.BaseFee = nil
+
+	result, err := NewExecutor(Config{}, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+		Context: ctx,
+		Txs:     [][]byte{rawTx},
+	})
+
+	require.ErrorIs(t, err, errMissingBaseFee)
+	require.Nil(t, result)
+	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+}
+
 func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
 	chainID := big.NewInt(713715)
 	txCount := 12
@@ -274,6 +299,34 @@ func TestExecutorOCCConflictingTransfersMatchSequential(t *testing.T) {
 	require.True(t, foundRecipientBalanceConflict)
 	require.Equal(t, seqState.GetBalance(recipient), occState.GetBalance(recipient))
 	require.Equal(t, big.NewInt(int64(txCount*3)), occState.GetBalance(recipient))
+}
+
+func TestExecutorOCCFallsBackWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
+	chainID := big.NewInt(713715)
+	rawTxs := make([][]byte, 0, 2)
+	state := NewMemoryState()
+
+	for i := 0; i < 2; i++ {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+		recipient := common.BigToAddress(big.NewInt(int64(20_000 + i)))
+		state.SetBalance(sender, big.NewInt(1_000_000))
+		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 90_000, big.NewInt(0)))
+	}
+
+	ctx := blockContext(chainID)
+	ctx.GasLimit = 100_000
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(state))
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: ctx,
+		Txs:     rawTxs,
+	})
+
+	require.Error(t, err)
+	require.True(t, errors.Is(err, core.ErrGasLimitReached))
+	require.Nil(t, result)
 }
 
 func TestExecutorReceiptAndLogMetadata(t *testing.T) {
@@ -739,6 +792,56 @@ func TestExecutorFinalisesAfterEachTx(t *testing.T) {
 	require.Equal(t, big.NewInt(0), state.GetBalance(beneficiary))
 }
 
+func TestStateDBSelfDestructEmitsStorageClear(t *testing.T) {
+	contract := testAddress(0xc4)
+	loadedKey := testHash(0x01)
+	unreadKey := testHash(0x02)
+	loadedValue := testHash(0x11)
+	unreadValue := testHash(0x22)
+
+	state := NewMemoryState()
+	state.SetCode(contract, []byte{0x60, 0x00, 0x00})
+	state.SetState(contract, loadedKey, loadedValue)
+	state.SetState(contract, unreadKey, unreadValue)
+	stateDB := newNativeStateDB(state)
+
+	require.Equal(t, loadedValue, stateDB.GetState(contract, loadedKey))
+	stateDB.SelfDestruct(contract)
+	stateDB.Finalise(true)
+
+	changes := stateDB.ChangeSet()
+	require.Contains(t, changes.StorageClears, contract)
+	state.ApplyChangeSet(changes)
+	require.Empty(t, state.GetCode(contract))
+	require.Equal(t, common.Hash{}, state.GetState(contract, loadedKey))
+	require.Equal(t, common.Hash{}, state.GetState(contract, unreadKey))
+}
+
+func TestStateDBStorageClearThenSameValueWriteIsEmitted(t *testing.T) {
+	contract := testAddress(0xc5)
+	key := testHash(0x01)
+	value := testHash(0x22)
+
+	state := NewMemoryState()
+	state.SetState(contract, key, value)
+	stateDB := newNativeStateDB(state)
+
+	require.Equal(t, value, stateDB.GetState(contract, key))
+	stateDB.SelfDestruct(contract)
+	stateDB.Finalise(true)
+	stateDB.SetState(contract, key, value)
+
+	changes := stateDB.ChangeSet()
+	require.Contains(t, changes.StorageClears, contract)
+	require.Len(t, changes.Storage, 1)
+	require.Equal(t, key, changes.Storage[0].Key)
+	require.Equal(t, value, changes.Storage[0].Value)
+	require.False(t, changes.Storage[0].Delete)
+
+	state.ApplyChangeSet(changes)
+	require.Equal(t, value, state.GetState(contract, key))
+}
+
 func TestPrepareClearsTransientStorage(t *testing.T) {
 	stateDB := newNativeStateDB(NewMemoryState())
 	addr := common.HexToAddress("0x00000000000000000000000000000000000000a3")
@@ -804,6 +907,45 @@ func TestStateDBFirstStorageReadPreservesBase(t *testing.T) {
 		require.Len(t, changes.Storage, 1)
 		require.Equal(t, nextValue, changes.Storage[0].Value)
 	})
+}
+
+func TestStateDBZeroStorageWriteStaysDirty(t *testing.T) {
+	addr := testAddress(0xaa)
+	key := testHash(0x01)
+	value := testHash(0x02)
+
+	state := NewMemoryState()
+	state.SetState(addr, key, value)
+	stateDB := newNativeStateDB(state)
+
+	require.Equal(t, value, stateDB.GetState(addr, key))
+	require.Equal(t, value, stateDB.SetState(addr, key, common.Hash{}))
+	require.Equal(t, common.Hash{}, stateDB.GetState(addr, key))
+
+	changes := stateDB.ChangeSet()
+	require.Len(t, changes.Storage, 1)
+	require.Equal(t, addr, changes.Storage[0].Address)
+	require.Equal(t, key, changes.Storage[0].Key)
+	require.True(t, changes.Storage[0].Delete)
+
+	state.ApplyChangeSet(changes)
+	require.Equal(t, common.Hash{}, state.GetState(addr, key))
+}
+
+func TestStateDBGetCodeHashDistinguishesExistingCodelessAccounts(t *testing.T) {
+	missing := testAddress(0xab)
+	eoa := testAddress(0xac)
+	contract := testAddress(0xad)
+	code := []byte{0x60, 0x00, 0x00}
+
+	state := NewMemoryState()
+	state.SetBalance(eoa, big.NewInt(1))
+	state.SetCode(contract, code)
+	stateDB := newNativeStateDB(state)
+
+	require.Equal(t, common.Hash{}, stateDB.GetCodeHash(missing))
+	require.Equal(t, ethtypes.EmptyCodeHash, stateDB.GetCodeHash(eoa))
+	require.Equal(t, crypto.Keccak256Hash(code), stateDB.GetCodeHash(contract))
 }
 
 func TestFinaliseClearsRefund(t *testing.T) {
