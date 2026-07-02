@@ -30,7 +30,18 @@ type Tree struct {
 	// when true, the get and iterator methods could return a slice pointing to mmaped blob files.
 	zeroCopy bool
 
-	// sync.RWMutex is used to protect the tree for thread safety during snapshot reload
+	// mtx guards concurrent access to this tree's mutable state (root, version,
+	// cowVersion, snapshot) AND the lazily-populated MemNode.hash caches reachable
+	// from root. Operations that fill those caches in place — RootHash and the
+	// proof builders (GetProof/GetMembership/GetNonMembership) — take the write
+	// lock; pure reads (Get/Has/Iterator) take the read lock. This serialization
+	// only protects a single tree instance: a tree produced by Copy() gets its
+	// own mtx and shares the underlying nodes copy-on-write. Cross-copy hash
+	// consistency therefore relies on (a) the shared nodes already being fully
+	// hashed before the copy is used for hashing/proofs (Copy is taken between
+	// commits, and the commit path hashes via SaveVersion(true)/RootHash), and
+	// (b) cowVersion cloning any shared MemNode before it is structurally mutated,
+	// so a live-tree write never mutates a node another copy is still reading.
 	mtx *sync.RWMutex
 
 	pendingChanges chan proto.ChangeSet

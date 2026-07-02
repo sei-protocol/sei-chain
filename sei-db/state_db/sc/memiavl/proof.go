@@ -49,6 +49,13 @@ func (t *Tree) getMembershipProofNoLock(key []byte) (*ics23.CommitmentProof, err
 }
 
 // VerifyMembership returns true iff proof is an ExistenceProof for the given key.
+//
+// NOTE: this reads the value (Get, RLock) and the root (RootHash, write lock)
+// under two separate lock acquisitions, so a commit landing between them can
+// yield an inconsistent (val, root) pair. That is acceptable here because this
+// is a test/verification-only helper and is not used on the live commit or
+// query paths; a caller needing an atomic (value, root) snapshot must serialize
+// against commits itself.
 func (t *Tree) VerifyMembership(proof *ics23.CommitmentProof, key []byte) bool {
 	val := t.Get(key)
 	root := t.RootHash()
@@ -106,6 +113,11 @@ func (t *Tree) getNonMembershipProofNoLock(key []byte) (*ics23.CommitmentProof, 
 }
 
 // VerifyNonMembership returns true iff proof is a NonExistenceProof for the given key.
+//
+// NOTE: like VerifyMembership, this is a test/verification-only helper. The
+// supplied proof and the root read here (RootHash, write lock) are not captured
+// atomically relative to concurrent commits, so it must not be relied on for
+// consistency on the live commit or query paths.
 func (t *Tree) VerifyNonMembership(proof *ics23.CommitmentProof, key []byte) bool {
 	root := t.RootHash()
 	return ics23.VerifyNonMembership(ics23.IavlSpec, root, proof, key)
