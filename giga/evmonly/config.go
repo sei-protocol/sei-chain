@@ -16,6 +16,8 @@ type Config struct {
 	ChainConfig          *params.ChainConfig
 	CustomPrecompiles    precompiles.Registry
 	OCCWorkers           int
+	PinOCCWorkers        bool
+	OCCWorkerCPUOffset   int
 }
 
 func DefaultConfig() Config {
