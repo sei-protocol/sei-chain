@@ -66,7 +66,8 @@ jobs:
       startsWith(github.event.merge_group.base_ref, 'refs/heads/release/')
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
       # Build inside Alpine (musl-native): Ubuntu's musl-gcc can't fully static-link
       # on 24.04 (glibc libgcc -> _dl_find_object, absent in musl), and zig cc rejects
