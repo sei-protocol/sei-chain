@@ -199,7 +199,7 @@ func NewTxStore(cfg *Config, app *proxy.Proxy, metrics *Metrics) *txStore {
 func (s *txStore) Clear() {
 	for inner := range s.inner.Lock() {
 		inner.cache.Reset()
-		s.metrics.CacheSizeAt().Set(float64(inner.cache.Size()))
+		s.metrics.CacheSizeAt().Set(int64(inner.cache.Size()))
 		inner.failedTxs.Reset()
 		inner.byHash = map[types.TxHash]*WrappedTx{}
 		inner.byEvmHash = map[common.Hash]*WrappedTx{}
@@ -231,7 +231,7 @@ func (s *txStore) MarkInvalid(txHash types.TxHash) {
 	if s.config.KeepInvalidTxsInCache {
 		for inner := range s.inner.Lock() {
 			inner.cache.Push(txHash, utils.None[cacheEvm]())
-			s.metrics.CacheSizeAt().Set(float64(inner.cache.Size()))
+			s.metrics.CacheSizeAt().Set(int64(inner.cache.Size()))
 		}
 	}
 }
@@ -515,7 +515,7 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 				return errMempoolFull
 			}
 		}
-		s.metrics.CacheSizeAt().Set(float64(inner.cache.Size()))
+		s.metrics.CacheSizeAt().Set(int64(inner.cache.Size()))
 	}
 	return nil
 }
@@ -548,7 +548,7 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 			}
 		}
 	}
-	s.metrics.CacheSizeAt().Set(float64(inner.cache.Size()))
+	s.metrics.CacheSizeAt().Set(int64(inner.cache.Size()))
 }
 
 type updateSpec struct {

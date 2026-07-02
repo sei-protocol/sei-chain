@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -33,6 +34,23 @@ var (
 	chainID             = "execution_chain"
 	testPartSize uint32 = 65536
 )
+
+func metricValue(t *testing.T, metric prometheus.Metric) float64 {
+	t.Helper()
+
+	dtoMetric := new(dto.Metric)
+	require.NoError(t, metric.Write(dtoMetric))
+
+	switch {
+	case dtoMetric.Gauge != nil:
+		return dtoMetric.Gauge.GetValue()
+	case dtoMetric.Counter != nil:
+		return dtoMetric.Counter.GetValue()
+	default:
+		t.Fatalf("unsupported metric type in test")
+		return 0
+	}
+}
 
 func TestApplyBlock(t *testing.T) {
 	app := &testApp{}
@@ -98,20 +116,20 @@ func TestApplyBlockProposerPriorityHash(t *testing.T) {
 		)
 
 		if height < interval {
-			require.Zero(t, testutil.ToFloat64(testMetrics.ProposerPriorityHashAt()))
-			require.Zero(t, testutil.ToFloat64(testMetrics.ProposerPriorityHashHeightAt()))
+			require.Zero(t, metricValue(t, testMetrics.ProposerPriorityHashAt()))
+			require.Zero(t, metricValue(t, testMetrics.ProposerPriorityHashHeightAt()))
 		}
 	}
 
 	// Height metric should equal the interval.
-	require.Equal(t, float64(interval), testutil.ToFloat64(testMetrics.ProposerPriorityHashHeightAt()))
+	require.Equal(t, float64(interval), metricValue(t, testMetrics.ProposerPriorityHashHeightAt()))
 
 	// Hash metric should equal the first 8 bytes of ProposerPriorityHash
 	// packed as a big-endian uint64, cast to float64.
 	full := state.Validators.ProposerPriorityHash()
 	require.GreaterOrEqual(t, len(full), 8)
 	expected := binary.BigEndian.Uint64(full[:8])
-	require.Equal(t, float64(expected), testutil.ToFloat64(testMetrics.ProposerPriorityHashAt()), "emitted hash value does not match first 8 bytes of ProposerPriorityHash")
+	require.Equal(t, float64(expected), metricValue(t, testMetrics.ProposerPriorityHashAt()), "emitted hash value does not match first 8 bytes of ProposerPriorityHash")
 }
 
 // TestFinalizeBlockDecidedLastCommit ensures we correctly send the

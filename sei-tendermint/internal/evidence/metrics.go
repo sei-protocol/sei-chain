@@ -1,8 +1,6 @@
 package evidence
 
-import (
-	"github.com/prometheus/client_golang/prometheus"
-)
+import tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 
 const (
 	// MetricsNamespace is the namespace shared by all Tendermint Prometheus metrics.
@@ -18,5 +16,5 @@ const (
 // see MetricsProvider for descriptions.
 type Metrics struct {
 	// Number of pending evidence in the evidence pool.
-	NumEvidence *prometheus.GaugeVec
+	NumEvidence *tmmetrics.GaugeIntVec
 }

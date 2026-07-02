@@ -4,6 +4,7 @@ package consensus
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 var Global = NewMetrics()
@@ -57,19 +58,19 @@ func init() {
 
 func NewMetrics() *Metrics {
 	return &Metrics{
-		Height: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Height: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "height",
 			Help:      "Height of the chain.",
 		}, nil),
-		ValidatorLastSignedHeight: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		ValidatorLastSignedHeight: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validator_last_signed_height",
 			Help:      "Last height signed by this validator if the node is a validator.",
 		}, []string{"validator_address"}),
-		Rounds: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Rounds: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "rounds",
@@ -83,49 +84,49 @@ func NewMetrics() *Metrics {
 
 			Buckets: prometheus.ExponentialBucketsRange(0.1, 100, 8),
 		}, nil),
-		Validators: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Validators: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validators",
 			Help:      "Number of validators.",
 		}, nil),
-		ValidatorsPower: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		ValidatorsPower: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validators_power",
 			Help:      "Total power of all validators.",
 		}, nil),
-		ValidatorPower: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		ValidatorPower: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validator_power",
 			Help:      "Power of a validator.",
 		}, []string{"validator_address"}),
-		ValidatorMissedBlocks: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		ValidatorMissedBlocks: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validator_missed_blocks",
 			Help:      "Amount of blocks missed per validator.",
 		}, []string{"validator_address"}),
-		MissingValidators: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		MissingValidators: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "missing_validators",
 			Help:      "Number of validators who did not sign.",
 		}, nil),
-		MissingValidatorsPower: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		MissingValidatorsPower: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "missing_validators_power",
 			Help:      "Total power of the missing validators.",
 		}, []string{"validator_address"}),
-		ByzantineValidators: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		ByzantineValidators: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "byzantine_validators",
 			Help:      "Number of validators who tried to double sign.",
 		}, nil),
-		ByzantineValidatorsPower: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		ByzantineValidatorsPower: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "byzantine_validators_power",
@@ -139,7 +140,7 @@ func NewMetrics() *Metrics {
 
 			Buckets: prometheus.ExponentialBuckets(0.1, 1.3, 20),
 		}, nil),
-		NumTxs: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		NumTxs: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "num_txs",
@@ -153,31 +154,31 @@ func NewMetrics() *Metrics {
 
 			Buckets: prometheus.ExponentialBuckets(1000, 1.5, 25),
 		}, nil),
-		TotalTxs: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		TotalTxs: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "total_txs",
 			Help:      "Total number of transactions.",
 		}, nil),
-		CommittedHeight: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		CommittedHeight: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "latest_block_height",
 			Help:      "The latest block height.",
 		}, nil),
-		BlockSyncing: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		BlockSyncing: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_syncing",
 			Help:      "Whether or not a node is block syncing. 1 if yes, 0 if no.",
 		}, nil),
-		StateSyncing: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		StateSyncing: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "state_syncing",
 			Help:      "Whether or not a node is state syncing. 1 if yes, 0 if no.",
 		}, nil),
-		BlockParts: prometheus.NewCounterVec(prometheus.CounterOpts{
+		BlockParts: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_parts",
@@ -199,13 +200,13 @@ func NewMetrics() *Metrics {
 
 			Buckets: prometheus.ExponentialBucketsRange(0.1, 100, 8),
 		}, nil),
-		BlockGossipPartsReceived: prometheus.NewCounterVec(prometheus.CounterOpts{
+		BlockGossipPartsReceived: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_gossip_parts_received",
 			Help:      "Number of block parts received by the node, separated by whether the part was relevant to the block the node is trying to gather or not.",
 		}, []string{"matches_current"}),
-		ProposalBlockCreatedOnPropose: prometheus.NewCounterVec(prometheus.CounterOpts{
+		ProposalBlockCreatedOnPropose: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_block_created_on_propose",
@@ -217,7 +218,7 @@ func NewMetrics() *Metrics {
 			Name:      "proposal_txs",
 			Help:      "Number of txs in a proposal.",
 		}, nil),
-		ProposalMissingTxs: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		ProposalMissingTxs: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_missing_txs",
@@ -249,13 +250,13 @@ func NewMetrics() *Metrics {
 
 			Buckets: []float64{-10, -.5, -.025, 0, .1, .5, 1, 1.5, 2, 10},
 		}, []string{"is_timely"}),
-		ProposalReceiveCount: prometheus.NewCounterVec(prometheus.CounterOpts{
+		ProposalReceiveCount: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_receive_count",
 			Help:      "Total number of proposals received by the node since process start labeled by application response status.",
 		}, []string{"status"}),
-		ProposalCreateCount: prometheus.NewCounterVec(prometheus.CounterOpts{
+		ProposalCreateCount: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_create_count",
@@ -267,7 +268,7 @@ func NewMetrics() *Metrics {
 			Name:      "round_voting_power_percent",
 			Help:      "A value between 0 and 1.0 representing the percentage of the total voting power per vote type received within a round.",
 		}, []string{"vote_type"}),
-		LateVotes: prometheus.NewCounterVec(prometheus.CounterOpts{
+		LateVotes: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "late_votes",
@@ -327,7 +328,7 @@ func NewMetrics() *Metrics {
 			Name:      "step_latency",
 			Help:      "",
 		}, []string{"step"}),
-		StepCount: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		StepCount: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "step_count",
@@ -336,15 +337,15 @@ func NewMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) HeightAt() prometheus.Gauge {
+func (m *Metrics) HeightAt() *tmmetrics.GaugeInt {
 	return m.Height.WithLabelValues()
 }
 
-func (m *Metrics) ValidatorLastSignedHeightAt(validator_address string) prometheus.Gauge {
+func (m *Metrics) ValidatorLastSignedHeightAt(validator_address string) *tmmetrics.GaugeInt {
 	return m.ValidatorLastSignedHeight.WithLabelValues(validator_address)
 }
 
-func (m *Metrics) RoundsAt() prometheus.Gauge {
+func (m *Metrics) RoundsAt() *tmmetrics.GaugeInt {
 	return m.Rounds.WithLabelValues()
 }
 
@@ -352,35 +353,35 @@ func (m *Metrics) RoundDurationAt() prometheus.Observer {
 	return m.RoundDuration.WithLabelValues()
 }
 
-func (m *Metrics) ValidatorsAt() prometheus.Gauge {
+func (m *Metrics) ValidatorsAt() *tmmetrics.GaugeInt {
 	return m.Validators.WithLabelValues()
 }
 
-func (m *Metrics) ValidatorsPowerAt() prometheus.Gauge {
+func (m *Metrics) ValidatorsPowerAt() *tmmetrics.GaugeInt {
 	return m.ValidatorsPower.WithLabelValues()
 }
 
-func (m *Metrics) ValidatorPowerAt(validator_address string) prometheus.Gauge {
+func (m *Metrics) ValidatorPowerAt(validator_address string) *tmmetrics.GaugeInt {
 	return m.ValidatorPower.WithLabelValues(validator_address)
 }
 
-func (m *Metrics) ValidatorMissedBlocksAt(validator_address string) prometheus.Gauge {
+func (m *Metrics) ValidatorMissedBlocksAt(validator_address string) *tmmetrics.GaugeInt {
 	return m.ValidatorMissedBlocks.WithLabelValues(validator_address)
 }
 
-func (m *Metrics) MissingValidatorsAt() prometheus.Gauge {
+func (m *Metrics) MissingValidatorsAt() *tmmetrics.GaugeInt {
 	return m.MissingValidators.WithLabelValues()
 }
 
-func (m *Metrics) MissingValidatorsPowerAt(validator_address string) prometheus.Gauge {
+func (m *Metrics) MissingValidatorsPowerAt(validator_address string) *tmmetrics.GaugeInt {
 	return m.MissingValidatorsPower.WithLabelValues(validator_address)
 }
 
-func (m *Metrics) ByzantineValidatorsAt() prometheus.Gauge {
+func (m *Metrics) ByzantineValidatorsAt() *tmmetrics.GaugeInt {
 	return m.ByzantineValidators.WithLabelValues()
 }
 
-func (m *Metrics) ByzantineValidatorsPowerAt() prometheus.Gauge {
+func (m *Metrics) ByzantineValidatorsPowerAt() *tmmetrics.GaugeInt {
 	return m.ByzantineValidatorsPower.WithLabelValues()
 }
 
@@ -388,7 +389,7 @@ func (m *Metrics) BlockIntervalSecondsAt() prometheus.Observer {
 	return m.BlockIntervalSeconds.WithLabelValues()
 }
 
-func (m *Metrics) NumTxsAt() prometheus.Gauge {
+func (m *Metrics) NumTxsAt() *tmmetrics.GaugeInt {
 	return m.NumTxs.WithLabelValues()
 }
 
@@ -396,23 +397,23 @@ func (m *Metrics) BlockSizeBytesAt() prometheus.Observer {
 	return m.BlockSizeBytes.WithLabelValues()
 }
 
-func (m *Metrics) TotalTxsAt() prometheus.Gauge {
+func (m *Metrics) TotalTxsAt() *tmmetrics.GaugeInt {
 	return m.TotalTxs.WithLabelValues()
 }
 
-func (m *Metrics) CommittedHeightAt() prometheus.Gauge {
+func (m *Metrics) CommittedHeightAt() *tmmetrics.GaugeInt {
 	return m.CommittedHeight.WithLabelValues()
 }
 
-func (m *Metrics) BlockSyncingAt() prometheus.Gauge {
+func (m *Metrics) BlockSyncingAt() *tmmetrics.GaugeInt {
 	return m.BlockSyncing.WithLabelValues()
 }
 
-func (m *Metrics) StateSyncingAt() prometheus.Gauge {
+func (m *Metrics) StateSyncingAt() *tmmetrics.GaugeInt {
 	return m.StateSyncing.WithLabelValues()
 }
 
-func (m *Metrics) BlockPartsAt(peer_id string) prometheus.Counter {
+func (m *Metrics) BlockPartsAt(peer_id string) *tmmetrics.CounterInt {
 	return m.BlockParts.WithLabelValues(peer_id)
 }
 
@@ -424,11 +425,11 @@ func (m *Metrics) BlockGossipReceiveLatencyAt() prometheus.Observer {
 	return m.BlockGossipReceiveLatency.WithLabelValues()
 }
 
-func (m *Metrics) BlockGossipPartsReceivedAt(matches_current string) prometheus.Counter {
+func (m *Metrics) BlockGossipPartsReceivedAt(matches_current string) *tmmetrics.CounterInt {
 	return m.BlockGossipPartsReceived.WithLabelValues(matches_current)
 }
 
-func (m *Metrics) ProposalBlockCreatedOnProposeAt(success string) prometheus.Counter {
+func (m *Metrics) ProposalBlockCreatedOnProposeAt(success string) *tmmetrics.CounterInt {
 	return m.ProposalBlockCreatedOnPropose.WithLabelValues(success)
 }
 
@@ -436,7 +437,7 @@ func (m *Metrics) ProposalTxsAt() prometheus.Gauge {
 	return m.ProposalTxs.WithLabelValues()
 }
 
-func (m *Metrics) ProposalMissingTxsAt() prometheus.Gauge {
+func (m *Metrics) ProposalMissingTxsAt() *tmmetrics.GaugeInt {
 	return m.ProposalMissingTxs.WithLabelValues()
 }
 
@@ -456,11 +457,11 @@ func (m *Metrics) ProposalTimestampDifferenceAt(is_timely string) prometheus.Obs
 	return m.ProposalTimestampDifference.WithLabelValues(is_timely)
 }
 
-func (m *Metrics) ProposalReceiveCountAt(status string) prometheus.Counter {
+func (m *Metrics) ProposalReceiveCountAt(status string) *tmmetrics.CounterInt {
 	return m.ProposalReceiveCount.WithLabelValues(status)
 }
 
-func (m *Metrics) ProposalCreateCountAt() prometheus.Counter {
+func (m *Metrics) ProposalCreateCountAt() *tmmetrics.CounterInt {
 	return m.ProposalCreateCount.WithLabelValues()
 }
 
@@ -468,7 +469,7 @@ func (m *Metrics) RoundVotingPowerPercentAt(vote_type string) prometheus.Gauge {
 	return m.RoundVotingPowerPercent.WithLabelValues(vote_type)
 }
 
-func (m *Metrics) LateVotesAt(validator_address string) prometheus.Counter {
+func (m *Metrics) LateVotesAt(validator_address string) *tmmetrics.CounterInt {
 	return m.LateVotes.WithLabelValues(validator_address)
 }
 
@@ -500,6 +501,6 @@ func (m *Metrics) StepLatencyAt(step string) prometheus.Gauge {
 	return m.StepLatency.WithLabelValues(step)
 }
 
-func (m *Metrics) StepCountAt(step string) prometheus.Gauge {
+func (m *Metrics) StepCountAt(step string) *tmmetrics.GaugeInt {
 	return m.StepCount.WithLabelValues(step)
 }

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
+	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 const (
@@ -29,15 +30,15 @@ var (
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// Number of peers.
-	Peers *prometheus.GaugeVec
+	Peers *tmmetrics.GaugeIntVec
 	// Number of bytes per channel received from a given peer.
-	PeerReceiveBytesTotal *prometheus.CounterVec `metrics_labels:"peer_id, chID, message_type"`
+	PeerReceiveBytesTotal *tmmetrics.CounterIntVec `metrics_labels:"peer_id, chID, message_type"`
 	// Number of bytes per channel sent to a given peer.
 	PeerSendBytesTotal *prometheus.CounterVec `metrics_labels:"peer_id, chID, message_type"`
 	// Number of bytes pending being sent to a given peer.
 	PeerPendingSendBytes *prometheus.GaugeVec `metrics_labels:"peer_id"`
 	// Number of newly established connections.
-	NewConnections *prometheus.CounterVec `metrics_labels:"direction, success"`
+	NewConnections *tmmetrics.CounterIntVec `metrics_labels:"direction, success"`
 
 	// RouterPeerQueueRecv defines the time taken to read off of a peer's queue
 	// before sending on the connection.
@@ -54,11 +55,11 @@ type Metrics struct {
 	//metrics:The time taken to send on a p2p channel's queue which will later be consued by the corresponding reactor/service.
 	RouterChannelQueueSend *prometheus.HistogramVec
 
-	ChannelMsgs *prometheus.CounterVec `metrics_labels:"ch_id, direction"`
+	ChannelMsgs *tmmetrics.CounterIntVec `metrics_labels:"ch_id, direction"`
 
 	// QueueDroppedMsgs counts the messages dropped from the router's queues.
 	//metrics:The number of messages dropped from router's queues.
-	QueueDroppedMsgs *prometheus.CounterVec `metrics_labels:"ch_id, direction"`
+	QueueDroppedMsgs *tmmetrics.CounterIntVec `metrics_labels:"ch_id, direction"`
 }
 
 type metricsLabelCache struct {

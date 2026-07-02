@@ -176,12 +176,12 @@ func (s *syncer) SyncAny(
 		}
 
 		s.processingSnapshot = snapshot
-		s.metrics.SnapshotChunkTotalAt().Set(float64(snapshot.Chunks))
+		s.metrics.SnapshotChunkTotalAt().Set(int64(snapshot.Chunks))
 		logger.Info("starting state sync with picked snapshot", "height", snapshot.Height)
 		newState, commit, err := s.Sync(ctx, snapshot, chunks)
 		switch {
 		case err == nil:
-			s.metrics.SnapshotHeightAt().Set(float64(snapshot.Height))
+			s.metrics.SnapshotHeightAt().Set(int64(snapshot.Height))
 			s.lastSyncedSnapshotHeight = int64(snapshot.Height) //nolint:gosec // snapshot.Height is a valid block height
 			return newState, commit, nil
 

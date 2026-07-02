@@ -4,6 +4,7 @@ package p2p
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 var Global = NewMetrics()
@@ -25,13 +26,13 @@ func init() {
 
 func NewMetrics() *Metrics {
 	return &Metrics{
-		Peers: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Peers: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peers",
 			Help:      "Number of peers.",
 		}, nil),
-		PeerReceiveBytesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+		PeerReceiveBytesTotal: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peer_receive_bytes_total",
@@ -49,7 +50,7 @@ func NewMetrics() *Metrics {
 			Name:      "peer_pending_send_bytes",
 			Help:      "Number of bytes pending being sent to a given peer.",
 		}, []string{"peer_id"}),
-		NewConnections: prometheus.NewCounterVec(prometheus.CounterOpts{
+		NewConnections: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "new_connections",
@@ -73,13 +74,13 @@ func NewMetrics() *Metrics {
 			Name:      "router_channel_queue_send",
 			Help:      "The time taken to send on a p2p channel's queue which will later be consued by the corresponding reactor/service.",
 		}, nil),
-		ChannelMsgs: prometheus.NewCounterVec(prometheus.CounterOpts{
+		ChannelMsgs: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "channel_msgs",
 			Help:      "",
 		}, []string{"ch_id", "direction"}),
-		QueueDroppedMsgs: prometheus.NewCounterVec(prometheus.CounterOpts{
+		QueueDroppedMsgs: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "queue_dropped_msgs",
@@ -88,11 +89,11 @@ func NewMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) PeersAt() prometheus.Gauge {
+func (m *Metrics) PeersAt() *tmmetrics.GaugeInt {
 	return m.Peers.WithLabelValues()
 }
 
-func (m *Metrics) PeerReceiveBytesTotalAt(peer_id string, chID string, message_type string) prometheus.Counter {
+func (m *Metrics) PeerReceiveBytesTotalAt(peer_id string, chID string, message_type string) *tmmetrics.CounterInt {
 	return m.PeerReceiveBytesTotal.WithLabelValues(peer_id, chID, message_type)
 }
 
@@ -104,7 +105,7 @@ func (m *Metrics) PeerPendingSendBytesAt(peer_id string) prometheus.Gauge {
 	return m.PeerPendingSendBytes.WithLabelValues(peer_id)
 }
 
-func (m *Metrics) NewConnectionsAt(direction string, success string) prometheus.Counter {
+func (m *Metrics) NewConnectionsAt(direction string, success string) *tmmetrics.CounterInt {
 	return m.NewConnections.WithLabelValues(direction, success)
 }
 
@@ -120,10 +121,10 @@ func (m *Metrics) RouterChannelQueueSendAt() prometheus.Observer {
 	return m.RouterChannelQueueSend.WithLabelValues()
 }
 
-func (m *Metrics) ChannelMsgsAt(ch_id string, direction string) prometheus.Counter {
+func (m *Metrics) ChannelMsgsAt(ch_id string, direction string) *tmmetrics.CounterInt {
 	return m.ChannelMsgs.WithLabelValues(ch_id, direction)
 }
 
-func (m *Metrics) QueueDroppedMsgsAt(ch_id string, direction string) prometheus.Counter {
+func (m *Metrics) QueueDroppedMsgsAt(ch_id string, direction string) *tmmetrics.CounterInt {
 	return m.QueueDroppedMsgs.WithLabelValues(ch_id, direction)
 }

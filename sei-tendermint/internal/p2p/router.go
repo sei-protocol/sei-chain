@@ -357,7 +357,7 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 		if err := utils.Sleep(ctx, 10*time.Second); err != nil {
 			return err
 		}
-		r.metrics.PeersAt().Set(float64(r.peerManager.Conns().Len()))
+		r.metrics.PeersAt().Set(int64(r.peerManager.Conns().Len()))
 		r.peerManager.LogState()
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -24,52 +25,52 @@ const (
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// Height of the chain.
-	Height *prometheus.GaugeVec
+	Height *tmmetrics.GaugeIntVec
 
 	// Last height signed by this validator if the node is a validator.
-	ValidatorLastSignedHeight *prometheus.GaugeVec `metrics_labels:"validator_address"`
+	ValidatorLastSignedHeight *tmmetrics.GaugeIntVec `metrics_labels:"validator_address"`
 
 	// Number of rounds.
-	Rounds *prometheus.GaugeVec
+	Rounds *tmmetrics.GaugeIntVec
 
 	// Histogram of round duration.
 	RoundDuration *prometheus.HistogramVec `metrics_buckettype:"exprange" metrics_bucketsizes:"0.1, 100, 8"`
 
 	// Number of validators.
-	Validators *prometheus.GaugeVec
+	Validators *tmmetrics.GaugeIntVec
 	// Total power of all validators.
-	ValidatorsPower *prometheus.GaugeVec
+	ValidatorsPower *tmmetrics.GaugeIntVec
 	// Power of a validator.
-	ValidatorPower *prometheus.GaugeVec `metrics_labels:"validator_address"`
+	ValidatorPower *tmmetrics.GaugeIntVec `metrics_labels:"validator_address"`
 	// Amount of blocks missed per validator.
-	ValidatorMissedBlocks *prometheus.GaugeVec `metrics_labels:"validator_address"`
+	ValidatorMissedBlocks *tmmetrics.GaugeIntVec `metrics_labels:"validator_address"`
 	// Number of validators who did not sign.
-	MissingValidators *prometheus.GaugeVec
+	MissingValidators *tmmetrics.GaugeIntVec
 	// Total power of the missing validators.
-	MissingValidatorsPower *prometheus.GaugeVec `metrics_labels:"validator_address"`
+	MissingValidatorsPower *tmmetrics.GaugeIntVec `metrics_labels:"validator_address"`
 	// Number of validators who tried to double sign.
-	ByzantineValidators *prometheus.GaugeVec
+	ByzantineValidators *tmmetrics.GaugeIntVec
 	// Total power of the byzantine validators.
-	ByzantineValidatorsPower *prometheus.GaugeVec
+	ByzantineValidatorsPower *tmmetrics.GaugeIntVec
 
 	// Time in seconds between this and the last block.
 	BlockIntervalSeconds *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"0.1, 1.3, 20"`
 
 	// Number of transactions.
-	NumTxs *prometheus.GaugeVec
+	NumTxs *tmmetrics.GaugeIntVec
 	// Size of the block.
 	BlockSizeBytes *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"1000, 1.5, 25"`
 	// Total number of transactions.
-	TotalTxs *prometheus.GaugeVec
+	TotalTxs *tmmetrics.GaugeIntVec
 	// The latest block height.
-	CommittedHeight *prometheus.GaugeVec `metrics_name:"latest_block_height"`
+	CommittedHeight *tmmetrics.GaugeIntVec `metrics_name:"latest_block_height"`
 	// Whether or not a node is block syncing. 1 if yes, 0 if no.
-	BlockSyncing *prometheus.GaugeVec
+	BlockSyncing *tmmetrics.GaugeIntVec
 	// Whether or not a node is state syncing. 1 if yes, 0 if no.
-	StateSyncing *prometheus.GaugeVec
+	StateSyncing *tmmetrics.GaugeIntVec
 
 	// Number of block parts transmitted by each peer.
-	BlockParts *prometheus.CounterVec `metrics_labels:"peer_id"`
+	BlockParts *tmmetrics.CounterIntVec `metrics_labels:"peer_id"`
 
 	// Histogram of durations for each step in the consensus protocol.
 	StepDuration *prometheus.HistogramVec `metrics_labels:"step" metrics_buckettype:"exprange" metrics_bucketsizes:"0.1, 100, 8"`
@@ -82,16 +83,16 @@ type Metrics struct {
 
 	// Number of block parts received by the node, separated by whether the part
 	// was relevant to the block the node is trying to gather or not.
-	BlockGossipPartsReceived *prometheus.CounterVec `metrics_labels:"matches_current"`
+	BlockGossipPartsReceived *tmmetrics.CounterIntVec `metrics_labels:"matches_current"`
 
 	// Number of proposal blocks created on propose received.
-	ProposalBlockCreatedOnPropose *prometheus.CounterVec `metrics_labels:"success"`
+	ProposalBlockCreatedOnPropose *tmmetrics.CounterIntVec `metrics_labels:"success"`
 
 	// Number of txs in a proposal.
 	ProposalTxs *prometheus.GaugeVec
 
 	// Number of missing txs when trying to create proposal.
-	ProposalMissingTxs *prometheus.GaugeVec
+	ProposalMissingTxs *tmmetrics.GaugeIntVec
 
 	//Number of missing txs when a proposal is received
 	MissingTxs *prometheus.GaugeVec `metrics_labels:"proposer_address"`
@@ -125,12 +126,12 @@ type Metrics struct {
 	// The metric is annotated by the status of the proposal from the application,
 	// either 'accepted' or 'rejected'.
 	//metrics:Total number of proposals received by the node since process start labeled by application response status.
-	ProposalReceiveCount *prometheus.CounterVec `metrics_labels:"status"`
+	ProposalReceiveCount *tmmetrics.CounterIntVec `metrics_labels:"status"`
 
 	// ProposalCreationCount is the total number of proposals created by this node
 	// since process start.
 	//metrics:Total number of proposals created by the node since process start.
-	ProposalCreateCount *prometheus.CounterVec
+	ProposalCreateCount *tmmetrics.CounterIntVec
 
 	// RoundVotingPowerPercent is the percentage of the total voting power received
 	// with a round. The value begins at 0 for each round and approaches 1.0 as
@@ -142,7 +143,7 @@ type Metrics struct {
 	// correspond to earlier heights and rounds than this node is currently
 	// in.
 	//metrics:Number of votes received by the node since process start that correspond to earlier heights and rounds than this node is currently in.
-	LateVotes *prometheus.CounterVec `metrics_labels:"validator_address"`
+	LateVotes *tmmetrics.CounterIntVec `metrics_labels:"validator_address"`
 
 	// FinalRound stores the final round id the proposal block reach consensus in.
 	//metrics:The final round number for where the proposal block reach consensus in, starting at 0.
@@ -172,15 +173,15 @@ type Metrics struct {
 
 	StepLatency                 *prometheus.GaugeVec `metrics_labels:"step"`
 	lastRecordedStepLatencyNano int64
-	StepCount                   *prometheus.GaugeVec `metrics_labels:"step"`
+	StepCount                   *tmmetrics.GaugeIntVec `metrics_labels:"step"`
 }
 
 // RecordConsMetrics uses for recording the block related metrics during fast-sync.
 func (m *Metrics) RecordConsMetrics(block *types.Block) {
-	m.NumTxsAt().Set(float64(len(block.Txs)))
-	m.TotalTxsAt().Add(float64(len(block.Txs)))
+	m.NumTxsAt().Set(int64(len(block.Txs)))
+	m.TotalTxsAt().Add(int64(len(block.Txs)))
 	m.BlockSizeBytesAt().Observe(float64(block.Size()))
-	m.CommittedHeightAt().Set(float64(block.Height))
+	m.CommittedHeightAt().Set(block.Height)
 }
 
 func (m *Metrics) MarkBlockGossipStarted() {
@@ -206,7 +207,7 @@ func (m *Metrics) MarkVoteReceived(vt tmproto.SignedMsgType, power, totalPower i
 }
 
 func (m *Metrics) MarkRound(r int32, st time.Time) {
-	m.RoundsAt().Set(float64(r))
+	m.RoundsAt().Set(int64(r))
 	roundTime := time.Since(st).Seconds()
 	m.RoundDurationAt().Observe(roundTime)
 

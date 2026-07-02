@@ -1013,10 +1013,10 @@ func (r *Reactor) recordPeerMsg(msg msgInfo) {
 	}
 }
 
-func (r *Reactor) SetStateSyncingMetrics(v float64) {
+func (r *Reactor) SetStateSyncingMetrics(v int64) {
 	r.Metrics.StateSyncingAt().Set(v)
 }
 
-func (r *Reactor) SetBlockSyncingMetrics(v float64) {
+func (r *Reactor) SetBlockSyncingMetrics(v int64) {
 	r.Metrics.BlockSyncingAt().Set(v)
 }

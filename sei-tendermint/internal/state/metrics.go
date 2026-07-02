@@ -2,6 +2,7 @@ package state
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 const (
@@ -22,12 +23,12 @@ type Metrics struct {
 	// ConsensusParamUpdates is the total number of times the application has
 	// udated the consensus params since process start.
 	//metrics:Number of consensus parameter updates returned by the application since process start.
-	ConsensusParamUpdates *prometheus.CounterVec
+	ConsensusParamUpdates *tmmetrics.CounterIntVec
 
 	// ValidatorSetUpdates is the total number of times the application has
 	// udated the validator set since process start.
 	//metrics:Number of validator set updates returned by the application since process start.
-	ValidatorSetUpdates *prometheus.CounterVec
+	ValidatorSetUpdates *tmmetrics.CounterIntVec
 
 	// ApplicationCommitTime measures how long it takes to commit application state
 	ApplicationCommitTime *prometheus.HistogramVec
@@ -62,5 +63,5 @@ type Metrics struct {
 	// ProposerPriorityHashHeight is the block height at which the most recent
 	// ProposerPriorityHash was computed. Operators comparing hashes across
 	// validators should only compare samples at the same height.
-	ProposerPriorityHashHeight *prometheus.GaugeVec
+	ProposerPriorityHashHeight *tmmetrics.GaugeIntVec
 }

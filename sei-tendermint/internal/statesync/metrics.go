@@ -2,6 +2,7 @@ package statesync
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 const (
@@ -16,17 +17,17 @@ const (
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// The total number of snapshots discovered.
-	TotalSnapshots *prometheus.CounterVec
+	TotalSnapshots *tmmetrics.CounterIntVec
 	// The average processing time per chunk.
 	ChunkProcessAvgTime *prometheus.GaugeVec
 	// The height of the current snapshot the has been processed.
-	SnapshotHeight *prometheus.GaugeVec
+	SnapshotHeight *tmmetrics.GaugeIntVec
 	// The current number of chunks that have been processed.
-	SnapshotChunk *prometheus.CounterVec
+	SnapshotChunk *tmmetrics.CounterIntVec
 	// The total number of chunks in the current snapshot.
-	SnapshotChunkTotal *prometheus.GaugeVec
+	SnapshotChunkTotal *tmmetrics.GaugeIntVec
 	// The current number of blocks that have been back-filled.
-	BackFilledBlocks *prometheus.CounterVec
+	BackFilledBlocks *tmmetrics.CounterIntVec
 	// The total number of blocks that need to be back-filled.
-	BackFillBlocksTotal *prometheus.GaugeVec
+	BackFillBlocksTotal *tmmetrics.GaugeIntVec
 }

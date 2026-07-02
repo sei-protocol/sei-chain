@@ -7,6 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -51,72 +52,72 @@ var (
 // see MetricsProvider for descriptions.
 type Metrics struct {
 	// Number of uncommitted transactions in the mempool.
-	Size *prometheus.GaugeVec
+	Size *tmmetrics.GaugeIntVec
 
 	// Number of pending transactions in mempool
-	PendingSize *prometheus.GaugeVec
+	PendingSize *tmmetrics.GaugeIntVec
 
 	// Number of cached transactions in the mempool cache.
-	CacheSize *prometheus.GaugeVec
+	CacheSize *tmmetrics.GaugeIntVec
 
 	// Accumulated transaction sizes in bytes.
-	TxSizeBytes *prometheus.CounterVec
+	TxSizeBytes *tmmetrics.CounterIntVec
 
 	// Total current mempool uncommitted txs bytes
-	TotalTxsSizeBytes *prometheus.GaugeVec
+	TotalTxsSizeBytes *tmmetrics.GaugeIntVec
 
 	// Track max number of occurrences for a duplicate tx
-	DuplicateTxMaxOccurrences *prometheus.GaugeVec
+	DuplicateTxMaxOccurrences *tmmetrics.GaugeIntVec
 
 	// Track the total number of occurrences for all duplicate txs
-	DuplicateTxTotalOccurrences *prometheus.GaugeVec
+	DuplicateTxTotalOccurrences *tmmetrics.GaugeIntVec
 
 	// Track the number of unique duplicate transactions
-	NumberOfDuplicateTxs *prometheus.GaugeVec
+	NumberOfDuplicateTxs *tmmetrics.GaugeIntVec
 
 	// Track the number of unique new tx transactions
-	NumberOfNonDuplicateTxs *prometheus.GaugeVec
+	NumberOfNonDuplicateTxs *tmmetrics.GaugeIntVec
 
 	// Track the number of checkTx calls
-	NumberOfSuccessfulCheckTxs *prometheus.CounterVec
+	NumberOfSuccessfulCheckTxs *tmmetrics.CounterIntVec
 
 	// Track the number of failed checkTx calls
-	NumberOfFailedCheckTxs *prometheus.CounterVec
+	NumberOfFailedCheckTxs *tmmetrics.CounterIntVec
 
 	// Track the number of checkTx from local removed tx
 	NumberOfLocalCheckTx *prometheus.CounterVec
 
 	// Number of failed transactions.
-	FailedTxs *prometheus.CounterVec
+	FailedTxs *tmmetrics.CounterIntVec
 
 	// RejectedTxs defines the number of rejected transactions. These are
 	// transactions that passed CheckTx but failed to make it into the mempool
 	// due to other constraints, e.g. mempool is full and no lower priority
 	// transactions exist in the mempool.
 	//metrics:Number of rejected transactions.
-	RejectedTxs *prometheus.CounterVec
+	RejectedTxs *tmmetrics.CounterIntVec
 
 	// EvictedTxs defines the number of evicted transactions. These are valid
 	// transactions that passed CheckTx and existed in the mempool but were later
 	// evicted to make room for higher priority valid transactions that passed
 	// CheckTx.
 	//metrics:Number of evicted transactions.
-	EvictedTxs *prometheus.CounterVec
+	EvictedTxs *tmmetrics.CounterIntVec
 
 	// ExpiredTxs defines the number of expired transactions. These are valid
 	// transactions that passed CheckTx and existed in the mempool but were not
 	// get picked up in time and eventually got expired and removed from mempool
 	//metrics:Number of expired transactions.
-	ExpiredTxs *prometheus.CounterVec
+	ExpiredTxs *tmmetrics.CounterIntVec
 
 	// Number of times transactions are rechecked in the mempool.
-	RecheckTimes *prometheus.CounterVec
+	RecheckTimes *tmmetrics.CounterIntVec
 
 	// Number of removed tx from mempool
-	RemovedTxs *prometheus.CounterVec
+	RemovedTxs *tmmetrics.CounterIntVec
 
 	// Number of txs inserted to mempool
-	InsertedTxs *prometheus.CounterVec
+	InsertedTxs *tmmetrics.CounterIntVec
 
 	// CheckTxPriorityDistribution is a histogram of the priority of transactions
 	// submitted via CheckTx, labeled by whether a priority hint was provided,
@@ -129,11 +130,11 @@ type Metrics struct {
 
 	// CheckTxDroppedByPriorityHint is the number of transactions that were dropped
 	// due to low priority based on the priority hint.
-	CheckTxDroppedByPriorityHint *prometheus.CounterVec
+	CheckTxDroppedByPriorityHint *tmmetrics.CounterIntVec
 
 	// CheckTxMetDropUtilisationThreshold is the number of transactions for which CheckTx was executed while the mempool
 	// utilisation was above the configured threshold. Note that not all such transactions are dropped, only those that also have a low priority.
-	CheckTxMetDropUtilisationThreshold *prometheus.CounterVec
+	CheckTxMetDropUtilisationThreshold *tmmetrics.CounterIntVec
 }
 
 func (m *Metrics) observeCheckTxPriorityDistribution(priority int64, hint bool, senderNodeID types.NodeID, isError bool) {

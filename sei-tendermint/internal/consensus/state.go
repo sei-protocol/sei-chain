@@ -442,7 +442,7 @@ func (cs *State) SetProposalAndBlock(
 // internal functions for managing the state
 
 func (cs *State) updateHeight(height int64) {
-	cs.metrics.HeightAt().Set(float64(height))
+	cs.metrics.HeightAt().Set(height)
 	cs.metrics.ClearStepMetrics()
 	cs.roundState.SetHeight(height)
 }
@@ -1925,8 +1925,8 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 }
 
 func (cs *State) RecordMetrics(height int64, block *types.Block) {
-	cs.metrics.ValidatorsAt().Set(float64(cs.roundState.Validators().Size()))
-	cs.metrics.ValidatorsPowerAt().Set(float64(cs.roundState.Validators().TotalVotingPower()))
+	cs.metrics.ValidatorsAt().Set(int64(cs.roundState.Validators().Size()))
+	cs.metrics.ValidatorsPowerAt().Set(cs.roundState.Validators().TotalVotingPower())
 
 	var (
 		missingValidators      int
@@ -1964,23 +1964,23 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 			if commitSig.BlockIDFlag == types.BlockIDFlagAbsent {
 				missingValidators++
 				missingValidatorsPower += val.VotingPower
-				cs.metrics.MissingValidatorsPowerAt(val.Address.String()).Set(float64(val.VotingPower))
+				cs.metrics.MissingValidatorsPowerAt(val.Address.String()).Set(val.VotingPower)
 			} else {
 				cs.metrics.MissingValidatorsPowerAt(val.Address.String()).Set(0)
 			}
 
 			if bytes.Equal(val.Address, address) {
 				validatorAddress := val.Address.String()
-				cs.metrics.ValidatorPowerAt(validatorAddress).Set(float64(val.VotingPower))
+				cs.metrics.ValidatorPowerAt(validatorAddress).Set(val.VotingPower)
 				if commitSig.BlockIDFlag == types.BlockIDFlagCommit {
-					cs.metrics.ValidatorLastSignedHeightAt(validatorAddress).Set(float64(height))
+					cs.metrics.ValidatorLastSignedHeightAt(validatorAddress).Set(height)
 				} else {
-					cs.metrics.ValidatorMissedBlocksAt(validatorAddress).Add(float64(1))
+					cs.metrics.ValidatorMissedBlocksAt(validatorAddress).Add(1)
 				}
 			}
 		}
 	}
-	cs.metrics.MissingValidatorsAt().Set(float64(missingValidators))
+	cs.metrics.MissingValidatorsAt().Set(int64(missingValidators))
 
 	// NOTE: byzantine validators power and count is only for consensus evidence i.e. duplicate vote
 	var (
@@ -1996,8 +1996,8 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 			}
 		}
 	}
-	cs.metrics.ByzantineValidatorsAt().Set(float64(byzantineValidatorsCount))
-	cs.metrics.ByzantineValidatorsPowerAt().Set(float64(byzantineValidatorsPower))
+	cs.metrics.ByzantineValidatorsAt().Set(byzantineValidatorsCount)
+	cs.metrics.ByzantineValidatorsPowerAt().Set(byzantineValidatorsPower)
 
 	// Block Interval metric
 	if height > 1 {
@@ -2034,10 +2034,10 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 			}
 		}
 	}
-	cs.metrics.NumTxsAt().Set(float64(len(block.Txs)))
-	cs.metrics.TotalTxsAt().Add(float64(len(block.Txs)))
+	cs.metrics.NumTxsAt().Set(int64(len(block.Txs)))
+	cs.metrics.TotalTxsAt().Add(int64(len(block.Txs)))
 	cs.metrics.BlockSizeBytesAt().Observe(float64(block.Size()))
-	cs.metrics.CommittedHeightAt().Set(float64(block.Height))
+	cs.metrics.CommittedHeightAt().Set(block.Height)
 }
 
 //-----------------------------------------------------------------------------
@@ -2277,7 +2277,7 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 func (cs *State) buildProposalBlock(proposal *types.Proposal) *types.Block {
 	txs, missingTxs := cs.blockExec.SafeGetTxsByHashes(proposal.TxHashes)
 	if len(missingTxs) > 0 {
-		cs.metrics.ProposalMissingTxsAt().Set(float64(len(missingTxs)))
+		cs.metrics.ProposalMissingTxsAt().Set(int64(len(missingTxs)))
 		logger.Debug("Missing txs when trying to build block", "missing_txs", missingTxs)
 		return nil
 	}

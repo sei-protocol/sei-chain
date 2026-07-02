@@ -102,7 +102,7 @@ func (is *Service) publish(msg pubsub.Message) error {
 						"height", is.currentBlock.height, "err", err)
 				} else {
 					is.metrics.TxEventsSecondsAt().Observe(time.Since(start).Seconds())
-					is.metrics.TransactionsIndexedAt().Add(float64(curr.Size()))
+					is.metrics.TransactionsIndexedAt().Add(int64(curr.Size()))
 					logger.Debug("indexed txs",
 						"height", is.currentBlock.height, "sink", sink.Type())
 				}

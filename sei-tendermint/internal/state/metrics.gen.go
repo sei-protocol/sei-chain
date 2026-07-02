@@ -4,6 +4,7 @@ package state
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 var Global = NewMetrics()
@@ -35,13 +36,13 @@ func NewMetrics() *Metrics {
 
 			Buckets: prometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, nil),
-		ConsensusParamUpdates: prometheus.NewCounterVec(prometheus.CounterOpts{
+		ConsensusParamUpdates: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "consensus_param_updates",
 			Help:      "Number of consensus parameter updates returned by the application since process start.",
 		}, nil),
-		ValidatorSetUpdates: prometheus.NewCounterVec(prometheus.CounterOpts{
+		ValidatorSetUpdates: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validator_set_updates",
@@ -105,7 +106,7 @@ func NewMetrics() *Metrics {
 			Name:      "proposer_priority_hash",
 			Help:      "ProposerPriorityHash encodes the first 6 bytes of the hash of the current validator set's proposer priorities as a float64 value. Exported periodically (every proposerPriorityHashInterval heights) for operator visibility; divergence between validators at the same ProposerPriorityHashHeight indicates corrupted ProposerPriority state. Paired with ProposerPriorityHashHeight so operators can correlate.",
 		}, nil),
-		ProposerPriorityHashHeight: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		ProposerPriorityHashHeight: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposer_priority_hash_height",
@@ -118,11 +119,11 @@ func (m *Metrics) BlockProcessingTimeAt() prometheus.Observer {
 	return m.BlockProcessingTime.WithLabelValues()
 }
 
-func (m *Metrics) ConsensusParamUpdatesAt() prometheus.Counter {
+func (m *Metrics) ConsensusParamUpdatesAt() *tmmetrics.CounterInt {
 	return m.ConsensusParamUpdates.WithLabelValues()
 }
 
-func (m *Metrics) ValidatorSetUpdatesAt() prometheus.Counter {
+func (m *Metrics) ValidatorSetUpdatesAt() *tmmetrics.CounterInt {
 	return m.ValidatorSetUpdates.WithLabelValues()
 }
 
@@ -158,6 +159,6 @@ func (m *Metrics) ProposerPriorityHashAt() prometheus.Gauge {
 	return m.ProposerPriorityHash.WithLabelValues()
 }
 
-func (m *Metrics) ProposerPriorityHashHeightAt() prometheus.Gauge {
+func (m *Metrics) ProposerPriorityHashHeightAt() *tmmetrics.GaugeInt {
 	return m.ProposerPriorityHashHeight.WithLabelValues()
 }

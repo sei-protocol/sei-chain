@@ -92,13 +92,13 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 			}
 			// Priority is not used since all messages in this queue are from the same channel.
 			if _, ok := ch.recvQueue.Send(RecvMsg[gogoproto.Message]{From: conn.ID, Message: msg}, gogoproto.Size(msg), 0).Get(); ok {
-				r.metrics.QueueDroppedMsgsAt(fmt.Sprint(chID), "in").Add(float64(1))
+				r.metrics.QueueDroppedMsgsAt(fmt.Sprint(chID), "in").Add(1)
 			}
 			r.metrics.PeerReceiveBytesTotalAt(
 				string(conn.ID),
 				fmt.Sprint(chID),
 				r.lc.ValueToMetricLabel(msg),
-			).Add(float64(gogoproto.Size(msg)))
+			).Add(int64(gogoproto.Size(msg)))
 			logger.Debug("received message", "peer", conn.ID, "message", msg)
 		}
 	}

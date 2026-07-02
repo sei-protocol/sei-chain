@@ -352,7 +352,7 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 		if full := state.Validators.ProposerPriorityHash(); len(full) >= 8 {
 			packed := binary.BigEndian.Uint64(full[:8])
 			blockExec.metrics.ProposerPriorityHashAt().Set(float64(packed))
-			blockExec.metrics.ProposerPriorityHashHeightAt().Set(float64(block.Height))
+			blockExec.metrics.ProposerPriorityHashHeightAt().Set(block.Height)
 			// Log both the full 32-byte hash (for unambiguous comparison)
 			// and the packed value (to correlate with the Prometheus gauge).
 			logger.Info("proposer priority hash checkpoint",

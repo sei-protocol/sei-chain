@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 //go:generate go run ../../../scripts/metricsgen -struct=Metrics
@@ -22,8 +23,8 @@ type Metrics struct {
 	TxEventsSeconds *prometheus.HistogramVec
 
 	// Number of complete blocks indexed.
-	BlocksIndexed *prometheus.CounterVec
+	BlocksIndexed *tmmetrics.CounterIntVec
 
 	// Number of transactions indexed.
-	TransactionsIndexed *prometheus.CounterVec
+	TransactionsIndexed *tmmetrics.CounterIntVec
 }

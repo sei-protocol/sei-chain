@@ -393,10 +393,10 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	}
 
 	txmp.metrics.InsertedTxsAt().Add(1)
-	txmp.metrics.TxSizeBytesAt().Add(float64(wtx.Size()))
-	txmp.metrics.SizeAt().Set(float64(txmp.NumTxsNotPending()))
-	txmp.metrics.PendingSizeAt().Set(float64(txmp.PendingSize()))
-	txmp.metrics.TotalTxsSizeBytesAt().Set(float64(txmp.TotalTxsBytesSize()))
+	txmp.metrics.TxSizeBytesAt().Add(int64(wtx.Size()))
+	txmp.metrics.SizeAt().Set(int64(txmp.NumTxsNotPending()))
+	txmp.metrics.PendingSizeAt().Set(int64(txmp.PendingSize()))
+	txmp.metrics.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize()))
 
 	txmp.notifyTxsAvailable()
 	return res.ResponseCheckTx, nil
@@ -429,9 +429,9 @@ func (txmp *TxMempool) Flush() {
 func (txmp *TxMempool) ReapTxs(limits ReapLimits, remove bool) (types.Txs, int64) {
 	txs, gasEstimate := txmp.txStore.Reap(limits, remove)
 	if remove {
-		txmp.metrics.SizeAt().Set(float64(txmp.NumTxsNotPending()))
-		txmp.metrics.PendingSizeAt().Set(float64(txmp.PendingSize()))
-		txmp.metrics.TotalTxsSizeBytesAt().Set(float64(txmp.TotalTxsBytesSize()))
+		txmp.metrics.SizeAt().Set(int64(txmp.NumTxsNotPending()))
+		txmp.metrics.PendingSizeAt().Set(int64(txmp.PendingSize()))
+		txmp.metrics.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize()))
 	}
 	return txs, gasEstimate
 }
@@ -493,9 +493,9 @@ func (txmp *TxMempool) Update(
 		Constraints:   txConstraints,
 	})
 	txmp.notifyTxsAvailable()
-	txmp.metrics.SizeAt().Set(float64(txmp.NumTxsNotPending()))
-	txmp.metrics.TotalTxsSizeBytesAt().Set(float64(txmp.TotalTxsBytesSize()))
-	txmp.metrics.PendingSizeAt().Set(float64(txmp.PendingSize()))
+	txmp.metrics.SizeAt().Set(int64(txmp.NumTxsNotPending()))
+	txmp.metrics.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize()))
+	txmp.metrics.PendingSizeAt().Set(int64(txmp.PendingSize()))
 	return nil
 }
 
@@ -525,10 +525,10 @@ func (txmp *TxMempool) Run(ctx context.Context) error {
 			// TODO(gprusak): instead of actively updating stats,
 			// TxMempool should implement prometheus.Collector.
 			maxOccurrence, totalOccurrence, duplicateCount, nonDuplicateCount := c.GetForMetrics()
-			txmp.metrics.DuplicateTxMaxOccurrencesAt().Set(float64(maxOccurrence))
-			txmp.metrics.DuplicateTxTotalOccurrencesAt().Set(float64(totalOccurrence))
-			txmp.metrics.NumberOfDuplicateTxsAt().Set(float64(duplicateCount))
-			txmp.metrics.NumberOfNonDuplicateTxsAt().Set(float64(nonDuplicateCount))
+			txmp.metrics.DuplicateTxMaxOccurrencesAt().Set(int64(maxOccurrence))
+			txmp.metrics.DuplicateTxTotalOccurrencesAt().Set(int64(totalOccurrence))
+			txmp.metrics.NumberOfDuplicateTxsAt().Set(int64(duplicateCount))
+			txmp.metrics.NumberOfNonDuplicateTxsAt().Set(int64(nonDuplicateCount))
 		}
 	})
 }

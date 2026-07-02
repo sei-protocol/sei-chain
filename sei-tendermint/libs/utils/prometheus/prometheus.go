@@ -7,7 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"google.golang.org/protobuf/proto"
-	
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -19,8 +19,8 @@ type GaugeInt struct {
 	labelPairs []*dto.LabelPair
 }
 
-func (g *GaugeInt) Set(val int64) { g.value.Store(val) }
-func (g *GaugeInt) Add(val int64) { g.value.Add(val) }
+func (g *GaugeInt) Set(val int64)          { g.value.Store(val) }
+func (g *GaugeInt) Add(val int64)          { g.value.Add(val) }
 func (g *GaugeInt) Desc() *prometheus.Desc { return g.desc }
 func (g *GaugeInt) Write(out *dto.Metric) error {
 	out.Label = g.labelPairs
@@ -51,11 +51,11 @@ func (c *CounterInt) Write(out *dto.Metric) error {
 
 // GaugeIntVec is a Collector that bundles a set of GaugeInt metrics that all
 // share the same Desc, but have different values for their variable labels.
-type GaugeIntVec struct { v *prometheus.MetricVec }
+type GaugeIntVec struct{ v *prometheus.MetricVec }
 
 // CounterIntVec is a Collector that bundles a set of CounterInt metrics that
 // all share the same Desc, but have different values for their variable labels.
-type CounterIntVec struct { v *prometheus.MetricVec }
+type CounterIntVec struct{ v *prometheus.MetricVec }
 
 // NewGaugeIntVec creates a new GaugeIntVec based on the provided GaugeOpts and
 // partitioned by the given label names.
@@ -87,7 +87,7 @@ func NewCounterIntVec(opts prometheus.CounterOpts, labelNames []string) *Counter
 	)
 	return &CounterIntVec{
 		v: prometheus.NewMetricVec(desc, func(lvs ...string) prometheus.Metric {
-			return &CounterInt{desc:desc,labelPairs:prometheus.MakeLabelPairs(desc, lvs)}
+			return &CounterInt{desc: desc, labelPairs: prometheus.MakeLabelPairs(desc, lvs)}
 		}),
 	}
 }

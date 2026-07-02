@@ -39,7 +39,10 @@ Options:
 	}
 }
 
-const metricsPackageName = "github.com/prometheus/client_golang/prometheus"
+const (
+	stdMetricsPackageName = "github.com/prometheus/client_golang/prometheus"
+	intMetricsPackageName = "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+)
 
 const (
 	metricNameTag = "metrics_name"
@@ -65,6 +68,9 @@ package {{ .Package }}
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+{{- if .UsesIntMetrics }}
+	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+{{- end }}
 )
 
 var Global = NewMetrics()
@@ -80,7 +86,7 @@ func init() {
 func NewMetrics() *Metrics {
 	return &Metrics{
 {{- range $metric := .ParsedMetrics }}
-		{{ $metric.FieldName }}: prometheus.New{{ $metric.TypeName }}(prometheus.{{ $metric.OptsTypeName }}{
+		{{ $metric.FieldName }}: {{ $metric.ConstructorPackage }}.{{ $metric.ConstructorName }}(prometheus.{{ $metric.OptsTypeName }}{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "{{$metric.MetricName }}",
@@ -105,13 +111,15 @@ func (m *Metrics) {{ $metric.FieldName }}At({{ $metric.MethodParams }}) {{ $metr
 
 // ParsedMetricField is the data parsed for a single field of a metric struct.
 type ParsedMetricField struct {
-	TypeName     string
-	OptsTypeName string
-	FieldName    string
-	MetricName   string
-	Description  string
-	Labels       string
-	LabelNames   []string
+	TypeName           string
+	ConstructorPackage string
+	ConstructorName    string
+	OptsTypeName       string
+	FieldName          string
+	MetricName         string
+	Description        string
+	Labels             string
+	LabelNames         []string
 
 	MethodParams     string
 	MethodArgs       string
@@ -127,8 +135,9 @@ type HistogramOpts struct {
 
 // TemplateData is all of the data required for rendering a metric file template.
 type TemplateData struct {
-	Package       string
-	ParsedMetrics []ParsedMetricField
+	Package        string
+	ParsedMetrics  []ParsedMetricField
+	UsesIntMetrics bool
 }
 
 func main() {
@@ -180,15 +189,18 @@ func ParseMetricsDir(dir string, structName string) (TemplateData, error) {
 		Package: pkgName,
 	}
 	// Grab the metrics struct
-	m, mPkgName, err := findMetricsStruct(pkg.Files, structName)
+	m, metricsPackageNames, err := findMetricsStruct(pkg.Files, structName)
 	if err != nil {
 		return TemplateData{}, err
 	}
 	for _, f := range m.Fields.List {
-		if !isMetric(f.Type, mPkgName) {
+		if !isMetric(f.Type, metricsPackageNames) {
 			continue
 		}
 		pmf := parseMetricField(f)
+		if pmf.ConstructorPackage == "tmmetrics" {
+			td.UsesIntMetrics = true
+		}
 		td.ParsedMetrics = append(td.ParsedMetrics, pmf)
 	}
 
@@ -215,14 +227,14 @@ func GenerateMetricsFile(w io.Writer, td TemplateData) error {
 	return nil
 }
 
-func findMetricsStruct(files map[string]*ast.File, structName string) (*ast.StructType, string, error) {
+func findMetricsStruct(files map[string]*ast.File, structName string) (*ast.StructType, map[string]struct{}, error) {
 	var (
 		st *ast.StructType
 	)
 	for _, file := range files {
-		mPkgName, err := extractMetricsPackageName(file.Imports)
+		metricsPackageNames, err := extractMetricsPackageNames(file.Imports)
 		if err != nil {
-			return nil, "", fmt.Errorf("unable to determine metrics package name: %v", err)
+			return nil, nil, fmt.Errorf("unable to determine metrics package name: %v", err)
 		}
 		if !ast.FilterFile(file, func(name string) bool {
 			return name == structName
@@ -245,24 +257,27 @@ func findMetricsStruct(files map[string]*ast.File, structName string) (*ast.Stru
 			}
 		})
 		if err != nil {
-			return nil, "", err
+			return nil, nil, err
 		}
 		if st != nil {
-			return st, mPkgName, nil
+			return st, metricsPackageNames, nil
 		}
 	}
-	return nil, "", fmt.Errorf("target struct %q not found in dir", structName)
+	return nil, nil, fmt.Errorf("target struct %q not found in dir", structName)
 }
 
 func parseMetricField(f *ast.Field) ParsedMetricField {
+	typeName := extractTypeName(f.Type)
 	pmf := ParsedMetricField{
-		Description:      extractHelpMessage(f.Doc),
-		MetricName:       extractFieldName(f.Names[0].String(), f.Tag),
-		FieldName:        f.Names[0].String(),
-		TypeName:         extractTypeName(f.Type),
-		OptsTypeName:     extractOptsTypeName(f.Type),
-		LabelNames:       extractLabelNames(f.Tag),
-		MethodReturnType: extractMethodReturnType(f.Type),
+		Description:        extractHelpMessage(f.Doc),
+		MetricName:         extractFieldName(f.Names[0].String(), f.Tag),
+		FieldName:          f.Names[0].String(),
+		TypeName:           typeName,
+		ConstructorPackage: extractConstructorPackage(typeName),
+		ConstructorName:    "New" + typeName,
+		OptsTypeName:       extractOptsTypeName(typeName),
+		LabelNames:         extractLabelNames(f.Tag),
+		MethodReturnType:   extractMethodReturnType(typeName),
 	}
 	pmf.Labels = joinQuotedLabels(pmf.LabelNames)
 	pmf.MethodParams = buildMethodParams(pmf.LabelNames)
@@ -277,17 +292,36 @@ func extractTypeName(e ast.Expr) string {
 	return strings.TrimPrefix(path.Ext(types.ExprString(e)), ".")
 }
 
-func extractOptsTypeName(e ast.Expr) string {
-	typeName := extractTypeName(e)
-	return strings.TrimSuffix(typeName, "Vec") + "Opts"
+func extractConstructorPackage(typeName string) string {
+	switch typeName {
+	case "CounterIntVec", "GaugeIntVec":
+		return "tmmetrics"
+	default:
+		return "prometheus"
+	}
 }
 
-func extractMethodReturnType(e ast.Expr) string {
-	switch extractTypeName(e) {
+func extractOptsTypeName(typeName string) string {
+	switch typeName {
+	case "CounterIntVec":
+		return "CounterOpts"
+	case "GaugeIntVec":
+		return "GaugeOpts"
+	default:
+		return strings.TrimSuffix(typeName, "Vec") + "Opts"
+	}
+}
+
+func extractMethodReturnType(typeName string) string {
+	switch typeName {
 	case "CounterVec":
 		return "prometheus.Counter"
+	case "CounterIntVec":
+		return "*tmmetrics.CounterInt"
 	case "GaugeVec":
 		return "prometheus.Gauge"
+	case "GaugeIntVec":
+		return "*tmmetrics.GaugeInt"
 	case "HistogramVec":
 		return "prometheus.Observer"
 	default:
@@ -310,8 +344,14 @@ func extractHelpMessage(cg *ast.CommentGroup) string {
 	return strings.Join(help, " ")
 }
 
-func isMetric(e ast.Expr, mPkgName string) bool {
-	return strings.Contains(types.ExprString(e), fmt.Sprintf("%s.", mPkgName))
+func isMetric(e ast.Expr, metricsPackageNames map[string]struct{}) bool {
+	expr := types.ExprString(e)
+	for packageName := range metricsPackageNames {
+		if strings.Contains(expr, fmt.Sprintf("%s.", packageName)) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractLabelNames(bl *ast.BasicLit) []string {
@@ -401,20 +441,23 @@ func extractHistogramOptions(tag *ast.BasicLit) HistogramOpts {
 	return h
 }
 
-func extractMetricsPackageName(imports []*ast.ImportSpec) (string, error) {
+func extractMetricsPackageNames(imports []*ast.ImportSpec) (map[string]struct{}, error) {
+	names := make(map[string]struct{}, 2)
 	for _, i := range imports {
 		u, err := strconv.Unquote(i.Path.Value)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		if u == metricsPackageName {
-			if i.Name != nil {
-				return i.Name.Name, nil
-			}
-			return path.Base(u), nil
+		if u != stdMetricsPackageName && u != intMetricsPackageName {
+			continue
 		}
+		if i.Name != nil {
+			names[i.Name.Name] = struct{}{}
+			continue
+		}
+		names[path.Base(u)] = struct{}{}
 	}
-	return "", nil
+	return names, nil
 }
 
 var capitalChange = regexp.MustCompile("([a-z0-9])([A-Z])")
