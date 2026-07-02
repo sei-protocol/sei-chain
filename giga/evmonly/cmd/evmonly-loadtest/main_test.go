@@ -14,6 +14,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
@@ -47,7 +48,7 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 
 	writer := &discardStateWriter{}
 	writer.ApplyChangeSet(result.ChangeSet)
-	discardReceiptSink{}.StoreReceipts(request.Context.Number, result.Receipts)
+	require.NoError(t, discardReceiptSink{}.StoreReceipts(context.Background(), request.Context.Number, result.Receipts))
 }
 
 func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
@@ -147,11 +148,13 @@ func TestFileResultSinkWritesRLPRecordsAndCleansUpOnCancel(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
+		"--persist-async=false",
 		"--result-sink=file",
 		"--persist-dir=" + dir,
 	})
 	require.NoError(t, err)
-	sinks, err := newResultSinks(cfg)
+	metrics := newLoadMetrics(prometheus.NewRegistry())
+	sinks, err := newResultSinks(cfg, metrics)
 	require.NoError(t, err)
 
 	changePath := filepath.Join(dir, "changesets.rlp")
@@ -167,8 +170,8 @@ func TestFileResultSinkWritesRLPRecordsAndCleansUpOnCancel(t *testing.T) {
 		Status: ethtypes.ReceiptStatusSuccessful,
 		TxHash: common.HexToHash("0x01"),
 	}}
-	require.NoError(t, sinks.StoreChangeSet(1, writtenChangeSet))
-	require.NoError(t, sinks.StoreReceipts(1, writtenReceipts))
+	require.NoError(t, sinks.StoreChangeSet(context.Background(), 1, writtenChangeSet))
+	require.NoError(t, sinks.StoreReceipts(context.Background(), 1, writtenReceipts))
 
 	requireFileExists(t, changePath)
 	requireFileExists(t, receiptPath)
@@ -191,6 +194,32 @@ func TestFileResultSinkWritesRLPRecordsAndCleansUpOnCancel(t *testing.T) {
 	require.NoError(t, sinks.Close())
 	requireNoFileExists(t, changePath)
 	requireNoFileExists(t, receiptPath)
+}
+
+func TestAsyncFileResultSinkReportsMetrics(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--result-sink=file",
+		"--persist-dir=" + dir,
+		"--persist-queue-size=1",
+	})
+	require.NoError(t, err)
+	metrics := newLoadMetrics(prometheus.NewRegistry())
+	sinks, err := newResultSinks(cfg, metrics)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, sinks.StoreChangeSet(ctx, 1, evmonly.StateChangeSet{}))
+	require.NoError(t, sinks.StoreReceipts(ctx, 1, ethtypes.Receipts{}))
+	require.NoError(t, sinks.Close())
+
+	snapshot := metrics.snapshot()
+	require.Equal(t, uint64(2), snapshot.sinkEnqueued)
+	require.Equal(t, uint64(2), snapshot.sinkWritten)
+	require.Equal(t, int64(0), snapshot.sinkQueued)
+	require.Greater(t, snapshot.sinkBytes, uint64(0))
 }
 
 func TestRunPrebuiltBlocksWithFileResultSinkCleansUp(t *testing.T) {
