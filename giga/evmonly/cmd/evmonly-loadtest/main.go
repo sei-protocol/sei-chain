@@ -399,8 +399,8 @@ func runStreaming(ctx context.Context, cfg config, state *generatedState, worklo
 				MinGasPrice:          new(big.Int).Set(cfg.minGasPrice),
 				DisableGasPriceCheck: cfg.disableGasPriceRule,
 				OCCWorkers:           cfg.executorWorkers,
-			}, evmonly.WithState(state))
-			return executeBlocks(groupCtx, workerID, executor, blocks, sinks, metrics)
+			}, evmonly.WithState(state), evmonly.WithResultSink(sinks))
+			return executeBlocks(groupCtx, workerID, executor, blocks, metrics)
 		})
 	}
 
@@ -446,8 +446,8 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 				MinGasPrice:          new(big.Int).Set(cfg.minGasPrice),
 				DisableGasPriceCheck: cfg.disableGasPriceRule,
 				OCCWorkers:           cfg.executorWorkers,
-			}, evmonly.WithState(state))
-			return executeBlocks(groupCtx, workerID, executor, blocks, sinks, metrics)
+			}, evmonly.WithState(state), evmonly.WithResultSink(sinks))
+			return executeBlocks(groupCtx, workerID, executor, blocks, metrics)
 		})
 	}
 
@@ -561,7 +561,6 @@ func executeBlocks(
 	workerID int,
 	executor evmonly.BlockExecutor,
 	blocks <-chan blockEnvelope,
-	sinks *resultSinks,
 	metrics *loadMetrics,
 ) error {
 	for {
@@ -579,14 +578,6 @@ func executeBlocks(
 					return nil
 				}
 				return fmt.Errorf("worker %d execute block %d: %w", workerID, block.number, err)
-			}
-			if err := sinks.StoreChangeSet(ctx, block.number, result.ChangeSet); err != nil {
-				metrics.recordExecutionError()
-				return fmt.Errorf("worker %d store changeset for block %d: %w", workerID, block.number, err)
-			}
-			if err := sinks.StoreReceipts(ctx, block.number, result.Receipts); err != nil {
-				metrics.recordExecutionError()
-				return fmt.Errorf("worker %d store receipts for block %d: %w", workerID, block.number, err)
 			}
 			metrics.recordFinished(len(result.Txs), result.GasUsed, result.OCCStats)
 		}
@@ -944,6 +935,8 @@ type resultSinks struct {
 	close      func() error
 	cleanup    func() error
 }
+
+var _ evmonly.ResultSink = (*resultSinks)(nil)
 
 func newResultSinks(cfg config, metrics *loadMetrics) (*resultSinks, error) {
 	switch cfg.resultSink {
