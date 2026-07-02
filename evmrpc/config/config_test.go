@@ -238,7 +238,10 @@ func TestReadConfig(t *testing.T) {
 	cfg, err := config.ReadConfig(&goodOpts)
 	require.Nil(t, err)
 	require.False(t, cfg.EnableParallelizedBlockTrace)
+	// Round-trip: an explicitly-supplied value overrides the default.
 	require.Equal(t, uint64(256*1024*1024), cfg.MaxTraceStructLogBytes)
+	// The shipped default (used when the operator supplies no value).
+	require.Equal(t, uint64(32*1024*1024), config.DefaultConfig.MaxTraceStructLogBytes)
 	badOpts := goodOpts
 	badOpts.httpEnabled = "bad"
 	_, err = config.ReadConfig(&badOpts)
