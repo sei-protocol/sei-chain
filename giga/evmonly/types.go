@@ -13,6 +13,12 @@ type BlockExecutor interface {
 	ExecuteBlock(context.Context, BlockRequest) (*BlockResult, error)
 }
 
+// ResultSink persists executor-produced block outputs.
+type ResultSink interface {
+	StoreChangeSet(ctx context.Context, height uint64, changeSet StateChangeSet) error
+	StoreReceipts(ctx context.Context, height uint64, receipts ethtypes.Receipts) error
+}
+
 // BlockRequest contains all consensus/runtime inputs needed to execute a block.
 // Txs must be raw Ethereum transaction RLP bytes.
 type BlockRequest struct {
