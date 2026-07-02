@@ -23,6 +23,7 @@ type Executor struct {
 	state      StateReader
 	resultSink ResultSink
 	occPool    *occWorkerPool
+	resultPool *blockResultPool
 }
 
 type Option func(*Executor)
@@ -43,8 +44,9 @@ func WithResultSink(sink ResultSink) Option {
 
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
-		cfg:   cfg.WithDefaults(),
-		state: NewMemoryState(),
+		cfg:        cfg.WithDefaults(),
+		state:      NewMemoryState(),
+		resultPool: newBlockResultPool(cfg.BlockResultPoolSize),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -94,7 +96,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	var result *BlockResult
 	var err error
 	if len(req.Txs) == 0 {
-		result = &BlockResult{}
+		result, err = e.acquireBlockResult(ctx, 0)
 	} else if e.useOCC(len(req.Txs)) {
 		result, err = e.executeBlockOCC(ctx, req)
 	} else {
@@ -104,13 +106,39 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 		return nil, err
 	}
 	if err := e.sinkBlockResult(ctx, req.Context.Number, result); err != nil {
+		result.Release()
 		return nil, err
 	}
 	return result, nil
 }
 
+func (e *Executor) acquireBlockResult(ctx context.Context, txCapacity int) (*BlockResult, error) {
+	if e.resultPool == nil || !e.canPoolBlockResults() {
+		result := &BlockResult{}
+		result.prepareForBlock(txCapacity)
+		return result, nil
+	}
+	return e.resultPool.acquire(ctx, txCapacity)
+}
+
+func (e *Executor) canPoolBlockResults() bool {
+	if e.resultSink == nil {
+		return true
+	}
+	_, ok := e.resultSink.(BlockResultSink)
+	return ok
+}
+
 func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *BlockResult) error {
 	if e.resultSink == nil || result == nil {
+		return nil
+	}
+	if sink, ok := e.resultSink.(BlockResultSink); ok {
+		release := result.retain()
+		if err := sink.StoreBlockResult(ctx, height, result, release); err != nil {
+			release()
+			return fmt.Errorf("store block result for block %d: %w", height, err)
+		}
 		return nil
 	}
 	if err := e.resultSink.StoreChangeSet(ctx, height, result.ChangeSet); err != nil {
@@ -147,10 +175,16 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 	gasPool := new(core.GasPool).AddGas(gasLimit)
 	baseFee := cloneBig(req.Context.BaseFee)
 
-	result := &BlockResult{
-		Txs:      make([]TxResult, 0, len(req.Txs)),
-		Receipts: make(ethtypes.Receipts, 0, len(req.Txs)),
+	result, err := e.acquireBlockResult(ctx, len(req.Txs))
+	if err != nil {
+		return nil, err
 	}
+	ok := false
+	defer func() {
+		if !ok {
+			result.Release()
+		}
+	}()
 	var txIndexUint uint
 	for txIndex, p := range req.Txs {
 		select {
@@ -171,7 +205,8 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 	}
 	stateDB.clearSnapshots()
 	stateDB.Finalise(true)
-	result.ChangeSet = stateDB.ChangeSet()
+	stateDB.ChangeSetInto(&result.ChangeSet)
+	ok = true
 	return result, nil
 }
 
