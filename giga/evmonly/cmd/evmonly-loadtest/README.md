@@ -70,6 +70,12 @@ Useful knobs:
   is `min(12, GOMAXPROCS)`, following the `sei-v3` OCC worker default.
 - `--prepare-workers`: parallel stateless preparation workers used for
   transaction RLP decode and sender recovery. The default is `GOMAXPROCS`.
+- `--pin-workers`: on Linux, lock prepare and OCC workers to OS threads and
+  pin them to CPUs. The default is disabled.
+- `--prepare-cpu-offset`: first CPU used by pinned prepare workers. The default
+  is `0`.
+- `--executor-cpu-offset`: first CPU used by pinned OCC workers. The default
+  `-1` starts after the prepare-worker range.
 - `--builders`: parallel block builders used to keep the input queue full. The
   default is `GOMAXPROCS`.
 - `--queue-size`: buffered raw and prepared blocks. The default is `64`.

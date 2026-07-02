@@ -66,8 +66,10 @@ type config struct {
 	queueSize           int
 	builders            int
 	prepareWorkers      int
+	prepareCPUOffset    int
 	workers             int
 	executorWorkers     int
+	executorCPUOffset   int
 	targetBlocksPerSec  float64
 	reportInterval      time.Duration
 	metricsAddr         string
@@ -92,6 +94,7 @@ type config struct {
 	fixedRecipient      *common.Address
 	disableGasPriceRule bool
 	prebuildBlocks      bool
+	pinWorkers          bool
 }
 
 type blockEnvelope struct {
@@ -135,8 +138,10 @@ func parseConfig(args []string) (config, error) {
 	fs.IntVar(&cfg.queueSize, "queue-size", defaultQueueSize, "buffered blocks waiting for executor workers")
 	fs.IntVar(&cfg.builders, "builders", runtime.GOMAXPROCS(0), "parallel block builder goroutines")
 	fs.IntVar(&cfg.prepareWorkers, "prepare-workers", defaultPrepareWorkers(), "parallel block preparation workers for transaction decode and sender recovery")
+	fs.IntVar(&cfg.prepareCPUOffset, "prepare-cpu-offset", 0, "first CPU index for pinned prepare workers when --pin-workers is set")
 	fs.IntVar(&cfg.workers, "workers", defaultWorkerCount, "parallel executor workers")
 	fs.IntVar(&cfg.executorWorkers, "executor-workers", defaultExecutorWorkers(), "parallel OCC workers inside each executor")
+	fs.IntVar(&cfg.executorCPUOffset, "executor-cpu-offset", -1, "first CPU index for pinned OCC workers when --pin-workers is set; -1 defaults to prepare-cpu-offset+prepare-workers")
 	fs.Float64Var(&cfg.targetBlocksPerSec, "target-blocks-per-sec", 0, "input block rate cap; 0 means unlimited")
 	fs.DurationVar(&cfg.reportInterval, "report-interval", defaultReportInterval, "stdout and rate-gauge reporting interval; 0 disables periodic reports")
 	fs.StringVar(&cfg.metricsAddr, "metrics-addr", defaultMetricsAddr, "Prometheus listen address; empty disables HTTP metrics")
@@ -153,6 +158,7 @@ func parseConfig(args []string) (config, error) {
 	fs.Uint64Var(&cfg.blockGasLimit, "block-gas-limit", 0, "block gas limit; 0 lets the executor use its maximum")
 	fs.BoolVar(&cfg.disableGasPriceRule, "disable-gas-price-rule", false, "disable the executor min-gas-price validity rule")
 	fs.BoolVar(&cfg.prebuildBlocks, "prebuild-blocks", false, "generate all bounded blocks before starting executor workers")
+	fs.BoolVar(&cfg.pinWorkers, "pin-workers", false, "lock prepare and OCC workers to OS threads and pin them to CPUs on Linux")
 
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
@@ -213,11 +219,20 @@ func parseConfig(args []string) (config, error) {
 	if cfg.prepareWorkers <= 0 {
 		return config{}, fmt.Errorf("prepare-workers must be positive")
 	}
+	if cfg.prepareCPUOffset < 0 {
+		return config{}, fmt.Errorf("prepare-cpu-offset must be non-negative")
+	}
 	if cfg.workers <= 0 {
 		return config{}, fmt.Errorf("workers must be positive")
 	}
 	if cfg.executorWorkers <= 0 {
 		return config{}, fmt.Errorf("executor-workers must be positive")
+	}
+	if cfg.executorCPUOffset < -1 {
+		return config{}, fmt.Errorf("executor-cpu-offset must be non-negative or -1")
+	}
+	if cfg.executorCPUOffset == -1 {
+		cfg.executorCPUOffset = cfg.prepareCPUOffset + cfg.prepareWorkers
 	}
 	if cfg.targetBlocksPerSec < 0 {
 		return config{}, fmt.Errorf("target-blocks-per-sec must be non-negative")
@@ -522,7 +537,10 @@ func runStreaming(ctx context.Context, cfg config, state *generatedState, worklo
 		MinGasPrice:          new(big.Int).Set(cfg.minGasPrice),
 		DisableGasPriceCheck: cfg.disableGasPriceRule,
 		OCCWorkers:           cfg.executorWorkers,
+		PinOCCWorkers:        cfg.pinWorkers,
+		OCCWorkerCPUOffset:   cfg.executorCPUOffset,
 	}, evmonly.WithState(state), evmonly.WithResultSink(sinks))
+	defer executor.Close()
 	group.Go(func() error {
 		defer close(blocks)
 		return produceBlocks(groupCtx, cfg, workload, blocks, metrics)
@@ -580,7 +598,10 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 		MinGasPrice:          new(big.Int).Set(cfg.minGasPrice),
 		DisableGasPriceCheck: cfg.disableGasPriceRule,
 		OCCWorkers:           cfg.executorWorkers,
+		PinOCCWorkers:        cfg.pinWorkers,
+		OCCWorkerCPUOffset:   cfg.executorCPUOffset,
 	}, evmonly.WithState(state), evmonly.WithResultSink(sinks))
+	defer executor.Close()
 	group.Go(func() error {
 		defer close(blocks)
 		return feedPrebuiltBlocks(groupCtx, prebuilt, blocks, metrics)
@@ -712,6 +733,13 @@ func prepareBlocks(
 	for workerID := 0; workerID < cfg.prepareWorkers; workerID++ {
 		workerID := workerID
 		group.Go(func() error {
+			if cfg.pinWorkers {
+				unlock, err := pinCurrentWorkerThread(cfg.prepareCPUOffset + workerID)
+				if err != nil {
+					return fmt.Errorf("pin prepare worker %d: %w", workerID, err)
+				}
+				defer unlock()
+			}
 			for {
 				select {
 				case <-groupCtx.Done():
