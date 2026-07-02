@@ -393,10 +393,10 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	}
 
 	txmp.metrics.InsertedTxsAt().Add(1)
-	txmp.metrics.TxSizeBytesAt().Add(int64(wtx.Size()))
+	txmp.metrics.TxSizeBytesAt().Add(int64(wtx.Size())) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
 	txmp.metrics.SizeAt().Set(int64(txmp.NumTxsNotPending()))
 	txmp.metrics.PendingSizeAt().Set(int64(txmp.PendingSize()))
-	txmp.metrics.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize()))
+	txmp.metrics.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize())) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
 
 	txmp.notifyTxsAvailable()
 	return res.ResponseCheckTx, nil
@@ -431,7 +431,7 @@ func (txmp *TxMempool) ReapTxs(limits ReapLimits, remove bool) (types.Txs, int64
 	if remove {
 		txmp.metrics.SizeAt().Set(int64(txmp.NumTxsNotPending()))
 		txmp.metrics.PendingSizeAt().Set(int64(txmp.PendingSize()))
-		txmp.metrics.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize()))
+		txmp.metrics.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize())) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
 	}
 	return txs, gasEstimate
 }
@@ -494,7 +494,7 @@ func (txmp *TxMempool) Update(
 	})
 	txmp.notifyTxsAvailable()
 	txmp.metrics.SizeAt().Set(int64(txmp.NumTxsNotPending()))
-	txmp.metrics.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize()))
+	txmp.metrics.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize())) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
 	txmp.metrics.PendingSizeAt().Set(int64(txmp.PendingSize()))
 	return nil
 }

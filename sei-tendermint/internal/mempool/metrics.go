@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	"github.com/prometheus/client_golang/prometheus"
-	stdprometheus "github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -37,7 +36,7 @@ var (
 			"tendermint_mempool_compact_duration_seconds",
 			metric.WithDescription("Wall-clock duration of compact(), which re-sorts and rebuilds indices over the full mempool (O(m log m))."),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(stdprometheus.ExponentialBucketsRange(0.001, 30, 14)...),
+			metric.WithExplicitBucketBoundaries(prometheus.ExponentialBucketsRange(0.001, 30, 14)...),
 		)),
 	}
 

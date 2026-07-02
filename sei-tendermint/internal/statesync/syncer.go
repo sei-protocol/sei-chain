@@ -181,8 +181,8 @@ func (s *syncer) SyncAny(
 		newState, commit, err := s.Sync(ctx, snapshot, chunks)
 		switch {
 		case err == nil:
-			s.metrics.SnapshotHeightAt().Set(int64(snapshot.Height))
-			s.lastSyncedSnapshotHeight = int64(snapshot.Height) //nolint:gosec // snapshot.Height is a valid block height
+			s.metrics.SnapshotHeightAt().Set(int64(snapshot.Height)) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
+			s.lastSyncedSnapshotHeight = int64(snapshot.Height)      //nolint:gosec // snapshot.Height is a valid block height in this context
 			return newState, commit, nil
 
 		case errors.Is(err, errAbort):

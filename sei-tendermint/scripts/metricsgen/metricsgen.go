@@ -23,6 +23,7 @@ import (
 	"strings"
 	"text/template"
 	"unicode"
+	"unicode/utf8"
 )
 
 func init() {
@@ -49,6 +50,8 @@ const (
 	labelsTag     = "metrics_labels"
 	bucketTypeTag = "metrics_buckettype"
 	bucketSizeTag = "metrics_bucketsizes"
+	counterIntVec = "CounterIntVec"
+	gaugeIntVec   = "GaugeIntVec"
 )
 
 var (
@@ -180,16 +183,21 @@ func ParseMetricsDir(dir string, structName string) (TemplateData, error) {
 		return TemplateData{}, fmt.Errorf("no go pacakges found in %s", dir)
 	}
 
-	// Grab the package name.
-	var pkgName string
-	var pkg *ast.Package // nolint:staticcheck // SA1019: will replace all metrics gen with OTEL and not worth fixing.
-	for pkgName, pkg = range d {
+	// Grab the package name and files.
+	var (
+		pkgName  string
+		pkgFiles map[string]*ast.File
+	)
+	for name, parsedPkg := range d {
+		pkgName = name
+		pkgFiles = parsedPkg.Files
+		break
 	}
 	td := TemplateData{
 		Package: pkgName,
 	}
 	// Grab the metrics struct
-	m, metricsPackageNames, err := findMetricsStruct(pkg.Files, structName)
+	m, metricsPackageNames, err := findMetricsStruct(pkgFiles, structName)
 	if err != nil {
 		return TemplateData{}, err
 	}
@@ -294,7 +302,7 @@ func extractTypeName(e ast.Expr) string {
 
 func extractConstructorPackage(typeName string) string {
 	switch typeName {
-	case "CounterIntVec", "GaugeIntVec":
+	case counterIntVec, gaugeIntVec:
 		return "tmmetrics"
 	default:
 		return "prometheus"
@@ -303,9 +311,9 @@ func extractConstructorPackage(typeName string) string {
 
 func extractOptsTypeName(typeName string) string {
 	switch typeName {
-	case "CounterIntVec":
+	case counterIntVec:
 		return "CounterOpts"
-	case "GaugeIntVec":
+	case gaugeIntVec:
 		return "GaugeOpts"
 	default:
 		return strings.TrimSuffix(typeName, "Vec") + "Opts"
@@ -316,11 +324,11 @@ func extractMethodReturnType(typeName string) string {
 	switch typeName {
 	case "CounterVec":
 		return "prometheus.Counter"
-	case "CounterIntVec":
+	case counterIntVec:
 		return "*tmmetrics.CounterInt"
 	case "GaugeVec":
 		return "prometheus.Gauge"
-	case "GaugeIntVec":
+	case gaugeIntVec:
 		return "*tmmetrics.GaugeInt"
 	case "HistogramVec":
 		return "prometheus.Observer"
@@ -408,7 +416,8 @@ func labelToParamName(label string) string {
 	if name == "" {
 		name = "label"
 	}
-	if unicode.IsDigit(rune(name[0])) {
+	firstRune, _ := utf8.DecodeRuneInString(name)
+	if unicode.IsDigit(firstRune) {
 		name = "_" + name
 	}
 	if _, isKeyword := goKeywords[name]; isKeyword {
