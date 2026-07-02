@@ -372,9 +372,9 @@ func makeNode(
 		// Make ConsensusReactor. Don't enable fully if doing a state sync and/or block sync first.
 		// FIXME We need to update metrics here, since other reactors don't have access to them.
 		if stateSync {
-			nodeMetrics.consensus.StateSyncing.Set(1)
+			nodeMetrics.consensus.StateSyncingAt().Set(1)
 		} else if blockSync {
-			nodeMetrics.consensus.BlockSyncing.Set(1)
+			nodeMetrics.consensus.BlockSyncingAt().Set(1)
 		}
 
 		postSyncHook := func(ctx context.Context, state sm.State) error {
@@ -732,14 +732,14 @@ type metricsProvider func() *NodeMetrics
 
 func NoOpMetricsProvider() *NodeMetrics {
 	return &NodeMetrics{
-		consensus: consensus.NopMetrics(),
-		indexer:   indexer.NopMetrics(),
-		mempool:   mempool.NopMetrics(),
-		p2p:       p2p.NopMetrics(),
-		proxy:     proxy.NopMetrics(),
-		state:     sm.NopMetrics(),
-		statesync: statesync.NopMetrics(),
-		evidence:  evidence.NopMetrics(),
+		consensus: consensus.NewMetrics(),
+		indexer:   indexer.NewMetrics(),
+		mempool:   mempool.NewMetrics(),
+		p2p:       p2p.NewMetrics(),
+		proxy:     proxy.NewMetrics(),
+		state:     sm.NewMetrics(),
+		statesync: statesync.NewMetrics(),
+		evidence:  evidence.NewMetrics(),
 	}
 }
 
@@ -749,15 +749,15 @@ func DefaultMetricsProvider(cfg *config.InstrumentationConfig) metricsProvider {
 	return func() *NodeMetrics {
 		if cfg.Prometheus {
 			return &NodeMetrics{
-				consensus: consensus.PrometheusMetrics(),
-				eventlog:  eventlog.PrometheusMetrics(),
-				indexer:   indexer.PrometheusMetrics(),
-				mempool:   mempool.PrometheusMetrics(),
-				p2p:       p2p.PrometheusMetrics(),
-				proxy:     proxy.PrometheusMetrics(),
-				state:     sm.PrometheusMetrics(),
-				statesync: statesync.PrometheusMetrics(),
-				evidence:  evidence.PrometheusMetrics(),
+				consensus: consensus.Global,
+				eventlog:  eventlog.Global,
+				indexer:   indexer.Global,
+				mempool:   mempool.Global,
+				p2p:       p2p.Global,
+				proxy:     proxy.Global,
+				state:     sm.Global,
+				statesync: statesync.Global,
+				evidence:  evidence.Global,
 			}
 		}
 		return NoOpMetricsProvider()

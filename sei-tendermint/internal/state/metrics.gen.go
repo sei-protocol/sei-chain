@@ -3,92 +3,109 @@
 package state
 
 import (
-	"github.com/go-kit/kit/metrics/discard"
-	prometheus "github.com/go-kit/kit/metrics/prometheus"
-	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics() *Metrics {
+var Global = NewMetrics()
+
+func init() {
+	prometheus.MustRegister(
+		Global.BlockProcessingTime,
+		Global.ConsensusParamUpdates,
+		Global.ValidatorSetUpdates,
+		Global.ApplicationCommitTime,
+		Global.UpdateMempoolTime,
+		Global.FinalizeBlockLatency,
+		Global.SaveBlockResponseLatency,
+		Global.SaveBlockLatency,
+		Global.PruneBlockLatency,
+		Global.FireEventsLatency,
+		Global.ProposerPriorityHash,
+		Global.ProposerPriorityHashHeight,
+	)
+}
+
+func NewMetrics() *Metrics {
 	return &Metrics{
-		BlockProcessingTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		BlockProcessingTime: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_processing_time",
 			Help:      "Time between BeginBlock and EndBlock.",
 
-			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+			Buckets: prometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, nil),
-		ConsensusParamUpdates: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+		ConsensusParamUpdates: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "consensus_param_updates",
 			Help:      "Number of consensus parameter updates returned by the application since process start.",
 		}, nil),
-		ValidatorSetUpdates: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+		ValidatorSetUpdates: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validator_set_updates",
 			Help:      "Number of validator set updates returned by the application since process start.",
 		}, nil),
-		ApplicationCommitTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		ApplicationCommitTime: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "application_commit_time",
 			Help:      "ApplicationCommitTime measures how long it takes to commit application state",
 		}, nil),
-		UpdateMempoolTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		UpdateMempoolTime: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "update_mempool_time",
 			Help:      "UpdateMempoolTime measures how long it takes to update mempool after committing, including reCheckTx",
 		}, nil),
-		FinalizeBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		FinalizeBlockLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "finalize_block_latency",
 			Help:      "FinalizeBlockLatency measures how long it takes to run abci FinalizeBlock",
 
-			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+			Buckets: prometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, nil),
-		SaveBlockResponseLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		SaveBlockResponseLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "save_block_response_latency",
 			Help:      "SaveBlockResponseLatency measures how long it takes to run save the FinalizeBlockRes",
 
-			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+			Buckets: prometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, nil),
-		SaveBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		SaveBlockLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "save_block_latency",
 			Help:      "SaveBlockLatency measure how long it takes to save the block",
 
-			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+			Buckets: prometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, nil),
-		PruneBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		PruneBlockLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "prune_block_latency",
 			Help:      "PruneBlockLatency measures how long it takes to prune block from blockstore",
 
-			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+			Buckets: prometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, nil),
-		FireEventsLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		FireEventsLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "fire_events_latency",
 			Help:      "FireEventsLatency measures how long it takes to fire events for indexing",
 
-			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+			Buckets: prometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, nil),
-		ProposerPriorityHash: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+		ProposerPriorityHash: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposer_priority_hash",
 			Help:      "ProposerPriorityHash encodes the first 6 bytes of the hash of the current validator set's proposer priorities as a float64 value. Exported periodically (every proposerPriorityHashInterval heights) for operator visibility; divergence between validators at the same ProposerPriorityHashHeight indicates corrupted ProposerPriority state. Paired with ProposerPriorityHashHeight so operators can correlate.",
 		}, nil),
-		ProposerPriorityHashHeight: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+		ProposerPriorityHashHeight: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposer_priority_hash_height",
@@ -97,19 +114,50 @@ func PrometheusMetrics() *Metrics {
 	}
 }
 
-func NopMetrics() *Metrics {
-	return &Metrics{
-		BlockProcessingTime:        discard.NewHistogram(),
-		ConsensusParamUpdates:      discard.NewCounter(),
-		ValidatorSetUpdates:        discard.NewCounter(),
-		ApplicationCommitTime:      discard.NewHistogram(),
-		UpdateMempoolTime:          discard.NewHistogram(),
-		FinalizeBlockLatency:       discard.NewHistogram(),
-		SaveBlockResponseLatency:   discard.NewHistogram(),
-		SaveBlockLatency:           discard.NewHistogram(),
-		PruneBlockLatency:          discard.NewHistogram(),
-		FireEventsLatency:          discard.NewHistogram(),
-		ProposerPriorityHash:       discard.NewGauge(),
-		ProposerPriorityHashHeight: discard.NewGauge(),
-	}
+func (m *Metrics) BlockProcessingTimeAt() prometheus.Observer {
+	return m.BlockProcessingTime.WithLabelValues()
+}
+
+func (m *Metrics) ConsensusParamUpdatesAt() prometheus.Counter {
+	return m.ConsensusParamUpdates.WithLabelValues()
+}
+
+func (m *Metrics) ValidatorSetUpdatesAt() prometheus.Counter {
+	return m.ValidatorSetUpdates.WithLabelValues()
+}
+
+func (m *Metrics) ApplicationCommitTimeAt() prometheus.Observer {
+	return m.ApplicationCommitTime.WithLabelValues()
+}
+
+func (m *Metrics) UpdateMempoolTimeAt() prometheus.Observer {
+	return m.UpdateMempoolTime.WithLabelValues()
+}
+
+func (m *Metrics) FinalizeBlockLatencyAt() prometheus.Observer {
+	return m.FinalizeBlockLatency.WithLabelValues()
+}
+
+func (m *Metrics) SaveBlockResponseLatencyAt() prometheus.Observer {
+	return m.SaveBlockResponseLatency.WithLabelValues()
+}
+
+func (m *Metrics) SaveBlockLatencyAt() prometheus.Observer {
+	return m.SaveBlockLatency.WithLabelValues()
+}
+
+func (m *Metrics) PruneBlockLatencyAt() prometheus.Observer {
+	return m.PruneBlockLatency.WithLabelValues()
+}
+
+func (m *Metrics) FireEventsLatencyAt() prometheus.Observer {
+	return m.FireEventsLatency.WithLabelValues()
+}
+
+func (m *Metrics) ProposerPriorityHashAt() prometheus.Gauge {
+	return m.ProposerPriorityHash.WithLabelValues()
+}
+
+func (m *Metrics) ProposerPriorityHashHeightAt() prometheus.Gauge {
+	return m.ProposerPriorityHashHeight.WithLabelValues()
 }

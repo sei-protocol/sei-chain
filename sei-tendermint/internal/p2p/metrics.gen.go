@@ -3,68 +3,83 @@
 package p2p
 
 import (
-	"github.com/go-kit/kit/metrics/discard"
-	prometheus "github.com/go-kit/kit/metrics/prometheus"
-	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics() *Metrics {
+var Global = NewMetrics()
+
+func init() {
+	prometheus.MustRegister(
+		Global.Peers,
+		Global.PeerReceiveBytesTotal,
+		Global.PeerSendBytesTotal,
+		Global.PeerPendingSendBytes,
+		Global.NewConnections,
+		Global.RouterPeerQueueRecv,
+		Global.RouterPeerQueueSend,
+		Global.RouterChannelQueueSend,
+		Global.ChannelMsgs,
+		Global.QueueDroppedMsgs,
+	)
+}
+
+func NewMetrics() *Metrics {
 	return &Metrics{
-		Peers: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+		Peers: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peers",
 			Help:      "Number of peers.",
 		}, nil),
-		PeerReceiveBytesTotal: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+		PeerReceiveBytesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peer_receive_bytes_total",
 			Help:      "Number of bytes per channel received from a given peer.",
 		}, []string{"peer_id", "chID", "message_type"}),
-		PeerSendBytesTotal: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+		PeerSendBytesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peer_send_bytes_total",
 			Help:      "Number of bytes per channel sent to a given peer.",
 		}, []string{"peer_id", "chID", "message_type"}),
-		PeerPendingSendBytes: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+		PeerPendingSendBytes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peer_pending_send_bytes",
 			Help:      "Number of bytes pending being sent to a given peer.",
 		}, []string{"peer_id"}),
-		NewConnections: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+		NewConnections: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "new_connections",
 			Help:      "Number of newly established connections.",
 		}, []string{"direction", "success"}),
-		RouterPeerQueueRecv: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		RouterPeerQueueRecv: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "router_peer_queue_recv",
 			Help:      "The time taken to read off of a peer's queue before sending on the connection.",
 		}, nil),
-		RouterPeerQueueSend: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		RouterPeerQueueSend: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "router_peer_queue_send",
 			Help:      "The time taken to send on a peer's queue which will later be read and sent on the connection.",
 		}, nil),
-		RouterChannelQueueSend: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		RouterChannelQueueSend: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "router_channel_queue_send",
 			Help:      "The time taken to send on a p2p channel's queue which will later be consued by the corresponding reactor/service.",
 		}, nil),
-		ChannelMsgs: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+		ChannelMsgs: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "channel_msgs",
 			Help:      "",
 		}, []string{"ch_id", "direction"}),
-		QueueDroppedMsgs: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+		QueueDroppedMsgs: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "queue_dropped_msgs",
@@ -73,17 +88,42 @@ func PrometheusMetrics() *Metrics {
 	}
 }
 
-func NopMetrics() *Metrics {
-	return &Metrics{
-		Peers:                  discard.NewGauge(),
-		PeerReceiveBytesTotal:  discard.NewCounter(),
-		PeerSendBytesTotal:     discard.NewCounter(),
-		PeerPendingSendBytes:   discard.NewGauge(),
-		NewConnections:         discard.NewCounter(),
-		RouterPeerQueueRecv:    discard.NewHistogram(),
-		RouterPeerQueueSend:    discard.NewHistogram(),
-		RouterChannelQueueSend: discard.NewHistogram(),
-		ChannelMsgs:            discard.NewCounter(),
-		QueueDroppedMsgs:       discard.NewCounter(),
-	}
+func (m *Metrics) PeersAt() prometheus.Gauge {
+	return m.Peers.WithLabelValues()
+}
+
+func (m *Metrics) PeerReceiveBytesTotalAt(peer_id string, chID string, message_type string) prometheus.Counter {
+	return m.PeerReceiveBytesTotal.WithLabelValues(peer_id, chID, message_type)
+}
+
+func (m *Metrics) PeerSendBytesTotalAt(peer_id string, chID string, message_type string) prometheus.Counter {
+	return m.PeerSendBytesTotal.WithLabelValues(peer_id, chID, message_type)
+}
+
+func (m *Metrics) PeerPendingSendBytesAt(peer_id string) prometheus.Gauge {
+	return m.PeerPendingSendBytes.WithLabelValues(peer_id)
+}
+
+func (m *Metrics) NewConnectionsAt(direction string, success string) prometheus.Counter {
+	return m.NewConnections.WithLabelValues(direction, success)
+}
+
+func (m *Metrics) RouterPeerQueueRecvAt() prometheus.Observer {
+	return m.RouterPeerQueueRecv.WithLabelValues()
+}
+
+func (m *Metrics) RouterPeerQueueSendAt() prometheus.Observer {
+	return m.RouterPeerQueueSend.WithLabelValues()
+}
+
+func (m *Metrics) RouterChannelQueueSendAt() prometheus.Observer {
+	return m.RouterChannelQueueSend.WithLabelValues()
+}
+
+func (m *Metrics) ChannelMsgsAt(ch_id string, direction string) prometheus.Counter {
+	return m.ChannelMsgs.WithLabelValues(ch_id, direction)
+}
+
+func (m *Metrics) QueueDroppedMsgsAt(ch_id string, direction string) prometheus.Counter {
+	return m.QueueDroppedMsgs.WithLabelValues(ch_id, direction)
 }

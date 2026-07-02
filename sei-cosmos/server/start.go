@@ -190,7 +190,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 					clientCtx,
 					appCreator,
 					tracerProviderOptions,
-					nodeMetricsProvider,
+					nodeMetricsProvider(),
 					apiMetrics,
 				)
 				if !errors.Is(err, ErrShouldRestart) {

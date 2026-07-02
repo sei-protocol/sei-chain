@@ -209,7 +209,7 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	}
 	startTime := time.Now()
 	defer func() {
-		blockExec.metrics.BlockProcessingTime.Observe(time.Since(startTime).Seconds())
+		blockExec.metrics.BlockProcessingTimeAt().Observe(time.Since(startTime).Seconds())
 	}()
 	var finalizeBlockSpan otrace.Span = nil
 	if tracer != nil {
@@ -228,7 +228,7 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 			Header:              block.Header.ToProto(),
 		},
 	)
-	blockExec.metrics.FinalizeBlockLatency.Observe(float64(time.Since(finalizeBlockStartTime).Milliseconds()))
+	blockExec.metrics.FinalizeBlockLatencyAt().Observe(float64(time.Since(finalizeBlockStartTime).Milliseconds()))
 	if finalizeBlockSpan != nil {
 		finalizeBlockSpan.End()
 	}
@@ -252,7 +252,7 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	// Save the results before we commit.
 	saveBlockResponseTime := time.Now()
 	err = blockExec.store.SaveFinalizeBlockResponses(block.Height, fBlockRes)
-	blockExec.metrics.SaveBlockResponseLatency.Observe(float64(time.Since(saveBlockResponseTime).Milliseconds()))
+	blockExec.metrics.SaveBlockResponseLatencyAt().Observe(float64(time.Since(saveBlockResponseTime).Milliseconds()))
 	if err != nil && !errors.Is(err, ErrNoFinalizeBlockResponsesForHeight{block.Height}) {
 		// It is correct to have an empty ResponseFinalizeBlock for ApplyBlock,
 		// but not for saving it to the state store
@@ -274,10 +274,10 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	}
 	if len(validatorUpdates) > 0 {
 		logger.Debug("updates to validators", "updates", types.ValidatorListString(validatorUpdates))
-		blockExec.metrics.ValidatorSetUpdates.Add(1)
+		blockExec.metrics.ValidatorSetUpdatesAt().Add(1)
 	}
 	if fBlockRes.ConsensusParamUpdates != nil {
-		blockExec.metrics.ConsensusParamUpdates.Add(1)
+		blockExec.metrics.ConsensusParamUpdatesAt().Add(1)
 	}
 
 	// Update the state with the block and responses.
@@ -351,8 +351,8 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	if block.Height%proposerPriorityHashInterval == 0 {
 		if full := state.Validators.ProposerPriorityHash(); len(full) >= 8 {
 			packed := binary.BigEndian.Uint64(full[:8])
-			blockExec.metrics.ProposerPriorityHash.Set(float64(packed))
-			blockExec.metrics.ProposerPriorityHashHeight.Set(float64(block.Height))
+			blockExec.metrics.ProposerPriorityHashAt().Set(float64(packed))
+			blockExec.metrics.ProposerPriorityHashHeightAt().Set(float64(block.Height))
 			// Log both the full 32-byte hash (for unambiguous comparison)
 			// and the packed value (to correlate with the Prometheus gauge).
 			logger.Info("proposer priority hash checkpoint",
@@ -403,7 +403,7 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	if err := blockExec.store.Save(state); err != nil {
 		return state, err
 	}
-	blockExec.metrics.SaveBlockLatency.Observe(float64(time.Since(saveBlockTime).Milliseconds()))
+	blockExec.metrics.SaveBlockLatencyAt().Observe(float64(time.Since(saveBlockTime).Milliseconds()))
 	if saveBlockSpan != nil {
 		saveBlockSpan.End()
 	}
@@ -422,7 +422,7 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 			logger.Debug("pruned blocks", "pruned", pruned, "retain_height", retainHeight)
 		}
 	}
-	blockExec.metrics.PruneBlockLatency.Observe(float64(time.Since(pruneBlockTime).Milliseconds()))
+	blockExec.metrics.PruneBlockLatencyAt().Observe(float64(time.Since(pruneBlockTime).Milliseconds()))
 	if pruneBlockSpan != nil {
 		pruneBlockSpan.End()
 	}
@@ -438,7 +438,7 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	}
 	fireEventsStartTime := time.Now()
 	FireEvents(blockExec.eventBus, block, blockID, fBlockRes, validatorUpdates)
-	blockExec.metrics.FireEventsLatency.Observe(float64(time.Since(fireEventsStartTime).Milliseconds()))
+	blockExec.metrics.FireEventsLatencyAt().Observe(float64(time.Since(fireEventsStartTime).Milliseconds()))
 	if fireEventsSpan != nil {
 		fireEventsSpan.End()
 	}
@@ -467,7 +467,7 @@ func (blockExec *BlockExecutor) Commit(
 		logger.Error("client error during proxyAppConn.Commit", "err", err)
 		return 0, err
 	}
-	blockExec.metrics.ApplicationCommitTime.Observe(float64(time.Since(start)))
+	blockExec.metrics.ApplicationCommitTimeAt().Observe(float64(time.Since(start)))
 
 	// ResponseCommit has no error code - just data
 	logger.Info(
@@ -488,7 +488,7 @@ func (blockExec *BlockExecutor) Commit(
 		TxConstraintsForState(state),
 		state.ConsensusParams.ABCI.RecheckTx,
 	)
-	blockExec.metrics.UpdateMempoolTime.Observe(float64(time.Since(start)))
+	blockExec.metrics.UpdateMempoolTimeAt().Observe(float64(time.Since(start)))
 
 	return res.RetainHeight, err
 }

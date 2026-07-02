@@ -3,14 +3,20 @@
 package proxy
 
 import (
-	"github.com/go-kit/kit/metrics/discard"
-	prometheus "github.com/go-kit/kit/metrics/prometheus"
-	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics() *Metrics {
+var Global = NewMetrics()
+
+func init() {
+	prometheus.MustRegister(
+		Global.MethodTiming,
+	)
+}
+
+func NewMetrics() *Metrics {
 	return &Metrics{
-		MethodTiming: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		MethodTiming: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "method_timing",
@@ -21,8 +27,6 @@ func PrometheusMetrics() *Metrics {
 	}
 }
 
-func NopMetrics() *Metrics {
-	return &Metrics{
-		MethodTiming: discard.NewHistogram(),
-	}
+func (m *Metrics) MethodTimingAt(method string, typeLabel string) prometheus.Observer {
+	return m.MethodTiming.WithLabelValues(method, typeLabel)
 }

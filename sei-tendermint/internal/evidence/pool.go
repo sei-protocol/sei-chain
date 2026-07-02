@@ -276,7 +276,7 @@ func (evpool *Pool) Start(state sm.State) error {
 
 	atomic.StoreUint32(&evpool.evidenceSize, uint32(len(evList))) //nolint:gosec // evidence list is bounded by block limits; no overflow risk
 
-	evpool.Metrics.NumEvidence.Set(float64(evpool.evidenceSize))
+	evpool.Metrics.NumEvidenceAt().Set(float64(evpool.evidenceSize))
 
 	for _, ev := range evList {
 		evpool.evidenceList.PushBack(ev)
@@ -340,7 +340,7 @@ func (evpool *Pool) addPendingEvidence(ctx context.Context, ev types.Evidence) e
 	}
 
 	atomic.AddUint32(&evpool.evidenceSize, 1)
-	evpool.Metrics.NumEvidence.Set(float64(evpool.evidenceSize))
+	evpool.Metrics.NumEvidenceAt().Set(float64(evpool.evidenceSize))
 
 	// This should normally never be true
 	if evpool.eventBus == nil {
@@ -403,7 +403,7 @@ func (evpool *Pool) markEvidenceAsCommitted(evidence types.EvidenceList, height 
 
 	// update the evidence size
 	atomic.AddUint32(&evpool.evidenceSize, ^uint32(len(blockEvidenceMap)-1)) //nolint:gosec // len(blockEvidenceMap) is guaranteed > 0 by early return above; atomic subtract idiom
-	evpool.Metrics.NumEvidence.Set(float64(evpool.evidenceSize))
+	evpool.Metrics.NumEvidenceAt().Set(float64(evpool.evidenceSize))
 }
 
 // listEvidence retrieves lists evidence from oldest to newest within maxBytes.

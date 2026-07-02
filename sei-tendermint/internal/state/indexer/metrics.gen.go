@@ -3,32 +3,41 @@
 package indexer
 
 import (
-	"github.com/go-kit/kit/metrics/discard"
-	prometheus "github.com/go-kit/kit/metrics/prometheus"
-	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics() *Metrics {
+var Global = NewMetrics()
+
+func init() {
+	prometheus.MustRegister(
+		Global.BlockEventsSeconds,
+		Global.TxEventsSeconds,
+		Global.BlocksIndexed,
+		Global.TransactionsIndexed,
+	)
+}
+
+func NewMetrics() *Metrics {
 	return &Metrics{
-		BlockEventsSeconds: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		BlockEventsSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_events_seconds",
 			Help:      "Latency for indexing block events.",
 		}, nil),
-		TxEventsSeconds: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		TxEventsSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "tx_events_seconds",
 			Help:      "Latency for indexing transaction events.",
 		}, nil),
-		BlocksIndexed: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+		BlocksIndexed: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "blocks_indexed",
 			Help:      "Number of complete blocks indexed.",
 		}, nil),
-		TransactionsIndexed: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+		TransactionsIndexed: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "transactions_indexed",
@@ -37,11 +46,18 @@ func PrometheusMetrics() *Metrics {
 	}
 }
 
-func NopMetrics() *Metrics {
-	return &Metrics{
-		BlockEventsSeconds:  discard.NewHistogram(),
-		TxEventsSeconds:     discard.NewHistogram(),
-		BlocksIndexed:       discard.NewCounter(),
-		TransactionsIndexed: discard.NewCounter(),
-	}
+func (m *Metrics) BlockEventsSecondsAt() prometheus.Observer {
+	return m.BlockEventsSeconds.WithLabelValues()
+}
+
+func (m *Metrics) TxEventsSecondsAt() prometheus.Observer {
+	return m.TxEventsSeconds.WithLabelValues()
+}
+
+func (m *Metrics) BlocksIndexedAt() prometheus.Counter {
+	return m.BlocksIndexed.WithLabelValues()
+}
+
+func (m *Metrics) TransactionsIndexedAt() prometheus.Counter {
+	return m.TransactionsIndexed.WithLabelValues()
 }

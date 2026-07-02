@@ -100,7 +100,7 @@ func (s *syncer) AddSnapshot(peerID types.NodeID, snapshot *snapshot) (bool, err
 		return false, err
 	}
 	if added {
-		s.metrics.TotalSnapshots.Add(1)
+		s.metrics.TotalSnapshotsAt().Add(1)
 		logger.Info("discovered and added new snapshot", "peer", peerID, "height", snapshot.Height, "format", snapshot.Format, "hash", snapshot.Hash)
 	}
 	return added, nil
@@ -176,12 +176,12 @@ func (s *syncer) SyncAny(
 		}
 
 		s.processingSnapshot = snapshot
-		s.metrics.SnapshotChunkTotal.Set(float64(snapshot.Chunks))
+		s.metrics.SnapshotChunkTotalAt().Set(float64(snapshot.Chunks))
 		logger.Info("starting state sync with picked snapshot", "height", snapshot.Height)
 		newState, commit, err := s.Sync(ctx, snapshot, chunks)
 		switch {
 		case err == nil:
-			s.metrics.SnapshotHeight.Set(float64(snapshot.Height))
+			s.metrics.SnapshotHeightAt().Set(float64(snapshot.Height))
 			s.lastSyncedSnapshotHeight = int64(snapshot.Height) //nolint:gosec // snapshot.Height is a valid block height
 			return newState, commit, nil
 
@@ -416,9 +416,9 @@ func (s *syncer) applyChunks(ctx context.Context, chunks *chunkQueue, start time
 
 		switch resp.Result {
 		case abci.ResponseApplySnapshotChunk_ACCEPT:
-			s.metrics.SnapshotChunk.Add(1)
+			s.metrics.SnapshotChunkAt().Add(1)
 			s.avgChunkTime = time.Since(start).Nanoseconds() / int64(chunks.numChunksReturned())
-			s.metrics.ChunkProcessAvgTime.Set(float64(s.avgChunkTime))
+			s.metrics.ChunkProcessAvgTimeAt().Set(float64(s.avgChunkTime))
 		case abci.ResponseApplySnapshotChunk_ABORT:
 			return errAbort
 		case abci.ResponseApplySnapshotChunk_RETRY:

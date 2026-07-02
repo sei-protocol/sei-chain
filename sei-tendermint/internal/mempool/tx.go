@@ -199,7 +199,7 @@ func NewTxStore(cfg *Config, app *proxy.Proxy, metrics *Metrics) *txStore {
 func (s *txStore) Clear() {
 	for inner := range s.inner.Lock() {
 		inner.cache.Reset()
-		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+		s.metrics.CacheSizeAt().Set(float64(inner.cache.Size()))
 		inner.failedTxs.Reset()
 		inner.byHash = map[types.TxHash]*WrappedTx{}
 		inner.byEvmHash = map[common.Hash]*WrappedTx{}
@@ -231,7 +231,7 @@ func (s *txStore) MarkInvalid(txHash types.TxHash) {
 	if s.config.KeepInvalidTxsInCache {
 		for inner := range s.inner.Lock() {
 			inner.cache.Push(txHash, utils.None[cacheEvm]())
-			s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+			s.metrics.CacheSizeAt().Set(float64(inner.cache.Size()))
 		}
 	}
 }
@@ -400,7 +400,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			// Remove the old transaction.
 			delete(inner.byHash, old.Hash())
 			delete(inner.byEvmHash, oldEvm.hash)
-			s.metrics.RemovedTxs.Add(1)
+			s.metrics.RemovedTxsAt().Add(1)
 			state.total.Dec(old.Size())
 			if el, ok := old.readyEl.Get(); ok {
 				s.readyTxs.Remove(el)
@@ -515,7 +515,7 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 				return errMempoolFull
 			}
 		}
-		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+		s.metrics.CacheSizeAt().Set(float64(inner.cache.Size()))
 	}
 	return nil
 }
@@ -541,14 +541,14 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 		limitOk := total.LessEqual(&inner.softLimit)
 		// NOTE: insertion is lazily evaluated here.
 		if !limitOk || s.insert(inner, wtx) != nil {
-			s.metrics.RemovedTxs.Add(1)
-			s.metrics.EvictedTxs.Add(1)
+			s.metrics.RemovedTxsAt().Add(1)
+			s.metrics.EvictedTxsAt().Add(1)
 			if el, ok := wtx.readyEl.Get(); ok {
 				s.readyTxs.Remove(el)
 			}
 		}
 	}
-	s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+	s.metrics.CacheSizeAt().Set(float64(inner.cache.Size()))
 }
 
 type updateSpec struct {
@@ -592,7 +592,7 @@ func (s *txStore) Update(spec updateSpec) {
 		for txHash, wtx := range inner.byHash {
 			expired := isExpired(wtx)
 			if expired {
-				s.metrics.ExpiredTxs.Add(1)
+				s.metrics.ExpiredTxsAt().Add(1)
 			}
 			invalid := spec.InvalidTxs[wtx.Hash()] || wtx.check(spec.Constraints) != nil
 			_, executed := spec.TxResults[wtx.Hash()]
@@ -604,7 +604,7 @@ func (s *txStore) Update(spec updateSpec) {
 					inner.cache.Push(txHash, utils.None[cacheEvm]())
 				}
 				delete(inner.byHash, txHash)
-				s.metrics.RemovedTxs.Add(1)
+				s.metrics.RemovedTxsAt().Add(1)
 				if el, ok := wtx.readyEl.Get(); ok {
 					s.readyTxs.Remove(el)
 				}
@@ -674,7 +674,7 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 		if remove {
 			for _, wtx := range wtxs {
 				delete(inner.byHash, wtx.Hash())
-				s.metrics.RemovedTxs.Add(1)
+				s.metrics.RemovedTxsAt().Add(1)
 				if el, ok := wtx.readyEl.Get(); ok {
 					s.readyTxs.Remove(el)
 				}

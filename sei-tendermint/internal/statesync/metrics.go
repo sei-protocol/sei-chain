@@ -1,7 +1,7 @@
 package statesync
 
 import (
-	"github.com/go-kit/kit/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const (
@@ -16,17 +16,17 @@ const (
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// The total number of snapshots discovered.
-	TotalSnapshots metrics.Counter
+	TotalSnapshots *prometheus.CounterVec
 	// The average processing time per chunk.
-	ChunkProcessAvgTime metrics.Gauge
+	ChunkProcessAvgTime *prometheus.GaugeVec
 	// The height of the current snapshot the has been processed.
-	SnapshotHeight metrics.Gauge
+	SnapshotHeight *prometheus.GaugeVec
 	// The current number of chunks that have been processed.
-	SnapshotChunk metrics.Counter
+	SnapshotChunk *prometheus.CounterVec
 	// The total number of chunks in the current snapshot.
-	SnapshotChunkTotal metrics.Gauge
+	SnapshotChunkTotal *prometheus.GaugeVec
 	// The current number of blocks that have been back-filled.
-	BackFilledBlocks metrics.Counter
+	BackFilledBlocks *prometheus.CounterVec
 	// The total number of blocks that need to be back-filled.
-	BackFillBlocksTotal metrics.Gauge
+	BackFillBlocksTotal *prometheus.GaugeVec
 }

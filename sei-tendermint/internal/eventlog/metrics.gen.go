@@ -3,14 +3,20 @@
 package eventlog
 
 import (
-	"github.com/go-kit/kit/metrics/discard"
-	prometheus "github.com/go-kit/kit/metrics/prometheus"
-	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics() *Metrics {
+var Global = NewMetrics()
+
+func init() {
+	prometheus.MustRegister(
+		Global.numItems,
+	)
+}
+
+func NewMetrics() *Metrics {
 	return &Metrics{
-		numItems: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+		numItems: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "num_items",
@@ -19,8 +25,6 @@ func PrometheusMetrics() *Metrics {
 	}
 }
 
-func NopMetrics() *Metrics {
-	return &Metrics{
-		numItems: discard.NewGauge(),
-	}
+func (m *Metrics) numItemsAt() prometheus.Gauge {
+	return m.numItems.WithLabelValues()
 }

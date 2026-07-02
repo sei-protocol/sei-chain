@@ -3,14 +3,20 @@
 package evidence
 
 import (
-	"github.com/go-kit/kit/metrics/discard"
-	prometheus "github.com/go-kit/kit/metrics/prometheus"
-	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics() *Metrics {
+var Global = NewMetrics()
+
+func init() {
+	prometheus.MustRegister(
+		Global.NumEvidence,
+	)
+}
+
+func NewMetrics() *Metrics {
 	return &Metrics{
-		NumEvidence: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+		NumEvidence: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "num_evidence",
@@ -19,8 +25,6 @@ func PrometheusMetrics() *Metrics {
 	}
 }
 
-func NopMetrics() *Metrics {
-	return &Metrics{
-		NumEvidence: discard.NewGauge(),
-	}
+func (m *Metrics) NumEvidenceAt() prometheus.Gauge {
+	return m.NumEvidence.WithLabelValues()
 }

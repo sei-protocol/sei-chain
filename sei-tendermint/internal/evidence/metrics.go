@@ -1,7 +1,7 @@
 package evidence
 
 import (
-	"github.com/go-kit/kit/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const (
@@ -18,5 +18,5 @@ const (
 // see MetricsProvider for descriptions.
 type Metrics struct {
 	// Number of pending evidence in the evidence pool.
-	NumEvidence metrics.Gauge
+	NumEvidence *prometheus.GaugeVec
 }

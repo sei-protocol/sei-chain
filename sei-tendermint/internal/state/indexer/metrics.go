@@ -1,7 +1,7 @@
 package indexer
 
 import (
-	"github.com/go-kit/kit/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 //go:generate go run ../../../scripts/metricsgen -struct=Metrics
@@ -16,14 +16,14 @@ const (
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// Latency for indexing block events.
-	BlockEventsSeconds metrics.Histogram
+	BlockEventsSeconds *prometheus.HistogramVec
 
 	// Latency for indexing transaction events.
-	TxEventsSeconds metrics.Histogram
+	TxEventsSeconds *prometheus.HistogramVec
 
 	// Number of complete blocks indexed.
-	BlocksIndexed metrics.Counter
+	BlocksIndexed *prometheus.CounterVec
 
 	// Number of transactions indexed.
-	TransactionsIndexed metrics.Counter
+	TransactionsIndexed *prometheus.CounterVec
 }
