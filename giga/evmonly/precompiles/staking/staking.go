@@ -41,8 +41,7 @@ const (
 	StakingAddress = "0x0000000000000000000000000000000000001005"
 
 	unknownMethodGas uint64 = 3000
-	readGas          uint64 = 3000
-	writeGas         uint64 = 20000
+	baseGas          uint64 = 700
 	inputByteGas     uint64 = 16
 
 	bondDenom       = "usei"
@@ -135,15 +134,11 @@ func (p *Precompile) ABI() abi.ABI {
 }
 
 func (p *Precompile) RequiredGas(input []byte) uint64 {
-	method, _, err := p.prepare(input)
+	_, _, err := p.prepare(input)
 	if err != nil {
 		return unknownMethodGas
 	}
-	gas := readGas
-	if isTransaction(method.Name) {
-		gas = writeGas
-	}
-	return gas + inputByteGas*uint64(len(input)) //nolint:gosec // input length is bounded by memory.
+	return baseGas + inputByteGas*uint64(len(input)) //nolint:gosec // input length is bounded by memory.
 }
 
 func (p *Precompile) Run(ctx *precompiles.Context, input []byte) ([]byte, error) {
