@@ -71,7 +71,6 @@ type config struct {
 	resultSink          string
 	persistDir          string
 	persistSync         bool
-	persistAsync        bool
 	persistBufferSize   int
 	persistQueueSize    int
 	workload            string
@@ -131,10 +130,9 @@ func parseConfig(args []string) (config, error) {
 	fs.StringVar(&cfg.metricsAddr, "metrics-addr", defaultMetricsAddr, "Prometheus listen address; empty disables HTTP metrics")
 	fs.StringVar(&cfg.resultSink, "result-sink", resultSinkDiscard, "result sink mode: discard or file")
 	fs.StringVar(&cfg.persistDir, "persist-dir", "", "directory for --result-sink=file append-only changeset and receipt files")
-	fs.BoolVar(&cfg.persistSync, "persist-sync", false, "fsync persistent result files after every block; file sink always flushes each block")
-	fs.BoolVar(&cfg.persistAsync, "persist-async", true, "write persistent result files from a bounded async queue")
+	fs.BoolVar(&cfg.persistSync, "persist-sync", false, "fsync persistent result files from the async sink writer")
 	fs.IntVar(&cfg.persistBufferSize, "persist-buffer-size", defaultPersistBuffer, "buffer size in bytes for --result-sink=file")
-	fs.IntVar(&cfg.persistQueueSize, "persist-queue-size", 0, "record queue size for --persist-async; 0 defaults to 2*queue-size")
+	fs.IntVar(&cfg.persistQueueSize, "persist-queue-size", 0, "record queue size for async file persistence; 0 defaults to 2*queue-size")
 	fs.StringVar(&cfg.workload, "workload", workloadTransfer, "workload type: transfer or erc20-transfer")
 	fs.Uint64Var(&cfg.txGasLimit, "tx-gas-limit", defaultTxGasLimit, "gas limit for each generated transaction")
 	fs.Uint64Var(&cfg.blockGasLimit, "block-gas-limit", 0, "block gas limit; 0 lets the executor use its maximum")
@@ -1021,19 +1019,11 @@ func newFileResultSinks(cfg config, metrics *loadMetrics) (*resultSinks, error) 
 	if err != nil {
 		return nil, errors.Join(err, files.Close())
 	}
-	if cfg.persistAsync {
-		async := newAsyncFileResultSinks(files, cfg.persistQueueSize, metrics)
-		return &resultSinks{
-			changeSets: async,
-			receipts:   async,
-			close:      async.Close,
-			cleanup:    files.Cleanup,
-		}, nil
-	}
+	async := newAsyncFileResultSinks(files, cfg.persistQueueSize, metrics)
 	return &resultSinks{
-		changeSets: fileChangeSetSink{files: files},
-		receipts:   fileReceiptSink{files: files},
-		close:      files.Close,
+		changeSets: async,
+		receipts:   async,
+		close:      async.Close,
 		cleanup:    files.Cleanup,
 	}, nil
 }
@@ -1085,22 +1075,6 @@ func (s *fileResultSinks) WriteRecord(kind string, height uint64, value any) err
 		s.metrics.recordSinkWrite(kind, bytes, elapsed, err == nil)
 	}
 	return err
-}
-
-type fileChangeSetSink struct {
-	files *fileResultSinks
-}
-
-func (s fileChangeSetSink) StoreChangeSet(_ context.Context, height uint64, changeSet evmonly.StateChangeSet) error {
-	return s.files.WriteRecord(resultSinkChangeSet, height, changeSet)
-}
-
-type fileReceiptSink struct {
-	files *fileResultSinks
-}
-
-func (s fileReceiptSink) StoreReceipts(_ context.Context, height uint64, receipts ethtypes.Receipts) error {
-	return s.files.WriteRecord(resultSinkReceipts, height, receipts)
 }
 
 type resultSinkRecord struct {
