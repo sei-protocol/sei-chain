@@ -16,7 +16,7 @@ type occWorkerPool struct {
 type occPoolJob struct {
 	ctx     context.Context
 	txRange occTxRange
-	run     func(context.Context, occTxRange, *occWorkerScratch) error
+	run     func(context.Context, occTxRange) error
 
 	done    *sync.WaitGroup
 	cancel  context.CancelFunc
@@ -46,23 +46,22 @@ func newOCCWorkerPool(workers int) *occWorkerPool {
 }
 
 func (p *occWorkerPool) runWorker() {
-	scratch := &occWorkerScratch{}
 	for {
 		select {
 		case <-p.stop:
 			return
 		case job := <-p.jobs:
-			p.runJob(job, scratch)
+			p.runJob(job)
 		}
 	}
 }
 
-func (p *occWorkerPool) runJob(job occPoolJob, scratch *occWorkerScratch) {
+func (p *occWorkerPool) runJob(job occPoolJob) {
 	defer job.done.Done()
 	if err := job.ctx.Err(); err != nil {
 		return
 	}
-	if err := job.run(job.ctx, job.txRange, scratch); err != nil {
+	if err := job.run(job.ctx, job.txRange); err != nil {
 		job.errOnce.Do(func() {
 			*job.err = err
 			job.cancel()
@@ -70,7 +69,7 @@ func (p *occWorkerPool) runJob(job occPoolJob, scratch *occWorkerScratch) {
 	}
 }
 
-func (p *occWorkerPool) Run(ctx context.Context, ranges []occTxRange, run func(context.Context, occTxRange, *occWorkerScratch) error) error {
+func (p *occWorkerPool) Run(ctx context.Context, ranges []occTxRange, run func(context.Context, occTxRange) error) error {
 	jobCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

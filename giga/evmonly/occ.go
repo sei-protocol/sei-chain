@@ -29,19 +29,6 @@ type occTxRange struct {
 	end   int
 }
 
-type occWorkerScratch struct {
-	stateDB *nativeStateDB
-}
-
-func (s *occWorkerScratch) resetStateDB(source StateReader) *nativeStateDB {
-	if s.stateDB == nil {
-		s.stateDB = newNativeStateDB(source)
-	} else {
-		s.stateDB.reset(source)
-	}
-	return s.stateDB
-}
-
 func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	chainConfig := e.chainConfig(req.Context)
 	blockCtx := buildBlockContext(req.Context)
@@ -63,9 +50,9 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 		pool = newOCCWorkerPool(workers)
 		defer pool.Close()
 	}
-	if err := pool.Run(ctx, occRanges(txCount, chunkSize), func(workerCtx context.Context, txRange occTxRange, scratch *occWorkerScratch) error {
+	if err := pool.Run(ctx, occRanges(txCount, chunkSize), func(workerCtx context.Context, txRange occTxRange) error {
 		for idx := txRange.start; idx < txRange.end; idx++ {
-			result, err := e.executeTxSpeculative(workerCtx, scratch, req, idx, chainConfig, blockCtx, baseFee, gasLimit)
+			result, err := e.executeTxSpeculative(workerCtx, req, idx, chainConfig, blockCtx, baseFee, gasLimit)
 			if err != nil {
 				return err
 			}
@@ -113,7 +100,6 @@ func occChunkSize(txCount int, workers int) int {
 
 func (e *Executor) executeTxSpeculative(
 	ctx context.Context,
-	scratch *occWorkerScratch,
 	req PreparedBlock,
 	txIndex int,
 	chainConfig *params.ChainConfig,
@@ -121,11 +107,8 @@ func (e *Executor) executeTxSpeculative(
 	baseFee *big.Int,
 	gasLimit uint64,
 ) (occTxExecution, error) {
-	if scratch == nil {
-		scratch = &occWorkerScratch{}
-	}
 	p := req.Txs[txIndex]
-	stateDB := scratch.resetStateDB(e.state)
+	stateDB := newNativeStateDB(e.state)
 	stateDB.enableAccessTracking()
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
 	stateDB.SetEVM(evm)
