@@ -1,6 +1,8 @@
 package wal
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -122,6 +124,89 @@ func TestIteratorYieldsChangesetContents(t *testing.T) {
 	ok, err = it.Next()
 	require.NoError(t, err)
 	require.False(t, ok)
+}
+
+// TestConcurrentIterationDuringRotation hammers the writer with rotate-on-every-block churn while several
+// iterators read concurrently. File resolution and opening happen on the writer goroutine, so a file can never
+// be renamed (sealed) out from under an in-flight read; every iteration must be error-free and gap-free.
+func TestConcurrentIterationDuringRotation(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.TargetFileSize = 1 // rotate (rename) after every block, maximizing the seal/rename churn
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+
+	const totalBlocks = 300
+	const readers = 4
+	const iterationsPerReader = 40
+
+	var wg sync.WaitGroup
+
+	writeErr := make(chan error, 1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for block := uint64(1); block <= totalBlocks; block++ {
+			cs := []*proto.NamedChangeSet{makeChangeSet("evm", []byte{byte(block)}, []byte{byte(block)})}
+			if err := w.Write(block, cs); err != nil {
+				writeErr <- err
+				return
+			}
+			if err := w.SignalEndOfBlock(); err != nil {
+				writeErr <- err
+				return
+			}
+		}
+		writeErr <- nil
+	}()
+
+	readerErr := make(chan error, readers)
+	for r := 0; r < readers; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterationsPerReader; i++ {
+				if err := drainContiguousFrom(w, 1); err != nil {
+					readerErr <- err
+					return
+				}
+			}
+			readerErr <- nil
+		}()
+	}
+
+	wg.Wait()
+	require.NoError(t, <-writeErr)
+	for r := 0; r < readers; r++ {
+		require.NoError(t, <-readerErr)
+	}
+}
+
+// drainContiguousFrom fully consumes an iterator anchored at start, verifying the yielded blocks form a
+// gap-free, strictly-increasing run beginning at start (an empty run is allowed: the writer may not have
+// produced start yet). Returns the first error encountered.
+func drainContiguousFrom(w FlatKVWAL, start uint64) error {
+	it, err := w.Iterator(start)
+	if err != nil {
+		return fmt.Errorf("create iterator: %w", err)
+	}
+	prev := start - 1
+	for {
+		ok, err := it.Next()
+		if err != nil {
+			_ = it.Close()
+			return fmt.Errorf("next: %w", err)
+		}
+		if !ok {
+			break
+		}
+		b := it.Entry().BlockNumber
+		if b != prev+1 {
+			_ = it.Close()
+			return fmt.Errorf("non-contiguous iteration: got block %d after %d (start %d)", b, prev, start)
+		}
+		prev = b
+	}
+	return it.Close()
 }
 
 func TestIteratorCoalescesMultipleWritesInOrder(t *testing.T) {

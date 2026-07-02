@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -117,6 +118,14 @@ func newWalFile(directory string, index uint64) (*walFile, error) {
 	file, err := os.Create(path) //nolint:gosec // path derived from a validated directory
 	if err != nil {
 		return nil, fmt.Errorf("failed to create WAL file %s: %w", path, err)
+	}
+
+	// Persist the new directory entry so a later fsync of the file's contents (via flush) cannot be undone by a
+	// power loss that drops the unsynced create. Without this, flushed data could be lost if the file is never
+	// sealed (a seal fsyncs the directory via the atomic rename) before a crash.
+	if err := util.SyncParentPath(path); err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("failed to fsync WAL directory after creating %s: %w", path, err)
 	}
 
 	writer := bufio.NewWriter(file)
@@ -295,6 +304,26 @@ func readWalFile(path string) (*walFileContents, error) {
 		return nil, fmt.Errorf("failed to read WAL file %s: %w", path, err)
 	}
 
+	return parseWalFileData(data, parsed, path)
+}
+
+// readWalFileFromHandle reads and parses a WAL file from an already-open handle, then closes the handle. The
+// handle is opened by the writer goroutine (see openIteratorFile) so that neither a rename nor a removal can
+// occur between resolving the file and opening it; the heavy read happens here, on the iterator's reader
+// goroutine. parsed carries the file-name components the handle was opened for.
+func readWalFileFromHandle(file *os.File, parsed parsedFileName) (*walFileContents, error) {
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read WAL file %s: %w", file.Name(), err)
+	}
+	return parseWalFileData(data, parsed, file.Name())
+}
+
+// parseWalFileData parses the raw bytes of a WAL file (already read into memory) into its intact entries,
+// tolerating a torn trailing record. name is used only for error messages. It is shared by readWalFile (which
+// reads by path) and the iterator (which reads through a file handle opened on the writer goroutine).
+func parseWalFileData(data []byte, parsed parsedFileName, name string) (*walFileContents, error) {
 	contents := &walFileContents{parsed: parsed}
 
 	if len(data) < walHeaderSize {
@@ -302,10 +331,10 @@ func readWalFile(path string) (*walFileContents, error) {
 		return contents, nil
 	}
 	if !bytes.Equal(data[:len(walFileMagic)], walFileMagic) {
-		return nil, fmt.Errorf("WAL file %s has an invalid magic prefix", path)
+		return nil, fmt.Errorf("WAL file %s has an invalid magic prefix", name)
 	}
 	if version := data[len(walFileMagic)]; version != walFormatVersion {
-		return nil, fmt.Errorf("WAL file %s has unsupported format version %d", path, version)
+		return nil, fmt.Errorf("WAL file %s has unsupported format version %d", name, version)
 	}
 	contents.lastCompleteBlockOffset = walHeaderSize
 
@@ -330,7 +359,7 @@ func readWalFile(path string) (*walFileContents, error) {
 
 		entry, entryOK, err := DeserializeFlatKVWalEntry(payload)
 		if err != nil {
-			return nil, fmt.Errorf("failed to deserialize record in %s: %w", path, err)
+			return nil, fmt.Errorf("failed to deserialize record in %s: %w", name, err)
 		}
 		if !entryOK {
 			break // torn payload
@@ -356,6 +385,41 @@ func readWalFile(path string) (*walFileContents, error) {
 	return contents, nil
 }
 
+// truncateAndSync truncates the file at path to size and fsyncs it, so the shorter length is durable on its
+// own — before any subsequent rename. Without the fsync, a crash could persist a rename while losing the
+// truncation, leaving a file whose name promises fewer blocks than its content actually holds.
+func truncateAndSync(path string, size int64) error {
+	file, err := os.OpenFile(path, os.O_RDWR, 0) //nolint:gosec // caller-supplied path
+	if err != nil {
+		return fmt.Errorf("failed to open %s for truncation: %w", path, err)
+	}
+	if err := file.Truncate(size); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("failed to truncate %s: %w", path, err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("failed to fsync %s after truncation: %w", path, err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("failed to close %s after truncation: %w", path, err)
+	}
+	return nil
+}
+
+// removeAndSyncDir removes the named file and fsyncs its parent directory, so the removal is durable before the
+// caller proceeds. Callers rely on this to keep the sealed-file index sequence gap-free across a crash.
+func removeAndSyncDir(directory string, name string) error {
+	path := filepath.Join(directory, name)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove WAL file %s: %w", path, err)
+	}
+	if err := util.SyncParentPath(path); err != nil {
+		return fmt.Errorf("failed to fsync directory after removing %s: %w", path, err)
+	}
+	return nil
+}
+
 // Seal an orphaned mutable file discovered on disk at startup (left behind by a crash before it could be
 // sealed). Any incomplete trailing block (records not terminated by an end-of-block marker) or torn trailing
 // record is truncated away first, so the sealed file ends cleanly on a block boundary. A file left with no
@@ -368,13 +432,10 @@ func sealOrphanFile(directory string, name string) error {
 	}
 
 	if !contents.hasCompleteBlock {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove empty orphaned WAL file %s: %w", path, err)
-		}
-		return nil
+		return removeAndSyncDir(directory, name)
 	}
 
-	if err := os.Truncate(path, contents.lastCompleteBlockOffset); err != nil {
+	if err := truncateAndSync(path, contents.lastCompleteBlockOffset); err != nil {
 		return fmt.Errorf("failed to truncate orphaned WAL file %s: %w", path, err)
 	}
 	sealedPath := filepath.Join(directory,
@@ -385,10 +446,13 @@ func sealOrphanFile(directory string, name string) error {
 	return nil
 }
 
-// Truncate a sealed file to drop every block beyond rollbackThrough, renaming it to reflect the reduced block
-// range. A file whose blocks all lie beyond rollbackThrough is removed entirely. Used by the rollback
-// constructor after all orphans have been sealed.
-func rollbackFile(directory string, name string, rollbackThrough uint64) error {
+// rollbackStraddlingFile handles the single sealed file that spans rollbackThrough: it truncates away every
+// block beyond the rollback point and renames the file to reflect the reduced range. The truncation is fsynced
+// before the rename (see truncateAndSync), so a crash can never leave the file's content holding blocks past
+// the rollback point once the rename is durable — the iterator, which bounds sealed reads by content, would
+// otherwise replay the discarded blocks. Files entirely beyond the rollback point are removed by the caller;
+// this handles only the boundary file.
+func rollbackStraddlingFile(directory string, name string, rollbackThrough uint64) error {
 	path := filepath.Join(directory, name)
 	contents, err := readWalFile(path)
 	if err != nil {
@@ -408,16 +472,14 @@ func rollbackFile(directory string, name string, rollbackThrough uint64) error {
 	}
 
 	if !kept {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove WAL file %s during rollback: %w", path, err)
-		}
-		return nil
+		// The content holds no complete block at or below the rollback point after all; drop the whole file.
+		return removeAndSyncDir(directory, name)
 	}
 	if lastKept == contents.lastBlock {
 		return nil // nothing beyond the rollback point; leave the file untouched
 	}
 
-	if err := os.Truncate(path, truncateTo); err != nil {
+	if err := truncateAndSync(path, truncateTo); err != nil {
 		return fmt.Errorf("failed to truncate WAL file %s during rollback: %w", path, err)
 	}
 	newPath := filepath.Join(directory,

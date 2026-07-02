@@ -465,4 +465,46 @@ func TestRollbackConstructor(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, uint64(4), end)
 	})
+
+	// After a rollback, a subsequent *normal* open (not another rollback) must observe exactly the rolled-back
+	// range. This is the path that would expose a name/content mismatch left by a non-crash-safe rollback:
+	// GetStoredRange is name-derived while iteration is content-bound, so the two agree only if the truncation
+	// and rename were applied consistently. Exercises both rollback shapes: whole-file removal and in-file
+	// truncation of the straddling file.
+	t.Run("rolled-back state is consistent under a normal reopen", func(t *testing.T) {
+		for _, tc := range []struct {
+			name       string
+			targetSize uint
+		}{
+			{"whole-file removal", 1},                // one block per file: rollback removes whole trailing files
+			{"in-file truncation", 64 * 1024 * 1024}, // all blocks in one file: rollback truncates it in place
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				dir := t.TempDir()
+				cfg := testConfig(dir)
+				cfg.TargetFileSize = tc.targetSize
+
+				w := openWAL(t, cfg)
+				for block := uint64(1); block <= 6; block++ {
+					writeBlock(t, w, block)
+				}
+				require.NoError(t, w.Close())
+
+				w2, err := NewFlatKVWALWithRollback(cfg, 3)
+				require.NoError(t, err)
+				require.NoError(t, w2.Close())
+
+				// Reopen normally; the rollback must have durably and consistently reduced the range to [1,3].
+				w3 := openWAL(t, cfg)
+				defer func() { require.NoError(t, w3.Close()) }()
+
+				ok, start, end, err := w3.GetStoredRange()
+				require.NoError(t, err)
+				require.True(t, ok)
+				require.Equal(t, uint64(1), start)
+				require.Equal(t, uint64(3), end)
+				require.Equal(t, []uint64{1, 2, 3}, collectBlocks(t, w3, 1))
+			})
+		}
+	})
 }

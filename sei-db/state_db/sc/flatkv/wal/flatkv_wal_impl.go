@@ -50,17 +50,43 @@ type closeRequest struct {
 	done chan error
 }
 
-// pinRequest registers an iterator's read lease. The writer pins the lowest block the iterator will read
-// (clamped up to the oldest stored block) so pruning cannot delete files it still needs, and replies with the
-// block it actually pinned. The iterator passes that block back via unpinRequest when it closes.
-type pinRequest struct {
-	startBlock uint64
-	reply      chan uint64
-}
-
-// unpinRequest releases a read lease previously registered via pinRequest.
+// unpinRequest releases a read lease previously registered when an iterator was created.
 type unpinRequest struct {
 	block uint64
+}
+
+// iteratorStartRequest asks the writer to construct an iterator. The writer flushes the mutable file (so the
+// iterator's independent file handles observe all prior writes), registers the read lease, and builds the
+// iterator, all on its own goroutine so construction is serialized with rotation/seal/prune.
+type iteratorStartRequest struct {
+	startBlock uint64
+	reply      chan iteratorStartResponse
+}
+
+// The iterator (or an error) produced by the writer in response to an iteratorStartRequest.
+type iteratorStartResponse struct {
+	iterator *walIterator
+	err      error
+}
+
+// iteratorFileRequest asks the writer to open the WAL file with the smallest index >= minIndex and hand the
+// open file handle back to the iterator's reader goroutine. Resolving and opening on the writer goroutine makes
+// it impossible for a file to be renamed (sealed) or removed (pruned) between resolution and open: those
+// mutations run on the same goroutine, and an already-open handle survives a later rename or unlink.
+type iteratorFileRequest struct {
+	minIndex uint64
+	start    uint64
+	reply    chan iteratorFileResponse
+}
+
+// The open file handle (or an error) produced by the writer in response to an iteratorFileRequest. When ok is
+// true but file is nil, the resolved file lies entirely below the iterator's start block: the reader should
+// advance past it without reading.
+type iteratorFileResponse struct {
+	file   *os.File
+	parsed parsedFileName
+	ok     bool
+	err    error
 }
 
 // The block range reported by GetStoredRange.
@@ -72,6 +98,7 @@ type storedRange struct {
 
 // Bookkeeping for a sealed WAL file, owned by the writer goroutine.
 type sealedFileInfo struct {
+	index      uint64
 	name       string
 	firstBlock uint64
 	lastBlock  uint64
@@ -315,36 +342,26 @@ func (w *flatKVWalImpl) Prune(lowestBlockNumberToKeep uint64) error {
 	return nil
 }
 
-// Iterator returns an iterator over the WAL starting at startingBlockNumber. It registers a read lease first so
-// pruning cannot delete files out from under the iterator, then flushes so all previously scheduled writes are
-// visible. The lease is released by the iterator's Close.
+// Iterator returns an iterator over the WAL starting at startingBlockNumber. Construction runs on the writer
+// goroutine (see iteratorStartRequest): the writer flushes so all previously scheduled writes are visible,
+// registers a read lease so pruning cannot delete files out from under the iterator, and builds the iterator.
+// The lease is released by the iterator's Close.
 func (w *flatKVWalImpl) Iterator(startingBlockNumber uint64) (FlatKVWalIterator, error) {
-	pinned, err := w.pinBlock(startingBlockNumber)
-	if err != nil {
-		return nil, fmt.Errorf("failed to pin starting block %d: %w", startingBlockNumber, err)
-	}
-	if err := w.Flush(); err != nil {
-		w.unpinBlock(pinned)
-		return nil, fmt.Errorf("failed to flush before creating iterator: %w", err)
-	}
-	return newWalIterator(w, startingBlockNumber, pinned, w.config.IteratorPrefetchSize), nil
-}
-
-// pinBlock registers a read lease on the given start block and returns the block actually pinned. Blocks until
-// the writer has recorded the lease, so a subsequent Prune cannot race ahead of it.
-func (w *flatKVWalImpl) pinBlock(startBlock uint64) (uint64, error) {
-	reply := make(chan uint64, 1)
-	if err := w.sendToSerializer(pinRequest{startBlock: startBlock, reply: reply}); err != nil {
-		return 0, err
+	reply := make(chan iteratorStartResponse, 1)
+	if err := w.sendToSerializer(iteratorStartRequest{startBlock: startingBlockNumber, reply: reply}); err != nil {
+		return nil, fmt.Errorf("failed to schedule iterator creation: %w", err)
 	}
 	select {
-	case pinned := <-reply:
-		return pinned, nil
+	case resp := <-reply:
+		if resp.err != nil {
+			return nil, fmt.Errorf("failed to create iterator: %w", resp.err)
+		}
+		return resp.iterator, nil
 	case <-w.ctx.Done():
 		if err := w.asyncError(); err != nil {
-			return 0, fmt.Errorf("pin aborted: %w", err)
+			return nil, fmt.Errorf("iterator creation aborted: %w", err)
 		}
-		return 0, fmt.Errorf("pin aborted: %w", w.ctx.Err())
+		return nil, fmt.Errorf("iterator creation aborted: %w", w.ctx.Err())
 	}
 }
 
@@ -456,8 +473,10 @@ func (w *flatKVWalImpl) writerLoop() {
 				w.fail(err)
 				return
 			}
-		case pinRequest:
-			m.reply <- w.pinLowestReadableBlock(m.startBlock)
+		case iteratorStartRequest:
+			m.reply <- w.startIterator(m.startBlock)
+		case iteratorFileRequest:
+			m.reply <- w.openIteratorFile(m.minIndex, m.start)
 		case unpinRequest:
 			w.releaseBlock(m.block)
 		case closeRequest:
@@ -490,13 +509,14 @@ func (w *flatKVWalImpl) appendRecord(m dataToBeWritten) error {
 // rotate seals the current mutable file, records its bookkeeping, and opens a fresh mutable file. It is only
 // called immediately after an end-of-block marker, so the mutable file ends on a block boundary.
 func (w *flatKVWalImpl) rotate() error {
+	index := w.mutableFile.index
 	first := w.mutableFile.firstBlock
 	last := w.mutableFile.lastCompleteBlock
 	sealedName, err := w.mutableFile.seal()
 	if err != nil {
 		return fmt.Errorf("failed to seal WAL file during rotation: %w", err)
 	}
-	w.sealedFiles.PushBack(&sealedFileInfo{name: sealedName, firstBlock: first, lastBlock: last})
+	w.sealedFiles.PushBack(&sealedFileInfo{index: index, name: sealedName, firstBlock: first, lastBlock: last})
 	walFilesSealed.Add(w.ctx, 1)
 
 	mutable, err := newWalFile(w.config.Path, w.nextIndex)
@@ -533,6 +553,66 @@ func (w *flatKVWalImpl) pruneSealedFiles(pruneThrough uint64) error {
 		walFilesPruned.Add(w.ctx, 1)
 	}
 	return nil
+}
+
+// startIterator builds an iterator on the writer goroutine. It flushes the mutable file so the iterator's
+// independent file handles observe every previously scheduled write, registers the read lease, and constructs
+// the iterator (which launches its reader goroutine). Running here serializes construction with rotation, seal,
+// and prune, so the iterator's view of the on-disk files is consistent from its very first read.
+func (w *flatKVWalImpl) startIterator(startBlock uint64) iteratorStartResponse {
+	if err := w.mutableFile.flush(w.config.FsyncOnFlush); err != nil {
+		return iteratorStartResponse{err: fmt.Errorf("failed to flush before creating iterator: %w", err)}
+	}
+	pinned := w.pinLowestReadableBlock(startBlock)
+	it := newWalIterator(w, startBlock, pinned, w.config.IteratorPrefetchSize)
+	return iteratorStartResponse{iterator: it}
+}
+
+// openIteratorFile resolves the WAL file with the smallest index >= minIndex and opens it for an iterator's
+// reader goroutine. Both the resolution (against the writer's in-memory bookkeeping) and the open run on the
+// writer goroutine, so no rename (seal) or removal (prune) can occur between them; the returned handle stays
+// valid for the reader even if the file is later sealed or pruned. The reader owns closing the handle.
+func (w *flatKVWalImpl) openIteratorFile(minIndex uint64, start uint64) iteratorFileResponse {
+	name, parsed, ok := w.resolveFileByMinIndex(minIndex)
+	if !ok {
+		return iteratorFileResponse{ok: false}
+	}
+	// A sealed file whose highest block is below the start block holds nothing the iterator wants; report it so
+	// the reader can advance past it, but do not bother opening it.
+	if parsed.sealed && parsed.lastBlock < start {
+		return iteratorFileResponse{parsed: parsed, ok: true}
+	}
+	path := filepath.Join(w.config.Path, name)
+	file, err := os.Open(path) //nolint:gosec // path derived from the writer's own bookkeeping
+	if err != nil {
+		return iteratorFileResponse{err: fmt.Errorf("failed to open WAL file %s for iteration: %w", name, err)}
+	}
+	return iteratorFileResponse{file: file, parsed: parsed, ok: true}
+}
+
+// resolveFileByMinIndex returns the WAL file with the smallest index >= minIndex, drawn from the writer's live
+// bookkeeping (the sealed-file deque plus the mutable file) rather than a directory scan. Returns ok=false when
+// no such file exists. Owned by the writer goroutine.
+func (w *flatKVWalImpl) resolveFileByMinIndex(minIndex uint64) (string, parsedFileName, bool) {
+	// Sealed files are held in ascending index order, so the first one at or above minIndex is the smallest.
+	for _, info := range w.sealedFiles.Iterator() {
+		if info.index < minIndex {
+			continue
+		}
+		parsed := parsedFileName{
+			index:      info.index,
+			firstBlock: info.firstBlock,
+			lastBlock:  info.lastBlock,
+			sealed:     true,
+		}
+		return info.name, parsed, true
+	}
+	// The mutable file always has the highest index, so it is only a match once no sealed file qualifies.
+	if w.mutableFile.index >= minIndex {
+		return unsealedFileName(w.mutableFile.index),
+			parsedFileName{index: w.mutableFile.index, sealed: false}, true
+	}
+	return "", parsedFileName{}, false
 }
 
 // pinLowestReadableBlock records a read lease and returns the pinned block. An iterator reads blocks at or
@@ -625,12 +705,20 @@ func recoverOrphans(directory string) error {
 	return nil
 }
 
-// rollbackDirectory drops all data beyond rollbackThrough from every sealed file. Assumes orphans are sealed.
+// rollbackDirectory drops all data beyond rollbackThrough from the sealed files. Assumes orphans are already
+// sealed. Files are processed highest-index-first: the files entirely beyond the rollback point (a suffix of
+// the index sequence) are removed one at a time, each removal made durable before the next, and finally the
+// single file straddling the rollback point is truncated. This ordering guarantees that a crash mid-rollback
+// always leaves a contiguous prefix of files — never a gap that scanSealedFiles would reject — mirroring the
+// contiguous-suffix guarantee that pruning provides from the other end.
 func rollbackDirectory(directory string, rollbackThrough uint64) error {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return fmt.Errorf("failed to read WAL directory %s: %w", directory, err)
 	}
+
+	sealed := make([]parsedFileName, 0, len(entries))
+	names := make(map[uint64]string, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -639,8 +727,26 @@ func rollbackDirectory(directory string, rollbackThrough uint64) error {
 		if !ok || !parsed.sealed {
 			continue
 		}
-		if err := rollbackFile(directory, entry.Name(), rollbackThrough); err != nil {
-			return fmt.Errorf("failed to roll back %s: %w", entry.Name(), err)
+		sealed = append(sealed, parsed)
+		names[parsed.index] = entry.Name()
+	}
+	sort.Slice(sealed, func(i int, j int) bool { return sealed[i].index > sealed[j].index })
+
+	for _, parsed := range sealed {
+		if parsed.lastBlock <= rollbackThrough {
+			// This file lies entirely at or below the rollback point; so does every lower-indexed file. Done.
+			break
+		}
+		if parsed.firstBlock > rollbackThrough {
+			// Entirely beyond the rollback point: remove the whole file, durably, before the next-lower one.
+			if err := removeAndSyncDir(directory, names[parsed.index]); err != nil {
+				return fmt.Errorf("failed to roll back %s: %w", names[parsed.index], err)
+			}
+			continue
+		}
+		// Straddles the rollback point: truncate away the blocks beyond it. This is the last file to process.
+		if err := rollbackStraddlingFile(directory, names[parsed.index], rollbackThrough); err != nil {
+			return fmt.Errorf("failed to roll back %s: %w", names[parsed.index], err)
 		}
 	}
 	return nil
@@ -679,7 +785,8 @@ func scanSealedFiles(directory string) (*util.RandomAccessDeque[*sealedFileInfo]
 				"WAL is corrupt: sealed file indices are not contiguous (gap between %d and %d)",
 				parsed[i-1].index, p.index)
 		}
-		sealedFiles.PushBack(&sealedFileInfo{name: names[p.index], firstBlock: p.firstBlock, lastBlock: p.lastBlock})
+		sealedFiles.PushBack(&sealedFileInfo{
+			index: p.index, name: names[p.index], firstBlock: p.firstBlock, lastBlock: p.lastBlock})
 		nextIndex = p.index + 1
 	}
 	return sealedFiles, nextIndex, nil

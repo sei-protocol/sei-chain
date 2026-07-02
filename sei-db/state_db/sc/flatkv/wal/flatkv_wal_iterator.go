@@ -3,7 +3,6 @@ package wal
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 )
 
@@ -184,11 +183,12 @@ func (it *walIterator) nextRecord() (*FlatKVWalEntry, bool, error) {
 	}
 }
 
-// loadNextFile finds the next file at or beyond nextIndex, loads its records (filtered to complete blocks at
-// or beyond start), and advances nextIndex. It returns false when no further file exists. A file entirely
-// below start is skipped without being read; a file that yields no matching records leaves buffer empty.
+// loadNextFile asks the writer for the next file at or beyond nextIndex (opened on the writer goroutine so it
+// cannot be renamed or removed out from under the read), loads its records (filtered to complete blocks at or
+// beyond start), and advances nextIndex. It returns false when no further file exists. A file entirely below
+// start is skipped without being read; a file that yields no matching records leaves buffer empty.
 func (it *walIterator) loadNextFile() (bool, error) {
-	name, parsed, ok, err := findFileByMinIndex(it.wal.config.Path, it.nextIndex)
+	file, parsed, ok, err := it.openNextFile(it.nextIndex)
 	if err != nil {
 		return false, err
 	}
@@ -198,13 +198,13 @@ func (it *walIterator) loadNextFile() (bool, error) {
 	it.nextIndex = parsed.index + 1
 	it.buffer = nil
 
-	if parsed.sealed && parsed.lastBlock < it.start {
-		return true, nil // entirely below the start block; skip without reading
+	if file == nil {
+		return true, nil // entirely below the start block; skipped without being opened
 	}
 
-	contents, err := readWalFile(filepath.Join(it.wal.config.Path, name))
+	contents, err := readWalFileFromHandle(file, parsed)
 	if err != nil {
-		return false, fmt.Errorf("failed to read WAL file %s during iteration: %w", name, err)
+		return false, fmt.Errorf("failed to read WAL file (index %d) during iteration: %w", parsed.index, err)
 	}
 	if !contents.hasCompleteBlock {
 		return true, nil
@@ -218,29 +218,30 @@ func (it *walIterator) loadNextFile() (bool, error) {
 	return true, nil
 }
 
-// findFileByMinIndex returns the WAL file with the smallest index greater than or equal to minIndex.
-func findFileByMinIndex(directory string, minIndex uint64) (string, parsedFileName, bool, error) {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return "", parsedFileName{}, false, fmt.Errorf("failed to read WAL directory %s: %w", directory, err)
+// openNextFile asks the writer goroutine to resolve and open the WAL file with the smallest index >= minIndex.
+// Both steps run on the writer, so the returned handle cannot be invalidated by a concurrent seal or prune. A
+// nil handle with ok=true means the file lies entirely below start and should be skipped.
+func (it *walIterator) openNextFile(minIndex uint64) (*os.File, parsedFileName, bool, error) {
+	reply := make(chan iteratorFileResponse, 1)
+	req := iteratorFileRequest{minIndex: minIndex, start: it.start, reply: reply}
+	if err := it.wal.sendToSerializer(req); err != nil {
+		return nil, parsedFileName{}, false, fmt.Errorf("failed to request WAL file for iteration: %w", err)
 	}
-
-	var bestName string
-	var best parsedFileName
-	found := false
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	select {
+	case resp := <-reply:
+		return resp.file, resp.parsed, resp.ok, resp.err
+	case <-it.wal.ctx.Done():
+		// The WAL is shutting down. Drain any handle the writer may have already opened so it is not leaked.
+		select {
+		case resp := <-reply:
+			if resp.file != nil {
+				_ = resp.file.Close()
+			}
+		default:
 		}
-		parsed, ok := parseFileName(entry.Name())
-		if !ok || parsed.index < minIndex {
-			continue
+		if err := it.wal.asyncError(); err != nil {
+			return nil, parsedFileName{}, false, fmt.Errorf("WAL failed during iteration: %w", err)
 		}
-		if !found || parsed.index < best.index {
-			best = parsed
-			bestName = entry.Name()
-			found = true
-		}
+		return nil, parsedFileName{}, false, fmt.Errorf("WAL shut down during iteration: %w", it.wal.ctx.Err())
 	}
-	return bestName, best, found, nil
 }
