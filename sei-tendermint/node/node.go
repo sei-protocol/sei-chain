@@ -735,6 +735,7 @@ type metricsProvider func() *NodeMetrics
 func NoOpMetricsProvider() *NodeMetrics {
 	return &NodeMetrics{
 		consensus: consensus.NewMetrics(),
+		eventlog:  eventlog.NewMetrics(),
 		indexer:   indexer.NewMetrics(),
 		mempool:   mempool.NewMetrics(),
 		p2p:       p2p.NewMetrics(),
