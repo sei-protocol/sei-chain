@@ -9,12 +9,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
 // Executor runs raw EVM transactions against an EVM-native state backend.
@@ -95,7 +93,7 @@ func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (Prepared
 func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	var result *BlockResult
 	var err error
-	if len(req.Txs) == 0 {
+	if len(req.Txs) == 0 && !e.hasCustomPrecompiles() {
 		result, err = e.acquireBlockResult(ctx, 0)
 	} else if e.useOCC(len(req.Txs)) {
 		result, err = e.executeBlockOCC(ctx, req)
@@ -150,14 +148,18 @@ func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *B
 	return nil
 }
 
+func (e *Executor) hasCustomPrecompiles() bool {
+	if e.cfg.CustomPrecompiles == nil {
+		return false
+	}
+	return len(e.cfg.CustomPrecompiles.Addresses()) > 0
+}
+
 func (e *Executor) useOCC(txCount int) bool {
 	if e.cfg.OCCWorkers <= 1 || txCount <= 1 {
 		return false
 	}
-	if e.cfg.CustomPrecompiles == nil {
-		return true
-	}
-	return len(e.cfg.CustomPrecompiles.Addresses()) == 0
+	return !e.hasCustomPrecompiles()
 }
 
 func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
@@ -203,6 +205,11 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 		result.GasUsed += txResult.GasUsed
 		txIndexUint++
 	}
+	validatorUpdates, err := runCustomPrecompileEndBlock(e.cfg.CustomPrecompiles, evm)
+	if err != nil {
+		return nil, fmt.Errorf("run custom precompile end block: %w", err)
+	}
+	result.ValidatorUpdates = validatorUpdates
 	stateDB.clearSnapshots()
 	stateDB.Finalise(true)
 	stateDB.ChangeSetInto(&result.ChangeSet)
@@ -340,31 +347,6 @@ func buildBlockContext(ctx BlockContext) vm.BlockContext {
 		BlobBaseFee: blobBaseFee,
 		Random:      &prevRandao,
 	}
-}
-
-type unresolvedCustomPrecompile struct{}
-
-func (unresolvedCustomPrecompile) RequiredGas([]byte) uint64 {
-	return 0
-}
-
-func (unresolvedCustomPrecompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool, bool, *tracing.Hooks) ([]byte, error) {
-	return nil, precompiles.ErrCustomPrecompilesOpen
-}
-
-func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.PrecompiledContract {
-	if registry == nil {
-		return nil
-	}
-	addresses := registry.Addresses()
-	if len(addresses) == 0 {
-		return nil
-	}
-	contracts := make(map[common.Address]vm.PrecompiledContract, len(addresses))
-	for _, addr := range addresses {
-		contracts[addr] = unresolvedCustomPrecompile{}
-	}
-	return contracts
 }
 
 func (e *Executor) chainConfig(ctx BlockContext) *params.ChainConfig {
