@@ -21,4 +21,10 @@ func TestConfigValidate(t *testing.T) {
 		cfg.TargetFileSize = 0
 		require.Error(t, cfg.Validate())
 	})
+
+	t.Run("zero iterator prefetch size is rejected", func(t *testing.T) {
+		cfg := DefaultFlatKVWALConfig("/tmp/wal")
+		cfg.IteratorPrefetchSize = 0
+		require.Error(t, cfg.Validate())
+	})
 }

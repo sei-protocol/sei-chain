@@ -25,16 +25,22 @@ type FlatKVWALConfig struct {
 	// When true, Flush calls fsync on the underlying file so that flushed data survives a power loss, not
 	// merely a process crash. When false, Flush only flushes the in-process buffer to the OS.
 	FsyncOnFlush bool
+
+	// The number of blocks an iterator's reader thread may prefetch ahead of the consumer. A larger value
+	// keeps the reader busy while the consumer processes blocks, which matters for startup replay speed.
+	// Must be greater than 0.
+	IteratorPrefetchSize uint
 }
 
 // Constructor for a default flatKV WAL configuration.
 func DefaultFlatKVWALConfig(path string) *FlatKVWALConfig {
 	return &FlatKVWALConfig{
-		Path:              path,
-		RequestBufferSize: 16,
-		WriteBufferSize:   16,
-		TargetFileSize:    64 * unit.MB,
-		FsyncOnFlush:      true,
+		Path:                 path,
+		RequestBufferSize:    16,
+		WriteBufferSize:      16,
+		TargetFileSize:       64 * unit.MB,
+		FsyncOnFlush:         true,
+		IteratorPrefetchSize: 32,
 	}
 }
 
@@ -46,6 +52,9 @@ func (c *FlatKVWALConfig) Validate() error {
 	if c.TargetFileSize == 0 {
 		// A zero target would seal and rotate a fresh file after every single block.
 		return fmt.Errorf("target file size must be greater than 0")
+	}
+	if c.IteratorPrefetchSize == 0 {
+		return fmt.Errorf("iterator prefetch size must be greater than 0")
 	}
 	return nil
 }

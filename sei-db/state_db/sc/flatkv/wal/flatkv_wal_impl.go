@@ -327,7 +327,7 @@ func (w *flatKVWalImpl) Iterator(startingBlockNumber uint64) (FlatKVWalIterator,
 		w.unpinBlock(pinned)
 		return nil, fmt.Errorf("failed to flush before creating iterator: %w", err)
 	}
-	return newWalIterator(w, startingBlockNumber, pinned), nil
+	return newWalIterator(w, startingBlockNumber, pinned, w.config.IteratorPrefetchSize), nil
 }
 
 // pinBlock registers a read lease on the given start block and returns the block actually pinned. Blocks until

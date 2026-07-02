@@ -4,82 +4,94 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 var _ FlatKVWalIterator = (*walIterator)(nil)
 
-// walIterator iterates the WAL a block at a time, in ascending block order. All records written for a block
-// (one per Write call) plus its end-of-block marker are coalesced into a single entry whose Changeset is the
-// concatenation, in write order, of every record's changesets. It loads one file at a time from disk, so its
-// memory use is bounded by a single WAL file (plus the block being assembled). It re-lists the directory as it
-// advances between files, so files rotated (mutable sealed) or created after construction are still observed.
+// A block produced by the reader goroutine, or a terminal error.
+type iteratorResult struct {
+	entry *FlatKVWalEntry
+	err   error
+}
+
+// walIterator iterates the WAL a block at a time, in ascending block order. A dedicated reader goroutine reads
+// WAL files from disk, coalesces each block's records (one per Write call, plus its end-of-block marker) into a
+// single entry, and pushes it onto a buffered channel; Next simply dequeues. Decoupling disk reads from the
+// consumer keeps the reader busy while the consumer works, which matters for startup replay speed. The reader
+// loads one file at a time, so its memory use is bounded by a single WAL file plus the prefetch buffer.
+//
+// A read lease (pinnedBlock) holds the files the reader needs against concurrent pruning; Close releases it.
 type walIterator struct {
-	// The WAL this iterator reads from. Set to nil by Close so the read lease is released exactly once.
+	// The WAL this iterator reads from.
 	wal *flatKVWalImpl
 
+	// The lowest block the consumer asked for; blocks below it are skipped.
 	start uint64
 
 	// The block pinned as this iterator's read lease, released on Close.
 	pinnedBlock uint64
 
+	// Coalesced blocks produced by the reader goroutine. Closed by the reader on clean EOF.
+	results chan iteratorResult
+
+	// Closed by Close to tell the reader goroutine to stop early.
+	stop chan struct{}
+
+	// Closed by the reader goroutine when it exits, so Close can wait for it.
+	readerExited chan struct{}
+
+	// Ensures the shutdown sequence runs at most once.
+	closeOnce sync.Once
+
+	// The entry returned by Entry, set by the most recent successful Next. Consumer-owned.
+	result *FlatKVWalEntry
+
+	// Set once iteration is complete. Consumer-owned.
+	done bool
+
+	// The following fields are owned exclusively by the reader goroutine.
+
 	// The smallest file index not yet consumed.
 	nextIndex uint64
-
 	// The records loaded from the current file, filtered to complete blocks at or beyond start.
 	buffer []*FlatKVWalEntry
 	// The position within buffer; -1 before the first record is read.
 	pos int
-
-	// The coalesced block entry returned by Entry, set by the most recent successful Next.
-	result *FlatKVWalEntry
-
-	// Set once no further blocks remain.
-	done bool
 }
 
-// newWalIterator creates an iterator over wal starting at startingBlockNumber. pinnedBlock is the read lease
-// registered on the iterator's behalf, released by Close.
-func newWalIterator(wal *flatKVWalImpl, startingBlockNumber uint64, pinnedBlock uint64) *walIterator {
-	return &walIterator{
-		wal:         wal,
-		start:       startingBlockNumber,
-		pinnedBlock: pinnedBlock,
-		pos:         -1,
+// newWalIterator creates an iterator over wal starting at startingBlockNumber and launches its reader
+// goroutine. pinnedBlock is the read lease registered on the iterator's behalf, released by Close.
+// prefetch is the number of blocks the reader may buffer ahead of the consumer.
+func newWalIterator(wal *flatKVWalImpl, startingBlockNumber uint64, pinnedBlock uint64, prefetch uint) *walIterator {
+	it := &walIterator{
+		wal:          wal,
+		start:        startingBlockNumber,
+		pinnedBlock:  pinnedBlock,
+		results:      make(chan iteratorResult, prefetch),
+		stop:         make(chan struct{}),
+		readerExited: make(chan struct{}),
+		pos:          -1,
 	}
+	go it.read()
+	return it
 }
 
 func (it *walIterator) Next() (bool, error) {
 	if it.done {
 		return false, nil
 	}
-
-	var block *FlatKVWalEntry
-	for {
-		record, ok, err := it.nextRecord()
-		if err != nil {
-			it.done = true
-			return false, fmt.Errorf("failed to advance WAL iterator: %w", err)
-		}
-		if !ok {
-			// End of stream. A complete block always ends with an end-of-block marker, so reaching here
-			// mid-block should not happen; emit any assembled changes defensively rather than dropping them.
-			it.done = true
-			if block != nil {
-				it.result = block
-				return true, nil
-			}
-			return false, nil
-		}
-
-		if block == nil {
-			block = &FlatKVWalEntry{BlockNumber: record.BlockNumber}
-		}
-		if record.EndOfBlock {
-			it.result = block
-			return true, nil
-		}
-		block.Changeset = append(block.Changeset, record.Changeset...)
+	result, ok := <-it.results
+	if !ok {
+		it.done = true
+		return false, nil
 	}
+	if result.err != nil {
+		it.done = true
+		return false, result.err
+	}
+	it.result = result.entry
+	return true, nil
 }
 
 func (it *walIterator) Entry() *FlatKVWalEntry {
@@ -87,14 +99,70 @@ func (it *walIterator) Entry() *FlatKVWalEntry {
 }
 
 func (it *walIterator) Close() error {
-	if it.wal != nil {
+	it.closeOnce.Do(func() {
+		close(it.stop)    // tell the reader to stop if it is mid-read
+		<-it.readerExited // wait for it to actually exit before releasing resources
 		it.wal.unpinBlock(it.pinnedBlock)
-		it.wal = nil // release the lease exactly once, even if Close is called repeatedly
-	}
-	it.buffer = nil
-	it.result = nil
+	})
 	it.done = true
 	return nil
+}
+
+// read is the reader goroutine: it produces coalesced blocks onto the results channel until the WAL is
+// exhausted (then closes the channel), a read fails (then sends the error), or Close signals a stop.
+func (it *walIterator) read() {
+	defer close(it.readerExited)
+	for {
+		block, ok, err := it.nextBlock()
+		if err != nil {
+			it.send(iteratorResult{err: err})
+			return
+		}
+		if !ok {
+			close(it.results)
+			return
+		}
+		if !it.send(iteratorResult{entry: block}) {
+			return // Close signalled a stop
+		}
+	}
+}
+
+// send pushes a result onto the channel, returning false if Close signalled a stop first.
+func (it *walIterator) send(result iteratorResult) bool {
+	select {
+	case it.results <- result:
+		return true
+	case <-it.stop:
+		return false
+	}
+}
+
+// nextBlock assembles the next block by draining records until it consumes that block's end-of-block marker.
+// Returns ok=false once no records remain.
+func (it *walIterator) nextBlock() (*FlatKVWalEntry, bool, error) {
+	var block *FlatKVWalEntry
+	for {
+		record, ok, err := it.nextRecord()
+		if err != nil {
+			return nil, false, err
+		}
+		if !ok {
+			// End of stream. A complete block always ends with an end-of-block marker, so reaching here
+			// mid-block should not happen; emit any assembled changes defensively rather than dropping them.
+			if block != nil {
+				return block, true, nil
+			}
+			return nil, false, nil
+		}
+		if block == nil {
+			block = &FlatKVWalEntry{BlockNumber: record.BlockNumber}
+		}
+		if record.EndOfBlock {
+			return block, true, nil
+		}
+		block.Changeset = append(block.Changeset, record.Changeset...)
+	}
 }
 
 // nextRecord returns the next individual record (changeset or end-of-block marker) in ascending order,

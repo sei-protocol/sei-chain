@@ -44,6 +44,43 @@ func TestIteratorAcrossFiles(t *testing.T) {
 	require.Equal(t, []uint64{2, 3, 4, 5}, collectBlocks(t, w, 2))
 }
 
+func TestIteratorWithTinyPrefetchBuffer(t *testing.T) {
+	// A prefetch buffer smaller than the number of blocks exercises reader backpressure: the reader must
+	// block on a full channel and resume as the consumer drains, without deadlocking or dropping blocks.
+	cfg := testConfig(t.TempDir())
+	cfg.IteratorPrefetchSize = 1
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+	for block := uint64(1); block <= 20; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+
+	require.Equal(t, []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
+		collectBlocks(t, w, 1))
+}
+
+func TestIteratorCloseBeforeDrainDoesNotLeak(t *testing.T) {
+	// Closing an iterator before consuming it must unblock and shut down the reader goroutine cleanly.
+	cfg := testConfig(t.TempDir())
+	cfg.IteratorPrefetchSize = 1
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+	for block := uint64(1); block <= 20; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+
+	it, err := w.Iterator(1)
+	require.NoError(t, err)
+	// Consume just one block, then close while the reader is still mid-stream (blocked on the full buffer).
+	ok, err := it.Next()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, it.Close())
+	require.NoError(t, it.Close()) // idempotent
+}
+
 func TestIteratorStopsBeforeIncompleteTail(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()
