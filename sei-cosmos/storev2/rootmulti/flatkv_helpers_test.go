@@ -67,17 +67,14 @@ func memiavlOnlyConfig() seidbconfig.StateCommitConfig {
 }
 
 // migrateEVMConfig returns the MigrateEVM config used by phase 2 of the
-// FlatKV EVM migrate tests. keysPerBlock caps the per-block migration batch
-// so callers can deterministically spread the boundary across multiple
-// commits without having to count source keys themselves; a small value
-// (e.g. 4) reliably keeps the migration in flight long enough to cover
-// the resume / determinism assertions, while a large value (e.g. 1024)
-// is the production-equivalent that drains the boundary in one or two
-// blocks.
-func migrateEVMConfig(keysPerBlock int) seidbconfig.StateCommitConfig {
+// FlatKV EVM migrate tests. The per-block migration batch is no longer part
+// of the config; callers set it after constructing the store via
+// store.SetMigrationBatchSize so a small value (e.g. 4) keeps the migration
+// in flight across the resume / determinism assertions, while a large value
+// drains the boundary in one or two blocks.
+func migrateEVMConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
 	cfg.WriteMode = sctypes.MigrateEVM
-	cfg.KeysToMigratePerBlock = keysPerBlock
 	return withTestMemIAVL(cfg)
 }
 

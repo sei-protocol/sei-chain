@@ -1,0 +1,13 @@
+{
+  "title": "Update Migration Batch Size",
+  "description": "Set NumKeysToMigratePerBlock to 12345 to drive the SC memiavl->flatkv migration",
+  "changes": [
+    {
+      "subspace": "migration",
+      "key": "NumKeysToMigratePerBlock",
+      "value": "12345"
+    }
+  ],
+  "deposit": "10000000usei",
+  "is_expedited": false
+}

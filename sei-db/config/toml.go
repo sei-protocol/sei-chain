@@ -50,26 +50,24 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchT
 # Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
-# WriteMode defines the write routing mode for EVM data in the SC layer.
-# Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
-# all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write, auto
+# sc-write-mode is the write routing mode. By default it is IGNORED: the
+# advanced, unrendered state-commit.sc-write-mode-enable-auto defaults to true,
+# which forces the node to run in auto regardless of this value. In auto the
+# effective mode is derived from the on-disk migration state and advanced by the
+# NumKeysToMigratePerBlock gov param, so the node follows a governance-driven EVM
+# migration with no edits here.
 #
-# auto derives the effective mode from the on-disk migration state and
-# allows coordinated runtime transitions without restarts. It is only
-# valid for nodes whose history began in memiavl (e.g. switching from
-# memiavl_only). WARNING: never set auto on an existing flatkv_only node —
-# depending on its on-disk metadata the node either fails every commit
-# with a version-mismatch error or silently serves reads from an empty
-# memiavl. Nodes that start in flatkv mode must keep flatkv_only forever.
+# To pin an explicit mode (memiavl_only, flatkv_only, evm_migrated,
+# test_only_dual_write, ...) you MUST also set
+# state-commit.sc-write-mode-enable-auto = false; only then is this value
+# honored. A pinned node does not participate in a governance-driven migration
+# and diverges from the network once the chain migrates (e.g. auto left enabled
+# on a flatkv_only-style node would either fail every commit with a
+# version-mismatch error or silently serve reads from an empty memiavl).
+#
+# Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
+# all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write, auto.
 sc-write-mode = "{{ .StateCommit.WriteMode }}"
-
-# KeysToMigratePerBlock controls how many EVM keys the in-flight migration
-# (sc-write-mode = migrate_evm / migrate_bank / migrate_all_but_bank) drains
-# from memiavl into flatkv per block. Default 1024 is appropriate for
-# production drains; lower it (e.g. 256) to spread the migration across more
-# blocks for test runs that need to observe the resume / hybrid-read path.
-# Must be > 0; ignored entirely when not in a migration mode.
-sc-keys-to-migrate-per-block = {{ .StateCommit.KeysToMigratePerBlock }}
 
 # HashLogger records a per-block CSV of named hashes (memIAVL module/root hashes, flatKV DB/root
 # hashes, the app hash, the block hash, and the changeset hash) so block-hash computation can be
