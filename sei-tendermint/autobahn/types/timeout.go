@@ -14,13 +14,15 @@ type TimeoutVote struct {
 	utils.ReadOnly
 	view            View
 	latestPrepareQC utils.Option[ViewNumber]
+	epochIndex      uint64
 }
 
 // NewTimeoutVote creates a new TimeoutVote.
-func NewTimeoutVote(view View, latestPrepareQC utils.Option[ViewNumber]) *TimeoutVote {
+func NewTimeoutVote(view View, latestPrepareQC utils.Option[ViewNumber], epochIndex uint64) *TimeoutVote {
 	return &TimeoutVote{
 		view:            view,
 		latestPrepareQC: latestPrepareQC,
+		epochIndex:      epochIndex,
 	}
 }
 
@@ -28,6 +30,9 @@ func NewTimeoutVote(view View, latestPrepareQC utils.Option[ViewNumber]) *Timeou
 func (m *TimeoutVote) View() View {
 	return m.view
 }
+
+// EpochIndex returns the epoch this vote belongs to.
+func (m *TimeoutVote) EpochIndex() uint64 { return m.epochIndex }
 
 // latestPrepareQCView is the highest view number for which a PrepareQC was observed by the node.
 func (m *TimeoutVote) latestPrepareQCView() utils.Option[View] {
@@ -44,10 +49,11 @@ type FullTimeoutVote struct {
 }
 
 // NewFullTimeoutVote creates a new FullTimeoutVote.
-func NewFullTimeoutVote(key SecretKey, view View, latestPrepareQC utils.Option[*PrepareQC]) *FullTimeoutVote {
+func NewFullTimeoutVote(key SecretKey, view View, latestPrepareQC utils.Option[*PrepareQC], epochIndex uint64) *FullTimeoutVote {
 	vote := &TimeoutVote{
 		view:            view,
 		latestPrepareQC: utils.MapOpt(latestPrepareQC, func(qc *PrepareQC) ViewNumber { return qc.Proposal().View().Number }),
+		epochIndex:      epochIndex,
 	}
 	return &FullTimeoutVote{
 		vote:            Sign(key, vote),
@@ -65,8 +71,12 @@ func (m *FullTimeoutVote) View() View {
 	return m.vote.Msg().View()
 }
 
-// Verify verifies the FullTimeoutVote against the committee.
-func (m *FullTimeoutVote) Verify(c *Committee) error {
+// Verify verifies the FullTimeoutVote against the epoch.
+func (m *FullTimeoutVote) Verify(ep *Epoch) error {
+	if got, want := m.vote.Msg().epochIndex, ep.EpochIndex(); got != want {
+		return fmt.Errorf("epoch_index = %d, want %d", got, want)
+	}
+	c := ep.Committee()
 	if err := m.vote.VerifySig(c); err != nil {
 		return err
 	}
@@ -77,7 +87,7 @@ func (m *FullTimeoutVote) Verify(c *Committee) error {
 		}
 		// TODO: verifying PrepareQC in all Timeout votes might be too inefficient.
 		// If it is, we can skip duplicated verification.
-		if err := pQC.Verify(c); err != nil {
+		if err := pQC.Verify(ep); err != nil {
 			return fmt.Errorf("latestPrepareQC: %w", err)
 		}
 		if got := pQC.Proposal().View(); got != want {
@@ -132,14 +142,18 @@ func (m *TimeoutQC) LatestPrepareQC() utils.Option[*PrepareQC] {
 	return m.latestPrepareQC
 }
 
-// Verify verifies the TimeoutQC against the committee and the previous CommitQC.
+// Verify verifies the TimeoutQC against the epoch and the previous CommitQC.
 // Verifying TimeoutQC should NOT require previous TimeoutQC,
 // since observing prior TimeoutQCs is not required in the pb.
-func (m *TimeoutQC) Verify(c *Committee, prev utils.Option[*CommitQC]) error {
+func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
+	c := ep.Committee()
 	// Verify the signatures.
 	weight := uint64(0)
 	done := map[PublicKey]struct{}{}
 	for _, v := range m.votes {
+		if got, want := v.Msg().epochIndex, ep.EpochIndex(); got != want {
+			return fmt.Errorf("vote epoch_index = %d, want %d", got, want)
+		}
 		if _, ok := done[v.sig.key]; ok {
 			return fmt.Errorf("duplicate vote from %q", v.sig.key)
 		}
@@ -153,9 +167,14 @@ func (m *TimeoutQC) Verify(c *Committee, prev utils.Option[*CommitQC]) error {
 	if got, want := weight, c.TimeoutQuorum(); got < want {
 		return fmt.Errorf("got %v votes weight, want >= %v", got, want)
 	}
+	// Verify that the view index is within the epoch's road range.
+	roads := ep.Roads()
+	view := m.View()
+	if view.Index < roads.First || view.Index > roads.Last {
+		return fmt.Errorf("road_index %v not in epoch roads [%v, %v]", view.Index, roads.First, roads.Last)
+	}
 	// Check that the TimeoutQC is from the correct consensus instance.
 	h := utils.None[ViewNumber]()
-	view := m.View()
 	if got, want := view.Index, NextIndexOpt(prev); got != want {
 		return fmt.Errorf("timeoutQC.View().Index = %v, want %v", got, want)
 	}
@@ -177,7 +196,7 @@ func (m *TimeoutQC) Verify(c *Committee, prev utils.Option[*CommitQC]) error {
 		if got, want := pQC.Proposal().View(), (View{Index: view.Index, Number: vn}); got != want {
 			return fmt.Errorf("latestPrepareQC view number mismatch, got %v, want %v", got, want)
 		}
-		if err := pQC.Verify(c); err != nil {
+		if err := pQC.Verify(ep); err != nil {
 			return fmt.Errorf("higPrepareQC: %w", err)
 		}
 	} else {
@@ -199,12 +218,7 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 	for _, l := range p.laneRanges {
 		laneRanges = append(laneRanges, l)
 	}
-	return newProposal(
-		m.View().Next(),
-		p.Timestamp(),
-		laneRanges,
-		p.App(),
-	), true
+	return newProposal(m.View().Next(), p.Timestamp(), laneRanges, p.App(), p.epochIndex, p.firstBlock), true
 }
 
 // TimeoutVoteConv is the protobuf converter for TimeoutVote.
@@ -218,12 +232,16 @@ var TimeoutVoteConv = protoutils.Conv[*TimeoutVote, *pb.TimeoutVote]{
 				}
 				return nil
 			}(),
+			EpochIndex: utils.Alloc(m.epochIndex),
 		}
 	},
 	Decode: func(m *pb.TimeoutVote) (*TimeoutVote, error) {
 		view, err := ViewConv.DecodeReq(m.View)
 		if err != nil {
 			return nil, fmt.Errorf("view: %w", err)
+		}
+		if m.EpochIndex == nil {
+			return nil, fmt.Errorf("EpochIndex: missing")
 		}
 		return &TimeoutVote{
 			view: view,
@@ -233,6 +251,7 @@ var TimeoutVoteConv = protoutils.Conv[*TimeoutVote, *pb.TimeoutVote]{
 				}
 				return utils.None[ViewNumber]()
 			}(),
+			epochIndex: *m.EpochIndex,
 		}, nil
 	},
 }

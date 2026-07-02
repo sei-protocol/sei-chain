@@ -121,7 +121,7 @@ func NewBlockSim(
 		// last QC's range — the next batch then appends contiguously. Block bytes
 		// are irrelevant here (this is a DB stress test), so the backfill writes
 		// freshly generated blocks under the already-persisted QC.
-		qcRange := prevQC.GlobalRange(committee)
+		qcRange := prevQC.GlobalRange()
 		lastQCNext := uint64(qcRange.Next)
 		firstMissing := uint64(qcRange.First)
 		if h, ok := highestOpt.Get(); ok {
@@ -263,7 +263,7 @@ func buildCommittee(rng tmutils.Rng, size int) (*types.Committee, []types.Secret
 		keys[i] = types.GenSecretKey(rng)
 		replicas[i] = keys[i].Public()
 	}
-	committee, err := types.NewRoundRobinElection(replicas, 0, genesisTime)
+	committee, err := types.NewRoundRobinElection(replicas)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build committee: %w", err)
 	}

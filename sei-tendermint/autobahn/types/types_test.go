@@ -96,25 +96,6 @@ func TestMarshal(t *testing.T) {
 	}
 }
 
-func TestNewRoundRobinElection_GenesisTimestamp(t *testing.T) {
-	rng := utils.TestRng()
-	replicas := []PublicKey{GenPublicKey(rng), GenPublicKey(rng)}
-	firstBlock := GenGlobalBlockNumber(rng)
-	genesisTimestamp := time.Now()
-
-	committee, err := NewRoundRobinElection(replicas, firstBlock, genesisTimestamp)
-	if err != nil {
-		t.Fatalf("NewRoundRobinElection(): %v", err)
-	}
-
-	if got := committee.FirstBlock(); got != firstBlock {
-		t.Fatalf("FirstBlock() = %v, want %v", got, firstBlock)
-	}
-	if got := committee.GenesisTimestamp(); !got.Equal(genesisTimestamp) {
-		t.Fatalf("GenesisTimestamp() = %v, want %v", got, genesisTimestamp)
-	}
-}
-
 func makePrepareQC(keys []SecretKey, vote *PrepareVote) *PrepareQC {
 	var votes []*Signed[*PrepareVote]
 	for _, k := range keys {
@@ -134,16 +115,17 @@ func TestNewTimeoutQC(t *testing.T) {
 			Index:  view.Index,
 			Number: GenViewNumber(rng) % view.Number,
 		}
-		p := newProposal(pView, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
+		p := newProposal(pView, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), 0, GlobalBlockNumber(rng.Uint64()))
 		if wantView.Less(pView) {
 			wantView = pView
 		}
-		votes = append(votes, NewFullTimeoutVote(k, view, utils.Some(makePrepareQC(keys, NewPrepareVote(p)))))
+		votes = append(votes, NewFullTimeoutVote(k, view, utils.Some(makePrepareQC(keys, NewPrepareVote(p))), 0))
 	}
 	tQC := NewTimeoutQC(votes)
 	pQC, ok := tQC.LatestPrepareQC().Get()
 	if !ok {
 		t.Fatalf("tQC.LatestPrepareQC() missing")
+
 	}
 	if gotView := pQC.View(); gotView != wantView {
 		t.Fatalf("tQC.LatestPrepareQC().View() = %v, want %v", gotView, wantView)
@@ -162,17 +144,16 @@ func TestTimeoutQCConvDecode_EmptyVotesReturnsError(t *testing.T) {
 func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
+	ep := GenEpochWithCommittee(rng, committee)
 	view := View{Index: 0, Number: 0}
 
-	pqc := makePrepareQC(keys, NewPrepareVote(
-		newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng))),
-	))
+	pqc := makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, view)))
 
 	// Only keys[0] carries the PrepareQC; the rest carry None.
 	votes := make([]*FullTimeoutVote, len(keys))
-	votes[0] = NewFullTimeoutVote(keys[0], view, utils.Some(pqc))
+	votes[0] = NewFullTimeoutVote(keys[0], view, utils.Some(pqc), ep.EpochIndex())
 	for i := 1; i < len(keys); i++ {
-		votes[i] = NewFullTimeoutVote(keys[i], view, utils.None[*PrepareQC]())
+		votes[i] = NewFullTimeoutVote(keys[i], view, utils.None[*PrepareQC](), ep.EpochIndex())
 	}
 
 	tqc := NewTimeoutQC(votes)
@@ -183,7 +164,7 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 	if got.View() != view {
 		t.Fatalf("LatestPrepareQC.View() = %v, want %v", got.View(), view)
 	}
-	if err := tqc.Verify(committee, utils.None[*CommitQC]()); err != nil {
+	if err := tqc.Verify(ep, utils.None[*CommitQC]()); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 }
@@ -193,18 +174,19 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 func TestNewTimeoutQC_AllNone(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
+	ep := GenEpochWithCommittee(rng, committee)
 	view := View{Index: 0, Number: 0}
 
 	votes := make([]*FullTimeoutVote, len(keys))
 	for i, k := range keys {
-		votes[i] = NewFullTimeoutVote(k, view, utils.None[*PrepareQC]())
+		votes[i] = NewFullTimeoutVote(k, view, utils.None[*PrepareQC](), ep.EpochIndex())
 	}
 
 	tqc := NewTimeoutQC(votes)
 	if tqc.LatestPrepareQC().IsPresent() {
 		t.Fatal("LatestPrepareQC should be None when no vote carries one")
 	}
-	if err := tqc.Verify(committee, utils.None[*CommitQC]()); err != nil {
+	if err := tqc.Verify(ep, utils.None[*CommitQC]()); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 }
@@ -214,21 +196,20 @@ func TestNewTimeoutQC_AllNone(t *testing.T) {
 func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
+	ep := GenEpochWithCommittee(rng, committee)
 	view := View{Index: 0, Number: 5}
 
 	makePQCAt := func(vn ViewNumber) *PrepareQC {
 		pView := View{Index: view.Index, Number: vn}
-		return makePrepareQC(keys, NewPrepareVote(
-			newProposal(pView, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng))),
-		))
+		return makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, pView)))
 	}
 
 	// keys[0] has PrepareQC at view number 2, keys[1] at 4, rest None.
 	votes := make([]*FullTimeoutVote, len(keys))
-	votes[0] = NewFullTimeoutVote(keys[0], view, utils.Some(makePQCAt(2)))
-	votes[1] = NewFullTimeoutVote(keys[1], view, utils.Some(makePQCAt(4)))
-	votes[2] = NewFullTimeoutVote(keys[2], view, utils.None[*PrepareQC]())
-	votes[3] = NewFullTimeoutVote(keys[3], view, utils.None[*PrepareQC]())
+	votes[0] = NewFullTimeoutVote(keys[0], view, utils.Some(makePQCAt(2)), ep.EpochIndex())
+	votes[1] = NewFullTimeoutVote(keys[1], view, utils.Some(makePQCAt(4)), ep.EpochIndex())
+	votes[2] = NewFullTimeoutVote(keys[2], view, utils.None[*PrepareQC](), ep.EpochIndex())
+	votes[3] = NewFullTimeoutVote(keys[3], view, utils.None[*PrepareQC](), ep.EpochIndex())
 
 	tqc := NewTimeoutQC(votes)
 	got, ok := tqc.LatestPrepareQC().Get()
@@ -239,7 +220,7 @@ func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 	if got.View() != wantView {
 		t.Fatalf("LatestPrepareQC.View() = %v, want %v", got.View(), wantView)
 	}
-	if err := tqc.Verify(committee, utils.None[*CommitQC]()); err != nil {
+	if err := tqc.Verify(ep, utils.None[*CommitQC]()); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 }

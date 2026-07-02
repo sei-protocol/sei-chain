@@ -12,14 +12,14 @@ const fullCommitQCsDir = "fullcommitqcs"
 
 // fullCommitQCState is the mutable state protected by FullCommitQCPersister's mutex.
 type fullCommitQCState struct {
-	iw        utils.Option[*indexedWAL[*types.FullCommitQC]]
-	committee *types.Committee
-	next      types.GlobalBlockNumber // next expected GlobalRange().First == last QC's GlobalRange().Next
-	loaded    []*types.FullCommitQC
+	iw         utils.Option[*indexedWAL[*types.FullCommitQC]]
+	firstBlock types.GlobalBlockNumber
+	next       types.GlobalBlockNumber // next expected GlobalRange().First == last QC's GlobalRange().Next
+	loaded     []*types.FullCommitQC
 }
 
 func (s *fullCommitQCState) persistQC(qc *types.FullCommitQC) error {
-	gr := qc.QC().GlobalRange(s.committee)
+	gr := qc.QC().GlobalRange()
 	if gr.First < s.next {
 		return nil
 	}
@@ -51,7 +51,7 @@ func (s *fullCommitQCState) truncateBefore(n types.GlobalBlockNumber) error {
 	// per prune call because pruning advances one block at a time while
 	// each QC covers many blocks.
 	if err := iw.TruncateWhile(func(entry *types.FullCommitQC) bool {
-		return entry.QC().GlobalRange(s.committee).Next <= n
+		return entry.QC().GlobalRange().Next <= n
 	}); err != nil {
 		return fmt.Errorf("truncate full commitqc WAL: %w", err)
 	}
@@ -69,10 +69,10 @@ type FullCommitQCPersister struct {
 // NewFullCommitQCPersister opens (or creates) a WAL in the fullcommitqcs/
 // subdir and replays all persisted entries. Loaded QCs are available via
 // ConsumeLoaded. When stateDir is None, returns a no-op persister.
-func NewFullCommitQCPersister(stateDir utils.Option[string], committee *types.Committee) (*FullCommitQCPersister, error) {
+func NewFullCommitQCPersister(stateDir utils.Option[string], firstBlock types.GlobalBlockNumber) (*FullCommitQCPersister, error) {
 	sd, ok := stateDir.Get()
 	if !ok {
-		return &FullCommitQCPersister{state: utils.NewMutex(&fullCommitQCState{committee: committee, next: committee.FirstBlock()})}, nil
+		return &FullCommitQCPersister{state: utils.NewMutex(&fullCommitQCState{firstBlock: firstBlock, next: firstBlock})}, nil
 	}
 	dir := filepath.Join(sd, fullCommitQCsDir)
 	iw, err := openIndexedWAL(dir, types.FullCommitQCConv)
@@ -80,14 +80,14 @@ func NewFullCommitQCPersister(stateDir utils.Option[string], committee *types.Co
 		return nil, fmt.Errorf("open full commitqc WAL in %s: %w", dir, err)
 	}
 
-	s := &fullCommitQCState{iw: utils.Some(iw), committee: committee, next: committee.FirstBlock()}
+	s := &fullCommitQCState{iw: utils.Some(iw), firstBlock: firstBlock, next: firstBlock}
 	loaded, err := s.loadAll()
 	if err != nil {
 		_ = iw.Close()
 		return nil, err
 	}
 	if len(loaded) > 0 {
-		s.next = loaded[len(loaded)-1].QC().GlobalRange(s.committee).Next
+		s.next = loaded[len(loaded)-1].QC().GlobalRange().Next
 	}
 	s.loaded = loaded
 	return &FullCommitQCPersister{
@@ -105,13 +105,13 @@ func (gp *FullCommitQCPersister) Next() types.GlobalBlockNumber {
 }
 
 // LoadedFirst returns the first global block number of the first loaded QC,
-// or committee.FirstBlock() if empty.
+// or firstBlock if empty.
 func (gp *FullCommitQCPersister) LoadedFirst() types.GlobalBlockNumber {
 	for s := range gp.state.Lock() {
 		if len(s.loaded) > 0 {
-			return s.loaded[0].QC().GlobalRange(s.committee).First
+			return s.loaded[0].QC().GlobalRange().First
 		}
-		return s.committee.FirstBlock()
+		return s.firstBlock
 	}
 	panic("unreachable")
 }

@@ -253,7 +253,7 @@ func testPruneStraddleRetainsQC(t *testing.T, build builder) {
 	require.NoError(t, err)
 	got, ok := opt.Get()
 	require.True(t, ok, "straddling QC must be retained")
-	require.Equal(t, straddled.first, got.QC().GlobalRange(committee).First)
+	require.Equal(t, straddled.first, got.QC().GlobalRange().First)
 }
 
 // testPruneIdempotentMonotonic asserts PruneBefore is idempotent and the
@@ -485,7 +485,7 @@ func testReverseIteratorOrdering(t *testing.T, build builder) {
 		}
 		qc, err := qcIt.QC()
 		require.NoError(t, err)
-		first := qc.QC().GlobalRange(committee).First
+		first := qc.QC().GlobalRange().First
 		if qcCount == 0 {
 			require.Equal(t, lastFirst, first, "reverse QCs must surface the last QC first")
 		}
@@ -525,8 +525,8 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 
 	prevQC, ok := recoverLastQC(t, db)
 	require.True(t, ok)
-	require.Equal(t, last.first, prevQC.GlobalRange(committee).First, "recovered QC must be the last persisted QC")
-	require.Equal(t, last.next, prevQC.GlobalRange(committee).Next)
+	require.Equal(t, last.first, prevQC.GlobalRange().First, "recovered QC must be the last persisted QC")
+	require.Equal(t, last.next, prevQC.GlobalRange().Next)
 
 	// The recovered QC's upper bound is exactly where the continuation begins;
 	// writing the next contiguous batch must be accepted.
@@ -712,7 +712,7 @@ func TestMemblockPruneRemovesBelowWatermark(t *testing.T) {
 		}
 		fqc, err := qcIt.QC()
 		require.NoError(t, err)
-		require.GreaterOrEqual(t, fqc.QC().GlobalRange(committee).First, watermark,
+		require.GreaterOrEqual(t, fqc.QC().GlobalRange().First, watermark,
 			"QC iterator must not surface pruned QCs")
 	}
 	require.NoError(t, qcIt.Close())
@@ -842,13 +842,13 @@ func assertBlocksReadable(t *testing.T, db types.BlockDB, batches []batch) {
 
 func assertQCsReadable(t *testing.T, db types.BlockDB, committee *types.Committee, batches []batch) {
 	for _, b := range batches {
-		r := b.qc.QC().GlobalRange(committee)
+		r := b.qc.QC().GlobalRange()
 		for n := r.First; n < r.Next; n++ {
 			opt, err := db.ReadQCByBlockNumber(n)
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "QC covering %d should exist", n)
-			gr := got.QC().GlobalRange(committee)
+			gr := got.QC().GlobalRange()
 			require.Equal(t, r.First, gr.First)
 			require.Equal(t, r.Next, gr.Next)
 			require.Len(t, got.Headers(), len(b.qc.Headers()), "QC must round-trip its full header set")
@@ -902,7 +902,7 @@ func assertIterators(t *testing.T, db types.BlockDB, committee *types.Committee,
 		}
 		qc, err := qcIt.QC()
 		require.NoError(t, err)
-		first := qc.QC().GlobalRange(committee).First
+		first := qc.QC().GlobalRange().First
 		if haveQC {
 			require.Greater(t, first, prevFirst, "QCs must iterate ascending by First")
 		}
@@ -960,7 +960,7 @@ func buildCommittee() (*types.Committee, []types.SecretKey) {
 		keys[i] = types.GenSecretKey(rng)
 		replicas[i] = keys[i].Public()
 	}
-	committee := utils.OrPanic1(types.NewRoundRobinElection(replicas, 0, genesisTime))
+	committee := utils.OrPanic1(types.NewRoundRobinElection(replicas))
 	return committee, keys
 }
 
@@ -972,7 +972,7 @@ func generateBatches(committee *types.Committee, keys []types.SecretKey) []batch
 	batches := make([]batch, 0, numBatches)
 	for range numBatches {
 		fqc, blocks := buildFullCommitQC(rng, committee, keys, prev)
-		r := fqc.QC().GlobalRange(committee)
+		r := fqc.QC().GlobalRange()
 		batches = append(batches, batch{first: r.First, next: r.Next, blocks: blocks, qc: fqc})
 		prev = utils.Some(fqc.QC())
 	}
@@ -991,18 +991,12 @@ func buildFullCommitQC(
 			parent := bs[len(bs)-1]
 			return types.NewBlock(producer, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
 		}
-		return types.NewBlock(
-			producer,
-			types.LaneRangeOpt(prev, producer).Next(),
-			types.GenBlockHeaderHash(rng),
-			types.GenPayload(rng),
-		)
+		return types.NewBlock(producer, types.LaneRangeOpt(prev, producer).Next(), types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	}
 	for range blocksPerQC {
 		producer := committee.Lanes().At(rng.Intn(committee.Lanes().Len()))
 		blocks[producer] = append(blocks[producer], makeBlock(producer))
 	}
-
 	laneQCs := map[types.LaneID]*types.LaneQC{}
 	var headers []*types.BlockHeader
 	var blockList []*types.Block
@@ -1015,35 +1009,16 @@ func buildFullCommitQC(
 			}
 		}
 	}
-
-	viewSpec := types.ViewSpec{CommitQC: prev}
-	leader := committee.Leader(viewSpec.View())
-	var leaderKey types.SecretKey
-	for _, k := range keys {
-		if k.Public() == leader {
-			leaderKey = k
-			break
-		}
+	var appQC utils.Option[*types.AppQC]
+	if cqc, ok := prev.Get(); ok {
+		vs := types.ViewSpec{CommitQC: prev}
+		p := types.NewAppProposal(cqc.GlobalRange().Next-1, vs.View().Index, types.GenAppHash(rng), cqc.Proposal().EpochIndex())
+		appQC = utils.Some(testAppQC(keys, p))
+	} else {
+		appQC = utils.None[*types.AppQC]()
 	}
-	proposal := utils.OrPanic1(types.NewProposal(
-		leaderKey,
-		committee,
-		viewSpec,
-		genesisTime,
-		laneQCs,
-		func() utils.Option[*types.AppQC] {
-			if n := types.GlobalRangeOpt(prev, committee).Next; n > 0 {
-				p := types.NewAppProposal(n-1, viewSpec.View().Index, types.GenAppHash(rng))
-				return utils.Some(testAppQC(keys, p))
-			}
-			return utils.None[*types.AppQC]()
-		}(),
-	))
-	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
-	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.Proposal().Msg())))
-	}
-	return types.NewFullCommitQC(types.NewCommitQC(votes), headers), blockList
+	cqc := types.BuildCommitQC(committee, keys, prev, 0, genesisTime, laneQCs, appQC)
+	return types.NewFullCommitQC(cqc, headers), blockList
 }
 
 func testLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC {

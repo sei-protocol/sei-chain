@@ -11,6 +11,37 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// BuildCommitQC builds a valid CommitQC from explicit lane QCs and an optional app QC.
+// Use BuildFullCommitQC when you want random blocks generated automatically.
+func BuildCommitQC(
+	committee *Committee,
+	keys []SecretKey,
+	prev utils.Option[*CommitQC],
+	firstBlock GlobalBlockNumber,
+	genesisTimestamp time.Time,
+	laneQCs map[LaneID]*LaneQC,
+	appQC utils.Option[*AppQC],
+) *CommitQC {
+	vs := ViewSpec{
+		CommitQC: prev,
+		Epoch:    NewEpoch(0, OpenRoadRange(), genesisTimestamp, committee, firstBlock),
+	}
+	leader := committee.Leader(vs.View())
+	var leaderKey SecretKey
+	for _, k := range keys {
+		if k.Public() == leader {
+			leaderKey = k
+			break
+		}
+	}
+	proposal := utils.OrPanic1(NewProposal(leaderKey, vs, time.Now(), laneQCs, appQC))
+	votes := make([]*Signed[*CommitVote], 0, len(keys))
+	for _, k := range keys {
+		votes = append(votes, Sign(k, NewCommitVote(proposal.Proposal().Msg())))
+	}
+	return NewCommitQC(votes)
+}
+
 // GenNodeID generates a random NodeID.
 func GenNodeID(rng utils.Rng) NodeID {
 	return NodeID(utils.GenString(rng, 10))
@@ -37,7 +68,7 @@ func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
 	slices.SortStableFunc(sks, func(a, b SecretKey) int {
 		return -cmp.Compare(pks[a.Public()], pks[b.Public()])
 	})
-	return utils.OrPanic1(NewCommittee(pks, GenGlobalBlockNumber(rng)%1000000, time.Now())), sks
+	return utils.OrPanic1(NewCommittee(pks)), sks
 }
 
 // TestKeysWithWeight returns a deterministic subset of keys whose committee weight reaches the requested threshold.
@@ -178,14 +209,42 @@ func GenView(rng utils.Rng) View {
 	}
 }
 
+// GenEpochWithCommittee returns a random Epoch wrapping committee.
+// epochIndex, firstBlock, and timestamp are randomized so that tests exercise
+// epoch-binding checks rather than silently passing on zero values.
+// Roads always starts at 0 so tests using low view indices don't need special handling.
+func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
+	return NewEpoch(
+		rng.Uint64()%100,
+		RoadRange{First: 0, Last: RoadIndex(rng.Uint64()%10000) + 1},
+		utils.GenTimestamp(rng),
+		committee,
+		GlobalBlockNumber(rng.Uint64()%1000000)+1,
+	)
+}
+
 // GenProposal generates a random Proposal.
 func GenProposal(rng utils.Rng) *Proposal {
-	return newProposal(GenView(rng), time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
+	return newProposal(GenView(rng), time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), 0, GlobalBlockNumber(rng.Uint64()))
 }
 
 // GenProposalAt generates a Proposal at a specific view.
 func GenProposalAt(rng utils.Rng, view View) *Proposal {
-	return newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
+	return newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), 0, GlobalBlockNumber(rng.Uint64()))
+}
+
+// ProposalAt returns a minimal Proposal at view, consistent with ep.
+// No lane ranges and no app proposal — only for tests that care about
+// signature weight or epoch binding, not lane/app data.
+func ProposalAt(ep *Epoch, view View) *Proposal {
+	return newProposal(view, time.Time{}, nil, utils.None[*AppProposal](), ep.EpochIndex(), ep.FirstBlock())
+}
+
+// GenProposalForEpoch generates a Proposal at a specific view whose epochIndex
+// and firstBlock are taken from ep. Use in tests that verify QCs against a
+// known Epoch — the proposal fields must match ep for Verify to accept.
+func GenProposalForEpoch(rng utils.Rng, ep *Epoch, view View) *Proposal {
+	return newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), ep.EpochIndex(), ep.FirstBlock())
 }
 
 // GenAppHash generates a random AppHash.
@@ -195,7 +254,7 @@ func GenAppHash(rng utils.Rng) AppHash {
 
 // GenAppProposal generates a random AppProposal.
 func GenAppProposal(rng utils.Rng) *AppProposal {
-	return NewAppProposal(GenGlobalBlockNumber(rng), GenRoadIndex(rng), GenAppHash(rng))
+	return NewAppProposal(GenGlobalBlockNumber(rng), GenRoadIndex(rng), GenAppHash(rng), rng.Uint64())
 }
 
 // GenAppVote generates a random AppVote.
@@ -278,12 +337,12 @@ func GenFullCommitQC(rng utils.Rng) *FullCommitQC {
 
 // GenTimeoutVote generates a random TimeoutVote.
 func GenTimeoutVote(rng utils.Rng) *TimeoutVote {
-	return NewTimeoutVote(GenView(rng), utils.Some(GenViewNumber(rng)))
+	return NewTimeoutVote(GenView(rng), utils.Some(GenViewNumber(rng)), rng.Uint64())
 }
 
 // GenFullTimeoutVote generates a random FullTimeoutVote.
 func GenFullTimeoutVote(rng utils.Rng) *FullTimeoutVote {
-	return NewFullTimeoutVote(GenSecretKey(rng), GenView(rng), utils.Some(GenPrepareQC(rng)))
+	return NewFullTimeoutVote(GenSecretKey(rng), GenView(rng), utils.Some(GenPrepareQC(rng)), rng.Uint64())
 }
 
 // GenTimeoutQC generates a random TimeoutQC.

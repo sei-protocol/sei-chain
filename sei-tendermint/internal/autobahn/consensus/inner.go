@@ -81,6 +81,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/seilog"
@@ -93,12 +94,13 @@ const innerFile = "inner"
 
 type inner struct {
 	persistedInner
+	ep *types.Epoch
 }
 
 // newInner creates the inner state from persisted data loaded by NewPersister.
 // data is None on fresh start (persistence disabled or no prior state).
 // Returns error if persisted state is corrupt (see persistedInner.validate).
-func newInner(data utils.Option[*pb.PersistedInner], committee *types.Committee) (inner, error) {
+func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (inner, error) {
 	var persisted persistedInner
 
 	if p, ok := data.Get(); ok {
@@ -109,20 +111,25 @@ func newInner(data utils.Option[*pb.PersistedInner], committee *types.Committee)
 		persisted = *decoded
 	}
 
-	if err := persisted.validate(committee); err != nil {
+	// TODO: when AddEpoch is wired, resolve the epoch from the persisted QC/proposal
+	// rather than assuming LatestEpoch — otherwise a restart after an epoch transition
+	// fails validation with an epoch/road mismatch.
+	ep := registry.LatestEpoch()
+	if err := persisted.validate(ep); err != nil {
 		return inner{}, err
 	}
 
 	logger.Info("restored consensus state", "state", innerProtoConv.Encode(&persisted))
 
-	return inner{persistedInner: persisted}, nil
+	return inner{persistedInner: persisted, ep: ep}, nil
 }
 
 func (s *State) pushCommitQC(qc *types.CommitQC) error {
-	if i := s.innerRecv.Load(); qc.Proposal().Index() < i.View().Index {
+	i := s.innerRecv.Load()
+	if qc.Proposal().Index() < i.View().Index {
 		return nil
 	}
-	if err := qc.Verify(s.Data().Committee()); err != nil {
+	if err := qc.Verify(i.ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for iSend := range s.inner.Lock() {
@@ -130,10 +137,9 @@ func (s *State) pushCommitQC(qc *types.CommitQC) error {
 		if qc.Proposal().Index() < i.View().Index {
 			return nil
 		}
-		// CommitQC advances to new index; clear all state for new view
-		iSend.Store(inner{persistedInner{
-			CommitQC: utils.Some(qc),
-		}})
+		// CommitQC advances to new index; clear all state for new view.
+		// TODO: rotate ep when epoch transitions are wired up.
+		iSend.Store(inner{persistedInner: persistedInner{CommitQC: utils.Some(qc)}, ep: i.ep})
 	}
 	return nil
 }
@@ -151,7 +157,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 		return nil
 	}
 	// Verify checks the invariant: TimeoutQC.View().Index == CommitQC.Index + 1
-	if err := qc.Verify(s.Data().Committee(), i.CommitQC); err != nil {
+	if err := qc.Verify(i.ep, i.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for isend := range s.inner.Lock() {
@@ -160,10 +166,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 			return nil
 		}
 		// TimeoutQC advances view number; clear votes and prepareQC (stale view).
-		isend.Store(inner{persistedInner{
-			CommitQC:  i.CommitQC,
-			TimeoutQC: utils.Some(qc),
-		}})
+		isend.Store(inner{persistedInner: persistedInner{CommitQC: i.CommitQC, TimeoutQC: utils.Some(qc)}, ep: i.ep})
 	}
 	return nil
 }
@@ -179,7 +182,7 @@ func (s *State) pushProposal(ctx context.Context, proposal *types.FullProposal) 
 	if vs.View() != proposal.View() {
 		return nil
 	}
-	if err := proposal.Verify(s.Data().Committee(), vs); err != nil {
+	if err := proposal.Verify(vs); err != nil {
 		return fmt.Errorf("proposal.Verify(): %w", err)
 	}
 	// Update.
@@ -205,7 +208,7 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 	if vs.View() != qc.Proposal().View() {
 		return nil
 	}
-	if err := qc.Verify(s.Data().Committee()); err != nil {
+	if err := qc.Verify(vs.Epoch); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	// Update.
@@ -240,7 +243,7 @@ func (s *State) voteTimeout(ctx context.Context, view types.View) error {
 		if tqc, ok := i.TimeoutQC.Get(); ok && !pqc.IsPresent() {
 			pqc = tqc.LatestPrepareQC()
 		}
-		v := types.NewFullTimeoutVote(s.cfg.Key, view, pqc)
+		v := types.NewFullTimeoutVote(s.cfg.Key, view, pqc, i.ep.EpochIndex())
 		i.TimeoutVote = utils.Some(v)
 		isend.Store(i)
 	}

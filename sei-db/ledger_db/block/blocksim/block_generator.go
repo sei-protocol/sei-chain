@@ -74,7 +74,7 @@ func (g *BlockGenerator) mainLoop() {
 
 func (g *BlockGenerator) buildBatch() *generatedBatch {
 	fqc, blocks := g.buildFullCommitQC()
-	r := fqc.QC().GlobalRange(g.committee)
+	r := fqc.QC().GlobalRange()
 	g.prev = utils.Some(fqc.QC())
 	return &generatedBatch{first: r.First, next: r.Next, blocks: blocks, qc: fqc}
 }
@@ -132,7 +132,7 @@ func (g *BlockGenerator) buildFullCommitQC() (*types.FullCommitQC, []*types.Bloc
 		}
 	}
 
-	viewSpec := types.ViewSpec{CommitQC: prev}
+	viewSpec := types.ViewSpec{CommitQC: prev, Epoch: types.NewEpoch(0, types.OpenRoadRange(), genesisTime, committee, 0)}
 	leader := committee.Leader(viewSpec.View())
 	var leaderKey types.SecretKey
 	for _, k := range keys {
@@ -143,13 +143,13 @@ func (g *BlockGenerator) buildFullCommitQC() (*types.FullCommitQC, []*types.Bloc
 	}
 	proposal := utils.OrPanic1(types.NewProposal(
 		leaderKey,
-		committee,
 		viewSpec,
 		time.Now(),
 		laneQCs,
 		func() utils.Option[*types.AppQC] {
-			if n := types.GlobalRangeOpt(prev, committee).Next; n > 0 {
-				p := types.NewAppProposal(n-1, viewSpec.View().Index, types.GenAppHash(rng))
+			if cqc, ok := prev.Get(); ok {
+				n := cqc.GlobalRange().Next
+				p := types.NewAppProposal(n-1, viewSpec.View().Index, types.GenAppHash(rng), viewSpec.Epoch.EpochIndex())
 				return utils.Some(testAppQC(keys, p))
 			}
 			return utils.None[*types.AppQC]()

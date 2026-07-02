@@ -82,7 +82,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	returnedRemoteURLs := map[string]struct{}{}
 	for range 200 {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.Committee().EvmShard(sender)
+		shardValidator := router.data.Registry().LatestEpoch().Committee().EvmShard(sender)
 		expectedURL := urlByValidator[shardValidator]
 		proxyURL, ok := router.EvmProxy(sender).Get()
 		require.True(t, ok)

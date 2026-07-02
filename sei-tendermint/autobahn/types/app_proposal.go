@@ -18,11 +18,12 @@ type AppProposal struct {
 	globalNumber GlobalBlockNumber
 	roadIndex    RoadIndex
 	appHash      AppHash
+	epochIndex   uint64
 }
 
 // NewAppProposal creates a new AppProposal.
-func NewAppProposal(globalNumber GlobalBlockNumber, roadIndex RoadIndex, appHash AppHash) *AppProposal {
-	return &AppProposal{globalNumber: globalNumber, roadIndex: roadIndex, appHash: appHash}
+func NewAppProposal(globalNumber GlobalBlockNumber, roadIndex RoadIndex, appHash AppHash, epochIndex uint64) *AppProposal {
+	return &AppProposal{globalNumber: globalNumber, roadIndex: roadIndex, appHash: appHash, epochIndex: epochIndex}
 }
 
 // GlobalNumber .
@@ -34,6 +35,9 @@ func (m *AppProposal) RoadIndex() RoadIndex { return m.roadIndex }
 // AppHash .
 func (m *AppProposal) AppHash() AppHash { return m.appHash }
 
+// EpochIndex returns the epoch this proposal belongs to.
+func (m *AppProposal) EpochIndex() uint64 { return m.epochIndex }
+
 // Next is the next global block number to compute AppHash for.
 func (m *AppProposal) Next() RoadIndex {
 	return m.RoadIndex() + 1
@@ -44,8 +48,11 @@ func (m *AppProposal) Verify(c *Committee, qc *CommitQC) error {
 	if got, want := m.RoadIndex(), qc.Proposal().Index(); got != want {
 		return fmt.Errorf("roadIndex() = %v, want %v", got, want)
 	}
-	if got, want := m.GlobalNumber(), qc.GlobalRange(c); got < want.First || got >= want.Next {
+	if got, want := m.GlobalNumber(), qc.GlobalRange(); got < want.First || got >= want.Next {
 		return fmt.Errorf("globalNumber() = %v, want in range [%v,%v)", got, want.First, want.Next)
+	}
+	if got, want := m.EpochIndex(), qc.Proposal().EpochIndex(); got != want {
+		return fmt.Errorf("epoch_index = %d, want %d", got, want)
 	}
 	return nil
 }
@@ -57,6 +64,7 @@ var AppProposalConv = protoutils.Conv[*AppProposal, *pb.AppProposal]{
 			GlobalNumber: utils.Alloc(uint64(m.globalNumber)),
 			RoadIndex:    utils.Alloc(uint64(m.roadIndex)),
 			AppHash:      m.appHash,
+			EpochIndex:   utils.Alloc(m.epochIndex),
 		}
 	},
 	Decode: func(m *pb.AppProposal) (*AppProposal, error) {
@@ -66,10 +74,14 @@ var AppProposalConv = protoutils.Conv[*AppProposal, *pb.AppProposal]{
 		if m.RoadIndex == nil {
 			return nil, fmt.Errorf("RoadIndex: missing")
 		}
+		if m.EpochIndex == nil {
+			return nil, fmt.Errorf("EpochIndex: missing")
+		}
 		return &AppProposal{
 			globalNumber: GlobalBlockNumber(*m.GlobalNumber),
 			roadIndex:    RoadIndex(*m.RoadIndex),
 			appHash:      AppHash(m.AppHash),
+			epochIndex:   *m.EpochIndex,
 		}, nil
 	},
 }

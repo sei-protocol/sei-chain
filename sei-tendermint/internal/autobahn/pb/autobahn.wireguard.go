@@ -44,43 +44,43 @@ func (*View) MaxSize() int {
 }
 
 func (*Proposal) MaxSize() int {
-	return 9506
+	return 9539
 }
 
 func (*FullProposal) MaxSize() int {
-	return 1106394
+	return 1107571
 }
 
 func (*PrepareQC) MaxSize() int {
-	return 19909
+	return 19942
 }
 
 func (*CommitQC) MaxSize() int {
-	return 19909
+	return 19942
 }
 
 func (*FullCommitQC) MaxSize() int {
-	return 136913
+	return 136946
 }
 
 func (*TimeoutVote) MaxSize() int {
-	return 35
+	return 46
 }
 
 func (*TimeoutQC) MaxSize() int {
-	return 34313
+	return 35446
 }
 
 func (*FullTimeoutVote) MaxSize() int {
-	return 20057
+	return 20101
 }
 
 func (*AppQC) MaxSize() int {
-	return 10458
+	return 10469
 }
 
 func (*AppProposal) MaxSize() int {
-	return 56
+	return 67
 }
 
 func (*Msg) MaxSize() int {
@@ -88,15 +88,15 @@ func (*Msg) MaxSize() int {
 }
 
 func (*SignedProposal) MaxSize() int {
-	return 9613
+	return 9646
 }
 
 func (*SignedTimeoutVote) MaxSize() int {
-	return 141
+	return 152
 }
 
 func (*SignedAppVote) MaxSize() int {
-	return 162
+	return 173
 }
 
 func (*SignedBlock) MaxSize() int {
@@ -108,11 +108,11 @@ func (*SignedBlockHeader) MaxSize() int {
 }
 
 func (*SignedAppProposal) MaxSize() int {
-	return 162
+	return 173
 }
 
 func (*ConsensusReq) MaxSize() int {
-	return 1106398
+	return 1107575
 }
 
 func init() {
@@ -215,6 +215,8 @@ func init() {
 		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Timestamp]())},
 		3: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*LaneRange]())},
 		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*AppProposal]())},
+		6: {MaxCount: 1},
+		7: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.FullProposal.
@@ -247,6 +249,7 @@ func init() {
 	runtime.MustRegister[*TimeoutVote](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*View]())},
 		2: {MaxCount: 1},
+		3: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.TimeoutQC.
@@ -288,6 +291,7 @@ func init() {
 		1: {MaxCount: 1},
 		2: {MaxCount: 1},
 		3: {MaxCount: 1, MaxSize: 32},
+		4: {MaxCount: 1},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Msg.

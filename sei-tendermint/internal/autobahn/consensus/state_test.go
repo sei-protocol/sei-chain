@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -16,18 +17,18 @@ import (
 // newTestState creates a State for testing with no persistence and a long
 // view timeout (so voteTimeout is only triggered explicitly).
 // keys[0] is used as the node's signing key.
-func newTestState(rng utils.Rng) (*State, []types.SecretKey) {
-	committee, keys := types.GenCommittee(rng, 3)
+func newTestState(rng utils.Rng) (*State, []types.SecretKey, *epoch.Registry) {
+	registry, keys := epoch.GenRegistry(rng, 3)
 	dataState := utils.OrPanic1(data.NewState(
-		&data.Config{Committee: committee},
-		utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee)),
+		&data.Config{Registry: registry},
+		utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock())),
 	))
 	s := utils.OrPanic1(NewState(&Config{
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 		PersistentStateDir: utils.None[string](),
 	}, dataState))
-	return s, keys
+	return s, keys, registry
 }
 
 // makeTimeoutQC creates a TimeoutQC at the given view where all keys
@@ -35,7 +36,7 @@ func newTestState(rng utils.Rng) (*State, []types.SecretKey) {
 func makeTimeoutQC(keys []types.SecretKey, view types.View, pqc utils.Option[*types.PrepareQC]) *types.TimeoutQC {
 	votes := make([]*types.FullTimeoutVote, len(keys))
 	for i, k := range keys {
-		votes[i] = types.NewFullTimeoutVote(k, view, pqc)
+		votes[i] = types.NewFullTimeoutVote(k, view, pqc, 0)
 	}
 	return types.NewTimeoutQC(votes)
 }
@@ -58,7 +59,7 @@ func testTimeoutVotePrepareQC(tv *types.FullTimeoutVote) utils.Option[*types.Pre
 
 func TestVoteTimeoutPrepareQC_BothNone(t *testing.T) {
 	rng := utils.TestRng()
-	s, _ := newTestState(rng)
+	s, _, _ := newTestState(rng)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
@@ -80,12 +81,12 @@ func TestVoteTimeoutPrepareQC_BothNone(t *testing.T) {
 
 func TestVoteTimeoutPrepareQC_OnlyCurrentView(t *testing.T) {
 	rng := utils.TestRng()
-	s, keys := newTestState(rng)
+	s, keys, registry := newTestState(rng)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-		pqc := makePrepareQC(keys, types.GenProposalAt(rng, types.View{Index: 0, Number: 0}))
+		pqc := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), types.View{Index: 0, Number: 0}))
 		if err := s.pushPrepareQC(ctx, pqc); err != nil {
 			return fmt.Errorf("pushPrepareQC: %w", err)
 		}
@@ -108,14 +109,14 @@ func TestVoteTimeoutPrepareQC_OnlyCurrentView(t *testing.T) {
 // consecutive timeouts with an offline leader must not lose the PrepareQC.
 func TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC(t *testing.T) {
 	rng := utils.TestRng()
-	s, keys := newTestState(rng)
+	s, keys, registry := newTestState(rng)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
 		// View (0, 0): push PrepareQC for proposal P.
 		view0 := types.View{Index: 0, Number: 0}
-		pqc0 := makePrepareQC(keys, types.GenProposalAt(rng, view0))
+		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view0))
 		if err := s.pushPrepareQC(ctx, pqc0); err != nil {
 			return fmt.Errorf("pushPrepareQC: %w", err)
 		}
@@ -165,14 +166,14 @@ func TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC(t *testing.T) {
 // view's PrepareQC is preferred over the older inherited one.
 func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 	rng := utils.TestRng()
-	s, keys := newTestState(rng)
+	s, keys, registry := newTestState(rng)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
 		// View (0, 0): PrepareQC for P.
 		view0 := types.View{Index: 0, Number: 0}
-		pqc0 := makePrepareQC(keys, types.GenProposalAt(rng, view0))
+		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view0))
 		if err := s.pushPrepareQC(ctx, pqc0); err != nil {
 			return fmt.Errorf("pushPrepareQC(pqc0): %w", err)
 		}
@@ -185,7 +186,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 
 		// Reproposal at (0, 1) succeeds — new PrepareQC at view (0, 1).
 		view1 := types.View{Index: 0, Number: 1}
-		pqc1 := makePrepareQC(keys, types.GenProposalAt(rng, view1))
+		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view1))
 		if err := s.pushPrepareQC(ctx, pqc1); err != nil {
 			return fmt.Errorf("pushPrepareQC(pqc1): %w", err)
 		}
@@ -215,7 +216,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 // the current view's PrepareQC is used.
 func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 	rng := utils.TestRng()
-	s, keys := newTestState(rng)
+	s, keys, registry := newTestState(rng)
 
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
@@ -229,7 +230,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 
 		// Fresh PrepareQC at (0, 1).
 		view1 := types.View{Index: 0, Number: 1}
-		pqc1 := makePrepareQC(keys, types.GenProposalAt(rng, view1))
+		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view1))
 		if err := s.pushPrepareQC(ctx, pqc1); err != nil {
 			return fmt.Errorf("pushPrepareQC: %w", err)
 		}
@@ -258,7 +259,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 // voteTimeout still inherits the PrepareQC from the persisted TimeoutQC.
 func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	makeCfg := func() *Config {
@@ -270,13 +271,13 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	}
 	makeDataState := func() *data.State {
 		return utils.OrPanic1(data.NewState(
-			&data.Config{Committee: committee},
-			utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee)),
+			&data.Config{Registry: registry},
+			utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock())),
 		))
 	}
 
 	view0 := types.View{Index: 0, Number: 0}
-	pqc0 := makePrepareQC(keys, types.GenProposalAt(rng, view0))
+	pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view0))
 
 	// Session 1: push PrepareQC + TimeoutQC, let runOutputs persist.
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {

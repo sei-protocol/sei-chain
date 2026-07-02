@@ -835,10 +835,12 @@ func (x *View) GetNumber() uint64 {
 
 type Proposal struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	View          *View                  `protobuf:"bytes,1,opt,name=view,proto3,oneof" json:"view,omitempty"`                         // required.
-	Timestamp     *Timestamp             `protobuf:"bytes,5,opt,name=timestamp,proto3,oneof" json:"timestamp,omitempty"`               // required
-	LaneRanges    []*LaneRange           `protobuf:"bytes,3,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"` // Sorted by lane.
-	App           *AppProposal           `protobuf:"bytes,4,opt,name=app,proto3,oneof" json:"app,omitempty"`                           // optional
+	View          *View                  `protobuf:"bytes,1,opt,name=view,proto3,oneof" json:"view,omitempty"`                                // required.
+	Timestamp     *Timestamp             `protobuf:"bytes,5,opt,name=timestamp,proto3,oneof" json:"timestamp,omitempty"`                      // required
+	LaneRanges    []*LaneRange           `protobuf:"bytes,3,rep,name=lane_ranges,json=laneRanges,proto3" json:"lane_ranges,omitempty"`        // Sorted by lane.
+	App           *AppProposal           `protobuf:"bytes,4,opt,name=app,proto3,oneof" json:"app,omitempty"`                                  // optional
+	FirstBlock    *uint64                `protobuf:"varint,6,opt,name=first_block,json=firstBlock,proto3,oneof" json:"first_block,omitempty"` // genesis InitialHeight; added to lane block numbers to produce absolute global block numbers
+	EpochIndex    *uint64                `protobuf:"varint,7,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"` // epoch this proposal belongs to
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -899,6 +901,20 @@ func (x *Proposal) GetApp() *AppProposal {
 		return x.App
 	}
 	return nil
+}
+
+func (x *Proposal) GetFirstBlock() uint64 {
+	if x != nil && x.FirstBlock != nil {
+		return *x.FirstBlock
+	}
+	return 0
+}
+
+func (x *Proposal) GetEpochIndex() uint64 {
+	if x != nil && x.EpochIndex != nil {
+		return *x.EpochIndex
+	}
+	return 0
 }
 
 type FullProposal struct {
@@ -1129,6 +1145,7 @@ type TimeoutVote struct {
 	state                     protoimpl.MessageState `protogen:"open.v1"`
 	View                      *View                  `protobuf:"bytes,1,opt,name=view,proto3,oneof" json:"view,omitempty"`                                                                                   // required
 	LatestPrepareQcViewNumber *uint64                `protobuf:"varint,2,opt,name=latest_prepare_qc_view_number,json=latestPrepareQcViewNumber,proto3,oneof" json:"latest_prepare_qc_view_number,omitempty"` // optional
+	EpochIndex                *uint64                `protobuf:"varint,3,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"`                                                    // epoch this vote belongs to
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -1173,6 +1190,13 @@ func (x *TimeoutVote) GetView() *View {
 func (x *TimeoutVote) GetLatestPrepareQcViewNumber() uint64 {
 	if x != nil && x.LatestPrepareQcViewNumber != nil {
 		return *x.LatestPrepareQcViewNumber
+	}
+	return 0
+}
+
+func (x *TimeoutVote) GetEpochIndex() uint64 {
+	if x != nil && x.EpochIndex != nil {
+		return *x.EpochIndex
 	}
 	return 0
 }
@@ -1482,7 +1506,9 @@ type AppProposal struct {
 	// Index of the commit qc finalizing the block.
 	RoadIndex *uint64 `protobuf:"varint,2,opt,name=road_index,json=roadIndex,proto3,oneof" json:"road_index,omitempty"` // required
 	// App hash at that block.
-	AppHash       []byte `protobuf:"bytes,3,opt,name=app_hash,json=appHash,proto3,oneof" json:"app_hash,omitempty"` // required
+	AppHash []byte `protobuf:"bytes,3,opt,name=app_hash,json=appHash,proto3,oneof" json:"app_hash,omitempty"` // required
+	// Epoch this proposal belongs to.
+	EpochIndex    *uint64 `protobuf:"varint,4,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1536,6 +1562,13 @@ func (x *AppProposal) GetAppHash() []byte {
 		return x.AppHash
 	}
 	return nil
+}
+
+func (x *AppProposal) GetEpochIndex() uint64 {
+	if x != nil && x.EpochIndex != nil {
+		return *x.EpochIndex
+	}
+	return 0
 }
 
 // This is the signable message.
@@ -2242,17 +2275,23 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x05index\x18\x01 \x01(\x04H\x00R\x05index\x88\x01\x01\x12\x1b\n" +
 	"\x06number\x18\x02 \x01(\x04H\x01R\x06number\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\b\n" +
 	"\x06_indexB\t\n" +
-	"\a_number\"\x96\x02\n" +
+	"\a_number\"\x82\x03\n" +
 	"\bProposal\x12'\n" +
 	"\x04view\x18\x01 \x01(\v2\x0e.autobahn.ViewH\x00R\x04view\x88\x01\x01\x126\n" +
 	"\ttimestamp\x18\x05 \x01(\v2\x13.autobahn.TimestampH\x01R\ttimestamp\x88\x01\x01\x12<\n" +
 	"\vlane_ranges\x18\x03 \x03(\v2\x13.autobahn.LaneRangeB\x06Ј\xe2\xab\fdR\n" +
 	"laneRanges\x12,\n" +
-	"\x03app\x18\x04 \x01(\v2\x15.autobahn.AppProposalH\x02R\x03app\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
+	"\x03app\x18\x04 \x01(\v2\x15.autobahn.AppProposalH\x02R\x03app\x88\x01\x01\x12$\n" +
+	"\vfirst_block\x18\x06 \x01(\x04H\x03R\n" +
+	"firstBlock\x88\x01\x01\x12$\n" +
+	"\vepoch_index\x18\a \x01(\x04H\x04R\n" +
+	"epochIndex\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
 	"\x05_viewB\f\n" +
 	"\n" +
 	"_timestampB\x06\n" +
-	"\x04_appJ\x04\b\x02\x10\x03R\n" +
+	"\x04_appB\x0e\n" +
+	"\f_first_blockB\x0e\n" +
+	"\f_epoch_indexJ\x04\b\x02\x10\x03R\n" +
 	"created_at\"\x96\x02\n" +
 	"\fFullProposal\x129\n" +
 	"\vproposal_v2\x18\x05 \x01(\v2\x18.autobahn.SignedProposalR\n" +
@@ -2271,12 +2310,15 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x04sigs\x18\x03 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01\"t\n" +
 	"\fFullCommitQC\x12\"\n" +
 	"\x02qc\x18\x01 \x01(\v2\x12.autobahn.CommitQCR\x02qc\x128\n" +
-	"\aheaders\x18\x02 \x03(\v2\x15.autobahn.BlockHeaderB\aЈ\xe2\xab\f\xe8\aR\aheaders:\x06\xe8\x88\xe2\xab\f\x01\"\xb6\x01\n" +
+	"\aheaders\x18\x02 \x03(\v2\x15.autobahn.BlockHeaderB\aЈ\xe2\xab\f\xe8\aR\aheaders:\x06\xe8\x88\xe2\xab\f\x01\"\xec\x01\n" +
 	"\vTimeoutVote\x12'\n" +
 	"\x04view\x18\x01 \x01(\v2\x0e.autobahn.ViewH\x00R\x04view\x88\x01\x01\x12E\n" +
-	"\x1dlatest_prepare_qc_view_number\x18\x02 \x01(\x04H\x01R\x19latestPrepareQcViewNumber\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
+	"\x1dlatest_prepare_qc_view_number\x18\x02 \x01(\x04H\x01R\x19latestPrepareQcViewNumber\x88\x01\x01\x12$\n" +
+	"\vepoch_index\x18\x03 \x01(\x04H\x02R\n" +
+	"epochIndex\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
 	"\x05_viewB \n" +
-	"\x1e_latest_prepare_qc_view_number\"\xbc\x01\n" +
+	"\x1e_latest_prepare_qc_view_numberB\x0e\n" +
+	"\f_epoch_index\"\xbc\x01\n" +
 	"\tTimeoutQC\x12>\n" +
 	"\bvotes_v2\x18\x03 \x03(\v2\x1b.autobahn.SignedTimeoutVoteB\x06Ј\xe2\xab\fdR\avotesV2\x12D\n" +
 	"\x11latest_prepare_qc\x18\x02 \x01(\v2\x13.autobahn.PrepareQCH\x00R\x0flatestPrepareQc\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\x14\n" +
@@ -2309,15 +2351,18 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"_commit_qc\"k\n" +
 	"\x05AppQC\x12)\n" +
 	"\x04vote\x18\x01 \x01(\v2\x15.autobahn.AppProposalR\x04vote\x12/\n" +
-	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01\"\xbf\x01\n" +
+	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01\"\xf5\x01\n" +
 	"\vAppProposal\x12(\n" +
 	"\rglobal_number\x18\x01 \x01(\x04H\x00R\fglobalNumber\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"road_index\x18\x02 \x01(\x04H\x01R\troadIndex\x88\x01\x01\x12&\n" +
-	"\bapp_hash\x18\x03 \x01(\fB\x06؈\xe2\xab\f H\x02R\aappHash\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x10\n" +
+	"\bapp_hash\x18\x03 \x01(\fB\x06؈\xe2\xab\f H\x02R\aappHash\x88\x01\x01\x12$\n" +
+	"\vepoch_index\x18\x04 \x01(\x04H\x03R\n" +
+	"epochIndex\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x10\n" +
 	"\x0e_global_numberB\r\n" +
 	"\v_road_indexB\v\n" +
-	"\t_app_hash\"\x98\x03\n" +
+	"\t_app_hashB\x0e\n" +
+	"\f_epoch_index\"\x98\x03\n" +
 	"\x03Msg\x126\n" +
 	"\rlane_proposal\x18\x01 \x01(\v2\x0f.autobahn.BlockH\x00R\flaneProposal\x124\n" +
 	"\tlane_vote\x18\x02 \x01(\v2\x15.autobahn.BlockHeaderH\x00R\blaneVote\x120\n" +

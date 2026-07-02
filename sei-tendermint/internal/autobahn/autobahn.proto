@@ -130,6 +130,8 @@ message Proposal {
   optional Timestamp timestamp = 5; // required
   repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 100]; // Sorted by lane.
   optional AppProposal app = 4; // optional
+  optional uint64 first_block = 6; // genesis InitialHeight; added to lane block numbers to produce absolute global block numbers
+  optional uint64 epoch_index = 7; // epoch this proposal belongs to
 }
 
 message FullProposal {
@@ -165,6 +167,7 @@ message TimeoutVote {
   option (wireguard.sized) = true;
   optional View view = 1; // required
   optional uint64 latest_prepare_qc_view_number = 2; // optional
+  optional uint64 epoch_index = 3; // epoch this vote belongs to
 }
 
 message TimeoutQC {
@@ -221,6 +224,8 @@ message AppProposal {
   optional uint64 road_index = 2; // required
   // App hash at that block.
   optional bytes app_hash = 3 [(wireguard.max_size) = 32]; // required
+  // Epoch this proposal belongs to.
+  optional uint64 epoch_index = 4;
 }
 
 // This is the signable message.
