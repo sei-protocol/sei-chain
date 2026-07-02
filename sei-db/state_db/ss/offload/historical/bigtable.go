@@ -44,6 +44,9 @@ type BigtableClient struct {
 	data       bigtablepb.BigtableClient
 	tableName  string
 	appProfile string
+	// table is the short table name used as the metric attribute.
+	table   string
+	metrics *bigtableMetrics
 }
 
 type BigtableCell struct {
@@ -148,6 +151,8 @@ func OpenBigtableClient(ctx context.Context, cfg BigtableConfig) (*BigtableClien
 		data:       bigtablepb.NewBigtableClient(conn),
 		tableName:  bigtableTableName(cfg.ProjectID, cfg.InstanceID, cfg.Table),
 		appProfile: cfg.AppProfile,
+		table:      cfg.Table,
+		metrics:    newBigtableMetrics(),
 	}, nil
 }
 
@@ -163,6 +168,11 @@ func (c *BigtableClient) Close() error {
 }
 
 func (c *BigtableClient) ReadRows(ctx context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool, qualifiers ...string) error {
+	start := time.Now()
+	var rowsRead, bytesRead int64
+	defer func() {
+		c.metrics.recordRead(ctx, c.table, time.Since(start), rowsRead, bytesRead)
+	}()
 	req := &bigtablepb.ReadRowsRequest{
 		TableName:    c.tableName,
 		AppProfileId: c.appProfile,
@@ -194,8 +204,12 @@ func (c *BigtableClient) ReadRows(ctx context.Context, startKey, endKey []byte, 
 			if err != nil {
 				return err
 			}
-			if committed && !f(row) {
-				return nil
+			if committed {
+				rowsRead++
+				bytesRead += bigtableRowSize(row)
+				if !f(row) {
+					return nil
+				}
 			}
 		}
 	}
@@ -205,8 +219,14 @@ func (c *BigtableClient) ApplyBulk(ctx context.Context, rows []BigtableRowMutati
 	if len(rows) == 0 {
 		return nil, nil
 	}
+	start := time.Now()
+	var bytesWritten int64
+	defer func() {
+		c.metrics.recordWrite(ctx, c.table, time.Since(start), int64(len(rows)), bytesWritten)
+	}()
 	entries := make([]*bigtablepb.MutateRowsRequest_Entry, 0, len(rows))
 	for _, row := range rows {
+		bytesWritten += bigtableMutationSize(row)
 		entry := &bigtablepb.MutateRowsRequest_Entry{
 			RowKey:    []byte(row.RowKey),
 			Mutations: make([]*bigtablepb.Mutation, 0, len(row.SetCells)),
