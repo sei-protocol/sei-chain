@@ -47,7 +47,7 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 		state: NewMemoryState(),
 	}
 	if e.cfg.OCCWorkers > 1 {
-		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers, e.cfg.PinOCCWorkers, e.cfg.OCCWorkerCPUOffset)
+		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
 		runtime.SetFinalizer(e, (*Executor).Close)
 	}
 	for _, opt := range opts {

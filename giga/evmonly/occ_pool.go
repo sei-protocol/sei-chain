@@ -11,9 +11,6 @@ type occWorkerPool struct {
 	stop   chan struct{}
 	closed chan struct{}
 	once   sync.Once
-
-	pinErrMu sync.Mutex
-	pinErr   error
 }
 
 type occPoolJob struct {
@@ -27,7 +24,7 @@ type occPoolJob struct {
 	err     *error
 }
 
-func newOCCWorkerPool(workers int, pinWorkers bool, cpuOffset int) *occWorkerPool {
+func newOCCWorkerPool(workers int) *occWorkerPool {
 	p := &occWorkerPool{
 		jobs:   make(chan occPoolJob, workers*2),
 		stop:   make(chan struct{}),
@@ -35,11 +32,10 @@ func newOCCWorkerPool(workers int, pinWorkers bool, cpuOffset int) *occWorkerPoo
 	}
 	var workerWG sync.WaitGroup
 	workerWG.Add(workers)
-	for workerID := 0; workerID < workers; workerID++ {
-		workerID := workerID
+	for range workers {
 		go func() {
 			defer workerWG.Done()
-			p.runWorker(workerID, pinWorkers, cpuOffset)
+			p.runWorker()
 		}()
 	}
 	go func() {
@@ -49,14 +45,7 @@ func newOCCWorkerPool(workers int, pinWorkers bool, cpuOffset int) *occWorkerPoo
 	return p
 }
 
-func (p *occWorkerPool) runWorker(workerID int, pinWorkers bool, cpuOffset int) {
-	if pinWorkers {
-		unlock, err := pinCurrentWorkerThread(cpuOffset + workerID)
-		if err != nil {
-			p.setPinErr(fmt.Errorf("pin OCC worker %d: %w", workerID, err))
-		}
-		defer unlock()
-	}
+func (p *occWorkerPool) runWorker() {
 	for {
 		select {
 		case <-p.stop:
@@ -81,9 +70,6 @@ func (p *occWorkerPool) runJob(job occPoolJob) {
 }
 
 func (p *occWorkerPool) Run(ctx context.Context, ranges []occTxRange, run func(context.Context, occTxRange) error) error {
-	if err := p.getPinErr(); err != nil {
-		return err
-	}
 	jobCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -130,18 +116,4 @@ func (p *occWorkerPool) Close() {
 		close(p.stop)
 		<-p.closed
 	})
-}
-
-func (p *occWorkerPool) setPinErr(err error) {
-	p.pinErrMu.Lock()
-	defer p.pinErrMu.Unlock()
-	if p.pinErr == nil {
-		p.pinErr = err
-	}
-}
-
-func (p *occWorkerPool) getPinErr() error {
-	p.pinErrMu.Lock()
-	defer p.pinErrMu.Unlock()
-	return p.pinErr
 }
