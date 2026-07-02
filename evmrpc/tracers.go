@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -205,9 +206,20 @@ func NewDebugAPI(
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
-		maxStructLogBytes:  int(debugCfg.MaxTraceStructLogBytes), //nolint:gosec // bounded operator config
+		maxStructLogBytes:  clampUint64ToInt(debugCfg.MaxTraceStructLogBytes),
 		profiledBlockTrace: debugCfg.EnableParallelizedBlockTrace,
 	}
+}
+
+// clampUint64ToInt converts an operator-configured uint64 to int, saturating at
+// math.MaxInt instead of wrapping to a negative value. A negative maxStructLogBytes
+// would be treated as "disabled" by clampDefaultStructLogLimit, silently defeating
+// the cap — the opposite of an operator setting a very large limit.
+func clampUint64ToInt(v uint64) int {
+	if v > uint64(math.MaxInt) {
+		return math.MaxInt
+	}
+	return int(v)
 }
 
 // clampDefaultStructLogLimit caps the default struct logger's retained output at

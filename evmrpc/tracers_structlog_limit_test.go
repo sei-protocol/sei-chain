@@ -1,12 +1,21 @@
 package evmrpc
 
 import (
+	"math"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	traceLogger "github.com/ethereum/go-ethereum/eth/tracers/logger"
 	"github.com/stretchr/testify/require"
 )
+
+func TestClampUint64ToInt(t *testing.T) {
+	require.Equal(t, 0, clampUint64ToInt(0))
+	require.Equal(t, 1024, clampUint64ToInt(1024))
+	require.Equal(t, math.MaxInt, clampUint64ToInt(math.MaxInt))
+	require.Equal(t, math.MaxInt, clampUint64ToInt(math.MaxInt+1), "values above MaxInt must saturate, not wrap negative")
+	require.Equal(t, math.MaxInt, clampUint64ToInt(math.MaxUint64))
+}
 
 func TestClampDefaultStructLogLimit(t *testing.T) {
 	const capacity = 256 * 1024 * 1024
