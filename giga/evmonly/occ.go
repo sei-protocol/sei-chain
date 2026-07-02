@@ -47,7 +47,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 	chunkSize := occChunkSize(txCount, workers)
 	pool := e.occPool
 	if pool == nil {
-		pool = newOCCWorkerPool(workers, e.cfg.PinOCCWorkers, e.cfg.OCCWorkerCPUOffset)
+		pool = newOCCWorkerPool(workers)
 		defer pool.Close()
 	}
 	if err := pool.Run(ctx, occRanges(txCount, chunkSize), func(workerCtx context.Context, txRange occTxRange) error {
