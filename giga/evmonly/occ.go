@@ -30,9 +30,8 @@ type occTxRange struct {
 	end   int
 }
 
-func (e *Executor) executeBlockOCC(ctx context.Context, req BlockRequest) (*BlockResult, error) {
+func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	chainConfig := e.chainConfig(req.Context)
-	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
 	blockCtx := buildBlockContext(req.Context)
 	baseFee := cloneBig(req.Context.BaseFee)
 	gasLimit := req.Context.GasLimit
@@ -76,7 +75,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req BlockRequest) (*Bloc
 						return nil
 					}
 					for idx := txRange.start; idx < txRange.end; idx++ {
-						result, err := e.executeTxSpeculative(groupCtx, req, idx, signer, chainConfig, blockCtx, baseFee, gasLimit)
+						result, err := e.executeTxSpeculative(groupCtx, req, idx, chainConfig, blockCtx, baseFee, gasLimit)
 						if err != nil {
 							return err
 						}
@@ -112,19 +111,14 @@ func occChunkSize(txCount int, workers int) int {
 
 func (e *Executor) executeTxSpeculative(
 	ctx context.Context,
-	req BlockRequest,
+	req PreparedBlock,
 	txIndex int,
-	signer ethtypes.Signer,
 	chainConfig *params.ChainConfig,
 	blockCtx vm.BlockContext,
 	baseFee *big.Int,
 	gasLimit uint64,
 ) (occTxExecution, error) {
-	tx, sender, err := parseTx(req.Txs[txIndex], signer)
-	if err != nil {
-		return occTxExecution{}, fmt.Errorf("parse tx %d: %w", txIndex, err)
-	}
-	p := parsedTx{tx: tx, sender: sender}
+	p := req.Txs[txIndex]
 	stateDB := newNativeStateDB(e.state)
 	stateDB.enableAccessTracking()
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
@@ -139,10 +133,9 @@ func (e *Executor) executeTxSpeculative(
 		txIndex,
 		uint(txIndex),
 		baseFee,
-		signer,
 	)
 	if err != nil {
-		return occTxExecution{}, fmt.Errorf("execute tx %d %s: %w", txIndex, p.tx.Hash(), err)
+		return occTxExecution{}, fmt.Errorf("execute tx %d %s: %w", txIndex, p.Tx.Hash(), err)
 	}
 	readSet, writeSet := stateDB.accessSets()
 	return occTxExecution{
