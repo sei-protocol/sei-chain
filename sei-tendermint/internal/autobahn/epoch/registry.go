@@ -56,17 +56,6 @@ func (r *Registry) GenesisTimestamp() time.Time {
 	panic("unreachable")
 }
 
-// EpochForProposal returns the epoch declared by p.EpochIndex().
-// Returns an error if that epoch is not yet registered — this indicates a
-// proposal from a future or unknown epoch, which the caller should reject.
-func (r *Registry) EpochForProposal(p *types.Proposal) (*types.Epoch, error) {
-	ep, ok := r.EpochByIndex(Index(p.EpochIndex()))
-	if !ok {
-		return nil, fmt.Errorf("unknown epoch_index %d", p.EpochIndex())
-	}
-	return ep, nil
-}
-
 // EpochByIndex returns the epoch with the given index, if it exists.
 func (r *Registry) EpochByIndex(idx Index) (*types.Epoch, bool) {
 	for range r.mu.RLock() {

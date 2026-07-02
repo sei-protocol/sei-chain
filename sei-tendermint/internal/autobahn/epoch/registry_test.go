@@ -38,22 +38,6 @@ func TestRegistry_EpochByIndex_GenesisFound(t *testing.T) {
 	}
 }
 
-func TestRegistry_EpochForProposal_UnknownEpochReturnsError(t *testing.T) {
-	rng := utils.TestRng()
-	r, _ := makeRegistry(t)
-	p := types.ProposalAt(r.LatestEpoch(), types.View{Index: 0, Number: 0})
-	// Build a fake proposal with epoch_index=99 by using a fresh epoch.
-	unknownEp := types.NewEpoch(99, types.OpenRoadRange(), time.Time{}, r.LatestEpoch().Committee(), 0)
-	p2 := types.ProposalAt(unknownEp, types.View{Index: 0, Number: 0})
-	_ = rng
-	if _, err := r.EpochForProposal(p2); err == nil {
-		t.Fatal("EpochForProposal with unknown epoch succeeded, want error")
-	}
-	if _, err := r.EpochForProposal(p); err != nil {
-		t.Fatalf("EpochForProposal with genesis epoch: %v", err)
-	}
-}
-
 func TestRegistry_AddEpoch_ClosesPreviousAndAppends(t *testing.T) {
 	rng := utils.TestRng()
 	r, _ := makeRegistry(t)

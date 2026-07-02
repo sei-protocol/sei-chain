@@ -262,9 +262,9 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	ep, err := s.data.Registry().EpochForProposal(qc.Proposal())
-	if err != nil {
-		return fmt.Errorf("qc.Verify(): %w", err)
+	ep, ok := s.data.Registry().EpochByIndex(epoch.Index(qc.Proposal().EpochIndex()))
+	if !ok {
+		return fmt.Errorf("unknown epoch_index %d", qc.Proposal().EpochIndex())
 	}
 	if err := qc.Verify(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
@@ -347,9 +347,9 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			return nil
 		}
 	}
-	ep, err := s.data.Registry().EpochForProposal(commitQC.Proposal())
-	if err != nil {
-		return fmt.Errorf("unknown epoch: %w", err)
+	ep, ok := s.data.Registry().EpochByIndex(epoch.Index(commitQC.Proposal().EpochIndex()))
+	if !ok {
+		return fmt.Errorf("unknown epoch_index %d", commitQC.Proposal().EpochIndex())
 	}
 	if err := appQC.Verify(ep.Committee()); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
@@ -543,9 +543,9 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 	}
 	// Collect the headers from the votes.
 	var commitHeaders []*types.BlockHeader
-	ep, err := s.data.Registry().EpochForProposal(qc.Proposal())
-	if err != nil {
-		return nil, fmt.Errorf("unknown epoch: %w", err)
+	ep, ok := s.data.Registry().EpochByIndex(epoch.Index(qc.Proposal().EpochIndex()))
+	if !ok {
+		return nil, fmt.Errorf("unknown epoch_index %d", qc.Proposal().EpochIndex())
 	}
 	for lane := range ep.Committee().Lanes().All() {
 		headers, err := s.headers(ctx, qc.LaneRange(lane))
@@ -655,9 +655,9 @@ func (s *State) Run(ctx context.Context) error {
 				}
 
 				// Collect the blocks we have locally.
-				ep, err := s.data.Registry().EpochForProposal(qc.QC().Proposal())
-				if err != nil {
-					return fmt.Errorf("unknown epoch: %w", err)
+				ep, ok := s.data.Registry().EpochByIndex(epoch.Index(qc.QC().Proposal().EpochIndex()))
+				if !ok {
+					return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
 				}
 				c := ep.Committee()
 				var blocks []*types.Block
