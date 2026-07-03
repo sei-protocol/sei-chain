@@ -13,9 +13,12 @@ type Config struct {
 	DisableNonceCheck    bool
 	DisableGasPriceCheck bool
 	MinGasPrice          *big.Int
-	ChainConfig          *params.ChainConfig
-	CustomPrecompiles    precompiles.Registry
-	OCCWorkers           int
+	// ChainConfig defaults to params.AllDevChainProtocolChanges when nil. Test
+	// and scaffold callers can use the default, but production wiring should pass
+	// the chain's explicit config.
+	ChainConfig       *params.ChainConfig
+	CustomPrecompiles precompiles.Registry
+	OCCWorkers        int
 	// BlockResultPoolSize enables a bounded reusable output pool. Callers that
 	// enable it must call BlockResult.Release when they are done with returned
 	// results. Result sinks receive a retained result and must release it after
