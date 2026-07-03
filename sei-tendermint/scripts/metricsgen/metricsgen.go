@@ -72,11 +72,11 @@ package {{ .Package }}
 import (
 	"github.com/prometheus/client_golang/prometheus"
 {{- if .UsesIntMetrics }}
-	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 {{- end }}
 )
 
-var Global = NewMetrics()
+var Global = {{ .ConstructorName }}()
 
 func init() {
 	prometheus.MustRegister(
@@ -86,8 +86,8 @@ func init() {
 	)
 }
 
-func NewMetrics() *Metrics {
-	return &Metrics{
+func {{ .ConstructorName }}() *{{ .StructName }} {
+	return &{{ .StructName }}{
 {{- range $metric := .ParsedMetrics }}
 		{{ $metric.FieldName }}: {{ $metric.ConstructorPackage }}.{{ $metric.ConstructorName }}(prometheus.{{ $metric.OptsTypeName }}{
 			Namespace: MetricsNamespace,
@@ -105,7 +105,7 @@ func NewMetrics() *Metrics {
 }
 
 {{ range $metric := .ParsedMetrics }}
-func (m *Metrics) {{ $metric.FieldName }}At({{ $metric.MethodParams }}) {{ $metric.MethodReturnType }} {
+func (m *{{ $.StructName }}) {{ $metric.FieldName }}At({{ $metric.MethodParams }}) {{ $metric.MethodReturnType }} {
 	return m.{{ $metric.FieldName }}.WithLabelValues({{ $metric.MethodArgs }})
 }
 
@@ -138,9 +138,11 @@ type HistogramOpts struct {
 
 // TemplateData is all of the data required for rendering a metric file template.
 type TemplateData struct {
-	Package        string
-	ParsedMetrics  []ParsedMetricField
-	UsesIntMetrics bool
+	Package         string
+	StructName      string
+	ConstructorName string
+	ParsedMetrics   []ParsedMetricField
+	UsesIntMetrics  bool
 }
 
 func main() {
@@ -194,7 +196,9 @@ func ParseMetricsDir(dir string, structName string) (TemplateData, error) {
 		break
 	}
 	td := TemplateData{
-		Package: pkgName,
+		Package:         pkgName,
+		StructName:      structName,
+		ConstructorName: constructorName(structName),
 	}
 	// Grab the metrics struct
 	m, metricsPackageNames, err := findMetricsStruct(pkgFiles, structName)
@@ -206,13 +210,29 @@ func ParseMetricsDir(dir string, structName string) (TemplateData, error) {
 			continue
 		}
 		pmf := parseMetricField(f)
-		if pmf.ConstructorPackage == "tmmetrics" {
+		if pmf.ConstructorPackage == "tmprometheus" {
 			td.UsesIntMetrics = true
 		}
 		td.ParsedMetrics = append(td.ParsedMetrics, pmf)
 	}
 
 	return td, err
+}
+
+func constructorName(structName string) string {
+	if structName == "" {
+		return "NewMetrics"
+	}
+	if isExported(structName) {
+		return "New" + structName
+	}
+	r, size := utf8.DecodeRuneInString(structName)
+	return "new" + string(unicode.ToUpper(r)) + structName[size:]
+}
+
+func isExported(name string) bool {
+	r, _ := utf8.DecodeRuneInString(name)
+	return unicode.IsUpper(r)
 }
 
 // GenerateMetricsFile executes the metrics file template, writing the result
@@ -303,7 +323,7 @@ func extractTypeName(e ast.Expr) string {
 func extractConstructorPackage(typeName string) string {
 	switch typeName {
 	case counterIntVec, gaugeIntVec:
-		return "tmmetrics"
+		return "tmprometheus"
 	default:
 		return "prometheus"
 	}
@@ -325,11 +345,11 @@ func extractMethodReturnType(typeName string) string {
 	case "CounterVec":
 		return "prometheus.Counter"
 	case counterIntVec:
-		return "*tmmetrics.CounterInt"
+		return "*tmprometheus.CounterInt"
 	case "GaugeVec":
 		return "prometheus.Gauge"
 	case gaugeIntVec:
-		return "*tmmetrics.GaugeInt"
+		return "*tmprometheus.GaugeInt"
 	case "HistogramVec":
 		return "prometheus.Observer"
 	default:

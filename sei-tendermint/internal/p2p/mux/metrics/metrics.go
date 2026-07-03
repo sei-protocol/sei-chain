@@ -5,103 +5,75 @@ import (
 
 	prometheus "github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
-func buckets(start float64, factor float64, count int) []float64 {
-	return prometheus.ExponentialBuckets(start, factor, count)
+const MetricsNamespace = "tendermint"
+const MetricsSubsystem = "internal_p2p_mux"
+
+//go:generate go run github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen -struct=metrics
+type metrics struct {
+	latency   *prometheus.HistogramVec    `metrics_labels:"role, rpc_name" metrics_buckettype:"exp" metrics_bucketsizes:"0.001, 1.3, 30"`
+	inFlight  *tmprometheus.GaugeIntVec   `metrics_labels:"role, rpc_name"`
+	sendMsgs  *tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
+	recvMsgs  *tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
+	sendBytes *tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
+	recvBytes *tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
 }
 
 type Role string
+
 const RoleAccept = Role("accept")
 const RoleConnect = Role("connect")
 
-type Labels []string
-
-func (l Labels) Histogram(opts prometheus.HistogramOpts) *prometheus.HistogramVec {
-	h := prometheus.NewHistogramVec(opts,l)
-	prometheus.MustRegister(h)
-	return h
+type Metrics struct {
+	latency   prometheus.Observer
+	inFlight  *tmprometheus.GaugeInt
+	sendMsgs  *tmprometheus.CounterInt
+	recvMsgs  *tmprometheus.CounterInt
+	sendBytes *tmprometheus.CounterInt
+	recvBytes *tmprometheus.CounterInt
 }
 
-func (l Labels) Counter(opts prometheus.CounterOpts) *prometheus.CounterVec {
-	c := prometheus.NewCounterVec(opts,l)
-	prometheus.MustRegister(c)
-	return c
-}
-
-func (l Labels) Gauge(opts prometheus.GaugeOpts) *prometheus.GaugeVec {
-	g := prometheus.NewGaugeVec(opts,l)
-	prometheus.MustRegister(g)
-	return g
-
-}
-
-type Attrs struct {
-	ChainID string
-	Role Role
-	RPCName string
-}
-
-var labels = Labels{"chain_id","role","rpc_name"}
-
-const subsystem = "tendermint_internal_p2p_mux_"
-
-var latency = labels.Histogram(prometheus.HistogramOpts{Subsystem: subsystem, Name: "latency", Buckets: buckets(0.001, 1.3, 30)})
-var inFlight = labels.Gauge(prometheus.GaugeOpts{Subsystem: subsystem, Name: "inflight"})
-var sendMsgs = labels.Counter(prometheus.CounterOpts{Subsystem: subsystem, Name: "send_msgs"})
-var recvMsgs = labels.Counter(prometheus.CounterOpts{Subsystem: subsystem, Name: "recv_msgs"})
-var sendBytes = labels.Counter(prometheus.CounterOpts{Subsystem: subsystem, Name: "send_bytes"})
-var recvBytes = labels.Counter(prometheus.CounterOpts{Subsystem: subsystem, Name: "recv_bytes"})
-
-func (a Attrs) Metrics() *Metrics {
-	v := []string{a.ChainID,string(a.Role),a.RPCName}
-	return &Metrics {
-		latency: latency.WithLabelValues(v...),
-		inFlight: inFlight.WithLabelValues(v...),
-		sendMsgs: sendMsgs.WithLabelValues(v...),
-		recvMsgs: recvMsgs.WithLabelValues(v...),
-		sendBytes: sendBytes.WithLabelValues(v...),
-		recvBytes: recvBytes.WithLabelValues(v...),
+func Get(role Role, rpcName string) *Metrics {
+	return &Metrics{
+		latency:   Global.latencyAt(string(role), rpcName),
+		inFlight:  Global.inFlightAt(string(role), rpcName),
+		sendMsgs:  Global.sendMsgsAt(string(role), rpcName),
+		recvMsgs:  Global.recvMsgsAt(string(role), rpcName),
+		sendBytes: Global.sendBytesAt(string(role), rpcName),
+		recvBytes: Global.recvBytesAt(string(role), rpcName),
 	}
 }
 
-type Metrics struct {
-	latency prometheus.Observer
-	inFlight prometheus.Gauge
-	sendMsgs prometheus.Counter
-	recvMsgs prometheus.Counter
-	sendBytes prometheus.Counter
-	recvBytes prometheus.Counter
-}
-
 type Stream struct {
-	m *Metrics	
+	m     *Metrics
 	start utils.Option[time.Time]
 }
 
-func NewStream(m *Metrics) *Stream { return &Stream{m:m} }
+func NewStream(m *Metrics) *Stream { return &Stream{m: m} }
 
 func (s *Stream) Open() {
 	if s.start.IsPresent() {
 		return
 	}
 	s.start = utils.Some(time.Now())
-	s.m.inFlight.Inc()
+	s.m.inFlight.Add(1)
 }
 
 func (s *Stream) Send(size int) {
-	s.m.sendMsgs.Inc()
-	s.m.sendBytes.Add(float64(size))
+	s.m.sendMsgs.Add(1)
+	s.m.sendBytes.Add(int64(size))
 }
 
 func (s *Stream) Recv(size int) {
-	s.m.recvMsgs.Inc()
-	s.m.recvBytes.Inc()
+	s.m.recvMsgs.Add(1)
+	s.m.recvBytes.Add(int64(size))
 }
 
 func (s *Stream) Close() {
 	if start, ok := s.start.Get(); ok {
-		s.m.inFlight.Dec()
+		s.m.inFlight.Add(-1)
 		s.m.latency.Observe(time.Since(start).Seconds())
 	}
 }

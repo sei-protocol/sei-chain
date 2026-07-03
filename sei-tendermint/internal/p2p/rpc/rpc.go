@@ -72,7 +72,7 @@ func (s service) muxClientConfig() *mux.Config {
 	return cfg
 }
 
-func Register[API any, Req, Resp protoutils.Sized](kind mux.StreamKind, limit Limit, req Msg[Req], resp Msg[Resp]) *RPC[API, Req, Resp] {
+func Register[API any, Req, Resp protoutils.Sized](kind mux.StreamKind, name string, limit Limit, req Msg[Req], resp Msg[Resp]) *RPC[API, Req, Resp] {
 	t := reflect.TypeFor[API]()
 	if _, ok := registry[t]; !ok {
 		registry[t] = service{}
@@ -90,7 +90,7 @@ func Register[API any, Req, Resp protoutils.Sized](kind mux.StreamKind, limit Li
 	}
 	service[kind] = &rpcConfig{
 		limit: limit,
-		name:  fmt.Sprintf("%T", utils.Zero[Req]()),
+		name:  name,
 	}
 	return &RPC[API, Req, Resp]{
 		Kind:  kind,

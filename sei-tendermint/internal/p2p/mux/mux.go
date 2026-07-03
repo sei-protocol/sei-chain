@@ -51,7 +51,6 @@ var errAlreadyOpened = errors.New("stream already opened")
 var errAlreadyClosed = errors.New("stream already closed")
 
 type Config struct {
-	ChainID string
 	// Maximal number of bytes in a frame (excluding header).
 	FrameSize uint64
 	// Limits on the number of concurrent streams of each kind.
@@ -438,8 +437,8 @@ func NewMux(cfg *Config) *Mux {
 			acceptsQueue:  make(chan *streamState, c.MaxAccepts),
 			connectsQueue: make(chan *streamState, c.MaxConnects),
 
-			acceptMetrics:  metrics.Attrs{ChainID: cfg.ChainID, Role: metrics.RoleAccept, RPCName: c.Name}.Metrics(),
-			connectMetrics: metrics.Attrs{ChainID: cfg.ChainID, Role: metrics.RoleConnect, RPCName: c.Name}.Metrics(),
+			acceptMetrics:  metrics.Get(metrics.RoleAccept, c.Name),
+			connectMetrics: metrics.Get(metrics.RoleConnect, c.Name),
 		}
 	}
 	queue := utils.NewWatch(queue{})

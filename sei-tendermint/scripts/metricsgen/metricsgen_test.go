@@ -35,8 +35,10 @@ func TestSimpleTemplate(t *testing.T) {
 		MethodReturnType: "prometheus.Observer",
 	}
 	td := metricsgen.TemplateData{
-		Package:       "mypack",
-		ParsedMetrics: []metricsgen.ParsedMetricField{m},
+		Package:         "mypack",
+		StructName:      "Metrics",
+		ConstructorName: "NewMetrics",
+		ParsedMetrics:   []metricsgen.ParsedMetricField{m},
 	}
 	b := bytes.NewBuffer([]byte{})
 	err := metricsgen.GenerateMetricsFile(b, td)
@@ -107,7 +109,9 @@ func TestParseMetricsStruct(t *testing.T) {
 				myGauge *prometheus.GaugeVec
 			}`,
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
 						TypeName:           "GaugeVec",
@@ -127,7 +131,9 @@ func TestParseMetricsStruct(t *testing.T) {
 				"myHistogram *prometheus.HistogramVec `metrics_buckettype:\"exp\" metrics_bucketsizes:\"1, 100, .8\"`\n" +
 				"}",
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
 						TypeName:           "HistogramVec",
@@ -152,7 +158,9 @@ func TestParseMetricsStruct(t *testing.T) {
 				"myCounter *prometheus.CounterVec `metrics_name:\"new_name\"`\n" +
 				"}",
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
 						TypeName:           "CounterVec",
@@ -172,7 +180,9 @@ func TestParseMetricsStruct(t *testing.T) {
 				"myCounter *prometheus.CounterVec `metrics_labels:\"label1,label2\"`\n" +
 				"}",
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
 						TypeName:           "CounterVec",
@@ -197,7 +207,9 @@ func TestParseMetricsStruct(t *testing.T) {
 				nonMetric string
 				}`,
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
 						TypeName:           "CounterVec",
@@ -269,7 +281,9 @@ func TestParseAliasedMetric(t *testing.T) {
 
 	expected :=
 		metricsgen.TemplateData{
-			Package: "mypkg",
+			Package:         "mypkg",
+			StructName:      "Metrics",
+			ConstructorName: "NewMetrics",
 			ParsedMetrics: []metricsgen.ParsedMetricField{
 				{
 					TypeName:           "GaugeVec",
@@ -283,4 +297,36 @@ func TestParseAliasedMetric(t *testing.T) {
 			},
 		}
 	require.Equal(t, expected, td)
+}
+
+func TestParseLowercaseMetricsStruct(t *testing.T) {
+	data := `
+			package mypkg
+
+			import(
+				"github.com/prometheus/client_golang/prometheus"
+			)
+			type metrics struct {
+				latency *prometheus.HistogramVec
+			}
+			`
+	dir := t.TempDir()
+	f, err := os.Create(filepath.Join(dir, "metrics.go"))
+	if err != nil {
+		t.Fatalf("unable to open file: %v", err)
+	}
+	_, err = io.WriteString(f, data)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	td, err := metricsgen.ParseMetricsDir(dir, "metrics")
+	require.NoError(t, err)
+	require.Equal(t, "metrics", td.StructName)
+	require.Equal(t, "newMetrics", td.ConstructorName)
+
+	b := bytes.NewBuffer(nil)
+	require.NoError(t, metricsgen.GenerateMetricsFile(b, td))
+	require.Contains(t, b.String(), "var Global = newMetrics()")
+	require.Contains(t, b.String(), "func newMetrics() *metrics")
+	require.Contains(t, b.String(), "func (m *metrics) latencyAt() prometheus.Observer")
 }
