@@ -9,24 +9,28 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"google.golang.org/protobuf/proto"
 
-	"k8s.io/component-base/metrics/prometheusextension"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"k8s.io/component-base/metrics/prometheusextension"
 )
 
 type HistogramOpts = prometheus.HistogramOpts
-type HistogramVec struct { *prometheusextension.WeightedHistogramVec }
+type HistogramVec struct {
+	*prometheusextension.WeightedHistogramVec
+}
 
 func NewHistogramVec(opts HistogramOpts, labels []string) HistogramVec {
-	return HistogramVec{prometheusextension.NewWeightedHistogramVec(opts,labels...)}
+	return HistogramVec{prometheusextension.NewWeightedHistogramVec(opts, labels...)}
 }
 
 func (h HistogramVec) WithLabelValues(values ...string) Observer {
 	return Observer{h.WeightedHistogramVec.WithLabelValues(values...)}
 }
 
-type Observer struct { prometheusextension.WeightedObserver }
+type Observer struct {
+	prometheusextension.WeightedObserver
+}
 
-func (o Observer) Observe(val float64) { o.ObserveWithWeight(val,1) }
+func (o Observer) Observe(val float64) { o.ObserveWithWeight(val, 1) }
 
 // NoBuckets returns a bucket configuration that produces a classic histogram
 // with only the implicit +Inf bucket. Prometheus strips the explicit +Inf
