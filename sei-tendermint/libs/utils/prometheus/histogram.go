@@ -39,6 +39,8 @@ func (h HistogramVec) WithLabelValues(values ...string) *Histogram {
 	return metric.(*Histogram)
 }
 
+// Histogram is equivalent to the standard histogram, except it additionally supports
+// efficient ObserveWithWeight call.
 type Histogram struct {
 	desc                *prometheus.Desc
 	variableLabelValues []string
