@@ -358,6 +358,89 @@ func TestExecutorOCCFeePayingTransfersDoNotConflictOnCoinbase(t *testing.T) {
 	}
 }
 
+func TestExecutorOCCFallsBackWhenLaterTxReadsFeeCreditedCoinbase(t *testing.T) {
+	chainID := big.NewInt(713715)
+	feePayerKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	readerKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	feePayer := crypto.PubkeyToAddress(feePayerKey.PublicKey)
+	reader := crypto.PubkeyToAddress(readerKey.PublicKey)
+	recipient := testAddress(0xbe)
+	contract := testAddress(0xcf)
+	storageKey := testHash(0x0b)
+
+	seqState := NewMemoryState()
+	occState := NewMemoryState()
+	for _, state := range []*MemoryState{seqState, occState} {
+		state.SetBalance(feePayer, big.NewInt(1_000_000_000))
+		state.SetBalance(reader, big.NewInt(1_000_000_000))
+		state.SetCode(contract, balanceStoreCode(blockContext(chainID).Coinbase, storageKey))
+	}
+
+	feeTx := signLegacyTxWithGasPrice(t, feePayerKey, chainID, 0, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(1))
+	readCoinbaseTx := signLegacyTxWithGasPrice(t, readerKey, chainID, 0, &contract, big.NewInt(0), nil, 100_000, big.NewInt(0))
+	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{feeTx, readCoinbaseTx}}
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+
+	require.True(t, occResult.OCCStats.Attempted)
+	require.True(t, occResult.OCCStats.Fallback)
+	require.Equal(t, occFallbackReasonConflict, occResult.OCCStats.FallbackReason)
+	foundCoinbaseBalanceRead := false
+	for _, conflict := range occResult.OCCStats.ConflictSamples {
+		if conflict.Access == "read" && conflict.Kind == "balance" && conflict.Address == req.Context.Coinbase {
+			foundCoinbaseBalanceRead = true
+		}
+	}
+	require.True(t, foundCoinbaseBalanceRead)
+
+	seqState.ApplyChangeSet(seqResult.ChangeSet)
+	occState.ApplyChangeSet(occResult.ChangeSet)
+	require.Equal(t, seqState.GetState(contract, storageKey), occState.GetState(contract, storageKey))
+	require.Equal(t, common.BigToHash(big.NewInt(21_000)), occState.GetState(contract, storageKey))
+}
+
+func TestExecutorOCCMergesCoinbaseSenderFeeWithoutDoubleCount(t *testing.T) {
+	chainID := big.NewInt(713715)
+	coinbaseKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	otherKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	coinbase := crypto.PubkeyToAddress(coinbaseKey.PublicKey)
+	other := crypto.PubkeyToAddress(otherKey.PublicKey)
+	coinbaseRecipient := testAddress(0xba)
+	otherRecipient := testAddress(0xbb)
+	initialCoinbaseBalance := big.NewInt(1_000_000_000)
+
+	seqState := NewMemoryState()
+	occState := NewMemoryState()
+	for _, state := range []*MemoryState{seqState, occState} {
+		state.SetBalance(coinbase, initialCoinbaseBalance)
+		state.SetBalance(other, big.NewInt(1_000_000_000))
+	}
+
+	coinbaseTx := signLegacyTxWithGasPrice(t, coinbaseKey, chainID, 0, &coinbaseRecipient, big.NewInt(0), nil, 100_000, big.NewInt(1))
+	otherTx := signLegacyTxWithGasPrice(t, otherKey, chainID, 0, &otherRecipient, big.NewInt(0), nil, 100_000, big.NewInt(1))
+	ctx := blockContext(chainID)
+	ctx.Coinbase = coinbase
+	req := BlockRequest{Context: ctx, Txs: [][]byte{coinbaseTx, otherTx}}
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+
+	require.True(t, occResult.OCCStats.Attempted)
+	require.False(t, occResult.OCCStats.Fallback)
+
+	seqState.ApplyChangeSet(seqResult.ChangeSet)
+	occState.ApplyChangeSet(occResult.ChangeSet)
+	require.Equal(t, seqState.GetBalance(coinbase), occState.GetBalance(coinbase))
+	require.Equal(t, new(big.Int).Add(initialCoinbaseBalance, big.NewInt(21_000)), occState.GetBalance(coinbase))
+}
+
 func TestExecutorOCCSpeculativeErrorFallsBackToSequential(t *testing.T) {
 	chainID := big.NewInt(713715)
 	key, err := crypto.GenerateKey()
@@ -904,6 +987,27 @@ func TestStateDBSelfDestructEmitsStorageClear(t *testing.T) {
 	require.Equal(t, common.Hash{}, state.GetState(contract, unreadKey))
 }
 
+func TestStateDBCreateAccountPreservesStorageClear(t *testing.T) {
+	contract := testAddress(0xc6)
+	unreadKey := testHash(0x02)
+	unreadValue := testHash(0x22)
+
+	state := NewMemoryState()
+	state.SetCode(contract, []byte{0x60, 0x00, 0x00})
+	state.SetState(contract, unreadKey, unreadValue)
+	stateDB := newNativeStateDB(state)
+
+	stateDB.SelfDestruct(contract)
+	stateDB.Finalise(true)
+	stateDB.CreateAccount(contract)
+	stateDB.Finalise(true)
+
+	changes := stateDB.ChangeSet()
+	require.Contains(t, changes.StorageClears, contract)
+	state.ApplyChangeSet(changes)
+	require.Equal(t, common.Hash{}, state.GetState(contract, unreadKey))
+}
+
 func TestStateDBStorageClearThenSameValueWriteIsEmitted(t *testing.T) {
 	contract := testAddress(0xc5)
 	key := testHash(0x01)
@@ -927,6 +1031,43 @@ func TestStateDBStorageClearThenSameValueWriteIsEmitted(t *testing.T) {
 
 	state.ApplyChangeSet(changes)
 	require.Equal(t, value, state.GetState(contract, key))
+}
+
+func TestStateDBGetCommittedStateAdvancesAtFinalise(t *testing.T) {
+	addr := testAddress(0xc7)
+	key := testHash(0x01)
+	first := testHash(0x11)
+	second := testHash(0x22)
+	third := testHash(0x33)
+
+	state := NewMemoryState()
+	state.SetState(addr, key, first)
+	stateDB := newNativeStateDB(state)
+
+	require.Equal(t, first, stateDB.GetCommittedState(addr, key))
+	require.Equal(t, first, stateDB.SetState(addr, key, second))
+	require.Equal(t, first, stateDB.GetCommittedState(addr, key))
+	stateDB.Finalise(true)
+	require.Equal(t, second, stateDB.GetCommittedState(addr, key))
+	require.Equal(t, second, stateDB.SetState(addr, key, third))
+	require.Equal(t, second, stateDB.GetCommittedState(addr, key))
+}
+
+func TestStateDBGetStateAfterStorageClearDoesNotReloadPersistedSlot(t *testing.T) {
+	contract := testAddress(0xc8)
+	key := testHash(0x01)
+	value := testHash(0x22)
+
+	state := NewMemoryState()
+	state.SetState(contract, key, value)
+	stateDB := newNativeStateDB(state)
+
+	require.Equal(t, value, stateDB.GetState(contract, key))
+	stateDB.SelfDestruct(contract)
+	stateDB.Finalise(true)
+
+	require.Equal(t, common.Hash{}, stateDB.GetCommittedState(contract, key))
+	require.Equal(t, common.Hash{}, stateDB.GetState(contract, key))
 }
 
 func TestPrepareClearsTransientStorage(t *testing.T) {
@@ -958,6 +1099,21 @@ func TestSnapshotRevertRestoresBaseState(t *testing.T) {
 	stateDB.RevertToSnapshot(snapshot)
 
 	require.Empty(t, stateDB.ChangeSet().Storage)
+}
+
+func TestStateDBCopyPreservesSnapshotCommutativeBalanceDeltas(t *testing.T) {
+	coinbase := testAddress(0xc9)
+	stateDB := newNativeStateDB(NewMemoryState())
+	stateDB.addCommutativeBalance(coinbase, uint256.NewInt(5))
+	snapshot := stateDB.Snapshot()
+	stateDB.addCommutativeBalance(coinbase, uint256.NewInt(7))
+
+	copied := stateDB.Copy().(*nativeStateDB)
+	copied.RevertToSnapshot(snapshot)
+
+	require.Equal(t, map[common.Address]*big.Int{
+		coinbase: big.NewInt(5),
+	}, copied.commutativeBalanceDeltasBig())
 }
 
 func TestStateDBFirstStorageReadPreservesBase(t *testing.T) {
@@ -1233,6 +1389,13 @@ func log0Code() []byte {
 func storeCode(key, value common.Hash) []byte {
 	code := append([]byte{0x7f}, value.Bytes()...)
 	code = append(code, 0x7f)
+	code = append(code, key.Bytes()...)
+	return append(code, 0x55, 0x00)
+}
+
+func balanceStoreCode(addr common.Address, key common.Hash) []byte {
+	code := append([]byte{0x73}, addr.Bytes()...)
+	code = append(code, 0x31, 0x7f)
 	code = append(code, key.Bytes()...)
 	return append(code, 0x55, 0x00)
 }

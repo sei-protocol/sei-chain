@@ -213,6 +213,7 @@ func validateOCCResults(results []occTxExecution, gasLimit uint64) occValidation
 		validation.addConflicts("read", writes, result.readSet)
 		validation.addConflicts("write", writes, result.writeSet)
 		writes.addAll(result.writeSet)
+		writes.addCommutativeBalanceDeltas(result.commutativeBalanceDeltas)
 	}
 	if validation.conflictCount > 0 {
 		validation.valid = false
@@ -318,16 +319,18 @@ func (e *Executor) mergeOCCResults(ctx context.Context, results []occTxExecution
 }
 
 type stateAccessIndex struct {
-	exact   map[stateAccessKey]struct{}
-	account map[common.Address]struct{}
-	touched map[common.Address]struct{}
+	exact              map[stateAccessKey]struct{}
+	account            map[common.Address]struct{}
+	touched            map[common.Address]struct{}
+	commutativeBalance map[common.Address]struct{}
 }
 
 func newStateAccessIndex() *stateAccessIndex {
 	return &stateAccessIndex{
-		exact:   map[stateAccessKey]struct{}{},
-		account: map[common.Address]struct{}{},
-		touched: map[common.Address]struct{}{},
+		exact:              map[stateAccessKey]struct{}{},
+		account:            map[common.Address]struct{}{},
+		touched:            map[common.Address]struct{}{},
+		commutativeBalance: map[common.Address]struct{}{},
 	}
 }
 
@@ -339,10 +342,15 @@ func (i *stateAccessIndex) conflictsWith(key stateAccessKey) bool {
 		return true
 	}
 	if key.kind == stateAccessAccount {
-		_, ok := i.touched[key.address]
-		return ok
+		if _, ok := i.touched[key.address]; ok {
+			return true
+		}
 	}
-	return false
+	if key.kind == stateAccessStorage {
+		return false
+	}
+	_, ok := i.commutativeBalance[key.address]
+	return ok
 }
 
 func (i *stateAccessIndex) addAll(set map[stateAccessKey]struct{}) {
@@ -355,6 +363,15 @@ func (i *stateAccessIndex) addAll(set map[stateAccessKey]struct{}) {
 		if key.kind == stateAccessAccount {
 			i.account[key.address] = struct{}{}
 		}
+	}
+}
+
+func (i *stateAccessIndex) addCommutativeBalanceDeltas(deltas map[common.Address]*big.Int) {
+	for addr, delta := range deltas {
+		if delta == nil || delta.Sign() == 0 {
+			continue
+		}
+		i.commutativeBalance[addr] = struct{}{}
 	}
 }
 
