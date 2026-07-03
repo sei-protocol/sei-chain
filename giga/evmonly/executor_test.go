@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
@@ -181,6 +182,59 @@ func TestExecutorDynamicFeeTx(t *testing.T) {
 
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, big.NewInt(11), state.GetBalance(recipient))
+}
+
+func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xb5)
+	blobHash := common.Hash{0x01}
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
+	rawTx := signBlobTxWithFees(
+		t,
+		key,
+		chainID,
+		0,
+		recipient,
+		big.NewInt(1),
+		nil,
+		big.NewInt(1),
+		big.NewInt(3),
+		big.NewInt(3),
+		100_000,
+		[]common.Hash{blobHash},
+	)
+	ctx := blockContext(chainID)
+	ctx.BaseFee = big.NewInt(2)
+	ctx.BlobBaseFee = big.NewInt(3)
+
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(state))
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: ctx,
+		Txs:     [][]byte{rawTx},
+	})
+
+	require.ErrorIs(t, err, errUnsupportedBlobTx)
+	require.Nil(t, result)
+	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+
+	tx, sender, err := parseTx(rawTx, ethtypes.LatestSignerForChainID(chainID))
+	require.NoError(t, err)
+	result, err = executor.ExecutePreparedBlock(context.Background(), PreparedBlock{
+		Context: ctx,
+		Txs: []PreparedTx{{
+			Tx:     tx,
+			Sender: sender,
+		}},
+	})
+
+	require.ErrorIs(t, err, errUnsupportedBlobTx)
+	require.Nil(t, result)
+	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 }
 
 func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
@@ -1190,6 +1244,40 @@ func signDynamicFeeTxWithFees(t *testing.T, key *ecdsa.PrivateKey, chainID *big.
 		To:        to,
 		Value:     value,
 		Data:      data,
+	})
+	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
+	require.NoError(t, err)
+	raw, err := signed.MarshalBinary()
+	require.NoError(t, err)
+	return raw
+}
+
+func signBlobTxWithFees(
+	t *testing.T,
+	key *ecdsa.PrivateKey,
+	chainID *big.Int,
+	nonce uint64,
+	to common.Address,
+	value *big.Int,
+	data []byte,
+	gasTipCap *big.Int,
+	gasFeeCap *big.Int,
+	blobFeeCap *big.Int,
+	gas uint64,
+	blobHashes []common.Hash,
+) []byte {
+	t.Helper()
+	tx := ethtypes.NewTx(&ethtypes.BlobTx{
+		ChainID:    uint256.MustFromBig(chainID),
+		Nonce:      nonce,
+		GasTipCap:  uint256.MustFromBig(gasTipCap),
+		GasFeeCap:  uint256.MustFromBig(gasFeeCap),
+		Gas:        gas,
+		To:         to,
+		Value:      uint256.MustFromBig(value),
+		Data:       data,
+		BlobFeeCap: uint256.MustFromBig(blobFeeCap),
+		BlobHashes: append([]common.Hash(nil), blobHashes...),
 	})
 	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
 	require.NoError(t, err)

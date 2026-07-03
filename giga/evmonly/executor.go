@@ -228,6 +228,9 @@ func (e *Executor) executeTx(
 	baseFee *big.Int,
 ) (TxResult, *ethtypes.Receipt, error) {
 	tx := p.Tx
+	if err := validateSupportedTx(tx); err != nil {
+		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+	}
 	if !e.cfg.DisableGasPriceCheck && e.cfg.MinGasPrice != nil {
 		// MinGasPrice is block-validity policy; unlike EVM call failures, it
 		// does not produce a receipt for an otherwise invalid block.
@@ -366,6 +369,13 @@ func (e *Executor) chainConfig(ctx BlockContext) *params.ChainConfig {
 	return &cfg
 }
 
+func validateSupportedTx(tx *ethtypes.Transaction) error {
+	if tx.Type() == ethtypes.BlobTxType {
+		return errUnsupportedBlobTx
+	}
+	return nil
+}
+
 func effectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return tx.GasPrice()
@@ -376,4 +386,7 @@ func effectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 	return tx.GasPrice()
 }
 
-var errInsufficientGasPrice = fmt.Errorf("insufficient gas price")
+var (
+	errInsufficientGasPrice = fmt.Errorf("insufficient gas price")
+	errUnsupportedBlobTx    = fmt.Errorf("blob transactions require block-level blob gas accounting")
+)
