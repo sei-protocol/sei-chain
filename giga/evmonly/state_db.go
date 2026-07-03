@@ -313,6 +313,8 @@ func (s *nativeStateDB) GetCodeHash(addr common.Address) common.Hash {
 	if len(acct.Code) > 0 {
 		return crypto.Keccak256Hash(acct.Code)
 	}
+	s.markRead(stateAccessKey{kind: stateAccessBalance, address: addr})
+	s.markRead(stateAccessKey{kind: stateAccessNonce, address: addr})
 	if acct.Nonce == 0 && acct.Balance.IsZero() {
 		return common.Hash{}
 	}
