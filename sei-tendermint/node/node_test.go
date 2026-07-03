@@ -37,6 +37,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+func mustGenesisChainID(cfg *config.Config) string {
+	genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
+	if err != nil {
+		panic(err)
+	}
+	return genDoc.ChainID
+}
+
 func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Service, error) {
 	app := kvstore.NewApplication()
 	app.SetValidators(utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile())).ValidatorUpdates())
@@ -212,7 +220,7 @@ func TestNodeSetPrivValTCP(t *testing.T) {
 
 	signerServer := privval.NewSignerServer(
 		dialerEndpoint,
-		cfg.ChainID(),
+		mustGenesisChainID(cfg),
 		types.NewMockPV(),
 	)
 
@@ -271,7 +279,7 @@ func TestNodeSetPrivValIPC(t *testing.T) {
 
 	pvsc := privval.NewSignerServer(
 		dialerEndpoint,
-		cfg.ChainID(),
+		mustGenesisChainID(cfg),
 		types.NewMockPV(),
 	)
 

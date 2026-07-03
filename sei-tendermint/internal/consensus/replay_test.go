@@ -291,6 +291,7 @@ var modes = []uint{0, 1, 2, 3}
 func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	t.Helper()
 	cfg := configSetup(t)
+	chainID := mustGenesisChainID(cfg)
 	sim := &simulatorTestSuite{
 		Evpool: sm.EmptyEvidencePool{},
 	}
@@ -360,7 +361,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 			blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
 			proposal := types.NewProposal(proposerVS.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxHashes(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, leaderPubKey.Address())
 			p := proposal.ToProto()
-			if err := proposerVS.SignProposal(ctx, cfg.ChainID(), p); err != nil {
+			if err := proposerVS.SignProposal(ctx, chainID, p); err != nil {
 				t.Fatal("failed to sign proposal", err)
 			}
 			proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
@@ -388,7 +389,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx1)
 	assert.NoError(t, err)
 
-	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
+	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, chainID,
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 		vss[1:nVals]...)
 
@@ -406,7 +407,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	updateValidatorTx1 := kvstore.MakeValSetChangeTx(updatePubKey1ABCI, 25)
 	_, err = css[0].txMempool.CheckTx(ctx, updateValidatorTx1)
 	assert.NoError(t, err)
-	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
+	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, chainID,
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 		vss[1:nVals]...)
 	ensureNewRound(t, newRoundCh, height+1, 0)
@@ -431,7 +432,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	newValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, testMinPower)
 	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx3)
 	assert.NoError(t, err)
-	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
+	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, chainID,
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 		vss[1:nVals]...)
 	ensureNewRound(t, newRoundCh, height+1, 0)
@@ -472,7 +473,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 		if i == selfIndex {
 			continue
 		}
-		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
+		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, chainID,
 			types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 			newVss[i])
 	}
@@ -500,7 +501,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 		if i == selfIndex {
 			continue
 		}
-		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
+		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, chainID,
 			types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 			newVss[i])
 	}
@@ -521,7 +522,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 		if i == selfIndex {
 			continue
 		}
-		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
+		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, chainID,
 			types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 			newVss[i])
 	}

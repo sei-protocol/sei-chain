@@ -648,7 +648,7 @@ func (n *nodeImpl) OnStop() {
 // collectors on addr.
 func (n *nodeImpl) startPrometheusServer(ctx context.Context, addr string) *http.Server {
 	gatherer := chainIDGatherer{
-		chainID: n.config.ChainID(),
+		chainID: n.genesisDoc.ChainID,
 	}
 
 	srv := &http.Server{

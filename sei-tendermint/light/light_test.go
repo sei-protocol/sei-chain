@@ -44,7 +44,7 @@ func TestClientIntegration_Update(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dbDir)
 
-	chainID := conf.ChainID()
+	chainID := mustGenesisChainID(conf)
 
 	primary, err := httpp.New(chainID, conf.RPC.ListenAddress)
 	require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestClientIntegration_VerifyLightBlockAtHeight(t *testing.T) {
 	defer func() { require.NoError(t, closer(ctx)) }()
 
 	dbDir := t.TempDir()
-	chainID := conf.ChainID()
+	chainID := mustGenesisChainID(conf)
 
 	primary, err := httpp.New(chainID, conf.RPC.ListenAddress)
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestClientStatusRPC(t *testing.T) {
 	defer func() { require.NoError(t, closer(ctx)) }()
 
 	dbDir := t.TempDir()
-	chainID := conf.ChainID()
+	chainID := mustGenesisChainID(conf)
 
 	primary, err := httpp.New(chainID, conf.RPC.ListenAddress)
 	require.NoError(t, err)
