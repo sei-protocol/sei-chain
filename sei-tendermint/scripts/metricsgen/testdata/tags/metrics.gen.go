@@ -4,6 +4,7 @@ package tags
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 var Global = NewMetrics()
@@ -13,6 +14,7 @@ func init() {
 		Global.WithLabels,
 		Global.WithExpBuckets,
 		Global.WithBuckets,
+		Global.WithNoBuckets,
 		Global.Named,
 	)
 }
@@ -39,6 +41,13 @@ func NewMetrics() *Metrics {
 			Help:      "",
 			Buckets:   []float64{1, 2, 3, 4, 5},
 		}, nil),
+		WithNoBuckets: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "with_no_buckets",
+			Help:      "",
+			Buckets:   tmprometheus.NoBuckets(),
+		}, nil),
 		Named: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -58,6 +67,10 @@ func (m *Metrics) WithExpBucketsAt() prometheus.Observer {
 
 func (m *Metrics) WithBucketsAt() prometheus.Observer {
 	return m.WithBuckets.WithLabelValues()
+}
+
+func (m *Metrics) WithNoBucketsAt() prometheus.Observer {
+	return m.WithNoBuckets.WithLabelValues()
 }
 
 func (m *Metrics) NamedAt() prometheus.Counter {

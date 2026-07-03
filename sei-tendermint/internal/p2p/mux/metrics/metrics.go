@@ -13,7 +13,7 @@ const MetricsSubsystem = "internal_p2p_mux"
 
 //go:generate go run github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen -struct=metrics
 type metrics struct {
-	latency   *prometheus.HistogramVec    `metrics_labels:"role, rpc_name" metrics_buckettype:"exp" metrics_bucketsizes:"0.001, 1.3, 30"`
+	latency   *prometheus.HistogramVec    `metrics_labels:"role, rpc_name" metrics_buckets:"exp(0.001, 1.3, 30)"`
 	inFlight  *tmprometheus.GaugeIntVec   `metrics_labels:"role, rpc_name"`
 	sendMsgs  *tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
 	recvMsgs  *tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`

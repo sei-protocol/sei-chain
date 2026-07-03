@@ -11,7 +11,8 @@ const (
 
 type Metrics struct {
 	WithLabels     *prometheus.CounterVec   `metrics_labels:"step,time"`
-	WithExpBuckets *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:".1,100,8"`
-	WithBuckets    *prometheus.HistogramVec `metrics_bucketsizes:"1, 2, 3, 4, 5"`
+	WithExpBuckets *prometheus.HistogramVec `metrics_buckets:"exp(.1,100,8)"`
+	WithBuckets    *prometheus.HistogramVec `metrics_buckets:"1, 2, 3, 4, 5"`
+	WithNoBuckets  *prometheus.HistogramVec `metrics_buckets:"none"`
 	Named          *prometheus.CounterVec   `metrics_name:"metric_with_name"`
 }

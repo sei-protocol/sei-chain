@@ -27,9 +27,9 @@ type metrics struct {
 	appGlobalBlockNumber *tmprometheus.GaugeIntVec
 
 	// Latency from proposal being constructed to commit being observed.
-	proposalToCommitLatency *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.2, 35"`
+	proposalToCommitLatency *prometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.2, 35)"`
 	// Latency between consecutive commits being observed.
-	commitToCommitLatency *prometheus.HistogramVec `metrics_labels:"timeouts" metrics_buckettype:"none"`
+	commitToCommitLatency *prometheus.HistogramVec `metrics_labels:"timeouts" metrics_buckets:"none"`
 }
 
 type observed[T any] struct {

@@ -125,7 +125,7 @@ type Metrics struct {
 	//
 	// Note that the priority is normalized as a float64 value between zero and
 	// maximum tx priority.
-	CheckTxPriorityDistribution *prometheus.HistogramVec `metrics_buckettype:"exprange" metrics_bucketsizes:"0.000001, 1.0, 20" metrics_labels:"hint, local, error"`
+	CheckTxPriorityDistribution *prometheus.HistogramVec `metrics_buckets:"exprange(0.000001, 1.0, 20)" metrics_labels:"hint, local, error"`
 
 	// CheckTxDroppedByPriorityHint is the number of transactions that were dropped
 	// due to low priority based on the priority hint.

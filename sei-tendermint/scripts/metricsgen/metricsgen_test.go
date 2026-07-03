@@ -128,7 +128,7 @@ func TestParseMetricsStruct(t *testing.T) {
 		{
 			name: "histogram",
 			metricsStruct: "type Metrics struct {\n" +
-				"myHistogram *prometheus.HistogramVec `metrics_buckettype:\"exp\" metrics_bucketsizes:\"1, 100, .8\"`\n" +
+				"myHistogram *prometheus.HistogramVec `metrics_buckets:\"exp(1, 100, .8)\"`\n" +
 				"}",
 			expected: metricsgen.TemplateData{
 				Package:         pkgName,
@@ -155,7 +155,7 @@ func TestParseMetricsStruct(t *testing.T) {
 		{
 			name: "histogram without finite buckets",
 			metricsStruct: "type Metrics struct {\n" +
-				"myHistogram *prometheus.HistogramVec `metrics_buckettype:\"none\"`\n" +
+				"myHistogram *prometheus.HistogramVec `metrics_buckets:\"none\"`\n" +
 				"}",
 			expected: metricsgen.TemplateData{
 				Package:         pkgName,
@@ -279,6 +279,51 @@ func TestParseMetricsStruct(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, testCase.expected, td)
 			}
+		})
+	}
+}
+
+func TestParseHistogramBuckets(t *testing.T) {
+	tests := []struct {
+		name     string
+		spec     string
+		expected metricsgen.HistogramOpts
+	}{
+		{
+			name: "list",
+			spec: "1,2,3,4",
+			expected: metricsgen.HistogramOpts{
+				BucketSizes: "1,2,3,4",
+			},
+		},
+		{
+			name: "exp",
+			spec: "exp(1, 2, 3)",
+			expected: metricsgen.HistogramOpts{
+				BucketType:  "prometheus.ExponentialBuckets",
+				BucketSizes: "1, 2, 3",
+			},
+		},
+		{
+			name: "exprange",
+			spec: "exprange(1, 10, 3)",
+			expected: metricsgen.HistogramOpts{
+				BucketType:  "prometheus.ExponentialBucketsRange",
+				BucketSizes: "1, 10, 3",
+			},
+		},
+		{
+			name: "none",
+			spec: "none",
+			expected: metricsgen.HistogramOpts{
+				BucketType: "tmprometheus.NoBuckets",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.expected, metricsgen.ParseHistogramBuckets(tc.spec))
 		})
 	}
 }

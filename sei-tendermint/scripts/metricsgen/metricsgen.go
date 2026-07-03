@@ -48,8 +48,7 @@ const (
 const (
 	metricNameTag = "metrics_name"
 	labelsTag     = "metrics_labels"
-	bucketTypeTag = "metrics_buckettype"
-	bucketSizeTag = "metrics_bucketsizes"
+	bucketsTag    = "metrics_buckets"
 	counterIntVec = "CounterIntVec"
 	gaugeIntVec   = "GaugeIntVec"
 )
@@ -461,14 +460,37 @@ func extractHistogramOptions(tag *ast.BasicLit) HistogramOpts {
 	h := HistogramOpts{}
 	if tag != nil {
 		t := reflect.StructTag(strings.Trim(tag.Value, "`"))
-		if v := t.Get(bucketTypeTag); v != "" {
-			h.BucketType = bucketType[v]
-		}
-		if v := t.Get(bucketSizeTag); v != "" {
-			h.BucketSizes = v
-		}
+		h = parseHistogramBuckets(t.Get(bucketsTag))
 	}
 	return h
+}
+
+func parseHistogramBuckets(spec string) HistogramOpts {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return HistogramOpts{}
+	}
+	if spec == "none" {
+		return HistogramOpts{BucketType: bucketType["none"]}
+	}
+	for name, expr := range bucketType {
+		if name == "none" {
+			continue
+		}
+		prefix := name + "("
+		if strings.HasPrefix(spec, prefix) && strings.HasSuffix(spec, ")") {
+			return HistogramOpts{
+				BucketType:  expr,
+				BucketSizes: strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(spec, prefix), ")")),
+			}
+		}
+	}
+	return HistogramOpts{BucketSizes: spec}
+}
+
+// ParseHistogramBuckets parses the metrics_buckets tag value into generator options.
+func ParseHistogramBuckets(spec string) HistogramOpts {
+	return parseHistogramBuckets(spec)
 }
 
 func extractMetricsPackageNames(imports []*ast.ImportSpec) (map[string]struct{}, error) {

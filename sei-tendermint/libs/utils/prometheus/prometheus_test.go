@@ -1,10 +1,13 @@
 package prometheus
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/expfmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -88,4 +91,37 @@ func TestCounterIntVec(t *testing.T) {
 	require.Equal(t, "in", dtoMetric.Label[0].GetValue())
 	require.Equal(t, "peer", dtoMetric.Label[1].GetName())
 	require.Equal(t, "p1", dtoMetric.Label[1].GetValue())
+}
+
+func TestNoBucketsHistogram(t *testing.T) {
+	h := stdprometheus.NewHistogram(stdprometheus.HistogramOpts{
+		Name:    "test_no_buckets_histogram",
+		Help:    "help",
+		Buckets: NoBuckets(),
+	})
+	h.Observe(3)
+
+	metric := &dto.Metric{}
+	require.NoError(t, h.Write(metric))
+	require.NotNil(t, metric.Histogram)
+	require.Equal(t, uint64(1), metric.GetHistogram().GetSampleCount())
+	require.Equal(t, 0, len(metric.GetHistogram().GetBucket()))
+
+	name := "test_no_buckets_histogram"
+	help := "help"
+	mf := &dto.MetricFamily{
+		Name:   &name,
+		Help:   &help,
+		Type:   dto.MetricType_HISTOGRAM.Enum(),
+		Metric: []*dto.Metric{metric},
+	}
+
+	var out bytes.Buffer
+	_, err := expfmt.MetricFamilyToText(&out, mf)
+	require.NoError(t, err)
+	text := out.String()
+	require.Contains(t, text, "test_no_buckets_histogram_bucket{le=\"+Inf\"} 1")
+	require.Equal(t, 1, strings.Count(text, "test_no_buckets_histogram_bucket{"))
+	require.Contains(t, text, "test_no_buckets_histogram_sum 3")
+	require.Contains(t, text, "test_no_buckets_histogram_count 1")
 }

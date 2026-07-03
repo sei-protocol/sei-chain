@@ -34,7 +34,7 @@ type Metrics struct {
 	Rounds *tmmetrics.GaugeIntVec
 
 	// Histogram of round duration.
-	RoundDuration *prometheus.HistogramVec `metrics_buckettype:"exprange" metrics_bucketsizes:"0.1, 100, 8"`
+	RoundDuration *prometheus.HistogramVec `metrics_buckets:"exprange(0.1, 100, 8)"`
 
 	// Number of validators.
 	Validators *tmmetrics.GaugeIntVec
@@ -54,12 +54,12 @@ type Metrics struct {
 	ByzantineValidatorsPower *tmmetrics.GaugeIntVec
 
 	// Time in seconds between this and the last block.
-	BlockIntervalSeconds *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"0.1, 1.3, 20"`
+	BlockIntervalSeconds *prometheus.HistogramVec `metrics_buckets:"exp(0.1, 1.3, 20)"`
 
 	// Number of transactions.
 	NumTxs *tmmetrics.GaugeIntVec
 	// Size of the block.
-	BlockSizeBytes *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"1000, 1.5, 25"`
+	BlockSizeBytes *prometheus.HistogramVec `metrics_buckets:"exp(1000, 1.5, 25)"`
 	// Total number of transactions.
 	TotalTxs *tmmetrics.GaugeIntVec
 	// The latest block height.
@@ -73,12 +73,12 @@ type Metrics struct {
 	BlockParts *tmmetrics.CounterIntVec `metrics_labels:"peer_id"`
 
 	// Histogram of durations for each step in the consensus protocol.
-	StepDuration *prometheus.HistogramVec `metrics_labels:"step" metrics_buckettype:"exprange" metrics_bucketsizes:"0.1, 100, 8"`
+	StepDuration *prometheus.HistogramVec `metrics_labels:"step" metrics_buckets:"exprange(0.1, 100, 8)"`
 	stepStart    time.Time
 
 	// Histogram of time taken to receive a block in seconds, measured between when a new block is first
 	// discovered to when the block is completed.
-	BlockGossipReceiveLatency *prometheus.HistogramVec `metrics_buckettype:"exprange" metrics_bucketsizes:"0.1, 100, 8"`
+	BlockGossipReceiveLatency *prometheus.HistogramVec `metrics_buckets:"exprange(0.1, 100, 8)"`
 	blockGossipStart          time.Time
 
 	// Number of block parts received by the node, separated by whether the part
@@ -119,7 +119,7 @@ type Metrics struct {
 	// the proposal message and the local time of the validator at the time
 	// that the validator received the message.
 	//metrics:Difference between the timestamp in the proposal message and the local time of the validator at the time it received the message.
-	ProposalTimestampDifference *prometheus.HistogramVec `metrics_labels:"is_timely" metrics_bucketsizes:"-10, -.5, -.025, 0, .1, .5, 1, 1.5, 2, 10"`
+	ProposalTimestampDifference *prometheus.HistogramVec `metrics_labels:"is_timely" metrics_buckets:"-10, -.5, -.025, 0, .1, .5, 1, 1.5, 2, 10"`
 
 	// ProposalReceiveCount is the total number of proposals received by this node
 	// since process start.
@@ -147,29 +147,29 @@ type Metrics struct {
 
 	// FinalRound stores the final round id the proposal block reach consensus in.
 	//metrics:The final round number for where the proposal block reach consensus in, starting at 0.
-	FinalRound *prometheus.HistogramVec `metrics_labels:"proposer_address" metrics_bucketsizes:"0,1,2,3,5,10"`
+	FinalRound *prometheus.HistogramVec `metrics_labels:"proposer_address" metrics_buckets:"0,1,2,3,5,10"`
 
 	// ProposeLatency stores the latency in seconds from when the initial round
 	// starts till the proposal is created and received
 	//metrics:Number of seconds from when the consensus round started till the proposal receive time
-	ProposeLatency *prometheus.HistogramVec `metrics_labels:"proposer_address" metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	ProposeLatency *prometheus.HistogramVec `metrics_labels:"proposer_address" metrics_buckets:"exprange(0.01, 10, 10)"`
 
 	// PrevoteLatency is measuring the relative delay in seconds from when the first vote arrive in each round
 	// till all remaining following prevote arrives from different validators to reach consensus.
 	//metrics:Number of seconds from when first prevote arrive till other remaining prevote arrives for each validator
-	PrevoteLatency *prometheus.HistogramVec `metrics_labels:"validator_address" metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	PrevoteLatency *prometheus.HistogramVec `metrics_labels:"validator_address" metrics_buckets:"exprange(0.01, 10, 10)"`
 
 	// ConsensusTime the metric to track how long the consensus takes in each block
 	//metrics: Number of seconds spent on consensus
-	ConsensusTime *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.3, 25"`
+	ConsensusTime *prometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.3, 25)"`
 
 	// CompleteProposalTime measures how long it takes between receiving a proposal and finishing
 	// processing all of its parts. Note that this means it also includes network latency from
 	// block parts gossip
-	CompleteProposalTime *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.3, 25"`
+	CompleteProposalTime *prometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.3, 25)"`
 
 	// ApplyBlockLatency measures how long it takes to execute ApplyBlock in finalize commit step
-	ApplyBlockLatency *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.3, 25"`
+	ApplyBlockLatency *prometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.3, 25)"`
 
 	StepLatency                 *prometheus.GaugeVec `metrics_labels:"step"`
 	lastRecordedStepLatencyNano int64
