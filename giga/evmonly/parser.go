@@ -20,6 +20,9 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer) ([
 		if err != nil {
 			return nil, fmt.Errorf("parse tx %d: %w", i, err)
 		}
+		if err := validateSupportedTx(tx); err != nil {
+			return nil, fmt.Errorf("parse tx %d: %w", i, err)
+		}
 		parsed[i] = PreparedTx{Tx: tx, Sender: sender}
 	}
 	return parsed, nil

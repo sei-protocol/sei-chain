@@ -156,4 +156,4 @@ custom precompile addresses return `ErrCustomPrecompilesOpen`.
   should provide a durable native state backend.
 - Historical `BLOCKHASH` lookups beyond the parent block are not wired yet.
 - Block-level blob gas accounting and `MaxBlobGasPerBlock` enforcement are not
-  wired yet.
+  wired yet, so blob transactions are rejected fail-closed.
