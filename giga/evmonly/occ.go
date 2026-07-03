@@ -16,13 +16,14 @@ import (
 )
 
 type occTxExecution struct {
-	txResult  TxResult
-	receipt   *ethtypes.Receipt
-	changeSet StateChangeSet
-	readSet   map[stateAccessKey]struct{}
-	writeSet  map[stateAccessKey]struct{}
-	gasUsed   uint64
-	gasLimit  uint64
+	txResult                 TxResult
+	receipt                  *ethtypes.Receipt
+	changeSet                StateChangeSet
+	readSet                  map[stateAccessKey]struct{}
+	writeSet                 map[stateAccessKey]struct{}
+	gasUsed                  uint64
+	gasLimit                 uint64
+	commutativeBalanceDeltas map[common.Address]*big.Int
 }
 
 type occTxRange struct {
@@ -61,7 +62,19 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 		}
 		return nil
 	}); err != nil {
-		return nil, err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		result, seqErr := e.executeBlockSequential(ctx, req)
+		if seqErr != nil {
+			return nil, seqErr
+		}
+		result.OCCStats = OCCStats{
+			Attempted:      true,
+			Fallback:       true,
+			FallbackReason: occFallbackReasonSpeculativeError,
+		}
+		return result, nil
 	}
 	validation := validateOCCResults(results, gasLimit)
 	if !validation.valid {
@@ -142,13 +155,14 @@ func (e *Executor) executeTxSpeculative(
 	var changeSet StateChangeSet
 	stateDB.ChangeSetInto(&changeSet)
 	return occTxExecution{
-		txResult:  txResult,
-		receipt:   receipt,
-		changeSet: changeSet,
-		readSet:   readSet,
-		writeSet:  writeSet,
-		gasUsed:   txResult.GasUsed,
-		gasLimit:  p.Tx.Gas(),
+		txResult:                 txResult,
+		receipt:                  receipt,
+		changeSet:                changeSet,
+		readSet:                  readSet,
+		writeSet:                 writeSet,
+		gasUsed:                  txResult.GasUsed,
+		gasLimit:                 p.Tx.Gas(),
+		commutativeBalanceDeltas: stateDB.commutativeBalanceDeltasBig(),
 	}, nil
 }
 
@@ -167,9 +181,10 @@ type occConflictAggregationKey struct {
 }
 
 const (
-	occFallbackReasonConflict    = "conflict"
-	occFallbackReasonGasLimit    = "gas_limit"
-	occFallbackReasonGasOverflow = "gas_overflow"
+	occFallbackReasonConflict         = "conflict"
+	occFallbackReasonGasLimit         = "gas_limit"
+	occFallbackReasonGasOverflow      = "gas_overflow"
+	occFallbackReasonSpeculativeError = "speculative_error"
 )
 
 func validateOCCResults(results []occTxExecution, gasLimit uint64) occValidationResult {
@@ -351,6 +366,8 @@ type storageChangeKey struct {
 func mergeChangeSetsInto(results []occTxExecution, merged *StateChangeSet) {
 	merged.resetForReuse()
 	balances := map[common.Address]*big.Int{}
+	balanceBases := map[common.Address]*big.Int{}
+	balanceDeltas := map[common.Address]*big.Int{}
 	nonces := map[common.Address]uint64{}
 	code := map[common.Address]CodeChange{}
 	storageClears := map[common.Address]struct{}{}
@@ -358,7 +375,22 @@ func mergeChangeSetsInto(results []occTxExecution, merged *StateChangeSet) {
 
 	for _, result := range results {
 		for _, change := range result.changeSet.Balances {
-			balances[change.Address] = cloneBig(change.Balance)
+			delta := result.commutativeBalanceDeltas[change.Address]
+			if delta == nil {
+				balances[change.Address] = cloneBig(change.Balance)
+				continue
+			}
+			base := new(big.Int).Sub(cloneBig(change.Balance), delta)
+			balanceBases[change.Address] = base
+			if _, normalWrite := result.writeSet[stateAccessKey{kind: stateAccessBalance, address: change.Address}]; normalWrite {
+				balances[change.Address] = cloneBig(base)
+			}
+		}
+		for addr, delta := range result.commutativeBalanceDeltas {
+			if balanceDeltas[addr] == nil {
+				balanceDeltas[addr] = new(big.Int)
+			}
+			balanceDeltas[addr].Add(balanceDeltas[addr], delta)
 		}
 		for _, change := range result.changeSet.Nonces {
 			nonces[change.Address] = change.Nonce
@@ -381,6 +413,18 @@ func mergeChangeSetsInto(results []occTxExecution, merged *StateChangeSet) {
 		for _, change := range result.changeSet.Storage {
 			storage[storageChangeKey{address: change.Address, key: change.Key}] = change
 		}
+	}
+	for addr, delta := range balanceDeltas {
+		base := balances[addr]
+		if base == nil {
+			base = balanceBases[addr]
+		}
+		if base == nil {
+			base = new(big.Int)
+		} else {
+			base = cloneBig(base)
+		}
+		balances[addr] = base.Add(base, delta)
 	}
 
 	balanceAddrs := sortedAddressesFromBigMap(balances)

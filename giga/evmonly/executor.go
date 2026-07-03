@@ -119,7 +119,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 }
 
 func (e *Executor) acquireBlockResult(ctx context.Context, txCapacity int) (*BlockResult, error) {
-	if e.resultPool == nil || !e.canPoolBlockResults() {
+	if e.resultPool == nil {
 		result := &BlockResult{}
 		result.prepareForBlock(txCapacity)
 		return result, nil
@@ -127,31 +127,14 @@ func (e *Executor) acquireBlockResult(ctx context.Context, txCapacity int) (*Blo
 	return e.resultPool.acquire(ctx, txCapacity)
 }
 
-func (e *Executor) canPoolBlockResults() bool {
-	if e.resultSink == nil {
-		return true
-	}
-	_, ok := e.resultSink.(BlockResultSink)
-	return ok
-}
-
 func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *BlockResult) error {
 	if e.resultSink == nil || result == nil {
 		return nil
 	}
-	if sink, ok := e.resultSink.(BlockResultSink); ok {
-		release := result.retain()
-		if err := sink.StoreBlockResult(ctx, height, result, release); err != nil {
-			release()
-			return fmt.Errorf("store block result for block %d: %w", height, err)
-		}
-		return nil
-	}
-	if err := e.resultSink.StoreChangeSet(ctx, height, result.ChangeSet); err != nil {
-		return fmt.Errorf("store changeset for block %d: %w", height, err)
-	}
-	if err := e.resultSink.StoreReceipts(ctx, height, result.Receipts); err != nil {
-		return fmt.Errorf("store receipts for block %d: %w", height, err)
+	release := result.retain()
+	if err := e.resultSink.StoreBlockResult(ctx, height, result, release); err != nil {
+		release()
+		return fmt.Errorf("store block result for block %d: %w", height, err)
 	}
 	return nil
 }
@@ -275,6 +258,10 @@ func (e *Executor) executeTx(
 	}
 	if tx.To() == nil {
 		receipt.ContractAddress = crypto.CreateAddress(p.Sender, tx.Nonce())
+	}
+	if tx.Type() == ethtypes.BlobTxType {
+		receipt.BlobGasUsed = tx.BlobGas()
+		receipt.BlobGasPrice = cloneOptionalBig(block.BlobBaseFee)
 	}
 	receipt.Bloom = ethtypes.CreateBloom(receipt)
 
