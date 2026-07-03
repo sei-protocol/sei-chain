@@ -42,6 +42,9 @@ func WithResultSink(sink ResultSink) Option {
 	}
 }
 
+// NewExecutor constructs an EVM-only executor. Call Close when the executor is
+// no longer used; with OCCWorkers > 1, the executor owns worker goroutines that
+// otherwise live until the GC finalizer runs.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
 		cfg:        cfg.WithDefaults(),

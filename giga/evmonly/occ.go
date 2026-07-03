@@ -27,8 +27,9 @@ type occTxExecution struct {
 }
 
 type occTxRange struct {
-	start int
-	end   int
+	start     int
+	end       int
+	startUint uint
 }
 
 func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
@@ -53,8 +54,8 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 		defer pool.Close()
 	}
 	if err := pool.Run(ctx, occRanges(txCount, chunkSize), func(workerCtx context.Context, txRange occTxRange) error {
-		for idx := txRange.start; idx < txRange.end; idx++ {
-			result, err := e.executeTxSpeculative(workerCtx, req, idx, chainConfig, blockCtx, baseFee, gasLimit)
+		for idx, idxUint := txRange.start, txRange.startUint; idx < txRange.end; idx, idxUint = idx+1, idxUint+1 {
+			result, err := e.executeTxSpeculative(workerCtx, req, idx, idxUint, chainConfig, blockCtx, baseFee, gasLimit)
 			if err != nil {
 				return err
 			}
@@ -98,12 +99,17 @@ func occRanges(txCount int, chunkSize int) []occTxRange {
 		chunkSize = 1
 	}
 	ranges := make([]occTxRange, 0, (txCount+chunkSize-1)/chunkSize)
-	for start := 0; start < txCount; start += chunkSize {
+	startUint := uint(0)
+	for start := 0; start < txCount; {
 		end := start + chunkSize
 		if end > txCount {
 			end = txCount
 		}
-		ranges = append(ranges, occTxRange{start: start, end: end})
+		ranges = append(ranges, occTxRange{start: start, end: end, startUint: startUint})
+		for start < end {
+			start++
+			startUint++
+		}
 	}
 	return ranges
 }
@@ -127,6 +133,7 @@ func (e *Executor) executeTxSpeculative(
 	ctx context.Context,
 	req PreparedBlock,
 	txIndex int,
+	txIndexUint uint,
 	chainConfig *params.ChainConfig,
 	blockCtx vm.BlockContext,
 	baseFee *big.Int,
@@ -145,7 +152,7 @@ func (e *Executor) executeTxSpeculative(
 		req.Context,
 		p,
 		txIndex,
-		uint(txIndex),
+		txIndexUint,
 		baseFee,
 	)
 	if err != nil {

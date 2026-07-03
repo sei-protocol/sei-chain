@@ -39,14 +39,16 @@ type BlockRequest struct {
 	Txs     [][]byte
 }
 
-// PreparedBlock contains decoded transactions with recovered senders. The
-// executor treats prepared transactions as immutable.
+// PreparedBlock contains decoded transactions with recovered senders. It is a
+// trusted executor-produced value: ExecutePreparedBlock assumes callers pass the
+// result of PrepareBlock unchanged and does not recover senders again.
 type PreparedBlock struct {
 	Context BlockContext
 	Txs     []PreparedTx
 }
 
 // PreparedTx is the stateless per-transaction work needed before EVM execution.
+// Sender is trusted data recovered by PrepareBlock.
 type PreparedTx struct {
 	Tx     *ethtypes.Transaction
 	Sender common.Address

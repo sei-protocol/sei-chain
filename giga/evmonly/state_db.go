@@ -722,41 +722,6 @@ func (s *nativeStateDB) clearSnapshots() {
 	s.snapshots = s.snapshots[:0]
 }
 
-func (s *nativeStateDB) reset(source StateReader) {
-	if source == nil {
-		source = NewMemoryState()
-	}
-	s.source = source
-	clear(s.accounts)
-	clear(s.base)
-	s.refund = 0
-	clear(s.logs)
-	s.logs = s.logs[:0]
-	clearBytesMap(s.preimages)
-	s.accessList.reset()
-	clearNestedHashMaps(s.transientStates)
-	clear(s.finaliseAddrs)
-	clearNestedStorageValueMaps(s.committedStorage)
-	clearNestedStorageWriteSets(s.txStorageWrites)
-	clear(s.txStorageClears)
-	clear(s.commutativeBalanceDeltas)
-	clear(s.journal)
-	s.journal = s.journal[:0]
-	clear(s.snapshots)
-	s.snapshots = s.snapshots[:0]
-	if s.readSet != nil {
-		clear(s.readSet)
-	}
-	if s.writeSet != nil {
-		clear(s.writeSet)
-	}
-	s.txHash = common.Hash{}
-	s.txIndex = 0
-	s.txIndexUint = 0
-	s.err = nil
-	s.evm = nil
-}
-
 func (s *nativeStateDB) account(addr common.Address) *nativeAccount {
 	if acct, ok := s.accounts[addr]; ok {
 		return acct
@@ -1023,20 +988,7 @@ func clonePreimages(preimages map[common.Hash][]byte) map[common.Hash][]byte {
 	return cp
 }
 
-func clearBytesMap(values map[common.Hash][]byte) {
-	for key := range values {
-		delete(values, key)
-	}
-}
-
 func clearNestedHashMaps(values map[common.Address]map[common.Hash]common.Hash) {
-	for _, slots := range values {
-		clear(slots)
-	}
-	clear(values)
-}
-
-func clearNestedStorageValueMaps(values map[common.Address]map[common.Hash]storageValue) {
 	for _, slots := range values {
 		clear(slots)
 	}

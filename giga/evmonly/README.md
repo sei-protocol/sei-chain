@@ -35,7 +35,10 @@ The `evmonly` package currently provides:
 - fail-closed custom precompile placeholders
 
 The executor accepts config for nonce checks, gas-price checks, minimum gas
-price, chain config, and the custom precompile registry.
+price, chain config, and the custom precompile registry. A nil chain config
+defaults to geth's `params.AllDevChainProtocolChanges`, which is convenient for
+tests and scaffold wiring; production callers should provide the chain's
+explicit EVM config.
 
 ## Executor interface
 
@@ -56,13 +59,17 @@ ExecutePreparedBlock(context.Context, PreparedBlock) (*BlockResult, error)
 `PrepareBlock` decodes transaction RLP and recovers senders. This work does not
 touch state, so block N+1 can be prepared while block N is still executing.
 `ExecuteBlock` remains the convenience path and performs prepare then execute in
-one call.
+one call. `PreparedBlock` is trusted executor-produced data: callers should pass
+the result of `PrepareBlock` unchanged, because `ExecutePreparedBlock` does not
+recover senders again.
 
 The executor should be commit-neutral. It executes an ordered EVM block and
 returns the state writes and receipts produced by that block. The caller owns
 durable persistence, state commitment, block indexing, and receipt publication.
 The concrete `Executor` accepts a `StateReader` backend through `WithState(...)`;
 callers can persist the returned `ChangeSet` with a matching `StateWriter`.
+Call `Close()` when an executor is no longer used so OCC worker goroutines are
+stopped promptly.
 
 A non-nil `error` means block validation failed and the caller must not commit a
 partial output. EVM call failures inside an otherwise valid transaction are
@@ -141,10 +148,12 @@ custom precompile addresses return `ErrCustomPrecompilesOpen`.
 
 ## Current limitations
 
-- The current port is sequential. The EVM-native state boundary and changeset
-  shape are intended to be replaceable with the sei-v3 OCC scheduler/store.
+- OCC is optional and conservative; conflicting or unsupported blocks fall back
+  to sequential execution.
 - State input is key-addressable only. The executor lazily reads storage slots
   by `(address, slot)` and does not require or expose range iteration.
 - The map-backed `MemoryState` is for tests and early integration; production
   should provide a durable native state backend.
 - Historical `BLOCKHASH` lookups beyond the parent block are not wired yet.
+- Block-level blob gas accounting and `MaxBlobGasPerBlock` enforcement are not
+  wired yet.
