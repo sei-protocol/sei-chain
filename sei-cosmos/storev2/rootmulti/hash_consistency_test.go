@@ -17,6 +17,7 @@ func TestCommitAndHistoricalQueryHashConsistency(t *testing.T) {
 	ssConfig := seidbconfig.StateStoreConfig{}
 
 	store := NewStore(t.TempDir(), scConfig, ssConfig, nil)
+	defer func() { require.NoError(t, store.Close()) }()
 
 	keys := []string{"acc", "bank", "distribution", "staking", "ibc", "upgrade"}
 	storeKeys := make(map[string]*types.KVStoreKey)
@@ -102,6 +103,7 @@ func TestCommitAndHistoricalQueryWithDoubleFlush(t *testing.T) {
 	ssConfig := seidbconfig.StateStoreConfig{}
 
 	store := NewStore(t.TempDir(), scConfig, ssConfig, nil)
+	defer func() { require.NoError(t, store.Close()) }()
 
 	keys := []string{"acc", "bank", "distribution", "staking", "ibc", "upgrade"}
 	storeKeys := make(map[string]*types.KVStoreKey)
