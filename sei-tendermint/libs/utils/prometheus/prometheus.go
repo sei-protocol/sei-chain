@@ -2,7 +2,6 @@ package prometheus
 
 import (
 	"errors"
-	"math"
 	"sync/atomic"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -10,35 +9,12 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"k8s.io/component-base/metrics/prometheusextension"
 )
 
-type HistogramOpts = prometheus.HistogramOpts
-type HistogramVec struct {
-	*prometheusextension.WeightedHistogramVec
-}
-
-func NewHistogramVec(opts HistogramOpts, labels []string) HistogramVec {
-	return HistogramVec{prometheusextension.NewWeightedHistogramVec(opts, labels...)}
-}
-
-func (h HistogramVec) WithLabelValues(values ...string) Observer {
-	return Observer{h.WeightedHistogramVec.WithLabelValues(values...)}
-}
-
-type Observer struct {
-	prometheusextension.WeightedObserver
-}
-
-func (o Observer) Observe(val float64) { o.ObserveWithWeight(val, 1) }
-
-// NoBuckets returns a bucket configuration that produces a classic histogram
-// with only the implicit +Inf bucket. Prometheus strips the explicit +Inf
-// upper bound internally, so the exported histogram exposes only
-// bucket{le="+Inf"}, sum, and count.
-func NoBuckets() []float64 {
-	return []float64{math.Inf(1)}
-}
+var _ prometheus.Metric = (*GaugeInt)(nil)
+var _ prometheus.Metric = (*CounterInt)(nil)
+var _ prometheus.Collector = GaugeIntVec{}
+var _ prometheus.Collector = CounterIntVec{}
 
 // GaugeInt is a Metric that represents a single int64 value that can
 // arbitrarily go up and down.
