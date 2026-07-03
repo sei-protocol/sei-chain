@@ -2,6 +2,7 @@ package prometheus
 
 import (
 	"errors"
+	"math"
 	"sync/atomic"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -10,6 +11,14 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
+
+// NoBuckets returns a bucket configuration that produces a classic histogram
+// with only the implicit +Inf bucket. Prometheus strips the explicit +Inf
+// upper bound internally, so the exported histogram exposes only
+// bucket{le="+Inf"}, sum, and count.
+func NoBuckets() []float64 {
+	return []float64{math.Inf(1)}
+}
 
 // GaugeInt is a Metric that represents a single int64 value that can
 // arbitrarily go up and down.

@@ -21,8 +21,7 @@ func NewMetrics() *Metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "method_timing",
 			Help:      "Timing for each ABCI method.",
-
-			Buckets: []float64{.0001, .0004, .002, .009, .02, .1, .65, 2, 6, 25},
+			Buckets:   []float64{.0001, .0004, .002, .009, .02, .1, .65, 2, 6, 25},
 		}, []string{"method", "type"}),
 	}
 }

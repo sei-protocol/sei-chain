@@ -1,53 +1,36 @@
 package metrics
 
 import (
-	"context"
+	"strconv"
 	"time"
 
-	prometheus "github.com/prometheus/client_golang/prometheus"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
-func buckets(start float64, factor float64, count int) metric.HistogramOption {
-	return metric.WithExplicitBucketBoundaries(prometheus.ExponentialBuckets(start, factor, count)...)
+const MetricsNamespace = "tendermint"
+const MetricsSubsystem = "internal_autobahn_avail"
+
+//go:generate go run github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen -struct=metrics
+type metrics struct {
+	// Road index of the highest observed commitQC.
+	commitRoadIndex *tmprometheus.GaugeIntVec
+	// Road index of the highest observed appQC.
+	appRoadIndex *tmprometheus.GaugeIntVec
+
+	// Global block number of the highest observed commitQC.
+	commitGlobalBlockNumber *tmprometheus.GaugeIntVec
+	// Global block number of the highest observed appQC.
+	appGlobalBlockNumber *tmprometheus.GaugeIntVec
+
+	// Latency from proposal being constructed to commit being observed.
+	proposalToCommitLatency *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.2, 35"`
+	// Latency between consecutive commits being observed.
+	commitToCommitLatency *prometheus.HistogramVec `metrics_labels:"timeouts" metrics_buckettype:"none"`
 }
-
-var meter = otel.Meter("tendermint_internal_autobahn_avail")
-
-var commitRoadIndex = utils.OrPanic1(meter.Int64Gauge(
-	"tendermint_internal_autobahn_avail__commit_road_index",
-	metric.WithDescription("road index of the highest observed commitQC"),
-))
-var appRoadIndex = utils.OrPanic1(meter.Int64Gauge(
-	"tendermint_internal_autobahn_avail__app_road_index",
-	metric.WithDescription("road index of the highest observed appQC"),
-))
-var commitGlobalBlockNumber = utils.OrPanic1(meter.Int64Gauge(
-	"tendermint_internal_autobahn_avail__commit_global_block_number",
-	metric.WithDescription("global block number of the highest observed commitQC"),
-))
-var appGlobalBlockNumber = utils.OrPanic1(meter.Int64Gauge(
-	"tendermint_internal_autobahn_avail__app_global_block_number",
-	metric.WithDescription("global block number of the highest observed appQC"),
-))
-var proposalToCommitLatency = utils.OrPanic1(meter.Float64Histogram(
-	"tendermint_internal_autobahn_avail__proposal_to_commit_latency",
-	buckets(0.01, 1.2, 35),
-	metric.WithDescription("latency from proposal being constructed to commit being observed"),
-))
-var commitToCommitLatencySum = utils.OrPanic1(meter.Float64Counter(
-	"tendermint_internal_autobahn_avail__commit_to_commit_latency_sum",
-	metric.WithDescription("latency between consecutive commits being observed (SUM)"),
-))
-var commitToCommitLatencyCount = utils.OrPanic1(meter.Int64Counter(
-	"tendermint_internal_autobahn_avail__commit_to_commit_latency_count",
-	metric.WithDescription("latency between consecutive commits being observed (COUNT)"),
-))
 
 type observed[T any] struct {
 	time time.Time
@@ -63,38 +46,35 @@ var observedAppQC = newObserved[*types.AppQC]()
 
 // ObserveCommitQC observes the CommitQC latency.
 func ObserveCommitQC(c *types.Committee, qc *types.CommitQC) {
-	ctx := context.Background()
 	now := time.Now()
 	for mLast := range observedCommitQC.Lock() {
 		if last, ok := mLast.Get(); ok {
 			if last.val.Index() >= qc.Index() {
 				return
 			}
-			// Constructed once per CommitQC, which we should afford.
-			attrs := metric.WithAttributeSet(attribute.NewSet(
-				// Timeouts capped: 20 means [20,inf)
-				attribute.Int64("timeouts", int64(min(qc.Proposal().View().Number, 20))), // nolint: gosec
-			))
-			commitToCommitLatencySum.Add(ctx, now.Sub(last.time).Seconds(), attrs)
-			commitToCommitLatencyCount.Add(ctx, 1, attrs)
+			// "timeouts" label is capped
+			timeouts := "inf"
+			if n := qc.Proposal().View().Number; n < 20 {
+				timeouts = strconv.FormatUint(uint64(n), 10)
+			}
+			Global.commitToCommitLatencyAt(timeouts).Observe(now.Sub(last.time).Seconds())
 		}
-		proposalToCommitLatency.Record(ctx, now.Sub(qc.Proposal().Timestamp()).Seconds())
-		commitRoadIndex.Record(ctx, int64(qc.Index()))                     // nolint: gosec
-		commitGlobalBlockNumber.Record(ctx, int64(qc.GlobalRange(c).Next)) // nolint: gosec
+		Global.proposalToCommitLatencyAt().Observe(now.Sub(qc.Proposal().Timestamp()).Seconds())
+		Global.commitRoadIndexAt().Set(int64(qc.Index()))                     // nolint: gosec
+		Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange(c).Next)) // nolint: gosec
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
 	}
 }
 
 func ObserveAppQC(qc *types.AppQC) {
-	ctx := context.Background()
 	now := time.Now()
 	for mLast := range observedAppQC.Lock() {
 		if last, ok := mLast.Get(); ok && last.val.Proposal().GlobalNumber() >= qc.Proposal().GlobalNumber() {
 			return
 		}
-		appRoadIndex.Record(ctx, int64(qc.Proposal().RoadIndex())) // nolint: gosec
+		Global.appRoadIndexAt().Set(int64(qc.Proposal().RoadIndex())) // nolint: gosec
 		// +1 is for consistency with commitGlobalBlockNumber
-		appGlobalBlockNumber.Record(ctx, int64(qc.Proposal().GlobalNumber()+1)) // nolint: gosec
+		Global.appGlobalBlockNumberAt().Set(int64(qc.Proposal().GlobalNumber() + 1)) // nolint: gosec
 		*mLast = utils.Some(observed[*types.AppQC]{now, qc})
 	}
 }

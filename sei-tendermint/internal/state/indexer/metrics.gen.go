@@ -4,7 +4,7 @@ package indexer
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 var Global = NewMetrics()
@@ -32,13 +32,13 @@ func NewMetrics() *Metrics {
 			Name:      "tx_events_seconds",
 			Help:      "Latency for indexing transaction events.",
 		}, nil),
-		BlocksIndexed: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		BlocksIndexed: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "blocks_indexed",
 			Help:      "Number of complete blocks indexed.",
 		}, nil),
-		TransactionsIndexed: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		TransactionsIndexed: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "transactions_indexed",
@@ -55,10 +55,10 @@ func (m *Metrics) TxEventsSecondsAt() prometheus.Observer {
 	return m.TxEventsSeconds.WithLabelValues()
 }
 
-func (m *Metrics) BlocksIndexedAt() *tmmetrics.CounterInt {
+func (m *Metrics) BlocksIndexedAt() *tmprometheus.CounterInt {
 	return m.BlocksIndexed.WithLabelValues()
 }
 
-func (m *Metrics) TransactionsIndexedAt() *tmmetrics.CounterInt {
+func (m *Metrics) TransactionsIndexedAt() *tmprometheus.CounterInt {
 	return m.TransactionsIndexed.WithLabelValues()
 }

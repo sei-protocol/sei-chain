@@ -30,16 +30,14 @@ func NewMetrics() *Metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "with_exp_buckets",
 			Help:      "",
-
-			Buckets: prometheus.ExponentialBuckets(.1, 100, 8),
+			Buckets:   prometheus.ExponentialBuckets(.1, 100, 8),
 		}, nil),
 		WithBuckets: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "with_buckets",
 			Help:      "",
-
-			Buckets: []float64{1, 2, 3, 4, 5},
+			Buckets:   []float64{1, 2, 3, 4, 5},
 		}, nil),
 		Named: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,

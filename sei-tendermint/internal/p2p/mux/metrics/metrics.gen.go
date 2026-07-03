@@ -27,8 +27,7 @@ func newMetrics() *metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "latency",
 			Help:      "",
-
-			Buckets: prometheus.ExponentialBuckets(0.001, 1.3, 30),
+			Buckets:   prometheus.ExponentialBuckets(0.001, 1.3, 30),
 		}, []string{"role", "rpc_name"}),
 		inFlight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,

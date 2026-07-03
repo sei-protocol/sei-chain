@@ -153,6 +153,33 @@ func TestParseMetricsStruct(t *testing.T) {
 			},
 		},
 		{
+			name: "histogram without finite buckets",
+			metricsStruct: "type Metrics struct {\n" +
+				"myHistogram *prometheus.HistogramVec `metrics_buckettype:\"none\"`\n" +
+				"}",
+			expected: metricsgen.TemplateData{
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
+				UsesIntMetrics:  true,
+				ParsedMetrics: []metricsgen.ParsedMetricField{
+					{
+						TypeName:           "HistogramVec",
+						ConstructorPackage: "prometheus",
+						ConstructorName:    "NewHistogramVec",
+						OptsTypeName:       "HistogramOpts",
+						FieldName:          "myHistogram",
+						MetricName:         "my_histogram",
+						MethodReturnType:   "prometheus.Observer",
+
+						HistogramOptions: metricsgen.HistogramOpts{
+							BucketType: "tmprometheus.NoBuckets",
+						},
+					},
+				},
+			},
+		},
+		{
 			name: "labeled name",
 			metricsStruct: "type Metrics struct {\n" +
 				"myCounter *prometheus.CounterVec `metrics_name:\"new_name\"`\n" +
