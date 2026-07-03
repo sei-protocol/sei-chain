@@ -158,7 +158,7 @@ func TestExecutorDynamicFeeTx(t *testing.T) {
 	require.Equal(t, big.NewInt(11), state.GetBalance(recipient))
 }
 
-func TestExecutorBlobTxReceiptMetadata(t *testing.T) {
+func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
 	chainID := big.NewInt(713715)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -187,16 +187,29 @@ func TestExecutorBlobTxReceiptMetadata(t *testing.T) {
 	ctx.BaseFee = big.NewInt(2)
 	ctx.BlobBaseFee = blobBaseFee
 
-	result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(state))
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
 
+	require.ErrorIs(t, err, errUnsupportedBlobTx)
+	require.Nil(t, result)
+	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+
+	tx, sender, err := parseTx(rawTx, ethtypes.LatestSignerForChainID(chainID))
 	require.NoError(t, err)
-	require.Len(t, result.Receipts, 1)
-	require.Equal(t, uint8(ethtypes.BlobTxType), result.Receipts[0].Type)
-	require.Equal(t, uint64(params.BlobTxBlobGasPerBlob), result.Receipts[0].BlobGasUsed)
-	require.Equal(t, blobBaseFee, result.Receipts[0].BlobGasPrice)
+	result, err = executor.ExecutePreparedBlock(context.Background(), PreparedBlock{
+		Context: ctx,
+		Txs: []PreparedTx{{
+			Tx:     tx,
+			Sender: sender,
+		}},
+	})
+
+	require.ErrorIs(t, err, errUnsupportedBlobTx)
+	require.Nil(t, result)
+	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 }
 
 func TestExecutorRequiresBaseFeeAfterLondon(t *testing.T) {
