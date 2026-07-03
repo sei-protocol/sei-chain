@@ -1,8 +1,7 @@
 package indexer
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 //go:generate go run ../../../scripts/metricsgen -struct=Metrics
@@ -17,14 +16,14 @@ const (
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// Latency for indexing block events.
-	BlockEventsSeconds *prometheus.HistogramVec
+	BlockEventsSeconds tmprometheus.HistogramVec
 
 	// Latency for indexing transaction events.
-	TxEventsSeconds *prometheus.HistogramVec
+	TxEventsSeconds tmprometheus.HistogramVec
 
 	// Number of complete blocks indexed.
-	BlocksIndexed *tmmetrics.CounterIntVec
+	BlocksIndexed tmprometheus.CounterIntVec
 
 	// Number of transactions indexed.
-	TransactionsIndexed *tmmetrics.CounterIntVec
+	TransactionsIndexed tmprometheus.CounterIntVec
 }

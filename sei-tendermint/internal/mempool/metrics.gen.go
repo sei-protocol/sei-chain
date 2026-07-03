@@ -4,7 +4,7 @@ package mempool
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 var Global = NewMetrics()
@@ -38,67 +38,67 @@ func init() {
 
 func NewMetrics() *Metrics {
 	return &Metrics{
-		Size: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		Size: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "size",
 			Help:      "Number of uncommitted transactions in the mempool.",
 		}, nil),
-		PendingSize: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		PendingSize: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "pending_size",
 			Help:      "Number of pending transactions in mempool",
 		}, nil),
-		CacheSize: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		CacheSize: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "cache_size",
 			Help:      "Number of cached transactions in the mempool cache.",
 		}, nil),
-		TxSizeBytes: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		TxSizeBytes: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "tx_size_bytes",
 			Help:      "Accumulated transaction sizes in bytes.",
 		}, nil),
-		TotalTxsSizeBytes: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		TotalTxsSizeBytes: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "total_txs_size_bytes",
 			Help:      "Total current mempool uncommitted txs bytes",
 		}, nil),
-		DuplicateTxMaxOccurrences: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		DuplicateTxMaxOccurrences: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "duplicate_tx_max_occurrences",
 			Help:      "Track max number of occurrences for a duplicate tx",
 		}, nil),
-		DuplicateTxTotalOccurrences: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		DuplicateTxTotalOccurrences: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "duplicate_tx_total_occurrences",
 			Help:      "Track the total number of occurrences for all duplicate txs",
 		}, nil),
-		NumberOfDuplicateTxs: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		NumberOfDuplicateTxs: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "number_of_duplicate_txs",
 			Help:      "Track the number of unique duplicate transactions",
 		}, nil),
-		NumberOfNonDuplicateTxs: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		NumberOfNonDuplicateTxs: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "number_of_non_duplicate_txs",
 			Help:      "Track the number of unique new tx transactions",
 		}, nil),
-		NumberOfSuccessfulCheckTxs: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		NumberOfSuccessfulCheckTxs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "number_of_successful_check_txs",
 			Help:      "Track the number of checkTx calls",
 		}, nil),
-		NumberOfFailedCheckTxs: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		NumberOfFailedCheckTxs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "number_of_failed_check_txs",
@@ -110,63 +110,62 @@ func NewMetrics() *Metrics {
 			Name:      "number_of_local_check_tx",
 			Help:      "Track the number of checkTx from local removed tx",
 		}, nil),
-		FailedTxs: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		FailedTxs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "failed_txs",
 			Help:      "Number of failed transactions.",
 		}, nil),
-		RejectedTxs: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		RejectedTxs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "rejected_txs",
 			Help:      "Number of rejected transactions.",
 		}, nil),
-		EvictedTxs: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		EvictedTxs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "evicted_txs",
 			Help:      "Number of evicted transactions.",
 		}, nil),
-		ExpiredTxs: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		ExpiredTxs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "expired_txs",
 			Help:      "Number of expired transactions.",
 		}, nil),
-		RecheckTimes: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		RecheckTimes: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "recheck_times",
 			Help:      "Number of times transactions are rechecked in the mempool.",
 		}, nil),
-		RemovedTxs: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		RemovedTxs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "removed_txs",
 			Help:      "Number of removed tx from mempool",
 		}, nil),
-		InsertedTxs: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		InsertedTxs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "inserted_txs",
 			Help:      "Number of txs inserted to mempool",
 		}, nil),
-		CheckTxPriorityDistribution: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		CheckTxPriorityDistribution: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "check_tx_priority_distribution",
 			Help:      "CheckTxPriorityDistribution is a histogram of the priority of transactions submitted via CheckTx, labeled by whether a priority hint was provided, whether the transaction was submitted locally (i.e. no sender node ID), and whether an error occurred during transaction priority determination.  Note that the priority is normalized as a float64 value between zero and maximum tx priority.",
-
-			Buckets: prometheus.ExponentialBucketsRange(0.000001, 1.0, 20),
+			Buckets:   prometheus.ExponentialBucketsRange(0.000001, 1.0, 20),
 		}, []string{"hint", "local", "error"}),
-		CheckTxDroppedByPriorityHint: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		CheckTxDroppedByPriorityHint: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "check_tx_dropped_by_priority_hint",
 			Help:      "CheckTxDroppedByPriorityHint is the number of transactions that were dropped due to low priority based on the priority hint.",
 		}, nil),
-		CheckTxMetDropUtilisationThreshold: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		CheckTxMetDropUtilisationThreshold: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "check_tx_met_drop_utilisation_threshold",
@@ -175,47 +174,47 @@ func NewMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) SizeAt() *tmmetrics.GaugeInt {
+func (m *Metrics) SizeAt() *tmprometheus.GaugeInt {
 	return m.Size.WithLabelValues()
 }
 
-func (m *Metrics) PendingSizeAt() *tmmetrics.GaugeInt {
+func (m *Metrics) PendingSizeAt() *tmprometheus.GaugeInt {
 	return m.PendingSize.WithLabelValues()
 }
 
-func (m *Metrics) CacheSizeAt() *tmmetrics.GaugeInt {
+func (m *Metrics) CacheSizeAt() *tmprometheus.GaugeInt {
 	return m.CacheSize.WithLabelValues()
 }
 
-func (m *Metrics) TxSizeBytesAt() *tmmetrics.CounterInt {
+func (m *Metrics) TxSizeBytesAt() *tmprometheus.CounterInt {
 	return m.TxSizeBytes.WithLabelValues()
 }
 
-func (m *Metrics) TotalTxsSizeBytesAt() *tmmetrics.GaugeInt {
+func (m *Metrics) TotalTxsSizeBytesAt() *tmprometheus.GaugeInt {
 	return m.TotalTxsSizeBytes.WithLabelValues()
 }
 
-func (m *Metrics) DuplicateTxMaxOccurrencesAt() *tmmetrics.GaugeInt {
+func (m *Metrics) DuplicateTxMaxOccurrencesAt() *tmprometheus.GaugeInt {
 	return m.DuplicateTxMaxOccurrences.WithLabelValues()
 }
 
-func (m *Metrics) DuplicateTxTotalOccurrencesAt() *tmmetrics.GaugeInt {
+func (m *Metrics) DuplicateTxTotalOccurrencesAt() *tmprometheus.GaugeInt {
 	return m.DuplicateTxTotalOccurrences.WithLabelValues()
 }
 
-func (m *Metrics) NumberOfDuplicateTxsAt() *tmmetrics.GaugeInt {
+func (m *Metrics) NumberOfDuplicateTxsAt() *tmprometheus.GaugeInt {
 	return m.NumberOfDuplicateTxs.WithLabelValues()
 }
 
-func (m *Metrics) NumberOfNonDuplicateTxsAt() *tmmetrics.GaugeInt {
+func (m *Metrics) NumberOfNonDuplicateTxsAt() *tmprometheus.GaugeInt {
 	return m.NumberOfNonDuplicateTxs.WithLabelValues()
 }
 
-func (m *Metrics) NumberOfSuccessfulCheckTxsAt() *tmmetrics.CounterInt {
+func (m *Metrics) NumberOfSuccessfulCheckTxsAt() *tmprometheus.CounterInt {
 	return m.NumberOfSuccessfulCheckTxs.WithLabelValues()
 }
 
-func (m *Metrics) NumberOfFailedCheckTxsAt() *tmmetrics.CounterInt {
+func (m *Metrics) NumberOfFailedCheckTxsAt() *tmprometheus.CounterInt {
 	return m.NumberOfFailedCheckTxs.WithLabelValues()
 }
 
@@ -223,42 +222,42 @@ func (m *Metrics) NumberOfLocalCheckTxAt() prometheus.Counter {
 	return m.NumberOfLocalCheckTx.WithLabelValues()
 }
 
-func (m *Metrics) FailedTxsAt() *tmmetrics.CounterInt {
+func (m *Metrics) FailedTxsAt() *tmprometheus.CounterInt {
 	return m.FailedTxs.WithLabelValues()
 }
 
-func (m *Metrics) RejectedTxsAt() *tmmetrics.CounterInt {
+func (m *Metrics) RejectedTxsAt() *tmprometheus.CounterInt {
 	return m.RejectedTxs.WithLabelValues()
 }
 
-func (m *Metrics) EvictedTxsAt() *tmmetrics.CounterInt {
+func (m *Metrics) EvictedTxsAt() *tmprometheus.CounterInt {
 	return m.EvictedTxs.WithLabelValues()
 }
 
-func (m *Metrics) ExpiredTxsAt() *tmmetrics.CounterInt {
+func (m *Metrics) ExpiredTxsAt() *tmprometheus.CounterInt {
 	return m.ExpiredTxs.WithLabelValues()
 }
 
-func (m *Metrics) RecheckTimesAt() *tmmetrics.CounterInt {
+func (m *Metrics) RecheckTimesAt() *tmprometheus.CounterInt {
 	return m.RecheckTimes.WithLabelValues()
 }
 
-func (m *Metrics) RemovedTxsAt() *tmmetrics.CounterInt {
+func (m *Metrics) RemovedTxsAt() *tmprometheus.CounterInt {
 	return m.RemovedTxs.WithLabelValues()
 }
 
-func (m *Metrics) InsertedTxsAt() *tmmetrics.CounterInt {
+func (m *Metrics) InsertedTxsAt() *tmprometheus.CounterInt {
 	return m.InsertedTxs.WithLabelValues()
 }
 
-func (m *Metrics) CheckTxPriorityDistributionAt(hint string, local string, error string) prometheus.Observer {
+func (m *Metrics) CheckTxPriorityDistributionAt(hint string, local string, error string) *tmprometheus.Histogram {
 	return m.CheckTxPriorityDistribution.WithLabelValues(hint, local, error)
 }
 
-func (m *Metrics) CheckTxDroppedByPriorityHintAt() *tmmetrics.CounterInt {
+func (m *Metrics) CheckTxDroppedByPriorityHintAt() *tmprometheus.CounterInt {
 	return m.CheckTxDroppedByPriorityHint.WithLabelValues()
 }
 
-func (m *Metrics) CheckTxMetDropUtilisationThresholdAt() *tmmetrics.CounterInt {
+func (m *Metrics) CheckTxMetDropUtilisationThresholdAt() *tmprometheus.CounterInt {
 	return m.CheckTxMetDropUtilisationThreshold.WithLabelValues()
 }

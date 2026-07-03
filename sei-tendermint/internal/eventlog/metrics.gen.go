@@ -4,7 +4,7 @@ package eventlog
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 var Global = NewMetrics()
@@ -17,7 +17,7 @@ func init() {
 
 func NewMetrics() *Metrics {
 	return &Metrics{
-		numItems: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		numItems: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "num_items",
@@ -26,6 +26,6 @@ func NewMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) numItemsAt() *tmmetrics.GaugeInt {
+func (m *Metrics) numItemsAt() *tmprometheus.GaugeInt {
 	return m.numItems.WithLabelValues()
 }

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -25,74 +25,74 @@ const (
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// Height of the chain.
-	Height *tmmetrics.GaugeIntVec
+	Height tmprometheus.GaugeIntVec
 
 	// Last height signed by this validator if the node is a validator.
-	ValidatorLastSignedHeight *tmmetrics.GaugeIntVec `metrics_labels:"validator_address"`
+	ValidatorLastSignedHeight tmprometheus.GaugeIntVec `metrics_labels:"validator_address"`
 
 	// Number of rounds.
-	Rounds *tmmetrics.GaugeIntVec
+	Rounds tmprometheus.GaugeIntVec
 
 	// Histogram of round duration.
-	RoundDuration *prometheus.HistogramVec `metrics_buckettype:"exprange" metrics_bucketsizes:"0.1, 100, 8"`
+	RoundDuration tmprometheus.HistogramVec `metrics_buckets:"exprange(0.1, 100, 8)"`
 
 	// Number of validators.
-	Validators *tmmetrics.GaugeIntVec
+	Validators tmprometheus.GaugeIntVec
 	// Total power of all validators.
-	ValidatorsPower *tmmetrics.GaugeIntVec
+	ValidatorsPower tmprometheus.GaugeIntVec
 	// Power of a validator.
-	ValidatorPower *tmmetrics.GaugeIntVec `metrics_labels:"validator_address"`
+	ValidatorPower tmprometheus.GaugeIntVec `metrics_labels:"validator_address"`
 	// Amount of blocks missed per validator.
-	ValidatorMissedBlocks *tmmetrics.GaugeIntVec `metrics_labels:"validator_address"`
+	ValidatorMissedBlocks tmprometheus.GaugeIntVec `metrics_labels:"validator_address"`
 	// Number of validators who did not sign.
-	MissingValidators *tmmetrics.GaugeIntVec
+	MissingValidators tmprometheus.GaugeIntVec
 	// Total power of the missing validators.
-	MissingValidatorsPower *tmmetrics.GaugeIntVec `metrics_labels:"validator_address"`
+	MissingValidatorsPower tmprometheus.GaugeIntVec `metrics_labels:"validator_address"`
 	// Number of validators who tried to double sign.
-	ByzantineValidators *tmmetrics.GaugeIntVec
+	ByzantineValidators tmprometheus.GaugeIntVec
 	// Total power of the byzantine validators.
-	ByzantineValidatorsPower *tmmetrics.GaugeIntVec
+	ByzantineValidatorsPower tmprometheus.GaugeIntVec
 
 	// Time in seconds between this and the last block.
-	BlockIntervalSeconds *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"0.1, 1.3, 20"`
+	BlockIntervalSeconds tmprometheus.HistogramVec `metrics_buckets:"exp(0.1, 1.3, 20)"`
 
 	// Number of transactions.
-	NumTxs *tmmetrics.GaugeIntVec
+	NumTxs tmprometheus.GaugeIntVec
 	// Size of the block.
-	BlockSizeBytes *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"1000, 1.5, 25"`
+	BlockSizeBytes tmprometheus.HistogramVec `metrics_buckets:"exp(1000, 1.5, 25)"`
 	// Total number of transactions.
-	TotalTxs *tmmetrics.GaugeIntVec
+	TotalTxs tmprometheus.GaugeIntVec
 	// The latest block height.
-	CommittedHeight *tmmetrics.GaugeIntVec `metrics_name:"latest_block_height"`
+	CommittedHeight tmprometheus.GaugeIntVec `metrics_name:"latest_block_height"`
 	// Whether or not a node is block syncing. 1 if yes, 0 if no.
-	BlockSyncing *tmmetrics.GaugeIntVec
+	BlockSyncing tmprometheus.GaugeIntVec
 	// Whether or not a node is state syncing. 1 if yes, 0 if no.
-	StateSyncing *tmmetrics.GaugeIntVec
+	StateSyncing tmprometheus.GaugeIntVec
 
 	// Number of block parts transmitted by each peer.
-	BlockParts *tmmetrics.CounterIntVec `metrics_labels:"peer_id"`
+	BlockParts tmprometheus.CounterIntVec `metrics_labels:"peer_id"`
 
 	// Histogram of durations for each step in the consensus protocol.
-	StepDuration *prometheus.HistogramVec `metrics_labels:"step" metrics_buckettype:"exprange" metrics_bucketsizes:"0.1, 100, 8"`
+	StepDuration tmprometheus.HistogramVec `metrics_labels:"step" metrics_buckets:"exprange(0.1, 100, 8)"`
 	stepStart    time.Time
 
 	// Histogram of time taken to receive a block in seconds, measured between when a new block is first
 	// discovered to when the block is completed.
-	BlockGossipReceiveLatency *prometheus.HistogramVec `metrics_buckettype:"exprange" metrics_bucketsizes:"0.1, 100, 8"`
+	BlockGossipReceiveLatency tmprometheus.HistogramVec `metrics_buckets:"exprange(0.1, 100, 8)"`
 	blockGossipStart          time.Time
 
 	// Number of block parts received by the node, separated by whether the part
 	// was relevant to the block the node is trying to gather or not.
-	BlockGossipPartsReceived *tmmetrics.CounterIntVec `metrics_labels:"matches_current"`
+	BlockGossipPartsReceived tmprometheus.CounterIntVec `metrics_labels:"matches_current"`
 
 	// Number of proposal blocks created on propose received.
-	ProposalBlockCreatedOnPropose *tmmetrics.CounterIntVec `metrics_labels:"success"`
+	ProposalBlockCreatedOnPropose tmprometheus.CounterIntVec `metrics_labels:"success"`
 
 	// Number of txs in a proposal.
 	ProposalTxs *prometheus.GaugeVec
 
 	// Number of missing txs when trying to create proposal.
-	ProposalMissingTxs *tmmetrics.GaugeIntVec
+	ProposalMissingTxs tmprometheus.GaugeIntVec
 
 	//Number of missing txs when a proposal is received
 	MissingTxs *prometheus.GaugeVec `metrics_labels:"proposer_address"`
@@ -119,19 +119,19 @@ type Metrics struct {
 	// the proposal message and the local time of the validator at the time
 	// that the validator received the message.
 	//metrics:Difference between the timestamp in the proposal message and the local time of the validator at the time it received the message.
-	ProposalTimestampDifference *prometheus.HistogramVec `metrics_labels:"is_timely" metrics_bucketsizes:"-10, -.5, -.025, 0, .1, .5, 1, 1.5, 2, 10"`
+	ProposalTimestampDifference tmprometheus.HistogramVec `metrics_labels:"is_timely" metrics_buckets:"-10, -.5, -.025, 0, .1, .5, 1, 1.5, 2, 10"`
 
 	// ProposalReceiveCount is the total number of proposals received by this node
 	// since process start.
 	// The metric is annotated by the status of the proposal from the application,
 	// either 'accepted' or 'rejected'.
 	//metrics:Total number of proposals received by the node since process start labeled by application response status.
-	ProposalReceiveCount *tmmetrics.CounterIntVec `metrics_labels:"status"`
+	ProposalReceiveCount tmprometheus.CounterIntVec `metrics_labels:"status"`
 
 	// ProposalCreationCount is the total number of proposals created by this node
 	// since process start.
 	//metrics:Total number of proposals created by the node since process start.
-	ProposalCreateCount *tmmetrics.CounterIntVec
+	ProposalCreateCount tmprometheus.CounterIntVec
 
 	// RoundVotingPowerPercent is the percentage of the total voting power received
 	// with a round. The value begins at 0 for each round and approaches 1.0 as
@@ -143,37 +143,37 @@ type Metrics struct {
 	// correspond to earlier heights and rounds than this node is currently
 	// in.
 	//metrics:Number of votes received by the node since process start that correspond to earlier heights and rounds than this node is currently in.
-	LateVotes *tmmetrics.CounterIntVec `metrics_labels:"validator_address"`
+	LateVotes tmprometheus.CounterIntVec `metrics_labels:"validator_address"`
 
 	// FinalRound stores the final round id the proposal block reach consensus in.
 	//metrics:The final round number for where the proposal block reach consensus in, starting at 0.
-	FinalRound *prometheus.HistogramVec `metrics_labels:"proposer_address" metrics_bucketsizes:"0,1,2,3,5,10"`
+	FinalRound tmprometheus.HistogramVec `metrics_labels:"proposer_address" metrics_buckets:"0,1,2,3,5,10"`
 
 	// ProposeLatency stores the latency in seconds from when the initial round
 	// starts till the proposal is created and received
 	//metrics:Number of seconds from when the consensus round started till the proposal receive time
-	ProposeLatency *prometheus.HistogramVec `metrics_labels:"proposer_address" metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	ProposeLatency tmprometheus.HistogramVec `metrics_labels:"proposer_address" metrics_buckets:"exprange(0.01, 10, 10)"`
 
 	// PrevoteLatency is measuring the relative delay in seconds from when the first vote arrive in each round
 	// till all remaining following prevote arrives from different validators to reach consensus.
 	//metrics:Number of seconds from when first prevote arrive till other remaining prevote arrives for each validator
-	PrevoteLatency *prometheus.HistogramVec `metrics_labels:"validator_address" metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	PrevoteLatency tmprometheus.HistogramVec `metrics_labels:"validator_address" metrics_buckets:"exprange(0.01, 10, 10)"`
 
 	// ConsensusTime the metric to track how long the consensus takes in each block
 	//metrics: Number of seconds spent on consensus
-	ConsensusTime *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.3, 25"`
+	ConsensusTime tmprometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.3, 25)"`
 
 	// CompleteProposalTime measures how long it takes between receiving a proposal and finishing
 	// processing all of its parts. Note that this means it also includes network latency from
 	// block parts gossip
-	CompleteProposalTime *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.3, 25"`
+	CompleteProposalTime tmprometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.3, 25)"`
 
 	// ApplyBlockLatency measures how long it takes to execute ApplyBlock in finalize commit step
-	ApplyBlockLatency *prometheus.HistogramVec `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.3, 25"`
+	ApplyBlockLatency tmprometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.3, 25)"`
 
 	StepLatency                 *prometheus.GaugeVec `metrics_labels:"step"`
 	lastRecordedStepLatencyNano int64
-	StepCount                   *tmmetrics.GaugeIntVec `metrics_labels:"step"`
+	StepCount                   tmprometheus.GaugeIntVec `metrics_labels:"step"`
 }
 
 // RecordConsMetrics uses for recording the block related metrics during fast-sync.

@@ -4,6 +4,7 @@ package tags
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 var Global = NewMetrics()
@@ -13,6 +14,7 @@ func init() {
 		Global.WithLabels,
 		Global.WithExpBuckets,
 		Global.WithBuckets,
+		Global.WithNoBuckets,
 		Global.Named,
 	)
 }
@@ -25,21 +27,25 @@ func NewMetrics() *Metrics {
 			Name:      "with_labels",
 			Help:      "",
 		}, []string{"step", "time"}),
-		WithExpBuckets: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		WithExpBuckets: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "with_exp_buckets",
 			Help:      "",
-
-			Buckets: prometheus.ExponentialBuckets(.1, 100, 8),
+			Buckets:   prometheus.ExponentialBuckets(.1, 100, 8),
 		}, nil),
-		WithBuckets: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		WithBuckets: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "with_buckets",
 			Help:      "",
-
-			Buckets: []float64{1, 2, 3, 4, 5},
+			Buckets:   []float64{1, 2, 3, 4, 5},
+		}, nil),
+		WithNoBuckets: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "with_no_buckets",
+			Help:      "",
 		}, nil),
 		Named: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
@@ -54,12 +60,16 @@ func (m *Metrics) WithLabelsAt(step string, time string) prometheus.Counter {
 	return m.WithLabels.WithLabelValues(step, time)
 }
 
-func (m *Metrics) WithExpBucketsAt() prometheus.Observer {
+func (m *Metrics) WithExpBucketsAt() *tmprometheus.Histogram {
 	return m.WithExpBuckets.WithLabelValues()
 }
 
-func (m *Metrics) WithBucketsAt() prometheus.Observer {
+func (m *Metrics) WithBucketsAt() *tmprometheus.Histogram {
 	return m.WithBuckets.WithLabelValues()
+}
+
+func (m *Metrics) WithNoBucketsAt() *tmprometheus.Histogram {
+	return m.WithNoBuckets.WithLabelValues()
 }
 
 func (m *Metrics) NamedAt() prometheus.Counter {

@@ -11,6 +11,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+var _ prometheus.Metric = (*GaugeInt)(nil)
+var _ prometheus.Metric = (*CounterInt)(nil)
+var _ prometheus.Collector = GaugeIntVec{}
+var _ prometheus.Collector = CounterIntVec{}
+
 // GaugeInt is a Metric that represents a single int64 value that can
 // arbitrarily go up and down.
 type GaugeInt struct {
@@ -59,14 +64,14 @@ type CounterIntVec struct{ v *prometheus.MetricVec }
 
 // NewGaugeIntVec creates a new GaugeIntVec based on the provided GaugeOpts and
 // partitioned by the given label names.
-func NewGaugeIntVec(opts prometheus.GaugeOpts, labelNames []string) *GaugeIntVec {
+func NewGaugeIntVec(opts prometheus.GaugeOpts, labelNames []string) GaugeIntVec {
 	desc := prometheus.NewDesc(
 		prometheus.BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
 		opts.Help,
 		labelNames,
 		opts.ConstLabels,
 	)
-	return &GaugeIntVec{
+	return GaugeIntVec{
 		v: prometheus.NewMetricVec(desc, func(lvs ...string) prometheus.Metric {
 			return &GaugeInt{
 				desc:       desc,
@@ -78,28 +83,28 @@ func NewGaugeIntVec(opts prometheus.GaugeOpts, labelNames []string) *GaugeIntVec
 
 // NewCounterIntVec creates a new CounterIntVec based on the provided
 // CounterOpts and partitioned by the given label names.
-func NewCounterIntVec(opts prometheus.CounterOpts, labelNames []string) *CounterIntVec {
+func NewCounterIntVec(opts prometheus.CounterOpts, labelNames []string) CounterIntVec {
 	desc := prometheus.NewDesc(
 		prometheus.BuildFQName(opts.Namespace, opts.Subsystem, opts.Name),
 		opts.Help,
 		labelNames,
 		opts.ConstLabels,
 	)
-	return &CounterIntVec{
+	return CounterIntVec{
 		v: prometheus.NewMetricVec(desc, func(lvs ...string) prometheus.Metric {
 			return &CounterInt{desc: desc, labelPairs: prometheus.MakeLabelPairs(desc, lvs)}
 		}),
 	}
 }
 
-func (v *GaugeIntVec) Describe(ch chan<- *prometheus.Desc) { v.v.Describe(ch) }
-func (v *GaugeIntVec) Collect(ch chan<- prometheus.Metric) { v.v.Collect(ch) }
-func (v *GaugeIntVec) WithLabelValues(lvs ...string) *GaugeInt {
+func (v GaugeIntVec) Describe(ch chan<- *prometheus.Desc) { v.v.Describe(ch) }
+func (v GaugeIntVec) Collect(ch chan<- prometheus.Metric) { v.v.Collect(ch) }
+func (v GaugeIntVec) WithLabelValues(lvs ...string) *GaugeInt {
 	return utils.OrPanic1(v.v.GetMetricWithLabelValues(lvs...)).(*GaugeInt)
 }
 
-func (v *CounterIntVec) Describe(ch chan<- *prometheus.Desc) { v.v.Describe(ch) }
-func (v *CounterIntVec) Collect(ch chan<- prometheus.Metric) { v.v.Collect(ch) }
-func (v *CounterIntVec) WithLabelValues(lvs ...string) *CounterInt {
+func (v CounterIntVec) Describe(ch chan<- *prometheus.Desc) { v.v.Describe(ch) }
+func (v CounterIntVec) Collect(ch chan<- prometheus.Metric) { v.v.Collect(ch) }
+func (v CounterIntVec) WithLabelValues(lvs ...string) *CounterInt {
 	return utils.OrPanic1(v.v.GetMetricWithLabelValues(lvs...)).(*CounterInt)
 }

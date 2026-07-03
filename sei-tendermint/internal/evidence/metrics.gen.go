@@ -4,7 +4,7 @@ package evidence
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 var Global = NewMetrics()
@@ -17,7 +17,7 @@ func init() {
 
 func NewMetrics() *Metrics {
 	return &Metrics{
-		NumEvidence: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		NumEvidence: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "num_evidence",
@@ -26,6 +26,6 @@ func NewMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) NumEvidenceAt() *tmmetrics.GaugeInt {
+func (m *Metrics) NumEvidenceAt() *tmprometheus.GaugeInt {
 	return m.NumEvidence.WithLabelValues()
 }

@@ -21,7 +21,7 @@ const testDataDir = "./testdata"
 func TestSimpleTemplate(t *testing.T) {
 	m := metricsgen.ParsedMetricField{
 		TypeName:           "HistogramVec",
-		ConstructorPackage: "prometheus",
+		ConstructorPackage: "tmprometheus",
 		ConstructorName:    "NewHistogramVec",
 		OptsTypeName:       "HistogramOpts",
 		FieldName:          "MyMetric",
@@ -32,11 +32,13 @@ func TestSimpleTemplate(t *testing.T) {
 
 		MethodParams:     "first string, second string, third string",
 		MethodArgs:       "first, second, third",
-		MethodReturnType: "prometheus.Observer",
+		MethodReturnType: "*tmprometheus.Histogram",
 	}
 	td := metricsgen.TemplateData{
-		Package:       "mypack",
-		ParsedMetrics: []metricsgen.ParsedMetricField{m},
+		Package:         "mypack",
+		StructName:      "Metrics",
+		ConstructorName: "NewMetrics",
+		ParsedMetrics:   []metricsgen.ParsedMetricField{m},
 	}
 	b := bytes.NewBuffer([]byte{})
 	err := metricsgen.GenerateMetricsFile(b, td)
@@ -107,7 +109,9 @@ func TestParseMetricsStruct(t *testing.T) {
 				myGauge *prometheus.GaugeVec
 			}`,
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
 						TypeName:           "GaugeVec",
@@ -124,23 +128,80 @@ func TestParseMetricsStruct(t *testing.T) {
 		{
 			name: "histogram",
 			metricsStruct: "type Metrics struct {\n" +
-				"myHistogram *prometheus.HistogramVec `metrics_buckettype:\"exp\" metrics_bucketsizes:\"1, 100, .8\"`\n" +
+				"myHistogram *prometheus.HistogramVec `metrics_buckets:\"exp(1, 100, .8)\"`\n" +
 				"}",
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
+				UsesIntMetrics:  true,
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
 						TypeName:           "HistogramVec",
-						ConstructorPackage: "prometheus",
+						ConstructorPackage: "tmprometheus",
 						ConstructorName:    "NewHistogramVec",
 						OptsTypeName:       "HistogramOpts",
 						FieldName:          "myHistogram",
 						MetricName:         "my_histogram",
-						MethodReturnType:   "prometheus.Observer",
+						MethodReturnType:   "*tmprometheus.Histogram",
 
 						HistogramOptions: metricsgen.HistogramOpts{
 							BucketType:  "prometheus.ExponentialBuckets",
 							BucketSizes: "1, 100, .8",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "histogram without finite buckets",
+			metricsStruct: "type Metrics struct {\n" +
+				"myHistogram *prometheus.HistogramVec `metrics_buckets:\"none\"`\n" +
+				"}",
+			expected: metricsgen.TemplateData{
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
+				UsesIntMetrics:  true,
+				ParsedMetrics: []metricsgen.ParsedMetricField{
+					{
+						TypeName:           "HistogramVec",
+						ConstructorPackage: "tmprometheus",
+						ConstructorName:    "NewHistogramVec",
+						OptsTypeName:       "HistogramOpts",
+						FieldName:          "myHistogram",
+						MetricName:         "my_histogram",
+						MethodReturnType:   "*tmprometheus.Histogram",
+
+						HistogramOptions: metricsgen.HistogramOpts{
+							NoBuckets: true,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "histogram without explicit buckets uses defaults",
+			metricsStruct: "type Metrics struct {\n" +
+				"myHistogram *prometheus.HistogramVec\n" +
+				"}",
+			expected: metricsgen.TemplateData{
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
+				UsesIntMetrics:  true,
+				ParsedMetrics: []metricsgen.ParsedMetricField{
+					{
+						TypeName:           "HistogramVec",
+						ConstructorPackage: "tmprometheus",
+						ConstructorName:    "NewHistogramVec",
+						OptsTypeName:       "HistogramOpts",
+						FieldName:          "myHistogram",
+						MetricName:         "my_histogram",
+						MethodReturnType:   "*tmprometheus.Histogram",
+
+						HistogramOptions: metricsgen.HistogramOpts{
+							DefaultBuckets: true,
 						},
 					},
 				},
@@ -152,7 +213,9 @@ func TestParseMetricsStruct(t *testing.T) {
 				"myCounter *prometheus.CounterVec `metrics_name:\"new_name\"`\n" +
 				"}",
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
 						TypeName:           "CounterVec",
@@ -172,7 +235,9 @@ func TestParseMetricsStruct(t *testing.T) {
 				"myCounter *prometheus.CounterVec `metrics_labels:\"label1,label2\"`\n" +
 				"}",
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
 						TypeName:           "CounterVec",
@@ -197,7 +262,9 @@ func TestParseMetricsStruct(t *testing.T) {
 				nonMetric string
 				}`,
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
 						TypeName:           "CounterVec",
@@ -244,6 +311,58 @@ func TestParseMetricsStruct(t *testing.T) {
 	}
 }
 
+func TestParseHistogramBuckets(t *testing.T) {
+	tests := []struct {
+		name     string
+		spec     string
+		expected metricsgen.HistogramOpts
+	}{
+		{
+			name: "list",
+			spec: "1,2,3,4",
+			expected: metricsgen.HistogramOpts{
+				BucketSizes: "1,2,3,4",
+			},
+		},
+		{
+			name: "exp",
+			spec: "exp(1, 2, 3)",
+			expected: metricsgen.HistogramOpts{
+				BucketType:  "prometheus.ExponentialBuckets",
+				BucketSizes: "1, 2, 3",
+			},
+		},
+		{
+			name: "exprange",
+			spec: "exprange(1, 10, 3)",
+			expected: metricsgen.HistogramOpts{
+				BucketType:  "prometheus.ExponentialBucketsRange",
+				BucketSizes: "1, 10, 3",
+			},
+		},
+		{
+			name: "none",
+			spec: "none",
+			expected: metricsgen.HistogramOpts{
+				NoBuckets: true,
+			},
+		},
+		{
+			name: "empty uses defaults",
+			spec: "",
+			expected: metricsgen.HistogramOpts{
+				DefaultBuckets: true,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.expected, metricsgen.ParseHistogramBuckets(tc.spec))
+		})
+	}
+}
+
 func TestParseAliasedMetric(t *testing.T) {
 	aliasedData := `
 			package mypkg
@@ -269,7 +388,9 @@ func TestParseAliasedMetric(t *testing.T) {
 
 	expected :=
 		metricsgen.TemplateData{
-			Package: "mypkg",
+			Package:         "mypkg",
+			StructName:      "Metrics",
+			ConstructorName: "NewMetrics",
 			ParsedMetrics: []metricsgen.ParsedMetricField{
 				{
 					TypeName:           "GaugeVec",
@@ -283,4 +404,37 @@ func TestParseAliasedMetric(t *testing.T) {
 			},
 		}
 	require.Equal(t, expected, td)
+}
+
+func TestParseLowercaseMetricsStruct(t *testing.T) {
+	data := `
+			package mypkg
+
+			import(
+				"github.com/prometheus/client_golang/prometheus"
+			)
+			type metrics struct {
+				latency *prometheus.HistogramVec
+			}
+			`
+	dir := t.TempDir()
+	f, err := os.Create(filepath.Join(dir, "metrics.go"))
+	if err != nil {
+		t.Fatalf("unable to open file: %v", err)
+	}
+	_, err = io.WriteString(f, data)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	td, err := metricsgen.ParseMetricsDir(dir, "metrics")
+	require.NoError(t, err)
+	require.Equal(t, "metrics", td.StructName)
+	require.Equal(t, "newMetrics", td.ConstructorName)
+
+	b := bytes.NewBuffer(nil)
+	require.NoError(t, metricsgen.GenerateMetricsFile(b, td))
+	require.Contains(t, b.String(), "var Global = newMetrics()")
+	require.Contains(t, b.String(), "func newMetrics() *metrics")
+	require.Contains(t, b.String(), "func (m *metrics) latencyAt() *tmprometheus.Histogram")
+	require.Contains(t, b.String(), "prometheus.DefBuckets")
 }

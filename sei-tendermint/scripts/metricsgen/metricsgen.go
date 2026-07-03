@@ -48,8 +48,7 @@ const (
 const (
 	metricNameTag = "metrics_name"
 	labelsTag     = "metrics_labels"
-	bucketTypeTag = "metrics_buckettype"
-	bucketSizeTag = "metrics_bucketsizes"
+	bucketsTag    = "metrics_buckets"
 	counterIntVec = "CounterIntVec"
 	gaugeIntVec   = "GaugeIntVec"
 )
@@ -72,11 +71,11 @@ package {{ .Package }}
 import (
 	"github.com/prometheus/client_golang/prometheus"
 {{- if .UsesIntMetrics }}
-	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 {{- end }}
 )
 
-var Global = NewMetrics()
+var Global = {{ .ConstructorName }}()
 
 func init() {
 	prometheus.MustRegister(
@@ -86,26 +85,28 @@ func init() {
 	)
 }
 
-func NewMetrics() *Metrics {
-	return &Metrics{
+func {{ .ConstructorName }}() *{{ .StructName }} {
+	return &{{ .StructName }}{
 {{- range $metric := .ParsedMetrics }}
 		{{ $metric.FieldName }}: {{ $metric.ConstructorPackage }}.{{ $metric.ConstructorName }}(prometheus.{{ $metric.OptsTypeName }}{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "{{$metric.MetricName }}",
 			Help:      "{{ $metric.Description }}",
-			{{ if ne $metric.HistogramOptions.BucketType "" }}
+{{- if $metric.HistogramOptions.DefaultBuckets }}
+			Buckets: prometheus.DefBuckets,
+{{- else if ne $metric.HistogramOptions.BucketType "" }}
 			Buckets: {{ $metric.HistogramOptions.BucketType }}({{ $metric.HistogramOptions.BucketSizes }}),
-			{{ else if ne $metric.HistogramOptions.BucketSizes "" }}
+{{- else if ne $metric.HistogramOptions.BucketSizes "" }}
 			Buckets: []float64{ {{ $metric.HistogramOptions.BucketSizes }} },
-			{{ end }}
+{{- end }}
 		}, {{ if eq (len $metric.Labels) 0 }}nil{{ else }}[]string{ {{$metric.Labels}} }{{ end }}),
 {{- end }}
 	}
 }
 
 {{ range $metric := .ParsedMetrics }}
-func (m *Metrics) {{ $metric.FieldName }}At({{ $metric.MethodParams }}) {{ $metric.MethodReturnType }} {
+func (m *{{ $.StructName }}) {{ $metric.FieldName }}At({{ $metric.MethodParams }}) {{ $metric.MethodReturnType }} {
 	return m.{{ $metric.FieldName }}.WithLabelValues({{ $metric.MethodArgs }})
 }
 
@@ -132,15 +133,19 @@ type ParsedMetricField struct {
 }
 
 type HistogramOpts struct {
-	BucketType  string
-	BucketSizes string
+	BucketType     string
+	BucketSizes    string
+	NoBuckets      bool
+	DefaultBuckets bool
 }
 
 // TemplateData is all of the data required for rendering a metric file template.
 type TemplateData struct {
-	Package        string
-	ParsedMetrics  []ParsedMetricField
-	UsesIntMetrics bool
+	Package         string
+	StructName      string
+	ConstructorName string
+	ParsedMetrics   []ParsedMetricField
+	UsesIntMetrics  bool
 }
 
 func main() {
@@ -194,7 +199,9 @@ func ParseMetricsDir(dir string, structName string) (TemplateData, error) {
 		break
 	}
 	td := TemplateData{
-		Package: pkgName,
+		Package:         pkgName,
+		StructName:      structName,
+		ConstructorName: constructorName(structName),
 	}
 	// Grab the metrics struct
 	m, metricsPackageNames, err := findMetricsStruct(pkgFiles, structName)
@@ -206,13 +213,29 @@ func ParseMetricsDir(dir string, structName string) (TemplateData, error) {
 			continue
 		}
 		pmf := parseMetricField(f)
-		if pmf.ConstructorPackage == "tmmetrics" {
+		if pmf.ConstructorPackage == "tmprometheus" || strings.HasPrefix(pmf.HistogramOptions.BucketType, "tmprometheus.") {
 			td.UsesIntMetrics = true
 		}
 		td.ParsedMetrics = append(td.ParsedMetrics, pmf)
 	}
 
 	return td, err
+}
+
+func constructorName(structName string) string {
+	if structName == "" {
+		return "NewMetrics"
+	}
+	if isExported(structName) {
+		return "New" + structName
+	}
+	r, size := utf8.DecodeRuneInString(structName)
+	return "new" + string(unicode.ToUpper(r)) + structName[size:]
+}
+
+func isExported(name string) bool {
+	r, _ := utf8.DecodeRuneInString(name)
+	return unicode.IsUpper(r)
 }
 
 // GenerateMetricsFile executes the metrics file template, writing the result
@@ -302,8 +325,8 @@ func extractTypeName(e ast.Expr) string {
 
 func extractConstructorPackage(typeName string) string {
 	switch typeName {
-	case counterIntVec, gaugeIntVec:
-		return "tmmetrics"
+	case counterIntVec, gaugeIntVec, "HistogramVec":
+		return "tmprometheus"
 	default:
 		return "prometheus"
 	}
@@ -325,13 +348,13 @@ func extractMethodReturnType(typeName string) string {
 	case "CounterVec":
 		return "prometheus.Counter"
 	case counterIntVec:
-		return "*tmmetrics.CounterInt"
+		return "*tmprometheus.CounterInt"
 	case "GaugeVec":
 		return "prometheus.Gauge"
 	case gaugeIntVec:
-		return "*tmmetrics.GaugeInt"
+		return "*tmprometheus.GaugeInt"
 	case "HistogramVec":
-		return "prometheus.Observer"
+		return "*tmprometheus.Histogram"
 	default:
 		return ""
 	}
@@ -437,17 +460,39 @@ func extractFieldName(name string, tag *ast.BasicLit) string {
 }
 
 func extractHistogramOptions(tag *ast.BasicLit) HistogramOpts {
-	h := HistogramOpts{}
-	if tag != nil {
-		t := reflect.StructTag(strings.Trim(tag.Value, "`"))
-		if v := t.Get(bucketTypeTag); v != "" {
-			h.BucketType = bucketType[v]
+	if tag == nil {
+		return parseHistogramBuckets("")
+	}
+	t := reflect.StructTag(strings.Trim(tag.Value, "`"))
+	return parseHistogramBuckets(t.Get(bucketsTag))
+}
+
+func parseHistogramBuckets(spec string) HistogramOpts {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return HistogramOpts{DefaultBuckets: true}
+	}
+	if spec == "none" {
+		return HistogramOpts{NoBuckets: true}
+	}
+	for name, expr := range bucketType {
+		if name == "none" {
+			continue
 		}
-		if v := t.Get(bucketSizeTag); v != "" {
-			h.BucketSizes = v
+		prefix := name + "("
+		if strings.HasPrefix(spec, prefix) && strings.HasSuffix(spec, ")") {
+			return HistogramOpts{
+				BucketType:  expr,
+				BucketSizes: strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(spec, prefix), ")")),
+			}
 		}
 	}
-	return h
+	return HistogramOpts{BucketSizes: spec}
+}
+
+// ParseHistogramBuckets parses the metrics_buckets tag value into generator options.
+func ParseHistogramBuckets(spec string) HistogramOpts {
+	return parseHistogramBuckets(spec)
 }
 
 func extractMetricsPackageNames(imports []*ast.ImportSpec) (map[string]struct{}, error) {

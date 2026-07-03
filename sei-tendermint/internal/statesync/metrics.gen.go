@@ -4,7 +4,7 @@ package statesync
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 var Global = NewMetrics()
@@ -23,7 +23,7 @@ func init() {
 
 func NewMetrics() *Metrics {
 	return &Metrics{
-		TotalSnapshots: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		TotalSnapshots: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "total_snapshots",
@@ -35,31 +35,31 @@ func NewMetrics() *Metrics {
 			Name:      "chunk_process_avg_time",
 			Help:      "The average processing time per chunk.",
 		}, nil),
-		SnapshotHeight: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		SnapshotHeight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "snapshot_height",
 			Help:      "The height of the current snapshot the has been processed.",
 		}, nil),
-		SnapshotChunk: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		SnapshotChunk: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "snapshot_chunk",
 			Help:      "The current number of chunks that have been processed.",
 		}, nil),
-		SnapshotChunkTotal: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		SnapshotChunkTotal: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "snapshot_chunk_total",
 			Help:      "The total number of chunks in the current snapshot.",
 		}, nil),
-		BackFilledBlocks: tmmetrics.NewCounterIntVec(prometheus.CounterOpts{
+		BackFilledBlocks: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "back_filled_blocks",
 			Help:      "The current number of blocks that have been back-filled.",
 		}, nil),
-		BackFillBlocksTotal: tmmetrics.NewGaugeIntVec(prometheus.GaugeOpts{
+		BackFillBlocksTotal: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "back_fill_blocks_total",
@@ -68,7 +68,7 @@ func NewMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) TotalSnapshotsAt() *tmmetrics.CounterInt {
+func (m *Metrics) TotalSnapshotsAt() *tmprometheus.CounterInt {
 	return m.TotalSnapshots.WithLabelValues()
 }
 
@@ -76,22 +76,22 @@ func (m *Metrics) ChunkProcessAvgTimeAt() prometheus.Gauge {
 	return m.ChunkProcessAvgTime.WithLabelValues()
 }
 
-func (m *Metrics) SnapshotHeightAt() *tmmetrics.GaugeInt {
+func (m *Metrics) SnapshotHeightAt() *tmprometheus.GaugeInt {
 	return m.SnapshotHeight.WithLabelValues()
 }
 
-func (m *Metrics) SnapshotChunkAt() *tmmetrics.CounterInt {
+func (m *Metrics) SnapshotChunkAt() *tmprometheus.CounterInt {
 	return m.SnapshotChunk.WithLabelValues()
 }
 
-func (m *Metrics) SnapshotChunkTotalAt() *tmmetrics.GaugeInt {
+func (m *Metrics) SnapshotChunkTotalAt() *tmprometheus.GaugeInt {
 	return m.SnapshotChunkTotal.WithLabelValues()
 }
 
-func (m *Metrics) BackFilledBlocksAt() *tmmetrics.CounterInt {
+func (m *Metrics) BackFilledBlocksAt() *tmprometheus.CounterInt {
 	return m.BackFilledBlocks.WithLabelValues()
 }
 
-func (m *Metrics) BackFillBlocksTotalAt() *tmmetrics.GaugeInt {
+func (m *Metrics) BackFillBlocksTotalAt() *tmprometheus.GaugeInt {
 	return m.BackFillBlocksTotal.WithLabelValues()
 }

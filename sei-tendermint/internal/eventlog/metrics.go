@@ -1,6 +1,6 @@
 package eventlog
 
-import tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+import tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 
 const (
 	// MetricsNamespace is the namespace shared by all Tendermint Prometheus metrics.
@@ -14,5 +14,5 @@ const (
 type Metrics struct {
 
 	// Number of items currently resident in the event log.
-	numItems *tmmetrics.GaugeIntVec
+	numItems tmprometheus.GaugeIntVec
 }
