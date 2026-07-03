@@ -17,6 +17,7 @@ import (
 
 func TestStateBadProposal(t *testing.T) {
 	config := configSetup(t)
+	chainID := mustGenesisChainID(config)
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
@@ -46,7 +47,7 @@ func TestStateBadProposal(t *testing.T) {
 	require.NoError(t, err)
 	proposal := types.NewProposal(vs2.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxHashes(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p := proposal.ToProto()
-	require.NoError(t, vs2.SignProposal(ctx, config.ChainID(), p))
+	require.NoError(t, vs2.SignProposal(ctx, chainID, p))
 	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
 	err = cs1.SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer")
@@ -55,9 +56,9 @@ func TestStateBadProposal(t *testing.T) {
 	cs1.startTestRound(ctx, height, round)
 	ensureProposal(t, proposalCh, height, round, blockID)
 	ensurePrevoteMatch(t, voteCh, height, round, nil)
-	cs1.signAddVotes(ctx, t, tmproto.PrevoteType, config.ChainID(), blockID, vs2)
+	cs1.signAddVotes(ctx, t, tmproto.PrevoteType, chainID, blockID, vs2)
 	ensurePrevote(t, voteCh, height, round)
 	ensurePrecommit(t, voteCh, height, round)
 	cs1.validatePrecommit(ctx, t, round, -1, vss[0], nil, nil)
-	cs1.signAddVotes(ctx, t, tmproto.PrecommitType, config.ChainID(), blockID, vs2)
+	cs1.signAddVotes(ctx, t, tmproto.PrecommitType, chainID, blockID, vs2)
 }

@@ -497,7 +497,7 @@ func (r *Reactor) backfill(
 		"stopHeight", stopHeight, "stopTime", stopTime, "trustedBlockID", trustedBlockID)
 
 	r.backfillBlockTotal = startHeight - stopHeight + 1
-	r.metrics.BackFillBlocksTotal.Set(float64(r.backfillBlockTotal))
+	r.metrics.BackFillBlocksTotalAt().Set(r.backfillBlockTotal)
 
 	const sleepTime = 1 * time.Second
 	var (
@@ -625,13 +625,13 @@ func (r *Reactor) backfill(
 			lastValidatorSet = resp.block.ValidatorSet
 
 			r.backfilledBlocks++
-			r.metrics.BackFilledBlocks.Add(1)
+			r.metrics.BackFilledBlocksAt().Add(1)
 
 			// The block height might be less than the stopHeight because of the stopTime condition
 			// hasn't been fulfilled.
 			if resp.block.Height < stopHeight {
 				r.backfillBlockTotal++
-				r.metrics.BackFillBlocksTotal.Set(float64(r.backfillBlockTotal))
+				r.metrics.BackFillBlocksTotalAt().Set(r.backfillBlockTotal)
 			}
 
 		case <-queue.done():

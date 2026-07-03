@@ -31,6 +31,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+func mustGenesisChainID(cfg *config.Config) string {
+	genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
+	if err != nil {
+		panic(err)
+	}
+	return genDoc.ChainID
+}
+
 func getHTTPClient(t *testing.T, conf *config.Config) *rpchttp.HTTP {
 	t.Helper()
 
@@ -508,7 +516,7 @@ func TestClientMethodCalls(t *testing.T) {
 				t.Run("BroadcastDuplicateVote", func(t *testing.T) {
 					ctx := t.Context()
 
-					chainID := conf.ChainID()
+					chainID := mustGenesisChainID(conf)
 
 					// make sure that the node has produced enough blocks
 					waitForBlock(ctx, t, c, 2)

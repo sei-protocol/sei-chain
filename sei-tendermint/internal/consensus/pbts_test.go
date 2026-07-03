@@ -163,7 +163,7 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 		patternStartHeight:    patternStartHeight,
 		validatorClock:        clock,
 		currentHeight:         1,
-		chainID:               cfg.ChainID(),
+		chainID:               mustGenesisChainID(cfg),
 		roundCh:               subscribe(ctx, t, cs.eventBus, types.EventQueryNewRound),
 		ensureProposalCh:      subscribe(ctx, t, cs.eventBus, types.EventQueryCompleteProposal),
 		blockCh:               subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock),

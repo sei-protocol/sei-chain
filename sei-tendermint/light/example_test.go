@@ -32,7 +32,7 @@ func TestExampleClient(t *testing.T) {
 	defer func() { _ = closer(ctx) }()
 
 	dbDir := t.TempDir()
-	chainID := conf.ChainID()
+	chainID := mustGenesisChainID(conf)
 
 	primary, err := httpp.New(chainID, conf.RPC.ListenAddress)
 	if err != nil {

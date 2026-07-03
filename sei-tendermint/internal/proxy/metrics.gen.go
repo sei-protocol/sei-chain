@@ -3,30 +3,30 @@
 package proxy
 
 import (
-	"github.com/go-kit/kit/metrics/discard"
-	prometheus "github.com/go-kit/kit/metrics/prometheus"
-	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
-func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
-	labels := []string{}
-	for i := 0; i < len(labelsAndValues); i += 2 {
-		labels = append(labels, labelsAndValues[i])
-	}
+var Global = NewMetrics()
+
+func init() {
+	prometheus.MustRegister(
+		Global.MethodTiming,
+	)
+}
+
+func NewMetrics() *Metrics {
 	return &Metrics{
-		MethodTiming: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+		MethodTiming: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "method_timing",
 			Help:      "Timing for each ABCI method.",
 
 			Buckets: []float64{.0001, .0004, .002, .009, .02, .1, .65, 2, 6, 25},
-		}, append(labels, "method", "type")).With(labelsAndValues...),
+		}, []string{"method", "type"}),
 	}
 }
 
-func NopMetrics() *Metrics {
-	return &Metrics{
-		MethodTiming: discard.NewHistogram(),
-	}
+func (m *Metrics) MethodTimingAt(method string, typeLabel string) prometheus.Observer {
+	return m.MethodTiming.WithLabelValues(method, typeLabel)
 }

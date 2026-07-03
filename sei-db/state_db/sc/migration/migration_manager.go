@@ -98,9 +98,12 @@ func NewMigrationManager(
 	if iterator == nil {
 		return nil, errors.New("iterator must not be nil")
 	}
-	if migrationBatchSize <= 0 {
-		return nil, fmt.Errorf("migration batch size must be positive, got %d", migrationBatchSize)
-	}
+	// A batch size of 0 is a valid "paused" state: the migration manager
+	// is wired up and routes caller writes, but advances no keys per block
+	// until SetMigrationBatchSize raises it above 0 (the governance param
+	// acts as the migration trigger). The batch size is normalized to be
+	// non-negative by the caller (CompositeCommitStore.SetMigrationBatchSize),
+	// so no negativity check is needed here.
 	if startVersion >= targetVersion {
 		return nil, fmt.Errorf("startVersion (%d) must be strictly less than targetVersion (%d)",
 			startVersion, targetVersion)
@@ -285,8 +288,15 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet, f
 	oldDBPairsByStore := make(map[string]map[string]*proto.KVPair)
 	newDBPairsByStore := make(map[string]map[string]*proto.KVPair)
 
+	// advanceMigration gates the once-per-block boundary advance. It is
+	// suppressed when the batch size is 0 (migration paused): caller writes
+	// still route below, but no keys are pulled forward and no boundary
+	// metadata is rewritten, so the migration holds at its current cursor
+	// until the batch size is raised again.
+	advanceMigration := firstBatchInBlock && m.migrationBatchSize > 0
+
 	batchStats := migrationBatchStats{}
-	if firstBatchInBlock {
+	if advanceMigration {
 		// Get the next batch of keys to migrate.
 		valuesToMigrate, newBoundary, err := m.iterator.NextBatch(m.migrationBatchSize)
 		if err != nil {
@@ -332,7 +342,7 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet, f
 	migrationComplete := false
 	metadataPairsWritten := int64(0)
 
-	if firstBatchInBlock {
+	if advanceMigration {
 		migrationComplete = m.boundary.Equals(MigrationBoundaryComplete)
 		metadataPairsWritten = 1
 		if migrationComplete {
@@ -376,7 +386,7 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet, f
 	// silently drop those stats. keysMigrated and the metadata pair count stay zero on
 	// non-first calls because the migration-advance branch above is skipped.
 	m.metrics.RecordBatch(batchStats)
-	if firstBatchInBlock && migrationComplete {
+	if advanceMigration && migrationComplete {
 		m.logMigrationCompleteSummary()
 	}
 
@@ -472,6 +482,17 @@ func (m *MigrationManager) GetProof(store string, key []byte) (*ics23.Commitment
 	return nil, fmt.Errorf("state proofs not supported for store %q", store)
 }
 
+// SetMigrationBatchSize implements [Router]. It updates the number of keys
+// the manager pulls forward per block. 0 pauses the migration; a positive
+// value resumes it from the persisted boundary.
+//
+// Not safe for concurrent use; wrap with NewThreadSafeRouter (BuildRouter
+// does this for migration modes, so the threadSafeRouter write lock
+// serializes this against ApplyChangeSets / Read).
+func (m *MigrationManager) SetMigrationBatchSize(batchSize int) {
+	m.migrationBatchSize = batchSize
+}
+
 // BuildRoute returns a Route that dispatches the given module names to
 // this MigrationManager. Reads, writes and proof requests for those
 // modules will all flow through this migration manager.
@@ -480,5 +501,13 @@ func (m *MigrationManager) GetProof(store string, key []byte) (*ics23.Commitment
 // returned Route may be passed to NewModuleRouter alongside other
 // Routes to compose multi-database setups.
 func (m *MigrationManager) BuildRoute(moduleNames ...string) (*Route, error) {
-	return NewRoute(m.Read, m.ApplyChangeSets, m.GetProof, moduleNames...)
+	route, err := NewRoute(m.Read, m.ApplyChangeSets, m.GetProof, moduleNames...)
+	if err != nil {
+		return nil, err
+	}
+	// Record the manager as the route's owner so a ModuleRouter can
+	// propagate SetMigrationBatchSize back to it (the accessors above are
+	// closures and otherwise hide the manager).
+	route.owner = m
+	return route, nil
 }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"runtime"
 	"time"
 
@@ -190,6 +191,12 @@ type Config struct {
 	// rejected fast (HTTP 429) before decode, capping peak memory under load.
 	// Set to 0 to disable the limit.
 	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
+
+	// MaxOpenConnections caps the number of simultaneously accepted connections
+	// on the EVM HTTP and WebSocket listeners. The limit is applied per listener
+	// (HTTP and WS each get their own budget). Excess connections block in the
+	// accept queue until an active connection closes. Zero disables the limit.
+	MaxOpenConnections int `mapstructure:"max_open_connections"`
 }
 
 var DefaultConfig = Config{
@@ -242,6 +249,7 @@ var DefaultConfig = Config{
 	BatchResponseMaxSize:      25 * 1000 * 1000,  // 25MB
 	MaxRequestBodyBytes:       5 * 1024 * 1024,   // 5 MiB (matches go-ethereum rpc default body limit)
 	MaxConcurrentRequestBytes: 128 * 1024 * 1024, // 128 MiB of request bodies admitted concurrently
+	MaxOpenConnections:        2000,
 }
 
 const (
@@ -290,6 +298,7 @@ const (
 	flagBatchResponseMaxSize         = "evm.batch_response_max_size"
 	flagMaxRequestBodyBytes          = "evm.max_request_body_bytes"
 	flagMaxConcurrentRequestBytes    = "evm.max_concurrent_request_bytes"
+	flagMaxOpenConnections           = "evm.max_open_connections"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -520,6 +529,14 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagMaxOpenConnections); v != nil {
+		if cfg.MaxOpenConnections, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+		if cfg.MaxOpenConnections < 0 {
+			return cfg, fmt.Errorf("%s must be >= 0 (0 disables the limit), got %d", flagMaxOpenConnections, cfg.MaxOpenConnections)
+		}
+	}
 	return cfg, nil
 }
 
@@ -737,5 +754,9 @@ max_request_body_bytes = {{ .EVM.MaxRequestBodyBytes }}
 # Content-Length). Requests that would exceed the budget are rejected fast
 # (HTTP 429) before decode, capping peak memory under load. Set to 0 to disable.
 max_concurrent_request_bytes = {{ .EVM.MaxConcurrentRequestBytes }}
+
+# max_open_connections caps the number of simultaneously accepted connections on
+# the EVM HTTP and WebSocket listeners. Set to 0 to disable the limit.
+max_open_connections = {{ .EVM.MaxOpenConnections }}
 
 `

@@ -37,6 +37,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+func mustGenesisChainID(cfg *config.Config) string {
+	genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
+	if err != nil {
+		panic(err)
+	}
+	return genDoc.ChainID
+}
+
 func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Service, error) {
 	app := kvstore.NewApplication()
 	app.SetValidators(utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile())).ValidatorUpdates())
@@ -47,7 +55,7 @@ func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Servi
 		app,
 		nil,
 		nil,
-		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+		DefaultMetricsProvider(cfg.Instrumentation)(),
 		types.DefaultConsensusPolicy(),
 	)
 }
@@ -115,7 +123,7 @@ func TestNodeRestartEventAllowsRecreate(t *testing.T) {
 			app,
 			nil,
 			nil,
-			DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+			DefaultMetricsProvider(cfg.Instrumentation)(),
 			types.DefaultConsensusPolicy(),
 		)
 		require.NoError(t, err)
@@ -212,7 +220,7 @@ func TestNodeSetPrivValTCP(t *testing.T) {
 
 	signerServer := privval.NewSignerServer(
 		dialerEndpoint,
-		cfg.ChainID(),
+		mustGenesisChainID(cfg),
 		types.NewMockPV(),
 	)
 
@@ -271,7 +279,7 @@ func TestNodeSetPrivValIPC(t *testing.T) {
 
 	pvsc := privval.NewSignerServer(
 		dialerEndpoint,
-		cfg.ChainID(),
+		mustGenesisChainID(cfg),
 		types.NewMockPV(),
 	)
 
@@ -312,14 +320,14 @@ func TestCreateProposalBlock(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
 		proxyApp,
-		mempool.NopMetrics(),
+		mempool.NewMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
 
 	// Make EvidencePool
 	evidenceDB := dbm.NewMemDB()
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	evidencePool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NopMetrics(), nil)
+	evidencePool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NewMetrics(), nil)
 
 	// fill the evidence pool with more evidence
 	// than can fit in a block
@@ -354,7 +362,7 @@ func TestCreateProposalBlock(t *testing.T) {
 		evidencePool,
 		blockStore,
 		eventBus,
-		sm.NopMetrics(),
+		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -409,7 +417,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
 		proxyApp,
-		mempool.NopMetrics(),
+		mempool.NewMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
 
@@ -429,7 +437,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
-		sm.NopMetrics(),
+		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -474,7 +482,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
 		proxyApp,
-		mempool.NopMetrics(),
+		mempool.NewMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
 
@@ -501,7 +509,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
-		sm.NopMetrics(),
+		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -605,7 +613,7 @@ func TestNodeNewSeedNode(t *testing.T) {
 		config.DefaultDBProvider,
 		nodeKey,
 		defaultGenesisDocProviderFunc(cfg),
-		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+		DefaultMetricsProvider(cfg.Instrumentation)(),
 	)
 	t.Cleanup(ns.Wait)
 	t.Cleanup(leaktest.CheckTimeout(t, time.Second))

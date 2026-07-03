@@ -4,9 +4,9 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/go-kit/kit/metrics"
-	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -14,6 +14,8 @@ import (
 )
 
 const (
+	// MetricsNamespace is the namespace shared by all Tendermint Prometheus metrics.
+	MetricsNamespace = "tendermint"
 	// MetricsSubsystem is a subsystem shared by all metrics exposed by this
 	// package.
 	MetricsSubsystem = "mempool"
@@ -34,7 +36,7 @@ var (
 			"tendermint_mempool_compact_duration_seconds",
 			metric.WithDescription("Wall-clock duration of compact(), which re-sorts and rebuilds indices over the full mempool (O(m log m))."),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(stdprometheus.ExponentialBucketsRange(0.001, 30, 14)...),
+			metric.WithExplicitBucketBoundaries(prometheus.ExponentialBucketsRange(0.001, 30, 14)...),
 		)),
 	}
 
@@ -49,72 +51,72 @@ var (
 // see MetricsProvider for descriptions.
 type Metrics struct {
 	// Number of uncommitted transactions in the mempool.
-	Size metrics.Gauge
+	Size *tmmetrics.GaugeIntVec
 
 	// Number of pending transactions in mempool
-	PendingSize metrics.Gauge
+	PendingSize *tmmetrics.GaugeIntVec
 
 	// Number of cached transactions in the mempool cache.
-	CacheSize metrics.Gauge
+	CacheSize *tmmetrics.GaugeIntVec
 
 	// Accumulated transaction sizes in bytes.
-	TxSizeBytes metrics.Counter
+	TxSizeBytes *tmmetrics.CounterIntVec
 
 	// Total current mempool uncommitted txs bytes
-	TotalTxsSizeBytes metrics.Gauge
+	TotalTxsSizeBytes *tmmetrics.GaugeIntVec
 
 	// Track max number of occurrences for a duplicate tx
-	DuplicateTxMaxOccurrences metrics.Gauge
+	DuplicateTxMaxOccurrences *tmmetrics.GaugeIntVec
 
 	// Track the total number of occurrences for all duplicate txs
-	DuplicateTxTotalOccurrences metrics.Gauge
+	DuplicateTxTotalOccurrences *tmmetrics.GaugeIntVec
 
 	// Track the number of unique duplicate transactions
-	NumberOfDuplicateTxs metrics.Gauge
+	NumberOfDuplicateTxs *tmmetrics.GaugeIntVec
 
 	// Track the number of unique new tx transactions
-	NumberOfNonDuplicateTxs metrics.Gauge
+	NumberOfNonDuplicateTxs *tmmetrics.GaugeIntVec
 
 	// Track the number of checkTx calls
-	NumberOfSuccessfulCheckTxs metrics.Counter
+	NumberOfSuccessfulCheckTxs *tmmetrics.CounterIntVec
 
 	// Track the number of failed checkTx calls
-	NumberOfFailedCheckTxs metrics.Counter
+	NumberOfFailedCheckTxs *tmmetrics.CounterIntVec
 
 	// Track the number of checkTx from local removed tx
-	NumberOfLocalCheckTx metrics.Counter
+	NumberOfLocalCheckTx *prometheus.CounterVec
 
 	// Number of failed transactions.
-	FailedTxs metrics.Counter
+	FailedTxs *tmmetrics.CounterIntVec
 
 	// RejectedTxs defines the number of rejected transactions. These are
 	// transactions that passed CheckTx but failed to make it into the mempool
 	// due to other constraints, e.g. mempool is full and no lower priority
 	// transactions exist in the mempool.
 	//metrics:Number of rejected transactions.
-	RejectedTxs metrics.Counter
+	RejectedTxs *tmmetrics.CounterIntVec
 
 	// EvictedTxs defines the number of evicted transactions. These are valid
 	// transactions that passed CheckTx and existed in the mempool but were later
 	// evicted to make room for higher priority valid transactions that passed
 	// CheckTx.
 	//metrics:Number of evicted transactions.
-	EvictedTxs metrics.Counter
+	EvictedTxs *tmmetrics.CounterIntVec
 
 	// ExpiredTxs defines the number of expired transactions. These are valid
 	// transactions that passed CheckTx and existed in the mempool but were not
 	// get picked up in time and eventually got expired and removed from mempool
 	//metrics:Number of expired transactions.
-	ExpiredTxs metrics.Counter
+	ExpiredTxs *tmmetrics.CounterIntVec
 
 	// Number of times transactions are rechecked in the mempool.
-	RecheckTimes metrics.Counter
+	RecheckTimes *tmmetrics.CounterIntVec
 
 	// Number of removed tx from mempool
-	RemovedTxs metrics.Counter
+	RemovedTxs *tmmetrics.CounterIntVec
 
 	// Number of txs inserted to mempool
-	InsertedTxs metrics.Counter
+	InsertedTxs *tmmetrics.CounterIntVec
 
 	// CheckTxPriorityDistribution is a histogram of the priority of transactions
 	// submitted via CheckTx, labeled by whether a priority hint was provided,
@@ -123,22 +125,22 @@ type Metrics struct {
 	//
 	// Note that the priority is normalized as a float64 value between zero and
 	// maximum tx priority.
-	CheckTxPriorityDistribution metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.000001, 1.0, 20" metrics_labels:"hint, local, error"`
+	CheckTxPriorityDistribution *prometheus.HistogramVec `metrics_buckettype:"exprange" metrics_bucketsizes:"0.000001, 1.0, 20" metrics_labels:"hint, local, error"`
 
 	// CheckTxDroppedByPriorityHint is the number of transactions that were dropped
 	// due to low priority based on the priority hint.
-	CheckTxDroppedByPriorityHint metrics.Counter
+	CheckTxDroppedByPriorityHint *tmmetrics.CounterIntVec
 
 	// CheckTxMetDropUtilisationThreshold is the number of transactions for which CheckTx was executed while the mempool
 	// utilisation was above the configured threshold. Note that not all such transactions are dropped, only those that also have a low priority.
-	CheckTxMetDropUtilisationThreshold metrics.Counter
+	CheckTxMetDropUtilisationThreshold *tmmetrics.CounterIntVec
 }
 
 func (m *Metrics) observeCheckTxPriorityDistribution(priority int64, hint bool, senderNodeID types.NodeID, isError bool) {
 	normalizedPriority := float64(priority) / float64(math.MaxInt64) // Normalize to [0.0, 1.0]
-	m.CheckTxPriorityDistribution.With(
-		"hint", strconv.FormatBool(hint),
-		"local", strconv.FormatBool(senderNodeID == ""),
-		"error", strconv.FormatBool(isError),
+	m.CheckTxPriorityDistributionAt(
+		strconv.FormatBool(hint),
+		strconv.FormatBool(senderNodeID == ""),
+		strconv.FormatBool(isError),
 	).Observe(normalizedPriority)
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -75,7 +76,11 @@ func TestNewDefaultConfig(t *testing.T) {
 	ssConfig := parseSSConfigs(appOpts)
 	receiptConfig, err := config.ReadReceiptConfig(appOpts)
 	assert.NoError(t, err)
-	assert.Equal(t, scConfig, config.DefaultStateCommitConfig())
+	// WriteModeEnableAuto defaults to true, so parseSCConfigs resolves the effective
+	// WriteMode to auto, overriding the fixed-fallback default (memiavl_only).
+	expectedSC := config.DefaultStateCommitConfig()
+	expectedSC.WriteMode = sctypes.Auto
+	assert.Equal(t, expectedSC, scConfig)
 	assert.Equal(t, ssConfig, config.DefaultStateStoreConfig())
 	assert.Equal(t, receiptConfig, config.DefaultReceiptStoreConfig())
 }
