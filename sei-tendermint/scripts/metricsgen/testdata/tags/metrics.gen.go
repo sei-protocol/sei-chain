@@ -46,7 +46,6 @@ func NewMetrics() *Metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "with_no_buckets",
 			Help:      "",
-			Buckets:   tmprometheus.NoBuckets(),
 		}, nil),
 		Named: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
@@ -61,15 +60,15 @@ func (m *Metrics) WithLabelsAt(step string, time string) prometheus.Counter {
 	return m.WithLabels.WithLabelValues(step, time)
 }
 
-func (m *Metrics) WithExpBucketsAt() tmprometheus.Observer {
+func (m *Metrics) WithExpBucketsAt() *tmprometheus.Histogram {
 	return m.WithExpBuckets.WithLabelValues()
 }
 
-func (m *Metrics) WithBucketsAt() tmprometheus.Observer {
+func (m *Metrics) WithBucketsAt() *tmprometheus.Histogram {
 	return m.WithBuckets.WithLabelValues()
 }
 
-func (m *Metrics) WithNoBucketsAt() tmprometheus.Observer {
+func (m *Metrics) WithNoBucketsAt() *tmprometheus.Histogram {
 	return m.WithNoBuckets.WithLabelValues()
 }
 

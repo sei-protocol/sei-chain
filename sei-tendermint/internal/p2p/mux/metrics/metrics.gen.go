@@ -62,7 +62,7 @@ func newMetrics() *metrics {
 	}
 }
 
-func (m *metrics) latencyAt(role string, rpc_name string) tmprometheus.Observer {
+func (m *metrics) latencyAt(role string, rpc_name string) *tmprometheus.Histogram {
 	return m.latency.WithLabelValues(role, rpc_name)
 }
 

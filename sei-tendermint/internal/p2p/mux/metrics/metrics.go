@@ -26,7 +26,7 @@ const RoleAccept = Role("accept")
 const RoleConnect = Role("connect")
 
 type Metrics struct {
-	latency   tmprometheus.Observer
+	latency   *tmprometheus.Histogram
 	inFlight  *tmprometheus.GaugeInt
 	sendMsgs  *tmprometheus.CounterInt
 	recvMsgs  *tmprometheus.CounterInt

@@ -15,7 +15,7 @@ import (
 // and it results in having single +inf bucket.
 type HistogramOpts = prometheus.HistogramOpts
 
-type HistogramVec struct { v *prometheus.MetricVec }
+type HistogramVec struct{ v *prometheus.MetricVec }
 
 func NewHistogramVec(opts HistogramOpts, labels []string) HistogramVec {
 	desc := prometheus.NewDesc(

@@ -14,9 +14,9 @@ type metrics struct {
 }
 
 type resourceMetrics struct {
-	Receive prometheus.Observer
-	Execute prometheus.Observer
-	Prune   prometheus.Observer
+	Receive *prometheus.Histogram
+	Execute *prometheus.Histogram
+	Prune   *prometheus.Histogram
 }
 
 type Metrics struct {

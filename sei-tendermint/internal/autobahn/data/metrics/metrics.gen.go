@@ -27,6 +27,6 @@ func newMetrics() *metrics {
 	}
 }
 
-func (m *metrics) latencyAt(resource string, stage string) tmprometheus.Observer {
+func (m *metrics) latencyAt(resource string, stage string) *tmprometheus.Histogram {
 	return m.latency.WithLabelValues(resource, stage)
 }

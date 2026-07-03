@@ -25,12 +25,14 @@ func NewMetrics() *Metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "block_events_seconds",
 			Help:      "Latency for indexing block events.",
+			Buckets:   prometheus.DefBuckets,
 		}, nil),
 		TxEventsSeconds: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "tx_events_seconds",
 			Help:      "Latency for indexing transaction events.",
+			Buckets:   prometheus.DefBuckets,
 		}, nil),
 		BlocksIndexed: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
@@ -47,11 +49,11 @@ func NewMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) BlockEventsSecondsAt() tmprometheus.Observer {
+func (m *Metrics) BlockEventsSecondsAt() *tmprometheus.Histogram {
 	return m.BlockEventsSeconds.WithLabelValues()
 }
 
-func (m *Metrics) TxEventsSecondsAt() tmprometheus.Observer {
+func (m *Metrics) TxEventsSecondsAt() *tmprometheus.Histogram {
 	return m.TxEventsSeconds.WithLabelValues()
 }
 

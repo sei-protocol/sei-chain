@@ -52,12 +52,14 @@ func NewMetrics() *Metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "application_commit_time",
 			Help:      "ApplicationCommitTime measures how long it takes to commit application state",
+			Buckets:   prometheus.DefBuckets,
 		}, nil),
 		UpdateMempoolTime: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "update_mempool_time",
 			Help:      "UpdateMempoolTime measures how long it takes to update mempool after committing, including reCheckTx",
+			Buckets:   prometheus.DefBuckets,
 		}, nil),
 		FinalizeBlockLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
@@ -109,7 +111,7 @@ func NewMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) BlockProcessingTimeAt() tmprometheus.Observer {
+func (m *Metrics) BlockProcessingTimeAt() *tmprometheus.Histogram {
 	return m.BlockProcessingTime.WithLabelValues()
 }
 
@@ -121,31 +123,31 @@ func (m *Metrics) ValidatorSetUpdatesAt() *tmprometheus.CounterInt {
 	return m.ValidatorSetUpdates.WithLabelValues()
 }
 
-func (m *Metrics) ApplicationCommitTimeAt() tmprometheus.Observer {
+func (m *Metrics) ApplicationCommitTimeAt() *tmprometheus.Histogram {
 	return m.ApplicationCommitTime.WithLabelValues()
 }
 
-func (m *Metrics) UpdateMempoolTimeAt() tmprometheus.Observer {
+func (m *Metrics) UpdateMempoolTimeAt() *tmprometheus.Histogram {
 	return m.UpdateMempoolTime.WithLabelValues()
 }
 
-func (m *Metrics) FinalizeBlockLatencyAt() tmprometheus.Observer {
+func (m *Metrics) FinalizeBlockLatencyAt() *tmprometheus.Histogram {
 	return m.FinalizeBlockLatency.WithLabelValues()
 }
 
-func (m *Metrics) SaveBlockResponseLatencyAt() tmprometheus.Observer {
+func (m *Metrics) SaveBlockResponseLatencyAt() *tmprometheus.Histogram {
 	return m.SaveBlockResponseLatency.WithLabelValues()
 }
 
-func (m *Metrics) SaveBlockLatencyAt() tmprometheus.Observer {
+func (m *Metrics) SaveBlockLatencyAt() *tmprometheus.Histogram {
 	return m.SaveBlockLatency.WithLabelValues()
 }
 
-func (m *Metrics) PruneBlockLatencyAt() tmprometheus.Observer {
+func (m *Metrics) PruneBlockLatencyAt() *tmprometheus.Histogram {
 	return m.PruneBlockLatency.WithLabelValues()
 }
 
-func (m *Metrics) FireEventsLatencyAt() tmprometheus.Observer {
+func (m *Metrics) FireEventsLatencyAt() *tmprometheus.Histogram {
 	return m.FireEventsLatency.WithLabelValues()
 }
 

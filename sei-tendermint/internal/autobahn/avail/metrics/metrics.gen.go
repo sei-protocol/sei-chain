@@ -58,7 +58,6 @@ func newMetrics() *metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "commit_to_commit_latency",
 			Help:      "Latency between consecutive commits being observed.",
-			Buckets:   tmprometheus.NoBuckets(),
 		}, []string{"timeouts"}),
 	}
 }
@@ -79,10 +78,10 @@ func (m *metrics) appGlobalBlockNumberAt() *tmprometheus.GaugeInt {
 	return m.appGlobalBlockNumber.WithLabelValues()
 }
 
-func (m *metrics) proposalToCommitLatencyAt() tmprometheus.Observer {
+func (m *metrics) proposalToCommitLatencyAt() *tmprometheus.Histogram {
 	return m.proposalToCommitLatency.WithLabelValues()
 }
 
-func (m *metrics) commitToCommitLatencyAt(timeouts string) tmprometheus.Observer {
+func (m *metrics) commitToCommitLatencyAt(timeouts string) *tmprometheus.Histogram {
 	return m.commitToCommitLatency.WithLabelValues(timeouts)
 }

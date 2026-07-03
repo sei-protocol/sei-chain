@@ -337,7 +337,7 @@ func (m *Metrics) RoundsAt() *tmprometheus.GaugeInt {
 	return m.Rounds.WithLabelValues()
 }
 
-func (m *Metrics) RoundDurationAt() tmprometheus.Observer {
+func (m *Metrics) RoundDurationAt() *tmprometheus.Histogram {
 	return m.RoundDuration.WithLabelValues()
 }
 
@@ -373,7 +373,7 @@ func (m *Metrics) ByzantineValidatorsPowerAt() *tmprometheus.GaugeInt {
 	return m.ByzantineValidatorsPower.WithLabelValues()
 }
 
-func (m *Metrics) BlockIntervalSecondsAt() tmprometheus.Observer {
+func (m *Metrics) BlockIntervalSecondsAt() *tmprometheus.Histogram {
 	return m.BlockIntervalSeconds.WithLabelValues()
 }
 
@@ -381,7 +381,7 @@ func (m *Metrics) NumTxsAt() *tmprometheus.GaugeInt {
 	return m.NumTxs.WithLabelValues()
 }
 
-func (m *Metrics) BlockSizeBytesAt() tmprometheus.Observer {
+func (m *Metrics) BlockSizeBytesAt() *tmprometheus.Histogram {
 	return m.BlockSizeBytes.WithLabelValues()
 }
 
@@ -405,11 +405,11 @@ func (m *Metrics) BlockPartsAt(peer_id string) *tmprometheus.CounterInt {
 	return m.BlockParts.WithLabelValues(peer_id)
 }
 
-func (m *Metrics) StepDurationAt(step string) tmprometheus.Observer {
+func (m *Metrics) StepDurationAt(step string) *tmprometheus.Histogram {
 	return m.StepDuration.WithLabelValues(step)
 }
 
-func (m *Metrics) BlockGossipReceiveLatencyAt() tmprometheus.Observer {
+func (m *Metrics) BlockGossipReceiveLatencyAt() *tmprometheus.Histogram {
 	return m.BlockGossipReceiveLatency.WithLabelValues()
 }
 
@@ -441,7 +441,7 @@ func (m *Metrics) FullPrevoteDelayAt(proposer_address string) prometheus.Gauge {
 	return m.FullPrevoteDelay.WithLabelValues(proposer_address)
 }
 
-func (m *Metrics) ProposalTimestampDifferenceAt(is_timely string) tmprometheus.Observer {
+func (m *Metrics) ProposalTimestampDifferenceAt(is_timely string) *tmprometheus.Histogram {
 	return m.ProposalTimestampDifference.WithLabelValues(is_timely)
 }
 
@@ -461,27 +461,27 @@ func (m *Metrics) LateVotesAt(validator_address string) *tmprometheus.CounterInt
 	return m.LateVotes.WithLabelValues(validator_address)
 }
 
-func (m *Metrics) FinalRoundAt(proposer_address string) tmprometheus.Observer {
+func (m *Metrics) FinalRoundAt(proposer_address string) *tmprometheus.Histogram {
 	return m.FinalRound.WithLabelValues(proposer_address)
 }
 
-func (m *Metrics) ProposeLatencyAt(proposer_address string) tmprometheus.Observer {
+func (m *Metrics) ProposeLatencyAt(proposer_address string) *tmprometheus.Histogram {
 	return m.ProposeLatency.WithLabelValues(proposer_address)
 }
 
-func (m *Metrics) PrevoteLatencyAt(validator_address string) tmprometheus.Observer {
+func (m *Metrics) PrevoteLatencyAt(validator_address string) *tmprometheus.Histogram {
 	return m.PrevoteLatency.WithLabelValues(validator_address)
 }
 
-func (m *Metrics) ConsensusTimeAt() tmprometheus.Observer {
+func (m *Metrics) ConsensusTimeAt() *tmprometheus.Histogram {
 	return m.ConsensusTime.WithLabelValues()
 }
 
-func (m *Metrics) CompleteProposalTimeAt() tmprometheus.Observer {
+func (m *Metrics) CompleteProposalTimeAt() *tmprometheus.Histogram {
 	return m.CompleteProposalTime.WithLabelValues()
 }
 
-func (m *Metrics) ApplyBlockLatencyAt() tmprometheus.Observer {
+func (m *Metrics) ApplyBlockLatencyAt() *tmprometheus.Histogram {
 	return m.ApplyBlockLatency.WithLabelValues()
 }
 

@@ -32,7 +32,7 @@ func TestSimpleTemplate(t *testing.T) {
 
 		MethodParams:     "first string, second string, third string",
 		MethodArgs:       "first, second, third",
-		MethodReturnType: "tmprometheus.Observer",
+		MethodReturnType: "*tmprometheus.Histogram",
 	}
 	td := metricsgen.TemplateData{
 		Package:         "mypack",
@@ -143,7 +143,7 @@ func TestParseMetricsStruct(t *testing.T) {
 						OptsTypeName:       "HistogramOpts",
 						FieldName:          "myHistogram",
 						MetricName:         "my_histogram",
-						MethodReturnType:   "tmprometheus.Observer",
+						MethodReturnType:   "*tmprometheus.Histogram",
 
 						HistogramOptions: metricsgen.HistogramOpts{
 							BucketType:  "prometheus.ExponentialBuckets",
@@ -171,10 +171,37 @@ func TestParseMetricsStruct(t *testing.T) {
 						OptsTypeName:       "HistogramOpts",
 						FieldName:          "myHistogram",
 						MetricName:         "my_histogram",
-						MethodReturnType:   "tmprometheus.Observer",
+						MethodReturnType:   "*tmprometheus.Histogram",
 
 						HistogramOptions: metricsgen.HistogramOpts{
-							BucketType: "tmprometheus.NoBuckets",
+							NoBuckets: true,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "histogram without explicit buckets uses defaults",
+			metricsStruct: "type Metrics struct {\n" +
+				"myHistogram *prometheus.HistogramVec\n" +
+				"}",
+			expected: metricsgen.TemplateData{
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
+				UsesIntMetrics:  true,
+				ParsedMetrics: []metricsgen.ParsedMetricField{
+					{
+						TypeName:           "HistogramVec",
+						ConstructorPackage: "tmprometheus",
+						ConstructorName:    "NewHistogramVec",
+						OptsTypeName:       "HistogramOpts",
+						FieldName:          "myHistogram",
+						MetricName:         "my_histogram",
+						MethodReturnType:   "*tmprometheus.Histogram",
+
+						HistogramOptions: metricsgen.HistogramOpts{
+							DefaultBuckets: true,
 						},
 					},
 				},
@@ -317,7 +344,14 @@ func TestParseHistogramBuckets(t *testing.T) {
 			name: "none",
 			spec: "none",
 			expected: metricsgen.HistogramOpts{
-				BucketType: "tmprometheus.NoBuckets",
+				NoBuckets: true,
+			},
+		},
+		{
+			name: "empty uses defaults",
+			spec: "",
+			expected: metricsgen.HistogramOpts{
+				DefaultBuckets: true,
 			},
 		},
 	}
@@ -401,5 +435,6 @@ func TestParseLowercaseMetricsStruct(t *testing.T) {
 	require.NoError(t, metricsgen.GenerateMetricsFile(b, td))
 	require.Contains(t, b.String(), "var Global = newMetrics()")
 	require.Contains(t, b.String(), "func newMetrics() *metrics")
-	require.Contains(t, b.String(), "func (m *metrics) latencyAt() tmprometheus.Observer")
+	require.Contains(t, b.String(), "func (m *metrics) latencyAt() *tmprometheus.Histogram")
+	require.Contains(t, b.String(), "prometheus.DefBuckets")
 }

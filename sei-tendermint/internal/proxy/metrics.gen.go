@@ -27,6 +27,6 @@ func NewMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) MethodTimingAt(method string, typeLabel string) tmprometheus.Observer {
+func (m *Metrics) MethodTimingAt(method string, typeLabel string) *tmprometheus.Histogram {
 	return m.MethodTiming.WithLabelValues(method, typeLabel)
 }

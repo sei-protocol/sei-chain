@@ -61,18 +61,21 @@ func NewMetrics() *Metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "router_peer_queue_recv",
 			Help:      "The time taken to read off of a peer's queue before sending on the connection.",
+			Buckets:   prometheus.DefBuckets,
 		}, nil),
 		RouterPeerQueueSend: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "router_peer_queue_send",
 			Help:      "The time taken to send on a peer's queue which will later be read and sent on the connection.",
+			Buckets:   prometheus.DefBuckets,
 		}, nil),
 		RouterChannelQueueSend: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "router_channel_queue_send",
 			Help:      "The time taken to send on a p2p channel's queue which will later be consued by the corresponding reactor/service.",
+			Buckets:   prometheus.DefBuckets,
 		}, nil),
 		ChannelMsgs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
@@ -109,15 +112,15 @@ func (m *Metrics) NewConnectionsAt(direction string, success string) *tmpromethe
 	return m.NewConnections.WithLabelValues(direction, success)
 }
 
-func (m *Metrics) RouterPeerQueueRecvAt() tmprometheus.Observer {
+func (m *Metrics) RouterPeerQueueRecvAt() *tmprometheus.Histogram {
 	return m.RouterPeerQueueRecv.WithLabelValues()
 }
 
-func (m *Metrics) RouterPeerQueueSendAt() tmprometheus.Observer {
+func (m *Metrics) RouterPeerQueueSendAt() *tmprometheus.Histogram {
 	return m.RouterPeerQueueSend.WithLabelValues()
 }
 
-func (m *Metrics) RouterChannelQueueSendAt() tmprometheus.Observer {
+func (m *Metrics) RouterChannelQueueSendAt() *tmprometheus.Histogram {
 	return m.RouterChannelQueueSend.WithLabelValues()
 }
 
