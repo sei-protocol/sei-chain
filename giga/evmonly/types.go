@@ -22,18 +22,13 @@ type PreparedBlockExecutor interface {
 	ExecutePreparedBlock(context.Context, PreparedBlock) (*BlockResult, error)
 }
 
-// ResultSink persists executor-produced block outputs.
-type ResultSink interface {
-	StoreChangeSet(ctx context.Context, height uint64, changeSet StateChangeSet) error
-	StoreReceipts(ctx context.Context, height uint64, receipts ethtypes.Receipts) error
-}
-
-// BlockResultSink can retain a complete BlockResult without forcing the
-// executor to copy changesets or receipts before handing them to an async sink.
+// ResultSink persists executor-produced block outputs. The sink can retain the
+// complete BlockResult without forcing the executor to copy changesets or
+// receipts before handing them to an async sink.
 // The sink must invoke release exactly once after it no longer references
 // result. If StoreBlockResult returns an error, the executor releases that sink
 // reference.
-type BlockResultSink interface {
+type ResultSink interface {
 	StoreBlockResult(ctx context.Context, height uint64, result *BlockResult, release func()) error
 }
 

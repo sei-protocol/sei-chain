@@ -18,8 +18,8 @@ type Config struct {
 	OCCWorkers           int
 	// BlockResultPoolSize enables a bounded reusable output pool. Callers that
 	// enable it must call BlockResult.Release when they are done with returned
-	// results. Async sinks should implement BlockResultSink so the executor can
-	// retain results until the sink releases them.
+	// results. Result sinks receive a retained result and must release it after
+	// they finish async persistence.
 	BlockResultPoolSize int
 }
 
