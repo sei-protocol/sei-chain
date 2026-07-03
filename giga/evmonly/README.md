@@ -150,6 +150,8 @@ closed with `ErrCustomPrecompilesOpen`.
 - The map-backed `MemoryState` is for tests and early integration; production
   should provide a durable native state backend.
 - Historical `BLOCKHASH` lookups beyond the parent block are not wired yet.
+- Block-level blob gas accounting and `MaxBlobGasPerBlock` enforcement are not
+  wired yet, so blob transactions are rejected fail-closed.
 - The staking precompile models bonding, delegation, redelegation, unbonding,
   and validator-set updates in usei, but does not model staking rewards,
   slashing, or jailing. Delegation shares track tokens 1:1 (no slash-driven
