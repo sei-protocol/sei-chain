@@ -29,13 +29,14 @@ type nativeStateDB struct {
 	logs      []*ethtypes.Log
 	preimages map[common.Hash][]byte
 
-	accessList      accessList
-	transientStates map[common.Address]map[common.Hash]common.Hash
-	finaliseAddrs   map[common.Address]struct{}
-	journal         []nativeJournalEntry
-	snapshots       []nativeSnapshot
-	readSet         map[stateAccessKey]struct{}
-	writeSet        map[stateAccessKey]struct{}
+	accessList               accessList
+	transientStates          map[common.Address]map[common.Hash]common.Hash
+	finaliseAddrs            map[common.Address]struct{}
+	commutativeBalanceDeltas map[common.Address]*uint256.Int
+	journal                  []nativeJournalEntry
+	snapshots                []nativeSnapshot
+	readSet                  map[stateAccessKey]struct{}
+	writeSet                 map[stateAccessKey]struct{}
 
 	txHash      common.Hash
 	txIndex     int
@@ -59,15 +60,16 @@ type storageValue struct {
 }
 
 type nativeSnapshot struct {
-	journalLen      int
-	refund          uint64
-	logsLen         int
-	accessList      accessList
-	transientStates map[common.Address]map[common.Hash]common.Hash
-	finaliseAddrs   map[common.Address]struct{}
-	preimages       map[common.Hash][]byte
-	journaledAddrs  map[common.Address]struct{}
-	err             error
+	journalLen               int
+	refund                   uint64
+	logsLen                  int
+	accessList               accessList
+	transientStates          map[common.Address]map[common.Hash]common.Hash
+	finaliseAddrs            map[common.Address]struct{}
+	commutativeBalanceDeltas map[common.Address]*uint256.Int
+	preimages                map[common.Hash][]byte
+	journaledAddrs           map[common.Address]struct{}
+	err                      error
 }
 
 type nativeJournalKind uint8
@@ -108,13 +110,14 @@ func newNativeStateDB(source StateReader) *nativeStateDB {
 		source = NewMemoryState()
 	}
 	return &nativeStateDB{
-		source:          source,
-		accounts:        map[common.Address]*nativeAccount{},
-		base:            map[common.Address]*nativeAccount{},
-		preimages:       map[common.Hash][]byte{},
-		accessList:      newAccessList(),
-		transientStates: map[common.Address]map[common.Hash]common.Hash{},
-		finaliseAddrs:   map[common.Address]struct{}{},
+		source:                   source,
+		accounts:                 map[common.Address]*nativeAccount{},
+		base:                     map[common.Address]*nativeAccount{},
+		preimages:                map[common.Hash][]byte{},
+		accessList:               newAccessList(),
+		transientStates:          map[common.Address]map[common.Hash]common.Hash{},
+		finaliseAddrs:            map[common.Address]struct{}{},
+		commutativeBalanceDeltas: map[common.Address]*uint256.Int{},
 	}
 }
 
@@ -217,7 +220,10 @@ func (s *nativeStateDB) SubBalance(addr common.Address, amount *uint256.Int, _ t
 	return prev
 }
 
-func (s *nativeStateDB) AddBalance(addr common.Address, amount *uint256.Int, _ tracing.BalanceChangeReason) uint256.Int {
+func (s *nativeStateDB) AddBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
+	if reason == tracing.BalanceIncreaseRewardTransactionFee {
+		return s.addCommutativeBalance(addr, amount)
+	}
 	prev := *s.GetBalance(addr)
 	if amount == nil || amount.IsZero() {
 		return prev
@@ -227,6 +233,37 @@ func (s *nativeStateDB) AddBalance(addr common.Address, amount *uint256.Int, _ t
 	s.markWrite(stateAccessKey{kind: stateAccessBalance, address: addr})
 	acct.Balance.Add(acct.Balance, amount)
 	return prev
+}
+
+func (s *nativeStateDB) addCommutativeBalance(addr common.Address, amount *uint256.Int) uint256.Int {
+	acct := s.account(addr)
+	prev := *acct.Balance.Clone()
+	if amount == nil || amount.IsZero() {
+		return prev
+	}
+	s.recordAccount(addr)
+	acct.Balance.Add(acct.Balance, amount)
+	if s.commutativeBalanceDeltas == nil {
+		s.commutativeBalanceDeltas = map[common.Address]*uint256.Int{}
+	}
+	delta, ok := s.commutativeBalanceDeltas[addr]
+	if !ok {
+		delta = uint256.NewInt(0)
+		s.commutativeBalanceDeltas[addr] = delta
+	}
+	delta.Add(delta, amount)
+	return prev
+}
+
+func (s *nativeStateDB) commutativeBalanceDeltasBig() map[common.Address]*big.Int {
+	if len(s.commutativeBalanceDeltas) == 0 {
+		return nil
+	}
+	deltas := make(map[common.Address]*big.Int, len(s.commutativeBalanceDeltas))
+	for addr, delta := range s.commutativeBalanceDeltas {
+		deltas[addr] = delta.ToBig()
+	}
+	return deltas
 }
 
 func (s *nativeStateDB) GetBalance(addr common.Address) *uint256.Int {
@@ -452,15 +489,16 @@ func (s *nativeStateDB) PointCache() *ethutils.PointCache {
 func (s *nativeStateDB) Snapshot() int {
 	id := len(s.snapshots)
 	s.snapshots = append(s.snapshots, nativeSnapshot{
-		journalLen:      len(s.journal),
-		refund:          s.refund,
-		logsLen:         len(s.logs),
-		accessList:      cloneAccessList(s.accessList),
-		transientStates: cloneTransientStates(s.transientStates),
-		finaliseAddrs:   cloneAddressSet(s.finaliseAddrs),
-		preimages:       clonePreimages(s.preimages),
-		journaledAddrs:  map[common.Address]struct{}{},
-		err:             s.err,
+		journalLen:               len(s.journal),
+		refund:                   s.refund,
+		logsLen:                  len(s.logs),
+		accessList:               cloneAccessList(s.accessList),
+		transientStates:          cloneTransientStates(s.transientStates),
+		finaliseAddrs:            cloneAddressSet(s.finaliseAddrs),
+		commutativeBalanceDeltas: cloneUint256Map(s.commutativeBalanceDeltas),
+		preimages:                clonePreimages(s.preimages),
+		journaledAddrs:           map[common.Address]struct{}{},
+		err:                      s.err,
 	})
 	return id
 }
@@ -479,6 +517,7 @@ func (s *nativeStateDB) RevertToSnapshot(id int) {
 	s.accessList = cloneAccessList(snapshot.accessList)
 	s.transientStates = cloneTransientStates(snapshot.transientStates)
 	s.finaliseAddrs = cloneAddressSet(snapshot.finaliseAddrs)
+	s.commutativeBalanceDeltas = cloneUint256Map(snapshot.commutativeBalanceDeltas)
 	s.preimages = clonePreimages(snapshot.preimages)
 	s.err = snapshot.err
 	s.snapshots = s.snapshots[:id]
@@ -544,24 +583,25 @@ func (s *nativeStateDB) setTxContext(hash common.Hash, index int, indexUint uint
 
 func (s *nativeStateDB) Copy() vm.StateDB {
 	cp := &nativeStateDB{
-		source:          s.source,
-		accounts:        cloneAccounts(s.accounts),
-		base:            cloneAccounts(s.base),
-		refund:          s.refund,
-		logs:            append([]*ethtypes.Log(nil), s.logs...),
-		preimages:       clonePreimages(s.preimages),
-		accessList:      cloneAccessList(s.accessList),
-		transientStates: cloneTransientStates(s.transientStates),
-		finaliseAddrs:   cloneAddressSet(s.finaliseAddrs),
-		journal:         cloneJournal(s.journal),
-		snapshots:       cloneSnapshots(s.snapshots),
-		readSet:         cloneAccessSet(s.readSet),
-		writeSet:        cloneAccessSet(s.writeSet),
-		txHash:          s.txHash,
-		txIndex:         s.txIndex,
-		txIndexUint:     s.txIndexUint,
-		err:             s.err,
-		evm:             s.evm,
+		source:                   s.source,
+		accounts:                 cloneAccounts(s.accounts),
+		base:                     cloneAccounts(s.base),
+		refund:                   s.refund,
+		logs:                     append([]*ethtypes.Log(nil), s.logs...),
+		preimages:                clonePreimages(s.preimages),
+		accessList:               cloneAccessList(s.accessList),
+		transientStates:          cloneTransientStates(s.transientStates),
+		finaliseAddrs:            cloneAddressSet(s.finaliseAddrs),
+		commutativeBalanceDeltas: cloneUint256Map(s.commutativeBalanceDeltas),
+		journal:                  cloneJournal(s.journal),
+		snapshots:                cloneSnapshots(s.snapshots),
+		readSet:                  cloneAccessSet(s.readSet),
+		writeSet:                 cloneAccessSet(s.writeSet),
+		txHash:                   s.txHash,
+		txIndex:                  s.txIndex,
+		txIndexUint:              s.txIndexUint,
+		err:                      s.err,
+		evm:                      s.evm,
 	}
 	return cp
 }
@@ -669,6 +709,7 @@ func (s *nativeStateDB) reset(source StateReader) {
 	s.accessList.reset()
 	clearNestedHashMaps(s.transientStates)
 	clear(s.finaliseAddrs)
+	clear(s.commutativeBalanceDeltas)
 	clear(s.journal)
 	s.journal = s.journal[:0]
 	clear(s.snapshots)
@@ -815,6 +856,21 @@ func cloneAddressSet(addrs map[common.Address]struct{}) map[common.Address]struc
 	cp := make(map[common.Address]struct{}, len(addrs))
 	for addr := range addrs {
 		cp[addr] = struct{}{}
+	}
+	return cp
+}
+
+func cloneUint256Map(values map[common.Address]*uint256.Int) map[common.Address]*uint256.Int {
+	if values == nil {
+		return nil
+	}
+	cp := make(map[common.Address]*uint256.Int, len(values))
+	for addr, value := range values {
+		if value == nil {
+			cp[addr] = uint256.NewInt(0)
+		} else {
+			cp[addr] = value.Clone()
+		}
 	}
 	return cp
 }

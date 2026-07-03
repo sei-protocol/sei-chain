@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
@@ -21,40 +22,15 @@ import (
 const testGasPriceWei = 1_000_000_000
 
 type recordingResultSink struct {
-	changeSetHeights []uint64
-	receiptHeights   []uint64
-	changeSets       []StateChangeSet
-	receipts         []ethtypes.Receipts
+	heights  []uint64
+	results  []*BlockResult
+	releases []func()
 }
 
-func (s *recordingResultSink) StoreChangeSet(_ context.Context, height uint64, changeSet StateChangeSet) error {
-	s.changeSetHeights = append(s.changeSetHeights, height)
-	s.changeSets = append(s.changeSets, changeSet)
-	return nil
-}
-
-func (s *recordingResultSink) StoreReceipts(_ context.Context, height uint64, receipts ethtypes.Receipts) error {
-	s.receiptHeights = append(s.receiptHeights, height)
-	s.receipts = append(s.receipts, receipts)
-	return nil
-}
-
-type recordingBlockResultSink struct {
-	result  *BlockResult
-	release func()
-}
-
-func (s *recordingBlockResultSink) StoreChangeSet(context.Context, uint64, StateChangeSet) error {
-	return nil
-}
-
-func (s *recordingBlockResultSink) StoreReceipts(context.Context, uint64, ethtypes.Receipts) error {
-	return nil
-}
-
-func (s *recordingBlockResultSink) StoreBlockResult(_ context.Context, _ uint64, result *BlockResult, release func()) error {
-	s.result = result
-	s.release = release
+func (s *recordingResultSink) StoreBlockResult(_ context.Context, height uint64, result *BlockResult, release func()) error {
+	s.heights = append(s.heights, height)
+	s.results = append(s.results, result)
+	s.releases = append(s.releases, release)
 	return nil
 }
 
@@ -121,12 +97,11 @@ func TestExecutorInvokesResultSink(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Len(t, sink.changeSets, 1)
-	require.Len(t, sink.receipts, 1)
-	require.Equal(t, []uint64{ctx.Number}, sink.changeSetHeights)
-	require.Equal(t, []uint64{ctx.Number}, sink.receiptHeights)
-	require.Equal(t, result.ChangeSet, sink.changeSets[0])
-	require.Equal(t, result.Receipts, sink.receipts[0])
+	require.Len(t, sink.results, 1)
+	require.Len(t, sink.releases, 1)
+	require.Equal(t, []uint64{ctx.Number}, sink.heights)
+	require.Same(t, result, sink.results[0])
+	sink.releases[0]()
 }
 
 func TestExecutorPooledResultRelease(t *testing.T) {
@@ -138,22 +113,22 @@ func TestExecutorPooledResultRelease(t *testing.T) {
 
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
-	sink := &recordingBlockResultSink{}
+	sink := &recordingResultSink{}
 	executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithState(state), WithResultSink(sink))
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
 
 	first, err := executor.ExecuteBlock(context.Background(), req)
 	require.NoError(t, err)
-	require.Same(t, first, sink.result)
-	require.NotNil(t, sink.release)
-	sink.release()
+	require.Same(t, first, sink.results[0])
+	require.NotNil(t, sink.releases[0])
+	sink.releases[0]()
 	first.Release()
 
 	second, err := executor.ExecuteBlock(context.Background(), req)
 	require.NoError(t, err)
 	require.Same(t, first, second)
-	sink.release()
+	sink.releases[1]()
 	second.Release()
 }
 
@@ -181,6 +156,47 @@ func TestExecutorDynamicFeeTx(t *testing.T) {
 
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, big.NewInt(11), state.GetBalance(recipient))
+}
+
+func TestExecutorBlobTxReceiptMetadata(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xb5)
+	blobBaseFee := big.NewInt(3)
+	blobHash := common.Hash{0x01}
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
+	rawTx := signBlobTxWithFees(
+		t,
+		key,
+		chainID,
+		0,
+		recipient,
+		big.NewInt(1),
+		nil,
+		big.NewInt(1),
+		big.NewInt(3),
+		big.NewInt(3),
+		100_000,
+		[]common.Hash{blobHash},
+	)
+	ctx := blockContext(chainID)
+	ctx.BaseFee = big.NewInt(2)
+	ctx.BlobBaseFee = blobBaseFee
+
+	result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+		Context: ctx,
+		Txs:     [][]byte{rawTx},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Receipts, 1)
+	require.Equal(t, uint8(ethtypes.BlobTxType), result.Receipts[0].Type)
+	require.Equal(t, uint64(params.BlobTxBlobGasPerBlob), result.Receipts[0].BlobGasUsed)
+	require.Equal(t, blobBaseFee, result.Receipts[0].BlobGasPrice)
 }
 
 func TestExecutorRequiresBaseFeeAfterLondon(t *testing.T) {
@@ -299,6 +315,77 @@ func TestExecutorOCCConflictingTransfersMatchSequential(t *testing.T) {
 	require.True(t, foundRecipientBalanceConflict)
 	require.Equal(t, seqState.GetBalance(recipient), occState.GetBalance(recipient))
 	require.Equal(t, big.NewInt(int64(txCount*3)), occState.GetBalance(recipient))
+}
+
+func TestExecutorOCCFeePayingTransfersDoNotConflictOnCoinbase(t *testing.T) {
+	chainID := big.NewInt(713715)
+	txCount := 4
+	rawTxs := make([][]byte, 0, txCount)
+	senders := make([]common.Address, 0, txCount)
+	recipients := make([]common.Address, 0, txCount)
+	seqState := NewMemoryState()
+	occState := NewMemoryState()
+
+	for i := 0; i < txCount; i++ {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+		recipient := common.BigToAddress(big.NewInt(int64(30_000 + i)))
+		senders = append(senders, sender)
+		recipients = append(recipients, recipient)
+		seqState.SetBalance(sender, big.NewInt(1_000_000_000))
+		occState.SetBalance(sender, big.NewInt(1_000_000_000))
+		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(7), nil, 100_000, big.NewInt(1)))
+	}
+
+	cfg := Config{MinGasPrice: big.NewInt(0)}
+	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
+	seqResult, err := NewExecutor(cfg, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+
+	require.True(t, occResult.OCCStats.Attempted)
+	require.False(t, occResult.OCCStats.Fallback)
+	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
+
+	seqState.ApplyChangeSet(seqResult.ChangeSet)
+	occState.ApplyChangeSet(occResult.ChangeSet)
+	require.Equal(t, seqState.GetBalance(req.Context.Coinbase), occState.GetBalance(req.Context.Coinbase))
+	for i := range txCount {
+		require.Equal(t, seqState.GetBalance(senders[i]), occState.GetBalance(senders[i]))
+		require.Equal(t, seqState.GetBalance(recipients[i]), occState.GetBalance(recipients[i]))
+	}
+}
+
+func TestExecutorOCCSpeculativeErrorFallsBackToSequential(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	firstRecipient := testAddress(0xb6)
+	secondRecipient := testAddress(0xb7)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(1_000_000))
+	firstTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &firstRecipient, big.NewInt(1), nil, 100_000, big.NewInt(0))
+	secondTx := signLegacyTxWithGasPrice(t, key, chainID, 1, &secondRecipient, big.NewInt(1), nil, 100_000, big.NewInt(0))
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(state))
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{firstTx, secondTx},
+	})
+
+	require.NoError(t, err)
+	require.True(t, result.OCCStats.Attempted)
+	require.True(t, result.OCCStats.Fallback)
+	require.Equal(t, occFallbackReasonSpeculativeError, result.OCCStats.FallbackReason)
+
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, uint64(2), state.GetNonce(sender))
+	require.Equal(t, big.NewInt(1), state.GetBalance(firstRecipient))
+	require.Equal(t, big.NewInt(1), state.GetBalance(secondRecipient))
 }
 
 func TestExecutorOCCFallsBackWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
@@ -1063,6 +1150,40 @@ func signDynamicFeeTxWithFees(t *testing.T, key *ecdsa.PrivateKey, chainID *big.
 		To:        to,
 		Value:     value,
 		Data:      data,
+	})
+	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
+	require.NoError(t, err)
+	raw, err := signed.MarshalBinary()
+	require.NoError(t, err)
+	return raw
+}
+
+func signBlobTxWithFees(
+	t *testing.T,
+	key *ecdsa.PrivateKey,
+	chainID *big.Int,
+	nonce uint64,
+	to common.Address,
+	value *big.Int,
+	data []byte,
+	gasTipCap *big.Int,
+	gasFeeCap *big.Int,
+	blobFeeCap *big.Int,
+	gas uint64,
+	blobHashes []common.Hash,
+) []byte {
+	t.Helper()
+	tx := ethtypes.NewTx(&ethtypes.BlobTx{
+		ChainID:    uint256.MustFromBig(chainID),
+		Nonce:      nonce,
+		GasTipCap:  uint256.MustFromBig(gasTipCap),
+		GasFeeCap:  uint256.MustFromBig(gasFeeCap),
+		Gas:        gas,
+		To:         to,
+		Value:      uint256.MustFromBig(value),
+		Data:       data,
+		BlobFeeCap: uint256.MustFromBig(blobFeeCap),
+		BlobHashes: append([]common.Hash(nil), blobHashes...),
 	})
 	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
 	require.NoError(t, err)
