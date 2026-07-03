@@ -20,13 +20,13 @@ func init() {
 
 func NewMetrics() *Metrics {
 	return &Metrics{
-		BlockEventsSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		BlockEventsSeconds: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_events_seconds",
 			Help:      "Latency for indexing block events.",
 		}, nil),
-		TxEventsSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		TxEventsSeconds: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "tx_events_seconds",
@@ -47,11 +47,11 @@ func NewMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) BlockEventsSecondsAt() prometheus.Observer {
+func (m *Metrics) BlockEventsSecondsAt() tmprometheus.Observer {
 	return m.BlockEventsSeconds.WithLabelValues()
 }
 
-func (m *Metrics) TxEventsSecondsAt() prometheus.Observer {
+func (m *Metrics) TxEventsSecondsAt() tmprometheus.Observer {
 	return m.TxEventsSeconds.WithLabelValues()
 }
 

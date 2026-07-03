@@ -27,21 +27,21 @@ func NewMetrics() *Metrics {
 			Name:      "with_labels",
 			Help:      "",
 		}, []string{"step", "time"}),
-		WithExpBuckets: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		WithExpBuckets: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "with_exp_buckets",
 			Help:      "",
 			Buckets:   prometheus.ExponentialBuckets(.1, 100, 8),
 		}, nil),
-		WithBuckets: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		WithBuckets: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "with_buckets",
 			Help:      "",
 			Buckets:   []float64{1, 2, 3, 4, 5},
 		}, nil),
-		WithNoBuckets: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		WithNoBuckets: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "with_no_buckets",
@@ -61,15 +61,15 @@ func (m *Metrics) WithLabelsAt(step string, time string) prometheus.Counter {
 	return m.WithLabels.WithLabelValues(step, time)
 }
 
-func (m *Metrics) WithExpBucketsAt() prometheus.Observer {
+func (m *Metrics) WithExpBucketsAt() tmprometheus.Observer {
 	return m.WithExpBuckets.WithLabelValues()
 }
 
-func (m *Metrics) WithBucketsAt() prometheus.Observer {
+func (m *Metrics) WithBucketsAt() tmprometheus.Observer {
 	return m.WithBuckets.WithLabelValues()
 }
 
-func (m *Metrics) WithNoBucketsAt() prometheus.Observer {
+func (m *Metrics) WithNoBucketsAt() tmprometheus.Observer {
 	return m.WithNoBuckets.WithLabelValues()
 }
 

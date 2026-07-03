@@ -56,19 +56,19 @@ func NewMetrics() *Metrics {
 			Name:      "new_connections",
 			Help:      "Number of newly established connections.",
 		}, []string{"direction", "success"}),
-		RouterPeerQueueRecv: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		RouterPeerQueueRecv: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "router_peer_queue_recv",
 			Help:      "The time taken to read off of a peer's queue before sending on the connection.",
 		}, nil),
-		RouterPeerQueueSend: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		RouterPeerQueueSend: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "router_peer_queue_send",
 			Help:      "The time taken to send on a peer's queue which will later be read and sent on the connection.",
 		}, nil),
-		RouterChannelQueueSend: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		RouterChannelQueueSend: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "router_channel_queue_send",
@@ -109,15 +109,15 @@ func (m *Metrics) NewConnectionsAt(direction string, success string) *tmpromethe
 	return m.NewConnections.WithLabelValues(direction, success)
 }
 
-func (m *Metrics) RouterPeerQueueRecvAt() prometheus.Observer {
+func (m *Metrics) RouterPeerQueueRecvAt() tmprometheus.Observer {
 	return m.RouterPeerQueueRecv.WithLabelValues()
 }
 
-func (m *Metrics) RouterPeerQueueSendAt() prometheus.Observer {
+func (m *Metrics) RouterPeerQueueSendAt() tmprometheus.Observer {
 	return m.RouterPeerQueueSend.WithLabelValues()
 }
 
-func (m *Metrics) RouterChannelQueueSendAt() prometheus.Observer {
+func (m *Metrics) RouterChannelQueueSendAt() tmprometheus.Observer {
 	return m.RouterChannelQueueSend.WithLabelValues()
 }
 

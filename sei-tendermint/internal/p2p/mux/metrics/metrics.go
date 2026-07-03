@@ -3,7 +3,6 @@ package metrics
 import (
 	"time"
 
-	prometheus "github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
@@ -13,12 +12,12 @@ const MetricsSubsystem = "internal_p2p_mux"
 
 //go:generate go run github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen -struct=metrics
 type metrics struct {
-	latency   *prometheus.HistogramVec    `metrics_labels:"role, rpc_name" metrics_buckets:"exp(0.001, 1.3, 30)"`
-	inFlight  *tmprometheus.GaugeIntVec   `metrics_labels:"role, rpc_name"`
-	sendMsgs  *tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
-	recvMsgs  *tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
-	sendBytes *tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
-	recvBytes *tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
+	latency   tmprometheus.HistogramVec  `metrics_labels:"role, rpc_name" metrics_buckets:"exp(0.001, 1.3, 30)"`
+	inFlight  tmprometheus.GaugeIntVec   `metrics_labels:"role, rpc_name"`
+	sendMsgs  tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
+	recvMsgs  tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
+	sendBytes tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
+	recvBytes tmprometheus.CounterIntVec `metrics_labels:"role, rpc_name"`
 }
 
 type Role string
@@ -27,7 +26,7 @@ const RoleAccept = Role("accept")
 const RoleConnect = Role("connect")
 
 type Metrics struct {
-	latency   prometheus.Observer
+	latency   tmprometheus.Observer
 	inFlight  *tmprometheus.GaugeInt
 	sendMsgs  *tmprometheus.CounterInt
 	recvMsgs  *tmprometheus.CounterInt

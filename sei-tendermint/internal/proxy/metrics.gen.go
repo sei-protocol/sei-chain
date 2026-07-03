@@ -4,6 +4,7 @@ package proxy
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 var Global = NewMetrics()
@@ -16,7 +17,7 @@ func init() {
 
 func NewMetrics() *Metrics {
 	return &Metrics{
-		MethodTiming: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		MethodTiming: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "method_timing",
@@ -26,6 +27,6 @@ func NewMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) MethodTimingAt(method string, typeLabel string) prometheus.Observer {
+func (m *Metrics) MethodTimingAt(method string, typeLabel string) tmprometheus.Observer {
 	return m.MethodTiming.WithLabelValues(method, typeLabel)
 }

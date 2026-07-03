@@ -21,7 +21,7 @@ const testDataDir = "./testdata"
 func TestSimpleTemplate(t *testing.T) {
 	m := metricsgen.ParsedMetricField{
 		TypeName:           "HistogramVec",
-		ConstructorPackage: "prometheus",
+		ConstructorPackage: "tmprometheus",
 		ConstructorName:    "NewHistogramVec",
 		OptsTypeName:       "HistogramOpts",
 		FieldName:          "MyMetric",
@@ -32,7 +32,7 @@ func TestSimpleTemplate(t *testing.T) {
 
 		MethodParams:     "first string, second string, third string",
 		MethodArgs:       "first, second, third",
-		MethodReturnType: "prometheus.Observer",
+		MethodReturnType: "tmprometheus.Observer",
 	}
 	td := metricsgen.TemplateData{
 		Package:         "mypack",
@@ -134,15 +134,16 @@ func TestParseMetricsStruct(t *testing.T) {
 				Package:         pkgName,
 				StructName:      "Metrics",
 				ConstructorName: "NewMetrics",
+				UsesIntMetrics:  true,
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
 						TypeName:           "HistogramVec",
-						ConstructorPackage: "prometheus",
+						ConstructorPackage: "tmprometheus",
 						ConstructorName:    "NewHistogramVec",
 						OptsTypeName:       "HistogramOpts",
 						FieldName:          "myHistogram",
 						MetricName:         "my_histogram",
-						MethodReturnType:   "prometheus.Observer",
+						MethodReturnType:   "tmprometheus.Observer",
 
 						HistogramOptions: metricsgen.HistogramOpts{
 							BucketType:  "prometheus.ExponentialBuckets",
@@ -165,12 +166,12 @@ func TestParseMetricsStruct(t *testing.T) {
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
 						TypeName:           "HistogramVec",
-						ConstructorPackage: "prometheus",
+						ConstructorPackage: "tmprometheus",
 						ConstructorName:    "NewHistogramVec",
 						OptsTypeName:       "HistogramOpts",
 						FieldName:          "myHistogram",
 						MetricName:         "my_histogram",
-						MethodReturnType:   "prometheus.Observer",
+						MethodReturnType:   "tmprometheus.Observer",
 
 						HistogramOptions: metricsgen.HistogramOpts{
 							BucketType: "tmprometheus.NoBuckets",
@@ -400,5 +401,5 @@ func TestParseLowercaseMetricsStruct(t *testing.T) {
 	require.NoError(t, metricsgen.GenerateMetricsFile(b, td))
 	require.Contains(t, b.String(), "var Global = newMetrics()")
 	require.Contains(t, b.String(), "func newMetrics() *metrics")
-	require.Contains(t, b.String(), "func (m *metrics) latencyAt() prometheus.Observer")
+	require.Contains(t, b.String(), "func (m *metrics) latencyAt() tmprometheus.Observer")
 }

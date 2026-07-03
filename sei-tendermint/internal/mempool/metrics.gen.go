@@ -152,7 +152,7 @@ func NewMetrics() *Metrics {
 			Name:      "inserted_txs",
 			Help:      "Number of txs inserted to mempool",
 		}, nil),
-		CheckTxPriorityDistribution: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		CheckTxPriorityDistribution: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "check_tx_priority_distribution",
@@ -250,7 +250,7 @@ func (m *Metrics) InsertedTxsAt() *tmprometheus.CounterInt {
 	return m.InsertedTxs.WithLabelValues()
 }
 
-func (m *Metrics) CheckTxPriorityDistributionAt(hint string, local string, error string) prometheus.Observer {
+func (m *Metrics) CheckTxPriorityDistributionAt(hint string, local string, error string) tmprometheus.Observer {
 	return m.CheckTxPriorityDistribution.WithLabelValues(hint, local, error)
 }
 

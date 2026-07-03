@@ -1,6 +1,6 @@
 package proxy
 
-import "github.com/prometheus/client_golang/prometheus"
+import tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 
 const (
 	// MetricsNamespace is the namespace shared by all Tendermint Prometheus metrics.
@@ -14,5 +14,5 @@ const (
 // Metrics contains the prometheus metrics exposed by Proxy.
 type Metrics struct {
 	// Timing for each ABCI method.
-	MethodTiming *prometheus.HistogramVec `metrics_buckets:".0001,.0004,.002,.009,.02,.1,.65,2,6,25" metrics_labels:"method, type"`
+	MethodTiming tmprometheus.HistogramVec `metrics_buckets:".0001,.0004,.002,.009,.02,.1,.65,2,6,25" metrics_labels:"method, type"`
 }

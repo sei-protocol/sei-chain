@@ -322,7 +322,7 @@ func extractTypeName(e ast.Expr) string {
 
 func extractConstructorPackage(typeName string) string {
 	switch typeName {
-	case counterIntVec, gaugeIntVec:
+	case counterIntVec, gaugeIntVec, "HistogramVec":
 		return "tmprometheus"
 	default:
 		return "prometheus"
@@ -351,7 +351,7 @@ func extractMethodReturnType(typeName string) string {
 	case gaugeIntVec:
 		return "*tmprometheus.GaugeInt"
 	case "HistogramVec":
-		return "prometheus.Observer"
+		return "tmprometheus.Observer"
 	default:
 		return ""
 	}

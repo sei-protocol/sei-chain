@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
-	tmmetrics "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 const (
@@ -30,36 +30,36 @@ var (
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// Number of peers.
-	Peers *tmmetrics.GaugeIntVec
+	Peers tmprometheus.GaugeIntVec
 	// Number of bytes per channel received from a given peer.
-	PeerReceiveBytesTotal *tmmetrics.CounterIntVec `metrics_labels:"peer_id, chID, message_type"`
+	PeerReceiveBytesTotal tmprometheus.CounterIntVec `metrics_labels:"peer_id, chID, message_type"`
 	// Number of bytes per channel sent to a given peer.
 	PeerSendBytesTotal *prometheus.CounterVec `metrics_labels:"peer_id, chID, message_type"`
 	// Number of bytes pending being sent to a given peer.
 	PeerPendingSendBytes *prometheus.GaugeVec `metrics_labels:"peer_id"`
 	// Number of newly established connections.
-	NewConnections *tmmetrics.CounterIntVec `metrics_labels:"direction, success"`
+	NewConnections tmprometheus.CounterIntVec `metrics_labels:"direction, success"`
 
 	// RouterPeerQueueRecv defines the time taken to read off of a peer's queue
 	// before sending on the connection.
 	//metrics:The time taken to read off of a peer's queue before sending on the connection.
-	RouterPeerQueueRecv *prometheus.HistogramVec
+	RouterPeerQueueRecv tmprometheus.HistogramVec
 
 	// RouterPeerQueueSend defines the time taken to send on a peer's queue which
 	// will later be read and sent on the connection (see RouterPeerQueueRecv).
 	//metrics:The time taken to send on a peer's queue which will later be read and sent on the connection.
-	RouterPeerQueueSend *prometheus.HistogramVec
+	RouterPeerQueueSend tmprometheus.HistogramVec
 
 	// RouterChannelQueueSend defines the time taken to send on a p2p channel's
 	// queue which will later be consued by the corresponding reactor/service.
 	//metrics:The time taken to send on a p2p channel's queue which will later be consued by the corresponding reactor/service.
-	RouterChannelQueueSend *prometheus.HistogramVec
+	RouterChannelQueueSend tmprometheus.HistogramVec
 
-	ChannelMsgs *tmmetrics.CounterIntVec `metrics_labels:"ch_id, direction"`
+	ChannelMsgs tmprometheus.CounterIntVec `metrics_labels:"ch_id, direction"`
 
 	// QueueDroppedMsgs counts the messages dropped from the router's queues.
 	//metrics:The number of messages dropped from router's queues.
-	QueueDroppedMsgs *tmmetrics.CounterIntVec `metrics_labels:"ch_id, direction"`
+	QueueDroppedMsgs tmprometheus.CounterIntVec `metrics_labels:"ch_id, direction"`
 }
 
 type metricsLabelCache struct {

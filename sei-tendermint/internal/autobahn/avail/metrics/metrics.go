@@ -4,8 +4,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
@@ -17,19 +15,19 @@ const MetricsSubsystem = "internal_autobahn_avail"
 //go:generate go run github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen -struct=metrics
 type metrics struct {
 	// Road index of the highest observed commitQC.
-	commitRoadIndex *tmprometheus.GaugeIntVec
+	commitRoadIndex tmprometheus.GaugeIntVec
 	// Road index of the highest observed appQC.
-	appRoadIndex *tmprometheus.GaugeIntVec
+	appRoadIndex tmprometheus.GaugeIntVec
 
 	// Global block number of the highest observed commitQC.
-	commitGlobalBlockNumber *tmprometheus.GaugeIntVec
+	commitGlobalBlockNumber tmprometheus.GaugeIntVec
 	// Global block number of the highest observed appQC.
-	appGlobalBlockNumber *tmprometheus.GaugeIntVec
+	appGlobalBlockNumber tmprometheus.GaugeIntVec
 
 	// Latency from proposal being constructed to commit being observed.
-	proposalToCommitLatency *prometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.2, 35)"`
+	proposalToCommitLatency tmprometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.2, 35)"`
 	// Latency between consecutive commits being observed.
-	commitToCommitLatency *prometheus.HistogramVec `metrics_labels:"timeouts" metrics_buckets:"none"`
+	commitToCommitLatency tmprometheus.HistogramVec `metrics_labels:"timeouts" metrics_buckets:"none"`
 }
 
 type observed[T any] struct {

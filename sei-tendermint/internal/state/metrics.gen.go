@@ -28,7 +28,7 @@ func init() {
 
 func NewMetrics() *Metrics {
 	return &Metrics{
-		BlockProcessingTime: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		BlockProcessingTime: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_processing_time",
@@ -47,47 +47,47 @@ func NewMetrics() *Metrics {
 			Name:      "validator_set_updates",
 			Help:      "Number of validator set updates returned by the application since process start.",
 		}, nil),
-		ApplicationCommitTime: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		ApplicationCommitTime: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "application_commit_time",
 			Help:      "ApplicationCommitTime measures how long it takes to commit application state",
 		}, nil),
-		UpdateMempoolTime: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		UpdateMempoolTime: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "update_mempool_time",
 			Help:      "UpdateMempoolTime measures how long it takes to update mempool after committing, including reCheckTx",
 		}, nil),
-		FinalizeBlockLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		FinalizeBlockLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "finalize_block_latency",
 			Help:      "FinalizeBlockLatency measures how long it takes to run abci FinalizeBlock",
 			Buckets:   prometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, nil),
-		SaveBlockResponseLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		SaveBlockResponseLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "save_block_response_latency",
 			Help:      "SaveBlockResponseLatency measures how long it takes to run save the FinalizeBlockRes",
 			Buckets:   prometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, nil),
-		SaveBlockLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		SaveBlockLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "save_block_latency",
 			Help:      "SaveBlockLatency measure how long it takes to save the block",
 			Buckets:   prometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, nil),
-		PruneBlockLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		PruneBlockLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "prune_block_latency",
 			Help:      "PruneBlockLatency measures how long it takes to prune block from blockstore",
 			Buckets:   prometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, nil),
-		FireEventsLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		FireEventsLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "fire_events_latency",
@@ -109,7 +109,7 @@ func NewMetrics() *Metrics {
 	}
 }
 
-func (m *Metrics) BlockProcessingTimeAt() prometheus.Observer {
+func (m *Metrics) BlockProcessingTimeAt() tmprometheus.Observer {
 	return m.BlockProcessingTime.WithLabelValues()
 }
 
@@ -121,31 +121,31 @@ func (m *Metrics) ValidatorSetUpdatesAt() *tmprometheus.CounterInt {
 	return m.ValidatorSetUpdates.WithLabelValues()
 }
 
-func (m *Metrics) ApplicationCommitTimeAt() prometheus.Observer {
+func (m *Metrics) ApplicationCommitTimeAt() tmprometheus.Observer {
 	return m.ApplicationCommitTime.WithLabelValues()
 }
 
-func (m *Metrics) UpdateMempoolTimeAt() prometheus.Observer {
+func (m *Metrics) UpdateMempoolTimeAt() tmprometheus.Observer {
 	return m.UpdateMempoolTime.WithLabelValues()
 }
 
-func (m *Metrics) FinalizeBlockLatencyAt() prometheus.Observer {
+func (m *Metrics) FinalizeBlockLatencyAt() tmprometheus.Observer {
 	return m.FinalizeBlockLatency.WithLabelValues()
 }
 
-func (m *Metrics) SaveBlockResponseLatencyAt() prometheus.Observer {
+func (m *Metrics) SaveBlockResponseLatencyAt() tmprometheus.Observer {
 	return m.SaveBlockResponseLatency.WithLabelValues()
 }
 
-func (m *Metrics) SaveBlockLatencyAt() prometheus.Observer {
+func (m *Metrics) SaveBlockLatencyAt() tmprometheus.Observer {
 	return m.SaveBlockLatency.WithLabelValues()
 }
 
-func (m *Metrics) PruneBlockLatencyAt() prometheus.Observer {
+func (m *Metrics) PruneBlockLatencyAt() tmprometheus.Observer {
 	return m.PruneBlockLatency.WithLabelValues()
 }
 
-func (m *Metrics) FireEventsLatencyAt() prometheus.Observer {
+func (m *Metrics) FireEventsLatencyAt() tmprometheus.Observer {
 	return m.FireEventsLatency.WithLabelValues()
 }
 

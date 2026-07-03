@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -180,9 +178,3 @@ func (s *MockState) PushAppHash(_ context.Context, n types.GlobalBlockNumber, ap
 	}
 	return nil
 }
-
-// Describe from prometheus.Collector.
-func (s *MockState) Describe(chan<- *prometheus.Desc) {}
-
-// Collect from prometheus.Collector.
-func (s *MockState) Collect(chan<- prometheus.Metric) {}

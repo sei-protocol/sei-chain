@@ -22,7 +22,7 @@ func init() {
 
 func newMetrics() *metrics {
 	return &metrics{
-		latency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		latency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "latency",
@@ -62,7 +62,7 @@ func newMetrics() *metrics {
 	}
 }
 
-func (m *metrics) latencyAt(role string, rpc_name string) prometheus.Observer {
+func (m *metrics) latencyAt(role string, rpc_name string) tmprometheus.Observer {
 	return m.latency.WithLabelValues(role, rpc_name)
 }
 

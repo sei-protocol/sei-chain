@@ -46,14 +46,14 @@ func newMetrics() *metrics {
 			Name:      "app_global_block_number",
 			Help:      "Global block number of the highest observed appQC.",
 		}, nil),
-		proposalToCommitLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		proposalToCommitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_to_commit_latency",
 			Help:      "Latency from proposal being constructed to commit being observed.",
 			Buckets:   prometheus.ExponentialBuckets(0.01, 1.2, 35),
 		}, nil),
-		commitToCommitLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		commitToCommitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "commit_to_commit_latency",
@@ -79,10 +79,10 @@ func (m *metrics) appGlobalBlockNumberAt() *tmprometheus.GaugeInt {
 	return m.appGlobalBlockNumber.WithLabelValues()
 }
 
-func (m *metrics) proposalToCommitLatencyAt() prometheus.Observer {
+func (m *metrics) proposalToCommitLatencyAt() tmprometheus.Observer {
 	return m.proposalToCommitLatency.WithLabelValues()
 }
 
-func (m *metrics) commitToCommitLatencyAt(timeouts string) prometheus.Observer {
+func (m *metrics) commitToCommitLatencyAt(timeouts string) tmprometheus.Observer {
 	return m.commitToCommitLatency.WithLabelValues(timeouts)
 }
