@@ -1191,6 +1191,35 @@ func TestStateDBGetCodeHashDistinguishesExistingCodelessAccounts(t *testing.T) {
 	require.Equal(t, crypto.Keccak256Hash(code), stateDB.GetCodeHash(contract))
 }
 
+func TestStateDBGetCodeHashTracksCodelessAccountExistenceReads(t *testing.T) {
+	eoa := testAddress(0xbd)
+	state := NewMemoryState()
+	state.SetBalance(eoa, big.NewInt(1))
+	stateDB := newNativeStateDB(state)
+	stateDB.enableAccessTracking()
+
+	require.Equal(t, ethtypes.EmptyCodeHash, stateDB.GetCodeHash(eoa))
+	readSet, _ := stateDB.accessSets()
+	require.Contains(t, readSet, stateAccessKey{kind: stateAccessCode, address: eoa})
+	require.Contains(t, readSet, stateAccessKey{kind: stateAccessBalance, address: eoa})
+	require.Contains(t, readSet, stateAccessKey{kind: stateAccessNonce, address: eoa})
+
+	validation := validateOCCResults([]occTxExecution{
+		{
+			gasLimit: 1,
+			writeSet: map[stateAccessKey]struct{}{
+				{kind: stateAccessBalance, address: eoa}: {},
+			},
+		},
+		{
+			gasLimit: 1,
+			readSet:  readSet,
+		},
+	}, 10)
+	require.False(t, validation.valid)
+	require.Equal(t, occFallbackReasonConflict, validation.fallbackReason)
+}
+
 func TestFinaliseClearsRefund(t *testing.T) {
 	stateDB := newNativeStateDB(NewMemoryState())
 	stateDB.AddRefund(12)
