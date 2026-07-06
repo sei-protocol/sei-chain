@@ -113,21 +113,22 @@ func TestInProcessDistributionModule(t *testing.T) {
 	runner.RunFile(t, "../distribution_module/rewards.yaml", runner.WithInProcessNetwork(sharedNet))
 }
 
-// TestInProcessMintModule is skipped in-process: mint_test.yaml asserts the exact
-// token-release schedule the docker localnode seeds in the mint genesis (total
-// 999999999999usei, 333333333333 first epoch, a fixed total supply), but the
-// harness boots from ModuleBasics.DefaultGenesis, whose mint params differ.
-// Enabling it needs the localnode mint-schedule genesis replicated in the harness
-// genesisBuilder.
+// TestInProcessMintModule is skipped in-process: mint_test.yaml asserts values
+// fixed by the docker localnode's genesis — both the mint-release schedule and the
+// total supply (the supply assertion folds in the full genesis allocation, not
+// just minted tokens) — but the harness boots from ModuleBasics.DefaultGenesis
+// with its own supply + mint params. Enabling it needs the localnode's genesis
+// (schedule AND supply allocation) replicated in the harness genesisBuilder, not
+// the mint schedule alone; the exact expected values live in mint_test.yaml.
 func TestInProcessMintModule(t *testing.T) {
-	t.Skip("mint needs the docker localnode mint-schedule genesis replicated in-process")
+	t.Skip("mint needs the docker localnode genesis (mint schedule + supply allocation) replicated in-process")
 }
 
 // TestInProcessStakingModule runs the staking suite: admin delegates, redelegates,
-// and unbonds across validators, resolving each node's operator valoper by
-// node_admin (--bech val). It is cross-node — the YAML's `node:` field targets a
-// given node's keyring for its operator address — which the operator-key seeding
-// makes resolvable per node.
+// and unbonds across validators, each validator's operator address (valoper)
+// resolved from node_admin (--bech val). It is cross-node — the YAML's `node:`
+// field selects which node's keyring supplies that address — and the operator-key
+// seeding is what makes it resolvable on each node.
 func TestInProcessStakingModule(t *testing.T) {
 	runner.RunFile(t, "../staking_module/staking_test.yaml", runner.WithInProcessNetwork(sharedNet))
 }
