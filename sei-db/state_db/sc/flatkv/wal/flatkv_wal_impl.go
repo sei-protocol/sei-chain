@@ -518,16 +518,29 @@ func (w *flatKVWalImpl) rotate() error {
 // pruneSealedFiles deletes sealed files whose highest block is below pruneThrough. Files are removed
 // oldest-first (from the front of the deque) with a directory fsync after each removal, so a crash mid-prune
 // leaves a contiguous suffix of files rather than a gap in the block sequence. The mutable file is never
-// pruned. Iteration stops at the first retained file: block ranges grow toward the back, so once a file is
-// kept every later file is kept too.
+// pruned.
+//
+// A live iterator holds a read lease at some block R and may still read every block from R onward, so no file
+// whose range reaches R or higher may be removed. A file [first, last] is needed iff it overlaps [R, ∞), i.e.
+// iff last >= R. Comparing the lowest live reservation against each file's last block (rather than testing
+// whether the reservation falls inside a file's range) protects exactly the files an iterator can still open —
+// even when the reservation lands in a gap between files or strictly inside a file's range. Because
+// reservations never fall below the lowest stored block (see pinLowestReadableBlock), a file left below the
+// lowest reservation is one the iterator has already moved past and can safely be dropped.
+//
+// Iteration stops at the first retained file: block ranges grow toward the back, so once a file is kept (by
+// pruneThrough or by the lowest reservation) every later file is kept too.
 func (w *flatKVWalImpl) pruneSealedFiles(pruneThrough uint64) error {
+	// Reservations are mutated only on this (the writer) goroutine, so the lowest reservation is stable for the
+	// duration of this prune and can be computed once.
+	reservation, hasReservation := w.lowestReservation()
 	for {
 		front, ok := w.sealedFiles.TryPeekFront()
 		if !ok || front.lastBlock >= pruneThrough {
 			break
 		}
-		if w.blockPinnedInRange(front.firstBlock, front.lastBlock) {
-			break // a live iterator still needs this file; leave it (and everything after) in place
+		if hasReservation && front.lastBlock >= reservation {
+			break // a live iterator may still read this file (or a later one); keep it and everything after
 		}
 		path := filepath.Join(w.config.Path, front.name)
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -601,7 +614,9 @@ func (w *flatKVWalImpl) sealForIterator() error {
 
 // pinLowestReadableBlock records a read lease and returns the pinned block. An iterator reads blocks at or
 // above startBlock but never below the oldest block actually stored, so the lease is clamped up to that: a
-// stale low start must not pin files that no longer exist (or wedge pruning forever).
+// stale low start must not pin files that no longer exist (or wedge pruning forever). Clamping to the oldest
+// stored block also establishes the invariant pruneSealedFiles relies on: a reservation never falls below the
+// lowest stored block, so a file entirely below the lowest reservation is one every iterator has moved past.
 func (w *flatKVWalImpl) pinLowestReadableBlock(startBlock uint64) uint64 {
 	pinned := startBlock
 	if r := w.blockRange(); r.ok && r.start > pinned {
@@ -620,14 +635,19 @@ func (w *flatKVWalImpl) releaseBlock(block uint64) {
 	w.blockRefs[block]--
 }
 
-// blockPinnedInRange reports whether any live read lease falls within [firstBlock, lastBlock].
-func (w *flatKVWalImpl) blockPinnedInRange(firstBlock uint64, lastBlock uint64) bool {
+// lowestReservation returns the smallest block number currently leased by a live iterator, and ok=false when no
+// lease is held. A lease at block R means some iterator may still read blocks at or above R, so every sealed
+// file whose range reaches R or higher must be retained by pruning.
+func (w *flatKVWalImpl) lowestReservation() (uint64, bool) {
+	var lowest uint64
+	found := false
 	for block := range w.blockRefs {
-		if block >= firstBlock && block <= lastBlock {
-			return true
+		if !found || block < lowest {
+			lowest = block
+			found = true
 		}
 	}
-	return false
+	return lowest, found
 }
 
 // blockRange reports the range of complete blocks across all files. Complete blocks live in the sealed files

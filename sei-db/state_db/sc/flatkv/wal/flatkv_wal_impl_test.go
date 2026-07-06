@@ -374,6 +374,70 @@ func TestIteratorAnchoredAboveKeepPointDoesNotBlockPruning(t *testing.T) {
 	require.Equal(t, uint64(5), start)
 }
 
+// TestIteratorInGapBlocksPruningAcrossGap covers the block-number gap case: the WAL contract allows block
+// numbers to jump, so an iterator's read lease can land in a gap between stored files. Pruning must still
+// protect every file the iterator will read (those reaching the lease block or higher), even though no file's
+// range contains the lease block itself. The directory is inspected directly rather than relying on iterator
+// output, since the reader goroutine may have buffered the files into memory before an unsafe delete.
+func TestIteratorInGapBlocksPruningAcrossGap(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+	cfg.TargetFileSize = 1 // one block per sealed file
+
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+	// Blocks 1,2,3 then a legal jump to 10,11,12. The lease block 5 falls in the gap (3, 10).
+	for _, block := range []uint64{1, 2, 3, 10, 11, 12} {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+
+	it, err := w.Iterator(5)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	// Prune(12) would remove every file with last block < 12, but the live lease at 5 must keep the files for
+	// blocks 10 and 11 (both >= 5). Only the files entirely below the lease (blocks 1,2,3) may be dropped.
+	require.NoError(t, w.Prune(12))
+	_, _, _, err = w.GetStoredRange() // synchronous round-trip forces the async prune to complete
+	require.NoError(t, err)
+
+	names := sealedFileNames(t, dir)
+	require.Contains(t, names, sealedFileName(3, 10, 10), "file for block 10 must survive while iterator(5) is live")
+	require.Contains(t, names, sealedFileName(4, 11, 11), "file for block 11 must survive while iterator(5) is live")
+	require.NotContains(t, names, sealedFileName(0, 1, 1), "file for block 1 is below the lease and should be pruned")
+
+	require.Equal(t, []uint64{10, 11, 12}, collectBlocks(t, w, 5))
+}
+
+// TestIteratorLeaseInsideFileRangeBlocksPruning checks the boundary where the lease block sits within the kept
+// window: an iterator anchored at 5 must keep blocks 5..10 even as pruning is asked to drop through a higher
+// point, because those files reach the lease block or higher.
+func TestIteratorLeaseInsideFileRangeBlocksPruning(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+	cfg.TargetFileSize = 1 // one block per sealed file
+
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+	for block := uint64(1); block <= 10; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+
+	it, err := w.Iterator(5)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	require.NoError(t, w.Prune(8))
+	ok, start, end, err := w.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(5), start, "lease at 5 must keep blocks from 5 onward")
+	require.Equal(t, uint64(10), end)
+	require.Equal(t, []uint64{5, 6, 7, 8, 9, 10}, collectBlocks(t, w, 5))
+}
+
 func TestScanRejectsGapInSealedFiles(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
