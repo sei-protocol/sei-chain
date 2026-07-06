@@ -474,6 +474,54 @@ func TestTxSearchBounded(t *testing.T) {
 	})
 }
 
+// countingDB wraps a dbm.DB and counts point lookups (Has) so a test can assert
+// that a bounded scan point-probes only the candidates in its driver prefix
+// rather than every row in the full match set.
+type countingDB struct {
+	dbm.DB
+	hasCount int
+}
+
+func (c *countingDB) Has(key []byte) (bool, error) {
+	c.hasCount++
+	return c.DB.Has(key)
+}
+
+func TestTxSearchBoundedPrefersHeightDriver(t *testing.T) {
+	store := &countingDB{DB: dbm.NewMemDB()}
+	idx := NewTxIndex(store)
+
+	// One tx per height for heights 1..20, each carrying sender.addr=addr1.
+	// Driving off sender scans all 20 heights; driving off tx.height=N scans
+	// only block N.
+	const heights = 20
+	for h := int64(1); h <= heights; h++ {
+		res := &abci.TxResultV2{
+			Height: h,
+			Index:  0,
+			Tx:     types.Tx(fmt.Sprintf("tx-%d", h)),
+			Result: abci.ExecTxResult{Code: abci.CodeTypeOK, Events: []abci.Event{{
+				Type:       "sender",
+				Attributes: []abci.EventAttribute{{Key: []byte("addr"), Value: []byte("addr1"), Index: true}},
+			}}},
+		}
+		require.NoError(t, idx.Index([]*abci.TxResultV2{res}))
+	}
+
+	store.hasCount = 0
+	results, err := idx.Search(
+		t.Context(),
+		query.MustCompile(`sender.addr = 'addr1' AND tx.height = 7`),
+		indexer.SearchOptions{Limit: 10, OrderDesc: true},
+	)
+	require.NoError(t, err)
+
+	// Correctness: only the height-7 tx matches.
+	require.Len(t, results, 1)
+	require.Equal(t, int64(7), results[0].Height)
+	require.Equal(t, 1, store.hasCount, "bounded scan probed %d times; must probe only block-7 candidates, not every sender.addr row", store.hasCount)
+}
+
 func txResultWithEvents(events []abci.Event) *abci.TxResultV2 {
 	tx := types.Tx("HELLO WORLD")
 	return &abci.TxResultV2{

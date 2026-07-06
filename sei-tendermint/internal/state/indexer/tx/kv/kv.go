@@ -437,10 +437,24 @@ func planBounded(conditions []syntax.Condition, ranges indexer.QueryRanges, rang
 		return boundedPlan{}, false
 	}
 
-	// Drive off the first equality; its secondary-index prefix is
-	// (height, index)-ordered.
-	plan.driverEquality = &equalities[0]
-	plan.equalityProbes = equalities[1:]
+	// Prefer a tx.height equality when one is present:
+	// its (TxHeightKey, "N") prefix is partitioned to a single height, so the
+	// scan visits only the txs in block N.
+	driver := 0
+	for i := range equalities {
+		if equalities[i].Tag == types.TxHeightKey {
+			driver = i
+			break
+		}
+	}
+	plan.driverEquality = &equalities[driver]
+	plan.equalityProbes = make([]syntax.Condition, 0, len(equalities)-1)
+	for i := range equalities {
+		if i == driver {
+			continue
+		}
+		plan.equalityProbes = append(plan.equalityProbes, equalities[i])
+	}
 
 	return plan, true
 }
