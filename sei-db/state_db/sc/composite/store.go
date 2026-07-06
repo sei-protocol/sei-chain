@@ -1147,6 +1147,21 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 		}
 	}
 
+	// Clear the sticky lattice-append latch so the next commit-info call
+	// re-derives it from the rolled-back migration boundary. A store opened
+	// after the migrate_evm activation latches it true; rolling back to a
+	// pre-activation height (memiavl-only AppHash, no evm_lattice) must not
+	// keep appending the lattice, or the in-process commit info diverges from
+	// the canonical AppHash. Scope: only this latch is reset; the symmetric
+	// memiavlHashExcluded (bank-completion) and currentWriteMode are not
+	// re-derived here — out of scope while only migrate_evm is in flight, and
+	// self-healed by the next `seid start`.
+	cs.latticeAppendLatched.Store(false)
+
+	// Rollback is offline (no commit cycle in flight); clear the per-block
+	// migration-advance gate defensively.
+	cs.migrationAdvancedThisCommit = false
+
 	return nil
 }
 
