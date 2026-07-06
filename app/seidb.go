@@ -12,12 +12,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 const (
-	legacySCWriteModeCosmosOnly = "cosmos_only"
-
 	// SC Store configs
 	FlagSCEnable                     = "state-commit.sc-enable"
 	FlagSCDirectory                  = "state-commit.sc-directory"
@@ -129,7 +126,7 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	// Always parse sc-write-mode (even when auto is on) so a typo'd value fails
 	// fast here exactly as it does in server/config.GetConfig.
 	if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
-		parsedWM, err := parseSCWriteMode(wm)
+		parsedWM, err := config.ParseSCWriteMode(wm)
 		if err != nil {
 			panic(fmt.Sprintf("invalid SC write mode %q: %s", wm, err))
 		}
@@ -176,13 +173,6 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.HashLogger.Version = version.Version
 
 	return scConfig
-}
-
-func parseSCWriteMode(wm string) (sctypes.WriteMode, error) {
-	if wm == legacySCWriteModeCosmosOnly {
-		return sctypes.MemiavlOnly, nil
-	}
-	return sctypes.ParseWriteMode(wm)
 }
 
 func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {

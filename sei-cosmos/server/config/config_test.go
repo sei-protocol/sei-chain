@@ -499,6 +499,20 @@ func TestGetConfigLegacyMemiavlOnlyResolvesToAuto(t *testing.T) {
 		"absent sc-write-mode-enable-auto must default to true and override an explicit memiavl_only")
 }
 
+func TestGetConfigLegacyCosmosOnlyResolvesToAuto(t *testing.T) {
+	v := viper.New()
+
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+	v.Set("state-commit.sc-write-mode", "cosmos_only")
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.True(t, cfg.StateCommit.WriteModeEnableAuto)
+	require.Equal(t, sctypes.Auto, cfg.StateCommit.WriteMode,
+		"v6.4/v6.5 app.toml files with cosmos_only must parse before auto mode is applied")
+}
+
 // TestGetConfigPinnedModeRequiresAutoDisabled verifies that an explicit
 // sc-write-mode is only honored when sc-write-mode-enable-auto = false. With auto
 // enabled (the default), the explicit mode is ignored and the node runs in auto.
