@@ -389,7 +389,7 @@ func (k BaseSendKeeper) SubWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int
 	newUsei, newWei := SplitUseiWeiAmount(postTotal)
 	lockedUsei := k.LockedCoins(ctx, addr).AmountOf(denom)
 	if newUsei.LT(lockedUsei) {
-		return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%suei is smaller than locked %suei", newUsei, lockedUsei)
+		return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%susei is smaller than locked %susei", newUsei, lockedUsei)
 	}
 
 	if err := k.setBalance(ctx, addr, sdk.NewCoin(denom, newUsei), true); err != nil {

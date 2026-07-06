@@ -242,20 +242,41 @@ func (cva ContinuousVestingAccount) GetVestedCoins(blockTime time.Time) sdk.Coin
 	duration := cva.EndTime - cva.StartTime
 	vestedFraction := sdk.NewDec(elapsed).Quo(sdk.NewDec(duration))
 
-	// Pull out the underlying big.Int once. It carries vestedFraction * 10^Precision,
-	// so multiplying a raw coin amount by it and then interpreting the product
-	// at the same precision yields amount * vestedFraction — equivalent to
-	// ovc.Amount.ToDec().Mul(vestedFraction).RoundInt(), without a per-coin Dec.
+	// Pull out the fraction's underlying big.Int once. It carries
+	// vestedFraction * 10^Precision, so multiplying a raw coin amount by it and
+	// rounding the product back down by the same factor yields
+	// amount * vestedFraction — equivalent to
+	// ovc.Amount.ToDec().Mul(vestedFraction).RoundInt(), but done in big.Int so
+	// it never routes an oversized value through sdk.Dec (whose range assertion
+	// would panic for very large amounts).
 	fractionScaled := vestedFraction.BigInt()
 
 	vestedCoins := make(sdk.Coins, len(cva.OriginalVesting))
 	for i, ovc := range cva.OriginalVesting {
 		prod := new(big.Int).Mul(ovc.Amount.BigInt(), fractionScaled)
-		vestedAmt := sdk.NewDecFromBigIntWithPrec(prod, sdk.Precision).RoundInt()
-		vestedCoins[i] = sdk.NewCoin(ovc.Denom, vestedAmt)
+		vestedCoins[i] = sdk.NewCoin(ovc.Denom, roundScaledInt(prod))
 	}
 
 	return vestedCoins
+}
+
+// decScaleFactor is 10^sdk.Precision, the implicit scale of an sdk.Dec's
+// internal big.Int. GetVestedCoins multiplies a coin amount by the scaled
+// vesting fraction and rounds it back down by this factor.
+var decScaleFactor = new(big.Int).Exp(big.NewInt(10), big.NewInt(sdk.Precision), nil)
+
+func roundScaledInt(scaled *big.Int) sdk.Int {
+	quo, rem := new(big.Int).QuoRem(scaled, decScaleFactor, new(big.Int))
+	// Compare 2*rem against the divisor instead of keeping a separate half.
+	switch new(big.Int).Lsh(rem, 1).Cmp(decScaleFactor) {
+	case 1: // remainder > half: round up
+		quo.Add(quo, big.NewInt(1))
+	case 0: // remainder == half: round to even
+		if quo.Bit(0) == 1 {
+			quo.Add(quo, big.NewInt(1))
+		}
+	}
+	return sdk.NewIntFromBigInt(quo)
 }
 
 // GetVestingCoins returns the total number of vesting coins. If no coins are

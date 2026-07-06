@@ -1,6 +1,7 @@
 package types_test
 
 import (
+	"math/big"
 	"testing"
 	"time"
 
@@ -29,6 +30,22 @@ func TestGetVestedCoinsContVestingAcc(t *testing.T) {
 	require.Equal(t, cs(fee(292), stake(29)), cva.GetVestedCoins(now.Add(7*time.Hour)))
 	require.Equal(t, cs(fee(708), stake(71)), cva.GetVestedCoins(now.Add(17*time.Hour)))
 	require.Equal(t, origCoins, cva.GetVestedCoins(now.Add(48*time.Hour)))
+}
+
+func TestGetVestedCoinsContVestingAccNoOverflow(t *testing.T) {
+	now, endTime, bacc, _ := vestingFixture()
+	hugeBig := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	orig := cs(sdk.NewCoin(stakeDenom, sdk.NewIntFromBigInt(hugeBig)))
+	cva := types.NewContinuousVestingAccount(bacc, orig, now.Unix(), endTime.Unix(), nil)
+
+	var vested sdk.Coins
+	require.NotPanics(t, func() {
+		vested = cva.GetVestedCoins(now.Add(18 * time.Hour)) // 75% elapsed: inside the old panic window
+	})
+	// 75% of 2^256-1, banker's-rounded, equals floor((2^256-1)*3/4).
+	want := new(big.Int).Div(new(big.Int).Mul(hugeBig, big.NewInt(3)), big.NewInt(4))
+	require.Equal(t, sdk.NewIntFromBigInt(want), vested.AmountOf(stakeDenom))
+	require.Equal(t, orig, cva.GetVestedCoins(endTime))
 }
 
 func TestGetVestingCoinsContVestingAcc(t *testing.T) {
