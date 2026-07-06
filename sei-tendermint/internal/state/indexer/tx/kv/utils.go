@@ -33,5 +33,5 @@ func parseHeightIndexFromKey(key []byte) (int64, uint32, error) {
 		return 0, 0, fmt.Errorf("unexpected remainder in key: %s", remaining)
 	}
 
-	return height, uint32(index), nil
+	return height, uint32(index), nil //nolint:gosec // index is stored as int64(uint32) by secondaryKey, so the round-trip back to uint32 cannot overflow
 }
