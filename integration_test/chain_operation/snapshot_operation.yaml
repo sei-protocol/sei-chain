@@ -1,7 +1,9 @@
 - name: Test validators should be able to create snapshot with custom location
   inputs:
-    # Check if snapshots are created
-    - cmd: if [ -d "./build/generated/node_0/snapshots" ]; then echo "true"; else echo "false"; fi
+    # Check if snapshots are created. SEI_SNAPSHOT_DIR is set by the in-process/
+    # subprocess runner to that node's snapshot dir; docker leaves it unset and falls
+    # back to its container-relative path.
+    - cmd: if [ -d "${SEI_SNAPSHOT_DIR:-./build/generated/node_0/snapshots}" ]; then echo "true"; else echo "false"; fi
       env: FOUND
       node: sei-node-0
   verifiers:

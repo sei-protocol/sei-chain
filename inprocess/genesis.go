@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
@@ -19,6 +20,7 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
 	genutiltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -40,6 +42,9 @@ type genesisBuilder struct {
 	txConfig  client.TxConfig
 	chainID   string
 	bondDenom string
+	// govVotingPeriod, when > 0, shortens the gov voting + deposit periods in the base
+	// genesis so a proposal can pass within a test.
+	govVotingPeriod time.Duration
 
 	accounts []authtypes.GenesisAccount
 	balances []banktypes.Balance
@@ -151,6 +156,19 @@ func (b *genesisBuilder) writeBaseGenesis(baseState map[string]json.RawMessage, 
 	b.codec.MustUnmarshalJSON(baseState[banktypes.ModuleName], &bankGenState)
 	bankGenState.Balances = append(bankGenState.Balances, b.balances...)
 	baseState[banktypes.ModuleName] = b.codec.MustMarshalJSON(&bankGenState)
+
+	if b.govVotingPeriod > 0 {
+		var govGenState govtypes.GenesisState
+		b.codec.MustUnmarshalJSON(baseState[govtypes.ModuleName], &govGenState)
+		// Deposit/quorum/threshold keep their defaults — node_admin funds the default
+		// usei deposit and all validators voting yes clears quorum + threshold. The
+		// expedited period must stay strictly below the normal one (gov Params
+		// ValidateBasic rejects >=), so halve it.
+		govGenState.VotingParams.VotingPeriod = b.govVotingPeriod
+		govGenState.VotingParams.ExpeditedVotingPeriod = b.govVotingPeriod / 2
+		govGenState.DepositParams.MaxDepositPeriod = b.govVotingPeriod
+		baseState[govtypes.ModuleName] = b.codec.MustMarshalJSON(&govGenState)
+	}
 
 	appStateJSON, err := json.MarshalIndent(baseState, "", "  ")
 	if err != nil {

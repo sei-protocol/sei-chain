@@ -110,6 +110,7 @@ func latestHeight(ctx context.Context, hc *http.Client, tmRPC string) (int64, bo
 
 type syncInfo struct {
 	LatestBlockHeight string `json:"latest_block_height"`
+	LatestBlockHash   string `json:"latest_block_hash"`
 }
 
 // getJSON performs one request and returns the body on HTTP 200, else ok=false
