@@ -13,12 +13,8 @@ func init() {
 	prometheus.MustRegister(
 		Global.Peers,
 		Global.PeerReceiveBytesTotal,
-		Global.PeerSendBytesTotal,
-		Global.PeerPendingSendBytes,
 		Global.NewConnections,
 		Global.RouterPeerQueueRecv,
-		Global.RouterPeerQueueSend,
-		Global.RouterChannelQueueSend,
 		Global.ChannelMsgs,
 		Global.QueueDroppedMsgs,
 	)
@@ -38,18 +34,6 @@ func NewMetrics() *Metrics {
 			Name:      "peer_receive_bytes_total",
 			Help:      "Number of bytes per channel received from a given peer.",
 		}, []string{"peer_id", "chID", "message_type"}),
-		PeerSendBytesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "peer_send_bytes_total",
-			Help:      "Number of bytes per channel sent to a given peer.",
-		}, []string{"peer_id", "chID", "message_type"}),
-		PeerPendingSendBytes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "peer_pending_send_bytes",
-			Help:      "Number of bytes pending being sent to a given peer.",
-		}, []string{"peer_id"}),
 		NewConnections: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -61,20 +45,6 @@ func NewMetrics() *Metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "router_peer_queue_recv",
 			Help:      "The time taken to read off of a peer's queue before sending on the connection.",
-			Buckets:   prometheus.DefBuckets,
-		}, nil),
-		RouterPeerQueueSend: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "router_peer_queue_send",
-			Help:      "The time taken to send on a peer's queue which will later be read and sent on the connection.",
-			Buckets:   prometheus.DefBuckets,
-		}, nil),
-		RouterChannelQueueSend: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "router_channel_queue_send",
-			Help:      "The time taken to send on a p2p channel's queue which will later be consued by the corresponding reactor/service.",
 			Buckets:   prometheus.DefBuckets,
 		}, nil),
 		ChannelMsgs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
@@ -100,28 +70,12 @@ func (m *Metrics) PeerReceiveBytesTotalAt(peer_id string, chID string, message_t
 	return m.PeerReceiveBytesTotal.WithLabelValues(peer_id, chID, message_type)
 }
 
-func (m *Metrics) PeerSendBytesTotalAt(peer_id string, chID string, message_type string) prometheus.Counter {
-	return m.PeerSendBytesTotal.WithLabelValues(peer_id, chID, message_type)
-}
-
-func (m *Metrics) PeerPendingSendBytesAt(peer_id string) prometheus.Gauge {
-	return m.PeerPendingSendBytes.WithLabelValues(peer_id)
-}
-
 func (m *Metrics) NewConnectionsAt(direction string, success string) *tmprometheus.CounterInt {
 	return m.NewConnections.WithLabelValues(direction, success)
 }
 
 func (m *Metrics) RouterPeerQueueRecvAt() *tmprometheus.Histogram {
 	return m.RouterPeerQueueRecv.WithLabelValues()
-}
-
-func (m *Metrics) RouterPeerQueueSendAt() *tmprometheus.Histogram {
-	return m.RouterPeerQueueSend.WithLabelValues()
-}
-
-func (m *Metrics) RouterChannelQueueSendAt() *tmprometheus.Histogram {
-	return m.RouterChannelQueueSend.WithLabelValues()
 }
 
 func (m *Metrics) ChannelMsgsAt(ch_id string, direction string) *tmprometheus.CounterInt {
