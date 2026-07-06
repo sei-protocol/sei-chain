@@ -1167,3 +1167,72 @@ func TestComposite_MigrateEVM_RollbackRestoresCanonicalCommitInfo(t *testing.T) 
 		})
 	}
 }
+
+// TestComposite_MigrateBank_RollbackAcrossCompletionBoundary is the
+// memiavl-side mirror of TestComposite_MigrateEVM_RollbackAcrossActivationBoundary.
+// Once the bank migration completes (version 3) a store with memiavl still
+// open latches memiavlHashExcluded=true and drops memiavl's per-store infos
+// from the commit info (the flatkv_only shape). Rolling back below the
+// completion boundary must re-include memiavl, or the in-process
+// post-rollback AppHash diverges from the canonical value the chain
+// committed at that height (which still carries the memiavl stores).
+func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xB0A7)
+	const batch = 8
+
+	cs := openAutoStore(t, dir, batch)
+
+	// Bootstrap bank+evm state under MemiavlOnly (bank-heavy so migrate_bank
+	// later spans several blocks), then walk the ladder to migrate_bank.
+	for i := 0; i < 12; i++ {
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(6, 0, 0, 40, 0)))
+		_, err := cs.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 400)
+	require.NoError(t, cs.SetWriteMode(types.EVMMigrated))
+	runBlocks(t, cs, workload, 2)
+	require.NoError(t, cs.SetWriteMode(types.MigrateAllButBank))
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_MigrateAllButBank, 400)
+	require.NoError(t, cs.SetWriteMode(types.AllMigratedButBank))
+	runBlocks(t, cs, workload, 2)
+
+	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
+	require.Equal(t, types.MigrateBank, cs.currentWriteMode)
+
+	// One migrate_bank block that does not complete the migration: memiavl
+	// is still part of the AppHash here. Capture it as the rollback target.
+	require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 0, 2)))
+	_, err := cs.Commit()
+	require.NoError(t, err)
+	target := cs.Version()
+	canonicalTarget := cloneCommitInfo(cs.LastCommitInfo())
+	require.Greater(t, len(canonicalTarget.StoreInfos), 1,
+		"sanity: migrate_bank in-progress commit info must still include memiavl stores")
+
+	// Drive to bank completion while staying in currentWriteMode
+	// MigrateBank (do NOT flip to FlatKVOnly), so the rollback exercises the
+	// latch reset rather than a mode change. Reaching version 3 latches
+	// memiavlHashExcluded=true and drops memiavl from the commit info.
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 800)
+	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
+		"once bank migration completes, memiavl infos are excluded (latches memiavlHashExcluded)")
+
+	// Roll back across the completion boundary. Without resetting
+	// memiavlHashExcluded the post-rollback commit info would keep the
+	// flatkv_only shape and drop memiavl.
+	require.NoError(t, cs.Rollback(target))
+	require.Equal(t, target, cs.Version())
+	requireCommitInfoEqual(t, canonicalTarget, cs.LastCommitInfo(),
+		"post-rollback commit info across the bank-completion boundary must re-include memiavl")
+	require.NoError(t, cs.Close())
+
+	// Fresh restart re-derives from the rolled-back metadata and must agree.
+	cs = openAutoStore(t, dir, batch)
+	defer func() { _ = cs.Close() }()
+	require.Equal(t, target, cs.Version())
+	requireCommitInfoEqual(t, canonicalTarget, cs.LastCommitInfo(),
+		"post-restart commit info across the bank-completion boundary must re-include memiavl")
+}
