@@ -1,4 +1,4 @@
-package wal
+package statewal
 
 import (
 	"os"
@@ -10,14 +10,14 @@ import (
 )
 
 func TestFileNaming(t *testing.T) {
-	require.Equal(t, "3.fkvwal.u", unsealedFileName(3))
-	require.Equal(t, "3-10-20.fkvwal", sealedFileName(3, 10, 20))
+	require.Equal(t, "3.swal.u", unsealedFileName(3))
+	require.Equal(t, "3-10-20.swal", sealedFileName(3, 10, 20))
 
-	parsed, ok := parseFileName("3.fkvwal.u")
+	parsed, ok := parseFileName("3.swal.u")
 	require.True(t, ok)
 	require.Equal(t, parsedFileName{index: 3, sealed: false}, parsed)
 
-	parsed, ok = parseFileName("3-10-20.fkvwal")
+	parsed, ok = parseFileName("3-10-20.swal")
 	require.True(t, ok)
 	require.Equal(t, parsedFileName{index: 3, firstBlock: 10, lastBlock: 20, sealed: true}, parsed)
 
@@ -40,8 +40,8 @@ func writeMutableFile(t *testing.T, dir string, fn func(f *walFile)) string {
 func writeCompleteBlock(t *testing.T, f *walFile, block uint64) {
 	t.Helper()
 	cs := []*proto.NamedChangeSet{makeChangeSet("evm", []byte{byte(block)}, []byte{byte(block)})}
-	require.NoError(t, f.writeEntry(NewFlatKVWalEntry(block, cs)))
-	require.NoError(t, f.writeEntry(NewFlatKVEndOfBlockEntry(block)))
+	require.NoError(t, f.writeEntry(NewEntry(block, cs)))
+	require.NoError(t, f.writeEntry(NewEndOfBlockEntry(block)))
 }
 
 func TestReadWalFileCleanTail(t *testing.T) {
@@ -65,7 +65,7 @@ func TestReadWalFileIncompleteTailBlock(t *testing.T) {
 		writeCompleteBlock(t, f, 1)
 		writeCompleteBlock(t, f, 2)
 		// Block 3 changeset with no end-of-block marker.
-		require.NoError(t, f.writeEntry(NewFlatKVWalEntry(3,
+		require.NoError(t, f.writeEntry(NewEntry(3,
 			[]*proto.NamedChangeSet{makeChangeSet("evm", []byte{3}, []byte{3})})))
 	})
 

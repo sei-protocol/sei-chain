@@ -1,4 +1,4 @@
-package wal
+package statewal
 
 import (
 	"fmt"
@@ -7,11 +7,11 @@ import (
 	"sync"
 )
 
-var _ FlatKVWalIterator = (*walIterator)(nil)
+var _ StateWALIterator = (*walIterator)(nil)
 
 // A block produced by the reader goroutine, or a terminal error.
 type iteratorResult struct {
-	entry *FlatKVWalEntry
+	entry *Entry
 	err   error
 }
 
@@ -37,7 +37,7 @@ type iteratorFile struct {
 // holds the files the reader needs against concurrent pruning; Close releases it.
 type walIterator struct {
 	// The WAL this iterator reads from.
-	wal *flatKVWalImpl
+	wal *stateWALImpl
 
 	// The lowest block the consumer asked for; blocks below it are skipped.
 	start uint64
@@ -58,7 +58,7 @@ type walIterator struct {
 	closeOnce sync.Once
 
 	// The entry returned by Entry, set by the most recent successful Next. Consumer-owned.
-	result *FlatKVWalEntry
+	result *Entry
 
 	// Set once iteration is complete. Consumer-owned.
 	done bool
@@ -70,7 +70,7 @@ type walIterator struct {
 	// The index into files of the next file to load.
 	filePos int
 	// The records loaded from the current file, filtered to complete blocks at or beyond start.
-	buffer []*FlatKVWalEntry
+	buffer []*Entry
 	// The position within buffer; -1 before the first record is read.
 	pos int
 }
@@ -80,7 +80,7 @@ type walIterator struct {
 // snapshot of files to read (captured on the writer goroutine). prefetch is the number of blocks the reader may
 // buffer ahead of the consumer.
 func newWalIterator(
-	wal *flatKVWalImpl,
+	wal *stateWALImpl,
 	startingBlockNumber uint64,
 	pinnedBlock uint64,
 	files []iteratorFile,
@@ -137,7 +137,7 @@ func (it *walIterator) deliver(result iteratorResult, ok bool) (bool, error) {
 	return true, nil
 }
 
-func (it *walIterator) Entry() *FlatKVWalEntry {
+func (it *walIterator) Entry() *Entry {
 	return it.result
 }
 
@@ -189,8 +189,8 @@ func (it *walIterator) send(result iteratorResult) bool {
 
 // nextBlock assembles the next block by draining records until it consumes that block's end-of-block marker.
 // Returns ok=false once no records remain.
-func (it *walIterator) nextBlock() (*FlatKVWalEntry, bool, error) {
-	var block *FlatKVWalEntry
+func (it *walIterator) nextBlock() (*Entry, bool, error) {
+	var block *Entry
 	for {
 		record, ok, err := it.nextRecord()
 		if err != nil {
@@ -205,7 +205,7 @@ func (it *walIterator) nextBlock() (*FlatKVWalEntry, bool, error) {
 			return nil, false, nil
 		}
 		if block == nil {
-			block = &FlatKVWalEntry{BlockNumber: record.BlockNumber}
+			block = &Entry{BlockNumber: record.BlockNumber}
 		}
 		if record.EndOfBlock {
 			return block, true, nil
@@ -216,7 +216,7 @@ func (it *walIterator) nextBlock() (*FlatKVWalEntry, bool, error) {
 
 // nextRecord returns the next individual record (changeset or end-of-block marker) in ascending order,
 // advancing across files as needed. It returns ok=false once no further records remain.
-func (it *walIterator) nextRecord() (*FlatKVWalEntry, bool, error) {
+func (it *walIterator) nextRecord() (*Entry, bool, error) {
 	for {
 		it.pos++
 		if it.pos < len(it.buffer) {

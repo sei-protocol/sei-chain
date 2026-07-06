@@ -1,4 +1,4 @@
-package wal
+package statewal
 
 import (
 	"encoding/binary"
@@ -18,12 +18,12 @@ const (
 	kindEndOfBlock entryKind = 2
 )
 
-// A WAL entry for flatKV.
+// A WAL entry for state.
 //
 // An entry is either a changeset record (EndOfBlock is false, Changeset holds the block's changes) or an
 // end-of-block marker (EndOfBlock is true, Changeset is nil). A single block may be described by several
 // changeset records followed by exactly one end-of-block marker.
-type FlatKVWalEntry struct {
+type Entry struct {
 
 	// The block number associated with this entry.
 	BlockNumber uint64
@@ -36,16 +36,16 @@ type FlatKVWalEntry struct {
 }
 
 // Constructor for a changeset entry.
-func NewFlatKVWalEntry(blockNumber uint64, changeset []*proto.NamedChangeSet) *FlatKVWalEntry {
-	return &FlatKVWalEntry{
+func NewEntry(blockNumber uint64, changeset []*proto.NamedChangeSet) *Entry {
+	return &Entry{
 		BlockNumber: blockNumber,
 		Changeset:   changeset,
 	}
 }
 
 // Constructor for an end-of-block marker entry.
-func NewFlatKVEndOfBlockEntry(blockNumber uint64) *FlatKVWalEntry {
-	return &FlatKVWalEntry{
+func NewEndOfBlockEntry(blockNumber uint64) *Entry {
+	return &Entry{
 		BlockNumber: blockNumber,
 		EndOfBlock:  true,
 	}
@@ -59,7 +59,7 @@ func NewFlatKVEndOfBlockEntry(blockNumber uint64) *FlatKVWalEntry {
 // followed, for changeset records only, by:
 //
 //	[uvarint changeset count]([uvarint marshaled length][marshaled NamedChangeSet])*
-func (e *FlatKVWalEntry) Serialize() ([]byte, error) {
+func (e *Entry) Serialize() ([]byte, error) {
 	var buf []byte
 	var scratch [binary.MaxVarintLen64]byte
 
@@ -93,10 +93,10 @@ func (e *FlatKVWalEntry) Serialize() ([]byte, error) {
 	return buf, nil
 }
 
-// DeserializeFlatKVWalEntry parses a record payload previously produced by Serialize.
-func DeserializeFlatKVWalEntry(data []byte) (
+// DeserializeEntry parses a record payload previously produced by Serialize.
+func DeserializeEntry(data []byte) (
 	// The resulting WAL entry.
-	entry *FlatKVWalEntry,
+	entry *Entry,
 	// If true, the WAL entry was successfully deserialized.
 	// If false, the data was truncated or otherwise incomplete and entry is nil.
 	ok bool,
@@ -119,7 +119,7 @@ func DeserializeFlatKVWalEntry(data []byte) (
 
 	switch kind {
 	case kindEndOfBlock:
-		return NewFlatKVEndOfBlockEntry(blockNumber), true, nil
+		return NewEndOfBlockEntry(blockNumber), true, nil
 	case kindChangeset:
 		count, n := binary.Uvarint(rest)
 		if n <= 0 {
@@ -144,7 +144,7 @@ func DeserializeFlatKVWalEntry(data []byte) (
 			rest = rest[length:]
 			changeset = append(changeset, ncs)
 		}
-		return NewFlatKVWalEntry(blockNumber, changeset), true, nil
+		return NewEntry(blockNumber, changeset), true, nil
 	default:
 		return nil, false, fmt.Errorf("unknown WAL entry kind %d", kind)
 	}

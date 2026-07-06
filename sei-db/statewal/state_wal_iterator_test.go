@@ -1,4 +1,4 @@
-package wal
+package statewal
 
 import (
 	"fmt"
@@ -103,7 +103,7 @@ func TestIteratorReaderExitsWhenWALTornDownWhileOrphaned(t *testing.T) {
 
 	// Do not consume the iterator: the reader fills the prefetch buffer (size 1) and blocks on send. Tear
 	// down the WAL context out from under it, as fail() or Close() would.
-	w.(*flatKVWalImpl).cancel()
+	w.(*stateWALImpl).cancel()
 
 	select {
 	case <-iter.readerExited:
@@ -229,7 +229,7 @@ func TestConcurrentIterationDuringRotation(t *testing.T) {
 // drainContiguousFrom fully consumes an iterator anchored at start, verifying the yielded blocks form a
 // gap-free, strictly-increasing run beginning at start (an empty run is allowed: the writer may not have
 // produced start yet). Returns the first error encountered.
-func drainContiguousFrom(w FlatKVWAL, start uint64) error {
+func drainContiguousFrom(w StateWAL, start uint64) error {
 	it, err := w.Iterator(start)
 	if err != nil {
 		return fmt.Errorf("create iterator: %w", err)

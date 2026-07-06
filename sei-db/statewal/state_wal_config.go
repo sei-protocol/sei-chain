@@ -1,4 +1,4 @@
-package wal
+package statewal
 
 import (
 	"fmt"
@@ -6,8 +6,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 )
 
-// Configuration for a flatKV WAL.
-type FlatKVWALConfig struct {
+// Configuration for a state WAL.
+type Config struct {
 	// The directory where the WAL writes its files.
 	Path string
 
@@ -32,9 +32,9 @@ type FlatKVWALConfig struct {
 	IteratorPrefetchSize uint
 }
 
-// Constructor for a default flatKV WAL configuration.
-func DefaultFlatKVWALConfig(path string) *FlatKVWALConfig {
-	return &FlatKVWALConfig{
+// Constructor for a default state WAL configuration.
+func DefaultConfig(path string) *Config {
+	return &Config{
 		Path:                 path,
 		RequestBufferSize:    16,
 		WriteBufferSize:      16,
@@ -45,7 +45,7 @@ func DefaultFlatKVWALConfig(path string) *FlatKVWALConfig {
 }
 
 // Validate the configuration, returning nil if valid, or an error describing the problem if invalid.
-func (c *FlatKVWALConfig) Validate() error {
+func (c *Config) Validate() error {
 	if c.Path == "" {
 		return fmt.Errorf("path is required")
 	}

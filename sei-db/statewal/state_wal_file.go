@@ -1,4 +1,4 @@
-package wal
+package statewal
 
 import (
 	"bufio"
@@ -15,31 +15,31 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
-// FlatKV WAL files use the following naming schema (mirroring the hashlog package):
+// State WAL files use the following naming schema (mirroring the hashlog package):
 //
-// For mutable files: {index}.fkvwal.u
-// For sealed files:  {index}-{first block}-{last block}.fkvwal
+// For mutable files: {index}.swal.u
+// For sealed files:  {index}-{first block}-{last block}.swal
 //
 // The on-disk serialization version is recorded in each file's header rather than its name.
 
 const (
 	// The file extension for unsealed (mutable) WAL files.
-	walUnsealedExtension = ".fkvwal.u"
+	walUnsealedExtension = ".swal.u"
 	// The file extension for sealed (immutable) WAL files.
-	walSealedExtension = ".fkvwal"
+	walSealedExtension = ".swal"
 	// The serialization version written into each file's header. Bumped if the on-disk format changes.
 	walFormatVersion = byte(1)
 )
 
 // The magic prefix written at the start of every WAL file, followed by a single format-version byte.
-var walFileMagic = []byte("FKVWAL")
+var walFileMagic = []byte("STWAL")
 
 // The length of a WAL file header: magic prefix plus the format-version byte.
-const walHeaderSize = 7 // len("FKVWAL") + 1
+const walHeaderSize = 6 // len("STWAL") + 1
 
 var (
-	unsealedFileRegex = regexp.MustCompile(`^(\d+)\.fkvwal\.u$`)
-	sealedFileRegex   = regexp.MustCompile(`^(\d+)-(\d+)-(\d+)\.fkvwal$`)
+	unsealedFileRegex = regexp.MustCompile(`^(\d+)\.swal\.u$`)
+	sealedFileRegex   = regexp.MustCompile(`^(\d+)-(\d+)-(\d+)\.swal$`)
 )
 
 // The result of parsing a WAL file name.
@@ -185,7 +185,7 @@ func (f *walFile) writeRecord(record []byte, blockNumber uint64, endOfBlock bool
 
 // Serialize, frame, and append a WAL entry to this file. A convenience wrapper over frameRecord and
 // writeRecord for callers (rollback rewrite, tests) that hold entries rather than pre-framed bytes.
-func (f *walFile) writeEntry(entry *FlatKVWalEntry) error {
+func (f *walFile) writeEntry(entry *Entry) error {
 	payload, err := entry.Serialize()
 	if err != nil {
 		return fmt.Errorf("failed to serialize WAL entry: %w", err)
@@ -304,7 +304,7 @@ type walFileContents struct {
 	parsed parsedFileName
 
 	// The intact entries read from the file, in order. Excludes any torn trailing record.
-	entries []*FlatKVWalEntry
+	entries []*Entry
 
 	// The first and last block numbers across the intact entries, valid only when hasBlocks is true.
 	firstBlock uint64
@@ -395,7 +395,7 @@ func parseWalFileData(data []byte, parsed parsedFileName, name string) (*walFile
 			break // torn or corrupt record
 		}
 
-		entry, entryOK, err := DeserializeFlatKVWalEntry(payload)
+		entry, entryOK, err := DeserializeEntry(payload)
 		if err != nil {
 			return nil, fmt.Errorf("failed to deserialize record in %s: %w", name, err)
 		}

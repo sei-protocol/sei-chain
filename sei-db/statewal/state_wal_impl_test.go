@@ -1,4 +1,4 @@
-package wal
+package statewal
 
 import (
 	"os"
@@ -10,19 +10,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testConfig(dir string) *FlatKVWALConfig {
-	return DefaultFlatKVWALConfig(dir)
+func testConfig(dir string) *Config {
+	return DefaultConfig(dir)
 }
 
-func openWAL(t *testing.T, cfg *FlatKVWALConfig) FlatKVWAL {
+func openWAL(t *testing.T, cfg *Config) StateWAL {
 	t.Helper()
-	w, err := NewFlatKVWAL(cfg)
+	w, err := New(cfg)
 	require.NoError(t, err)
 	return w
 }
 
 // writeBlock writes a single changeset for the block and signals end of block.
-func writeBlock(t *testing.T, w FlatKVWAL, block uint64) {
+func writeBlock(t *testing.T, w StateWAL, block uint64) {
 	t.Helper()
 	cs := []*proto.NamedChangeSet{makeChangeSet("evm", []byte{byte(block)}, []byte{byte(block)})}
 	require.NoError(t, w.Write(block, cs))
@@ -31,7 +31,7 @@ func writeBlock(t *testing.T, w FlatKVWAL, block uint64) {
 
 // collectBlocks iterates from start and returns the block number of each coalesced block entry, verifying
 // that entries are strictly increasing and never carry an end-of-block marker.
-func collectBlocks(t *testing.T, w FlatKVWAL, start uint64) []uint64 {
+func collectBlocks(t *testing.T, w StateWAL, start uint64) []uint64 {
 	t.Helper()
 	it, err := w.Iterator(start)
 	require.NoError(t, err)
@@ -165,7 +165,7 @@ func TestOrphanFileRecovery(t *testing.T) {
 	writeCompleteBlock(t, f, 1)
 	writeCompleteBlock(t, f, 2)
 	cs := []*proto.NamedChangeSet{makeChangeSet("a", []byte{3}, []byte{3})}
-	require.NoError(t, f.writeEntry(NewFlatKVWalEntry(3, cs))) // no end-of-block marker: block 3 is incomplete
+	require.NoError(t, f.writeEntry(NewEntry(3, cs))) // no end-of-block marker: block 3 is incomplete
 	require.NoError(t, f.flush(true))
 	require.NoError(t, f.file.Close())
 
@@ -463,7 +463,7 @@ func TestScanRejectsGapInSealedFiles(t *testing.T) {
 	victim := sealed[len(sealed)/2]
 	require.NoError(t, os.Remove(filepath.Join(dir, sealedFileName(victim.index, victim.firstBlock, victim.lastBlock))))
 
-	_, err = NewFlatKVWAL(cfg)
+	_, err = New(cfg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not contiguous")
 }
@@ -489,7 +489,7 @@ func TestRollbackConstructor(t *testing.T) {
 		}
 		require.NoError(t, w.Close())
 
-		w2, err := NewFlatKVWALWithRollback(cfg, 3)
+		w2, err := NewWithRollback(cfg, 3)
 		require.NoError(t, err)
 		defer func() { require.NoError(t, w2.Close()) }()
 
@@ -511,7 +511,7 @@ func TestRollbackConstructor(t *testing.T) {
 		}
 		require.NoError(t, w.Close())
 
-		w2, err := NewFlatKVWALWithRollback(cfg, 3)
+		w2, err := NewWithRollback(cfg, 3)
 		require.NoError(t, err)
 		defer func() { require.NoError(t, w2.Close()) }()
 
@@ -554,7 +554,7 @@ func TestRollbackConstructor(t *testing.T) {
 				}
 				require.NoError(t, w.Close())
 
-				w2, err := NewFlatKVWALWithRollback(cfg, 3)
+				w2, err := NewWithRollback(cfg, 3)
 				require.NoError(t, err)
 				require.NoError(t, w2.Close())
 
@@ -681,7 +681,7 @@ func TestRollbackCrashDuringSwapWindowRecovers(t *testing.T) {
 	require.NoError(t, w2.Close())
 
 	// The subsequent rollback completes cleanly, and a normal reopen sees the consistent rolled-back range.
-	w3, err := NewFlatKVWALWithRollback(cfg, 3)
+	w3, err := NewWithRollback(cfg, 3)
 	require.NoError(t, err)
 	require.NoError(t, w3.Close())
 
