@@ -11,123 +11,99 @@ var Global = NewMetrics()
 
 func init() {
 	prometheus.MustRegister(
-		Global.Peers,
-		Global.PeerReceiveBytesTotal,
-		Global.PeerSendBytesTotal,
-		Global.PeerPendingSendBytes,
-		Global.NewConnections,
-		Global.RouterPeerQueueRecv,
-		Global.RouterPeerQueueSend,
-		Global.RouterChannelQueueSend,
-		Global.ChannelMsgs,
-		Global.QueueDroppedMsgs,
+		Global.peers,
+		Global.peerReceiveBytesTotal,
+		Global.newConnections,
+		Global.routerPeerQueueRecv,
+		Global.channelMsgs,
+		Global.queueDroppedMsgs,
+		Global.gigaConns,
+		Global.gigaNewConns,
 	)
 }
 
 func NewMetrics() *Metrics {
 	return &Metrics{
-		Peers: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+		peers: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peers",
 			Help:      "Number of peers.",
 		}, nil),
-		PeerReceiveBytesTotal: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+		peerReceiveBytesTotal: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peer_receive_bytes_total",
 			Help:      "Number of bytes per channel received from a given peer.",
 		}, []string{"peer_id", "chID", "message_type"}),
-		PeerSendBytesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "peer_send_bytes_total",
-			Help:      "Number of bytes per channel sent to a given peer.",
-		}, []string{"peer_id", "chID", "message_type"}),
-		PeerPendingSendBytes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "peer_pending_send_bytes",
-			Help:      "Number of bytes pending being sent to a given peer.",
-		}, []string{"peer_id"}),
-		NewConnections: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+		newConnections: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "new_connections",
 			Help:      "Number of newly established connections.",
 		}, []string{"direction", "success"}),
-		RouterPeerQueueRecv: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+		routerPeerQueueRecv: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "router_peer_queue_recv",
 			Help:      "The time taken to read off of a peer's queue before sending on the connection.",
 			Buckets:   prometheus.DefBuckets,
 		}, nil),
-		RouterPeerQueueSend: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "router_peer_queue_send",
-			Help:      "The time taken to send on a peer's queue which will later be read and sent on the connection.",
-			Buckets:   prometheus.DefBuckets,
-		}, nil),
-		RouterChannelQueueSend: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "router_channel_queue_send",
-			Help:      "The time taken to send on a p2p channel's queue which will later be consued by the corresponding reactor/service.",
-			Buckets:   prometheus.DefBuckets,
-		}, nil),
-		ChannelMsgs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+		channelMsgs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "channel_msgs",
 			Help:      "",
 		}, []string{"ch_id", "direction"}),
-		QueueDroppedMsgs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+		queueDroppedMsgs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "queue_dropped_msgs",
 			Help:      "The number of messages dropped from router's queues.",
 		}, []string{"ch_id", "direction"}),
+		gigaConns: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "giga_conns",
+			Help:      "Number of live giga p2p connections.",
+		}, []string{"direction"}),
+		gigaNewConns: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "giga_new_conns",
+			Help:      "Counts established giga p2p connections.",
+		}, []string{"direction"}),
 	}
 }
 
-func (m *Metrics) PeersAt() *tmprometheus.GaugeInt {
-	return m.Peers.WithLabelValues()
+func (m *Metrics) peersAt() *tmprometheus.GaugeInt {
+	return m.peers.WithLabelValues()
 }
 
-func (m *Metrics) PeerReceiveBytesTotalAt(peer_id string, chID string, message_type string) *tmprometheus.CounterInt {
-	return m.PeerReceiveBytesTotal.WithLabelValues(peer_id, chID, message_type)
+func (m *Metrics) peerReceiveBytesTotalAt(peer_id string, chID string, message_type string) *tmprometheus.CounterInt {
+	return m.peerReceiveBytesTotal.WithLabelValues(peer_id, chID, message_type)
 }
 
-func (m *Metrics) PeerSendBytesTotalAt(peer_id string, chID string, message_type string) prometheus.Counter {
-	return m.PeerSendBytesTotal.WithLabelValues(peer_id, chID, message_type)
+func (m *Metrics) newConnectionsAt(direction string, success string) *tmprometheus.CounterInt {
+	return m.newConnections.WithLabelValues(direction, success)
 }
 
-func (m *Metrics) PeerPendingSendBytesAt(peer_id string) prometheus.Gauge {
-	return m.PeerPendingSendBytes.WithLabelValues(peer_id)
+func (m *Metrics) routerPeerQueueRecvAt() *tmprometheus.Histogram {
+	return m.routerPeerQueueRecv.WithLabelValues()
 }
 
-func (m *Metrics) NewConnectionsAt(direction string, success string) *tmprometheus.CounterInt {
-	return m.NewConnections.WithLabelValues(direction, success)
+func (m *Metrics) channelMsgsAt(ch_id string, direction string) *tmprometheus.CounterInt {
+	return m.channelMsgs.WithLabelValues(ch_id, direction)
 }
 
-func (m *Metrics) RouterPeerQueueRecvAt() *tmprometheus.Histogram {
-	return m.RouterPeerQueueRecv.WithLabelValues()
+func (m *Metrics) queueDroppedMsgsAt(ch_id string, direction string) *tmprometheus.CounterInt {
+	return m.queueDroppedMsgs.WithLabelValues(ch_id, direction)
 }
 
-func (m *Metrics) RouterPeerQueueSendAt() *tmprometheus.Histogram {
-	return m.RouterPeerQueueSend.WithLabelValues()
+func (m *Metrics) gigaConnsAt(direction string) *tmprometheus.GaugeInt {
+	return m.gigaConns.WithLabelValues(direction)
 }
 
-func (m *Metrics) RouterChannelQueueSendAt() *tmprometheus.Histogram {
-	return m.RouterChannelQueueSend.WithLabelValues()
-}
-
-func (m *Metrics) ChannelMsgsAt(ch_id string, direction string) *tmprometheus.CounterInt {
-	return m.ChannelMsgs.WithLabelValues(ch_id, direction)
-}
-
-func (m *Metrics) QueueDroppedMsgsAt(ch_id string, direction string) *tmprometheus.CounterInt {
-	return m.QueueDroppedMsgs.WithLabelValues(ch_id, direction)
+func (m *Metrics) gigaNewConnsAt(direction string) *tmprometheus.CounterInt {
+	return m.gigaNewConns.WithLabelValues(direction)
 }
