@@ -29,6 +29,6 @@ func (txi *TxIndex) Index(results []*abci.TxResultV2) error {
 	return nil
 }
 
-func (txi *TxIndex) Search(ctx context.Context, q *query.Query) ([]*abci.TxResultV2, error) {
+func (txi *TxIndex) Search(ctx context.Context, q *query.Query, opts indexer.SearchOptions) ([]*abci.TxResultV2, error) {
 	return []*abci.TxResultV2{}, nil
 }
