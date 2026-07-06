@@ -29,22 +29,27 @@ var (
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// Number of peers.
-	Peers prometheus.GaugeIntVec
+	peers prometheus.GaugeIntVec
 	// Number of bytes per channel received from a given peer.
-	PeerReceiveBytesTotal prometheus.CounterIntVec `metrics_labels:"peer_id, chID, message_type"`
+	peerReceiveBytesTotal prometheus.CounterIntVec `metrics_labels:"peer_id, chID, message_type"`
 	// Number of newly established connections.
-	NewConnections prometheus.CounterIntVec `metrics_labels:"direction, success"`
+	newConnections prometheus.CounterIntVec `metrics_labels:"direction, success"`
 
 	// RouterPeerQueueRecv defines the time taken to read off of a peer's queue
 	// before sending on the connection.
 	//metrics:The time taken to read off of a peer's queue before sending on the connection.
-	RouterPeerQueueRecv prometheus.HistogramVec
+	routerPeerQueueRecv prometheus.HistogramVec
 
-	ChannelMsgs prometheus.CounterIntVec `metrics_labels:"ch_id, direction"`
+	channelMsgs prometheus.CounterIntVec `metrics_labels:"ch_id, direction"`
 
 	// QueueDroppedMsgs counts the messages dropped from the router's queues.
 	//metrics:The number of messages dropped from router's queues.
-	QueueDroppedMsgs prometheus.CounterIntVec `metrics_labels:"ch_id, direction"`
+	queueDroppedMsgs prometheus.CounterIntVec `metrics_labels:"ch_id, direction"`
+
+	// Number of live giga p2p connections.
+	gigaConns prometheus.GaugeIntVec `metrics_labels:"direction"`
+	// Counts established giga p2p connections.
+	gigaNewConns prometheus.CounterIntVec `metrics_labels:"direction"`
 }
 
 type metricsLabelCache struct {
