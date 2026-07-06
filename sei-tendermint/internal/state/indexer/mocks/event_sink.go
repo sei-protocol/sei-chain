@@ -114,9 +114,9 @@ func (_m *EventSink) IndexTxEvents(_a0 []*types.TxResultV2) error {
 	return r0
 }
 
-// SearchBlockEvents provides a mock function with given fields: _a0, _a1
-func (_m *EventSink) SearchBlockEvents(_a0 context.Context, _a1 *query.Query) ([]int64, error) {
-	ret := _m.Called(_a0, _a1)
+// SearchBlockEvents provides a mock function with given fields: _a0, _a1, _a2
+func (_m *EventSink) SearchBlockEvents(_a0 context.Context, _a1 *query.Query, _a2 indexer.SearchOptions) ([]int64, error) {
+	ret := _m.Called(_a0, _a1, _a2)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SearchBlockEvents")
@@ -124,19 +124,19 @@ func (_m *EventSink) SearchBlockEvents(_a0 context.Context, _a1 *query.Query) ([
 
 	var r0 []int64
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) ([]int64, error)); ok {
-		return rf(_a0, _a1)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, indexer.SearchOptions) ([]int64, error)); ok {
+		return rf(_a0, _a1, _a2)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) []int64); ok {
-		r0 = rf(_a0, _a1)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, indexer.SearchOptions) []int64); ok {
+		r0 = rf(_a0, _a1, _a2)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]int64)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *query.Query) error); ok {
-		r1 = rf(_a0, _a1)
+	if rf, ok := ret.Get(1).(func(context.Context, *query.Query, indexer.SearchOptions) error); ok {
+		r1 = rf(_a0, _a1, _a2)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -144,9 +144,9 @@ func (_m *EventSink) SearchBlockEvents(_a0 context.Context, _a1 *query.Query) ([
 	return r0, r1
 }
 
-// SearchTxEvents provides a mock function with given fields: _a0, _a1
-func (_m *EventSink) SearchTxEvents(_a0 context.Context, _a1 *query.Query) ([]*types.TxResultV2, error) {
-	ret := _m.Called(_a0, _a1)
+// SearchTxEvents provides a mock function with given fields: _a0, _a1, _a2
+func (_m *EventSink) SearchTxEvents(_a0 context.Context, _a1 *query.Query, _a2 indexer.SearchOptions) ([]*types.TxResultV2, error) {
+	ret := _m.Called(_a0, _a1, _a2)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SearchTxEvents")
@@ -154,19 +154,19 @@ func (_m *EventSink) SearchTxEvents(_a0 context.Context, _a1 *query.Query) ([]*t
 
 	var r0 []*types.TxResultV2
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) ([]*types.TxResultV2, error)); ok {
-		return rf(_a0, _a1)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, indexer.SearchOptions) ([]*types.TxResultV2, error)); ok {
+		return rf(_a0, _a1, _a2)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) []*types.TxResultV2); ok {
-		r0 = rf(_a0, _a1)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, indexer.SearchOptions) []*types.TxResultV2); ok {
+		r0 = rf(_a0, _a1, _a2)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*types.TxResultV2)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *query.Query) error); ok {
-		r1 = rf(_a0, _a1)
+	if rf, ok := ret.Get(1).(func(context.Context, *query.Query, indexer.SearchOptions) error); ok {
+		r1 = rf(_a0, _a1, _a2)
 	} else {
 		r1 = ret.Error(1)
 	}
