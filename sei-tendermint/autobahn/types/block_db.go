@@ -205,11 +205,14 @@ type BlockDB interface {
 	// given value. The hash is the same value as block.Header().Hash()
 	// for the block that was passed to WriteBlock.
 	//
+	// This method returns the block number for the block if it is found.
+	// not found, the block number returned is undefined.
+	//
 	// Returns utils.None if no such block has been written. A pruned
 	// block MAY also return None, but — as with ReadBlockByNumber —
 	// reclamation is asynchronous, so a pruned block may remain readable
 	// until it is actually reclaimed. Non-blocking.
-	ReadBlockByHash(hash BlockHeaderHash) (utils.Option[*Block], error)
+	ReadBlockByHash(hash BlockHeaderHash) (utils.Option[*Block], GlobalBlockNumber, error)
 
 	// ReadQCByBlockNumber returns the FullCommitQC whose
 	// GlobalRange().First ≤ n < GlobalRange().Next — i.e. the QC that

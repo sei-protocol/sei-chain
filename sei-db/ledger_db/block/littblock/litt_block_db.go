@@ -144,7 +144,7 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 			n, s.lastQCNext, types.ErrBlockMissingQC)
 	}
 
-	value := encodeBlock(blk)
+	value := encodeBlock(n, blk)
 	hash := blk.Header().Hash()
 	hashAlias := &litttypes.SecondaryKey{
 		Key:    blockHashKey(hash),
@@ -255,28 +255,29 @@ func (s *blockDB) QCs(reverse bool) (types.QCIterator, error) {
 func (s *blockDB) ReadBlockByNumber(
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.Block], error) {
-	return getBlock(s.table, blockKey(n))
+	blk, _, err := getBlock(s.table, blockKey(n))
+	return blk, err
 }
 
 func (s *blockDB) ReadBlockByHash(
 	hash types.BlockHeaderHash,
-) (utils.Option[*types.Block], error) {
+) (utils.Option[*types.Block], types.GlobalBlockNumber, error) {
 	return getBlock(s.table, blockHashKey(hash))
 }
 
-func getBlock(table littdb.Table, key []byte) (utils.Option[*types.Block], error) {
+func getBlock(table littdb.Table, key []byte) (utils.Option[*types.Block], types.GlobalBlockNumber, error) {
 	value, exists, err := table.Get(key)
 	if err != nil {
-		return utils.None[*types.Block](), fmt.Errorf("failed to read block: %w", err)
+		return utils.None[*types.Block](), 0, fmt.Errorf("failed to read block: %w", err)
 	}
 	if !exists {
-		return utils.None[*types.Block](), nil
+		return utils.None[*types.Block](), 0, nil
 	}
-	blk, err := decodeBlock(value)
+	n, blk, err := decodeBlock(value)
 	if err != nil {
-		return utils.None[*types.Block](), fmt.Errorf("failed to unmarshal block: %w", err)
+		return utils.None[*types.Block](), 0, fmt.Errorf("failed to unmarshal block: %w", err)
 	}
-	return utils.Some(blk), nil
+	return utils.Some(blk), n, nil
 }
 
 func (s *blockDB) ReadQCByBlockNumber(
