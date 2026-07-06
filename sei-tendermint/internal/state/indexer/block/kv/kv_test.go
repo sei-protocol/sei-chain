@@ -229,6 +229,59 @@ func TestBlockIndexerBounded(t *testing.T) {
 			opts:    indexer.SearchOptions{Limit: 0, OrderDesc: true},
 			results: []int64{7, 6, 5, 4},
 		},
+		// Same dual-bounded range scanned ascending, capped mid-range.
+		"height range dual-bounded asc limit 3": {
+			q:       `block.height >= 4 AND block.height <= 7`,
+			opts:    indexer.SearchOptions{Limit: 3, OrderDesc: false},
+			results: []int64{4, 5, 6},
+		},
+		// Exclusive lower bound: block.height > 6 folds in the +1 adjustment via
+		// LowerBoundValue(), so the range is effectively >= 7.
+		"height range exclusive lower desc unbounded": {
+			q:       `block.height > 6`,
+			opts:    indexer.SearchOptions{Limit: 0, OrderDesc: true},
+			results: []int64{10, 9, 8, 7},
+		},
+		// Exclusive upper bound: block.height < 4 folds in the -1 adjustment via
+		// UpperBoundValue(), so the range is effectively <= 3.
+		"height range exclusive upper asc unbounded": {
+			q:       `block.height < 4`,
+			opts:    indexer.SearchOptions{Limit: 0, OrderDesc: false},
+			results: []int64{1, 2, 3},
+		},
+		// Dual-bounded range with both bounds exclusive: 3 < h < 8 => [4, 7].
+		"height range exclusive both desc unbounded": {
+			q:       `block.height > 3 AND block.height < 8`,
+			opts:    indexer.SearchOptions{Limit: 0, OrderDesc: true},
+			results: []int64{7, 6, 5, 4},
+		},
+		// Equality driver combined with an exclusive height range in the opposite
+		// scan direction.
+		"equality and exclusive height range asc limit 2": {
+			q:       `app.name = 'sei' AND block.height > 3`,
+			opts:    indexer.SearchOptions{Limit: 2, OrderDesc: false},
+			results: []int64{4, 5},
+		},
+		// A standalone block.height equality is intercepted by lookForHeight and
+		// returns that height alone when indexed.
+		"block.height equality": {
+			q:       `block.height = 6`,
+			opts:    indexer.SearchOptions{Limit: 3, OrderDesc: true},
+			results: []int64{6},
+		},
+		// block.height equality still routes through lookForHeight when combined
+		// with another (satisfied) equality; the indexed height is returned.
+		"block.height equality with matching equality": {
+			q:       `block.height = 6 AND app.name = 'sei'`,
+			opts:    indexer.SearchOptions{Limit: 3, OrderDesc: true},
+			results: []int64{6},
+		},
+		// A block.height equality on a height that was never indexed returns empty.
+		"block.height equality not indexed": {
+			q:       `block.height = 99`,
+			opts:    indexer.SearchOptions{Limit: 3, OrderDesc: true},
+			results: []int64{},
+		},
 		// Fallback path: CONTAINS cannot be point-probed, but the result set is
 		// still ordered and capped.
 		"contains fallback desc limit 3": {
@@ -259,5 +312,29 @@ func TestBlockIndexerBounded(t *testing.T) {
 		results, err := idx.Search(ctx, query.MustCompile(`app.name = 'sei'`), indexer.SearchOptions{Limit: 5, OrderDesc: true})
 		require.NoError(t, err)
 		require.Empty(t, results)
+	})
+
+	// Capping in the scan must not diverge from materialize-then-cap: for any
+	// query the bounded top-N equals the first N of the same query run
+	// unbounded. This covers both the fast path (equalities/height ranges) and
+	// the fallback (CONTAINS), guarding against future divergence between them.
+	t.Run("bounded cap matches unbounded prefix", func(t *testing.T) {
+		queries := []string{
+			`app.name = 'sei'`,                        // fast path: equality driver
+			`app.name = 'sei' AND app.kind = 'even'`,  // fast path: equality + probe
+			`block.height >= 3 AND block.height <= 9`, // fast path: height range driver
+			`app.name CONTAINS 'se'`,                  // fallback: materialize then bound
+		}
+		for _, q := range queries {
+			for _, desc := range []bool{true, false} {
+				full, err := idx.Search(t.Context(), query.MustCompile(q), indexer.SearchOptions{Limit: 0, OrderDesc: desc})
+				require.NoError(t, err)
+				for n := 1; n <= len(full); n++ {
+					capped, err := idx.Search(t.Context(), query.MustCompile(q), indexer.SearchOptions{Limit: n, OrderDesc: desc})
+					require.NoError(t, err)
+					require.Equalf(t, full[:n], capped, "query %q desc=%v limit=%d", q, desc, n)
+				}
+			}
+		}
 	})
 }
