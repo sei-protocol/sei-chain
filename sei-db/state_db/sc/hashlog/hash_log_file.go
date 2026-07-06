@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // Hashlog files use the following naming schema:
@@ -282,7 +280,7 @@ func (h *hashLogFile) close() error {
 	}
 
 	sealedPath := filepath.Join(h.directory, sealedFileName(h.index, h.firstBlockIndex, h.lastBlockIndex, h.version))
-	if err := util.AtomicRename(unsealedPath, sealedPath, true); err != nil {
+	if err := atomicRename(unsealedPath, sealedPath, true); err != nil {
 		return fmt.Errorf("failed to seal hash log file: %w", err)
 	}
 	h.sealed = true
@@ -309,7 +307,7 @@ func sealHashLog(path string) error {
 		filepath.Dir(path),
 		sealedFileName(file.index, file.firstBlockIndex, file.lastBlockIndex, file.version),
 	)
-	if err := util.AtomicRename(path, sealedPath, true); err != nil {
+	if err := atomicRename(path, sealedPath, true); err != nil {
 		return fmt.Errorf("failed to seal orphaned hash log file %s: %w", path, err)
 	}
 	return nil

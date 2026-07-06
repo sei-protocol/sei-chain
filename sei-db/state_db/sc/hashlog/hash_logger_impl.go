@@ -10,7 +10,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/seilog"
 )
@@ -216,7 +215,7 @@ func NewHashLogger(config *HashLoggerConfig) (HashLogger, error) {
 		return nil, fmt.Errorf("invalid hash logger config: %w", err)
 	}
 
-	if err := util.EnsureDirectoryExists(config.Path, true); err != nil {
+	if err := ensureDirectoryExists(config.Path, true); err != nil {
 		return nil, fmt.Errorf("failed to ensure hash log directory %s: %w", config.Path, err)
 	}
 
