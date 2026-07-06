@@ -207,11 +207,11 @@ func (f *walFile) readIncompleteTail() ([]byte, error) {
 	length := f.size - f.completeSize
 	buf := make([]byte, length)
 	n, err := f.file.ReadAt(buf, int64(f.completeSize)) //nolint:gosec // completeSize <= size
-	if err != nil && !(err == io.EOF && uint64(n) == length) {
+	if err != nil && (err != io.EOF || n != len(buf)) {
 		return nil, fmt.Errorf("failed to read incomplete tail: %w", err)
 	}
-	if uint64(n) != length {
-		return nil, fmt.Errorf("short read of incomplete tail: read %d of %d bytes", n, length)
+	if n != len(buf) {
+		return nil, fmt.Errorf("short read of incomplete tail: read %d of %d bytes", n, len(buf))
 	}
 	return buf, nil
 }
@@ -487,17 +487,29 @@ func sealOrphanFile(directory string, name string) error {
 	return nil
 }
 
-// rollbackStraddlingFile handles the single sealed file that spans rollbackThrough: it truncates away every
-// block beyond the rollback point and renames the file to reflect the reduced range. The truncation is fsynced
-// before the rename (see truncateAndSync), so a crash can never leave the file's content holding blocks past
-// the rollback point once the rename is durable — the iterator, which bounds sealed reads by content, would
-// otherwise replay the discarded blocks. Files entirely beyond the rollback point are removed by the caller;
-// this handles only the boundary file.
+// rollbackStraddlingFile handles the single sealed file that spans rollbackThrough: it drops every block beyond
+// the rollback point and reduces the file's range accordingly. The name of a sealed file encodes its block
+// range, so the reduced content and the reduced name must become durable together — a crash must never leave a
+// file whose name promises more blocks than its content holds (the iterator bounds sealed reads by content and
+// would otherwise under-yield, while GetStoredRange trusts the name and would over-report). Because the reduced
+// range means a different file name, this cannot be a single in-place rename: the kept prefix is written to a
+// fresh correctly-named file via AtomicWrite (durable on its own), and only then is the old, larger-named file
+// removed. A crash after the write but before the removal leaves both files under the same index; recovery's
+// reconcileRollbackRemnants resolves that deterministically. Files entirely beyond the rollback point are
+// removed by the caller; this handles only the boundary file.
 func rollbackStraddlingFile(directory string, name string, rollbackThrough uint64) error {
 	path := filepath.Join(directory, name)
-	contents, err := readWalFile(path)
+	parsed, ok := parseFileName(name)
+	if !ok {
+		return fmt.Errorf("not a WAL file: %s", name)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // path derived from a scanned WAL directory entry
 	if err != nil {
 		return fmt.Errorf("failed to read WAL file %s during rollback: %w", path, err)
+	}
+	contents, err := parseWalFileData(data, parsed, path)
+	if err != nil {
+		return fmt.Errorf("failed to parse WAL file %s during rollback: %w", path, err)
 	}
 
 	truncateTo := int64(walHeaderSize)
@@ -520,16 +532,57 @@ func rollbackStraddlingFile(directory string, name string, rollbackThrough uint6
 		return nil // nothing beyond the rollback point; leave the file untouched
 	}
 
-	if err := truncateAndSync(path, truncateTo); err != nil {
-		return fmt.Errorf("failed to truncate WAL file %s during rollback: %w", path, err)
+	// Write the kept prefix to a fresh file under its reduced name, made durable before the old file is removed.
+	newName := sealedFileName(parsed.index, contents.firstBlock, lastKept)
+	newPath := filepath.Join(directory, newName)
+	if err := util.AtomicWrite(newPath, data[:truncateTo], true); err != nil {
+		return fmt.Errorf("failed to write rolled-back WAL file %s: %w", newPath, err)
 	}
-	newPath := filepath.Join(directory,
-		sealedFileName(contents.parsed.index, contents.firstBlock, lastKept))
-	if newPath == path {
-		return nil
+	if err := removeAndSyncDir(directory, name); err != nil {
+		return fmt.Errorf("failed to remove old WAL file %s during rollback: %w", path, err)
 	}
-	if err := util.AtomicRename(path, newPath, true); err != nil {
-		return fmt.Errorf("failed to rename WAL file %s during rollback: %w", path, err)
+	return nil
+}
+
+// reconcileRollbackRemnants resolves the one crash window left by rollbackStraddlingFile: a crash after the
+// reduced file was written but before the old, larger-named file was removed leaves two sealed files sharing an
+// index. This can happen only from an interrupted rollback swap (healthy operation never assigns an index to
+// two files), so the reduced file (the one with the smaller last block) is the intended survivor; the larger
+// one is removed. Both files are internally name/content consistent, so the choice is made from names alone
+// without reading contents. A no-op in the common case where every sealed index is unique.
+func reconcileRollbackRemnants(directory string) error {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return fmt.Errorf("failed to read WAL directory %s: %w", directory, err)
+	}
+
+	// The name kept for each sealed index so far. A duplicate index means an interrupted rollback swap.
+	kept := make(map[uint64]parsedFileName)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		parsed, ok := parseFileName(entry.Name())
+		if !ok || !parsed.sealed {
+			continue
+		}
+		prev, seen := kept[parsed.index]
+		if !seen {
+			kept[parsed.index] = parsed
+			continue
+		}
+		// Two sealed files share this index. Keep the one with the smaller last block (the rolled-back
+		// result) and remove the other. A sealed name is a deterministic function of its parsed fields, so
+		// each file's name is recoverable without tracking the raw directory entry.
+		keep, drop := parsed, prev
+		if prev.lastBlock <= parsed.lastBlock {
+			keep, drop = prev, parsed
+		}
+		dropName := sealedFileName(drop.index, drop.firstBlock, drop.lastBlock)
+		if err := removeAndSyncDir(directory, dropName); err != nil {
+			return fmt.Errorf("failed to remove rollback remnant %s: %w", dropName, err)
+		}
+		kept[parsed.index] = keep
 	}
 	return nil
 }

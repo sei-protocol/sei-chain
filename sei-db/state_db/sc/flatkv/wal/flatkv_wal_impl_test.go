@@ -508,3 +508,126 @@ func TestRollbackConstructor(t *testing.T) {
 		}
 	})
 }
+
+// sealedFileNames returns the names of all sealed WAL files in dir, sorted for stable assertions.
+func sealedFileNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var names []string
+	for _, entry := range entries {
+		if parsed, ok := parseFileName(entry.Name()); ok && parsed.sealed {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// blockPrefixBytes reads the sealed file at path and returns the raw bytes of the prefix ending just past the
+// end-of-block marker for lastKeep — i.e. the exact content rollbackStraddlingFile's AtomicWrite would install
+// for a rollback to lastKeep. It is the test's stand-in for "the truncated copy the rollback would produce".
+func blockPrefixBytes(t *testing.T, path string, lastKeep uint64) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	contents, err := readWalFile(path)
+	require.NoError(t, err)
+	var truncateTo int64
+	found := false
+	for _, b := range contents.blockBoundaries {
+		if b.block == lastKeep {
+			truncateTo = b.offset
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "block %d has no end-of-block boundary in %s", lastKeep, path)
+	return data[:truncateTo]
+}
+
+// TestRollbackCrashAfterSwapReconciledOnReopen simulates a crash in rollbackStraddlingFile after the reduced
+// file was durably written (AtomicWrite) but before the old, larger-named file was removed. That leaves two
+// sealed files sharing an index. A subsequent open must reconcile them — keeping the reduced file — so the
+// name-derived GetStoredRange and the content-derived iterator agree on the rolled-back range.
+func TestRollbackCrashAfterSwapReconciledOnReopen(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir) // large target: all six blocks land in one file, index 0
+
+	w := openWAL(t, cfg)
+	for block := uint64(1); block <= 6; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Close())
+
+	oldName := sealedFileName(0, 1, 6)
+	require.Equal(t, []string{oldName}, sealedFileNames(t, dir))
+
+	// Reproduce the crash state: the reduced file [1,3] exists next to the untouched original [1,6].
+	reducedName := sealedFileName(0, 1, 3)
+	prefix := blockPrefixBytes(t, filepath.Join(dir, oldName), 3)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, reducedName), prefix, 0o600))
+	require.Equal(t, []string{reducedName, oldName}, sealedFileNames(t, dir))
+
+	// A plain reopen must reconcile the duplicate index down to the rolled-back file.
+	w2 := openWAL(t, cfg)
+	defer func() { require.NoError(t, w2.Close()) }()
+
+	require.Equal(t, []string{reducedName}, sealedFileNames(t, dir))
+	ok, start, end, err := w2.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), start)
+	require.Equal(t, uint64(3), end)
+	require.Equal(t, []uint64{1, 2, 3}, collectBlocks(t, w2, 1))
+}
+
+// TestRollbackCrashDuringSwapWindowRecovers simulates a crash mid-rollback in the earlier window: the
+// AtomicWrite's swap file was created but not yet renamed into place, so only a leftover ".swap" exists beside
+// the still-intact original. A reopen must drop the swap and leave the original range intact (the rollback
+// simply did not take effect), and a subsequent rollback must then complete cleanly and durably.
+func TestRollbackCrashDuringSwapWindowRecovers(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir) // large target: all six blocks in one file, index 0
+
+	w := openWAL(t, cfg)
+	for block := uint64(1); block <= 6; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Close())
+
+	oldName := sealedFileName(0, 1, 6)
+
+	// Reproduce the crash state: an unfinished AtomicWrite left a swap file for the reduced name, alongside
+	// the untouched original. util.AtomicWrite names its temp "<destination>.swap".
+	prefix := blockPrefixBytes(t, filepath.Join(dir, oldName), 3)
+	swapName := sealedFileName(0, 1, 3) + ".swap"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, swapName), prefix, 0o600))
+
+	// A plain reopen drops the swap; the original range survives (rollback did not take effect).
+	w2 := openWAL(t, cfg)
+	require.Equal(t, []string{oldName}, sealedFileNames(t, dir))
+	_, err := os.Stat(filepath.Join(dir, swapName))
+	require.True(t, os.IsNotExist(err), "leftover swap file should have been removed")
+	ok, start, end, err := w2.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), start)
+	require.Equal(t, uint64(6), end)
+	require.NoError(t, w2.Close())
+
+	// The subsequent rollback completes cleanly, and a normal reopen sees the consistent rolled-back range.
+	w3, err := NewFlatKVWALWithRollback(cfg, 3)
+	require.NoError(t, err)
+	require.NoError(t, w3.Close())
+
+	w4 := openWAL(t, cfg)
+	defer func() { require.NoError(t, w4.Close()) }()
+	require.Equal(t, []string{sealedFileName(0, 1, 3)}, sealedFileNames(t, dir))
+	ok, start, end, err = w4.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), start)
+	require.Equal(t, uint64(3), end)
+	require.Equal(t, []uint64{1, 2, 3}, collectBlocks(t, w4, 1))
+}

@@ -165,6 +165,15 @@ func newFlatKVWal(config *FlatKVWALConfig, rollbackThrough *uint64) (FlatKVWAL, 
 		return nil, fmt.Errorf("failed to ensure WAL directory %s: %w", config.Path, err)
 	}
 
+	// Clean up remnants of a rollback swap interrupted by a crash before scanning (see rollbackStraddlingFile):
+	// a leftover swap file from an unfinished AtomicWrite, or two sealed files sharing an index because the old
+	// file was not yet removed. This leaves a set where every sealed index is unique and name matches content.
+	if err := util.DeleteOrphanedSwapFiles(config.Path); err != nil {
+		return nil, fmt.Errorf("failed to delete orphaned swap files: %w", err)
+	}
+	if err := reconcileRollbackRemnants(config.Path); err != nil {
+		return nil, fmt.Errorf("failed to reconcile rollback remnants: %w", err)
+	}
 	if err := recoverOrphans(config.Path); err != nil {
 		return nil, fmt.Errorf("failed to recover orphaned WAL files: %w", err)
 	}
