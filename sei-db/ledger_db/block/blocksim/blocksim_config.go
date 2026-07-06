@@ -168,9 +168,14 @@ func (c *BlocksimConfig) Validate() error {
 	if c.StagedBlockQueueSize < 1 {
 		return fmt.Errorf("StagedBlockQueueSize must be at least 1 (got %d)", c.StagedBlockQueueSize)
 	}
-	if c.RandomDataBufferSizeBytes < c.BytesPerTransaction {
-		return fmt.Errorf("RandomDataBufferSizeBytes must be at least BytesPerTransaction %d (got %d)",
-			c.BytesPerTransaction, c.RandomDataBufferSizeBytes)
+	minBuffer := c.BytesPerTransaction
+	if signatureSizeBytes > minBuffer {
+		minBuffer = signatureSizeBytes
+	}
+	if c.RandomDataBufferSizeBytes < minBuffer {
+		return fmt.Errorf("RandomDataBufferSizeBytes must be at least %d "+
+			"(max of BytesPerTransaction and the fixed signature/hash draws) (got %d)",
+			minBuffer, c.RandomDataBufferSizeBytes)
 	}
 	if c.LittRetentionSeconds < 1 {
 		return fmt.Errorf("LittRetentionSeconds must be positive (got %d)", c.LittRetentionSeconds)

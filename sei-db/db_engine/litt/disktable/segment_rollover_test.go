@@ -82,10 +82,6 @@ func buildSingleShardDiskTableDefaultSegmentSize(t *testing.T, root string) litt
 // to a new segment before a value would cross it (rather than panicking, the previous behavior). Every
 // primary and secondary key must read back correctly across the boundary.
 func TestSegmentRollsOverAt2GiBBoundary(t *testing.T) {
-	if testing.Short() {
-		t.Skip("writes ~5 GiB to disk; skipped in -short mode")
-	}
-
 	root := t.TempDir()
 	table := buildSingleShardDiskTableDefaultSegmentSize(t, root)
 	defer func() { require.NoError(t, table.Close()) }()
