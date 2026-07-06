@@ -45,9 +45,19 @@ type genesisBuilder struct {
 	balances []banktypes.Balance
 }
 
-// fundValidator stores a validator operator key in kb, funds its genesis account
-// + balances, and writes its self-delegation gentx to gentxsDir keyed by moniker.
-// It returns the operator address for downstream client wiring.
+// operatorKeyName is the keyring name each node's validator operator key is stored
+// under, mirroring the docker localnode convention (`node_admin`). Suites resolve
+// the operator by this name — validator address (--bech val), reward/commission
+// queries, delegation targets — and run unchanged against the in-process arm. It is
+// reserved: each node keyrings its own operator under it, and provisionExtraKeys
+// rejects an ExtraKey that reuses the name (which would overwrite the operator with
+// a plain account).
+const operatorKeyName = "node_admin"
+
+// fundValidator stores a validator operator key in kb (under operatorKeyName),
+// funds its genesis account + balances, and writes its self-delegation gentx to
+// gentxsDir keyed by moniker. It returns the operator address for downstream
+// client wiring.
 func (b *genesisBuilder) fundValidator(
 	kb keyring.Keyring,
 	moniker string,
@@ -56,9 +66,9 @@ func (b *genesisBuilder) fundValidator(
 	accountTokens, stakingTokens, bondedTokens sdk.Int,
 	p2pHost, p2pPort, nodeID, gentxsDir string,
 ) (sdk.AccAddress, error) {
-	addr, _, err := testutil.GenerateSaveCoinKey(kb, moniker, "", true, algo)
+	addr, _, err := testutil.GenerateSaveCoinKey(kb, operatorKeyName, "", true, algo)
 	if err != nil {
-		return nil, fmt.Errorf("generate key for %s: %w", moniker, err)
+		return nil, fmt.Errorf("generate operator key for %s: %w", moniker, err)
 	}
 
 	balances := sdk.NewCoins(
@@ -92,7 +102,7 @@ func (b *genesisBuilder) fundValidator(
 	txb.SetGasLimit(1_000_000)
 	txb.SetMemo(memo)
 	txf := tx.Factory{}.WithChainID(b.chainID).WithMemo(memo).WithKeybase(kb).WithTxConfig(b.txConfig)
-	if err := tx.Sign(txf, moniker, txb, true); err != nil {
+	if err := tx.Sign(txf, operatorKeyName, txb, true); err != nil {
 		return nil, err
 	}
 	txBz, err := b.txConfig.TxJSONEncoder()(txb.GetTx())
