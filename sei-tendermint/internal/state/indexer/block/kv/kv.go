@@ -268,7 +268,7 @@ func (idx *BlockerIndexer) searchBounded(ctx context.Context, plan boundedPlan, 
 	}
 	defer func() { _ = it.Close() }()
 
-	results := make([]int64, 0, boundedCap(opts.Limit))
+	results := make([]int64, 0, indexer.BoundedCap(opts.Limit))
 	seen := make(map[int64]struct{})
 
 	for ; it.Valid(); it.Next() {
@@ -310,7 +310,7 @@ func (idx *BlockerIndexer) searchBounded(ctx context.Context, plan boundedPlan, 
 // event index.
 func (idx *BlockerIndexer) candidateMatches(h int64, plan boundedPlan) (bool, error) {
 	for i := range plan.heightRanges {
-		if !heightInRange(h, plan.heightRanges[i]) {
+		if !indexer.HeightInRange(h, plan.heightRanges[i]) {
 			return false, nil
 		}
 	}
@@ -338,7 +338,7 @@ func (idx *BlockerIndexer) prefixIterator(prefix []byte, desc bool) (dbm.Iterato
 	if !desc {
 		return dbm.IteratePrefix(idx.store, prefix)
 	}
-	return idx.store.ReverseIterator(prefix, prefixUpperBound(prefix))
+	return idx.store.ReverseIterator(prefix, indexer.PrefixUpperBound(prefix))
 }
 
 // hasEvent reports whether the block at the given height has an indexed event

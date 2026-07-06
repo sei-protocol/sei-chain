@@ -324,6 +324,156 @@ func TestTxSearchMultipleTxs(t *testing.T) {
 	require.Len(t, results, 3)
 }
 
+func TestTxSearchBounded(t *testing.T) {
+	idx := NewTxIndex(dbm.NewMemDB())
+
+	// Two txs per height for heights 1..5. Every tx carries app.name=sei; the
+	// index-0 tx of each height also carries app.kind=even. Tx bytes are unique
+	// per (height, index) so each has a distinct hash.
+	for h := int64(1); h <= 5; h++ {
+		for i := uint32(0); i < 2; i++ {
+			events := []abci.Event{{
+				Type:       "app",
+				Attributes: []abci.EventAttribute{{Key: []byte("name"), Value: []byte("sei"), Index: true}},
+			}}
+			if i == 0 {
+				events = append(events, abci.Event{
+					Type:       "app",
+					Attributes: []abci.EventAttribute{{Key: []byte("kind"), Value: []byte("even"), Index: true}},
+				})
+			}
+			res := &abci.TxResultV2{
+				Height: h,
+				Index:  i,
+				Tx:     types.Tx(fmt.Sprintf("tx-%d-%d", h, i)),
+				Result: abci.ExecTxResult{Code: abci.CodeTypeOK, Events: events},
+			}
+			require.NoError(t, idx.Index([]*abci.TxResultV2{res}))
+		}
+	}
+
+	// hi is a (height, index) pair used to assert result identity/order.
+	type hi struct {
+		h int64
+		i uint32
+	}
+	pairs := func(results []*abci.TxResultV2) []hi {
+		out := make([]hi, len(results))
+		for k, r := range results {
+			out[k] = hi{r.Height, r.Index}
+		}
+		return out
+	}
+
+	testCases := map[string]struct {
+		q    string
+		opts indexer.SearchOptions
+		want []hi
+	}{
+		// Fast path: single equality driver, scanned in order_by order and capped
+		// at the scan rather than after a full sort.
+		"equality desc limit 3": {
+			q:    `app.name = 'sei'`,
+			opts: indexer.SearchOptions{Limit: 3, OrderDesc: true},
+			want: []hi{{5, 1}, {5, 0}, {4, 1}},
+		},
+		"equality asc limit 3": {
+			q:    `app.name = 'sei'`,
+			opts: indexer.SearchOptions{Limit: 3, OrderDesc: false},
+			want: []hi{{1, 0}, {1, 1}, {2, 0}},
+		},
+		// A disabled cap (Limit <= 0) returns the full set in order_by order.
+		"equality desc unbounded": {
+			q:    `app.name = 'sei'`,
+			opts: indexer.SearchOptions{Limit: 0, OrderDesc: true},
+			want: []hi{{5, 1}, {5, 0}, {4, 1}, {4, 0}, {3, 1}, {3, 0}, {2, 1}, {2, 0}, {1, 1}, {1, 0}},
+		},
+		// Fast path: two equalities — driver plus a point-probe. app.kind=even
+		// only matches the index-0 tx of each height.
+		"two equalities desc limit 2": {
+			q:    `app.name = 'sei' AND app.kind = 'even'`,
+			opts: indexer.SearchOptions{Limit: 2, OrderDesc: true},
+			want: []hi{{5, 0}, {4, 0}},
+		},
+		// Fast path: equality driver with a tx.height range filter.
+		"equality and height range desc limit 2": {
+			q:    `app.name = 'sei' AND tx.height >= 4`,
+			opts: indexer.SearchOptions{Limit: 2, OrderDesc: true},
+			want: []hi{{5, 1}, {5, 0}},
+		},
+		// Fast path: a tx.height equality drives its own (height, index)-ordered
+		// prefix.
+		"tx.height equality desc": {
+			q:    `tx.height = 3`,
+			opts: indexer.SearchOptions{Limit: 5, OrderDesc: true},
+			want: []hi{{3, 1}, {3, 0}},
+		},
+		// Fallback path: a tx.height-range-only query has no equality to drive an
+		// in-order scan (the height is stored as a decimal string), so it is
+		// materialized, then ordered and capped.
+		"height range only desc limit 3": {
+			q:    `tx.height >= 4`,
+			opts: indexer.SearchOptions{Limit: 3, OrderDesc: true},
+			want: []hi{{5, 1}, {5, 0}, {4, 1}},
+		},
+		// Fallback path: CONTAINS cannot be point-probed, but the result set is
+		// still ordered and capped.
+		"contains fallback desc limit 3": {
+			q:    `app.name CONTAINS 'se'`,
+			opts: indexer.SearchOptions{Limit: 3, OrderDesc: true},
+			want: []hi{{5, 1}, {5, 0}, {4, 1}},
+		},
+		"contains fallback asc limit 2": {
+			q:    `app.name CONTAINS 'se'`,
+			opts: indexer.SearchOptions{Limit: 2, OrderDesc: false},
+			want: []hi{{1, 0}, {1, 1}},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			results, err := idx.Search(t.Context(), query.MustCompile(tc.q), tc.opts)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, pairs(results))
+		})
+	}
+
+	// A cancelled context makes the bounded scan return the results gathered so
+	// far without an error, rather than failing the whole query.
+	t.Run("cancelled context returns partial results", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		results, err := idx.Search(ctx, query.MustCompile(`app.name = 'sei'`), indexer.SearchOptions{Limit: 5, OrderDesc: true})
+		require.NoError(t, err)
+		require.Empty(t, results)
+	})
+
+	// Capping in the scan must not diverge from materialize-then-cap: for any
+	// query the bounded top-N equals the first N of the same query run
+	// unbounded. This covers both the fast path (equalities/height ranges) and
+	// the fallback (CONTAINS), guarding against future divergence between them.
+	t.Run("bounded cap matches unbounded prefix", func(t *testing.T) {
+		queries := []string{
+			`app.name = 'sei'`,                       // fast path: equality driver
+			`app.name = 'sei' AND app.kind = 'even'`, // fast path: equality + probe
+			`app.name = 'sei' AND tx.height >= 3`,    // fast path: equality + height range
+			`tx.height >= 3`,                         // fallback: height-range-only
+			`app.name CONTAINS 'se'`,                 // fallback: materialize then bound
+		}
+		for _, q := range queries {
+			for _, desc := range []bool{true, false} {
+				full, err := idx.Search(t.Context(), query.MustCompile(q), indexer.SearchOptions{Limit: 0, OrderDesc: desc})
+				require.NoError(t, err)
+				for n := 1; n <= len(full); n++ {
+					capped, err := idx.Search(t.Context(), query.MustCompile(q), indexer.SearchOptions{Limit: n, OrderDesc: desc})
+					require.NoError(t, err)
+					require.Equalf(t, pairs(full[:n]), pairs(capped), "query %q desc=%v limit=%d", q, desc, n)
+				}
+			}
+		}
+	})
+}
+
 func txResultWithEvents(events []abci.Event) *abci.TxResultV2 {
 	tx := types.Tx("HELLO WORLD")
 	return &abci.TxResultV2{

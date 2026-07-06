@@ -65,40 +65,51 @@ func (env *Environment) TxSearch(ctx context.Context, req *coretypes.RequestTxSe
 		return nil, err
 	}
 
+	// Validate order_by up front so we can push the ordering (and the result
+	// cap) down into the indexer; a broad query is then bounded at the scan
+	// path rather than after materializing and sorting the full match set.
+	var orderDesc bool
+	switch req.OrderBy {
+	case DescendingOrder, "":
+		orderDesc = true
+
+	case AscendingOrder:
+		orderDesc = false
+
+	default:
+		return nil, fmt.Errorf("expected order_by to be either `asc` or `desc` or empty: %w", coretypes.ErrInvalidRequest)
+	}
+
 	for _, sink := range env.EventSinks {
 		if sink.Type() == indexer.KV {
-			// TODO(PLT-748): the kv tx indexer currently ignores these opts and
-			// the cap below still applies after sort (PLT-700). Once the tx
-			// scan path is bounded like the block indexer, this pushes the cap
-			// and ordering down to the scan.
 			results, err := sink.SearchTxEvents(ctx, q, indexer.SearchOptions{
 				Limit:     env.Config.MaxTxSearchResults,
-				OrderDesc: req.OrderBy != AscendingOrder,
+				OrderDesc: orderDesc,
 			})
 			if err != nil {
 				return nil, err
 			}
 
 			// sort results (must be done before cap and pagination)
-			switch req.OrderBy {
-			case DescendingOrder, "":
+			if orderDesc {
 				sort.Slice(results, func(i, j int) bool {
 					if results[i].Height == results[j].Height {
 						return results[i].Index > results[j].Index
 					}
 					return results[i].Height > results[j].Height
 				})
-			case AscendingOrder:
+			} else {
 				sort.Slice(results, func(i, j int) bool {
 					if results[i].Height == results[j].Height {
 						return results[i].Index < results[j].Index
 					}
 					return results[i].Height < results[j].Height
 				})
-			default:
-				return nil, fmt.Errorf("expected order_by to be either `asc` or `desc` or empty: %w", coretypes.ErrInvalidRequest)
 			}
 
+			// Safety net: the kv indexer already bounds to MaxTxSearchResults,
+			// but keep the cap so the response stays bounded for any sink that
+			// ignores the limit.
 			if max := env.Config.MaxTxSearchResults; max > 0 && len(results) > max {
 				results = results[:max]
 			}
