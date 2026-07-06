@@ -76,6 +76,22 @@ type Options struct {
 	// dominant cadence lever — lower it (e.g. 500ms) for faster tests.
 	TimeoutCommit time.Duration
 
+	// SnapshotInterval, when > 0, makes each subprocess validator take a cosmos
+	// state-sync snapshot every N blocks into <home>/snapshots (the location the
+	// snapshot/statesync suites check and that a late-joining statesync node
+	// restores from). 0 disables snapshots. Subprocess backend only — the in-process
+	// backend does not run `seid start` and ignores it. Keep it small (e.g. 10) for
+	// a fast test so a snapshot lands inside the window.
+	SnapshotInterval uint64
+
+	// GovVotingPeriod, when > 0, shortens the gov voting + deposit periods in genesis
+	// so a governance proposal can pass within a test. 0 keeps the chain default (far
+	// too long for a test). Subprocess backend only — used by the upgrade suites,
+	// which pass a software-upgrade proposal and wait it out. It is coupled to the
+	// proposal's target height: the height must be far enough ahead that the proposal
+	// passes before the chain reaches it (see TestSubprocessUpgrade).
+	GovVotingPeriod time.Duration
+
 	// ExtraKeys are non-validator genesis accounts to create + fund. Each key is
 	// written into its target node's home `test` keyring (so a host `seid --home
 	// <home> --keyring-backend test` resolves it) and funded at genesis. This is
@@ -192,45 +208,9 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 		}
 	}()
 
-	enc := app.MakeEncodingConfig()
-	gb := &genesisBuilder{
-		codec:     enc.Marshaler,
-		txConfig:  enc.TxConfig,
-		chainID:   opts.ChainID,
-		bondDenom: sdk.DefaultBondDenom,
-	}
-
-	if err := net.provisionNodes(enc, gb); err != nil {
+	enc, err := net.provision()
+	if err != nil {
 		return nil, err
-	}
-	if err := net.provisionExtraKeys(gb); err != nil {
-		return nil, err
-	}
-
-	baseState := app.ModuleBasics.DefaultGenesis(enc.Marshaler)
-	genFiles := make([]string, len(net.nodes))
-	for i, n := range net.nodes {
-		genFiles[i] = n.tmCfg.GenesisFile()
-	}
-	if err := gb.writeBaseGenesis(baseState, genFiles); err != nil {
-		return nil, fmt.Errorf("write base genesis: %w", err)
-	}
-	if err := gb.collectGentxs(net.nodes, filepath.Join(baseDir, "gentxs")); err != nil {
-		return nil, fmt.Errorf("collect gentxs: %w", err)
-	}
-	// gentx-derived peer mesh guard: collectGentxs is what populates each node's
-	// PersistentPeers (in place, via GenAppStateFromConfig — see doc.go). For N>=2
-	// an empty PersistentPeers means the implicit wiring did not land and consensus
-	// will never form; fail loudly here rather than hang in WaitReady.
-	if len(net.nodes) >= 2 {
-		for _, n := range net.nodes {
-			if n.tmCfg.P2P.PersistentPeers == "" {
-				return nil, fmt.Errorf(
-					"inprocess: gentx-derived peer mesh not wired: collectGentxs did not populate PersistentPeers for %s — did a refactor clone or reorder the config?",
-					n.moniker,
-				)
-			}
-		}
 	}
 
 	// One network per process (see networkStarted): claim the slot here, right
@@ -247,6 +227,55 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 		}
 	}
 	return net, nil
+}
+
+// provision lays every node's home down on disk — per-node keys, isolated config,
+// keyring, the empty-valset genesis, and the gentx-derived peer mesh — the shared
+// foundation both backends build on: the in-process backend then starts each node
+// in-goroutine (startNode), the subprocess backend writes the remaining on-disk
+// config and runs `seid start` (see subprocess.go). It returns the encoding config
+// the caller needs to start the nodes.
+func (net *Network) provision() (encoding, error) {
+	enc := app.MakeEncodingConfig()
+	gb := &genesisBuilder{
+		codec:           enc.Marshaler,
+		txConfig:        enc.TxConfig,
+		chainID:         net.opts.ChainID,
+		bondDenom:       sdk.DefaultBondDenom,
+		govVotingPeriod: net.opts.GovVotingPeriod,
+	}
+	if err := net.provisionNodes(enc, gb); err != nil {
+		return enc, err
+	}
+	if err := net.provisionExtraKeys(gb); err != nil {
+		return enc, err
+	}
+	baseState := app.ModuleBasics.DefaultGenesis(enc.Marshaler)
+	genFiles := make([]string, len(net.nodes))
+	for i, n := range net.nodes {
+		genFiles[i] = n.tmCfg.GenesisFile()
+	}
+	if err := gb.writeBaseGenesis(baseState, genFiles); err != nil {
+		return enc, fmt.Errorf("write base genesis: %w", err)
+	}
+	if err := gb.collectGentxs(net.nodes, filepath.Join(net.baseDir, "gentxs")); err != nil {
+		return enc, fmt.Errorf("collect gentxs: %w", err)
+	}
+	// gentx-derived peer mesh guard: collectGentxs is what populates each node's
+	// PersistentPeers (in place, via GenAppStateFromConfig — see doc.go). For N>=2
+	// an empty PersistentPeers means the implicit wiring did not land and consensus
+	// will never form; fail loudly here rather than hang in WaitReady.
+	if len(net.nodes) >= 2 {
+		for _, n := range net.nodes {
+			if n.tmCfg.P2P.PersistentPeers == "" {
+				return enc, fmt.Errorf(
+					"inprocess: gentx-derived peer mesh not wired: collectGentxs did not populate PersistentPeers for %s — did a refactor clone or reorder the config?",
+					n.moniker,
+				)
+			}
+		}
+	}
+	return enc, nil
 }
 
 // provisionNodes runs the first pass: per-node keys, node IDs, gentxs, isolated

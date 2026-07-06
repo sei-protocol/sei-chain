@@ -20,35 +20,54 @@ import (
 	"github.com/sei-protocol/sei-chain/inprocess"
 )
 
-// WithInProcessNetwork selects the in-process backend: commands run on the HOST
-// against a real `seid` binary pointed at one of net's in-process nodes, with no
-// docker. The Input `node:` field ("sei-node-N", default "sei-node-0") selects
-// the node; the command's `seid` invocations are redirected to that node's home
-// (and its loopback TM RPC / EVM endpoints) so suites written for the docker
-// cluster run unchanged.
-//
-// The build tag means this option only exists in an `inprocess` build; docker
-// runs (built without the tag) cannot reference it, and so cannot regress.
-func WithInProcessNetwork(net *inprocess.Network) Option {
-	return withExecer(newInProcessExecer(net))
+// nodeSource is the backend-agnostic surface the runner needs from a harness
+// network: index a validator and count them. Both inprocess.Network (Tier-1,
+// in-goroutine) and inprocess.SubprocessNetwork (Tier-2, real `seid` processes)
+// satisfy it and return the same inprocess.Node handle, so one execer drives
+// either backend — the seid CLIENT commands the suites run don't care whether the
+// node they target is a goroutine or a subprocess.
+type nodeSource interface {
+	Node(i int) inprocess.Node
+	Len() int
 }
 
-// inProcessExecer runs commands on the host against an inprocess.Network. It
-// shims `seid` so opaque sourced helper scripts (which call bare `seid` /
-// `$seidbin`) land on the right node: the shim prepends `--home "$SEID_HOME"`
-// and `--node "$SEID_NODE"` to every real seid call (explicit home + RPC
-// targeting), and the per-node client.toml the harness wrote under that home
-// supplies chain-id and the test keyring.
-type inProcessExecer struct {
-	net *inprocess.Network
+// WithInProcessNetwork selects the Tier-1 in-process backend: commands run on the
+// HOST against a real `seid` binary pointed at one of net's in-goroutine nodes,
+// with no docker. The Input `node:` field ("sei-node-N", default "sei-node-0")
+// selects the node; the command's `seid` invocations are redirected to that node's
+// home (and its loopback TM RPC / EVM endpoints) so suites written for the docker
+// cluster run unchanged.
+func WithInProcessNetwork(net *inprocess.Network) Option {
+	return withExecer(newHostExecer(net))
+}
+
+// WithSubprocessNetwork selects the Tier-2 subprocess backend: the same host-side
+// seid client execer as WithInProcessNetwork, but targeting a cluster of real
+// `seid` processes (see inprocess.SubprocessNetwork) instead of in-goroutine
+// nodes. Suites run unchanged — the node handle surface is identical — while the
+// nodes are now killable/restartable OS processes, which is what the operational
+// suites need.
+func WithSubprocessNetwork(sn *inprocess.SubprocessNetwork) Option {
+	return withExecer(newHostExecer(sn))
+}
+
+// hostExecer runs seid client commands on the host against a harness network
+// (either backend — see nodeSource). It shims `seid` so opaque sourced helper
+// scripts (which call bare `seid` / `$seidbin`) land on the right node: the shim
+// prepends `--home "$SEID_HOME"` to every real seid call and `--node "$SEID_NODE"`
+// only to the RPC-reading client subcommands (q/query/tx/status — see shimScript),
+// and the per-node client.toml the harness wrote under that home supplies chain-id
+// and the test keyring.
+type hostExecer struct {
+	net nodeSource
 
 	once   sync.Once
 	binDir string // dir holding the seid shim + real binary, prepended to PATH
 	setup  error  // first-build error, returned to every run after
 }
 
-func newInProcessExecer(net *inprocess.Network) *inProcessExecer {
-	return &inProcessExecer{net: net}
+func newHostExecer(net nodeSource) *hostExecer {
+	return &hostExecer{net: net}
 }
 
 // run resolves node → harness node, sets the per-node targeting env (SEID_HOME
@@ -56,7 +75,7 @@ func newInProcessExecer(net *inprocess.Network) *inProcessExecer {
 // capture env, and runs the command on the host. Non-zero command exit is
 // reported via stdout (the captured code), matching the docker arm + runner.py
 // contract; err is reserved for harness-level failures.
-func (e *inProcessExecer) run(t *testing.T, cmd, node string, envMap map[string]string, opts Options) (string, error) {
+func (e *hostExecer) run(t *testing.T, cmd, node string, envMap map[string]string, opts Options) (string, error) {
 	t.Helper()
 	if err := e.ensureBin(t); err != nil {
 		return "", fmt.Errorf("prepare seid: %w", err)
@@ -87,6 +106,10 @@ func (e *inProcessExecer) run(t *testing.T, cmd, node string, envMap map[string]
 		"SEI_EVM_WS="+h.EVMWS(),
 		// Some EVM suites read EVM_RPC; keep parity with SEI_EVM_RPC.
 		"EVM_RPC="+h.EVMRPC(),
+		// The snapshot suite checks this node's snapshot dir. Docker hardcodes its
+		// path; this env lets the suite stay backend-portable (the docker arm keeps
+		// its literal fallback — see snapshot_operation.yaml).
+		"SEI_SNAPSHOT_DIR="+filepath.Join(h.Home(), "snapshots"),
 	)
 
 	out, err := c.Output()
@@ -104,30 +127,34 @@ func (e *inProcessExecer) run(t *testing.T, cmd, node string, envMap map[string]
 
 // nodeFor maps a "sei-node-N" moniker (the docker container naming the suites
 // use) to the harness node at index N. An empty string defaults to node 0, the
-// suite default (admin's home).
-func (e *inProcessExecer) nodeFor(node string) (inprocess.Node, error) {
-	idx := 0
-	if node != "" {
-		const prefix = "sei-node-"
-		s, ok := strings.CutPrefix(node, prefix)
-		if !ok {
-			return inprocess.Node{}, fmt.Errorf("in-process arm: node %q is not %sN", node, prefix)
-		}
-		n, err := strconv.Atoi(s)
+// suite default (admin's home). A name without the "sei-node-" prefix is matched
+// against node monikers, which resolves the subprocess backend's late-joining
+// "sei-rpc-node" (the statesync suite's target).
+func (e *hostExecer) nodeFor(node string) (inprocess.Node, error) {
+	if node == "" {
+		return e.net.Node(0), nil
+	}
+	if s, ok := strings.CutPrefix(node, "sei-node-"); ok {
+		idx, err := strconv.Atoi(s)
 		if err != nil {
-			return inprocess.Node{}, fmt.Errorf("in-process arm: node %q has non-numeric index: %w", node, err)
+			return inprocess.Node{}, fmt.Errorf("host arm: node %q has non-numeric index: %w", node, err)
 		}
-		idx = n
+		if idx < 0 || idx >= e.net.Len() {
+			return inprocess.Node{}, fmt.Errorf("host arm: node index %d out of range [0,%d)", idx, e.net.Len())
+		}
+		return e.net.Node(idx), nil
 	}
-	if idx < 0 || idx >= e.net.Len() {
-		return inprocess.Node{}, fmt.Errorf("in-process arm: node index %d out of range [0,%d)", idx, e.net.Len())
+	for i := 0; i < e.net.Len(); i++ {
+		if h := e.net.Node(i); h.Name() == node {
+			return h, nil
+		}
 	}
-	return e.net.Node(idx), nil
+	return inprocess.Node{}, fmt.Errorf("host arm: no node named %q (not sei-node-N and no matching moniker)", node)
 }
 
 // prepare is the backendPreparer hook: it runs the one-time build (via ensureBin)
 // against the parent test. See ensureBin for why the parent owns the cleanup.
-func (e *inProcessExecer) prepare(t *testing.T) error {
+func (e *hostExecer) prepare(t *testing.T) error {
 	t.Helper()
 	return e.ensureBin(t)
 }
@@ -143,7 +170,7 @@ func (e *inProcessExecer) prepare(t *testing.T) error {
 // t.Cleanup registers on whichever test first triggers the build; prepare makes
 // that the parent test, so the binary outlives every per-case subtest. Cases run
 // serially — the unsynchronized binDir read in run is safe only without t.Parallel.
-func (e *inProcessExecer) ensureBin(t *testing.T) error {
+func (e *hostExecer) ensureBin(t *testing.T) error {
 	e.once.Do(func() {
 		dir, err := os.MkdirTemp("", "sei-inprocess-bin-")
 		if err != nil {
