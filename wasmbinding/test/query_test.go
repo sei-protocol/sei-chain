@@ -249,7 +249,7 @@ func TestWasmGetDenomsFromCreator(t *testing.T) {
 	var parsedRes tokenfactorytypes.QueryDenomsFromCreatorResponse
 	err = json.Unmarshal(res, &parsedRes)
 	require.NoError(t, err)
-	require.Equal(t, tokenfactorytypes.QueryDenomsFromCreatorResponse{Denoms: nil}, parsedRes)
+	require.Empty(t, parsedRes.Denoms)
 
 	// Add first denom
 	testWrapper.App.TokenFactoryKeeper.CreateDenom(testWrapper.Ctx, app.TestUser, "test1")
@@ -260,7 +260,7 @@ func TestWasmGetDenomsFromCreator(t *testing.T) {
 	var parsedRes2 tokenfactorytypes.QueryDenomsFromCreatorResponse
 	err = json.Unmarshal(res, &parsedRes2)
 	require.NoError(t, err)
-	require.Equal(t, tokenfactorytypes.QueryDenomsFromCreatorResponse{Denoms: []string{denom1}}, parsedRes2)
+	require.Equal(t, []string{denom1}, parsedRes2.Denoms)
 
 	// Add second denom
 	testWrapper.App.TokenFactoryKeeper.CreateDenom(testWrapper.Ctx, app.TestUser, "test2")
@@ -271,7 +271,7 @@ func TestWasmGetDenomsFromCreator(t *testing.T) {
 	var parsedRes3 tokenfactorytypes.QueryDenomsFromCreatorResponse
 	err = json.Unmarshal(res, &parsedRes3)
 	require.NoError(t, err)
-	require.Equal(t, tokenfactorytypes.QueryDenomsFromCreatorResponse{Denoms: []string{denom1, denom2}}, parsedRes3)
+	require.Equal(t, []string{denom1, denom2}, parsedRes3.Denoms)
 
 }
 

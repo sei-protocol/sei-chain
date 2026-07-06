@@ -52,7 +52,7 @@ var logger = seilog.NewLogger("tendermint", "internal", "rpc", "core")
 //----------------------------------------------
 // These interfaces are used by RPC and must be thread safe
 
-type consensusState interface {
+type ConsensusState interface {
 	GetState() sm.State
 	GetValidators() (int64, []*types.Validator)
 	GetLastHeight() int64
@@ -70,10 +70,10 @@ type Environment struct {
 	// interfaces defined in types and above
 	StateStore       sm.Store
 	BlockStore       sm.BlockStore
-	EvidencePool     sm.EvidencePool
-	ConsensusState   consensusState
-	ConsensusReactor *consensus.Reactor
-	BlockSyncReactor *blocksync.Reactor
+	EvidencePool     utils.Option[sm.EvidencePool]
+	ConsensusState   utils.Option[ConsensusState]
+	ConsensusReactor utils.Option[*consensus.Reactor]
+	BlockSyncReactor utils.Option[*blocksync.Reactor]
 
 	IsListening bool
 	Listeners   []string
@@ -82,13 +82,13 @@ type Environment struct {
 	Router *p2p.Router
 
 	// objects
-	PubKey            utils.Option[crypto.PubKey]
-	GenDoc            *types.GenesisDoc // cache the genesis structure
-	EventSinks        []indexer.EventSink
-	EventBus          *eventbus.EventBus // thread safe
-	EventLog          *eventlog.Log
-	Mempool           *mempool.TxMempool
-	StateSyncMetricer statesync.Metricer
+	PubKey           utils.Option[crypto.PubKey]
+	GenDoc           *types.GenesisDoc // cache the genesis structure
+	EventSinks       []indexer.EventSink
+	EventBus         *eventbus.EventBus // thread safe
+	EventLog         utils.Option[*eventlog.Log]
+	Mempool          utils.Option[*mempool.TxMempool]
+	StateSyncReactor utils.Option[statesync.Reactor]
 
 	Config config.RPCConfig
 
@@ -129,9 +129,9 @@ func validatePage(pagePtr *int, perPage, totalCount int) (int, error) {
 //	if r, ok := env.gigaRouter().Get(); ok {
 //	    // Autobahn path, r is the router
 //	}
-func (env *Environment) gigaRouter() utils.Option[*p2p.GigaRouter] {
+func (env *Environment) gigaRouter() utils.Option[p2p.GigaRouter] {
 	if env.Router == nil { // inspect mode
-		return utils.None[*p2p.GigaRouter]()
+		return utils.None[p2p.GigaRouter]()
 	}
 	return env.Router.Giga()
 }
@@ -211,15 +211,50 @@ func (env *Environment) getHeight(latestHeight int64, heightPtr *int64) (int64, 
 }
 
 func (env *Environment) latestUncommittedHeight() int64 {
-	if env.ConsensusReactor != nil {
+	if reactor, ok := env.ConsensusReactor.Get(); ok {
 		// consensus reactor can be nil in inspect mode.
 
-		nodeIsSyncing := env.ConsensusReactor.WaitSync()
+		nodeIsSyncing := reactor.WaitSync()
 		if nodeIsSyncing {
 			return env.BlockStore.Height()
 		}
 	}
 	return env.BlockStore.Height() + 1
+}
+
+func (env *Environment) requireMempool() (*mempool.TxMempool, error) {
+	if mp, ok := env.Mempool.Get(); ok {
+		return mp, nil
+	}
+	return nil, fmt.Errorf("mempool is not available")
+}
+
+func (env *Environment) requireEventLog() (*eventlog.Log, error) {
+	if lg, ok := env.EventLog.Get(); ok {
+		return lg, nil
+	}
+	return nil, fmt.Errorf("event log is not enabled")
+}
+
+func (env *Environment) requireEvidencePool() (sm.EvidencePool, error) {
+	if pool, ok := env.EvidencePool.Get(); ok {
+		return pool, nil
+	}
+	return nil, fmt.Errorf("evidence pool is not available")
+}
+
+func (env *Environment) requireConsensusState() (ConsensusState, error) {
+	if state, ok := env.ConsensusState.Get(); ok {
+		return state, nil
+	}
+	return nil, fmt.Errorf("consensus state is not available")
+}
+
+func (env *Environment) requireConsensusReactor() (*consensus.Reactor, error) {
+	if reactor, ok := env.ConsensusReactor.Get(); ok {
+		return reactor, nil
+	}
+	return nil, fmt.Errorf("consensus reactor is not available")
 }
 
 // StartService constructs and starts listeners for the RPC service
@@ -244,21 +279,17 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 	cfg.MaxBodyBytes = conf.RPC.MaxBodyBytes
 	cfg.MaxHeaderBytes = conf.RPC.MaxHeaderBytes
 	cfg.MaxOpenConnections = conf.RPC.MaxOpenConnections
-	// If necessary adjust global WriteTimeout to ensure it's greater than
-	// TimeoutBroadcastTxCommit.
-	// See https://github.com/tendermint/tendermint/issues/3435
-	// Note we don't need to adjust anything if the timeout is already unlimited.
-	if cfg.WriteTimeout > 0 && cfg.WriteTimeout <= conf.RPC.TimeoutBroadcastTxCommit {
-		cfg.WriteTimeout = conf.RPC.TimeoutBroadcastTxCommit + 1*time.Second
-	}
 
 	if conf.RPC.TimeoutRead > 0 {
 		cfg.ReadTimeout = conf.RPC.TimeoutRead
 	}
 
+	cfg.ReadHeaderTimeout = conf.RPC.TimeoutReadHeader
+	cfg.WriteTimeout = conf.RPC.TimeoutWrite
+
 	// If the event log is enabled, subscribe to all events published to the
 	// event bus, and forward them to the event log.
-	if lg := env.EventLog; lg != nil {
+	if lg, ok := env.EventLog.Get(); ok {
 		// TODO(creachadair): This is kind of a hack, ideally we'd share the
 		// observer with the indexer, but it's tricky to plumb them together.
 		// For now, use a "normal" subscription with a big buffer allowance.

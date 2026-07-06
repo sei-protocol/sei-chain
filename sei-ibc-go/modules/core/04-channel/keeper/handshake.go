@@ -100,6 +100,8 @@ func (k Keeper) WriteOpenInitChannel(
 	logger.Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", "NONE", "new-state", "INIT")
 
 	defer func() {
+		ibcChannelMetrics.ibcChannelOpenInit.Add(ctx.Context(), 1)
+		// TODO(PLT-428): remove once ibc_channel_open_init verified
 		telemetry.IncrCounter(1, "ibc", "channel", "open-init")
 	}()
 
@@ -263,6 +265,8 @@ func (k Keeper) WriteOpenTryChannel(
 	logger.Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", previousChannel.State.String(), "new-state", "TRYOPEN")
 
 	defer func() {
+		ibcChannelMetrics.ibcChannelOpenTry.Add(ctx.Context(), 1)
+		// TODO(PLT-428): remove once ibc_channel_open_try verified
 		telemetry.IncrCounter(1, "ibc", "channel", "open-try")
 	}()
 
@@ -351,6 +355,8 @@ func (k Keeper) WriteOpenAckChannel(
 	logger.Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", channel.State.String(), "new-state", "OPEN")
 
 	defer func() {
+		ibcChannelMetrics.ibcChannelOpenAck.Add(ctx.Context(), 1)
+		// TODO(PLT-428): remove once ibc_channel_open_ack verified
 		telemetry.IncrCounter(1, "ibc", "channel", "open-ack")
 	}()
 
@@ -431,6 +437,8 @@ func (k Keeper) WriteOpenConfirmChannel(
 	logger.Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", "TRYOPEN", "new-state", "OPEN")
 
 	defer func() {
+		ibcChannelMetrics.ibcChannelOpenConfirm.Add(ctx.Context(), 1)
+		// TODO(PLT-428): remove once ibc_channel_open_confirm verified
 		telemetry.IncrCounter(1, "ibc", "channel", "open-confirm")
 	}()
 
@@ -478,6 +486,8 @@ func (k Keeper) ChanCloseInit(
 	logger.Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", channel.State.String(), "new-state", "CLOSED")
 
 	defer func() {
+		ibcChannelMetrics.ibcChannelCloseInit.Add(ctx.Context(), 1)
+		// TODO(PLT-428): remove once ibc_channel_close_init verified
 		telemetry.IncrCounter(1, "ibc", "channel", "close-init")
 	}()
 
@@ -543,6 +553,8 @@ func (k Keeper) ChanCloseConfirm(
 	logger.Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", channel.State.String(), "new-state", "CLOSED")
 
 	defer func() {
+		ibcChannelMetrics.ibcChannelCloseConfirm.Add(ctx.Context(), 1)
+		// TODO(PLT-428): remove once ibc_channel_close_confirm verified
 		telemetry.IncrCounter(1, "ibc", "channel", "close-confirm")
 	}()
 

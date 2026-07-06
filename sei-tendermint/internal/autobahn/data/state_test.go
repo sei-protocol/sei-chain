@@ -11,8 +11,8 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -115,7 +115,13 @@ func TestState(t *testing.T) {
 	}
 }
 
-func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
+// Scenario:
+// * a valid CommitQC is pushed.
+// * an invalid CommitQC with the same road index, but more blocks is pushed.
+// * data State should verify and reject the CommitQC, in particular:
+//   - NOT replace the previous CommitQC
+//   - NOT append the extra blocks for this road index.
+func TestPushConflictingBadCommitQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 3)
@@ -126,33 +132,38 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 	// Push a valid QC to advance inner.nextQC.
 	qc1, blocks1 := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	nextQC := qc1.QC().GlobalRange(committee).Next
+	gr1 := qc1.QC().GlobalRange(committee)
 
 	// Construct a malicious QC signed by non-committee keys.
 	// It starts from block 0 (stale) but extends beyond nextQC.
+	// Keep each lane range within the protocol max; we only need the
+	// total finalized span to exceed the previously accepted QC by 1.
 	badKeys := make([]types.SecretKey, len(keys))
 	for i := range badKeys {
 		badKeys[i] = types.GenSecretKey(rng)
 	}
-	blocksPerLane := int(nextQC/types.GlobalBlockNumber(committee.Lanes().Len())) + 2
 	laneBlocks := map[types.LaneID][]*types.Block{}
-	for lane := range committee.Lanes().All() {
-		for range blocksPerLane {
-			var b *types.Block
-			if bs := laneBlocks[lane]; len(bs) > 0 {
-				parent := bs[len(bs)-1]
-				b = types.NewBlock(lane, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
-			} else {
-				b = types.NewBlock(lane, 0, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
-			}
-			laneBlocks[lane] = append(laneBlocks[lane], b)
+	maliciousBlocksTotal := int(gr1.Len()) + 1
+	require.LessOrEqual(t, maliciousBlocksTotal, committee.Lanes().Len()*types.MaxLaneRangeInProposal)
+	for i := range maliciousBlocksTotal {
+		lane := committee.Lanes().At(i % committee.Lanes().Len())
+		var b *types.Block
+		if bs := laneBlocks[lane]; len(bs) > 0 {
+			parent := bs[len(bs)-1]
+			b = types.NewBlock(lane, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
+		} else {
+			b = types.NewBlock(lane, 0, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 		}
+		laneBlocks[lane] = append(laneBlocks[lane], b)
 	}
 	laneQCs := map[types.LaneID]*types.LaneQC{}
 	var headers []*types.BlockHeader
 	var malBlocks []*types.Block
 	for lane := range committee.Lanes().All() {
 		bs := laneBlocks[lane]
+		if len(bs) == 0 {
+			continue
+		}
 		laneQCs[lane] = TestLaneQC(badKeys, bs[len(bs)-1].Header())
 		for _, b := range bs {
 			headers = append(headers, b.Header())
@@ -177,8 +188,8 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 		utils.None[*types.AppQC](),
 	))
 	malGR := proposal.Proposal().Msg().GlobalRange(committee)
-	require.Less(t, malGR.First, nextQC, "test setup: malicious gr.First must be < nextQC")
-	require.Greater(t, malGR.Next, nextQC, "test setup: malicious gr.Next must be > nextQC")
+	require.Less(t, malGR.First, gr1.Next, "test setup: malicious gr.First must be < nextQC")
+	require.Greater(t, malGR.Next, gr1.Next, "test setup: malicious gr.Next must be > nextQC")
 
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(badKeys))
 	for _, k := range badKeys {
@@ -193,7 +204,6 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 	_ = state.PushQC(ctx, maliciousQC, malBlocks)
 
 	// Verify state was not corrupted: all previously pushed QCs and blocks are intact.
-	gr1 := qc1.QC().GlobalRange(committee)
 	for n := gr1.First; n < gr1.Next; n++ {
 		got, err := state.QC(ctx, n)
 		require.NoError(t, err)
@@ -207,7 +217,7 @@ func TestPushQCStaleQCDoesNotCorruptState(t *testing.T) {
 
 	// Verify nextQC did not advance beyond the valid range.
 	for inner := range state.inner.Lock() {
-		require.Equal(t, nextQC, inner.nextQC)
+		require.Equal(t, gr1.Next, inner.nextQC)
 	}
 
 	// Verify state is still functional: the next valid QC is accepted and visible.

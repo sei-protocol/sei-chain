@@ -3,14 +3,17 @@ package app
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetrics "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	"github.com/sei-protocol/sei-chain/app/migration"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/tasks"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -51,9 +54,52 @@ func (app *App) BeginBlock(
 	if app.HardForkManager.TargetHeightReached(ctx) {
 		app.HardForkManager.ExecuteForTargetHeight(ctx)
 	}
+	app.applyMigrationBatchSize(ctx)
 	legacyabci.BeginBlock(ctx, height, votes, byzantineValidators, app.BeginBlockKeepers)
 	return abci.ResponseBeginBlock{
 		Events: sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents),
+	}
+}
+
+// applyMigrationBatchSize paces the SC store's background data migration at the network-agreed rate.
+// The NumKeysToMigratePerBlock gov param is read from chain state so every node
+// applies the same value each block; a per-node rate would diverge the
+// AppHash. 0 (the default until a gov proposal raises it) leaves the migration
+// paused; it is the sole source of the rate (there is no node-local fallback).
+func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
+	if app.rootStore == nil {
+		return
+	}
+	numKeys := migration.DefaultNumKeysToMigratePerBlock
+	if subspace, ok := app.ParamsKeeper.GetSubspace(migration.SubspaceName); ok {
+		// The migration subspace has no owning module to seed it in InitGenesis,
+		// so lazily persist the default the first time we see it unset. This is
+		// deterministic across nodes (every node runs BeginBlock identically) and
+		// makes the param visible to gov: ParameterChangeProposal submission only
+		// accepts a change when subspace.Has reports the key is already stored.
+		if !subspace.Has(ctx, migration.KeyNumKeysToMigratePerBlock) {
+			subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, migration.DefaultNumKeysToMigratePerBlock)
+		}
+		subspace.GetIfExists(ctx, migration.KeyNumKeysToMigratePerBlock, &numKeys)
+	}
+	// Defense-in-depth: gov validation already rejects values above
+	// MaxNumKeysToMigratePerBlock, but clamp here too so an out-of-range value
+	// reaching state via any path can never overflow the int cast or trigger an
+	// oversized preallocation in the migration iterator. The clamp is
+	// deterministic across nodes.
+	if numKeys > migration.MaxNumKeysToMigratePerBlock {
+		numKeys = migration.MaxNumKeysToMigratePerBlock
+	}
+	if err := app.rootStore.SetMigrationBatchSize(int(numKeys)); err != nil {
+		// Never panic on the migration-rate update: log and continue. AppHash
+		// verification is the safety net. If the rate/mode update fails on only
+		// some nodes, those nodes' AppHash diverges and the normal AppHash
+		// comparison halts them at the next block — no proactive panic needed.
+		// If it fails on every node, all stay in the same (old) mode with an
+		// identical AppHash, so the chain keeps moving and the level-triggered
+		// trigger re-fires on a later block. Panicking here would needlessly
+		// halt the whole chain in that all-fail case.
+		logger.Error("failed to set SC migration batch size; continuing", "err", err)
 	}
 }
 
@@ -125,10 +171,11 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.R
 			GasEstimated: int64(gInfo.GasEstimate), //nolint:gosec
 		},
 		EVMNonce:           txCtx.EVMNonce(),
+		EVMHash:            txCtx.EVMTxHash(),
 		EVMSenderAddress:   txCtx.EVMSenderAddress(),
 		SeiSenderAddress:   txCtx.SeiSenderAddress(),
 		IsEVM:              txCtx.IsEVM(),
-		EVMRequiredBalance: txCtx.EVMRequiredBalance(),
+		EVMRequiredBalance: bigIntToUint256(txCtx.EVMRequiredBalance()),
 	}
 
 	return res
@@ -138,14 +185,25 @@ func (app *App) EvmNonce(evmAddr common.Address) uint64 {
 	return app.EvmKeeper.GetNonce(app.GetCheckCtx(), evmAddr)
 }
 
-func (app *App) EvmBalance(evmAddr common.Address, seiAddrBz []byte) *big.Int {
+func (app *App) EvmBalance(evmAddr common.Address, seiAddrBz []byte) uint256.Int {
 	ctx := app.GetCheckCtx()
 	balance := app.EvmKeeper.GetBalance(ctx, evmAddr[:])
 	seiAddr := sdk.AccAddress(seiAddrBz)
 	if !seiAddr.Equals(sdk.AccAddress(evmAddr[:])) {
 		balance = new(big.Int).Add(balance, app.EvmKeeper.GetBalance(ctx, seiAddr))
 	}
-	return balance
+	return bigIntToUint256(balance)
+}
+
+func bigIntToUint256(x *big.Int) uint256.Int {
+	if x == nil {
+		return uint256.Int{}
+	}
+	y, overflow := uint256.FromBig(x)
+	if overflow {
+		panic(fmt.Sprintf("big.Int overflows uint256: %v", x))
+	}
+	return *y
 }
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
@@ -194,7 +252,7 @@ func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.T
 		res.EvmTxInfo = &abci.EvmTxInfo{
 			SenderAddress: resCtx.EVMSenderAddress().Hex(),
 			Nonce:         resCtx.EVMNonce(),
-			TxHash:        resCtx.EVMTxHash(),
+			TxHash:        resCtx.EVMTxHash().Hex(),
 			VmError:       result.EvmError,
 		}
 		// TODO: populate error data for EVM err

@@ -8,6 +8,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 // Keeper of the slashing store
@@ -67,6 +69,8 @@ func (k Keeper) Slash(ctx sdk.Context, consAddr sdk.ConsAddress, fraction sdk.De
 			sdk.NewAttribute(types.AttributeKeyReason, types.AttributeValueDoubleSign),
 		),
 	)
+	slashingKeeperMetrics.validatorSlashed.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("type", types.AttributeValueDoubleSign), attribute.String("validator", consAddr.String())))
+	// TODO(PLT-414): remove once slashing_validator_slashed verified
 	telemetry.IncrValidatorSlashedCounter(consAddr.String(), types.AttributeValueDoubleSign)
 	k.sk.Slash(ctx, consAddr, distributionHeight, power, fraction)
 }

@@ -27,8 +27,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -56,11 +58,11 @@ func (c *pendingNonceClient) EvmNextPendingNonce(common.Address) uint64 {
 	return c.nextNonce
 }
 
-func (c *pendingNonceClient) EvmProxy(common.Address) (*url.URL, bool) {
+func (c *pendingNonceClient) EvmProxy(common.Address) utils.Option[*url.URL] {
 	if c.proxyURL == nil {
-		return nil, false
+		return utils.None[*url.URL]()
 	}
-	return c.proxyURL, true
+	return utils.Some(c.proxyURL)
 }
 
 func TestGetTransactionCount(t *testing.T) {
@@ -132,7 +134,7 @@ func TestGetTransactionError(t *testing.T) {
 
 func TestSign(t *testing.T) {
 	homeDir := t.TempDir()
-	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP, &evmrpc.WatermarkManager{}, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP, utils.None[time.Duration](), &evmrpc.WatermarkManager{}, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	infoApi := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP, nil, nil)
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)
@@ -301,7 +303,11 @@ type lowLatestTMClient struct {
 
 func (c *lowLatestTMClient) EvmNextPendingNonce(common.Address) uint64 { return 0 }
 
-func (c *lowLatestTMClient) EvmProxy(common.Address) (*url.URL, bool) { return nil, false }
+func (c *lowLatestTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) { return nil, false }
+
+func (c *lowLatestTMClient) EvmProxy(common.Address) utils.Option[*url.URL] {
+	return utils.None[*url.URL]()
+}
 
 func (c *lowLatestTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {
 	return &coretypes.ResultStatus{
@@ -330,7 +336,7 @@ func TestGetTransactionReceiptReturnsNullAboveWatermark(t *testing.T) {
 	tmClient := &lowLatestTMClient{latest: MockHeight8}
 	ctxProvider := func(int64) sdk.Context { return Ctx.WithBlockHeight(MockHeight8) }
 	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, nil)
-	txAPI := evmrpc.NewTransactionAPI(tmClient, EVMKeeper, ctxProvider, nil, t.TempDir(), evmrpc.ConnectionTypeHTTP, watermarks, evmrpc.NewBlockCache(8), &sync.Mutex{})
+	txAPI := evmrpc.NewTransactionAPI(tmClient, EVMKeeper, ctxProvider, nil, t.TempDir(), evmrpc.ConnectionTypeHTTP, utils.None[time.Duration](), watermarks, evmrpc.NewBlockCache(8), &sync.Mutex{})
 
 	result, err := txAPI.GetTransactionReceipt(context.Background(), hash)
 	require.NoError(t, err)
@@ -453,9 +459,9 @@ func TestGetTransactionByBlockNumberAndIndexErrors(t *testing.T) {
 	resObj = map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for non-existent block
-	errMap := resObj["error"].(map[string]interface{})
-	require.NotNil(t, errMap["message"])
+	// Non-existent block returns null result (Ethereum JSON-RPC spec).
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 }
 
 func TestGetTransactionByBlockHashAndIndexErrors(t *testing.T) {
@@ -471,9 +477,9 @@ func TestGetTransactionByBlockHashAndIndexErrors(t *testing.T) {
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for non-existent block hash
-	errMap := resObj["error"].(map[string]interface{})
-	require.NotNil(t, errMap["message"])
+	// Non-existent block hash returns null result (Ethereum JSON-RPC spec).
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 
 	body = fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionByBlockHashAndIndex","params":["%s","0xFFFFFFFFFF"],"id":"test"}`, TestBlockHash)
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
@@ -996,6 +1002,7 @@ func TestGetTransactionCountPendingUsesProxy(t *testing.T) {
 		nil,
 		"",
 		evmrpc.ConnectionTypeHTTP,
+		utils.None[time.Duration](),
 		&evmrpc.WatermarkManager{},
 		evmrpc.NewBlockCache(1),
 		&sync.Mutex{},
@@ -1018,6 +1025,7 @@ func TestGetTransactionCountPendingFallsBackToLocalNonce(t *testing.T) {
 		nil,
 		"",
 		evmrpc.ConnectionTypeHTTP,
+		utils.None[time.Duration](),
 		&evmrpc.WatermarkManager{},
 		evmrpc.NewBlockCache(1),
 		&sync.Mutex{},

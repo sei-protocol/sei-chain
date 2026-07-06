@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
@@ -269,7 +269,9 @@ func (env *Environment) BlockResults(ctx context.Context, req *coretypes.Request
 		return &coretypes.ResultBlockResults{
 			Height: height,
 			ConsensusParamUpdates: &tmproto.ConsensusParams{
-				Block: &tmproto.BlockParams{MaxGas: giga.MaxGasPerBlock()},
+				Block: &tmproto.BlockParams{
+					MaxGas: utils.Clamp[int64](giga.MaxGasEstimatedPerBlock()),
+				},
 			},
 		}, nil
 	}
@@ -322,7 +324,7 @@ func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestB
 		return nil, err
 	}
 
-	// sort results (must be done before pagination)
+	// sort results (must be done before cap and pagination)
 	switch req.OrderBy {
 	case "desc", "":
 		sort.Slice(results, func(i, j int) bool { return results[i] > results[j] })
@@ -332,6 +334,10 @@ func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestB
 
 	default:
 		return nil, fmt.Errorf("expected order_by to be either `asc` or `desc` or empty: %w", coretypes.ErrInvalidRequest)
+	}
+
+	if max := env.Config.MaxTxSearchResults; max > 0 && len(results) > max {
+		results = results[:max]
 	}
 
 	// paginate results

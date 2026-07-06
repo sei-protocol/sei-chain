@@ -3,8 +3,10 @@ vue/dist
 release/
 .idea/
 .vscode/
+.cursor/
 .DS_Store
 build/
+dist/
 cache/
 ./evm_stress
 *.iml

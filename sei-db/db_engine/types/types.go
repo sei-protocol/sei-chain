@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	dbm "github.com/tendermint/tm-db"
 )
 
 // WriteOptions controls durability for write operations.
@@ -15,9 +16,11 @@ type WriteOptions struct {
 // IterOptions controls iterator bounds.
 // - LowerBound is inclusive.
 // - UpperBound is exclusive.
+// - Reverse iterates in descending key order when true (default false).
 type IterOptions struct {
 	LowerBound []byte
 	UpperBound []byte
+	Reverse    bool
 }
 
 // BatchGetResult describes the result of a single key lookup within a BatchGet call.
@@ -66,8 +69,9 @@ type KeyValueDB interface {
 	// Delete deletes the value for the given key.
 	Delete(key []byte, opts WriteOptions) error
 
-	// NewIter returns a new iterator over the key-value store.
-	NewIter(opts *IterOptions) (KeyValueDBIterator, error)
+	// NewIter returns a positioned forward iterator over the key-value store.
+	// Keys and values are read-only; copy before modifying.
+	NewIter(opts *IterOptions) (dbm.Iterator, error)
 
 	// NewBatch returns a new batch for atomic writes.
 	NewBatch() Batch
@@ -105,31 +109,6 @@ type Checkpointable interface {
 	Checkpoint(destDir string) error
 }
 
-// KeyValueDBIterator provides ordered iteration over keyspace with seek primitives.
-//
-// Zero-copy contract:
-//   - Key/Value may return views into internal buffers and are only valid until the
-//     next iterator positioning call (Next/Prev/Seek*/First/Last) or Close.
-//
-// TODO: Merge with DBIterator
-type KeyValueDBIterator interface {
-	First() bool
-	Last() bool
-	Valid() bool
-
-	SeekGE(key []byte) bool
-	SeekLT(key []byte) bool
-
-	Next() bool
-	NextPrefix() bool
-	Prev() bool
-
-	Key() []byte
-	Value() []byte
-	Error() error
-	io.Closer
-}
-
 // ---------------------------------------------------------------------------
 // SS DB layer
 // ---------------------------------------------------------------------------
@@ -140,8 +119,8 @@ type KeyValueDBIterator interface {
 type StateStore interface {
 	Get(storeKey string, version int64, key []byte) ([]byte, error)
 	Has(storeKey string, version int64, key []byte) (bool, error)
-	Iterator(storeKey string, version int64, start, end []byte) (DBIterator, error)
-	ReverseIterator(storeKey string, version int64, start, end []byte) (DBIterator, error)
+	Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error)
+	ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error)
 	RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error)
 	GetLatestVersion() int64
 	SetLatestVersion(version int64) error
@@ -152,17 +131,6 @@ type StateStore interface {
 	Prune(version int64) error
 	Import(version int64, ch <-chan SnapshotNode) error
 	io.Closer
-}
-
-// DBIterator iterates over versioned key-value pairs.
-type DBIterator interface {
-	Domain() (start []byte, end []byte)
-	Valid() bool
-	Next()
-	Key() (key []byte)
-	Value() (value []byte)
-	Error() error
-	Close() error
 }
 
 type SnapshotNode struct {

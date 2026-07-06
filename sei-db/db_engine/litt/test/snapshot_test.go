@@ -39,9 +39,11 @@ func TestSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 	config.SnapshotDirectory = snapshotDir
+
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
@@ -50,7 +52,8 @@ func TestSnapshot(t *testing.T) {
 	tables := make(map[string]litt.Table, tableCount)
 	for i := uint64(0); i < tableCount; i++ {
 		tableName := fmt.Sprintf("table-%d", i)
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables[tableName] = table
 	}
@@ -190,7 +193,8 @@ func TestSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	for tableName := range tables {
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 
 		// Ensure that the data is still present in the database.
@@ -234,9 +238,11 @@ func TestSnapshotRebuilding(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 	config.SnapshotDirectory = snapshotDir
+
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
@@ -245,7 +251,8 @@ func TestSnapshotRebuilding(t *testing.T) {
 	tables := make(map[string]litt.Table, tableCount)
 	for i := uint64(0); i < tableCount; i++ {
 		tableName := fmt.Sprintf("table-%d", i)
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables[tableName] = table
 	}
@@ -316,7 +323,8 @@ func TestSnapshotRebuilding(t *testing.T) {
 	require.NoError(t, err)
 
 	for tableName := range tables {
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 
 		// Ensure that the data is still present in the database.
@@ -452,9 +460,11 @@ func TestSnapshotLowerBound(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 	config.SnapshotDirectory = snapshotDir
+
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
@@ -463,7 +473,8 @@ func TestSnapshotLowerBound(t *testing.T) {
 	tables := make(map[string]litt.Table, tableCount)
 	for i := uint64(0); i < tableCount; i++ {
 		tableName := fmt.Sprintf("table-%d", i)
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables[tableName] = table
 	}
@@ -544,7 +555,8 @@ func TestSnapshotLowerBound(t *testing.T) {
 	require.NoError(t, err)
 
 	for tableName := range tables {
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 
 		// Ensure that the data is still present in the database.

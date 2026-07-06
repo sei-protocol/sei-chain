@@ -1,17 +1,29 @@
 package consensus
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 type spv = *types.Signed[*types.PrepareVote]
 type hpv = types.Hash[*types.PrepareVote]
 
+type voteSet[V any] struct {
+	weight uint64
+	votes  map[types.PublicKey]V
+}
+
+func newVoteSet[V any]() *voteSet[V] {
+	return &voteSet[V]{
+		weight: 0,
+		votes:  map[types.PublicKey]V{},
+	}
+}
+
 // prepareVotes holds the votes for the prepare phase of consensus.
 type prepareVotes struct {
 	byKey  map[types.PublicKey]spv
-	byHash map[hpv]map[types.PublicKey]spv
+	byHash map[hpv]*voteSet[spv]
 	qc     utils.AtomicSend[utils.Option[*types.PrepareQC]]
 }
 
@@ -19,7 +31,7 @@ type prepareVotes struct {
 func newPrepareVotes() *prepareVotes {
 	return &prepareVotes{
 		byKey:  map[types.PublicKey]spv{},
-		byHash: map[hpv]map[types.PublicKey]spv{},
+		byHash: map[hpv]*voteSet[spv]{},
 		qc:     utils.NewAtomicSend(utils.None[*types.PrepareQC]()),
 	}
 }
@@ -37,8 +49,9 @@ func (pv *prepareVotes) pushVote(c *types.Committee, vote *types.Signed[*types.P
 		}
 		// Remove the old vote from the view map.
 		h := oldVote.Hash()
-		delete(pv.byHash[h], key)
-		if len(pv.byHash[h]) == 0 {
+		pv.byHash[h].weight -= c.Weight(key)
+		delete(pv.byHash[h].votes, key)
+		if len(pv.byHash[h].votes) == 0 {
 			delete(pv.byHash, h)
 		}
 	}
@@ -47,12 +60,13 @@ func (pv *prepareVotes) pushVote(c *types.Committee, vote *types.Signed[*types.P
 	pv.byKey[key] = vote
 	h := vote.Hash()
 	if _, exists := pv.byHash[h]; !exists {
-		pv.byHash[h] = map[types.PublicKey]spv{}
+		pv.byHash[h] = newVoteSet[spv]()
 	}
-	pv.byHash[h][key] = vote
+	pv.byHash[h].weight += c.Weight(key)
+	pv.byHash[h].votes[key] = vote
 
 	// Check if we have enough votes for a PrepareQC.
-	if len(pv.byHash[h]) < c.PrepareQuorum() {
+	if pv.byHash[h].weight < c.PrepareQuorum() {
 		return
 	}
 
@@ -61,7 +75,7 @@ func (pv *prepareVotes) pushVote(c *types.Committee, vote *types.Signed[*types.P
 		return
 	}
 	var votes []*types.Signed[*types.PrepareVote]
-	for _, v := range pv.byHash[h] {
+	for _, v := range pv.byHash[h].votes {
 		votes = append(votes, v)
 	}
 	pv.qc.Store(utils.Some(types.NewPrepareQC(votes)))

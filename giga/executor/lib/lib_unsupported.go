@@ -8,3 +8,5 @@ package lib
 // If you see a compile error referencing this file, you are building
 // for an unsupported OS/architecture combination.
 const libName = evmone_unsupported_platform__only_linux_amd64_linux_arm64_and_darwin_arm64_are_supported
+
+const libSHA256 = ""

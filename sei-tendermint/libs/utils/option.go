@@ -33,7 +33,7 @@ func (o Option[T]) IsPresent() bool {
 }
 
 // Or returns the value if present, otherwise returns the default value.
-func (o *Option[T]) Or(def T) T {
+func (o Option[T]) Or(def T) T {
 	if o.isPresent {
 		return o.value
 	}

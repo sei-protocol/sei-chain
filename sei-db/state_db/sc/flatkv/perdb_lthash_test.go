@@ -27,7 +27,7 @@ func testFullScanDBLtHash(t *testing.T, db types.KeyValueDB) *lthash.LtHash {
 	defer iter.Close()
 
 	var pairs []lthash.KVPairWithLastValue
-	for iter.First(); iter.Valid(); iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		if ktype.IsMetaKey(iter.Key()) {
 			continue
 		}

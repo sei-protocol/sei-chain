@@ -139,6 +139,33 @@ type Committer interface {
 	// owns the returned Exporter and must Close it when finished.
 	Exporter(version int64) (Exporter, error)
 
+	// SetWriteMode transitions the store's effective write mode at
+	// runtime.
+	//
+	// Stores whose write mode is fixed — by configuration, or by
+	// construction for single-backend stores — return an error and are
+	// otherwise unaffected.
+	//
+	// Must be called between blocks: after Commit has completed (all
+	// write buffers flushed) and before the next block's first write
+	// batch. It is not synchronized against concurrent commits. See the
+	// implementing store's documentation for the transition-legality and
+	// trigger-determinism requirements.
+	SetWriteMode(mode WriteMode) error
+
+	// SetMigrationBatchSize sets the number of keys the in-flight
+	// migration advances per block. Stores with no migration in progress
+	// (single-backend committers) treat it as a no-op.
+	//
+	// A value of 0 pauses the migration: caller writes still route
+	// normally, but no keys are pulled forward until the size is raised
+	// again. This governance-supplied value is the sole source of the
+	// per-block rate; there is no node-local config fallback.
+	//
+	// Must be called between blocks, before the next block's first write
+	// batch, on the consensus goroutine.
+	SetMigrationBatchSize(batchSize int) error
+
 	// Closer releases all backing resources (open files, background
 	// goroutines, locks). After Close the Committer must not be used.
 	io.Closer

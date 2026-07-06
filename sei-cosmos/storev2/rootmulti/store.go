@@ -34,6 +34,7 @@ import (
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -61,6 +62,23 @@ type Store struct {
 	histProofLimiter *rate.Limiter
 
 	snapshotSCStoreWarnOnce sync.Once
+
+	// Hash logger state (per-block hash logging; a debugging/forensics tool). See hashlog.go.
+	hashLoggerConfig   config.HashLoggerConfig
+	hashLoggerDisabled bool
+	hashLogger         hashlog.HashLogger
+	hashCategories     map[string]struct{} // the category set the current logger was opened with
+	scDir              string              // state-commit directory, for the default hash log location
+	// blockChangeSets is the aggregate changeset captured in flush for the block being committed, then
+	// reported (and cleared) in Commit. changesetCapturedVersion guards against the double-flush so it is
+	// captured only once (with the real, non-empty changeset) per block.
+	blockChangeSets          []*proto.NamedChangeSet
+	changesetCapturedVersion int64
+	// nextBlockHash is the Tendermint block hash supplied by baseapp for the block being committed.
+	nextBlockHash []byte
+	// nextResultHash is the result hash (merkle root over the block's deterministic tx results)
+	// supplied by baseapp for the block being committed.
+	nextResultHash []byte
 }
 
 type VersionedChangesets struct {
@@ -106,13 +124,16 @@ func NewStore(
 		}
 	}
 	store := &Store{
-		scStore:          scStore,
-		storesParams:     make(map[types.StoreKey]storeParams),
-		storeKeys:        make(map[string]types.StoreKey),
-		ckvStores:        make(map[types.StoreKey]types.CommitKVStore),
-		gigaKeys:         gigaKeys,
-		histProofSem:     make(chan struct{}, maxInFlight),
-		histProofLimiter: limiter,
+		scStore:            scStore,
+		storesParams:       make(map[types.StoreKey]storeParams),
+		storeKeys:          make(map[string]types.StoreKey),
+		ckvStores:          make(map[types.StoreKey]types.CommitKVStore),
+		gigaKeys:           gigaKeys,
+		histProofSem:       make(chan struct{}, maxInFlight),
+		histProofLimiter:   limiter,
+		hashLoggerConfig:   scConfig.HashLogger,
+		hashLoggerDisabled: !scConfig.HashLogger.Enable,
+		scDir:              scDir,
 	}
 	if ssConfig.Enable {
 		ssStore, err := ss.NewStateStore(homeDir, ssConfig)
@@ -175,6 +196,7 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 
 	rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
 	rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
+	rs.recordBlockHashes(rs.lastCommitInfo.Version)
 	return rs.lastCommitInfo.CommitID()
 }
 
@@ -199,6 +221,21 @@ func (rs *Store) flush() error {
 		sort.SliceStable(changeSets, func(i, j int) bool {
 			return changeSets[i].Name < changeSets[j].Name
 		})
+	}
+	// Capture the (sorted) aggregate changeset for hash logging once per block. rootmulti flushes twice
+	// per block (GetWorkingHash then Commit) but only the first flush carries the real changeset — the
+	// second sees an empty set because PopChangeSet already drained it — so capture only the first time.
+	// nil is normalized to an empty (non-nil) set so an empty block records the stable empty-changeset
+	// hash rather than a nil one.
+	if !rs.hashLoggerDisabled && rs.changesetCapturedVersion != currentVersion {
+		if changeSets == nil {
+			rs.blockChangeSets = []*proto.NamedChangeSet{}
+		} else {
+			rs.blockChangeSets = changeSets
+		}
+		rs.changesetCapturedVersion = currentVersion
+	}
+	if len(changeSets) > 0 {
 		if rs.ssStore != nil {
 			if err := rs.ssStore.ApplyChangesetAsync(currentVersion, changeSets); err != nil {
 				return err
@@ -225,6 +262,9 @@ func (rs *Store) Close() error {
 	err := rs.scStore.Close()
 	if rs.ssStore != nil {
 		err = commonerrors.Join(err, rs.ssStore.Close())
+	}
+	if rs.hashLogger != nil {
+		err = commonerrors.Join(err, rs.hashLogger.Close())
 	}
 	return err
 }
@@ -398,11 +438,15 @@ func (rs *Store) CacheMultiStoreFromCommitter(snap sctypes.Committer) (types.Cac
 
 // GetStore Implements interface MultiStore
 func (rs *Store) GetStore(key types.StoreKey) types.Store {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
 	return rs.ckvStores[key]
 }
 
 // GetKVStore Implements interface MultiStore
 func (rs *Store) GetKVStore(key types.StoreKey) types.KVStore {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
 	return rs.ckvStores[key]
 }
 
@@ -453,7 +497,44 @@ func (rs *Store) GetCommitStore(key types.StoreKey) types.CommitStore {
 
 // GetCommitKVStore Implements interface CommitMultiStore
 func (rs *Store) GetCommitKVStore(key types.StoreKey) types.CommitKVStore {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
 	return rs.ckvStores[key]
+}
+
+// SetWriteMode transitions the SC store's effective write mode at runtime by
+// swapping the composite store's router (see composite.SetWriteMode for the
+// transition-legality rules).
+//
+// It deliberately does NOT rebuild rootmulti's cached per-module views, and
+// does not assert anything about their write buffers. Those views are dynamic
+// router proxies — composite.GetChildStoreByName returns a RouterCommitKVStore
+// that resolves cs.router at call time — so an existing view, including one
+// already captured by a live deliver cache-multi-store, routes through the new
+// mode automatically once the router is swapped. Buffered changesets are left
+// in place and flush normally under the new mode. rs.Commit already reloads
+// the views every block, so there is no extra invalidation to perform here.
+//
+// Replacing rs.ckvStores here would be actively unsafe: the kick-off that
+// drives this method runs in BeginBlock, where the block's deliver
+// cache-multi-store has already snapshotted rs.ckvStores (see
+// cacheMultiStoreLocked). Swapping those objects out would orphan the live cms
+// and silently drop every write made in the activation block — see the
+// regression test TestRootMultiAutoKickoff_LiveCacheStoreNotOrphaned.
+//
+// Because migration writes feed the AppHash, the trigger driving this method
+// must be deterministic across all nodes (same transition at the same height)
+// and level-triggered: the underlying transition is not persisted until the
+// next commit, so a node restarting inside that window reverts to the prior
+// mode and the trigger must re-fire.
+func (rs *Store) SetWriteMode(mode sctypes.WriteMode) error {
+	rs.mtx.Lock()
+	defer rs.mtx.Unlock()
+
+	if err := rs.scStore.SetWriteMode(mode); err != nil {
+		return fmt.Errorf("failed to set SC store write mode: %w", err)
+	}
+	return nil
 }
 
 // Implements interface CommitMultiStore
@@ -588,6 +669,108 @@ func (rs *Store) SetInterBlockCache(_ types.MultiStorePersistentCache) {}
 // used by InitChain when the initial height is bigger than 1
 func (rs *Store) SetInitialVersion(version int64) error {
 	return rs.scStore.SetInitialVersion(version)
+}
+
+// SetMigrationBatchSize forwards the governance-controlled number of keys
+// to migrate per block to the SC store, and — when migration has been
+// requested (batch size > 0) while an auto store is still in the
+// pre-migration steady state — kicks it off by transitioning memiavl_only
+// -> migrate_evm.
+//
+// The kick-off only fires for an auto-configured store. A node pinned to a
+// fixed mode never transitions at runtime: fixed modes other than
+// memiavl_only do not report a memiavl_only effective mode, and a node
+// pinned to fixed memiavl_only is deliberately excluded here — it is opting
+// out of the migration and will intentionally diverge from the network at
+// the activation height. We log that loudly and skip rather than calling
+// SetWriteMode (which rejects fixed configs) and swallowing the error,
+// which would hide the divergence.
+//
+// The kick-off is level-triggered, not edge-triggered: it fires whenever
+// batchSize > 0 and the effective mode is still memiavl_only. This is the
+// determinism contract SetWriteMode requires — every (auto) node reads the
+// same gov param at the same height and transitions together; the
+// transition is not persisted until the next commit, so a node crashing in
+// that window re-derives memiavl_only on restart and re-fires, while a node
+// past the persisted boundary derives migrate_evm directly and the guard
+// makes the re-fire a no-op.
+//
+// The app calls this from BeginBlock. Forwarding the batch size to the SC
+// store first means the migration router installed by the memiavl_only ->
+// migrate_evm transition already observes the new rate. SetWriteMode only
+// swaps the composite store's router — it does not rebuild rootmulti's
+// cached views or require an empty write buffer — so it is safe to call
+// mid-block without orphaning the block's live cache-multi-store.
+func (rs *Store) SetMigrationBatchSize(batchSize int) error {
+	if err := rs.scStore.SetMigrationBatchSize(batchSize); err != nil {
+		return fmt.Errorf("failed to set SC store migration batch size: %w", err)
+	}
+	if batchSize <= 0 {
+		return nil
+	}
+	mode, ok := rs.GetWriteMode()
+	if !ok || mode != sctypes.MemiavlOnly {
+		return nil
+	}
+	// Effective mode is memiavl_only. Only an auto store may be advanced to
+	// migrate_evm at runtime; a node pinned to fixed memiavl_only must not.
+	configured, hasConfigured := rs.ConfiguredWriteMode()
+	if !hasConfigured {
+		// The underlying SC store does not expose a configured mode, so we
+		// cannot tell whether this is an auto store. Don't assume a deliberate
+		// opt-out — skip with a distinct message so it isn't mistaken for the
+		// pinned-memiavl_only case below during debugging.
+		logger.Info(
+			"migration requested (batch size > 0) but the SC store does not expose a "+
+				"configured write mode; skipping migration kick-off",
+			"effectiveWriteMode", mode, "batchSize", batchSize)
+		return nil
+	}
+	if configured != sctypes.Auto {
+		logger.Info(
+			"migration requested (batch size > 0) but the SC write mode is pinned to fixed "+
+				"memiavl_only by configuration; skipping migration kick-off. This node opts out of "+
+				"the migration and will intentionally diverge from the network at the activation "+
+				"height — set sc-write-mode-enable-auto = true (the default) to participate.",
+			"configuredWriteMode", configured, "batchSize", batchSize)
+		return nil
+	}
+	if err := rs.SetWriteMode(sctypes.MigrateEVM); err != nil {
+		return fmt.Errorf("failed to start EVM migration (memiavl_only -> migrate_evm): %w", err)
+	}
+	return nil
+}
+
+// GetWriteMode returns the SC store's effective write mode. The bool is
+// false when the underlying SC store does not expose one. Intended for the
+// migration kick-off in SetMigrationBatchSize, observability, and tests.
+func (rs *Store) GetWriteMode() (sctypes.WriteMode, bool) {
+	if g, ok := rs.scStore.(interface{ GetWriteMode() sctypes.WriteMode }); ok {
+		return g.GetWriteMode(), true
+	}
+	return "", false
+}
+
+// ConfiguredWriteMode returns the SC store's configured (pre-derivation)
+// write mode — types.Auto for an auto store, the pinned mode otherwise. The
+// bool is false when the underlying SC store does not expose one. The
+// migration kick-off uses it to act only on auto stores.
+func (rs *Store) ConfiguredWriteMode() (sctypes.WriteMode, bool) {
+	if g, ok := rs.scStore.(interface{ ConfiguredWriteMode() sctypes.WriteMode }); ok {
+		return g.ConfiguredWriteMode(), true
+	}
+	return "", false
+}
+
+// GetMigrationBatchSize returns the governance-controlled migration batch size
+// last pushed into the SC store via SetMigrationBatchSize. The bool is false
+// when the underlying SC store does not track one. Intended for observability
+// and tests.
+func (rs *Store) GetMigrationBatchSize() (int, bool) {
+	if g, ok := rs.scStore.(interface{ GetMigrationBatchSize() int }); ok {
+		return g.GetMigrationBatchSize(), true
+	}
+	return 0, false
 }
 
 // Implements interface CommitMultiStore

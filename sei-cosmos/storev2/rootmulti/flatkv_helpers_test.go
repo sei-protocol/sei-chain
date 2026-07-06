@@ -40,13 +40,19 @@ func withTestMemIAVL(cfg seidbconfig.StateCommitConfig) seidbconfig.StateCommitC
 
 func dualWriteConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.TestOnlyDualWrite
+	cfg.WriteMode = sctypes.TestOnlyDualWrite
 	return withTestMemIAVL(cfg)
 }
 
 func evmMigratedConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.EVMMigrated
+	cfg.WriteMode = sctypes.EVMMigrated
+	return withTestMemIAVL(cfg)
+}
+
+func flatKVOnlyConfig() seidbconfig.StateCommitConfig {
+	cfg := seidbconfig.DefaultStateCommitConfig()
+	cfg.WriteMode = sctypes.FlatKVOnly
 	return withTestMemIAVL(cfg)
 }
 
@@ -56,22 +62,19 @@ func evmMigratedConfig() seidbconfig.StateCommitConfig {
 // MigrateEVM at restart.
 func memiavlOnlyConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.MemiavlOnly
+	cfg.WriteMode = sctypes.MemiavlOnly
 	return withTestMemIAVL(cfg)
 }
 
 // migrateEVMConfig returns the MigrateEVM config used by phase 2 of the
-// FlatKV EVM migrate tests. keysPerBlock caps the per-block migration batch
-// so callers can deterministically spread the boundary across multiple
-// commits without having to count source keys themselves; a small value
-// (e.g. 4) reliably keeps the migration in flight long enough to cover
-// the resume / determinism assertions, while a large value (e.g. 1024)
-// is the production-equivalent that drains the boundary in one or two
-// blocks.
-func migrateEVMConfig(keysPerBlock int) seidbconfig.StateCommitConfig {
+// FlatKV EVM migrate tests. The per-block migration batch is no longer part
+// of the config; callers set it after constructing the store via
+// store.SetMigrationBatchSize so a small value (e.g. 4) keeps the migration
+// in flight across the resume / determinism assertions, while a large value
+// drains the boundary in one or two blocks.
+func migrateEVMConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.MigrateEVM
-	cfg.KeysToMigratePerBlock = keysPerBlock
+	cfg.WriteMode = sctypes.MigrateEVM
 	return withTestMemIAVL(cfg)
 }
 
@@ -165,9 +168,10 @@ func storageMemIAVLKeys(addrSeed byte, count int) [][]byte {
 // ---------------------------------------------------------------------------
 
 type commitRecord struct {
-	version int64
-	hash    []byte
-	infos   []types.StoreInfo
+	version     int64
+	hash        []byte
+	workingHash []byte
+	infos       []types.StoreInfo
 }
 
 var storeNames = []string{"acc", "bank", "evm"}
@@ -204,12 +208,12 @@ func newTestRootMultiWithSS(
 // commit but we want the record to remain stable for later assertions.
 func finalizeBlock(t *testing.T, store *Store) commitRecord {
 	t.Helper()
-	_, err := store.GetWorkingHash()
+	workingHash, err := store.GetWorkingHash()
 	require.NoError(t, err)
 	cid := store.Commit(true)
 	infos := make([]types.StoreInfo, len(store.lastCommitInfo.StoreInfos))
 	copy(infos, store.lastCommitInfo.StoreInfos)
-	return commitRecord{version: cid.Version, hash: cid.Hash, infos: infos}
+	return commitRecord{version: cid.Version, hash: cid.Hash, workingHash: workingHash, infos: infos}
 }
 
 // simulateBlock writes a deterministic set of acc/bank/evm kvs for the given
@@ -413,6 +417,12 @@ func collectFlatKVEVM(t *testing.T, dir string, cfg seidbconfig.StateCommitConfi
 			require.True(t, errors.Is(err, errorutils.ErrorExportDone),
 				"unexpected exporter error: %v", err)
 			break
+		}
+		// The self-describing exporter emits the keys.FlatKVStoreKey module
+		// header (a string) before any node; skip it.
+		if name, ok := item.(string); ok {
+			require.Equal(t, keys.FlatKVStoreKey, name, "unexpected module header")
+			continue
 		}
 		node, ok := item.(*sctypes.SnapshotNode)
 		require.Truef(t, ok, "expected *SnapshotNode, got %T", item)

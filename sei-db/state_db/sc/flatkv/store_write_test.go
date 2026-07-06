@@ -1474,7 +1474,7 @@ func countLiveEntries(t *testing.T, db types.KeyValueDB) int {
 	defer iter.Close()
 
 	count := 0
-	for iter.First(); iter.Valid(); iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		if ktype.IsMetaKey(iter.Key()) {
 			continue
 		}

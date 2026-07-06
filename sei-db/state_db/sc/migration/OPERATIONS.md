@@ -238,7 +238,7 @@ Exit code 0 if successfully read; non-zero if either DB cannot be opened.
   - for each key in flatkv evm: assert logical_k <= boundary
   - require: no key appears in both
 - `--mode=ground-truth` -- intended for `C3` extended audit, or post-DR verification:
-  - compute LtHash over current `(physical_k, encoded_v)` set (using `RawGlobalIterator` from [flatkv/store_iterator.go:144](../flatkv/store_iterator.go) for flatkv; using `MultiTreeExporter` + `ImportTranslator` for memiavl evm if any remaining)
+  - compute LtHash over current `(physical_k, encoded_v)` set (using `RawGlobalIterator` from [flatkv/store_read.go](../flatkv/store_read.go) for flatkv; using `MultiTreeExporter` + `ImportTranslator` for memiavl evm if any remaining)
   - compare to `--ground-truth-digest`
 
 Exit 0 on pass, non-zero on any failure. On non-zero, print up to `N` divergent samples plus a one-line summary.
@@ -254,7 +254,7 @@ Exit 0 on pass, non-zero on any failure. On non-zero, print up to `N` divergent 
 
 **Library dependencies**:
 - T1's package-private migration helpers (boundary read)
-- `flatkv.RawGlobalIterator`
+- `flatkv.RawGlobalIterator` (returns a positioned `dbm.Iterator` and error over all data DBs in global lex order; use `for ; iter.Valid(); iter.Next()`)
 - `memiavl.NewMultiTreeExporter` for the memiavl-evm walk
 - `flatkv.NewImportTranslator` for the memiavl -> physical-key mapping (`ground-truth` mode only)
 - `flatkv/lthash` for the digest

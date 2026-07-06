@@ -126,12 +126,6 @@ func TestGetReceiptStorePath_NewNode_Pebble(t *testing.T) {
 	assert.Equal(t, filepath.Join(home, "data", "ledger", "receipt", "pebbledb"), got)
 }
 
-func TestGetReceiptStorePath_NewNode_Parquet(t *testing.T) {
-	home := t.TempDir()
-	got := GetReceiptStorePath(home, "parquet")
-	assert.Equal(t, filepath.Join(home, "data", "ledger", "receipt", "parquet"), got)
-}
-
 func TestGetReceiptStorePath_LegacyExists(t *testing.T) {
 	home := t.TempDir()
 	legacy := filepath.Join(home, "data", "receipt.db")

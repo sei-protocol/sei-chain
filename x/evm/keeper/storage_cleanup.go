@@ -60,8 +60,8 @@ func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
 		processedMetric++
 		lastKey = key
 
-		val := iterator.Value()
-		if isZeroStorageValue(val) {
+		val := store.Get(key)
+		if val != nil && isZeroStorageValue(val) {
 			store.Delete(key)
 			deleted++
 			deletedMetric++

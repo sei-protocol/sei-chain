@@ -71,6 +71,20 @@ func (e *BalanceMigrationAbortError) IsAbortError() bool {
 
 var ErrBalanceMigrationRequired error = &BalanceMigrationAbortError{}
 
+// SelfDestructAbortError signals a self-destruct, whose storage clearing needs
+// store iteration giga can't do; the caller should fall back to v2.
+type SelfDestructAbortError struct{}
+
+func (e *SelfDestructAbortError) Error() string {
+	return "self-destruct storage clearing requires store iteration unsupported by giga"
+}
+
+func (e *SelfDestructAbortError) IsAbortError() bool {
+	return true
+}
+
+var ErrSelfDestructUnsupported error = &SelfDestructAbortError{}
+
 type FailFastPrecompile struct{}
 
 var FailFastSingleton vm.PrecompiledContract = &FailFastPrecompile{}

@@ -261,39 +261,99 @@ func (s *Segment) SegmentIndex() uint32 {
 // sealLoadedSegment is responsible for sealing a segment loaded from disk that is not already sealed.
 // While doing this, it is responsible for making the key file consistent with the values present in the
 // value files.
+//
+// Recovery is "group-atomic": every Put that wrote 1+N key file records (one primary + N secondaries)
+// is either kept whole or dropped whole. A group is kept iff (1) its closing record
+// (KeyKindStandalone for a 0-secondary Put, or KeyKindFinalSecondary for an N>=1 Put) is present in
+// the key file, and (2) every address in the group fits within the flushed bytes of its value file.
+// Any other state (partial keyfile record, primary without a closing terminator, stray secondary not
+// preceded by a primary, value-file truncated mid-group) results in the entire group being discarded.
 func (s *Segment) sealLoadedSegment(now time.Time) error {
 	scopedKeys, err := s.keys.readKeys()
 	if err != nil {
 		return fmt.Errorf("failed to read keys: %w", err)
 	}
 
-	// keys with values that are not present in the value files
+	// keys belonging to groups that passed both key-file and value-file completeness checks
 	goodKeys := make([]*types.ScopedKey, 0, len(scopedKeys))
 
-	// keys with values that weren't flushed out to the value files before the DB crashed
+	// keys belonging to groups that were torn (either mid-key-file or mid-value-file)
 	badKeys := make([]*types.ScopedKey, 0, len(scopedKeys))
 
+	// commitGroup applies the all-or-nothing value-file completeness check to a group's keys and
+	// routes them to goodKeys or badKeys accordingly. A group survives only if every address in it
+	// is fully present in its shard's value file.
+	commitGroup := func(group []*types.ScopedKey) {
+		if len(group) == 0 {
+			return
+		}
+		for _, sk := range group {
+			shard := sk.Address.ShardID()
+			end := uint64(sk.Address.Offset()) + uint64(sk.Address.ValueSize())
+			if s.shards[shard].Size() < end {
+				badKeys = append(badKeys, group...)
+				return
+			}
+		}
+		goodKeys = append(goodKeys, group...)
+	}
+
+	// Validate shard IDs up front: a shard ID beyond the segment's sharding factor cannot come from
+	// normal operation, so we treat it as disk corruption and refuse to seal the segment rather
+	// than risk silently dropping data.
 	for _, scopedKey := range scopedKeys {
 		shard := scopedKey.Address.ShardID()
-
 		if int(shard) >= len(s.shards) {
-			// A shard ID that exceeds the segment's sharding factor cannot be the result of normal
-			// operation, so treat it as disk corruption and refuse to seal the segment. Recovery here
-			// would risk silently dropping data; require human intervention instead.
 			return fmt.Errorf(
 				"segment %d has key with shard ID %d outside sharding factor %d: data corruption detected",
 				s.index, shard, len(s.shards))
 		}
+	}
 
-		requiredValueFileLength := uint64(scopedKey.Address.Offset()) +
-			4 /* value size uint32 */ +
-			uint64(scopedKey.Address.ValueSize())
-
-		if s.shards[shard].Size() < requiredValueFileLength {
-			badKeys = append(badKeys, scopedKey)
-		} else {
-			goodKeys = append(goodKeys, scopedKey)
+	// Walk records in order, accumulating a group buffer that we commit on each terminator.
+	var currentGroup []*types.ScopedKey
+	for _, scopedKey := range scopedKeys {
+		switch scopedKey.Kind {
+		case types.KeyKindStandalone:
+			// A standalone primary closes its group immediately. Any in-flight group (which would
+			// indicate a torn primary-with-secondaries write that was followed by a fresh
+			// standalone) is dropped.
+			if len(currentGroup) > 0 {
+				badKeys = append(badKeys, currentGroup...)
+				currentGroup = nil
+			}
+			commitGroup([]*types.ScopedKey{scopedKey})
+		case types.KeyKindPrimary:
+			// Starting a new group. Any in-flight group is torn.
+			if len(currentGroup) > 0 {
+				badKeys = append(badKeys, currentGroup...)
+				currentGroup = nil
+			}
+			currentGroup = append(currentGroup, scopedKey)
+		case types.KeyKindSecondary:
+			// A secondary that is not preceded by a primary is a stray record (its primary was torn
+			// off the front of the file or never written). Drop it. Otherwise, accumulate.
+			if len(currentGroup) == 0 {
+				badKeys = append(badKeys, scopedKey)
+			} else {
+				currentGroup = append(currentGroup, scopedKey)
+			}
+		case types.KeyKindFinalSecondary:
+			if len(currentGroup) == 0 {
+				badKeys = append(badKeys, scopedKey)
+			} else {
+				currentGroup = append(currentGroup, scopedKey)
+				commitGroup(currentGroup)
+				currentGroup = nil
+			}
+		default:
+			return fmt.Errorf("segment %d has key file record with unknown kind %d: data corruption detected",
+				s.index, scopedKey.Kind)
 		}
+	}
+	// A group that was never closed (the file ended before its FinalSecondary was written) is torn.
+	if len(currentGroup) > 0 {
+		badKeys = append(badKeys, currentGroup...)
 	}
 
 	if len(badKeys) > 0 {
@@ -389,24 +449,39 @@ func lookForFile(paths []*SegmentPath, fileName string) (*SegmentPath, error) {
 	return locations[0], nil
 }
 
-// SetNextSegment sets the next segment in the chain.
+// SetNextSegment sets the next segment in the chain. The next segment is reserved so that it cannot be deleted
+// until this segment's own deletion releases it (delete -> nextSegment.Release), which is what enforces in-order
+// segment reclamation. The next segment is always freshly created here with a positive reservation count, so
+// Reserve cannot fail; a false return means the chained-reservation invariant is broken, so fail loudly rather
+// than wiring up a dead segment that would later be released below zero.
 func (s *Segment) SetNextSegment(nextSegment *Segment) {
-	nextSegment.Reserve()
+	if !nextSegment.Reserve() {
+		s.errorMonitor.Panic(fmt.Errorf(
+			"failed to reserve next segment %d from segment %d", nextSegment.index, s.index))
+		return
+	}
 	s.nextSegment = nextSegment
 }
 
-// Write records a key-value pair in the data segment, returning the maximum size of all shards within this segment.
+// Write records a key-value pair (with optional secondary keys) in the data segment, returning the
+// running key count and key-file size of the segment.
 //
-// This method does not ensure that the key-value pair is actually written to disk, only that it will eventually be
-// written to disk. Flush must be called to ensure that all data previously passed to Write is written to disk.
-func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64, err error) {
+// This method does not ensure that the key-value pair is actually written to disk, only that it will
+// eventually be written to disk. Flush must be called to ensure that all data previously passed to
+// Write is written to disk.
+//
+// The primary key and all of its secondary keys are written contiguously to the key file in a single
+// "group": the primary first, followed by each secondary in order. The kind tag on the primary
+// (KeyKindStandalone vs. KeyKindPrimary) and on the last secondary (KeyKindFinalSecondary) is what
+// lets recovery distinguish a fully-written group from a torn write.
+func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize uint64, err error) {
 	if s.metadata.sealed {
 		return 0, 0, fmt.Errorf("segment is sealed, cannot write data")
 	}
 
-	// Shard assignment is round-robin: each successive call deposits the value into the next shard, wrapping around
-	// after metadata.shardingFactor calls. This is safe to do without locking because Write is invoked exclusively
-	// from the disk_table control loop goroutine.
+	// Shard assignment is round-robin: each successive call deposits the value into the next shard,
+	// wrapping around after metadata.shardingFactor calls. This is safe to do without locking
+	// because Write is invoked exclusively from the disk_table control loop goroutine.
 	shard := s.nextShard
 	s.nextShard++
 	if s.nextShard == s.metadata.shardingFactor {
@@ -421,15 +496,45 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 		return 0, 0,
 			fmt.Errorf("value file already contains %d bytes, cannot add a new value", currentSize)
 	}
-	s.unflushedKeyCount.Add(1)
 	firstByteIndex := uint32(currentSize)
+	valueLen := uint64(len(data.Value))
+	if uint64(firstByteIndex)+valueLen > math.MaxUint32 {
+		return 0, 0,
+			fmt.Errorf("value of length %d would push value file past 2^32 bytes (current size %d)",
+				valueLen, currentSize)
+	}
 
-	s.shardSizes[shard] += uint64(len(data.Value)) + 4 /* uint32 length */
+	// Validate every secondary key's address fits in uint32 *before* sending anything, so we never
+	// produce a partial write.
+	for _, sk := range data.SecondaryKeys {
+		end := uint64(firstByteIndex) + uint64(sk.Offset) + uint64(sk.Length)
+		if end > math.MaxUint32 {
+			return 0, 0,
+				fmt.Errorf("secondary key range [%d, %d) would exceed 2^32 byte addressable range",
+					uint64(firstByteIndex)+uint64(sk.Offset), end)
+		}
+	}
+
+	n := len(data.SecondaryKeys)
+	totalKeys := uint32(1 + n) //nolint:gosec // n bounded by caller validation
+
+	// Determine kind of the primary key based on whether secondaries follow it.
+	primaryKind := types.KeyKindStandalone
+	if n > 0 {
+		primaryKind = types.KeyKindPrimary
+	}
+
+	// Update accounting before sending so that callers observe consistent state.
+	s.unflushedKeyCount.Add(int64(totalKeys))
+	s.shardSizes[shard] += valueLen
 	if s.shardSizes[shard] > s.maxShardSize {
 		s.maxShardSize = s.shardSizes[shard]
 	}
-	s.keyCount++
-	s.keyFileSize += uint64(len(data.Key)) + 4 /* uint32 length */ + types.AddressSerializedSize
+	s.keyCount += totalKeys
+	s.keyFileSize += keyRecordSize(data.Key)
+	for _, sk := range data.SecondaryKeys {
+		s.keyFileSize += keyRecordSize(sk.Key)
+	}
 
 	// Forward the value to the shard control loop, which asynchronously writes it to the value file.
 	shardRequest := &valueToWrite{
@@ -442,19 +547,43 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 			fmt.Errorf("failed to send value to shard control loop: %v", err)
 	}
 
-	// Forward the value to the key and its address file control loop, which asynchronously writes it to the key file.
-	keyRequest := &types.ScopedKey{
+	// Forward the primary key to the key file control loop, which asynchronously writes it to the
+	// key file. Primary always goes first; recovery relies on this ordering.
+	primaryRequest := &types.ScopedKey{
 		Key:     data.Key,
-		Address: types.NewAddress(s.index, firstByteIndex, shard, uint32(len(data.Value))), //nolint:gosec // value len fits uint32
+		Address: types.NewAddress(s.index, firstByteIndex, shard, uint32(valueLen)), //nolint:gosec // bounded above
+		Kind:    primaryKind,
 	}
-
-	err = util.Send(s.errorMonitor, s.keyFileChannel, keyRequest)
+	err = util.Send(s.errorMonitor, s.keyFileChannel, primaryRequest)
 	if err != nil {
 		return 0, 0,
 			fmt.Errorf("failed to send key to key file control loop: %v", err)
 	}
 
+	for i, sk := range data.SecondaryKeys {
+		kind := types.KeyKindSecondary
+		if i == n-1 {
+			kind = types.KeyKindFinalSecondary
+		}
+		secondaryRequest := &types.ScopedKey{
+			Key:     sk.Key,
+			Address: types.NewAddress(s.index, firstByteIndex+sk.Offset, shard, sk.Length),
+			Kind:    kind,
+		}
+		err = util.Send(s.errorMonitor, s.keyFileChannel, secondaryRequest)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to send secondary key to key file control loop: %v", err)
+		}
+	}
+
 	return s.keyCount, s.keyFileSize, nil
+}
+
+// keyRecordSize returns the number of bytes a key file record consumes given a key of the supplied
+// length. Includes the kind byte (1), the uint16 key-length prefix (2), the key bytes, and the
+// fixed-width serialized address.
+func keyRecordSize(key []byte) uint64 {
+	return uint64(KeyRecordHeaderSize) + uint64(len(key)) + uint64(types.AddressSerializedSize) //nolint:gosec // sizes non-negative
 }
 
 // GetMaxShardSize returns the maximum size of all shards in this segment.
@@ -482,7 +611,7 @@ func (s *Segment) Read(key []byte, dataAddress types.Address) ([]byte, error) {
 		return nil, fmt.Errorf("failed to resolve shard for read: %w", err)
 	}
 
-	value, err := values.read(dataAddress.Offset())
+	value, err := values.read(dataAddress.Offset(), dataAddress.ValueSize())
 	if err != nil {
 		return nil, fmt.Errorf("failed to read value: %w", err)
 	}

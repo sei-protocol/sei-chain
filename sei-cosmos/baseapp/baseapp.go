@@ -2,7 +2,6 @@ package baseapp
 
 import (
 	"fmt"
-	"math/big"
 	"reflect"
 	"strings"
 	"sync"
@@ -11,6 +10,7 @@ import (
 	"github.com/armon/go-metrics"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/proto"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
@@ -86,8 +86,8 @@ func (app *BaseApp) EvmNonce(_ common.Address) uint64 {
 	return 0
 }
 
-func (app *BaseApp) EvmBalance(_ common.Address, _ []byte) *big.Int {
-	return big.NewInt(0)
+func (app *BaseApp) EvmBalance(_ common.Address, _ []byte) uint256.Int {
+	return uint256.Int{}
 }
 
 // BaseApp reflects the ABCI application implementation.
@@ -121,6 +121,10 @@ type BaseApp struct {
 	processProposalState    *state
 	processProposalCleanCtx sdk.Context // snapshot before optimistic processing
 	stateToCommit           *state
+
+	// nextResultHash is the result hash (merkle root over the block's deterministic tx results)
+	// computed in FinalizeBlock and handed to the commit store in Commit, mirroring nextBlockHash.
+	nextResultHash []byte
 
 	// paramStore is used to query for ABCI consensus parameters from an
 	// application parameter store.
@@ -697,6 +701,13 @@ func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *tmproto.ConsensusParams
 	return cp
 }
 
+func (app *BaseApp) GetConsensusParamsForStateToCommit() *tmproto.ConsensusParams {
+	if app.stateToCommit == nil {
+		return nil
+	}
+	return app.GetConsensusParams(app.stateToCommit.Context())
+}
+
 // AddRunTxRecoveryHandler adds custom app.runTx method panic handlers.
 func (app *BaseApp) AddRunTxRecoveryHandler(handlers ...RecoveryHandler) {
 	for _, h := range handlers {
@@ -978,7 +989,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 			evmTxInfo = &abci.EvmTxInfo{
 				SenderAddress: ctx.EVMSenderAddress().Hex(),
 				Nonce:         ctx.EVMNonce(),
-				TxHash:        ctx.EVMTxHash(),
+				TxHash:        ctx.EVMTxHash().Hex(),
 				VmError:       runTxRes.result.EvmError,
 			}
 		}

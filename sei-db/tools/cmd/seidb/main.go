@@ -30,7 +30,8 @@ func main() {
 		operations.ImportFlatKVFromMemiavlCmd(),
 		operations.ReplayChangelogCmd(),
 		operations.TraceProfileReportCmd(),
-		operations.MigrateEvmStatusCmd())
+		operations.MigrateEvmStatusCmd(),
+		operations.EvmLogicalDigestCmd())
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

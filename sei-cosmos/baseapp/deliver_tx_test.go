@@ -1473,7 +1473,7 @@ func TestDeliverTx(t *testing.T) {
 			if isEvm {
 				ctx = ctx.WithIsEVM(true)
 				ctx = ctx.WithEVMNonce(12345)
-				ctx = ctx.WithEVMTxHash("hash")
+				ctx = ctx.WithEVMTxHash(common.HexToHash("0x1234"))
 				ctx = ctx.WithEVMSenderAddress(common.HexToAddress("0x00000000000000000000000000000000000000aa"))
 			}
 
@@ -1486,7 +1486,7 @@ func TestDeliverTx(t *testing.T) {
 
 			if isEvm {
 				require.Equal(t, uint64(12345), res.EvmTxInfo.Nonce)
-				require.Equal(t, "hash", res.EvmTxInfo.TxHash)
+				require.Equal(t, common.HexToHash("0x1234").Hex(), res.EvmTxInfo.TxHash)
 				require.Equal(t, "0x00000000000000000000000000000000000000AA", res.EvmTxInfo.SenderAddress)
 			} else {
 				require.Nil(t, res.EvmTxInfo)

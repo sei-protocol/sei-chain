@@ -4,13 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-)
-
-const (
-	minHashSize         = 20
-	minCannedRandomSize = unit.MB
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
 var _ utils.Config = (*BlocksimConfig)(nil)
@@ -18,31 +13,22 @@ var _ utils.Config = (*BlocksimConfig)(nil)
 // Configuration for the blocksim benchmark.
 type BlocksimConfig struct {
 
-	// The size of each simulated transaction, in bytes. Each transaction in a block will contain
-	// this many bytes of random data.
+	// The size of each simulated transaction, in bytes. Each transaction in a block payload will
+	// contain this many bytes of random data.
 	BytesPerTransaction uint64
 
-	// The number of transactions included in each generated block.
+	// The number of transactions included in each generated block payload.
 	TransactionsPerBlock uint64
 
-	// Additional bytes of random data added to the block itself, beyond the transaction data. This
-	// simulates block-level metadata or other non-transaction payload.
-	ExtraBytesPerBlock uint64
+	// The number of validators in the simulated committee. Each QC is signed by all of them.
+	CommitteeSize uint64
 
-	// The size of each block hash, in bytes.
-	BlockHashSize uint64
+	// The number of blocks finalized by each generated QC (the size of one write batch).
+	BlocksPerQc uint64
 
-	// The size of each transaction hash, in bytes.
-	TransactionHashSize uint64
-
-	// The capacity of the queue that holds generated blocks before they are consumed by the
+	// The capacity of the queue that holds generated batches before they are consumed by the
 	// benchmark. A larger queue allows the block generator to run further ahead of the consumer.
 	StagedBlockQueueSize uint64
-
-	// The size of the CannedRandom buffer, in bytes. Altering this value for a pre-existing run
-	// will change the random data generated, don't change it unless you are starting a new run
-	// from scratch.
-	CannedRandomSize uint64
 
 	// The number of blocks to keep in the database after pruning.
 	UnprunedBlocks uint64
@@ -58,8 +44,13 @@ type BlocksimConfig struct {
 	// The directory to store the benchmark data.
 	DataDir string
 
-	// The BlockDB backend to use. Currently only "mem" is supported.
+	// The block store backend to use. One of "mem" or "litt".
 	Backend string
+
+	// Retention floor for the "litt" backend, in seconds: a minimum age before
+	// any pruned record may be reclaimed (the prune watermark still gates
+	// reclamation on top of this). Must be positive.
+	LittRetentionSeconds int
 
 	// If this many seconds go by without a console update, the benchmark will print a report.
 	ConsoleUpdateIntervalSeconds float64
@@ -114,12 +105,11 @@ type BlocksimConfig struct {
 func DefaultBlocksimConfig() *BlocksimConfig {
 	return &BlocksimConfig{
 		BytesPerTransaction:             1024,
-		TransactionsPerBlock:            1024,
-		ExtraBytesPerBlock:              256,
-		BlockHashSize:                   32,
-		TransactionHashSize:             32,
+		TransactionsPerBlock:            512,
+		CommitteeSize:                   4,
+		BlocksPerQc:                     10,
 		StagedBlockQueueSize:            8,
-		CannedRandomSize:                unit.GB,
+		LittRetentionSeconds:            86_400,
 		UnprunedBlocks:                  100_000,
 		Seed:                            1337,
 		DataDir:                         "data",
@@ -147,21 +137,25 @@ func (c *BlocksimConfig) Validate() error {
 	if c.BytesPerTransaction < 1 {
 		return fmt.Errorf("BytesPerTransaction must be at least 1 (got %d)", c.BytesPerTransaction)
 	}
-	if c.TransactionsPerBlock < 1 {
-		return fmt.Errorf("TransactionsPerBlock must be at least 1 (got %d)", c.TransactionsPerBlock)
+	if c.TransactionsPerBlock < 1 || c.TransactionsPerBlock > types.MaxTxsPerBlock {
+		return fmt.Errorf("TransactionsPerBlock must be in [1, %d] (got %d)",
+			types.MaxTxsPerBlock, c.TransactionsPerBlock)
 	}
-	if c.BlockHashSize < minHashSize {
-		return fmt.Errorf("BlockHashSize must be at least %d (got %d)", minHashSize, c.BlockHashSize)
+	if c.BytesPerTransaction*c.TransactionsPerBlock > types.MaxTxsBytesPerBlock {
+		return fmt.Errorf("BytesPerTransaction*TransactionsPerBlock must be at most %d (got %d)",
+			types.MaxTxsBytesPerBlock, c.BytesPerTransaction*c.TransactionsPerBlock)
 	}
-	if c.TransactionHashSize < minHashSize {
-		return fmt.Errorf("TransactionHashSize must be at least %d (got %d)", minHashSize, c.TransactionHashSize)
+	if c.CommitteeSize < 1 {
+		return fmt.Errorf("CommitteeSize must be at least 1 (got %d)", c.CommitteeSize)
+	}
+	if c.BlocksPerQc < 1 {
+		return fmt.Errorf("BlocksPerQc must be at least 1 (got %d)", c.BlocksPerQc)
 	}
 	if c.StagedBlockQueueSize < 1 {
 		return fmt.Errorf("StagedBlockQueueSize must be at least 1 (got %d)", c.StagedBlockQueueSize)
 	}
-	if c.CannedRandomSize < minCannedRandomSize {
-		return fmt.Errorf("CannedRandomSize must be at least %d (got %d)",
-			minCannedRandomSize, c.CannedRandomSize)
+	if c.LittRetentionSeconds < 1 {
+		return fmt.Errorf("LittRetentionSeconds must be positive (got %d)", c.LittRetentionSeconds)
 	}
 	if c.UnprunedBlocks < 1 {
 		return fmt.Errorf("UnprunedBlocks must be at least 1 (got %d)", c.UnprunedBlocks)

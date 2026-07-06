@@ -9,6 +9,7 @@ import (
 
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -82,10 +83,8 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 				continue
 			}
 
-			if preDecode, ok := ch.desc.PreDecode.Get(); ok {
-				if err := preDecode(bz); err != nil {
-					return fmt.Errorf("message pre-decode failed, dropping peer: [peer=%v] %w", conn.ID, err)
-				}
+			if err := protoutils.ScanAny(bz, ch.desc.MessageType); err != nil {
+				return fmt.Errorf("message pre-decode failed, dropping peer: [peer=%v] %w", conn.ID, err)
 			}
 			msg := gogoproto.Clone(ch.desc.MessageType)
 			if err := gogoproto.Unmarshal(bz, msg); err != nil {

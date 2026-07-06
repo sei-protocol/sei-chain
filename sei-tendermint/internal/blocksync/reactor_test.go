@@ -26,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -82,6 +83,7 @@ func makeReactor(
 	t *testing.T,
 	genDoc *types.GenesisDoc,
 	router *p2p.Router,
+	blockSync bool,
 	restartEvent func(),
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
@@ -98,8 +100,8 @@ func makeReactor(
 	require.NoError(t, err)
 	require.NoError(t, stateStore.Save(state))
 	mp := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
-	eventbus := eventbus.NewDefault()
-	require.NoError(t, eventbus.Start(ctx))
+	bus := eventbus.NewDefault()
+	require.NoError(t, bus.Start(ctx))
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
@@ -107,22 +109,24 @@ func makeReactor(
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
-		eventbus,
+		bus,
 		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
 	r, err := NewReactor(
 		stateStore,
-		blockExec,
 		blockStore,
-		nil,
 		router,
-		true,
-		consensus.NopMetrics(),
-		nil, // eventbus, can be nil
-		restartEvent,
-		selfRemediationConfig,
+		utils.Some(SyncerConfig{
+			BlockExec:             blockExec,
+			ConsReactor:           utils.None[ConsensusReactor](),
+			BlockSync:             blockSync,
+			Metrics:               consensus.NopMetrics(),
+			EventBus:              nil, // eventbus can be nil
+			RestartEvent:          restartEvent,
+			SelfRemediationConfig: selfRemediationConfig,
+		}),
 	)
 	if err != nil {
 		t.Fatalf("NewReactor(): %v", err)
@@ -150,8 +154,9 @@ func (rts *reactorTestSuite) addNode(
 		t,
 		genDoc,
 		rts.network.Node(nodeID).Router,
+		true,
 		func() {},
-		config.DefaultSelfRemediationConfig(),
+		remediationConfig,
 	)
 	lastCommit := &types.Commit{}
 
@@ -160,7 +165,8 @@ func (rts *reactorTestSuite) addNode(
 	for blockHeight := int64(1); blockHeight <= maxBlockHeight; blockHeight++ {
 		block, blockID, partSet, seenCommit := makeNextBlock(ctx, t, state, privVal, blockHeight, lastCommit)
 
-		state, err = reactor.blockExec.ApplyBlock(ctx, state, blockID, block, nil)
+		syncer := reactor.syncer.OrPanic("syncer should be configured in tests")
+		state, err = syncer.blockExec.ApplyBlock(ctx, state, blockID, block, nil)
 		require.NoError(t, err)
 
 		reactor.store.SaveBlock(block, partSet, seenCommit)
@@ -226,13 +232,17 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 
 	rts.start(t)
 
-	secondaryPool := rts.reactors[rts.nodes[1]].pool
+	secondarySyncer := rts.reactors[rts.nodes[1]].syncer.OrPanic("syncer should be configured in tests")
 
 	require.Eventually(
 		t,
 		func() bool {
-			height, _, _ := secondaryPool.GetStatus()
-			return secondaryPool.MaxPeerHeight() == maxBlockHeight && height > 0 && height <= maxBlockHeight
+			pool := secondarySyncer.pool.Load()
+			if pool == nil {
+				return false
+			}
+			height, _, _ := pool.GetStatus()
+			return pool.MaxPeerHeight() == maxBlockHeight && height > 0 && height <= maxBlockHeight
 		},
 		10*time.Second,
 		10*time.Millisecond,
@@ -340,8 +350,12 @@ func TestReactor_SyncTime(t *testing.T) {
 	require.Eventually(
 		t,
 		func() bool {
+			pool := rts.reactors[rts.nodes[1]].syncer.OrPanic("syncer should be configured in tests").pool.Load()
+			if pool == nil {
+				return false
+			}
 			return rts.reactors[rts.nodes[1]].GetRemainingSyncTime() > time.Nanosecond &&
-				rts.reactors[rts.nodes[1]].pool.getLastSyncRate() > 0.001
+				pool.getLastSyncRate() > 0.001
 		},
 		10*time.Second,
 		10*time.Millisecond,
@@ -420,25 +434,113 @@ func TestAutoRestartIfBehind(t *testing.T) {
 			}
 
 			restart := utils.NewAtomicSend(false)
-			r := &Reactor{
+			syncer := &syncController{
 				store:                     mockBlockStore,
-				pool:                      blockPool,
 				blocksBehindThreshold:     tt.blocksBehindThreshold,
 				blocksBehindCheckInterval: tt.blocksBehindCheckInterval,
 				restartEvent:              func() { restart.Store(true) },
-				blockSync:                 newAtomicBool(tt.isBlockSync),
 			}
+			if tt.isBlockSync {
+				syncer.blockSync.Store(true)
+			}
+			r := &Reactor{syncer: utils.Some(syncer)}
 
 			ctx := t.Context()
 			if tt.restartExpected {
-				r.autoRestartIfBehind(ctx)
+				r.syncer.OrPanic("syncer").autoRestartIfBehind(ctx, blockPool)
 				assert.True(t, restart.Load(), "Expected restart but did not occur")
 			} else {
 				ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 				defer cancel()
-				r.autoRestartIfBehind(ctx)
+				r.syncer.OrPanic("syncer").autoRestartIfBehind(ctx, blockPool)
 				assert.False(t, restart.Load(), "Unexpected restart")
 			}
 		})
 	}
+}
+
+func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
+	ctx := t.Context()
+
+	cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_query_responder_test")
+	require.NoError(t, err)
+
+	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
+	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
+	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
+	nodeIDs := network.NodeIDs()
+
+	server := makeReactor(
+		ctx,
+		t,
+		genDoc,
+		network.Node(nodeIDs[0]).Router,
+		false,
+		func() {},
+		config.DefaultSelfRemediationConfig(),
+	)
+	lastCommit := &types.Commit{}
+	state, err := server.stateStore.Load()
+	require.NoError(t, err)
+	for height := int64(1); height <= 3; height++ {
+		block, blockID, partSet, seenCommit := makeNextBlock(ctx, t, state, privVals[0], height, lastCommit)
+		state, err = server.syncer.OrPanic("syncer should be configured in tests").blockExec.ApplyBlock(ctx, state, blockID, block, nil)
+		require.NoError(t, err)
+		server.store.SaveBlock(block, partSet, seenCommit)
+		lastCommit = seenCommit
+	}
+	require.NoError(t, server.Start(ctx))
+	t.Cleanup(server.Wait)
+
+	client := p2p.TestMakeChannelNoCleanup(t, network.Node(nodeIDs[1]), GetChannelDescriptor())
+	network.Start(t)
+
+	client.Send(wrap(&pb.BlockRequest{Height: 2}), nodeIDs[0])
+	for range 2 {
+		msg, err := client.Recv(ctx)
+		require.NoError(t, err)
+		if blockResponse, ok := msg.Message.Sum.(*pb.Message_BlockResponse); ok {
+			require.Equal(t, int64(2), blockResponse.BlockResponse.GetBlock().Header.Height)
+			require.Equal(t, nodeIDs[0], msg.From)
+			return
+		}
+	}
+	t.Fatal("did not receive block response")
+}
+
+func TestQueryResponder_ServesStatusRequestsWhenBlockSyncDisabled(t *testing.T) {
+	ctx := t.Context()
+
+	cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_query_status_test")
+	require.NoError(t, err)
+
+	valSet, _ := factory.ValidatorSet(ctx, 1, 30)
+	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
+	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2})
+	nodeIDs := network.NodeIDs()
+
+	server := makeReactor(
+		ctx,
+		t,
+		genDoc,
+		network.Node(nodeIDs[0]).Router,
+		false,
+		func() {},
+		config.DefaultSelfRemediationConfig(),
+	)
+	require.NoError(t, server.Start(ctx))
+	t.Cleanup(server.Wait)
+
+	client := p2p.TestMakeChannelNoCleanup(t, network.Node(nodeIDs[1]), GetChannelDescriptor())
+	network.Start(t)
+
+	client.Send(wrap(&pb.StatusRequest{}), nodeIDs[0])
+	msg, err := client.Recv(ctx)
+	require.NoError(t, err)
+
+	statusResponse, ok := msg.Message.Sum.(*pb.Message_StatusResponse)
+	require.True(t, ok)
+	require.Equal(t, server.store.Base(), statusResponse.StatusResponse.GetBase())
+	require.Equal(t, server.store.Height(), statusResponse.StatusResponse.GetHeight())
+	require.Equal(t, nodeIDs[0], msg.From)
 }

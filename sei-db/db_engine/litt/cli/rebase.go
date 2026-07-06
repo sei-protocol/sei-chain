@@ -160,11 +160,6 @@ func countSegmentFiles(sources []string) (count int64, symlinkFound bool, err er
 				return nil
 			}
 
-			// Ignore "table.metadata" files, as they are not segment files.
-			if d.Name() == disktable.TableMetadataFileName {
-				return nil
-			}
-
 			// Check if the file is a segment file.
 			extension := filepath.Ext(path)
 			if extension == segment.MetadataFileExtension ||
@@ -280,9 +275,9 @@ func transferDataInTable(
 		return fmt.Errorf("failed to transfer keymap for table %s: %w", tableName, err)
 	}
 
-	err = transferTableMetadata(source, tableName, destinations, preserveOriginal, fsync, verbose)
+	err = transferGCWatermark(source, tableName, destinations, preserveOriginal, fsync)
 	if err != nil {
-		return fmt.Errorf("failed to transfer table metadata for table %s: %w", tableName, err)
+		return fmt.Errorf("failed to transfer gc-watermark for table %s: %w", tableName, err)
 	}
 
 	err = transferSegmentData(
@@ -433,6 +428,47 @@ func transferKeymap(
 	return nil
 }
 
+// Transfer the gc-watermark file (if it is present in the source table directory). The watermark lives at
+// the table root (outside the keymap directory) and only needs to land in one of the destination roots, since
+// startup scans every root to find it. We route it by hashing the table's keymap path purely to pick a
+// deterministic destination. Leaving it behind would both orphan the watermark (the source roots go away after
+// the rebase) and make the source table directory's removal fail with "directory not empty".
+func transferGCWatermark(
+	source string,
+	tableName string,
+	destinations []string,
+	preserveOriginal bool,
+	fsync bool,
+) error {
+
+	sourceWatermarkPath := filepath.Join(source, tableName, disktable.GCWatermarkFileName)
+	exists, err := util.Exists(sourceWatermarkPath)
+	if err != nil {
+		return fmt.Errorf("failed to check if gc-watermark file %s exists: %w", sourceWatermarkPath, err)
+	}
+	if !exists {
+		return nil
+	}
+
+	// Hash the table's keymap path to pick a deterministic destination root for the watermark. It need not be
+	// the keymap's actual root: startup scans all roots, so wherever it lands it will be found.
+	sourceKeymapPath := filepath.Join(source, tableName, keymap.KeymapDirectoryName)
+	destination, err := determineDestination(sourceKeymapPath, destinations)
+	if err != nil {
+		return fmt.Errorf("failed to determine destination for gc-watermark %s: %w", sourceWatermarkPath, err)
+	}
+
+	destinationWatermarkPath := filepath.Join(destination, tableName, disktable.GCWatermarkFileName)
+
+	err = util.RecursiveMove(sourceWatermarkPath, destinationWatermarkPath, preserveOriginal, fsync)
+	if err != nil {
+		return fmt.Errorf("failed to move gc-watermark from %s to %s: %w",
+			sourceWatermarkPath, destinationWatermarkPath, err)
+	}
+
+	return nil
+}
+
 // transfers data in the segments/ directory
 func transferSegmentData(
 	source string,
@@ -523,51 +559,6 @@ func transferSegmentFile(
 	if err != nil {
 		return fmt.Errorf("failed to copy segment file from %s to %s: %w",
 			segmentFilePath, destinationSegmentPath, err)
-	}
-
-	return nil
-}
-
-// transfers the table metadata file, if it is present.
-func transferTableMetadata(
-	source string,
-	tableName string,
-	destinations []string,
-	preserveOriginal bool,
-	fsync bool,
-	verbose bool,
-) error {
-
-	sourceTableDir := filepath.Join(source, tableName)
-
-	sourceMetadataPath := filepath.Join(sourceTableDir, disktable.TableMetadataFileName)
-	exists, err := util.Exists(sourceMetadataPath)
-	if err != nil {
-		return fmt.Errorf("failed to check if table metadata file %s exists: %w", sourceMetadataPath, err)
-	}
-
-	if !exists {
-		return nil
-	}
-
-	destination, err := determineDestination(sourceTableDir, destinations)
-	if err != nil {
-		return fmt.Errorf("failed to determine destination for table metadata %s: %w", sourceMetadataPath, err)
-	}
-
-	destinationMetadataPath := filepath.Join(destination, tableName, disktable.TableMetadataFileName)
-
-	if verbose {
-		text := fmt.Sprintf("Transferring table '%s' metadata", tableName)
-		writer := bufio.NewWriter(os.Stdout)
-		_, _ = fmt.Fprintf(writer, "\r%-100s", text)
-		_ = writer.Flush()
-	}
-
-	err = util.RecursiveMove(sourceMetadataPath, destinationMetadataPath, preserveOriginal, fsync)
-	if err != nil {
-		return fmt.Errorf("failed to copy table metadata from %s to %s: %w",
-			sourceMetadataPath, destinationMetadataPath, err)
 	}
 
 	return nil

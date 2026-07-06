@@ -11,6 +11,9 @@ import (
 const maxBitLen = 256
 
 func newIntegerFromString(s string) (*big.Int, bool) {
+	if len(s) > 300 {
+		return nil, false
+	}
 	return new(big.Int).SetString(s, 0)
 }
 
@@ -55,6 +58,9 @@ func max(i *big.Int, i2 *big.Int) *big.Int {
 }
 
 func unmarshalText(i *big.Int, text string) error {
+	if len(text) > 100 {
+		return fmt.Errorf("integer string too long: got %d, max 100", len(text))
+	}
 	if err := i.UnmarshalText([]byte(text)); err != nil {
 		return err
 	}

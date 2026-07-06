@@ -1,7 +1,7 @@
 /*
-Package blocksync implements two versions of a reactor Service that are
-responsible for block propagation and gossip between peers. This mechanism was
-formerly known as fast-sync.
+Package blocksync implements the blocksync protocol used for serving block
+requests and catching up to the network head. This mechanism was formerly known
+as fast-sync.
 
 In order for a full node to successfully participate in consensus, it must have
 the latest view of state. The blocksync protocol is a mechanism in which peers
@@ -13,19 +13,15 @@ will no longer blocksync and thus no longer run the blocksync process.
 Note, the blocksync reactor Service gossips entire block and relevant data such
 that each receiving peer may construct the entire view of the blocksync state.
 
-There is currently only one version of the blocksync reactor Service
-that is battle-tested, but whose test coverage is lacking and is not
-formally verified.
+There is currently one blocksync protocol implementation. Internally the
+top-level Reactor owns the single blocksync p2p channel and the always-on query
+serving path:
 
-The v0 blocksync reactor Service has one p2p channel, BlockchainChannel. This
-channel is responsible for handling messages that both request blocks and respond
-to block requests from peers. For every block request from a peer, the reactor
-will execute respondToPeer which will fetch the block from the node's state store
-and respond to the peer. For every block response, the node will add the block
-to its pool via AddBlock.
+- serve inbound BlockRequest and StatusRequest messages
 
-Internally, v0 runs a poolRoutine that constantly checks for what blocks it needs
-and requests them. The poolRoutine is also responsible for taking blocks from the
-pool, saving and executing each block.
+Active syncing itself is handled by a separate sync controller that manages the
+block pool, requests blocks, applies them locally, and hands off to consensus
+once caught up. Sync-specific responses received on the shared channel are
+forwarded into that controller.
 */
 package blocksync

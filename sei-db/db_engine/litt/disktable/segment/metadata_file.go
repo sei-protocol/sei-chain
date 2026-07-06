@@ -22,7 +22,8 @@ const (
 	// deleted.
 	MetadataSwapExtension = MetadataFileExtension + util.SwapFileExtension
 
-	// V3MetadataSize is the size of the metadata file at LatestSegmentVersion (ShardedAddressSegmentVersion).
+	// V3MetadataSize is the size of the metadata file at the current LatestSegmentVersion (the name
+	// is kept for backwards compatibility; the metadata layout has not actually changed since v3).
 	// Layout:
 	//   - 4 bytes for version
 	//   - 1 byte for the sharding factor

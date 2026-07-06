@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/stretchr/testify/require"
 )
@@ -115,4 +116,64 @@ func TestComputeBlockBounds(t *testing.T) {
 			require.Equalf(t, tc.wantEnd, gotEnd, "end mismatch")
 		})
 	}
+}
+
+// TestMergeSortedLogs covers the limit-aware k-way merge: with limit == 0 it
+// merges every batch in global (block, index) order, and with a positive limit
+// it stops early after collecting that many logs while still returning the
+// globally-smallest prefix.
+func TestMergeSortedLogs(t *testing.T) {
+	t.Parallel()
+
+	mkLog := func(block uint64, idx uint) *ethtypes.Log {
+		return &ethtypes.Log{BlockNumber: block, Index: idx}
+	}
+	// Three pre-sorted batches that interleave when merged. Flattened global
+	// order is (1,0)(1,1)(2,0)(2,1)(3,0)(3,1)(4,0)(5,0).
+	batches := [][]*ethtypes.Log{
+		{mkLog(1, 0), mkLog(2, 1), mkLog(4, 0)},
+		{mkLog(1, 1), mkLog(3, 0), mkLog(5, 0)},
+		{mkLog(2, 0), mkLog(3, 1)},
+	}
+	type key struct {
+		block uint64
+		idx   uint
+	}
+	wantOrder := []key{{1, 0}, {1, 1}, {2, 0}, {2, 1}, {3, 0}, {3, 1}, {4, 0}, {5, 0}}
+
+	f := &LogFetcher{}
+
+	assertPrefix := func(t *testing.T, res []*ethtypes.Log, n int) {
+		t.Helper()
+		require.Len(t, res, n)
+		for i := range n {
+			require.Equalf(t, wantOrder[i].block, res[i].BlockNumber, "log %d block", i)
+			require.Equalf(t, wantOrder[i].idx, res[i].Index, "log %d index", i)
+		}
+	}
+
+	t.Run("no limit merges everything in order", func(t *testing.T) {
+		t.Parallel()
+		assertPrefix(t, f.mergeSortedLogs(batches, 0), len(wantOrder))
+	})
+
+	t.Run("limit truncates to global prefix", func(t *testing.T) {
+		t.Parallel()
+		res := f.mergeSortedLogs(batches, 3)
+		assertPrefix(t, res, 3)
+		// Allocation is bounded to the limit, not the total batch size.
+		require.Equal(t, 3, cap(res))
+	})
+
+	t.Run("limit at least total returns everything", func(t *testing.T) {
+		t.Parallel()
+		assertPrefix(t, f.mergeSortedLogs(batches, int64(len(wantOrder)+5)), len(wantOrder))
+	})
+
+	t.Run("empty batches return empty slice", func(t *testing.T) {
+		t.Parallel()
+		res := f.mergeSortedLogs([][]*ethtypes.Log{{}, nil}, 10)
+		require.NotNil(t, res)
+		require.Empty(t, res)
+	})
 }

@@ -18,6 +18,13 @@ import (
 // Returns (value, true) if found, (nil, false) if not found.
 // Panics on I/O errors or unsupported key types.
 func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
+	// Read lock: the internal getters (getAccountData, getStorageData,
+	// getCodeData, getLegacyData) read the pending-writes maps, which
+	// ApplyChangeSets/Commit mutate under the write lock. Has delegates to Get
+	// and must not take its own lock (RWMutex read locks are not reentrant).
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if moduleName != keys.EVMStoreKey {
 		value, err := s.getLegacyValue(moduleName, key)
 		if err != nil {
@@ -83,6 +90,11 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 // Only supported for EVM keys; non-EVM legacy data does not track block height.
 // If not found, returns (-1, false, nil).
 func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (int64, bool, error) {
+	// Read lock: the internal getters (getStorageData, getAccountData,
+	// getCodeData) read the pending-writes maps mutated under the write lock.
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if moduleName != keys.EVMStoreKey {
 		return -1, false, fmt.Errorf("block height modified not tracked for module %q", moduleName)
 	}

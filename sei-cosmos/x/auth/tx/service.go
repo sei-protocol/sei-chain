@@ -192,8 +192,11 @@ func (s txServer) GetBlockWithTxs(ctx context.Context, req *txtypes.GetBlockWith
 	if req.Pagination != nil {
 		offset = req.Pagination.Offset
 		limit = req.Pagination.Limit
-	} else {
-		offset = 0
+		if err = pagination.VerifyPaginationLimit(limit); err != nil {
+			return nil, sdkerrors.ErrInvalidRequest.Wrapf("invalid pagination limit: %d. Max allowed limit is %d", limit, pagination.MaxLimit)
+		}
+	}
+	if limit == 0 {
 		limit = pagination.DefaultLimit
 	}
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -18,7 +18,7 @@ func TestConsensusClientServer(t *testing.T) {
 	env := newTestEnv(committee)
 	// Run only a subset of replicas, to enforce timeouts.
 	var nodes []*testNode
-	for _, key := range keys[:committee.CommitQuorum()] {
+	for _, key := range types.TestKeysWithWeight(committee, keys, committee.CommitQuorum()) {
 		nodes = append(nodes, env.AddNode(key))
 	}
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -27,9 +27,11 @@ func TestConsensusClientServer(t *testing.T) {
 		for offset := range types.GlobalBlockNumber(20) {
 			idx := firstBlock + offset
 			t.Logf("[%v] Push a block.", idx)
-			b, err := nodes[rng.Intn(len(env.nodes))].consensus.ProduceBlock(ctx, types.GenPayload(rng))
+			node := nodes[rng.Intn(len(env.nodes))]
+			a := node.consensus.Avail()
+			b, err := a.ProduceLocalBlock(a.NextBlock(a.PublicKey()), types.GenPayload(rng))
 			if err != nil {
-				return fmt.Errorf("ds.ProduceBlock(): %w", err)
+				return fmt.Errorf("ds.ProduceLocalBlock(): %w", err)
 			}
 			want := &types.GlobalBlock{
 				Header:        b.Msg().Block().Header(),

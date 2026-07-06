@@ -16,10 +16,23 @@ import (
 func NodeSuite(ctx context.Context, t *testing.T) (service.Service, *config.Config) {
 	t.Helper()
 
+	return nodeSuiteWithMode(ctx, t, config.ModeValidator)
+}
+
+func FullNodeSuite(ctx context.Context, t *testing.T) (service.Service, *config.Config) {
+	t.Helper()
+
+	return nodeSuiteWithMode(ctx, t, config.ModeFull)
+}
+
+func nodeSuiteWithMode(ctx context.Context, t *testing.T, mode string) (service.Service, *config.Config) {
+	t.Helper()
+
 	ctx, cancel := context.WithCancel(ctx)
 
 	conf, err := rpctest.CreateConfig(t, t.Name())
 	require.NoError(t, err)
+	conf.Mode = mode
 
 	app := kvstore.NewApplication()
 

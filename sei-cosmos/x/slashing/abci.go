@@ -22,7 +22,12 @@ type SlashingWriteInfo struct {
 // BeginBlocker check for infraction evidence or downtime of validators
 // on every begin block
 func BeginBlocker(ctx sdk.Context, votes []abci.VoteInfo, k keeper.Keeper) {
-	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyBeginBlocker)
+	beginBlockerStart := time.Now()
+	defer func() {
+		slashingMetrics.beginBlockerDuration.Record(ctx.Context(), time.Since(beginBlockerStart).Seconds())
+		// TODO(PLT-414): remove once slashing_begin_blocker_duration verified
+		telemetry.ModuleMeasureSince(types.ModuleName, beginBlockerStart, telemetry.MetricKeyBeginBlocker)
+	}()
 
 	var wg sync.WaitGroup
 	// Iterate over all the validators which *should* have signed this block

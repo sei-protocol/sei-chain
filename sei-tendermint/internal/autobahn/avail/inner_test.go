@@ -4,9 +4,9 @@ import (
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -410,7 +410,10 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 		bn := types.BlockNumber(j)
 		h := i.blocks[lane].q[bn].Msg().Block().Header()
 		laneQCs := map[types.LaneID]*types.LaneQC{
-			lane: types.NewLaneQC(makeLaneVotes(keys, h)[:committee.LaneQuorum()]),
+			lane: types.NewLaneQC(makeLaneVotes(
+				types.TestKeysWithWeight(committee, keys, committee.LaneQuorum()),
+				h,
+			)),
 		}
 		qcs[j] = makeCommitQC(committee, keys, prev, laneQCs, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[j])

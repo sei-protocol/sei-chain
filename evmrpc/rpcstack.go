@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"sort"
@@ -34,6 +35,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
 	"github.com/rs/cors"
+	"golang.org/x/net/netutil"
 )
 
 // HTTPConfig is the JSON-RPC/HTTP configuration.
@@ -62,6 +64,10 @@ type RPCEndpointConfig struct {
 	batchItemLimit         int
 	batchResponseSizeLimit int
 	readLimit              int64
+	// maxRequestBodyBytes caps a single HTTP request body; 0 uses the go-ethereum default.
+	maxRequestBodyBytes int64
+	// maxConcurrentRequestBytes bounds total request bytes admitted concurrently; 0 disables.
+	maxConcurrentRequestBytes int64
 }
 
 type rpcHandler struct {
@@ -91,6 +97,10 @@ type HTTPServer struct {
 	host     string
 	port     int
 
+	// maxOpenConns caps simultaneous accepted connections on the listener.
+	// Zero (the default) disables the limit.
+	maxOpenConns int
+
 	handlerNames map[string]string
 }
 
@@ -100,6 +110,7 @@ const (
 )
 
 func NewHTTPServer(timeouts rpc.HTTPTimeouts) *HTTPServer {
+	CheckTimeouts(&timeouts)
 	h := &HTTPServer{timeouts: timeouts, handlerNames: make(map[string]string)}
 
 	h.httpHandler.Store((*rpcHandler)(nil))
@@ -120,6 +131,15 @@ func (h *HTTPServer) SetListenAddr(host string, port int) error {
 	h.host, h.port = host, port
 	h.endpoint = net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	return nil
+}
+
+// SetMaxOpenConns sets the maximum number of simultaneously accepted
+// connections on the listener. A value <= 0
+// leaves connections unbounded.
+func (h *HTTPServer) SetMaxOpenConns(n int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.maxOpenConns = n
 }
 
 // ListenAddr returns the listening address of the server.
@@ -143,7 +163,6 @@ func (h *HTTPServer) Start() error {
 	}
 
 	// Initialize the server.
-	CheckTimeouts(&h.timeouts)
 	h.server = &http.Server{
 		Handler:           h,
 		ReadTimeout:       h.timeouts.ReadTimeout,
@@ -160,6 +179,9 @@ func (h *HTTPServer) Start() error {
 		h.disableRPC()
 		h.disableWS()
 		return err
+	}
+	if h.maxOpenConns > 0 {
+		listener = netutil.LimitListener(listener, h.maxOpenConns)
 	}
 	h.listener = listener
 	go func() {
@@ -306,6 +328,13 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
+	if config.maxRequestBodyBytes > 0 {
+		bodyLimit := config.maxRequestBodyBytes
+		if bodyLimit > math.MaxInt {
+			bodyLimit = math.MaxInt
+		}
+		srv.SetHTTPBodyLimit(int(bodyLimit))
+	}
 	logger.Info("Registering apis for evm rpc")
 	if err := RegisterApis(apis, config.Modules, srv); err != nil {
 		return err
@@ -316,8 +345,16 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	}
 	h.HTTPConfig = config
 	base := NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.JwtSecret)
+
+	// maxRequestBodyBytes feeds all three body-cap layers (requestSizeLimiter, the gate, and
+	// srv.SetHTTPBodyLimit above) so they agree; change the cap via the config value, not one layer.
+	handler := newRequestSizeLimiter(
+		wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist, config.maxRequestBodyBytes),
+		config.maxRequestBodyBytes,
+		config.maxConcurrentRequestBytes,
+	)
 	h.httpHandler.Store(&rpcHandler{
-		Handler: wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist),
+		Handler: handler,
 		server:  srv,
 	})
 	return nil
@@ -355,20 +392,6 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 		server:  srv,
 	})
 	return nil
-}
-
-// stopWS disables JSON-RPC over WebSocket and also stops the server if it only serves WebSocket.
-//
-//lint:ignore U1000 lifecycle method retained for completeness
-func (h *HTTPServer) stopWS() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if h.disableWS() {
-		if !h.rpcAllowed() {
-			h.doStop()
-		}
-	}
 }
 
 // disableWS disables the WebSocket handler. This is internal, the caller must hold h.mu.
@@ -472,7 +495,7 @@ func (h *virtualHostHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 var gzPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		w := gzip.NewWriter(io.Discard)
 		return w
 	},

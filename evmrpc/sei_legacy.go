@@ -66,8 +66,6 @@ var seiLegacyGatedMethods = map[string]struct{}{
 	"sei_newBlockFilter":                        {},
 	"sei_newFilter":                             {},
 	"sei_sign":                                  {},
-	"sei_traceBlockByHashExcludeTraceFail":      {},
-	"sei_traceBlockByNumberExcludeTraceFail":    {},
 	"sei_uninstallFilter":                       {},
 	// sei2_* block namespace (HTTP only; bank transfers in blocks). Gated via the same allowlist.
 	"sei2_getBlockByHash":                   {},

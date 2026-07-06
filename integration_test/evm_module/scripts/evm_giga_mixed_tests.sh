@@ -3,7 +3,7 @@
 # GIGA Mixed-Mode EVM Integration Tests
 #
 # This script replaces the default cluster with a mixed-mode cluster where:
-#   - Node 0: GIGA_EXECUTOR=true (sequential mode)
+#   - Node 0: GIGA_EXECUTOR=true GIGA_OCC=true (concurrent giga executor)
 #   - Nodes 1-3: Standard V2 executor
 #
 # If giga produces different results from V2, the giga node will halt with
@@ -16,7 +16,7 @@
 set -e
 
 echo "=== GIGA Mixed-Mode Integration Test ==="
-echo "=== Node 0: GIGA_EXECUTOR=true, Nodes 1-3: standard V2 ==="
+echo "=== Node 0: GIGA_EXECUTOR=true GIGA_OCC=true, Nodes 1-3: standard V2 ==="
 
 # Stop the default cluster that the workflow started
 echo "Stopping default cluster..."

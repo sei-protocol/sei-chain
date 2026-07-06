@@ -305,6 +305,8 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 	return results, nil
 }
 
+// profiledTraceTx assumes config has already passed through clampDefaultStructLogLimit
+// at the public API boundary; new callers must clamp before invoking it.
 func (api *DebugAPI) profiledTraceTx(
 	ctx context.Context,
 	tx *gethtypes.Transaction,

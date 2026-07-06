@@ -40,9 +40,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
 	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis"
-	crisiskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/keeper"
-	crisistypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/types"
 	distr "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
 	distrclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/client"
 	distrkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
@@ -102,7 +99,6 @@ import (
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	"github.com/spf13/cast"
 	dbm "github.com/tendermint/tm-db"
 
 	wasmappparams "github.com/sei-protocol/sei-chain/sei-wasmd/app/params"
@@ -194,7 +190,6 @@ var (
 			)...,
 		),
 		params.AppModuleBasic{},
-		crisis.AppModuleBasic{},
 		slashing.AppModuleBasic{},
 		feegrantmodule.AppModuleBasic{},
 		ibc.AppModuleBasic{},
@@ -231,8 +226,6 @@ type WasmApp struct {
 	appCodec          codec.Codec
 	interfaceRegistry types.InterfaceRegistry
 
-	invCheckPeriod uint
-
 	// keys to access the substores
 	keys    map[string]*sdk.KVStoreKey
 	tkeys   map[string]*sdk.TransientStoreKey
@@ -247,7 +240,6 @@ type WasmApp struct {
 	mintKeeper          mintkeeper.Keeper
 	distrKeeper         distrkeeper.Keeper
 	govKeeper           govkeeper.Keeper
-	crisisKeeper        crisiskeeper.Keeper
 	upgradeKeeper       upgradekeeper.Keeper
 	paramsKeeper        paramskeeper.Keeper
 	evidenceKeeper      evidencekeeper.Keeper
@@ -281,7 +273,7 @@ func NewWasmApp(
 	loadLatest bool,
 	skipUpgradeHeights map[int64]bool,
 	homePath string,
-	invCheckPeriod uint,
+	_ uint,
 	tmConfig *tmcfg.Config,
 	encodingConfig wasmappparams.EncodingConfig,
 	enabledProposals []wasm.ProposalType,
@@ -311,7 +303,6 @@ func NewWasmApp(
 		legacyAmino:       legacyAmino,
 		appCodec:          appCodec,
 		interfaceRegistry: interfaceRegistry,
-		invCheckPeriod:    invCheckPeriod,
 		keys:              keys,
 		tkeys:             tkeys,
 		memKeys:           memKeys,
@@ -393,12 +384,6 @@ func NewWasmApp(
 		keys[slashingtypes.StoreKey],
 		&stakingKeeper,
 		app.getSubspace(slashingtypes.ModuleName),
-	)
-	app.crisisKeeper = crisiskeeper.NewKeeper(
-		app.getSubspace(crisistypes.ModuleName),
-		invCheckPeriod,
-		app.bankKeeper,
-		authtypes.FeeCollectorName,
 	)
 	app.upgradeKeeper = upgradekeeper.NewKeeper(
 		skipUpgradeHeights,
@@ -540,12 +525,6 @@ func NewWasmApp(
 		app.paramsKeeper,
 		govRouter,
 	)
-	/****  Module Options ****/
-
-	// NOTE: we may consider parsing `appOpts` inside module constructors. For the moment
-	// we prefer to be more strict in what arguments the modules expect.
-	skipGenesisInvariants := cast.ToBool(appOpts.Get(crisis.FlagSkipGenesisInvariants))
-
 	// NOTE: Any module instantiated in the module manager that is later modified
 	// must be passed by reference here.
 	app.mm = module.NewManager(
@@ -572,7 +551,6 @@ func NewWasmApp(
 		transferModule,
 		authzmodule.NewAppModule(appCodec, app.authzKeeper, app.accountKeeper, app.bankKeeper, app.interfaceRegistry),
 		params.NewAppModule(app.paramsKeeper),
-		crisis.NewAppModule(&app.crisisKeeper, skipGenesisInvariants), // always be last to make sure that it checks for all invariants and not only part of them
 	)
 
 	// NOTE: The genutils module must occur after staking so that pools are
@@ -591,7 +569,6 @@ func NewWasmApp(
 		slashingtypes.ModuleName,
 		govtypes.ModuleName,
 		minttypes.ModuleName,
-		crisistypes.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
 		authz.ModuleName,
@@ -610,7 +587,6 @@ func NewWasmApp(
 	// Uncomment if you want to set a custom migration order here.
 	// app.mm.SetOrderMigrations(custom order)
 
-	app.mm.RegisterInvariants(&app.crisisKeeper)
 	app.mm.RegisterRoutes(app.Router(), app.QueryRouter(), encodingConfig.Amino)
 
 	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
@@ -772,7 +748,6 @@ func (app *WasmApp) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci
 }
 
 func (app *WasmApp) EndBlocker(ctx sdk.Context) []abci.ValidatorUpdate {
-	crisis.EndBlocker(ctx, app.crisisKeeper)
 	gov.EndBlocker(ctx, app.govKeeper)
 	return staking.EndBlocker(ctx, app.stakingKeeper)
 }
@@ -887,7 +862,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(distrtypes.ModuleName)
 	paramsKeeper.Subspace(slashingtypes.ModuleName)
 	paramsKeeper.Subspace(govtypes.ModuleName).WithKeyTable(govtypes.ParamKeyTable())
-	paramsKeeper.Subspace(crisistypes.ModuleName)
 	paramsKeeper.Subspace(ibctransfertypes.ModuleName)
 	paramsKeeper.Subspace(ibchost.ModuleName)
 	paramsKeeper.Subspace(icahosttypes.SubModuleName)

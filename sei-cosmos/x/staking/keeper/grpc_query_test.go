@@ -28,7 +28,7 @@ func (suite *KeeperTestSuite) TestGRPCQueryValidators() {
 		{
 			"empty request",
 			func() {
-				req = &types.QueryValidatorsRequest{}
+				req = &types.QueryValidatorsRequest{Pagination: &query.PageRequest{CountTotal: true}}
 			},
 			true,
 
@@ -38,7 +38,7 @@ func (suite *KeeperTestSuite) TestGRPCQueryValidators() {
 		{
 			"empty status returns all the validators",
 			func() {
-				req = &types.QueryValidatorsRequest{Status: ""}
+				req = &types.QueryValidatorsRequest{Status: "", Pagination: &query.PageRequest{CountTotal: true}}
 			},
 			true,
 			len(vals),

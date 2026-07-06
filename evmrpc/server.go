@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
@@ -71,6 +72,8 @@ func NewEVMHTTPServer(
 		WriteTimeout:      config.WriteTimeout,
 		IdleTimeout:       config.IdleTimeout,
 	})
+	methodTimeout := tmutils.Some(httpServer.timeouts.WriteTimeout)
+	httpServer.SetMaxOpenConns(config.MaxOpenConnections)
 	if err := httpServer.SetListenAddr(LocalAddress, config.HTTPPort); err != nil {
 		return nil, err
 	}
@@ -78,19 +81,20 @@ func NewEVMHTTPServer(
 		GasCap:                       config.SimulationGasLimit,
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+		MaxEstimateGasCalls:          config.MaxEstimateGasCalls,
 	}
 	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
-	sendAPI := NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex, watermarks)
+	sendAPI := NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks)
 
 	ctx := ctxProvider(LatestCtxHeight)
 	traceCtxProvider := defaultTraceContextProvider(ctxProvider)
 	if len(traceCtxProviders) > 0 && traceCtxProviders[0] != nil {
 		traceCtxProvider = traceCtxProviders[0]
 	}
-	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex)
+	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, methodTimeout, watermarks, globalBlockCache, cacheCreationMutex)
 	debugAPI := NewDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
 	debugAPI.backend.SetTraceContextProvider(traceCtxProvider)
 	if config.TraceBakeEnabled {
@@ -105,9 +109,7 @@ func NewEVMHTTPServer(
 	isPanicOrSyntheticTxFunc := debugAPI.isPanicOrSyntheticTx
 	seiLegacyAllowlist := BuildSeiLegacyEnabledSet(config.EnabledLegacySeiApis)
 
-	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
-	seiDebugAPI := NewSeiDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
-	seiDebugAPI.backend.SetTraceContextProvider(traceCtxProvider)
+	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, methodTimeout, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
 
 	// DB semaphore aligned with worker count
 	dbReadSemaphore := make(chan struct{}, workerCount)
@@ -207,10 +209,6 @@ func NewEVMHTTPServer(
 			Namespace: "debug",
 			Service:   debugAPI,
 		},
-		{
-			Namespace: "sei",
-			Service:   seiDebugAPI,
-		},
 	}
 	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.
 	if config.EnableTestAPI && !evmCfg.IsLiveChainID(ctx) {
@@ -223,12 +221,17 @@ func NewEVMHTTPServer(
 		logger.Info("Disabling Test EVM APIs", "liveChainID", evmCfg.IsLiveChainID(ctx), "enableTestAPI", config.EnableTestAPI)
 	}
 
-	if err := httpServer.EnableRPC(apis, HTTPConfig{
+	httpConfig := HTTPConfig{
 		CorsAllowedOrigins: strings.Split(config.CORSOrigins, ","),
 		Vhosts:             []string{"*"},
 		DenyList:           config.DenyList,
 		SeiLegacyAllowlist: seiLegacyAllowlist,
-	}); err != nil {
+	}
+	httpConfig.batchItemLimit = config.BatchRequestLimit
+	httpConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
+	httpConfig.maxRequestBodyBytes = config.MaxRequestBodyBytes
+	httpConfig.maxConcurrentRequestBytes = config.MaxConcurrentRequestBytes
+	if err := httpServer.EnableRPC(apis, httpConfig); err != nil {
 		return nil, err
 	}
 
@@ -261,6 +264,8 @@ func NewEVMWebSocketServer(
 		WriteTimeout:      config.WriteTimeout,
 		IdleTimeout:       config.IdleTimeout,
 	})
+	methodTimeout := tmutils.Some(httpServer.timeouts.WriteTimeout)
+	httpServer.SetMaxOpenConns(config.MaxOpenConnections)
 	if err := httpServer.SetListenAddr(LocalAddress, config.WSPort); err != nil {
 		return nil, err
 	}
@@ -268,6 +273,7 @@ func NewEVMWebSocketServer(
 		GasCap:                       config.SimulationGasLimit,
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+		MaxEstimateGasCalls:          config.MaxEstimateGasCalls,
 	}
 	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 	// DB semaphore aligned with worker count
@@ -286,7 +292,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeWS, watermarks, globalBlockCache, cacheCreationMutex),
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeWS, methodTimeout, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
@@ -298,7 +304,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, globalBlockCache, cacheCreationMutex, watermarks),
+			Service:   NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks),
 		},
 		{
 			Namespace: "eth",
@@ -320,7 +326,7 @@ func NewEVMWebSocketServer(
 				cacheCreationMutex: cacheCreationMutex,
 				globalLogSlicePool: globalLogSlicePool,
 				watermarks:         watermarks,
-			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS, blockHeaderNotifier),
+			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead, logLimit: config.MaxSubscriptionsLogs}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS, blockHeaderNotifier),
 		},
 		{
 			Namespace: "web3",
@@ -330,6 +336,8 @@ func NewEVMWebSocketServer(
 
 	wsConfig := WsConfig{Origins: strings.Split(config.WSOrigins, ",")}
 	wsConfig.readLimit = DefaultWebsocketMaxMessageSize
+	wsConfig.batchItemLimit = config.BatchRequestLimit
+	wsConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
 	if err := httpServer.EnableWS(apis, wsConfig); err != nil {
 		return nil, err
 	}

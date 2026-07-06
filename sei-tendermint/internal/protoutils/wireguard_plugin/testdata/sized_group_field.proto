@@ -1,0 +1,15 @@
+syntax = "proto2";
+
+package wireguardplugin.invalid;
+
+import "wireguard/wireguard.proto";
+
+option go_package = "github.com/example/wireguardplugin/invalid";
+
+message SizedGroupField {
+  option (wireguard.sized) = true;
+
+  optional group G = 1 {
+    optional string value = 2;
+  }
+}

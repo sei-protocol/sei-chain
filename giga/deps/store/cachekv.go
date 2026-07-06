@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"sort"
 	"sync"
@@ -9,6 +10,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
+
+var ErrIteratorUnsupported = errors.New("unexpected iterator call on cachekv store")
 
 // Store wraps an in-memory cache around an underlying types.KVStore.
 type Store struct {
@@ -183,10 +186,10 @@ func (store *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 }
 
 func (store *Store) Iterator(start, end []byte) types.Iterator {
-	panic("unexpected iterator call on cachekv store")
+	panic(ErrIteratorUnsupported)
 }
 
 // ReverseIterator implements types.KVStore.
 func (store *Store) ReverseIterator(start, end []byte) types.Iterator {
-	panic("unexpected reverse iterator call on cachekv store")
+	panic(ErrIteratorUnsupported)
 }

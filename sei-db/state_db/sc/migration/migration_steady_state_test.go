@@ -5,7 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -93,7 +93,7 @@ func TestMemiavlOnly(t *testing.T) {
 	inMemoryRouter := NewTestInMemoryRouter()
 	keysInUse := newLiveKeySet()
 
-	memiavlOnlyRouter, err := BuildRouter(t.Context(), config.MemiavlOnly, memiavlDB, nil, 0)
+	memiavlOnlyRouter, err := BuildRouter(t.Context(), types.MemiavlOnly, memiavlDB, nil, 0)
 	require.NoError(t, err)
 
 	commit := func() {
@@ -143,7 +143,7 @@ func TestEVMMigrated(t *testing.T) {
 	inMemoryRouter := NewTestInMemoryRouter()
 	keysInUse := newLiveKeySet()
 
-	evmMigratedRouter, err := BuildRouter(t.Context(), config.EVMMigrated, memiavlDB, flatKVDB, 0)
+	evmMigratedRouter, err := BuildRouter(t.Context(), types.EVMMigrated, memiavlDB, flatKVDB, 0)
 	require.NoError(t, err)
 
 	commitBoth := func() {
@@ -220,7 +220,7 @@ func TestAllMigratedButBank(t *testing.T) {
 	inMemoryRouter := NewTestInMemoryRouter()
 	keysInUse := newLiveKeySet()
 
-	allMigratedButBankRouter, err := BuildRouter(t.Context(), config.AllMigratedButBank, memiavlDB, flatKVDB, 0)
+	allMigratedButBankRouter, err := BuildRouter(t.Context(), types.AllMigratedButBank, memiavlDB, flatKVDB, 0)
 	require.NoError(t, err)
 
 	commitBoth := func() {
@@ -300,7 +300,7 @@ func TestFlatKVOnly(t *testing.T) {
 	inMemoryRouter := NewTestInMemoryRouter()
 	keysInUse := newLiveKeySet()
 
-	flatKVOnlyRouter, err := BuildRouter(t.Context(), config.FlatKVOnly, nil, flatKVDB, 0)
+	flatKVOnlyRouter, err := BuildRouter(t.Context(), types.FlatKVOnly, nil, flatKVDB, 0)
 	require.NoError(t, err)
 
 	commit := func() {
@@ -365,7 +365,7 @@ func TestDualWrite(t *testing.T) {
 	inMemoryRouter := NewTestInMemoryRouter()
 	keysInUse := newLiveKeySet()
 
-	dualWriteRouter, err := BuildRouter(t.Context(), config.TestOnlyDualWrite, memiavlDB, flatKVDB, 0)
+	dualWriteRouter, err := BuildRouter(t.Context(), types.TestOnlyDualWrite, memiavlDB, flatKVDB, 0)
 	require.NoError(t, err)
 
 	commitBoth := func() {

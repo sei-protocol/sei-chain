@@ -18,7 +18,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
-// drainExporter collects all SnapshotNode items from an exporter.
+// drainExporter collects all SnapshotNode items from an exporter, skipping
+// the leading keys.FlatKVStoreKey module header (a string) that the
+// self-describing exporter emits before its nodes.
 func drainExporter(t *testing.T, exp types.Exporter) []*types.SnapshotNode {
 	t.Helper()
 	var nodes []*types.SnapshotNode
@@ -27,6 +29,10 @@ func drainExporter(t *testing.T, exp types.Exporter) []*types.SnapshotNode {
 		if err != nil {
 			require.True(t, errors.Is(err, errorutils.ErrorExportDone))
 			break
+		}
+		if name, ok := item.(string); ok {
+			require.Equal(t, keys.FlatKVStoreKey, name, "unexpected module header")
+			continue
 		}
 		node, ok := item.(*types.SnapshotNode)
 		require.True(t, ok, "expected *SnapshotNode, got %T", item)
@@ -41,6 +47,11 @@ func TestExporterEmptyStore(t *testing.T) {
 	exp, err := s.Exporter(0)
 	require.NoError(t, err)
 	defer exp.Close()
+
+	// Even an empty store emits its module header first, then ErrorExportDone.
+	item, err := exp.Next()
+	require.NoError(t, err)
+	require.Equal(t, keys.FlatKVStoreKey, item)
 
 	_, err = exp.Next()
 	require.True(t, errors.Is(err, errorutils.ErrorExportDone))
@@ -729,6 +740,9 @@ func TestExporterAtHistoricalVersion(t *testing.T) {
 			require.True(t, errors.Is(err, errorutils.ErrorExportDone))
 			break
 		}
+		if _, ok := item.(string); ok {
+			continue // skip the module header
+		}
 		node := item.(*types.SnapshotNode)
 		kind, _, parseErr := ktype.StripEVMPhysicalKey(node.Key)
 		require.NoError(t, parseErr)
@@ -835,6 +849,9 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 		if err != nil {
 			require.True(t, errors.Is(err, errorutils.ErrorExportDone))
 			break
+		}
+		if _, ok := item.(string); ok {
+			continue // skip the module header
 		}
 		node, ok := item.(*types.SnapshotNode)
 		require.True(t, ok)

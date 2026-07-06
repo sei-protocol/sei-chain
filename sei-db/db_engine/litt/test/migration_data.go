@@ -1,7 +1,71 @@
 package test
 
-// This map is used for migration tests. This data is written to a table at the old version, and used to verify that
-// the data after migration is the same as the data before migration.
+import "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+
+// migrationPuts is the canonical input written to the migration-test fixture. It mirrors what real
+// callers do: a sequence of Puts, some of which include secondary keys. Three primaries near the
+// end carry secondaries that exercise every KeyKind path:
+//
+//   - "kindStandalone-primary" is a 0-secondary Put (covered by every other entry too, but called
+//     out by name for readability).
+//   - "kindPrimary-with-one-secondary" carries exactly one secondary, exercising
+//     KeyKindPrimary + KeyKindFinalSecondary.
+//   - "kindPrimary-with-three-secondaries" carries three secondaries (a mix of strict sub-range
+//     and alias-the-whole-value), exercising KeyKindPrimary + 2× KeyKindSecondary +
+//     KeyKindFinalSecondary.
+//
+// Cross-version migration verifies that every primary AND every secondary survives the round
+// trip through whatever the current on-disk format happens to be.
+var migrationPuts = func() []*types.PutRequest {
+	out := make([]*types.PutRequest, 0, len(migrationData)+3)
+	for key, value := range migrationData {
+		out = append(out, &types.PutRequest{Key: []byte(key), Value: []byte(value)})
+	}
+
+	out = append(out,
+		&types.PutRequest{
+			Key:   []byte("kindStandalone-primary"),
+			Value: []byte("standalone"),
+		},
+		&types.PutRequest{
+			Key:   []byte("kindPrimary-with-one-secondary"),
+			Value: []byte("hello world"),
+			SecondaryKeys: []*types.SecondaryKey{
+				{Key: []byte("kindFinal-only-secondary"), Offset: 0, Length: 5}, // "hello"
+			},
+		},
+		&types.PutRequest{
+			Key:   []byte("kindPrimary-with-three-secondaries"),
+			Value: []byte("the quick brown fox jumps over the lazy dog"),
+			SecondaryKeys: []*types.SecondaryKey{
+				{Key: []byte("kindMid-quick"), Offset: 4, Length: 5},                                 // "quick"
+				{Key: []byte("kindMid-brown"), Offset: 10, Length: 5},                                // "brown"
+				{Key: []byte("kindFinal-alias-whole"), Offset: 0, Length: 43 /* len of the value */}, // alias the whole value
+			},
+		},
+	)
+
+	return out
+}()
+
+// expectedMigrationKVs flattens migrationPuts into a single map from key bytes -> expected bytes.
+// Every primary key maps to its full value; every secondary key maps to the sub-range of its
+// parent's value bytes that it points at.
+var expectedMigrationKVs = func() map[string]string {
+	out := make(map[string]string, len(migrationPuts))
+	for _, p := range migrationPuts {
+		out[string(p.Key)] = string(p.Value)
+		for _, sk := range p.SecondaryKeys {
+			out[string(sk.Key)] = string(p.Value[sk.Offset : sk.Offset+sk.Length])
+		}
+	}
+	return out
+}()
+
+// migrationData is the original key->value fixture from v3 and earlier. Newer fixtures extend it
+// via migrationPuts above; keeping migrationData as a standalone map preserves the historical
+// payload (so generated v3 data remains byte-for-byte identical were one to regenerate it under
+// the old code).
 var migrationData = map[string]string{
 	"S7MOxfceWW":          "oSNhtpEtRb48ntgPkhL",
 	"uQxQ25apaahwztuOzNi": "Tn2MgaTP5B",

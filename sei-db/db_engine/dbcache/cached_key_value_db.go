@@ -3,6 +3,8 @@ package dbcache
 import (
 	"fmt"
 
+	dbm "github.com/tendermint/tm-db"
+
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -87,7 +89,7 @@ func (c *cachedKeyValueDB) Delete(key []byte, opts types.WriteOptions) error {
 	return nil
 }
 
-func (c *cachedKeyValueDB) NewIter(opts *types.IterOptions) (types.KeyValueDBIterator, error) {
+func (c *cachedKeyValueDB) NewIter(opts *types.IterOptions) (dbm.Iterator, error) {
 	return c.db.NewIter(opts)
 }
 

@@ -6,7 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,6 +37,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSCConfig.MemIAVLConfig.SnapshotPrefetchThreshold
 	case FlagSCSnapshotWriteRateMBps:
 		return defaultSCConfig.MemIAVLConfig.SnapshotWriteRateMBps
+	case FlagSCFlatKVReadWriteMetrics:
+		return defaultSCConfig.FlatKVConfig.EnableReadWriteMetrics
 	case FlagSSEnable:
 		return defaultSSConfig.Enable
 	case FlagSSBackend:
@@ -51,8 +53,12 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.PruneIntervalSeconds
 	case FlagSSImportNumWorkers:
 		return defaultSSConfig.ImportNumWorkers
+	case FlagSSReadWriteMetrics:
+		return defaultSSConfig.EnableReadWriteMetrics
 	case receiptStoreBackendKey:
 		return defaultReceiptConfig.Backend
+	case receiptStoreReadWriteMetricsKey:
+		return defaultReceiptConfig.EnableReadWriteMetrics
 	case FlagEVMSSDirectory:
 		return defaultSSConfig.EVMDBDirectory
 	case FlagEVMSSSplit:
@@ -70,7 +76,11 @@ func TestNewDefaultConfig(t *testing.T) {
 	ssConfig := parseSSConfigs(appOpts)
 	receiptConfig, err := config.ReadReceiptConfig(appOpts)
 	assert.NoError(t, err)
-	assert.Equal(t, scConfig, config.DefaultStateCommitConfig())
+	// WriteModeEnableAuto defaults to true, so parseSCConfigs resolves the effective
+	// WriteMode to auto, overriding the fixed-fallback default (memiavl_only).
+	expectedSC := config.DefaultStateCommitConfig()
+	expectedSC.WriteMode = sctypes.Auto
+	assert.Equal(t, expectedSC, scConfig)
 	assert.Equal(t, ssConfig, config.DefaultStateStoreConfig())
 	assert.Equal(t, receiptConfig, config.DefaultReceiptStoreConfig())
 }
@@ -96,6 +106,15 @@ func TestParseSCConfigs_HistoricalProofFlags(t *testing.T) {
 	assert.Equal(t, 3, scConfig.HistoricalProofBurst)
 }
 
+func TestParseSCConfigs_FlatKVReadWriteMetrics(t *testing.T) {
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable:                 true,
+		FlagSCFlatKVReadWriteMetrics: true,
+	})
+
+	assert.True(t, scConfig.FlatKVConfig.EnableReadWriteMetrics)
+}
+
 func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	appOpts := mapAppOpts{
 		FlagSSEnable:            true,
@@ -112,6 +131,15 @@ func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	assert.True(t, ssConfig.SeparateEVMSubDBs)
 }
 
+func TestParseSSConfigs_ReadWriteMetrics(t *testing.T) {
+	ssConfig := parseSSConfigs(mapAppOpts{
+		FlagSSEnable:           true,
+		FlagSSReadWriteMetrics: true,
+	})
+
+	assert.True(t, ssConfig.EnableReadWriteMetrics)
+}
+
 func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
 	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{})
 	assert.NoError(t, err)
@@ -120,10 +148,10 @@ func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
 
 func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
 	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{
-		receiptStoreBackendKey: "parquet",
+		receiptStoreBackendKey: "pebbledb",
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, "parquet", receiptConfig.Backend)
+	assert.Equal(t, "pebbledb", receiptConfig.Backend)
 	assert.Equal(t, config.DefaultReceiptStoreConfig().AsyncWriteBuffer, receiptConfig.AsyncWriteBuffer)
 	assert.Equal(t, 0, receiptConfig.KeepRecent)
 }
@@ -131,16 +159,18 @@ func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
 func TestParseReceiptConfigs_UsesConfiguredValues(t *testing.T) {
 	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{
 		receiptStoreDBDirectoryKey:          "/tmp/custom-receipt-db",
-		receiptStoreBackendKey:              "parquet",
+		receiptStoreBackendKey:              "pebbledb",
 		receiptStoreAsyncWriteBufferKey:     7,
 		receiptStorePruneIntervalSecondsKey: 9,
+		receiptStoreReadWriteMetricsKey:     true,
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, "/tmp/custom-receipt-db", receiptConfig.DBDirectory)
-	assert.Equal(t, "parquet", receiptConfig.Backend)
+	assert.Equal(t, "pebbledb", receiptConfig.Backend)
 	assert.Equal(t, 7, receiptConfig.AsyncWriteBuffer)
 	assert.Equal(t, 0, receiptConfig.KeepRecent)
 	assert.Equal(t, 9, receiptConfig.PruneIntervalSeconds)
+	assert.True(t, receiptConfig.EnableReadWriteMetrics)
 }
 
 func TestParseReceiptConfigs_RejectsInvalidBackend(t *testing.T) {
@@ -185,15 +215,4 @@ func TestReadReceiptStoreConfigFallsBackToZeroWhenNeitherSet(t *testing.T) {
 	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{})
 	require.NoError(t, err)
 	assert.Equal(t, 0, receiptConfig.KeepRecent)
-}
-
-// TestFullAppPathWithParquetReceiptStore exercises the full app.New path with rs-backend = "parquet"
-// and asserts the parquet receipt store is actually instantiated (not pebble).
-func TestFullAppPathWithParquetReceiptStore(t *testing.T) {
-	app := SetupWithScReceiptFromOpts(t, false, false, TestAppOpts{
-		UseSc:          true,
-		ReceiptBackend: "parquet",
-	})
-	require.NotNil(t, app.receiptStore, "receipt store should be created")
-	assert.Equal(t, "parquet", receipt.BackendTypeName(app.receiptStore), "receipt store backend should be parquet")
 }

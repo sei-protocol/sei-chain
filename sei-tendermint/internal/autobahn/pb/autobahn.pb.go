@@ -8,6 +8,7 @@ package pb
 
 import (
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/pb"
+	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -541,15 +542,13 @@ func (x *BlockHeader) GetPayloadHash() []byte {
 }
 
 type Payload struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CreatedAt     *Timestamp             `protobuf:"bytes,1,opt,name=created_at,json=createdAt,proto3,oneof" json:"created_at,omitempty"`  // required
-	TotalGas      *uint64                `protobuf:"varint,2,opt,name=total_gas,json=totalGas,proto3,oneof" json:"total_gas,omitempty"`    // required
-	EdgeCount     *int64                 `protobuf:"varint,3,opt,name=edge_count,json=edgeCount,proto3,oneof" json:"edge_count,omitempty"` // required
-	Coinbase      []byte                 `protobuf:"bytes,4,opt,name=coinbase,proto3,oneof" json:"coinbase,omitempty"`                     // required
-	Basefee       *int64                 `protobuf:"varint,5,opt,name=basefee,proto3,oneof" json:"basefee,omitempty"`                      // required
-	Txs           [][]byte               `protobuf:"bytes,6,rep,name=txs,proto3" json:"txs,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	CreatedAt         *Timestamp             `protobuf:"bytes,1,opt,name=created_at,json=createdAt,proto3,oneof" json:"created_at,omitempty"`                            // required
+	TotalGasWanted    *uint64                `protobuf:"varint,7,opt,name=total_gas_wanted,json=totalGasWanted,proto3,oneof" json:"total_gas_wanted,omitempty"`          // required
+	TotalGasEstimated *uint64                `protobuf:"varint,8,opt,name=total_gas_estimated,json=totalGasEstimated,proto3,oneof" json:"total_gas_estimated,omitempty"` // required
+	Txs               [][]byte               `protobuf:"bytes,6,rep,name=txs,proto3" json:"txs,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Payload) Reset() {
@@ -589,30 +588,16 @@ func (x *Payload) GetCreatedAt() *Timestamp {
 	return nil
 }
 
-func (x *Payload) GetTotalGas() uint64 {
-	if x != nil && x.TotalGas != nil {
-		return *x.TotalGas
+func (x *Payload) GetTotalGasWanted() uint64 {
+	if x != nil && x.TotalGasWanted != nil {
+		return *x.TotalGasWanted
 	}
 	return 0
 }
 
-func (x *Payload) GetEdgeCount() int64 {
-	if x != nil && x.EdgeCount != nil {
-		return *x.EdgeCount
-	}
-	return 0
-}
-
-func (x *Payload) GetCoinbase() []byte {
-	if x != nil {
-		return x.Coinbase
-	}
-	return nil
-}
-
-func (x *Payload) GetBasefee() int64 {
-	if x != nil && x.Basefee != nil {
-		return *x.Basefee
+func (x *Payload) GetTotalGasEstimated() uint64 {
+	if x != nil && x.TotalGasEstimated != nil {
+		return *x.TotalGasEstimated
 	}
 	return 0
 }
@@ -918,7 +903,7 @@ func (x *Proposal) GetApp() *AppProposal {
 
 type FullProposal struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Proposal      *SignedMsg             `protobuf:"bytes,1,opt,name=proposal,proto3" json:"proposal,omitempty"`
+	ProposalV2    *SignedProposal        `protobuf:"bytes,5,opt,name=proposal_v2,json=proposalV2,proto3" json:"proposal_v2,omitempty"`
 	LaneQcs       []*LaneQC              `protobuf:"bytes,2,rep,name=lane_qcs,json=laneQcs,proto3" json:"lane_qcs,omitempty"`
 	AppQc         *AppQC                 `protobuf:"bytes,3,opt,name=app_qc,json=appQc,proto3,oneof" json:"app_qc,omitempty"`
 	TimeoutQc     *TimeoutQC             `protobuf:"bytes,4,opt,name=timeout_qc,json=timeoutQc,proto3,oneof" json:"timeout_qc,omitempty"` // justifies the proposal.
@@ -956,9 +941,9 @@ func (*FullProposal) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *FullProposal) GetProposal() *SignedMsg {
+func (x *FullProposal) GetProposalV2() *SignedProposal {
 	if x != nil {
-		return x.Proposal
+		return x.ProposalV2
 	}
 	return nil
 }
@@ -1194,7 +1179,7 @@ func (x *TimeoutVote) GetLatestPrepareQcViewNumber() uint64 {
 
 type TimeoutQC struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	Votes           []*SignedMsg           `protobuf:"bytes,1,rep,name=votes,proto3" json:"votes,omitempty"`
+	VotesV2         []*SignedTimeoutVote   `protobuf:"bytes,3,rep,name=votes_v2,json=votesV2,proto3" json:"votes_v2,omitempty"`
 	LatestPrepareQc *PrepareQC             `protobuf:"bytes,2,opt,name=latest_prepare_qc,json=latestPrepareQc,proto3,oneof" json:"latest_prepare_qc,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -1230,9 +1215,9 @@ func (*TimeoutQC) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{20}
 }
 
-func (x *TimeoutQC) GetVotes() []*SignedMsg {
+func (x *TimeoutQC) GetVotesV2() []*SignedTimeoutVote {
 	if x != nil {
-		return x.Votes
+		return x.VotesV2
 	}
 	return nil
 }
@@ -1246,7 +1231,7 @@ func (x *TimeoutQC) GetLatestPrepareQc() *PrepareQC {
 
 type FullTimeoutVote struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	Vote            *SignedMsg             `protobuf:"bytes,1,opt,name=vote,proto3" json:"vote,omitempty"`
+	VoteV2          *SignedTimeoutVote     `protobuf:"bytes,3,opt,name=vote_v2,json=voteV2,proto3" json:"vote_v2,omitempty"`
 	LatestPrepareQc *PrepareQC             `protobuf:"bytes,2,opt,name=latest_prepare_qc,json=latestPrepareQc,proto3,oneof" json:"latest_prepare_qc,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -1282,9 +1267,9 @@ func (*FullTimeoutVote) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{21}
 }
 
-func (x *FullTimeoutVote) GetVote() *SignedMsg {
+func (x *FullTimeoutVote) GetVoteV2() *SignedTimeoutVote {
 	if x != nil {
-		return x.Vote
+		return x.VoteV2
 	}
 	return nil
 }
@@ -1305,8 +1290,8 @@ type PersistedInner struct {
 	CommitQc      *CommitQC              `protobuf:"bytes,1,opt,name=commit_qc,json=commitQc,proto3,oneof" json:"commit_qc,omitempty"`
 	PrepareQc     *PrepareQC             `protobuf:"bytes,2,opt,name=prepare_qc,json=prepareQc,proto3,oneof" json:"prepare_qc,omitempty"`
 	TimeoutQc     *TimeoutQC             `protobuf:"bytes,3,opt,name=timeout_qc,json=timeoutQc,proto3,oneof" json:"timeout_qc,omitempty"`
-	CommitVote    *SignedMsg             `protobuf:"bytes,4,opt,name=commit_vote,json=commitVote,proto3,oneof" json:"commit_vote,omitempty"`
-	PrepareVote   *SignedMsg             `protobuf:"bytes,5,opt,name=prepare_vote,json=prepareVote,proto3,oneof" json:"prepare_vote,omitempty"`
+	CommitVoteV2  *SignedProposal        `protobuf:"bytes,7,opt,name=commit_vote_v2,json=commitVoteV2,proto3,oneof" json:"commit_vote_v2,omitempty"`
+	PrepareVoteV2 *SignedProposal        `protobuf:"bytes,8,opt,name=prepare_vote_v2,json=prepareVoteV2,proto3,oneof" json:"prepare_vote_v2,omitempty"`
 	TimeoutVote   *FullTimeoutVote       `protobuf:"bytes,6,opt,name=timeout_vote,json=timeoutVote,proto3,oneof" json:"timeout_vote,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1363,16 +1348,16 @@ func (x *PersistedInner) GetTimeoutQc() *TimeoutQC {
 	return nil
 }
 
-func (x *PersistedInner) GetCommitVote() *SignedMsg {
+func (x *PersistedInner) GetCommitVoteV2() *SignedProposal {
 	if x != nil {
-		return x.CommitVote
+		return x.CommitVoteV2
 	}
 	return nil
 }
 
-func (x *PersistedInner) GetPrepareVote() *SignedMsg {
+func (x *PersistedInner) GetPrepareVoteV2() *SignedProposal {
 	if x != nil {
-		return x.PrepareVote
+		return x.PrepareVoteV2
 	}
 	return nil
 }
@@ -1720,28 +1705,28 @@ func (*Msg_TimeoutVote) isMsg_T() {}
 
 func (*Msg_AppVote) isMsg_T() {}
 
-type SignedMsg struct {
+type SignedProposal struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Msg           *Msg                   `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
+	Msg           *Proposal              `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
 	Sig           *Signature             `protobuf:"bytes,2,opt,name=sig,proto3" json:"sig,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SignedMsg) Reset() {
-	*x = SignedMsg{}
+func (x *SignedProposal) Reset() {
+	*x = SignedProposal{}
 	mi := &file_autobahn_autobahn_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SignedMsg) String() string {
+func (x *SignedProposal) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SignedMsg) ProtoMessage() {}
+func (*SignedProposal) ProtoMessage() {}
 
-func (x *SignedMsg) ProtoReflect() protoreflect.Message {
+func (x *SignedProposal) ProtoReflect() protoreflect.Message {
 	mi := &file_autobahn_autobahn_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1753,19 +1738,279 @@ func (x *SignedMsg) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SignedMsg.ProtoReflect.Descriptor instead.
-func (*SignedMsg) Descriptor() ([]byte, []int) {
+// Deprecated: Use SignedProposal.ProtoReflect.Descriptor instead.
+func (*SignedProposal) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{27}
 }
 
-func (x *SignedMsg) GetMsg() *Msg {
+func (x *SignedProposal) GetMsg() *Proposal {
 	if x != nil {
 		return x.Msg
 	}
 	return nil
 }
 
-func (x *SignedMsg) GetSig() *Signature {
+func (x *SignedProposal) GetSig() *Signature {
+	if x != nil {
+		return x.Sig
+	}
+	return nil
+}
+
+type SignedTimeoutVote struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Msg           *TimeoutVote           `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
+	Sig           *Signature             `protobuf:"bytes,2,opt,name=sig,proto3" json:"sig,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedTimeoutVote) Reset() {
+	*x = SignedTimeoutVote{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedTimeoutVote) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedTimeoutVote) ProtoMessage() {}
+
+func (x *SignedTimeoutVote) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedTimeoutVote.ProtoReflect.Descriptor instead.
+func (*SignedTimeoutVote) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *SignedTimeoutVote) GetMsg() *TimeoutVote {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *SignedTimeoutVote) GetSig() *Signature {
+	if x != nil {
+		return x.Sig
+	}
+	return nil
+}
+
+type SignedAppVote struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Msg           *AppProposal           `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
+	Sig           *Signature             `protobuf:"bytes,2,opt,name=sig,proto3" json:"sig,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedAppVote) Reset() {
+	*x = SignedAppVote{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedAppVote) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedAppVote) ProtoMessage() {}
+
+func (x *SignedAppVote) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedAppVote.ProtoReflect.Descriptor instead.
+func (*SignedAppVote) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *SignedAppVote) GetMsg() *AppProposal {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *SignedAppVote) GetSig() *Signature {
+	if x != nil {
+		return x.Sig
+	}
+	return nil
+}
+
+type SignedBlock struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Msg           *Block                 `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
+	Sig           *Signature             `protobuf:"bytes,2,opt,name=sig,proto3" json:"sig,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedBlock) Reset() {
+	*x = SignedBlock{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedBlock) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedBlock) ProtoMessage() {}
+
+func (x *SignedBlock) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedBlock.ProtoReflect.Descriptor instead.
+func (*SignedBlock) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *SignedBlock) GetMsg() *Block {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *SignedBlock) GetSig() *Signature {
+	if x != nil {
+		return x.Sig
+	}
+	return nil
+}
+
+type SignedBlockHeader struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Msg           *BlockHeader           `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
+	Sig           *Signature             `protobuf:"bytes,2,opt,name=sig,proto3" json:"sig,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedBlockHeader) Reset() {
+	*x = SignedBlockHeader{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedBlockHeader) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedBlockHeader) ProtoMessage() {}
+
+func (x *SignedBlockHeader) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedBlockHeader.ProtoReflect.Descriptor instead.
+func (*SignedBlockHeader) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *SignedBlockHeader) GetMsg() *BlockHeader {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *SignedBlockHeader) GetSig() *Signature {
+	if x != nil {
+		return x.Sig
+	}
+	return nil
+}
+
+type SignedAppProposal struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Msg           *AppProposal           `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
+	Sig           *Signature             `protobuf:"bytes,2,opt,name=sig,proto3" json:"sig,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignedAppProposal) Reset() {
+	*x = SignedAppProposal{}
+	mi := &file_autobahn_autobahn_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedAppProposal) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedAppProposal) ProtoMessage() {}
+
+func (x *SignedAppProposal) ProtoReflect() protoreflect.Message {
+	mi := &file_autobahn_autobahn_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedAppProposal.ProtoReflect.Descriptor instead.
+func (*SignedAppProposal) Descriptor() ([]byte, []int) {
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *SignedAppProposal) GetMsg() *AppProposal {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *SignedAppProposal) GetSig() *Signature {
 	if x != nil {
 		return x.Sig
 	}
@@ -1778,8 +2023,8 @@ type ConsensusReq struct {
 	// Types that are valid to be assigned to T:
 	//
 	//	*ConsensusReq_Proposal
-	//	*ConsensusReq_PrepareVote
-	//	*ConsensusReq_CommitVote
+	//	*ConsensusReq_PrepareVoteV2
+	//	*ConsensusReq_CommitVoteV2
 	//	*ConsensusReq_TimeoutVote
 	//	*ConsensusReq_TimeoutQc
 	T             isConsensusReq_T `protobuf_oneof:"t"`
@@ -1789,7 +2034,7 @@ type ConsensusReq struct {
 
 func (x *ConsensusReq) Reset() {
 	*x = ConsensusReq{}
-	mi := &file_autobahn_autobahn_proto_msgTypes[28]
+	mi := &file_autobahn_autobahn_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1801,7 +2046,7 @@ func (x *ConsensusReq) String() string {
 func (*ConsensusReq) ProtoMessage() {}
 
 func (x *ConsensusReq) ProtoReflect() protoreflect.Message {
-	mi := &file_autobahn_autobahn_proto_msgTypes[28]
+	mi := &file_autobahn_autobahn_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1814,7 +2059,7 @@ func (x *ConsensusReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsensusReq.ProtoReflect.Descriptor instead.
 func (*ConsensusReq) Descriptor() ([]byte, []int) {
-	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{28}
+	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ConsensusReq) GetT() isConsensusReq_T {
@@ -1833,19 +2078,19 @@ func (x *ConsensusReq) GetProposal() *FullProposal {
 	return nil
 }
 
-func (x *ConsensusReq) GetPrepareVote() *SignedMsg {
+func (x *ConsensusReq) GetPrepareVoteV2() *SignedProposal {
 	if x != nil {
-		if x, ok := x.T.(*ConsensusReq_PrepareVote); ok {
-			return x.PrepareVote
+		if x, ok := x.T.(*ConsensusReq_PrepareVoteV2); ok {
+			return x.PrepareVoteV2
 		}
 	}
 	return nil
 }
 
-func (x *ConsensusReq) GetCommitVote() *SignedMsg {
+func (x *ConsensusReq) GetCommitVoteV2() *SignedProposal {
 	if x != nil {
-		if x, ok := x.T.(*ConsensusReq_CommitVote); ok {
-			return x.CommitVote
+		if x, ok := x.T.(*ConsensusReq_CommitVoteV2); ok {
+			return x.CommitVoteV2
 		}
 	}
 	return nil
@@ -1877,12 +2122,12 @@ type ConsensusReq_Proposal struct {
 	Proposal *FullProposal `protobuf:"bytes,1,opt,name=proposal,proto3,oneof"`
 }
 
-type ConsensusReq_PrepareVote struct {
-	PrepareVote *SignedMsg `protobuf:"bytes,2,opt,name=prepare_vote,json=prepareVote,proto3,oneof"`
+type ConsensusReq_PrepareVoteV2 struct {
+	PrepareVoteV2 *SignedProposal `protobuf:"bytes,6,opt,name=prepare_vote_v2,json=prepareVoteV2,proto3,oneof"`
 }
 
-type ConsensusReq_CommitVote struct {
-	CommitVote *SignedMsg `protobuf:"bytes,3,opt,name=commit_vote,json=commitVote,proto3,oneof"`
+type ConsensusReq_CommitVoteV2 struct {
+	CommitVoteV2 *SignedProposal `protobuf:"bytes,7,opt,name=commit_vote_v2,json=commitVoteV2,proto3,oneof"`
 }
 
 type ConsensusReq_TimeoutVote struct {
@@ -1895,9 +2140,9 @@ type ConsensusReq_TimeoutQc struct {
 
 func (*ConsensusReq_Proposal) isConsensusReq_T() {}
 
-func (*ConsensusReq_PrepareVote) isConsensusReq_T() {}
+func (*ConsensusReq_PrepareVoteV2) isConsensusReq_T() {}
 
-func (*ConsensusReq_CommitVote) isConsensusReq_T() {}
+func (*ConsensusReq_CommitVoteV2) isConsensusReq_T() {}
 
 func (*ConsensusReq_TimeoutVote) isConsensusReq_T() {}
 
@@ -1907,10 +2152,10 @@ var File_autobahn_autobahn_proto protoreflect.FileDescriptor
 
 const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\n" +
-	"\x17autobahn/autobahn.proto\x12\bautobahn\x1a\x17hashable/hashable.proto\"c\n" +
+	"\x17autobahn/autobahn.proto\x12\bautobahn\x1a\x17hashable/hashable.proto\x1a\x19wireguard/wireguard.proto\"i\n" +
 	"\tTimestamp\x12\x1d\n" +
 	"\aseconds\x18\x01 \x01(\x03H\x00R\aseconds\x88\x01\x01\x12\x19\n" +
-	"\x05nanos\x18\x02 \x01(\x05H\x01R\x05nanos\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\n" +
+	"\x05nanos\x18\x02 \x01(\x05H\x01R\x05nanos\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\n" +
 	"\n" +
 	"\b_secondsB\b\n" +
 	"\x06_nanos\"b\n" +
@@ -1944,141 +2189,135 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x0fTransactionResp\x12\x12\n" +
 	"\x04hash\x18\x01 \x01(\tR\x04hash\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\">\n" +
-	"\tPublicKey\x12\x1d\n" +
-	"\aed25519\x18\x01 \x01(\fH\x00R\aed25519\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"L\n" +
+	"\tPublicKey\x12%\n" +
+	"\aed25519\x18\x01 \x01(\fB\x06؈\xe2\xab\f H\x00R\aed25519\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\n" +
 	"\n" +
-	"\b_ed25519\"f\n" +
+	"\b_ed25519\"t\n" +
 	"\tSignature\x12*\n" +
-	"\x03key\x18\x01 \x01(\v2\x13.autobahn.PublicKeyH\x00R\x03key\x88\x01\x01\x12\x15\n" +
-	"\x03sig\x18\x02 \x01(\fH\x01R\x03sig\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\x06\n" +
+	"\x03key\x18\x01 \x01(\v2\x13.autobahn.PublicKeyH\x00R\x03key\x88\x01\x01\x12\x1d\n" +
+	"\x03sig\x18\x02 \x01(\fB\x06؈\xe2\xab\f@H\x01R\x03sig\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x06\n" +
 	"\x04_keyB\x06\n" +
-	"\x04_sig\"\xf4\x01\n" +
+	"\x04_sig\"\x8a\x02\n" +
 	"\vBlockHeader\x12,\n" +
 	"\x04lane\x18\x01 \x01(\v2\x13.autobahn.PublicKeyH\x00R\x04lane\x88\x01\x01\x12&\n" +
-	"\fblock_number\x18\x02 \x01(\x04H\x01R\vblockNumber\x88\x01\x01\x12$\n" +
-	"\vparent_hash\x18\x03 \x01(\fH\x02R\n" +
-	"parentHash\x88\x01\x01\x12&\n" +
-	"\fpayload_hash\x18\x04 \x01(\fH\x03R\vpayloadHash\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\a\n" +
+	"\fblock_number\x18\x02 \x01(\x04H\x01R\vblockNumber\x88\x01\x01\x12,\n" +
+	"\vparent_hash\x18\x03 \x01(\fB\x06؈\xe2\xab\f H\x02R\n" +
+	"parentHash\x88\x01\x01\x12.\n" +
+	"\fpayload_hash\x18\x04 \x01(\fB\x06؈\xe2\xab\f H\x03R\vpayloadHash\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
 	"\x05_laneB\x0f\n" +
 	"\r_block_numberB\x0e\n" +
 	"\f_parent_hashB\x0f\n" +
-	"\r_payload_hash\"\xa7\x02\n" +
+	"\r_payload_hash\"\xd5\x02\n" +
 	"\aPayload\x127\n" +
 	"\n" +
-	"created_at\x18\x01 \x01(\v2\x13.autobahn.TimestampH\x00R\tcreatedAt\x88\x01\x01\x12 \n" +
-	"\ttotal_gas\x18\x02 \x01(\x04H\x01R\btotalGas\x88\x01\x01\x12\"\n" +
-	"\n" +
-	"edge_count\x18\x03 \x01(\x03H\x02R\tedgeCount\x88\x01\x01\x12\x1f\n" +
-	"\bcoinbase\x18\x04 \x01(\fH\x03R\bcoinbase\x88\x01\x01\x12\x1d\n" +
-	"\abasefee\x18\x05 \x01(\x03H\x04R\abasefee\x88\x01\x01\x12\x10\n" +
-	"\x03txs\x18\x06 \x03(\fR\x03txs:\x06Ȉ\xe2\xab\f\x01B\r\n" +
-	"\v_created_atB\f\n" +
-	"\n" +
-	"_total_gasB\r\n" +
-	"\v_edge_countB\v\n" +
-	"\t_coinbaseB\n" +
-	"\n" +
-	"\b_basefee\"\x8c\x01\n" +
+	"created_at\x18\x01 \x01(\v2\x13.autobahn.TimestampH\x00R\tcreatedAt\x88\x01\x01\x12-\n" +
+	"\x10total_gas_wanted\x18\a \x01(\x04H\x01R\x0etotalGasWanted\x88\x01\x01\x123\n" +
+	"\x13total_gas_estimated\x18\b \x01(\x04H\x02R\x11totalGasEstimated\x88\x01\x01\x12!\n" +
+	"\x03txs\x18\x06 \x03(\fB\x0fЈ\xe2\xab\f\xd0\x0f\xe0\x88\xe2\xab\f\x80\x80}R\x03txs:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\r\n" +
+	"\v_created_atB\x13\n" +
+	"\x11_total_gas_wantedB\x16\n" +
+	"\x14_total_gas_estimatedJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\ttotal_gasR\n" +
+	"edge_countR\bcoinbaseR\abasefee\"\x92\x01\n" +
 	"\x05Block\x122\n" +
 	"\x06header\x18\x01 \x01(\v2\x15.autobahn.BlockHeaderH\x00R\x06header\x88\x01\x01\x120\n" +
-	"\apayload\x18\x02 \x01(\v2\x11.autobahn.PayloadH\x01R\apayload\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\t\n" +
+	"\apayload\x18\x02 \x01(\v2\x11.autobahn.PayloadH\x01R\apayload\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\t\n" +
 	"\a_headerB\n" +
 	"\n" +
-	"\b_payload\"\\\n" +
+	"\b_payload\"l\n" +
 	"\x06LaneQC\x12)\n" +
-	"\x04vote\x18\x01 \x01(\v2\x15.autobahn.BlockHeaderR\x04vote\x12'\n" +
-	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureR\x04sigs\"\xc1\x01\n" +
+	"\x04vote\x18\x01 \x01(\v2\x15.autobahn.BlockHeaderR\x04vote\x12/\n" +
+	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01\"\xcf\x01\n" +
 	"\tLaneRange\x12,\n" +
 	"\x04lane\x18\x01 \x01(\v2\x13.autobahn.PublicKeyH\x00R\x04lane\x88\x01\x01\x12\x19\n" +
 	"\x05first\x18\x02 \x01(\x04H\x01R\x05first\x88\x01\x01\x12\x17\n" +
-	"\x04next\x18\x03 \x01(\x04H\x02R\x04next\x88\x01\x01\x12 \n" +
-	"\tlast_hash\x18\x04 \x01(\fH\x03R\blastHash\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\a\n" +
+	"\x04next\x18\x03 \x01(\x04H\x02R\x04next\x88\x01\x01\x12(\n" +
+	"\tlast_hash\x18\x04 \x01(\fB\x06؈\xe2\xab\f H\x03R\blastHash\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
 	"\x05_laneB\b\n" +
 	"\x06_firstB\a\n" +
 	"\x05_nextB\f\n" +
 	"\n" +
-	"_last_hash\"[\n" +
+	"_last_hash\"a\n" +
 	"\x04View\x12\x19\n" +
 	"\x05index\x18\x01 \x01(\x04H\x00R\x05index\x88\x01\x01\x12\x1b\n" +
-	"\x06number\x18\x02 \x01(\x04H\x01R\x06number\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\b\n" +
+	"\x06number\x18\x02 \x01(\x04H\x01R\x06number\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\b\n" +
 	"\x06_indexB\t\n" +
-	"\a_number\"\x88\x02\n" +
+	"\a_number\"\x96\x02\n" +
 	"\bProposal\x12'\n" +
 	"\x04view\x18\x01 \x01(\v2\x0e.autobahn.ViewH\x00R\x04view\x88\x01\x01\x126\n" +
-	"\ttimestamp\x18\x05 \x01(\v2\x13.autobahn.TimestampH\x01R\ttimestamp\x88\x01\x01\x124\n" +
-	"\vlane_ranges\x18\x03 \x03(\v2\x13.autobahn.LaneRangeR\n" +
+	"\ttimestamp\x18\x05 \x01(\v2\x13.autobahn.TimestampH\x01R\ttimestamp\x88\x01\x01\x12<\n" +
+	"\vlane_ranges\x18\x03 \x03(\v2\x13.autobahn.LaneRangeB\x06Ј\xe2\xab\fdR\n" +
 	"laneRanges\x12,\n" +
-	"\x03app\x18\x04 \x01(\v2\x15.autobahn.AppProposalH\x02R\x03app\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\a\n" +
+	"\x03app\x18\x04 \x01(\v2\x15.autobahn.AppProposalH\x02R\x03app\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
 	"\x05_viewB\f\n" +
 	"\n" +
 	"_timestampB\x06\n" +
 	"\x04_appJ\x04\b\x02\x10\x03R\n" +
-	"created_at\"\xec\x01\n" +
-	"\fFullProposal\x12/\n" +
-	"\bproposal\x18\x01 \x01(\v2\x13.autobahn.SignedMsgR\bproposal\x12+\n" +
-	"\blane_qcs\x18\x02 \x03(\v2\x10.autobahn.LaneQCR\alaneQcs\x12+\n" +
+	"created_at\"\x96\x02\n" +
+	"\fFullProposal\x129\n" +
+	"\vproposal_v2\x18\x05 \x01(\v2\x18.autobahn.SignedProposalR\n" +
+	"proposalV2\x123\n" +
+	"\blane_qcs\x18\x02 \x03(\v2\x10.autobahn.LaneQCB\x06Ј\xe2\xab\fdR\alaneQcs\x12+\n" +
 	"\x06app_qc\x18\x03 \x01(\v2\x0f.autobahn.AppQCH\x00R\x05appQc\x88\x01\x01\x127\n" +
 	"\n" +
-	"timeout_qc\x18\x04 \x01(\v2\x13.autobahn.TimeoutQCH\x01R\ttimeoutQc\x88\x01\x01B\t\n" +
+	"timeout_qc\x18\x04 \x01(\v2\x13.autobahn.TimeoutQCH\x01R\ttimeoutQc\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\t\n" +
 	"\a_app_qcB\r\n" +
-	"\v_timeout_qc\"\\\n" +
+	"\v_timeout_qcJ\x04\b\x01\x10\x02R\bproposal\"l\n" +
 	"\tPrepareQC\x12&\n" +
-	"\x04vote\x18\x01 \x01(\v2\x12.autobahn.ProposalR\x04vote\x12'\n" +
-	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureR\x04sigs\"[\n" +
+	"\x04vote\x18\x01 \x01(\v2\x12.autobahn.ProposalR\x04vote\x12/\n" +
+	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01\"k\n" +
 	"\bCommitQC\x12&\n" +
-	"\x04vote\x18\x01 \x01(\v2\x12.autobahn.ProposalR\x04vote\x12'\n" +
-	"\x04sigs\x18\x03 \x03(\v2\x13.autobahn.SignatureR\x04sigs\"c\n" +
+	"\x04vote\x18\x01 \x01(\v2\x12.autobahn.ProposalR\x04vote\x12/\n" +
+	"\x04sigs\x18\x03 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01\"t\n" +
 	"\fFullCommitQC\x12\"\n" +
-	"\x02qc\x18\x01 \x01(\v2\x12.autobahn.CommitQCR\x02qc\x12/\n" +
-	"\aheaders\x18\x02 \x03(\v2\x15.autobahn.BlockHeaderR\aheaders\"\xb0\x01\n" +
+	"\x02qc\x18\x01 \x01(\v2\x12.autobahn.CommitQCR\x02qc\x128\n" +
+	"\aheaders\x18\x02 \x03(\v2\x15.autobahn.BlockHeaderB\aЈ\xe2\xab\f\xe8\aR\aheaders:\x06\xe8\x88\xe2\xab\f\x01\"\xb6\x01\n" +
 	"\vTimeoutVote\x12'\n" +
 	"\x04view\x18\x01 \x01(\v2\x0e.autobahn.ViewH\x00R\x04view\x88\x01\x01\x12E\n" +
-	"\x1dlatest_prepare_qc_view_number\x18\x02 \x01(\x04H\x01R\x19latestPrepareQcViewNumber\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\a\n" +
+	"\x1dlatest_prepare_qc_view_number\x18\x02 \x01(\x04H\x01R\x19latestPrepareQcViewNumber\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\a\n" +
 	"\x05_viewB \n" +
-	"\x1e_latest_prepare_qc_view_number\"\x92\x01\n" +
-	"\tTimeoutQC\x12)\n" +
-	"\x05votes\x18\x01 \x03(\v2\x13.autobahn.SignedMsgR\x05votes\x12D\n" +
-	"\x11latest_prepare_qc\x18\x02 \x01(\v2\x13.autobahn.PrepareQCH\x00R\x0flatestPrepareQc\x88\x01\x01B\x14\n" +
-	"\x12_latest_prepare_qc\"\x96\x01\n" +
-	"\x0fFullTimeoutVote\x12'\n" +
-	"\x04vote\x18\x01 \x01(\v2\x13.autobahn.SignedMsgR\x04vote\x12D\n" +
-	"\x11latest_prepare_qc\x18\x02 \x01(\v2\x13.autobahn.PrepareQCH\x00R\x0flatestPrepareQc\x88\x01\x01B\x14\n" +
-	"\x12_latest_prepare_qc\"\xd1\x03\n" +
+	"\x1e_latest_prepare_qc_view_number\"\xbc\x01\n" +
+	"\tTimeoutQC\x12>\n" +
+	"\bvotes_v2\x18\x03 \x03(\v2\x1b.autobahn.SignedTimeoutVoteB\x06Ј\xe2\xab\fdR\avotesV2\x12D\n" +
+	"\x11latest_prepare_qc\x18\x02 \x01(\v2\x13.autobahn.PrepareQCH\x00R\x0flatestPrepareQc\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\x14\n" +
+	"\x12_latest_prepare_qcJ\x04\b\x01\x10\x02R\x05votes\"\xb7\x01\n" +
+	"\x0fFullTimeoutVote\x124\n" +
+	"\avote_v2\x18\x03 \x01(\v2\x1b.autobahn.SignedTimeoutVoteR\x06voteV2\x12D\n" +
+	"\x11latest_prepare_qc\x18\x02 \x01(\v2\x13.autobahn.PrepareQCH\x00R\x0flatestPrepareQc\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\x14\n" +
+	"\x12_latest_prepare_qcJ\x04\b\x01\x10\x02R\x04vote\"\x92\x04\n" +
 	"\x0ePersistedInner\x124\n" +
 	"\tcommit_qc\x18\x01 \x01(\v2\x12.autobahn.CommitQCH\x00R\bcommitQc\x88\x01\x01\x127\n" +
 	"\n" +
 	"prepare_qc\x18\x02 \x01(\v2\x13.autobahn.PrepareQCH\x01R\tprepareQc\x88\x01\x01\x127\n" +
 	"\n" +
-	"timeout_qc\x18\x03 \x01(\v2\x13.autobahn.TimeoutQCH\x02R\ttimeoutQc\x88\x01\x01\x129\n" +
-	"\vcommit_vote\x18\x04 \x01(\v2\x13.autobahn.SignedMsgH\x03R\n" +
-	"commitVote\x88\x01\x01\x12;\n" +
-	"\fprepare_vote\x18\x05 \x01(\v2\x13.autobahn.SignedMsgH\x04R\vprepareVote\x88\x01\x01\x12A\n" +
+	"timeout_qc\x18\x03 \x01(\v2\x13.autobahn.TimeoutQCH\x02R\ttimeoutQc\x88\x01\x01\x12C\n" +
+	"\x0ecommit_vote_v2\x18\a \x01(\v2\x18.autobahn.SignedProposalH\x03R\fcommitVoteV2\x88\x01\x01\x12E\n" +
+	"\x0fprepare_vote_v2\x18\b \x01(\v2\x18.autobahn.SignedProposalH\x04R\rprepareVoteV2\x88\x01\x01\x12A\n" +
 	"\ftimeout_vote\x18\x06 \x01(\v2\x19.autobahn.FullTimeoutVoteH\x05R\vtimeoutVote\x88\x01\x01B\f\n" +
 	"\n" +
 	"_commit_qcB\r\n" +
 	"\v_prepare_qcB\r\n" +
-	"\v_timeout_qcB\x0e\n" +
-	"\f_commit_voteB\x0f\n" +
-	"\r_prepare_voteB\x0f\n" +
-	"\r_timeout_vote\"\x97\x01\n" +
+	"\v_timeout_qcB\x11\n" +
+	"\x0f_commit_vote_v2B\x12\n" +
+	"\x10_prepare_vote_v2B\x0f\n" +
+	"\r_timeout_voteJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\vcommit_voteR\fprepare_vote\"\x97\x01\n" +
 	"\x19PersistedAvailPruneAnchor\x12+\n" +
 	"\x06app_qc\x18\x01 \x01(\v2\x0f.autobahn.AppQCH\x00R\x05appQc\x88\x01\x01\x124\n" +
 	"\tcommit_qc\x18\x02 \x01(\v2\x12.autobahn.CommitQCH\x01R\bcommitQc\x88\x01\x01B\t\n" +
 	"\a_app_qcB\f\n" +
 	"\n" +
-	"_commit_qc\"[\n" +
+	"_commit_qc\"k\n" +
 	"\x05AppQC\x12)\n" +
-	"\x04vote\x18\x01 \x01(\v2\x15.autobahn.AppProposalR\x04vote\x12'\n" +
-	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureR\x04sigs\"\xb1\x01\n" +
+	"\x04vote\x18\x01 \x01(\v2\x15.autobahn.AppProposalR\x04vote\x12/\n" +
+	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01\"\xbf\x01\n" +
 	"\vAppProposal\x12(\n" +
 	"\rglobal_number\x18\x01 \x01(\x04H\x00R\fglobalNumber\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"road_index\x18\x02 \x01(\x04H\x01R\troadIndex\x88\x01\x01\x12\x1e\n" +
-	"\bapp_hash\x18\x03 \x01(\fH\x02R\aappHash\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\x10\n" +
+	"road_index\x18\x02 \x01(\x04H\x01R\troadIndex\x88\x01\x01\x12&\n" +
+	"\bapp_hash\x18\x03 \x01(\fB\x06؈\xe2\xab\f H\x02R\aappHash\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x10\n" +
 	"\x0e_global_numberB\r\n" +
 	"\v_road_indexB\v\n" +
-	"\t_app_hash\"\x92\x03\n" +
+	"\t_app_hash\"\x98\x03\n" +
 	"\x03Msg\x126\n" +
 	"\rlane_proposal\x18\x01 \x01(\v2\x0f.autobahn.BlockH\x00R\flaneProposal\x124\n" +
 	"\tlane_vote\x18\x02 \x01(\v2\x15.autobahn.BlockHeaderH\x00R\blaneVote\x120\n" +
@@ -2087,20 +2326,34 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\vcommit_vote\x18\x05 \x01(\v2\x12.autobahn.ProposalH\x00R\n" +
 	"commitVote\x12:\n" +
 	"\ftimeout_vote\x18\x06 \x01(\v2\x15.autobahn.TimeoutVoteH\x00R\vtimeoutVote\x122\n" +
-	"\bapp_vote\x18\a \x01(\v2\x15.autobahn.AppProposalH\x00R\aappVote:\x06Ȉ\xe2\xab\f\x01B\x03\n" +
-	"\x01t\"S\n" +
-	"\tSignedMsg\x12\x1f\n" +
-	"\x03msg\x18\x01 \x01(\v2\r.autobahn.MsgR\x03msg\x12%\n" +
-	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig\"\xb1\x02\n" +
+	"\bapp_vote\x18\a \x01(\v2\x15.autobahn.AppProposalH\x00R\aappVote:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x03\n" +
+	"\x01t\"e\n" +
+	"\x0eSignedProposal\x12$\n" +
+	"\x03msg\x18\x01 \x01(\v2\x12.autobahn.ProposalR\x03msg\x12%\n" +
+	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"k\n" +
+	"\x11SignedTimeoutVote\x12'\n" +
+	"\x03msg\x18\x01 \x01(\v2\x15.autobahn.TimeoutVoteR\x03msg\x12%\n" +
+	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"g\n" +
+	"\rSignedAppVote\x12'\n" +
+	"\x03msg\x18\x01 \x01(\v2\x15.autobahn.AppProposalR\x03msg\x12%\n" +
+	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"_\n" +
+	"\vSignedBlock\x12!\n" +
+	"\x03msg\x18\x01 \x01(\v2\x0f.autobahn.BlockR\x03msg\x12%\n" +
+	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"k\n" +
+	"\x11SignedBlockHeader\x12'\n" +
+	"\x03msg\x18\x01 \x01(\v2\x15.autobahn.BlockHeaderR\x03msg\x12%\n" +
+	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"k\n" +
+	"\x11SignedAppProposal\x12'\n" +
+	"\x03msg\x18\x01 \x01(\v2\x15.autobahn.AppProposalR\x03msg\x12%\n" +
+	"\x03sig\x18\x02 \x01(\v2\x13.autobahn.SignatureR\x03sig:\x06\xe8\x88\xe2\xab\f\x01\"\xf4\x02\n" +
 	"\fConsensusReq\x124\n" +
-	"\bproposal\x18\x01 \x01(\v2\x16.autobahn.FullProposalH\x00R\bproposal\x128\n" +
-	"\fprepare_vote\x18\x02 \x01(\v2\x13.autobahn.SignedMsgH\x00R\vprepareVote\x126\n" +
-	"\vcommit_vote\x18\x03 \x01(\v2\x13.autobahn.SignedMsgH\x00R\n" +
-	"commitVote\x12>\n" +
+	"\bproposal\x18\x01 \x01(\v2\x16.autobahn.FullProposalH\x00R\bproposal\x12B\n" +
+	"\x0fprepare_vote_v2\x18\x06 \x01(\v2\x18.autobahn.SignedProposalH\x00R\rprepareVoteV2\x12@\n" +
+	"\x0ecommit_vote_v2\x18\a \x01(\v2\x18.autobahn.SignedProposalH\x00R\fcommitVoteV2\x12>\n" +
 	"\ftimeout_vote\x18\x04 \x01(\v2\x19.autobahn.FullTimeoutVoteH\x00R\vtimeoutVote\x124\n" +
 	"\n" +
-	"timeout_qc\x18\x05 \x01(\v2\x13.autobahn.TimeoutQCH\x00R\ttimeoutQcB\x03\n" +
-	"\x01tBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pbb\x06proto3"
+	"timeout_qc\x18\x05 \x01(\v2\x13.autobahn.TimeoutQCH\x00R\ttimeoutQc:\x06\xe8\x88\xe2\xab\f\x01B\x03\n" +
+	"\x01tJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\fprepare_voteR\vcommit_voteBGZEgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pbb\x06proto3"
 
 var (
 	file_autobahn_autobahn_proto_rawDescOnce sync.Once
@@ -2114,7 +2367,7 @@ func file_autobahn_autobahn_proto_rawDescGZIP() []byte {
 	return file_autobahn_autobahn_proto_rawDescData
 }
 
-var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_autobahn_autobahn_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_autobahn_autobahn_proto_goTypes = []any{
 	(*Timestamp)(nil),                 // 0: autobahn.Timestamp
 	(*Duration)(nil),                  // 1: autobahn.Duration
@@ -2143,12 +2396,17 @@ var file_autobahn_autobahn_proto_goTypes = []any{
 	(*AppQC)(nil),                     // 24: autobahn.AppQC
 	(*AppProposal)(nil),               // 25: autobahn.AppProposal
 	(*Msg)(nil),                       // 26: autobahn.Msg
-	(*SignedMsg)(nil),                 // 27: autobahn.SignedMsg
-	(*ConsensusReq)(nil),              // 28: autobahn.ConsensusReq
-	nil,                               // 29: autobahn.TransactionHeader.PropertiesEntry
+	(*SignedProposal)(nil),            // 27: autobahn.SignedProposal
+	(*SignedTimeoutVote)(nil),         // 28: autobahn.SignedTimeoutVote
+	(*SignedAppVote)(nil),             // 29: autobahn.SignedAppVote
+	(*SignedBlock)(nil),               // 30: autobahn.SignedBlock
+	(*SignedBlockHeader)(nil),         // 31: autobahn.SignedBlockHeader
+	(*SignedAppProposal)(nil),         // 32: autobahn.SignedAppProposal
+	(*ConsensusReq)(nil),              // 33: autobahn.ConsensusReq
+	nil,                               // 34: autobahn.TransactionHeader.PropertiesEntry
 }
 var file_autobahn_autobahn_proto_depIdxs = []int32{
-	29, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
+	34, // 0: autobahn.TransactionHeader.properties:type_name -> autobahn.TransactionHeader.PropertiesEntry
 	2,  // 1: autobahn.TransactionHeader.timestamps:type_name -> autobahn.TransactionTimestamps
 	3,  // 2: autobahn.Transaction.header:type_name -> autobahn.TransactionHeader
 	6,  // 3: autobahn.Signature.key:type_name -> autobahn.PublicKey
@@ -2163,7 +2421,7 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	0,  // 12: autobahn.Proposal.timestamp:type_name -> autobahn.Timestamp
 	12, // 13: autobahn.Proposal.lane_ranges:type_name -> autobahn.LaneRange
 	25, // 14: autobahn.Proposal.app:type_name -> autobahn.AppProposal
-	27, // 15: autobahn.FullProposal.proposal:type_name -> autobahn.SignedMsg
+	27, // 15: autobahn.FullProposal.proposal_v2:type_name -> autobahn.SignedProposal
 	11, // 16: autobahn.FullProposal.lane_qcs:type_name -> autobahn.LaneQC
 	24, // 17: autobahn.FullProposal.app_qc:type_name -> autobahn.AppQC
 	20, // 18: autobahn.FullProposal.timeout_qc:type_name -> autobahn.TimeoutQC
@@ -2174,15 +2432,15 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	17, // 23: autobahn.FullCommitQC.qc:type_name -> autobahn.CommitQC
 	8,  // 24: autobahn.FullCommitQC.headers:type_name -> autobahn.BlockHeader
 	13, // 25: autobahn.TimeoutVote.view:type_name -> autobahn.View
-	27, // 26: autobahn.TimeoutQC.votes:type_name -> autobahn.SignedMsg
+	28, // 26: autobahn.TimeoutQC.votes_v2:type_name -> autobahn.SignedTimeoutVote
 	16, // 27: autobahn.TimeoutQC.latest_prepare_qc:type_name -> autobahn.PrepareQC
-	27, // 28: autobahn.FullTimeoutVote.vote:type_name -> autobahn.SignedMsg
+	28, // 28: autobahn.FullTimeoutVote.vote_v2:type_name -> autobahn.SignedTimeoutVote
 	16, // 29: autobahn.FullTimeoutVote.latest_prepare_qc:type_name -> autobahn.PrepareQC
 	17, // 30: autobahn.PersistedInner.commit_qc:type_name -> autobahn.CommitQC
 	16, // 31: autobahn.PersistedInner.prepare_qc:type_name -> autobahn.PrepareQC
 	20, // 32: autobahn.PersistedInner.timeout_qc:type_name -> autobahn.TimeoutQC
-	27, // 33: autobahn.PersistedInner.commit_vote:type_name -> autobahn.SignedMsg
-	27, // 34: autobahn.PersistedInner.prepare_vote:type_name -> autobahn.SignedMsg
+	27, // 33: autobahn.PersistedInner.commit_vote_v2:type_name -> autobahn.SignedProposal
+	27, // 34: autobahn.PersistedInner.prepare_vote_v2:type_name -> autobahn.SignedProposal
 	21, // 35: autobahn.PersistedInner.timeout_vote:type_name -> autobahn.FullTimeoutVote
 	24, // 36: autobahn.PersistedAvailPruneAnchor.app_qc:type_name -> autobahn.AppQC
 	17, // 37: autobahn.PersistedAvailPruneAnchor.commit_qc:type_name -> autobahn.CommitQC
@@ -2195,18 +2453,28 @@ var file_autobahn_autobahn_proto_depIdxs = []int32{
 	14, // 44: autobahn.Msg.commit_vote:type_name -> autobahn.Proposal
 	19, // 45: autobahn.Msg.timeout_vote:type_name -> autobahn.TimeoutVote
 	25, // 46: autobahn.Msg.app_vote:type_name -> autobahn.AppProposal
-	26, // 47: autobahn.SignedMsg.msg:type_name -> autobahn.Msg
-	7,  // 48: autobahn.SignedMsg.sig:type_name -> autobahn.Signature
-	15, // 49: autobahn.ConsensusReq.proposal:type_name -> autobahn.FullProposal
-	27, // 50: autobahn.ConsensusReq.prepare_vote:type_name -> autobahn.SignedMsg
-	27, // 51: autobahn.ConsensusReq.commit_vote:type_name -> autobahn.SignedMsg
-	21, // 52: autobahn.ConsensusReq.timeout_vote:type_name -> autobahn.FullTimeoutVote
-	20, // 53: autobahn.ConsensusReq.timeout_qc:type_name -> autobahn.TimeoutQC
-	54, // [54:54] is the sub-list for method output_type
-	54, // [54:54] is the sub-list for method input_type
-	54, // [54:54] is the sub-list for extension type_name
-	54, // [54:54] is the sub-list for extension extendee
-	0,  // [0:54] is the sub-list for field type_name
+	14, // 47: autobahn.SignedProposal.msg:type_name -> autobahn.Proposal
+	7,  // 48: autobahn.SignedProposal.sig:type_name -> autobahn.Signature
+	19, // 49: autobahn.SignedTimeoutVote.msg:type_name -> autobahn.TimeoutVote
+	7,  // 50: autobahn.SignedTimeoutVote.sig:type_name -> autobahn.Signature
+	25, // 51: autobahn.SignedAppVote.msg:type_name -> autobahn.AppProposal
+	7,  // 52: autobahn.SignedAppVote.sig:type_name -> autobahn.Signature
+	10, // 53: autobahn.SignedBlock.msg:type_name -> autobahn.Block
+	7,  // 54: autobahn.SignedBlock.sig:type_name -> autobahn.Signature
+	8,  // 55: autobahn.SignedBlockHeader.msg:type_name -> autobahn.BlockHeader
+	7,  // 56: autobahn.SignedBlockHeader.sig:type_name -> autobahn.Signature
+	25, // 57: autobahn.SignedAppProposal.msg:type_name -> autobahn.AppProposal
+	7,  // 58: autobahn.SignedAppProposal.sig:type_name -> autobahn.Signature
+	15, // 59: autobahn.ConsensusReq.proposal:type_name -> autobahn.FullProposal
+	27, // 60: autobahn.ConsensusReq.prepare_vote_v2:type_name -> autobahn.SignedProposal
+	27, // 61: autobahn.ConsensusReq.commit_vote_v2:type_name -> autobahn.SignedProposal
+	21, // 62: autobahn.ConsensusReq.timeout_vote:type_name -> autobahn.FullTimeoutVote
+	20, // 63: autobahn.ConsensusReq.timeout_qc:type_name -> autobahn.TimeoutQC
+	64, // [64:64] is the sub-list for method output_type
+	64, // [64:64] is the sub-list for method input_type
+	64, // [64:64] is the sub-list for extension type_name
+	64, // [64:64] is the sub-list for extension extendee
+	0,  // [0:64] is the sub-list for field type_name
 }
 
 func init() { file_autobahn_autobahn_proto_init() }
@@ -2240,10 +2508,10 @@ func file_autobahn_autobahn_proto_init() {
 		(*Msg_TimeoutVote)(nil),
 		(*Msg_AppVote)(nil),
 	}
-	file_autobahn_autobahn_proto_msgTypes[28].OneofWrappers = []any{
+	file_autobahn_autobahn_proto_msgTypes[33].OneofWrappers = []any{
 		(*ConsensusReq_Proposal)(nil),
-		(*ConsensusReq_PrepareVote)(nil),
-		(*ConsensusReq_CommitVote)(nil),
+		(*ConsensusReq_PrepareVoteV2)(nil),
+		(*ConsensusReq_CommitVoteV2)(nil),
 		(*ConsensusReq_TimeoutVote)(nil),
 		(*ConsensusReq_TimeoutQc)(nil),
 	}
@@ -2253,7 +2521,7 @@ func file_autobahn_autobahn_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_autobahn_autobahn_proto_rawDesc), len(file_autobahn_autobahn_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   30,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

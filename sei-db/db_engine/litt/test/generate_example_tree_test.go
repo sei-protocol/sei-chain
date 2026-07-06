@@ -28,18 +28,23 @@ func TestGenerateExampleTree(t *testing.T) {
 	config, err := litt.DefaultConfig(rootDirectories...)
 	require.NoError(t, err)
 
-	config.ShardingFactor = 4
 	config.TargetSegmentFileSize = 100 // use a small value to intentionally create several segments
 	config.SnapshotDirectory = path.Join(testDir, "rolling_snapshot")
+
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = 4
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
 
-	tableA, err := db.GetTable("tableA")
+	tableConfig.Name = "tableA"
+	tableA, err := db.BuildTable(tableConfig)
 	require.NoError(t, err)
-	tableB, err := db.GetTable("tableB")
+	tableConfig.Name = "tableB"
+	tableB, err := db.BuildTable(tableConfig)
 	require.NoError(t, err)
-	tableC, err := db.GetTable("tableC")
+	tableConfig.Name = "tableC"
+	tableC, err := db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	// Write enough data to tableA to create 3 segments
@@ -74,6 +79,15 @@ func TestGenerateExampleTree(t *testing.T) {
 			path.Join(testDir, "rolling_snapshot", tableName))
 		require.NoError(t, err)
 		err = lowerBoundFile.Update(0)
+		require.NoError(t, err)
+	}
+
+	// Simulate a gc-watermark file. This normally only gets created once garbage collection has run. It lives in
+	// the table directory in root0 (the same root that holds the keymap), so it survives a keymap rebuild.
+	for _, tableName := range []string{"tableA", "tableB", "tableC"} {
+		gcWatermarkFile, err := disktable.LoadGCWatermarkFile(path.Join(rootDirectories[0], tableName))
+		require.NoError(t, err)
+		err = gcWatermarkFile.Update(0)
 		require.NoError(t, err)
 	}
 

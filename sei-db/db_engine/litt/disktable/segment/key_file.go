@@ -169,14 +169,32 @@ func (k *keyFile) atomicSwap(sync bool) error {
 	return nil
 }
 
+// KeyRecordHeaderSize is the on-disk size of the fixed-width portion of a key-file record that
+// precedes the variable-length key bytes: one byte of KeyKind followed by a uint16 key-length prefix.
+const KeyRecordHeaderSize = 3
+
+// MaxKeyLength is the maximum permitted length of a key in bytes. The key file stores the key
+// length as a uint16, which is more than enough headroom for any realistic key.
+const MaxKeyLength = 1<<16 - 1
+
 // write writes a key to the key file.
 func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 	if k.writer == nil {
 		return fmt.Errorf("key file is sealed")
 	}
 
-	// Write the length of the key.
-	err := binary.Write(k.writer, binary.BigEndian, uint32(len(scopedKey.Key))) //nolint:gosec // key length fits uint32
+	if len(scopedKey.Key) > MaxKeyLength {
+		return fmt.Errorf("key length %d exceeds maximum of %d", len(scopedKey.Key), MaxKeyLength)
+	}
+
+	// Write the kind byte (1 B).
+	err := k.writer.WriteByte(byte(scopedKey.Kind))
+	if err != nil {
+		return fmt.Errorf("failed to write kind to key file: %w", err)
+	}
+
+	// Write the length of the key (2 B, big-endian).
+	err = binary.Write(k.writer, binary.BigEndian, uint16(len(scopedKey.Key))) //nolint:gosec // bounded above
 	if err != nil {
 		return fmt.Errorf("failed to write key length to key file: %w", err)
 	}
@@ -194,7 +212,7 @@ func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 	}
 
 	k.size += uint64( //nolint:gosec // sizes are non-negative
-		4 /* uint32 size of key */ +
+		KeyRecordHeaderSize +
 			len(scopedKey.Key) +
 			types.AddressSerializedSize)
 
@@ -266,14 +284,13 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 	keys := make([]*types.ScopedKey, 0)
 
 	index := 0
-	for {
-		// We need at least 4 bytes to read the length of the key.
-		if index+4 > len(keyBytes) { //nolint:staticcheck // QF1006
-			// There are fewer than 4 bytes left in the file.
-			break
-		}
-		keyLength := int(binary.BigEndian.Uint32(keyBytes[index : index+4]))
-		index += 4
+	// We need the fixed-width header (kind + uint16 key length) before we can decide whether the
+	// next record fits.
+	for index+KeyRecordHeaderSize <= len(keyBytes) {
+		kind := types.KeyKind(keyBytes[index])
+		index++
+		keyLength := int(binary.BigEndian.Uint16(keyBytes[index : index+2]))
+		index += 2
 
 		// We need to read the key, as well as the serialized address (which embeds the shard ID and value size).
 		if index+keyLength+types.AddressSerializedSize > len(keyBytes) {
@@ -293,6 +310,7 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 		keys = append(keys, &types.ScopedKey{
 			Key:     key,
 			Address: address,
+			Kind:    kind,
 		})
 	}
 

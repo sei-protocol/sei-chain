@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/memtable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
@@ -27,14 +26,6 @@ type tableBuilder struct {
 
 // This test executes against different table implementations.
 var tableBuilders = []*tableBuilder{
-	{
-		"memtable",
-		buildMemTable,
-	},
-	{
-		"cached memtable",
-		buildCachedMemTable,
-	},
 	{
 		"mem keymap disk table",
 		buildMemKeyDiskTable,
@@ -55,10 +46,6 @@ var tableBuilders = []*tableBuilder{
 
 var noCacheTableBuilders = []*tableBuilder{
 	{
-		"memtable",
-		buildMemTable,
-	},
-	{
 		"mem keymap disk table",
 		buildMemKeyDiskTable,
 	},
@@ -66,22 +53,6 @@ var noCacheTableBuilders = []*tableBuilder{
 		"pebbledb keymap disk table",
 		buildPebbleDBKeyDiskTable,
 	},
-}
-
-func buildMemTable(
-	clock func() time.Time,
-	name string,
-	path string) (litt.ManagedTable, error) {
-
-	config, err := litt.DefaultConfig(path)
-	config.Clock = clock
-	config.GCPeriod = time.Millisecond
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to create config: %w", err)
-	}
-
-	return memtable.NewMemTable(config, name), nil
 }
 
 func setupKeymapTypeFile(keymapPath string, keymapType keymap.KeymapType) (*keymap.KeymapTypeFile, error) {
@@ -133,15 +104,19 @@ func buildMemKeyDiskTable(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 	config.GCPeriod = time.Millisecond
-	config.Clock = clock
 	config.Fsync = false
 	config.DoubleWriteProtection = true
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := disktable.NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
+		litt.DefaultTableConfig(name),
 		keys,
 		keymapPath,
 		keymapTypeFile,
@@ -179,15 +154,19 @@ func buildPebbleDBKeyDiskTable(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 	config.GCPeriod = time.Millisecond
-	config.Clock = clock
 	config.Fsync = false
 	config.DoubleWriteProtection = true
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := disktable.NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
+		litt.DefaultTableConfig(name),
 		keys,
 		keymapPath,
 		keymapTypeFile,
@@ -200,26 +179,6 @@ func buildPebbleDBKeyDiskTable(
 	}
 
 	return table, nil
-}
-
-func buildCachedMemTable(
-	clock func() time.Time,
-	name string,
-	path string) (litt.ManagedTable, error) {
-
-	baseTable, err := buildMemTable(clock, name, path)
-	if err != nil {
-		return nil, err
-	}
-
-	writeCache := util.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
-		return uint64(len(k) + len(v))
-	}, nil)
-	readCache := util.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
-		return uint64(len(k) + len(v))
-	}, nil)
-
-	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
 func buildCachedMemKeyDiskTable(
@@ -290,11 +249,11 @@ func randomTableOperationsTest(t *testing.T, tableBuilder *tableBuilder) {
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -338,7 +297,7 @@ func randomTableOperationsTest(t *testing.T, tableBuilder *tableBuilder) {
 		}
 	}
 
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -375,6 +334,10 @@ func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
 	if err != nil {
 		t.Fatalf("failed to create table: %v", err)
 	}
+	// Safety net: if an assertion fails mid-test, Drop stops the background GC goroutine before the
+	// t.TempDir cleanup removes the directory out from under it. Drop is idempotent (guarded by a CAS),
+	// so the explicit Drop at the end of the happy path makes this a no-op.
+	defer func() { _ = table.Drop() }()
 
 	ttlSeconds := rand.Int32Range(20, 30)
 	ttl := time.Duration(ttlSeconds) * time.Second
@@ -407,11 +370,11 @@ func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
 			expectedValues[string(key)] = value
 			creationTimes[string(key)] = newTime
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 				creationTimes[string(key)] = newTime
 			}
@@ -431,12 +394,6 @@ func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
 			ttl = time.Duration(ttlSeconds) * time.Second
 			err = table.SetTTL(ttl)
 			require.NoError(t, err)
-		}
-
-		// Once in a while, pause for a brief moment to give the garbage collector a chance to do work in the
-		// background. This is not required for the test to pass.
-		if rand.BoolWithProbability(0.01) {
-			time.Sleep(5 * time.Millisecond)
 		}
 
 		// Once in a while, scan the table and verify that all expected values are present.
@@ -468,45 +425,45 @@ func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
 			require.NoError(t, err)
 			require.False(t, ok)
 
-			// Check the values that are expected to have been removed from the table
-			// Garbage collection happens asynchronously, so we may need to wait for it to complete.
-			util.AssertEventuallyTrue(t, func() bool {
-				// keep a running sum of the unexpired data size. Some data may be unable to expire
-				// due to sharing a file with data that is not yet ready to expire, so it's hard
-				// to predict the exact quantity of unexpired data.
-				//
-				// Math:
-				// - 100 bytes in each segment                   (test configuration)
-				// - max value size of 128 bytes                 (test configuration)
-				// - 4 bytes to store the length of the value    (default property)
-				// - max bytes per segment: 100+128+4 = 232
-				// - max number of segments per write is equal to max batch size, or 9
-				// - max unexpired data size = 9 * 232 = 2088
-				unexpiredDataSize := 0
+			// Check the values that are expected to have been removed from the table. Drive a synchronous GC
+			// pass rather than waiting on the background collector: RunGC runs collection, the keymap-delete
+			// sync, and file reclamation to completion, so once it returns every currently-expired sealed
+			// segment has been collected and its keymap entries deleted. This makes the check deterministic
+			// (no reliance on the 1ms ticker catching up within a real-time window), so it can only fail if
+			// collection is actually broken.
+			require.NoError(t, table.RunGC())
 
-				for key, expectedValue := range expiredValues {
-					value, ok, err := table.Get([]byte(key))
-					require.NoError(t, err)
-					if !ok {
-						// value is not present in the table
-						continue
-					}
-
-					// If the value has not yet been deleted, it should at least return the expected value.
-					require.Equal(t, expectedValue, value, "unexpected value for key %s", key)
-
-					unexpiredDataSize += len(value) + 4 // 4 bytes stores the length of the value
+			// Keep a running sum of the unexpired data size. Some expired data may still be present because it
+			// shares a segment with data that is not yet ready to expire (segments expire as a unit), so the
+			// exact quantity of lingering data is not predictable; we assert it stays within the plausible bound.
+			//
+			// Math:
+			// - 100 bytes in each segment                   (test configuration)
+			// - max value size of 128 bytes                 (test configuration)
+			// - 4 bytes to store the length of the value    (default property)
+			// - max bytes per segment: 100+128+4 = 232
+			// - max number of segments per write is equal to max batch size, or 9
+			// - max unexpired data size = 9 * 232 = 2088
+			unexpiredDataSize := 0
+			for key, expectedValue := range expiredValues {
+				value, ok, err := table.Get([]byte(key))
+				require.NoError(t, err)
+				if !ok {
+					// value is not present in the table
+					continue
 				}
 
-				// This check passes if the unexpired data size is less than or equal to the maximum plausible
-				// size of unexpired data. If working as expected, this should always happen within a reasonable
-				// amount of time.
-				return unexpiredDataSize <= 2088
-			}, time.Second)
+				// If the value has not yet been deleted, it should at least return the expected value.
+				require.Equal(t, expectedValue, value, "unexpected value for key %s", key)
+
+				unexpiredDataSize += len(value) + 4 // 4 bytes stores the length of the value
+			}
+
+			require.LessOrEqual(t, unexpiredDataSize, 2088)
 		}
 	}
 
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -535,17 +492,76 @@ func TestInvalidTableName(t *testing.T) {
 	require.NoError(t, err)
 
 	tableName := "invalid name"
-	table, err := db.GetTable(tableName)
+	table, err := db.BuildTable(litt.DefaultTableConfig(tableName))
 	require.Error(t, err)
 	require.Nil(t, table)
 
 	tableName = "invalid/name"
-	table, err = db.GetTable(tableName)
+	table, err = db.BuildTable(litt.DefaultTableConfig(tableName))
 	require.Error(t, err)
 	require.Nil(t, table)
 
 	tableName = ""
-	table, err = db.GetTable(tableName)
+	table, err = db.BuildTable(litt.DefaultTableConfig(tableName))
 	require.Error(t, err)
 	require.Nil(t, table)
+}
+
+// secondaryKeyBasicsTest runs against every table implementation registered in tableBuilders. It
+// verifies that secondary keys behave like first-class keys at the Table interface: Put accepts
+// them, Get returns the correct sub-range bytes both before and after Flush, Exists reports them
+// as present, and KeyCount counts them.
+func secondaryKeyBasicsTest(t *testing.T, tb *tableBuilder) {
+	rand := util.NewTestRandom()
+	directory := t.TempDir()
+	tableName := rand.String(8)
+	table, err := tb.builder(time.Now, tableName, directory)
+	require.NoError(t, err)
+
+	value := []byte("the quick brown fox")
+	primary := []byte("primary")
+	sk1 := &types.SecondaryKey{Key: []byte("quick"), Offset: 4, Length: 5}
+	sk2 := &types.SecondaryKey{Key: []byte("alias"), Offset: 0, Length: uint32(len(value))}
+
+	require.NoError(t, table.Put(primary, value, sk1, sk2))
+
+	verify := func(stage string) {
+		t.Helper()
+		got, ok, err := table.Get(primary)
+		require.NoError(t, err, stage)
+		require.True(t, ok, stage)
+		require.Equal(t, value, got, stage)
+
+		ok, err = table.Exists(sk1.Key)
+		require.NoError(t, err, stage)
+		require.True(t, ok, stage)
+		got, ok, err = table.Get(sk1.Key)
+		require.NoError(t, err, stage)
+		require.True(t, ok, stage)
+		require.Equal(t, value[sk1.Offset:sk1.Offset+sk1.Length], got, stage)
+
+		got, ok, err = table.Get(sk2.Key)
+		require.NoError(t, err, stage)
+		require.True(t, ok, stage)
+		require.Equal(t, value, got, stage)
+
+		require.EqualValues(t, 3, table.KeyCount(), stage)
+	}
+
+	verify("before flush")
+	require.NoError(t, table.Flush())
+	verify("after flush")
+
+	require.NoError(t, table.Drop())
+}
+
+func TestSecondaryKeyBasics(t *testing.T) {
+	t.Parallel()
+	for _, tb := range tableBuilders {
+		tb := tb
+		t.Run(tb.name, func(t *testing.T) {
+			t.Parallel()
+			secondaryKeyBasicsTest(t, tb)
+		})
+	}
 }

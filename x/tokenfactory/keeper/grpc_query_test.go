@@ -3,12 +3,14 @@ package keeper_test
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"testing"
+
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
-	"reflect"
-	"testing"
 )
 
 func (suite *KeeperTestSuite) TestDenomMetadataRequest() {
@@ -156,6 +158,68 @@ func (suite *KeeperTestSuite) TestDenomAllowListRequest() {
 			}
 		})
 	}
+}
+
+func (suite *KeeperTestSuite) TestDenomsFromCreatorPagination() {
+	creator := suite.TestAccs[0].String()
+	ctx := sdk.WrapSDKContext(suite.Ctx)
+
+	denomSubdirs := []string{"aaa", "bbb", "ccc", "ddd", "eee"}
+	for _, sub := range denomSubdirs {
+		_, err := suite.msgServer.CreateDenom(ctx, types.NewMsgCreateDenom(creator, sub))
+		suite.Require().NoError(err)
+	}
+
+	suite.Run("no pagination returns all denoms", func() {
+		res, err := suite.queryClient.DenomsFromCreator(ctx, &types.QueryDenomsFromCreatorRequest{Creator: creator})
+		suite.Require().NoError(err)
+		suite.Require().Len(res.Denoms, len(denomSubdirs))
+		suite.Require().NotNil(res.Pagination)
+	})
+
+	suite.Run("limit 2 returns first page with next key", func() {
+		res, err := suite.queryClient.DenomsFromCreator(ctx, &types.QueryDenomsFromCreatorRequest{
+			Creator:    creator,
+			Pagination: &query.PageRequest{Limit: 2},
+		})
+		suite.Require().NoError(err)
+		suite.Require().Len(res.Denoms, 2)
+		suite.Require().NotNil(res.Pagination)
+		suite.Require().NotNil(res.Pagination.NextKey)
+	})
+
+	suite.Run("key-based second page returns remaining denoms", func() {
+		first, err := suite.queryClient.DenomsFromCreator(ctx, &types.QueryDenomsFromCreatorRequest{
+			Creator:    creator,
+			Pagination: &query.PageRequest{Limit: 2},
+		})
+		suite.Require().NoError(err)
+
+		second, err := suite.queryClient.DenomsFromCreator(ctx, &types.QueryDenomsFromCreatorRequest{
+			Creator:    creator,
+			Pagination: &query.PageRequest{Key: first.Pagination.NextKey, Limit: 2},
+		})
+		suite.Require().NoError(err)
+		suite.Require().NotEmpty(second.Denoms)
+		// pages must not overlap
+		for _, d := range second.Denoms {
+			suite.Require().NotContains(first.Denoms, d)
+		}
+	})
+
+	suite.Run("offset-based pagination", func() {
+		all, err := suite.queryClient.DenomsFromCreator(ctx, &types.QueryDenomsFromCreatorRequest{Creator: creator})
+		suite.Require().NoError(err)
+
+		const offset = 2
+		res, err := suite.queryClient.DenomsFromCreator(ctx, &types.QueryDenomsFromCreatorRequest{
+			Creator:    creator,
+			Pagination: &query.PageRequest{Offset: offset, Limit: 2},
+		})
+		suite.Require().NoError(err)
+		suite.Require().NotEmpty(res.Denoms)
+		suite.Require().Equal(all.Denoms[offset:offset+len(res.Denoms)], res.Denoms)
+	})
 }
 
 func TestKeeper_DenomAllowList(t *testing.T) {

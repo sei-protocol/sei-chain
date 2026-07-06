@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/spf13/viper"
@@ -11,6 +12,7 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -67,12 +69,124 @@ func TestDefaultGRPCConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.True(t, cfg.GRPC.Enable)
 	require.Equal(t, DefaultGRPCAddress, cfg.GRPC.Address)
+	require.Equal(t, DefaultGRPCMaxRecvMsgSize, cfg.GRPC.MaxRecvMsgSize)
+	require.Equal(t, uint(DefaultGRPCMaxOpenConnections), cfg.GRPC.MaxOpenConnections)
+	require.Equal(t, DefaultGRPCMaxConnectionIdle, cfg.GRPC.MaxConnectionIdle)
+	require.Equal(t, 5*time.Minute, cfg.GRPC.MaxConnectionIdle)
+	require.Equal(t, DefaultGRPCMaxConnectionAge, cfg.GRPC.MaxConnectionAge)
+	require.Equal(t, DefaultGRPCMaxConnectionAgeGrace, cfg.GRPC.MaxConnectionAgeGrace)
+	require.Equal(t, DefaultGRPCKeepaliveTime, cfg.GRPC.KeepaliveTime)
+	require.Equal(t, DefaultGRPCKeepaliveTimeout, cfg.GRPC.KeepaliveTimeout)
+	require.Equal(t, DefaultGRPCKeepaliveMinTime, cfg.GRPC.KeepaliveMinTime)
+	require.Equal(t, DefaultGRPCKeepalivePermitWithoutStream, cfg.GRPC.KeepalivePermitWithoutStream)
+}
+
+// seedViperWithDefaultConfig renders the default app config template and reads
+// it into a fresh viper instance, mirroring how seid loads app.toml.
+func seedViperWithDefaultConfig(t *testing.T) *viper.Viper {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, configTemplate.Execute(&buf, DefaultConfig()))
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(&buf))
+	return v
+}
+
+// TestGetConfigGRPCDefaultsWhenAbsent ensures a node upgrading with an older
+// app.toml (which lacks the new gRPC keys) still gets the bounded in-code
+// defaults rather than zero/unlimited values.
+func TestGetConfigGRPCDefaultsWhenAbsent(t *testing.T) {
+	// Minimal app.toml that predates the new gRPC keys. global-labels is the
+	// only key GetConfig hard-requires.
+	const legacyAppToml = `
+[telemetry]
+global-labels = []
+
+[grpc]
+enable = true
+address = "0.0.0.0:9090"
+`
+	v := viper.New()
+	v.SetConfigType("toml")
+	require.NoError(t, v.ReadConfig(bytes.NewBufferString(legacyAppToml)))
+	require.False(t, v.IsSet("grpc.max-recv-msg-size"))
+	require.False(t, v.IsSet("grpc.max-open-connections"))
+	require.False(t, v.IsSet("grpc.max-connection-idle"))
+	require.False(t, v.IsSet("grpc.max-connection-age"))
+	require.False(t, v.IsSet("grpc.max-connection-age-grace"))
+	require.False(t, v.IsSet("grpc.keepalive-permit-without-stream"))
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, DefaultGRPCMaxRecvMsgSize, cfg.GRPC.MaxRecvMsgSize)
+	require.Equal(t, uint(DefaultGRPCMaxOpenConnections), cfg.GRPC.MaxOpenConnections)
+	// The bounded idle default must survive an older app.toml that omits the key.
+	require.Equal(t, DefaultGRPCMaxConnectionIdle, cfg.GRPC.MaxConnectionIdle)
+	require.Equal(t, DefaultGRPCKeepaliveTime, cfg.GRPC.KeepaliveTime)
+	require.Equal(t, DefaultGRPCKeepaliveTimeout, cfg.GRPC.KeepaliveTimeout)
+	require.Equal(t, DefaultGRPCKeepaliveMinTime, cfg.GRPC.KeepaliveMinTime)
+	// The directly-read fields (no IsSet guard) must still resolve to their
+	// in-code defaults when the keys are absent.
+	require.Equal(t, DefaultGRPCMaxConnectionAge, cfg.GRPC.MaxConnectionAge)
+	require.Equal(t, DefaultGRPCMaxConnectionAgeGrace, cfg.GRPC.MaxConnectionAgeGrace)
+	require.Equal(t, DefaultGRPCKeepalivePermitWithoutStream, cfg.GRPC.KeepalivePermitWithoutStream)
+}
+
+// TestGetConfigGRPCClampsNegativeDurations ensures a misconfigured negative
+// keepalive/connection-age duration falls back to the safe in-code default
+// rather than being passed verbatim to the gRPC server.
+func TestGetConfigGRPCClampsNegativeDurations(t *testing.T) {
+	v := seedViperWithDefaultConfig(t)
+	v.Set("grpc.max-connection-idle", "-1s")
+	v.Set("grpc.max-connection-age", "-1s")
+	v.Set("grpc.max-connection-age-grace", "-1s")
+	v.Set("grpc.keepalive-time", "-1s")
+	v.Set("grpc.keepalive-timeout", "-1s")
+	v.Set("grpc.keepalive-min-time", "-1s")
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, DefaultGRPCMaxConnectionIdle, cfg.GRPC.MaxConnectionIdle)
+	require.Equal(t, DefaultGRPCMaxConnectionAge, cfg.GRPC.MaxConnectionAge)
+	require.Equal(t, DefaultGRPCMaxConnectionAgeGrace, cfg.GRPC.MaxConnectionAgeGrace)
+	require.Equal(t, DefaultGRPCKeepaliveTime, cfg.GRPC.KeepaliveTime)
+	require.Equal(t, DefaultGRPCKeepaliveTimeout, cfg.GRPC.KeepaliveTimeout)
+	require.Equal(t, DefaultGRPCKeepaliveMinTime, cfg.GRPC.KeepaliveMinTime)
+}
+
+// TestGetConfigGRPCOverrides ensures operator-provided values override the
+// in-code defaults.
+func TestGetConfigGRPCOverrides(t *testing.T) {
+	v := seedViperWithDefaultConfig(t)
+	v.Set("grpc.max-recv-msg-size", 8*1024*1024)
+	v.Set("grpc.max-open-connections", 50)
+	v.Set("grpc.max-connection-idle", "5m")
+	v.Set("grpc.max-connection-age", "30m")
+	v.Set("grpc.max-connection-age-grace", "1m")
+	v.Set("grpc.keepalive-time", "1m")
+	v.Set("grpc.keepalive-timeout", "10s")
+	v.Set("grpc.keepalive-min-time", "30s")
+	v.Set("grpc.keepalive-permit-without-stream", true)
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, 8*1024*1024, cfg.GRPC.MaxRecvMsgSize)
+	require.Equal(t, uint(50), cfg.GRPC.MaxOpenConnections)
+	require.Equal(t, 5*time.Minute, cfg.GRPC.MaxConnectionIdle)
+	require.Equal(t, 30*time.Minute, cfg.GRPC.MaxConnectionAge)
+	require.Equal(t, time.Minute, cfg.GRPC.MaxConnectionAgeGrace)
+	require.Equal(t, time.Minute, cfg.GRPC.KeepaliveTime)
+	require.Equal(t, 10*time.Second, cfg.GRPC.KeepaliveTimeout)
+	require.Equal(t, 30*time.Second, cfg.GRPC.KeepaliveMinTime)
+	require.True(t, cfg.GRPC.KeepalivePermitWithoutStream)
 }
 
 func TestDefaultGRPCWebConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.True(t, cfg.GRPCWeb.Enable)
 	require.Equal(t, DefaultGRPCWebAddress, cfg.GRPCWeb.Address)
+	require.Equal(t, uint(DefaultGRPCWebMaxOpenConnections), cfg.GRPCWeb.MaxOpenConnections)
 }
 
 func TestDefaultRosettaConfig(t *testing.T) {
@@ -200,6 +314,8 @@ func TestGetConfig(t *testing.T) {
 	require.Equal(t, DefaultMinGasPrices, cfg.MinGasPrices)
 	require.True(t, cfg.Telemetry.Enabled)
 	require.False(t, cfg.API.Enable)
+	require.Equal(t, seidbconfig.DefaultStateCommitConfig().FlatKVConfig.SnapshotInterval, cfg.StateCommit.FlatKVConfig.SnapshotInterval)
+	require.Equal(t, seidbconfig.DefaultStateCommitConfig().FlatKVConfig.SnapshotKeepRecent, cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
 }
 
 func TestConfigTemplate(t *testing.T) {
@@ -280,6 +396,40 @@ func TestSetAndGetMinGasPrices(t *testing.T) {
 	require.Equal(t, "uatom", parsed[1].Denom)
 }
 
+func TestGetConfigGRPCWebMaxOpenConnections(t *testing.T) {
+	baseViper := func() *viper.Viper {
+		v := viper.New()
+		v.Set("minimum-gas-prices", DefaultMinGasPrices)
+		v.Set("telemetry.global-labels", []interface{}{})
+		return v
+	}
+
+	t.Run("missing key falls back to the in-code default", func(t *testing.T) {
+		// Mirrors a node upgrading with an older app.toml that predates the
+		// grpc-web.max-open-connections key
+		cfg, err := GetConfig(baseViper())
+		require.NoError(t, err)
+		require.Equal(t, uint(DefaultGRPCWebMaxOpenConnections), cfg.GRPCWeb.MaxOpenConnections)
+	})
+
+	t.Run("explicit zero is preserved as unlimited", func(t *testing.T) {
+		v := baseViper()
+		v.Set("grpc-web.max-open-connections", 0)
+		cfg, err := GetConfig(v)
+		require.NoError(t, err)
+		require.Equal(t, uint(0), cfg.GRPCWeb.MaxOpenConnections,
+			"explicit 0 must remain an opt-in to unlimited connections")
+	})
+
+	t.Run("explicit value overrides the default", func(t *testing.T) {
+		v := baseViper()
+		v.Set("grpc-web.max-open-connections", 250)
+		cfg, err := GetConfig(v)
+		require.NoError(t, err)
+		require.Equal(t, uint(250), cfg.GRPCWeb.MaxOpenConnections)
+	})
+}
+
 func TestGetConfigStateCommit(t *testing.T) {
 	v := viper.New()
 
@@ -289,6 +439,8 @@ func TestGetConfigStateCommit(t *testing.T) {
 
 	v.Set("state-commit.sc-enable", true)
 	v.Set("state-commit.sc-directory", "/custom/path")
+	// Opt out of auto so the explicit sc-write-mode is honored.
+	v.Set("state-commit.sc-write-mode-enable-auto", false)
 	v.Set("state-commit.sc-write-mode", "test_only_dual_write")
 	v.Set("state-commit.sc-async-commit-buffer", 200)
 	v.Set("state-commit.sc-keep-recent", 5)
@@ -302,7 +454,8 @@ func TestGetConfigStateCommit(t *testing.T) {
 
 	require.True(t, cfg.StateCommit.Enable)
 	require.Equal(t, "/custom/path", cfg.StateCommit.Directory)
-	require.Equal(t, seidbconfig.TestOnlyDualWrite, cfg.StateCommit.WriteMode)
+	require.False(t, cfg.StateCommit.WriteModeEnableAuto)
+	require.Equal(t, sctypes.TestOnlyDualWrite, cfg.StateCommit.WriteMode)
 
 	// Verify MemIAVLConfig fields
 	require.Equal(t, 200, cfg.StateCommit.MemIAVLConfig.AsyncCommitBuffer)
@@ -327,6 +480,63 @@ func TestGetConfigRejectsInvalidWriteMode(t *testing.T) {
 	require.Contains(t, err.Error(), "bogus_mode")
 }
 
+// TestGetConfigLegacyMemiavlOnlyResolvesToAuto guards the existing-fleet
+// upgrade path: a config written by an older binary carries an explicit
+// sc-write-mode = "memiavl_only" but no sc-write-mode-enable-auto key. The absent
+// key must default to true so the node resolves to auto and can follow a
+// governance-driven migration without any app.toml edit.
+func TestGetConfigLegacyMemiavlOnlyResolvesToAuto(t *testing.T) {
+	v := viper.New()
+
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+	v.Set("state-commit.sc-write-mode", "memiavl_only")
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.True(t, cfg.StateCommit.WriteModeEnableAuto)
+	require.Equal(t, sctypes.Auto, cfg.StateCommit.WriteMode,
+		"absent sc-write-mode-enable-auto must default to true and override an explicit memiavl_only")
+}
+
+// TestGetConfigPinnedModeRequiresAutoDisabled verifies that an explicit
+// sc-write-mode is only honored when sc-write-mode-enable-auto = false. With auto
+// enabled (the default), the explicit mode is ignored and the node runs in auto.
+func TestGetConfigPinnedModeRequiresAutoDisabled(t *testing.T) {
+	for _, mode := range []sctypes.WriteMode{
+		sctypes.FlatKVOnly,
+		sctypes.EVMMigrated,
+		sctypes.TestOnlyDualWrite,
+	} {
+		t.Run(string(mode)+"/auto-disabled-pins", func(t *testing.T) {
+			v := viper.New()
+			v.Set("minimum-gas-prices", DefaultMinGasPrices)
+			v.Set("telemetry.global-labels", []interface{}{})
+			v.Set("state-commit.sc-write-mode-enable-auto", false)
+			v.Set("state-commit.sc-write-mode", string(mode))
+
+			cfg, err := GetConfig(v)
+			require.NoError(t, err)
+			require.False(t, cfg.StateCommit.WriteModeEnableAuto)
+			require.Equal(t, mode, cfg.StateCommit.WriteMode,
+				"with auto disabled the explicit mode must be honored as a pin")
+		})
+
+		t.Run(string(mode)+"/auto-enabled-overrides", func(t *testing.T) {
+			v := viper.New()
+			v.Set("minimum-gas-prices", DefaultMinGasPrices)
+			v.Set("telemetry.global-labels", []interface{}{})
+			v.Set("state-commit.sc-write-mode", string(mode))
+
+			cfg, err := GetConfig(v)
+			require.NoError(t, err)
+			require.True(t, cfg.StateCommit.WriteModeEnableAuto)
+			require.Equal(t, sctypes.Auto, cfg.StateCommit.WriteMode,
+				"with auto enabled (default) the explicit mode must be ignored in favor of auto")
+		})
+	}
+}
+
 func TestGetConfigEmptyWriteModeUsesDefault(t *testing.T) {
 	v := viper.New()
 
@@ -335,7 +545,7 @@ func TestGetConfigEmptyWriteModeUsesDefault(t *testing.T) {
 
 	cfg, err := GetConfig(v)
 	require.NoError(t, err)
-	require.Equal(t, seidbconfig.MemiavlOnly, cfg.StateCommit.WriteMode,
+	require.Equal(t, sctypes.Auto, cfg.StateCommit.WriteMode,
 		"unset sc-write-mode must fall back to the in-code default")
 }
 
@@ -379,7 +589,10 @@ func TestDefaultStateCommitConfig(t *testing.T) {
 
 	require.True(t, cfg.StateCommit.Enable)
 	require.Empty(t, cfg.StateCommit.Directory)
-	require.Equal(t, seidbconfig.MemiavlOnly, cfg.StateCommit.WriteMode)
+	// WriteMode is the fixed fallback (memiavl_only); WriteModeEnableAuto
+	// defaults true, so the effective default after resolution is auto.
+	require.Equal(t, sctypes.MemiavlOnly, cfg.StateCommit.WriteMode)
+	require.True(t, cfg.StateCommit.WriteModeEnableAuto)
 }
 
 func TestDefaultStateStoreConfig(t *testing.T) {

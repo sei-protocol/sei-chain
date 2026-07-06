@@ -43,7 +43,7 @@ type Router struct {
 	nodeInfoProducer func() *types.NodeInfo
 
 	channels utils.RWMutex[map[ChannelID]*channel]
-	giga     utils.Option[*GigaRouter]
+	giga     utils.Option[GigaRouter]
 
 	started chan struct{}
 }
@@ -102,13 +102,10 @@ func NewRouter(
 		peerDB:           utils.NewWatch(peerDB),
 		started:          make(chan struct{}),
 	}
-	if gigaCfg, ok := options.Giga.Get(); ok {
-		gr, err := NewGigaRouter(gigaCfg, privKey)
-		if err != nil {
-			return nil, fmt.Errorf("NewGigaRouter(): %w", err)
-		}
-		router.giga = utils.Some(gr)
-	}
+	// The GigaRouter is constructed by setup-side code (which picks the
+	// validator vs fullnode constructor based on whether a local validator
+	// key is present) and passed in via options.Giga. Just attach.
+	router.giga = options.Giga
 	router.BaseService = service.NewBaseService("router", router)
 	return router, nil
 }
@@ -146,7 +143,7 @@ func (r *Router) AllAddrs() []NodeAddress   { return r.peerManager.AllAddrs() }
 // Giga returns the GigaRouter if Autobahn is enabled, None otherwise.
 // Consumers (e.g. the /status RPC handler) use this to reach Autobahn-specific
 // state like the last committed block number.
-func (r *Router) Giga() utils.Option[*GigaRouter] { return r.giga }
+func (r *Router) Giga() utils.Option[GigaRouter] { return r.giga }
 
 // OpenChannel opens a new channel for the given message type.
 func OpenChannel[T gogoproto.Message](r *Router, chDesc ChannelDescriptor[T]) (*Channel[T], error) {
@@ -244,7 +241,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					release()
 					return r.runConn(ctx, hConn, info, utils.None[NodeAddress]())
 				})
-				logger.Error("r.runConn(inbound)", "addr", addr, "err", err)
+				logger.Info("r.runConn(inbound)", "addr", addr, "err", err)
 				return nil
 			})
 		}
@@ -322,7 +319,7 @@ func (r *Router) dialPeersRoutine(ctx context.Context) error {
 					}
 					return nil
 				})
-				logger.Error("r.runConn(outbound)", "id", id, "err", err)
+				logger.Warn("r.runConn(outbound)", "id", id, "err", err)
 				return nil
 			})
 		}
@@ -367,7 +364,7 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 
 // Evict reports a peer misbehavior and forces peer to be disconnected.
 func (r *Router) Evict(id types.NodeID, err error) {
-	logger.Error("evicting", "peer", id, "err", err)
+	logger.Warn("evicting", "peer", id, "err", err)
 	r.peerManager.Evict(id)
 }
 
@@ -431,9 +428,6 @@ func (r *Router) Run(ctx context.Context) error {
 		s.SpawnNamed("dialPeers", func() error { return r.dialPeersRoutine(ctx) })
 		s.SpawnNamed("storePeers", func() error { return r.storePeersRoutine(ctx) })
 		s.SpawnNamed("metrics", func() error { return r.metricsRoutine(ctx) })
-		if giga, ok := r.giga.Get(); ok {
-			s.SpawnNamed("giga", func() error { return giga.Run(ctx) })
-		}
 		return nil
 	})
 }

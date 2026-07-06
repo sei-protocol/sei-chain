@@ -13,10 +13,16 @@ describe("Transient Storage Tests", function () {
         let signers = await ethers.getSigners();
         [owner, addr1, addr2] = await setupSigners(signers);
 
-        const TransientStorageTester = await ethers.getContractFactory("TransientStorageTester");
+        // Connect contracts to the retry-wrapped signer from setupSigners so
+        // deploys and method calls inherit the incorrect-account-sequence retry.
+        // Under Autobahn the pending-nonce read briefly lags a just-committed tx
+        // (rpc sharding routes the read to the sender's lane owner), so an
+        // ethers-managed send right after an awaited tx can hit a one-off nonce
+        // mismatch; the wrapper refetches and retries.
+        const TransientStorageTester = await ethers.getContractFactory("TransientStorageTester", owner.signer);
         transientStorageTester = await TransientStorageTester.deploy({ gasLimit: 10000000 });
 
-        const SnapshotRevertTester = await ethers.getContractFactory("SnapshotRevertTester");
+        const SnapshotRevertTester = await ethers.getContractFactory("SnapshotRevertTester", owner.signer);
         snapshotRevertTester = await SnapshotRevertTester.deploy({ gasLimit: 10000000 });
     });
 

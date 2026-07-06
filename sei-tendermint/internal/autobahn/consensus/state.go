@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -152,18 +152,6 @@ func (s *State) commitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
 		return cv.qc.Subscribe()
 	}
 	panic("unreachable")
-}
-
-// WaitForCapacity waits until a new block can be produced by this node.
-func (s *State) WaitForCapacity(ctx context.Context) error {
-	return s.avail.WaitForCapacity(ctx, s.cfg.Key.Public())
-}
-
-// ProduceBlock produces a new block with the given payload.
-// Returns ErrNoCapacity if there is currently no capacity for the next block.
-// Run WaitForCapacity before calling ProduceBlock.
-func (s *State) ProduceBlock(ctx context.Context, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
-	return s.avail.ProduceBlock(ctx, payload)
 }
 
 // PushProposal processes an unverified FullProposal message.

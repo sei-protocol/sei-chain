@@ -7,16 +7,15 @@ import (
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
 )
 
 // newPassthroughRouterForTest wires the standard mockDB reader/writer
-// into a PassthroughRouter with nil iterator/proof builders. Tests
-// that need iteration or proofs construct the router directly.
+// into a PassthroughRouter with a nil proof builder. Tests that need
+// proofs construct the router directly.
 func newPassthroughRouterForTest(t *testing.T) (*PassthroughRouter, *mockDB) {
 	t.Helper()
 	db := newMockDB()
-	r, err := NewPassthroughRouter(db.reader(), db.writer(), nil, nil)
+	r, err := NewPassthroughRouter(db.reader(), db.writer(), nil)
 	require.NoError(t, err)
 	return r, db
 }
@@ -26,7 +25,7 @@ func newPassthroughRouterForTest(t *testing.T) (*PassthroughRouter, *mockDB) {
 // nil-panic on the first Read call if we let it through.
 func TestPassthroughRouterRequiresReader(t *testing.T) {
 	db := newMockDB()
-	r, err := NewPassthroughRouter(nil, db.writer(), nil, nil)
+	r, err := NewPassthroughRouter(nil, db.writer(), nil)
 	require.Error(t, err)
 	require.Nil(t, r)
 	require.Contains(t, err.Error(), "reader")
@@ -36,7 +35,7 @@ func TestPassthroughRouterRequiresReader(t *testing.T) {
 // rejects a nil writer. ApplyChangeSets has no fallback path.
 func TestPassthroughRouterRequiresWriter(t *testing.T) {
 	db := newMockDB()
-	r, err := NewPassthroughRouter(db.reader(), nil, nil, nil)
+	r, err := NewPassthroughRouter(db.reader(), nil, nil)
 	require.Error(t, err)
 	require.Nil(t, r)
 	require.Contains(t, err.Error(), "writer")
@@ -64,7 +63,7 @@ func TestPassthroughRouterReadForwardsAnyName(t *testing.T) {
 // calling the reader; the passthrough router must not.
 func TestPassthroughRouterReadPropagatesReaderError(t *testing.T) {
 	sentinel := errors.New("backend exploded")
-	r, err := NewPassthroughRouter(failReader(sentinel), newMockDB().writer(), nil, nil)
+	r, err := NewPassthroughRouter(failReader(sentinel), newMockDB().writer(), nil)
 	require.NoError(t, err)
 
 	_, _, err = r.Read("anything", []byte("k"))
@@ -103,64 +102,15 @@ func TestPassthroughRouterApplyChangeSetsForwardsAnyName(t *testing.T) {
 // that the writer's error surfaces unwrapped.
 func TestPassthroughRouterApplyChangeSetsPropagatesWriterError(t *testing.T) {
 	sentinel := errors.New("backend exploded")
-	r, err := NewPassthroughRouter(newMockDB().reader(), failWriter(sentinel), nil, nil)
+	r, err := NewPassthroughRouter(newMockDB().reader(), failWriter(sentinel), nil)
 	require.NoError(t, err)
 
 	err = r.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "anything"}}, true)
 	require.ErrorIs(t, err, sentinel)
 }
 
-// TestPassthroughRouterIteratorWithoutBuilder verifies that a router
-// constructed without an iterator builder rejects Iterator() with a
-// clean, descriptive error rather than nil-panicking.
-func TestPassthroughRouterIteratorWithoutBuilder(t *testing.T) {
-	r, _ := newPassthroughRouterForTest(t)
-
-	it, err := r.Iterator("icahost", nil, nil, true)
-	require.Error(t, err)
-	require.Nil(t, it)
-	require.Contains(t, err.Error(), "iteration not supported")
-	require.Contains(t, err.Error(), "icahost")
-}
-
-// TestPassthroughRouterIteratorForwardsToBuilder verifies that when an
-// iterator builder is supplied, calls forward with arguments intact
-// and the builder's returned iterator/error are returned verbatim.
-func TestPassthroughRouterIteratorForwardsToBuilder(t *testing.T) {
-	var captured struct {
-		store     string
-		start     []byte
-		end       []byte
-		ascending bool
-		called    bool
-	}
-	sentinelIter, err := dbm.NewMemDB().Iterator(nil, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = sentinelIter.Close() })
-
-	builder := func(store string, start, end []byte, ascending bool) (dbm.Iterator, error) {
-		captured.store = store
-		captured.start = start
-		captured.end = end
-		captured.ascending = ascending
-		captured.called = true
-		return sentinelIter, nil
-	}
-	r, err2 := NewPassthroughRouter(newMockDB().reader(), newMockDB().writer(), builder, nil)
-	require.NoError(t, err2)
-
-	got, err := r.Iterator("icahost", []byte("s"), []byte("e"), true)
-	require.NoError(t, err)
-	require.True(t, captured.called)
-	require.Equal(t, "icahost", captured.store)
-	require.Equal(t, []byte("s"), captured.start)
-	require.Equal(t, []byte("e"), captured.end)
-	require.True(t, captured.ascending)
-	require.Equal(t, sentinelIter, got)
-}
-
-// TestPassthroughRouterGetProofWithoutBuilder verifies the proof path
-// is symmetric with iterator: missing builder yields a clear error.
+// TestPassthroughRouterGetProofWithoutBuilder verifies that a router
+// constructed without a proof builder yields a clear error.
 func TestPassthroughRouterGetProofWithoutBuilder(t *testing.T) {
 	r, _ := newPassthroughRouterForTest(t)
 
@@ -187,7 +137,7 @@ func TestPassthroughRouterGetProofForwardsToBuilder(t *testing.T) {
 		captured.called = true
 		return want, nil
 	}
-	r, err := NewPassthroughRouter(newMockDB().reader(), newMockDB().writer(), nil, builder)
+	r, err := NewPassthroughRouter(newMockDB().reader(), newMockDB().writer(), builder)
 	require.NoError(t, err)
 
 	got, err := r.GetProof("icahost", []byte("k"))

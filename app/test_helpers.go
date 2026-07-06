@@ -77,7 +77,7 @@ type TestAppOpts struct {
 	UseSc          bool
 	EnableGiga     bool
 	EnableGigaOCC  bool
-	ReceiptBackend string // e.g. "parquet" to use parquet receipt store; empty = default (pebble)
+	ReceiptBackend string
 }
 
 func (t TestAppOpts) Get(s string) interface{} {
@@ -91,6 +91,13 @@ func (t TestAppOpts) Get(s string) interface{} {
 	// that are not relevant to the test logic
 	if s == FlagSCSnapshotInterval {
 		return uint32(0) // 0 = disabled
+	}
+	// Disable hash logging in tests. It runs background writer/control goroutines that are only
+	// joined by Store.Close(); tests that don't close the app would otherwise leave those goroutines
+	// rotating files in the temp data dir while t.TempDir() cleanup removes it, failing with
+	// "directory not empty".
+	if s == FlagSCHashLoggerEnable {
+		return false
 	}
 	if s == FlagSSEnable {
 		return true
@@ -482,7 +489,7 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 }
 
 // SetupWithScReceiptFromOpts is like SetupWithSc but does not inject a receipt store via AppOption.
-// The receipt store is created inside New() from testAppOpts (e.g. testAppOpts.ReceiptBackend = "parquet").
+// The receipt store is created inside New() from testAppOpts.
 // Use this to test the full app path with rs-backend from config.
 func SetupWithScReceiptFromOpts(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
 	db := dbm.NewMemDB()

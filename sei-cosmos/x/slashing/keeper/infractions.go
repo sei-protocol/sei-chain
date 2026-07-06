@@ -7,6 +7,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 type SlashInfo struct {
@@ -136,6 +138,8 @@ func (k Keeper) SlashJailAndUpdateSigningInfo(ctx sdk.Context, consAddr sdk.Cons
 	)
 
 	// Slashed for missing too many block
+	slashingKeeperMetrics.validatorSlashed.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("type", types.AttributeValueMissingSignature), attribute.String("validator", consAddr.String())))
+	// TODO(PLT-414): remove once slashing_validator_slashed verified
 	telemetry.IncrValidatorSlashedCounter(consAddr.String(), types.AttributeValueMissingSignature)
 	k.sk.Slash(ctx, consAddr, slashInfo.distributionHeight, slashInfo.power, k.SlashFractionDowntime(ctx))
 	k.sk.Jail(ctx, consAddr)

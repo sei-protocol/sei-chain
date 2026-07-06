@@ -21,21 +21,26 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
+	bam "github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	cosmostestutil "github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tenderminttypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
+	dbm "github.com/tendermint/tm-db"
 )
 
 func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
@@ -48,6 +53,7 @@ func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
 	}
 	require.NoError(t, store.SetLatestVersion(latest))
 	require.NoError(t, store.SetEarliestVersion(1))
+	require.Equal(t, int64(1), store.EarliestVersion())
 }
 
 // bcAlwaysFailClient fails every Block call (header resolution uses a single block fetch).
@@ -202,6 +208,62 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 	require.Equal(t, "0x536d", result) // 21357 for get
 
 	Ctx = Ctx.WithBlockHeight(8)
+}
+
+func TestEstimateGasAfterCallsMaxCalls(t *testing.T) {
+	testCtx := Ctx.WithBlockHeight(1)
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return testCtx.WithIsTracing(true)
+		}
+		return testCtx.WithBlockHeight(height).WithIsTracing(true)
+	}
+
+	const maxCalls = 2
+	config := &evmrpc.SimulateConfig{
+		GasCap:              1000000,
+		EVMTimeout:          5 * time.Second,
+		MaxEstimateGasCalls: maxCalls,
+	}
+
+	testApp := testkeeper.TestApp(t)
+	watermarks := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
+	simAPI := evmrpc.NewSimulationAPI(
+		ctxProvider,
+		EVMKeeper,
+		legacyabci.BeginBlockKeepers{},
+		func(int64) client.TxConfig { return TxConfig },
+		&MockClient{},
+		config,
+		testApp.BaseApp,
+		testApp.TracerAnteHandler,
+		evmrpc.ConnectionTypeHTTP,
+		evmrpc.NewBlockCache(3000),
+		&sync.Mutex{},
+		watermarks,
+	)
+
+	_, from := testkeeper.MockAddressPair()
+	_, to := testkeeper.MockAddressPair()
+	args := export.TransactionArgs{From: &from, To: &to}
+	call := export.TransactionArgs{From: &from, To: &to}
+
+	// Over the cap: rejected early with the "too many calls" error.
+	oversized := make([]export.TransactionArgs, maxCalls+1)
+	for i := range oversized {
+		oversized[i] = call
+	}
+	_, err := simAPI.EstimateGasAfterCalls(t.Context(), args, oversized, nil, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "too many calls")
+
+	// At the cap: the size guard is passed.
+	atCap := make([]export.TransactionArgs, maxCalls)
+	for i := range atCap {
+		atCap[i] = call
+	}
+	_, err = simAPI.EstimateGasAfterCalls(t.Context(), args, atCap, nil, nil)
+	require.Nil(t, err)
 }
 
 func TestCreateAccessList(t *testing.T) {
@@ -658,6 +720,48 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		t.Logf("eth_estimateGas rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, numRequests)
 	})
 
+	t.Run("TestCreateAccessListRateLimiting", func(t *testing.T) {
+		tEnv := newTestEnv(t)
+		// Test eth_createAccessList rate limiting
+		numRequests := 8
+		results := make(chan error, numRequests)
+
+		// Start all requests concurrently
+		for i := 0; i < numRequests; i++ {
+			go func() {
+				_, err := tEnv.simAPI.CreateAccessList(t.Context(), tEnv.args, nil)
+				results <- err
+			}()
+		}
+
+		// Collect all results
+		var errors []error
+		for i := 0; i < numRequests; i++ {
+			errors = append(errors, <-results)
+		}
+
+		// Count successful vs rejected requests
+		successCount := 0
+		rejectedCount := 0
+		for _, err := range errors {
+			if err == nil {
+				successCount++
+			} else if strings.Contains(err.Error(), "eth_createAccessList rejected due to rate limit: server busy") {
+				rejectedCount++
+			} else {
+				t.Logf("Unexpected createAccessList error: %v", err)
+			}
+		}
+
+		// Under constrained scheduling these requests can serialize and avoid
+		// rejections. The stable invariant is that every response is either success or
+		// rate-limited.
+		require.Greater(t, successCount, 0, "Should have at least one successful createAccessList request")
+		require.Equal(t, numRequests, successCount+rejectedCount, "All createAccessList requests should be accounted for")
+
+		t.Logf("eth_createAccessList rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, numRequests)
+	})
+
 	t.Run("TestEstimateGasAfterCallsRateLimiting", func(t *testing.T) {
 		tEnv := newTestEnv(t)
 		// Test eth_estimateGasAfterCalls rate limiting
@@ -873,8 +977,12 @@ func (c *fixedBlockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
-func (c *fixedBlockClient) EvmProxy(common.Address) (*url.URL, bool) {
+func (c *fixedBlockClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
+}
+
+func (c *fixedBlockClient) EvmProxy(common.Address) utils.Option[*url.URL] {
+	return utils.None[*url.URL]()
 }
 
 func (c *fixedBlockClient) Block(_ context.Context, _ *int64) (*coretypes.ResultBlock, error) {
@@ -999,6 +1107,74 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 			require.Contains(t, err.Error(), "exceeds canonical size")
 		})
 	}
+}
+
+// TestBlockByNumberNonTracedTxPassesTxBytes verifies that when BlockByNumber
+// produces a TraceRunnable for a non-EVM (Cosmos) transaction, the runnable
+// calls DeliverTx with req.Tx populated. An empty req.Tx causes ctx.TxBytes()
+// to be nil inside the ante handler, which zeroes out TxSizeCostPerByte gas
+// and diverges from what actually happened on-chain.
+func TestBlockByNumberNonTracedTxPassesTxBytes(t *testing.T) {
+	const blockHeight = int64(42)
+
+	// Build a minimal BaseApp whose sole purpose is to capture ctx.TxBytes()
+	// as seen by the ante handler. BaseApp sets ctx.TxBytes = req.Tx before
+	// invoking the ante handler, so this is the correct interception point.
+	var capturedTxBytes []byte
+	minApp := bam.NewBaseApp("test", dbm.NewMemDB(), TxConfig.TxDecoder(), nil, &cosmostestutil.TestAppOpts{})
+	minApp.SetAnteHandler(func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		capturedTxBytes = ctx.TxBytes()
+		return ctx, fmt.Errorf("stop") // short-circuit; we only need ante
+	})
+	minApp.Seal()
+
+	testApp := app.Setup(t, false, false, false)
+	_, fromAddr := testkeeper.MockAddressPair()
+	_, toAddr := testkeeper.MockAddressPair()
+	txBuilder := TxConfig.NewTxBuilder()
+	require.NoError(t, txBuilder.SetMsgs(banktypes.NewMsgSend(
+		sdk.AccAddress(fromAddr.Bytes()),
+		sdk.AccAddress(toAddr.Bytes()),
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))),
+	)))
+	rawTx, err := Encoder(txBuilder.GetTx())
+	require.NoError(t, err)
+
+	tmBlock := &coretypes.ResultBlock{
+		BlockID: tmtypes.BlockID{Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000042"))},
+		Block: &tmtypes.Block{
+			Header:     mockBlockHeader(blockHeight),
+			Data:       tmtypes.Data{Txs: []tmtypes.Tx{rawTx}},
+			LastCommit: &tmtypes.Commit{Height: blockHeight},
+		},
+	}
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(blockHeight)
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return ctx
+		}
+		return ctx.WithBlockHeight(height)
+	}
+
+	tmClient := &fixedBlockClient{block: tmBlock}
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	backend := evmrpc.NewBackend(
+		ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+		func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
+		minApp, testApp.TracerAnteHandler,
+		evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
+	)
+
+	_, metadata, err := backend.BlockByNumber(context.Background(), rpc.BlockNumber(blockHeight))
+	require.NoError(t, err)
+	require.Len(t, metadata, 1)
+	require.NotNil(t, metadata[0].TraceRunnable)
+
+	sdkCtx := testApp.GetContextForDeliverTx([]byte(rawTx)).WithBlockHeight(blockHeight)
+	stateDB := state.NewDBImpl(sdkCtx, &testApp.EvmKeeper, false)
+	metadata[0].TraceRunnable(stateDB)
+
+	require.Equal(t, []byte(rawTx), capturedTxBytes, "DeliverTx must receive the raw tx bytes so ante handler gas charging is faithful to the original execution")
 }
 
 // TestGetTransactionUsesBlockIDHash pins down the GetTransaction → blockHash

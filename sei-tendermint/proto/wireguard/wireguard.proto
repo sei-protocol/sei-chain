@@ -13,12 +13,25 @@ option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wire
 
 // Field-level options consumed by the wireguard protoc plugin. The plugin
 // walks the proto descriptors and emits a *wireguard.Schema for every
-// message type that has (max_count) somewhere in its reachable subtree.
-// Descent through message-typed fields is automatic — if the target type
-// has a schema, the parent's rule descends into it.
+// message type that has a wireguard annotation somewhere in its reachable
+// subtree. Descent through message-typed fields is automatic — if the
+// target type has a schema, the parent's rule descends into it.
+extend google.protobuf.MessageOptions {
+  // sized marks messages that are required to have a bounded maximal wire
+  // size according to the wireguard plugin's structural checks.
+  bool sized = 414126221;
+}
+
 extend google.protobuf.FieldOptions {
   // max_count caps the number of times this repeated field may appear in
-  // the scanned payload. Counted globally across the Scan call, keyed by
-  // (*Schema, field number).
+  // the scanned payload for one message instance.
   uint32 max_count = 414126218;
+
+  // max_size caps the raw byte length of each individual length-delimited
+  // field instance. Applies to strings, bytes, and nested messages.
+  uint32 max_size = 414126219;
+
+  // max_total_size caps the sum of raw byte lengths across all instances
+  // of this length-delimited field within one message instance.
+  uint32 max_total_size = 414126220;
 }

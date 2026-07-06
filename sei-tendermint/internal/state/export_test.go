@@ -13,3 +13,9 @@ func ValidateValidatorUpdates(abciUpdates []abci.ValidatorUpdate, params types.V
 
 // ProposerPriorityHashInterval is the interval constant exposed for testing.
 const ProposerPriorityHashInterval = proposerPriorityHashInterval
+
+// BuildLastCommitInfo is an alias for buildLastCommitInfo exported for testing
+// the mock_chain_validation best-effort path (commit/validator-set size mismatch).
+func BuildLastCommitInfo(block *types.Block, store Store, initialHeight int64) abci.CommitInfo {
+	return buildLastCommitInfo(block, store, initialHeight)
+}

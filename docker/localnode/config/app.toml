@@ -236,13 +236,6 @@ sc-snapshot-writer-limit = 2
 # CacheSize defines the size of the LRU cache for each store on top of the tree, default to 100000.
 sc-cache-size = 1000
 
-# KeysToMigratePerBlock controls how many EVM keys the in-flight migration
-# (sc-write-mode = migrate_evm / migrate_bank / migrate_all_but_bank) drains
-# from memiavl into flatkv per block. Default 1024 is appropriate for
-# production drains; tests lower it to spread the migration across more
-# blocks and exercise the resume / hybrid-read path.
-sc-keys-to-migrate-per-block = 1024
-
 [state-store]
 
 # Enable defines if the state-store should be enabled for historical queries.
@@ -318,8 +311,6 @@ enabled_legacy_sei_apis = [
   "sei_getVMError",
   "sei_newBlockFilter",
   "sei_newFilter",
-  "sei_traceBlockByHashExcludeTraceFail",
-  "sei_traceBlockByNumberExcludeTraceFail",
   "sei_uninstallFilter",
   "sei2_getBlockByHash",
   "sei2_getBlockByHashExcludeTraceFail",

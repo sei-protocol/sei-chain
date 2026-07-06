@@ -3,13 +3,14 @@ package mempool
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
-	"math/big"
 	"strconv"
 	"sync"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -68,24 +69,35 @@ func (a *evmNonceApp) balanceOf(sender common.Address) int {
 	return 0
 }
 
-func (a *evmNonceApp) parseTx(tx []byte) (sender string, nonce uint64, priority int64, ok bool) {
+func (a *evmNonceApp) parseTx(tx []byte) (sender string, nonce uint64, priority int64, requiredBalance uint256.Int, ok bool) {
 	parts := bytes.Split(tx, []byte("="))
-	if len(parts) != 4 || string(parts[0]) != "evm" {
-		return "", 0, 0, false
+	if len(parts) != 4 && len(parts) != 5 || string(parts[0]) != "evm" {
+		return "", 0, 0, uint256.Int{}, false
 	}
 	n, err := strconv.ParseUint(string(parts[2]), 10, 64)
 	if err != nil {
-		return "", 0, 0, false
+		return "", 0, 0, uint256.Int{}, false
 	}
 	p, err := strconv.ParseInt(string(parts[3]), 10, 64)
 	if err != nil {
-		return "", 0, 0, false
+		return "", 0, 0, uint256.Int{}, false
 	}
-	return string(parts[1]), n, p, true
+	requiredBalance = uint256.Int{}
+	if len(parts) == 5 {
+		b, err := strconv.ParseInt(string(parts[4]), 10, 64)
+		if err != nil {
+			return "", 0, 0, uint256.Int{}, false
+		}
+		if b < 0 {
+			return "", 0, 0, uint256.Int{}, false
+		}
+		requiredBalance = *uint256.NewInt(uint64(b))
+	}
+	return string(parts[1]), n, p, requiredBalance, true
 }
 
 func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
-	sender, nonce, priority, ok := a.parseTx(req.Tx)
+	sender, nonce, priority, requiredBalance, ok := a.parseTx(req.Tx)
 	if !ok {
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1}}
 	}
@@ -107,11 +119,12 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *ab
 			GasWanted:    DefaultGasWanted,
 			GasEstimated: DefaultGasEstimated,
 		},
+		EVMHash:            common.Hash(sha256.Sum256(req.Tx)),
 		EVMNonce:           nonce,
 		EVMSenderAddress:   senderAddr,
 		SeiSenderAddress:   sdk.AccAddress(senderAddr.Bytes()),
 		IsEVM:              true,
-		EVMRequiredBalance: big.NewInt(0),
+		EVMRequiredBalance: requiredBalance,
 	}
 	return res
 }
@@ -126,13 +139,13 @@ func (a *evmNonceApp) EvmNonce(addr common.Address) uint64 {
 	return a.nextNonce[addr]
 }
 
-func (a *evmNonceApp) EvmBalance(addr common.Address, _ []byte) *big.Int {
+func (a *evmNonceApp) EvmBalance(addr common.Address, _ []byte) uint256.Int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if balance, ok := a.balance[addr]; ok {
-		return big.NewInt(int64(balance))
+		return *uint256.NewInt(uint64(balance))
 	}
-	return big.NewInt(0)
+	return uint256.Int{}
 }
 
 // TestTxMempool_DescendingNonceDrain exercises the producer-style flow:

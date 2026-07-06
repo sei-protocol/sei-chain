@@ -196,6 +196,28 @@ func TestSetInitialVersion_GenesisSkipsSeededSnapshot(t *testing.T) {
 	require.Equal(t, int64(1), v, "first Commit after SetInitialVersion(1) must produce version 1")
 }
 
+func TestSetInitialVersion_PersistsEarliestVersion(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), s.EarliestVersion(),
+		"a fresh store has no earliest-version record")
+
+	require.NoError(t, s.SetInitialVersion(100))
+	require.Equal(t, int64(99), s.EarliestVersion())
+	require.NoError(t, s.Close())
+
+	reopened, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = reopened.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer reopened.Close()
+	require.Equal(t, int64(99), reopened.EarliestVersion(),
+		"the earliest-version record must survive reopen")
+}
+
 func TestSetInitialVersion_RejectsAfterCommit(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()

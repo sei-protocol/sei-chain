@@ -69,7 +69,7 @@ func (ts *dispatcherTestSuite) AddPeer(t *testing.T) *DispatcherNode {
 		TestNode: testNode,
 		blockCh:  blockCh,
 	}
-	ts.node.Connect(t.Context(), testNode)
+	require.NoError(t, ts.node.Connect(t.Context(), testNode))
 	return n
 }
 

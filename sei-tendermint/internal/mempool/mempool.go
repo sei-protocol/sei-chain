@@ -2,7 +2,6 @@ package mempool
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -26,16 +25,6 @@ var ErrTxInCache = errors.New("tx already exists in cache")
 
 // ErrTxTooLarge defines an error when a transaction is too big to be sent to peers.
 var ErrTxTooLarge = errors.New("tx too large")
-
-// Using SHA-256 truncated to 128 bits as the cache key: At 2K tx/sec, the
-// collision probability is effectively zero (≈10^-29 for 120K keys in a minute,
-// still negligible over years). If reduced 3× smaller (~43 bits), collisions
-// become probable within a day and guaranteed over longer periods.
-//
-// For the purposes of the LRU cache key both sizes are sufficiently secure. For
-// now. 128 bits is a safe balance between performance and collision probability
-// and we may revisit later.
-const maxCacheKeySize = sha256.Size / 2
 
 // MinTxsPerBlock is how many txs we will attempt to have in a block if there's still space.
 // MinGasEVMTx is the minimum the gas estimate can be for an EVM tx to be considered valid.
@@ -78,11 +67,15 @@ type Config struct {
 	// needed to trigger a notification in mempool's Tx notifier
 	TxNotifyThreshold uint64
 
-	// Maximum number of transactions in the pending set
 	PendingSize int
 
-	// Limit the total size of all txs in the pending set.
 	MaxPendingTxsBytes int64
+
+	// Deprecated: pending TTL is not used and this field has no effect.
+	PendingTTLDuration time.Duration
+
+	// Deprecated: pending TTL is not used and this field has no effect.
+	PendingTTLNumBlocks int64
 
 	// Whether expired READY transactions should be pruned from mempool (PENDING expired are always prunned)
 	RemoveExpiredTxsFromQueue bool
@@ -230,7 +223,7 @@ func NewTxMempool(
 	}
 
 	if cfg.DuplicateTxsCacheSize > 0 {
-		txmp.duplicateTxsCache = utils.Some(NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, maxCacheKeySize))
+		txmp.duplicateTxsCache = utils.Some(NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, 0))
 	}
 
 	return txmp
@@ -241,6 +234,14 @@ func (txmp *TxMempool) App() *proxy.Proxy { return txmp.app }
 func (txmp *TxMempool) EvmNextPendingNonce(addr common.Address) uint64 {
 	return txmp.txStore.NextNonce(addr)
 }
+
+func (txmp *TxMempool) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
+	return txmp.txStore.ByEvmHash(hash)
+}
+
+// Relatively fresh snapshot of the mempool.
+// NOTE: it is NOT the current state of the mempool most of the time.
+func (txmp *TxMempool) RecentSnapshot() types.Txs { return txmp.txStore.RecentSnapshot() }
 
 func (txmp *TxMempool) WaitForTxs(ctx context.Context) error {
 	return txmp.txStore.WaitForTxs(ctx)
@@ -333,10 +334,8 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 		}
 	}
 
-	// We add the transaction to the mempool's cache and if the
-	// transaction is already present in the cache, i.e. false is returned, then we
-	// check if we've seen this transaction and error if we have.
-	if txmp.txStore.CacheHas(hTx.Hash()) {
+	// Check if the tx is known to be bad.
+	if txmp.txStore.ShouldReject(hTx.Hash()) {
 		return nil, ErrTxInCache
 	}
 
@@ -374,6 +373,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 		wtx.evm = utils.Some(evmTx{
 			address:         res.EVMSenderAddress,
 			seiAddress:      res.SeiSenderAddress,
+			hash:            res.EVMHash,
 			nonce:           res.EVMNonce,
 			requiredBalance: res.EVMRequiredBalance,
 		})
@@ -382,7 +382,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	if err := wtx.check(constraints); err != nil {
 		// ignore bad transactions
 		logger.Info("rejected bad transaction", "priority", wtx.priority, "tx", wtx.Hash(), "post_check_err", err)
-		txmp.txStore.CachePush(hTx.Hash())
+		txmp.txStore.MarkInvalid(hTx.Hash())
 		txmp.metrics.FailedTxs.Add(1)
 		return nil, err
 	}
@@ -409,6 +409,9 @@ func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, 
 // Flush empties the mempool.
 func (txmp *TxMempool) Flush() {
 	txmp.txStore.Clear()
+	txmp.metrics.Size.Set(0)
+	txmp.metrics.PendingSize.Set(0)
+	txmp.metrics.TotalTxsSizeBytes.Set(0)
 }
 
 // ReapTxs returns a list of transactions within the provided constraints and their total gas estimate.
@@ -424,7 +427,13 @@ func (txmp *TxMempool) Flush() {
 // NOTE: Transactions are removed from the mempool iff remove == true.
 // Either way, the transactions stay in the LRU cache.
 func (txmp *TxMempool) ReapTxs(limits ReapLimits, remove bool) (types.Txs, int64) {
-	return txmp.txStore.Reap(limits, remove)
+	txs, gasEstimate := txmp.txStore.Reap(limits, remove)
+	if remove {
+		txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
+		txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
+		txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
+	}
+	return txs, gasEstimate
 }
 
 // Update iterates over all the transactions provided by the block producer,

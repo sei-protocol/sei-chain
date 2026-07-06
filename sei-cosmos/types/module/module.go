@@ -40,6 +40,8 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
@@ -117,13 +119,27 @@ func (bm BasicManager) ValidateGenesis(cdc codec.JSONCodec, txEncCfg client.TxEn
 
 // ValidateGenesisStream performs genesis state validation on all modules in a streaming fashion.
 func (bm BasicManager) ValidateGenesisStream(cdc codec.JSONCodec, txEncCfg client.TxEncodingConfig, moduleName string, genesisCh <-chan json.RawMessage, doneCh <-chan struct{}, errCh chan<- error) {
+	module, ok := bm[moduleName]
+	if !ok {
+		for {
+			select {
+			case <-doneCh:
+				return
+			case _, ok := <-genesisCh:
+				if !ok {
+					return
+				}
+			}
+		}
+	}
+
 	moduleGenesisCh := make(chan json.RawMessage)
 	moduleDoneCh := make(chan struct{})
 
 	var err error
 
 	go func() {
-		err = bm[moduleName].ValidateGenesisStream(cdc, txEncCfg, moduleGenesisCh)
+		err = module.ValidateGenesisStream(cdc, txEncCfg, moduleGenesisCh)
 		if err != nil {
 			errCh <- err
 		}
@@ -269,6 +285,7 @@ type Manager struct {
 	OrderExportGenesis []string
 	OrderMidBlockers   []string
 	OrderMigrations    []string
+	midBlockAttrs      map[string]otelmetric.MeasurementOption
 }
 
 // NewManager creates a new Manager object
@@ -303,6 +320,12 @@ func (m *Manager) SetOrderExportGenesis(moduleNames ...string) {
 // SetOrderMidBlockers sets the order of set mid-blocker calls
 func (m *Manager) SetOrderMidBlockers(moduleNames ...string) {
 	m.OrderMidBlockers = moduleNames
+	// Pre-compute per-module attribute sets for the midBlockDuration metric so MidBlock doesn't allocate on every block.
+	attrs := make(map[string]otelmetric.MeasurementOption, len(moduleNames))
+	for _, name := range moduleNames {
+		attrs[name] = otelmetric.WithAttributeSet(attribute.NewSet(attribute.String("module", name)))
+	}
+	m.midBlockAttrs = attrs
 }
 
 // SetOrderMigrations sets the order of migrations to be run. If not set
@@ -378,11 +401,15 @@ func (m *Manager) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, genesisData 
 				if moduleName == "genesisDoc" {
 					continue
 				}
+				module, ok := m.Modules[moduleName]
+				if !ok {
+					continue
+				}
 				if seenModules[moduleName] {
 					errCh <- fmt.Errorf("module %s seen twice in genesis file", moduleName)
 					return
 				}
-				moduleValUpdates := m.Modules[moduleName].InitGenesis(ctx, cdc, moduleState.AppState.Data)
+				moduleValUpdates := module.InitGenesis(ctx, cdc, moduleState.AppState.Data)
 				if len(moduleValUpdates) > 0 {
 					if len(validatorUpdates) > 0 {
 						panic("validator InitGenesis updates already set by a previous module")
@@ -580,7 +607,12 @@ func (m Manager) RunMigrations(ctx sdk.Context, cfg Configurator, fromVM Version
 func (m *Manager) MidBlock(ctx sdk.Context, height int64) []abci.Event {
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 
-	defer telemetry.MeasureSince(time.Now(), "module", "total_mid_block")
+	midBlockStart := time.Now()
+	defer func() {
+		moduleMetrics.totalMidBlockDuration.Record(ctx.Context(), time.Since(midBlockStart).Seconds())
+		// TODO(PLT-414): remove once module_total_mid_block_duration verified
+		telemetry.MeasureSince(midBlockStart, "module", "total_mid_block")
+	}()
 	for _, moduleName := range m.OrderMidBlockers {
 		module, ok := m.Modules[moduleName].(MidBlockAppModule)
 		if !ok {
@@ -588,6 +620,8 @@ func (m *Manager) MidBlock(ctx sdk.Context, height int64) []abci.Event {
 		}
 		moduleStartTime := time.Now()
 		module.MidBlock(ctx, height)
+		moduleMetrics.midBlockDuration.Record(ctx.Context(), time.Since(moduleStartTime).Seconds(), m.midBlockAttrs[moduleName])
+		// TODO(PLT-414): remove once module_mid_block_duration verified
 		telemetry.ModuleMeasureSince(moduleName, moduleStartTime, "module", "mid_block")
 	}
 

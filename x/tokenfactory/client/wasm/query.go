@@ -22,6 +22,6 @@ func (handler TokenFactoryWasmQueryHandler) GetDenomAuthorityMetadata(ctx sdk.Co
 }
 
 func (handler TokenFactoryWasmQueryHandler) GetDenomsFromCreator(ctx sdk.Context, req *types.QueryDenomsFromCreatorRequest) (*types.QueryDenomsFromCreatorResponse, error) {
-	c := sdk.WrapSDKContext(ctx)
-	return handler.tokenfactoryKeeper.DenomsFromCreator(c, req)
+	denoms := handler.tokenfactoryKeeper.GetAllDenomsFromCreator(ctx, req.Creator)
+	return &types.QueryDenomsFromCreatorResponse{Denoms: denoms}, nil
 }

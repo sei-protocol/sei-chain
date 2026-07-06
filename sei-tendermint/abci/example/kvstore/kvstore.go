@@ -117,6 +117,12 @@ func (app *Application) Info(_ context.Context, req *types.RequestInfo) (*types.
 	}, nil
 }
 
+func (app *Application) LastBlockHeight() int64 {
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	return app.state.Height
+}
+
 func (app *Application) GetValidators() []types.ValidatorUpdate {
 	return app.Validators()
 }

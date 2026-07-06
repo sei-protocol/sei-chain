@@ -30,7 +30,8 @@ func TestLs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make it so that we have at least as many shards as roots.
-	config.ShardingFactor = uint8(rootCount * rand.Uint32Range(1, 4))
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = uint8(rootCount * rand.Uint32Range(1, 4))
 
 	// Settings that should be enabled for LittDB unit tests.
 	config.DoubleWriteProtection = true
@@ -53,7 +54,8 @@ func TestLs(t *testing.T) {
 	tableNames := make([]string, 0, tableCount)
 	for i := 0; i < int(tableCount); i++ {
 		tableName := fmt.Sprintf("table-%d-%s", i, rand.PrintableBytes(8))
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables = append(tables, table)
 		expectedData[table.Name()] = make(map[string][]byte)

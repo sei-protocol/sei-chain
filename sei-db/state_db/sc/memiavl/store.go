@@ -97,6 +97,18 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Co
 	return cs, nil
 }
 
+// SetWriteMode implements types.Committer. The memiavl commit store is a
+// single-backend store; its write mode is fixed.
+func (cs *CommitStore) SetWriteMode(types.WriteMode) error {
+	return fmt.Errorf("memiavl commit store does not support runtime write-mode changes")
+}
+
+// SetMigrationBatchSize implements types.Committer. The memiavl commit
+// store runs no migration of its own, so this is a no-op.
+func (cs *CommitStore) SetMigrationBatchSize(int) error {
+	return nil
+}
+
 // Copy returns an O(1) memiavl snapshot; COW nodes are shared with the live store.
 func (cs *CommitStore) Copy() types.Committer {
 	if cs == nil || cs.db == nil {
@@ -170,6 +182,13 @@ func (cs *CommitStore) LastCommitInfo() *proto.CommitInfo {
 }
 
 func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
+	// The underlying DB is opened lazily via LoadVersion / Rollback. Reads can
+	// arrive before that happens (for example, the mempool reactor invokes
+	// CheckTx during state-sync while the snapshot is still being applied),
+	// so a typed nil return must be safe.
+	if cs == nil || cs.db == nil {
+		return nil
+	}
 	tree := cs.db.TreeByName(name)
 	if tree == nil {
 		// Return an explicitly nil interface (not a typed-nil *Tree wrapped in an
@@ -177,6 +196,14 @@ func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
 		return nil
 	}
 	return tree
+}
+
+// IsLoaded reports whether the underlying memiavl DB has been opened. It is
+// safe to call on a nil receiver. Callers built on top of CommitStore use this
+// to distinguish "store has no committed data yet" (during state-sync, before
+// LoadVersion) from "store name is misregistered" (a real config error).
+func (cs *CommitStore) IsLoaded() bool {
+	return cs != nil && cs.db != nil
 }
 
 func (cs *CommitStore) Exporter(version int64) (types.Exporter, error) {
@@ -251,12 +278,6 @@ func (cs *CommitStore) Has(store string, key []byte) (bool, error) {
 func (cs *CommitStore) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
 	if store == "" {
 		return nil, fmt.Errorf("store name cannot be empty")
-	}
-	if start == nil {
-		return nil, fmt.Errorf("start cannot be nil")
-	}
-	if end == nil {
-		return nil, fmt.Errorf("end cannot be nil")
 	}
 
 	childStore := cs.GetChildStoreByName(store)

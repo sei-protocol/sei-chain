@@ -31,7 +31,8 @@ func TestDBLocking(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make it so that we have at least as many shards as roots.
-	config.ShardingFactor = uint8(rootCount * rand.Uint32Range(1, 4))
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = uint8(rootCount * rand.Uint32Range(1, 4))
 
 	// Settings that should be enabled for LittDB unit tests.
 	config.DoubleWriteProtection = true
@@ -49,7 +50,8 @@ func TestDBLocking(t *testing.T) {
 	expectedData := make(map[string]map[string][]byte)
 	for i := 0; i < int(tableCount); i++ {
 		tableName := fmt.Sprintf("table-%d-%s", i, rand.PrintableBytes(8))
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables = append(tables, table)
 		expectedData[table.Name()] = make(map[string][]byte)
@@ -82,7 +84,6 @@ func TestDBLocking(t *testing.T) {
 	// Attempt to open a second instance of the database with the same root directories. Locking should prevent this.
 	shadowConfig, err := litt.DefaultConfig(roots...)
 	require.NoError(t, err)
-	shadowConfig.ShardingFactor = config.ShardingFactor
 	shadowConfig.DoubleWriteProtection = true
 	shadowConfig.Fsync = false
 
@@ -93,7 +94,6 @@ func TestDBLocking(t *testing.T) {
 	// Even sharing just one root should be enough to torpedo the second instance.
 	shadowConfig, err = litt.DefaultConfig(roots[:1]...)
 	require.NoError(t, err)
-	shadowConfig.ShardingFactor = config.ShardingFactor
 	shadowConfig.DoubleWriteProtection = true
 	shadowConfig.Fsync = false
 
@@ -111,7 +111,8 @@ func TestDBLocking(t *testing.T) {
 
 	tables = make([]litt.Table, 0, tableCount)
 	for tableName := range expectedData {
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err, "Failed to get table %s after reopening the database", tableName)
 		tables = append(tables, table)
 	}
@@ -149,7 +150,8 @@ func TestDeadProcessSimulation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make it so that we have at least as many shards as roots.
-	config.ShardingFactor = uint8(rootCount * rand.Uint32Range(1, 4))
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = uint8(rootCount * rand.Uint32Range(1, 4))
 
 	// Settings that should be enabled for LittDB unit tests.
 	config.DoubleWriteProtection = true
@@ -167,7 +169,8 @@ func TestDeadProcessSimulation(t *testing.T) {
 	expectedData := make(map[string]map[string][]byte)
 	for i := 0; i < int(tableCount); i++ {
 		tableName := fmt.Sprintf("table-%d-%s", i, rand.PrintableBytes(8))
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables = append(tables, table)
 		expectedData[table.Name()] = make(map[string][]byte)
@@ -222,7 +225,8 @@ func TestDeadProcessSimulation(t *testing.T) {
 
 	tables = make([]litt.Table, 0, tableCount)
 	for tableName := range expectedData {
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err, "Failed to get table %s after reopening the database", tableName)
 		tables = append(tables, table)
 	}

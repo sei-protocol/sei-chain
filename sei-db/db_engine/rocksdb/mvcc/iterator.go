@@ -8,11 +8,10 @@ import (
 	"sync"
 
 	"github.com/linxGnu/grocksdb"
-
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
-var _ types.DBIterator = (*iterator)(nil)
+var _ dbm.Iterator = (*iterator)(nil)
 
 type iterator struct {
 	source             *grocksdb.Iterator

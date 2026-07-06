@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
@@ -40,10 +42,10 @@ func (m *mockStateStore) SetEarliestVersion(version int64, ignoreVersion bool) e
 func (m *mockStateStore) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlockRange int64, hash []byte) error {
 	return nil
 }
-func (m *mockStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (m *mockStateStore) Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
-func (m *mockStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (m *mockStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
 func (m *mockStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {

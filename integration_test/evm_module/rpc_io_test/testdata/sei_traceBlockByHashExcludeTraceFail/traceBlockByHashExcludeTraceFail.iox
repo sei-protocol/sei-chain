@@ -1,8 +1,0 @@
-// Resolve the deploy tx's block hash, then trace that block. The deploy is a known-successful EVM tx,
-// so the result must be non-empty. expect_body_contains "txHash" rejects an empty result (`[]`).
->> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["${deployTxHash}"]}
-<< {"jsonrpc":"2.0","id":1,"result":{}}
-@ bind blockHash = result.blockHash
->> {"jsonrpc":"2.0","id":1,"method":"sei_traceBlockByHashExcludeTraceFail","params":["${blockHash}",{"tracer":"callTracer"}]}
-<< {"jsonrpc":"2.0","id":1,"result":[]}
-@ expect_body_contains "txHash"

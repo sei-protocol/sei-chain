@@ -8,8 +8,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -145,8 +145,9 @@ type appProposalWithTimestamp struct {
 }
 
 type inner struct {
-	qcs          map[types.GlobalBlockNumber]*types.FullCommitQC      // [first,nextQC)
-	blocks       map[types.GlobalBlockNumber]*types.Block             // [first,nextBlock) + subset of [nextBlock,nextQC)
+	qcs    map[types.GlobalBlockNumber]*types.FullCommitQC // [first,nextQC)
+	blocks map[types.GlobalBlockNumber]*types.Block        // [first,nextBlock) + subset of [nextBlock,nextQC)
+	// appProposal[n] contains appProposal block >=n.
 	appProposals map[types.GlobalBlockNumber]appProposalWithTimestamp // [first,nextAppProposal)
 
 	// blockHashes is a hash → height index mirroring blocks. Maintained
@@ -565,6 +566,9 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			proposal:  proposal,
 			timestamp: t,
 		}
+		// TODO(gprusak): this will be problematic on restart,
+		// nextAppProposal should be initiated wrt current application height,
+		// so that we don't iterate over all blocks in storage on startup.
 		for inner.nextAppProposal <= n {
 			b := inner.blocks[inner.nextAppProposal]
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
@@ -590,6 +594,43 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 			return nil, ErrPruned
 		}
 		return inner.appProposals[n].proposal, nil
+	}
+	panic("unreachable")
+}
+
+func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
+	// TODO(gprusak): decide whether 0 is a good result in this case in general.
+	if i.first == i.nextAppProposal {
+		return 0
+	}
+	n := i.nextAppProposal - 1
+	r := i.qcs[n].QC().LaneRange(lane)
+	// TODO: this header can be actually extracted from FullCommitQC, so consider moving all this logic there.
+	h := i.blocks[n].Header()
+	x := lane.Compare(h.Lane())
+	// NOTE: here we assume the specific ordering of lane blocks in the CommitQC:
+	// TODO(gprusak): move this logic closer to CommitQC
+	switch {
+	case x < 0:
+		return r.Next()
+	case x > 0:
+		return r.First()
+	default:
+		return h.BlockNumber() + 1
+	}
+}
+
+// Waits until lane block n is executed, returns the next block of this lane to be executed (>n)
+func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n types.BlockNumber) (types.BlockNumber, error) {
+	for inner, ctrl := range s.inner.Lock() {
+		for {
+			if next := inner.nextToExecute(lane); n < next {
+				return next, nil
+			}
+			if err := ctrl.Wait(ctx); err != nil {
+				return 0, err
+			}
+		}
 	}
 	panic("unreachable")
 }

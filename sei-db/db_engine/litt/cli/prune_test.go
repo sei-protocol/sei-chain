@@ -36,8 +36,10 @@ func TestPrune(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
+
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
@@ -46,7 +48,8 @@ func TestPrune(t *testing.T) {
 	tables := make(map[string]litt.Table, tableCount)
 	for i := uint64(0); i < tableCount; i++ {
 		tableName := fmt.Sprintf("table-%d", i)
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables[tableName] = table
 	}
@@ -145,7 +148,8 @@ func TestPrune(t *testing.T) {
 	require.NoError(t, err)
 
 	for tableName := range tables {
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables[tableName] = table
 	}
@@ -193,8 +197,10 @@ func TestPruneSubset(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
+
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
@@ -206,7 +212,8 @@ func TestPruneSubset(t *testing.T) {
 	tablesToPruneSet := make(map[string]struct{}, tableCount/2)
 	for i := uint64(0); i < tableCount; i++ {
 		tableName := fmt.Sprintf("table-%d", i)
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables[tableName] = table
 		if i%2 == 0 {
@@ -313,7 +320,8 @@ func TestPruneSubset(t *testing.T) {
 	require.NoError(t, err)
 
 	for tableName := range tables {
-		table, err := db.GetTable(tableName)
+		tableConfig.Name = tableName
+		table, err := db.BuildTable(tableConfig)
 		require.NoError(t, err)
 		tables[tableName] = table
 	}

@@ -429,6 +429,81 @@ func TestConsensusParamsUpdate_VoteExtensionsEnableHeight(t *testing.T) {
 	})
 }
 
+func TestTimeoutParamsOr(t *testing.T) {
+	first := TimeoutParams{
+		Propose:             1 * time.Second,
+		ProposeDelta:        2 * time.Second,
+		Vote:                3 * time.Second,
+		VoteDelta:           4 * time.Second,
+		Commit:              5 * time.Second,
+		BypassCommitTimeout: true,
+	}
+	second := TimeoutParams{
+		Propose:             11 * time.Second,
+		ProposeDelta:        12 * time.Second,
+		Vote:                13 * time.Second,
+		VoteDelta:           14 * time.Second,
+		Commit:              15 * time.Second,
+		BypassCommitTimeout: false,
+	}
+
+	durationFields := []struct {
+		name  string
+		field func(*TimeoutParams) *time.Duration
+	}{
+		{
+			name:  "propose",
+			field: func(tp *TimeoutParams) *time.Duration { return &tp.Propose },
+		},
+		{
+			name:  "propose delta",
+			field: func(tp *TimeoutParams) *time.Duration { return &tp.ProposeDelta },
+		},
+		{
+			name:  "vote",
+			field: func(tp *TimeoutParams) *time.Duration { return &tp.Vote },
+		},
+		{
+			name:  "vote delta",
+			field: func(tp *TimeoutParams) *time.Duration { return &tp.VoteDelta },
+		},
+		{
+			name:  "commit",
+			field: func(tp *TimeoutParams) *time.Duration { return &tp.Commit },
+		},
+	}
+
+	for _, tc := range durationFields {
+		t.Run(tc.name, func(t *testing.T) {
+			left := first
+			*tc.field(&left) = 0
+			expected := first
+			*tc.field(&expected) = *tc.field(&second)
+			require.Equal(t, expected, left.Or(second))
+
+			left = first
+			right := second
+			*tc.field(&left) = 0
+			*tc.field(&right) = 0
+			expected = first
+			*tc.field(&expected) = 0
+			require.Equal(t, expected, left.Or(right))
+		})
+	}
+
+	t.Run("bypass commit timeout", func(t *testing.T) {
+		left := first
+		left.BypassCommitTimeout = false
+		expected := first
+		expected.BypassCommitTimeout = second.BypassCommitTimeout
+		require.Equal(t, expected, left.Or(second))
+
+		right := second
+		right.BypassCommitTimeout = false
+		require.Equal(t, expected, left.Or(right))
+	})
+}
+
 func TestProto(t *testing.T) {
 	params := []ConsensusParams{
 		makeParams(makeParamsArgs{blockBytes: 4, blockGas: 2, evidenceAge: 3, maxEvidenceBytes: 1}),

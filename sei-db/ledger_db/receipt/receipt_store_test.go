@@ -74,20 +74,7 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	require.NotNil(t, store)
 	require.NoError(t, store.Close())
 
-	cfg.Backend = "parquet"
-	store, err = receipt.NewReceiptStore(cfg, storeKey)
-	require.NoError(t, err)
-	require.NotNil(t, store)
-	require.NoError(t, store.Close())
-
-	cfg.TxIndexBackend = "rocksdb"
 	cfg.Backend = "pebble"
-	store, err = receipt.NewReceiptStore(cfg, storeKey)
-	require.NoError(t, err)
-	require.NotNil(t, store)
-	require.NoError(t, store.Close())
-
-	cfg.Backend = "parquet"
 	store, err = receipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	require.NotNil(t, store)
@@ -122,6 +109,7 @@ func TestSetReceiptsAndGet(t *testing.T) {
 	require.NoError(t, store.SetLatestVersion(10))
 	require.Equal(t, int64(10), store.LatestVersion())
 	require.NoError(t, store.SetEarliestVersion(1))
+	require.Equal(t, int64(1), store.EarliestVersion())
 }
 
 func TestReceiptStoreLegacyFallback(t *testing.T) {
@@ -183,8 +171,8 @@ func TestReceiptStorePebbleBackendBasic(t *testing.T) {
 		Addresses: []common.Address{addr},
 		Topics:    [][]common.Hash{{topic}},
 	})
-	require.NoError(t, err)
-	require.Len(t, logs, 1)
+	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
+	require.Empty(t, logs)
 }
 
 func TestFilterLogsRangeQueryNotSupported(t *testing.T) {

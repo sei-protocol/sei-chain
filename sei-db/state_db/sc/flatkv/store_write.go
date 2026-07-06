@@ -20,6 +20,16 @@ import (
 // On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit() (version int64, err error) {
 	start := time.Now()
+
+	// TODO(concurrency): This takes a single coarse write lock for the whole
+	// commit, so it also blocks readers/iterator construction during the WAL
+	// fsync and the periodic auto-snapshot. That is fine today because commits
+	// are not pipelined with reads (there is currently no pipelining at all).
+	// When commit pipelining is introduced, replace this with a finer-grained
+	// scheme.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	pendingAccount := len(s.accountWrites)
 	pendingCode := len(s.codeWrites)
 	pendingStorage := len(s.storageWrites)
@@ -391,12 +401,13 @@ func (s *CommitStore) batchReadOldValues(changesByType map[keys.EVMKeyKind]map[s
 	readErrs := make([]error, 4)
 	var wg sync.WaitGroup
 	for i := range jobs {
+		idx := i
 		job := jobs[i]
 		if len(job.batch) > 0 {
 			wg.Add(1)
 			s.miscPool.Submit(func() {
 				defer wg.Done()
-				readErrs[i] = job.db.BatchGet(job.batch)
+				readErrs[idx] = job.db.BatchGet(job.batch)
 			})
 		}
 	}

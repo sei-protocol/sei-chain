@@ -281,7 +281,7 @@ func (r *reactorTestSuite) listenForPeerDown(
 	onNode, withNode int,
 ) {
 	on, with := r.checkNodePair(t, onNode, withNode)
-	r.network.Node(on).WaitForConn(t.Context(), with, false)
+	require.NoError(t, r.network.Node(on).WaitForConn(t.Context(), with, false))
 }
 
 func (r *reactorTestSuite) getAddressesFor(nodes []int) []*pb.PexAddress {

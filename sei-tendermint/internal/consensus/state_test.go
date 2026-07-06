@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	abcimocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
@@ -21,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
@@ -197,53 +199,6 @@ func TestStateEnterProposeYesPrivValidator(t *testing.T) {
 	}
 
 	ensureNoNewTimeout(t, timeoutCh, cs.state.ConsensusParams.Timeout.ProposeTimeout(round).Nanoseconds())
-}
-
-func TestStateBadProposal(t *testing.T) {
-	config := configSetup(t)
-	ctx := t.Context()
-
-	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
-	height, round := cs1.roundState.Height(), cs1.roundState.Round()
-	vs2 := vss[1]
-
-	partSize := types.BlockPartSizeBytes
-	proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
-	voteCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryVote)
-
-	propBlock, err := cs1.createProposalBlock(ctx)
-	require.NoError(t, err)
-
-	round++
-	incrementRound(vss[1:]...)
-
-	stateHash := propBlock.AppHash
-	if len(stateHash) == 0 {
-		stateHash = make([]byte, 32)
-	}
-	stateHash[0] = (stateHash[0] + 1) % 255
-	propBlock.AppHash = stateHash
-	propBlockParts, err := propBlock.MakePartSet(partSize)
-	require.NoError(t, err)
-	blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
-	pubKey, err := vss[1].PrivValidator.GetPubKey(ctx)
-	require.NoError(t, err)
-	proposal := types.NewProposal(vs2.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxHashes(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
-	p := proposal.ToProto()
-	require.NoError(t, vs2.SignProposal(ctx, config.ChainID(), p))
-	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
-
-	err = cs1.SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer")
-	require.NoError(t, err)
-
-	cs1.startTestRound(ctx, height, round)
-	ensureProposal(t, proposalCh, height, round, blockID)
-	ensurePrevoteMatch(t, voteCh, height, round, nil)
-	cs1.signAddVotes(ctx, t, tmproto.PrevoteType, config.ChainID(), blockID, vs2)
-	ensurePrevote(t, voteCh, height, round)
-	ensurePrecommit(t, voteCh, height, round)
-	cs1.validatePrecommit(ctx, t, round, -1, vss[0], nil, nil)
-	cs1.signAddVotes(ctx, t, tmproto.PrecommitType, config.ChainID(), blockID, vs2)
 }
 
 func TestStateOversizedBlock(t *testing.T) {
@@ -2912,4 +2867,88 @@ func TestAddProposalBlockPartNilProposalBlockParts(t *testing.T) {
 	// Should not add the part and should not return an error (just a debug log)
 	require.False(t, added, "Part should not be added when ProposalBlockParts is nil")
 	require.NoError(t, err, "No error expected when ProposalBlockParts is nil, just debug logging")
+}
+
+func TestStateTimeoutResolution(t *testing.T) {
+	baseTime := time.Unix(100, 0)
+
+	newState := func(cfg *config.ConsensusConfig, params types.TimeoutParams) *State {
+		return &State{
+			config: cfg,
+			state: sm.State{
+				ConsensusParams: types.ConsensusParams{
+					Timeout: params,
+				},
+			},
+		}
+	}
+
+	cfgWithOverrides := func(enabled bool, bypass bool) *config.ConsensusConfig {
+		cfg := config.DefaultConsensusConfig()
+		cfg.UnsafeOverridesEnabled = enabled
+		cfg.UnsafeProposeTimeoutOverride = 9 * time.Second
+		cfg.UnsafeProposeTimeoutDeltaOverride = 8 * time.Second
+		cfg.UnsafeVoteTimeoutOverride = 7 * time.Second
+		cfg.UnsafeVoteTimeoutDeltaOverride = 6 * time.Second
+		cfg.UnsafeCommitTimeoutOverride = 5 * time.Second
+		cfg.UnsafeBypassCommitTimeoutOverride = utils.Alloc(bypass)
+		return cfg
+	}
+
+	onchain := types.TimeoutParams{
+		Propose:             2 * time.Second,
+		ProposeDelta:        250 * time.Millisecond,
+		Vote:                3 * time.Second,
+		VoteDelta:           350 * time.Millisecond,
+		Commit:              4 * time.Second,
+		BypassCommitTimeout: false,
+	}
+	overridden := types.TimeoutParams{
+		Propose:             9 * time.Second,
+		ProposeDelta:        8 * time.Second,
+		Vote:                7 * time.Second,
+		VoteDelta:           6 * time.Second,
+		Commit:              5 * time.Second,
+		BypassCommitTimeout: true,
+	}
+	overriddenFalseBypass := overridden
+	overriddenFalseBypass.BypassCommitTimeout = false
+
+	testCases := []struct {
+		name     string
+		cfg      *config.ConsensusConfig
+		params   types.TimeoutParams
+		expected types.TimeoutParams
+	}{
+		{"disabled uses onchain params", cfgWithOverrides(false, true), onchain, onchain},
+		{"disabled keeps legacy behavior", cfgWithOverrides(false, true), types.DefaultTimeoutParams(), overridden},
+		{"enabled applies overrides", cfgWithOverrides(true, false), onchain, overriddenFalseBypass},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := newState(tc.cfg, tc.params)
+
+			require.Equal(t, tc.expected.ProposeTimeout(1), cs.proposeTimeout(1))
+			require.Equal(t, tc.expected.VoteTimeout(2), cs.voteTimeout(2))
+			require.Equal(t, baseTime.Add(tc.expected.Commit), cs.commitTime(baseTime))
+			require.Equal(t, tc.expected.BypassCommitTimeout, cs.bypassCommitTimeout())
+		})
+	}
+
+	t.Run("nil bypass override differs from false pointer", func(t *testing.T) {
+		params := onchain
+		params.BypassCommitTimeout = true
+
+		cfgNil := config.DefaultConsensusConfig()
+		cfgNil.UnsafeOverridesEnabled = true
+		cfgNil.UnsafeBypassCommitTimeoutOverride = nil
+
+		cfgFalse := config.DefaultConsensusConfig()
+		cfgFalse.UnsafeOverridesEnabled = true
+		cfgFalse.UnsafeBypassCommitTimeoutOverride = utils.Alloc(false)
+
+		require.True(t, newState(cfgNil, params).bypassCommitTimeout())
+		require.False(t, newState(cfgFalse, params).bypassCommitTimeout())
+	})
 }

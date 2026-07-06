@@ -238,7 +238,7 @@ func NewCryptosimMetrics(
 	)
 	receiptLogFilterDuration, _ := meter.Float64Histogram(
 		"cryptosim_receipt_log_filter_duration_seconds",
-		metric.WithDescription("DuckDB eth_getLogs filter query latency"),
+		metric.WithDescription("eth_getLogs filter query latency"),
 		metric.WithExplicitBucketBoundaries(receiptLogFilterLatencyBuckets...),
 		metric.WithUnit("s"),
 	)

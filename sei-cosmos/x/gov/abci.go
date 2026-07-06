@@ -15,7 +15,12 @@ var logger = seilog.NewLogger("cosmos", "x", "gov")
 
 // EndBlocker called every block, process inflation, update validator set.
 func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
-	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
+	endBlockerStart := time.Now()
+	defer func() {
+		govMetrics.endBlockerDuration.Record(ctx.Context(), time.Since(endBlockerStart).Seconds())
+		// TODO(PLT-414): remove once gov_end_blocker_duration verified
+		telemetry.ModuleMeasureSince(types.ModuleName, endBlockerStart, telemetry.MetricKeyEndBlocker)
+	}()
 
 	// delete inactive proposal from store and its deposits
 	keeper.IterateInactiveProposalsQueue(ctx, ctx.BlockHeader().Time, func(proposal types.Proposal) bool {

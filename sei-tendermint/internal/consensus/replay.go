@@ -261,7 +261,9 @@ func (h *Handshaker) ReplayBlocks(
 	switch {
 	case storeBlockHeight == 0:
 		if err := checkAppHashEqualsOneFromState(appHash, state); err != nil {
-			return nil, err
+			if err = h.consensusPolicy.HandleError(fmt.Errorf("%w: %w", types.ErrAppHash, err)); err != nil {
+				return nil, err
+			}
 		}
 		return appHash, nil
 
@@ -304,7 +306,9 @@ func (h *Handshaker) ReplayBlocks(
 				return nil, err
 			}
 			if err := checkAppHashEqualsOneFromState(appHash, state); err != nil {
-				return nil, err
+				if err = h.consensusPolicy.HandleError(fmt.Errorf("%w: %w", types.ErrAppHash, err)); err != nil {
+					return nil, err
+				}
 			}
 			return appHash, nil
 		}
@@ -388,7 +392,9 @@ func (h *Handshaker) replayBlocks(
 		// Extra check to ensure the app was not changed in a way it shouldn't have.
 		if len(appHash) > 0 {
 			if err := checkAppHashEqualsOneFromBlock(appHash, block); err != nil {
-				return nil, err
+				if err = h.consensusPolicy.HandleError(fmt.Errorf("%w: %w", types.ErrAppHash, err)); err != nil {
+					return nil, err
+				}
 			}
 		}
 
@@ -421,7 +427,9 @@ func (h *Handshaker) replayBlocks(
 		appHash = state.AppHash
 	}
 	if err := checkAppHashEqualsOneFromState(appHash, state); err != nil {
-		return nil, err
+		if err = h.consensusPolicy.HandleError(fmt.Errorf("%w: %w", types.ErrAppHash, err)); err != nil {
+			return nil, err
+		}
 	}
 	return appHash, nil
 }

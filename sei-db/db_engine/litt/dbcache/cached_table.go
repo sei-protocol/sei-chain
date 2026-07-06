@@ -51,73 +51,35 @@ func (c *cachedTable) Name() string {
 	return c.base.Name()
 }
 
-func (c *cachedTable) Put(key []byte, value []byte) error {
-	err := c.base.Put(key, value)
+func (c *cachedTable) Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error {
+	err := c.base.Put(key, value, secondaryKeys...)
 	if err != nil {
 		return fmt.Errorf("failed to put entry into base table: %w", err)
 	}
 	c.writeCache.Put(string(key), value)
+	for _, sk := range secondaryKeys {
+		c.writeCache.Put(string(sk.Key), value[sk.Offset:sk.Offset+sk.Length])
+	}
 	return nil
 }
 
-func (c *cachedTable) PutBatch(batch []*types.KVPair) error {
+func (c *cachedTable) PutBatch(batch []*types.PutRequest) error {
 	err := c.base.PutBatch(batch)
 	if err != nil {
 		return err
 	}
-	for _, kv := range batch {
-		c.writeCache.Put(util.UnsafeBytesToString(kv.Key), kv.Value)
+	for _, req := range batch {
+		c.writeCache.Put(util.UnsafeBytesToString(req.Key), req.Value)
+		for _, sk := range req.SecondaryKeys {
+			c.writeCache.Put(util.UnsafeBytesToString(sk.Key), req.Value[sk.Offset:sk.Offset+sk.Length])
+		}
 	}
 	return nil
 }
 
 func (c *cachedTable) Get(key []byte) (value []byte, exists bool, err error) {
-	value, exists, _, err = c.CacheAwareGet(key, false)
-	return value, exists, err
-}
-
-// In theory, there is a race condition here where call to CacheAwareGet() made concurrently with a call to Put()
-// might find the data to exist but not to be hot. This is not a problem though, since it will be hard to trigger and
-// since it is not a violation of the consistency/correctness guarantees made by LittDB. Caching is inherently a
-// "best effort" optimization, and so it's not worth adding extra locking in order to prevent this edge case.
-//
-// Scenario:
-// - Thread A calls Put() on key K, and Put() does not return right away.
-// - Thread B calls CacheAwareGet() on key K with onlyReadFromCache set to true.
-// - Thread B checks the cache, and finds that the value is not there.
-// - LittDB flushes the value out to disk before thread A's Put() returns, specifically before thread A inserts
-//   the value into the write cache. The timing of this is exceptionally unlikely, but not impossible.
-// - Thread B gets to the part of CacheAwareGet() where it checks the base table for the value. Since the
-//   base table has flushed the value out to disk, it says that the value exists but does not fetch it since
-//   onlyReadFromCache is true.
-// - Thread A finishes calling Put(), and key K is now in the cache.
-//
-//   |                     Thread A                                               Thread B
-//  Time                      |                                                      |
-//   |             Put(key K, ...) starts                                            |
-//   v                        |                                                      |
-//                            |                                 CacheAwareGet(key K, ...) -> value not present
-//                            |                                                      |
-//      K is inserted into the unflushed data map                                    |
-//                            |                                                      |
-//                            |                                 CacheAwareGet(key K, ...) -> present and hot
-//                            |                                                      |
-//     K is flushed to disk and removed from the unflushed data map                  |
-//         (highly irregular but not impossible timing)                              |
-//                            |                                                      |
-//                            |                                 CacheAwareGet(key K, ...) -> present and cold
-//                            |                                                      |
-//           K is inserted into the write cache                                      |
-//                            |                                                      |
-//                            |                                 CacheAwareGet(key K, ...) -> present and hot
-//                            |                                                      |
-//                  Put (key K, ...) returns                                         |
-
-func (c *cachedTable) CacheAwareGet(
-	key []byte,
-	onlyReadFromCache bool,
-) (value []byte, exists bool, hot bool, err error) {
-
+	// hot tracks whether the value was served from one of this table's caches (a "hot" read) for metrics.
+	var hot bool
 	if c.metrics != nil {
 		start := time.Now()
 		defer func() {
@@ -129,30 +91,26 @@ func (c *cachedTable) CacheAwareGet(
 
 	stringKey := util.UnsafeBytesToString(key)
 
-	value, exists = c.writeCache.Get(stringKey)
-	if exists {
-		// The value was recently written
+	if value, exists = c.writeCache.Get(stringKey); exists {
+		// The value was recently written.
 		hot = true
-		return value, exists, hot, err
-	} else {
-		value, exists = c.readCache.Get(stringKey)
-		if exists {
-			// The value was recently read
-			hot = true
-			return value, exists, hot, err
-		}
+		return value, exists, nil
+	}
+	if value, exists = c.readCache.Get(stringKey); exists {
+		// The value was recently read.
+		hot = true
+		return value, exists, nil
 	}
 
-	value, exists, hot, err = c.base.CacheAwareGet(key, onlyReadFromCache)
+	value, exists, err = c.base.Get(key)
 	if err != nil {
-		return value, exists, hot, err
+		return value, exists, fmt.Errorf("failed to get entry from base table: %w", err)
 	}
-
 	if exists && value != nil {
 		c.readCache.Put(stringKey, value)
 	}
 
-	return value, exists, hot, err
+	return value, exists, nil
 }
 
 func (c *cachedTable) Exists(key []byte) (exists bool, err error) {
@@ -199,8 +157,12 @@ func (c *cachedTable) Close() error {
 	return c.base.Close()
 }
 
-func (c *cachedTable) Destroy() error {
-	return c.base.Destroy()
+func (c *cachedTable) Drop() error {
+	return c.base.Drop()
+}
+
+func (c *cachedTable) IsDropped() bool {
+	return c.base.IsDropped()
 }
 
 func (c *cachedTable) SetShardingFactor(shardingFactor uint8) error {
@@ -209,4 +171,19 @@ func (c *cachedTable) SetShardingFactor(shardingFactor uint8) error {
 
 func (c *cachedTable) RunGC() error {
 	return c.base.RunGC()
+}
+
+// Iterator returns a new iterator over the keys in the table. The iterator reads values directly from
+// the base table, bypassing the cache: the iterator's target workload is a large linear scan, for which
+// the cache offers no benefit and would only thrash.
+func (c *cachedTable) Iterator(reverse bool) (litt.Iterator, error) {
+	return c.base.Iterator(reverse)
+}
+
+func (c *cachedTable) GetOldestKey() (key []byte, exists bool, err error) {
+	return c.base.GetOldestKey()
+}
+
+func (c *cachedTable) GetNewestKey() (key []byte, exists bool, err error) {
+	return c.base.GetNewestKey()
 }

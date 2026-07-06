@@ -91,6 +91,27 @@ func (s *CommitStore) loadGlobalVersion() (int64, error) {
 	return int64(v), nil //nolint:gosec // overflow checked above
 }
 
+// loadGlobalEarliestVersion reads the earliest-history version recorded by
+// SetInitialVersion. Returns 0 if not found (genesis stores, or stores
+// created before this record existed).
+func (s *CommitStore) loadGlobalEarliestVersion() (int64, error) {
+	data, err := s.metadataDB.Get(ktype.MetaEarliestVersionKey)
+	if errorutils.IsNotFound(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to read global earliest version: %w", err)
+	}
+	if len(data) != 8 {
+		return 0, fmt.Errorf("invalid global earliest version length: got %d, want 8", len(data))
+	}
+	v := binary.BigEndian.Uint64(data)
+	if v > math.MaxInt64 {
+		return 0, fmt.Errorf("global earliest version overflow: %d exceeds max int64", v)
+	}
+	return int64(v), nil //nolint:gosec // overflow checked above
+}
+
 // loadGlobalLtHash reads the global committed LtHash from metadata DB.
 // Returns nil if not found (fresh start).
 func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
@@ -164,6 +185,24 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 
 	if err := s.commitGlobalMetadata(seededVersion, s.committedLtHash); err != nil {
 		return fmt.Errorf("flatkv: SetInitialVersion: persist global metadata: %w", err)
+	}
+
+	// Record where this store's history begins. Versions below this mark
+	// predate the store entirely (the chain ran without flatkv), which is
+	// distinct from pruned or corrupt in-history versions; the composite
+	// store's era-aware read-only path keys on it.
+	{
+		batch := s.metadataDB.NewBatch()
+		if err := batch.Set(ktype.MetaEarliestVersionKey, versionToBytes(seededVersion)); err != nil {
+			_ = batch.Close()
+			return fmt.Errorf("flatkv: SetInitialVersion: set earliest version: %w", err)
+		}
+		if err := batch.Commit(types.WriteOptions{Sync: s.config.Fsync}); err != nil {
+			_ = batch.Close()
+			return fmt.Errorf("flatkv: SetInitialVersion: persist earliest version: %w", err)
+		}
+		_ = batch.Close()
+		s.earliestVersion = seededVersion
 	}
 
 	syncOpt := types.WriteOptions{Sync: s.config.Fsync}

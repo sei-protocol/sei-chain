@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"time"
 
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
@@ -11,6 +12,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/spf13/viper"
 )
@@ -24,6 +26,53 @@ const (
 
 	// DefaultGRPCWebAddress defines the default address to bind the gRPC-web server to.
 	DefaultGRPCWebAddress = "0.0.0.0:9091"
+
+	// DefaultGRPCWebMaxOpenConnections defines the default maximum number of
+	// simultaneous open connections for the gRPC-web server.
+	DefaultGRPCWebMaxOpenConnections = 1000
+
+	// DefaultGRPCMaxOpenConnections defines the default maximum number of
+	// simultaneous open connections for the gRPC server. 0 means unlimited.
+	DefaultGRPCMaxOpenConnections = 1000
+
+	// DefaultGRPCMaxRecvMsgSize defines the default maximum message size in bytes
+	// that the gRPC server can receive (4 MB), mirroring gRPC's own default.
+	DefaultGRPCMaxRecvMsgSize = 4 * 1024 * 1024
+
+	// DefaultGRPCMaxConnectionIdle is the default duration after which an idle
+	// connection (one with no in-flight RPCs) is closed via GoAway. It is bounded
+	// by default to reclaim abandoned connection slots — which matter now that the
+	// listener is capped by MaxOpenConnections — while staying long enough not to
+	// churn clients that query on a shorter cadence. The real DoS bound is the
+	// connection cap; this only reaps dormant connections. 0 means infinity.
+	DefaultGRPCMaxConnectionIdle = 5 * time.Minute
+
+	// The remaining keepalive defaults below mirror gRPC's own defaults, so they
+	// are opt-in for operators and do not change behavior unless configured.
+
+	// DefaultGRPCMaxConnectionAge is the default maximum duration a connection may
+	// exist before it is closed. 0 means infinity.
+	DefaultGRPCMaxConnectionAge = time.Duration(0)
+
+	// DefaultGRPCMaxConnectionAgeGrace is the default additive period after
+	// MaxConnectionAge during which the connection is forcibly closed. 0 means infinity.
+	DefaultGRPCMaxConnectionAgeGrace = time.Duration(0)
+
+	// DefaultGRPCKeepaliveTime is the default interval after which, if the server
+	// sees no activity, it pings the client to check liveness.
+	DefaultGRPCKeepaliveTime = 2 * time.Hour
+
+	// DefaultGRPCKeepaliveTimeout is the default duration the server waits for a
+	// keepalive ping ack before closing the connection.
+	DefaultGRPCKeepaliveTimeout = 20 * time.Second
+
+	// DefaultGRPCKeepaliveMinTime is the default minimum interval a client must
+	// wait between keepalive pings; pings more frequent than this are penalized.
+	DefaultGRPCKeepaliveMinTime = 5 * time.Minute
+
+	// DefaultGRPCKeepalivePermitWithoutStream defines whether the server allows
+	// keepalive pings even when there are no active streams.
+	DefaultGRPCKeepalivePermitWithoutStream = false
 
 	// DefaultOccEanbled defines whether to use OCC for tx processing
 	DefaultOccEnabled = true
@@ -167,6 +216,43 @@ type GRPCConfig struct {
 
 	// Address defines the API server to listen on
 	Address string `mapstructure:"address"`
+
+	// MaxRecvMsgSize defines the maximum message size in bytes the server can
+	// receive. It bounds per-request memory allocation before the rate limiter
+	// fires. Defaults to 4 MB.
+	MaxRecvMsgSize int `mapstructure:"max-recv-msg-size"`
+
+	// MaxOpenConnections defines the maximum number of simultaneous open
+	// connections. 0 means unlimited.
+	MaxOpenConnections uint `mapstructure:"max-open-connections"`
+
+	// MaxConnectionIdle is the duration after which an idle connection is closed.
+	// 0 means infinity.
+	MaxConnectionIdle time.Duration `mapstructure:"max-connection-idle"`
+
+	// MaxConnectionAge is the maximum duration a connection may exist before it
+	// is closed (a jitter is added by gRPC). 0 means infinity.
+	MaxConnectionAge time.Duration `mapstructure:"max-connection-age"`
+
+	// MaxConnectionAgeGrace is an additive period after MaxConnectionAge during
+	// which the connection is forcibly closed. 0 means infinity.
+	MaxConnectionAgeGrace time.Duration `mapstructure:"max-connection-age-grace"`
+
+	// KeepaliveTime is the interval after which, if the server sees no activity,
+	// it pings the client to check liveness.
+	KeepaliveTime time.Duration `mapstructure:"keepalive-time"`
+
+	// KeepaliveTimeout is the duration the server waits for a keepalive ping ack
+	// before closing the connection.
+	KeepaliveTimeout time.Duration `mapstructure:"keepalive-timeout"`
+
+	// KeepaliveMinTime is the minimum interval a client must wait between
+	// keepalive pings; clients pinging more frequently are penalized.
+	KeepaliveMinTime time.Duration `mapstructure:"keepalive-min-time"`
+
+	// KeepalivePermitWithoutStream defines whether the server allows keepalive
+	// pings even when there are no active streams.
+	KeepalivePermitWithoutStream bool `mapstructure:"keepalive-permit-without-stream"`
 }
 
 // GRPCWebConfig defines configuration for the gRPC-web server.
@@ -179,6 +265,9 @@ type GRPCWebConfig struct {
 
 	// EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk)
 	EnableUnsafeCORS bool `mapstructure:"enable-unsafe-cors"`
+
+	// MaxOpenConnections defines the maximum number of simultaneous open connections. 0 means unlimited.
+	MaxOpenConnections uint `mapstructure:"max-open-connections"`
 }
 
 // StateSyncConfig defines the state sync snapshot configuration.
@@ -279,8 +368,17 @@ func DefaultConfig() *Config {
 			RPCMaxBodyBytes:    1000000,
 		},
 		GRPC: GRPCConfig{
-			Enable:  true,
-			Address: DefaultGRPCAddress,
+			Enable:                       true,
+			Address:                      DefaultGRPCAddress,
+			MaxRecvMsgSize:               DefaultGRPCMaxRecvMsgSize,
+			MaxOpenConnections:           DefaultGRPCMaxOpenConnections,
+			MaxConnectionIdle:            DefaultGRPCMaxConnectionIdle,
+			MaxConnectionAge:             DefaultGRPCMaxConnectionAge,
+			MaxConnectionAgeGrace:        DefaultGRPCMaxConnectionAgeGrace,
+			KeepaliveTime:                DefaultGRPCKeepaliveTime,
+			KeepaliveTimeout:             DefaultGRPCKeepaliveTimeout,
+			KeepaliveMinTime:             DefaultGRPCKeepaliveMinTime,
+			KeepalivePermitWithoutStream: DefaultGRPCKeepalivePermitWithoutStream,
 		},
 		Rosetta: RosettaConfig{
 			Enable:     false,
@@ -291,8 +389,9 @@ func DefaultConfig() *Config {
 			Offline:    false,
 		},
 		GRPCWeb: GRPCWebConfig{
-			Enable:  true,
-			Address: DefaultGRPCWebAddress,
+			Enable:             true,
+			Address:            DefaultGRPCWebAddress,
+			MaxOpenConnections: DefaultGRPCWebMaxOpenConnections,
 		},
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   0,
@@ -306,6 +405,16 @@ func DefaultConfig() *Config {
 			GenesisStreamFile: "",
 		},
 	}
+}
+
+// clampNonNegativeDuration returns fallback when d is negative; zero and
+// positive values (zero is gRPC's "infinity" for several keepalive fields) pass
+// through unchanged.
+func clampNonNegativeDuration(d, fallback time.Duration) time.Duration {
+	if d < 0 {
+		return fallback
+	}
+	return d
 }
 
 // GetConfig returns a fully parsed Config object.
@@ -332,12 +441,82 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	// default, matching the behavior of app/seidb.go.
 	scWriteMode := config.DefaultStateCommitConfig().WriteMode
 	if wm := v.GetString("state-commit.sc-write-mode"); wm != "" {
-		parsed, err := config.ParseWriteMode(wm)
+		parsed, err := sctypes.ParseWriteMode(wm)
 		if err != nil {
 			return Config{}, fmt.Errorf("invalid state-commit.sc-write-mode %q: %w", wm, err)
 		}
 		scWriteMode = parsed
 	}
+	// sc-write-mode-enable-auto (default true) forces the node into auto and
+	// ignores the explicit sc-write-mode. An absent key keeps the default so
+	// older configs (explicit memiavl_only, no auto key) still resolve to auto,
+	// mirroring app/seidb.go. Set it to false to honor the explicit sc-write-mode
+	// as a deliberate pin (see config.ApplyWriteModeAuto).
+	scWriteModeEnableAuto := config.DefaultStateCommitConfig().WriteModeEnableAuto
+	if v.IsSet("state-commit.sc-write-mode-enable-auto") {
+		scWriteModeEnableAuto = v.GetBool("state-commit.sc-write-mode-enable-auto")
+	}
+	scWriteMode = config.ApplyWriteModeAuto(scWriteModeEnableAuto, scWriteMode)
+
+	flatKVConfig := config.DefaultStateCommitConfig().FlatKVConfig
+	if v.IsSet("state-commit.flatkv.fsync") {
+		flatKVConfig.Fsync = v.GetBool("state-commit.flatkv.fsync")
+	}
+	if v.IsSet("state-commit.flatkv.async-write-buffer") {
+		flatKVConfig.AsyncWriteBuffer = v.GetInt("state-commit.flatkv.async-write-buffer")
+	}
+	if v.IsSet("state-commit.flatkv.snapshot-interval") {
+		flatKVConfig.SnapshotInterval = v.GetUint32("state-commit.flatkv.snapshot-interval")
+	}
+	if v.IsSet("state-commit.flatkv.snapshot-keep-recent") {
+		flatKVConfig.SnapshotKeepRecent = v.GetUint32("state-commit.flatkv.snapshot-keep-recent")
+	}
+	if v.IsSet("state-commit.flatkv.enable-read-write-metrics") {
+		flatKVConfig.EnableReadWriteMetrics = v.GetBool("state-commit.flatkv.enable-read-write-metrics")
+	}
+
+	// Apply the in-code default when the key is absent so that nodes upgrading
+	// with an older app.toml (which lacks this key) are still bounded rather
+	// than running with unlimited connections.
+	grpcWebMaxOpenConnections := uint(DefaultGRPCWebMaxOpenConnections)
+	if v.IsSet("grpc-web.max-open-connections") {
+		grpcWebMaxOpenConnections = v.GetUint("grpc-web.max-open-connections")
+	}
+
+	// Apply in-code defaults when keys are absent so that nodes upgrading with an
+	// older app.toml (which lacks these keys) remain bounded rather than running
+	// with unlimited connections / message sizes.
+	grpcMaxRecvMsgSize := DefaultGRPCMaxRecvMsgSize
+	if v.IsSet("grpc.max-recv-msg-size") {
+		grpcMaxRecvMsgSize = v.GetInt("grpc.max-recv-msg-size")
+	}
+	grpcMaxOpenConnections := uint(DefaultGRPCMaxOpenConnections)
+	if v.IsSet("grpc.max-open-connections") {
+		grpcMaxOpenConnections = v.GetUint("grpc.max-open-connections")
+	}
+	// Clamp negative durations back to their in-code defaults. A negative
+	// keepalive/connection-age value is a misconfiguration that gRPC would
+	// otherwise accept verbatim, so fall back to the safe default instead.
+	grpcMaxConnectionIdle := DefaultGRPCMaxConnectionIdle
+	if v.IsSet("grpc.max-connection-idle") {
+		grpcMaxConnectionIdle = clampNonNegativeDuration(v.GetDuration("grpc.max-connection-idle"), DefaultGRPCMaxConnectionIdle)
+	}
+	grpcKeepaliveTime := DefaultGRPCKeepaliveTime
+	if v.IsSet("grpc.keepalive-time") {
+		grpcKeepaliveTime = clampNonNegativeDuration(v.GetDuration("grpc.keepalive-time"), DefaultGRPCKeepaliveTime)
+	}
+	grpcKeepaliveTimeout := DefaultGRPCKeepaliveTimeout
+	if v.IsSet("grpc.keepalive-timeout") {
+		grpcKeepaliveTimeout = clampNonNegativeDuration(v.GetDuration("grpc.keepalive-timeout"), DefaultGRPCKeepaliveTimeout)
+	}
+	grpcKeepaliveMinTime := DefaultGRPCKeepaliveMinTime
+	if v.IsSet("grpc.keepalive-min-time") {
+		grpcKeepaliveMinTime = clampNonNegativeDuration(v.GetDuration("grpc.keepalive-min-time"), DefaultGRPCKeepaliveMinTime)
+	}
+	// MaxConnectionAge and MaxConnectionAgeGrace default to 0 (gRPC's "infinity"),
+	// which is a valid value, so only a negative override needs clamping.
+	grpcMaxConnectionAge := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age"), DefaultGRPCMaxConnectionAge)
+	grpcMaxConnectionAgeGrace := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age-grace"), DefaultGRPCMaxConnectionAgeGrace)
 
 	return Config{
 		BaseConfig: BaseConfig{
@@ -382,13 +561,23 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			Offline:    v.GetBool("rosetta.offline"),
 		},
 		GRPC: GRPCConfig{
-			Enable:  v.GetBool("grpc.enable"),
-			Address: v.GetString("grpc.address"),
+			Enable:                       v.GetBool("grpc.enable"),
+			Address:                      v.GetString("grpc.address"),
+			MaxRecvMsgSize:               grpcMaxRecvMsgSize,
+			MaxOpenConnections:           grpcMaxOpenConnections,
+			MaxConnectionIdle:            grpcMaxConnectionIdle,
+			MaxConnectionAge:             grpcMaxConnectionAge,
+			MaxConnectionAgeGrace:        grpcMaxConnectionAgeGrace,
+			KeepaliveTime:                grpcKeepaliveTime,
+			KeepaliveTimeout:             grpcKeepaliveTimeout,
+			KeepaliveMinTime:             grpcKeepaliveMinTime,
+			KeepalivePermitWithoutStream: v.GetBool("grpc.keepalive-permit-without-stream"),
 		},
 		GRPCWeb: GRPCWebConfig{
-			Enable:           v.GetBool("grpc-web.enable"),
-			Address:          v.GetString("grpc-web.address"),
-			EnableUnsafeCORS: v.GetBool("grpc-web.enable-unsafe-cors"),
+			Enable:             v.GetBool("grpc-web.enable"),
+			Address:            v.GetString("grpc-web.address"),
+			EnableUnsafeCORS:   v.GetBool("grpc-web.enable-unsafe-cors"),
+			MaxOpenConnections: grpcWebMaxOpenConnections,
 		},
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   v.GetUint64("state-sync.snapshot-interval"),
@@ -396,9 +585,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			SnapshotDirectory:  v.GetString("state-sync.snapshot-directory"),
 		},
 		StateCommit: config.StateCommitConfig{
-			Enable:    v.GetBool("state-commit.sc-enable"),
-			Directory: v.GetString("state-commit.sc-directory"),
-			WriteMode: scWriteMode,
+			Enable:              v.GetBool("state-commit.sc-enable"),
+			Directory:           v.GetString("state-commit.sc-directory"),
+			WriteMode:           scWriteMode,
+			WriteModeEnableAuto: scWriteModeEnableAuto,
 			MemIAVLConfig: memiavl.Config{
 				AsyncCommitBuffer:         v.GetInt("state-commit.sc-async-commit-buffer"),
 				SnapshotKeepRecent:        v.GetUint32("state-commit.sc-keep-recent"),
@@ -407,6 +597,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 				SnapshotWriterLimit:       v.GetInt("state-commit.sc-snapshot-writer-limit"),
 				SnapshotPrefetchThreshold: v.GetFloat64("state-commit.sc-snapshot-prefetch-threshold"),
 			},
+			FlatKVConfig: flatKVConfig,
 		},
 		StateStore: config.StateStoreConfig{
 			Enable:               v.GetBool("state-store.ss-enable"),
@@ -416,9 +607,12 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			KeepRecent:           v.GetInt("state-store.ss-keep-recent"),
 			PruneIntervalSeconds: v.GetInt("state-store.ss-prune-interval"),
 			ImportNumWorkers:     v.GetInt("state-store.ss-import-num-workers"),
-			EVMSplit:             v.GetBool("state-store.evm-ss-split"),
-			EVMDBDirectory:       v.GetString("state-store.evm-ss-db-directory"),
-			SeparateEVMSubDBs:    v.GetBool("state-store.evm-ss-separate-dbs"),
+			EnableReadWriteMetrics: v.GetBool(
+				"state-store.ss-enable-read-write-metrics",
+			),
+			EVMSplit:          v.GetBool("state-store.evm-ss-split"),
+			EVMDBDirectory:    v.GetString("state-store.evm-ss-db-directory"),
+			SeparateEVMSubDBs: v.GetBool("state-store.evm-ss-separate-dbs"),
 		},
 		Genesis: GenesisConfig{
 			StreamImport:      v.GetBool("genesis.stream-import"),

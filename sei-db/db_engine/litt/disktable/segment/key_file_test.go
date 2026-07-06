@@ -19,6 +19,16 @@ func TestReadWriteKeys(t *testing.T) {
 
 	index := rand.Uint32()
 
+	// Cycle through all four KeyKind values so the on-disk record layout is exercised end-to-end.
+	// Index 0 has the implicit zero-value (KeyKindStandalone), confirming that a ScopedKey with
+	// no explicit Kind round-trips as a Standalone primary.
+	kinds := []types.KeyKind{
+		types.KeyKindStandalone,
+		types.KeyKindPrimary,
+		types.KeyKindSecondary,
+		types.KeyKindFinalSecondary,
+	}
+
 	keyCount := rand.Int32Range(100, 200)
 	keys := make([]*types.ScopedKey, keyCount)
 	for i := 0; i < int(keyCount); i++ {
@@ -29,7 +39,12 @@ func TestReadWriteKeys(t *testing.T) {
 			uint8(rand.Uint32Range(0, 256)),
 			rand.Uint32(),
 		)
-		keys[i] = &types.ScopedKey{Key: key, Address: address}
+		// First record left implicit (Kind defaults to zero/Standalone); the rest rotate.
+		var kind types.KeyKind
+		if i != 0 {
+			kind = kinds[i%len(kinds)]
+		}
+		keys[i] = &types.ScopedKey{Key: key, Address: address, Kind: kind}
 	}
 
 	segmentPath, err := NewSegmentPath(directory, "", "table")
