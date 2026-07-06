@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
@@ -118,8 +119,9 @@ func TestRollbackLittDB(t *testing.T) {
 	config, roots := newRollbackTestDB(t)
 	values := writeSequentialKeys(t, config, count)
 
-	err := RollbackLittDB(roots, func(key []byte, isPrimary bool) (bool, error) {
-		require.True(t, isPrimary) // these are all standalone primary keys
+	err := RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+		require.Equal(t, rollbackTestTable, tableName) // filter is invoked per table
+		require.True(t, isPrimary)                     // these are all standalone primary keys
 		return indexFromKey(t, key) <= keepThrough, nil
 	})
 	require.NoError(t, err)
@@ -140,7 +142,7 @@ func TestRollbackNoMatch(t *testing.T) {
 	config, roots := newRollbackTestDB(t)
 	values := writeSequentialKeys(t, config, count)
 
-	err := RollbackLittDB(roots, func(key []byte, isPrimary bool) (bool, error) {
+	err := RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return false, nil
 	})
 	require.NoError(t, err)
@@ -159,7 +161,7 @@ func TestRollbackKeepsEverything(t *testing.T) {
 	config, roots := newRollbackTestDB(t)
 	values := writeSequentialKeys(t, config, count)
 
-	err := RollbackLittDB(roots, func(key []byte, isPrimary bool) (bool, error) {
+	err := RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return true, nil // the very first key visited (the newest) matches
 	})
 	require.NoError(t, err)
@@ -177,7 +179,7 @@ func TestRollbackPropagatesFilterError(t *testing.T) {
 	writeSequentialKeys(t, config, 20)
 
 	wantErr := fmt.Errorf("boom")
-	err := RollbackLittDB(roots, func(key []byte, isPrimary bool) (bool, error) {
+	err := RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return false, wantErr
 	})
 	require.ErrorIs(t, err, wantErr)
@@ -215,7 +217,7 @@ func TestRollbackWithSecondaryKeys(t *testing.T) {
 	require.NoError(t, table.Flush())
 	require.NoError(t, db.Close())
 
-	err = RollbackLittDB(roots, func(key []byte, isPrimary bool) (bool, error) {
+	err = RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		// Only primary keys carry an index we want to stop on; secondaries are reported with isPrimary=false.
 		if !isPrimary {
 			require.True(t, strings.HasPrefix(string(key), "sk-"))
@@ -249,5 +251,62 @@ func TestRollbackWithSecondaryKeys(t *testing.T) {
 			require.Falsef(t, okSecondary, "secondary %d should be rolled back", i)
 		}
 	}
+	require.NoError(t, db.Close())
+}
+
+// TestRollbackRefusesBelowGCWatermark verifies that rolling a table back to a point below its durable
+// gc-watermark (data garbage collection has already reclaimed) is refused before any files are mutated.
+func TestRollbackRefusesBelowGCWatermark(t *testing.T) {
+	t.Parallel()
+
+	const count = 50
+
+	config, roots := newRollbackTestDB(t)
+	writeSequentialKeys(t, config, count)
+
+	// Record a gc-watermark far above any surviving segment so the rollback point is guaranteed to fall
+	// below it. The watermark lives at the table root on one of the storage roots.
+	tableDir := filepath.Join(roots[0], rollbackTestTable)
+	watermark, err := disktable.LoadGCWatermarkFile(tableDir)
+	require.NoError(t, err)
+	require.NoError(t, watermark.Update(1_000_000))
+
+	keymapDir := filepath.Join(tableDir, "keymap")
+	existsBefore, err := util.Exists(keymapDir)
+	require.NoError(t, err)
+	require.True(t, existsBefore)
+
+	err = RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+		return indexFromKey(t, key) <= 10, nil
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "gc-watermark")
+
+	// The guard fires before any destructive step, so the derived state is left untouched.
+	existsAfter, err := util.Exists(keymapDir)
+	require.NoError(t, err)
+	require.True(t, existsAfter, "rollback must not mutate anything when it refuses")
+}
+
+// TestRollbackIsIdempotent verifies that re-running the same rollback is a safe no-op that leaves the table
+// in the same correct state (exercising RollbackToKeyCount's survivingKeyCount == len(keys) path).
+func TestRollbackIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	const count = 120
+	const keepThrough = 71
+
+	config, roots := newRollbackTestDB(t)
+	values := writeSequentialKeys(t, config, count)
+
+	filter := func(tableName string, key []byte, isPrimary bool) (bool, error) {
+		return indexFromKey(t, key) <= keepThrough, nil
+	}
+
+	require.NoError(t, RollbackLittDB(roots, filter))
+	require.NoError(t, RollbackLittDB(roots, filter)) // second run must be a safe no-op
+
+	db, table := openTable(t, config)
+	assertSequentialState(t, table, count, keepThrough, values)
 	require.NoError(t, db.Close())
 }

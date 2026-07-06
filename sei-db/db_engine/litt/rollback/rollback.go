@@ -12,39 +12,42 @@ import (
 	"sort"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
-// RollbackFilter decides where a rollback stops. It is invoked once per key-file record, walking each
-// table from the most recently written key to the oldest. isPrimary is true for primary keys (standalone
-// primaries and primaries that own secondary keys) and false for secondary keys. The first record for
-// which the filter returns true is the rollback point: that record's group is kept along with everything
-// written before it, and everything written after the group is discarded.
-type RollbackFilter func(key []byte, isPrimary bool) (bool, error)
+// RollbackFilter decides where a rollback stops. It is invoked once per key-file record, walking each table
+// from the most recently written key to the oldest. tableName identifies the table the record belongs to:
+// key schemas differ across tables, so the filter must decode the key in a table-aware way. isPrimary is
+// true for primary keys (standalone primaries and primaries that own secondary keys) and false for
+// secondary keys. The first record for which the filter returns true is the rollback point: that record's
+// group is kept along with everything written before it, and everything written after the group is discarded.
+type RollbackFilter func(tableName string, key []byte, isPrimary bool) (bool, error)
 
 // RollbackLittDB performs an offline rollback of the LittDB instance stored across the given data
 // directories (the same paths passed to the database as its storage roots).
 //
-// For every table found under dataDirs, RollbackLittDB walks the key files from newest to oldest and
-// invokes rollbackFilter for each key. The first key for which the filter returns true marks the rollback
-// point: that key's group (a primary plus any secondary keys written with it) and everything written
-// before it are retained; everything written after the group is permanently deleted from the segment
-// files. A table for which the filter never returns true is left unchanged.
+// For every table found under dataDirs, RollbackLittDB walks that table's key files from newest to oldest
+// and invokes rollbackFilter(tableName, key, isPrimary) for each record. The first key for which the filter
+// returns true marks the rollback point: that key's group (a primary plus any secondary keys written with
+// it) and everything written before it are retained; everything written after the group is permanently
+// deleted from the segment files. A table for which the filter never returns true is left unchanged.
 //
 // The keymap and any snapshot are discarded rather than edited: the database rebuilds both from the
 // truncated segment files the next time it starts, which keeps them exactly consistent with the
-// rolled-back data (the same approach cli/prune.go uses after an offline mutation).
+// rolled-back data (the same approach cli/prune.go uses after an offline mutation). The durable gc-watermark
+// is deliberately left in place; rolling a table back below its gc-watermark — into data that garbage
+// collection has already reclaimed — is refused, because that state cannot be faithfully reconstructed.
 //
 // The database must NOT be running while this is called. RollbackLittDB takes the same directory locks the
 // database uses, so it will fail rather than corrupt a live database, and it assumes nothing else mutates
 // the files while it works.
 //
-// The operation is idempotent: if it is interrupted, re-running it with the same filter completes the
-// rollback. (An interrupted run may briefly leave a segment's recorded key count stale, but that value only
-// feeds metrics and self-corrects on the next run.)
+// The operation is idempotent and safe to re-run: re-running with the same filter completes (and repairs)
+// a rollback that was interrupted partway through.
 func RollbackLittDB(dataDirs []string, rollbackFilter RollbackFilter) error {
 	logger := slog.Default()
 
@@ -130,13 +133,28 @@ func rollbackTable(
 			"(point the tool at the database's storage roots, not a snapshot)", tableName)
 	}
 
-	pivot, err := findRollbackPoint(segments, lowestSegmentIndex, highestSegmentIndex, rollbackFilter)
+	pivot, err := findRollbackPoint(segments, tableName, lowestSegmentIndex, highestSegmentIndex, rollbackFilter)
 	if err != nil {
 		return err
 	}
 	if pivot == nil {
 		logger.Warn("no rollback point found, leaving table unchanged", "table", tableName)
 		return nil
+	}
+
+	// Refuse to roll back below the durable gc-watermark. Segments below it are logically garbage collected
+	// (their keys were durably removed from the keymap), so a rollback target there cannot be faithfully
+	// reconstructed — and it would leave lowestReadableSegment above the highest surviving segment, which the
+	// database rejects at startup. We must not simply delete the watermark either: keymap reload honors it so
+	// a rebuild does not resurrect collected keys.
+	watermark, defined, err := highestGCWatermark(roots, tableName)
+	if err != nil {
+		return err
+	}
+	if defined && watermark > pivot.segmentIndex {
+		return fmt.Errorf("cannot roll back table %q to segment %d: it is below the gc-watermark "+
+			"(lowest readable segment %d); that data has already been garbage collected",
+			tableName, pivot.segmentIndex, watermark)
 	}
 
 	logger.Info("rolling back table",
@@ -178,6 +196,7 @@ func rollbackTable(
 // is retained, so the surviving boundary is set to the end of that group. Returns nil if no record matches.
 func findRollbackPoint(
 	segments map[uint32]*segment.Segment,
+	tableName string,
 	lowestSegmentIndex uint32,
 	highestSegmentIndex uint32,
 	rollbackFilter RollbackFilter,
@@ -190,7 +209,7 @@ func findRollbackPoint(
 		}
 
 		for i := len(keys) - 1; i >= 0; i-- {
-			match, err := rollbackFilter(keys[i].Key, keys[i].Kind.IsPrimary())
+			match, err := rollbackFilter(tableName, keys[i].Key, keys[i].Kind.IsPrimary())
 			if err != nil {
 				return nil, fmt.Errorf("rollback filter returned an error in segment %d: %w", segmentIndex, err)
 			}
@@ -247,6 +266,25 @@ func discardDerivedState(roots []string, tableName string) error {
 		}
 	}
 	return nil
+}
+
+// highestGCWatermark returns the highest gc-watermark (lowest readable segment index) recorded for a table
+// across all roots, and whether any root defined one. Segments below this index have been logically garbage
+// collected. The watermark lives at the table root and survives a keymap rebuild, matching how the database
+// loads it at startup.
+func highestGCWatermark(roots []string, tableName string) (watermark uint32, defined bool, err error) {
+	for _, root := range roots {
+		f, err := disktable.LoadGCWatermarkFile(filepath.Join(root, tableName))
+		if err != nil {
+			return 0, false, fmt.Errorf("failed to load gc-watermark for table %q under %s: %w",
+				tableName, root, err)
+		}
+		if f.IsDefined() && (!defined || f.LowestReadableSegment() > watermark) {
+			watermark = f.LowestReadableSegment()
+			defined = true
+		}
+	}
+	return watermark, defined, nil
 }
 
 // findTables returns the names of all LittDB tables found under the given roots. A table is any directory

@@ -17,9 +17,13 @@ import (
 // its secondaries are either all kept or all discarded); RollbackToKeyCount itself does not enforce this.
 //
 // The steps are ordered so that an interruption never leaves a torn record:
-//  1. the key file is rewritten via an atomic swap (the commit point),
+//  1. the key file is rewritten via an atomic swap (the commit point), skipped when it already holds exactly
+//     the surviving records,
 //  2. each shard's value file is truncated, and
 //  3. the segment's key count is recorded in the metadata file.
+//
+// It is idempotent: re-invoking with the same survivingKeyCount is a no-op on an already-rolled-back segment
+// and repairs one whose earlier run was interrupted after step 1 (finishing steps 2 and 3).
 //
 // The surviving records always occupy a contiguous prefix of the key file and of each shard's value file,
 // so the addresses of the kept records are never disturbed.
@@ -37,31 +41,34 @@ func (s *Segment) RollbackToKeyCount(survivingKeyCount uint32) error {
 		return fmt.Errorf("surviving key count %d exceeds the %d records in segment %d",
 			survivingKeyCount, len(keys), s.index)
 	}
-	if int(survivingKeyCount) == len(keys) {
-		// Nothing was written after the boundary; the segment is already in its target state.
-		return nil
-	}
 
 	survivingKeys := keys[:survivingKeyCount]
 
-	// 1. Rewrite the key file with only the surviving records. The atomic rename of the swap file over the
-	// original key file is the commit point for this segment's rollback.
-	swapFile, err := createKeyFile(s.logger, s.index, s.keys.segmentPath, true)
-	if err != nil {
-		return fmt.Errorf("failed to create swap key file for segment %d: %w", s.index, err)
-	}
-	for _, key := range survivingKeys {
-		if err = swapFile.write(key); err != nil {
-			return fmt.Errorf("failed to write key to swap file for segment %d: %w", s.index, err)
+	// 1. Rewrite the key file to contain only the surviving records. This is skipped when the key file
+	// already holds exactly those records — either nothing was written after the rollback boundary, or a
+	// prior run was interrupted right after this step. The atomic rename of the swap file over the original
+	// key file is the commit point for dropping records; steps 2 and 3 below always run, so a rollback
+	// interrupted after this swap is still repaired (over-long value files truncated, stale metadata key
+	// count corrected) when it is re-invoked.
+	if int(survivingKeyCount) < len(keys) {
+		var swapFile *keyFile
+		swapFile, err = createKeyFile(s.logger, s.index, s.keys.segmentPath, true)
+		if err != nil {
+			return fmt.Errorf("failed to create swap key file for segment %d: %w", s.index, err)
 		}
+		for _, key := range survivingKeys {
+			if err = swapFile.write(key); err != nil {
+				return fmt.Errorf("failed to write key to swap file for segment %d: %w", s.index, err)
+			}
+		}
+		if err = swapFile.seal(); err != nil {
+			return fmt.Errorf("failed to seal swap key file for segment %d: %w", s.index, err)
+		}
+		if err = swapFile.atomicSwap(s.fsync); err != nil {
+			return fmt.Errorf("failed to swap key file for segment %d: %w", s.index, err)
+		}
+		s.keys = swapFile
 	}
-	if err = swapFile.seal(); err != nil {
-		return fmt.Errorf("failed to seal swap key file for segment %d: %w", s.index, err)
-	}
-	if err = swapFile.atomicSwap(s.fsync); err != nil {
-		return fmt.Errorf("failed to swap key file for segment %d: %w", s.index, err)
-	}
-	s.keys = swapFile
 
 	// 2. Truncate each shard's value file to the end of its last surviving value. Values carry no length
 	// prefix on disk, so a value occupies exactly [offset, offset+valueSize), and the surviving values form
