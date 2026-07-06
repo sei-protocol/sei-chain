@@ -104,7 +104,27 @@ func (it *walIterator) Next() (bool, error) {
 	if it.done {
 		return false, nil
 	}
-	result, ok := <-it.results
+	// Drain an already-available result first (non-blocking), so a clean EOF — the reader closing results
+	// with blocks still buffered — is never lost to a concurrent WAL shutdown in the select below.
+	select {
+	case result, ok := <-it.results:
+		return it.deliver(result, ok)
+	default:
+	}
+	// Otherwise wait for the next result, but don't block forever if the WAL is torn down. The reader
+	// goroutine watches the same context (see send) and stops producing when it fires, so the results
+	// channel would never advance again; surface the shutdown as an error rather than hang.
+	select {
+	case result, ok := <-it.results:
+		return it.deliver(result, ok)
+	case <-it.wal.ctx.Done():
+		it.done = true
+		return false, fmt.Errorf("WAL shut down during iteration: %w", it.wal.ctx.Err())
+	}
+}
+
+// deliver turns a dequeued reader result (or a closed-channel signal) into a Next return value.
+func (it *walIterator) deliver(result iteratorResult, ok bool) (bool, error) {
 	if !ok {
 		it.done = true
 		return false, nil
@@ -132,7 +152,8 @@ func (it *walIterator) Close() error {
 }
 
 // read is the reader goroutine: it produces coalesced blocks onto the results channel until the WAL is
-// exhausted (then closes the channel), a read fails (then sends the error), or Close signals a stop.
+// exhausted (then closes the channel), a read fails (then sends the error), Close signals a stop, or the WAL
+// context is cancelled (see send). It never blocks indefinitely, so it cannot outlive the WAL as a zombie.
 func (it *walIterator) read() {
 	defer close(it.readerExited)
 	for {
@@ -151,12 +172,17 @@ func (it *walIterator) read() {
 	}
 }
 
-// send pushes a result onto the channel, returning false if Close signalled a stop first.
+// send pushes a result onto the channel, returning false if Close signalled a stop or the WAL was torn down
+// first. Watching the WAL context here is what keeps the reader from becoming a zombie: if an iterator is
+// orphaned (Iterator aborted via ctx.Done before the caller ever received it, so Close is never called) the
+// prefetch buffer eventually fills and this send would otherwise block forever with no one to close stop.
 func (it *walIterator) send(result iteratorResult) bool {
 	select {
 	case it.results <- result:
 		return true
 	case <-it.stop:
+		return false
+	case <-it.wal.ctx.Done():
 		return false
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
@@ -81,6 +82,49 @@ func TestIteratorCloseBeforeDrainDoesNotLeak(t *testing.T) {
 	require.True(t, ok)
 	require.NoError(t, it.Close())
 	require.NoError(t, it.Close()) // idempotent
+}
+
+func TestIteratorReaderExitsWhenWALTornDownWhileOrphaned(t *testing.T) {
+	// Regression: an iterator whose reader fills the prefetch buffer and is never consumed or Closed — as
+	// happens when Iterator() is aborted via ctx.Done() and the constructed iterator is returned to no one —
+	// must not leave its reader goroutine blocked on send() forever. Watching the WAL context lets the reader
+	// exit when the WAL is torn down, so it cannot become a zombie.
+	cfg := testConfig(t.TempDir())
+	cfg.IteratorPrefetchSize = 1
+	w := openWAL(t, cfg)
+	for block := uint64(1); block <= 20; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+
+	it, err := w.Iterator(1)
+	require.NoError(t, err)
+	iter := it.(*walIterator)
+
+	// Do not consume the iterator: the reader fills the prefetch buffer (size 1) and blocks on send. Tear
+	// down the WAL context out from under it, as fail() or Close() would.
+	w.(*flatKVWalImpl).cancel()
+
+	select {
+	case <-iter.readerExited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reader goroutine did not exit after the WAL context was cancelled")
+	}
+
+	// A consumer that races the teardown drains whatever the reader had already buffered, then observes an
+	// error rather than a clean EOF: a truncated iteration must never masquerade as fully consumed.
+	var termErr error
+	for i := 0; i < 25; i++ {
+		ok, err := it.Next()
+		if err != nil {
+			termErr = err
+			break
+		}
+		if !ok {
+			break
+		}
+	}
+	require.Error(t, termErr, "truncated iteration must surface an error, not a clean EOF")
 }
 
 func TestIteratorStopsBeforeIncompleteTail(t *testing.T) {
