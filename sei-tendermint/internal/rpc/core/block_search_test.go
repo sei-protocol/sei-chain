@@ -25,7 +25,7 @@ func blockSearchEnv(t *testing.T, maxResults int, heights []int64) *Environment 
 	t.Helper()
 	sink := indexermocks.NewEventSink(t)
 	sink.On("Type").Return(indexer.KV)
-	sink.On("SearchBlockEvents", mock.Anything, mock.Anything).Return(heights, nil)
+	sink.On("SearchBlockEvents", mock.Anything, mock.Anything, mock.Anything).Return(heights, nil)
 
 	// LoadBlock returns nil so the page loop skips materialisation; TotalCount
 	// is set before the loop and reflects the cap correctly regardless.
@@ -51,7 +51,7 @@ func TestBlockSearchCapAppliedAfterSort(t *testing.T) {
 
 	sink := indexermocks.NewEventSink(t)
 	sink.On("Type").Return(indexer.KV)
-	sink.On("SearchBlockEvents", mock.Anything, mock.Anything).Return(makeBlockHeights(total), nil)
+	sink.On("SearchBlockEvents", mock.Anything, mock.Anything, mock.Anything).Return(makeBlockHeights(total), nil)
 
 	var loadedHeights []int64
 	bs := statemocks.NewBlockStore(t)

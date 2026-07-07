@@ -139,7 +139,8 @@ func (txi *TxIndex) indexEvents(result *abci.TxResultV2, hash []byte, store dbm.
 //
 // Search will exit early and return any result fetched so far,
 // when a message is received on the context chan.
-func (txi *TxIndex) Search(ctx context.Context, q *query.Query) ([]*abci.TxResultV2, error) {
+// TODO(PLT-748): push opts.Limit/OrderDesc down into the scan path here
+func (txi *TxIndex) Search(ctx context.Context, q *query.Query, opts indexer.SearchOptions) ([]*abci.TxResultV2, error) {
 	select {
 	case <-ctx.Done():
 		return make([]*abci.TxResultV2, 0), nil

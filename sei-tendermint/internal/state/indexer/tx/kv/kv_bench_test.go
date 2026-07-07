@@ -62,7 +62,7 @@ func BenchmarkTxSearch(b *testing.B) {
 	ctx := b.Context()
 
 	for i := 0; i < b.N; i++ {
-		if _, err := indexer.Search(ctx, txQuery); err != nil {
+		if _, err := indexer.Search(ctx, txQuery, searchOpts); err != nil {
 			b.Errorf("failed to query for txs: %s", err)
 		}
 	}
