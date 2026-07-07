@@ -123,6 +123,16 @@ const (
 //	seidb evm-logical-digest --backend memiavl --memiavl-open-mode replay \
 //	    --db-dir /.sei/data/state_commit/memiavl --height 213205000
 //
+//	# Mid-migration node: digest the full EVM logical view as the union of
+//	# flatkv (migrated rows) and memiavl (rows not yet past the boundary), to
+//	# compare a migrating node against a memiavl-only node at the same height.
+//	# Use --memiavl-open-mode replay when memiavl's retained snapshot height is
+//	# outside flatkv's retained snapshot window (the common case on a live
+//	# migrating node, where the two backends keep snapshots at different heights).
+//	seidb evm-logical-digest --backend composite --memiavl-open-mode replay \
+//	    --flatkv-dir /.sei/data/state_commit/flatkv \
+//	    --memiavl-dir /.sei/data/state_commit/memiavl --height 213200000
+//
 //	# Translator-based memIAVL digest. This proves FlatKV state matches the
 //	# current migration mapping and is useful when debugging ImportTranslator.
 //	seidb evm-logical-digest --backend memiavl \
