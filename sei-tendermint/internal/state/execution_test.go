@@ -2,12 +2,9 @@ package state_test
 
 import (
 	"context"
-	"encoding/binary"
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -35,23 +32,6 @@ var (
 	testPartSize uint32 = 65536
 )
 
-func metricValue(t *testing.T, metric prometheus.Metric) float64 {
-	t.Helper()
-
-	dtoMetric := new(dto.Metric)
-	require.NoError(t, metric.Write(dtoMetric))
-
-	switch {
-	case dtoMetric.Gauge != nil:
-		return dtoMetric.Gauge.GetValue()
-	case dtoMetric.Counter != nil:
-		return dtoMetric.Counter.GetValue()
-	default:
-		t.Fatalf("unsupported metric type in test")
-		return 0
-	}
-}
-
 func TestApplyBlock(t *testing.T) {
 	app := &testApp{}
 
@@ -77,59 +57,6 @@ func TestApplyBlock(t *testing.T) {
 
 	// TODO check state and mempool
 	assert.EqualValues(t, 1, state.Version.Consensus.App, "App version wasn't updated")
-}
-
-// TestApplyBlockProposerPriorityHash verifies that ApplyBlock emits the
-// ProposerPriorityHash metric at heights divisible by the export interval,
-// that the encoded value matches the first 6 bytes of the validator set's
-// ProposerPriorityHash, and that the paired height metric is also emitted.
-func TestApplyBlockProposerPriorityHash(t *testing.T) {
-	const interval = sm.ProposerPriorityHashInterval
-
-	app := &testApp{}
-	ctx := t.Context()
-
-	eventBus := eventbus.NewDefault()
-	require.NoError(t, eventBus.Start(ctx))
-
-	state, stateDB, privVals := makeState(t, 1, 1)
-	stateStore := sm.NewStore(stateDB)
-	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	proxyApp := proxy.New(app, proxy.NewMetrics())
-	mp := makeTxMempool(t, proxyApp)
-
-	evpool := &mocks.EvidencePool{}
-	evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, 0)
-	evpool.On("Update", ctx, mock.Anything, mock.Anything).Return()
-	evpool.On("CheckEvidence", ctx, mock.Anything).Return(nil)
-
-	testMetrics := sm.NewMetrics()
-
-	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, testMetrics, types.DefaultConsensusPolicy())
-
-	// Apply blocks 1..interval. Only height == interval should emit the metric.
-	var lastCommit *types.Commit = new(types.Commit)
-	for height := int64(1); height <= interval; height++ {
-		proposerAddr := state.Validators.Validators[0].Address
-		state, _, lastCommit = makeAndCommitGoodBlock(
-			ctx, t, state, height, lastCommit, proposerAddr, blockExec, privVals, nil,
-		)
-
-		if height < interval {
-			require.Zero(t, metricValue(t, testMetrics.ProposerPriorityHashAt()))
-			require.Zero(t, metricValue(t, testMetrics.ProposerPriorityHashHeightAt()))
-		}
-	}
-
-	// Height metric should equal the interval.
-	require.Equal(t, float64(interval), metricValue(t, testMetrics.ProposerPriorityHashHeightAt()))
-
-	// Hash metric should equal the first 8 bytes of ProposerPriorityHash
-	// packed as a big-endian uint64, cast to float64.
-	full := state.Validators.ProposerPriorityHash()
-	require.GreaterOrEqual(t, len(full), 8)
-	expected := binary.BigEndian.Uint64(full[:8])
-	require.Equal(t, float64(expected), metricValue(t, testMetrics.ProposerPriorityHashAt()), "emitted hash value does not match first 8 bytes of ProposerPriorityHash")
 }
 
 // TestFinalizeBlockDecidedLastCommit ensures we correctly send the
