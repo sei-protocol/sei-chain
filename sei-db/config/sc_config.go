@@ -70,34 +70,16 @@ func DefaultStateCommitConfig() StateCommitConfig {
 	}
 }
 
-<<<<<<< HEAD
-=======
-// ApplyWriteModeAuto resolves the effective write mode from the
-// sc-write-mode-enable-auto flag and the explicitly configured sc-write-mode.
-//
-// When auto is enabled the node always runs in auto, regardless of any explicit
-// sc-write-mode — the explicit value is ignored. To pin an explicit mode
-// (memiavl_only, flatkv_only, test_only_dual_write, ...) the operator must set
-// sc-write-mode-enable-auto = false; only then is the configured sc-write-mode
-// honored.
-func ApplyWriteModeAuto(enableAuto bool, mode types.WriteMode) types.WriteMode {
-	if enableAuto {
-		return types.Auto
-	}
-	return mode
-}
-
 // ParseSCWriteMode converts the configured state-commit write mode to the
 // current SC write-mode enum. v6.4/v6.5 app.toml files used "cosmos_only" for
 // the same memIAVL-only routing that v6.6 calls "memiavl_only".
-func ParseSCWriteMode(wm string) (types.WriteMode, error) {
+func ParseSCWriteMode(wm string) (WriteMode, error) {
 	if wm == legacySCWriteModeCosmosOnly {
-		return types.MemiavlOnly, nil
+		return MemiavlOnly, nil
 	}
-	return types.ParseWriteMode(wm)
+	return ParseWriteMode(wm)
 }
 
->>>>>>> e4257d5 (Accept legacy cosmos_only SC write mode (#3704))
 // Validate checks if the StateCommitConfig is valid
 func (c StateCommitConfig) Validate() error {
 	if !c.WriteMode.IsValid() {

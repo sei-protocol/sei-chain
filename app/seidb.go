@@ -111,11 +111,7 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
 
 	if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
-<<<<<<< HEAD
-		parsedWM, err := config.ParseWriteMode(wm)
-=======
 		parsedWM, err := config.ParseSCWriteMode(wm)
->>>>>>> e4257d5 (Accept legacy cosmos_only SC write mode (#3704))
 		if err != nil {
 			panic(fmt.Sprintf("invalid SC write mode %q: %s", wm, err))
 		}

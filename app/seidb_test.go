@@ -95,30 +95,12 @@ func TestParseSCConfigs_HistoricalProofFlags(t *testing.T) {
 	assert.Equal(t, 3, scConfig.HistoricalProofBurst)
 }
 
-<<<<<<< HEAD
-=======
-func TestParseSCConfigs_FlatKVReadWriteMetrics(t *testing.T) {
-	scConfig := parseSCConfigs(mapAppOpts{
-		FlagSCEnable:                 true,
-		FlagSCFlatKVReadWriteMetrics: true,
-	})
-
-	assert.True(t, scConfig.FlatKVConfig.EnableReadWriteMetrics)
-}
-
 func TestParseSCConfigs_LegacyCosmosOnlyWriteMode(t *testing.T) {
 	scConfig := parseSCConfigs(mapAppOpts{
 		FlagSCEnable:    true,
 		FlagSCWriteMode: "cosmos_only",
 	})
-	assert.Equal(t, sctypes.Auto, scConfig.WriteMode)
-
-	scConfig = parseSCConfigs(mapAppOpts{
-		FlagSCEnable:              true,
-		FlagSCWriteMode:           "cosmos_only",
-		FlagSCWriteModeEnableAuto: false,
-	})
-	assert.Equal(t, sctypes.MemiavlOnly, scConfig.WriteMode)
+	assert.Equal(t, config.MemiavlOnly, scConfig.WriteMode)
 }
 
 func TestParseSCConfigs_InvalidWriteModePanicMentionsSC(t *testing.T) {
@@ -130,7 +112,6 @@ func TestParseSCConfigs_InvalidWriteModePanicMentionsSC(t *testing.T) {
 	})
 }
 
->>>>>>> e4257d5 (Accept legacy cosmos_only SC write mode (#3704))
 func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	appOpts := mapAppOpts{
 		FlagSSEnable:            true,
