@@ -1,7 +1,6 @@
 package prometheus
 
 import (
-	"errors"
 	"sync/atomic"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -9,7 +8,10 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "libs", "utils", "prometheus")
 
 var _ prometheus.Metric = (*GaugeInt)(nil)
 var _ prometheus.Metric = (*CounterInt)(nil)
@@ -44,7 +46,8 @@ type CounterInt struct {
 func (c *CounterInt) Desc() *prometheus.Desc { return c.desc }
 func (c *CounterInt) Add(val int64) {
 	if val < 0 {
-		panic(errors.New("counter cannot decrease in value"))
+		logger.Error("counter cannot decrease in value")
+		return 
 	}
 	c.value.Add(val)
 }

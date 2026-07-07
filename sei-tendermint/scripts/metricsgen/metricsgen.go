@@ -212,7 +212,10 @@ func ParseMetricsDir(dir string, structName string) (TemplateData, error) {
 		if !isMetric(f.Type, metricsPackageNames) {
 			continue
 		}
-		pmf := parseMetricField(f)
+		pmf, err := parseMetricField(f)
+		if err != nil {
+			return TemplateData{}, err
+		}
 		if pmf.ConstructorPackage == "tmprometheus" || strings.HasPrefix(pmf.HistogramOptions.BucketType, "tmprometheus.") {
 			td.UsesIntMetrics = true
 		}
@@ -297,8 +300,12 @@ func findMetricsStruct(files map[string]*ast.File, structName string) (*ast.Stru
 	return nil, nil, fmt.Errorf("target struct %q not found in dir", structName)
 }
 
-func parseMetricField(f *ast.Field) ParsedMetricField {
+func parseMetricField(f *ast.Field) (ParsedMetricField, error) {
 	typeName := extractTypeName(f.Type)
+	labelNames := extractLabelNames(f.Tag)
+	if err := validateLabelNames(labelNames); err != nil {
+		return ParsedMetricField{}, fmt.Errorf("metric %q: %w", f.Names[0].String(), err)
+	}
 	pmf := ParsedMetricField{
 		Description:        extractHelpMessage(f.Doc),
 		MetricName:         extractFieldName(f.Names[0].String(), f.Tag),
@@ -307,7 +314,7 @@ func parseMetricField(f *ast.Field) ParsedMetricField {
 		ConstructorPackage: extractConstructorPackage(typeName),
 		ConstructorName:    "New" + typeName,
 		OptsTypeName:       extractOptsTypeName(typeName),
-		LabelNames:         extractLabelNames(f.Tag),
+		LabelNames:         labelNames,
 		MethodReturnType:   extractMethodReturnType(typeName),
 	}
 	pmf.Labels = joinQuotedLabels(pmf.LabelNames)
@@ -316,7 +323,7 @@ func parseMetricField(f *ast.Field) ParsedMetricField {
 	if pmf.OptsTypeName == "HistogramOpts" {
 		pmf.HistogramOptions = extractHistogramOptions(f.Tag)
 	}
-	return pmf
+	return pmf, nil
 }
 
 func extractTypeName(e ast.Expr) string {
@@ -415,9 +422,10 @@ func buildMethodParams(labels []string) string {
 	if len(labels) == 0 {
 		return ""
 	}
+	paramNames := buildMethodParamNames(labels)
 	params := make([]string, 0, len(labels))
-	for _, label := range labels {
-		params = append(params, fmt.Sprintf("%s string", labelToParamName(label)))
+	for _, paramName := range paramNames {
+		params = append(params, fmt.Sprintf("%s string", paramName))
 	}
 	return strings.Join(params, ", ")
 }
@@ -426,27 +434,64 @@ func buildMethodArgs(labels []string) string {
 	if len(labels) == 0 {
 		return ""
 	}
+	paramNames := buildMethodParamNames(labels)
 	args := make([]string, 0, len(labels))
-	for _, label := range labels {
-		args = append(args, labelToParamName(label))
+	for _, paramName := range paramNames {
+		args = append(args, paramName)
 	}
 	return strings.Join(args, ", ")
 }
 
-func labelToParamName(label string) string {
-	name := nonIdentifierChar.ReplaceAllString(label, "_")
-	name = strings.Trim(name, "_")
-	if name == "" {
-		name = "label"
+func buildMethodParamNames(labels []string) []string {
+	if len(labels) == 0 {
+		return nil
 	}
-	firstRune, _ := utf8.DecodeRuneInString(name)
-	if unicode.IsDigit(firstRune) {
-		name = "_" + name
+	if allLabelsAreValidIdentifiers(labels) {
+		return append([]string(nil), labels...)
 	}
-	if _, isKeyword := goKeywords[name]; isKeyword {
-		name += "Label"
+	paramNames := make([]string, 0, len(labels))
+	for i, label := range labels {
+		paramNames = append(paramNames, mangleLabelName(i, label))
 	}
-	return name
+	return paramNames
+}
+
+func allLabelsAreValidIdentifiers(labels []string) bool {
+	for _, label := range labels {
+		if !isValidLabelIdentifier(label) {
+			return false
+		}
+	}
+	return true
+}
+
+func isValidLabelIdentifier(label string) bool {
+	if !token.IsIdentifier(label) {
+		return false
+	}
+	if label == "_" {
+		return false
+	}
+	if token.Lookup(label).IsKeyword() {
+		return false
+	}
+	_, isReserved := goReservedIdentifiers[label]
+	return !isReserved
+}
+
+func validateLabelNames(labels []string) error {
+	seen := make(map[string]struct{}, len(labels))
+	for _, label := range labels {
+		if _, ok := seen[label]; ok {
+			return fmt.Errorf("duplicate metrics label %q", label)
+		}
+		seen[label] = struct{}{}
+	}
+	return nil
+}
+
+func mangleLabelName(i int, label string) string {
+	return fmt.Sprintf("l%d_%s", i, nonIdentifierChar.ReplaceAllString(label, "_"))
 }
 
 func extractFieldName(name string, tag *ast.BasicLit) string {
@@ -517,12 +562,51 @@ func extractMetricsPackageNames(imports []*ast.ImportSpec) (map[string]struct{},
 var capitalChange = regexp.MustCompile("([a-z0-9])([A-Z])")
 var nonIdentifierChar = regexp.MustCompile(`[^a-zA-Z0-9_]`)
 
-var goKeywords = map[string]struct{}{
-	"break": {}, "default": {}, "func": {}, "interface": {}, "select": {},
-	"case": {}, "defer": {}, "go": {}, "map": {}, "struct": {},
-	"chan": {}, "else": {}, "goto": {}, "package": {}, "switch": {},
-	"const": {}, "fallthrough": {}, "if": {}, "range": {}, "type": {},
-	"continue": {}, "for": {}, "import": {}, "return": {}, "var": {},
+var goReservedIdentifiers = map[string]struct{}{
+	"any":        {},
+	"append":     {},
+	"bool":       {},
+	"byte":       {},
+	"cap":        {},
+	"clear":      {},
+	"close":      {},
+	"comparable": {},
+	"complex":    {},
+	"complex128": {},
+	"complex64":  {},
+	"copy":       {},
+	"delete":     {},
+	"error":      {},
+	"false":      {},
+	"float32":    {},
+	"float64":    {},
+	"imag":       {},
+	"int":        {},
+	"int16":      {},
+	"int32":      {},
+	"int64":      {},
+	"int8":       {},
+	"iota":       {},
+	"len":        {},
+	"make":       {},
+	"max":        {},
+	"min":        {},
+	"new":        {},
+	"nil":        {},
+	"panic":      {},
+	"print":      {},
+	"println":    {},
+	"real":       {},
+	"recover":    {},
+	"rune":       {},
+	"string":     {},
+	"true":       {},
+	"uint":       {},
+	"uint16":     {},
+	"uint32":     {},
+	"uint64":     {},
+	"uint8":      {},
+	"uintptr":    {},
 }
 
 func toSnakeCase(str string) string {

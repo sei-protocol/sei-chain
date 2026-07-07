@@ -256,6 +256,65 @@ func TestParseMetricsStruct(t *testing.T) {
 			},
 		},
 		{
+			name: "keyword label falls back for all params",
+			metricsStruct: "type Metrics struct {\n" +
+				"myCounter *prometheus.CounterVec `metrics_labels:\"method,type\"`\n" +
+				"}",
+			expected: metricsgen.TemplateData{
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
+				ParsedMetrics: []metricsgen.ParsedMetricField{
+					{
+						TypeName:           "CounterVec",
+						ConstructorPackage: "prometheus",
+						ConstructorName:    "NewCounterVec",
+						OptsTypeName:       "CounterOpts",
+						FieldName:          "myCounter",
+						MetricName:         "my_counter",
+						Labels:             "\"method\",\"type\"",
+						LabelNames:         []string{"method", "type"},
+						MethodParams:       "l0_method string, l1_type string",
+						MethodArgs:         "l0_method, l1_type",
+						MethodReturnType:   "prometheus.Counter",
+					},
+				},
+			},
+		},
+		{
+			name: "reserved and non-identifier labels fall back for all params",
+			metricsStruct: "type Metrics struct {\n" +
+				"myCounter *prometheus.CounterVec `metrics_labels:\"peer-id,error\"`\n" +
+				"}",
+			expected: metricsgen.TemplateData{
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
+				ParsedMetrics: []metricsgen.ParsedMetricField{
+					{
+						TypeName:           "CounterVec",
+						ConstructorPackage: "prometheus",
+						ConstructorName:    "NewCounterVec",
+						OptsTypeName:       "CounterOpts",
+						FieldName:          "myCounter",
+						MetricName:         "my_counter",
+						Labels:             "\"peer-id\",\"error\"",
+						LabelNames:         []string{"peer-id", "error"},
+						MethodParams:       "l0_peer_id string, l1_error string",
+						MethodArgs:         "l0_peer_id, l1_error",
+						MethodReturnType:   "prometheus.Counter",
+					},
+				},
+			},
+		},
+		{
+			name:        "duplicate metric labels",
+			shouldError: true,
+			metricsStruct: "type Metrics struct {\n" +
+				"myCounter *prometheus.CounterVec `metrics_labels:\"dup,dup\"`\n" +
+				"}",
+		},
+		{
 			name: "ignore non-metric field",
 			metricsStruct: `type Metrics struct {
 				myCounter *prometheus.CounterVec
