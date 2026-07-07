@@ -95,6 +95,23 @@ func TestParseSCConfigs_HistoricalProofFlags(t *testing.T) {
 	assert.Equal(t, 3, scConfig.HistoricalProofBurst)
 }
 
+func TestParseSCConfigs_LegacyCosmosOnlyWriteMode(t *testing.T) {
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable:    true,
+		FlagSCWriteMode: "cosmos_only",
+	})
+	assert.Equal(t, config.MemiavlOnly, scConfig.WriteMode)
+}
+
+func TestParseSCConfigs_InvalidWriteModePanicMentionsSC(t *testing.T) {
+	assert.PanicsWithValue(t, `invalid SC write mode "bogus": invalid write mode: bogus`, func() {
+		parseSCConfigs(mapAppOpts{
+			FlagSCEnable:    true,
+			FlagSCWriteMode: "bogus",
+		})
+	})
+}
+
 func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	appOpts := mapAppOpts{
 		FlagSSEnable:            true,

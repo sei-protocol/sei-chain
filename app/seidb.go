@@ -111,9 +111,9 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
 
 	if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
-		parsedWM, err := config.ParseWriteMode(wm)
+		parsedWM, err := config.ParseSCWriteMode(wm)
 		if err != nil {
-			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
+			panic(fmt.Sprintf("invalid SC write mode %q: %s", wm, err))
 		}
 		scConfig.WriteMode = parsedWM
 	}

@@ -327,6 +327,19 @@ func TestGetConfigRejectsInvalidWriteMode(t *testing.T) {
 	require.Contains(t, err.Error(), "bogus_mode")
 }
 
+func TestGetConfigLegacyCosmosOnlyWriteMode(t *testing.T) {
+	v := viper.New()
+
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+	v.Set("state-commit.sc-write-mode", "cosmos_only")
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, seidbconfig.MemiavlOnly, cfg.StateCommit.WriteMode,
+		"v6.4/v6.5 app.toml files with cosmos_only must parse as memiavl_only")
+}
+
 func TestGetConfigEmptyWriteModeUsesDefault(t *testing.T) {
 	v := viper.New()
 

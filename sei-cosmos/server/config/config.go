@@ -332,7 +332,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	// default, matching the behavior of app/seidb.go.
 	scWriteMode := config.DefaultStateCommitConfig().WriteMode
 	if wm := v.GetString("state-commit.sc-write-mode"); wm != "" {
-		parsed, err := config.ParseWriteMode(wm)
+		parsed, err := config.ParseSCWriteMode(wm)
 		if err != nil {
 			return Config{}, fmt.Errorf("invalid state-commit.sc-write-mode %q: %w", wm, err)
 		}

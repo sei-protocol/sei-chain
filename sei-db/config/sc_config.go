@@ -11,6 +11,8 @@ const (
 	DefaultSCHistoricalProofMaxInFlight = 1
 	DefaultSCHistoricalProofRateLimit   = 1.0 // req/s, <=0 disables rate limit
 	DefaultSCHistoricalProofBurst       = 1
+
+	legacySCWriteModeCosmosOnly = "cosmos_only"
 )
 
 // StateCommitConfig defines configuration for the state commit (SC) layer.
@@ -66,6 +68,16 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
 		KeysToMigratePerBlock:      1024,
 	}
+}
+
+// ParseSCWriteMode converts the configured state-commit write mode to the
+// current SC write-mode enum. v6.4/v6.5 app.toml files used "cosmos_only" for
+// the same memIAVL-only routing that v6.6 calls "memiavl_only".
+func ParseSCWriteMode(wm string) (WriteMode, error) {
+	if wm == legacySCWriteModeCosmosOnly {
+		return MemiavlOnly, nil
+	}
+	return ParseWriteMode(wm)
 }
 
 // Validate checks if the StateCommitConfig is valid
