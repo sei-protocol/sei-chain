@@ -9,7 +9,7 @@ var _ FeeAllowanceI = (*BasicAllowance)(nil)
 
 // MaxAllowanceDenoms bounds the number of coins allowed in a single allowance
 // spend-limit list.
-const MaxAllowanceDenoms = 5000
+const MaxAllowanceDenoms = 100
 
 // Accept can use fee payment requested as well as timestamp of the current block
 // to determine whether or not to process this. This is checked in

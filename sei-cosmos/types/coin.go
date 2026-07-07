@@ -361,9 +361,8 @@ func (coins Coins) safeAdd(coinsB Coins) Coins {
 //
 // Both coin sets are assumed to be sorted by denomination and free of zero
 // amounts (the Coins invariant enforced by Validate/IsValid). Under that
-// invariant a denom is "present" iff it appears, so this merge walk is
-// equivalent to the previous AmountOf-based membership check while running in
-// O(len(coins) + len(coinsB)) rather than O(len(coins) * len(coinsB)).
+// invariant a denom is "present" iff it appears, so this merge walk can run in
+// O(len(coins) + len(coinsB)).
 func (coins Coins) DenomsSubsetOf(coinsB Coins) bool {
 	// more denoms in receiver than in B => cannot be a subset
 	if len(coins) > len(coinsB) {
