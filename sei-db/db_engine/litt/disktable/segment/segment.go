@@ -18,9 +18,6 @@ import (
 // that have been written to the segment but have not yet been flushed to disk.
 const unflushedKeysInitialCapacity = 128
 
-// shardControlChannelCapacity is the capacity of the channel used to send messages to the shard control loop.
-const shardControlChannelCapacity = 32
-
 // Segment is a chunk of data stored on disk. All data in a particular data segment is expired at the same time.
 //
 // This struct is not safe for operations that mutate the segment, access control must be handled by the caller.
@@ -112,7 +109,9 @@ func CreateSegment(
 	segmentPaths []*SegmentPath,
 	snapshottingEnabled bool,
 	shardingFactor uint8,
-	fsync bool) (*Segment, error) {
+	fsync bool,
+	shardChannelCapacity int,
+) (*Segment, error) {
 
 	if len(segmentPaths) == 0 {
 		return nil, errors.New("no segment paths provided")
@@ -149,14 +148,14 @@ func CreateSegment(
 
 	shardChannels := make([]chan any, metadata.shardingFactor)
 	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
-		shardChannels[shard] = make(chan any, shardControlChannelCapacity)
+		shardChannels[shard] = make(chan any, shardChannelCapacity)
 	}
 
 	// If at all possible, we want to size this channel so that the goroutines writing data to the sharded value files
 	// do not block on insertion into this channel. Scale the size of this channel by the number of shards, as more
 	// shards mean there may be a higher rate of writes to this channel. Widen to int before multiplying so that the
 	// product does not wrap at 256 (metadata.shardingFactor is a uint8).
-	keyFileChannel := make(chan any, int(shardControlChannelCapacity)*int(metadata.shardingFactor))
+	keyFileChannel := make(chan any, shardChannelCapacity*int(metadata.shardingFactor))
 
 	segment := &Segment{
 		logger:              logger,

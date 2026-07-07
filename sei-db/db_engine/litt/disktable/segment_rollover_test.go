@@ -16,13 +16,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// rolloverValueSize is the size of each value written by TestSegmentRollsOverAt2GiBBoundary.
-// 2^32 is an exact multiple of this, so the boundary lands cleanly between values.
-const rolloverValueSize = 256 * 1024 * 1024 // 256 MiB
+// rolloverValueSize is the size of each value written by TestSegmentRollsOverAt2GiBBoundary. It is kept
+// small so only a handful are ever resident at once (see the channel sizing in the table builder), while
+// 2^32 remains an exact multiple of it, so the addressability boundary still lands cleanly between values.
+const rolloverValueSize = 64 * 1024 * 1024 // 64 MiB
 
-// rolloverValueCount is chosen so the total written (count * 256 MiB = 5 GiB) comfortably exceeds the
+// rolloverValueCount is chosen so the total written (count * 64 MiB = 5 GiB) comfortably exceeds the
 // 2^32-byte (4 GiB) single-value-file addressable limit, forcing at least one segment rollover.
-const rolloverValueCount = 20
+const rolloverValueCount = 80
 
 // makeRolloverValue deterministically generates a value of rolloverValueSize bytes whose contents depend
 // on index, so a mis-read (wrong segment/offset) is detectable without holding every value in memory.
@@ -56,11 +57,25 @@ func buildSingleShardDiskTableDefaultSegmentSize(t *testing.T, root string) litt
 	require.NoError(t, err)
 	config.Fsync = false // default TargetSegmentFileSize (math.MaxUint32) is intentionally kept
 
-	// Bound the in-memory unflushed-data cache well below the ~5 GiB this test writes: with a threshold
-	// smaller than a single value, an automatic flush is scheduled after every Put, so the cache drains
-	// continuously as keys become durable instead of growing to the full unflushed volume. Without this the
-	// test would hold all unflushed values resident at once and exhaust memory.
-	config.AutoFlushByteThreshold = 128 * 1024 * 1024 // 128 MiB, smaller than one rolloverValueSize (256 MiB)
+	// This test writes ~5 GiB but must stay well under 1 GiB resident. Two levers keep it there, and both
+	// are needed:
+	//
+	//  1. Shrink every buffer that can hold in-flight values. A value stays in the unflushed-data cache from
+	//     Put until its key is durable in the keymap, so the peak cache is bounded by how many values can be
+	//     in flight across the write pipeline at once. That pipeline is a chain of bounded channels
+	//     (control loop -> per-shard writer -> flush loop -> keymap manager); sizing them all to 1 means at
+	//     most a handful of 256 MiB values are resident before Put backpressures. The production defaults
+	//     (dozens deep) are sized for 256 GiB machines and would allow many GiB of large values in flight.
+	//  2. Flush aggressively so the cache actually drains (rather than just capping the in-flight count):
+	//     AutoFlushByteThreshold smaller than one value schedules a flush after every Put, and a small keymap
+	//     batch-byte limit makes the keymap apply (and thus drop cache entries) promptly instead of waiting
+	//     for its 1s timer.
+	config.ControlChannelSize = 1
+	config.FlushChannelSize = 1
+	config.ShardControlChannelSize = 1
+	config.KeymapManagerChannelSize = 1
+	config.AutoFlushByteThreshold = 32 * 1024 * 1024     // < one rolloverValueSize (64 MiB): flush after every Put
+	config.KeymapManagerMaxBatchBytes = 32 * 1024 * 1024 // apply keymap puts (draining the cache) promptly
 
 	tableConfig := litt.DefaultTableConfig("rollover")
 	tableConfig.ShardingFactor = 1 // one value file, so 4 GiB of writes crosses the 2^32 boundary

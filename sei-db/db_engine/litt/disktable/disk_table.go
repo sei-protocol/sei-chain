@@ -24,8 +24,6 @@ var _ litt.ManagedTable = (*DiskTable)(nil)
 // keymapReloadBatchSize is the size of the batch used for reloading keys from segments into the keymap.
 const keymapReloadBatchSize = 1024
 
-const tableFlushChannelCapacity = 8
-
 // DiskTable manages a table's Segments.
 type DiskTable struct {
 	// The logger for the disk table.
@@ -208,7 +206,8 @@ func NewDiskTable(
 		segmentPaths,
 		snapshottingEnabled,
 		table.getShardingFactor(),
-		config.Fsync)
+		config.Fsync,
+		config.ShardControlChannelSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mutable segment: %w", err)
 	}
@@ -343,7 +342,7 @@ func NewDiskTable(
 		logger:                 runtimeConfig.Logger,
 		keymapManager:          kManager,
 		errorMonitor:           errorMonitor,
-		flushChannel:           make(chan any, tableFlushChannelCapacity),
+		flushChannel:           make(chan any, config.FlushChannelSize),
 		metrics:                metrics,
 		clock:                  runtimeConfig.Clock,
 		name:                   name,
@@ -364,6 +363,7 @@ func NewDiskTable(
 		targetKeyFileSize:       config.TargetSegmentKeyFileSize,
 		maxKeyCount:             config.MaxSegmentKeyCount,
 		autoFlushByteThreshold:  config.AutoFlushByteThreshold,
+		shardControlChannelSize: config.ShardControlChannelSize,
 		clock:                   runtimeConfig.Clock,
 		segmentPaths:            segmentPaths,
 		snapshottingEnabled:     snapshottingEnabled,

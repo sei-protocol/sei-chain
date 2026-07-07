@@ -64,6 +64,10 @@ type controlLoop struct {
 	// The target size for key files.
 	targetKeyFileSize uint64
 
+	// shardControlChannelSize is the capacity of each new segment's per-shard write channels (and, scaled by
+	// the sharding factor, its key-file channel). Passed to segment.CreateSegment when a segment rolls over.
+	shardControlChannelSize int
+
 	// autoFlushByteThreshold is the number of value bytes written through the control loop (without an
 	// intervening flush) that triggers an automatic fire-and-forget flush, bounding the in-memory
 	// unflushed-data cache. Set once at construction from Config.AutoFlushByteThreshold; never mutated.
@@ -560,7 +564,8 @@ func (c *controlLoop) expandSegments() error {
 		c.segmentPaths,
 		c.snapshottingEnabled,
 		c.diskTable.getShardingFactor(),
-		c.fsync)
+		c.fsync,
+		c.shardControlChannelSize)
 	if err != nil {
 		return err
 	}

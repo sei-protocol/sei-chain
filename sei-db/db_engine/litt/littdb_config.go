@@ -35,6 +35,18 @@ type Config struct {
 	// The size of the control channel for the segment manager.
 	ControlChannelSize int
 
+	// The capacity of a table's flush loop channel. The control loop hands each segment flush and seal to
+	// the flush loop over this channel; when it fills, the control loop blocks, which backpressures writes.
+	// Each queued flush corresponds to values still resident in the unflushed-data cache, so this depth is
+	// one component of peak in-flight memory.
+	FlushChannelSize int
+
+	// The capacity of each segment shard's write channel. seg.Write hands a value to the shard's writer
+	// goroutine over this channel, and the segment's key-file channel is sized at this times the sharding
+	// factor. These channels carry the actual value bytes in flight, so their depth bounds how many
+	// written-but-not-yet-durable values may be resident per shard before a write blocks.
+	ShardControlChannelSize int
+
 	// The target size for segments.
 	TargetSegmentFileSize uint32
 
@@ -191,6 +203,8 @@ func DefaultConfigNoPaths() *Config {
 		GCBatchSize:                       10_000,
 		KeymapType:                        keymap.PebbleDBKeymapType,
 		ControlChannelSize:                64,
+		FlushChannelSize:                  8,
+		ShardControlChannelSize:           32,
 		TargetSegmentFileSize:             math.MaxUint32,
 		MaxSegmentKeyCount:                50_000,
 		TargetSegmentKeyFileSize:          2 * unit.MB,
@@ -244,6 +258,12 @@ func (c *Config) Validate() error {
 	}
 	if c.ControlChannelSize == 0 {
 		return fmt.Errorf("control channel size must be at least 1")
+	}
+	if c.FlushChannelSize < 1 {
+		return fmt.Errorf("flush channel size must be at least 1")
+	}
+	if c.ShardControlChannelSize < 1 {
+		return fmt.Errorf("shard control channel size must be at least 1")
 	}
 	if c.TargetSegmentFileSize == 0 {
 		return fmt.Errorf("target segment file size must be at least 1")
