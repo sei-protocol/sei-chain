@@ -1,6 +1,7 @@
 package helpers
 
 import (
+	"bytes"
 	"errors"
 	"math/big"
 
@@ -8,10 +9,15 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
+
+// eip7702MagicPrefix is the domain-separator byte prepended to the RLP-encoded
+// authorization tuple before hashing, per EIP-7702 (MAGIC = 0x05).
+const eip7702MagicPrefix byte = 0x05
 
 var (
 	big2  = big.NewInt(2)
@@ -105,4 +111,22 @@ func RecoverAddressesFromTx(ethTx *ethtypes.Transaction, signer ethtypes.Signer,
 	V, R, S := ethTx.RawSignatureValues()
 	adjustedV := AdjustV(V, ethTx.Type(), chainID)
 	return GetAddresses(adjustedV, R, S, txHash)
+}
+
+// RecoverAddressesFromAuthorization recovers the EVM address, Sei address, and public
+// key of the account that signed an EIP-7702 SetCode authorization (the "authority").
+// The authorization sig hash is keccak256(0x05 || rlp([chainId, address, nonce])) and
+// the recovery id is carried directly in auth.V (yParity, 0 or 1), which GetAddresses
+// expects bumped by 27. This mirrors go-ethereum's SetCodeAuthorization.Authority(), but
+// additionally returns the recovered public key so the authority can be associated with
+// its true Sei address.
+func RecoverAddressesFromAuthorization(auth ethtypes.SetCodeAuthorization) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
+	var buf bytes.Buffer
+	buf.WriteByte(eip7702MagicPrefix)
+	if err := rlp.Encode(&buf, []any{auth.ChainID, auth.Address, auth.Nonce}); err != nil {
+		return common.Address{}, sdk.AccAddress{}, nil, err
+	}
+	sigHash := crypto.Keccak256Hash(buf.Bytes())
+	v := new(big.Int).SetUint64(uint64(auth.V) + 27)
+	return GetAddresses(v, auth.R.ToBig(), auth.S.ToBig(), sigHash)
 }

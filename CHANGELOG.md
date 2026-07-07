@@ -29,7 +29,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## Unreleased
 sei-chain
-* [#3716](https://github.com/sei-protocol/sei-chain/pull/3716) fix(distribution): prevent chain halt in `AfterValidatorRemoved` when a validator's commission recipient cannot receive funds (route commission to the community pool)
+* [#3716](https://github.com/sei-protocol/sei-chain/pull/3716) fix(evm): associate EIP-7702 authorization authorities to their true Sei address before execution so `SetCode` no longer creates a mutable direct-cast mapping (state-machine-breaking); harden distribution `AfterValidatorRemoved` to route an un-sendable validator commission to the community pool instead of panicking
 
 ## v6.6
 sei-chain

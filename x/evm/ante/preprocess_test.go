@@ -14,6 +14,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
@@ -26,6 +27,74 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
+
+// TestPreprocessAssociatesSetCodeAuthorities verifies the EIP-7702 root-cause fix: when a
+// sponsored SetCode transaction is preprocessed, each authorization authority is associated
+// with its true (pubkey-derived) Sei address before EVM execution. This ensures SetCode
+// will not create a mutable direct-cast mapping for the authority that a later
+// associatePubKey could remap.
+func TestPreprocessAssociatesSetCodeAuthorities(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	chainID := k.ChainID(ctx)
+
+	sponsorKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	victimKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	victimEVM := crypto.PubkeyToAddress(victimKey.PublicKey)
+	victimCast := sdk.AccAddress(victimEVM[:])
+	_, victimTrueSei, _, err := helpers.GetAddressesFromPubkeyBytes(crypto.FromECDSAPub(&victimKey.PublicKey))
+	require.NoError(t, err)
+	// Sanity: the true Sei address is distinct from the direct-cast address.
+	require.NotEqual(t, victimCast.String(), victimTrueSei.String())
+
+	// The victim is unassociated before the transaction.
+	_, associated := k.GetSeiAddress(ctx, victimEVM)
+	require.False(t, associated)
+
+	// Victim signs an EIP-7702 authorization; the sponsor submits the SetCode tx.
+	auth, err := ethtypes.SignSetCode(victimKey, ethtypes.SetCodeAuthorization{
+		ChainID: *uint256.MustFromBig(chainID),
+		Address: common.HexToAddress("0x000000000000000000000000000000000000c0de"),
+		Nonce:   0,
+	})
+	require.NoError(t, err)
+
+	to := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	tx, err := ethtypes.SignNewTx(sponsorKey, ethtypes.NewPragueSigner(chainID), &ethtypes.SetCodeTx{
+		ChainID:   uint256.MustFromBig(chainID),
+		Nonce:     0,
+		GasTipCap: uint256.NewInt(1),
+		GasFeeCap: uint256.NewInt(1),
+		Gas:       100000,
+		To:        to,
+		Value:     uint256.NewInt(0),
+		AuthList:  []ethtypes.SetCodeAuthorization{auth},
+	})
+	require.NoError(t, err)
+
+	typedTx, err := ethtx.NewSetCodeTx(tx)
+	require.NoError(t, err)
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	require.NoError(t, err)
+
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.NoError(t, err)
+
+	// The authority is now associated with its TRUE Sei address, not the direct-cast one.
+	gotSei, associated := k.GetSeiAddress(ctx, victimEVM)
+	require.True(t, associated)
+	require.Equal(t, victimTrueSei.String(), gotSei.String())
+	require.NotEqual(t, victimCast.String(), gotSei.String())
+	gotEVM, ok := k.GetEVMAddress(ctx, victimTrueSei)
+	require.True(t, ok)
+	require.Equal(t, victimEVM, gotEVM)
+}
 
 func TestPreprocessAnteHandler(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
