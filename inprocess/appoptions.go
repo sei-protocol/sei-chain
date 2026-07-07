@@ -49,6 +49,27 @@ func (o appOptions) Get(key string) interface{} {
 		return true
 	case app.FlagSSBackend:
 		return "pebbledb"
+	case "evm.enabled_legacy_sei_apis":
+		// The harness default gates all but 3 legacy sei_* methods; the rpc_io
+		// conformance suite exercises the filter/log/tx family docker enables.
+		return dockerLegacySeiApis
 	}
 	return nil
+}
+
+// dockerLegacySeiApis mirrors docker/localnode's enabled_legacy_sei_apis — every
+// sei_/sei2_ method except sei_sign (which the suite asserts stays disabled).
+var dockerLegacySeiApis = []string{
+	"sei_associate", "sei_getBlockByHash", "sei_getBlockByHashExcludeTraceFail",
+	"sei_getBlockByNumber", "sei_getBlockByNumberExcludeTraceFail", "sei_getBlockReceipts",
+	"sei_getBlockTransactionCountByHash", "sei_getBlockTransactionCountByNumber",
+	"sei_getCosmosTx", "sei_getEVMAddress", "sei_getEvmTx", "sei_getFilterChanges",
+	"sei_getFilterLogs", "sei_getLogs", "sei_getSeiAddress",
+	"sei_getTransactionByBlockHashAndIndex", "sei_getTransactionByBlockNumberAndIndex",
+	"sei_getTransactionByHash", "sei_getTransactionCount", "sei_getTransactionErrorByHash",
+	"sei_getTransactionReceipt", "sei_getTransactionReceiptExcludeTraceFail", "sei_getVMError",
+	"sei_newBlockFilter", "sei_newFilter", "sei_uninstallFilter",
+	"sei2_getBlockByHash", "sei2_getBlockByHashExcludeTraceFail", "sei2_getBlockByNumber",
+	"sei2_getBlockByNumberExcludeTraceFail", "sei2_getBlockReceipts",
+	"sei2_getBlockTransactionCountByHash", "sei2_getBlockTransactionCountByNumber",
 }
