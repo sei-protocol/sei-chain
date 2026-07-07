@@ -192,7 +192,7 @@ func (app *App) EvmBalance(evmAddr common.Address, seiAddrBz []byte) uint256.Int
 	if !seiAddr.Equals(sdk.AccAddress(evmAddr[:])) {
 		balance = new(big.Int).Add(balance, app.EvmKeeper.GetBalance(ctx, seiAddr))
 	}
-	return bigIntToUint256(balance)
+	return bigIntToUint256(mempoolBalanceFloor(balance))
 }
 
 func bigIntToUint256(x *big.Int) uint256.Int {
