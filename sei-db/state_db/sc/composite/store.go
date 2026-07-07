@@ -93,6 +93,19 @@ type CompositeCommitStore struct {
 	// shouldIncludeMemiavlInfos for the gating rules.
 	memiavlHashExcluded atomic.Bool
 
+	// migrationBatchSize is the governance-controlled number of keys to
+	// migrate per block, pushed in via SetMigrationBatchSize (the app reads
+	// the NumKeysToMigratePerBlock gov param each BeginBlock and forwards it
+	// here through the rootmulti store). 0 means the migration is paused; it
+	// is the sole source of the per-block batch size (there is no node-local
+	// config fallback).
+	//
+	// Atomic because SetMigrationBatchSize (consensus goroutine, between
+	// blocks) and the build paths that read it must not tear; it mirrors
+	// the between-blocks-write / unsynchronized-read contract used by the
+	// other sticky flags on this struct.
+	migrationBatchSize atomic.Int64
+
 	// migrationAdvancedThisCommit gates per-block migration progress
 	// against rootmulti.Store's double-flush pattern. rootmulti calls
 	// flush() once inside GetWorkingHash (whose result is the AppHash
@@ -444,7 +457,7 @@ func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) er
 func (cs *CompositeCommitStore) buildRouter() error {
 	routerCtx, cancel := context.WithCancel(cs.ctx)
 	router, err := migration.BuildRouter(
-		routerCtx, cs.currentWriteMode, cs.memIAVL, cs.flatKV, cs.config.KeysToMigratePerBlock)
+		routerCtx, cs.currentWriteMode, cs.memIAVL, cs.flatKV, int(cs.migrationBatchSize.Load()))
 	if err != nil {
 		cancel()
 		return fmt.Errorf("failed to build router: %w", err)
@@ -455,6 +468,57 @@ func (cs *CompositeCommitStore) buildRouter() error {
 	cs.router = router
 	cs.routerCancel = cancel
 	return nil
+}
+
+// SetMigrationBatchSize records the governance-controlled migration batch
+// size and pushes it into the live router. Only a migration router acts on it
+// (every other router treats it as a no-op), so this is safe to call in any
+// write mode. A batch size of 0 pauses the migration.
+//
+// This is the single chokepoint feeding the router builders and the
+// MigrationManager, so it normalizes the value here: a negative rate is
+// meaningless and is clamped to 0 (paused). The lower layers therefore trust
+// the batch size to be non-negative and do no validation of their own.
+//
+// Must be called between blocks (the app calls it from BeginBlock, before any
+// ApplyChangeSets). The router's threadSafeRouter wrapper serializes the push
+// against concurrent reads.
+func (cs *CompositeCommitStore) SetMigrationBatchSize(batchSize int) error {
+	if batchSize < 0 {
+		batchSize = 0
+	}
+	cs.migrationBatchSize.Store(int64(batchSize))
+	if cs.router != nil {
+		cs.router.SetMigrationBatchSize(batchSize)
+	}
+	return nil
+}
+
+// GetMigrationBatchSize returns the governance-controlled migration batch size
+// most recently pushed via SetMigrationBatchSize (0 when never set / paused).
+// It is intended for observability and tests.
+func (cs *CompositeCommitStore) GetMigrationBatchSize() int {
+	return int(cs.migrationBatchSize.Load())
+}
+
+// GetWriteMode returns the effective write mode currently driving routing.
+// Under types.Auto this is the mode derived from migration metadata (and
+// advanced by SetWriteMode); under a fixed configuration it equals the
+// configured mode. Callers that gate consensus-relevant transitions on it
+// must observe it between blocks for the same reasons SetWriteMode documents.
+func (cs *CompositeCommitStore) GetWriteMode() types.WriteMode {
+	return cs.currentWriteMode
+}
+
+// ConfiguredWriteMode reports the write mode set by configuration, before any
+// Auto derivation. It is types.Auto for an auto store (whose effective
+// GetWriteMode is derived from migration metadata) and the pinned mode for any
+// fixed configuration. The migration kick-off needs this to tell an auto store
+// resting in memiavl_only (which it may advance to migrate_evm) apart from a
+// node pinned to fixed memiavl_only — the two report the same effective mode,
+// but only the former is allowed to transition at runtime.
+func (cs *CompositeCommitStore) ConfiguredWriteMode() types.WriteMode {
+	return cs.config.WriteMode
 }
 
 // SetWriteMode transitions the effective write mode at runtime. Only legal
@@ -1082,6 +1146,33 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 			return fmt.Errorf("failed to rollback evm commit store: %w", err)
 		}
 	}
+
+	// Clear both sticky commit-info latches so the next LastCommitInfo /
+	// WorkingCommitInfo re-derives from the rolled-back migration metadata.
+	// Rollback can move the boundary backwards across a seam that either
+	// flag latched on:
+	//   - latticeAppendLatched: set after the migrate_evm activation; a
+	//     rollback to a pre-activation height (memiavl-only AppHash, no
+	//     evm_lattice) must stop appending the lattice.
+	//   - memiavlHashExcluded: set after the bank migration completes
+	//     (version 3); a rollback below completion must re-include memiavl's
+	//     per-store infos, which the AppHash still carries at that height.
+	// Without these resets the in-process post-rollback commit info (the hash
+	// `seid rollback` prints and rootmulti caches in rs.lastCommitInfo)
+	// diverges from the canonical AppHash for the target height. The gates
+	// re-latch correctly on the next call against the rolled-back metadata.
+	//
+	// Note: currentWriteMode is not re-derived here. It only matters when a
+	// rollback crosses a seam whose latest-derived mode differs from the
+	// target's (e.g. a rollback all the way across a completed migration);
+	// that in-process view self-heals on the next `seid start`, which
+	// re-derives the mode from the rolled-back metadata.
+	cs.latticeAppendLatched.Store(false)
+	cs.memiavlHashExcluded.Store(false)
+
+	// Rollback is offline (no commit cycle in flight); clear the per-block
+	// migration-advance gate defensively.
+	cs.migrationAdvancedThisCommit = false
 
 	return nil
 }

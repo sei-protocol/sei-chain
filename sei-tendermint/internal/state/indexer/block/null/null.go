@@ -22,6 +22,6 @@ func (idx *BlockerIndexer) Index(types.EventDataNewBlockHeader) error {
 	return nil
 }
 
-func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query) ([]int64, error) {
+func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query, opts indexer.SearchOptions) ([]int64, error) {
 	return []int64{}, nil
 }

@@ -35,6 +35,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
 	"github.com/rs/cors"
+	"golang.org/x/net/netutil"
 )
 
 // HTTPConfig is the JSON-RPC/HTTP configuration.
@@ -96,6 +97,10 @@ type HTTPServer struct {
 	host     string
 	port     int
 
+	// maxOpenConns caps simultaneous accepted connections on the listener.
+	// Zero (the default) disables the limit.
+	maxOpenConns int
+
 	handlerNames map[string]string
 }
 
@@ -126,6 +131,15 @@ func (h *HTTPServer) SetListenAddr(host string, port int) error {
 	h.host, h.port = host, port
 	h.endpoint = net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	return nil
+}
+
+// SetMaxOpenConns sets the maximum number of simultaneously accepted
+// connections on the listener. A value <= 0
+// leaves connections unbounded.
+func (h *HTTPServer) SetMaxOpenConns(n int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.maxOpenConns = n
 }
 
 // ListenAddr returns the listening address of the server.
@@ -165,6 +179,9 @@ func (h *HTTPServer) Start() error {
 		h.disableRPC()
 		h.disableWS()
 		return err
+	}
+	if h.maxOpenConns > 0 {
+		listener = netutil.LimitListener(listener, h.maxOpenConns)
 	}
 	h.listener = listener
 	go func() {

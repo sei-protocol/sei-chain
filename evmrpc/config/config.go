@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"runtime"
 	"time"
 
@@ -130,6 +131,16 @@ type Config struct {
 	// Timeout for each trace call
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
 
+	// MaxTraceStructLogBytes bounds the retained struct-logger output (in bytes) per
+	// traced transaction on the default debug_trace* endpoints
+	// (debug_traceCall/traceTransaction/traceBlock*), guarding against quadratic memory
+	// growth from traces that read many distinct storage slots. The bound is per
+	// transaction, not per RPC call: geth builds a fresh struct logger for each tx, so a
+	// debug_traceBlock* call over N transactions retains up to N times this value (and the
+	// parallelized path holds several concurrent traces live). Set to 0 for unlimited
+	// (matches upstream geth behavior).
+	MaxTraceStructLogBytes uint64 `mapstructure:"max_trace_struct_log_bytes"`
+
 	// EnableParallelizedBlockTrace enables the parallelized default debug_traceBlock* path.
 	EnableParallelizedBlockTrace bool `mapstructure:"enable_parallelized_block_trace"`
 
@@ -190,6 +201,12 @@ type Config struct {
 	// rejected fast (HTTP 429) before decode, capping peak memory under load.
 	// Set to 0 to disable the limit.
 	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
+
+	// MaxOpenConnections caps the number of simultaneously accepted connections
+	// on the EVM HTTP and WebSocket listeners. The limit is applied per listener
+	// (HTTP and WS each get their own budget). Excess connections block in the
+	// accept queue until an active connection closes. Zero disables the limit.
+	MaxOpenConnections int `mapstructure:"max_open_connections"`
 }
 
 var DefaultConfig = Config{
@@ -220,6 +237,7 @@ var DefaultConfig = Config{
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
+	MaxTraceStructLogBytes:       32 * 1024 * 1024, // 32 MiB
 	EnableParallelizedBlockTrace: false,
 	RPCStatsInterval:             10 * time.Second,
 	WorkerPoolSize:               min(MaxWorkerPoolSize, runtime.NumCPU()*2), // Default: min(64, CPU cores × 2)
@@ -242,6 +260,7 @@ var DefaultConfig = Config{
 	BatchResponseMaxSize:      25 * 1000 * 1000,  // 25MB
 	MaxRequestBodyBytes:       5 * 1024 * 1024,   // 5 MiB (matches go-ethereum rpc default body limit)
 	MaxConcurrentRequestBytes: 128 * 1024 * 1024, // 128 MiB of request bodies admitted concurrently
+	MaxOpenConnections:        2000,
 }
 
 const (
@@ -272,6 +291,7 @@ const (
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout                 = "evm.trace_timeout"
+	flagMaxTraceStructLogBytes       = "evm.max_trace_struct_log_bytes"
 	flagEnableParallelizedBlockTrace = "evm.enable_parallelized_block_trace"
 	flagRPCStatsInterval             = "evm.rpc_stats_interval"
 	flagWorkerPoolSize               = "evm.worker_pool_size"
@@ -290,6 +310,7 @@ const (
 	flagBatchResponseMaxSize         = "evm.batch_response_max_size"
 	flagMaxRequestBodyBytes          = "evm.max_request_body_bytes"
 	flagMaxConcurrentRequestBytes    = "evm.max_concurrent_request_bytes"
+	flagMaxOpenConnections           = "evm.max_open_connections"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -430,6 +451,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagMaxTraceStructLogBytes); v != nil {
+		if cfg.MaxTraceStructLogBytes, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+	}
 	if v := opts.Get(flagEnableParallelizedBlockTrace); v != nil {
 		if cfg.EnableParallelizedBlockTrace, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
@@ -518,6 +544,14 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	if v := opts.Get(flagMaxConcurrentRequestBytes); v != nil {
 		if cfg.MaxConcurrentRequestBytes, err = cast.ToInt64E(v); err != nil {
 			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxOpenConnections); v != nil {
+		if cfg.MaxOpenConnections, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+		if cfg.MaxOpenConnections < 0 {
+			return cfg, fmt.Errorf("%s must be >= 0 (0 disables the limit), got %d", flagMaxOpenConnections, cfg.MaxOpenConnections)
 		}
 	}
 	return cfg, nil
@@ -667,6 +701,14 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 # Timeout for each trace call
 trace_timeout = "{{ .EVM.TraceTimeout }}"
 
+# MaxTraceStructLogBytes bounds the retained struct-logger output (in bytes) per traced
+# transaction on the default debug_trace* endpoints, guarding against quadratic memory growth
+# from traces that read many distinct storage slots. The bound is per transaction, not per RPC
+# call: a debug_traceBlock* call over N transactions retains up to N times this value (and the
+# parallelized path holds several concurrent traces live). Set to 0 for unlimited (matches
+# upstream geth behavior).
+max_trace_struct_log_bytes = {{ .EVM.MaxTraceStructLogBytes }}
+
 # Enable the parallelized default debug_traceBlock* path.
 enable_parallelized_block_trace = {{ .EVM.EnableParallelizedBlockTrace }}
 
@@ -737,5 +779,9 @@ max_request_body_bytes = {{ .EVM.MaxRequestBodyBytes }}
 # Content-Length). Requests that would exceed the budget are rejected fast
 # (HTTP 429) before decode, capping peak memory under load. Set to 0 to disable.
 max_concurrent_request_bytes = {{ .EVM.MaxConcurrentRequestBytes }}
+
+# max_open_connections caps the number of simultaneously accepted connections on
+# the EVM HTTP and WebSocket listeners. Set to 0 to disable the limit.
+max_open_connections = {{ .EVM.MaxOpenConnections }}
 
 `

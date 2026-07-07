@@ -399,7 +399,7 @@ func startInProcess(
 	}
 
 	if config.GRPC.Enable {
-		grpcSrv, err := servergrpc.StartGRPCServer(clientCtx, app, config.GRPC.Address)
+		grpcSrv, err := servergrpc.StartGRPCServer(clientCtx, app, config.GRPC)
 		if err != nil {
 			return err
 		}

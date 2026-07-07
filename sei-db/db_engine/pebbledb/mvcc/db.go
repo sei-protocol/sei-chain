@@ -51,6 +51,13 @@ const (
 	PruneCommitBatchSize  = 50
 	DeleteCommitBatchSize = 50
 	MinWALEntriesToKeep   = 1000
+
+	// maxConcurrentCompactions is the upper bound for the number of compactions
+	// Pebble may run in parallel. Pebble's default range is {1,1}, but a single
+	// compactor cannot keep up with the tombstone churn that pruning generates,
+	// so deleted data accumulates and slows every subsequent prune scan. Allowing
+	// Pebble to burst up to a few compactions clears that backlog.
+	maxConcurrentCompactions = 4
 )
 
 var (
@@ -129,6 +136,9 @@ func OpenDB(dataDir string, config seidbconfig.StateStoreConfig) (types.StateSto
 		LBaseMaxBytes:               64 << 20, // 64 MB
 		MemTableSize:                64 << 20,
 		MemTableStopWritesThreshold: 4,
+		// Let Pebble run several compactions in parallel so it can keep up with
+		// the tombstone churn produced by pruning. See maxConcurrentCompactions.
+		CompactionConcurrencyRange: func() (int, int) { return 1, maxConcurrentCompactions },
 	}
 
 	// Configure L0 with explicit settings
@@ -511,6 +521,26 @@ func (db *Database) Prune(version int64) error {
 	return db.pruneAscending(version)
 }
 
+// compactPrunedRange compacts only the span of keys that a prune pass deleted so
+// Pebble reclaims the tombstoned space right away. Without it, deleted keys pile
+// up as un-compacted tombstones and every subsequent full-DB prune scan has to
+// read through them, which makes prune latency creep upward the longer a node
+// stays up (and is why restarting a node temporarily relieves head-lag: the
+// reopen triggers compaction). first and last are the smallest and largest
+// encoded keys deleted during the pass, in Pebble comparer order; both are nil
+// when nothing was deleted, in which case compaction is skipped entirely.
+func (db *Database) compactPrunedRange(first, last []byte) error {
+	if first == nil {
+		return nil
+	}
+	// Pebble's Compact treats [start, end] as an inclusive range but requires
+	// start < end. Appending a zero byte extends the user-key portion of last,
+	// yielding a key strictly greater than it under both the MVCC and default
+	// comparers, so the entire deleted span is covered.
+	end := append(slices.Clone(last), 0)
+	return db.storage.Compact(context.Background(), first, end, true)
+}
+
 // Iterator dispatches between descending- and ascending-mode implementations
 // depending on the on-disk encoding detected at open time.
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
@@ -615,11 +645,12 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	defer func() { _ = batch.Close() }()
 
 	var (
-		counter        int
-		prevKey        []byte
-		keptBelowPrune bool
-		prevStore      string
-		scanReads      int64
+		counter                         int
+		prevKey                         []byte
+		keptBelowPrune                  bool
+		prevStore                       string
+		scanReads                       int64
+		firstDeletedKey, lastDeletedKey []byte
 	)
 
 	for itr.First(); itr.Valid(); {
@@ -687,6 +718,13 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 				if err := batch.Delete(currKeyEncoded, nil); err != nil {
 					return err
 				}
+				// Track the deleted span (keys are visited in comparer order, so
+				// the first delete is the smallest and the last is the largest)
+				// to compact just that range once pruning completes.
+				if firstDeletedKey == nil {
+					firstDeletedKey = currKeyEncoded
+				}
+				lastDeletedKey = currKeyEncoded
 				counter++
 				if counter >= PruneCommitBatchSize {
 					writeCount := int64(batch.Count())
@@ -714,7 +752,10 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	}
 	db.operationMetrics.AddRead(scanReads)
 
-	return db.SetEarliestVersion(earliestVersion, false)
+	if err := db.SetEarliestVersion(earliestVersion, false); err != nil {
+		return err
+	}
+	return db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
 }
 
 func (db *Database) iteratorDescending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {

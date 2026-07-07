@@ -575,10 +575,15 @@ func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, appVersion u
 	}
 
 	if !bytes.Equal(snapshot.trustedAppHash, resp.LastBlockAppHash) {
-		logger.Error("appHash verification failed",
-			"expected", snapshot.trustedAppHash,
-			"actual", resp.LastBlockAppHash)
-		return errVerifyFailed
+		wrapped := fmt.Errorf(
+			"state-sync appHash mismatch: expected %X, got %X: %w",
+			snapshot.trustedAppHash, resp.LastBlockAppHash, types.ErrAppHash)
+		if err := types.DefaultConsensusPolicy().HandleError(wrapped); err != nil {
+			logger.Error("appHash verification failed",
+				"expected", snapshot.trustedAppHash,
+				"actual", resp.LastBlockAppHash)
+			return errVerifyFailed
+		}
 	}
 
 	if uint64(resp.LastBlockHeight) != snapshot.Height { //nolint:gosec // LastBlockHeight is a non-negative block height

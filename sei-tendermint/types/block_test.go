@@ -75,6 +75,13 @@ func TestBlockValidateBasic(t *testing.T) {
 	require.NoError(t, err)
 	evList := []Evidence{ev}
 
+	// ValidateBasic routes its structural checks through the build's ConsensusPolicy.
+	// Probe the active policy rather than hard-coding, so the table holds under the
+	// default build and every mock tag.
+	lastCommitSwallowed := DefaultConsensusPolicy().HandleError(ErrLastCommitHash) == nil
+	dataHashSwallowed := DefaultConsensusPolicy().HandleError(ErrDataHash) == nil
+	evidenceHashSwallowed := DefaultConsensusPolicy().HandleError(ErrEvidenceHash) == nil
+
 	testCases := []struct {
 		testName      string
 		malleateBlock func(*Block)
@@ -86,18 +93,20 @@ func TestBlockValidateBasic(t *testing.T) {
 		{"Remove 1/2 the commits", func(blk *Block) {
 			blk.LastCommit.Signatures = commit.Signatures[:commit.Size()/2]
 			blk.LastCommit.hash = nil // clear hash or change wont be noticed
-		}, true},
+		}, !lastCommitSwallowed},
+		// A 14-byte value trips the hard 32-byte size check (not the policy-routed
+		// ErrLastCommitHash), so it halts in every build.
 		{"Remove LastCommitHash", func(blk *Block) { blk.LastCommitHash = []byte("something else") }, true},
 		{"Tampered Data", func(blk *Block) {
 			blk.Data.Txs[0] = Tx("something else")
 			blk.Data.hash = nil // clear hash or change wont be noticed
-		}, true},
+		}, !dataHashSwallowed},
 		{"Tampered DataHash", func(blk *Block) {
 			blk.DataHash = tmrand.Bytes(len(blk.DataHash))
-		}, true},
+		}, !dataHashSwallowed},
 		{"Tampered EvidenceHash", func(blk *Block) {
 			blk.EvidenceHash = tmrand.Bytes(len(blk.EvidenceHash))
-		}, true},
+		}, !evidenceHashSwallowed},
 		{"Incorrect block protocol version", func(blk *Block) {
 			blk.Version.Block = 1
 		}, true},
