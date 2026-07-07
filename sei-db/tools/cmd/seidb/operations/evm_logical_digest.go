@@ -483,11 +483,15 @@ func digestCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, findT
 	}
 	if boundary.Status() != migration.MigrationComplete {
 		if memReplayDB != nil {
-			if err := consumeCompositeMemiAVLReplay(memReplayDB, boundary, &d, accounts); err != nil {
+			if err := consumeCompositeMemiavl(func(fn func(rawKey, rawVal []byte) error) error {
+				return scanMemiavlReplayEVMLeaves(memReplayDB, fn)
+			}, "memiavl-replay", boundary, &d, accounts); err != nil {
 				return err
 			}
 		} else {
-			if err := consumeCompositeMemiAVL(memEvmSnapshotDir, boundary, &d, accounts); err != nil {
+			if err := consumeCompositeMemiavl(func(fn func(rawKey, rawVal []byte) error) error {
+				return scanMemiavlSnapshotEVMLeaves(memEvmSnapshotDir, fn)
+			}, "memiavl", boundary, &d, accounts); err != nil {
 				return err
 			}
 		}
@@ -559,36 +563,13 @@ func mergeCompositeFlatKVAccount(accounts map[string]*semanticAccountDigestState
 	return nil
 }
 
-func consumeCompositeMemiAVL(evmSnapshotDir string, boundary migration.MigrationBoundary, d *evmDigest, accounts map[string]*semanticAccountDigestState) error {
-	kvsPath := filepath.Join(evmSnapshotDir, "kvs")
-	f, err := os.Open(filepath.Clean(kvsPath))
-	if err != nil {
-		return fmt.Errorf("open kvs %s: %w", kvsPath, err)
-	}
-	defer func() { _ = f.Close() }()
-	r := bufio.NewReaderSize(f, 16*1024*1024)
-	var lenbuf [4]byte
+// consumeCompositeMemiavl folds the memiavl EVM leaves NOT yet migrated past the
+// boundary into d (the unmigrated tail of the composite mid-migration view).
+// srcLabel selects the snapshot vs replay wording so both modes emit the same
+// progress output as before.
+func consumeCompositeMemiavl(scan evmLeafSource, srcLabel string, boundary migration.MigrationBoundary, d *evmDigest, accounts map[string]*semanticAccountDigestState) error {
 	var leaves, consumed uint64
-	for {
-		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return fmt.Errorf("read key len: %w", err)
-		}
-		keyLen := binary.LittleEndian.Uint32(lenbuf[:])
-		k := make([]byte, keyLen)
-		if _, err := io.ReadFull(r, k); err != nil {
-			return fmt.Errorf("read key: %w", err)
-		}
-		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
-			return fmt.Errorf("read val len: %w", err)
-		}
-		valLen := binary.LittleEndian.Uint32(lenbuf[:])
-		v := make([]byte, valLen)
-		if _, err := io.ReadFull(r, v); err != nil {
-			return fmt.Errorf("read val: %w", err)
-		}
+	if err := scan(func(k, v []byte) error {
 		leaves++
 		if !boundary.IsMigrated(keys.EVMStoreKey, k) {
 			if err := d.consumeSemanticMemiavlLeaf(accounts, k, v); err != nil {
@@ -597,38 +578,14 @@ func consumeCompositeMemiAVL(evmSnapshotDir string, boundary migration.Migration
 			consumed++
 		}
 		if leaves%20000000 == 0 {
-			fmt.Printf("  progress backend=composite source=memiavl input_leaves=%d consumed_unmigrated=%d account_buffered=%d code=%d storage=%d legacy=%d\n", leaves, consumed, len(accounts), d.code.count, d.storage.count, d.legacy.count)
+			fmt.Printf("  progress backend=composite source=%s input_leaves=%d consumed_unmigrated=%d account_buffered=%d code=%d storage=%d legacy=%d\n",
+				srcLabel, leaves, consumed, len(accounts), d.code.count, d.storage.count, d.legacy.count)
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
-	fmt.Printf("  composite memiavl leaves=%d consumed_unmigrated=%d\n", leaves, consumed)
-	return nil
-}
-
-func consumeCompositeMemiAVLReplay(db *memiavl.DB, boundary migration.MigrationBoundary, d *evmDigest, accounts map[string]*semanticAccountDigestState) error {
-	tree := db.TreeByName(keys.EVMStoreKey)
-	if tree == nil {
-		return fmt.Errorf("memiavl tree %q not found", keys.EVMStoreKey)
-	}
-	iter := tree.Iterator(nil, nil, true)
-	defer func() { _ = iter.Close() }()
-	var leaves, consumed uint64
-	for ; iter.Valid(); iter.Next() {
-		leaves++
-		k := iter.Key()
-		if !boundary.IsMigrated(keys.EVMStoreKey, k) {
-			if err := d.consumeSemanticMemiavlLeaf(accounts, k, iter.Value()); err != nil {
-				return err
-			}
-			consumed++
-		}
-		if leaves%20000000 == 0 {
-			fmt.Printf("  progress backend=composite source=memiavl-replay input_leaves=%d consumed_unmigrated=%d account_buffered=%d code=%d storage=%d legacy=%d\n", leaves, consumed, len(accounts), d.code.count, d.storage.count, d.legacy.count)
-		}
-	}
-	if err := iter.Error(); err != nil {
-		return fmt.Errorf("iterate replayed memiavl: %w", err)
-	}
-	fmt.Printf("  composite memiavl-replay leaves=%d consumed_unmigrated=%d\n", leaves, consumed)
+	fmt.Printf("  composite %s leaves=%d consumed_unmigrated=%d\n", srcLabel, leaves, consumed)
 	return nil
 }
 
@@ -861,13 +818,6 @@ func inspectMemIAVLTranslator(dbDir string, height int64, acc *inspectAccumulato
 	if err != nil {
 		return err
 	}
-	kvsPath := filepath.Join(evmSnapshotDir, "kvs")
-	f, err := os.Open(filepath.Clean(kvsPath))
-	if err != nil {
-		return fmt.Errorf("open kvs %s: %w", kvsPath, err)
-	}
-	defer func() { _ = f.Close() }()
-	r := bufio.NewReaderSize(f, 16*1024*1024)
 
 	translator := flatkv.NewImportTranslator(0)
 	var leaves uint64
@@ -891,37 +841,18 @@ func inspectMemIAVLTranslator(dbDir string, height int64, acc *inspectAccumulato
 		return nil
 	}
 
-	var lenbuf [4]byte
-	for {
-		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return fmt.Errorf("read key len: %w", err)
-		}
-		keyLen := binary.LittleEndian.Uint32(lenbuf[:])
-		k := make([]byte, keyLen)
-		if _, err := io.ReadFull(r, k); err != nil {
-			return fmt.Errorf("read key: %w", err)
-		}
-		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
-			return fmt.Errorf("read val len: %w", err)
-		}
-		valLen := binary.LittleEndian.Uint32(lenbuf[:])
-		v := make([]byte, valLen)
-		if _, err := io.ReadFull(r, v); err != nil {
-			return fmt.Errorf("read val: %w", err)
-		}
+	if err := scanMemiavlSnapshotEVMLeaves(evmSnapshotDir, func(k, v []byte) error {
 		leaves++
 		if leaves%20000000 == 0 {
 			fmt.Printf("  ...memiavl inspect leaves=%d matched=%d\n", leaves, acc.matched)
 		}
 		batch = append(batch, &proto.KVPair{Key: k, Value: v})
 		if len(batch) >= batchCap {
-			if ferr := flush(); ferr != nil {
-				return ferr
-			}
+			return flush()
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	if err := flush(); err != nil {
 		return err
@@ -949,13 +880,6 @@ func inspectMemIAVLSemantic(dbDir string, height int64, acc *inspectAccumulator)
 	if err != nil {
 		return err
 	}
-	kvsPath := filepath.Join(evmSnapshotDir, "kvs")
-	f, err := os.Open(filepath.Clean(kvsPath))
-	if err != nil {
-		return fmt.Errorf("open kvs %s: %w", kvsPath, err)
-	}
-	defer func() { _ = f.Close() }()
-	r := bufio.NewReaderSize(f, 16*1024*1024)
 
 	var accounts map[string]*semanticAccountDigestState
 	if acc.inspectBucket == flatkvBucketAccount {
@@ -964,35 +888,15 @@ func inspectMemIAVLSemantic(dbDir string, height int64, acc *inspectAccumulator)
 	consume := func(bucket string, physKey, logical, _ []byte) {
 		acc.consumeLogical(bucket, physKey, logical, "")
 	}
-	var lenbuf [4]byte
 	var leaves uint64
-	for {
-		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return fmt.Errorf("read key len: %w", err)
-		}
-		keyLen := binary.LittleEndian.Uint32(lenbuf[:])
-		k := make([]byte, keyLen)
-		if _, err := io.ReadFull(r, k); err != nil {
-			return fmt.Errorf("read key: %w", err)
-		}
-		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
-			return fmt.Errorf("read val len: %w", err)
-		}
-		valLen := binary.LittleEndian.Uint32(lenbuf[:])
-		v := make([]byte, valLen)
-		if _, err := io.ReadFull(r, v); err != nil {
-			return fmt.Errorf("read val: %w", err)
-		}
+	if err := scanMemiavlSnapshotEVMLeaves(evmSnapshotDir, func(k, v []byte) error {
 		leaves++
 		if leaves%20000000 == 0 {
 			fmt.Printf("  ...memiavl inspect mode=semantic leaves=%d matched=%d\n", leaves, acc.matched)
 		}
-		if err := consumeSemanticMemiavlLeaf(accounts, k, v, consume, "inspect"); err != nil {
-			return err
-		}
+		return consumeSemanticMemiavlLeaf(accounts, k, v, consume, "inspect")
+	}); err != nil {
+		return err
 	}
 	finalizeSemanticAccounts(accounts, consume)
 	fmt.Printf("  memiavl inspect total leaves=%d\n", leaves)
@@ -1185,16 +1089,160 @@ func digestMemIAVLReplay(dbDir string, height int64, findTarget []byte, normaliz
 	}
 }
 
-func digestMemIAVLReplaySemantic(dbDir string, height int64, db *memiavl.DB, findTarget []byte) error {
+// evmLeafSource streams raw memiavl EVM (key,val) leaves to fn, stopping on the
+// first error. It abstracts the two ways the tool reads memiavl EVM leaves — a
+// snapshot kvs file scan and a replayed read-only tree walk — so the semantic
+// and translator digest cores below are shared between snapshot and replay modes.
+type evmLeafSource func(fn func(rawKey, rawVal []byte) error) error
+
+// scanMemiavlSnapshotEVMLeaves streams every leaf from a memiavl EVM snapshot
+// kvs file (length-prefixed keyLen|key|valLen|val, little-endian).
+func scanMemiavlSnapshotEVMLeaves(evmSnapshotDir string, fn func(rawKey, rawVal []byte) error) error {
+	kvsPath := filepath.Join(evmSnapshotDir, "kvs")
+	f, err := os.Open(filepath.Clean(kvsPath))
+	if err != nil {
+		return fmt.Errorf("open kvs %s: %w", kvsPath, err)
+	}
+	defer func() { _ = f.Close() }()
+	r := bufio.NewReaderSize(f, 16*1024*1024)
+	var lenbuf [4]byte
+	for {
+		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("read key len: %w", err)
+		}
+		k := make([]byte, binary.LittleEndian.Uint32(lenbuf[:]))
+		if _, err := io.ReadFull(r, k); err != nil {
+			return fmt.Errorf("read key: %w", err)
+		}
+		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
+			return fmt.Errorf("read val len: %w", err)
+		}
+		v := make([]byte, binary.LittleEndian.Uint32(lenbuf[:]))
+		if _, err := io.ReadFull(r, v); err != nil {
+			return fmt.Errorf("read val: %w", err)
+		}
+		if err := fn(k, v); err != nil {
+			return err
+		}
+	}
+}
+
+// scanMemiavlReplayEVMLeaves streams every leaf from the EVM tree of a read-only
+// replayed memiavl DB.
+func scanMemiavlReplayEVMLeaves(db *memiavl.DB, fn func(rawKey, rawVal []byte) error) error {
 	tree := db.TreeByName(keys.EVMStoreKey)
 	if tree == nil {
 		return fmt.Errorf("memiavl tree %q not found", keys.EVMStoreKey)
 	}
 	iter := tree.Iterator(nil, nil, true)
 	defer func() { _ = iter.Close() }()
+	for ; iter.Valid(); iter.Next() {
+		if err := fn(iter.Key(), iter.Value()); err != nil {
+			return err
+		}
+	}
+	if err := iter.Error(); err != nil {
+		return fmt.Errorf("iterate replayed memiavl: %w", err)
+	}
+	return nil
+}
 
+// runMemiavlSemanticDigest digests memiavl EVM leaves with the independent
+// semantic decoder (no flatkv.ImportTranslator), buffering account fragments and
+// merging them at finalize. modeLabel/totalLabel select the snapshot vs replay
+// wording so each mode emits the same progress output as before.
+func runMemiavlSemanticDigest(ctx digestPrintContext, modeLabel, totalLabel string, findTarget []byte, scan evmLeafSource) error {
 	d := evmDigest{findTarget: findTarget}
 	accounts := make(map[string]*semanticAccountDigestState)
+	var leaves uint64
+	if err := scan(func(k, v []byte) error {
+		leaves++
+		if err := d.consumeSemanticMemiavlLeaf(accounts, k, v); err != nil {
+			return err
+		}
+		if leaves%20000000 == 0 {
+			fmt.Printf("  progress backend=memiavl mode=%s input_leaves=%d digested account=deferred_until_finalize account_buffered=%d code=%d storage=%d legacy=%d\n",
+				modeLabel, leaves, len(accounts), d.code.count, d.storage.count, d.legacy.count)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	d.finalizeSemanticAccounts(accounts)
+	fmt.Printf("  finalize backend=memiavl mode=%s account=%d code=%d storage=%d legacy=%d\n",
+		modeLabel, d.account.count, d.code.count, d.storage.count, d.legacy.count)
+	fmt.Printf("  %s=%d\n", totalLabel, leaves)
+	d.print(ctx)
+	return nil
+}
+
+// runMemiavlTranslatorDigest digests memiavl EVM leaves by routing every leaf
+// through flatkv.ImportTranslator (the exact classifyAndPrefix + merge path
+// CommitStore.ApplyChangeSets uses) and then through the shared consume, making
+// the memiavl and flatkv digests byte-identical by construction. Translate
+// streams storage/code/legacy out immediately and only buffers account fragments
+// until Finalize, so RSS stays bounded.
+func runMemiavlTranslatorDigest(ctx digestPrintContext, modeLabel, totalLabel string, findTarget []byte, scan evmLeafSource) error {
+	translator := flatkv.NewImportTranslator(0)
+	d := evmDigest{findTarget: findTarget}
+	const batchCap = 8192
+	batch := make([]*proto.KVPair, 0, batchCap)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		cs := &proto.NamedChangeSet{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: batch}}
+		pairs, terr := translator.Translate(cs)
+		if terr != nil {
+			return fmt.Errorf("translate batch: %w", terr)
+		}
+		for _, p := range pairs {
+			if cerr := d.consume(p.Key, p.Value); cerr != nil {
+				return cerr
+			}
+		}
+		batch = batch[:0]
+		return nil
+	}
+	var leaves uint64
+	if err := scan(func(k, v []byte) error {
+		leaves++
+		batch = append(batch, &proto.KVPair{Key: k, Value: v})
+		if len(batch) >= batchCap {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+		if leaves%20000000 == 0 {
+			if err := flush(); err != nil {
+				return err
+			}
+			fmt.Printf("  progress backend=memiavl mode=%s input_leaves=%d digested account=deferred_until_finalize code=%d storage=%d legacy=%d\n",
+				modeLabel, leaves, d.code.count, d.storage.count, d.legacy.count)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := flush(); err != nil {
+		return err
+	}
+	for _, p := range translator.Finalize() {
+		if err := d.consume(p.Key, p.Value); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("  finalize backend=memiavl mode=%s account=%d code=%d storage=%d legacy=%d\n",
+		modeLabel, d.account.count, d.code.count, d.storage.count, d.legacy.count)
+	fmt.Printf("  %s=%d\n", totalLabel, leaves)
+	d.print(ctx)
+	return nil
+}
+
+func digestMemIAVLReplaySemantic(dbDir string, height int64, db *memiavl.DB, findTarget []byte) error {
 	ctx := digestPrintContext{
 		backend:         "memiavl",
 		mode:            "semantic-replay",
@@ -1207,40 +1255,11 @@ func digestMemIAVLReplaySemantic(dbDir string, height int64, db *memiavl.DB, fin
 	printDigestStart(ctx)
 	fmt.Println("Scan progress: replayed memiavl iterator -> independently decoded EVM logical bucket counts")
 	fmt.Println("Note: semantic replay mode walks the in-memory/mmap tree, not the snapshot kvs file.")
-
-	var leaves uint64
-	for ; iter.Valid(); iter.Next() {
-		leaves++
-		if err := d.consumeSemanticMemiavlLeaf(accounts, iter.Key(), iter.Value()); err != nil {
-			return err
-		}
-		if leaves%20000000 == 0 {
-			fmt.Printf("  progress backend=memiavl mode=semantic-replay input_leaves=%d digested account=deferred_until_finalize account_buffered=%d code=%d storage=%d legacy=%d\n",
-				leaves, len(accounts), d.code.count, d.storage.count, d.legacy.count)
-		}
-	}
-	if err := iter.Error(); err != nil {
-		return fmt.Errorf("iterate replayed memiavl: %w", err)
-	}
-
-	d.finalizeSemanticAccounts(accounts)
-	fmt.Printf("  finalize backend=memiavl mode=semantic-replay account=%d code=%d storage=%d legacy=%d\n",
-		d.account.count, d.code.count, d.storage.count, d.legacy.count)
-	fmt.Printf("  memiavl-replay total leaves=%d\n", leaves)
-	d.print(ctx)
-	return nil
+	return runMemiavlSemanticDigest(ctx, "semantic-replay", "memiavl-replay total leaves", findTarget,
+		func(fn func(rawKey, rawVal []byte) error) error { return scanMemiavlReplayEVMLeaves(db, fn) })
 }
 
 func digestMemIAVLReplayTranslator(dbDir string, height int64, db *memiavl.DB, findTarget []byte) error {
-	tree := db.TreeByName(keys.EVMStoreKey)
-	if tree == nil {
-		return fmt.Errorf("memiavl tree %q not found", keys.EVMStoreKey)
-	}
-	iter := tree.Iterator(nil, nil, true)
-	defer func() { _ = iter.Close() }()
-
-	translator := flatkv.NewImportTranslator(0)
-	d := evmDigest{findTarget: findTarget}
 	ctx := digestPrintContext{
 		backend:         "memiavl",
 		mode:            "translator-replay",
@@ -1253,60 +1272,8 @@ func digestMemIAVLReplayTranslator(dbDir string, height int64, db *memiavl.DB, f
 	printDigestStart(ctx)
 	fmt.Println("Scan progress: replayed memiavl iterator -> translated flatkv logical bucket counts")
 	fmt.Println("Note: account rows are merged by the translator at finalize, so progress shows account=deferred_until_finalize.")
-
-	var leaves uint64
-	const batchCap = 8192
-	batch := make([]*proto.KVPair, 0, batchCap)
-	flush := func() error {
-		if len(batch) == 0 {
-			return nil
-		}
-		cs := &proto.NamedChangeSet{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: batch}}
-		pairs, terr := translator.Translate(cs)
-		if terr != nil {
-			return fmt.Errorf("translate batch: %w", terr)
-		}
-		for _, p := range pairs {
-			if cerr := d.consume(p.Key, p.Value); cerr != nil {
-				return cerr
-			}
-		}
-		batch = batch[:0]
-		return nil
-	}
-
-	for ; iter.Valid(); iter.Next() {
-		leaves++
-		batch = append(batch, &proto.KVPair{Key: iter.Key(), Value: iter.Value()})
-		if len(batch) >= batchCap {
-			if err := flush(); err != nil {
-				return err
-			}
-		}
-		if leaves%20000000 == 0 {
-			if err := flush(); err != nil {
-				return err
-			}
-			fmt.Printf("  progress backend=memiavl mode=translator-replay input_leaves=%d digested account=deferred_until_finalize code=%d storage=%d legacy=%d\n",
-				leaves, d.code.count, d.storage.count, d.legacy.count)
-		}
-	}
-	if err := iter.Error(); err != nil {
-		return fmt.Errorf("iterate replayed memiavl: %w", err)
-	}
-	if err := flush(); err != nil {
-		return err
-	}
-	for _, p := range translator.Finalize() {
-		if err := d.consume(p.Key, p.Value); err != nil {
-			return err
-		}
-	}
-	fmt.Printf("  finalize backend=memiavl mode=translator-replay account=%d code=%d storage=%d legacy=%d\n",
-		d.account.count, d.code.count, d.storage.count, d.legacy.count)
-	fmt.Printf("  memiavl-replay total leaves=%d\n", leaves)
-	d.print(ctx)
-	return nil
+	return runMemiavlTranslatorDigest(ctx, "translator-replay", "memiavl-replay total leaves", findTarget,
+		func(fn func(rawKey, rawVal []byte) error) error { return scanMemiavlReplayEVMLeaves(db, fn) })
 }
 
 func digestMemIAVLTranslator(dbDir string, height int64, findTarget []byte) error {
@@ -1314,45 +1281,10 @@ func digestMemIAVLTranslator(dbDir string, height int64, findTarget []byte) erro
 	if err != nil {
 		return err
 	}
-
 	version, err := readMemIAVLSnapshotVersion(evmSnapshotDir)
 	if err != nil {
 		return err
 	}
-
-	kvsPath := filepath.Join(evmSnapshotDir, "kvs")
-	f, err := os.Open(filepath.Clean(kvsPath))
-	if err != nil {
-		return fmt.Errorf("open kvs %s: %w", kvsPath, err)
-	}
-	defer func() { _ = f.Close() }()
-	r := bufio.NewReaderSize(f, 16*1024*1024)
-
-	// Route EVERY leaf through ImportTranslator and then through the same
-	// `consume` used for the FlatKV side. This makes the two backends
-	// byte-identical by construction:
-	//
-	//   - Translate runs the exact classifyAndPrefix + processStorageChanges /
-	//     processCodeChanges / processLegacyChanges / mergeAccountUpdates that
-	//     CommitStore.ApplyChangeSets uses, so the physical keys AND the
-	//     FlatKV-serialized values it emits match what is physically stored in
-	//     pebble on the FlatKV node.
-	//   - consume then deserializes those values (DeserializeStorageData /
-	//     DeserializeCodeData / DeserializeAccountData) and digests only the
-	//     height-independent logical payload — the identical code path both
-	//     backends take.
-	//
-	// We deliberately do NOT take the old hybrid shortcut (emitting node.Value()
-	// raw with a hand-built key for storage/code): a raw memIAVL leaf value is
-	// not guaranteed to be byte-identical to FlatKV's normalized StorageData /
-	// CodeData payload, which would make the digest diverge spuriously even when
-	// the underlying state is identical.
-	//
-	// Memory: Translate streams storage/code/legacy pairs out immediately and
-	// only buffers account fragments (nonce/codehash) until Finalize, so feeding
-	// all leaves through it does not blow up RSS beyond the account buffer.
-	translator := flatkv.NewImportTranslator(0)
-	d := evmDigest{findTarget: findTarget}
 	ctx := digestPrintContext{
 		backend:         "memiavl",
 		mode:            "translator",
@@ -1365,84 +1297,10 @@ func digestMemIAVLTranslator(dbDir string, height int64, findTarget []byte) erro
 	printDigestStart(ctx)
 	fmt.Println("Scan progress: memiavl input_leaves -> translated flatkv logical bucket counts")
 	fmt.Println("Note: account rows are merged by the translator at finalize, so progress shows account=deferred_until_finalize.")
-	var leaves uint64
-
-	const batchCap = 8192
-	batch := make([]*proto.KVPair, 0, batchCap)
-	flush := func() error {
-		if len(batch) == 0 {
-			return nil
-		}
-		cs := &proto.NamedChangeSet{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: batch}}
-		pairs, terr := translator.Translate(cs)
-		if terr != nil {
-			return fmt.Errorf("translate batch: %w", terr)
-		}
-		for _, p := range pairs {
-			if cerr := d.consume(p.Key, p.Value); cerr != nil {
-				return cerr
-			}
-		}
-		batch = batch[:0]
-		return nil
-	}
-
-	var lenbuf [4]byte
-	for {
-		// key length
-		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return fmt.Errorf("read key len: %w", err)
-		}
-		keyLen := binary.LittleEndian.Uint32(lenbuf[:])
-		k := make([]byte, keyLen)
-		if _, err := io.ReadFull(r, k); err != nil {
-			return fmt.Errorf("read key: %w", err)
-		}
-		// value length
-		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
-			return fmt.Errorf("read val len: %w", err)
-		}
-		valLen := binary.LittleEndian.Uint32(lenbuf[:])
-		v := make([]byte, valLen)
-		if _, err := io.ReadFull(r, v); err != nil {
-			return fmt.Errorf("read val: %w", err)
-		}
-
-		leaves++
-		batch = append(batch, &proto.KVPair{Key: k, Value: v})
-		if len(batch) >= batchCap {
-			if ferr := flush(); ferr != nil {
-				return ferr
-			}
-		}
-		if leaves%20000000 == 0 {
-			// Flush before reporting so progress counts include all leaves seen so far.
-			if ferr := flush(); ferr != nil {
-				return ferr
-			}
-			fmt.Printf("  progress backend=memiavl input_leaves=%d digested account=deferred_until_finalize code=%d storage=%d legacy=%d\n",
-				leaves, d.code.count, d.storage.count, d.legacy.count)
-		}
-	}
-
-	if err := flush(); err != nil {
-		return err
-	}
-	// Flush merged accounts buffered across all batches.
-	for _, p := range translator.Finalize() {
-		if cerr := d.consume(p.Key, p.Value); cerr != nil {
-			return cerr
-		}
-	}
-	fmt.Printf("  finalize backend=memiavl account=%d code=%d storage=%d legacy=%d\n",
-		d.account.count, d.code.count, d.storage.count, d.legacy.count)
-
-	fmt.Printf("  memiavl total leaves=%d\n", leaves)
-	d.print(ctx)
-	return nil
+	return runMemiavlTranslatorDigest(ctx, "translator", "memiavl total leaves", findTarget,
+		func(fn func(rawKey, rawVal []byte) error) error {
+			return scanMemiavlSnapshotEVMLeaves(evmSnapshotDir, fn)
+		})
 }
 
 type semanticAccountDigestState struct {
@@ -1484,22 +1342,10 @@ func digestMemIAVLSemantic(dbDir string, height int64, findTarget []byte) error 
 	if err != nil {
 		return err
 	}
-
 	version, err := readMemIAVLSnapshotVersion(evmSnapshotDir)
 	if err != nil {
 		return err
 	}
-
-	kvsPath := filepath.Join(evmSnapshotDir, "kvs")
-	f, err := os.Open(filepath.Clean(kvsPath))
-	if err != nil {
-		return fmt.Errorf("open kvs %s: %w", kvsPath, err)
-	}
-	defer func() { _ = f.Close() }()
-	r := bufio.NewReaderSize(f, 16*1024*1024)
-
-	d := evmDigest{findTarget: findTarget}
-	accounts := make(map[string]*semanticAccountDigestState)
 	ctx := digestPrintContext{
 		backend:         "memiavl",
 		mode:            "semantic",
@@ -1512,47 +1358,10 @@ func digestMemIAVLSemantic(dbDir string, height int64, findTarget []byte) error 
 	printDigestStart(ctx)
 	fmt.Println("Scan progress: memiavl input_leaves -> independently decoded EVM logical bucket counts")
 	fmt.Println("Note: semantic mode does not call flatkv.ImportTranslator; account rows are merged locally at finalize.")
-
-	var lenbuf [4]byte
-	var leaves uint64
-	for {
-		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return fmt.Errorf("read key len: %w", err)
-		}
-		keyLen := binary.LittleEndian.Uint32(lenbuf[:])
-		k := make([]byte, keyLen)
-		if _, err := io.ReadFull(r, k); err != nil {
-			return fmt.Errorf("read key: %w", err)
-		}
-		if _, err := io.ReadFull(r, lenbuf[:]); err != nil {
-			return fmt.Errorf("read val len: %w", err)
-		}
-		valLen := binary.LittleEndian.Uint32(lenbuf[:])
-		v := make([]byte, valLen)
-		if _, err := io.ReadFull(r, v); err != nil {
-			return fmt.Errorf("read val: %w", err)
-		}
-
-		leaves++
-		if err := d.consumeSemanticMemiavlLeaf(accounts, k, v); err != nil {
-			return err
-		}
-		if leaves%20000000 == 0 {
-			fmt.Printf("  progress backend=memiavl mode=semantic input_leaves=%d digested account=deferred_until_finalize account_buffered=%d code=%d storage=%d legacy=%d\n",
-				leaves, len(accounts), d.code.count, d.storage.count, d.legacy.count)
-		}
-	}
-
-	d.finalizeSemanticAccounts(accounts)
-	fmt.Printf("  finalize backend=memiavl mode=semantic account=%d code=%d storage=%d legacy=%d\n",
-		d.account.count, d.code.count, d.storage.count, d.legacy.count)
-
-	fmt.Printf("  memiavl total leaves=%d\n", leaves)
-	d.print(ctx)
-	return nil
+	return runMemiavlSemanticDigest(ctx, "semantic", "memiavl total leaves", findTarget,
+		func(fn func(rawKey, rawVal []byte) error) error {
+			return scanMemiavlSnapshotEVMLeaves(evmSnapshotDir, fn)
+		})
 }
 
 func (d *evmDigest) finalizeSemanticAccounts(accounts map[string]*semanticAccountDigestState) {
