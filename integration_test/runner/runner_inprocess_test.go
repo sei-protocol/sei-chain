@@ -81,6 +81,10 @@ func runSuites(m *testing.M) int {
 		TimeoutCommit: time.Second,
 		ExtraKeys: []inprocess.ExtraKey{
 			{Name: "admin", Node: 0, Coins: adminFunding()},
+			// seidb_creator is a pristine wasm/tokenfactory creator for the SeiDB
+			// suite: its historical counts assume a creator with no prior codes/denoms,
+			// but `admin` is polluted (the tokenfactory suite creates a denom as admin).
+			{Name: "seidb_creator", Node: 0, Coins: adminFunding()},
 		},
 	})
 	if err != nil {
@@ -165,12 +169,27 @@ func TestInProcessOracleModule(t *testing.T) {
 	runner.RunFile(t, "../oracle_module/verify_penalty_counts.yaml", runner.WithInProcessNetwork(sharedNet))
 }
 
-// TestInProcessSeiDBModule is skipped in-process: state_store_test.yaml asserts a
-// docker fixture — 300 wasm contracts stored across block heights tracked in
-// integration_test/contracts/wasm_*_block_height.txt — which the shared harness
-// network doesn't build, so every historical list-code query returns empty.
+// TestInProcessSeiDBModule runs the state_store historical-query suite (wasm
+// list-code + tokenfactory denom counts at recorded heights). The EVM module's
+// InitGenesis stores 3 CW-pointer codes (erc20/721/1155) as ids 1-3 on every fresh
+// chain — same as docker — so the fixtures' 30 codes are the deterministic ids 4-33
+// the suite asserts; deploy_wasm_contracts.sh guards that baseline (fails loudly if
+// a pointer is ever added/removed, or another suite stored wasm first). Both run as
+// seidb_creator, not admin (a pristine creator; see runSuites).
+// FIXTURE_SETTLE_SECONDS=0 drops the docker KV-indexer sleeps — the seq-poll gates
+// commits, and --height queries don't care about settle time.
 func TestInProcessSeiDBModule(t *testing.T) {
-	t.Skip("seidb state_store asserts a docker fixture (300 wasm contracts at tracked heights)")
+	runner.RunFile(t, "../seidb/state_store_test.yaml",
+		runner.WithInProcessNetwork(sharedNet),
+		runner.WithSetupScripts(
+			"integration_test/contracts/deploy_wasm_contracts.sh",
+			"integration_test/contracts/create_tokenfactory_denoms.sh",
+		),
+		runner.WithSetupEnv(map[string]string{
+			"SEIDBIN":                "seid",
+			"FIXTURE_SIGNER":         "seidb_creator",
+			"FIXTURE_SETTLE_SECONDS": "0",
+		}))
 }
 
 // TestInProcessBankMultiSig builds a 2-of-3 multisig (fresh wallet1/2/3 keys) and
@@ -187,7 +206,7 @@ func TestInProcessBankSimulation(t *testing.T) {
 
 // timelockedFixture is the gringotts bring-up docker runs before each wasm group
 // (deploy goblin + gringotts, seed admin1-4/op/etc, record the addresses).
-// WithSetupScript runs it in-process through the seid shim; WithIsolatedKeyring
+// WithSetupScripts runs it in-process through the seid shim; WithIsolatedKeyring
 // gives each group its own overlay so the fixture's repeated `keys add admin1`
 // doesn't hit the override prompt on the second deploy.
 const timelockedFixture = "integration_test/contracts/deploy_timelocked_token_contract.sh"
@@ -201,7 +220,7 @@ var timelockedSetupEnv = map[string]string{"SEIDBIN": "seid", "FIXTURE_SIGNER": 
 // suite's single deploy + keyring; order matters (withdraw depends on prior state).
 func TestInProcessWasmModuleCore(t *testing.T) {
 	s := runner.NewInProcessSuite(t, sharedNet,
-		runner.WithSetupScript(timelockedFixture),
+		runner.WithSetupScripts(timelockedFixture),
 		runner.WithSetupEnv(timelockedSetupEnv),
 		runner.WithIsolatedKeyring())
 	s.RunFile("../wasm_module/timelocked_token_delegation_test.yaml")
@@ -214,7 +233,7 @@ func TestInProcessWasmModuleCore(t *testing.T) {
 // runs before TestWasmModuleEmergencyWithdraw.
 func TestInProcessWasmModuleEmergencyWithdraw(t *testing.T) {
 	s := runner.NewInProcessSuite(t, sharedNet,
-		runner.WithSetupScript(timelockedFixture),
+		runner.WithSetupScripts(timelockedFixture),
 		runner.WithSetupEnv(timelockedSetupEnv),
 		runner.WithIsolatedKeyring())
 	s.RunFile("../wasm_module/timelocked_token_emergency_withdraw_test.yaml")
@@ -229,7 +248,7 @@ func TestInProcessWasmModuleEmergencyWithdraw(t *testing.T) {
 func TestInProcessFlatKVEvmModule(t *testing.T) {
 	runner.RunFile(t, "../seidb/flatkv_evm_test.yaml",
 		runner.WithInProcessNetwork(sharedNet),
-		runner.WithSetupScript("integration_test/contracts/deploy_flatkv_evm_fixture.sh"),
+		runner.WithSetupScripts("integration_test/contracts/deploy_flatkv_evm_fixture.sh"),
 		runner.WithSetupEnv(map[string]string{
 			"FLATKV_EVM_FIXTURE_KEYRING_BACKEND": "test",
 			"FLATKV_EVM_BULK_STORAGE_KEYS":       "0",

@@ -79,13 +79,13 @@ type keyringIsolator interface {
 }
 
 // setupRunner is an optional execer capability: a backend that can run a suite's
-// fixture bring-up script (deploy contracts, seed keys the cases assume) once
+// fixture bring-up scripts (deploy contracts, seed keys the cases assume) once
 // implements it, and RunFile invokes it after keyring isolation and before any
-// case when Options.SetupScript is set. The in-process arm runs the script
+// case when Options.SetupScripts is set. The in-process arm runs the scripts
 // through its seid shim; the docker arm (fixtures brought up by the CI harness)
 // does not implement it.
 type setupRunner interface {
-	runSetup(t *testing.T, scriptPath string, opts Options) error
+	runSetup(t *testing.T, opts Options) error
 }
 
 // Options controls how RunFile executes commands.
@@ -112,14 +112,14 @@ type Options struct {
 	// (per-container keyrings) ignores it.
 	IsolateKeyring bool
 
-	// SetupScript, when set, is a repo-root-relative fixture bring-up script run
-	// once before the cases (deploy the contracts + seed the keys the suites
-	// assume). Backend-specific: the in-process arm runs it through its shim
-	// (executed at the repo root, so the path is repo-root-relative); the docker
-	// arm ignores it (its fixtures are brought up by the CI harness).
-	SetupScript string
+	// SetupScripts are repo-root-relative fixture bring-up scripts run in order,
+	// once, before the cases (deploy the contracts + seed the keys the suites
+	// assume). Backend-specific: the in-process arm runs them through its shim
+	// (executed at the repo root, so paths are repo-root-relative); the docker arm
+	// ignores them (its fixtures are brought up by the CI harness).
+	SetupScripts []string
 
-	// SetupEnv is fixture-specific environment for the SetupScript run (e.g. a
+	// SetupEnv is fixture-specific environment for the setup-script run (e.g. a
 	// keyring backend, a signer name, an RPC target). The in-process arm layers it
 	// under its own node-targeting env (SEID_HOME/SEID_NODE/EVM endpoints).
 	SetupEnv map[string]string
@@ -156,13 +156,13 @@ func WithIsolatedKeyring() Option {
 	return func(o *Options) { o.IsolateKeyring = true }
 }
 
-// WithSetupScript runs a fixture bring-up script once before the cases (see
-// Options.SetupScript). The path is repo-root-relative.
-func WithSetupScript(path string) Option {
-	return func(o *Options) { o.SetupScript = path }
+// WithSetupScripts runs one or more fixture bring-up scripts, in order, once before
+// the cases (see Options.SetupScripts). Paths are repo-root-relative.
+func WithSetupScripts(paths ...string) Option {
+	return func(o *Options) { o.SetupScripts = paths }
 }
 
-// WithSetupEnv sets fixture-specific environment for the SetupScript run (see
+// WithSetupEnv sets fixture-specific environment for the setup-script run (see
 // Options.SetupEnv).
 func WithSetupEnv(env map[string]string) Option {
 	return func(o *Options) { o.SetupEnv = env }
@@ -208,9 +208,9 @@ func runSuiteSetup(t *testing.T, o Options) {
 			require.NoError(t, iso.isolateKeyring(t), "isolate keyring")
 		}
 	}
-	if o.SetupScript != "" {
+	if len(o.SetupScripts) > 0 {
 		if sr, ok := o.exec.(setupRunner); ok {
-			require.NoError(t, sr.runSetup(t, o.SetupScript, o), "run setup script")
+			require.NoError(t, sr.runSetup(t, o), "run setup scripts")
 		}
 	}
 }

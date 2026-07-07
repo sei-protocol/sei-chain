@@ -46,7 +46,7 @@ type InProcessSuite struct {
 
 // NewInProcessSuite binds net, runs the one-time setup once (see runSuiteSetup for
 // hook ordering), and returns a suite whose RunFile reuses it. Pass the setup
-// options (WithSetupScript, WithIsolatedKeyring); the network is bound here, so
+// options (WithSetupScripts, WithIsolatedKeyring); the network is bound here, so
 // WithInProcessNetwork is not needed. Setup and every RunFile run on t, so the
 // keyring overlay and seid binary outlive all subtests.
 func NewInProcessSuite(t *testing.T, net *inprocess.Network, opts ...Option) *InProcessSuite {
@@ -223,29 +223,31 @@ func (e *inProcessExecer) isolateKeyring(t *testing.T) error {
 	return nil
 }
 
-// runSetup is the setupRunner hook: it runs a suite's fixture script once through
-// the same shimmed environment the cases use (bare `seid` lands on the target
-// node; the node's EVM endpoint in EVM_RPC_URL; CWD at the repo root), before any
-// case, with the caller's fixture-specific opts.SetupEnv layered on top. Unlike
-// run, a non-zero script exit is fatal: a failed fixture must fail the suite, not
-// silently leave the cases to assert against missing state.
-func (e *inProcessExecer) runSetup(t *testing.T, scriptPath string, opts Options) error {
+// runSetup is the setupRunner hook: it runs the suite's fixture scripts in order,
+// once, through the same shimmed environment the cases use (bare `seid` lands on
+// the target node; the node's EVM endpoint in EVM_RPC_URL; CWD at the repo root),
+// before any case, with the caller's fixture-specific opts.SetupEnv layered on top.
+// Unlike run, a non-zero script exit is fatal: a failed fixture must fail the
+// suite, not silently leave the cases to assert against missing state.
+func (e *inProcessExecer) runSetup(t *testing.T, opts Options) error {
 	t.Helper()
 	if err := e.ensureBin(t); err != nil {
 		return fmt.Errorf("prepare seid: %w", err)
 	}
 	// Fixtures write outputs into the repo tree; register cleanup first so a clean
-	// worktree is restored even if the script below fails partway.
+	// worktree is restored even if a script below fails partway.
 	if err := e.cleanFixtureOutputs(t); err != nil {
 		return err
 	}
-	// node "" → node 0 (admin's home), the suites' default signing home.
-	c, err := e.command(t, "bash "+scriptPath, "", opts.SetupEnv, opts)
-	if err != nil {
-		return err
-	}
-	if out, err := c.CombinedOutput(); err != nil {
-		return fmt.Errorf("setup script %s: %w\n%s", scriptPath, err, out)
+	for _, script := range opts.SetupScripts {
+		// node "" → node 0 (admin's home), the suites' default signing home.
+		c, err := e.command(t, "bash "+script, "", opts.SetupEnv, opts)
+		if err != nil {
+			return err
+		}
+		if out, err := c.CombinedOutput(); err != nil {
+			return fmt.Errorf("setup script %s: %w\n%s", script, err, out)
+		}
 	}
 	return nil
 }
