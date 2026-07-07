@@ -96,25 +96,6 @@ func TestMarshal(t *testing.T) {
 	}
 }
 
-func TestNewRoundRobinElection_GenesisTimestamp(t *testing.T) {
-	rng := utils.TestRng()
-	replicas := []PublicKey{GenPublicKey(rng), GenPublicKey(rng)}
-	firstBlock := GenGlobalBlockNumber(rng)
-	genesisTimestamp := time.Now()
-
-	committee, err := NewRoundRobinElection(replicas, firstBlock, genesisTimestamp)
-	if err != nil {
-		t.Fatalf("NewRoundRobinElection(): %v", err)
-	}
-
-	if got := committee.FirstBlock(); got != firstBlock {
-		t.Fatalf("FirstBlock() = %v, want %v", got, firstBlock)
-	}
-	if got := committee.GenesisTimestamp(); !got.Equal(genesisTimestamp) {
-		t.Fatalf("GenesisTimestamp() = %v, want %v", got, genesisTimestamp)
-	}
-}
-
 func makePrepareQC(keys []SecretKey, vote *PrepareVote) *PrepareQC {
 	var votes []*Signed[*PrepareVote]
 	for _, k := range keys {
@@ -134,7 +115,7 @@ func TestNewTimeoutQC(t *testing.T) {
 			Index:  view.Index,
 			Number: GenViewNumber(rng) % view.Number,
 		}
-		p := newProposal(pView, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
+		p := newProposal(pView, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), GlobalBlockNumber(rng.Uint64()))
 		if wantView.Less(pView) {
 			wantView = pView
 		}
@@ -162,11 +143,10 @@ func TestTimeoutQCConvDecode_EmptyVotesReturnsError(t *testing.T) {
 func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	view := View{Index: 0, Number: 0}
+	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee, GlobalBlockNumber(rng.Uint64()%1000000)+1)
+	view := View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}
 
-	pqc := makePrepareQC(keys, NewPrepareVote(
-		newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng))),
-	))
+	pqc := makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, view)))
 
 	// Only keys[0] carries the PrepareQC; the rest carry None.
 	votes := make([]*FullTimeoutVote, len(keys))
@@ -183,7 +163,7 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 	if got.View() != view {
 		t.Fatalf("LatestPrepareQC.View() = %v, want %v", got.View(), view)
 	}
-	if err := tqc.Verify(committee, utils.None[*CommitQC]()); err != nil {
+	if err := tqc.Verify(ep, utils.None[*CommitQC]()); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 }
@@ -193,7 +173,8 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 func TestNewTimeoutQC_AllNone(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	view := View{Index: 0, Number: 0}
+	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee, GlobalBlockNumber(rng.Uint64()%1000000)+1)
+	view := View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}
 
 	votes := make([]*FullTimeoutVote, len(keys))
 	for i, k := range keys {
@@ -204,7 +185,7 @@ func TestNewTimeoutQC_AllNone(t *testing.T) {
 	if tqc.LatestPrepareQC().IsPresent() {
 		t.Fatal("LatestPrepareQC should be None when no vote carries one")
 	}
-	if err := tqc.Verify(committee, utils.None[*CommitQC]()); err != nil {
+	if err := tqc.Verify(ep, utils.None[*CommitQC]()); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 }
@@ -214,13 +195,12 @@ func TestNewTimeoutQC_AllNone(t *testing.T) {
 func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	view := View{Index: 0, Number: 5}
+	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee, GlobalBlockNumber(rng.Uint64()%1000000)+1)
+	view := View{Index: 0, Number: 5, EpochIndex: ep.EpochIndex()}
 
 	makePQCAt := func(vn ViewNumber) *PrepareQC {
-		pView := View{Index: view.Index, Number: vn}
-		return makePrepareQC(keys, NewPrepareVote(
-			newProposal(pView, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng))),
-		))
+		pView := View{Index: 0, Number: vn, EpochIndex: ep.EpochIndex()}
+		return makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, pView)))
 	}
 
 	// keys[0] has PrepareQC at view number 2, keys[1] at 4, rest None.
@@ -235,11 +215,11 @@ func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 	if !ok {
 		t.Fatal("LatestPrepareQC must be present")
 	}
-	wantView := View{Index: 0, Number: 4}
+	wantView := View{Index: 0, Number: 4, EpochIndex: ep.EpochIndex()}
 	if got.View() != wantView {
 		t.Fatalf("LatestPrepareQC.View() = %v, want %v", got.View(), wantView)
 	}
-	if err := tqc.Verify(committee, utils.None[*CommitQC]()); err != nil {
+	if err := tqc.Verify(ep, utils.None[*CommitQC]()); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 }
