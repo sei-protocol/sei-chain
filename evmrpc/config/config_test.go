@@ -49,6 +49,8 @@ type opts struct {
 	maxConcurrentRequestBytes    interface{}
 	maxOpenConnections           interface{}
 	maxTraceStructLogBytes       interface{}
+	traceAllowedTracers          interface{}
+	traceAllowJSTracers          interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -184,6 +186,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_trace_struct_log_bytes" {
 		return o.maxTraceStructLogBytes
 	}
+	if k == "evm.trace_allowed_tracers" {
+		return o.traceAllowedTracers
+	}
+	if k == "evm.trace_allow_js_tracers" {
+		return o.traceAllowJSTracers
+	}
 	panic("unknown key")
 }
 
@@ -230,6 +238,8 @@ func getDefaultOpts() opts {
 		int64(128 * 1024 * 1024),
 		2000,
 		uint64(256 * 1024 * 1024),
+		[]string{"callTracer", "prestateTracer"},
+		false,
 	}
 }
 
@@ -240,6 +250,8 @@ func TestReadConfig(t *testing.T) {
 	require.False(t, cfg.EnableParallelizedBlockTrace)
 	// Round-trip: an explicitly-supplied value overrides the default.
 	require.Equal(t, uint64(256*1024*1024), cfg.MaxTraceStructLogBytes)
+	require.Equal(t, []string{"callTracer", "prestateTracer"}, cfg.TraceAllowedTracers)
+	require.False(t, cfg.TraceAllowJSTracers)
 	// The shipped default (used when the operator supplies no value).
 	require.Equal(t, uint64(32*1024*1024), config.DefaultConfig.MaxTraceStructLogBytes)
 	badOpts := goodOpts
@@ -340,6 +352,21 @@ func TestReadConfig(t *testing.T) {
 
 	badOpts = goodOpts
 	badOpts.maxTraceStructLogBytes = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.traceAllowedTracers = map[string]interface{}{}
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.traceAllowedTracers = []string{"callTracer", "function() { return {}; }"}
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.traceAllowJSTracers = "bad"
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
@@ -500,6 +527,41 @@ func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {
 	cfg, err := config.ReadConfig(&opts)
 	require.NoError(t, err)
 	require.True(t, cfg.EnableParallelizedBlockTrace)
+}
+
+func TestReadConfigTraceAllowedTracers(t *testing.T) {
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, config.DefaultTraceAllowedTracers(), cfg.TraceAllowedTracers)
+
+	opts := getDefaultOpts()
+	opts.traceAllowedTracers = []string{
+		"callTracer",
+		"callTracer",
+		"  flatCallTracer  ",
+	}
+	cfg, err = config.ReadConfig(&opts)
+	require.NoError(t, err)
+	require.Equal(t, []string{"callTracer", "flatCallTracer"}, cfg.TraceAllowedTracers)
+
+	opts.traceAllowedTracers = []string{"callTracer", ""}
+	_, err = config.ReadConfig(&opts)
+	require.Error(t, err)
+
+	opts.traceAllowedTracers = []string{"callTracer", "badTracer"}
+	_, err = config.ReadConfig(&opts)
+	require.Error(t, err)
+
+	opts.traceAllowedTracers = []string{"callTracer", "function() { return {}; }"}
+	opts.traceAllowJSTracers = true
+	_, err = config.ReadConfig(&opts)
+	require.Error(t, err, "trace_allowed_tracers remains native-only even when JS tracers are allowed")
+
+	opts.traceAllowedTracers = []string{"callTracer"}
+	opts.traceAllowJSTracers = true
+	cfg, err = config.ReadConfig(&opts)
+	require.NoError(t, err)
+	require.True(t, cfg.TraceAllowJSTracers)
 }
 
 func TestReadConfigMaxSubscriptionsLogs(t *testing.T) {
