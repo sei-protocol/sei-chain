@@ -64,6 +64,15 @@ type controlLoop struct {
 	// The target size for key files.
 	targetKeyFileSize uint64
 
+	// autoFlushByteThreshold is the number of value bytes written through the control loop (without an
+	// intervening flush) that triggers an automatic fire-and-forget flush, bounding the in-memory
+	// unflushed-data cache. Set once at construction from Config.AutoFlushByteThreshold; never mutated.
+	autoFlushByteThreshold uint64
+
+	// bytesSinceLastFlush accumulates value bytes written since the last flush (explicit or automatic).
+	// Only the control loop goroutine reads or writes it, so it needs no synchronization.
+	bytesSinceLastFlush uint64
+
 	// The size of the disk table is stored here.
 	size *atomic.Uint64
 
@@ -495,6 +504,13 @@ func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
 				return
 			}
 		}
+
+		// Bound the in-memory unflushed-data cache: once enough bytes have been written without an
+		// intervening flush, schedule a fire-and-forget flush so the cache drains as keys become durable.
+		c.bytesSinceLastFlush += uint64(len(kv.Value))
+		if c.bytesSinceLastFlush >= c.autoFlushByteThreshold {
+			c.scheduleAutoFlush()
+		}
 	}
 
 	c.updateCurrentSize()
@@ -586,6 +602,34 @@ func (c *controlLoop) handleFlushRequest(req *controlLoopFlushRequest) {
 	if err != nil {
 		c.logger.Error("failed to send flush request to flush loop", "error", err)
 	}
+
+	// An explicit flush drains the unflushed-data cache, so restart the auto-flush accounting.
+	c.bytesSinceLastFlush = 0
+}
+
+// scheduleAutoFlush schedules a fire-and-forget flush of the mutable segment to bound the in-memory
+// unflushed-data cache. It is triggered from the write path once autoFlushByteThreshold bytes have been
+// written without an intervening flush. Unlike handleFlushRequest there is no waiting caller, so the
+// request carries a nil responseChan (the flush loop skips the completion signal but still schedules the
+// keymap write that drains the cache). Called only on the control loop goroutine.
+func (c *controlLoop) scheduleAutoFlush() {
+	flushWaitFunction, err := c.segments[c.highestSegmentIndex].Flush()
+	if err != nil {
+		c.errorMonitor.Panic(fmt.Errorf("failed to flush segment %d: %w", c.highestSegmentIndex, err))
+		return
+	}
+
+	request := &flushLoopFlushRequest{
+		flushWaitFunction: flushWaitFunction,
+		responseChan:      nil,
+	}
+	err = c.flushLoop.enqueue(request)
+	if err != nil {
+		c.logger.Error("failed to send auto-flush request to flush loop", "error", err)
+		return
+	}
+
+	c.bytesSinceLastFlush = 0
 }
 
 // handleControlLoopSetShardingFactorRequest updates the sharding factor of the disk table. If the requested

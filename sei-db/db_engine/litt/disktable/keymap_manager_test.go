@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -39,6 +40,7 @@ func buildTestKeymapManager(
 		"test",
 		channelSize,
 		maxBatchSize,
+		math.MaxUint64, // disable the byte-based batch trigger; these tests exercise key-count/time batching
 		deleteBatchSize,
 		time.Second,
 		maxBufferedDeletes,

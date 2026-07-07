@@ -56,6 +56,12 @@ func buildSingleShardDiskTableDefaultSegmentSize(t *testing.T, root string) litt
 	require.NoError(t, err)
 	config.Fsync = false // default TargetSegmentFileSize (math.MaxUint32) is intentionally kept
 
+	// Bound the in-memory unflushed-data cache well below the ~5 GiB this test writes: with a threshold
+	// smaller than a single value, an automatic flush is scheduled after every Put, so the cache drains
+	// continuously as keys become durable instead of growing to the full unflushed volume. Without this the
+	// test would hold all unflushed values resident at once and exhaust memory.
+	config.AutoFlushByteThreshold = 128 * 1024 * 1024 // 128 MiB, smaller than one rolloverValueSize (256 MiB)
+
 	tableConfig := litt.DefaultTableConfig("rollover")
 	tableConfig.ShardingFactor = 1 // one value file, so 4 GiB of writes crosses the 2^32 boundary
 
