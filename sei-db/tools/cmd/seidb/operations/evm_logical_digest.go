@@ -515,6 +515,21 @@ func readFlatKVMigrationState(store *openedFlatKV) (migration.MigrationBoundary,
 	return migration.MigrationBoundaryNotStarted, false, 0, nil
 }
 
+// shouldIncludeFlatKVEVMLogicalDigestKey reports whether a raw FlatKV physical
+// row belongs in the EVM logical digest. FlatKV's RawGlobalIterator yields every
+// module's rows, but only the EVM module participates in the comparison against a
+// memiavl node (which walks the EVM tree alone). The FlatKV-only migration
+// markers are let through here and then XORed back out in legacyForCompare; all
+// other non-EVM module rows (e.g. Cosmos state migrated into FlatKV) are excluded
+// so the legacy bucket and FINAL_DIGEST stay comparable across backends.
+func shouldIncludeFlatKVEVMLogicalDigestKey(physKey []byte) bool {
+	if bytes.Equal(physKey, migrationVersionPhysKey) || bytes.Equal(physKey, migrationBoundaryPhysKey) {
+		return true
+	}
+	moduleName, _, err := ktype.StripModulePrefix(physKey)
+	return err == nil && moduleName == keys.EVMStoreKey
+}
+
 func consumeCompositeFlatKV(opened *openedFlatKV, d *evmDigest, accounts map[string]*semanticAccountDigestState) error {
 	iter, err := opened.RawGlobalIterator()
 	if err != nil {
@@ -525,6 +540,9 @@ func consumeCompositeFlatKV(opened *openedFlatKV, d *evmDigest, accounts map[str
 	for ; iter.Valid(); iter.Next() {
 		seen++
 		k := iter.Key()
+		if !shouldIncludeFlatKVEVMLogicalDigestKey(k) {
+			continue
+		}
 		if classifyFlatKVPhysicalKey(k) == flatkvBucketAccount {
 			if err := mergeCompositeFlatKVAccount(accounts, k, iter.Value()); err != nil {
 				return err
@@ -619,6 +637,9 @@ func digestFlatKV(dbDir string, height int64, findTarget []byte) error {
 	for ; iter.Valid(); iter.Next() {
 		k := iter.Key()
 		seen++
+		if !shouldIncludeFlatKVEVMLogicalDigestKey(k) {
+			continue
+		}
 		if err := d.consume(k, iter.Value()); err != nil {
 			return err
 		}
@@ -772,6 +793,9 @@ func inspectFlatKV(dbDir string, height int64, acc *inspectAccumulator) error {
 	var seen uint64
 	for ; iter.Valid(); iter.Next() {
 		seen++
+		if !shouldIncludeFlatKVEVMLogicalDigestKey(iter.Key()) {
+			continue
+		}
 		meta := ""
 		if acc.details && acc.list {
 			var derr error
