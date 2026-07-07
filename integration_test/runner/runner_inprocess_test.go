@@ -133,6 +133,18 @@ func TestInProcessStakingModule(t *testing.T) {
 	runner.RunFile(t, "../staking_module/staking_test.yaml", runner.WithInProcessNetwork(sharedNet))
 }
 
+// TestInProcessGovModule is skipped in-process: the param-change plumbing works with
+// a shortened voting period (proposals submit, vote, and pass), but the gov YAML
+// files bundle cases coupled to the docker localnode. gov_proposal_test.yaml asserts
+// the localnode's fixed total supply in its rejected-burn case (== 5e21, the mint
+// coupling) and tunes an expedited case to the localnode's expedited window;
+// staking_proposal_test.yaml uses an expedited proposal whose 0.667 quorum the
+// suite's 2-of-N vote pattern doesn't clear at N=3. Migrating needs the localnode
+// genesis (supply) replicated + the expedited quorum/timing reconciled.
+func TestInProcessGovModule(t *testing.T) {
+	t.Skip("gov YAMLs bundle docker-localnode-coupled cases (fixed supply burn + expedited quorum/timing)")
+}
+
 // TestInProcessStartupModule is skipped in-process: startup_test.yaml asserts the
 // docker localnode's fixed 4-validator topology (`tendermint-validator-set` count
 // == 4), but the shared harness network runs N=3.
