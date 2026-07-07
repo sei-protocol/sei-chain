@@ -192,12 +192,17 @@ func TestInProcessBankSimulation(t *testing.T) {
 // doesn't hit the override prompt on the second deploy.
 const timelockedFixture = "integration_test/contracts/deploy_timelocked_token_contract.sh"
 
+// timelockedSetupEnv points the fixture at the shimmed seid (SEIDBIN) and the
+// genesis-funded signer (FIXTURE_SIGNER); node targeting is added by the arm.
+var timelockedSetupEnv = map[string]string{"SEIDBIN": "seid", "FIXTURE_SIGNER": "admin"}
+
 // TestInProcessWasmModuleCore runs delegation → admin → withdraw against one fresh
 // gringotts deploy, mirroring docker's TestWasmModuleCore. The three share the
 // suite's single deploy + keyring; order matters (withdraw depends on prior state).
 func TestInProcessWasmModuleCore(t *testing.T) {
 	s := runner.NewInProcessSuite(t, sharedNet,
 		runner.WithSetupScript(timelockedFixture),
+		runner.WithSetupEnv(timelockedSetupEnv),
 		runner.WithIsolatedKeyring())
 	s.RunFile("../wasm_module/timelocked_token_delegation_test.yaml")
 	s.RunFile("../wasm_module/timelocked_token_admin_test.yaml")
@@ -210,15 +215,25 @@ func TestInProcessWasmModuleCore(t *testing.T) {
 func TestInProcessWasmModuleEmergencyWithdraw(t *testing.T) {
 	s := runner.NewInProcessSuite(t, sharedNet,
 		runner.WithSetupScript(timelockedFixture),
+		runner.WithSetupEnv(timelockedSetupEnv),
 		runner.WithIsolatedKeyring())
 	s.RunFile("../wasm_module/timelocked_token_emergency_withdraw_test.yaml")
 }
 
-// TestInProcessFlatKVEvmModule is skipped in-process: flatkv_evm_test.yaml asserts a
-// docker fixture — a pre-deployed EVM contract with recorded balances/heights read
-// from integration_test/contracts/flatkv_evm_*.txt — not built by the shared network.
+// TestInProcessFlatKVEvmModule deploys the flatkv EVM fixture (a storage contract,
+// an EVM transfer, and admin associate-address — all via cast + seid) then runs the
+// historical --block balance/storage/code queries against it. It runs on the shared
+// network: SeiDB SC+SS (see appoptions.go) retain the recorded heights, and the
+// fixture adds no keyring names, so no isolation is needed. BULK_STORAGE_KEYS=0
+// skips the ~80-block bulk deploy the YAML never asserts. Needs cast (Foundry) on PATH.
 func TestInProcessFlatKVEvmModule(t *testing.T) {
-	t.Skip("seidb flatkv_evm asserts a docker fixture (pre-deployed EVM contract + recorded balances/heights)")
+	runner.RunFile(t, "../seidb/flatkv_evm_test.yaml",
+		runner.WithInProcessNetwork(sharedNet),
+		runner.WithSetupScript("integration_test/contracts/deploy_flatkv_evm_fixture.sh"),
+		runner.WithSetupEnv(map[string]string{
+			"FLATKV_EVM_FIXTURE_KEYRING_BACKEND": "test",
+			"FLATKV_EVM_BULK_STORAGE_KEYS":       "0",
+		}))
 }
 
 // TestInProcessAuthzModule runs the three authz suites, each with an isolated

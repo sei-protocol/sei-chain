@@ -7,7 +7,6 @@
 package runner
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -153,8 +152,11 @@ func (e *inProcessExecer) command(t *testing.T, cmd, node string, envMap map[str
 		"SEID_NODE="+h.RPCNodeAddr(),
 		"SEI_EVM_RPC="+h.EVMRPC(),
 		"SEI_EVM_WS="+h.EVMWS(),
-		// Some EVM suites read EVM_RPC; keep parity with SEI_EVM_RPC.
+		// EVM_RPC / EVM_RPC_URL are the names EVM suites + cast-based fixtures read;
+		// alias both to the node's EVM endpoint (dynamic port, so the docker suites'
+		// hardcoded :8545 must be repointed to these).
 		"EVM_RPC="+h.EVMRPC(),
+		"EVM_RPC_URL="+h.EVMRPC(),
 	)
 	return c, nil
 }
@@ -222,27 +224,23 @@ func (e *inProcessExecer) isolateKeyring(t *testing.T) error {
 }
 
 // runSetup is the setupRunner hook: it runs a suite's fixture script once through
-// the same shimmed environment the cases use (bare `seid` in the script lands on
-// the target node; CWD at the repo root), before any case. It sets SEIDBIN=seid
-// (the shim) and FIXTURE_SIGNER=admin (the genesis-funded key docker's
-// keys-list[0] resolves to) — the two env-defaults the fixture scripts read.
-// Unlike run, a non-zero script exit is fatal: a failed fixture must fail the
-// suite, not silently leave the cases to assert against missing state.
+// the same shimmed environment the cases use (bare `seid` lands on the target
+// node; the node's EVM endpoint in EVM_RPC_URL; CWD at the repo root), before any
+// case, with the caller's fixture-specific opts.SetupEnv layered on top. Unlike
+// run, a non-zero script exit is fatal: a failed fixture must fail the suite, not
+// silently leave the cases to assert against missing state.
 func (e *inProcessExecer) runSetup(t *testing.T, scriptPath string, opts Options) error {
 	t.Helper()
 	if err := e.ensureBin(t); err != nil {
 		return fmt.Errorf("prepare seid: %w", err)
 	}
-	// Fixtures write *-contract-addr.txt (and seidb height records) into the repo
-	// tree; snapshot first so t.Cleanup restores it to a clean worktree.
-	if err := e.snapshotContractsTxt(t); err != nil {
+	// Fixtures write outputs into the repo tree; register cleanup first so a clean
+	// worktree is restored even if the script below fails partway.
+	if err := e.cleanFixtureOutputs(t); err != nil {
 		return err
 	}
 	// node "" → node 0 (admin's home), the suites' default signing home.
-	c, err := e.command(t, "bash "+scriptPath, "", map[string]string{
-		"SEIDBIN":        "seid",
-		"FIXTURE_SIGNER": "admin",
-	}, opts)
+	c, err := e.command(t, "bash "+scriptPath, "", opts.SetupEnv, opts)
 	if err != nil {
 		return err
 	}
@@ -252,80 +250,30 @@ func (e *inProcessExecer) runSetup(t *testing.T, scriptPath string, opts Options
 	return nil
 }
 
-// snapshotContractsTxt keeps the fixtures dir's *.txt free of in-process side
-// effects. Only git-tracked *.txt are content-saved, and restored only if the
-// fixture changed them (so untouched records like the seidb heights aren't
-// rewritten). Any untracked *.txt present at cleanup — the fixture's own address
-// outputs, or a prior hard-killed run's leftovers (t.Cleanup is skipped on
-// -timeout; see TestMain) — is removed, which also self-heals such leftovers on
-// the next run. Restore errors are surfaced, not swallowed.
-func (e *inProcessExecer) snapshotContractsTxt(t *testing.T) error {
+// cleanFixtureOutputs registers a t.Cleanup that git-cleans the ignored files a
+// fixture wrote under integration_test/contracts, so an in-process run leaves no
+// worktree diff. `git clean -X` removes only git-ignored files — never a tracked
+// input or a developer's untracked source — so it assumes fixtures write only
+// ignored outputs there: the wired fixtures (flatkv, timelocked) write *.txt
+// (ignored by `integration_test/**/*.txt`) and send other artifacts to /tmp. A
+// future fixture emitting a non-ignored file into that dir would be left behind.
+// Also self-heals a prior -timeout-killed run's leftovers (t.Cleanup is skipped
+// then; see TestMain).
+func (e *inProcessExecer) cleanFixtureOutputs(t *testing.T) error {
 	t.Helper()
 	root, err := repoRoot()
 	if err != nil {
 		return err
 	}
-	const rel = "integration_test/contracts"
-	dir := filepath.Join(root, rel)
-	tracked, err := trackedTxt(root, rel)
-	if err != nil {
-		return err
-	}
-	saved := make(map[string][]byte, len(tracked))
-	for _, p := range tracked {
-		b, err := os.ReadFile(p) //nolint:gosec
-		if err != nil {
-			return fmt.Errorf("snapshot %s: %w", p, err)
-		}
-		saved[p] = b
-	}
 	t.Cleanup(func() {
-		var errs []error
-		now, _ := filepath.Glob(filepath.Join(dir, "*.txt"))
-		for _, p := range now {
-			orig, isTracked := saved[p]
-			if !isTracked {
-				if err := os.Remove(p); err != nil {
-					errs = append(errs, err)
-				}
-				continue
-			}
-			if cur, err := os.ReadFile(p); err != nil || !bytes.Equal(cur, orig) {
-				if err := os.WriteFile(p, orig, 0o644); err != nil { //nolint:gosec
-					errs = append(errs, err)
-				}
-			}
-		}
-		for p, orig := range saved {
-			if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
-				if err := os.WriteFile(p, orig, 0o644); err != nil { //nolint:gosec
-					errs = append(errs, err)
-				}
-			}
-		}
-		if len(errs) > 0 {
-			t.Errorf("restore %s/*.txt: %v", rel, errs)
+		// -X removes only ignored files (never tracked or a dev's untracked source);
+		// -f is required for clean to act, -d recurses into ignored subdirs.
+		out, err := exec.Command("git", "-C", root, "clean", "-fdX", "--", "integration_test/contracts").CombinedOutput() //nolint:gosec
+		if err != nil {
+			t.Errorf("clean fixture outputs: %v\n%s", err, out)
 		}
 	})
 	return nil
-}
-
-// trackedTxt returns absolute paths of the git-tracked *.txt files under the
-// repo-relative dir. Untracked files (fixture outputs) are excluded on purpose —
-// snapshotContractsTxt removes those rather than preserving them, so git is the
-// authority on which files are ours to restore.
-func trackedTxt(root, dir string) ([]string, error) {
-	out, err := exec.Command("git", "-C", root, "ls-files", "--", dir).Output()
-	if err != nil {
-		return nil, fmt.Errorf("git ls-files %s: %w", dir, err)
-	}
-	var paths []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if strings.HasSuffix(line, ".txt") {
-			paths = append(paths, filepath.Join(root, line))
-		}
-	}
-	return paths, nil
 }
 
 // ensureBin builds the seid binary once and writes a `seid` shim alongside it,

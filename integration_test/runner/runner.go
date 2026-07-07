@@ -118,6 +118,11 @@ type Options struct {
 	// (executed at the repo root, so the path is repo-root-relative); the docker
 	// arm ignores it (its fixtures are brought up by the CI harness).
 	SetupScript string
+
+	// SetupEnv is fixture-specific environment for the SetupScript run (e.g. a
+	// keyring backend, a signer name, an RPC target). The in-process arm layers it
+	// under its own node-targeting env (SEID_HOME/SEID_NODE/EVM endpoints).
+	SetupEnv map[string]string
 }
 
 // Option is a functional option for Options.
@@ -155,6 +160,12 @@ func WithIsolatedKeyring() Option {
 // Options.SetupScript). The path is repo-root-relative.
 func WithSetupScript(path string) Option {
 	return func(o *Options) { o.SetupScript = path }
+}
+
+// WithSetupEnv sets fixture-specific environment for the SetupScript run (see
+// Options.SetupEnv).
+func WithSetupEnv(env map[string]string) Option {
+	return func(o *Options) { o.SetupEnv = env }
 }
 
 func newOptions(opts []Option) Options {

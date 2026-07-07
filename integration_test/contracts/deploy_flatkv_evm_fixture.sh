@@ -207,7 +207,7 @@ if [ -z "$deploy_tx" ]; then
 fi
 deploy_receipt=$(wait_for_receipt "$deploy_tx")
 require_success_receipt "contract deployment" "$deploy_receipt"
-printf "%s\n" "$deploy_receipt" > "$out_dir/flatkv_evm_deploy_receipt.json"
+printf "%s\n" "$deploy_receipt" > /tmp/flatkv_evm_deploy_receipt.json
 
 contract_addr=$(printf "%s\n" "$deploy_receipt" | jq -r '.result.contractAddress // empty')
 if [ -z "$contract_addr" ] || [ "$contract_addr" = "null" ]; then
