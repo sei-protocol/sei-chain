@@ -1,7 +1,9 @@
 #!/bin/bash
 
-seidbin=$(which ~/go/bin/seid | tr -d '"')
-keyname=$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].name" | tr -d '"')
+# SEIDBIN / FIXTURE_SIGNER let a non-docker caller repoint the binary + signer
+# without changing docker's behavior (both unset → the original computed values).
+seidbin=${SEIDBIN:-$(which ~/go/bin/seid | tr -d '"')}
+keyname=${FIXTURE_SIGNER:-$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].name" | tr -d '"')}
 chainid=$($seidbin status | jq ".NodeInfo.network" | tr -d '"')
 seihome=$(git rev-parse --show-toplevel | tr -d '"')
 migration=$1

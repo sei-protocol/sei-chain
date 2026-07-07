@@ -7,6 +7,7 @@
 package runner
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -31,6 +32,39 @@ import (
 // runs (built without the tag) cannot reference it, and so cannot regress.
 func WithInProcessNetwork(net *inprocess.Network) Option {
 	return withExecer(newInProcessExecer(net))
+}
+
+// InProcessSuite runs several YAML files against one shared network with a single
+// one-time setup (build → optional keyring overlay → optional fixture script),
+// then reuses it for every RunFile. Use it when a group of files shares fixture
+// state a per-file RunFile would rebuild — the wasm suites read one gringotts
+// deploy + one keyring. A plain RunFile suffices when files are independent (e.g.
+// authz, which wants a fresh overlay per file).
+type InProcessSuite struct {
+	t    *testing.T
+	opts Options
+}
+
+// NewInProcessSuite binds net, runs the one-time setup once (see runSuiteSetup for
+// hook ordering), and returns a suite whose RunFile reuses it. Pass the setup
+// options (WithSetupScript, WithIsolatedKeyring); the network is bound here, so
+// WithInProcessNetwork is not needed. Setup and every RunFile run on t, so the
+// keyring overlay and seid binary outlive all subtests.
+func NewInProcessSuite(t *testing.T, net *inprocess.Network, opts ...Option) *InProcessSuite {
+	t.Helper()
+	e := newInProcessExecer(net)
+	// Bind the execer last so it wins over any stray WithInProcessNetwork.
+	o := newOptions(append(append([]Option{}, opts...), withExecer(e)))
+	runSuiteSetup(t, o)
+	return &InProcessSuite{t: t, opts: o}
+}
+
+// RunFile runs one YAML file against the suite's shared setup. Unlike the
+// package-level RunFile it does not re-run setup, and it uses the suite's own test
+// so the cases stay within the setup's lifetime.
+func (s *InProcessSuite) RunFile(path string) {
+	s.t.Helper()
+	runCases(s.t, path, s.opts)
 }
 
 // inProcessExecer runs commands on the host against an inprocess.Network. It
@@ -67,22 +101,44 @@ func (e *inProcessExecer) run(t *testing.T, cmd, node string, envMap map[string]
 	if err := e.ensureBin(t); err != nil {
 		return "", fmt.Errorf("prepare seid: %w", err)
 	}
-	h, err := e.nodeFor(node)
+	c, err := e.command(t, cmd, node, envMap, opts)
 	if err != nil {
 		return "", err
 	}
+	out, err := c.Output()
+	stdout := strings.TrimSpace(string(out))
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			t.Logf("    (exit %d) stderr: %s", exit.ExitCode(), strings.TrimSpace(string(exit.Stderr)))
+			return stdout, nil
+		}
+		return stdout, err
+	}
+	return stdout, nil
+}
 
+// command builds the host exec.Cmd for cmd targeted at node: the seid shim on
+// PATH, the per-node targeting env (SEID_HOME → the overlay clone when the
+// RunFile is keyring-isolated, else the real home; SEID_NODE; the EVM
+// endpoints), the accumulated capture env, and CWD at the repo root. Shared by
+// run (which swallows non-zero exit per the docker contract) and runSetup (which
+// treats it as fatal). Callers ensure the binary is built (ensureBin) first.
+func (e *inProcessExecer) command(t *testing.T, cmd, node string, envMap map[string]string, opts Options) (*exec.Cmd, error) {
+	t.Helper()
+	h, err := e.nodeFor(node)
+	if err != nil {
+		return nil, err
+	}
 	c := exec.Command(opts.Shell, "-c", cmd) //nolint:gosec
 	// Run from the repo root so the suites' relative `source
 	// integration_test/utils/_tx_helpers.sh` resolves (docker runs with the repo
 	// mounted at the container CWD; `go test` runs with CWD = the package dir).
 	root, err := repoRoot()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	c.Dir = root
-	// A keyring-isolated RunFile points the shim's --home at a per-node overlay clone
-	// (see isolateKeyring); otherwise the real node home.
 	home := h.Home()
 	if ov, ok := e.overlayHomes[home]; ok {
 		home = ov
@@ -100,18 +156,7 @@ func (e *inProcessExecer) run(t *testing.T, cmd, node string, envMap map[string]
 		// Some EVM suites read EVM_RPC; keep parity with SEI_EVM_RPC.
 		"EVM_RPC="+h.EVMRPC(),
 	)
-
-	out, err := c.Output()
-	stdout := strings.TrimSpace(string(out))
-	if err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			t.Logf("    (exit %d) stderr: %s", exit.ExitCode(), strings.TrimSpace(string(exit.Stderr)))
-			return stdout, nil
-		}
-		return stdout, err
-	}
-	return stdout, nil
+	return c, nil
 }
 
 // nodeFor maps a "sei-node-N" moniker (the docker container naming the suites
@@ -174,6 +219,113 @@ func (e *inProcessExecer) isolateKeyring(t *testing.T) error {
 		e.overlayHomes[h.Home()] = overlay
 	}
 	return nil
+}
+
+// runSetup is the setupRunner hook: it runs a suite's fixture script once through
+// the same shimmed environment the cases use (bare `seid` in the script lands on
+// the target node; CWD at the repo root), before any case. It sets SEIDBIN=seid
+// (the shim) and FIXTURE_SIGNER=admin (the genesis-funded key docker's
+// keys-list[0] resolves to) — the two env-defaults the fixture scripts read.
+// Unlike run, a non-zero script exit is fatal: a failed fixture must fail the
+// suite, not silently leave the cases to assert against missing state.
+func (e *inProcessExecer) runSetup(t *testing.T, scriptPath string, opts Options) error {
+	t.Helper()
+	if err := e.ensureBin(t); err != nil {
+		return fmt.Errorf("prepare seid: %w", err)
+	}
+	// Fixtures write *-contract-addr.txt (and seidb height records) into the repo
+	// tree; snapshot first so t.Cleanup restores it to a clean worktree.
+	if err := e.snapshotContractsTxt(t); err != nil {
+		return err
+	}
+	// node "" → node 0 (admin's home), the suites' default signing home.
+	c, err := e.command(t, "bash "+scriptPath, "", map[string]string{
+		"SEIDBIN":        "seid",
+		"FIXTURE_SIGNER": "admin",
+	}, opts)
+	if err != nil {
+		return err
+	}
+	if out, err := c.CombinedOutput(); err != nil {
+		return fmt.Errorf("setup script %s: %w\n%s", scriptPath, err, out)
+	}
+	return nil
+}
+
+// snapshotContractsTxt keeps the fixtures dir's *.txt free of in-process side
+// effects. Only git-tracked *.txt are content-saved, and restored only if the
+// fixture changed them (so untouched records like the seidb heights aren't
+// rewritten). Any untracked *.txt present at cleanup — the fixture's own address
+// outputs, or a prior hard-killed run's leftovers (t.Cleanup is skipped on
+// -timeout; see TestMain) — is removed, which also self-heals such leftovers on
+// the next run. Restore errors are surfaced, not swallowed.
+func (e *inProcessExecer) snapshotContractsTxt(t *testing.T) error {
+	t.Helper()
+	root, err := repoRoot()
+	if err != nil {
+		return err
+	}
+	const rel = "integration_test/contracts"
+	dir := filepath.Join(root, rel)
+	tracked, err := trackedTxt(root, rel)
+	if err != nil {
+		return err
+	}
+	saved := make(map[string][]byte, len(tracked))
+	for _, p := range tracked {
+		b, err := os.ReadFile(p) //nolint:gosec
+		if err != nil {
+			return fmt.Errorf("snapshot %s: %w", p, err)
+		}
+		saved[p] = b
+	}
+	t.Cleanup(func() {
+		var errs []error
+		now, _ := filepath.Glob(filepath.Join(dir, "*.txt"))
+		for _, p := range now {
+			orig, isTracked := saved[p]
+			if !isTracked {
+				if err := os.Remove(p); err != nil {
+					errs = append(errs, err)
+				}
+				continue
+			}
+			if cur, err := os.ReadFile(p); err != nil || !bytes.Equal(cur, orig) {
+				if err := os.WriteFile(p, orig, 0o644); err != nil { //nolint:gosec
+					errs = append(errs, err)
+				}
+			}
+		}
+		for p, orig := range saved {
+			if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
+				if err := os.WriteFile(p, orig, 0o644); err != nil { //nolint:gosec
+					errs = append(errs, err)
+				}
+			}
+		}
+		if len(errs) > 0 {
+			t.Errorf("restore %s/*.txt: %v", rel, errs)
+		}
+	})
+	return nil
+}
+
+// trackedTxt returns absolute paths of the git-tracked *.txt files under the
+// repo-relative dir. Untracked files (fixture outputs) are excluded on purpose —
+// snapshotContractsTxt removes those rather than preserving them, so git is the
+// authority on which files are ours to restore.
+func trackedTxt(root, dir string) ([]string, error) {
+	out, err := exec.Command("git", "-C", root, "ls-files", "--", dir).Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files %s: %w", dir, err)
+	}
+	var paths []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if strings.HasSuffix(line, ".txt") {
+			paths = append(paths, filepath.Join(root, line))
+		}
+	}
+	return paths, nil
 }
 
 // ensureBin builds the seid binary once and writes a `seid` shim alongside it,

@@ -451,6 +451,9 @@ func buildNodeConfig(nodeDir, moniker string, timeoutCommit time.Duration) (*con
 	tmCfg.Moniker = moniker
 	tmCfg.SetRoot(nodeDir)
 	tmCfg.Consensus.UnsafeCommitTimeoutOverride = timeoutCommit
+	// Force the kv tx-index sink on. `-b block` (BroadcastTxCommit) polls the tx
+	// index, not the event bus, so YAML suites using it (wasm) hang without this —
+	// a mode-based config would give a validator the null indexer.
 	tmCfg.TxIndex = config.TestTxIndexConfig()
 	// loopback conn-tracker ceiling: loopback collapses every peer onto 127.0.0.1,
 	// so the router's IP-keyed conn-tracker counts all N-1 inbound on one key.

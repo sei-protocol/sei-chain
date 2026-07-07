@@ -185,13 +185,33 @@ func TestInProcessBankSimulation(t *testing.T) {
 	runner.RunFile(t, "../bank_module/simulation_tx.yaml", runner.WithInProcessNetwork(sharedNet))
 }
 
-// TestInProcessWasmModule is skipped in-process: the timelocked-token suites execute
-// against a docker-fixture contract — a pre-deployed gringotts instance whose address
-// (and the admin1 signer) come from integration_test/contracts/gringotts-contract-addr.txt,
-// which the shared harness network doesn't build. Migrating it needs that contract
-// deployed + its address seeded in-process.
-func TestInProcessWasmModule(t *testing.T) {
-	t.Skip("wasm timelocked suites assert a docker fixture (pre-deployed gringotts contract + admin1)")
+// timelockedFixture is the gringotts bring-up docker runs before each wasm group
+// (deploy goblin + gringotts, seed admin1-4/op/etc, record the addresses).
+// WithSetupScript runs it in-process through the seid shim; WithIsolatedKeyring
+// gives each group its own overlay so the fixture's repeated `keys add admin1`
+// doesn't hit the override prompt on the second deploy.
+const timelockedFixture = "integration_test/contracts/deploy_timelocked_token_contract.sh"
+
+// TestInProcessWasmModuleCore runs delegation → admin → withdraw against one fresh
+// gringotts deploy, mirroring docker's TestWasmModuleCore. The three share the
+// suite's single deploy + keyring; order matters (withdraw depends on prior state).
+func TestInProcessWasmModuleCore(t *testing.T) {
+	s := runner.NewInProcessSuite(t, sharedNet,
+		runner.WithSetupScript(timelockedFixture),
+		runner.WithIsolatedKeyring())
+	s.RunFile("../wasm_module/timelocked_token_delegation_test.yaml")
+	s.RunFile("../wasm_module/timelocked_token_admin_test.yaml")
+	s.RunFile("../wasm_module/timelocked_token_withdraw_test.yaml")
+}
+
+// TestInProcessWasmModuleEmergencyWithdraw needs a pristine gringotts (Core's flows
+// mutate the contract), so it deploys its own fixture — the second deploy docker
+// runs before TestWasmModuleEmergencyWithdraw.
+func TestInProcessWasmModuleEmergencyWithdraw(t *testing.T) {
+	s := runner.NewInProcessSuite(t, sharedNet,
+		runner.WithSetupScript(timelockedFixture),
+		runner.WithIsolatedKeyring())
+	s.RunFile("../wasm_module/timelocked_token_emergency_withdraw_test.yaml")
 }
 
 // TestInProcessFlatKVEvmModule is skipped in-process: flatkv_evm_test.yaml asserts a
