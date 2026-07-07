@@ -40,6 +40,16 @@ var migrationVersionPhysKey = []byte(migration.MigrationStore + "/" + migration.
 // completed or memiavl-only node, which carry no boundary row.
 var migrationBoundaryPhysKey = []byte(migration.MigrationStore + "/" + migration.MigrationBoundaryKey)
 
+// memiavl-open-mode and memiavl-normalization flag values, named so they are not
+// repeated as bare string literals (goconst).
+const (
+	memiavlOpenModeSnapshot = "snapshot"
+	memiavlOpenModeReplay   = "replay"
+	memiavlNormSemantic     = "semantic"
+	memiavlNormIndependent  = "independent"
+	memiavlNormTranslator   = "translator"
+)
+
 // EvmLogicalDigestCmd computes a backend-independent digest of the EVM logical
 // state (account / code / storage canonical buckets) so a memIAVL node and a
 // FlatKV node can be compared at the same chain height.
@@ -145,8 +155,8 @@ func EvmLogicalDigestCmd() *cobra.Command {
 	cmd.Flags().String("flatkv-dir", "", "Composite mode: flatkv data dir")
 	cmd.Flags().String("memiavl-dir", "", "Composite mode: memiavl root dir (contains current/ and snapshot-* )")
 	cmd.Flags().Int64("height", 0, "Target version. flatkv WAL-replays to it; memiavl resolves snapshot-<height>/evm (0 = current symlink)")
-	cmd.Flags().String("memiavl-open-mode", "snapshot", "memiavl read mode: snapshot (FAST: sequential scan of the completed snapshot kvs file; requires an on-disk snapshot at --height, or --height 0 for current) | replay (SLOW, ~10x: replays changelog to --height then walks the mmap tree; use only when no snapshot exists at the target height). Prefer snapshot when --height matches an existing snapshot boundary")
-	cmd.Flags().String("memiavl-normalization", "semantic", "memiavl digest/inspect normalization: semantic/independent (raw EVM key/value decoder) | translator (current migration mapping)")
+	cmd.Flags().String("memiavl-open-mode", memiavlOpenModeSnapshot, "memiavl read mode: snapshot (FAST: sequential scan of the completed snapshot kvs file; requires an on-disk snapshot at --height, or --height 0 for current) | replay (SLOW, ~10x: replays changelog to --height then walks the mmap tree; use only when no snapshot exists at the target height). Prefer snapshot when --height matches an existing snapshot boundary")
+	cmd.Flags().String("memiavl-normalization", memiavlNormSemantic, "memiavl digest/inspect normalization: semantic/independent (raw EVM key/value decoder) | translator (current migration mapping)")
 	cmd.Flags().String("inspect-bucket", "", "Inspect one normalized bucket (account|code|storage|legacy) instead of printing the global digest")
 	cmd.Flags().Int("key-offset", 0, "Inspect mode: byte offset into physical key before applying --key-prefix / sharding")
 	cmd.Flags().String("key-prefix", "", "Inspect mode: hex prefix, relative to --key-offset, used to filter physical keys")
@@ -392,7 +402,7 @@ func runEvmLogicalDigest(cmd *cobra.Command, _ []string) error {
 	memiavlNormalization, _ := cmd.Flags().GetString("memiavl-normalization")
 	memiavlOpenMode, _ := cmd.Flags().GetString("memiavl-open-mode")
 	if inspectBucket != "" {
-		if memiavlOpenMode != "snapshot" {
+		if memiavlOpenMode != memiavlOpenModeSnapshot {
 			return fmt.Errorf("--inspect-bucket does not support --memiavl-open-mode=%q yet", memiavlOpenMode)
 		}
 		return runEvmLogicalInspect(cmd, backend, dbDir, height, inspectBucket, memiavlNormalization)
@@ -449,7 +459,7 @@ func digestCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, findT
 	var memEvmSnapshotDir string
 	var memVersion int64
 	switch memiavlOpenMode {
-	case "", "snapshot":
+	case "", memiavlOpenModeSnapshot:
 		memEvmSnapshotDir, err = resolveMemIAVLEvmSnapshotDir(memIAVLDir, height)
 		if err != nil {
 			return err
@@ -460,7 +470,7 @@ func digestCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, findT
 		}
 		ctx.source = fmt.Sprintf("flatkv clone version=%d + memiavl snapshot=%s", opened.Version(), memEvmSnapshotDir)
 		ctx.normalization = fmt.Sprintf("flatkv rows plus memiavl rows not migrated by boundary=%s version_known=%t migration_version=%d memiavl_version=%d", boundary.String(), versionKnown, migrationVersion, memVersion)
-	case "replay":
+	case memiavlOpenModeReplay:
 		memReplayDB, err = openMemiAVLReplayReadOnly(memIAVLDir, height)
 		if err != nil {
 			return err
@@ -665,7 +675,7 @@ type inspectAccumulator struct {
 	details        bool
 	shards         map[string]*digestBucket
 	matched        uint64
-	listed         uint64
+	listed         int
 }
 
 func runEvmLogicalInspect(cmd *cobra.Command, backend, dbDir string, height int64, inspectBucket string, memiavlNormalization string) error {
@@ -735,7 +745,7 @@ func (a *inspectAccumulator) consumeLogical(bucket string, physKey, logical []by
 	}
 	a.matched++
 	if a.list {
-		if a.listLimit <= 0 || int(a.listed) < a.listLimit {
+		if a.listLimit <= 0 || a.listed < a.listLimit {
 			if meta != "" {
 				fmt.Printf("key=%X logical=%X %s\n", physKey, logical, meta)
 			} else {
@@ -820,9 +830,9 @@ func inspectFlatKV(dbDir string, height int64, acc *inspectAccumulator) error {
 
 func inspectMemIAVL(dbDir string, height int64, acc *inspectAccumulator, normalization string) error {
 	switch normalization {
-	case "", "semantic", "independent":
+	case "", memiavlNormSemantic, memiavlNormIndependent:
 		return inspectMemIAVLSemantic(dbDir, height, acc)
-	case "translator":
+	case memiavlNormTranslator:
 		return inspectMemIAVLTranslator(dbDir, height, acc)
 	default:
 		return fmt.Errorf("unknown --memiavl-normalization %q (want semantic|independent|translator)", normalization)
@@ -1068,16 +1078,16 @@ func flatKVValueMeta(physKey, val []byte) (string, error) {
 //
 //	keyLen uint32 | key [keyLen] | valLen uint32 | value [valLen]
 func digestMemIAVL(dbDir string, height int64, findTarget []byte, normalization string, openMode string) error {
-	if openMode == "replay" {
+	if openMode == memiavlOpenModeReplay {
 		return digestMemIAVLReplay(dbDir, height, findTarget, normalization)
 	}
-	if openMode != "" && openMode != "snapshot" {
+	if openMode != "" && openMode != memiavlOpenModeSnapshot {
 		return fmt.Errorf("unknown --memiavl-open-mode %q (want snapshot|replay)", openMode)
 	}
 	switch normalization {
-	case "", "semantic", "independent":
+	case "", memiavlNormSemantic, memiavlNormIndependent:
 		return digestMemIAVLSemantic(dbDir, height, findTarget)
-	case "translator":
+	case memiavlNormTranslator:
 		return digestMemIAVLTranslator(dbDir, height, findTarget)
 	default:
 		return fmt.Errorf("unknown --memiavl-normalization %q (want semantic|independent|translator)", normalization)
@@ -1104,9 +1114,9 @@ func digestMemIAVLReplay(dbDir string, height int64, findTarget []byte, normaliz
 	defer func() { _ = db.Close() }()
 
 	switch normalization {
-	case "", "semantic", "independent":
+	case "", memiavlNormSemantic, memiavlNormIndependent:
 		return digestMemIAVLReplaySemantic(dbDir, height, db, findTarget)
-	case "translator":
+	case memiavlNormTranslator:
 		return digestMemIAVLReplayTranslator(dbDir, height, db, findTarget)
 	default:
 		return fmt.Errorf("unknown --memiavl-normalization %q (want semantic|independent|translator)", normalization)
@@ -1311,7 +1321,7 @@ func digestMemIAVLTranslator(dbDir string, height int64, findTarget []byte) erro
 	}
 	ctx := digestPrintContext{
 		backend:         "memiavl",
-		mode:            "translator",
+		mode:            memiavlNormTranslator,
 		dbDir:           dbDir,
 		source:          evmSnapshotDir + " (snapshot/current only; no memiavl WAL replay)",
 		normalization:   "memiavl leaves translated with flatkv.ImportTranslator, then reduced to logical payload",
@@ -1321,7 +1331,7 @@ func digestMemIAVLTranslator(dbDir string, height int64, findTarget []byte) erro
 	printDigestStart(ctx)
 	fmt.Println("Scan progress: memiavl input_leaves -> translated flatkv logical bucket counts")
 	fmt.Println("Note: account rows are merged by the translator at finalize, so progress shows account=deferred_until_finalize.")
-	return runMemiavlTranslatorDigest(ctx, "translator", "memiavl total leaves", findTarget,
+	return runMemiavlTranslatorDigest(ctx, memiavlNormTranslator, "memiavl total leaves", findTarget,
 		func(fn func(rawKey, rawVal []byte) error) error {
 			return scanMemiavlSnapshotEVMLeaves(evmSnapshotDir, fn)
 		})
@@ -1372,7 +1382,7 @@ func digestMemIAVLSemantic(dbDir string, height int64, findTarget []byte) error 
 	}
 	ctx := digestPrintContext{
 		backend:         "memiavl",
-		mode:            "semantic",
+		mode:            memiavlNormSemantic,
 		dbDir:           dbDir,
 		source:          evmSnapshotDir + " (snapshot/current only; no memiavl WAL replay)",
 		normalization:   "independent semantic decoder for raw memiavl EVM keys; does not call flatkv.ImportTranslator",
@@ -1382,7 +1392,7 @@ func digestMemIAVLSemantic(dbDir string, height int64, findTarget []byte) error 
 	printDigestStart(ctx)
 	fmt.Println("Scan progress: memiavl input_leaves -> independently decoded EVM logical bucket counts")
 	fmt.Println("Note: semantic mode does not call flatkv.ImportTranslator; account rows are merged locally at finalize.")
-	return runMemiavlSemanticDigest(ctx, "semantic", "memiavl total leaves", findTarget,
+	return runMemiavlSemanticDigest(ctx, memiavlNormSemantic, "memiavl total leaves", findTarget,
 		func(fn func(rawKey, rawVal []byte) error) error {
 			return scanMemiavlSnapshotEVMLeaves(evmSnapshotDir, fn)
 		})
