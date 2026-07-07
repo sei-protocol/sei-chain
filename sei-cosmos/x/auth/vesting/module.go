@@ -13,7 +13,6 @@ import (
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/client/cli"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 )
@@ -26,6 +25,12 @@ var (
 // AppModuleBasic defines the basic application module used by the sub-vesting
 // module. The module itself contain no special logic or state other than message
 // handling.
+//
+// The vesting module is deprecated: its message handlers reject all messages,
+// so new vesting accounts can no longer be created. The module must remain
+// wired into the app so its codec and interface registrations stay in place:
+// they are required to decode existing vesting accounts in the auth store and
+// historical transactions.
 type AppModuleBasic struct{}
 
 // Name returns the module's name.
@@ -83,18 +88,16 @@ func (AppModuleBasic) GetQueryCmd() *cobra.Command {
 
 // AppModule extends the AppModuleBasic implementation by implementing the
 // AppModule interface.
+//
+// The vesting module is deprecated; see AppModuleBasic. All message handlers
+// return types.ErrVestingDeprecated.
 type AppModule struct {
 	AppModuleBasic
-
-	accountKeeper keeper.AccountKeeper
-	bankKeeper    types.BankKeeper
 }
 
-func NewAppModule(ak keeper.AccountKeeper, bk types.BankKeeper) AppModule {
+func NewAppModule() AppModule {
 	return AppModule{
 		AppModuleBasic: AppModuleBasic{},
-		accountKeeper:  ak,
-		bankKeeper:     bk,
 	}
 }
 
@@ -103,7 +106,7 @@ func (AppModule) RegisterInvariants(_ sdk.InvariantRegistry) {}
 
 // Route returns the module's message router and handler.
 func (am AppModule) Route() sdk.Route {
-	return sdk.NewRoute(types.RouterKey, NewHandler(am.accountKeeper, am.bankKeeper))
+	return sdk.NewRoute(types.RouterKey, NewHandler())
 }
 
 // QuerierRoute returns an empty string as the module contains no query
@@ -112,7 +115,7 @@ func (AppModule) QuerierRoute() string { return "" }
 
 // RegisterServices registers module services.
 func (am AppModule) RegisterServices(cfg module.Configurator) {
-	types.RegisterMsgServer(cfg.MsgServer(), NewMsgServerImpl(am.accountKeeper, am.bankKeeper))
+	types.RegisterMsgServer(cfg.MsgServer(), NewMsgServerImpl())
 }
 
 // LegacyQuerierHandler performs a no-op.

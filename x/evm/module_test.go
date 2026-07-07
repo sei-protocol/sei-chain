@@ -128,10 +128,10 @@ func TestABCI(t *testing.T) {
 	require.Equal(t, receipt.BlockNumber, uint64(ctx.BlockHeight()))
 	require.Equal(t, receipt.VmError, "test error")
 
-	// disallow creating vesting account for coinbase address
+	// creating vesting accounts (including for coinbase addresses) is rejected: the module is deprecated
 	k.BeginBlock(ctx)
 	coinbase := state.GetCoinbaseAddress(2)
-	vms := vesting.NewMsgServerImpl(*k.AccountKeeper(), k.BankKeeper())
+	vms := vesting.NewMsgServerImpl()
 	_, err = vms.CreateVestingAccount(sdk.WrapSDKContext(ctx), &vestingtypes.MsgCreateVestingAccount{
 		FromAddress: sdk.AccAddress(evmAddr1[:]).String(),
 		ToAddress:   coinbase.String(),

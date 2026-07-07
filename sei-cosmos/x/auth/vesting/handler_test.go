@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 )
@@ -24,95 +25,78 @@ func (suite *HandlerTestSuite) SetupTest() {
 	checkTx := false
 	app := app.Setup(suite.T(), checkTx, false, false)
 
-	suite.handler = vesting.NewHandler(app.AccountKeeper, app.BankKeeper)
+	suite.handler = vesting.NewHandler()
 	suite.app = app
 }
 
-func (suite *HandlerTestSuite) TestMsgCreateVestingAccount() {
+// TestMsgCreateVestingAccountDeprecated verifies that the deprecated vesting
+// module rejects account creation without mutating any state.
+func (suite *HandlerTestSuite) TestMsgCreateVestingAccountDeprecated() {
 	ctx := suite.app.BaseApp.NewContext(false, tmproto.Header{Height: suite.app.LastBlockHeight() + 1})
 
 	balances := sdk.NewCoins(sdk.NewInt64Coin("test", 1000))
 	addr1 := sdk.AccAddress([]byte("addr1_______________"))
 	addr2 := sdk.AccAddress([]byte("addr2_______________"))
-	addr3 := sdk.AccAddress([]byte("addr3_______________"))
-	addr4 := sdk.AccAddress([]byte("addr4_______________"))
-	addr5 := sdk.AccAddress([]byte("addr5_______________"))
-	addr6 := sdk.AccAddress([]byte("addr6_______________"))
-	addr7 := sdk.AccAddress([]byte("addr7_______________"))
-	addr8 := sdk.AccAddress([]byte("addr8_______________"))
 
 	acc1 := suite.app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
 	suite.app.AccountKeeper.SetAccount(ctx, acc1)
 	suite.Require().NoError(apptesting.FundAccount(suite.app.BankKeeper, ctx, addr1, balances))
-	acc4 := suite.app.AccountKeeper.NewAccountWithAddress(ctx, addr4)
-	suite.app.AccountKeeper.SetAccount(ctx, acc4)
-	suite.Require().NoError(apptesting.FundAccount(suite.app.BankKeeper, ctx, addr4, balances))
 
 	testCases := []struct {
-		name      string
-		msg       *types.MsgCreateVestingAccount
-		expectErr bool
+		name string
+		msg  *types.MsgCreateVestingAccount
 	}{
 		{
-			name:      "create delayed vesting account",
-			msg:       types.NewMsgCreateVestingAccount(addr1, addr2, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, true, nil),
-			expectErr: false,
+			name: "delayed vesting account",
+			msg:  types.NewMsgCreateVestingAccount(addr1, addr2, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, true, nil),
 		},
 		{
-			name:      "create continuous vesting account",
-			msg:       types.NewMsgCreateVestingAccount(addr1, addr3, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, false, nil),
-			expectErr: false,
+			name: "continuous vesting account",
+			msg:  types.NewMsgCreateVestingAccount(addr1, addr2, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, false, nil),
 		},
 		{
-			name:      "create delayed vesting account with admin",
-			msg:       types.NewMsgCreateVestingAccount(addr1, addr5, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, true, addr4),
-			expectErr: false,
-		},
-		{
-			name:      "create continuous vesting account with admin",
-			msg:       types.NewMsgCreateVestingAccount(addr1, addr6, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, false, addr4),
-			expectErr: false,
-		},
-		{
-			name:      "create continuous vesting account with non-existing admin",
-			msg:       types.NewMsgCreateVestingAccount(addr1, addr7, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, false, addr8),
-			expectErr: true,
-		},
-		{
-			name:      "continuous vesting account already exists",
-			msg:       types.NewMsgCreateVestingAccount(addr1, addr3, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, false, nil),
-			expectErr: true,
+			name: "delayed vesting account with admin",
+			msg:  types.NewMsgCreateVestingAccount(addr1, addr2, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, true, addr1),
 		},
 	}
 
 	for _, tc := range testCases {
-		tc := tc
-
 		suite.Run(tc.name, func() {
 			res, err := suite.handler(ctx, tc.msg)
-			if tc.expectErr {
-				suite.Require().Error(err)
-			} else {
-				suite.Require().NoError(err)
-				suite.Require().NotNil(res)
+			suite.Require().ErrorIs(err, types.ErrVestingDeprecated)
+			suite.Require().Nil(res)
 
-				toAddr, err := sdk.AccAddressFromBech32(tc.msg.ToAddress)
-				suite.Require().NoError(err)
-				accI := suite.app.AccountKeeper.GetAccount(ctx, toAddr)
-				suite.Require().NotNil(accI)
-
-				if tc.msg.Delayed {
-					acc, ok := accI.(*types.DelayedVestingAccount)
-					suite.Require().True(ok)
-					suite.Require().Equal(tc.msg.Amount, acc.GetVestingCoins(ctx.BlockTime()))
-				} else {
-					acc, ok := accI.(*types.ContinuousVestingAccount)
-					suite.Require().True(ok)
-					suite.Require().Equal(tc.msg.Amount, acc.GetVestingCoins(ctx.BlockTime()))
-				}
-			}
+			// no account is created and no funds move
+			suite.Require().Nil(suite.app.AccountKeeper.GetAccount(ctx, addr2))
+			suite.Require().Equal(balances, suite.app.BankKeeper.GetAllBalances(ctx, addr1))
 		})
 	}
+}
+
+// TestExistingVestingAccountsStillSupported verifies that vesting accounts
+// already in state remain decodable and keep vesting after the module's
+// deprecation.
+func (suite *HandlerTestSuite) TestExistingVestingAccountsStillSupported() {
+	ctx := suite.app.BaseApp.NewContext(false, tmproto.Header{Height: suite.app.LastBlockHeight() + 1})
+
+	addr := sdk.AccAddress([]byte("vestacct____________"))
+	origVesting := sdk.NewCoins(sdk.NewInt64Coin("test", 100))
+	endTime := ctx.BlockTime().Unix() + 10000
+
+	baseAcc, ok := suite.app.AccountKeeper.NewAccountWithAddress(ctx, addr).(*authtypes.BaseAccount)
+	suite.Require().True(ok)
+
+	vestingAcc := types.NewDelayedVestingAccountRaw(types.NewBaseVestingAccount(baseAcc, origVesting, endTime, nil))
+	suite.app.AccountKeeper.SetAccount(ctx, vestingAcc)
+	suite.Require().NoError(apptesting.FundAccount(suite.app.BankKeeper, ctx, addr, origVesting))
+
+	accI := suite.app.AccountKeeper.GetAccount(ctx, addr)
+	suite.Require().NotNil(accI)
+
+	acc, ok := accI.(*types.DelayedVestingAccount)
+	suite.Require().True(ok)
+	suite.Require().Equal(origVesting, acc.GetVestingCoins(ctx.BlockTime()))
+	suite.Require().True(suite.app.BankKeeper.SpendableCoins(ctx, addr).IsZero())
 }
 
 func TestHandlerTestSuite(t *testing.T) {
