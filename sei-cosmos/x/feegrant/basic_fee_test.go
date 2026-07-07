@@ -1,6 +1,7 @@
 package feegrant_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -147,4 +148,37 @@ func TestBasicFeeValidAllow(t *testing.T) {
 			}
 		})
 	}
+}
+
+// sortedCoins builds a valid, sorted, duplicate-free Coins list of n denoms
+// (zero-padded so lexical order matches numeric order).
+func sortedCoins(n int) sdk.Coins {
+	coins := make(sdk.Coins, n)
+	for i := 0; i < n; i++ {
+		coins[i] = sdk.NewInt64Coin(fmt.Sprintf("coin%08d", i), 1)
+	}
+	return coins.Sort()
+}
+
+func TestBasicAllowanceMaxDenoms(t *testing.T) {
+	atCap := &feegrant.BasicAllowance{SpendLimit: sortedCoins(feegrant.MaxAllowanceDenoms)}
+	require.NoError(t, atCap.ValidateBasic())
+
+	overCap := &feegrant.BasicAllowance{SpendLimit: sortedCoins(feegrant.MaxAllowanceDenoms + 1)}
+	err := overCap.ValidateBasic()
+	require.Error(t, err)
+	require.ErrorIs(t, err, feegrant.ErrTooManyDenoms)
+}
+
+func TestPeriodicAllowanceMaxDenoms(t *testing.T) {
+	over := sortedCoins(feegrant.MaxAllowanceDenoms + 1)
+	allowance := &feegrant.PeriodicAllowance{
+		Basic:            feegrant.BasicAllowance{SpendLimit: over},
+		PeriodSpendLimit: over,
+		PeriodCanSpend:   over,
+		Period:           time.Hour,
+	}
+	err := allowance.ValidateBasic()
+	require.Error(t, err)
+	require.ErrorIs(t, err, feegrant.ErrTooManyDenoms)
 }

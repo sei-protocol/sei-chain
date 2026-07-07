@@ -70,3 +70,39 @@ func BenchmarkCoinsAdditionNoIntersect(b *testing.B) {
 		b.Run(fmt.Sprintf("sizes: A_%d, B_%d", sizeA, sizeB), benchmarkingFunc(sizeA, sizeB))
 	}
 }
+
+// sortedCoins builds a valid Coins list of n coins with denoms in ascending
+// order (zero-padded so lexical order is numeric order), satisfying the
+// sorted/no-duplicate/positive-amount invariant DenomsSubsetOf relies on.
+func sortedCoins(n int) Coins {
+	coins := make(Coins, n)
+	for i := 0; i < n; i++ {
+		coins[i] = NewCoin(fmt.Sprintf("coin%08d", i), OneInt())
+	}
+	return coins
+}
+
+// BenchmarkCoinsDenomsSubsetOf guards against a regression to the quadratic
+// DenomsSubsetOf implementation (Immunefi 79950). With the two-pointer merge the
+// worst case (receiver == B, full walk) is linear in the list length; the old
+// AmountOf-per-element version was O(n*m) and blew up at large sizes.
+func BenchmarkCoinsDenomsSubsetOf(b *testing.B) {
+	benchmarkingFunc := func(size int) func(b *testing.B) {
+		return func(b *testing.B) {
+			b.ReportAllocs()
+			// receiver == B forces the full walk (true subset), the worst case.
+			coins := sortedCoins(size)
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				if !coins.DenomsSubsetOf(coins) {
+					b.Fatal("expected subset")
+				}
+			}
+		}
+	}
+
+	for _, size := range []int{10, 100, 1000, 10000, 56500} {
+		b.Run(fmt.Sprintf("size_%d", size), benchmarkingFunc(size))
+	}
+}
