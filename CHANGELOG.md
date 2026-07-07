@@ -27,10 +27,6 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
-## Unreleased
-sei-chain
-* [#3716](https://github.com/sei-protocol/sei-chain/pull/3716) fix(evm): associate EIP-7702 authorization authorities to their true Sei address before execution so `SetCode` no longer creates a mutable direct-cast mapping (state-machine-breaking); harden distribution `AfterValidatorRemoved` to route an un-sendable validator commission to the community pool instead of panicking
-
 ## v6.6
 sei-chain
 * [#3679](https://github.com/sei-protocol/sei-chain/pull/3679) Backport `release/v6.6`: State Store: Compact pruned key range after each prune
