@@ -29,6 +29,7 @@ type Consumer struct {
 	maxAttempts int
 	baseBackoff time.Duration
 	maxBackoff  time.Duration
+	metrics     *consumerMetrics
 }
 
 const (
@@ -98,6 +99,7 @@ func New(reader MessageSource, sink Sink, opts Options) *Consumer {
 		maxAttempts: maxAttempts,
 		baseBackoff: base,
 		maxBackoff:  maxBackoff,
+		metrics:     newConsumerMetrics(),
 	}
 }
 
@@ -232,12 +234,30 @@ func (c *Consumer) processBatch(ctx context.Context, msgs []kafka.Message) error
 		return fmt.Errorf("sink write batch first_version=%d last_version=%d: %w",
 			firstVersion, lastVersion, err)
 	}
+	writeLatency := time.Since(start)
 	c.logf("wrote records=%d first_version=%d last_version=%d in %s",
-		len(records), firstVersion, lastVersion, time.Since(start))
+		len(records), firstVersion, lastVersion, writeLatency)
 	if err := c.reader.CommitMessages(ctx, msgs...); err != nil {
 		return fmt.Errorf("commit kafka offsets: %w", err)
 	}
+	c.metrics.recordBatch(ctx, int64(len(records)), batchLag(msgs), writeLatency)
 	return nil
+}
+
+// batchLag reports how far behind the partition head the batch left the
+// consumer: the max over messages of (high watermark - offset - 1). Returns -1
+// when no message carries a watermark so the gauge is left untouched.
+func batchLag(msgs []kafka.Message) int64 {
+	lag := int64(-1)
+	for _, msg := range msgs {
+		if msg.HighWaterMark <= 0 {
+			continue
+		}
+		if l := msg.HighWaterMark - msg.Offset - 1; l > lag {
+			lag = l
+		}
+	}
+	return lag
 }
 
 func (c *Consumer) writeBatchWithRetry(ctx context.Context, records []Record) error {
