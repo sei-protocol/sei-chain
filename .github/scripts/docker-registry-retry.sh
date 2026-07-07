@@ -9,8 +9,10 @@ _registry_retry() {
     if docker "$op" "$ref"; then
       return 0
     fi
-    echo "docker $op $ref failed (attempt $attempt), retrying in $((attempt * 5))s..."
-    sleep $((attempt * 5))
+    if [ "$attempt" -lt 5 ]; then
+      echo "docker $op $ref failed (attempt $attempt), retrying in $((attempt * 5))s..."
+      sleep $((attempt * 5))
+    fi
   done
   echo "docker $op $ref failed after 5 attempts"
   return 1
