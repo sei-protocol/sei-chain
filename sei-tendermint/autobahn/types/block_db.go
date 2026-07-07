@@ -206,7 +206,7 @@ type BlockDB interface {
 	// for the block that was passed to WriteBlock.
 	//
 	// This method returns the block number for the block if it is found.
-	// not found, the block number returned is undefined.
+	// If not found, the block number returned is undefined.
 	//
 	// Returns utils.None if no such block has been written. A pruned
 	// block MAY also return None, but — as with ReadBlockByNumber —

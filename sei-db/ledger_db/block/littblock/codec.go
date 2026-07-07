@@ -64,14 +64,10 @@ func decodeNumberKey(key []byte) types.GlobalBlockNumber {
 	return decodeKey(key[1:])
 }
 
-// blockSerializationVersion and qcSerializationVersion are the current versions
-// of the block and QC value framing written to LittDB. Every stored value is
-// prefixed with its kind's version byte so the on-disk format can evolve
-// independently per kind. The two version spaces are deliberately separate — a
-// block and a QC must never share a version number — so they are free to
-// diverge. Decode rejects any other version outright: this store is not yet in
-// production, so no prior format is supported.
+// Serialization version for blocks.
 const blockSerializationVersion byte = 1
+
+// Serialization version for QCs.
 const qcSerializationVersion byte = 1
 
 // blockValuePrefixLen is the fixed header preceding a block's proto bytes: one
