@@ -201,12 +201,18 @@ func TestInProcessFlatKVEvmModule(t *testing.T) {
 	t.Skip("seidb flatkv_evm asserts a docker fixture (pre-deployed EVM contract + recorded balances/heights)")
 }
 
-// TestInProcessAuthzModule is skipped in-process: the staking/generic YAMLs
-// re-`keys add grantee` (a name the send suite already created) and feed
-// `printf "<pass>\ny\n"` to answer docker's passphrase-then-overwrite prompts. The
-// harness's `test` keyring takes no passphrase, so the first line is consumed as
-// the overwrite answer and the add aborts. Enabling authz needs keyring-backend
-// parity or per-suite key isolation.
+// TestInProcessAuthzModule runs the three authz suites, each with an isolated
+// keyring (WithIsolatedKeyring). Each suite `keys add grantee` under docker's
+// `printf "<pass>\ny\n"`; on the shared `test` keyring the second suite's re-add of
+// an existing `grantee` would hit the override prompt and abort. A per-suite keyring
+// overlay makes `grantee` fresh each time, so the add succeeds and the piped input
+// is harmlessly ignored — no YAML edit, no keyring-backend change.
 func TestInProcessAuthzModule(t *testing.T) {
-	t.Skip("authz needs keyring-backend parity or per-suite key isolation")
+	for _, f := range []string{
+		"../authz_module/send_authorization_test.yaml",
+		"../authz_module/staking_authorization_test.yaml",
+		"../authz_module/generic_authorization_test.yaml",
+	} {
+		runner.RunFile(t, f, runner.WithInProcessNetwork(sharedNet), runner.WithIsolatedKeyring())
+	}
 }

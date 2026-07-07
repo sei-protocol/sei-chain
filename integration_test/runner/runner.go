@@ -70,6 +70,14 @@ type backendPreparer interface {
 	prepare(t *testing.T) error
 }
 
+// keyringIsolator is an optional execer capability: an arm that can give a RunFile a
+// private keyring implements it, and RunFile invokes it on the parent test (so the
+// overlay outlives the per-case subtests) when Options.IsolateKeyring is set. The
+// docker arm (per-container keyrings) does not implement it.
+type keyringIsolator interface {
+	isolateKeyring(t *testing.T) error
+}
+
 // Options controls how RunFile executes commands.
 type Options struct {
 	// DefaultContainer is the docker container used when an Input has no Node set.
@@ -84,6 +92,15 @@ type Options struct {
 	// WithInProcessNetwork (build-tagged `inprocess`); it never enters a normal
 	// runner build.
 	exec execer
+
+	// IsolateKeyring, when true, gives this RunFile a private clone of the target
+	// node's `test` keyring so a suite that `keys add`s a name (e.g. authz's grantee)
+	// doesn't collide on that name with a sibling suite on the shared network. It
+	// isolates the keyring namespace, not on-chain state — a suite adding a fixed key
+	// via `--recover` would still land the same address, so on-chain effects still
+	// share the chain. Backend-specific: the in-process arm honors it; the docker arm
+	// (per-container keyrings) ignores it.
+	IsolateKeyring bool
 }
 
 // Option is a functional option for Options.
@@ -111,6 +128,12 @@ func withExecer(e execer) Option {
 	return func(o *Options) { o.exec = e }
 }
 
+// WithIsolatedKeyring gives this RunFile a private keyring clone (see
+// Options.IsolateKeyring).
+func WithIsolatedKeyring() Option {
+	return func(o *Options) { o.IsolateKeyring = true }
+}
+
 func newOptions(opts []Option) Options {
 	var o Options
 	//applying default options
@@ -135,6 +158,11 @@ func RunFile(t *testing.T, path string, opts ...Option) {
 	// nothing here.
 	if p, ok := o.exec.(backendPreparer); ok {
 		require.NoError(t, p.prepare(t), "prepare backend")
+	}
+	if o.IsolateKeyring {
+		if iso, ok := o.exec.(keyringIsolator); ok {
+			require.NoError(t, iso.isolateKeyring(t), "isolate keyring")
+		}
 	}
 	data, err := os.ReadFile(path) //nolint:gosec
 	require.NoError(t, err, "read %s: %v", path, err)

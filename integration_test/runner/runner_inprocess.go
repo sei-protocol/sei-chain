@@ -45,6 +45,12 @@ type inProcessExecer struct {
 	once   sync.Once
 	binDir string // dir holding the seid shim + real binary, prepended to PATH
 	setup  error  // first-build error, returned to every run after
+
+	// overlayHomes maps a node's real home to a per-RunFile keyring-isolated clone,
+	// populated by isolateKeyring when Options.IsolateKeyring is set (nil otherwise ⇒
+	// commands use the real home). Written once, before any case runs; read by run —
+	// no concurrent access, since cases run sequentially.
+	overlayHomes map[string]string
 }
 
 func newInProcessExecer(net *inprocess.Network) *inProcessExecer {
@@ -75,10 +81,16 @@ func (e *inProcessExecer) run(t *testing.T, cmd, node string, envMap map[string]
 		return "", err
 	}
 	c.Dir = root
+	// A keyring-isolated RunFile points the shim's --home at a per-node overlay clone
+	// (see isolateKeyring); otherwise the real node home.
+	home := h.Home()
+	if ov, ok := e.overlayHomes[home]; ok {
+		home = ov
+	}
 	c.Env = append(os.Environ(), envMapSlice(envMap)...)
 	c.Env = append(c.Env,
 		"PATH="+e.binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"SEID_HOME="+h.Home(),
+		"SEID_HOME="+home,
 		// SEID_NODE makes TM RPC targeting explicit via the shim's --node flag
 		// rather than resting solely on the per-node client.toml. RPCNodeAddr is the
 		// tcp:// form --node wants.
@@ -130,6 +142,38 @@ func (e *inProcessExecer) nodeFor(node string) (inprocess.Node, error) {
 func (e *inProcessExecer) prepare(t *testing.T) error {
 	t.Helper()
 	return e.ensureBin(t)
+}
+
+// isolateKeyring is the keyringIsolator hook: it clones each node's `test` keyring +
+// client.toml into a temp overlay home, so a suite that `keys add`s a name (authz's
+// grantee) can't collide with a sibling suite or a prior run on the shared keyring.
+// run then points the seid shim's --home at the overlay (see overlayHomes); the
+// running node keeps its real home. Cloning admin + node_admin (whose privkeys match
+// genesis) keeps signing working; only new adds are sandboxed. Registered on the
+// parent test so the overlays outlive the per-case subtests.
+func (e *inProcessExecer) isolateKeyring(t *testing.T) error {
+	t.Helper()
+	e.overlayHomes = make(map[string]string, e.net.Len())
+	for i := 0; i < e.net.Len(); i++ {
+		h := e.net.Node(i)
+		overlay, err := os.MkdirTemp("", "sei-keyring-overlay-")
+		if err != nil {
+			return err
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(overlay) })
+		// Clone keyring-test/ (the `test`-backend keys) + the whole config/ dir, so
+		// `seid --home <overlay>` has everything the client path reads (client.toml's
+		// keyring-backend + chain-id, plus config.toml/app.toml) and regenerates
+		// nothing — the real home is never touched.
+		if err := os.CopyFS(filepath.Join(overlay, "keyring-test"), os.DirFS(filepath.Join(h.Home(), "keyring-test"))); err != nil {
+			return fmt.Errorf("clone keyring for %s: %w", h.Name(), err)
+		}
+		if err := os.CopyFS(filepath.Join(overlay, "config"), os.DirFS(filepath.Join(h.Home(), "config"))); err != nil {
+			return fmt.Errorf("clone config for %s: %w", h.Name(), err)
+		}
+		e.overlayHomes[h.Home()] = overlay
+	}
+	return nil
 }
 
 // ensureBin builds the seid binary once and writes a `seid` shim alongside it,
