@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
@@ -19,9 +20,12 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
 	genutiltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
 // genesisBuilder accumulates per-validator accounts, balances, and gentxs across
@@ -43,6 +47,12 @@ type genesisBuilder struct {
 
 	accounts []authtypes.GenesisAccount
 	balances []banktypes.Balance
+
+	// Genesis-parity knobs (from Options); zero values skip the mutation.
+	useiSupplyTarget *sdk.Int
+	mintSchedule     []MintRelease
+	govParams        *GovParams
+	mintRef          time.Time // one instant driving both the mint schedule + epoch clock
 }
 
 // operatorKeyName is the keyring name each node's validator operator key is stored
@@ -138,6 +148,12 @@ func (b *genesisBuilder) fundAccount(
 // writeBaseGenesis writes a base genesis file (accounts + balances, empty
 // validator set) to every validator's genesis path. Mirrors initGenFiles.
 func (b *genesisBuilder) writeBaseGenesis(baseState map[string]json.RawMessage, genFiles []string) error {
+	// Credit the reserve (if any) before the auth+bank fold so both the account and
+	// its balance land in the marshaled state below.
+	if err := b.creditReserve(); err != nil {
+		return err
+	}
+
 	var authGenState authtypes.GenesisState
 	b.codec.MustUnmarshalJSON(baseState[authtypes.ModuleName], &authGenState)
 	packed, err := authtypes.PackAccounts(b.accounts)
@@ -151,6 +167,9 @@ func (b *genesisBuilder) writeBaseGenesis(baseState map[string]json.RawMessage, 
 	b.codec.MustUnmarshalJSON(baseState[banktypes.ModuleName], &bankGenState)
 	bankGenState.Balances = append(bankGenState.Balances, b.balances...)
 	baseState[banktypes.ModuleName] = b.codec.MustMarshalJSON(&bankGenState)
+
+	b.applyMintSchedule(baseState)
+	b.applyGovParams(baseState)
 
 	appStateJSON, err := json.MarshalIndent(baseState, "", "  ")
 	if err != nil {
@@ -167,6 +186,84 @@ func (b *genesisBuilder) writeBaseGenesis(baseState map[string]json.RawMessage, 
 		}
 	}
 	return nil
+}
+
+// creditReserve appends a fixed keyless reserve account + balance so total genesis
+// usei == useiSupplyTarget. Bank InitGenesis derives supply from balances (writeBaseGenesis
+// leaves bank.Supply empty), so the supply invariant holds. No-op when the target is nil.
+func (b *genesisBuilder) creditReserve() error {
+	if b.useiSupplyTarget == nil {
+		return nil
+	}
+	existing := sdk.ZeroInt()
+	for _, bal := range b.balances {
+		existing = existing.Add(bal.Coins.AmountOf(b.bondDenom))
+	}
+	shortfall := b.useiSupplyTarget.Sub(existing)
+	if shortfall.IsNegative() {
+		return fmt.Errorf("inprocess: GenesisUseiSupply %s is below already-funded %s %s", b.useiSupplyTarget, b.bondDenom, existing)
+	}
+	// A stable, collision-free address deriver; never signed from, so no keyring entry
+	// and a plain BaseAccount (not a registered ModuleAccount).
+	addr := authtypes.NewModuleAddress("inprocess_genesis_reserve")
+	b.accounts = append(b.accounts, authtypes.NewBaseAccount(addr, nil, 0, 0))
+	if shortfall.IsPositive() {
+		b.balances = append(b.balances, banktypes.Balance{
+			Address: addr.String(),
+			Coins:   sdk.NewCoins(sdk.NewCoin(b.bondDenom, shortfall)),
+		})
+	}
+	return nil
+}
+
+// applyMintSchedule rewrites the mint genesis with the schedule (dates resolved from
+// mintRef) + mint_denom, and pins the epoch clock to mintRef so the first epoch's
+// CurrentEpochStartTime shares the schedule's start UTC date — the two must be derived
+// from one instant, or the mint suite's START_DATE==LAST_MINT_DATE assertion races
+// across midnight. No-op when the schedule is empty.
+func (b *genesisBuilder) applyMintSchedule(baseState map[string]json.RawMessage) {
+	if len(b.mintSchedule) == 0 {
+		return
+	}
+	day := b.mintRef.Truncate(24 * time.Hour)
+	sched := make([]minttypes.ScheduledTokenRelease, 0, len(b.mintSchedule))
+	for _, r := range b.mintSchedule {
+		sched = append(sched, minttypes.ScheduledTokenRelease{
+			StartDate:          day.AddDate(0, 0, r.StartDaysFromGenesis).Format(minttypes.TokenReleaseDateFormat),
+			EndDate:            day.AddDate(0, 0, r.EndDaysFromGenesis).Format(minttypes.TokenReleaseDateFormat),
+			TokenReleaseAmount: r.Amount.Uint64(),
+		})
+	}
+	var mintGen minttypes.GenesisState
+	b.codec.MustUnmarshalJSON(baseState[minttypes.ModuleName], &mintGen)
+	mintGen.Params.MintDenom = b.bondDenom
+	mintGen.Params.TokenReleaseSchedule = sched
+	baseState[minttypes.ModuleName] = b.codec.MustMarshalJSON(&mintGen)
+
+	var epochGen epochtypes.GenesisState
+	b.codec.MustUnmarshalJSON(baseState[epochtypes.ModuleName], &epochGen)
+	epochGen.Epoch.GenesisTime = b.mintRef
+	epochGen.Epoch.CurrentEpochStartTime = b.mintRef
+	baseState[epochtypes.ModuleName] = b.codec.MustMarshalJSON(&epochGen)
+}
+
+// applyGovParams overrides the gov voting/deposit/tally params. No-op when nil; the
+// default 2-day voting period never resolves the gov suites' short-sleep votes.
+func (b *genesisBuilder) applyGovParams(baseState map[string]json.RawMessage) {
+	if b.govParams == nil {
+		return
+	}
+	p := b.govParams
+	var govGen govtypes.GenesisState
+	b.codec.MustUnmarshalJSON(baseState[govtypes.ModuleName], &govGen)
+	govGen.VotingParams.VotingPeriod = p.VotingPeriod
+	govGen.VotingParams.ExpeditedVotingPeriod = p.ExpeditedVotingPeriod
+	govGen.DepositParams.MaxDepositPeriod = p.MaxDepositPeriod
+	govGen.TallyParams.Quorum = p.Quorum
+	govGen.TallyParams.Threshold = p.Threshold
+	govGen.TallyParams.ExpeditedQuorum = p.ExpeditedQuorum
+	govGen.TallyParams.ExpeditedThreshold = p.ExpeditedThreshold
+	baseState[govtypes.ModuleName] = b.codec.MustMarshalJSON(&govGen)
 }
 
 // collectGentxs folds every validator's gentx into each node's genesis app state

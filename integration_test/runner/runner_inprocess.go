@@ -33,6 +33,63 @@ func WithInProcessNetwork(net *inprocess.Network) Option {
 	return withExecer(newInProcessExecer(net))
 }
 
+// InProcessEVMEnv builds the environment a host EVM tool (hardhat, cast) needs to
+// target net's node without docker: the seid shim on PATH (so a suite's bare `seid`
+// funding/association calls hit that node), SEID_HOME/SEID_NODE for the shim, and
+// SEI_EVM_RPC/EVM_RPC_URL for the tool's own JSON-RPC. Returned as KEY=VALUE entries
+// to append to os.Environ(). This is the seam for the EVM suites whose driver is
+// hardhat/npm rather than the YAML runner.
+func InProcessEVMEnv(t *testing.T, net *inprocess.Network, node int) []string {
+	t.Helper()
+	e := newInProcessExecer(net)
+	if err := e.ensureBin(t); err != nil { // go's build cache makes a repeat build cheap
+		t.Fatalf("build seid shim: %v", err)
+	}
+	h := net.Node(node)
+	return []string{
+		"PATH=" + e.binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"SEID_HOME=" + h.Home(),
+		"SEID_NODE=" + h.RPCNodeAddr(),
+		"SEI_EVM_RPC=" + h.EVMRPC(),
+		"EVM_RPC_URL=" + h.EVMRPC(),
+		// Signals suites to skip specs needing the docker localnode's gov topology.
+		"SEI_IN_PROCESS=1",
+	}
+}
+
+// InProcessSuite runs several YAML files against one shared network with a single
+// one-time setup (build → optional keyring overlay → optional fixture script),
+// then reuses it for every RunFile. Use it when a group of files shares fixture
+// state a per-file RunFile would rebuild — the wasm suites read one gringotts
+// deploy + one keyring. A plain RunFile suffices when files are independent (e.g.
+// authz, which wants a fresh overlay per file).
+type InProcessSuite struct {
+	t    *testing.T
+	opts Options
+}
+
+// NewInProcessSuite binds net, runs the one-time setup once (see runSuiteSetup for
+// hook ordering), and returns a suite whose RunFile reuses it. Pass the setup
+// options (WithSetupScripts, WithIsolatedKeyring); the network is bound here, so
+// WithInProcessNetwork is not needed. Setup and every RunFile run on t, so the
+// keyring overlay and seid binary outlive all subtests.
+func NewInProcessSuite(t *testing.T, net *inprocess.Network, opts ...Option) *InProcessSuite {
+	t.Helper()
+	e := newInProcessExecer(net)
+	// Bind the execer last so it wins over any stray WithInProcessNetwork.
+	o := newOptions(append(append([]Option{}, opts...), withExecer(e)))
+	runSuiteSetup(t, o)
+	return &InProcessSuite{t: t, opts: o}
+}
+
+// RunFile runs one YAML file against the suite's shared setup. Unlike the
+// package-level RunFile it does not re-run setup, and it uses the suite's own test
+// so the cases stay within the setup's lifetime.
+func (s *InProcessSuite) RunFile(path string) {
+	s.t.Helper()
+	runCases(s.t, path, s.opts)
+}
+
 // inProcessExecer runs commands on the host against an inprocess.Network. It
 // shims `seid` so opaque sourced helper scripts (which call bare `seid` /
 // `$seidbin`) land on the right node: the shim prepends `--home "$SEID_HOME"`
@@ -45,6 +102,12 @@ type inProcessExecer struct {
 	once   sync.Once
 	binDir string // dir holding the seid shim + real binary, prepended to PATH
 	setup  error  // first-build error, returned to every run after
+
+	// overlayHomes maps a node's real home to a per-RunFile keyring-isolated clone,
+	// populated by isolateKeyring when Options.IsolateKeyring is set (nil otherwise ⇒
+	// commands use the real home). Written once, before any case runs; read by run —
+	// no concurrent access, since cases run sequentially.
+	overlayHomes map[string]string
 }
 
 func newInProcessExecer(net *inprocess.Network) *inProcessExecer {
@@ -61,34 +124,10 @@ func (e *inProcessExecer) run(t *testing.T, cmd, node string, envMap map[string]
 	if err := e.ensureBin(t); err != nil {
 		return "", fmt.Errorf("prepare seid: %w", err)
 	}
-	h, err := e.nodeFor(node)
+	c, err := e.command(t, cmd, node, envMap, opts)
 	if err != nil {
 		return "", err
 	}
-
-	c := exec.Command(opts.Shell, "-c", cmd) //nolint:gosec
-	// Run from the repo root so the suites' relative `source
-	// integration_test/utils/_tx_helpers.sh` resolves (docker runs with the repo
-	// mounted at the container CWD; `go test` runs with CWD = the package dir).
-	root, err := repoRoot()
-	if err != nil {
-		return "", err
-	}
-	c.Dir = root
-	c.Env = append(os.Environ(), envMapSlice(envMap)...)
-	c.Env = append(c.Env,
-		"PATH="+e.binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"SEID_HOME="+h.Home(),
-		// SEID_NODE makes TM RPC targeting explicit via the shim's --node flag
-		// rather than resting solely on the per-node client.toml. RPCNodeAddr is the
-		// tcp:// form --node wants.
-		"SEID_NODE="+h.RPCNodeAddr(),
-		"SEI_EVM_RPC="+h.EVMRPC(),
-		"SEI_EVM_WS="+h.EVMWS(),
-		// Some EVM suites read EVM_RPC; keep parity with SEI_EVM_RPC.
-		"EVM_RPC="+h.EVMRPC(),
-	)
-
 	out, err := c.Output()
 	stdout := strings.TrimSpace(string(out))
 	if err != nil {
@@ -100,6 +139,50 @@ func (e *inProcessExecer) run(t *testing.T, cmd, node string, envMap map[string]
 		return stdout, err
 	}
 	return stdout, nil
+}
+
+// command builds the host exec.Cmd for cmd targeted at node: the seid shim on
+// PATH, the per-node targeting env (SEID_HOME → the overlay clone when the
+// RunFile is keyring-isolated, else the real home; SEID_NODE; the EVM
+// endpoints), the accumulated capture env, and CWD at the repo root. Shared by
+// run (which swallows non-zero exit per the docker contract) and runSetup (which
+// treats it as fatal). Callers ensure the binary is built (ensureBin) first.
+func (e *inProcessExecer) command(t *testing.T, cmd, node string, envMap map[string]string, opts Options) (*exec.Cmd, error) {
+	t.Helper()
+	h, err := e.nodeFor(node)
+	if err != nil {
+		return nil, err
+	}
+	c := exec.Command(opts.Shell, "-c", cmd) //nolint:gosec
+	// Run from the repo root so the suites' relative `source
+	// integration_test/utils/_tx_helpers.sh` resolves (docker runs with the repo
+	// mounted at the container CWD; `go test` runs with CWD = the package dir).
+	root, err := repoRoot()
+	if err != nil {
+		return nil, err
+	}
+	c.Dir = root
+	home := h.Home()
+	if ov, ok := e.overlayHomes[home]; ok {
+		home = ov
+	}
+	c.Env = append(os.Environ(), envMapSlice(envMap)...)
+	c.Env = append(c.Env,
+		"PATH="+e.binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"SEID_HOME="+home,
+		// SEID_NODE makes TM RPC targeting explicit via the shim's --node flag
+		// rather than resting solely on the per-node client.toml. RPCNodeAddr is the
+		// tcp:// form --node wants.
+		"SEID_NODE="+h.RPCNodeAddr(),
+		"SEI_EVM_RPC="+h.EVMRPC(),
+		"SEI_EVM_WS="+h.EVMWS(),
+		// EVM_RPC / EVM_RPC_URL are the names EVM suites + cast-based fixtures read;
+		// alias both to the node's EVM endpoint (dynamic port, so the docker suites'
+		// hardcoded :8545 must be repointed to these).
+		"EVM_RPC="+h.EVMRPC(),
+		"EVM_RPC_URL="+h.EVMRPC(),
+	)
+	return c, nil
 }
 
 // nodeFor maps a "sei-node-N" moniker (the docker container naming the suites
@@ -130,6 +213,93 @@ func (e *inProcessExecer) nodeFor(node string) (inprocess.Node, error) {
 func (e *inProcessExecer) prepare(t *testing.T) error {
 	t.Helper()
 	return e.ensureBin(t)
+}
+
+// isolateKeyring is the keyringIsolator hook: it clones each node's `test` keyring +
+// client.toml into a temp overlay home, so a suite that `keys add`s a name (authz's
+// grantee) can't collide with a sibling suite or a prior run on the shared keyring.
+// run then points the seid shim's --home at the overlay (see overlayHomes); the
+// running node keeps its real home. Cloning admin + node_admin (whose privkeys match
+// genesis) keeps signing working; only new adds are sandboxed. Registered on the
+// parent test so the overlays outlive the per-case subtests.
+func (e *inProcessExecer) isolateKeyring(t *testing.T) error {
+	t.Helper()
+	e.overlayHomes = make(map[string]string, e.net.Len())
+	for i := 0; i < e.net.Len(); i++ {
+		h := e.net.Node(i)
+		overlay, err := os.MkdirTemp("", "sei-keyring-overlay-")
+		if err != nil {
+			return err
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(overlay) })
+		// Clone keyring-test/ (the `test`-backend keys) + the whole config/ dir, so
+		// `seid --home <overlay>` has everything the client path reads (client.toml's
+		// keyring-backend + chain-id, plus config.toml/app.toml) and regenerates
+		// nothing — the real home is never touched.
+		if err := os.CopyFS(filepath.Join(overlay, "keyring-test"), os.DirFS(filepath.Join(h.Home(), "keyring-test"))); err != nil {
+			return fmt.Errorf("clone keyring for %s: %w", h.Name(), err)
+		}
+		if err := os.CopyFS(filepath.Join(overlay, "config"), os.DirFS(filepath.Join(h.Home(), "config"))); err != nil {
+			return fmt.Errorf("clone config for %s: %w", h.Name(), err)
+		}
+		e.overlayHomes[h.Home()] = overlay
+	}
+	return nil
+}
+
+// runSetup is the setupRunner hook: it runs the suite's fixture scripts in order,
+// once, through the same shimmed environment the cases use (bare `seid` lands on
+// the target node; the node's EVM endpoint in EVM_RPC_URL; CWD at the repo root),
+// before any case, with the caller's fixture-specific opts.SetupEnv layered on top.
+// Unlike run, a non-zero script exit is fatal: a failed fixture must fail the
+// suite, not silently leave the cases to assert against missing state.
+func (e *inProcessExecer) runSetup(t *testing.T, opts Options) error {
+	t.Helper()
+	if err := e.ensureBin(t); err != nil {
+		return fmt.Errorf("prepare seid: %w", err)
+	}
+	// Fixtures write outputs into the repo tree; register cleanup first so a clean
+	// worktree is restored even if a script below fails partway.
+	if err := e.cleanFixtureOutputs(t); err != nil {
+		return err
+	}
+	for _, script := range opts.SetupScripts {
+		// node "" → node 0 (admin's home), the suites' default signing home.
+		c, err := e.command(t, "bash "+script, "", opts.SetupEnv, opts)
+		if err != nil {
+			return err
+		}
+		if out, err := c.CombinedOutput(); err != nil {
+			return fmt.Errorf("setup script %s: %w\n%s", script, err, out)
+		}
+	}
+	return nil
+}
+
+// cleanFixtureOutputs registers a t.Cleanup that git-cleans the ignored files a
+// fixture wrote under integration_test/contracts, so an in-process run leaves no
+// worktree diff. `git clean -X` removes only git-ignored files — never a tracked
+// input or a developer's untracked source — so it assumes fixtures write only
+// ignored outputs there: the wired fixtures (flatkv, timelocked) write *.txt
+// (ignored by `integration_test/**/*.txt`) and send other artifacts to /tmp. A
+// future fixture emitting a non-ignored file into that dir would be left behind.
+// Also self-heals a prior -timeout-killed run's leftovers (t.Cleanup is skipped
+// then; see TestMain).
+func (e *inProcessExecer) cleanFixtureOutputs(t *testing.T) error {
+	t.Helper()
+	root, err := repoRoot()
+	if err != nil {
+		return err
+	}
+	t.Cleanup(func() {
+		// -X removes only ignored files (never tracked or a dev's untracked source);
+		// -f is required for clean to act, -d recurses into ignored subdirs.
+		out, err := exec.Command("git", "-C", root, "clean", "-fdX", "--", "integration_test/contracts").CombinedOutput() //nolint:gosec
+		if err != nil {
+			t.Errorf("clean fixture outputs: %v\n%s", err, out)
+		}
+	})
+	return nil
 }
 
 // ensureBin builds the seid binary once and writes a `seid` shim alongside it,

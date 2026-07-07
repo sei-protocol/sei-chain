@@ -81,6 +81,10 @@ func runSuites(m *testing.M) int {
 		TimeoutCommit: time.Second,
 		ExtraKeys: []inprocess.ExtraKey{
 			{Name: "admin", Node: 0, Coins: adminFunding()},
+			// seidb_creator is a pristine wasm/tokenfactory creator for the SeiDB
+			// suite: its historical counts assume a creator with no prior codes/denoms,
+			// but `admin` is polluted (the tokenfactory suite creates a denom as admin).
+			{Name: "seidb_creator", Node: 0, Coins: adminFunding()},
 		},
 	})
 	if err != nil {
@@ -165,12 +169,27 @@ func TestInProcessOracleModule(t *testing.T) {
 	runner.RunFile(t, "../oracle_module/verify_penalty_counts.yaml", runner.WithInProcessNetwork(sharedNet))
 }
 
-// TestInProcessSeiDBModule is skipped in-process: state_store_test.yaml asserts a
-// docker fixture — 300 wasm contracts stored across block heights tracked in
-// integration_test/contracts/wasm_*_block_height.txt — which the shared harness
-// network doesn't build, so every historical list-code query returns empty.
+// TestInProcessSeiDBModule runs the state_store historical-query suite (wasm
+// list-code + tokenfactory denom counts at recorded heights). The EVM module's
+// InitGenesis stores 3 CW-pointer codes (erc20/721/1155) as ids 1-3 on every fresh
+// chain — same as docker — so the fixtures' 30 codes are the deterministic ids 4-33
+// the suite asserts; deploy_wasm_contracts.sh guards that baseline (fails loudly if
+// a pointer is ever added/removed, or another suite stored wasm first). Both run as
+// seidb_creator, not admin (a pristine creator; see runSuites).
+// FIXTURE_SETTLE_SECONDS=0 drops the docker KV-indexer sleeps — the seq-poll gates
+// commits, and --height queries don't care about settle time.
 func TestInProcessSeiDBModule(t *testing.T) {
-	t.Skip("seidb state_store asserts a docker fixture (300 wasm contracts at tracked heights)")
+	runner.RunFile(t, "../seidb/state_store_test.yaml",
+		runner.WithInProcessNetwork(sharedNet),
+		runner.WithSetupScripts(
+			"integration_test/contracts/deploy_wasm_contracts.sh",
+			"integration_test/contracts/create_tokenfactory_denoms.sh",
+		),
+		runner.WithSetupEnv(map[string]string{
+			"SEIDBIN":                "seid",
+			"FIXTURE_SIGNER":         "seidb_creator",
+			"FIXTURE_SETTLE_SECONDS": "0",
+		}))
 }
 
 // TestInProcessBankMultiSig builds a 2-of-3 multisig (fresh wallet1/2/3 keys) and
@@ -185,28 +204,69 @@ func TestInProcessBankSimulation(t *testing.T) {
 	runner.RunFile(t, "../bank_module/simulation_tx.yaml", runner.WithInProcessNetwork(sharedNet))
 }
 
-// TestInProcessWasmModule is skipped in-process: the timelocked-token suites execute
-// against a docker-fixture contract — a pre-deployed gringotts instance whose address
-// (and the admin1 signer) come from integration_test/contracts/gringotts-contract-addr.txt,
-// which the shared harness network doesn't build. Migrating it needs that contract
-// deployed + its address seeded in-process.
-func TestInProcessWasmModule(t *testing.T) {
-	t.Skip("wasm timelocked suites assert a docker fixture (pre-deployed gringotts contract + admin1)")
+// timelockedFixture is the gringotts bring-up docker runs before each wasm group
+// (deploy goblin + gringotts, seed admin1-4/op/etc, record the addresses).
+// WithSetupScripts runs it in-process through the seid shim; WithIsolatedKeyring
+// gives each group its own overlay so the fixture's repeated `keys add admin1`
+// doesn't hit the override prompt on the second deploy.
+const timelockedFixture = "integration_test/contracts/deploy_timelocked_token_contract.sh"
+
+// timelockedSetupEnv points the fixture at the shimmed seid (SEIDBIN) and the
+// genesis-funded signer (FIXTURE_SIGNER); node targeting is added by the arm.
+var timelockedSetupEnv = map[string]string{"SEIDBIN": "seid", "FIXTURE_SIGNER": "admin"}
+
+// TestInProcessWasmModuleCore runs delegation → admin → withdraw against one fresh
+// gringotts deploy, mirroring docker's TestWasmModuleCore. The three share the
+// suite's single deploy + keyring; order matters (withdraw depends on prior state).
+func TestInProcessWasmModuleCore(t *testing.T) {
+	s := runner.NewInProcessSuite(t, sharedNet,
+		runner.WithSetupScripts(timelockedFixture),
+		runner.WithSetupEnv(timelockedSetupEnv),
+		runner.WithIsolatedKeyring())
+	s.RunFile("../wasm_module/timelocked_token_delegation_test.yaml")
+	s.RunFile("../wasm_module/timelocked_token_admin_test.yaml")
+	s.RunFile("../wasm_module/timelocked_token_withdraw_test.yaml")
 }
 
-// TestInProcessFlatKVEvmModule is skipped in-process: flatkv_evm_test.yaml asserts a
-// docker fixture — a pre-deployed EVM contract with recorded balances/heights read
-// from integration_test/contracts/flatkv_evm_*.txt — not built by the shared network.
+// TestInProcessWasmModuleEmergencyWithdraw needs a pristine gringotts (Core's flows
+// mutate the contract), so it deploys its own fixture — the second deploy docker
+// runs before TestWasmModuleEmergencyWithdraw.
+func TestInProcessWasmModuleEmergencyWithdraw(t *testing.T) {
+	s := runner.NewInProcessSuite(t, sharedNet,
+		runner.WithSetupScripts(timelockedFixture),
+		runner.WithSetupEnv(timelockedSetupEnv),
+		runner.WithIsolatedKeyring())
+	s.RunFile("../wasm_module/timelocked_token_emergency_withdraw_test.yaml")
+}
+
+// TestInProcessFlatKVEvmModule deploys the flatkv EVM fixture (a storage contract,
+// an EVM transfer, and admin associate-address — all via cast + seid) then runs the
+// historical --block balance/storage/code queries against it. It runs on the shared
+// network: SeiDB SC+SS (see appoptions.go) retain the recorded heights, and the
+// fixture adds no keyring names, so no isolation is needed. BULK_STORAGE_KEYS=0
+// skips the ~80-block bulk deploy the YAML never asserts. Needs cast (Foundry) on PATH.
 func TestInProcessFlatKVEvmModule(t *testing.T) {
-	t.Skip("seidb flatkv_evm asserts a docker fixture (pre-deployed EVM contract + recorded balances/heights)")
+	runner.RunFile(t, "../seidb/flatkv_evm_test.yaml",
+		runner.WithInProcessNetwork(sharedNet),
+		runner.WithSetupScripts("integration_test/contracts/deploy_flatkv_evm_fixture.sh"),
+		runner.WithSetupEnv(map[string]string{
+			"FLATKV_EVM_FIXTURE_KEYRING_BACKEND": "test",
+			"FLATKV_EVM_BULK_STORAGE_KEYS":       "0",
+		}))
 }
 
-// TestInProcessAuthzModule is skipped in-process: the staking/generic YAMLs
-// re-`keys add grantee` (a name the send suite already created) and feed
-// `printf "<pass>\ny\n"` to answer docker's passphrase-then-overwrite prompts. The
-// harness's `test` keyring takes no passphrase, so the first line is consumed as
-// the overwrite answer and the add aborts. Enabling authz needs keyring-backend
-// parity or per-suite key isolation.
+// TestInProcessAuthzModule runs the three authz suites, each with an isolated
+// keyring (WithIsolatedKeyring). Each suite `keys add grantee` under docker's
+// `printf "<pass>\ny\n"`; on the shared `test` keyring the second suite's re-add of
+// an existing `grantee` would hit the override prompt and abort. A per-suite keyring
+// overlay makes `grantee` fresh each time, so the add succeeds and the piped input
+// is harmlessly ignored — no YAML edit, no keyring-backend change.
 func TestInProcessAuthzModule(t *testing.T) {
-	t.Skip("authz needs keyring-backend parity or per-suite key isolation")
+	for _, f := range []string{
+		"../authz_module/send_authorization_test.yaml",
+		"../authz_module/staking_authorization_test.yaml",
+		"../authz_module/generic_authorization_test.yaml",
+	} {
+		runner.RunFile(t, f, runner.WithInProcessNetwork(sharedNet), runner.WithIsolatedKeyring())
+	}
 }

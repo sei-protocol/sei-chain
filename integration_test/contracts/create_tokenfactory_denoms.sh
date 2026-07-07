@@ -1,8 +1,10 @@
 #!/bin/bash
 
-seidbin=$(which ~/go/bin/seid | tr -d '"')
-keyname=$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].name" | tr -d '"')
-keyaddress=$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].address" | tr -d '"')
+# SEIDBIN / FIXTURE_SIGNER let a non-docker caller repoint the binary + signer
+# without changing docker's behavior (both unset → the original computed values).
+seidbin=${SEIDBIN:-$(which ~/go/bin/seid | tr -d '"')}
+keyname=${FIXTURE_SIGNER:-$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].name" | tr -d '"')}
+keyaddress=$(printf "12345678\n" | $seidbin keys show "$keyname" -a | tr -d '"')
 chainid=$($seidbin status | jq ".NodeInfo.network" | tr -d '"')
 seihome=$(git rev-parse --show-toplevel | tr -d '"')
 
@@ -53,7 +55,7 @@ done
 first_set_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height')
 echo "$first_set_block_height" > $seihome/integration_test/contracts/tfk_first_set_block_height.txt
 
-sleep 5
+sleep "${FIXTURE_SETTLE_SECONDS:-5}"
 
 # create second set of tokenfactory denoms
 for i in {11..20}
@@ -66,7 +68,7 @@ done
 second_set_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height')
 echo "$second_set_block_height" > $seihome/integration_test/contracts/tfk_second_set_block_height.txt
 
-sleep 5
+sleep "${FIXTURE_SETTLE_SECONDS:-5}"
 
 # create third set of tokenfactory denoms
 for i in {21..30}

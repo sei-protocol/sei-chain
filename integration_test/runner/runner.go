@@ -70,6 +70,24 @@ type backendPreparer interface {
 	prepare(t *testing.T) error
 }
 
+// keyringIsolator is an optional execer capability: an arm that can give a RunFile a
+// private keyring implements it, and RunFile invokes it on the parent test (so the
+// overlay outlives the per-case subtests) when Options.IsolateKeyring is set. The
+// docker arm (per-container keyrings) does not implement it.
+type keyringIsolator interface {
+	isolateKeyring(t *testing.T) error
+}
+
+// setupRunner is an optional execer capability: a backend that can run a suite's
+// fixture bring-up scripts (deploy contracts, seed keys the cases assume) once
+// implements it, and RunFile invokes it after keyring isolation and before any
+// case when Options.SetupScripts is set. The in-process arm runs the scripts
+// through its seid shim; the docker arm (fixtures brought up by the CI harness)
+// does not implement it.
+type setupRunner interface {
+	runSetup(t *testing.T, opts Options) error
+}
+
 // Options controls how RunFile executes commands.
 type Options struct {
 	// DefaultContainer is the docker container used when an Input has no Node set.
@@ -84,6 +102,27 @@ type Options struct {
 	// WithInProcessNetwork (build-tagged `inprocess`); it never enters a normal
 	// runner build.
 	exec execer
+
+	// IsolateKeyring, when true, gives this RunFile a private clone of the target
+	// node's `test` keyring so a suite that `keys add`s a name (e.g. authz's grantee)
+	// doesn't collide on that name with a sibling suite on the shared network. It
+	// isolates the keyring namespace, not on-chain state — a suite adding a fixed key
+	// via `--recover` would still land the same address, so on-chain effects still
+	// share the chain. Backend-specific: the in-process arm honors it; the docker arm
+	// (per-container keyrings) ignores it.
+	IsolateKeyring bool
+
+	// SetupScripts are repo-root-relative fixture bring-up scripts run in order,
+	// once, before the cases (deploy the contracts + seed the keys the suites
+	// assume). Backend-specific: the in-process arm runs them through its shim
+	// (executed at the repo root, so paths are repo-root-relative); the docker arm
+	// ignores them (its fixtures are brought up by the CI harness).
+	SetupScripts []string
+
+	// SetupEnv is fixture-specific environment for the setup-script run (e.g. a
+	// keyring backend, a signer name, an RPC target). The in-process arm layers it
+	// under its own node-targeting env (SEID_HOME/SEID_NODE/EVM endpoints).
+	SetupEnv map[string]string
 }
 
 // Option is a functional option for Options.
@@ -111,6 +150,24 @@ func withExecer(e execer) Option {
 	return func(o *Options) { o.exec = e }
 }
 
+// WithIsolatedKeyring gives this RunFile a private keyring clone (see
+// Options.IsolateKeyring).
+func WithIsolatedKeyring() Option {
+	return func(o *Options) { o.IsolateKeyring = true }
+}
+
+// WithSetupScripts runs one or more fixture bring-up scripts, in order, once before
+// the cases (see Options.SetupScripts). Paths are repo-root-relative.
+func WithSetupScripts(paths ...string) Option {
+	return func(o *Options) { o.SetupScripts = paths }
+}
+
+// WithSetupEnv sets fixture-specific environment for the setup-script run (see
+// Options.SetupEnv).
+func WithSetupEnv(env map[string]string) Option {
+	return func(o *Options) { o.SetupEnv = env }
+}
+
 func newOptions(opts []Option) Options {
 	var o Options
 	//applying default options
@@ -130,12 +187,38 @@ func newOptions(opts []Option) Options {
 func RunFile(t *testing.T, path string, opts ...Option) {
 	t.Helper()
 	o := newOptions(opts)
-	// One-time backend setup, scoped to the parent test so it runs before — and
-	// outlives — every per-case subtest (see ensureBin). The docker arm implements
-	// nothing here.
+	runSuiteSetup(t, o)
+	runCases(t, path, o)
+}
+
+// runSuiteSetup runs the one-time, parent-scoped backend hooks in order — the
+// backend build, keyring isolation, then the fixture script — so the fixture's
+// `keys add` and contract deploys land in the isolated keyring. It is scoped to
+// the parent test so it runs before, and outlives, every per-case subtest (see
+// ensureBin). RunFile runs it per file; a caller that shares one setup across
+// several files (the in-process suite) runs it once. The docker arm implements
+// none of these hooks.
+func runSuiteSetup(t *testing.T, o Options) {
+	t.Helper()
 	if p, ok := o.exec.(backendPreparer); ok {
 		require.NoError(t, p.prepare(t), "prepare backend")
 	}
+	if o.IsolateKeyring {
+		if iso, ok := o.exec.(keyringIsolator); ok {
+			require.NoError(t, iso.isolateKeyring(t), "isolate keyring")
+		}
+	}
+	if len(o.SetupScripts) > 0 {
+		if sr, ok := o.exec.(setupRunner); ok {
+			require.NoError(t, sr.runSetup(t, o), "run setup scripts")
+		}
+	}
+}
+
+// runCases parses path as a YAML list of TestCases and runs each as a subtest of
+// t; it assumes the one-time setup (runSuiteSetup) already ran.
+func runCases(t *testing.T, path string, o Options) {
+	t.Helper()
 	data, err := os.ReadFile(path) //nolint:gosec
 	require.NoError(t, err, "read %s: %v", path, err)
 	var cases []TestCase

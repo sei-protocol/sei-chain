@@ -5,6 +5,11 @@ const crypto = require("crypto");
 
 const adminKeyName = "admin"
 
+// SEI_EVM_RPC (set by the in-process runner) points `seid tx evm` eth-submitting
+// commands at the node's dynamic EVM endpoint. Unset under docker → empty, so the
+// CLI's in-container :8545 default stands and the docker commands are byte-identical.
+const evmRpcFlag = process.env.SEI_EVM_RPC ? ` --evm-rpc ${process.env.SEI_EVM_RPC}` : ""
+
 const ABI = {
     ERC20: [
         "function name() view returns (string)",
@@ -142,7 +147,7 @@ async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
     // seid tx evm send prints "Transaction hash: 0x..." on its own format
     // (not the standard cosmos JSON response), so we extract from text and
     // wait via the JSON-RPC receipt — semantically equivalent to -b block.
-    const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} -b sync -y`);
+    const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} -b sync -y${evmRpcFlag}`);
     const evmTxHash = output.replace(/.*0x/, "0x").trim()
     await waitForReceipt(evmTxHash)
     return evmTxHash

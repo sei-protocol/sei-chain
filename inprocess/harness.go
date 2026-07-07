@@ -84,6 +84,59 @@ type Options struct {
 	// validator operator the harness provisions (see operatorKeyName), and
 	// provisionExtraKeys rejects it.
 	ExtraKeys []ExtraKey
+
+	// GenesisUseiSupply, when non-nil, pins total genesis usei supply to this exact
+	// amount: after validators + ExtraKeys are funded, a fixed keyless reserve account
+	// is credited (target - sum of existing usei), decoupling supply-parity from
+	// validator count. nil = supply is just the sum of funded balances (current behavior).
+	GenesisUseiSupply *sdk.Int
+
+	// MintTokenReleaseSchedule, when non-empty, writes the mint token_release_schedule
+	// (dates as day-offsets from genesis, mint_denom pinned to usei) and pins the epoch
+	// clock so the first release fires on the schedule's start date. Empty = mint stays
+	// at its module default.
+	MintTokenReleaseSchedule []MintRelease
+
+	// GovParams, when non-nil, overrides the gov module's voting/deposit/tally params.
+	// Required for the gov suites: the default 2-day voting period never resolves their
+	// short-sleep vote cases.
+	GovParams *GovParams
+}
+
+// MintRelease is one token_release_schedule entry, expressed as day-offsets from the
+// network's genesis date. Offsets (not absolute date strings) let the harness derive
+// the schedule and the epoch clock from one reference instant, so the first release
+// fires on the schedule's start date deterministically.
+type MintRelease struct {
+	StartDaysFromGenesis int     // 0 = genesis day
+	EndDaysFromGenesis   int     // must be > StartDaysFromGenesis
+	Amount               sdk.Int // token_release_amount
+}
+
+// GovParams overrides the gov module genesis params. nil leaves the module default.
+type GovParams struct {
+	VotingPeriod          time.Duration
+	ExpeditedVotingPeriod time.Duration
+	MaxDepositPeriod      time.Duration
+	Quorum                sdk.Dec
+	Threshold             sdk.Dec
+	ExpeditedQuorum       sdk.Dec
+	ExpeditedThreshold    sdk.Dec
+}
+
+// DockerLocalnodeGovParams returns the gov params the docker localnode sets
+// (step2_genesis.sh): 0.5/0.5 normal quorum/threshold, 0.9/0.9 expedited, and
+// 30s/15s/100s voting/expedited/deposit periods — what the gov suites resolve against.
+func DockerLocalnodeGovParams() *GovParams {
+	return &GovParams{
+		VotingPeriod:          30 * time.Second,
+		ExpeditedVotingPeriod: 15 * time.Second,
+		MaxDepositPeriod:      100 * time.Second,
+		Quorum:                sdk.MustNewDecFromStr("0.5"),
+		Threshold:             sdk.MustNewDecFromStr("0.5"),
+		ExpeditedQuorum:       sdk.MustNewDecFromStr("0.9"),
+		ExpeditedThreshold:    sdk.MustNewDecFromStr("0.9"),
+	}
 }
 
 // ExtraKey is a non-validator genesis account the harness creates and funds — a
@@ -194,10 +247,14 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 
 	enc := app.MakeEncodingConfig()
 	gb := &genesisBuilder{
-		codec:     enc.Marshaler,
-		txConfig:  enc.TxConfig,
-		chainID:   opts.ChainID,
-		bondDenom: sdk.DefaultBondDenom,
+		codec:            enc.Marshaler,
+		txConfig:         enc.TxConfig,
+		chainID:          opts.ChainID,
+		bondDenom:        sdk.DefaultBondDenom,
+		useiSupplyTarget: opts.GenesisUseiSupply,
+		mintSchedule:     opts.MintTokenReleaseSchedule,
+		govParams:        opts.GovParams,
+		mintRef:          time.Now().UTC(), // one reference instant for the mint schedule + epoch clock
 	}
 
 	if err := net.provisionNodes(enc, gb); err != nil {
@@ -391,6 +448,17 @@ func (net *Network) startNode(ctx context.Context, n *node, enc encoding) error 
 			{PubKey: tmPub, Address: tmPub.Address(), Name: n.moniker, Power: 100},
 		}
 	}
+	// Match the docker localnode's block-gas pair — 35M max_gas / 70M max_gas_wanted
+	// (its 2x ratio avoids false-positive gas rejections). The defaults are unlimited
+	// max_gas (which the EVM reports as a 100M block gaslimit) and 50M max_gas_wanted
+	// (too tight for the 35M cap — a batch whose declared gas exceeds 50M but used gas
+	// stays under 35M would fail ProcessProposal's checkTotalBlockGas). Set here, on the
+	// genDoc the node starts with, because collectGentxs's re-export resets ConsensusParams.
+	if genDoc.ConsensusParams == nil {
+		genDoc.ConsensusParams = tmtypes.DefaultConsensusParams()
+	}
+	genDoc.ConsensusParams.Block.MaxGas = 35_000_000
+	genDoc.ConsensusParams.Block.MaxGasWanted = 70_000_000
 
 	tmNode, err := tmnode.New(
 		ctx, n.tmCfg, func() {}, theApp, genDoc,
@@ -451,6 +519,9 @@ func buildNodeConfig(nodeDir, moniker string, timeoutCommit time.Duration) (*con
 	tmCfg.Moniker = moniker
 	tmCfg.SetRoot(nodeDir)
 	tmCfg.Consensus.UnsafeCommitTimeoutOverride = timeoutCommit
+	// Force the kv tx-index sink on. `-b block` (BroadcastTxCommit) polls the tx
+	// index, not the event bus, so YAML suites using it (wasm) hang without this —
+	// a mode-based config would give a validator the null indexer.
 	tmCfg.TxIndex = config.TestTxIndexConfig()
 	// loopback conn-tracker ceiling: loopback collapses every peer onto 127.0.0.1,
 	// so the router's IP-keyed conn-tracker counts all N-1 inbound on one key.
