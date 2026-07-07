@@ -1,0 +1,120 @@
+- name: Test making a new param change proposal should pass and take effect
+  inputs:
+    # Get the current tally params
+    - cmd: seid q gov params --output json | jq -r .tally_params.quorum
+      env: OLD_PARAM
+    # Make a new proposal
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_gov_proposal admin "Gov Param Change" gov submit-proposal param-change ./integration_test/gov_module/proposal/param_change_proposal.json --fees 2000usei
+      env: PROPOSAL_ID
+    # Get proposal status
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Make a deposit
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin gov deposit $PROPOSAL_ID 10000000usei --fees 2000usei
+    # sei-node-0 vote yes
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
+      node: sei-node-0
+    # sei-node-1 vote yes
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
+      node: sei-node-1
+    # since quorum is 0.5, we only need 2/4 votes and expect proposal to pass after 35 seconds
+    - cmd: sleep 35
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Get the tally params again after proposal is passed
+    - cmd: seid q gov params --output json | jq -r .tally_params.quorum
+      env: NEW_TALLY_PARAM
+    - cmd: seid q params subspace baseapp ABCIParams --output json |jq -r .value |jq .recheck_tx
+      env: NEW_ABCI_PARAM
+  verifiers:
+    # Check if the new params matches the expected value after proposal
+    - type: eval
+      expr: NEW_TALLY_PARAM == 0.450000000000000000
+    - type: eval
+      expr: NEW_ABCI_PARAM == "true"
+
+# Scope: this case verifies the governance plumbing for the migration rate —
+# that a ParameterChangeProposal lands NumKeysToMigratePerBlock in the migration
+# subspace and the new value is readable afterwards. The actual auto
+# memiavl_only -> migrate_evm kick-off and the full cross-validator key-drain /
+# digest agreement are covered separately by
+# integration_test/contracts/verify_flatkv_evm_migrate.sh; asserting the
+# one-time transition here is not idempotent across re-runs of a long-lived
+# cluster, so this case intentionally stays scoped to the param plumbing.
+- name: Test migration param change proposal should update NumKeysToMigratePerBlock
+  inputs:
+    # Get the current migration batch size param (defaults to 0 = paused)
+    - cmd: seid q params subspace migration NumKeysToMigratePerBlock --output json | jq -r .value | tr -d "\""
+      env: OLD_PARAM
+    # Make a new proposal to raise the migration rate
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_gov_proposal admin "Update Migration Batch Size" gov submit-proposal param-change ./integration_test/gov_module/proposal/migration_param_change_proposal.json --fees 2000usei
+      env: PROPOSAL_ID
+    # Get proposal status
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Make a deposit
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin gov deposit $PROPOSAL_ID 10000000usei --fees 2000usei
+    # sei-node-0 vote yes
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
+      node: sei-node-0
+    # sei-node-1 vote yes
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
+      node: sei-node-1
+    # since quorum is 0.5, we only need 2/4 votes and expect proposal to pass after 35 seconds
+    - cmd: sleep 35
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Get the migration batch size param again after proposal is passed
+    - cmd: seid q params subspace migration NumKeysToMigratePerBlock --output json | jq -r .value | tr -d "\""
+      env: NEW_PARAM
+  verifiers:
+    # The proposal must have passed
+    - type: eval
+      expr: PROPOSAL_STATUS == "PROPOSAL_STATUS_PASSED"
+    # The migration batch size param must reflect the new value. The value is a
+    # string (piped through tr -d "\""), so quote the literal to match the
+    # sibling verifiers; the eval engine coerces both sides to big.Int anyway.
+    - type: eval
+      expr: NEW_PARAM == "12345"
+
+- name: Test expedited proposal should respect expedited_voting_period
+  inputs:
+    # Get the current tally params
+    - cmd: seid q gov params --output json | jq -r .tally_params.expedited_quorum
+      env: OLD_PARAM
+    # Make a new expedited proposal
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_gov_proposal admin "Gov Param Change Expedited" gov submit-proposal param-change ./integration_test/gov_module/proposal/expedited_proposal.json --fees 2000usei
+      env: PROPOSAL_ID
+    # Get proposal status
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Make a deposit
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin gov deposit $PROPOSAL_ID 10000000usei --fees 2000usei
+    # sei-node-0 vote yes
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
+      node: sei-node-0
+    # sei-node-1 vote yes
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
+      node: sei-node-1
+    # sei-node-2 vote yes
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
+      node: sei-node-2
+    # sei-node-3 vote yes
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
+      node: sei-node-3
+    # since expedited quorum is 0.9, we only need 4/4 votes and expect expedited proposal to pass after 20 seconds
+    - cmd: sleep 20
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Get the tally params again after proposal is passed
+    - cmd: seid q gov params --output json | jq -r .tally_params.expedited_quorum
+      env: NEW_PARAM
+  verifiers:
+    # Check if the new params is the expected value after proposal
+    - type: eval
+      expr: NEW_PARAM == 0.750000000000000000
