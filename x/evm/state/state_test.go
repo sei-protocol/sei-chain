@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -97,6 +98,28 @@ func TestSetStorageOverlay(t *testing.T) {
 	cp := statedb.Copy()
 	require.Equal(t, newA, cp.GetState(evmAddr, slotA))
 	require.Equal(t, common.Hash{}, cp.GetState(evmAddr, slotB))
+}
+
+func TestSetStoragePreservesCodeAndNonce(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, true)
+
+	code := []byte("some-contract-bytecode")
+	statedb.SetCode(evmAddr, code)
+	statedb.SetNonce(evmAddr, 7, tracing.NonceChangeUnspecified)
+
+	slot := common.BytesToHash([]byte("slot"))
+	val := common.BytesToHash([]byte("val"))
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{slot: val})
+
+	// storage is overridden...
+	require.Equal(t, val, statedb.GetState(evmAddr, slot))
+	// ...but code, code hash, and nonce are preserved (go-ethereum semantics)
+	require.Equal(t, code, statedb.GetCode(evmAddr))
+	require.Equal(t, crypto.Keccak256Hash(code), statedb.GetCodeHash(evmAddr))
+	require.Equal(t, uint64(7), statedb.GetNonce(evmAddr))
 }
 
 func TestSetStorageEmptyMasksAll(t *testing.T) {

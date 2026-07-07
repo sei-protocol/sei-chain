@@ -209,11 +209,11 @@ func (s *DBImpl) Created(acc common.Address) bool {
 
 // SetStorage replaces an account's entire storage with a simulation-local mask:
 // unset slots read as zero and persisted slots are hidden rather than deleted.
+// Following go-ethereum semantics, only storage is replaced; the account's code,
+// code hash, nonce, and balance are left intact so an overridden contract still
+// executes its bytecode (and any accompanying code/nonce override is preserved).
 func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
-	if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), addr[:]) {
-		s.clearAccountCodeAndNonce(addr)
-	}
 	ov := &storageOverride{
 		committed: make(map[string]common.Hash, len(states)),
 		current:   make(map[string]common.Hash, len(states)),
