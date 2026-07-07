@@ -237,17 +237,25 @@ func buildTable(
 }
 
 // buildMetrics creates a new metrics object backed by the global OTel
-// MeterProvider. When MetricsEnabled is true, this configures the global
-// provider with a Prometheus exporter and starts an HTTP server on
-// MetricsPort that serves /metrics. The returned shutdown function flushes
-// the provider; it is the responsibility of the caller to invoke it during
-// teardown.
+// MeterProvider. It records into whatever MeterProvider is globally configured.
+//
+// When MetricsServeEndpoint is true, this also configures the global provider
+// with a Prometheus exporter and starts an HTTP server on MetricsPort that
+// serves /metrics; the returned shutdown function flushes that provider and is
+// the responsibility of the caller to invoke during teardown. When
+// MetricsServeEndpoint is false (the default), the embedding application is
+// assumed to have already configured and served the global provider, so no
+// exporter or server is created and the returned shutdown function is nil.
 func buildMetrics(
 	config *litt.Config,
 	runtimeConfig *litt.RuntimeConfig,
 ) (*metrics.LittDBMetrics, func(context.Context) error) {
 	if !config.MetricsEnabled {
 		return nil, nil
+	}
+
+	if !config.MetricsServeEndpoint {
+		return metrics.NewLittDBMetrics(), nil
 	}
 
 	reg, shutdown, err := commonmetrics.SetupOtelPrometheus()
