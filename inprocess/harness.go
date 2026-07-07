@@ -391,6 +391,17 @@ func (net *Network) startNode(ctx context.Context, n *node, enc encoding) error 
 			{PubKey: tmPub, Address: tmPub.Address(), Name: n.moniker, Power: 100},
 		}
 	}
+	// Match the docker localnode's block-gas pair — 35M max_gas / 70M max_gas_wanted
+	// (its 2x ratio avoids false-positive gas rejections). The defaults are unlimited
+	// max_gas (which the EVM reports as a 100M block gaslimit) and 50M max_gas_wanted
+	// (too tight for the 35M cap — a batch whose declared gas exceeds 50M but used gas
+	// stays under 35M would fail ProcessProposal's checkTotalBlockGas). Set here, on the
+	// genDoc the node starts with, because collectGentxs's re-export resets ConsensusParams.
+	if genDoc.ConsensusParams == nil {
+		genDoc.ConsensusParams = tmtypes.DefaultConsensusParams()
+	}
+	genDoc.ConsensusParams.Block.MaxGas = 35_000_000
+	genDoc.ConsensusParams.Block.MaxGasWanted = 70_000_000
 
 	tmNode, err := tmnode.New(
 		ctx, n.tmCfg, func() {}, theApp, genDoc,

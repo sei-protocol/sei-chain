@@ -33,6 +33,30 @@ func WithInProcessNetwork(net *inprocess.Network) Option {
 	return withExecer(newInProcessExecer(net))
 }
 
+// InProcessEVMEnv builds the environment a host EVM tool (hardhat, cast) needs to
+// target net's node without docker: the seid shim on PATH (so a suite's bare `seid`
+// funding/association calls hit that node), SEID_HOME/SEID_NODE for the shim, and
+// SEI_EVM_RPC/EVM_RPC_URL for the tool's own JSON-RPC. Returned as KEY=VALUE entries
+// to append to os.Environ(). This is the seam for the EVM suites whose driver is
+// hardhat/npm rather than the YAML runner.
+func InProcessEVMEnv(t *testing.T, net *inprocess.Network, node int) []string {
+	t.Helper()
+	e := newInProcessExecer(net)
+	if err := e.ensureBin(t); err != nil { // go's build cache makes a repeat build cheap
+		t.Fatalf("build seid shim: %v", err)
+	}
+	h := net.Node(node)
+	return []string{
+		"PATH=" + e.binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"SEID_HOME=" + h.Home(),
+		"SEID_NODE=" + h.RPCNodeAddr(),
+		"SEI_EVM_RPC=" + h.EVMRPC(),
+		"EVM_RPC_URL=" + h.EVMRPC(),
+		// Signals suites to skip specs needing the docker localnode's gov topology.
+		"SEI_IN_PROCESS=1",
+	}
+}
+
 // InProcessSuite runs several YAML files against one shared network with a single
 // one-time setup (build → optional keyring overlay → optional fixture script),
 // then reuses it for every RunFile. Use it when a group of files shares fixture

@@ -1327,7 +1327,7 @@ describe("EVM Validations ", function() {
         gasLimit: 21000,
         maxFeePerGas: 400000000000})
 
-      const nodeUrl = 'http://localhost:8545';
+      const nodeUrl = process.env.SEI_EVM_RPC || 'http://localhost:8545';
       const response = await axios.post(nodeUrl, {
         method: 'eth_sendRawTransaction',
         params: [signedTx],
@@ -1351,7 +1351,7 @@ describe("EVM Validations ", function() {
         gasPrice: 1000000000000,
         gasLimit: 21000})
 
-      const nodeUrl = 'http://localhost:8545';
+      const nodeUrl = process.env.SEI_EVM_RPC || 'http://localhost:8545';
       const response = await axios.post(nodeUrl, {
         method: 'eth_sendRawTransaction',
         params: [signedTx],
@@ -1374,7 +1374,7 @@ describe("EVM Validations ", function() {
         gasPrice: 1000000000000,
         gasLimit: 21000})
 
-      const nodeUrl = 'http://localhost:8545';
+      const nodeUrl = process.env.SEI_EVM_RPC || 'http://localhost:8545';
       const response = await axios.post(nodeUrl, {
         method: 'eth_sendRawTransaction',
         params: [signedTx],
@@ -1568,7 +1568,9 @@ describe("SSTORE Gas Discrepancy Test", function() {
     }
   });
 
-  it("should reproduce mismatch by changing param between execution and trace", async function() {
+  // Skipped in-process: drives an EVM-param gov proposal that assumes the docker
+  // localnode's gov topology (same coupling as the skipped YAML gov suite).
+  (process.env.SEI_IN_PROCESS ? it.skip : it)("should reproduce mismatch by changing param between execution and trace", async function() {
     this.timeout(120000); // 2 minutes for governance proposals
     
     const { proposeParamChange, passProposal } = require("./lib.js");
