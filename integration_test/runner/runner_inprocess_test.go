@@ -133,6 +133,62 @@ func TestInProcessStakingModule(t *testing.T) {
 	runner.RunFile(t, "../staking_module/staking_test.yaml", runner.WithInProcessNetwork(sharedNet))
 }
 
+// TestInProcessStartupModule is skipped in-process: startup_test.yaml asserts the
+// docker localnode's fixed 4-validator topology (`tendermint-validator-set` count
+// == 4), but the shared harness network runs N=3.
+func TestInProcessStartupModule(t *testing.T) {
+	t.Skip("startup asserts the docker localnode's fixed 4-validator topology; harness runs N=3")
+}
+
+// TestInProcessTokenfactoryModule creates/mints/burns/changes-admin on a
+// tokenfactory denom as admin (a fresh new_admin_addr key, so no keyring collision).
+func TestInProcessTokenfactoryModule(t *testing.T) {
+	runner.RunFile(t, "../tokenfactory_module/create_tokenfactory_test.yaml", runner.WithInProcessNetwork(sharedNet))
+}
+
+// TestInProcessOracleModule sets a feeder for node_admin's valoper and verifies
+// oracle penalty counts.
+func TestInProcessOracleModule(t *testing.T) {
+	runner.RunFile(t, "../oracle_module/set_feeder_test.yaml", runner.WithInProcessNetwork(sharedNet))
+	runner.RunFile(t, "../oracle_module/verify_penalty_counts.yaml", runner.WithInProcessNetwork(sharedNet))
+}
+
+// TestInProcessSeiDBModule is skipped in-process: state_store_test.yaml asserts a
+// docker fixture — 300 wasm contracts stored across block heights tracked in
+// integration_test/contracts/wasm_*_block_height.txt — which the shared harness
+// network doesn't build, so every historical list-code query returns empty.
+func TestInProcessSeiDBModule(t *testing.T) {
+	t.Skip("seidb state_store asserts a docker fixture (300 wasm contracts at tracked heights)")
+}
+
+// TestInProcessBankMultiSig builds a 2-of-3 multisig (fresh wallet1/2/3 keys) and
+// sends through it.
+func TestInProcessBankMultiSig(t *testing.T) {
+	runner.RunFile(t, "../bank_module/multi_sig_send_test.yaml", runner.WithInProcessNetwork(sharedNet))
+}
+
+// TestInProcessBankSimulation dry-run-simulates a bank send (fresh simulation-test
+// key).
+func TestInProcessBankSimulation(t *testing.T) {
+	runner.RunFile(t, "../bank_module/simulation_tx.yaml", runner.WithInProcessNetwork(sharedNet))
+}
+
+// TestInProcessWasmModule is skipped in-process: the timelocked-token suites execute
+// against a docker-fixture contract — a pre-deployed gringotts instance whose address
+// (and the admin1 signer) come from integration_test/contracts/gringotts-contract-addr.txt,
+// which the shared harness network doesn't build. Migrating it needs that contract
+// deployed + its address seeded in-process.
+func TestInProcessWasmModule(t *testing.T) {
+	t.Skip("wasm timelocked suites assert a docker fixture (pre-deployed gringotts contract + admin1)")
+}
+
+// TestInProcessFlatKVEvmModule is skipped in-process: flatkv_evm_test.yaml asserts a
+// docker fixture — a pre-deployed EVM contract with recorded balances/heights read
+// from integration_test/contracts/flatkv_evm_*.txt — not built by the shared network.
+func TestInProcessFlatKVEvmModule(t *testing.T) {
+	t.Skip("seidb flatkv_evm asserts a docker fixture (pre-deployed EVM contract + recorded balances/heights)")
+}
+
 // TestInProcessAuthzModule is skipped in-process: the staking/generic YAMLs
 // re-`keys add grantee` (a name the send suite already created) and feed
 // `printf "<pass>\ny\n"` to answer docker's passphrase-then-overwrite prompts. The
