@@ -99,3 +99,26 @@ func TestDeserializeUnknownKind(t *testing.T) {
 	require.Error(t, err)
 	require.False(t, ok)
 }
+
+func TestDeserializeOversizedCount(t *testing.T) {
+	// A changeset count larger than the remaining bytes cannot be valid (each entry needs at least a
+	// one-byte length prefix). It must be rejected as incomplete before allocating, never panicking with
+	// "makeslice: cap out of range" or OOMing on a corrupt payload that slipped past the CRC32 check.
+	t.Run("count is MaxUint64", func(t *testing.T) {
+		// Layout: [kind=changeset][blockNumber=1][count=MaxUint64 as a 10-byte uvarint].
+		payload := []byte{byte(kindChangeset), 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01}
+		got, ok, err := DeserializeEntry(payload)
+		require.NoError(t, err)
+		require.False(t, ok)
+		require.Nil(t, got)
+	})
+
+	t.Run("count exceeds remaining bytes", func(t *testing.T) {
+		// Layout: [kind=changeset][blockNumber=1][count=5], with no changeset bytes following.
+		payload := []byte{byte(kindChangeset), 0x01, 0x05}
+		got, ok, err := DeserializeEntry(payload)
+		require.NoError(t, err)
+		require.False(t, ok)
+		require.Nil(t, got)
+	})
+}

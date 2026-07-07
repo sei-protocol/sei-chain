@@ -9,6 +9,9 @@ type StateWAL interface {
 	//
 	// This method only schedules the write, it does not block until the write is complete.
 	//
+	// cs, and every byte slice reachable through it (changeset keys and values), must not be modified after
+	// this call. Callers that need to modify those buffers must copy them first.
+	//
 	// The StateWAL rejects writes for blocks if provided out of order. To avoid errors, observe
 	// the following rules:
 	//
@@ -54,8 +57,11 @@ type StateWAL interface {
 	// called again or for a higher block number.
 	Prune(lowestBlockNumberToKeep uint64) error
 
-	// Create an iterator over the WAL, starting at the given block number. Iterates all data passed to Write()
-	// before this call. Data written after this call is not iterated.
+	// Create an iterator over the WAL, starting at the given block number.
+	//
+	// The iterator reads a consistent, point-in-time snapshot of the WAL taken at some instant between the
+	// start and the return of this call. Data written before that instant is included; data written after it
+	// is not. For data written concurrently with this call, whether it is included is unspecified.
 	Iterator(startingBlockNumber uint64) (StateWALIterator, error)
 
 	// Close the WAL, flushing any pending writes and releasing resources.
@@ -73,7 +79,11 @@ type StateWALIterator interface {
 	Next() (bool, error)
 
 	// Entry returns the coalesced entry for the block at the iterator's current position. It is only valid to
-	// call Entry after Next has returned (true, nil). The returned entry must not be modified.
+	// call Entry after Next has returned (true, nil).
+	//
+	// The returned entry, and every byte slice reachable through it (changeset keys and values), must be
+	// treated as read-only and must not be modified. Callers that need to retain or mutate the data must
+	// copy it first.
 	Entry() *Entry
 
 	// Close releases the resources held by the iterator.

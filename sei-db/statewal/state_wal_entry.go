@@ -127,6 +127,13 @@ func DeserializeEntry(data []byte) (
 		}
 		rest = rest[n:]
 
+		// Each changeset entry occupies at least one byte in rest (its length prefix), so a count larger
+		// than the remaining bytes cannot be valid. Reject it before allocating, to avoid a panic/OOM on a
+		// corrupt payload that survived the CRC32 check. Mirrors the length bound in the loop below.
+		if count > uint64(len(rest)) {
+			return nil, false, nil
+		}
+
 		changeset := make([]*proto.NamedChangeSet, 0, count)
 		for i := uint64(0); i < count; i++ {
 			length, n := binary.Uvarint(rest)
