@@ -27,6 +27,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## Unreleased
+sei-chain
+* [#3716](https://github.com/sei-protocol/sei-chain/pull/3716) fix(distribution): prevent chain halt in `AfterValidatorRemoved` when a validator's commission recipient cannot receive funds (route commission to the community pool)
+
 ## v6.6
 sei-chain
 * [#3679](https://github.com/sei-protocol/sei-chain/pull/3679) Backport `release/v6.6`: State Store: Compact pruned key range after each prune
