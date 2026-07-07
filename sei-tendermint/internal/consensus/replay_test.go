@@ -291,7 +291,7 @@ var modes = []uint{0, 1, 2, 3}
 func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	t.Helper()
 	cfg := configSetup(t)
-	chainID := mustGenesisChainID(cfg)
+	chainID := config.TestLoadGenesis(cfg).ChainID
 	sim := &simulatorTestSuite{
 		Evpool: sm.EmptyEvidencePool{},
 	}

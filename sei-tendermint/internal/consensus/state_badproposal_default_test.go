@@ -8,6 +8,7 @@ package consensus
 import (
 	"testing"
 
+	tmconfig "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -17,7 +18,7 @@ import (
 
 func TestStateBadProposal(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})

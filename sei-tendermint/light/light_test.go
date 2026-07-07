@@ -11,6 +11,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
@@ -44,7 +45,7 @@ func TestClientIntegration_Update(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(dbDir)
 
-	chainID := mustGenesisChainID(conf)
+	chainID := config.TestLoadGenesis(conf).ChainID
 
 	primary, err := httpp.New(chainID, conf.RPC.ListenAddress)
 	require.NoError(t, err)
@@ -99,7 +100,7 @@ func TestClientIntegration_VerifyLightBlockAtHeight(t *testing.T) {
 	defer func() { require.NoError(t, closer(ctx)) }()
 
 	dbDir := t.TempDir()
-	chainID := mustGenesisChainID(conf)
+	chainID := config.TestLoadGenesis(conf).ChainID
 
 	primary, err := httpp.New(chainID, conf.RPC.ListenAddress)
 	require.NoError(t, err)
@@ -171,7 +172,7 @@ func TestClientStatusRPC(t *testing.T) {
 	defer func() { require.NoError(t, closer(ctx)) }()
 
 	dbDir := t.TempDir()
-	chainID := mustGenesisChainID(conf)
+	chainID := config.TestLoadGenesis(conf).ChainID
 
 	primary, err := httpp.New(chainID, conf.RPC.ListenAddress)
 	require.NoError(t, err)
