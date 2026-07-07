@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/consumer"
 )
 
@@ -23,6 +24,27 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	// Install the Prometheus MeterProvider before opening the sink so the
+	// backend cost metrics it registers (e.g. bigtable_rows_mutated_total,
+	// bigtable_bytes_written_total, bigtable_mutate_latency_seconds) bind to a
+	// real exporter and can be scraped at MetricsAddr/metrics.
+	if cfg.MetricsAddr != "" {
+		reg, shutdown, err := commonmetrics.SetupOtelPrometheus()
+		if err != nil {
+			log.Fatalf("setup metrics: %v", err)
+		}
+		defer func() {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownCancel()
+			_ = shutdown(shutdownCtx)
+		}()
+		commonmetrics.StartMetricsServer(ctx, reg, cfg.MetricsAddr)
+		log.Printf("serving consumer metrics at %s/metrics", cfg.MetricsAddr)
+	}
+
 	sink, err := consumer.NewSinkFromConfig(*cfg)
 	if err != nil {
 		log.Fatalf("open %s sink: %v", cfg.BackendName(), err)
@@ -34,9 +56,6 @@ func main() {
 		log.Fatalf("open kafka reader: %v", err)
 	}
 	defer func() { _ = reader.Close() }()
-
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	c := consumer.New(reader, sink, consumer.Options{
 		Logf:            func(format string, args ...interface{}) { log.Printf(format, args...) },

@@ -1,6 +1,8 @@
 package consumer
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -53,4 +55,18 @@ func TestConfigApplyBackendDefaultsScylla(t *testing.T) {
 	cfg.applyBackendDefaults()
 	require.Zero(t, cfg.MaxBatchRecords)
 	require.Zero(t, cfg.BatchMaxWaitMS)
+}
+
+func TestLoadConfigMetricsAddr(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"Backend": "bigtable",
+		"Kafka": {"Brokers": ["localhost:9092"], "Topic": "historical-offload", "GroupID": "g"},
+		"Bigtable": {"ProjectID": "p", "InstanceID": "i", "Table": "t"},
+		"MetricsAddr": ":9092"
+	}`), 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, ":9092", cfg.MetricsAddr)
 }

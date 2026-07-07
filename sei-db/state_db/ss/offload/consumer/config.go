@@ -24,6 +24,11 @@ type Config struct {
 	ShardBufferSize int
 	MaxBatchRecords int
 	BatchMaxWaitMS  int
+	// MetricsAddr, when set (e.g. ":9092"), serves Prometheus metrics at
+	// /metrics so the backend cost counters (bigtable_rows_mutated_total,
+	// bigtable_bytes_written_total, bigtable_mutate_latency_seconds, ...) can be
+	// scraped. Empty disables the endpoint.
+	MetricsAddr string
 }
 
 func (c *Config) Validate() error {
