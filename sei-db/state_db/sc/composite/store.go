@@ -1147,6 +1147,33 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 		}
 	}
 
+	// Clear both sticky commit-info latches so the next LastCommitInfo /
+	// WorkingCommitInfo re-derives from the rolled-back migration metadata.
+	// Rollback can move the boundary backwards across a seam that either
+	// flag latched on:
+	//   - latticeAppendLatched: set after the migrate_evm activation; a
+	//     rollback to a pre-activation height (memiavl-only AppHash, no
+	//     evm_lattice) must stop appending the lattice.
+	//   - memiavlHashExcluded: set after the bank migration completes
+	//     (version 3); a rollback below completion must re-include memiavl's
+	//     per-store infos, which the AppHash still carries at that height.
+	// Without these resets the in-process post-rollback commit info (the hash
+	// `seid rollback` prints and rootmulti caches in rs.lastCommitInfo)
+	// diverges from the canonical AppHash for the target height. The gates
+	// re-latch correctly on the next call against the rolled-back metadata.
+	//
+	// Note: currentWriteMode is not re-derived here. It only matters when a
+	// rollback crosses a seam whose latest-derived mode differs from the
+	// target's (e.g. a rollback all the way across a completed migration);
+	// that in-process view self-heals on the next `seid start`, which
+	// re-derives the mode from the rolled-back metadata.
+	cs.latticeAppendLatched.Store(false)
+	cs.memiavlHashExcluded.Store(false)
+
+	// Rollback is offline (no commit cycle in flight); clear the per-block
+	// migration-advance gate defensively.
+	cs.migrationAdvancedThisCommit = false
+
 	return nil
 }
 
