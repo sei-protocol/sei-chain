@@ -331,6 +331,31 @@ func TestCall(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(8)
 }
 
+func TestCallStateOverrideTooManySlots(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	_, from := testkeeper.MockAddressPair()
+	_, to := testkeeper.MockAddressPair()
+	txArgs := map[string]any{
+		"from":    from.Hex(),
+		"to":      to.Hex(),
+		"value":   "0x0",
+		"nonce":   "0x2",
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+	}
+
+	slots := map[string]any{}
+	for i := 0; i <= SConfig.MaxStateOverrideSlots; i++ {
+		slots[common.BigToHash(big.NewInt(int64(i))).Hex()] = common.Hash{}.Hex()
+	}
+	overrides := map[string]map[string]any{to.Hex(): {"state": slots}}
+
+	resObj := sendRequestGood(t, "call", txArgs, "latest", overrides)
+	errMap := resObj["error"].(map[string]any)
+	require.Contains(t, errMap["message"].(string), "too many slots")
+
+	Ctx = Ctx.WithBlockHeight(8)
+}
+
 func TestEthCallHighAmount(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(1)
 	_, from := testkeeper.MockAddressPair()

@@ -56,6 +56,66 @@ func TestState(t *testing.T) {
 	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, common.Hash{}))
 }
 
+func TestSetStorageOverlay(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, true)
+
+	slotA := common.BytesToHash([]byte("slotA"))
+	valA := common.BytesToHash([]byte("valA"))
+	slotB := common.BytesToHash([]byte("slotB"))
+	valB := common.BytesToHash([]byte("valB"))
+	statedb.SetState(evmAddr, slotA, valA)
+	statedb.SetState(evmAddr, slotB, valB)
+
+	// full replacement: only slotA overridden
+	newA := common.BytesToHash([]byte("newA"))
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{slotA: newA})
+
+	// overridden slot reads new value; other persisted slot is masked to zero
+	require.Equal(t, newA, statedb.GetState(evmAddr, slotA))
+	require.Equal(t, newA, statedb.GetCommittedState(evmAddr, slotA))
+	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, slotB))
+	require.Equal(t, common.Hash{}, statedb.GetCommittedState(evmAddr, slotB))
+
+	// masked, not purged: keeper still holds the persisted slot underneath
+	require.Equal(t, valB, k.GetState(statedb.Ctx(), evmAddr, slotB))
+
+	// in-tx write moves current but not committed
+	rev := statedb.Snapshot()
+	updatedA := common.BytesToHash([]byte("updatedA"))
+	statedb.SetState(evmAddr, slotA, updatedA)
+	require.Equal(t, updatedA, statedb.GetState(evmAddr, slotA))
+	require.Equal(t, newA, statedb.GetCommittedState(evmAddr, slotA))
+
+	// revert restores the overlay write
+	statedb.RevertToSnapshot(rev)
+	require.Equal(t, newA, statedb.GetState(evmAddr, slotA))
+
+	// Copy preserves the override
+	cp := statedb.Copy()
+	require.Equal(t, newA, cp.GetState(evmAddr, slotA))
+	require.Equal(t, common.Hash{}, cp.GetState(evmAddr, slotB))
+}
+
+func TestSetStorageEmptyMasksAll(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, true)
+
+	slot := common.BytesToHash([]byte("slot"))
+	val := common.BytesToHash([]byte("val"))
+	statedb.SetState(evmAddr, slot, val)
+
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{})
+	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, slot))
+	require.Equal(t, common.Hash{}, statedb.GetCommittedState(evmAddr, slot))
+	// not purged
+	require.Equal(t, val, k.GetState(statedb.Ctx(), evmAddr, slot))
+}
+
 func TestCreate(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())

@@ -39,6 +39,13 @@ type (
 		key, prevalue common.Hash
 	}
 
+	// Change to a masked account's overlay storage (state override)
+	storageOverrideChange struct {
+		account common.Address
+		key     common.Hash
+		prev    common.Hash
+	}
+
 	surplusChange struct {
 		delta sdk.Int
 	}
@@ -109,6 +116,12 @@ func (e *transientStorageChange) revert(s *DBImpl) {
 			s.tempState.transientStates[e.account.Hex()] = states
 		}
 		states[e.key.Hex()] = e.prevalue
+	}
+}
+
+func (e *storageOverrideChange) revert(s *DBImpl) {
+	if ov, ok := s.tempState.storageOverrides[e.account.Hex()]; ok {
+		ov.current[e.key.Hex()] = e.prev
 	}
 }
 
