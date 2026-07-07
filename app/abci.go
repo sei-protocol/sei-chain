@@ -192,7 +192,10 @@ func (app *App) EvmBalance(evmAddr common.Address, seiAddrBz []byte) uint256.Int
 	if !seiAddr.Equals(sdk.AccAddress(evmAddr[:])) {
 		balance = new(big.Int).Add(balance, app.EvmKeeper.GetBalance(ctx, seiAddr))
 	}
-	return bigIntToUint256(balance)
+	// Under the mock_balances build tag, mirror the StateDB auto-top-off on this
+	// committed-balance read path so the mempool's readiness gate admits load-test
+	// txs from mock-funded accounts (no-op in production builds).
+	return bigIntToUint256(mockTopOffBalance(balance))
 }
 
 func bigIntToUint256(x *big.Int) uint256.Int {
