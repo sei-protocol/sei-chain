@@ -434,12 +434,7 @@ func buildMethodArgs(labels []string) string {
 	if len(labels) == 0 {
 		return ""
 	}
-	paramNames := buildMethodParamNames(labels)
-	args := make([]string, 0, len(labels))
-	for _, paramName := range paramNames {
-		args = append(args, paramName)
-	}
-	return strings.Join(args, ", ")
+	return strings.Join(buildMethodParamNames(labels), ", ")
 }
 
 func buildMethodParamNames(labels []string) []string {
