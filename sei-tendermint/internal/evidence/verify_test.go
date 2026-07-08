@@ -94,7 +94,7 @@ func TestVerify_LunaticAttackAgainstState(t *testing.T) {
 	blockStore.On("LoadBlockMeta", height).Return(&types.BlockMeta{Header: *trusted.Header})
 	blockStore.On("LoadBlockCommit", commonHeight).Return(common.Commit)
 	blockStore.On("LoadBlockCommit", height).Return(trusted.Commit)
-	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NopMetrics(), nil)
+	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NewMetrics(), nil)
 
 	evList := types.EvidenceList{ev}
 	// check that the evidence pool correctly verifies the evidence
@@ -114,7 +114,7 @@ func TestVerify_LunaticAttackAgainstState(t *testing.T) {
 
 	// duplicate evidence should be rejected
 	evList = types.EvidenceList{ev, ev}
-	pool = evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NopMetrics(), nil)
+	pool = evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NewMetrics(), nil)
 	assert.Error(t, pool.CheckEvidence(ctx, evList))
 
 	// If evidence is submitted with an altered timestamp it should return an error
@@ -122,7 +122,7 @@ func TestVerify_LunaticAttackAgainstState(t *testing.T) {
 	require.NoError(t, eventBus.Start(ctx))
 
 	ev.Timestamp = defaultEvidenceTime.Add(1 * time.Minute)
-	pool = evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool = evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NewMetrics(), eventBus)
 
 	err := pool.AddEvidence(ctx, ev)
 	assert.Error(t, err)
@@ -130,7 +130,7 @@ func TestVerify_LunaticAttackAgainstState(t *testing.T) {
 
 	// Evidence submitted with a different validator power should fail
 	ev.TotalVotingPower = 1
-	pool = evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NopMetrics(), nil)
+	pool = evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NewMetrics(), nil)
 	err = pool.AddEvidence(ctx, ev)
 	assert.Error(t, err)
 	ev.TotalVotingPower = common.ValidatorSet.TotalVotingPower()
@@ -177,7 +177,7 @@ func TestVerify_ForwardLunaticAttack(t *testing.T) {
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NewMetrics(), eventBus)
 
 	// check that the evidence pool correctly verifies the evidence
 	assert.NoError(t, pool.CheckEvidence(ctx, types.EvidenceList{ev}))
@@ -194,7 +194,7 @@ func TestVerify_ForwardLunaticAttack(t *testing.T) {
 	oldBlockStore.On("Height").Return(nodeHeight)
 	require.Equal(t, defaultEvidenceTime, oldBlockStore.LoadBlockMeta(nodeHeight).Header.Time)
 
-	pool = evidence.NewPool(dbm.NewMemDB(), stateStore, oldBlockStore, evidence.NopMetrics(), nil)
+	pool = evidence.NewPool(dbm.NewMemDB(), stateStore, oldBlockStore, evidence.NewMetrics(), nil)
 	assert.Error(t, pool.CheckEvidence(ctx, types.EvidenceList{ev}))
 }
 
@@ -285,7 +285,7 @@ func TestVerifyLightClientAttack_Equivocation(t *testing.T) {
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NewMetrics(), eventBus)
 
 	evList := types.EvidenceList{ev}
 	err = pool.CheckEvidence(ctx, evList)
@@ -374,7 +374,7 @@ func TestVerifyLightClientAttack_Amnesia(t *testing.T) {
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NewMetrics(), eventBus)
 
 	evList := types.EvidenceList{ev}
 	err = pool.CheckEvidence(ctx, evList)
@@ -473,7 +473,7 @@ func TestVerifyDuplicateVoteEvidence(t *testing.T) {
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NewMetrics(), eventBus)
 	startPool(t, pool, stateStore)
 
 	evList := types.EvidenceList{goodEv}

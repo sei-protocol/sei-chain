@@ -55,7 +55,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.NoError(t, genDoc.ValidateAndComplete())
 
 	app := newTestApp()
-	proxyApp := proxy.New(app, proxy.NopMetrics())
+	proxyApp := proxy.New(app, proxy.NewMetrics())
 
 	// Fullnodes have no validator key and no Producer config. The data WAL
 	// reads PersistentStateDir = None (in-memory) for this construction-

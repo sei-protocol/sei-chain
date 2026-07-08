@@ -234,7 +234,7 @@ func randomGenesisDoc() *types.GenesisDoc {
 func makeTxMempool(t testing.TB, app *proxy.Proxy) *mempool.TxMempool {
 	t.Helper()
 
-	return mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	return mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NewMetrics(), mempool.NopTxConstraintsFetcher)
 }
 
 // used for testing by state store

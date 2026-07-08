@@ -47,7 +47,7 @@ func New(opts LogSettings) (*Log, error) {
 	lg := &Log{
 		windowSize: opts.WindowSize,
 		maxItems:   opts.MaxItems,
-		metrics:    NopMetrics(),
+		metrics:    NewMetrics(),
 		ready:      make(chan struct{}),
 		source:     opts.Source,
 	}

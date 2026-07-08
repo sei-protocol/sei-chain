@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
@@ -32,7 +33,7 @@ func TestExampleClient(t *testing.T) {
 	defer func() { _ = closer(ctx) }()
 
 	dbDir := t.TempDir()
-	chainID := conf.ChainID()
+	chainID := config.TestLoadGenesis(conf).ChainID
 
 	primary, err := httpp.New(chainID, conf.RPC.ListenAddress)
 	if err != nil {

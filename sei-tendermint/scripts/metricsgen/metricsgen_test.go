@@ -20,15 +20,25 @@ const testDataDir = "./testdata"
 
 func TestSimpleTemplate(t *testing.T) {
 	m := metricsgen.ParsedMetricField{
-		TypeName:    "Histogram",
-		FieldName:   "MyMetric",
-		MetricName:  "request_count",
-		Description: "how many requests were made since the start of the process",
-		Labels:      "first, second, third",
+		TypeName:           "HistogramVec",
+		ConstructorPackage: "tmprometheus",
+		ConstructorName:    "NewHistogramVec",
+		OptsTypeName:       "HistogramOpts",
+		FieldName:          "MyMetric",
+		MetricName:         "request_count",
+		Description:        "how many requests were made since the start of the process",
+		Labels:             "\"first\",\"second\",\"third\"",
+		LabelNames:         []string{"first", "second", "third"},
+
+		MethodParams:     "first string, second string, third string",
+		MethodArgs:       "first, second, third",
+		MethodReturnType: "*tmprometheus.Histogram",
 	}
 	td := metricsgen.TemplateData{
-		Package:       "mypack",
-		ParsedMetrics: []metricsgen.ParsedMetricField{m},
+		Package:         "mypack",
+		StructName:      "Metrics",
+		ConstructorName: "NewMetrics",
+		ParsedMetrics:   []metricsgen.ParsedMetricField{m},
 	}
 	b := bytes.NewBuffer([]byte{})
 	err := metricsgen.GenerateMetricsFile(b, td)
@@ -96,15 +106,21 @@ func TestParseMetricsStruct(t *testing.T) {
 		{
 			name: "basic",
 			metricsStruct: `type Metrics struct {
-				myGauge metrics.Gauge
+				myGauge *prometheus.GaugeVec
 			}`,
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
-						TypeName:   "Gauge",
-						FieldName:  "myGauge",
-						MetricName: "my_gauge",
+						TypeName:           "GaugeVec",
+						ConstructorPackage: "prometheus",
+						ConstructorName:    "NewGaugeVec",
+						OptsTypeName:       "GaugeOpts",
+						FieldName:          "myGauge",
+						MetricName:         "my_gauge",
+						MethodReturnType:   "prometheus.Gauge",
 					},
 				},
 			},
@@ -112,19 +128,80 @@ func TestParseMetricsStruct(t *testing.T) {
 		{
 			name: "histogram",
 			metricsStruct: "type Metrics struct {\n" +
-				"myHistogram metrics.Histogram `metrics_buckettype:\"exp\" metrics_bucketsizes:\"1, 100, .8\"`\n" +
+				"myHistogram *prometheus.HistogramVec `metrics_buckets:\"exp(1, 100, .8)\"`\n" +
 				"}",
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
+				UsesIntMetrics:  true,
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
-						TypeName:   "Histogram",
-						FieldName:  "myHistogram",
-						MetricName: "my_histogram",
+						TypeName:           "HistogramVec",
+						ConstructorPackage: "tmprometheus",
+						ConstructorName:    "NewHistogramVec",
+						OptsTypeName:       "HistogramOpts",
+						FieldName:          "myHistogram",
+						MetricName:         "my_histogram",
+						MethodReturnType:   "*tmprometheus.Histogram",
 
 						HistogramOptions: metricsgen.HistogramOpts{
-							BucketType:  "stdprometheus.ExponentialBuckets",
+							BucketType:  "prometheus.ExponentialBuckets",
 							BucketSizes: "1, 100, .8",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "histogram without finite buckets",
+			metricsStruct: "type Metrics struct {\n" +
+				"myHistogram *prometheus.HistogramVec `metrics_buckets:\"none\"`\n" +
+				"}",
+			expected: metricsgen.TemplateData{
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
+				UsesIntMetrics:  true,
+				ParsedMetrics: []metricsgen.ParsedMetricField{
+					{
+						TypeName:           "HistogramVec",
+						ConstructorPackage: "tmprometheus",
+						ConstructorName:    "NewHistogramVec",
+						OptsTypeName:       "HistogramOpts",
+						FieldName:          "myHistogram",
+						MetricName:         "my_histogram",
+						MethodReturnType:   "*tmprometheus.Histogram",
+
+						HistogramOptions: metricsgen.HistogramOpts{
+							NoBuckets: true,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "histogram without explicit buckets uses defaults",
+			metricsStruct: "type Metrics struct {\n" +
+				"myHistogram *prometheus.HistogramVec\n" +
+				"}",
+			expected: metricsgen.TemplateData{
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
+				UsesIntMetrics:  true,
+				ParsedMetrics: []metricsgen.ParsedMetricField{
+					{
+						TypeName:           "HistogramVec",
+						ConstructorPackage: "tmprometheus",
+						ConstructorName:    "NewHistogramVec",
+						OptsTypeName:       "HistogramOpts",
+						FieldName:          "myHistogram",
+						MetricName:         "my_histogram",
+						MethodReturnType:   "*tmprometheus.Histogram",
+
+						HistogramOptions: metricsgen.HistogramOpts{
+							DefaultBuckets: true,
 						},
 					},
 				},
@@ -133,15 +210,21 @@ func TestParseMetricsStruct(t *testing.T) {
 		{
 			name: "labeled name",
 			metricsStruct: "type Metrics struct {\n" +
-				"myCounter metrics.Counter `metrics_name:\"new_name\"`\n" +
+				"myCounter *prometheus.CounterVec `metrics_name:\"new_name\"`\n" +
 				"}",
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
-						TypeName:   "Counter",
-						FieldName:  "myCounter",
-						MetricName: "new_name",
+						TypeName:           "CounterVec",
+						ConstructorPackage: "prometheus",
+						ConstructorName:    "NewCounterVec",
+						OptsTypeName:       "CounterOpts",
+						FieldName:          "myCounter",
+						MetricName:         "new_name",
+						MethodReturnType:   "prometheus.Counter",
 					},
 				},
 			},
@@ -149,33 +232,107 @@ func TestParseMetricsStruct(t *testing.T) {
 		{
 			name: "metric labels",
 			metricsStruct: "type Metrics struct {\n" +
-				"myCounter metrics.Counter `metrics_labels:\"label1,label2\"`\n" +
+				"myCounter *prometheus.CounterVec `metrics_labels:\"label1,label2\"`\n" +
 				"}",
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
-						TypeName:   "Counter",
-						FieldName:  "myCounter",
-						MetricName: "my_counter",
-						Labels:     "\"label1\",\"label2\"",
+						TypeName:           "CounterVec",
+						ConstructorPackage: "prometheus",
+						ConstructorName:    "NewCounterVec",
+						OptsTypeName:       "CounterOpts",
+						FieldName:          "myCounter",
+						MetricName:         "my_counter",
+						Labels:             "\"label1\",\"label2\"",
+						LabelNames:         []string{"label1", "label2"},
+						MethodParams:       "label1 string, label2 string",
+						MethodArgs:         "label1, label2",
+						MethodReturnType:   "prometheus.Counter",
 					},
 				},
 			},
 		},
 		{
+			name: "keyword label falls back for all params",
+			metricsStruct: "type Metrics struct {\n" +
+				"myCounter *prometheus.CounterVec `metrics_labels:\"method,type\"`\n" +
+				"}",
+			expected: metricsgen.TemplateData{
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
+				ParsedMetrics: []metricsgen.ParsedMetricField{
+					{
+						TypeName:           "CounterVec",
+						ConstructorPackage: "prometheus",
+						ConstructorName:    "NewCounterVec",
+						OptsTypeName:       "CounterOpts",
+						FieldName:          "myCounter",
+						MetricName:         "my_counter",
+						Labels:             "\"method\",\"type\"",
+						LabelNames:         []string{"method", "type"},
+						MethodParams:       "l0_method string, l1_type string",
+						MethodArgs:         "l0_method, l1_type",
+						MethodReturnType:   "prometheus.Counter",
+					},
+				},
+			},
+		},
+		{
+			name: "reserved and non-identifier labels fall back for all params",
+			metricsStruct: "type Metrics struct {\n" +
+				"myCounter *prometheus.CounterVec `metrics_labels:\"peer-id,error\"`\n" +
+				"}",
+			expected: metricsgen.TemplateData{
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
+				ParsedMetrics: []metricsgen.ParsedMetricField{
+					{
+						TypeName:           "CounterVec",
+						ConstructorPackage: "prometheus",
+						ConstructorName:    "NewCounterVec",
+						OptsTypeName:       "CounterOpts",
+						FieldName:          "myCounter",
+						MetricName:         "my_counter",
+						Labels:             "\"peer-id\",\"error\"",
+						LabelNames:         []string{"peer-id", "error"},
+						MethodParams:       "l0_peer_id string, l1_error string",
+						MethodArgs:         "l0_peer_id, l1_error",
+						MethodReturnType:   "prometheus.Counter",
+					},
+				},
+			},
+		},
+		{
+			name:        "duplicate metric labels",
+			shouldError: true,
+			metricsStruct: "type Metrics struct {\n" +
+				"myCounter *prometheus.CounterVec `metrics_labels:\"dup,dup\"`\n" +
+				"}",
+		},
+		{
 			name: "ignore non-metric field",
 			metricsStruct: `type Metrics struct {
-				myCounter metrics.Counter
+				myCounter *prometheus.CounterVec
 				nonMetric string
 				}`,
 			expected: metricsgen.TemplateData{
-				Package: pkgName,
+				Package:         pkgName,
+				StructName:      "Metrics",
+				ConstructorName: "NewMetrics",
 				ParsedMetrics: []metricsgen.ParsedMetricField{
 					{
-						TypeName:   "Counter",
-						FieldName:  "myCounter",
-						MetricName: "my_counter",
+						TypeName:           "CounterVec",
+						ConstructorPackage: "prometheus",
+						ConstructorName:    "NewCounterVec",
+						OptsTypeName:       "CounterOpts",
+						FieldName:          "myCounter",
+						MetricName:         "my_counter",
+						MethodReturnType:   "prometheus.Counter",
 					},
 				},
 			},
@@ -191,7 +348,7 @@ func TestParseMetricsStruct(t *testing.T) {
 			pkgLine := fmt.Sprintf("package %s\n", pkgName)
 			importClause := `
 			import(
-				"github.com/go-kit/kit/metrics"
+				"github.com/prometheus/client_golang/prometheus"
 			)
 			`
 
@@ -213,15 +370,67 @@ func TestParseMetricsStruct(t *testing.T) {
 	}
 }
 
+func TestParseHistogramBuckets(t *testing.T) {
+	tests := []struct {
+		name     string
+		spec     string
+		expected metricsgen.HistogramOpts
+	}{
+		{
+			name: "list",
+			spec: "1,2,3,4",
+			expected: metricsgen.HistogramOpts{
+				BucketSizes: "1,2,3,4",
+			},
+		},
+		{
+			name: "exp",
+			spec: "exp(1, 2, 3)",
+			expected: metricsgen.HistogramOpts{
+				BucketType:  "prometheus.ExponentialBuckets",
+				BucketSizes: "1, 2, 3",
+			},
+		},
+		{
+			name: "exprange",
+			spec: "exprange(1, 10, 3)",
+			expected: metricsgen.HistogramOpts{
+				BucketType:  "prometheus.ExponentialBucketsRange",
+				BucketSizes: "1, 10, 3",
+			},
+		},
+		{
+			name: "none",
+			spec: "none",
+			expected: metricsgen.HistogramOpts{
+				NoBuckets: true,
+			},
+		},
+		{
+			name: "empty uses defaults",
+			spec: "",
+			expected: metricsgen.HistogramOpts{
+				DefaultBuckets: true,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.expected, metricsgen.ParseHistogramBuckets(tc.spec))
+		})
+	}
+}
+
 func TestParseAliasedMetric(t *testing.T) {
 	aliasedData := `
 			package mypkg
 
 			import(
-				mymetrics "github.com/go-kit/kit/metrics"
+				mymetrics "github.com/prometheus/client_golang/prometheus"
 			)
 			type Metrics struct {
-				m mymetrics.Gauge
+				m *mymetrics.GaugeVec
 			}
 			`
 	dir := t.TempDir()
@@ -238,14 +447,53 @@ func TestParseAliasedMetric(t *testing.T) {
 
 	expected :=
 		metricsgen.TemplateData{
-			Package: "mypkg",
+			Package:         "mypkg",
+			StructName:      "Metrics",
+			ConstructorName: "NewMetrics",
 			ParsedMetrics: []metricsgen.ParsedMetricField{
 				{
-					TypeName:   "Gauge",
-					FieldName:  "m",
-					MetricName: "m",
+					TypeName:           "GaugeVec",
+					ConstructorPackage: "prometheus",
+					ConstructorName:    "NewGaugeVec",
+					OptsTypeName:       "GaugeOpts",
+					FieldName:          "m",
+					MetricName:         "m",
+					MethodReturnType:   "prometheus.Gauge",
 				},
 			},
 		}
 	require.Equal(t, expected, td)
+}
+
+func TestParseLowercaseMetricsStruct(t *testing.T) {
+	data := `
+			package mypkg
+
+			import(
+				"github.com/prometheus/client_golang/prometheus"
+			)
+			type metrics struct {
+				latency *prometheus.HistogramVec
+			}
+			`
+	dir := t.TempDir()
+	f, err := os.Create(filepath.Join(dir, "metrics.go"))
+	if err != nil {
+		t.Fatalf("unable to open file: %v", err)
+	}
+	_, err = io.WriteString(f, data)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	td, err := metricsgen.ParseMetricsDir(dir, "metrics")
+	require.NoError(t, err)
+	require.Equal(t, "metrics", td.StructName)
+	require.Equal(t, "newMetrics", td.ConstructorName)
+
+	b := bytes.NewBuffer(nil)
+	require.NoError(t, metricsgen.GenerateMetricsFile(b, td))
+	require.Contains(t, b.String(), "var Global = newMetrics()")
+	require.Contains(t, b.String(), "func newMetrics() *metrics")
+	require.Contains(t, b.String(), "func (m *metrics) latencyAt() *tmprometheus.Histogram")
+	require.Contains(t, b.String(), "prometheus.DefBuckets")
 }
