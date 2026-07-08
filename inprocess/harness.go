@@ -675,19 +675,53 @@ func writeClientConfig(path, chainID, rpcAddr string) error {
 	return os.WriteFile(path, []byte(fmt.Sprintf(clientConfigTemplate, chainID, rpcAddr)), 0o600)
 }
 
+// envPortBase, when set, switches freePort to deterministic per-process port
+// allocation instead of bind-probing :0. See freePort for the contract.
+const envPortBase = "SEI_INPROCESS_PORT_BASE"
+
 var (
 	allocatedPortsMu sync.Mutex
 	allocatedPorts   = map[int]struct{}{}
+
+	// portOffset is the next slot above envPortBase to hand out. Each freePort call
+	// consumes one, so it counts every per-node port (TM RPC, P2P, EVM HTTP, EVM WS)
+	// regardless of which listener asks — the partition is per-port, not per-node.
+	portOffset atomic.Int32
 )
 
-// freePort returns a TCP port free on the IPv4 loopback that this process has not
-// already handed out. Two hazards make a bare "probe :0, close, return" flaky
-// across the harness's 4*N allocations: on a dual-stack host "localhost" can
-// resolve to ::1, verifying the port free on IPv6 while it stays bound on IPv4
-// (independent namespaces) — so probe 127.0.0.1 explicitly; and two probes can
-// return the same port intra-process — so the allocated set rejects a repeat. A
-// bind-time race with an unrelated process is the only residual TOCTOU (see doc.go).
+// freePort returns a loopback TCP port for a node listener, in one of two modes:
+//
+//   - envPortBase set (CI shards / parallel invocations on one host): allocate
+//     deterministically as base + a per-process atomic offset, never binding. The
+//     bind-probe below has a cross-process TOCTOU — two processes probing :0 can be
+//     handed the same ephemeral port between probe-close and bind — so when the
+//     caller partitions the port space per process via the base, honor that
+//     partition exactly and skip the probe. The caller owns the spacing: the harness
+//     draws 4 ports per node (TM RPC, P2P, EVM HTTP, EVM WS; gRPC stays off), so
+//     concurrent processes must leave >= 4*maxNodes between their bases to avoid
+//     overlap. Ports are handed out densely from the base with no re-probe, so the
+//     partition is what keeps them collision-free.
+//   - envPortBase unset (local single-process use): probe 127.0.0.1:0, close, and
+//     return. Two hazards make a bare probe flaky across the 4*N allocations: on a
+//     dual-stack host "localhost" can resolve to ::1, verifying the port free on
+//     IPv6 while it stays bound on IPv4 (independent namespaces) — so probe
+//     127.0.0.1 explicitly; and two probes can return the same port intra-process —
+//     so the allocated set rejects a repeat. A bind-time race with an unrelated
+//     process is the only residual TOCTOU (see doc.go); use envPortBase to remove it
+//     across cooperating processes.
 func freePort() (int, error) {
+	if base := os.Getenv(envPortBase); base != "" {
+		b, err := strconv.Atoi(base)
+		if err != nil {
+			return 0, fmt.Errorf("inprocess: parse %s=%q: %w", envPortBase, base, err)
+		}
+		port := b + int(portOffset.Add(1)) - 1
+		if port < 1 || port > 65535 {
+			return 0, fmt.Errorf("inprocess: deterministic port %d out of range (base %d); widen shard base spacing or lower the base", port, b)
+		}
+		return port, nil
+	}
+
 	allocatedPortsMu.Lock()
 	defer allocatedPortsMu.Unlock()
 	for attempt := 0; attempt < 100; attempt++ {

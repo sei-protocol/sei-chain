@@ -209,10 +209,6 @@ func ensureGeth(t *testing.T) string {
 			return
 		}
 		bin := filepath.Join(cacheDir, "geth")
-		// Reap any geth + datadir a prior -timeout-aborted run orphaned (t.Cleanup was
-		// skipped there) before starting a fresh one. Process-once, so it never touches this
-		// run's own geth (not started yet).
-		sweepStaleGeth(bin)
 		if gethBinIsPinned(bin) {
 			gethBin = bin
 			return
@@ -247,20 +243,6 @@ func ensureGeth(t *testing.T) string {
 	return gethBin
 }
 
-// sweepStaleGeth reaps leftovers from a prior run whose t.Cleanup was skipped (a -timeout
-// abort): geth processes launched from the versioned cache bin, and the sei-parity-geth-*
-// temp datadirs. Best-effort — every error is ignored. It targets only this cache bin's
-// geth (pkill -f on the pinned path) and the suite's own datadir prefix, so it does not
-// touch an unrelated geth; it does assume no OTHER live parity run shares this host (the
-// harness already runs one in-process network per process).
-func sweepStaleGeth(bin string) {
-	_ = exec.Command("pkill", "-f", bin).Run() //nolint:gosec
-	matches, _ := filepath.Glob(filepath.Join(os.TempDir(), "sei-parity-geth-*"))
-	for _, m := range matches {
-		_ = os.RemoveAll(m)
-	}
-}
-
 // gethCacheDir is a stable per-version cache under the user cache dir, so the pinned geth
 // survives across test runs (the sentinel that makes provisioning idempotent).
 func gethCacheDir() (string, error) {
@@ -283,13 +265,18 @@ func gethBinIsPinned(bin string) bool {
 
 // startGeth launches `geth --dev` on a free loopback port with a temp datadir, waits for
 // its RPC, and returns the reference URL. The process is started in its own process group
-// (Setpgid) so t.Cleanup can SIGKILL the whole group (geth may spawn helpers). Cleanup is
-// the normal-exit path — but it is NOT a guarantee: a `go test -timeout` abort skips
-// t.Cleanup entirely, and because Setpgid detaches geth from the test process's own group
-// death, that leaves an orphaned geth + its MkdirTemp datadir behind. ensureGeth's
-// startup sweep is the backstop that reaps such leftovers on the next run.
+// (Setpgid) so t.Cleanup can SIGKILL the whole group (geth may spawn helpers). t.Cleanup
+// reaps only THIS invocation: it holds this cmd's own pid and removes this run's datadir,
+// so a concurrent parity run on the same host is never touched — there is no host-global
+// pkill or shared-glob sweep. Cleanup is the normal-exit path and is NOT a guarantee: a
+// `go test -timeout` abort skips t.Cleanup, and because Setpgid detaches geth from the test
+// process's group death, that leaks one orphaned geth + its datadir. That leak is the
+// deliberate trade for concurrency safety; the MkdirTemp nonce keeps every invocation's
+// datadir distinct so a leftover never collides with a later run.
 func startGeth(t *testing.T, bin string) string {
 	t.Helper()
+	// MkdirTemp's random suffix is the per-invocation nonce: each run gets its own datadir,
+	// so concurrent or successive runs never share one.
 	datadir, err := os.MkdirTemp("", "sei-parity-geth-")
 	if err != nil {
 		t.Fatalf("geth datadir: %v", err)
@@ -320,7 +307,7 @@ func startGeth(t *testing.T, bin string) string {
 	t.Cleanup(func() {
 		// Signal the whole process group (negative pid); geth may spawn helpers, so
 		// killing only the leader could orphan them. SIGKILL, then reap. Skipped on a
-		// -timeout abort — see startGeth's doc + the startup sweep.
+		// -timeout abort — see startGeth's doc for the accepted leak.
 		if cmd.Process != nil {
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}

@@ -9,6 +9,7 @@ package runner
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -123,6 +124,11 @@ type inProcessExecer struct {
 	// commands use the real home). Written once, before any case runs; read by run —
 	// no concurrent access, since cases run sequentially.
 	overlayHomes map[string]string
+
+	// runMu enforces the serial contract: run TryLocks it so a suite that calls
+	// t.Parallel (which would race binDir/overlayHomes and the shared signer) fails
+	// loudly instead of corrupting state. See run.
+	runMu sync.Mutex
 }
 
 func newInProcessExecer(net *inprocess.Network) *inProcessExecer {
@@ -136,6 +142,13 @@ func newInProcessExecer(net *inprocess.Network) *inProcessExecer {
 // contract; err is reserved for harness-level failures.
 func (e *inProcessExecer) run(t *testing.T, cmd, node string, envMap map[string]string, opts Options) (string, error) {
 	t.Helper()
+	// The execer shares binDir, overlayHomes, and one signer across cases; it is a
+	// serial runner by contract. TryLock turns a concurrent entry (a suite that
+	// called t.Parallel) into a clear error rather than silent state corruption.
+	if !e.runMu.TryLock() {
+		return "", fmt.Errorf("in-process runner is not concurrent; suites must not call t.Parallel")
+	}
+	defer e.runMu.Unlock()
 	if err := e.ensureBin(t); err != nil {
 		return "", fmt.Errorf("prepare seid: %w", err)
 	}
@@ -291,30 +304,91 @@ func (e *inProcessExecer) runSetup(t *testing.T, opts Options) error {
 	return nil
 }
 
-// cleanFixtureOutputs registers a t.Cleanup that git-cleans the ignored files a
-// fixture wrote under integration_test/contracts, so an in-process run leaves no
-// worktree diff. `git clean -X` removes only git-ignored files — never a tracked
-// input or a developer's untracked source — so it assumes fixtures write only
-// ignored outputs there: the wired fixtures (flatkv, timelocked) write *.txt
-// (ignored by `integration_test/**/*.txt`) and send other artifacts to /tmp. A
-// future fixture emitting a non-ignored file into that dir would be left behind.
-// Also self-heals a prior -timeout-killed run's leftovers (t.Cleanup is skipped
-// then; see TestMain).
+// cleanFixtureOutputs registers a t.Cleanup that removes only the git-ignored
+// files a fixture *creates* under integration_test/contracts during this run, so
+// an in-process run leaves no worktree diff without touching anything it did not
+// produce. The suites hard-read those outputs repo-relative (YAML `tail -1
+// integration_test/contracts/<name>.txt`), so the fixtures must write there and
+// cannot be redirected to a temp dir without editing the shared docker YAMLs.
+//
+// It snapshots the directory before the fixtures run, then removes each file that
+// appeared since and that git ignores. This deliberately replaces `git clean
+// -fdX`, which also deletes a developer's pre-existing untracked ignored files and
+// a concurrent run's in-flight fixtures. A prior -timeout-killed run's leftovers
+// predate this run, so they are in the snapshot and survive; the fixtures
+// truncate-write over them, so stale content does not bleed in.
 func (e *inProcessExecer) cleanFixtureOutputs(t *testing.T) error {
 	t.Helper()
 	root, err := repoRoot()
 	if err != nil {
 		return err
 	}
+	dir := filepath.Join(root, "integration_test", "contracts")
+	before, err := snapshotFiles(dir)
+	if err != nil {
+		return err
+	}
 	t.Cleanup(func() {
-		// -X removes only ignored files (never tracked or a dev's untracked source);
-		// -f is required for clean to act, -d recurses into ignored subdirs.
-		out, err := exec.Command("git", "-C", root, "clean", "-fdX", "--", "integration_test/contracts").CombinedOutput() //nolint:gosec
+		after, err := snapshotFiles(dir)
 		if err != nil {
-			t.Errorf("clean fixture outputs: %v\n%s", err, out)
+			t.Errorf("clean fixture outputs: %v", err)
+			return
+		}
+		var created []string
+		for p := range after {
+			if _, existed := before[p]; !existed {
+				created = append(created, p)
+			}
+		}
+		for _, p := range ignoredSubset(root, created) {
+			if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+				t.Errorf("clean fixture output %s: %v", p, err)
+			}
 		}
 	})
 	return nil
+}
+
+// snapshotFiles returns the set of regular-file paths under dir, used to tell the
+// files a fixture created this run from ones already present.
+func snapshotFiles(dir string) (map[string]struct{}, error) {
+	files := map[string]struct{}{}
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			files[path] = struct{}{}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("snapshot %s: %w", dir, err)
+	}
+	return files, nil
+}
+
+// ignoredSubset returns the subset of paths that git ignores, so cleanup removes
+// only generated outputs and never a newly tracked file a dev added mid-run. One
+// `git check-ignore` for the batch; exit 1 (nothing ignored) is not an error, and
+// any other failure is treated as "ignore nothing" so cleanup never deletes on a
+// git error.
+func ignoredSubset(root string, paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	args := append([]string{"-C", root, "check-ignore", "--"}, paths...)
+	out, err := exec.Command("git", args...).Output() //nolint:gosec
+	if err != nil {
+		return nil
+	}
+	var ignored []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line != "" {
+			ignored = append(ignored, line)
+		}
+	}
+	return ignored
 }
 
 // ensureBin builds the seid binary once and writes a `seid` shim alongside it,
@@ -327,7 +401,8 @@ func (e *inProcessExecer) cleanFixtureOutputs(t *testing.T) error {
 //
 // t.Cleanup registers on whichever test first triggers the build; prepare makes
 // that the parent test, so the binary outlives every per-case subtest. Cases run
-// serially — the unsynchronized binDir read in run is safe only without t.Parallel.
+// serially by contract; run's TryLock guard fails loudly if a suite breaks that
+// with t.Parallel rather than racing binDir.
 func (e *inProcessExecer) ensureBin(t *testing.T) error {
 	e.once.Do(func() {
 		dir, err := os.MkdirTemp("", "sei-inprocess-bin-")

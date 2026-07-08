@@ -73,8 +73,11 @@
 //     127.0.0.1. A rare port-bind collision — the free port is taken between
 //     freePort's probe-close (net.Listen on 127.0.0.1:0) and the listener's bind —
 //     panics the node's serve goroutine (the production fail-loud path,
-//     intentionally not diverted). If that ever flakes, harden the freePort
-//     probe-to-bind window rather than re-add a serve-error diversion.
+//     intentionally not diverted). Setting SEI_INPROCESS_PORT_BASE switches
+//     freePort to deterministic per-process allocation (base + offset, no probe),
+//     which removes this TOCTOU across cooperating processes (CI shards); see
+//     freePort. If it ever flakes without that, harden the probe-to-bind window
+//     rather than re-add a serve-error diversion.
 //   - loopback conn-tracker ceiling: raise MaxIncomingConnectionAttempts.
 //     Loopback collapses every peer onto 127.0.0.1, so the router's IP-keyed
 //     conn-tracker counts the whole startup burst against one key; without the
