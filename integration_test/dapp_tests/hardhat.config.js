@@ -17,7 +17,9 @@ module.exports = {
   },
   networks: {
     seilocal: {
-      url: "http://127.0.0.1:8545",
+      // The in-process runner sets SEI_EVM_RPC to the node's dynamic EVM port; under docker
+      // it's unset, so the container's fixed :8545 stands.
+      url: process.env.SEI_EVM_RPC || "http://127.0.0.1:8545",
       accounts: {
         mnemonic: process.env.DAPP_TESTS_MNEMONIC,
         path: "m/44'/118'/0'/0/0",

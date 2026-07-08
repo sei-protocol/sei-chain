@@ -60,7 +60,10 @@ function tokenOrder(firstTokenAddr, secondTokenAddr, firstTokenAmount=0, secondT
   return [token0, token1]
 }
 
-async function deployCw20WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
+// evmRpc defaults to SEI_EVM_RPC (the in-process node's dynamic port) so the pointer-
+// register EVM tx lands on the right node; an empty-string default would drop --evm-rpc
+// and send it to :8545. Under docker SEI_EVM_RPC is unset, so the default is "".
+async function deployCw20WithPointer(deployerSeiAddr, signer, time, evmRpc=process.env.SEI_EVM_RPC || "") {
   const CW20_BASE_PATH = (await isDocker()) ? '../integration_test/dapp_tests/uniswap/cw20_base.wasm' : path.resolve(__dirname, '../dapp_tests/uniswap/cw20_base.wasm')
   const cw20Address = await deployWasm(CW20_BASE_PATH, deployerSeiAddr, "cw20", {
     name: `testCw20${time}`,
@@ -78,7 +81,8 @@ async function deployCw20WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
   return {"pointerContract": pointerContract, "cw20Address": cw20Address}
 }
 
-async function deployCw721WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
+// evmRpc defaults to SEI_EVM_RPC for the same reason as deployCw20WithPointer above.
+async function deployCw721WithPointer(deployerSeiAddr, signer, time, evmRpc=process.env.SEI_EVM_RPC || "") {
   const CW721_BASE_PATH = (await isDocker()) ? '../integration_test/dapp_tests/nftMarketplace/cw721_base.wasm' : path.resolve(__dirname, '../dapp_tests/nftMarketplace/cw721_base.wasm')
   const cw721Address = await deployWasm(CW721_BASE_PATH, deployerSeiAddr, "cw721", {
     "name": `testCw721${time}`,
