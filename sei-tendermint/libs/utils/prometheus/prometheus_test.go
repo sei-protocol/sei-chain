@@ -48,9 +48,13 @@ func TestCounterIntRejectsNegative(t *testing.T) {
 		labelPairs: stdprometheus.MakeLabelPairs(desc, nil),
 	}
 
-	require.Panics(t, func() {
-		c.Add(-1)
-	})
+	c.Add(5)
+	c.Add(-1)
+
+	metric := &dto.Metric{}
+	require.NoError(t, c.Write(metric))
+	require.NotNil(t, metric.Counter)
+	require.Equal(t, float64(5), metric.GetCounter().GetValue())
 }
 
 func TestGaugeIntVec(t *testing.T) {

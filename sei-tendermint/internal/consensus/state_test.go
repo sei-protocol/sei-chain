@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	abcimocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types/mocks"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	tmconfig "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
@@ -76,7 +76,7 @@ x * TestHalt1 - if we see +2/3 precommits after timing out into new round, we sh
 func TestStateProposerSelection0(t *testing.T) {
 	ctx := t.Context()
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
@@ -119,7 +119,7 @@ func TestStateProposerSelection0(t *testing.T) {
 // Now let's do it all again, but starting from round 2 instead of 0
 func TestStateProposerSelection2(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 
 	ctx := t.Context()
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config}) // test needs more work for more than 3 validators
@@ -205,7 +205,7 @@ func TestStateEnterProposeYesPrivValidator(t *testing.T) {
 
 func TestStateOversizedBlock(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
@@ -292,7 +292,7 @@ func TestStateFullRoundNil(t *testing.T) {
 // where the first validator has to wait for votes from the second
 func TestStateFullRound2(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
@@ -330,7 +330,7 @@ func TestStateLock_NoPOL(t *testing.T) {
 
 func testStateLockNoPOL(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	// Deflake: when cs1 is proposer in round 3, proposal construction can race
 	// timeoutPropose on loaded CI runners and force an early prevote nil.
 	config.Consensus.UnsafeProposeTimeoutOverride = time.Second
@@ -539,7 +539,7 @@ func testStateLockNoPOL(t *testing.T) {
 // power on the network for the block.
 func TestStateLock_POLUpdateLock(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 
 	ctx := t.Context()
 
@@ -648,7 +648,7 @@ func TestStateLock_POLUpdateLock(t *testing.T) {
 func TestStateLock_POLRelock(t *testing.T) {
 	ctx := t.Context()
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
@@ -748,7 +748,7 @@ func TestStateLock_POLRelock(t *testing.T) {
 func TestStateLock_PrevoteNilWhenLockedAndMissProposal(t *testing.T) {
 	ctx := t.Context()
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
@@ -830,7 +830,7 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 	ctx := t.Context()
 
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	/*
 		All of the assertions in this test occur on the `cs1` validator.
 		The test sends signed votes from the other validators to cs1 and
@@ -930,7 +930,7 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 // that it has been completely removed.
 func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 
 	ctx := t.Context()
 	/*
@@ -1069,7 +1069,7 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 // new block if a proposal was not seen for that block.
 func TestStateLock_MissingProposalWhenPOLSeenDoesNotUpdateLock(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 
 	ctx := t.Context()
 
@@ -1161,7 +1161,7 @@ func TestStateLock_MissingProposalWhenPOLSeenDoesNotUpdateLock(t *testing.T) {
 func TestStateLock_DoesNotLockOnOldProposal(t *testing.T) {
 	ctx := t.Context()
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
@@ -1235,7 +1235,7 @@ func TestStateLock_DoesNotLockOnOldProposal(t *testing.T) {
 // then we see the polka from round 1 but shouldn't unlock
 func TestStateLock_POLSafety1(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	// Deflake: SetProposalAndBlock in round 2 can race timeoutPropose under CI load.
 	config.Consensus.UnsafeProposeTimeoutOverride = time.Second
 	config.Consensus.UnsafeProposeTimeoutDeltaOverride = 0
@@ -1360,7 +1360,7 @@ func TestStateLock_POLSafety1(t *testing.T) {
 // dont see P0, lock on P1 at R1, dont unlock using P0 at R2
 func TestStateLock_POLSafety2(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -1465,7 +1465,7 @@ func TestStateLock_POLSafety2(t *testing.T) {
 func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 	ctx := t.Context()
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
@@ -1611,7 +1611,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 // P0 proposes B0 at R3.
 func TestProposeValidBlock(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -1704,7 +1704,7 @@ func TestProposeValidBlock(t *testing.T) {
 // P0 miss to lock B but set valid block to B after receiving delayed prevote.
 func TestSetValidBlockOnDelayedPrevote(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -1763,7 +1763,7 @@ func TestSetValidBlockOnDelayedPrevote(t *testing.T) {
 // receiving delayed Block Proposal.
 func TestSetValidBlockOnDelayedProposal(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -1887,7 +1887,7 @@ func TestFinalizeBlockCalled(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			config := configSetup(t)
-			chainID := mustGenesisChainID(config)
+			chainID := tmconfig.TestLoadGenesis(config).ChainID
 			ctx := t.Context()
 
 			m := abcimocks.NewApplication(t)
@@ -1951,7 +1951,7 @@ func TestFinalizeBlockCalled(t *testing.T) {
 // P0 waits for timeoutPropose in the next round before entering prevote
 func TestWaitingTimeoutProposeOnNewRound(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -1990,7 +1990,7 @@ func TestWaitingTimeoutProposeOnNewRound(t *testing.T) {
 // P0 jump to higher round, precommit and start precommit wait
 func TestRoundSkipOnNilPolkaFromHigherRound(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2028,7 +2028,7 @@ func TestRoundSkipOnNilPolkaFromHigherRound(t *testing.T) {
 // P0 wait for timeoutPropose to expire before sending prevote.
 func TestWaitTimeoutProposeOnNilPolkaForTheCurrentRound(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2056,7 +2056,7 @@ func TestWaitTimeoutProposeOnNilPolkaForTheCurrentRound(t *testing.T) {
 // P0 emit NewValidBlock event upon receiving 2/3+ Precommit for B but hasn't received block B yet
 func TestEmitNewValidBlockEventOnCommitWithoutBlock(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2092,7 +2092,7 @@ func TestEmitNewValidBlockEventOnCommitWithoutBlock(t *testing.T) {
 // After receiving block, it executes block and moves to the next height.
 func TestCommitFromPreviousRound(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2134,7 +2134,7 @@ func TestCommitFromPreviousRound(t *testing.T) {
 // start of the next round
 func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2202,7 +2202,7 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 
 func TestResetTimeoutPrecommitUponNewHeight(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2270,7 +2270,7 @@ func TestResetTimeoutPrecommitUponNewHeight(t *testing.T) {
 // we receive a final precommit after going into next round, but others might have gone to commit already!
 func TestStateHalt1(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2379,7 +2379,7 @@ func TestStateOutputsBlockPartsStats(t *testing.T) {
 
 func TestGossipTransactionKeyOnlyConfig(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
@@ -2423,7 +2423,7 @@ func TestGossipTransactionKeyOnlyConfig(t *testing.T) {
 
 func TestProposalBlockIsNotRecreatedAfterCommitMismatch(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2471,7 +2471,7 @@ func TestProposalBlockIsNotRecreatedAfterCommitMismatch(t *testing.T) {
 func TestSetProposal_InvalidProposer(t *testing.T) {
 	ctx := t.Context()
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 
 	cs, vss := makeState(ctx, t, makeStateArgs{config: config, nonLeaderLocal: true})
 	height, round := cs.roundState.Height(), cs.roundState.Round()
@@ -2509,7 +2509,7 @@ func TestSetProposal_InvalidProposer(t *testing.T) {
 func TestSetProposal_InvalidHeaderProposer(t *testing.T) {
 	ctx := t.Context()
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 
 	cs, vss := makeState(ctx, t, makeStateArgs{config: config, nonLeaderLocal: true})
 	height, round := cs.roundState.Height(), cs.roundState.Round()
@@ -2599,7 +2599,7 @@ func TestTryCreateProposalBlock_PartsMismatch(t *testing.T) {
 
 func TestStateOutputVoteStats(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
@@ -2629,7 +2629,7 @@ func TestStateOutputVoteStats(t *testing.T) {
 
 func TestSignSameVoteTwice(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	_, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
@@ -2669,7 +2669,7 @@ func TestSignSameVoteTwice(t *testing.T) {
 // corresponding proposal message.
 func TestStateTimestamp_ProposalNotMatch(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2717,7 +2717,7 @@ func TestStateTimestamp_ProposalNotMatch(t *testing.T) {
 // corresponding proposal message.
 func TestStateTimestamp_ProposalMatch(t *testing.T) {
 	config := configSetup(t)
-	chainID := mustGenesisChainID(config)
+	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2907,7 +2907,7 @@ func TestAddProposalBlockPartNilProposalBlockParts(t *testing.T) {
 func TestStateTimeoutResolution(t *testing.T) {
 	baseTime := time.Unix(100, 0)
 
-	newState := func(cfg *config.ConsensusConfig, params types.TimeoutParams) *State {
+	newState := func(cfg *tmconfig.ConsensusConfig, params types.TimeoutParams) *State {
 		return &State{
 			config: cfg,
 			state: sm.State{
@@ -2918,8 +2918,8 @@ func TestStateTimeoutResolution(t *testing.T) {
 		}
 	}
 
-	cfgWithOverrides := func(enabled bool, bypass bool) *config.ConsensusConfig {
-		cfg := config.DefaultConsensusConfig()
+	cfgWithOverrides := func(enabled bool, bypass bool) *tmconfig.ConsensusConfig {
+		cfg := tmconfig.DefaultConsensusConfig()
 		cfg.UnsafeOverridesEnabled = enabled
 		cfg.UnsafeProposeTimeoutOverride = 9 * time.Second
 		cfg.UnsafeProposeTimeoutDeltaOverride = 8 * time.Second
@@ -2951,7 +2951,7 @@ func TestStateTimeoutResolution(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		cfg      *config.ConsensusConfig
+		cfg      *tmconfig.ConsensusConfig
 		params   types.TimeoutParams
 		expected types.TimeoutParams
 	}{
@@ -2975,11 +2975,11 @@ func TestStateTimeoutResolution(t *testing.T) {
 		params := onchain
 		params.BypassCommitTimeout = true
 
-		cfgNil := config.DefaultConsensusConfig()
+		cfgNil := tmconfig.DefaultConsensusConfig()
 		cfgNil.UnsafeOverridesEnabled = true
 		cfgNil.UnsafeBypassCommitTimeoutOverride = nil
 
-		cfgFalse := config.DefaultConsensusConfig()
+		cfgFalse := tmconfig.DefaultConsensusConfig()
 		cfgFalse.UnsafeOverridesEnabled = true
 		cfgFalse.UnsafeBypassCommitTimeoutOverride = utils.Alloc(false)
 

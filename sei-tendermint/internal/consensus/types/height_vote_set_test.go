@@ -16,14 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-func mustGenesisChainID(cfg *config.Config) string {
-	genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
-	if err != nil {
-		panic(err)
-	}
-	return genDoc.ChainID
-}
-
 func TestPeerCatchupRounds(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "consensus_height_vote_set_test")
 	if err != nil {
@@ -34,7 +26,7 @@ func TestPeerCatchupRounds(t *testing.T) {
 
 	valSet, privVals := factory.ValidatorSet(ctx, 10, 1)
 
-	chainID := mustGenesisChainID(cfg)
+	chainID := config.TestLoadGenesis(cfg).ChainID
 	hvs := NewHeightVoteSet(chainID, 1, valSet)
 
 	vote999_0 := makeVoteHR(ctx, t, 1, 0, 999, privVals, chainID)

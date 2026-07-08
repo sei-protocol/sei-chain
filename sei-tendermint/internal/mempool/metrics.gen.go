@@ -250,8 +250,8 @@ func (m *Metrics) InsertedTxsAt() *tmprometheus.CounterInt {
 	return m.InsertedTxs.WithLabelValues()
 }
 
-func (m *Metrics) CheckTxPriorityDistributionAt(hint string, local string, error string) *tmprometheus.Histogram {
-	return m.CheckTxPriorityDistribution.WithLabelValues(hint, local, error)
+func (m *Metrics) CheckTxPriorityDistributionAt(l0_hint string, l1_local string, l2_error string) *tmprometheus.Histogram {
+	return m.CheckTxPriorityDistribution.WithLabelValues(l0_hint, l1_local, l2_error)
 }
 
 func (m *Metrics) CheckTxDroppedByPriorityHintAt() *tmprometheus.CounterInt {
