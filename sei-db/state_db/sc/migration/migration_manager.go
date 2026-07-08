@@ -389,7 +389,7 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet, f
 
 	if advanceMigration {
 		if batchStats.keysMigrated > 0 {
-			logger.Info("migration advanced",
+			logger.Info("migration progress advanced",
 				"keysMigrated", batchStats.keysMigrated,
 				"newBoundary", m.boundary.String())
 		}
