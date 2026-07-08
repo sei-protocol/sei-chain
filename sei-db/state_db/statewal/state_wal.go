@@ -1,6 +1,9 @@
 package statewal
 
-import "github.com/sei-protocol/sei-chain/sei-db/proto"
+import (
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
+)
 
 // A WAL for state.
 type StateWAL interface {
@@ -62,29 +65,13 @@ type StateWAL interface {
 	// The iterator reads a consistent, point-in-time snapshot of the WAL taken at some instant between the
 	// start and the return of this call. Data written before that instant is included; data written after it
 	// is not. For data written concurrently with this call, whether it is included is unspecified.
-	Iterator(startingBlockNumber uint64) (StateWALIterator, error)
+	//
+	// The iterator yields one entry per block in ascending block order. Its Entry() returns (blockNumber,
+	// changesets), where changesets are all the changes written for that block (across one or more Write
+	// calls) combined in write order. Blocks that were never ended with SignalEndOfBlock are not yielded.
+	// The returned changesets, and every byte slice reachable through them, must be treated as read-only.
+	Iterator(startingBlockNumber uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error)
 
 	// Close the WAL, flushing any pending writes and releasing resources.
-	Close() error
-}
-
-// Iterates over data in a state WAL, in ascending block order, yielding one entry per block. All changesets
-// written for a block (across one or more Write calls) are combined, in write order, into that block's single
-// entry. Blocks that were never ended with SignalEndOfBlock are not yielded.
-type StateWALIterator interface {
-	// Next advances the iterator to the next block. It returns false when iteration is complete (no more
-	// blocks), and returns an error if advancing failed. After Next returns (false, nil), iteration is
-	// complete; after it returns an error, the iterator must not be used further (other than Close).
-	Next() (bool, error)
-
-	// Entry returns the combined entry for the block at the iterator's current position. It is only valid to
-	// call Entry after Next has returned (true, nil).
-	//
-	// The returned entry, and every byte slice reachable through it (changeset keys and values), must be
-	// treated as read-only and must not be modified. Callers that need to retain or mutate the data must
-	// copy it first.
-	Entry() *Entry
-
-	// Close releases the resources held by the iterator.
 	Close() error
 }

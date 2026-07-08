@@ -8,7 +8,7 @@ import (
 )
 
 func testConfig(dir string) *Config {
-	return DefaultConfig(dir)
+	return DefaultConfig(dir, "test")
 }
 
 func openWAL(t *testing.T, cfg *Config) StateWAL {
@@ -41,12 +41,12 @@ func collectBlocks(t *testing.T, w StateWAL, start uint64) []uint64 {
 		if !ok {
 			break
 		}
-		entry := it.Entry()
-		require.GreaterOrEqual(t, entry.BlockNumber, start)
+		blockNumber, _ := it.Entry()
+		require.GreaterOrEqual(t, blockNumber, start)
 		if len(blocks) > 0 {
-			require.Greater(t, entry.BlockNumber, blocks[len(blocks)-1])
+			require.Greater(t, blockNumber, blocks[len(blocks)-1])
 		}
-		blocks = append(blocks, entry.BlockNumber)
+		blocks = append(blocks, blockNumber)
 	}
 	return blocks
 }
@@ -180,9 +180,9 @@ func TestEmptyChangesetBlockIsStored(t *testing.T) {
 	ok, err = it.Next()
 	require.NoError(t, err)
 	require.True(t, ok)
-	entry := it.Entry()
-	require.Equal(t, uint64(1), entry.BlockNumber)
-	require.Empty(t, entry.Changeset)
+	blockNumber, changeset := it.Entry()
+	require.Equal(t, uint64(1), blockNumber)
+	require.Empty(t, changeset)
 }
 
 func TestPruneDropsOldBlocks(t *testing.T) {

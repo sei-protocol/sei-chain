@@ -6,12 +6,27 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
+// TestQueueDepthSamplerRunsAndStops exercises the queue-depth sampler goroutine on a tiny interval: it must
+// sample the writer channel concurrently with appends (validated by the race detector) and shut down cleanly
+// on Close.
+func TestQueueDepthSamplerRunsAndStops(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.MetricsSampleInterval = time.Millisecond
+	w := openWAL(t, cfg)
+	for index := uint64(1); index <= 300; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Flush())
+	require.NoError(t, w.Close())
+}
+
 func testConfig(dir string) *Config {
-	return DefaultConfig(dir)
+	return DefaultConfig(dir, "test")
 }
 
 func openWAL(t *testing.T, cfg *Config) WAL[[]byte] {

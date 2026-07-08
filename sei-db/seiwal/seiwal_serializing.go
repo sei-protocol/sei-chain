@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"go.opentelemetry.io/otel/metric"
 )
 
 var _ WAL[[]byte] = (*serializingWAL[[]byte])(nil)
@@ -62,10 +65,13 @@ type serializingWAL[T any] struct {
 	// The inner byte-oriented WAL that framed records are delegated to.
 	inner WAL[[]byte]
 
-	// Serialize a payload to bytes (run on the serializer goroutine) and deserialize it back (run inline in
-	// the iterator).
-	serialize   func(T) ([]byte, error)
+	// Serializes a payload to bytes; runs on the serializer goroutine.
+	serialize func(T) ([]byte, error)
+	// Deserializes stored bytes back to a payload; runs inline in the iterator.
 	deserialize func([]byte) (T, error)
+
+	// The measurement option tagging this instance's metrics with its name. Read-only after construction.
+	metricAttrs metric.MeasurementOption
 
 	// Caller entry points funnel through serializerChan as a single ordered stream to the serializer.
 	serializerChan chan any
@@ -82,8 +88,11 @@ type serializingWAL[T any] struct {
 	// Cancels senderCtx.
 	senderCancel context.CancelFunc
 
-	// Tracks the serializer goroutine so Close() can wait for it to exit.
+	// Tracks the serializer and queue-depth sampler goroutines so Close() can wait for them to exit.
 	wg sync.WaitGroup
+
+	// Closed by Close() to stop the queue-depth sampler goroutine.
+	samplerStop chan struct{}
 
 	// Guarantees the Close() shutdown sequence runs at most once.
 	closeOnce sync.Once
@@ -136,17 +145,43 @@ func newSerializingWAL[T any](
 		inner:          inner,
 		serialize:      serialize,
 		deserialize:    deserialize,
+		metricAttrs:    walNameAttr(config.Name),
 		serializerChan: make(chan any, config.SerializerBufferSize),
 		ctx:            ctx,
 		cancel:         cancel,
 		senderCtx:      senderCtx,
 		senderCancel:   senderCancel,
+		samplerStop:    make(chan struct{}),
 	}
 
 	s.wg.Add(1)
 	go s.serializerLoop()
 
+	if config.MetricsSampleInterval > 0 {
+		s.wg.Add(1)
+		go s.sampleQueueDepth(config.Name, config.MetricsSampleInterval)
+	}
+
 	return s
+}
+
+// sampleQueueDepth periodically records the serializer channel's buffered depth until Close stops it
+// (samplerStop) or a fatal shutdown cancels ctx.
+func (s *serializingWAL[T]) sampleQueueDepth(name string, interval time.Duration) {
+	defer s.wg.Done()
+	attrs := queueDepthAttrs(name, "serializer")
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-s.samplerStop:
+			return
+		case <-ticker.C:
+			walQueueDepth.Record(s.ctx, int64(len(s.serializerChan)), attrs)
+		}
+	}
 }
 
 // Append schedules a payload to be serialized and appended at the given index.
@@ -235,6 +270,7 @@ func (s *serializingWAL[T]) Close() error {
 	var closeErr error
 	s.closeOnce.Do(func() {
 		s.closed.Store(true)
+		close(s.samplerStop) // stop the queue-depth sampler before waiting for goroutines
 		done := make(chan error, 1)
 		if err := s.submit(serClose{done: done}); err == nil {
 			select {
@@ -280,11 +316,15 @@ func (s *serializingWAL[T]) serializerLoop() {
 
 		switch m := msg.(type) {
 		case serAppend:
+			start := time.Now()
 			data, err := m.serialize()
 			if err != nil {
+				walSerializeErrors.Add(s.ctx, 1, s.metricAttrs)
 				s.fail(fmt.Errorf("failed to serialize record for index %d: %w", m.index, err))
 				return
 			}
+			walSerializeDuration.Record(s.ctx, time.Since(start).Seconds(), s.metricAttrs)
+			walSerializedBytes.Add(s.ctx, int64(len(data)), s.metricAttrs)
 			if err := s.inner.Append(m.index, data); err != nil {
 				s.fail(fmt.Errorf("failed to append record for index %d: %w", m.index, err))
 				return

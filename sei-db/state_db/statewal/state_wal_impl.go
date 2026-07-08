@@ -154,13 +154,10 @@ func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
 	return w.wal.Prune(lowestBlockNumberToKeep)
 }
 
-// Iterator returns an iterator over the WAL starting at startingBlockNumber.
-func (w *stateWALImpl) Iterator(startingBlockNumber uint64) (StateWALIterator, error) {
-	inner, err := w.wal.Iterator(startingBlockNumber)
-	if err != nil {
-		return nil, err
-	}
-	return newStateIterator(inner), nil
+// Iterator returns an iterator over the WAL starting at startingBlockNumber. It yields (blockNumber,
+// changesets) directly from the underlying generic WAL.
+func (w *stateWALImpl) Iterator(startingBlockNumber uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
+	return w.wal.Iterator(startingBlockNumber)
 }
 
 // Close flushes pending writes, closes the underlying WAL, and releases resources.

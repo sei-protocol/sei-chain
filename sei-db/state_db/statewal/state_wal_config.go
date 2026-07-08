@@ -1,6 +1,8 @@
 package statewal
 
 import (
+	"time"
+
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 )
 
@@ -8,6 +10,10 @@ import (
 type Config struct {
 	// The directory where the WAL writes its files.
 	Path string
+
+	// A short identifier for this WAL instance, used to distinguish its metrics from those of other
+	// instances in the same process. Required; must match [a-zA-Z0-9_-]+.
+	Name string
 
 	// The size of the channel used to send work from the caller to the serialization goroutine.
 	RequestBufferSize uint
@@ -29,18 +35,24 @@ type Config struct {
 	// keeps the reader busy while the consumer processes blocks, which matters for startup replay speed.
 	// Must be greater than 0.
 	IteratorPrefetchSize uint
+
+	// The interval at which the underlying WAL samples the buffered depth of its internal channels into the
+	// seiwal_queue_depth gauge. Zero or negative disables sampling.
+	MetricsSampleInterval time.Duration
 }
 
-// Constructor for a default state WAL configuration.
-func DefaultConfig(path string) *Config {
-	s := seiwal.DefaultConfig(path)
+// Constructor for a default state WAL configuration for the WAL at path, identified by name.
+func DefaultConfig(path string, name string) *Config {
+	s := seiwal.DefaultConfig(path, name)
 	return &Config{
-		Path:                 path,
-		RequestBufferSize:    16,
-		WriteBufferSize:      s.WriteBufferSize,
-		TargetFileSize:       s.TargetFileSize,
-		FsyncOnFlush:         s.FsyncOnFlush,
-		IteratorPrefetchSize: s.IteratorPrefetchSize,
+		Path:                  path,
+		Name:                  name,
+		RequestBufferSize:     16,
+		WriteBufferSize:       s.WriteBufferSize,
+		TargetFileSize:        s.TargetFileSize,
+		FsyncOnFlush:          s.FsyncOnFlush,
+		IteratorPrefetchSize:  s.IteratorPrefetchSize,
+		MetricsSampleInterval: s.MetricsSampleInterval,
 	}
 }
 
@@ -52,11 +64,13 @@ func (c *Config) Validate() error {
 // toSeiwalConfig maps this configuration onto the underlying generic WAL's configuration.
 func (c *Config) toSeiwalConfig() *seiwal.Config {
 	return &seiwal.Config{
-		Path:                 c.Path,
-		WriteBufferSize:      c.WriteBufferSize,
-		SerializerBufferSize: c.RequestBufferSize,
-		TargetFileSize:       c.TargetFileSize,
-		FsyncOnFlush:         c.FsyncOnFlush,
-		IteratorPrefetchSize: c.IteratorPrefetchSize,
+		Path:                  c.Path,
+		Name:                  c.Name,
+		WriteBufferSize:       c.WriteBufferSize,
+		SerializerBufferSize:  c.RequestBufferSize,
+		TargetFileSize:        c.TargetFileSize,
+		FsyncOnFlush:          c.FsyncOnFlush,
+		IteratorPrefetchSize:  c.IteratorPrefetchSize,
+		MetricsSampleInterval: c.MetricsSampleInterval,
 	}
 }

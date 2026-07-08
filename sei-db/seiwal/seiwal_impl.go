@@ -8,6 +8,9 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/sei-protocol/seilog"
@@ -82,6 +85,9 @@ type walImpl struct {
 	// The configuration this WAL was opened with. Read-only after construction.
 	config *Config
 
+	// The measurement option tagging this instance's metrics with its name. Read-only after construction.
+	metricAttrs metric.MeasurementOption
+
 	// Callers funnel framed records and control messages through writerChan as a single ordered stream to
 	// the writer goroutine.
 	writerChan chan any
@@ -98,8 +104,11 @@ type walImpl struct {
 	// Cancels senderCtx.
 	senderCancel context.CancelFunc
 
-	// Tracks the writer goroutine so Close() can wait for it to exit.
+	// Tracks the writer and queue-depth sampler goroutines so Close() can wait for them to exit.
 	wg sync.WaitGroup
+
+	// Closed by Close() to stop the queue-depth sampler goroutine.
+	samplerStop chan struct{}
 
 	// Guarantees the Close() shutdown sequence runs at most once.
 	closeOnce sync.Once
@@ -187,6 +196,7 @@ func newWAL(config *Config, rollbackThrough *uint64) (WAL[[]byte], error) {
 
 	w := &walImpl{
 		config:       config,
+		metricAttrs:  walNameAttr(config.Name),
 		writerChan:   make(chan any, config.WriteBufferSize),
 		ctx:          ctx,
 		cancel:       cancel,
@@ -196,6 +206,7 @@ func newWAL(config *Config, rollbackThrough *uint64) (WAL[[]byte], error) {
 		nextFileSeq:  nextFileSeq + 1,
 		sealedFiles:  sealedFiles,
 		indexRefs:    make(map[uint64]int),
+		samplerStop:  make(chan struct{}),
 	}
 	// Recover the append-ordering position from the highest index already on disk.
 	if r := w.bounds(); r.ok {
@@ -206,7 +217,31 @@ func newWAL(config *Config, rollbackThrough *uint64) (WAL[[]byte], error) {
 	w.wg.Add(1)
 	go w.writerLoop()
 
+	if config.MetricsSampleInterval > 0 {
+		w.wg.Add(1)
+		go w.sampleQueueDepth(config.MetricsSampleInterval)
+	}
+
 	return w, nil
+}
+
+// sampleQueueDepth periodically records the writer channel's buffered depth until Close stops it (samplerStop)
+// or a fatal shutdown cancels ctx.
+func (w *walImpl) sampleQueueDepth(interval time.Duration) {
+	defer w.wg.Done()
+	attrs := queueDepthAttrs(w.config.Name, "writer")
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-w.ctx.Done():
+			return
+		case <-w.samplerStop:
+			return
+		case <-ticker.C:
+			walQueueDepth.Record(w.ctx, int64(len(w.writerChan)), attrs)
+		}
+	}
 }
 
 // Append frames a record and schedules it for the writer, after enforcing that indices strictly increase.
@@ -307,6 +342,7 @@ func (w *walImpl) Close() error {
 	var closeErr error
 	w.closeOnce.Do(func() {
 		w.closed.Store(true)
+		close(w.samplerStop) // stop the queue-depth sampler before waiting for goroutines
 		done := make(chan error, 1)
 		if err := w.sendToWriter(closeRequest{done: done}); err == nil {
 			select {
@@ -385,8 +421,8 @@ func (w *walImpl) appendRecord(m dataToBeWritten) error {
 	if err := w.mutableFile.writeRecord(m.record, m.index); err != nil {
 		return fmt.Errorf("failed to append record for index %d: %w", m.index, err)
 	}
-	walBytesWritten.Add(w.ctx, int64(len(m.record)))
-	walRecordsWritten.Add(w.ctx, 1)
+	walBytesWritten.Add(w.ctx, int64(len(m.record)), w.metricAttrs)
+	walRecordsWritten.Add(w.ctx, 1, w.metricAttrs)
 
 	if w.mutableFile.size >= uint64(w.config.TargetFileSize) {
 		if err := w.rotate(); err != nil {
@@ -408,7 +444,7 @@ func (w *walImpl) rotate() error {
 		return fmt.Errorf("failed to seal WAL file during rotation: %w", err)
 	}
 	w.sealedFiles.PushBack(&sealedFileInfo{fileSeq: fileSeq, name: sealedName, firstIndex: first, lastIndex: last})
-	walFilesSealed.Add(w.ctx, 1)
+	walFilesSealed.Add(w.ctx, 1, w.metricAttrs)
 
 	mutable, err := newWalFile(w.config.Path, w.nextFileSeq)
 	if err != nil {
@@ -453,7 +489,7 @@ func (w *walImpl) pruneSealedFiles(pruneThrough uint64) error {
 			return fmt.Errorf("failed to fsync directory after pruning %s: %w", path, err)
 		}
 		w.sealedFiles.PopFront()
-		walFilesPruned.Add(w.ctx, 1)
+		walFilesPruned.Add(w.ctx, 1, w.metricAttrs)
 	}
 	return nil
 }

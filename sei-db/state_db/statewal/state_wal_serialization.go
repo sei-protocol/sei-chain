@@ -7,23 +7,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// A decoded block entry from the state WAL: a block number and the changesets written for that block.
-type Entry struct {
-
-	// The block number associated with this entry.
-	BlockNumber uint64
-
-	// The changesets associated with this block, in write order.
-	Changeset []*proto.NamedChangeSet
-}
-
-// NewEntry constructs an entry for the given block number and changesets.
-func NewEntry(blockNumber uint64, changeset []*proto.NamedChangeSet) *Entry {
-	return &Entry{
-		BlockNumber: blockNumber,
-		Changeset:   changeset,
-	}
-}
+// The version byte prefixed to every serialized changeset payload. Bumped if the changeset encoding changes,
+// so deserialization can detect and reject an unknown format rather than misparsing it.
+const changesetFormatVersion = byte(1)
 
 // appendChangeset appends the framing [uvarint marshaled length][marshaled NamedChangeSet] for ncs to buf and
 // returns the extended buffer. This is the incremental unit the serializer goroutine accumulates across the
@@ -43,10 +29,11 @@ func appendChangeset(buf []byte, ncs *proto.NamedChangeSet) ([]byte, error) {
 	return buf, nil
 }
 
-// serializeChangesets encodes a changeset list as the concatenation ([uvarint length][marshaled])* — the
-// payload of a single block's WAL record. The block number is not encoded: it is the WAL record's index.
+// serializeChangesets encodes a changeset list as a version byte followed by the concatenation
+// [version]([uvarint length][marshaled])* — the payload of a single block's WAL record. The block number is
+// not encoded: it is the WAL record's index.
 func serializeChangesets(cs []*proto.NamedChangeSet) ([]byte, error) {
-	var buf []byte
+	buf := []byte{changesetFormatVersion}
 	var err error
 	for _, ncs := range cs {
 		buf, err = appendChangeset(buf, ncs)
@@ -57,12 +44,19 @@ func serializeChangesets(cs []*proto.NamedChangeSet) ([]byte, error) {
 	return buf, nil
 }
 
-// deserializeChangesets decodes the payload produced by serializeChangesets. Because the enclosing WAL record
-// is length-delimited and CRC-verified by the underlying WAL, any truncation encountered here indicates
-// corruption and is reported as an error rather than tolerated.
+// deserializeChangesets decodes the payload produced by serializeChangesets, after checking its leading
+// version byte. Because the enclosing WAL record is length-delimited and CRC-verified by the underlying WAL,
+// any truncation encountered here indicates corruption and is reported as an error rather than tolerated.
 func deserializeChangesets(data []byte) ([]*proto.NamedChangeSet, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("empty changeset payload: missing version byte")
+	}
+	if version := data[0]; version != changesetFormatVersion {
+		return nil, fmt.Errorf("unsupported changeset format version %d", version)
+	}
+
 	var result []*proto.NamedChangeSet
-	rest := data
+	rest := data[1:]
 	for len(rest) > 0 {
 		length, n := binary.Uvarint(rest)
 		if n <= 0 {

@@ -47,12 +47,12 @@ func TestIteratorYieldsChangesetContents(t *testing.T) {
 	ok, err := it.Next()
 	require.NoError(t, err)
 	require.True(t, ok)
-	entry := it.Entry()
-	require.Equal(t, uint64(1), entry.BlockNumber)
-	require.Len(t, entry.Changeset, 1)
-	require.Equal(t, "evm", entry.Changeset[0].Name)
-	require.Equal(t, []byte("key"), entry.Changeset[0].Changeset.Pairs[0].Key)
-	require.Equal(t, []byte("value"), entry.Changeset[0].Changeset.Pairs[0].Value)
+	blockNumber, changeset := it.Entry()
+	require.Equal(t, uint64(1), blockNumber)
+	require.Len(t, changeset, 1)
+	require.Equal(t, "evm", changeset[0].Name)
+	require.Equal(t, []byte("key"), changeset[0].Changeset.Pairs[0].Key)
+	require.Equal(t, []byte("value"), changeset[0].Changeset.Pairs[0].Value)
 
 	ok, err = it.Next()
 	require.NoError(t, err)
@@ -81,13 +81,13 @@ func TestIteratorCombinesMultipleWritesInOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	entry := it.Entry()
-	require.Equal(t, uint64(1), entry.BlockNumber)
+	blockNumber, changeset := it.Entry()
+	require.Equal(t, uint64(1), blockNumber)
 	// Three changesets total (1 from the first Write, 2 from the second), in write order.
-	require.Len(t, entry.Changeset, 3)
-	require.Equal(t, "a", entry.Changeset[0].Name)
-	require.Equal(t, "b", entry.Changeset[1].Name)
-	require.Equal(t, "c", entry.Changeset[2].Name)
+	require.Len(t, changeset, 3)
+	require.Equal(t, "a", changeset[0].Name)
+	require.Equal(t, "b", changeset[1].Name)
+	require.Equal(t, "c", changeset[2].Name)
 
 	ok, err = it.Next()
 	require.NoError(t, err)
@@ -133,7 +133,8 @@ func TestIteratorDoesNotSeePostConstructionBlocks(t *testing.T) {
 		if !ok {
 			break
 		}
-		got = append(got, it.Entry().BlockNumber)
+		blockNumber, _ := it.Entry()
+		got = append(got, blockNumber)
 	}
 	require.Equal(t, []uint64{1, 2, 3}, got, "post-construction block 4 must not be iterated")
 }

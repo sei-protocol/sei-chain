@@ -4,9 +4,24 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+// TestGenericWALQueueDepthSampler exercises the queue-depth samplers (both the serializing layer's and the
+// inner byte engine's) on a tiny interval, validating concurrent sampling under the race detector and a clean
+// shutdown on Close.
+func TestGenericWALQueueDepthSampler(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.MetricsSampleInterval = time.Millisecond
+	w := openStringWAL(t, cfg)
+	for i := uint64(1); i <= 300; i++ {
+		require.NoError(t, w.Append(i, fmt.Sprintf("v%d", i)))
+	}
+	require.NoError(t, w.Flush())
+	require.NoError(t, w.Close())
+}
 
 func stringSerialize(s string) ([]byte, error)   { return []byte(s), nil }
 func stringDeserialize(b []byte) (string, error) { return string(b), nil }
