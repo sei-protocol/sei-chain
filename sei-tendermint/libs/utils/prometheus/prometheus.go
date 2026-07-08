@@ -47,7 +47,7 @@ func (c *CounterInt) Desc() *prometheus.Desc { return c.desc }
 func (c *CounterInt) Add(val int64) {
 	if val < 0 {
 		logger.Error("counter cannot decrease in value")
-		return 
+		return
 	}
 	c.value.Add(val)
 }
