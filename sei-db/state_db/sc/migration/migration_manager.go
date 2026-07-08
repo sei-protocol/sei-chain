@@ -388,11 +388,13 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet, f
 	m.metrics.RecordBatch(batchStats)
 
 	if advanceMigration {
+		if batchStats.keysMigrated > 0 {
+			logger.Info("migration advanced",
+				"keysMigrated", batchStats.keysMigrated,
+				"newBoundary", m.boundary.String())
+		}
 		if migrationComplete {
 			m.logMigrationCompleteSummary()
-		} else if batchStats.keysMigrated%1000000 == 0 {
-			logger.Info("migration in progress",
-				"keysMigrated", batchStats.keysMigrated)
 		}
 
 	}
