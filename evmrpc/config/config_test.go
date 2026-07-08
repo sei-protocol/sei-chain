@@ -51,6 +51,7 @@ type opts struct {
 	maxTraceStructLogBytes       interface{}
 	traceAllowedTracers          interface{}
 	traceAllowJSTracers          interface{}
+	traceBakeTracers             interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -153,10 +154,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.enabled_legacy_sei_apis" {
 		return nil
 	}
+	if k == "evm.trace_bake_tracers" {
+		return o.traceBakeTracers
+	}
 	if k == "evm.trace_bake_enabled" ||
 		k == "evm.trace_bake_workers" ||
 		k == "evm.trace_bake_queue_size" ||
-		k == "evm.trace_bake_tracers" ||
 		k == "evm.trace_bake_window_blocks" ||
 		k == "evm.trace_bake_use_snapshot" ||
 		k == "evm.trace_bake_snapshot_window" {
@@ -240,6 +243,7 @@ func getDefaultOpts() opts {
 		uint64(256 * 1024 * 1024),
 		[]string{"callTracer", "prestateTracer"},
 		false,
+		nil,
 	}
 }
 
@@ -562,6 +566,28 @@ func TestReadConfigTraceAllowedTracers(t *testing.T) {
 	cfg, err = config.ReadConfig(&opts)
 	require.NoError(t, err)
 	require.True(t, cfg.TraceAllowJSTracers)
+}
+
+func TestReadConfigTraceBakeTracers(t *testing.T) {
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"callTracer"}, cfg.TraceBakeTracers)
+
+	o := getDefaultOpts()
+	o.traceBakeTracers = []string{"prestateTracer", "  callTracer  ", "prestateTracer"}
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Equal(t, []string{"prestateTracer", "callTracer"}, cfg.TraceBakeTracers)
+
+	o.traceBakeTracers = []string{"callTracer", "badTracer"}
+	_, err = config.ReadConfig(&o)
+	require.Error(t, err)
+
+	// A JS-looking name must fail at startup rather than being evaluated as
+	// JS source by the baker on every committed block.
+	o.traceBakeTracers = []string{"function() { return {}; }"}
+	_, err = config.ReadConfig(&o)
+	require.Error(t, err)
 }
 
 func TestReadConfigMaxSubscriptionsLogs(t *testing.T) {

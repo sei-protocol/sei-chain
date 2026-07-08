@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -256,10 +257,14 @@ func (api *DebugAPI) validateTraceTracer(config *tracers.TraceConfig) error {
 	if config == nil || config.Tracer == nil {
 		return nil
 	}
-	name := *config.Tracer
+	name := strings.TrimSpace(*config.Tracer)
 	if name == "" {
-		return fmt.Errorf("debug tracer name must not be empty")
+		return errors.New("debug tracer name must not be empty")
 	}
+	// Write the trimmed name back so geth resolves the exact tracer that was
+	// validated; otherwise a padded native name (e.g. " callTracer") would pass
+	// validation here yet be treated as JS source by the tracer directory.
+	*config.Tracer = name
 	if _, ok := api.allowedTracers[name]; !ok {
 		if api.allowJSTracers && !evmrpcconfig.IsNativeTraceTracer(name) {
 			return nil
@@ -270,18 +275,14 @@ func (api *DebugAPI) validateTraceTracer(config *tracers.TraceConfig) error {
 		return fmt.Errorf("debug tracer %q is not allowed; JavaScript tracers are disabled and only native tracers listed in evm.trace_allowed_tracers may be used", name)
 	}
 	if name == muxTracerName {
-		if err := validateMuxTraceConfig(config.TracerConfig, api.allowedTracers, api.allowJSTracers); err != nil {
+		if err := validateMuxTraceConfig(config.TracerConfig, api.allowedTracers, api.allowJSTracers, 1); err != nil {
 			return fmt.Errorf("invalid muxTracer config: %w", err)
 		}
 	}
 	return nil
 }
 
-func validateMuxTraceConfig(raw json.RawMessage, allowed map[string]struct{}, allowJS bool) error {
-	return validateMuxTraceConfigDepth(raw, allowed, allowJS, 1)
-}
-
-func validateMuxTraceConfigDepth(raw json.RawMessage, allowed map[string]struct{}, allowJS bool, depth int) error {
+func validateMuxTraceConfig(raw json.RawMessage, allowed map[string]struct{}, allowJS bool, depth int) error {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -293,8 +294,15 @@ func validateMuxTraceConfigDepth(raw json.RawMessage, allowed map[string]struct{
 		return err
 	}
 	for name, cfg := range nested {
-		if name == "" {
-			return fmt.Errorf("nested debug tracer name must not be empty")
+		if strings.TrimSpace(name) == "" {
+			return errors.New("nested debug tracer name must not be empty")
+		}
+		// Nested names live inside caller-supplied JSON that is forwarded to
+		// geth verbatim, so a padded name cannot be rewritten the way the
+		// top-level tracer is. Reject it instead of validating a name geth
+		// would resolve differently.
+		if name != strings.TrimSpace(name) {
+			return fmt.Errorf("nested debug tracer name %q must not have leading or trailing whitespace", name)
 		}
 		if _, ok := allowed[name]; !ok {
 			if allowJS && !evmrpcconfig.IsNativeTraceTracer(name) {
@@ -306,7 +314,7 @@ func validateMuxTraceConfigDepth(raw json.RawMessage, allowed map[string]struct{
 			return fmt.Errorf("nested debug tracer %q is not allowed; JavaScript tracers are disabled", name)
 		}
 		if name == muxTracerName {
-			if err := validateMuxTraceConfigDepth(cfg, allowed, allowJS, depth+1); err != nil {
+			if err := validateMuxTraceConfig(cfg, allowed, allowJS, depth+1); err != nil {
 				return err
 			}
 		}

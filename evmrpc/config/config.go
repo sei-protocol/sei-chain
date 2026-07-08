@@ -512,7 +512,7 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-	if cfg.TraceAllowedTracers, err = normalizeTraceAllowedTracers(cfg.TraceAllowedTracers); err != nil {
+	if cfg.TraceAllowedTracers, err = normalizeNativeTracerNames(flagTraceAllowedTracers, cfg.TraceAllowedTracers); err != nil {
 		return cfg, err
 	}
 	if v := opts.Get(flagTraceAllowJSTracers); v != nil {
@@ -564,6 +564,12 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 		if cfg.TraceBakeTracers, err = cast.ToStringSliceE(v); err != nil {
 			return cfg, err
 		}
+	}
+	// The baker feeds these names straight into geth tracing, so hold them to
+	// the same native-only rule as request-supplied tracers: a typo'd name must
+	// fail at startup instead of being evaluated as JS source on every block.
+	if cfg.TraceBakeTracers, err = normalizeNativeTracerNames(flagTraceBakeTracers, cfg.TraceBakeTracers); err != nil {
+		return cfg, err
 	}
 	if v := opts.Get(flagTraceBakeWindowBlocks); v != nil {
 		if cfg.TraceBakeWindowBlocks, err = cast.ToInt64E(v); err != nil {
@@ -621,16 +627,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	return cfg, nil
 }
 
-func normalizeTraceAllowedTracers(names []string) ([]string, error) {
+func normalizeNativeTracerNames(flagName string, names []string) ([]string, error) {
 	out := make([]string, 0, len(names))
 	seen := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		trimmed := strings.TrimSpace(name)
 		if trimmed == "" {
-			return nil, fmt.Errorf("%s entries must not be empty", flagTraceAllowedTracers)
+			return nil, fmt.Errorf("%s entries must not be empty", flagName)
 		}
 		if !IsNativeTraceTracer(trimmed) {
-			return nil, fmt.Errorf("%s contains non-native tracer %q", flagTraceAllowedTracers, trimmed)
+			return nil, fmt.Errorf("%s contains non-native tracer %q", flagName, trimmed)
 		}
 		if _, ok := seen[trimmed]; ok {
 			continue
@@ -801,6 +807,8 @@ trace_allowed_tracers = [{{- range $i, $t := .EVM.TraceAllowedTracers }}{{- if $
 
 # Allow request-supplied JavaScript tracer source in TraceConfig.Tracer. This
 # executes untrusted code in-process; keep disabled on public/default RPC nodes.
+# Enabling this does not widen trace_allowed_tracers: native tracer names must
+# still be listed there to be usable.
 trace_allow_js_tracers = {{ .EVM.TraceAllowJSTracers }}
 
 # Enable the parallelized default debug_traceBlock* path.
@@ -828,7 +836,7 @@ trace_bake_workers = {{ .EVM.TraceBakeWorkers }}
 # Bounded in-flight height queue. Drops on full so consensus never blocks.
 trace_bake_queue_size = {{ .EVM.TraceBakeQueueSize }}
 
-# Which tracers to bake per block; only standard named tracers are eligible.
+# Which tracers to bake per block; must be native tracer names (validated at startup).
 trace_bake_tracers = [{{- range $i, $t := .EVM.TraceBakeTracers }}{{- if $i }}, {{ end }}"{{ $t }}"{{- end }}]
 
 # Rolling cache window: prune blocks older than (latest - this).
