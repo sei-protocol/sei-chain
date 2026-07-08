@@ -26,62 +26,62 @@ func newMetrics() *metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "latency",
-			Help:      "",
+			Help:      "Latency from Open() to Close() of the stream. Relevant only for short lived streams.",
 			Buckets:   prometheus.ExponentialBuckets(0.001, 1.3, 30),
-		}, []string{"role", "rpc_name"}),
+		}, []string{"role", "kind"}),
 		inFlight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "in_flight",
-			Help:      "",
-		}, []string{"role", "rpc_name"}),
+			Help:      "Number of currently open streams.",
+		}, []string{"role", "kind"}),
 		sendMsgs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "send_msgs",
-			Help:      "",
-		}, []string{"role", "rpc_name"}),
+			Help:      "Number of messages sent.",
+		}, []string{"role", "kind"}),
 		recvMsgs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "recv_msgs",
-			Help:      "",
-		}, []string{"role", "rpc_name"}),
+			Help:      "Number of messages received.",
+		}, []string{"role", "kind"}),
 		sendBytes: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "send_bytes",
-			Help:      "",
-		}, []string{"role", "rpc_name"}),
+			Help:      "Numbed of message bytes sent.",
+		}, []string{"role", "kind"}),
 		recvBytes: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "recv_bytes",
-			Help:      "",
-		}, []string{"role", "rpc_name"}),
+			Help:      "Number of message bytes received.",
+		}, []string{"role", "kind"}),
 	}
 }
 
-func (m *metrics) latencyAt(role string, rpc_name string) *tmprometheus.Histogram {
-	return m.latency.WithLabelValues(role, rpc_name)
+func (m *metrics) latencyAt(role string, kind string) *tmprometheus.Histogram {
+	return m.latency.WithLabelValues(role, kind)
 }
 
-func (m *metrics) inFlightAt(role string, rpc_name string) *tmprometheus.GaugeInt {
-	return m.inFlight.WithLabelValues(role, rpc_name)
+func (m *metrics) inFlightAt(role string, kind string) *tmprometheus.GaugeInt {
+	return m.inFlight.WithLabelValues(role, kind)
 }
 
-func (m *metrics) sendMsgsAt(role string, rpc_name string) *tmprometheus.CounterInt {
-	return m.sendMsgs.WithLabelValues(role, rpc_name)
+func (m *metrics) sendMsgsAt(role string, kind string) *tmprometheus.CounterInt {
+	return m.sendMsgs.WithLabelValues(role, kind)
 }
 
-func (m *metrics) recvMsgsAt(role string, rpc_name string) *tmprometheus.CounterInt {
-	return m.recvMsgs.WithLabelValues(role, rpc_name)
+func (m *metrics) recvMsgsAt(role string, kind string) *tmprometheus.CounterInt {
+	return m.recvMsgs.WithLabelValues(role, kind)
 }
 
-func (m *metrics) sendBytesAt(role string, rpc_name string) *tmprometheus.CounterInt {
-	return m.sendBytes.WithLabelValues(role, rpc_name)
+func (m *metrics) sendBytesAt(role string, kind string) *tmprometheus.CounterInt {
+	return m.sendBytes.WithLabelValues(role, kind)
 }
 
-func (m *metrics) recvBytesAt(role string, rpc_name string) *tmprometheus.CounterInt {
-	return m.recvBytes.WithLabelValues(role, rpc_name)
+func (m *metrics) recvBytesAt(role string, kind string) *tmprometheus.CounterInt {
+	return m.recvBytes.WithLabelValues(role, kind)
 }
