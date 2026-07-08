@@ -5,7 +5,7 @@ import { fromBech32 } from "@cosmjs/encoding";
 import { seiRpc } from "../utils/chainUtils";
 import { readRuntimeState } from "../utils/testUtils";
 import { claimPool } from "../utils/testUtils";
-import { isSeiDocker, seiAddressFromMnemonic, feeCollectorCosmosAddress } from "../utils/cosmosUtils";
+import { isSeiDocker, isInProcess, seiAddressFromMnemonic, feeCollectorCosmosAddress } from "../utils/cosmosUtils";
 import { bankBalanceUsei } from "../utils/cosmosUtils";
 import { rawSei, rawGeth, expectJsonRpcError } from "../utils/chainUtils";
 import { WEI_PER_USEI, ZERO_ADDRESS } from "../utils/constants";
@@ -53,7 +53,10 @@ describe('eth_coinbase Tests', function () {
     });
 
     it('EVM tx fees accrue to eth_coinbase (the fee_collector) and are swept each block', async function () {
-        if (!(await isSeiDocker())) this.skip();
+        // Needs a local node whose fee_collector balance is queryable over the cosmos RPC —
+        // the docker container or the in-process harness. Only a remote/hosted Sei (neither)
+        // is skipped, since bankBalanceUsei has no endpoint there.
+        if (!(await isSeiDocker()) && !isInProcess()) this.skip();
 
         const coinbase = (await seiProvider.send('eth_coinbase', [])).toLowerCase();
         const [signer] = claimPool(readRuntimeState(), seiProvider, 1, 'eth_coinbase');

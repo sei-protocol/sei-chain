@@ -60,6 +60,13 @@ func (o appOptions) Get(key string) interface{} {
 		// The harness default gates all but 3 legacy sei_* methods; the rpc_io
 		// conformance suite exercises the filter/log/tx family docker enables.
 		return dockerLegacySeiApis
+	case "evm.max_concurrent_simulation_calls":
+		// Match docker's localnode/rpcnode app.toml (0 = no limiter). The config
+		// default is runtime.NumCPU(), which throttles concurrent eth_call/estimateGas
+		// to a semaphore — a suite that fires a simulation burst (rpc_tests funds a
+		// 96-account pool in one Promise.all) then gets "server busy" the docker node
+		// never returns.
+		return 0
 	}
 	return nil
 }

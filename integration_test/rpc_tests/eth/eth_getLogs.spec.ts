@@ -247,6 +247,7 @@ describe('eth_getLogs', function () {
 
     describe('non-EVM log sources (dual-VM & precompiles)', () => {
         it('indexes a CW20 ERC20 pointer transfer as a standard Transfer log', async function () {
+            if (!runtime.wasm) this.skip(); // wasm-disabled chain: no CW20 / pointer fixture
             const actor = EvmAccount.fromPrivateKey(runtime.wasm!.actor.privateKey, sei);
             const pointer = new ethers.Contract(
                 runtime.wasm!.cw20Pointer,

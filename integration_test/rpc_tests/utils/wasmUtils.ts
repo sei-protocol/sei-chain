@@ -8,6 +8,8 @@ import { toUtf8 } from '@cosmjs/encoding';
 import { TxRaw } from 'cosmjs-types/cosmos/tx/v1beta1/tx';
 import { Endpoints } from '../config/endpoints';
 import { waitUntil } from './chainUtils';
+import { isInProcess } from './cosmosUtils';
+import { seidNodeExec } from './nodeExec';
 import {
     SEI_HD_PATH,
     DOCKER_NODE,
@@ -38,10 +40,7 @@ export interface Cw20InitMsg {
  */
 export async function isWasmEnabled(): Promise<boolean> {
     try {
-        const query = (key: string) =>
-            exec(
-                `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && seid query params subspace wasm ${key} -o json'`,
-            );
+        const query = (key: string) => seidNodeExec(`query params subspace wasm ${key} -o json`);
         const [upload, instantiate] = await Promise.all([
             query('uploadAccess'),
             query('instantiateAccess'),
@@ -113,25 +112,36 @@ export async function deployCw20(
 
 /** Query the CW20's ERC20 pointer; returns '' until it is registered on-chain. */
 async function queryCw20Pointer(cw20Address: string): Promise<string> {
-    const { stdout } = await exec(
-        `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && seid query evm pointer CW20 ${cw20Address} -o json'`,
-    );
+    const { stdout } = await seidNodeExec(`query evm pointer CW20 ${cw20Address} -o json`);
     const res = JSON.parse(stdout);
     return res.exists && res.pointer ? res.pointer : '';
 }
 
 /**
- * Register an ERC20 pointer for a CW20 via the in-container `admin` key and return the
- * pointer's `0x…` EVM address. `register-evm-pointer` broadcasts in sync mode (modern
- * seid no longer blocks until commit), so we poll the pointer query until it appears
- * rather than reading it once right after broadcast.
+ * Register an ERC20 pointer for a CW20 via the `admin` key and return the pointer's `0x…`
+ * EVM address. `register-evm-pointer` broadcasts in sync mode (modern seid no longer blocks
+ * until commit), so we poll the pointer query until it appears rather than reading it once
+ * right after broadcast.
+ *
+ * In-process the tx runs through the seid shim (which injects --home/--node) against the
+ * node's dynamic EVM port; --keyring-dir/--keyring-backend are still needed because the
+ * shim's --home alone does not repoint the keyring (same rule the runner's seedParityAdmin
+ * follows). The docker path signs with the container keyring via the piped passphrase.
  */
 export async function registerCw20Pointer(cw20Address: string): Promise<string> {
-    await exec(
-        `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && printf "${DOCKER_KEY_PASSWORD}\\n" | ` +
-            `seid tx evm register-evm-pointer CW20 ${cw20Address} --evm-rpc=${DOCKER_EVM_RPC} ` +
-            `--from admin -y --gas-limit 4900000 --fees 800000usei -b sync'`,
-    );
+    if (isInProcess()) {
+        await exec(
+            `seid tx evm register-evm-pointer CW20 ${cw20Address} --evm-rpc=${Endpoints.sei.evmRpc} ` +
+                `--from admin --keyring-dir ${process.env.SEID_HOME} --keyring-backend test ` +
+                `-y --gas-limit 4900000 --fees 800000usei -b sync`,
+        );
+    } else {
+        await exec(
+            `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && printf "${DOCKER_KEY_PASSWORD}\\n" | ` +
+                `seid tx evm register-evm-pointer CW20 ${cw20Address} --evm-rpc=${DOCKER_EVM_RPC} ` +
+                `--from admin -y --gas-limit 4900000 --fees 800000usei -b sync'`,
+        );
+    }
     return waitUntil<string>(
         async () => (await queryCw20Pointer(cw20Address)) || null,
         { timeoutMs: 60_000, intervalMs: 1_000, label: `CW20 pointer for ${cw20Address}` },

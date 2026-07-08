@@ -1,11 +1,9 @@
-import util from 'node:util';
 import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { EvmAccount, abiOf, deployContract } from './evmUtils';
 import { ADDRESS_LOWER, HASH32, HEX_DATA, HEX_QUANTITY, OPAQUE_HEX_ID, addressWord } from './format';
-import { DOCKER_NODE, SEID_ENV, STAKING_PRECOMPILE_ADDRESS } from './constants';
-
-const exec = util.promisify(require('node:child_process').exec);
+import { STAKING_PRECOMPILE_ADDRESS } from './constants';
+import { seidNodeExec } from './nodeExec';
 
 /**
  * Shared helpers for the log/filter RPC specs (eth_getLogs, eth_newFilter, eth_getFilterLogs,
@@ -54,9 +52,7 @@ export const DELEGATE_TOPIC = STAKING_IFACE.getEvent('Delegate')!.topicHash;
 
 /** First bonded validator's `seivaloper…` operator address, via the in-container CLI. */
 export async function firstBondedValidator(): Promise<string> {
-    const { stdout } = await exec(
-        `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && seid q staking validators -o json'`,
-    );
+    const { stdout } = await seidNodeExec('q staking validators -o json');
     const vals = JSON.parse(stdout).validators as { operator_address: string; status: string }[];
     const bonded = vals.find(v => v.status === 'BOND_STATUS_BONDED') ?? vals[0];
     if (!bonded) throw new Error('firstBondedValidator: no validators returned');

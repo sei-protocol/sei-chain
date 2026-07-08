@@ -1,9 +1,7 @@
-import util from 'node:util';
 import { ethers } from 'ethers';
 import { Endpoints } from '../config/endpoints';
-import {DOCKER_NODE, SEID_ENV} from "./constants";
+import { seidNodeExec } from './nodeExec';
 
-const exec = util.promisify(require('node:child_process').exec);
 const POLLING_INTERVAL_MS = Number(process.env.RPC_POLLING_INTERVAL_MS ?? 100);
 
 const makeProvider = (url: string): ethers.JsonRpcProvider =>
@@ -206,14 +204,10 @@ export interface Eip1559Params {
 export async function queryEip1559Params(): Promise<Eip1559Params | null> {
     try {
         const param = async (key: string): Promise<string> => {
-            const { stdout } = await exec(
-                `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && seid query params subspace evm ${key} --output json'`,
-            );
+            const { stdout } = await seidNodeExec(`query params subspace evm ${key} --output json`);
             return JSON.parse(stdout).value.replace(/"/g, '');
         };
-        const { stdout: blockParams } = await exec(
-            `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && seid query params blockparams --output json'`,
-        );
+        const { stdout: blockParams } = await seidNodeExec('query params blockparams --output json');
         const [minFee, maxFee, upward, downward, target] = await Promise.all([
             param('KeyMinFeePerGas'),
             param('KeyMaximumFeePerGas'),

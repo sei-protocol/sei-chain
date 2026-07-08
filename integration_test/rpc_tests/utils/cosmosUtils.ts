@@ -138,6 +138,13 @@ export function feeCollectorCosmosAddress(seiPrefix: string): string {
     return toBech32(seiPrefix, hash.subarray(0, 20));
 }
 
+/**
+ * True in the in-process arm: the Go runner sets SEI_IN_PROCESS=1 and puts a `seid` shim
+ * on PATH targeting the harness node, so cosmos-side calls run bare `seid` rather than
+ * `docker exec sei-node-0`. The counterpart to isSeiDocker for the non-docker backend.
+ */
+export const isInProcess = (): boolean => process.env.SEI_IN_PROCESS === '1';
+
 /** True when a local `sei-node-0` docker container is running. */
 export async function isSeiDocker(): Promise<boolean> {
     try {
