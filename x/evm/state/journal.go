@@ -46,6 +46,14 @@ type (
 		prev    common.Hash
 	}
 
+	// Removal of a masked account's overlay (state override) when the account is
+	// (re)created or cleared, so the overlay no longer shadows the now-empty
+	// storage. prev holds the removed overlay for restoration on revert.
+	storageOverrideRemove struct {
+		account common.Address
+		prev    *storageOverride
+	}
+
 	surplusChange struct {
 		delta sdk.Int
 	}
@@ -122,6 +130,12 @@ func (e *transientStorageChange) revert(s *DBImpl) {
 func (e *storageOverrideChange) revert(s *DBImpl) {
 	if ov, ok := s.tempState.storageOverrides[e.account.Hex()]; ok {
 		ov.current[e.key.Hex()] = e.prev
+	}
+}
+
+func (e *storageOverrideRemove) revert(s *DBImpl) {
+	if e.prev != nil {
+		s.tempState.storageOverrides[e.account.Hex()] = e.prev
 	}
 }
 

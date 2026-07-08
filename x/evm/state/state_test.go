@@ -139,6 +139,32 @@ func TestSetStorageEmptyMasksAll(t *testing.T) {
 	require.Equal(t, val, k.GetState(statedb.Ctx(), evmAddr, slot))
 }
 
+func TestCreateAccountDropsStorageOverride(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, true)
+
+	slot := common.BytesToHash([]byte("slot"))
+	val := common.BytesToHash([]byte("val"))
+	// install a simulation-local storage override
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{slot: val})
+	require.Equal(t, val, statedb.GetState(evmAddr, slot))
+	require.Equal(t, val, statedb.GetCommittedState(evmAddr, slot))
+
+	// recreating the account (e.g. CREATE2 collision) must drop the overlay so
+	// storage reads as empty rather than the frozen override.
+	rev := statedb.Snapshot()
+	statedb.CreateAccount(evmAddr)
+	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, slot))
+	require.Equal(t, common.Hash{}, statedb.GetCommittedState(evmAddr, slot))
+
+	// reverting the creation restores the override overlay
+	statedb.RevertToSnapshot(rev)
+	require.Equal(t, val, statedb.GetState(evmAddr, slot))
+	require.Equal(t, val, statedb.GetCommittedState(evmAddr, slot))
+}
+
 func TestCreate(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())

@@ -178,6 +178,12 @@ func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
 
 func (s *DBImpl) clearAccountState(acc common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
+	// Drop any simulation-local storage override so a recreated/cleared account
+	// reads empty storage rather than the frozen overlay. Journaled so a revert restores the overlay.
+	if ov, ok := s.tempState.storageOverrides[acc.Hex()]; ok {
+		s.journal = append(s.journal, &storageOverrideRemove{account: acc, prev: ov})
+		delete(s.tempState.storageOverrides, acc.Hex())
+	}
 	if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:]) {
 		s.k.PurgePrefix(s.ctx, types.StateKey(acc))
 		s.clearAccountCodeAndNonce(acc)
