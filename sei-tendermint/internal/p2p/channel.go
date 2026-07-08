@@ -68,12 +68,12 @@ func newChannel(desc conn.ChannelDescriptor) *channel {
 }
 
 func (ch *Channel[T]) send(msg T, queues ...*Queue[sendMsg]) {
-	ch.router.metrics.ChannelMsgs.With("ch_id", fmt.Sprint(ch.desc.ID), "direction", "out").Add(1.)
+	ch.router.metrics.channelMsgsAt(fmt.Sprint(ch.desc.ID), "out").Add(1)
 	m := sendMsg{msg, ch.desc.ID}
 	size := proto.Size(msg)
 	for _, q := range queues {
 		if pruned, ok := q.Send(m, size, ch.desc.Priority).Get(); ok {
-			ch.router.metrics.QueueDroppedMsgs.With("ch_id", fmt.Sprint(pruned.ChannelID), "direction", "out").Add(float64(1))
+			ch.router.metrics.queueDroppedMsgsAt(fmt.Sprint(pruned.ChannelID), "out").Add(1)
 		}
 	}
 }
@@ -117,6 +117,6 @@ func (ch *Channel[T]) Recv(ctx context.Context) (RecvMsg[T], error) {
 	if err != nil {
 		return RecvMsg[T]{}, err
 	}
-	ch.router.metrics.ChannelMsgs.With("ch_id", fmt.Sprint(ch.desc.ID), "direction", "in").Add(1.)
+	ch.router.metrics.channelMsgsAt(fmt.Sprint(ch.desc.ID), "in").Add(1)
 	return RecvMsg[T]{Message: recv.Message.(T), From: recv.From}, nil
 }

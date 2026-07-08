@@ -4,7 +4,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-kit/kit/metrics"
+	"github.com/prometheus/client_golang/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -12,6 +13,8 @@ import (
 )
 
 const (
+	// MetricsNamespace is the namespace shared by all Tendermint Prometheus metrics.
+	MetricsNamespace = "tendermint"
 	// MetricsSubsystem is a subsystem shared by all metrics exposed by this
 	// package.
 	MetricsSubsystem = "consensus"
@@ -22,77 +25,77 @@ const (
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// Height of the chain.
-	Height metrics.Gauge
+	Height tmprometheus.GaugeIntVec
 
 	// Last height signed by this validator if the node is a validator.
-	ValidatorLastSignedHeight metrics.Gauge `metrics_labels:"validator_address"`
+	ValidatorLastSignedHeight tmprometheus.GaugeIntVec `metrics_labels:"validator_address"`
 
 	// Number of rounds.
-	Rounds metrics.Gauge
+	Rounds tmprometheus.GaugeIntVec
 
 	// Histogram of round duration.
-	RoundDuration metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.1, 100, 8"`
+	RoundDuration tmprometheus.HistogramVec `metrics_buckets:"exprange(0.1, 100, 8)"`
 
 	// Number of validators.
-	Validators metrics.Gauge
+	Validators tmprometheus.GaugeIntVec
 	// Total power of all validators.
-	ValidatorsPower metrics.Gauge
+	ValidatorsPower tmprometheus.GaugeIntVec
 	// Power of a validator.
-	ValidatorPower metrics.Gauge `metrics_labels:"validator_address"`
+	ValidatorPower tmprometheus.GaugeIntVec `metrics_labels:"validator_address"`
 	// Amount of blocks missed per validator.
-	ValidatorMissedBlocks metrics.Gauge `metrics_labels:"validator_address"`
+	ValidatorMissedBlocks tmprometheus.GaugeIntVec `metrics_labels:"validator_address"`
 	// Number of validators who did not sign.
-	MissingValidators metrics.Gauge
+	MissingValidators tmprometheus.GaugeIntVec
 	// Total power of the missing validators.
-	MissingValidatorsPower metrics.Gauge `metrics_labels:"validator_address"`
+	MissingValidatorsPower tmprometheus.GaugeIntVec `metrics_labels:"validator_address"`
 	// Number of validators who tried to double sign.
-	ByzantineValidators metrics.Gauge
+	ByzantineValidators tmprometheus.GaugeIntVec
 	// Total power of the byzantine validators.
-	ByzantineValidatorsPower metrics.Gauge
+	ByzantineValidatorsPower tmprometheus.GaugeIntVec
 
 	// Time in seconds between this and the last block.
-	BlockIntervalSeconds metrics.Histogram `metrics_buckettype:"exp" metrics_bucketsizes:"0.1, 1.3, 20"`
+	BlockIntervalSeconds tmprometheus.HistogramVec `metrics_buckets:"exp(0.1, 1.3, 20)"`
 
 	// Number of transactions.
-	NumTxs metrics.Gauge
+	NumTxs tmprometheus.GaugeIntVec
 	// Size of the block.
-	BlockSizeBytes metrics.Histogram `metrics_buckettype:"exp" metrics_bucketsizes:"1000, 1.5, 25"`
+	BlockSizeBytes tmprometheus.HistogramVec `metrics_buckets:"exp(1000, 1.5, 25)"`
 	// Total number of transactions.
-	TotalTxs metrics.Gauge
+	TotalTxs tmprometheus.GaugeIntVec
 	// The latest block height.
-	CommittedHeight metrics.Gauge `metrics_name:"latest_block_height"`
+	CommittedHeight tmprometheus.GaugeIntVec `metrics_name:"latest_block_height"`
 	// Whether or not a node is block syncing. 1 if yes, 0 if no.
-	BlockSyncing metrics.Gauge
+	BlockSyncing tmprometheus.GaugeIntVec
 	// Whether or not a node is state syncing. 1 if yes, 0 if no.
-	StateSyncing metrics.Gauge
+	StateSyncing tmprometheus.GaugeIntVec
 
 	// Number of block parts transmitted by each peer.
-	BlockParts metrics.Counter `metrics_labels:"peer_id"`
+	BlockParts tmprometheus.CounterIntVec `metrics_labels:"peer_id"`
 
 	// Histogram of durations for each step in the consensus protocol.
-	StepDuration metrics.Histogram `metrics_labels:"step" metrics_buckettype:"exprange" metrics_bucketsizes:"0.1, 100, 8"`
+	StepDuration tmprometheus.HistogramVec `metrics_labels:"step" metrics_buckets:"exprange(0.1, 100, 8)"`
 	stepStart    time.Time
 
 	// Histogram of time taken to receive a block in seconds, measured between when a new block is first
 	// discovered to when the block is completed.
-	BlockGossipReceiveLatency metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.1, 100, 8"`
+	BlockGossipReceiveLatency tmprometheus.HistogramVec `metrics_buckets:"exprange(0.1, 100, 8)"`
 	blockGossipStart          time.Time
 
 	// Number of block parts received by the node, separated by whether the part
 	// was relevant to the block the node is trying to gather or not.
-	BlockGossipPartsReceived metrics.Counter `metrics_labels:"matches_current"`
+	BlockGossipPartsReceived tmprometheus.CounterIntVec `metrics_labels:"matches_current"`
 
 	// Number of proposal blocks created on propose received.
-	ProposalBlockCreatedOnPropose metrics.Counter `metrics_labels:"success"`
+	ProposalBlockCreatedOnPropose tmprometheus.CounterIntVec `metrics_labels:"success"`
 
 	// Number of txs in a proposal.
-	ProposalTxs metrics.Gauge
+	ProposalTxs *prometheus.GaugeVec
 
 	// Number of missing txs when trying to create proposal.
-	ProposalMissingTxs metrics.Gauge
+	ProposalMissingTxs tmprometheus.GaugeIntVec
 
 	//Number of missing txs when a proposal is received
-	MissingTxs metrics.Gauge `metrics_labels:"proposer_address"`
+	MissingTxs *prometheus.GaugeVec `metrics_labels:"proposer_address"`
 
 	// QuroumPrevoteMessageDelay is the interval in seconds between the proposal
 	// timestamp and the timestamp of the earliest prevote that achieved a quorum
@@ -104,81 +107,81 @@ type Metrics struct {
 	// the endpoint of the interval. Subtract the proposal timestamp from this endpoint
 	// to obtain the quorum delay.
 	//metrics:Interval in seconds between the proposal timestamp and the timestamp of the earliest prevote that achieved a quorum.
-	QuorumPrevoteDelay metrics.Gauge `metrics_labels:"proposer_address"`
+	QuorumPrevoteDelay *prometheus.GaugeVec `metrics_labels:"proposer_address"`
 
 	// FullPrevoteDelay is the interval in seconds between the proposal
 	// timestamp and the timestamp of the latest prevote in a round where 100%
 	// of the voting power on the network issued prevotes.
 	//metrics:Interval in seconds between the proposal timestamp and the timestamp of the latest prevote in a round where all validators voted.
-	FullPrevoteDelay metrics.Gauge `metrics_labels:"proposer_address"`
+	FullPrevoteDelay *prometheus.GaugeVec `metrics_labels:"proposer_address"`
 
 	// ProposalTimestampDifference is the difference between the timestamp in
 	// the proposal message and the local time of the validator at the time
 	// that the validator received the message.
 	//metrics:Difference between the timestamp in the proposal message and the local time of the validator at the time it received the message.
-	ProposalTimestampDifference metrics.Histogram `metrics_labels:"is_timely" metrics_bucketsizes:"-10, -.5, -.025, 0, .1, .5, 1, 1.5, 2, 10"`
+	ProposalTimestampDifference tmprometheus.HistogramVec `metrics_labels:"is_timely" metrics_buckets:"-10, -.5, -.025, 0, .1, .5, 1, 1.5, 2, 10"`
 
 	// ProposalReceiveCount is the total number of proposals received by this node
 	// since process start.
 	// The metric is annotated by the status of the proposal from the application,
 	// either 'accepted' or 'rejected'.
 	//metrics:Total number of proposals received by the node since process start labeled by application response status.
-	ProposalReceiveCount metrics.Counter `metrics_labels:"status"`
+	ProposalReceiveCount tmprometheus.CounterIntVec `metrics_labels:"status"`
 
 	// ProposalCreationCount is the total number of proposals created by this node
 	// since process start.
 	//metrics:Total number of proposals created by the node since process start.
-	ProposalCreateCount metrics.Counter
+	ProposalCreateCount tmprometheus.CounterIntVec
 
 	// RoundVotingPowerPercent is the percentage of the total voting power received
 	// with a round. The value begins at 0 for each round and approaches 1.0 as
 	// additional voting power is observed. The metric is labeled by vote type.
 	//metrics:A value between 0 and 1.0 representing the percentage of the total voting power per vote type received within a round.
-	RoundVotingPowerPercent metrics.Gauge `metrics_labels:"vote_type"`
+	RoundVotingPowerPercent *prometheus.GaugeVec `metrics_labels:"vote_type"`
 
 	// LateVotes stores the number of votes that were received by this node that
 	// correspond to earlier heights and rounds than this node is currently
 	// in.
 	//metrics:Number of votes received by the node since process start that correspond to earlier heights and rounds than this node is currently in.
-	LateVotes metrics.Counter `metrics_labels:"validator_address"`
+	LateVotes tmprometheus.CounterIntVec `metrics_labels:"validator_address"`
 
 	// FinalRound stores the final round id the proposal block reach consensus in.
 	//metrics:The final round number for where the proposal block reach consensus in, starting at 0.
-	FinalRound metrics.Histogram `metrics_labels:"proposer_address" metrics_bucketsizes:"0,1,2,3,5,10"`
+	FinalRound tmprometheus.HistogramVec `metrics_labels:"proposer_address" metrics_buckets:"0,1,2,3,5,10"`
 
 	// ProposeLatency stores the latency in seconds from when the initial round
 	// starts till the proposal is created and received
 	//metrics:Number of seconds from when the consensus round started till the proposal receive time
-	ProposeLatency metrics.Histogram `metrics_labels:"proposer_address" metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	ProposeLatency tmprometheus.HistogramVec `metrics_labels:"proposer_address" metrics_buckets:"exprange(0.01, 10, 10)"`
 
 	// PrevoteLatency is measuring the relative delay in seconds from when the first vote arrive in each round
 	// till all remaining following prevote arrives from different validators to reach consensus.
 	//metrics:Number of seconds from when first prevote arrive till other remaining prevote arrives for each validator
-	PrevoteLatency metrics.Histogram `metrics_labels:"validator_address" metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	PrevoteLatency tmprometheus.HistogramVec `metrics_labels:"validator_address" metrics_buckets:"exprange(0.01, 10, 10)"`
 
 	// ConsensusTime the metric to track how long the consensus takes in each block
 	//metrics: Number of seconds spent on consensus
-	ConsensusTime metrics.Histogram `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.3, 25"`
+	ConsensusTime tmprometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.3, 25)"`
 
 	// CompleteProposalTime measures how long it takes between receiving a proposal and finishing
 	// processing all of its parts. Note that this means it also includes network latency from
 	// block parts gossip
-	CompleteProposalTime metrics.Histogram `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.3, 25"`
+	CompleteProposalTime tmprometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.3, 25)"`
 
 	// ApplyBlockLatency measures how long it takes to execute ApplyBlock in finalize commit step
-	ApplyBlockLatency metrics.Histogram `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.3, 25"`
+	ApplyBlockLatency tmprometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.3, 25)"`
 
-	StepLatency                 metrics.Gauge `metrics_labels:"step"`
+	StepLatency                 *prometheus.GaugeVec `metrics_labels:"step"`
 	lastRecordedStepLatencyNano int64
-	StepCount                   metrics.Gauge `metrics_labels:"step"`
+	StepCount                   tmprometheus.GaugeIntVec `metrics_labels:"step"`
 }
 
 // RecordConsMetrics uses for recording the block related metrics during fast-sync.
 func (m *Metrics) RecordConsMetrics(block *types.Block) {
-	m.NumTxs.Set(float64(len(block.Txs)))
-	m.TotalTxs.Add(float64(len(block.Txs)))
-	m.BlockSizeBytes.Observe(float64(block.Size()))
-	m.CommittedHeight.Set(float64(block.Height))
+	m.NumTxsAt().Set(int64(len(block.Txs)))
+	m.TotalTxsAt().Add(int64(len(block.Txs)))
+	m.BlockSizeBytesAt().Observe(float64(block.Size()))
+	m.CommittedHeightAt().Set(block.Height)
 }
 
 func (m *Metrics) MarkBlockGossipStarted() {
@@ -186,7 +189,7 @@ func (m *Metrics) MarkBlockGossipStarted() {
 }
 
 func (m *Metrics) MarkBlockGossipComplete() {
-	m.BlockGossipReceiveLatency.Observe(time.Since(m.blockGossipStart).Seconds())
+	m.BlockGossipReceiveLatencyAt().Observe(time.Since(m.blockGossipStart).Seconds())
 }
 
 func (m *Metrics) MarkProposalProcessed(accepted bool) {
@@ -194,71 +197,71 @@ func (m *Metrics) MarkProposalProcessed(accepted bool) {
 	if !accepted {
 		status = "rejected"
 	}
-	m.ProposalReceiveCount.With("status", status).Add(1)
+	m.ProposalReceiveCountAt(status).Add(1)
 }
 
 func (m *Metrics) MarkVoteReceived(vt tmproto.SignedMsgType, power, totalPower int64) {
 	p := float64(power) / float64(totalPower)
 	n := strings.ToLower(strings.TrimPrefix(vt.String(), "SIGNED_MSG_TYPE_"))
-	m.RoundVotingPowerPercent.With("vote_type", n).Add(p)
+	m.RoundVotingPowerPercentAt(n).Add(p)
 }
 
 func (m *Metrics) MarkRound(r int32, st time.Time) {
-	m.Rounds.Set(float64(r))
+	m.RoundsAt().Set(int64(r))
 	roundTime := time.Since(st).Seconds()
-	m.RoundDuration.Observe(roundTime)
+	m.RoundDurationAt().Observe(roundTime)
 
 	pvt := tmproto.PrevoteType
 	pvn := strings.ToLower(strings.TrimPrefix(pvt.String(), "SIGNED_MSG_TYPE_"))
-	m.RoundVotingPowerPercent.With("vote_type", pvn).Set(0)
+	m.RoundVotingPowerPercentAt(pvn).Set(0)
 
 	pct := tmproto.PrecommitType
 	pcn := strings.ToLower(strings.TrimPrefix(pct.String(), "SIGNED_MSG_TYPE_"))
-	m.RoundVotingPowerPercent.With("vote_type", pcn).Set(0)
+	m.RoundVotingPowerPercentAt(pcn).Set(0)
 }
 
 func (m *Metrics) MarkLateVote(vote *types.Vote) {
 	validator := vote.ValidatorAddress.String()
-	m.LateVotes.With("validator_address", validator).Add(1)
+	m.LateVotesAt(validator).Add(1)
 }
 
 func (m *Metrics) MarkFinalRound(round int32, proposer string) {
-	m.FinalRound.With("proposer_address", proposer).Observe(float64(round))
+	m.FinalRoundAt(proposer).Observe(float64(round))
 }
 
 func (m *Metrics) MarkProposeLatency(proposer string, latency time.Duration) {
-	m.ProposeLatency.With("proposer_address", proposer).Observe(latency.Seconds())
+	m.ProposeLatencyAt(proposer).Observe(latency.Seconds())
 }
 
 func (m *Metrics) MarkPrevoteLatency(validator string, latency time.Duration) {
-	m.PrevoteLatency.With("validator_address", validator).Observe(latency.Seconds())
+	m.PrevoteLatencyAt(validator).Observe(latency.Seconds())
 }
 
 func (m *Metrics) MarkCompleteProposalTime(latency time.Duration) {
-	m.CompleteProposalTime.Observe(latency.Seconds())
+	m.CompleteProposalTimeAt().Observe(latency.Seconds())
 }
 
 func (m *Metrics) MarkConsensusTime(latency time.Duration) {
-	m.ConsensusTime.Observe(latency.Seconds())
+	m.ConsensusTimeAt().Observe(latency.Seconds())
 }
 
 func (m *Metrics) MarkApplyBlockLatency(latency time.Duration) {
-	m.ApplyBlockLatency.Observe(latency.Seconds())
+	m.ApplyBlockLatencyAt().Observe(latency.Seconds())
 }
 
 func (m *Metrics) MarkStep(s cstypes.RoundStepType) {
 	if !m.stepStart.IsZero() {
 		stepTime := time.Since(m.stepStart).Seconds()
 		stepName := strings.TrimPrefix(s.String(), "RoundStep")
-		m.StepDuration.With("step", stepName).Observe(stepTime)
-		m.StepCount.With("step", s.String()).Add(1)
+		m.StepDurationAt(stepName).Observe(stepTime)
+		m.StepCountAt(s.String()).Add(1)
 	}
 	m.stepStart = time.Now()
 }
 
 func (m *Metrics) MarkStepLatency(s cstypes.RoundStepType) {
 	now := time.Now().UnixNano()
-	m.StepLatency.With("step", s.String()).Add(float64(now - m.lastRecordedStepLatencyNano))
+	m.StepLatencyAt(s.String()).Add(float64(now - m.lastRecordedStepLatencyNano))
 	m.lastRecordedStepLatencyNano = now
 }
 
@@ -273,7 +276,7 @@ func (m *Metrics) ClearStepMetrics() {
 		cstypes.RoundStepPrecommitWait,
 		cstypes.RoundStepCommit,
 	} {
-		m.StepCount.With("step", st.String()).Set(0)
-		m.StepLatency.With("step", st.String()).Set(0)
+		m.StepCountAt(st.String()).Set(0)
+		m.StepLatencyAt(st.String()).Set(0)
 	}
 }
