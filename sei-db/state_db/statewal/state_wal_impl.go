@@ -3,14 +3,11 @@ package statewal
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
 	"sync"
 	"sync/atomic"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 	"github.com/sei-protocol/seilog"
 )
 
@@ -18,96 +15,87 @@ var _ StateWAL = (*stateWALImpl)(nil)
 
 var logger = seilog.NewLogger("db", "state-db", "statewal")
 
-// dataToBeSerialized carries an entry from a caller to the serializer to be serialized.
-type dataToBeSerialized struct {
-	entry *Entry
-}
-
-// dataToBeWritten carries a framed record from the serializer to the writer to be appended.
-type dataToBeWritten struct {
-	record      []byte
+// changesetMsg carries one Write's changesets to the serializer goroutine to be marshaled and accumulated
+// into the current block's buffer.
+type changesetMsg struct {
 	blockNumber uint64
-	endOfBlock  bool
+	cs          []*proto.NamedChangeSet
 }
 
-// flushRequest asks the writer to flush (and optionally fsync) the mutable file, signaling done when durable.
-type flushRequest struct {
+// endOfBlockMsg tells the serializer goroutine that the current block is complete: it appends the accumulated
+// buffer to the underlying WAL as a single record and resets the buffer.
+type endOfBlockMsg struct {
+	blockNumber uint64
+}
+
+// flushMsg asks the serializer goroutine to flush the underlying WAL, signaling done when durable.
+type flushMsg struct {
 	done chan error
 }
 
-// rangeQuery asks the writer to report the stored block range.
-type rangeQuery struct {
-	reply chan storedRange
+// rangeMsg asks the serializer goroutine to report the stored block range.
+type rangeMsg struct {
+	reply chan rangeReply
 }
 
-// pruneRequest asks the writer to drop whole sealed files below `through`.
-type pruneRequest struct {
-	through uint64
-}
-
-// closeRequest asks the writer to seal the mutable file and shut down, signaling done when sealed.
-type closeRequest struct {
-	done chan error
-}
-
-// unpinRequest releases a read lease previously registered when an iterator was created.
-type unpinRequest struct {
-	block uint64
-}
-
-// iteratorStartRequest asks the writer to construct an iterator. The writer flushes the mutable file (so the
-// iterator observes all prior writes), snapshots the current set of files, registers the read lease, and builds
-// the iterator, all on its own goroutine so construction is serialized with rotation/seal/prune.
-type iteratorStartRequest struct {
-	startBlock uint64
-	reply      chan iteratorStartResponse
-}
-
-// The iterator (or an error) produced by the writer in response to an iteratorStartRequest.
-type iteratorStartResponse struct {
-	iterator *walIterator
-	err      error
-}
-
-// The block range reported by GetStoredRange.
-type storedRange struct {
+// The block range (and any error) reported by GetStoredRange.
+type rangeReply struct {
 	ok    bool
 	start uint64
 	end   uint64
+	err   error
 }
 
-// Bookkeeping for a sealed WAL file, owned by the writer goroutine.
-type sealedFileInfo struct {
-	index      uint64
-	name       string
-	firstBlock uint64
-	lastBlock  uint64
+// pruneMsg asks the serializer goroutine to prune the underlying WAL below `through`.
+type pruneMsg struct {
+	through uint64
 }
 
-// A standard state WAL implementation.
+// iteratorMsg asks the serializer goroutine to create an iterator, so it is ordered after every prior write.
+type iteratorMsg struct {
+	startBlock uint64
+	reply      chan iteratorReply
+}
+
+// The iterator (or an error) produced in response to an iteratorMsg.
+type iteratorReply struct {
+	iterator StateWALIterator
+	err      error
+}
+
+// closeMsg asks the serializer goroutine to close the underlying WAL and shut down, signaling done when closed.
+type closeMsg struct {
+	done chan error
+}
+
+// A state WAL implemented as a thin, block-aware wrapper over a generic seiwal.WAL.
+//
+// The wrapper owns the block write-ordering contract (Write/SignalEndOfBlock) and the mapping of a block's
+// changesets to a single opaque WAL record: the block number becomes the record index, and the block's
+// changesets (accumulated across one or more Write calls) become the record payload. A single serializer
+// goroutine marshals changesets off the caller's critical path — the throughput-sensitive path — and appends
+// one record per block at end-of-block.
 type stateWALImpl struct {
 	// The configuration this WAL was opened with. Read-only after construction.
 	config *Config
 
-	//	caller ──serializerChan──▶ serializer ──writerChan──▶ writer
+	// The underlying generic write-ahead log.
+	wal seiwal.WAL
 
 	// Caller entry points funnel through serializerChan as a single ordered stream to the serializer.
 	serializerChan chan any
 
-	// The serializer forwards serialized records and control messages to the writer over writerChan.
-	writerChan chan any
-
-	// The hard-stop context the serializer and writer watch. Cancelled by fail() on a fatal error and by
-	// Close() once everything has drained.
+	// The hard-stop context the serializer watches. Cancelled by fail() on a fatal error and by Close() once
+	// everything has drained.
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// A child of ctx that the serializerChan producers watch, cancelled once the serializer stops reading so an
-	// in-flight or future push aborts rather than deadlocking.
+	// A child of ctx that the serializerChan producers watch, cancelled once the serializer stops reading so
+	// an in-flight or future push aborts rather than deadlocking.
 	senderCtx    context.Context
 	senderCancel context.CancelFunc
 
-	// Tracks the serializer and writer goroutines so Close() can wait for them to exit.
+	// Tracks the serializer goroutine so Close() can wait for it to exit.
 	wg sync.WaitGroup
 
 	// Guarantees the Close() shutdown sequence runs at most once.
@@ -120,7 +108,7 @@ type stateWALImpl struct {
 	asyncErr atomic.Pointer[error]
 
 	// Guards the write-ordering contract state below, which is read/written synchronously in Write and
-	// SignalEndOfBlock (not on the background goroutines).
+	// SignalEndOfBlock (not on the serializer goroutine).
 	mu sync.Mutex
 	// The block number of the most recent Write or SignalEndOfBlock.
 	currentBlock uint64
@@ -128,31 +116,16 @@ type stateWALImpl struct {
 	currentBlockEnded bool
 	// Whether any block has been observed (this session or recovered from disk).
 	hasCurrentBlock bool
-
-	// The following fields are owned exclusively by the writer goroutine.
-
-	// The current mutable file accepting records.
-	mutableFile *walFile
-
-	// The index to assign the next mutable file.
-	nextIndex uint64
-
-	// Sealed files in ascending block order. Rotation appends to the back; pruning removes from the front.
-	sealedFiles *util.RandomAccessDeque[*sealedFileInfo]
-
-	// Read leases held by live iterators: block number -> reference count. Pruning will not delete a file
-	// whose block range contains a leased block. Mutated only by the writer goroutine.
-	blockRefs map[uint64]int
 }
 
-// New opens (or creates) a state WAL in the configured directory, recovering any files left behind
-// by a previous session.
+// New opens (or creates) a state WAL in the configured directory, recovering any files left behind by a
+// previous session.
 func New(config *Config) (StateWAL, error) {
 	return newStateWAL(config, nil)
 }
 
-// NewWithRollback opens a state WAL and deletes all data for blocks beyond rollbackBlockNumber
-// before returning, so the WAL contains no block greater than rollbackBlockNumber.
+// NewWithRollback opens a state WAL and deletes all data for blocks beyond rollbackBlockNumber before
+// returning, so the WAL contains no block greater than rollbackBlockNumber.
 func NewWithRollback(config *Config, rollbackBlockNumber uint64) (StateWAL, error) {
 	return newStateWAL(config, &rollbackBlockNumber)
 }
@@ -161,36 +134,16 @@ func newStateWAL(config *Config, rollbackThrough *uint64) (StateWAL, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid state WAL config: %w", err)
 	}
-	if err := util.EnsureDirectoryExists(config.Path, true); err != nil {
-		return nil, fmt.Errorf("failed to ensure WAL directory %s: %w", config.Path, err)
-	}
 
-	// Clean up remnants of a rollback swap interrupted by a crash before scanning (see rollbackStraddlingFile):
-	// a leftover swap file from an unfinished AtomicWrite, or two sealed files sharing an index because the old
-	// file was not yet removed. This leaves a set where every sealed index is unique and name matches content.
-	if err := util.DeleteOrphanedSwapFiles(config.Path); err != nil {
-		return nil, fmt.Errorf("failed to delete orphaned swap files: %w", err)
-	}
-	if err := reconcileRollbackRemnants(config.Path); err != nil {
-		return nil, fmt.Errorf("failed to reconcile rollback remnants: %w", err)
-	}
-	if err := recoverOrphans(config.Path); err != nil {
-		return nil, fmt.Errorf("failed to recover orphaned WAL files: %w", err)
-	}
+	var wal seiwal.WAL
+	var err error
 	if rollbackThrough != nil {
-		if err := rollbackDirectory(config.Path, *rollbackThrough); err != nil {
-			return nil, fmt.Errorf("failed to roll back WAL beyond block %d: %w", *rollbackThrough, err)
-		}
+		wal, err = seiwal.NewWithRollback(config.toSeiwalConfig(), *rollbackThrough)
+	} else {
+		wal, err = seiwal.New(config.toSeiwalConfig())
 	}
-
-	sealedFiles, nextIndex, err := scanSealedFiles(config.Path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to scan sealed WAL files: %w", err)
-	}
-
-	mutable, err := newWalFile(config.Path, nextIndex)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open mutable WAL file: %w", err)
+		return nil, fmt.Errorf("failed to open underlying WAL: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -198,32 +151,33 @@ func newStateWAL(config *Config, rollbackThrough *uint64) (StateWAL, error) {
 
 	w := &stateWALImpl{
 		config:         config,
+		wal:            wal,
 		serializerChan: make(chan any, config.RequestBufferSize),
-		writerChan:     make(chan any, config.WriteBufferSize),
 		ctx:            ctx,
 		cancel:         cancel,
 		senderCtx:      senderCtx,
 		senderCancel:   senderCancel,
-		mutableFile:    mutable,
-		nextIndex:      nextIndex + 1,
-		sealedFiles:    sealedFiles,
-		blockRefs:      make(map[uint64]int),
 	}
-	// Recover the write-ordering position from the last complete block already on disk.
-	if r := w.blockRange(); r.ok {
-		w.currentBlock = r.end
+
+	// Recover the write-ordering position from the highest block already on disk.
+	ok, _, last, err := wal.Bounds()
+	if err != nil {
+		_ = wal.Close()
+		return nil, fmt.Errorf("failed to read WAL bounds: %w", err)
+	}
+	if ok {
+		w.currentBlock = last
 		w.currentBlockEnded = true
 		w.hasCurrentBlock = true
 	}
 
-	w.wg.Add(2)
+	w.wg.Add(1)
 	go w.serializerLoop()
-	go w.writerLoop()
 
 	return w, nil
 }
 
-// Write schedules a changeset record for the given block number.
+// Write schedules a set of changes for the given block number.
 func (w *stateWALImpl) Write(blockNumber uint64, cs []*proto.NamedChangeSet) error {
 	if w.closed.Load() {
 		return fmt.Errorf("state WAL is closed")
@@ -231,13 +185,13 @@ func (w *stateWALImpl) Write(blockNumber uint64, cs []*proto.NamedChangeSet) err
 	if err := w.enforceWriteOrdering(blockNumber); err != nil {
 		return fmt.Errorf("write rejected: %w", err)
 	}
-	if err := w.sendToSerializer(dataToBeSerialized{entry: NewEntry(blockNumber, cs)}); err != nil {
+	if err := w.sendToSerializer(changesetMsg{blockNumber: blockNumber, cs: cs}); err != nil {
 		return fmt.Errorf("failed to schedule write for block %d: %w", blockNumber, err)
 	}
 	return nil
 }
 
-// SignalEndOfBlock schedules an end-of-block marker for the current block.
+// SignalEndOfBlock schedules the current block's accumulated changesets to be appended as a single record.
 func (w *stateWALImpl) SignalEndOfBlock() error {
 	if w.closed.Load() {
 		return fmt.Errorf("state WAL is closed")
@@ -252,7 +206,7 @@ func (w *stateWALImpl) SignalEndOfBlock() error {
 	w.currentBlockEnded = true
 	w.mu.Unlock()
 
-	if err := w.sendToSerializer(dataToBeSerialized{entry: NewEndOfBlockEntry(blockNumber)}); err != nil {
+	if err := w.sendToSerializer(endOfBlockMsg{blockNumber: blockNumber}); err != nil {
 		return fmt.Errorf("failed to schedule end-of-block for block %d: %w", blockNumber, err)
 	}
 	return nil
@@ -292,12 +246,12 @@ func (w *stateWALImpl) enforceWriteOrdering(blockNumber uint64) error {
 // Flush blocks until all previously scheduled writes are durable.
 func (w *stateWALImpl) Flush() error {
 	done := make(chan error, 1)
-	if err := w.sendToSerializer(flushRequest{done: done}); err != nil {
+	if err := w.sendToSerializer(flushMsg{done: done}); err != nil {
 		return fmt.Errorf("failed to schedule flush: %w", err)
 	}
 	select {
 	case err := <-done:
-		return err // already wrapped by the writer, or nil on success
+		return err // already wrapped by the underlying WAL, or nil on success
 	case <-w.ctx.Done():
 		if err := w.asyncError(); err != nil {
 			return fmt.Errorf("flush aborted: %w", err)
@@ -308,12 +262,15 @@ func (w *stateWALImpl) Flush() error {
 
 // GetStoredRange reports the range of complete blocks stored in the WAL.
 func (w *stateWALImpl) GetStoredRange() (bool, uint64, uint64, error) {
-	reply := make(chan storedRange, 1)
-	if err := w.sendToSerializer(rangeQuery{reply: reply}); err != nil {
+	reply := make(chan rangeReply, 1)
+	if err := w.sendToSerializer(rangeMsg{reply: reply}); err != nil {
 		return false, 0, 0, fmt.Errorf("failed to schedule stored-range query: %w", err)
 	}
 	select {
 	case r := <-reply:
+		if r.err != nil {
+			return false, 0, 0, fmt.Errorf("stored-range query failed: %w", r.err)
+		}
 		return r.ok, r.start, r.end, nil
 	case <-w.ctx.Done():
 		if err := w.asyncError(); err != nil {
@@ -323,21 +280,20 @@ func (w *stateWALImpl) GetStoredRange() (bool, uint64, uint64, error) {
 	}
 }
 
-// Prune schedules removal of whole sealed files below lowestBlockNumberToKeep. It does not block on completion.
+// Prune schedules removal of whole underlying files below lowestBlockNumberToKeep. It does not block on
+// completion.
 func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
-	if err := w.sendToSerializer(pruneRequest{through: lowestBlockNumberToKeep}); err != nil {
+	if err := w.sendToSerializer(pruneMsg{through: lowestBlockNumberToKeep}); err != nil {
 		return fmt.Errorf("failed to schedule prune below block %d: %w", lowestBlockNumberToKeep, err)
 	}
 	return nil
 }
 
-// Iterator returns an iterator over the WAL starting at startingBlockNumber. Construction runs on the writer
-// goroutine (see iteratorStartRequest): the writer flushes so all previously scheduled writes are visible,
-// registers a read lease so pruning cannot delete files out from under the iterator, and builds the iterator.
-// The lease is released by the iterator's Close.
+// Iterator returns an iterator over the WAL starting at startingBlockNumber. Construction is ordered on the
+// serializer goroutine after every prior write, so the iterator observes all previously scheduled writes.
 func (w *stateWALImpl) Iterator(startingBlockNumber uint64) (StateWALIterator, error) {
-	reply := make(chan iteratorStartResponse, 1)
-	if err := w.sendToSerializer(iteratorStartRequest{startBlock: startingBlockNumber, reply: reply}); err != nil {
+	reply := make(chan iteratorReply, 1)
+	if err := w.sendToSerializer(iteratorMsg{startBlock: startingBlockNumber, reply: reply}); err != nil {
 		return nil, fmt.Errorf("failed to schedule iterator creation: %w", err)
 	}
 	select {
@@ -354,18 +310,13 @@ func (w *stateWALImpl) Iterator(startingBlockNumber uint64) (StateWALIterator, e
 	}
 }
 
-// unpinBlock releases a read lease. Best-effort: if the WAL is already shutting down the lease is moot.
-func (w *stateWALImpl) unpinBlock(block uint64) {
-	_ = w.sendToSerializer(unpinRequest{block: block})
-}
-
-// Close flushes pending writes, seals the mutable file, and releases resources.
+// Close flushes pending writes, closes the underlying WAL, and releases resources.
 func (w *stateWALImpl) Close() error {
 	var closeErr error
 	w.closeOnce.Do(func() {
 		w.closed.Store(true)
 		done := make(chan error, 1)
-		if err := w.sendToSerializer(closeRequest{done: done}); err == nil {
+		if err := w.sendToSerializer(closeMsg{done: done}); err == nil {
 			select {
 			case closeErr = <-done:
 			case <-w.ctx.Done():
@@ -377,11 +328,11 @@ func (w *stateWALImpl) Close() error {
 	if err := w.asyncError(); err != nil {
 		return fmt.Errorf("state WAL closed with error: %w", err)
 	}
-	return closeErr // already wrapped by the writer, or nil on a clean seal
+	return closeErr // already wrapped by the underlying WAL, or nil on a clean close
 }
 
-// sendToSerializer enqueues a message onto the serializer's input channel, aborting if the WAL is
-// shutting down or has failed.
+// sendToSerializer enqueues a message onto the serializer's input channel, aborting if the WAL is shutting
+// down or has failed.
 func (w *stateWALImpl) sendToSerializer(msg any) error {
 	select {
 	case w.serializerChan <- msg:
@@ -394,10 +345,16 @@ func (w *stateWALImpl) sendToSerializer(msg any) error {
 	}
 }
 
-// serializerLoop turns dataToBeSerialized messages into dataToBeWritten messages and forwards every message to
-// the writer in FIFO order. Runs on its own goroutine until close or a fatal error.
+// serializerLoop marshals each block's changesets into a per-block buffer and, at end-of-block, appends the
+// buffer to the underlying WAL as a single record. Control messages (flush, range, prune, iterator, close) are
+// handled in FIFO order relative to writes so they observe a consistent view. Runs on its own goroutine until
+// close or a fatal error.
 func (w *stateWALImpl) serializerLoop() {
 	defer w.wg.Done()
+
+	// The accumulated payload of the block currently being written, reused across blocks.
+	var buf []byte
+
 	for {
 		var msg any
 		select {
@@ -406,271 +363,47 @@ func (w *stateWALImpl) serializerLoop() {
 		case msg = <-w.serializerChan:
 		}
 
-		// A dataToBeSerialized becomes a dataToBeWritten; all other messages are forwarded unchanged.
-		if req, ok := msg.(dataToBeSerialized); ok {
-			payload, err := req.entry.Serialize()
-			if err != nil {
-				w.fail(fmt.Errorf("failed to serialize WAL entry: %w", err))
+		switch m := msg.(type) {
+		case changesetMsg:
+			for _, ncs := range m.cs {
+				var err error
+				buf, err = appendChangeset(buf, ncs)
+				if err != nil {
+					w.fail(fmt.Errorf("failed to serialize changeset for block %d: %w", m.blockNumber, err))
+					return
+				}
+			}
+		case endOfBlockMsg:
+			if err := w.wal.Append(m.blockNumber, buf); err != nil {
+				w.fail(fmt.Errorf("failed to append block %d: %w", m.blockNumber, err))
 				return
 			}
-			msg = dataToBeWritten{
-				record:      frameRecord(payload),
-				blockNumber: req.entry.BlockNumber,
-				endOfBlock:  req.entry.EndOfBlock,
+			buf = buf[:0]
+		case flushMsg:
+			m.done <- w.wal.Flush()
+		case rangeMsg:
+			ok, first, last, err := w.wal.Bounds()
+			m.reply <- rangeReply{ok: ok, start: first, end: last, err: err}
+		case pruneMsg:
+			if err := w.wal.Prune(m.through); err != nil {
+				w.fail(fmt.Errorf("failed to prune below block %d: %w", m.through, err))
+				return
 			}
-		}
-
-		select {
-		case w.writerChan <- msg:
-		case <-w.ctx.Done():
-			return
-		}
-
-		if _, ok := msg.(closeRequest); ok {
-			// FIFO guarantees every prior write has been forwarded. Stop reading and forbid further
-			// pushes so any racing/future schedule aborts instead of deadlocking.
+		case iteratorMsg:
+			inner, err := w.wal.Iterator(m.startBlock)
+			if err != nil {
+				m.reply <- iteratorReply{err: err}
+			} else {
+				m.reply <- iteratorReply{iterator: newStateIterator(inner)}
+			}
+		case closeMsg:
+			m.done <- w.wal.Close()
+			// FIFO guarantees every prior write has been appended. Forbid further pushes so any
+			// racing/future schedule aborts instead of deadlocking against the now-exiting serializer.
 			w.senderCancel()
 			return
 		}
 	}
-}
-
-// writerLoop consumes forwarded messages, appending records to the mutable file and handling control messages.
-// It owns all file bookkeeping and runs on its own goroutine until close or a fatal error.
-func (w *stateWALImpl) writerLoop() {
-	defer w.wg.Done()
-	for {
-		var msg any
-		select {
-		case <-w.ctx.Done():
-			return
-		case msg = <-w.writerChan:
-		}
-
-		switch m := msg.(type) {
-		case dataToBeWritten:
-			if err := w.appendRecord(m); err != nil {
-				w.fail(err)
-				return
-			}
-		case flushRequest:
-			m.done <- w.mutableFile.flush(w.config.FsyncOnFlush)
-		case rangeQuery:
-			m.reply <- w.blockRange()
-		case pruneRequest:
-			if err := w.pruneSealedFiles(m.through); err != nil {
-				w.fail(err)
-				return
-			}
-		case iteratorStartRequest:
-			m.reply <- w.startIterator(m.startBlock)
-		case unpinRequest:
-			w.releaseBlock(m.block)
-		case closeRequest:
-			_, err := w.mutableFile.seal()
-			m.done <- err
-			return
-		}
-	}
-}
-
-// appendRecord appends a record to the mutable file, updates bookkeeping, and rotates on block boundaries once
-// the file exceeds the target size.
-func (w *stateWALImpl) appendRecord(m dataToBeWritten) error {
-	if err := w.mutableFile.writeRecord(m.record, m.blockNumber, m.endOfBlock); err != nil {
-		return fmt.Errorf("failed to append record for block %d: %w", m.blockNumber, err)
-	}
-	walBytesWritten.Add(w.ctx, int64(len(m.record)))
-
-	if m.endOfBlock {
-		walBlocksWritten.Add(w.ctx, 1)
-		if w.mutableFile.size >= uint64(w.config.TargetFileSize) {
-			if err := w.rotate(); err != nil {
-				return fmt.Errorf("failed to rotate after block %d: %w", m.blockNumber, err)
-			}
-		}
-	}
-	return nil
-}
-
-// rotate seals the current mutable file, records its bookkeeping, and opens a fresh mutable file. It is only
-// called immediately after an end-of-block marker, so the mutable file ends on a block boundary.
-func (w *stateWALImpl) rotate() error {
-	index := w.mutableFile.index
-	first := w.mutableFile.firstBlock
-	last := w.mutableFile.lastCompleteBlock
-	sealedName, err := w.mutableFile.seal()
-	if err != nil {
-		return fmt.Errorf("failed to seal WAL file during rotation: %w", err)
-	}
-	w.sealedFiles.PushBack(&sealedFileInfo{index: index, name: sealedName, firstBlock: first, lastBlock: last})
-	walFilesSealed.Add(w.ctx, 1)
-
-	mutable, err := newWalFile(w.config.Path, w.nextIndex)
-	if err != nil {
-		return fmt.Errorf("failed to open new mutable WAL file during rotation: %w", err)
-	}
-	w.mutableFile = mutable
-	w.nextIndex++
-	return nil
-}
-
-// pruneSealedFiles deletes sealed files whose highest block is below pruneThrough. Files are removed
-// oldest-first (from the front of the deque) with a directory fsync after each removal, so a crash mid-prune
-// leaves a contiguous suffix of files rather than a gap in the block sequence. The mutable file is never
-// pruned.
-//
-// A live iterator holds a read lease at some block R and may still read every block from R onward, so no file
-// whose range reaches R or higher may be removed. A file [first, last] is needed iff it overlaps [R, ∞), i.e.
-// iff last >= R. Comparing the lowest live reservation against each file's last block (rather than testing
-// whether the reservation falls inside a file's range) protects exactly the files an iterator can still open —
-// even when the reservation lands in a gap between files or strictly inside a file's range. Because
-// reservations never fall below the lowest stored block (see pinLowestReadableBlock), a file left below the
-// lowest reservation is one the iterator has already moved past and can safely be dropped.
-//
-// Iteration stops at the first retained file: block ranges grow toward the back, so once a file is kept (by
-// pruneThrough or by the lowest reservation) every later file is kept too.
-func (w *stateWALImpl) pruneSealedFiles(pruneThrough uint64) error {
-	// Reservations are mutated only on this (the writer) goroutine, so the lowest reservation is stable for the
-	// duration of this prune and can be computed once.
-	reservation, hasReservation := w.lowestReservation()
-	for {
-		front, ok := w.sealedFiles.TryPeekFront()
-		if !ok || front.lastBlock >= pruneThrough {
-			break
-		}
-		if hasReservation && front.lastBlock >= reservation {
-			break // a live iterator may still read this file (or a later one); keep it and everything after
-		}
-		path := filepath.Join(w.config.Path, front.name)
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to prune WAL file %s: %w", path, err)
-		}
-		if err := util.SyncParentPath(path); err != nil {
-			return fmt.Errorf("failed to fsync directory after pruning %s: %w", path, err)
-		}
-		w.sealedFiles.PopFront()
-		walFilesPruned.Add(w.ctx, 1)
-	}
-	return nil
-}
-
-// startIterator builds an iterator on the writer goroutine. It first seals the mutable file (see
-// sealForIterator) so every complete block written so far lives in an immutable sealed file, then snapshots
-// the sealed files in ascending block order, registers the read lease, and constructs the iterator (which
-// launches its reader goroutine). Running here serializes construction with rotation, seal, and prune, so the
-// snapshot is a consistent point-in-time view: every file the iterator reads is sealed and immutable, opened
-// lazily by name and protected from pruning by the lease, so its contents cannot change underneath the reader.
-func (w *stateWALImpl) startIterator(startBlock uint64) iteratorStartResponse {
-	if err := w.sealForIterator(); err != nil {
-		return iteratorStartResponse{err: fmt.Errorf("failed to seal mutable file before creating iterator: %w", err)}
-	}
-
-	files := make([]iteratorFile, 0, w.sealedFiles.Size())
-	for _, info := range w.sealedFiles.Iterator() {
-		files = append(files, iteratorFile{
-			index:      info.index,
-			name:       info.name,
-			firstBlock: info.firstBlock,
-			lastBlock:  info.lastBlock,
-		})
-	}
-
-	pinned := w.pinLowestReadableBlock(startBlock)
-	it := newWalIterator(w, startBlock, pinned, files, w.config.IteratorPrefetchSize)
-	return iteratorStartResponse{iterator: it}
-}
-
-// sealForIterator seals the mutable file so a newly-created iterator sees a snapshot that cannot change
-// underneath it: after this call every complete block lives in an immutable sealed file. Any in-progress
-// (unended) block is carried forward into the fresh mutable file so no scheduled write is lost. It is a no-op
-// when the mutable file holds no complete block — the iterator reads only sealed files and never yields an
-// unended block, so the mutable file (and any in-progress block) is simply left in place.
-func (w *stateWALImpl) sealForIterator() error {
-	if !w.mutableFile.hasCompleteBlock {
-		return nil
-	}
-
-	// Capture any in-progress block (records past the last end-of-block marker) before the seal truncates
-	// it away, so it can be re-appended to the fresh mutable file. The write-ordering contract guarantees
-	// these records all belong to a single block, namely the mutable file's last block.
-	tail, err := w.mutableFile.readIncompleteTail()
-	if err != nil {
-		return fmt.Errorf("failed to capture in-progress block: %w", err)
-	}
-	tailBlock := w.mutableFile.lastBlock
-
-	if err := w.rotate(); err != nil {
-		return fmt.Errorf("failed to seal mutable file: %w", err)
-	}
-
-	if len(tail) > 0 {
-		if err := w.mutableFile.appendIncompleteTail(tail, tailBlock); err != nil {
-			return fmt.Errorf("failed to carry in-progress block forward: %w", err)
-		}
-	}
-	return nil
-}
-
-// pinLowestReadableBlock records a read lease and returns the pinned block. An iterator reads blocks at or
-// above startBlock but never below the oldest block actually stored, so the lease is clamped up to that: a
-// stale low start must not pin files that no longer exist (or wedge pruning forever). Clamping to the oldest
-// stored block also establishes the invariant pruneSealedFiles relies on: a reservation never falls below the
-// lowest stored block, so a file entirely below the lowest reservation is one every iterator has moved past.
-func (w *stateWALImpl) pinLowestReadableBlock(startBlock uint64) uint64 {
-	pinned := startBlock
-	if r := w.blockRange(); r.ok && r.start > pinned {
-		pinned = r.start
-	}
-	w.blockRefs[pinned]++
-	return pinned
-}
-
-// releaseBlock drops one reference to a leased block, forgetting it once the count reaches zero.
-func (w *stateWALImpl) releaseBlock(block uint64) {
-	if w.blockRefs[block] <= 1 {
-		delete(w.blockRefs, block)
-		return
-	}
-	w.blockRefs[block]--
-}
-
-// lowestReservation returns the smallest block number currently leased by a live iterator, and ok=false when no
-// lease is held. A lease at block R means some iterator may still read blocks at or above R, so every sealed
-// file whose range reaches R or higher must be retained by pruning.
-func (w *stateWALImpl) lowestReservation() (uint64, bool) {
-	var lowest uint64
-	found := false
-	for block := range w.blockRefs {
-		if !found || block < lowest {
-			lowest = block
-			found = true
-		}
-	}
-	return lowest, found
-}
-
-// blockRange reports the range of complete blocks across all files. Complete blocks live in the sealed files
-// (all complete) and in the mutable file up to its last end-of-block marker. Owned by the writer goroutine.
-func (w *stateWALImpl) blockRange() storedRange {
-	var r storedRange
-
-	// The highest complete block is in the mutable file if it has one, otherwise in the newest sealed file.
-	if w.mutableFile.hasCompleteBlock {
-		r = storedRange{ok: true, end: w.mutableFile.lastCompleteBlock}
-	} else if back, ok := w.sealedFiles.TryPeekBack(); ok {
-		r = storedRange{ok: true, end: back.lastBlock}
-	} else {
-		return storedRange{} // nothing complete stored yet
-	}
-
-	// The lowest stored block is in the oldest sealed file if any, otherwise in the mutable file.
-	if front, ok := w.sealedFiles.TryPeekFront(); ok {
-		r.start = front.firstBlock
-	} else {
-		r.start = w.mutableFile.firstBlock
-	}
-	return r
 }
 
 // fail records the first fatal background error and triggers shutdown of the pipeline.
@@ -686,112 +419,4 @@ func (w *stateWALImpl) asyncError() error {
 		return *p
 	}
 	return nil
-}
-
-// recoverOrphans seals any unsealed WAL files left behind by a crash.
-func recoverOrphans(directory string) error {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return fmt.Errorf("failed to read WAL directory %s: %w", directory, err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		parsed, ok := parseFileName(entry.Name())
-		if !ok || parsed.sealed {
-			continue
-		}
-		if err := sealOrphanFile(directory, entry.Name()); err != nil {
-			return fmt.Errorf("failed to seal orphan %s: %w", entry.Name(), err)
-		}
-	}
-	return nil
-}
-
-// rollbackDirectory drops all data beyond rollbackThrough from the sealed files. Assumes orphans are already
-// sealed. Files are processed highest-index-first: the files entirely beyond the rollback point (a suffix of
-// the index sequence) are removed one at a time, each removal made durable before the next, and finally the
-// single file straddling the rollback point is truncated. This ordering guarantees that a crash mid-rollback
-// always leaves a contiguous prefix of files — never a gap that scanSealedFiles would reject — mirroring the
-// contiguous-suffix guarantee that pruning provides from the other end.
-func rollbackDirectory(directory string, rollbackThrough uint64) error {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return fmt.Errorf("failed to read WAL directory %s: %w", directory, err)
-	}
-
-	sealed := make([]parsedFileName, 0, len(entries))
-	names := make(map[uint64]string, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		parsed, ok := parseFileName(entry.Name())
-		if !ok || !parsed.sealed {
-			continue
-		}
-		sealed = append(sealed, parsed)
-		names[parsed.index] = entry.Name()
-	}
-	sort.Slice(sealed, func(i int, j int) bool { return sealed[i].index > sealed[j].index })
-
-	for _, parsed := range sealed {
-		if parsed.lastBlock <= rollbackThrough {
-			// This file lies entirely at or below the rollback point; so does every lower-indexed file. Done.
-			break
-		}
-		if parsed.firstBlock > rollbackThrough {
-			// Entirely beyond the rollback point: remove the whole file, durably, before the next-lower one.
-			if err := removeAndSyncDir(directory, names[parsed.index]); err != nil {
-				return fmt.Errorf("failed to roll back %s: %w", names[parsed.index], err)
-			}
-			continue
-		}
-		// Straddles the rollback point: truncate away the blocks beyond it. This is the last file to process.
-		if err := rollbackStraddlingFile(directory, names[parsed.index], rollbackThrough); err != nil {
-			return fmt.Errorf("failed to roll back %s: %w", names[parsed.index], err)
-		}
-	}
-	return nil
-}
-
-// scanSealedFiles loads the sealed files in a directory into an ascending-order deque and returns the index to
-// assign the next mutable file (one past the highest sealed index, or 0 when there are none). File indices
-// must be contiguous: a gap means a sealed file went missing, which is unrecoverable corruption, so this fails
-// with an informative error rather than silently leaving a hole in the block sequence.
-func scanSealedFiles(directory string) (*util.RandomAccessDeque[*sealedFileInfo], uint64, error) {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to read WAL directory %s: %w", directory, err)
-	}
-
-	parsed := make([]parsedFileName, 0, len(entries))
-	names := make(map[uint64]string, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		p, ok := parseFileName(entry.Name())
-		if !ok || !p.sealed {
-			continue
-		}
-		parsed = append(parsed, p)
-		names[p.index] = entry.Name()
-	}
-	sort.Slice(parsed, func(i int, j int) bool { return parsed[i].index < parsed[j].index })
-
-	sealedFiles := util.NewRandomAccessDeque[*sealedFileInfo](uint64(len(parsed)))
-	var nextIndex uint64
-	for i, p := range parsed {
-		if i > 0 && p.index != parsed[i-1].index+1 {
-			return nil, 0, fmt.Errorf(
-				"WAL is corrupt: sealed file indices are not contiguous (gap between %d and %d)",
-				parsed[i-1].index, p.index)
-		}
-		sealedFiles.PushBack(&sealedFileInfo{
-			index: p.index, name: names[p.index], firstBlock: p.firstBlock, lastBlock: p.lastBlock})
-		nextIndex = p.index + 1
-	}
-	return sealedFiles, nextIndex, nil
 }

@@ -69,16 +69,15 @@ type StateWAL interface {
 }
 
 // Iterates over data in a state WAL, in ascending block order, yielding one entry per block. All changesets
-// written for a block (across one or more Write calls) are coalesced, in write order, into that block's single
-// entry; the entry's EndOfBlock field is always false. Incomplete trailing blocks (those with no end-of-block
-// marker) are not yielded.
+// written for a block (across one or more Write calls) are combined, in write order, into that block's single
+// entry. Blocks that were never ended with SignalEndOfBlock are not yielded.
 type StateWALIterator interface {
 	// Next advances the iterator to the next block. It returns false when iteration is complete (no more
 	// blocks), and returns an error if advancing failed. After Next returns (false, nil), iteration is
 	// complete; after it returns an error, the iterator must not be used further (other than Close).
 	Next() (bool, error)
 
-	// Entry returns the coalesced entry for the block at the iterator's current position. It is only valid to
+	// Entry returns the combined entry for the block at the iterator's current position. It is only valid to
 	// call Entry after Next has returned (true, nil).
 	//
 	// The returned entry, and every byte slice reachable through it (changeset keys and values), must be
