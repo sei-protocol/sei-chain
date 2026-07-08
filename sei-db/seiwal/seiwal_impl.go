@@ -13,7 +13,7 @@ import (
 	"github.com/sei-protocol/seilog"
 )
 
-var _ WAL = (*walImpl)(nil)
+var _ WAL[[]byte] = (*walImpl)(nil)
 
 var logger = seilog.NewLogger("db", "seiwal")
 
@@ -88,12 +88,14 @@ type walImpl struct {
 
 	// The hard-stop context the writer watches. Cancelled by fail() on a fatal error and by Close() once
 	// everything has drained.
-	ctx    context.Context
+	ctx context.Context
+	// Cancels ctx, tearing down the writer goroutine.
 	cancel context.CancelFunc
 
 	// A child of ctx that the writerChan producers watch, cancelled once the writer stops reading so an
 	// in-flight or future push aborts rather than deadlocking.
-	senderCtx    context.Context
+	senderCtx context.Context
+	// Cancels senderCtx.
 	senderCancel context.CancelFunc
 
 	// Tracks the writer goroutine so Close() can wait for it to exit.
@@ -132,7 +134,19 @@ type walImpl struct {
 	indexRefs map[uint64]int
 }
 
-func newWAL(config *Config, rollbackThrough *uint64) (WAL, error) {
+// NewWAL opens (or creates) a byte-oriented WAL in the configured directory, recovering any files left
+// behind by a previous session. Operates on []byte payloads.
+func NewWAL(config *Config) (WAL[[]byte], error) {
+	return newWAL(config, nil)
+}
+
+// NewWALWithRollback opens a byte-oriented WAL and deletes all records with an index greater than
+// rollbackIndex before returning, so the WAL contains no record with an index greater than rollbackIndex.
+func NewWALWithRollback(config *Config, rollbackIndex uint64) (WAL[[]byte], error) {
+	return newWAL(config, &rollbackIndex)
+}
+
+func newWAL(config *Config, rollbackThrough *uint64) (WAL[[]byte], error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid WAL config: %w", err)
 	}
@@ -264,7 +278,7 @@ func (w *walImpl) Prune(lowestIndexToKeep uint64) error {
 // (see iteratorStartRequest): the writer flushes so all previously scheduled appends are visible, registers a
 // read lease so pruning cannot delete files out from under the iterator, and builds the iterator. The lease is
 // released by the iterator's Close.
-func (w *walImpl) Iterator(startIndex uint64) (Iterator, error) {
+func (w *walImpl) Iterator(startIndex uint64) (Iterator[[]byte], error) {
 	reply := make(chan iteratorStartResponse, 1)
 	if err := w.sendToWriter(iteratorStartRequest{startIndex: startIndex, reply: reply}); err != nil {
 		return nil, fmt.Errorf("failed to schedule iterator creation: %w", err)

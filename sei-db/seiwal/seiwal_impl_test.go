@@ -14,9 +14,9 @@ func testConfig(dir string) *Config {
 	return DefaultConfig(dir)
 }
 
-func openWAL(t *testing.T, cfg *Config) WAL {
+func openWAL(t *testing.T, cfg *Config) WAL[[]byte] {
 	t.Helper()
-	w, err := New(cfg)
+	w, err := NewWAL(cfg)
 	require.NoError(t, err)
 	return w
 }
@@ -27,14 +27,14 @@ func recordPayload(index uint64) []byte {
 }
 
 // appendRecord appends a record with recordPayload(index) at the given index.
-func appendRecord(t *testing.T, w WAL, index uint64) {
+func appendRecord(t *testing.T, w WAL[[]byte], index uint64) {
 	t.Helper()
 	require.NoError(t, w.Append(index, recordPayload(index)))
 }
 
 // collectIndices iterates from start and returns the index of each record, verifying that indices are
 // strictly increasing and never below start.
-func collectIndices(t *testing.T, w WAL, start uint64) []uint64 {
+func collectIndices(t *testing.T, w WAL[[]byte], start uint64) []uint64 {
 	t.Helper()
 	it, err := w.Iterator(start)
 	require.NoError(t, err)
@@ -446,7 +446,7 @@ func TestScanRejectsGapInSealedFiles(t *testing.T) {
 	victim := sealed[len(sealed)/2]
 	require.NoError(t, os.Remove(filepath.Join(dir, sealedFileName(victim.fileSeq, victim.firstIndex, victim.lastIndex))))
 
-	_, err = New(cfg)
+	_, err = NewWAL(cfg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not contiguous")
 }
@@ -472,7 +472,7 @@ func TestRollbackConstructor(t *testing.T) {
 		}
 		require.NoError(t, w.Close())
 
-		w2, err := NewWithRollback(cfg, 3)
+		w2, err := NewWALWithRollback(cfg, 3)
 		require.NoError(t, err)
 		defer func() { require.NoError(t, w2.Close()) }()
 
@@ -494,7 +494,7 @@ func TestRollbackConstructor(t *testing.T) {
 		}
 		require.NoError(t, w.Close())
 
-		w2, err := NewWithRollback(cfg, 3)
+		w2, err := NewWALWithRollback(cfg, 3)
 		require.NoError(t, err)
 		defer func() { require.NoError(t, w2.Close()) }()
 
@@ -537,7 +537,7 @@ func TestRollbackConstructor(t *testing.T) {
 				}
 				require.NoError(t, w.Close())
 
-				w2, err := NewWithRollback(cfg, 3)
+				w2, err := NewWALWithRollback(cfg, 3)
 				require.NoError(t, err)
 				require.NoError(t, w2.Close())
 
@@ -649,7 +649,7 @@ func TestRollbackCrashDuringSwapWindowRecovers(t *testing.T) {
 	require.NoError(t, w2.Close())
 
 	// The subsequent rollback completes cleanly, and a normal reopen sees the consistent rolled-back range.
-	w3, err := NewWithRollback(cfg, 3)
+	w3, err := NewWALWithRollback(cfg, 3)
 	require.NoError(t, err)
 	require.NoError(t, w3.Close())
 

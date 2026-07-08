@@ -54,6 +54,7 @@ func (c *Config) toSeiwalConfig() *seiwal.Config {
 	return &seiwal.Config{
 		Path:                 c.Path,
 		WriteBufferSize:      c.WriteBufferSize,
+		SerializerBufferSize: c.RequestBufferSize,
 		TargetFileSize:       c.TargetFileSize,
 		FsyncOnFlush:         c.FsyncOnFlush,
 		IteratorPrefetchSize: c.IteratorPrefetchSize,

@@ -203,7 +203,7 @@ func TestConcurrentIterationDuringRotation(t *testing.T) {
 // drainContiguousFrom fully consumes an iterator anchored at start, verifying the yielded indices form a
 // gap-free, strictly-increasing run beginning at start (an empty run is allowed: the writer may not have
 // produced start yet). Returns the first error encountered.
-func drainContiguousFrom(w WAL, start uint64) error {
+func drainContiguousFrom(w WAL[[]byte], start uint64) error {
 	it, err := w.Iterator(start)
 	if err != nil {
 		return fmt.Errorf("create iterator: %w", err)

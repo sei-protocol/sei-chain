@@ -1,22 +1,20 @@
 package seiwal
 
-// WAL is a generic, index-keyed, append-only write-ahead log over opaque byte payloads.
+// WAL is a generic, index-keyed, append-only write-ahead log over payloads of type T.
 //
 // Each record is tagged with a caller-provided monotonic index. The index is what makes garbage
 // collection ("drop everything below N"), iteration ("start at N"), and rollback ("drop everything
-// above N") expressible without the WAL ever interpreting a payload. The WAL never inspects the bytes
-// it stores; callers own all serialization.
-type WAL interface {
+// above N") expressible without the WAL ever interpreting a payload.
+type WAL[T any] interface {
 
 	// Append a record with the given index and payload.
 	//
 	// The index must be strictly greater than the index of the most recently appended record (indices
-	// need not be contiguous, but they must strictly increase). data may be empty; it is copied into the
-	// WAL's framing before this call returns, so the caller may reuse the buffer immediately.
+	// need not be contiguous, but they must strictly increase).
 	//
 	// This method only schedules the append; it does not block until the record is durable. Durability is
 	// achieved by a subsequent Flush.
-	Append(index uint64, data []byte) error
+	Append(index uint64, data T) error
 
 	// Flush blocks until all previously scheduled appends are durable.
 	Flush() error
@@ -48,14 +46,14 @@ type WAL interface {
 	// start and the return of this call. Records appended before that instant are included; records
 	// appended after it are not. For records appended concurrently with this call, whether they are
 	// included is unspecified.
-	Iterator(startIndex uint64) (Iterator, error)
+	Iterator(startIndex uint64) (Iterator[T], error)
 
 	// Close flushes pending appends, seals the current file, and releases resources.
 	Close() error
 }
 
 // Iterator iterates over the records of a WAL in ascending index order.
-type Iterator interface {
+type Iterator[T any] interface {
 	// Next advances the iterator to the next record. It returns false when iteration is complete (no more
 	// records), and returns an error if advancing failed. After Next returns (false, nil), iteration is
 	// complete; after it returns an error, the iterator must not be used further (other than Close).
@@ -66,20 +64,8 @@ type Iterator interface {
 	//
 	// The returned payload must be treated as read-only and must not be modified. Callers that need to
 	// retain or mutate the data must copy it first.
-	Entry() (index uint64, data []byte)
+	Entry() (index uint64, data T)
 
 	// Close releases the resources held by the iterator.
 	Close() error
-}
-
-// New opens (or creates) a WAL in the configured directory, recovering any files left behind by a
-// previous session.
-func New(config *Config) (WAL, error) {
-	return newWAL(config, nil)
-}
-
-// NewWithRollback opens a WAL and deletes all records with an index greater than rollbackIndex before
-// returning, so the WAL contains no record with an index greater than rollbackIndex.
-func NewWithRollback(config *Config, rollbackIndex uint64) (WAL, error) {
-	return newWAL(config, &rollbackIndex)
 }

@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-var _ Iterator = (*walIterator)(nil)
+var _ Iterator[[]byte] = (*walIterator)(nil)
 
 // A record produced by the reader goroutine, or a terminal error.
 type iteratorResult struct {

@@ -14,6 +14,10 @@ type Config struct {
 	// The size of the channel used to send framed records and control messages to the writer goroutine.
 	WriteBufferSize uint
 
+	// The depth of the serialization request queue. Used only by the generic serializing WAL
+	// (NewGenericWAL); the byte-oriented engine ignores it.
+	SerializerBufferSize uint
+
 	// The size a WAL file may reach before it is sealed and a fresh one is opened. Rotation happens after a
 	// record is appended, so a file may exceed this by the size of a single record — and because a record
 	// is written atomically to a single file, a record larger than this threshold produces a file that
@@ -35,6 +39,7 @@ func DefaultConfig(path string) *Config {
 	return &Config{
 		Path:                 path,
 		WriteBufferSize:      16,
+		SerializerBufferSize: 16,
 		TargetFileSize:       64 * unit.MB,
 		FsyncOnFlush:         true,
 		IteratorPrefetchSize: 32,
