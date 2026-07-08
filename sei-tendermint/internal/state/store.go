@@ -527,6 +527,12 @@ func (store dbStore) LoadValidators(height int64) (*types.ValidatorSet, error) {
 		if err != nil {
 			return nil, err
 		}
+		// The genesis-derived entry has an empty set until InitChain (or
+		// state sync) installs the real validators; IncrementProposerPriority
+		// panics on it, so refuse cleanly instead.
+		if vs.IsNilOrEmpty() {
+			return nil, fmt.Errorf("validator set at height %d (checkpoint for height %d) is empty", lastStoredHeight, height)
+		}
 		h, err := tmmath.SafeConvertInt32(height - lastStoredHeight)
 		if err != nil {
 			return nil, err
@@ -545,6 +551,9 @@ func (store dbStore) LoadValidators(height int64) (*types.ValidatorSet, error) {
 	vip, err := types.ValidatorSetFromProto(valInfo.ValidatorSet)
 	if err != nil {
 		return nil, err
+	}
+	if vip.IsNilOrEmpty() {
+		return nil, fmt.Errorf("validator set at height %d is empty", height)
 	}
 
 	return vip, nil

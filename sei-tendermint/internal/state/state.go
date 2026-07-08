@@ -237,6 +237,14 @@ func FromProto(pb *tmstate.State) (*State, error) {
 	}
 	state.NextValidators = nVals
 
+	// An empty validator set is legitimate only for a genesis-derived state
+	// (validators arrive at InitChain, or via state sync). At any later
+	// height it can only be corruption; refuse it at load rather than panic
+	// downstream in consensus.
+	if pb.LastBlockHeight > 0 && (vals.IsNilOrEmpty() || nVals.IsNilOrEmpty()) {
+		return nil, fmt.Errorf("state at height %d has an empty validator set", pb.LastBlockHeight)
+	}
+
 	if state.LastBlockHeight >= 1 { // At Block 1 LastValidators is nil
 		lVals, err := types.ValidatorSetFromProto(pb.LastValidators)
 		if err != nil {
