@@ -1,8 +1,10 @@
 #!/usr/bin/env sh
 
 NODE_ID=${ID:-0}
-GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
-GIGA_OCC=${GIGA_OCC:-false}
+# Defaults mirror the app's DefaultConfig (giga+OCC on): unset runs what an
+# unconfigured seid would; only an explicit false selects V2.
+GIGA_EXECUTOR=${GIGA_EXECUTOR:-true}
+GIGA_OCC=${GIGA_OCC:-true}
 AUTOBAHN=${AUTOBAHN:-false}
 GIGA_STORAGE=${GIGA_STORAGE:-false}
 # GIGA_FLATKV_ONLY=true boots the cluster directly in the terminal v3

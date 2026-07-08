@@ -60,17 +60,26 @@ assert_giga_mode() {
     expected="$2" # "enabled" or "disabled"
     log="build/generated/logs/seid-${node_id}.log"
 
-    if [ ! -f "$log" ]; then
-        echo "GUARD FAILURE: node ${node_id} log ${log} not found; cannot verify giga executor mode"
-        return 1
-    fi
+    # Poll: a slow boot must not read as a missing signal.
+    deadline=60
+    waited=0
+    actual=""
+    while [ "$waited" -lt "$deadline" ]; do
+        if [ -f "$log" ]; then
+            if grep -q "Giga Executor is DISABLED" "$log"; then
+                actual="disabled"
+                break
+            elif grep -q "Giga Executor.*is ENABLED" "$log"; then
+                actual="enabled"
+                break
+            fi
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
 
-    if grep -q "Giga Executor is DISABLED" "$log"; then
-        actual="disabled"
-    elif grep -q "Giga Executor.*is ENABLED" "$log"; then
-        actual="enabled"
-    else
-        echo "GUARD FAILURE: node ${node_id} logged no giga executor startup signal; expected ${expected}"
+    if [ -z "$actual" ]; then
+        echo "GUARD FAILURE: node ${node_id} logged no giga executor startup signal within ${deadline}s (log: ${log}); expected ${expected}"
         return 1
     fi
 
