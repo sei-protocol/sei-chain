@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/eth/tracers"
@@ -86,6 +87,27 @@ func TestValidateMuxTraceConfig(t *testing.T) {
 	require.ErrorContains(t, err, "badTracer")
 }
 
+func TestValidateMuxTraceConfigRejectsDeepNesting(t *testing.T) {
+	api := &DebugAPI{
+		allowedTracers: buildAllowedTracerSet([]string{
+			callTracerName,
+			muxTracerName,
+		}),
+	}
+
+	name := muxTracerName
+	require.NoError(t, api.validateTraceTracer(&tracers.TraceConfig{
+		Tracer:       &name,
+		TracerConfig: nestedMuxTraceConfig(maxMuxTracerNestingDepth - 1),
+	}))
+
+	err := api.validateTraceTracer(&tracers.TraceConfig{
+		Tracer:       &name,
+		TracerConfig: nestedMuxTraceConfig(maxMuxTracerNestingDepth),
+	})
+	require.ErrorContains(t, err, "muxTracer nesting depth exceeds maximum")
+}
+
 func TestValidateMuxTraceConfigAllowsJSWhenConfigured(t *testing.T) {
 	api := &DebugAPI{
 		allowedTracers: buildAllowedTracerSet([]string{
@@ -106,4 +128,14 @@ func TestValidateMuxTraceConfigAllowsJSWhenConfigured(t *testing.T) {
 		TracerConfig: json.RawMessage(`{"flatCallTracer":{}}`),
 	})
 	require.ErrorContains(t, err, "nested native debug tracer")
+}
+
+func nestedMuxTraceConfig(nestedMuxTracers int) json.RawMessage {
+	var builder strings.Builder
+	for range nestedMuxTracers {
+		builder.WriteString(`{"muxTracer":`)
+	}
+	builder.WriteString(`{"callTracer":{}}`)
+	builder.WriteString(strings.Repeat("}", nestedMuxTracers))
+	return json.RawMessage(builder.String())
 }

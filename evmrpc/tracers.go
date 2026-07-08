@@ -37,6 +37,8 @@ const (
 	prestateTracerName = evmrpcconfig.TraceTracerPrestate
 	flatCallTracerName = evmrpcconfig.TraceTracerFlatCall
 	muxTracerName      = evmrpcconfig.TraceTracerMux
+
+	maxMuxTracerNestingDepth = 16
 )
 
 var errTraceConcurrencyLimit = errors.New("trace request rejected due to concurrency limit: server busy")
@@ -276,8 +278,15 @@ func (api *DebugAPI) validateTraceTracer(config *tracers.TraceConfig) error {
 }
 
 func validateMuxTraceConfig(raw json.RawMessage, allowed map[string]struct{}, allowJS bool) error {
+	return validateMuxTraceConfigDepth(raw, allowed, allowJS, 1)
+}
+
+func validateMuxTraceConfigDepth(raw json.RawMessage, allowed map[string]struct{}, allowJS bool, depth int) error {
 	if len(raw) == 0 {
 		return nil
+	}
+	if depth > maxMuxTracerNestingDepth {
+		return fmt.Errorf("muxTracer nesting depth exceeds maximum of %d", maxMuxTracerNestingDepth)
 	}
 	var nested map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &nested); err != nil {
@@ -297,7 +306,7 @@ func validateMuxTraceConfig(raw json.RawMessage, allowed map[string]struct{}, al
 			return fmt.Errorf("nested debug tracer %q is not allowed; JavaScript tracers are disabled", name)
 		}
 		if name == muxTracerName {
-			if err := validateMuxTraceConfig(cfg, allowed, allowJS); err != nil {
+			if err := validateMuxTraceConfigDepth(cfg, allowed, allowJS, depth+1); err != nil {
 				return err
 			}
 		}
