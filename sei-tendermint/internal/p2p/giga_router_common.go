@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"maps"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
@@ -35,7 +37,9 @@ import (
 const maxInboundFullnodePeers = 10000
 
 type gigaRouterCommon struct {
-	cfg     *GigaRouterCommonConfig
+	cfg          *GigaRouterCommonConfig
+	genesisBlock *coretypes.ResultBlock
+
 	key     NodeSecretKey
 	data    *data.State
 	service *giga.Service
@@ -48,11 +52,6 @@ type gigaRouterCommon struct {
 	// by one or two under contention but never over-accepts.
 	inboundFullnodeCount atomic.Int64
 	inboundFullnodeCap   int64
-
-	// hashVault is the app-hash equivocation guard. runExecute owns its lifecycle: it builds the
-	// vault on entry (durable under PersistentStateDir, or a no-op when disabled / in-memory) and
-	// closes it on exit.
-	hashVault hashvault.HashVault
 }
 
 // buildDataState validates the common config and constructs the data
@@ -72,8 +71,8 @@ func buildDataState(cfg *GigaRouterCommonConfig) (*data.State, error) {
 	}
 	committee, err := atypes.NewRoundRobinElection(
 		slices.Collect(maps.Keys(cfg.ValidatorAddrs)),
-		atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight), // nolint:gosec // verified to be positive.
-		cfg.GenDoc.GenesisTime,
+		atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight+1), // nolint:gosec // verified to be positive.
+		cfg.GenDoc.GenesisTime.Add(time.Millisecond),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
@@ -123,6 +122,9 @@ func (r *gigaRouterCommon) MaxGasEstimatedPerBlock() uint64 {
 // BlockDB has the right shape (height + hash indexes, async pruning) and
 // is the long-term home for this read path.
 func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error) {
+	if n == atypes.GlobalBlockNumber(r.cfg.GenDoc.InitialHeight) {
+		return genesisBlock(r.cfg.GenDoc), nil
+	}
 	gb, err := r.data.GlobalBlock(ctx, n)
 	if err != nil {
 		// Map Autobahn's pruning sentinel to CometBFT's, so callers
@@ -153,6 +155,9 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlo
 // sei-db/ledger_db/block.BlockDB.GetBlockByHash once a writer is wired into
 // block execution. The data.State-side index can also go away at that point.
 func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error) {
+	if hash == atypes.BlockHeaderHash(r.genesisBlock.BlockID.Hash[:]) {
+		return r.genesisBlock, nil
+	}
 	opt, err := r.data.GlobalBlockByHash(hash)
 	if err != nil {
 		return nil, fmt.Errorf("data.GlobalBlockByHash: %w", err)
@@ -167,6 +172,22 @@ func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash atypes.BlockHea
 		return &coretypes.ResultBlock{}, nil
 	}
 	return r.translateGlobalBlock(gb), nil
+}
+
+func genesisBlock(genDoc *types.GenesisDoc) *coretypes.ResultBlock {
+	hash := sha256.Sum256([]byte(genDoc.ChainID))
+	return &coretypes.ResultBlock{
+		BlockID: types.BlockID{Hash: tmbytes.HexBytes(hash[:])},
+		Block: &types.Block{
+			Header: types.Header{
+				ChainID: genDoc.ChainID,
+				Height:  genDoc.InitialHeight,
+				Time:    genDoc.GenesisTime,
+			},
+			Data:       types.Data{},
+			LastCommit: &types.Commit{},
+		},
+	}
 }
 
 // translateGlobalBlock converts an Autobahn GlobalBlock to the CometBFT
@@ -197,11 +218,8 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 		Block: &types.Block{
 			Header: types.Header{
 				ChainID: r.cfg.GenDoc.ChainID,
-				// Clamp accepts any constraints.Integer for From, so
-				// gb.GlobalNumber (a typed uint64) goes in directly — no
-				// intermediate uint64() conversion needed.
-				Height: utils.Clamp[int64](gb.GlobalNumber),
-				Time:   gb.Timestamp,
+				Height:  utils.Clamp[int64](gb.GlobalNumber),
+				Time:    gb.Timestamp,
 			},
 			Data:       types.Data{Txs: tmTxs},
 			LastCommit: &types.Commit{},
@@ -209,11 +227,8 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 	}
 }
 
-func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
-	app := r.app
-	hash := b.Header.Hash()
-	var proposerAddress types.Address
-	if vals := app.GetValidators(); len(vals) > 0 {
+func (r *gigaRouterCommon) selectProposerAddress() (types.Address, error) {
+	if vals := r.app.GetValidators(); len(vals) > 0 {
 		// Deterministically select a proposer from the app's validator committee.
 		// We need it so that app does not emit error logs.
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
@@ -221,26 +236,36 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		if err != nil {
 			return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
 		}
-		proposerAddress = key.Address()
+		return key.Address(), nil
 	}
+	return nil, nil
+}
 
+func (r *gigaRouterCommon) executeBlock(ctx context.Context, vault hashvault.HashVault, b *coretypes.ResultBlock) (*abci.ResponseCommit, error) {
+	app := r.app
+	proposerAddress, err := r.selectProposerAddress()
+	if err != nil {
+		return nil, err
+	}
+	// WARNING: the reward distribution has corner cases where it forgets the proposer,
+	// because reward is distributed with a delay. This is not our problem here though.
+	header := b.Block.Header.ToProto()
+	header.ProposerAddress = proposerAddress
+
+	var txs [][]byte
+	for _, tx := range b.Block.Data.Txs {
+		txs = append(txs, tx)
+	}
 	// TODO: add metrics to understand execution latency.
 	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
-		Txs: b.Payload.Txs(),
+		Txs: txs,
 		// Empty DecidedLastCommit does not indicate missing votes.
 		DecidedLastCommit: abci.CommitInfo{},
 		// WARNING: this is a hash of the autobahn block header.
 		// It is used to identify block processed optimistically
 		// and is fed as block hash to EVM contracts.
-		Hash: hash[:],
-		Header: (&types.Header{
-			ChainID: r.cfg.GenDoc.ChainID,
-			Height:  int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
-			Time:    b.Timestamp,
-			// WARNING: the reward distribution has corner cases where it forgets the proposer,
-			// because reward is distributed with a delay. This is not our problem here though.
-			ProposerAddress: proposerAddress,
-		}).ToProto(),
+		Hash:   b.BlockID.Hash,
+		Header: header,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
@@ -251,7 +276,8 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	// before the hash is proposed for AppQC voting via PushAppHash below). On restart the block is
 	// re-executed and the identical hash is re-committed idempotently. A returned error is a benign
 	// shutdown cancellation; genuine faults panic inside the call. See commitAppHashToVault.
-	if err := commitAppHashToVault(ctx, r.hashVault, b.GlobalNumber, resp.AppHash); err != nil {
+	n := atypes.GlobalBlockNumber(b.Block.Header.Height)
+	if err := commitAppHashToVault(ctx, vault, n, resp.AppHash); err != nil {
 		return nil, err
 	}
 
@@ -259,8 +285,10 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	if err != nil {
 		return nil, fmt.Errorf("app.Commit(): %w", err)
 	}
-	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
-		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
+	if r.data.Committee().FirstBlock() <= n {
+		if err := r.data.PushAppHash(ctx, n, resp.AppHash); err != nil {
+			return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
+		}
 	}
 	return commitResp, nil
 }
@@ -314,30 +342,24 @@ func commitAppHashToVault(
 	// Build the fatal message once and use it for both the log and the panic. The logger writes
 	// directly (no in-process buffer), but a hard crash could still drop the final line, so the
 	// panic string carries the full guidance too — panic output is what an operator sees first.
-	var msg string
 	if errors.Is(err, hashvault.ErrHashMismatch) {
 		// The HashVault has already logged the conflicting hashes, its data directory, and the
 		// bypass/slashing guidance immediately before returning this error; don't duplicate it.
-		msg = fmt.Sprintf("FATAL: HashVault detected an app-hash equivocation at height %d; halting. "+
+		return fmt.Errorf("FATAL: HashVault detected an app-hash equivocation at height %d; halting. "+
 			"See the preceding HashVault error for the conflicting hashes and recovery steps. "+
 			"DO NOT RESTART WITHOUT HUMAN INTERVENTION.", height)
-	} else {
-		msg = fmt.Sprintf("FATAL: HashVault could not commit the app hash at height %d (operational "+
-			"error, not a confirmed equivocation): %v. hashHex=%x. Halting.", height, err, hash)
 	}
-	logger.Error(msg)
-	panic(msg)
+	return fmt.Errorf("FATAL: HashVault could not commit the app hash at height %d (operational "+
+		"error, not a confirmed equivocation): %v. hashHex=%x. Halting.", height, err, hash)
 }
 
 func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	// runExecute is the single block-execution loop spawned by both the validator and fullnode Run
-	// methods, so it owns the equivocation guard for both roles: build it here (set before the first
-	// executeBlock, the only other reader) and close it on exit.
+	// methods, so it owns the equivocation guard for both roles: build it here and close it on exit.
 	hashVault, err := buildHashVault(ctx, r.cfg)
 	if err != nil {
 		return fmt.Errorf("buildHashVault(): %w", err)
 	}
-	r.hashVault = hashVault
 	defer func() {
 		if err := hashVault.Close(context.Background()); err != nil {
 			logger.Error("failed to close hashvault", "err", err)
@@ -354,6 +376,10 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
 	}
+	genesisHeight, ok := utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
+	if !ok {
+		return fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
+	}
 	next := last + 1
 	if last == 0 {
 		// Fresh start: CometBFT handshaker is skipped in giga mode (see
@@ -367,19 +393,15 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
-		var ok bool
-		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
-		if !ok {
-			return fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
-		}
-	} else {
+		next = genesisHeight
+	} else if genesisHeight < last {
 		// Re-commit the last finalized block's app hash to the equivocation guard before re-proposing it
 		// for AppQC voting (PushAppHash below), mirroring executeBlock's commit-before-PushAppHash
 		// ordering. On a normal restart this idempotently matches the hash recorded when `last` was
 		// first executed; if the committed app state has diverged from what the vault recorded (e.g. an
 		// out-of-band rollback/restore), this halts the node instead of externalizing a conflicting
 		// hash. A returned error is a benign shutdown cancellation; genuine faults panic inside.
-		if err := commitAppHashToVault(ctx, r.hashVault, last, info.LastBlockAppHash); err != nil {
+		if err := commitAppHashToVault(ctx, hashVault, last, info.LastBlockAppHash); err != nil {
 			return err
 		}
 		// Losing a prefix of appHashes on crash is fine: AppQC is reached
@@ -390,11 +412,17 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	}
 
 	for n := next; ; n += 1 {
-		b, err := r.data.GlobalBlock(ctx, n)
-		if err != nil {
-			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
+		var b *coretypes.ResultBlock
+		if n == genesisHeight {
+			b = r.genesisBlock
+		} else {
+			gb, err := r.data.GlobalBlock(ctx, n)
+			if err != nil {
+				return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
+			}
+			b = r.translateGlobalBlock(gb)
 		}
-		commitResp, err := r.executeBlock(ctx, b)
+		commitResp, err := r.executeBlock(ctx, hashVault, b)
 		if err != nil {
 			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
 		}
@@ -406,7 +434,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
 		}
 		// Align the vault's retention with the data layer's prune boundary.
-		if err := r.hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
+		if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
 			// A canceled context just means we're shutting down between a successful executeBlock
 			// and this prune; that's benign, not a prune failure, so don't alarm operators.
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

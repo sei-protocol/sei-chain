@@ -26,6 +26,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gig
 	return &gigaFullnodeRouter{
 		gigaRouterCommon: &gigaRouterCommon{
 			cfg:                cfg,
+			genesisBlock:       genesisBlock(cfg.GenDoc),
 			key:                key,
 			data:               dataState,
 			service:            giga.NewBlockSyncService(dataState),

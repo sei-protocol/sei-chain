@@ -22,8 +22,8 @@ func newSeededVault(t *testing.T, height atypes.GlobalBlockNumber, hash []byte) 
 }
 
 // TestCommitHashToVault covers the safety contract the restart path in runExecute relies on:
-// an idempotent match returns nil, a divergent hash halts the node (panic), and a canceled
-// context returns an error without halting.
+// an idempotent match returns nil, a divergent hash returns an error, and a canceled context
+// returns an error without halting.
 func TestCommitHashToVault(t *testing.T) {
 	const height atypes.GlobalBlockNumber = 42
 	h1 := make([]byte, hashvault.BlockHashSize)
@@ -40,11 +40,10 @@ func TestCommitHashToVault(t *testing.T) {
 		require.NoError(t, commitAppHashToVault(context.Background(), vault, height, h1))
 	})
 
-	t.Run("divergent hash halts the node", func(t *testing.T) {
+	t.Run("divergent hash returns error", func(t *testing.T) {
 		vault := newSeededVault(t, height, h1)
-		require.Panics(t, func() {
-			_ = commitAppHashToVault(context.Background(), vault, height, h2)
-		})
+		err := commitAppHashToVault(context.Background(), vault, height, h2)
+		require.Error(t, err)
 	})
 
 	t.Run("canceled context returns error without halting", func(t *testing.T) {

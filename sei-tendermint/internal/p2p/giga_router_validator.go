@@ -43,6 +43,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
 			cfg:                &cfg.GigaRouterCommonConfig,
+			genesisBlock:       genesisBlock(cfg.GenDoc),
 			key:                key,
 			data:               dataState,
 			service:            giga.NewService(consensusState),
