@@ -1,0 +1,181 @@
+# In-process harness — MEASUREMENT ONLY (additive, non-gating, informational).
+#
+# Runs a representative subset of the in-process suites ALONGSIDE the docker
+# integration matrix to produce CI-to-CI numbers (per-suite wall-clock, total
+# runner-minutes, pass/flake over N runs). It NEVER gates a merge: it has no
+# `needs:` link into integration-test-check and MUST be left out of branch
+# protection's required status checks. It does not build the docker images and
+# does not shorten the docker critical path — it only emits data to decide
+# whether the in-process payoff justifies deeper productionization (PLT-781).
+#
+# Docker legs run on `ubuntu-large`; this job matches that runner class so the
+# emitted runner-minutes are directly comparable, not confounded by a smaller
+# runner. Trying a cheaper runner is a follow-on experiment, not this job.
+name: In-process Harness (measurement, non-gating)
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Iterations per shard (flake sampling)"
+        required: false
+        default: "3"
+  push:
+    branches:
+      - measure/inprocess-additive-ci
+  # Informational on PRs that touch the harness. This trigger does NOT gate:
+  # keep this workflow out of required status checks (see header).
+  pull_request:
+    branches:
+      - main
+      - release/**
+    paths:
+      - "inprocess/**"
+      - "integration_test/runner/**"
+      - "integration_test/runner_localnode/**"
+      - "integration_test/runner_giga/**"
+      - ".github/workflows/inprocess-measure.yml"
+
+concurrency:
+  group: inprocess-measure-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  measure:
+    name: Measure ${{ matrix.shard.name }}
+    # No `needs:` — this job is standalone and never blocks the docker matrix
+    # or the merge. Match the docker legs' runner class for comparable minutes.
+    runs-on: ubuntu-large
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Representative shard, not the full package (the full in-process
+        # package exceeds a single 40-min `go test`). Each shard is a distinct
+        # `go test` process; SEI_INPROCESS_PORT_BASE is set to a DISTINCT base
+        # in [1024, 32512) per shard, >portBaseSpan (256) apart, so packing
+        # shards onto one host stays collision-free and the intra-process TOCTOU
+        # is removed (the hardening validates these bases).
+        #
+        # NOTE: the Tier-2 subprocess operational suites (crash-recovery,
+        # snapshot, state-sync, upgrade) and GIGA-Mixed live on
+        # feat/inprocess-subprocess-hypervisor, not on phaseA. A `tier2` shard
+        # is added here once that branch converges into the phaseA line.
+        shard:
+          - name: tier1-yaml
+            package: ./integration_test/runner/...
+            run: "TestInProcessBankModule|TestInProcessDistributionModule|TestInProcessStakingModule|TestInProcessOracleModule|TestInProcessAuthzModule|TestInProcessWasmModuleCore|TestInProcessSeiDBModule"
+            port_base: "20000"
+            needs_node: "false"
+          - name: tier1-evm
+            package: ./integration_test/runner/...
+            run: "TestInProcessEVMModuleCompat|TestInProcessEVMPrecompiles|TestInProcessSeiEndpoints|TestInProcessEVMRPCIo"
+            port_base: "21000"
+            needs_node: "true"
+          - name: localnode-n4
+            package: ./integration_test/runner_localnode/...
+            run: "TestLocalnodeMint|TestLocalnodeStartup|TestLocalnodeGov"
+            port_base: "22000"
+            needs_node: "false"
+          - name: giga
+            package: ./integration_test/runner_giga/...
+            run: "TestGigaEVM"
+            port_base: "23000"
+            needs_node: "true"
+    env:
+      SEI_INPROCESS_PORT_BASE: ${{ matrix.shard.port_base }}
+      RUNS: ${{ github.event.inputs.runs || '3' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.6'
+
+      - name: Set up Node
+        if: matrix.shard.needs_node == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Setup cost is measured SEPARATELY from test execution: it is the honest
+      # analog of docker's serial prepare-cluster image build (~9-10 min), so
+      # the two must not be conflated in the before/after.
+      - name: Setup (compile + deps) — timed separately
+        run: |
+          set -euo pipefail
+          setup_start=$(date +%s)
+          go build ./... >/dev/null 2>&1 || true   # warm the build cache; not gating
+          if [[ "${{ matrix.shard.needs_node }}" == "true" ]]; then
+            ( cd contracts && npm ci --no-audit --no-fund )
+          fi
+          setup_end=$(date +%s)
+          echo "SETUP_SECONDS=$((setup_end - setup_start))" >> "$GITHUB_ENV"
+
+      - name: Run shard (N iterations, JSON-timed)
+        id: run
+        run: |
+          set -uo pipefail
+          mkdir -p measure-out
+          total_exec=0
+          passes=0
+          fails=0
+          for i in $(seq 1 "${RUNS}"); do
+            echo "::group::${{ matrix.shard.name }} run $i/${RUNS}"
+            run_start=$(date +%s)
+            set +e
+            go test -tags inprocess -count=1 -timeout 35m -json \
+              "${{ matrix.shard.package }}" -run "${{ matrix.shard.run }}" \
+              > "measure-out/${{ matrix.shard.name }}-run${i}.json" 2>&1
+            rc=$?
+            set -e
+            run_end=$(date +%s)
+            total_exec=$((total_exec + run_end - run_start))
+            if [[ $rc -eq 0 ]]; then passes=$((passes+1)); else fails=$((fails+1)); fi
+            echo "run $i rc=$rc elapsed=$((run_end - run_start))s"
+            echo "::endgroup::"
+          done
+          echo "TOTAL_EXEC_SECONDS=${total_exec}" >> "$GITHUB_ENV"
+          echo "PASSES=${passes}" >> "$GITHUB_ENV"
+          echo "FAILS=${fails}" >> "$GITHUB_ENV"
+
+      # Per-suite wall-clock from `go test -json` (last iteration is
+      # representative; all iterations are archived as artifacts). A top-level
+      # suite = a Test name with no "/" — subtests are rolled up into it.
+      - name: Emit measurement summary
+        if: ${{ always() }}
+        run: |
+          set -uo pipefail
+          last="measure-out/${{ matrix.shard.name }}-run${RUNS}.json"
+          {
+            echo "### In-process measurement — shard \`${{ matrix.shard.name }}\`"
+            echo ""
+            echo "- runner: \`ubuntu-large\` (matches docker legs)"
+            echo "- SEI_INPROCESS_PORT_BASE: \`${SEI_INPROCESS_PORT_BASE}\`"
+            echo "- setup seconds (compile+deps, docker-prepare analog): \`${SETUP_SECONDS:-n/a}\`"
+            echo "- test-exec seconds (sum of ${RUNS} runs): \`${TOTAL_EXEC_SECONDS:-n/a}\`"
+            echo "- pass/flake over ${RUNS} runs: \`${PASSES:-0} pass / ${FAILS:-0} fail\`"
+            echo ""
+            echo "| Suite | Result | Elapsed (s) |"
+            echo "|---|---|---:|"
+            if [[ -f "$last" ]]; then
+              jq -r 'select(.Test != null and (.Test | contains("/") | not)
+                          and (.Action == "pass" or .Action == "fail"))
+                     | "| \(.Test) | \(.Action) | \(.Elapsed) |"' "$last" || true
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw JSON timings
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: inprocess-measure-${{ matrix.shard.name }}
+          path: measure-out
+          retention-days: 7
