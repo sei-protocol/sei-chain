@@ -30,7 +30,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
-var m = PrometheusMetrics(config.TestConfig().Instrumentation.Namespace)
+var m = Global
 
 type reactorTestSuite struct {
 	network *p2p.TestNetwork
@@ -55,7 +55,7 @@ func setup(
 	if conn == nil {
 		conn = newTestStatesyncApp()
 	}
-	proxyConn := proxy.New(conn, proxy.NopMetrics())
+	proxyConn := proxy.New(conn, proxy.NewMetrics())
 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
 		NumNodes: 1,

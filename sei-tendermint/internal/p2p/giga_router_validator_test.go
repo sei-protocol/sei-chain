@@ -59,7 +59,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
-			proxyApp := proxy.New(app, proxy.NopMetrics())
+			proxyApp := proxy.New(app, proxy.NewMetrics())
 			// In giga mode the CometBFT handshaker is skipped; the router's
 			// runExecute calls InitChain itself on fresh start.
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
@@ -84,7 +84,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}, cfg.nodeKey)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
 			router, err := NewRouter(
-				NopMetrics(),
+				NewMetrics(),
 				cfg.nodeKey,
 				func() *types.NodeInfo { return &nodeInfo },
 				dbm.NewMemDB(),
@@ -226,7 +226,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			DialInterval:       time.Second,
 			ValidatorAddrs:     addrs,
 			PersistentStateDir: utils.None[string](),
-			App:                proxy.New(newTestApp(), proxy.NopMetrics()),
+			App:                proxy.New(newTestApp(), proxy.NewMetrics()),
 			GenDoc:             genDoc,
 		},
 		ValidatorKey: validatorKeys[0],
