@@ -140,5 +140,9 @@ func (f *flushLoop) handleFlushRequest(req *flushLoopFlushRequest) {
 		return
 	}
 
-	req.responseChan <- struct{}{}
+	// An auto-flush scheduled by the control loop is fire-and-forget and has no waiting caller, so its
+	// responseChan is nil. The cache-draining work above still runs; only the completion signal is skipped.
+	if req.responseChan != nil {
+		req.responseChan <- struct{}{}
+	}
 }
