@@ -93,11 +93,20 @@ func TestLocalnodeStartup(t *testing.T) {
 	runner.RunFile(t, "../startup/startup_test.yaml", runner.WithInProcessNetwork(sharedNet))
 }
 
-// TestLocalnodeGov runs the param-change + expedited cases (the scoped YAML drops the
-// rejected-burn case, which asserts an absolute supply the long-running net has moved
-// past). Votes span sei-node-0..3 — 2/4 clears quorum 0.5, 4/4 clears expedited 0.9.
+// TestLocalnodeGov runs the param-change + expedited cases. Votes span sei-node-0..3 —
+// 2/4 clears quorum 0.5, 4/4 clears expedited 0.9.
 func TestLocalnodeGov(t *testing.T) {
 	runner.RunFile(t, "../gov_module/gov_param_and_expedited_test.yaml", runner.WithInProcessNetwork(sharedNet))
+}
+
+// TestLocalnodeGovRejectedBurn migrates the docker rejected-burn case. The docker YAML
+// asserts an absolute supply the long-lived net has moved past; the localnode variant
+// asserts the relative supply delta (burned deposit) instead, so mint timing can't
+// perturb it. skipIfNearUTCMidnight covers the one residual coupling — a next-day mint
+// release firing inside the burn window when the net's lifetime crosses UTC midnight.
+func TestLocalnodeGovRejectedBurn(t *testing.T) {
+	skipIfNearUTCMidnight(t)
+	runner.RunFile(t, "../gov_module/gov_rejected_burn_test.yaml", runner.WithInProcessNetwork(sharedNet))
 }
 
 // skipIfNearUTCMidnight skips within slack of UTC midnight: the mint schedule is

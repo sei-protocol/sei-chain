@@ -1,0 +1,53 @@
+# Localnode variant of gov_proposal_test.yaml's rejected-burn case. The docker case
+# asserts an ABSOLUTE total supply before/after (5000000000333333333333 ->
+# 5000000000333313333333); that is fragile in-process because the date-keyed mint
+# release moves supply on its own schedule. This variant asserts the RELATIVE delta:
+# a rejected proposal's escrowed deposit is burned in full (Tally returns burnDeposits
+# on quorum-failure -> gov EndBlocker DeleteDeposits, not RefundDeposits), so total
+# supply must DECREASE by exactly that deposit across the proposal. The deposit is
+# min_expedited (the gov default, 2e7usei), met exactly: 1e7 at submit + 1e7 topped up.
+# A poll barrier (not a fixed sleep) reads supply the instant the proposal reaches
+# REJECTED, tightening the burn window. The only supply movement that could contaminate
+# the delta is a mint release: the minter fires once per UTC day, so the residual risk is
+# a NEXT-day release when the net's lifetime crosses UTC midnight mid-case — guarded by
+# skipIfNearUTCMidnight in the Go driver, not by any barrier here.
+- name: Test a rejected proposal burns its deposit (relative supply delta)
+  inputs:
+    # Confirm the day-0 mint release has already fired (last_mint_amount != 0) before
+    # anchoring the BEFORE read. Because the minter dedups per UTC day, a *same-day*
+    # second release can't happen — so on the shared net (where the mint suite already
+    # crossed the epoch) this returns immediately and is belt-and-suspenders. It does NOT
+    # keep a release out of the burn window: the only in-window risk is a *next-day*
+    # release across UTC midnight, which skipIfNearUTCMidnight (Go driver) handles.
+    - cmd: for _ in $(seq 1 120); do m=$(seid q mint minter --output json | jq -r ".last_mint_amount // 0"); [ "$m" != "0" ] && break; sleep 1; done
+    - cmd: seid q bank total --denom usei --output json | jq -r .amount
+      env: TOTAL_SUPPLY_BEFORE_BURN
+    # Submit an expedited proposal (1e7usei deposit in the JSON). The title must match
+    # the JSON's content title so submit_gov_proposal can resolve the new proposal id;
+    # the id diff against max-before pins it to this submission, not case 3's.
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_gov_proposal admin "Gov Param Change Expedited" gov submit-proposal param-change ./integration_test/gov_module/proposal/expedited_proposal.json --fees 2000usei
+      env: PROPOSAL_ID
+    # Top the deposit up to min_expedited (2e7usei) so it enters voting as expedited.
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin gov deposit $PROPOSAL_ID 10000000usei --fees 2000usei
+    # Only 1/4 equal-stake validators votes yes (0.25) — below every quorum this suite
+    # runs under. Genesis is 0.5 regular / 0.9 expedited; earlier gov cases lower them to
+    # 0.45 / 0.75, and 0.25 clears none. Failing quorum is precisely what BURNS the
+    # deposit (Tally -> burnDeposits=true); a proposal that MEETS quorum but is voted down
+    # refunds instead. So this fails expedited quorum, converts expedited->regular, fails
+    # quorum again, and is REJECTED with its deposit burned.
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
+      node: sei-node-0
+    # Barrier: poll (bounded) until REJECTED, then read supply immediately. Regular
+    # voting ends ~30s after the deposit lands; 90 * 1s is generous headroom.
+    - cmd: for _ in $(seq 1 90); do s=$(seid q gov proposal $PROPOSAL_ID --output json | jq -r .status); [ "$s" = "PROPOSAL_STATUS_REJECTED" ] && break; sleep 1; done; echo "$s"
+      env: PROPOSAL_STATUS
+    - cmd: seid q bank total --denom usei --output json | jq -r .amount
+      env: TOTAL_SUPPLY_AFTER_BURN
+  verifiers:
+    # The proposal genuinely reached terminal rejection (not still voting / refunded-pass).
+    - type: eval
+      expr: PROPOSAL_STATUS == "PROPOSAL_STATUS_REJECTED"
+    # Supply fell by exactly the burned deposit (min_expedited 2e7usei), independent of
+    # the mint schedule's absolute effect on supply.
+    - type: eval
+      expr: TOTAL_SUPPLY_BEFORE_BURN - TOTAL_SUPPLY_AFTER_BURN == 20000000
