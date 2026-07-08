@@ -113,6 +113,11 @@ jobs:
           set -euo pipefail
           setup_start=$(date +%s)
           go build ./... >/dev/null 2>&1 || true   # warm the build cache; not gating
+          # Suites that seed via the seid CLI resolve it from PATH; hermetic
+          # runners have no dev install, so build one here (counted as setup).
+          mkdir -p "$RUNNER_TEMP/bin"
+          go build -o "$RUNNER_TEMP/bin/seid" ./cmd/seid
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           if [[ "${{ matrix.shard.needs_node }}" == "true" ]]; then
             ( cd contracts && npm ci --no-audit --no-fund )
           fi
