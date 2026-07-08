@@ -171,14 +171,40 @@ func TestBasicAllowanceMaxDenoms(t *testing.T) {
 }
 
 func TestPeriodicAllowanceMaxDenoms(t *testing.T) {
+	atCap := sortedCoins(feegrant.MaxAllowanceDenoms)
 	over := sortedCoins(feegrant.MaxAllowanceDenoms + 1)
-	allowance := &feegrant.PeriodicAllowance{
-		Basic:            feegrant.BasicAllowance{SpendLimit: over},
-		PeriodSpendLimit: over,
-		PeriodCanSpend:   over,
-		Period:           time.Hour,
+
+	// Each case keeps the other allowance fields under cap so that a single
+	// over-cap field is the only thing that can trip ErrTooManyDenoms. This
+	// isolates the periodic-specific checks; if they only oversized every field
+	// at once, the embedded Basic.ValidateBasic() would short-circuit and the
+	// periodic checks would never be exercised.
+	cases := map[string]*feegrant.PeriodicAllowance{
+		"basic spend limit over cap": {
+			Basic:            feegrant.BasicAllowance{SpendLimit: over},
+			PeriodSpendLimit: atCap,
+			PeriodCanSpend:   atCap,
+			Period:           time.Hour,
+		},
+		"period spend limit over cap": {
+			Basic:            feegrant.BasicAllowance{SpendLimit: atCap},
+			PeriodSpendLimit: over,
+			PeriodCanSpend:   atCap,
+			Period:           time.Hour,
+		},
+		"period can spend over cap": {
+			Basic:            feegrant.BasicAllowance{SpendLimit: atCap},
+			PeriodSpendLimit: atCap,
+			PeriodCanSpend:   over,
+			Period:           time.Hour,
+		},
 	}
-	err := allowance.ValidateBasic()
-	require.Error(t, err)
-	require.ErrorIs(t, err, feegrant.ErrTooManyDenoms)
+
+	for name, allowance := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := allowance.ValidateBasic()
+			require.Error(t, err)
+			require.ErrorIs(t, err, feegrant.ErrTooManyDenoms)
+		})
+	}
 }
