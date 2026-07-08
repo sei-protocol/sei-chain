@@ -57,22 +57,24 @@ sleep 10
 # this checks the effective runtime mode rather than what the config intended.
 assert_giga_mode() {
     node_id="$1"
-    expected="$2" # "enabled" or "disabled"
+    expected="$2" # "occ", "sequential", or "disabled"
     log="build/generated/logs/seid-${node_id}.log"
 
-    # Poll: a slow boot must not read as a missing signal.
+    # Poll: a slow boot must not read as a missing signal. Match the LAST
+    # "Giga Executor" line so a restart under a different config can't leave an
+    # earlier, stale signal to read ambiguously. OCC must be tested before the
+    # bare ENABLED pattern — "with OCC is ENABLED" also contains "is ENABLED".
     deadline=60
     waited=0
     actual=""
     while [ "$waited" -lt "$deadline" ]; do
         if [ -f "$log" ]; then
-            if grep -q "Giga Executor is DISABLED" "$log"; then
-                actual="disabled"
-                break
-            elif grep -q "Giga Executor.*is ENABLED" "$log"; then
-                actual="enabled"
-                break
-            fi
+            signal=$(grep "Giga Executor" "$log" | tail -1)
+            case "$signal" in
+                *"with OCC is ENABLED"*) actual="occ"; break ;;
+                *"is ENABLED"*)          actual="sequential"; break ;;
+                *"is DISABLED"*)         actual="disabled"; break ;;
+            esac
         fi
         sleep 2
         waited=$((waited + 2))
@@ -93,9 +95,9 @@ assert_giga_mode() {
     return 0
 }
 
-echo "=== Verifying mixed-mode roles (node 0 giga, nodes 1-3 V2) ==="
+echo "=== Verifying mixed-mode roles (node 0 giga+OCC, nodes 1-3 V2) ==="
 GUARD_FAILED=0
-assert_giga_mode 0 enabled || GUARD_FAILED=1
+assert_giga_mode 0 occ || GUARD_FAILED=1
 assert_giga_mode 1 disabled || GUARD_FAILED=1
 assert_giga_mode 2 disabled || GUARD_FAILED=1
 assert_giga_mode 3 disabled || GUARD_FAILED=1

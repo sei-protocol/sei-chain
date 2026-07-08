@@ -823,6 +823,7 @@ func New(
 		} else {
 			logger.Debug("failed to load evmone VM", "error", err)
 		}
+		// evm_giga_mixed_tests.sh matches these ENABLED/DISABLED strings to guard node roles; keep them in sync.
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
 		} else {
