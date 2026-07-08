@@ -78,7 +78,7 @@ func TestPoolRoutine_DoesNotReturnOnValidationFailure(t *testing.T) {
 	evictNetwork := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 1})
 	syncer := &syncController{
 		router:  evictNetwork.Node(evictNetwork.NodeIDs()[0]).Router,
-		metrics: consensus.NopMetrics(),
+		metrics: consensus.NewMetrics(),
 	}
 
 	results := make(chan error, 1)
@@ -135,7 +135,7 @@ func TestPoolRoutine_RetriesAfterValidationFailure(t *testing.T) {
 
 	syncer := &syncController{
 		router:  network.Node(network.NodeIDs()[0]).Router,
-		metrics: consensus.NopMetrics(),
+		metrics: consensus.NewMetrics(),
 	}
 
 	results := make(chan error, 1)

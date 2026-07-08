@@ -6,10 +6,12 @@ import (
 	"regexp"
 	"sync"
 
-	"github.com/go-kit/kit/metrics"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 const (
+	// MetricsNamespace is the namespace shared by all Tendermint Prometheus metrics.
+	MetricsNamespace = "tendermint"
 	// MetricsSubsystem is a subsystem shared by all metrics exposed by this
 	// package.
 	MetricsSubsystem = "p2p"
@@ -27,40 +29,31 @@ var (
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// Number of peers.
-	Peers metrics.Gauge
+	peers prometheus.GaugeIntVec
 	// Number of bytes per channel received from a given peer.
-	PeerReceiveBytesTotal metrics.Counter `metrics_labels:"peer_id, chID, message_type"`
-	// Number of bytes per channel sent to a given peer.
-	PeerSendBytesTotal metrics.Counter `metrics_labels:"peer_id, chID, message_type"`
-	// Number of bytes pending being sent to a given peer.
-	PeerPendingSendBytes metrics.Gauge `metrics_labels:"peer_id"`
+	peerReceiveBytesTotal prometheus.CounterIntVec `metrics_labels:"peer_id, chID, message_type"`
 	// Number of newly established connections.
-	NewConnections metrics.Counter `metrics_labels:"direction, success"`
+	newConnections prometheus.CounterIntVec `metrics_labels:"direction, success"`
 
 	// RouterPeerQueueRecv defines the time taken to read off of a peer's queue
 	// before sending on the connection.
 	//metrics:The time taken to read off of a peer's queue before sending on the connection.
-	RouterPeerQueueRecv metrics.Histogram
+	routerPeerQueueRecv prometheus.HistogramVec
 
-	// RouterPeerQueueSend defines the time taken to send on a peer's queue which
-	// will later be read and sent on the connection (see RouterPeerQueueRecv).
-	//metrics:The time taken to send on a peer's queue which will later be read and sent on the connection.
-	RouterPeerQueueSend metrics.Histogram
-
-	// RouterChannelQueueSend defines the time taken to send on a p2p channel's
-	// queue which will later be consued by the corresponding reactor/service.
-	//metrics:The time taken to send on a p2p channel's queue which will later be consued by the corresponding reactor/service.
-	RouterChannelQueueSend metrics.Histogram
-
-	ChannelMsgs metrics.Counter `metrics_labels:"ch_id, direction"`
+	channelMsgs prometheus.CounterIntVec `metrics_labels:"ch_id, direction"`
 
 	// QueueDroppedMsgs counts the messages dropped from the router's queues.
 	//metrics:The number of messages dropped from router's queues.
-	QueueDroppedMsgs metrics.Counter `metrics_labels:"ch_id, direction"`
+	queueDroppedMsgs prometheus.CounterIntVec `metrics_labels:"ch_id, direction"`
+
+	// Number of live giga p2p connections.
+	gigaConns prometheus.GaugeIntVec `metrics_labels:"direction"`
+	// Counts established giga p2p connections.
+	gigaNewConns prometheus.CounterIntVec `metrics_labels:"direction"`
 }
 
 type metricsLabelCache struct {
-	mtx               *sync.RWMutex
+	mtx               sync.RWMutex
 	messageLabelNames map[reflect.Type]string
 }
 
@@ -68,7 +61,7 @@ type metricsLabelCache struct {
 // type that is passed in.
 // This method uses a map on the Metrics struct so that each label name only needs
 // to be produced once to prevent expensive string operations.
-func (m *metricsLabelCache) ValueToMetricLabel(i interface{}) string {
+func (m *metricsLabelCache) ValueToMetricLabel(i any) string {
 	t := reflect.TypeOf(i)
 	m.mtx.RLock()
 
@@ -89,7 +82,6 @@ func (m *metricsLabelCache) ValueToMetricLabel(i interface{}) string {
 
 func newMetricsLabelCache() *metricsLabelCache {
 	return &metricsLabelCache{
-		mtx:               &sync.RWMutex{},
 		messageLabelNames: map[reflect.Type]string{},
 	}
 }

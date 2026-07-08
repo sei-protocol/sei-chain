@@ -77,7 +77,7 @@ func setup(
 			node.Router,
 			state.eventBus,
 			true,
-			NopMetrics(),
+			NewMetrics(),
 			config.DefaultConfig(),
 		)
 		require.NoError(t, err)
@@ -269,12 +269,12 @@ func TestReactorWithEvidence(t *testing.T) {
 		blockDB := dbm.NewMemDB()
 		blockStore := store.NewBlockStore(blockDB)
 
-		proxyApp := proxy.New(app, proxy.NopMetrics())
+		proxyApp := proxy.New(app, proxy.NewMetrics())
 
 		mempool := mempool.NewTxMempool(
 			thisConfig.Mempool.ToMempoolConfig(),
 			proxyApp,
-			mempool.NopMetrics(),
+			mempool.NewMetrics(),
 			mempool.NopTxConstraintsFetcher,
 		)
 
@@ -282,7 +282,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		// everyone includes evidence of another double signing
 		vIdx := (i + 1) % n
 
-		ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, 1, defaultTestTime, privVals[vIdx], cfg.ChainID())
+		ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, 1, defaultTestTime, privVals[vIdx], config.TestLoadGenesis(cfg).ChainID)
 		require.NoError(t, err)
 		evpool := &statemocks.EvidencePool{}
 		evpool.On("CheckEvidence", mock.Anything, mock.AnythingOfType("types.EvidenceList")).Return(nil)
@@ -294,12 +294,12 @@ func TestReactorWithEvidence(t *testing.T) {
 		eventBus := eventbus.NewDefault()
 		require.NoError(t, eventBus.Start(ctx))
 
-		blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mempool, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
+		blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mempool, evpool, blockStore, eventBus, sm.NewMetrics(), types.DefaultConsensusPolicy())
 		wal, err := OpenWAL(thisConfig.Consensus.WalFile())
 		require.NoError(t, err)
 
 		cs := NewState(
-			thisConfig.Consensus, wal, stateStore, blockExec, blockStore, mempool, evpool2, eventBus, []trace.TracerProviderOption{}, NopMetrics())
+			thisConfig.Consensus, wal, stateStore, blockExec, blockStore, mempool, evpool2, eventBus, []trace.TracerProviderOption{}, NewMetrics())
 		require.NoError(t, cs.updateStateFromStore())
 		cs.SetPrivValidator(ctx, utils.Some(pv))
 

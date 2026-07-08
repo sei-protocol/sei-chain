@@ -460,6 +460,9 @@ func (r *gigaRouterCommon) dialAndRunConn(
 		return r.poolOut.InsertAndRun(ctx, peerKey, client, func(ctx context.Context) error {
 			return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				s.Spawn(func() error { return client.Run(ctx, hConn.conn) })
+				Global.gigaNewConnsAt("out").Add(1)
+				Global.gigaConnsAt("out").Add(1)
+				defer Global.gigaConnsAt("out").Add(-1)
 				return runClient(ctx, client)
 			})
 		})
@@ -496,6 +499,9 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			s.Spawn(func() error { return server.Run(ctx, hConn.conn) })
+			Global.gigaNewConnsAt("in").Add(1)
+			Global.gigaConnsAt("in").Add(1)
+			defer Global.gigaConnsAt("in").Add(-1)
 			if err := r.service.RunInbound(ctx, server, isCommittee); err != nil {
 				return fmt.Errorf("inbound from %v: %w", key, err)
 			}

@@ -211,8 +211,8 @@ func (r *Reactor) SwitchToConsensus(state sm.State, skipWAL bool) {
 	if err := r.eventBus.PublishEventBlockSyncStatus(d); err != nil {
 		logger.Error("failed to emit the blocksync complete event", "err", err)
 	}
-	r.Metrics.BlockSyncing.Set(0)
-	r.Metrics.StateSyncing.Set(0)
+	r.Metrics.BlockSyncingAt().Set(0)
+	r.Metrics.StateSyncingAt().Set(0)
 
 	// we have no votes, so reconstruct LastCommit from SeenCommit
 	r.state.mtx.Lock()
@@ -764,7 +764,7 @@ func (r *Reactor) handleDataMessage(ctx context.Context, m p2p.RecvMsg[*tmcons.M
 		return nil
 	case *BlockPartMessage:
 		ps.SetHasProposalBlockPart(msg.Height, msg.Round, int(msg.Part.Index))
-		r.Metrics.BlockParts.With("peer_id", string(m.From)).Add(1)
+		r.Metrics.BlockPartsAt(string(m.From)).Add(1)
 		return utils.Send(ctx, r.state.peerMsgQueue, msgInfo{msg, m.From, tmtime.Now()})
 	default:
 		return fmt.Errorf("received unknown message on DataChannel: %T", msg)
@@ -1013,10 +1013,10 @@ func (r *Reactor) recordPeerMsg(msg msgInfo) {
 	}
 }
 
-func (r *Reactor) SetStateSyncingMetrics(v float64) {
-	r.Metrics.StateSyncing.Set(v)
+func (r *Reactor) SetStateSyncingMetrics(v int64) {
+	r.Metrics.StateSyncingAt().Set(v)
 }
 
-func (r *Reactor) SetBlockSyncingMetrics(v float64) {
-	r.Metrics.BlockSyncing.Set(v)
+func (r *Reactor) SetBlockSyncingMetrics(v int64) {
+	r.Metrics.BlockSyncingAt().Set(v)
 }
