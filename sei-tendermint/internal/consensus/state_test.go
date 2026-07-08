@@ -1845,7 +1845,7 @@ func TestProcessProposalAccept(t *testing.T) {
 			m.On("ProcessProposal", mock.Anything, mock.Anything).Return(&abci.ResponseProcessProposal{Status: status}, nil)
 			cs1, vss := makeState(ctx, t, makeStateArgs{
 				config:      config,
-				application: proxy.New(m, proxy.NewMetrics()),
+				application: proxy.New(m),
 			})
 			height, round := cs1.roundState.Height(), cs1.roundState.Round()
 			round = cs1.nextRoundForLocalLeader(ctx, t, height, round, len(vss)*4)
@@ -1900,7 +1900,7 @@ func TestFinalizeBlockCalled(t *testing.T) {
 
 			cs1, vss := makeState(ctx, t, makeStateArgs{
 				config:      config,
-				application: proxy.New(m, proxy.NewMetrics()),
+				application: proxy.New(m),
 			})
 			height, round := cs1.roundState.Height(), cs1.roundState.Round()
 			round = cs1.nextRoundForLocalLeader(ctx, t, height, round, len(vss)*4)

@@ -311,7 +311,6 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	}
 
 	router, err := NewRouter(
-		NewMetrics(),
 		privKey,
 		func() *types.NodeInfo { return &nodeInfo },
 		dbm.NewMemDB(),

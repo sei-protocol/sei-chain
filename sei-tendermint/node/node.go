@@ -127,7 +127,6 @@ func makeNode(
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
-	nodeMetrics *NodeMetrics,
 	consensusPolicy types.ConsensusPolicy,
 ) (_ local.NodeService, err error) {
 	var cancel context.CancelFunc
@@ -168,7 +167,6 @@ func makeNode(
 		eventLog, err = eventlog.New(eventlog.LogSettings{
 			WindowSize: w,
 			MaxItems:   cfg.RPC.EventLogMaxItems,
-			Metrics:    nodeMetrics.eventlog,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("initializing event log: %w", err)
@@ -181,7 +179,6 @@ func makeNode(
 	indexerService := indexer.NewService(indexer.ServiceArgs{
 		Sinks:    eventSinks,
 		EventBus: eventBus,
-		Metrics:  nodeMetrics.indexer,
 	})
 
 	privValidator, err := createPrivval(ctx, cfg, genDoc, filePrivval)
@@ -240,7 +237,6 @@ func makeNode(
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
 	}
 	router, peerCloser, err := createRouter(
-		nodeMetrics.p2p,
 		node.NodeInfo,
 		nodeKey,
 		gigaValidatorKey,
@@ -258,7 +254,7 @@ func makeNode(
 	node.rpcEnv.Router = router
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
-		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
+		stateStore, blockStore, node.router, eventBus)
 	closers = append(closers, edbCloser)
 	if err != nil {
 		return nil, fmt.Errorf("createEvidenceReactor(): %w", err)
@@ -279,7 +275,7 @@ func makeNode(
 	}
 
 	if !gigaEnabled {
-		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, sm.TxConstraintsFetcherFromStore(stateStore))
 		node.mempool = utils.Some(mp)
 		node.rpcEnv.Mempool = utils.Some(mp)
 		mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
@@ -297,7 +293,6 @@ func makeNode(
 			evPool,
 			blockStore,
 			eventBus,
-			nodeMetrics.state,
 			consensusPolicy,
 		)
 
@@ -330,7 +325,6 @@ func makeNode(
 			evPool,
 			eventBus,
 			tracerProviderOptions,
-			nodeMetrics.consensus,
 		)
 		node.rpcEnv.ConsensusState = utils.Some[rpccore.ConsensusState](csState)
 
@@ -339,7 +333,6 @@ func makeNode(
 			node.router,
 			eventBus,
 			waitSync,
-			nodeMetrics.consensus,
 			cfg,
 		)
 		if err != nil {
@@ -359,7 +352,6 @@ func makeNode(
 				BlockExec:             blockExec,
 				ConsReactor:           utils.Some[blocksync.ConsensusReactor](csReactor),
 				BlockSync:             blockSync && !stateSync,
-				Metrics:               nodeMetrics.consensus,
 				EventBus:              eventBus,
 				RestartEvent:          restartEvent,
 				SelfRemediationConfig: cfg.SelfRemediation,
@@ -374,9 +366,9 @@ func makeNode(
 		// Make ConsensusReactor. Don't enable fully if doing a state sync and/or block sync first.
 		// FIXME We need to update metrics here, since other reactors don't have access to them.
 		if stateSync {
-			nodeMetrics.consensus.StateSyncingAt().Set(1)
+			consensus.Global.StateSyncingAt().Set(1)
 		} else if blockSync {
-			nodeMetrics.consensus.BlockSyncingAt().Set(1)
+			consensus.Global.BlockSyncingAt().Set(1)
 		}
 
 		postSyncHook := func(ctx context.Context, state sm.State) error {
@@ -416,7 +408,6 @@ func makeNode(
 			stateStore,
 			blockStore,
 			cfg.StateSync.TempDir,
-			nodeMetrics.statesync,
 			eventBus,
 			// the post-sync operation
 			postSyncHook,
@@ -716,58 +707,6 @@ func defaultGenesisDocProviderFunc(cfg *config.Config) genesisDocProvider {
 		return types.GenesisDocFromFile(cfg.GenesisFile())
 	}
 }
-
-type NodeMetrics struct {
-	consensus *consensus.Metrics
-	eventlog  *eventlog.Metrics
-	indexer   *indexer.Metrics
-	mempool   *mempool.Metrics
-	p2p       *p2p.Metrics
-	proxy     *proxy.Metrics
-	state     *sm.Metrics
-	statesync *statesync.Metrics
-	evidence  *evidence.Metrics
-}
-
-// metricsProvider returns consensus, p2p, mempool, state, statesync Metrics.
-type metricsProvider func() *NodeMetrics
-
-func NoOpMetricsProvider() *NodeMetrics {
-	return &NodeMetrics{
-		consensus: consensus.NewMetrics(),
-		eventlog:  eventlog.NewMetrics(),
-		indexer:   indexer.NewMetrics(),
-		mempool:   mempool.NewMetrics(),
-		p2p:       p2p.NewMetrics(),
-		proxy:     proxy.NewMetrics(),
-		state:     sm.NewMetrics(),
-		statesync: statesync.NewMetrics(),
-		evidence:  evidence.NewMetrics(),
-	}
-}
-
-// defaultMetricsProvider returns Metrics build using Prometheus client library
-// if Prometheus is enabled. Otherwise, it returns no-op Metrics.
-func DefaultMetricsProvider(cfg *config.InstrumentationConfig) metricsProvider {
-	return func() *NodeMetrics {
-		if cfg.Prometheus {
-			return &NodeMetrics{
-				consensus: consensus.Global,
-				eventlog:  eventlog.Global,
-				indexer:   indexer.Global,
-				mempool:   mempool.Global,
-				p2p:       p2p.Global,
-				proxy:     proxy.Global,
-				state:     sm.Global,
-				statesync: statesync.Global,
-				evidence:  evidence.Global,
-			}
-		}
-		return NoOpMetricsProvider()
-	}
-}
-
-//------------------------------------------------------------------------------
 
 // LoadStateFromDBOrGenesisDocProvider attempts to load the state from the
 // database, or creates one using the given genesisDocProvider. On success this also

@@ -165,9 +165,6 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 				tracerProviderOptions = []trace.TracerProviderOption{}
 			}
 
-			logger.Info("Creating node metrics provider")
-			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)
-
 			config, err := config.GetConfig(serverCtx.Viper)
 			if err != nil {
 				return err
@@ -191,7 +188,6 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 					clientCtx,
 					appCreator,
 					tracerProviderOptions,
-					nodeMetricsProvider(),
 					apiMetrics,
 				)
 				if !errors.Is(err, ErrShouldRestart) {
@@ -274,7 +270,6 @@ func startInProcess(
 	clientCtx client.Context,
 	appCreator types.AppCreator,
 	tracerProviderOptions []trace.TracerProviderOption,
-	nodeMetricsProvider *node.NodeMetrics,
 	apiMetrics *telemetry.Metrics,
 ) error {
 	cfg := ctx.Config
@@ -363,7 +358,6 @@ func startInProcess(
 			app,
 			gen,
 			tracerProviderOptions,
-			nodeMetricsProvider,
 			tmtypes.DefaultConsensusPolicy(),
 		)
 		if err != nil {
