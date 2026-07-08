@@ -135,7 +135,9 @@ func (e *storageOverrideChange) revert(s *DBImpl) {
 
 func (e *storageOverrideRemove) revert(s *DBImpl) {
 	if e.prev != nil {
-		s.tempState.storageOverrides[e.account.Hex()] = e.prev
+		// Deep-copy so a shallow-copied journal entry shared across StateDB
+		// copies cannot re-install the same mutable overlay into two DBs.
+		s.tempState.storageOverrides[e.account.Hex()] = e.prev.deepCopy()
 	}
 }
 
