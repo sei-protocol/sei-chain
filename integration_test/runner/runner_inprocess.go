@@ -57,6 +57,21 @@ func InProcessEVMEnv(t *testing.T, net *inprocess.Network, node int) []string {
 	}
 }
 
+// InProcessGovNodesEnv emits SEI_INPROCESS_GOV_NODES: a comma-separated
+// "<home>|<node-rpc>" pair per validator, in node order. A hardhat gov suite reads
+// it to cast the operator (node_admin) vote on every validator — the in-process
+// analogue of the docker suite's executeOnAllNodes fan-out — because a single
+// non-staked signer's vote never clears quorum. Unset outside the in-process arm,
+// so the suite's docker / single-node vote path is untouched.
+func InProcessGovNodesEnv(net *inprocess.Network) []string {
+	specs := make([]string, net.Len())
+	for i := 0; i < net.Len(); i++ {
+		h := net.Node(i)
+		specs[i] = h.Home() + "|" + h.RPCNodeAddr()
+	}
+	return []string{"SEI_INPROCESS_GOV_NODES=" + strings.Join(specs, ",")}
+}
+
 // InProcessSuite runs several YAML files against one shared network with a single
 // one-time setup (build → optional keyring overlay → optional fixture script),
 // then reuses it for every RunFile. Use it when a group of files shares fixture

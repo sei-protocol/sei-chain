@@ -781,7 +781,24 @@ async function ensureWasmDisabled(from=adminKeyName) {
 }
 
 async function passProposal(proposalId,  desposit="200000000usei", fees="200000usei", from=adminKeyName) {
-    if(await isDocker()) {
+    const govNodes = process.env.SEI_INPROCESS_GOV_NODES
+    if (govNodes) {
+        // In-process arm: no docker containers to fan out to, and a lone
+        // non-staked signer's vote never clears quorum. The Go driver hands us
+        // "<home>|<node-rpc>" per validator; vote yes as each node's operator
+        // (node_admin) by repointing the seid shim (SEID_HOME/SEID_NODE) at that
+        // node. All validators voting clears the localnode net's expedited
+        // quorum + threshold.
+        for (const spec of govNodes.split(",")) {
+            const [home, node] = spec.split("|")
+            // -b block so each vote is committed (counted toward the tight expedited
+            // quorum) before the next; the code check fails loud on a rejected vote,
+            // which a discarded -b sync response would surface only as a bare proposal
+            // "rejected" downstream.
+            const out = await execute(`SEID_HOME="${home}" SEID_NODE="${node}" seid tx gov vote ${proposalId} yes --from node_admin -b block -o json -y --fees ${fees}`)
+            if (JSON.parse(out).code !== 0) throw new Error(`gov vote on ${node} failed: ${out}`)
+        }
+    } else if(await isDocker()) {
         await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from node_admin -b sync -y --fees ${fees}`)
     } else {
         await execute(`seid tx gov vote ${proposalId} yes --from ${from} -b sync -y --fees ${fees}`)
