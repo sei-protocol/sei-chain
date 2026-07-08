@@ -14,8 +14,8 @@ const seilocal = defineChain({
   },
   rpcUrls: {
     default: {
-      http: ['http://localhost:8545'],
-      webSocket: ['ws://localhost:8546'],
+      http: [process.env.SEI_EVM_RPC || 'http://localhost:8545'],
+      webSocket: [process.env.SEI_EVM_WS || 'ws://localhost:8546'],
     },
   },
 });

@@ -573,7 +573,14 @@ func newNodeApp(n *node, enc encoding) *app.App {
 		map[int64]bool{},
 		n.home,
 		1,
-		false,
+		// enableCustomEVMPrecompiles: register the custom EVM precompiles (0x...100x).
+		// Off, they are never registered and every precompile call is a silent no-op
+		// (tx calls return a status-1 receipt with no state change, eth_call reads
+		// return 0x) — the precompile/interop suites pass green while testing nothing.
+		// This aligns precompile registration with the production start path only;
+		// other app.New args here still diverge (baseapp OCC is off, wasm uses the
+		// default gas register), so it is not full production parity.
+		true,
 		n.tmCfg,
 		enc,
 		wasm.EnableAllProposals,

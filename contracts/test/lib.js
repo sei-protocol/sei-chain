@@ -275,7 +275,7 @@ async function associateKey(keyName) {
         // format. The try/catch already tolerates failure here, and subsequent
         // associate calls will succeed once the chain catches up, so a temporal
         // wait is acceptable.
-        await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
+        await execute(`seid tx evm associate-address --from ${keyName} -b sync${evmRpcFlag}`)
         await waitForBlocks()
     } catch (e) {
         console.log(`skipping associate for ${keyName}`)
@@ -286,7 +286,7 @@ async function associateKey(keyName) {
 // Strict helper for tests that are explicitly asserting association behavior.
 async function associateKeyStrict(keyName) {
     const seiAddress = await getKeySeiAddress(keyName)
-    await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
+    await execute(`seid tx evm associate-address --from ${keyName} -b sync${evmRpcFlag}`)
     await waitForCondition(
         async () => (await getEvmAddressAssociation(seiAddress)).associated === true,
         `${seiAddress} to have an associated EVM address`,
@@ -343,7 +343,7 @@ async function rawHttpDebugTraceWithCallTracer(txHash) {
         params: [txHash, {"tracer": "callTracer"}], // The second parameter is an optional trace config object
         id: 1,
     };
-    const response = await axios.post("http://localhost:8545", payload, {
+    const response = await axios.post(process.env.SEI_EVM_RPC || "http://localhost:8545", payload, {
         headers: { "Content-Type": "application/json" },
     });
     return response.data;
@@ -397,7 +397,7 @@ async function createTokenFactoryTokenAndMint(name, amount, recipient, from=admi
 }
 
 async function getChainId() {
-    const nodeUrl = 'http://localhost:8545';
+    const nodeUrl = process.env.SEI_EVM_RPC || 'http://localhost:8545';
     const response = await axios.post(nodeUrl, {
         method: 'eth_chainId',
         params: [],
@@ -408,7 +408,7 @@ async function getChainId() {
 }
 
 async function getGasPrice() {
-    const nodeUrl = 'http://localhost:8545';
+    const nodeUrl = process.env.SEI_EVM_RPC || 'http://localhost:8545';
     const response = await axios.post(nodeUrl, {
         method: 'eth_gasPrice',
         params: [],
@@ -495,7 +495,7 @@ async function getPointerForCw1155(cw1155Address) {
     return JSON.parse(output);
 }
 
-async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, from=adminKeyName, evmRpc="") {
+async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, from=adminKeyName, evmRpc=process.env.SEI_EVM_RPC || "") {
     let command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --from=${from} -b sync`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
@@ -516,7 +516,7 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, fro
     throw new Error("contract deployment failed")
 }
 
-async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRpc="") {
+async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRpc=process.env.SEI_EVM_RPC || "") {
     let command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=${from} -b sync`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
@@ -535,7 +535,7 @@ async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRp
     throw new Error("contract deployment failed")
 }
 
-async function deployErc721PointerForCw721(provider, cw721Address, from=adminKeyName, evmRpc="") {
+async function deployErc721PointerForCw721(provider, cw721Address, from=adminKeyName, evmRpc=process.env.SEI_EVM_RPC || "") {
     let command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=${from} -b sync`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
@@ -556,7 +556,7 @@ async function deployErc721PointerForCw721(provider, cw721Address, from=adminKey
     throw new Error("contract deployment failed")
 }
 
-async function deployErc1155PointerForCw1155(provider, cw1155Address, from=adminKeyName, evmRpc="") {
+async function deployErc1155PointerForCw1155(provider, cw1155Address, from=adminKeyName, evmRpc=process.env.SEI_EVM_RPC || "") {
     let command = `seid tx evm register-evm-pointer CW1155 ${cw1155Address} --from=${from} -b sync`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
