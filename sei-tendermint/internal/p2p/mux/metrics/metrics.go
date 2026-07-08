@@ -20,7 +20,7 @@ type metrics struct {
 	sendMsgs tmprometheus.CounterIntVec `metrics_labels:"role, kind"`
 	// Number of messages received.
 	recvMsgs tmprometheus.CounterIntVec `metrics_labels:"role, kind"`
-	// Numbed of message bytes sent.
+	// Number of message bytes sent.
 	sendBytes tmprometheus.CounterIntVec `metrics_labels:"role, kind"`
 	// Number of message bytes received.
 	recvBytes tmprometheus.CounterIntVec `metrics_labels:"role, kind"`
