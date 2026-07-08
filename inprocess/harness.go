@@ -679,6 +679,21 @@ func writeClientConfig(path, chainID, rpcAddr string) error {
 // allocation instead of bind-probing :0. See freePort for the contract.
 const envPortBase = "SEI_INPROCESS_PORT_BASE"
 
+const (
+	// ephemeralPortFloor is the low end of the Linux default ephemeral range
+	// (32768-60999). Deterministic ports must stay strictly below it: they are handed
+	// out without binding, so a port at or above the floor can be stolen by any :0
+	// bind on the host — including this suite's own parity freePort — between
+	// allocation and the node's own bind, which surfaces as a misattributed serve
+	// panic.
+	ephemeralPortFloor = 32768
+	// portBaseSpan is the port headroom each concurrent process reserves above its
+	// base. The harness draws 4 ports per node, so this covers a large validator
+	// count with margin; it also bounds how close a base may sit to the ephemeral
+	// floor and caps how many ports one base may hand out.
+	portBaseSpan = 256
+)
+
 var (
 	allocatedPortsMu sync.Mutex
 	allocatedPorts   = map[int]struct{}{}
@@ -693,14 +708,13 @@ var (
 //
 //   - envPortBase set (CI shards / parallel invocations on one host): allocate
 //     deterministically as base + a per-process atomic offset, never binding. The
-//     bind-probe below has a cross-process TOCTOU — two processes probing :0 can be
-//     handed the same ephemeral port between probe-close and bind — so when the
-//     caller partitions the port space per process via the base, honor that
-//     partition exactly and skip the probe. The caller owns the spacing: the harness
-//     draws 4 ports per node (TM RPC, P2P, EVM HTTP, EVM WS; gRPC stays off), so
-//     concurrent processes must leave >= 4*maxNodes between their bases to avoid
-//     overlap. Ports are handed out densely from the base with no re-probe, so the
-//     partition is what keeps them collision-free.
+//     contract the caller owns: give each concurrent process a DISTINCT base in
+//     [1024, ephemeralPortFloor-portBaseSpan) — the privileged range is rejected and
+//     a base that would reach the OS ephemeral range is rejected, because unprobed
+//     ports at/above that floor can be stolen by a :0 bind before the node binds. The
+//     trap is env inheritance: a single exported base shared across `go test ./...`
+//     packages or CI shards makes every process draw the SAME ports, so the base must
+//     be distinct per process, not merely set. A safe example base is 20000.
 //   - envPortBase unset (local single-process use): probe 127.0.0.1:0, close, and
 //     return. Two hazards make a bare probe flaky across the 4*N allocations: on a
 //     dual-stack host "localhost" can resolve to ::1, verifying the port free on
@@ -715,11 +729,17 @@ func freePort() (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("inprocess: parse %s=%q: %w", envPortBase, base, err)
 		}
-		port := b + int(portOffset.Add(1)) - 1
-		if port < 1 || port > 65535 {
-			return 0, fmt.Errorf("inprocess: deterministic port %d out of range (base %d); widen shard base spacing or lower the base", port, b)
+		if b < 1024 {
+			return 0, fmt.Errorf("inprocess: %s=%d is in the privileged range; use a distinct-per-process base in [1024, %d)", envPortBase, b, ephemeralPortFloor-portBaseSpan)
 		}
-		return port, nil
+		if b+portBaseSpan >= ephemeralPortFloor {
+			return 0, fmt.Errorf("inprocess: %s=%d reaches the OS ephemeral range (>=%d); its unprobed ports could be stolen by a :0 bind — use a distinct-per-process base in [1024, %d)", envPortBase, b, ephemeralPortFloor, ephemeralPortFloor-portBaseSpan)
+		}
+		off := int(portOffset.Add(1)) - 1
+		if off >= portBaseSpan {
+			return 0, fmt.Errorf("inprocess: exceeded the %d-port span above %s=%d; too many nodes for one base", portBaseSpan, envPortBase, b)
+		}
+		return b + off, nil
 	}
 
 	allocatedPortsMu.Lock()

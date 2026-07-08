@@ -142,11 +142,8 @@ func newInProcessExecer(net *inprocess.Network) *inProcessExecer {
 // contract; err is reserved for harness-level failures.
 func (e *inProcessExecer) run(t *testing.T, cmd, node string, envMap map[string]string, opts Options) (string, error) {
 	t.Helper()
-	// The execer shares binDir, overlayHomes, and one signer across cases; it is a
-	// serial runner by contract. TryLock turns a concurrent entry (a suite that
-	// called t.Parallel) into a clear error rather than silent state corruption.
 	if !e.runMu.TryLock() {
-		return "", fmt.Errorf("in-process runner is not concurrent; suites must not call t.Parallel")
+		return "", errors.New("in-process arm: runner is not concurrent; suites must not call t.Parallel")
 	}
 	defer e.runMu.Unlock()
 	if err := e.ensureBin(t); err != nil {
@@ -305,18 +302,25 @@ func (e *inProcessExecer) runSetup(t *testing.T, opts Options) error {
 }
 
 // cleanFixtureOutputs registers a t.Cleanup that removes only the git-ignored
-// files a fixture *creates* under integration_test/contracts during this run, so
-// an in-process run leaves no worktree diff without touching anything it did not
-// produce. The suites hard-read those outputs repo-relative (YAML `tail -1
-// integration_test/contracts/<name>.txt`), so the fixtures must write there and
-// cannot be redirected to a temp dir without editing the shared docker YAMLs.
+// files a fixture *creates* under integration_test/contracts during this run — it
+// never touches a file it did not produce, so a developer's pre-existing untracked
+// ignored files are spared. The suites hard-read those outputs repo-relative (YAML
+// `tail -1 integration_test/contracts/<name>.txt`), so the fixtures must write
+// there and cannot be redirected to a temp dir without editing the shared docker
+// YAMLs.
 //
 // It snapshots the directory before the fixtures run, then removes each file that
-// appeared since and that git ignores. This deliberately replaces `git clean
-// -fdX`, which also deletes a developer's pre-existing untracked ignored files and
-// a concurrent run's in-flight fixtures. A prior -timeout-killed run's leftovers
+// appeared since and that git ignores. A prior -timeout-killed run's leftovers
 // predate this run, so they are in the snapshot and survive; the fixtures
 // truncate-write over them, so stale content does not bleed in.
+//
+// This is single-checkout safe only. Two runs sharing one checkout both write the
+// same fixed repo-relative path and each removes what it created, so they still
+// corrupt each other — concurrent runs need separate checkouts or git worktrees.
+//
+// Phase 2 (CI-wiring): snapshot-diff leaves at snapshot time-present leftovers
+// behind (aborted-run ignored files, empty ignored subdirs) that the old blanket
+// clean removed; an age-based GC belongs with the shard/checkout topology.
 func (e *inProcessExecer) cleanFixtureOutputs(t *testing.T) error {
 	t.Helper()
 	root, err := repoRoot()

@@ -266,17 +266,18 @@ func gethBinIsPinned(bin string) bool {
 // startGeth launches `geth --dev` on a free loopback port with a temp datadir, waits for
 // its RPC, and returns the reference URL. The process is started in its own process group
 // (Setpgid) so t.Cleanup can SIGKILL the whole group (geth may spawn helpers). t.Cleanup
-// reaps only THIS invocation: it holds this cmd's own pid and removes this run's datadir,
-// so a concurrent parity run on the same host is never touched — there is no host-global
-// pkill or shared-glob sweep. Cleanup is the normal-exit path and is NOT a guarantee: a
-// `go test -timeout` abort skips t.Cleanup, and because Setpgid detaches geth from the test
-// process's group death, that leaks one orphaned geth + its datadir. That leak is the
-// deliberate trade for concurrency safety; the MkdirTemp nonce keeps every invocation's
-// datadir distinct so a leftover never collides with a later run.
+// reaps only THIS invocation: it holds this cmd's own pid and removes this run's datadir
+// (a MkdirTemp nonce, so every invocation's datadir is distinct), leaving a concurrent
+// parity run on the same host untouched. Cleanup is the normal-exit path and is NOT a
+// guarantee: a `go test -timeout` abort skips t.Cleanup, and because Setpgid detaches geth
+// from the test process's group death, that leaks one orphaned geth + its datadir. That
+// leak is the deliberate trade for concurrency safety.
+//
+// Phase 2 (CI-wiring): a per-invocation reap is the current bound — there is no cross-run
+// backstop for a -timeout/SIGKILL/panic leak. A reaper-of-last-resort (per-checkout tmp
+// root or age-based GC) belongs with the shard/checkout topology decided there.
 func startGeth(t *testing.T, bin string) string {
 	t.Helper()
-	// MkdirTemp's random suffix is the per-invocation nonce: each run gets its own datadir,
-	// so concurrent or successive runs never share one.
 	datadir, err := os.MkdirTemp("", "sei-parity-geth-")
 	if err != nil {
 		t.Fatalf("geth datadir: %v", err)
