@@ -48,6 +48,7 @@ type opts struct {
 	maxRequestBodyBytes          interface{}
 	maxConcurrentRequestBytes    interface{}
 	maxOpenConnections           interface{}
+	maxTraceStructLogBytes       interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -180,6 +181,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_open_connections" {
 		return o.maxOpenConnections
 	}
+	if k == "evm.max_trace_struct_log_bytes" {
+		return o.maxTraceStructLogBytes
+	}
 	panic("unknown key")
 }
 
@@ -225,6 +229,7 @@ func getDefaultOpts() opts {
 		int64(5 * 1024 * 1024),
 		int64(128 * 1024 * 1024),
 		2000,
+		uint64(256 * 1024 * 1024),
 	}
 }
 
@@ -233,6 +238,10 @@ func TestReadConfig(t *testing.T) {
 	cfg, err := config.ReadConfig(&goodOpts)
 	require.Nil(t, err)
 	require.False(t, cfg.EnableParallelizedBlockTrace)
+	// Round-trip: an explicitly-supplied value overrides the default.
+	require.Equal(t, uint64(256*1024*1024), cfg.MaxTraceStructLogBytes)
+	// The shipped default (used when the operator supplies no value).
+	require.Equal(t, uint64(32*1024*1024), config.DefaultConfig.MaxTraceStructLogBytes)
 	badOpts := goodOpts
 	badOpts.httpEnabled = "bad"
 	_, err = config.ReadConfig(&badOpts)
@@ -326,6 +335,11 @@ func TestReadConfig(t *testing.T) {
 
 	badOpts = goodOpts
 	badOpts.enableParallelizedBlockTrace = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.maxTraceStructLogBytes = "bad"
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
