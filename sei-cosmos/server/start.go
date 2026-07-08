@@ -172,6 +172,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			if err != nil {
 				return err
 			}
+			config.Telemetry = injectTelemetryChainID(config.Telemetry, clientCtx.ChainID)
 			apiMetrics, err := telemetry.New(config.Telemetry)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telemetry: %w", err)
@@ -246,6 +247,19 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	tcmd.AddNodeFlags(cmd, NewDefaultContext().Config)
 	mustMarkDeprecated(cmd, flagAddress, "out-of-process ABCI has been removed; this flag is ignored")
 	mustMarkDeprecated(cmd, flagTransport, "out-of-process ABCI has been removed; this flag is ignored")
+}
+
+func injectTelemetryChainID(cfg telemetry.Config, chainID string) telemetry.Config {
+	if chainID == "" {
+		return cfg
+	}
+	for _, label := range cfg.GlobalLabels {
+		if len(label) > 0 && label[0] == "chain_id" {
+			return cfg
+		}
+	}
+	cfg.GlobalLabels = append(cfg.GlobalLabels, []string{"chain_id", chainID})
+	return cfg
 }
 
 func mustMarkDeprecated(cmd *cobra.Command, name, message string) {
