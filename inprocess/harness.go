@@ -101,6 +101,46 @@ type Options struct {
 	// Required for the gov suites: the default 2-day voting period never resolves their
 	// short-sleep vote cases.
 	GovParams *GovParams
+
+	// AppConfigOverride pins app-config values the harness would otherwise leave at
+	// their appOptions.Get default, keyed by the SAME flag constants production reads
+	// (e.g. gigaconfig.FlagEnabled, gigaconfig.FlagOCCEnabled). A present key wins over
+	// the default; an absent key falls through to it; nil = pure harness defaults. This
+	// makes an implicit default (e.g. giga-on via gigaconfig.DefaultConfig) load-bearing:
+	// a test can pin it so a later default flip fails the pin instead of silently
+	// downgrading coverage.
+	//
+	// The override is NETWORK-WIDE — every node is built with the same map, so it cannot
+	// express a heterogeneous mesh (one giga node, one V2). That is not a missing feature
+	// but a hard invariant: SkipLastResultsHashValidation (sei-tendermint/types/block.go)
+	// is a process-global atomic that app.New sets from the giga flag, so two nodes with
+	// different giga settings in one process would clobber each other's validation mode.
+	//
+	// A value whose type ReadConfig cannot cast (e.g. a string where a bool is wanted)
+	// surfaces as a panic at construction — acceptable fail-fast for a test seam. Keys
+	// the harness itself owns are rejected loudly; see appConfigDenylisted.
+	AppConfigOverride map[string]any
+}
+
+// appConfigDenylisted reports whether key is one appOptions.Get pins — a load-bearing
+// harness invariant (chain-id signing, the EVM listeners + stats tracker, SeiDB
+// enable/backend/snapshot), not a tunable an AppConfigOverride may clobber. Derived from
+// Get itself: a zero-value appOptions returns non-nil for every pinned key, so the guard
+// can never drift from the pins the way a hand-maintained list did.
+func appConfigDenylisted(key string) bool {
+	return appOptions{}.Get(key) != nil
+}
+
+// validateAppConfigOverride rejects an override reaching for a harness-owned key. It runs
+// at construction (before any node is built) and returns an error — the same recoverable
+// Options-validation contract as the Validators check, not a panic.
+func validateAppConfigOverride(override map[string]any) error {
+	for key := range override {
+		if appConfigDenylisted(key) {
+			return fmt.Errorf("inprocess: AppConfigOverride key %q is harness-owned and cannot be overridden", key)
+		}
+	}
+	return nil
 }
 
 // MintRelease is one token_release_schedule entry, expressed as day-offsets from the
@@ -230,6 +270,11 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 	// (>=2 peers each) both work — see startNode and doc.go.
 	if opts.Validators == 2 {
 		return nil, fmt.Errorf("inprocess: Options.Validators == 2 deadlocks in CometBFT block-sync (BlockPool.IsCaughtUp requires >1 peer); use 1 or >= 3")
+	}
+	// Reject a harness-owned override before any node is built — fail-loud at the
+	// public seam rather than mid-bring-up.
+	if err := validateAppConfigOverride(opts.AppConfigOverride); err != nil {
+		return nil, err
 	}
 
 	baseDir, ownBaseDir, err := resolveBaseDir(opts.BaseDir)
@@ -416,7 +461,7 @@ func (net *Network) provisionExtraKeys(gb *genesisBuilder) error {
 // local RPC client, and registers the EVM listeners. The genesis valset is
 // N-dependent per the empty-valset invariant — see the N=1 exception below.
 func (net *Network) startNode(ctx context.Context, n *node, enc encoding) error {
-	theApp := newNodeApp(n, enc)
+	theApp := newNodeApp(n, enc, net.opts.AppConfigOverride)
 	n.app = theApp
 
 	// empty-valset invariant (N>=2): zero the validator set so every node derives
@@ -565,7 +610,7 @@ func buildNodeConfig(nodeDir, moniker string, timeoutCommit time.Duration) (*con
 
 // newNodeApp builds a real sei-chain app for one node with EVM serving on its
 // per-node ports against an in-memory DB and on-disk home.
-func newNodeApp(n *node, enc encoding) *app.App {
+func newNodeApp(n *node, enc encoding, appConfig map[string]any) *app.App {
 	return app.New(
 		dbm.NewMemDB(),
 		io.Discard,
@@ -584,7 +629,7 @@ func newNodeApp(n *node, enc encoding) *app.App {
 		n.tmCfg,
 		enc,
 		wasm.EnableAllProposals,
-		appOptions{chainID: n.clientCx.ChainID, httpPort: n.httpPort, wsPort: n.wsPort},
+		appOptions{chainID: n.clientCx.ChainID, httpPort: n.httpPort, wsPort: n.wsPort, appConfig: appConfig},
 		app.EmptyWasmOpts,
 		nil,
 	)

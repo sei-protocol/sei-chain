@@ -21,9 +21,16 @@ type appOptions struct {
 	chainID  string
 	httpPort int
 	wsPort   int
+	// appConfig is Options.AppConfigOverride, consulted before the switch defaults so a
+	// caller-pinned flag (e.g. giga on) wins. Harness-owned keys never reach it — Start
+	// rejects them (see appConfigDenylisted).
+	appConfig map[string]any
 }
 
 func (o appOptions) Get(key string) interface{} {
+	if v, ok := o.appConfig[key]; ok {
+		return v
+	}
 	switch key {
 	case "chain-id":
 		return o.chainID

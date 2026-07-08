@@ -69,6 +69,22 @@ func (h Node) REST() string { return "" }
 // capability k8s mode never offers.
 func (h Node) Object() any { return h.n.tmNode }
 
+// GigaExecutorEnabled reports whether this running node selected the Giga EVM
+// execution path — the resolved app.GigaExecutorEnabled that DeliverTx branches on
+// (app/app.go). It is the post-boot downgrade guard for a pinned-giga network:
+// the value is read from the running app, not the requested config, so a flipped
+// gigaconfig.DefaultConfig.Enabled or a renamed flag const surfaces here as false
+// and a test can fail loud instead of silently exercising the V2 path. (The best-
+// effort evmone dlopen is not part of this signal — evmone is staged on the keeper
+// but does not gate path selection, so a host missing the pinned library still runs
+// the giga executor.)
+func (h Node) GigaExecutorEnabled() bool { return h.n.app.GigaExecutorEnabled }
+
+// GigaOCCEnabled reports whether OCC parallel execution is active on the giga path
+// (app.GigaOCCEnabled). Paired with GigaExecutorEnabled it catches an OCC-off
+// downgrade that would drop the pinned-giga net to sequential giga execution.
+func (h Node) GigaOCCEnabled() bool { return h.n.app.GigaOCCEnabled }
+
 // WaitReady blocks until this node has joined consensus (height advancing) and
 // its EVM listener is serving, or ctx fires. Its single-ctx signature mirrors
 // the SDK's sei.NodeHandle.WaitReady; the probe HTTP client is an internal

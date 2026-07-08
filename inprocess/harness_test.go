@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/app"
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -129,6 +131,40 @@ func TestStartRejectsOperatorKeyNameExtraKey(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("Start with an ExtraKey named %q: want error, got nil", operatorKeyName)
+	}
+}
+
+// TestValidateAppConfigOverrideDenylist guards the AppConfigOverride denylist: a
+// harness-owned key must panic at construction (fail-loud, not silent-ignore),
+// while a caller-owned key (the giga flags the pinned-giga package sets) must pass.
+// Pure-function check — no bring-up.
+func TestValidateAppConfigOverrideDenylist(t *testing.T) {
+	// Every key appOptions.Get pins is harness-owned and must be rejected — not just the
+	// evm.*/SC-SS-enable subset a hand-maintained list caught, but chain-id (signing), the
+	// SS backend, and the SC snapshot interval too.
+	for _, key := range []string{
+		"chain-id",
+		"evm.rpc_stats_interval", // the orphaned-reporter-goroutine leak fix
+		"evm.http_enabled",
+		app.FlagSCEnable,
+		app.FlagSSEnable,
+		app.FlagSSBackend,
+		app.FlagSCSnapshotInterval,
+	} {
+		if err := validateAppConfigOverride(map[string]any{key: true}); err == nil {
+			t.Errorf("key %q: want harness-owned rejection, got nil error", key)
+		}
+	}
+
+	// The giga pin (not pinned by the switch) and nil must be accepted.
+	if err := validateAppConfigOverride(map[string]any{
+		gigaconfig.FlagEnabled:    true,
+		gigaconfig.FlagOCCEnabled: true,
+	}); err != nil {
+		t.Errorf("giga pin rejected: %v", err)
+	}
+	if err := validateAppConfigOverride(nil); err != nil {
+		t.Errorf("nil override rejected: %v", err)
 	}
 }
 
