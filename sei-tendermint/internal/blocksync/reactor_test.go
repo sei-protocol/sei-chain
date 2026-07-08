@@ -94,12 +94,12 @@ func makeReactor(
 	stateDB := dbm.NewMemDB()
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(blockDB)
-	proxyApp := proxy.New(app, proxy.NopMetrics())
+	proxyApp := proxy.New(app, proxy.NewMetrics())
 
 	state, err := sm.MakeGenesisState(genDoc)
 	require.NoError(t, err)
 	require.NoError(t, stateStore.Save(state))
-	mp := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	mp := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NewMetrics(), mempool.NopTxConstraintsFetcher)
 	bus := eventbus.NewDefault()
 	require.NoError(t, bus.Start(ctx))
 
@@ -110,7 +110,7 @@ func makeReactor(
 		sm.EmptyEvidencePool{},
 		blockStore,
 		bus,
-		sm.NopMetrics(),
+		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -122,7 +122,7 @@ func makeReactor(
 			BlockExec:             blockExec,
 			ConsReactor:           utils.None[ConsensusReactor](),
 			BlockSync:             blockSync,
-			Metrics:               consensus.NopMetrics(),
+			Metrics:               consensus.NewMetrics(),
 			EventBus:              nil, // eventbus can be nil
 			RestartEvent:          restartEvent,
 			SelfRemediationConfig: selfRemediationConfig,
