@@ -960,8 +960,7 @@ func (s *coinTestSuite) TestCoinsDenomsSubsetOf() {
 	// receiver denom sorts after everything in B
 	s.Require().False(sdk.Coins{{"zzz", one}}.DenomsSubsetOf(sdk.Coins{{testDenom1, one}, {testDenom2, one}}))
 
-	// large sorted inputs: subset and non-subset, exercised as a regression
-	// against the previously quadratic (Immunefi 79950) implementation.
+	// large sorted inputs: subset and non-subset
 	const n = 5000
 	full := make(sdk.Coins, n)
 	for i := 0; i < n; i++ {
