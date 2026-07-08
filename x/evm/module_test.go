@@ -131,7 +131,7 @@ func TestABCI(t *testing.T) {
 	// creating vesting accounts (including for coinbase addresses) is rejected: the module is deprecated
 	k.BeginBlock(ctx)
 	coinbase := state.GetCoinbaseAddress(2)
-	vms := vesting.NewMsgServerImpl()
+	vms := vesting.NewMsgServerImpl(*k.AccountKeeper(), k.BankKeeper(), k.UpgradeKeeper())
 	_, err = vms.CreateVestingAccount(sdk.WrapSDKContext(ctx), &vestingtypes.MsgCreateVestingAccount{
 		FromAddress: sdk.AccAddress(evmAddr1[:]).String(),
 		ToAddress:   coinbase.String(),

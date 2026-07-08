@@ -535,7 +535,7 @@ func NewWasmApp(
 			encodingConfig.TxConfig,
 		),
 		auth.NewAppModule(appCodec, app.accountKeeper, nil),
-		vesting.NewAppModule(),
+		vesting.NewAppModule(app.accountKeeper, app.bankKeeper, app.upgradeKeeper),
 		bank.NewAppModule(appCodec, app.bankKeeper, app.accountKeeper),
 		capability.NewAppModule(appCodec, *app.capabilityKeeper),
 		gov.NewAppModule(appCodec, app.govKeeper, app.accountKeeper, app.bankKeeper),
