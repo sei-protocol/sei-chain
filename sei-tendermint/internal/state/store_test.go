@@ -45,7 +45,8 @@ func TestStoreSaveLoadGenesisStateNoValidators(t *testing.T) {
 	// The genesis entry is loadable as state, but not usable as a validator
 	// set until InitChain (or state sync) installs the real validators.
 	_, err = stateStore.LoadValidators(loaded.InitialHeight)
-	require.Error(t, err)
+	var errEmpty sm.ErrEmptyValidatorSet
+	require.ErrorAs(t, err, &errEmpty)
 }
 
 func TestStoreBootstrap(t *testing.T) {

@@ -531,7 +531,7 @@ func (store dbStore) LoadValidators(height int64) (*types.ValidatorSet, error) {
 		// state sync) installs the real validators; IncrementProposerPriority
 		// panics on it, so refuse cleanly instead.
 		if vs.IsNilOrEmpty() {
-			return nil, fmt.Errorf("validator set at height %d (checkpoint for height %d) is empty", lastStoredHeight, height)
+			return nil, ErrEmptyValidatorSet{Height: lastStoredHeight}
 		}
 		h, err := tmmath.SafeConvertInt32(height - lastStoredHeight)
 		if err != nil {
@@ -553,7 +553,7 @@ func (store dbStore) LoadValidators(height int64) (*types.ValidatorSet, error) {
 		return nil, err
 	}
 	if vip.IsNilOrEmpty() {
-		return nil, fmt.Errorf("validator set at height %d is empty", height)
+		return nil, ErrEmptyValidatorSet{Height: height}
 	}
 
 	return vip, nil

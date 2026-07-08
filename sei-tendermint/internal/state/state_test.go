@@ -1170,8 +1170,9 @@ func TestStateProtoEmptyRejectedPastGenesis(t *testing.T) {
 	pbs.LastBlockHeight = 5
 
 	_, err = sm.FromProto(pbs)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "empty validator set")
+	var errEmpty sm.ErrEmptyValidatorSet
+	require.ErrorAs(t, err, &errEmpty)
+	require.EqualValues(t, 5, errEmpty.Height)
 }
 
 // TestStateProtoEmptyLastValidatorsRejected pins the same backstop for
@@ -1187,8 +1188,9 @@ func TestStateProtoEmptyLastValidatorsRejected(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = sm.FromProto(pbs)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "empty last validator set")
+	var errEmpty sm.ErrEmptyValidatorSet
+	require.ErrorAs(t, err, &errEmpty)
+	require.EqualValues(t, 5, errEmpty.Height)
 }
 
 func TestStateProto(t *testing.T) {

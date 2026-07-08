@@ -242,7 +242,7 @@ func FromProto(pb *tmstate.State) (*State, error) {
 	// height it can only be corruption; refuse it at load rather than panic
 	// downstream in consensus.
 	if pb.LastBlockHeight > 0 && (vals.IsNilOrEmpty() || nVals.IsNilOrEmpty()) {
-		return nil, fmt.Errorf("state at height %d has an empty validator set", pb.LastBlockHeight)
+		return nil, ErrEmptyValidatorSet{Height: pb.LastBlockHeight}
 	}
 
 	if state.LastBlockHeight >= 1 { // At Block 1 LastValidators is nil
@@ -252,7 +252,7 @@ func FromProto(pb *tmstate.State) (*State, error) {
 		}
 		// Same backstop as above: a committed block implies a non-empty set.
 		if lVals.IsNilOrEmpty() {
-			return nil, fmt.Errorf("state at height %d has an empty last validator set", pb.LastBlockHeight)
+			return nil, ErrEmptyValidatorSet{Height: pb.LastBlockHeight}
 		}
 		state.LastValidators = lVals
 	} else {
