@@ -3,49 +3,64 @@
 package indexer
 
 import (
-	"github.com/go-kit/kit/metrics/discard"
-	prometheus "github.com/go-kit/kit/metrics/prometheus"
-	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
-func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
-	labels := []string{}
-	for i := 0; i < len(labelsAndValues); i += 2 {
-		labels = append(labels, labelsAndValues[i])
-	}
+var Global = NewMetrics()
+
+func init() {
+	prometheus.MustRegister(
+		Global.BlockEventsSeconds,
+		Global.TxEventsSeconds,
+		Global.BlocksIndexed,
+		Global.TransactionsIndexed,
+	)
+}
+
+func NewMetrics() *Metrics {
 	return &Metrics{
-		BlockEventsSeconds: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+		BlockEventsSeconds: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_events_seconds",
 			Help:      "Latency for indexing block events.",
-		}, labels).With(labelsAndValues...),
-		TxEventsSeconds: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.DefBuckets,
+		}, nil),
+		TxEventsSeconds: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "tx_events_seconds",
 			Help:      "Latency for indexing transaction events.",
-		}, labels).With(labelsAndValues...),
-		BlocksIndexed: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.DefBuckets,
+		}, nil),
+		BlocksIndexed: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "blocks_indexed",
 			Help:      "Number of complete blocks indexed.",
-		}, labels).With(labelsAndValues...),
-		TransactionsIndexed: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+		}, nil),
+		TransactionsIndexed: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "transactions_indexed",
 			Help:      "Number of transactions indexed.",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 	}
 }
 
-func NopMetrics() *Metrics {
-	return &Metrics{
-		BlockEventsSeconds:  discard.NewHistogram(),
-		TxEventsSeconds:     discard.NewHistogram(),
-		BlocksIndexed:       discard.NewCounter(),
-		TransactionsIndexed: discard.NewCounter(),
-	}
+func (m *Metrics) BlockEventsSecondsAt() *tmprometheus.Histogram {
+	return m.BlockEventsSeconds.WithLabelValues()
+}
+
+func (m *Metrics) TxEventsSecondsAt() *tmprometheus.Histogram {
+	return m.TxEventsSeconds.WithLabelValues()
+}
+
+func (m *Metrics) BlocksIndexedAt() *tmprometheus.CounterInt {
+	return m.BlocksIndexed.WithLabelValues()
+}
+
+func (m *Metrics) TransactionsIndexedAt() *tmprometheus.CounterInt {
+	return m.TransactionsIndexed.WithLabelValues()
 }

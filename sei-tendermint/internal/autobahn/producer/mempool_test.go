@@ -117,7 +117,7 @@ func (a *testApp) Cfg() *Config {
 }
 
 func (a *testApp) Proxy() *proxy.Proxy {
-	return proxy.New(a, proxy.NopMetrics())
+	return proxy.New(a, proxy.NewMetrics())
 }
 
 func (a *testApp) EvmNonce(addr common.Address) uint64 {

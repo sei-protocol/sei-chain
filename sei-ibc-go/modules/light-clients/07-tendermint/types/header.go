@@ -5,12 +5,29 @@ import (
 	"time"
 
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	commitmenttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/23-commitment/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
+
+// validatorSetFromProto converts a proto validator set, rejecting an empty
+// one: every set a client message carries must prove a commit or a hash
+// link, which an empty set cannot. tmtypes.ValidatorSetFromProto
+// canonicalizes an empty proto (for the state store's genesis state), so
+// the untrusted decode paths re-tighten here.
+func validatorSetFromProto(vp *tmproto.ValidatorSet) (*tmtypes.ValidatorSet, error) {
+	vals, err := tmtypes.ValidatorSetFromProto(vp)
+	if err != nil {
+		return nil, err
+	}
+	if vals.IsNilOrEmpty() {
+		return nil, tmtypes.ErrValidatorSetEmpty
+	}
+	return vals, nil
+}
 
 var _ exported.Header = &Header{}
 
@@ -71,7 +88,7 @@ func (h Header) ValidateBasic() error {
 	if h.ValidatorSet == nil {
 		return sdkerrors.Wrap(clienttypes.ErrInvalidHeader, "validator set is nil")
 	}
-	tmValset, err := tmtypes.ValidatorSetFromProto(h.ValidatorSet)
+	tmValset, err := validatorSetFromProto(h.ValidatorSet)
 	if err != nil {
 		return sdkerrors.Wrap(err, "validator set is not tendermint validator set")
 	}
