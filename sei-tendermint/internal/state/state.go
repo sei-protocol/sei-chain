@@ -250,6 +250,10 @@ func FromProto(pb *tmstate.State) (*State, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Same backstop as above: a committed block implies a non-empty set.
+		if lVals.IsNilOrEmpty() {
+			return nil, fmt.Errorf("state at height %d has an empty last validator set", pb.LastBlockHeight)
+		}
 		state.LastValidators = lVals
 	} else {
 		state.LastValidators = types.NewValidatorSet(nil)

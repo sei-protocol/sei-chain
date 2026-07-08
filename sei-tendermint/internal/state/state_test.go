@@ -1174,6 +1174,23 @@ func TestStateProtoEmptyRejectedPastGenesis(t *testing.T) {
 	require.Contains(t, err.Error(), "empty validator set")
 }
 
+// TestStateProtoEmptyLastValidatorsRejected pins the same backstop for
+// LastValidators: a committed block implies a non-empty signing set.
+func TestStateProtoEmptyLastValidatorsRejected(t *testing.T) {
+	tearDown, _, state := setupTestCase(t)
+	defer tearDown(t)
+	state.LastBlockHeight = 5
+
+	pbs, err := state.ToProto()
+	require.NoError(t, err)
+	pbs.LastValidators, err = types.NewValidatorSet(nil).ToProto()
+	require.NoError(t, err)
+
+	_, err = sm.FromProto(pbs)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "empty last validator set")
+}
+
 func TestStateProto(t *testing.T) {
 	tearDown, _, state := setupTestCase(t)
 	defer tearDown(t)
