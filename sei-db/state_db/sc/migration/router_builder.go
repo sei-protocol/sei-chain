@@ -176,7 +176,7 @@ func buildMigrateEVMRouter(
 	readonly := memIAVL.GetDB().ReadOnly()
 	if !readonly {
 		logger.Info("created new EVM migration manager",
-			"startVersion", Version1_MigrateEVM,
+			"startVersion", Version0_MemiavlOnly,
 			"targetVersion", Version1_MigrateEVM,
 			"boundary", migrationManager.boundary.String())
 	}
