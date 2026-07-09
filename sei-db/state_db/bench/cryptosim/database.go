@@ -140,13 +140,18 @@ func (d *Database) FinalizeBlock(
 
 	d.metrics.SetMainThreadPhase("finalizing")
 
-	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+3)
+	// Collapse the block's writes into a single NamedChangeSet: one changeset
+	// per pair costs thousands of proto allocations per block and dominates
+	// main-thread finalize time; the store applies pairs identically either way.
+	pairs := make([]*proto.KVPair, 0, d.transactionsInCurrentBlock)
 	for key, value := range d.batch.Iterator() {
-		changeSets = append(changeSets, &proto.NamedChangeSet{
-			Name:      wrappers.EVMStoreName,
-			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte(key), Value: value}}},
-		})
+		pairs = append(pairs, &proto.KVPair{Key: []byte(key), Value: value})
 	}
+	changeSets := make([]*proto.NamedChangeSet, 0, 4)
+	changeSets = append(changeSets, &proto.NamedChangeSet{
+		Name:      wrappers.EVMStoreName,
+		Changeset: proto.ChangeSet{Pairs: pairs},
+	})
 	d.batch.Clear()
 
 	// Persist the account ID counter in every batch.
