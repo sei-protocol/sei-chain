@@ -22,7 +22,22 @@ type SearchOptions struct {
 	// When true the highest-ordered results (e.g. most-recent heights) are
 	// kept; when false the lowest-ordered results are kept.
 	OrderDesc bool
+
+	// MaxScan bounds the number of index entries the fallback scan path
+	// (CONTAINS/MATCHES/non-height value ranges) may examine before the query
+	// is rejected as too broad. It bounds work, not output: a value <= 0 means
+	// no budget. Unlike Limit it protects the node from a broad query that must
+	// scan many entries to return few matches. When the budget is exceeded the
+	// search fails closed with ErrSearchScanBudgetExceeded rather than
+	// returning a value-biased partial result.
+	MaxScan int
 }
+
+// ErrSearchScanBudgetExceeded is returned when a search exceeds its
+// SearchOptions.MaxScan budget on the fallback scan path. The string is a
+// stable contract clients may match on; it is deliberately distinct from
+// context cancellation, which returns a partial result with a nil error.
+var ErrSearchScanBudgetExceeded = errors.New("search scan budget exceeded: query too broad")
 
 // TxIndexer interface defines methods to index and search transactions.
 type TxIndexer interface {

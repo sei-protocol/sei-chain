@@ -536,6 +536,14 @@ type RPCConfig struct {
 	// Maximum number of results returned by tx_search and block_search.
 	// 0 disables the cap (not recommended on public nodes).
 	MaxTxSearchResults int `mapstructure:"max-tx-search-results"`
+
+	// Maximum number of index entries a single tx_search / block_search may
+	// examine on the fallback scan path (CONTAINS/MATCHES/value ranges) before
+	// the query is rejected as too broad. This bounds work, not output: unlike
+	// max-tx-search-results (which caps the result set) it protects the node
+	// from a broad query that must scan millions of entries to return a handful
+	// of matches. 0 disables the budget (not recommended on public nodes).
+	MaxEventSearchScan int `mapstructure:"max-event-search-scan"`
 }
 
 // DefaultRPCConfig returns a default configuration for the RPC server
@@ -570,6 +578,7 @@ func DefaultRPCConfig() *RPCConfig {
 		TimeoutWrite:      30 * time.Second,
 
 		MaxTxSearchResults: 10_000,
+		MaxEventSearchScan: 1_000_000,
 	}
 }
 
@@ -624,6 +633,9 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	}
 	if cfg.MaxTxSearchResults < 0 {
 		return errors.New("max-tx-search-results can't be negative")
+	}
+	if cfg.MaxEventSearchScan < 0 {
+		return errors.New("max-event-search-scan can't be negative")
 	}
 	return nil
 }

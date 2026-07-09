@@ -50,6 +50,53 @@ func eventKey(compositeKey, typ, eventValue string, height int64) ([]byte, error
 	)
 }
 
+// eventKeyHeightOrdered builds a height-ordered event key:
+// orderedcode(blockHeightOrderedKey, compositeKey, height, eventValue, typ).
+// Placing the (real int64) height ahead of the value lets EXISTS-by-tag queries
+// scan in height order and early-stop at the limit.
+func eventKeyHeightOrdered(compositeKey, typ, eventValue string, height int64) ([]byte, error) {
+	return orderedcode.Append(
+		nil,
+		blockHeightOrderedKey,
+		compositeKey,
+		height,
+		eventValue,
+		typ,
+	)
+}
+
+// prefixHeightOrdered returns the scan prefix orderedcode(blockHeightOrderedKey,
+// compositeKey) covering every height-ordered entry for a composite tag, in
+// height order.
+func prefixHeightOrdered(compositeKey string) ([]byte, error) {
+	return orderedcode.Append(nil, blockHeightOrderedKey, compositeKey)
+}
+
+// parseHeightFromHeightOrderedKey extracts the height from a height-ordered
+// event key. See eventKeyHeightOrdered for the layout.
+func parseHeightFromHeightOrderedKey(key []byte) (int64, error) {
+	var (
+		ns, compositeKey, eventValue, typ string
+		height                            int64
+	)
+
+	remaining, err := orderedcode.Parse(string(key), &ns, &compositeKey, &height, &eventValue, &typ)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse height-ordered key: %w", err)
+	}
+	if len(remaining) != 0 {
+		return 0, fmt.Errorf("unexpected remainder in key: %s", remaining)
+	}
+
+	return height, nil
+}
+
+// watermarkKey is the reserved key holding the lowest height covered by the
+// height-ordered index on this node.
+func watermarkKey() ([]byte, error) {
+	return orderedcode.Append(nil, blockWatermarkKey)
+}
+
 func parseValueFromPrimaryKey(key []byte) (string, error) {
 	var (
 		compositeKey string

@@ -1,10 +1,26 @@
 package kv
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"github.com/google/orderedcode"
 )
+
+// int64ToBytes encodes an int64 as a varint. Used for the height-ordered index
+// watermark value, which is a point value read/written by key (never scanned in
+// order), so a compact non-order-preserving encoding is fine.
+func int64ToBytes(i int64) []byte {
+	buf := make([]byte, binary.MaxVarintLen64)
+	n := binary.PutVarint(buf, i)
+	return buf[:n]
+}
+
+// int64FromBytes decodes a varint-encoded int64 produced by int64ToBytes.
+func int64FromBytes(bz []byte) int64 {
+	v, _ := binary.Varint(bz)
+	return v
+}
 
 // intInSlice returns true if a is found in the list.
 func intInSlice(a int, list []int) bool {

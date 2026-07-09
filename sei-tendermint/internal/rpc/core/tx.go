@@ -85,6 +85,7 @@ func (env *Environment) TxSearch(ctx context.Context, req *coretypes.RequestTxSe
 			results, err := sink.SearchTxEvents(ctx, q, indexer.SearchOptions{
 				Limit:     env.Config.MaxTxSearchResults,
 				OrderDesc: orderDesc,
+				MaxScan:   env.Config.MaxEventSearchScan,
 			})
 			if err != nil {
 				return nil, err

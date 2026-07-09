@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -21,6 +22,20 @@ import (
 )
 
 var _ indexer.TxIndexer = (*TxIndex)(nil)
+
+const (
+	// txHeightOrderedKey namespaces the height-ordered secondary index. Its
+	// keys have the form orderedcode(txHeightOrderedKey, tag, height, index,
+	// value), so within a tag they sort by (height, index) — matching the
+	// (height, index) order tx_search returns — and stay disjoint from the
+	// legacy value-ordered index that shares this store. It is reserved: events
+	// may not use it as a composite key.
+	txHeightOrderedKey = "tx.height_ordered"
+
+	// txWatermarkKey stores the lowest block height covered by the
+	// height-ordered index on this node (see readWatermark). It is reserved.
+	txWatermarkKey = "tx.new_index_min_height"
+)
 
 // TxIndex is the simplest possible indexer
 // It is backed by two kv stores:
@@ -69,6 +84,7 @@ func (txi *TxIndex) Index(results []*abci.TxResultV2) error {
 	b := txi.store.NewBatch()
 	defer func() { _ = b.Close() }()
 
+	minHeight := int64(math.MaxInt64)
 	for _, result := range results {
 		hash := types.Tx(result.Tx).Hash()
 		hashBytes := hash[:]
@@ -79,8 +95,13 @@ func (txi *TxIndex) Index(results []*abci.TxResultV2) error {
 			return err
 		}
 
-		// index by height (always)
+		// index by height (always), in both the legacy value-ordered and the
+		// new height-ordered index.
 		err = b.Set(KeyFromHeight(result), hashBytes)
+		if err != nil {
+			return err
+		}
+		err = b.Set(keyFromHeightHeightOrdered(result), hashBytes)
 		if err != nil {
 			return err
 		}
@@ -94,6 +115,17 @@ func (txi *TxIndex) Index(results []*abci.TxResultV2) error {
 		if err != nil {
 			return err
 		}
+
+		if result.Height < minHeight {
+			minHeight = result.Height
+		}
+	}
+
+	// Advance the watermark for the height-ordered index in the same atomic
+	// batch as the keys it accounts for, so a crash can never leave the
+	// watermark below the keys actually written.
+	if err := txi.updateWatermark(b, minHeight); err != nil {
+		return err
 	}
 
 	return b.WriteSync()
@@ -114,12 +146,17 @@ func (txi *TxIndex) indexEvents(result *abci.TxResultV2, hash []byte, store dbm.
 			// index if `index: true` is set
 			compositeTag := fmt.Sprintf("%s.%s", event.Type, string(attr.Key))
 			// ensure event does not conflict with a reserved prefix key
-			if compositeTag == types.TxHashKey || compositeTag == types.TxHeightKey {
+			if compositeTag == types.TxHashKey || compositeTag == types.TxHeightKey ||
+				compositeTag == txHeightOrderedKey || compositeTag == txWatermarkKey {
 				return fmt.Errorf("event type and attribute key \"%s\" is reserved; please use a different key", compositeTag)
 			}
 			if attr.GetIndex() {
-				err := store.Set(keyFromEvent(compositeTag, string(attr.Value), result), hash)
-				if err != nil {
+				// dual-write: legacy value-ordered key plus the new
+				// height-ordered key (see keyFromEventHeightOrdered).
+				if err := store.Set(keyFromEvent(compositeTag, string(attr.Value), result), hash); err != nil {
+					return err
+				}
+				if err := store.Set(keyFromEventHeightOrdered(compositeTag, string(attr.Value), result), hash); err != nil {
 					return err
 				}
 			}
@@ -177,18 +214,31 @@ func (txi *TxIndex) Search(ctx context.Context, q *query.Query, opts indexer.Sea
 	// Fast path: when every condition is an equality (point-probeable) or a
 	// tx.height range (evaluable from the candidate height), drive a single
 	// (height, index)-ordered scan in order_by order, point-probe the remaining
-	// conditions per candidate, and stop at opts.Limit. Memory is bounded by the
-	// results kept, not by the total match cardinality.
+	// conditions per candidate, and stop at opts.Limit. This uses the legacy
+	// index (equality has full coverage) and ignores the watermark. Memory is
+	// bounded by the results kept, not by the total match cardinality.
 	if plan, ok := planBounded(conditions, ranges, rangeIndexes); ok {
 		return txi.searchBounded(ctx, plan, opts)
 	}
 
-	// Fallback: queries containing CONTAINS/MATCHES/EXISTS, non-height ranges, or
-	// only a tx.height range cannot be driven by an in-order point-probeable
-	// scan (the tx.height secondary index stores the height as a decimal string,
-	// so its key order is not numeric). Materialize the intersection as before,
-	// then bound and order the result set.
-	filteredHashes := txi.intersect(ctx, conditions, ranges, rangeIndexes)
+	// Height-ordered path: tx.height range-only and EXISTS-by-tag queries have
+	// no equality to drive the legacy fast path, but they are height-orderable.
+	// Drive them off the new height-ordered index, splitting at the watermark so
+	// pre-upgrade heights (not covered by the new index) fall back to the legacy
+	// index for full coverage. Early-stops at opts.Limit.
+	if plan, ok := planHeightOrdered(conditions, ranges, rangeIndexes); ok {
+		return txi.searchHeightOrdered(ctx, plan, opts)
+	}
+
+	// Fallback: queries containing CONTAINS/MATCHES, non-height value ranges, or
+	// a mix of those cannot be driven by an in-order scan. Materialize the
+	// intersection as before, then bound and order the result set. The scan is
+	// bounded by opts.MaxScan and fails closed if the budget is exceeded.
+	budget := indexer.NewScanBudget(opts.MaxScan)
+	filteredHashes, err := txi.intersect(ctx, conditions, ranges, rangeIndexes, budget)
+	if err != nil {
+		return nil, err
+	}
 	return txi.collectBounded(ctx, filteredHashes, opts)
 }
 
@@ -202,7 +252,8 @@ func (txi *TxIndex) intersect(
 	conditions []syntax.Condition,
 	ranges indexer.QueryRanges,
 	rangeIndexes []int,
-) map[string][]byte {
+	budget *indexer.ScanBudget,
+) (map[string][]byte, error) {
 	var hashesInitialized bool
 	filteredHashes := make(map[string][]byte)
 
@@ -213,17 +264,24 @@ func (txi *TxIndex) intersect(
 		skipIndexes = append(skipIndexes, rangeIndexes...)
 
 		for _, qr := range ranges {
+			var err error
 			if !hashesInitialized {
-				filteredHashes = txi.matchRange(ctx, qr, prefixFromCompositeKey(qr.Key), filteredHashes, true)
+				filteredHashes, err = txi.matchRange(ctx, qr, prefixFromCompositeKey(qr.Key), filteredHashes, true, budget)
+				if err != nil {
+					return nil, err
+				}
 				hashesInitialized = true
 
 				// Ignore any remaining conditions if the first condition resulted
 				// in no matches (assuming implicit AND operand).
 				if len(filteredHashes) == 0 {
-					return filteredHashes
+					return filteredHashes, nil
 				}
 			} else {
-				filteredHashes = txi.matchRange(ctx, qr, prefixFromCompositeKey(qr.Key), filteredHashes, false)
+				filteredHashes, err = txi.matchRange(ctx, qr, prefixFromCompositeKey(qr.Key), filteredHashes, false, budget)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -237,21 +295,28 @@ func (txi *TxIndex) intersect(
 			continue
 		}
 
+		var err error
 		if !hashesInitialized {
-			filteredHashes = txi.match(ctx, c, prefixForCondition(c, height), filteredHashes, true)
+			filteredHashes, err = txi.match(ctx, c, prefixForCondition(c, height), filteredHashes, true, budget)
+			if err != nil {
+				return nil, err
+			}
 			hashesInitialized = true
 
 			// Ignore any remaining conditions if the first condition resulted
 			// in no matches (assuming implicit AND operand).
 			if len(filteredHashes) == 0 {
-				return filteredHashes
+				return filteredHashes, nil
 			}
 		} else {
-			filteredHashes = txi.match(ctx, c, prefixForCondition(c, height), filteredHashes, false)
+			filteredHashes, err = txi.match(ctx, c, prefixForCondition(c, height), filteredHashes, false, budget)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
-	return filteredHashes
+	return filteredHashes, nil
 }
 
 // collectBounded materializes filteredHashes into tx results, orders them by
@@ -279,6 +344,36 @@ func (txi *TxIndex) collectBounded(ctx context.Context, filteredHashes map[strin
 
 	if opts.Limit > 0 && len(results) > opts.Limit {
 		results = results[:opts.Limit]
+	}
+
+	return results, nil
+}
+
+// collectBoundedInHeightRange is collectBounded restricted to results whose
+// height falls within [lo, hi] and capped at limit. It backs the sub-watermark
+// leg of the height-ordered split, where the legacy fallback must serve only
+// pre-watermark heights.
+func (txi *TxIndex) collectBoundedInHeightRange(ctx context.Context, filteredHashes map[string][]byte, orderDesc bool, limit int, lo, hi int64) ([]*abci.TxResultV2, error) {
+	results := make([]*abci.TxResultV2, 0, indexer.BoundedCap(limit))
+	for _, h := range filteredHashes {
+		res, err := txi.Get(h)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get Tx{%X}: %w", h, err)
+		}
+		if res != nil && res.Height >= lo && res.Height <= hi {
+			results = append(results, res)
+		}
+
+		// Potentially exit early.
+		if ctx.Err() != nil {
+			break
+		}
+	}
+
+	sortResults(results, orderDesc)
+
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
 	}
 
 	return results, nil
@@ -459,6 +554,258 @@ func planBounded(conditions []syntax.Condition, ranges indexer.QueryRanges, rang
 	return plan, true
 }
 
+// heightOrderedPlan describes a query served from the height-ordered index: a
+// single (height, index)-ordered scan of driverTag's prefix, filtered by any
+// tx.height bounds and split at the watermark (heights >= W come from the new
+// index; heights < W come from the legacy fallback for full coverage).
+type heightOrderedPlan struct {
+	// driverTag is the composite key whose height-ordered prefix is scanned.
+	driverTag string
+	// heightRanges are tx.height bounds; may be empty for a pure EXISTS query.
+	heightRanges []indexer.QueryRange
+	// existsCond, when non-nil, is the single EXISTS condition this plan serves
+	// (nil for a tx.height-range-only query). It is retained so the
+	// sub-watermark leg can rebuild the equivalent legacy match.
+	existsCond *syntax.Condition
+}
+
+// planHeightOrdered decides whether a query is eligible for the height-ordered
+// path and builds its plan. It handles the height-orderable shapes that have no
+// equality to drive the legacy fast path: a tx.height range-only query, or a
+// single EXISTS on a tag (optionally combined with a tx.height range). Anything
+// else (CONTAINS/MATCHES, non-height ranges, multi-condition mixes) is left to
+// the materializing fallback.
+func planHeightOrdered(conditions []syntax.Condition, ranges indexer.QueryRanges, rangeIndexes []int) (heightOrderedPlan, bool) {
+	var plan heightOrderedPlan
+
+	// Every range must be a numeric tx.height range.
+	for key, qr := range ranges {
+		if key != types.TxHeightKey {
+			return heightOrderedPlan{}, false
+		}
+		if _, ok := qr.AnyBound().(int64); !ok {
+			return heightOrderedPlan{}, false
+		}
+		plan.heightRanges = append(plan.heightRanges, qr)
+	}
+
+	// Collect the non-range conditions.
+	nonRange := make([]syntax.Condition, 0, len(conditions))
+	for i, c := range conditions {
+		if intInSlice(i, rangeIndexes) {
+			continue
+		}
+		nonRange = append(nonRange, c)
+	}
+
+	switch {
+	case len(nonRange) == 0:
+		// tx.height range-only: need at least one height range to drive a scan.
+		if len(plan.heightRanges) == 0 {
+			return heightOrderedPlan{}, false
+		}
+		plan.driverTag = types.TxHeightKey
+	case len(nonRange) == 1 && nonRange[0].Op == syntax.TExists:
+		plan.driverTag = nonRange[0].Tag
+		plan.existsCond = &nonRange[0]
+	default:
+		return heightOrderedPlan{}, false
+	}
+
+	return plan, true
+}
+
+// heightBounds reduces the plan's tx.height ranges to a single inclusive
+// [lo, hi] window. Heights are >= 1, so an absent lower bound defaults to 1
+// (avoiding a pointless legacy scan for a non-existent sub-watermark tail).
+func heightBounds(ranges []indexer.QueryRange) (lo, hi int64) {
+	lo, hi = 1, int64(math.MaxInt64)
+	for i := range ranges {
+		if lb := ranges[i].LowerBoundValue(); lb != nil {
+			if v, ok := lb.(int64); ok && v > lo {
+				lo = v
+			}
+		}
+		if ub := ranges[i].UpperBoundValue(); ub != nil {
+			if v, ok := ub.(int64); ok && v < hi {
+				hi = v
+			}
+		}
+	}
+	return lo, hi
+}
+
+// searchHeightOrdered serves a heightOrderedPlan by splitting the [lo, hi]
+// window at the watermark W: heights in [max(lo, W), hi] are streamed from the
+// new height-ordered index (fast, early-stops at opts.Limit); heights in
+// [lo, W-1] are served by the legacy materializing fallback for full coverage.
+// The two sub-ranges are height-disjoint at W, so no global merge is needed —
+// whichever sub-range holds the higher (for desc) or lower (for asc) heights is
+// drained first, and the other only if the limit is not yet met.
+func (txi *TxIndex) searchHeightOrdered(ctx context.Context, plan heightOrderedPlan, opts indexer.SearchOptions) ([]*abci.TxResultV2, error) {
+	w := txi.readWatermark()
+	lo, hi := heightBounds(plan.heightRanges)
+	if lo > hi {
+		return []*abci.TxResultV2{}, nil
+	}
+
+	fastLo := max(lo, w)
+	hasFast := fastLo <= hi
+
+	fbHi := min(hi, w-1)
+	hasFallback := lo <= fbHi
+
+	results := make([]*abci.TxResultV2, 0, indexer.BoundedCap(opts.Limit))
+	remaining := func() int {
+		if opts.Limit <= 0 {
+			return -1
+		}
+		return opts.Limit - len(results)
+	}
+	reachedLimit := func() bool {
+		return opts.Limit > 0 && len(results) >= opts.Limit
+	}
+
+	if opts.OrderDesc {
+		if hasFast {
+			r, err := txi.scanHeightOrderedFast(ctx, plan, fastLo, hi, true, remaining())
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, r...)
+		}
+		if !reachedLimit() && hasFallback {
+			r, err := txi.heightOrderedFallback(ctx, plan, lo, fbHi, true, remaining(), opts.MaxScan)
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, r...)
+		}
+	} else {
+		if hasFallback {
+			r, err := txi.heightOrderedFallback(ctx, plan, lo, fbHi, false, remaining(), opts.MaxScan)
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, r...)
+		}
+		if !reachedLimit() && hasFast {
+			r, err := txi.scanHeightOrderedFast(ctx, plan, fastLo, hi, false, remaining())
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, r...)
+		}
+	}
+
+	if opts.Limit > 0 && len(results) > opts.Limit {
+		results = results[:opts.Limit]
+	}
+	return results, nil
+}
+
+// scanHeightOrderedFast streams the new height-ordered index for plan.driverTag
+// over heights [lo, hi] in (height, index) order_by order, deduping by hash and
+// stopping at limit (limit <= 0 means unbounded). Because keys are height-major
+// the scan early-stops once it passes the far bound. This is a Limit-bounded
+// fast-path scan and is deliberately not charged against the scan budget.
+func (txi *TxIndex) scanHeightOrderedFast(ctx context.Context, plan heightOrderedPlan, lo, hi int64, desc bool, limit int) ([]*abci.TxResultV2, error) {
+	it, err := txi.prefixIterator(prefixHeightOrdered(plan.driverTag), desc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create height-ordered iterator: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+
+	results := make([]*abci.TxResultV2, 0, indexer.BoundedCap(limit))
+	seen := make(map[string]struct{})
+
+	for ; it.Valid(); it.Next() {
+		if ctx.Err() != nil {
+			break
+		}
+
+		height, _, err := parseHeightOrderedKey(it.Key())
+		if err != nil {
+			continue
+		}
+
+		// Keys are height-major, so once we pass the far bound in scan order we
+		// can stop; the near bound is skipped until we reach the window.
+		if desc {
+			if height > hi {
+				continue
+			}
+			if height < lo {
+				break
+			}
+		} else {
+			if height < lo {
+				continue
+			}
+			if height > hi {
+				break
+			}
+		}
+
+		hash := it.Value()
+		if _, dup := seen[string(hash)]; dup {
+			continue
+		}
+
+		res, err := txi.Get(hash)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get Tx{%X}: %w", hash, err)
+		}
+		if res == nil {
+			continue
+		}
+
+		seen[string(hash)] = struct{}{}
+		results = append(results, res)
+
+		if limit > 0 && len(results) >= limit {
+			break
+		}
+	}
+
+	if err := it.Error(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+// heightOrderedFallback serves the pre-watermark [lo, hi] leg of a
+// heightOrderedPlan from the legacy index. It rebuilds the equivalent legacy
+// match, then collects results whose height is in [lo, hi], ordered and capped
+// at limit. The legacy scan is charged against a maxScan budget and fails
+// closed if the budget is exceeded.
+func (txi *TxIndex) heightOrderedFallback(ctx context.Context, plan heightOrderedPlan, lo, hi int64, desc bool, limit, maxScan int) ([]*abci.TxResultV2, error) {
+	budget := indexer.NewScanBudget(maxScan)
+
+	var (
+		filtered map[string][]byte
+		err      error
+	)
+	if plan.existsCond != nil {
+		filtered, err = txi.match(ctx, *plan.existsCond, nil, map[string][]byte{}, true, budget)
+	} else {
+		qr := indexer.QueryRange{
+			Key:               types.TxHeightKey,
+			LowerBound:        lo,
+			UpperBound:        hi,
+			IncludeLowerBound: true,
+			IncludeUpperBound: true,
+		}
+		filtered, err = txi.matchRange(ctx, qr, prefixFromCompositeKey(types.TxHeightKey), map[string][]byte{}, true, budget)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return txi.collectBoundedInHeightRange(ctx, filtered, desc, limit, lo, hi)
+}
+
 // sortResults orders tx results by (height, index): descending (most recent
 // first) when desc is true, ascending otherwise. It matches the ordering the
 // RPC layer applies after the search.
@@ -511,11 +858,12 @@ func (txi *TxIndex) match(
 	startKeyBz []byte,
 	filteredHashes map[string][]byte,
 	firstRun bool,
-) map[string][]byte {
+	budget *indexer.ScanBudget,
+) (map[string][]byte, error) {
 	// A previous match was attempted but resulted in no matches, so we return
 	// no matches (assuming AND operand).
 	if !firstRun && len(filteredHashes) == 0 {
-		return filteredHashes
+		return filteredHashes, nil
 	}
 
 	tmpHashes := make(map[string][]byte)
@@ -524,12 +872,15 @@ func (txi *TxIndex) match(
 	case syntax.TEq:
 		it, err := dbm.IteratePrefix(txi.store, startKeyBz)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		defer func() { _ = it.Close() }()
 
 	iterEqual:
 		for ; it.Valid(); it.Next() {
+			if err := budget.Step(); err != nil {
+				return nil, err
+			}
 			tmpHashes[string(it.Value())] = it.Value()
 
 			// Potentially exit early.
@@ -540,7 +891,7 @@ func (txi *TxIndex) match(
 			}
 		}
 		if err := it.Error(); err != nil {
-			panic(err)
+			return nil, err
 		}
 
 	case syntax.TExists:
@@ -548,12 +899,15 @@ func (txi *TxIndex) match(
 		// (e.g. "account.owner/<nil>/" won't match w/ a single row)
 		it, err := dbm.IteratePrefix(txi.store, prefixFromCompositeKey(c.Tag))
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		defer func() { _ = it.Close() }()
 
 	iterExists:
 		for ; it.Valid(); it.Next() {
+			if err := budget.Step(); err != nil {
+				return nil, err
+			}
 			tmpHashes[string(it.Value())] = it.Value()
 
 			// Potentially exit early.
@@ -564,7 +918,7 @@ func (txi *TxIndex) match(
 			}
 		}
 		if err := it.Error(); err != nil {
-			panic(err)
+			return nil, err
 		}
 
 	case syntax.TContains:
@@ -573,12 +927,15 @@ func (txi *TxIndex) match(
 		// we can't iterate with prefix "account.owner/an/" because we might miss keys like "account.owner/Ulan/"
 		it, err := dbm.IteratePrefix(txi.store, prefixFromCompositeKey(c.Tag))
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		defer func() { _ = it.Close() }()
 
 	iterContains:
 		for ; it.Valid(); it.Next() {
+			if err := budget.Step(); err != nil {
+				return nil, err
+			}
 			value, err := parseValueFromKey(it.Key())
 			if err != nil {
 				continue
@@ -595,18 +952,21 @@ func (txi *TxIndex) match(
 			}
 		}
 		if err := it.Error(); err != nil {
-			panic(err)
+			return nil, err
 		}
 
 	case syntax.TMatches:
 		it, err := dbm.IteratePrefix(txi.store, prefixFromCompositeKey(c.Tag))
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		defer func() { _ = it.Close() }()
 
 	iterMatches:
 		for ; it.Valid(); it.Next() {
+			if err := budget.Step(); err != nil {
+				return nil, err
+			}
 			value, err := parseValueFromKey(it.Key())
 			if err != nil {
 				continue
@@ -623,10 +983,10 @@ func (txi *TxIndex) match(
 			}
 		}
 		if err := it.Error(); err != nil {
-			panic(err)
+			return nil, err
 		}
 	default:
-		panic("other operators should be handled already")
+		return nil, fmt.Errorf("other operators should be handled already")
 	}
 
 	if len(tmpHashes) == 0 || firstRun {
@@ -637,7 +997,7 @@ func (txi *TxIndex) match(
 		// return no matches (assuming AND operand).
 		//
 		// 2. A previous match was not attempted, so we return all results.
-		return tmpHashes
+		return tmpHashes, nil
 	}
 
 	// Remove/reduce matches in filteredHashes that were not found in this
@@ -655,7 +1015,7 @@ func (txi *TxIndex) match(
 		}
 	}
 
-	return filteredHashes
+	return filteredHashes, nil
 }
 
 // matchRange returns all matching txs by hash that meet a given queryRange and
@@ -669,11 +1029,12 @@ func (txi *TxIndex) matchRange(
 	startKey []byte,
 	filteredHashes map[string][]byte,
 	firstRun bool,
-) map[string][]byte {
+	budget *indexer.ScanBudget,
+) (map[string][]byte, error) {
 	// A previous match was attempted but resulted in no matches, so we return
 	// no matches (assuming AND operand).
 	if !firstRun && len(filteredHashes) == 0 {
-		return filteredHashes
+		return filteredHashes, nil
 	}
 
 	tmpHashes := make(map[string][]byte)
@@ -682,12 +1043,15 @@ func (txi *TxIndex) matchRange(
 
 	it, err := dbm.IteratePrefix(txi.store, startKey)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	defer func() { _ = it.Close() }()
 
 iter:
 	for ; it.Valid(); it.Next() {
+		if err := budget.Step(); err != nil {
+			return nil, err
+		}
 		value, err := parseValueFromKey(it.Key())
 		if err != nil {
 			continue
@@ -727,7 +1091,7 @@ iter:
 		}
 	}
 	if err := it.Error(); err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	if len(tmpHashes) == 0 || firstRun {
@@ -738,7 +1102,7 @@ iter:
 		// return no matches (assuming AND operand).
 		//
 		// 2. A previous match was not attempted, so we return all results.
-		return tmpHashes
+		return tmpHashes, nil
 	}
 
 	// Remove/reduce matches in filteredHashes that were not found in this
@@ -756,7 +1120,7 @@ iter:
 		}
 	}
 
-	return filteredHashes
+	return filteredHashes, nil
 }
 
 // ##########################  Keys  #############################
@@ -825,6 +1189,106 @@ func keyFromEvent(compositeKey string, value string, result *abci.TxResultV2) []
 
 func KeyFromHeight(result *abci.TxResultV2) []byte {
 	return secondaryKey(types.TxHeightKey, fmt.Sprintf("%d", result.Height), result.Height, result.Index)
+}
+
+// ##################  Height-ordered index (PLT-786)  ##################
+//
+// The height-ordered secondary key places the (real int64) height ahead of the
+// value so that, within a composite tag, keys sort by (height, index) — the
+// same order tx_search returns. This lets tx.height ranges and EXISTS-by-tag
+// queries scan in result order and early-stop at the limit, instead of
+// materializing and sorting the full match set. It is namespaced under the
+// reserved txHeightOrderedKey so it stays disjoint from the legacy index in the
+// shared store.
+
+// secondaryKeyHeightOrdered builds a height-ordered event key:
+// orderedcode(txHeightOrderedKey, compositeKey, height, index, value).
+func secondaryKeyHeightOrdered(compositeKey, value string, height int64, index uint32) []byte {
+	key, err := orderedcode.Append(
+		nil,
+		txHeightOrderedKey,
+		compositeKey,
+		height,
+		int64(index),
+		value,
+	)
+	if err != nil {
+		panic(err)
+	}
+	return key
+}
+
+func keyFromEventHeightOrdered(compositeKey string, value string, result *abci.TxResultV2) []byte {
+	return secondaryKeyHeightOrdered(compositeKey, value, result.Height, result.Index)
+}
+
+func keyFromHeightHeightOrdered(result *abci.TxResultV2) []byte {
+	return secondaryKeyHeightOrdered(types.TxHeightKey, fmt.Sprintf("%d", result.Height), result.Height, result.Index)
+}
+
+// prefixHeightOrdered returns the scan prefix orderedcode(txHeightOrderedKey,
+// compositeKey) covering every height-ordered entry for a composite tag, in
+// (height, index) order.
+func prefixHeightOrdered(compositeKey string) []byte {
+	key, err := orderedcode.Append(nil, txHeightOrderedKey, compositeKey)
+	if err != nil {
+		panic(err)
+	}
+	return key
+}
+
+// parseHeightOrderedKey extracts (height, index) from a height-ordered event
+// key. See secondaryKeyHeightOrdered for the layout.
+func parseHeightOrderedKey(key []byte) (int64, uint32, error) {
+	var (
+		ns, compositeKey, value string
+		height, index           int64
+	)
+	remaining, err := orderedcode.Parse(string(key), &ns, &compositeKey, &height, &index, &value)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to parse height-ordered key: %w", err)
+	}
+	if len(remaining) != 0 {
+		return 0, 0, fmt.Errorf("unexpected remainder in key: %s", remaining)
+	}
+	return height, uint32(index), nil //nolint:gosec // index is stored as int64(uint32), so the round-trip cannot overflow
+}
+
+// watermarkKey is the reserved key holding the lowest height covered by the
+// height-ordered index on this node.
+func watermarkKey() []byte {
+	key, err := orderedcode.Append(nil, txWatermarkKey)
+	if err != nil {
+		panic(err)
+	}
+	return key
+}
+
+// readWatermark returns the lowest block height covered by the height-ordered
+// index. An unset watermark (fresh DB, or upgraded-but-not-yet-written) reads
+// as math.MaxInt64 so every height-ordered query takes the legacy fallback
+// until the new index has written at least one key.
+func (txi *TxIndex) readWatermark() int64 {
+	bz, err := txi.store.Get(watermarkKey())
+	if err != nil {
+		panic(err)
+	}
+	if len(bz) == 0 {
+		return math.MaxInt64
+	}
+	return int64FromBytes(bz)
+}
+
+// updateWatermark lowers the persisted watermark to height when height is lower,
+// writing into the provided batch so it commits atomically with the
+// height-ordered keys it accounts for. A watermark that is too high is only
+// over-conservative (routes covered heights to the fallback); a watermark below
+// the keys actually written would be incorrect, so it is never raised here.
+func (txi *TxIndex) updateWatermark(b dbm.Batch, height int64) error {
+	if height >= txi.readWatermark() {
+		return nil
+	}
+	return b.Set(watermarkKey(), int64ToBytes(height))
 }
 
 // Prefixes: these represent an initial part of the key and are used by iterators to iterate over a small

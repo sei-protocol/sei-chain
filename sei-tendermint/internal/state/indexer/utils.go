@@ -34,6 +34,43 @@ func HeightInRange(h int64, qr QueryRange) bool {
 	return true
 }
 
+// ScanBudget bounds the number of index entries a fallback scan may examine
+// across all passes of a single query (one query = one shared budget). It
+// counts work, not output: it is stepped once per iterator advance on the
+// fallback scan path and not for fast-path driver scans or point-probes. A
+// non-positive limit disables the budget.
+type ScanBudget struct {
+	limit int
+	used  int
+}
+
+// NewScanBudget returns a ScanBudget with the given entry limit (<= 0 disables).
+func NewScanBudget(limit int) *ScanBudget {
+	return &ScanBudget{limit: limit}
+}
+
+// Step accounts for one examined entry and returns ErrSearchScanBudgetExceeded
+// once the cumulative count exceeds the limit. It is safe to call on a nil
+// budget (treated as unlimited).
+func (b *ScanBudget) Step() error {
+	if b == nil || b.limit <= 0 {
+		return nil
+	}
+	b.used++
+	if b.used > b.limit {
+		return ErrSearchScanBudgetExceeded
+	}
+	return nil
+}
+
+// Used reports the number of entries examined so far.
+func (b *ScanBudget) Used() int {
+	if b == nil {
+		return 0
+	}
+	return b.used
+}
+
 // PrefixUpperBound returns the exclusive end key for iterating over prefix,
 // i.e. the smallest key strictly greater than every key having the prefix.
 // It returns nil when prefix is empty or all bytes are 0xFF (no upper bound).

@@ -408,9 +408,9 @@ func TestTxSearchBounded(t *testing.T) {
 			opts: indexer.SearchOptions{Limit: 5, OrderDesc: true},
 			want: []hi{{3, 1}, {3, 0}},
 		},
-		// Fallback path: a tx.height-range-only query has no equality to drive an
-		// in-order scan (the height is stored as a decimal string), so it is
-		// materialized, then ordered and capped.
+		// Height-ordered path: a tx.height-range-only query has no equality to
+		// drive the legacy fast path, so it streams the new height-ordered index
+		// (split at the watermark) in order and early-stops at the limit.
 		"height range only desc limit 3": {
 			q:    `tx.height >= 4`,
 			opts: indexer.SearchOptions{Limit: 3, OrderDesc: true},
@@ -457,7 +457,7 @@ func TestTxSearchBounded(t *testing.T) {
 			`app.name = 'sei'`,                       // fast path: equality driver
 			`app.name = 'sei' AND app.kind = 'even'`, // fast path: equality + probe
 			`app.name = 'sei' AND tx.height >= 3`,    // fast path: equality + height range
-			`tx.height >= 3`,                         // fallback: height-range-only
+			`tx.height >= 3`,                         // height-ordered: height-range-only
 			`app.name CONTAINS 'se'`,                 // fallback: materialize then bound
 		}
 		for _, q := range queries {

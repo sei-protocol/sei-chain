@@ -340,6 +340,7 @@ func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestB
 	results, err := kvsink.SearchBlockEvents(ctx, q, indexer.SearchOptions{
 		Limit:     env.Config.MaxTxSearchResults,
 		OrderDesc: orderDesc,
+		MaxScan:   env.Config.MaxEventSearchScan,
 	})
 	if err != nil {
 		return nil, err

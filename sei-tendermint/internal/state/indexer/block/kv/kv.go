@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -20,6 +21,21 @@ import (
 )
 
 var _ indexer.BlockIndexer = (*BlockerIndexer)(nil)
+
+const (
+	// blockHeightOrderedKey namespaces the height-ordered event index. Its keys
+	// have the form orderedcode(blockHeightOrderedKey, tag, height, value, typ),
+	// so within a tag they sort by height — matching the order block_search
+	// returns — and stay disjoint from the legacy value-ordered index that
+	// shares this store. It is reserved: events may not use it as a composite
+	// key. block.height range queries are already served in height order by the
+	// primary key and do not use this index.
+	blockHeightOrderedKey = "block.height_ordered"
+
+	// blockWatermarkKey stores the lowest block height covered by the
+	// height-ordered index on this node (see readWatermark). It is reserved.
+	blockWatermarkKey = "block.new_index_min_height"
+)
 
 // BlockerIndexer implements a block indexer, indexing FinalizeBlock
 // events with an underlying KV store. Block events are indexed by their height,
@@ -45,6 +61,41 @@ func (idx *BlockerIndexer) Has(height int64) (bool, error) {
 	return idx.store.Has(key)
 }
 
+// readWatermark returns the lowest block height covered by the height-ordered
+// index. An unset watermark (fresh DB, or upgraded-but-not-yet-written) reads
+// as math.MaxInt64 so every height-ordered query takes the legacy fallback
+// until the new index has written at least one key.
+func (idx *BlockerIndexer) readWatermark() int64 {
+	key, err := watermarkKey()
+	if err != nil {
+		panic(err)
+	}
+	bz, err := idx.store.Get(key)
+	if err != nil {
+		panic(err)
+	}
+	if len(bz) == 0 {
+		return math.MaxInt64
+	}
+	return int64FromBytes(bz)
+}
+
+// updateWatermark lowers the persisted watermark to height when height is lower,
+// writing into the provided batch so it commits atomically with the
+// height-ordered keys it accounts for. A watermark that is too high is only
+// over-conservative (routes covered heights to the fallback); a watermark below
+// the keys actually written would be incorrect, so it is never raised here.
+func (idx *BlockerIndexer) updateWatermark(batch dbm.Batch, height int64) error {
+	if height >= idx.readWatermark() {
+		return nil
+	}
+	key, err := watermarkKey()
+	if err != nil {
+		return err
+	}
+	return batch.Set(key, int64ToBytes(height))
+}
+
 // Index indexes FinalizeBlock events for a given block by its height.
 // The following is indexed:
 //
@@ -68,6 +119,13 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockHeader) error {
 	// 2. index FinalizeBlock events
 	if err := idx.indexEvents(batch, bh.ResultFinalizeBlock.Events, "finalize_block", height); err != nil {
 		return fmt.Errorf("failed to index FinalizeBlock events: %w", err)
+	}
+
+	// 3. advance the height-ordered index watermark in the same atomic batch as
+	// the keys it accounts for, so a crash can never leave the watermark below
+	// the keys actually written.
+	if err := idx.updateWatermark(batch, height); err != nil {
+		return err
 	}
 
 	return batch.WriteSync()
@@ -109,16 +167,27 @@ func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query, opts inde
 	// Fast path: when every condition can be driven by a single height-ordered
 	// scan and point-probed, stream candidates in order_by order and stop at
 	// the limit, so a broad query does not materialize and sort the full match
-	// set.
+	// set. This uses the legacy index / primary key (full coverage) and ignores
+	// the watermark.
 	if plan, ok := planBounded(conditions, ranges, rangeIndexes); ok {
 		return idx.searchBounded(ctx, plan, opts)
 	}
 
-	// Fallback: queries containing CONTAINS/MATCHES/EXISTS or non-height ranges
-	// cannot be point-probed against a candidate height (the block's events
-	// live only in the index, so there is nothing cheap to fetch). Materialize
-	// the intersection as before, then bound and order the result set.
-	filteredHeights, err := idx.intersect(ctx, conditions, ranges, rangeIndexes)
+	// Height-ordered path: an EXISTS-by-tag query has no equality to drive the
+	// legacy fast path, but it is height-orderable. Drive it off the new
+	// height-ordered index, splitting at the watermark so pre-upgrade heights
+	// (not covered by the new index) fall back to the legacy index for full
+	// coverage. Early-stops at opts.Limit.
+	if plan, ok := planHeightOrdered(conditions, ranges, rangeIndexes); ok {
+		return idx.searchHeightOrdered(ctx, plan, opts)
+	}
+
+	// Fallback: queries containing CONTAINS/MATCHES or non-height value ranges
+	// cannot be driven by an in-order scan. Materialize the intersection as
+	// before, then bound and order the result set. The scan is bounded by
+	// opts.MaxScan and fails closed if the budget is exceeded.
+	budget := indexer.NewScanBudget(opts.MaxScan)
+	filteredHeights, err := idx.intersect(ctx, conditions, ranges, rangeIndexes, budget)
 	if err != nil {
 		return nil, err
 	}
@@ -135,6 +204,7 @@ func (idx *BlockerIndexer) intersect(
 	conditions []syntax.Condition,
 	ranges indexer.QueryRanges,
 	rangeIndexes []int,
+	budget *indexer.ScanBudget,
 ) (map[string][]byte, error) {
 	var heightsInitialized bool
 	filteredHeights := make(map[string][]byte)
@@ -152,7 +222,7 @@ func (idx *BlockerIndexer) intersect(
 			}
 
 			if !heightsInitialized {
-				filteredHeights, err = idx.matchRange(ctx, qr, prefix, filteredHeights, true)
+				filteredHeights, err = idx.matchRange(ctx, qr, prefix, filteredHeights, true, budget)
 				if err != nil {
 					return nil, err
 				}
@@ -165,7 +235,7 @@ func (idx *BlockerIndexer) intersect(
 					break
 				}
 			} else {
-				filteredHeights, err = idx.matchRange(ctx, qr, prefix, filteredHeights, false)
+				filteredHeights, err = idx.matchRange(ctx, qr, prefix, filteredHeights, false, budget)
 				if err != nil {
 					return nil, err
 				}
@@ -185,7 +255,7 @@ func (idx *BlockerIndexer) intersect(
 		}
 
 		if !heightsInitialized {
-			filteredHeights, err = idx.match(ctx, c, startKey, filteredHeights, true)
+			filteredHeights, err = idx.match(ctx, c, startKey, filteredHeights, true, budget)
 			if err != nil {
 				return nil, err
 			}
@@ -198,7 +268,7 @@ func (idx *BlockerIndexer) intersect(
 				break
 			}
 		} else {
-			filteredHeights, err = idx.match(ctx, c, startKey, filteredHeights, false)
+			filteredHeights, err = idx.match(ctx, c, startKey, filteredHeights, false, budget)
 			if err != nil {
 				return nil, err
 			}
@@ -238,6 +308,44 @@ func (idx *BlockerIndexer) collectBounded(ctx context.Context, filteredHeights m
 
 	if opts.Limit > 0 && len(results) > opts.Limit {
 		results = results[:opts.Limit]
+	}
+
+	return results, nil
+}
+
+// collectBoundedInHeightRange is collectBounded restricted to heights within
+// [lo, hi] and capped at limit. It backs the sub-watermark leg of the
+// height-ordered split, where the legacy fallback must serve only pre-watermark
+// heights.
+func (idx *BlockerIndexer) collectBoundedInHeightRange(ctx context.Context, filteredHeights map[string][]byte, orderDesc bool, limit int, lo, hi int64) ([]int64, error) {
+	results := make([]int64, 0, indexer.BoundedCap(limit))
+	for _, hBz := range filteredHeights {
+		h := int64FromBytes(hBz)
+		if h < lo || h > hi {
+			continue
+		}
+
+		ok, err := idx.Has(h)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			results = append(results, h)
+		}
+
+		if ctx.Err() != nil {
+			break
+		}
+	}
+
+	if orderDesc {
+		sort.Slice(results, func(i, j int) bool { return results[i] > results[j] })
+	} else {
+		sort.Slice(results, func(i, j int) bool { return results[i] < results[j] })
+	}
+
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
 	}
 
 	return results, nil
@@ -424,6 +532,234 @@ func planBounded(conditions []syntax.Condition, ranges indexer.QueryRanges, rang
 	return plan, true
 }
 
+// heightOrderedPlan describes a query served from the height-ordered index: a
+// single height-ordered scan of driverTag's prefix, filtered by any block.height
+// bounds and split at the watermark (heights >= W come from the new index;
+// heights < W come from the legacy fallback for full coverage).
+type heightOrderedPlan struct {
+	// driverTag is the composite key whose height-ordered prefix is scanned.
+	driverTag string
+	// heightRanges are block.height bounds; may be empty for a pure EXISTS query.
+	heightRanges []indexer.QueryRange
+	// existsCond is the single EXISTS condition this plan serves, retained so
+	// the sub-watermark leg can rebuild the equivalent legacy match.
+	existsCond *syntax.Condition
+}
+
+// planHeightOrdered decides whether a query is eligible for the height-ordered
+// path and builds its plan. It handles a single EXISTS on a tag (optionally
+// combined with a block.height range) — the height-orderable shape that has no
+// equality to drive the legacy fast path and no primary-key coverage. A
+// block.height range-only query is already served in height order by the
+// primary key (see planBounded) and is not routed here.
+func planHeightOrdered(conditions []syntax.Condition, ranges indexer.QueryRanges, rangeIndexes []int) (heightOrderedPlan, bool) {
+	var plan heightOrderedPlan
+
+	// Every range must be a numeric block.height range.
+	for key, qr := range ranges {
+		if key != types.BlockHeightKey {
+			return heightOrderedPlan{}, false
+		}
+		if _, ok := qr.AnyBound().(int64); !ok {
+			return heightOrderedPlan{}, false
+		}
+		plan.heightRanges = append(plan.heightRanges, qr)
+	}
+
+	// Collect the non-range conditions; exactly one EXISTS is required.
+	nonRange := make([]syntax.Condition, 0, len(conditions))
+	for i, c := range conditions {
+		if intInSlice(i, rangeIndexes) {
+			continue
+		}
+		nonRange = append(nonRange, c)
+	}
+	if len(nonRange) != 1 || nonRange[0].Op != syntax.TExists {
+		return heightOrderedPlan{}, false
+	}
+
+	plan.driverTag = nonRange[0].Tag
+	plan.existsCond = &nonRange[0]
+	return plan, true
+}
+
+// heightBounds reduces the plan's block.height ranges to a single inclusive
+// [lo, hi] window. Heights are >= 1, so an absent lower bound defaults to 1
+// (avoiding a pointless legacy scan for a non-existent sub-watermark tail).
+func heightBounds(ranges []indexer.QueryRange) (lo, hi int64) {
+	lo, hi = 1, int64(math.MaxInt64)
+	for i := range ranges {
+		if lb := ranges[i].LowerBoundValue(); lb != nil {
+			if v, ok := lb.(int64); ok && v > lo {
+				lo = v
+			}
+		}
+		if ub := ranges[i].UpperBoundValue(); ub != nil {
+			if v, ok := ub.(int64); ok && v < hi {
+				hi = v
+			}
+		}
+	}
+	return lo, hi
+}
+
+// searchHeightOrdered serves a heightOrderedPlan by splitting the [lo, hi]
+// window at the watermark W: heights in [max(lo, W), hi] are streamed from the
+// new height-ordered index (fast, early-stops at opts.Limit); heights in
+// [lo, W-1] are served by the legacy materializing fallback for full coverage.
+// The two sub-ranges are height-disjoint at W, so no global merge is needed.
+func (idx *BlockerIndexer) searchHeightOrdered(ctx context.Context, plan heightOrderedPlan, opts indexer.SearchOptions) ([]int64, error) {
+	w := idx.readWatermark()
+	lo, hi := heightBounds(plan.heightRanges)
+	if lo > hi {
+		return []int64{}, nil
+	}
+
+	fastLo := max(lo, w)
+	hasFast := fastLo <= hi
+
+	fbHi := min(hi, w-1)
+	hasFallback := lo <= fbHi
+
+	results := make([]int64, 0, indexer.BoundedCap(opts.Limit))
+	remaining := func() int {
+		if opts.Limit <= 0 {
+			return -1
+		}
+		return opts.Limit - len(results)
+	}
+	reachedLimit := func() bool {
+		return opts.Limit > 0 && len(results) >= opts.Limit
+	}
+
+	if opts.OrderDesc {
+		if hasFast {
+			r, err := idx.scanHeightOrderedFast(ctx, plan, fastLo, hi, true, remaining())
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, r...)
+		}
+		if !reachedLimit() && hasFallback {
+			r, err := idx.heightOrderedFallback(ctx, plan, lo, fbHi, true, remaining(), opts.MaxScan)
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, r...)
+		}
+	} else {
+		if hasFallback {
+			r, err := idx.heightOrderedFallback(ctx, plan, lo, fbHi, false, remaining(), opts.MaxScan)
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, r...)
+		}
+		if !reachedLimit() && hasFast {
+			r, err := idx.scanHeightOrderedFast(ctx, plan, fastLo, hi, false, remaining())
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, r...)
+		}
+	}
+
+	if opts.Limit > 0 && len(results) > opts.Limit {
+		results = results[:opts.Limit]
+	}
+	return results, nil
+}
+
+// scanHeightOrderedFast streams the new height-ordered index for plan.driverTag
+// over heights [lo, hi] in order_by height order, deduping heights and stopping
+// at limit (limit <= 0 means unbounded). Because keys are height-major the scan
+// early-stops once it passes the far bound. This is a Limit-bounded fast-path
+// scan and is deliberately not charged against the scan budget.
+func (idx *BlockerIndexer) scanHeightOrderedFast(ctx context.Context, plan heightOrderedPlan, lo, hi int64, desc bool, limit int) ([]int64, error) {
+	prefix, err := prefixHeightOrdered(plan.driverTag)
+	if err != nil {
+		return nil, err
+	}
+	it, err := idx.prefixIterator(prefix, desc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create height-ordered iterator: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+
+	results := make([]int64, 0, indexer.BoundedCap(limit))
+	seen := make(map[int64]struct{})
+
+	for ; it.Valid(); it.Next() {
+		if ctx.Err() != nil {
+			break
+		}
+
+		h, err := parseHeightFromHeightOrderedKey(it.Key())
+		if err != nil {
+			continue
+		}
+
+		// Keys are height-major, so once we pass the far bound in scan order we
+		// can stop; the near bound is skipped until we reach the window.
+		if desc {
+			if h > hi {
+				continue
+			}
+			if h < lo {
+				break
+			}
+		} else {
+			if h < lo {
+				continue
+			}
+			if h > hi {
+				break
+			}
+		}
+
+		if _, dup := seen[h]; dup {
+			continue
+		}
+
+		ok, err := idx.Has(h)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+
+		seen[h] = struct{}{}
+		results = append(results, h)
+
+		if limit > 0 && len(results) >= limit {
+			break
+		}
+	}
+
+	if err := it.Error(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+// heightOrderedFallback serves the pre-watermark [lo, hi] leg of a
+// heightOrderedPlan from the legacy index. It rebuilds the equivalent legacy
+// EXISTS match, then collects heights in [lo, hi], ordered and capped at limit.
+// The legacy scan is charged against a maxScan budget and fails closed if the
+// budget is exceeded.
+func (idx *BlockerIndexer) heightOrderedFallback(ctx context.Context, plan heightOrderedPlan, lo, hi int64, desc bool, limit, maxScan int) ([]int64, error) {
+	budget := indexer.NewScanBudget(maxScan)
+
+	filtered, err := idx.match(ctx, *plan.existsCond, nil, map[string][]byte{}, true, budget)
+	if err != nil {
+		return nil, err
+	}
+
+	return idx.collectBoundedInHeightRange(ctx, filtered, desc, limit, lo, hi)
+}
+
 // matchRange returns all matching block heights that match a given QueryRange
 // and start key. An already filtered result (filteredHeights) is provided such
 // that any non-intersecting matches are removed.
@@ -436,6 +772,7 @@ func (idx *BlockerIndexer) matchRange(
 	startKey []byte,
 	filteredHeights map[string][]byte,
 	firstRun bool,
+	budget *indexer.ScanBudget,
 ) (map[string][]byte, error) {
 
 	// A previous match was attempted but resulted in no matches, so we return
@@ -456,6 +793,10 @@ func (idx *BlockerIndexer) matchRange(
 
 iter:
 	for ; it.Valid(); it.Next() {
+		if err := budget.Step(); err != nil {
+			return nil, err
+		}
+
 		var (
 			eventValue string
 			err        error
@@ -544,6 +885,7 @@ func (idx *BlockerIndexer) match(
 	startKeyBz []byte,
 	filteredHeights map[string][]byte,
 	firstRun bool,
+	budget *indexer.ScanBudget,
 ) (map[string][]byte, error) {
 
 	// A previous match was attempted but resulted in no matches, so we return
@@ -563,6 +905,9 @@ func (idx *BlockerIndexer) match(
 		defer func() { _ = it.Close() }()
 
 		for ; it.Valid(); it.Next() {
+			if err := budget.Step(); err != nil {
+				return nil, err
+			}
 			tmpHeights[string(it.Value())] = it.Value()
 
 			if err := ctx.Err(); err != nil {
@@ -588,6 +933,9 @@ func (idx *BlockerIndexer) match(
 
 	iterExists:
 		for ; it.Valid(); it.Next() {
+			if err := budget.Step(); err != nil {
+				return nil, err
+			}
 			tmpHeights[string(it.Value())] = it.Value()
 
 			select {
@@ -616,6 +964,9 @@ func (idx *BlockerIndexer) match(
 
 	iterContains:
 		for ; it.Valid(); it.Next() {
+			if err := budget.Step(); err != nil {
+				return nil, err
+			}
 			eventValue, err := parseValueFromEventKey(it.Key())
 			if err != nil {
 				continue
@@ -650,6 +1001,9 @@ func (idx *BlockerIndexer) match(
 
 	iterMatches:
 		for ; it.Valid(); it.Next() {
+			if err := budget.Step(); err != nil {
+				return nil, err
+			}
 			eventValue, err := parseValueFromEventKey(it.Key())
 			if err != nil {
 				continue
@@ -719,17 +1073,27 @@ func (idx *BlockerIndexer) indexEvents(batch dbm.Batch, events []abci.Event, typ
 
 			// index iff the event specified index:true and it's not a reserved event
 			compositeKey := fmt.Sprintf("%s.%s", event.Type, string(attr.Key))
-			if compositeKey == types.BlockHeightKey {
+			if compositeKey == types.BlockHeightKey ||
+				compositeKey == blockHeightOrderedKey || compositeKey == blockWatermarkKey {
 				return fmt.Errorf("event type and attribute key \"%s\" is reserved; please use a different key", compositeKey)
 			}
 
 			if attr.GetIndex() {
+				// dual-write: legacy value-ordered key plus the new
+				// height-ordered key (see eventKeyHeightOrdered).
 				key, err := eventKey(compositeKey, typ, string(attr.Value), height)
 				if err != nil {
 					return fmt.Errorf("failed to create block index key: %w", err)
 				}
-
 				if err := batch.Set(key, heightBz); err != nil {
+					return err
+				}
+
+				hoKey, err := eventKeyHeightOrdered(compositeKey, typ, string(attr.Value), height)
+				if err != nil {
+					return fmt.Errorf("failed to create height-ordered block index key: %w", err)
+				}
+				if err := batch.Set(hoKey, heightBz); err != nil {
 					return err
 				}
 			}
