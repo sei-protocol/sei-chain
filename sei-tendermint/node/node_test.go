@@ -47,7 +47,6 @@ func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Servi
 		app,
 		nil,
 		nil,
-		DefaultMetricsProvider(cfg.Instrumentation)(),
 		types.DefaultConsensusPolicy(),
 	)
 }
@@ -115,7 +114,6 @@ func TestNodeRestartEventAllowsRecreate(t *testing.T) {
 			app,
 			nil,
 			nil,
-			DefaultMetricsProvider(cfg.Instrumentation)(),
 			types.DefaultConsensusPolicy(),
 		)
 		require.NoError(t, err)
@@ -312,14 +310,13 @@ func TestCreateProposalBlock(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
 		proxyApp,
-		mempool.NewMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
 
 	// Make EvidencePool
 	evidenceDB := dbm.NewMemDB()
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	evidencePool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NewMetrics(), nil)
+	evidencePool := evidence.NewPool(evidenceDB, stateStore, blockStore, nil)
 
 	// fill the evidence pool with more evidence
 	// than can fit in a block
@@ -354,7 +351,6 @@ func TestCreateProposalBlock(t *testing.T) {
 		evidencePool,
 		blockStore,
 		eventBus,
-		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -409,7 +405,6 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
 		proxyApp,
-		mempool.NewMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
 
@@ -429,7 +424,6 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
-		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -474,7 +468,6 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
 		proxyApp,
-		mempool.NewMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
 
@@ -501,7 +494,6 @@ func TestMaxProposalBlockSize(t *testing.T) {
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
-		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -605,7 +597,6 @@ func TestNodeNewSeedNode(t *testing.T) {
 		config.DefaultDBProvider,
 		nodeKey,
 		defaultGenesisDocProviderFunc(cfg),
-		DefaultMetricsProvider(cfg.Instrumentation)(),
 	)
 	t.Cleanup(ns.Wait)
 	t.Cleanup(leaktest.CheckTimeout(t, time.Second))

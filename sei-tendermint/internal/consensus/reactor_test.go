@@ -77,7 +77,6 @@ func setup(
 			node.Router,
 			state.eventBus,
 			true,
-			NewMetrics(),
 			config.DefaultConfig(),
 		)
 		require.NoError(t, err)
@@ -269,12 +268,11 @@ func TestReactorWithEvidence(t *testing.T) {
 		blockDB := dbm.NewMemDB()
 		blockStore := store.NewBlockStore(blockDB)
 
-		proxyApp := proxy.New(app, proxy.NewMetrics())
+		proxyApp := proxy.New(app)
 
 		mempool := mempool.NewTxMempool(
 			thisConfig.Mempool.ToMempoolConfig(),
 			proxyApp,
-			mempool.NewMetrics(),
 			mempool.NopTxConstraintsFetcher,
 		)
 
@@ -294,12 +292,12 @@ func TestReactorWithEvidence(t *testing.T) {
 		eventBus := eventbus.NewDefault()
 		require.NoError(t, eventBus.Start(ctx))
 
-		blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mempool, evpool, blockStore, eventBus, sm.NewMetrics(), types.DefaultConsensusPolicy())
+		blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mempool, evpool, blockStore, eventBus, types.DefaultConsensusPolicy())
 		wal, err := OpenWAL(thisConfig.Consensus.WalFile())
 		require.NoError(t, err)
 
 		cs := NewState(
-			thisConfig.Consensus, wal, stateStore, blockExec, blockStore, mempool, evpool2, eventBus, []trace.TracerProviderOption{}, NewMetrics())
+			thisConfig.Consensus, wal, stateStore, blockExec, blockStore, mempool, evpool2, eventBus, []trace.TracerProviderOption{})
 		require.NoError(t, cs.updateStateFromStore())
 		cs.SetPrivValidator(ctx, utils.Some(pv))
 

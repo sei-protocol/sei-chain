@@ -8,6 +8,9 @@ Within sei-tendermint subdirectory
     * avoid capturing loop iterators ("tc := tc" is not needed)
     * use slices, maps libraries whenever they do not harm readability
     * use t.Context() in tests instead of context.Background().
+* use sei-tendermint/libs/utils synchronization primitives: utils.Mutex instead of sync.Mutex, utils.RWMutex instead of sync.RWMutex.
+  utils.Mutex/RWMutex are supposed to be parametrized by the data type they protect. Do NOT use utils.Mutex\[struct{}\] as a drop-in replacement
+  of sync.Mutex.
 * use public api of types in tests, never malform internal state of types. For read-only access,
   you can use private fields directly in case it is not accessible via public api.
 * when writing tests, focus on asserting the publically visible properties, especially the API contract. Avoid asserting implementation details.

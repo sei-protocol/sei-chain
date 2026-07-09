@@ -169,7 +169,6 @@ func (m *lockMap[K]) Unlock(k K) {
 // when a block proposer constructs a block and a thread-safe linked-list that
 // is used to gossip transactions to peers in a FIFO manner.
 type TxMempool struct {
-	metrics *Metrics
 	config  *Config
 	app     *proxy.Proxy
 	txLocks *lockMap[types.TxHash]
@@ -208,7 +207,6 @@ func (txmp *TxMempool) PendingSizeBytes() uint64  { return txmp.txStore.State().
 func NewTxMempool(
 	cfg *Config,
 	app *proxy.Proxy,
-	metrics *Metrics,
 	txConstraintsFetcher TxConstraintsFetcher,
 ) *TxMempool {
 	txmp := &TxMempool{
@@ -217,8 +215,7 @@ func NewTxMempool(
 		txsAvailable:         make(chan struct{}, 1),
 		txLocks:              newLockMap[types.TxHash](),
 		height:               -1,
-		metrics:              metrics,
-		txStore:              NewTxStore(cfg, app, metrics),
+		txStore:              NewTxStore(cfg, app),
 		txConstraintsFetcher: txConstraintsFetcher,
 	}
 
@@ -317,19 +314,19 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	// Reject low priority transactions when the mempool is more than
 	// DropUtilisationThreshold full.
 	if txmp.config.DropUtilisationThreshold > 0 && txmp.utilisation() >= txmp.config.DropUtilisationThreshold {
-		txmp.metrics.CheckTxMetDropUtilisationThresholdAt().Add(1)
+		Global.CheckTxMetDropUtilisationThresholdAt().Add(1)
 
 		hint, err := txmp.app.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
 		if err != nil {
-			txmp.metrics.observeCheckTxPriorityDistribution(0, true, "", true)
+			Global.observeCheckTxPriorityDistribution(0, true, "", true)
 			logger.Error("failed to get tx priority hint", "err", err)
 			return nil, err
 		}
-		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, "", false)
+		Global.observeCheckTxPriorityDistribution(hint.Priority, true, "", false)
 
 		cutoff, found := txmp.txStore.priorityReservoir.Percentile()
 		if found && hint.Priority <= cutoff {
-			txmp.metrics.CheckTxDroppedByPriorityHintAt().Add(1)
+			Global.CheckTxDroppedByPriorityHintAt().Add(1)
 			return nil, errors.New("priority not high enough for mempool")
 		}
 	}
@@ -344,8 +341,8 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	}
 	res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil || !res.IsOK() {
-		txmp.metrics.NumberOfFailedCheckTxsAt().Add(1)
-		txmp.metrics.observeCheckTxPriorityDistribution(0, false, "", true)
+		Global.NumberOfFailedCheckTxsAt().Add(1)
+		Global.observeCheckTxPriorityDistribution(0, false, "", true)
 	}
 	if err != nil {
 		return nil, err
@@ -353,8 +350,8 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	if !res.IsOK() {
 		return res.ResponseCheckTx, nil
 	}
-	txmp.metrics.NumberOfSuccessfulCheckTxsAt().Add(1)
-	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, "", false)
+	Global.NumberOfSuccessfulCheckTxsAt().Add(1)
+	Global.observeCheckTxPriorityDistribution(res.Priority, false, "", false)
 
 	// Normalize the estimate.
 	estimatedGas := res.GasEstimated
@@ -383,20 +380,20 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 		// ignore bad transactions
 		logger.Info("rejected bad transaction", "priority", wtx.priority, "tx", wtx.Hash(), "post_check_err", err)
 		txmp.txStore.MarkInvalid(hTx.Hash())
-		txmp.metrics.FailedTxsAt().Add(1)
+		Global.FailedTxsAt().Add(1)
 		return nil, err
 	}
 
 	if err := txmp.txStore.Insert(wtx); err != nil {
-		txmp.metrics.RejectedTxsAt().Add(1)
+		Global.RejectedTxsAt().Add(1)
 		return nil, err
 	}
 
-	txmp.metrics.InsertedTxsAt().Add(1)
-	txmp.metrics.TxSizeBytesAt().Add(int64(wtx.Size())) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
-	txmp.metrics.SizeAt().Set(int64(txmp.NumTxsNotPending()))
-	txmp.metrics.PendingSizeAt().Set(int64(txmp.PendingSize()))
-	txmp.metrics.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize())) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
+	Global.InsertedTxsAt().Add(1)
+	Global.TxSizeBytesAt().Add(int64(wtx.Size())) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
+	Global.SizeAt().Set(int64(txmp.NumTxsNotPending()))
+	Global.PendingSizeAt().Set(int64(txmp.PendingSize()))
+	Global.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize())) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
 
 	txmp.notifyTxsAvailable()
 	return res.ResponseCheckTx, nil
@@ -409,9 +406,9 @@ func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, 
 // Flush empties the mempool.
 func (txmp *TxMempool) Flush() {
 	txmp.txStore.Clear()
-	txmp.metrics.SizeAt().Set(0)
-	txmp.metrics.PendingSizeAt().Set(0)
-	txmp.metrics.TotalTxsSizeBytesAt().Set(0)
+	Global.SizeAt().Set(0)
+	Global.PendingSizeAt().Set(0)
+	Global.TotalTxsSizeBytesAt().Set(0)
 }
 
 // ReapTxs returns a list of transactions within the provided constraints and their total gas estimate.
@@ -429,9 +426,9 @@ func (txmp *TxMempool) Flush() {
 func (txmp *TxMempool) ReapTxs(limits ReapLimits, remove bool) (types.Txs, int64) {
 	txs, gasEstimate := txmp.txStore.Reap(limits, remove)
 	if remove {
-		txmp.metrics.SizeAt().Set(int64(txmp.NumTxsNotPending()))
-		txmp.metrics.PendingSizeAt().Set(int64(txmp.PendingSize()))
-		txmp.metrics.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize())) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
+		Global.SizeAt().Set(int64(txmp.NumTxsNotPending()))
+		Global.PendingSizeAt().Set(int64(txmp.PendingSize()))
+		Global.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize())) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
 	}
 	return txs, gasEstimate
 }
@@ -471,7 +468,7 @@ func (txmp *TxMempool) Update(
 			if _, ok := txResults[wtx.Hash()]; ok {
 				continue
 			}
-			txmp.metrics.RecheckTimesAt().Add(1)
+			Global.RecheckTimesAt().Add(1)
 			res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{
 				Tx:   wtx.Tx(),
 				Type: abci.CheckTxTypeV2Recheck,
@@ -493,9 +490,9 @@ func (txmp *TxMempool) Update(
 		Constraints:   txConstraints,
 	})
 	txmp.notifyTxsAvailable()
-	txmp.metrics.SizeAt().Set(int64(txmp.NumTxsNotPending()))
-	txmp.metrics.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize())) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
-	txmp.metrics.PendingSizeAt().Set(int64(txmp.PendingSize()))
+	Global.SizeAt().Set(int64(txmp.NumTxsNotPending()))
+	Global.TotalTxsSizeBytesAt().Set(int64(txmp.TotalTxsBytesSize())) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
+	Global.PendingSizeAt().Set(int64(txmp.PendingSize()))
 	return nil
 }
 
@@ -525,10 +522,10 @@ func (txmp *TxMempool) Run(ctx context.Context) error {
 			// TODO(gprusak): instead of actively updating stats,
 			// TxMempool should implement prometheus.Collector.
 			maxOccurrence, totalOccurrence, duplicateCount, nonDuplicateCount := c.GetForMetrics()
-			txmp.metrics.DuplicateTxMaxOccurrencesAt().Set(int64(maxOccurrence))
-			txmp.metrics.DuplicateTxTotalOccurrencesAt().Set(int64(totalOccurrence))
-			txmp.metrics.NumberOfDuplicateTxsAt().Set(int64(duplicateCount))
-			txmp.metrics.NumberOfNonDuplicateTxsAt().Set(int64(nonDuplicateCount))
+			Global.DuplicateTxMaxOccurrencesAt().Set(int64(maxOccurrence))
+			Global.DuplicateTxTotalOccurrencesAt().Set(int64(totalOccurrence))
+			Global.NumberOfDuplicateTxsAt().Set(int64(duplicateCount))
+			Global.NumberOfNonDuplicateTxsAt().Set(int64(nonDuplicateCount))
 		}
 	})
 }

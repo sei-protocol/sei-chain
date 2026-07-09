@@ -107,7 +107,7 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 	require.NoError(t, err)
 	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	proxyApp := proxy.New(newApp(genDoc.ValidatorUpdates()), proxy.NewMetrics())
+	proxyApp := proxy.New(newApp(genDoc.ValidatorUpdates()))
 	cs := newStateWithConfigAndBlockStore(
 		t,
 		cfg,
@@ -233,7 +233,7 @@ func crashWALandCheckLiveness(
 	require.NoError(t, err)
 	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	proxyApp := proxy.New(newApp(genDoc.ValidatorUpdates()), proxy.NewMetrics())
+	proxyApp := proxy.New(newApp(genDoc.ValidatorUpdates()))
 	cs := newStateWithConfigAndBlockStore(
 		t,
 		cfg,
@@ -695,7 +695,7 @@ func testHandshakeReplay(
 	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
-	proxyApp := proxy.New(app, proxy.NewMetrics())
+	proxyApp := proxy.New(app)
 	err = handshaker.Handshake(ctx, proxyApp)
 	if expectError {
 		require.Error(t, err)
@@ -742,7 +742,7 @@ func applyBlock(
 	eventBus *eventbus.EventBus,
 ) sm.State {
 	testPartSize := types.BlockPartSizeBytes
-	blockExec := sm.NewBlockExecutor(stateStore, appClient, mempool, evpool, blockStore, eventBus, sm.NewMetrics(), types.DefaultConsensusPolicy())
+	blockExec := sm.NewBlockExecutor(stateStore, appClient, mempool, evpool, blockStore, eventBus, types.DefaultConsensusPolicy())
 
 	bps, err := blk.MakePartSet(testPartSize)
 	require.NoError(t, err)
@@ -767,7 +767,7 @@ func buildAppStateFromChain(
 ) {
 	t.Helper()
 	// start a new app without handshake, play nBlocks blocks
-	proxyApp := proxy.New(appClient, proxy.NewMetrics())
+	proxyApp := proxy.New(appClient)
 	mempool := newReplayTxMempool(proxyApp)
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{})
@@ -812,7 +812,7 @@ func buildTMStateFromChain(
 
 	// run the whole chain against this client to build up the tendermint state
 	app := newApp(types.TM2PB.ValidatorUpdates(state.Validators))
-	proxyApp := proxy.New(app, proxy.NewMetrics())
+	proxyApp := proxy.New(app)
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	_, err := app.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
@@ -881,7 +881,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	{
 		app := &badApp{numBlocks: 3, allHashesAreWrong: true}
 		h := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
-		proxyApp := proxy.New(app, proxy.NewMetrics())
+		proxyApp := proxy.New(app)
 		assert.Error(t, h.Handshake(ctx, proxyApp))
 	}
 
@@ -892,7 +892,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	{
 		app := &badApp{numBlocks: 3, onlyLastHashIsWrong: true}
 		h := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
-		proxyApp := proxy.New(app, proxy.NewMetrics())
+		proxyApp := proxy.New(app)
 		require.Error(t, h.Handshake(ctx, proxyApp))
 	}
 }
@@ -1121,7 +1121,7 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 	genDoc, err = sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
-	proxyApp := proxy.New(app, proxy.NewMetrics())
+	proxyApp := proxy.New(app)
 	require.NoError(t, handshaker.Handshake(ctx, proxyApp), "error on abci handshake")
 
 	// reload the state, check the validator set was updated

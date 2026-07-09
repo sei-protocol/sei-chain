@@ -17,7 +17,6 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -94,12 +93,12 @@ func makeReactor(
 	stateDB := dbm.NewMemDB()
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(blockDB)
-	proxyApp := proxy.New(app, proxy.NewMetrics())
+	proxyApp := proxy.New(app)
 
 	state, err := sm.MakeGenesisState(genDoc)
 	require.NoError(t, err)
 	require.NoError(t, stateStore.Save(state))
-	mp := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NewMetrics(), mempool.NopTxConstraintsFetcher)
+	mp := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopTxConstraintsFetcher)
 	bus := eventbus.NewDefault()
 	require.NoError(t, bus.Start(ctx))
 
@@ -110,7 +109,6 @@ func makeReactor(
 		sm.EmptyEvidencePool{},
 		blockStore,
 		bus,
-		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -122,7 +120,6 @@ func makeReactor(
 			BlockExec:             blockExec,
 			ConsReactor:           utils.None[ConsensusReactor](),
 			BlockSync:             blockSync,
-			Metrics:               consensus.NewMetrics(),
 			EventBus:              nil, // eventbus can be nil
 			RestartEvent:          restartEvent,
 			SelfRemediationConfig: selfRemediationConfig,
