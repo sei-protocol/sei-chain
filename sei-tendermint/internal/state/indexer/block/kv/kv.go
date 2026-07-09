@@ -592,6 +592,14 @@ func planHeightOrdered(conditions []syntax.Condition, ranges indexer.QueryRanges
 		return heightOrderedPlan{}, false
 	}
 
+	// block.height is never dual-written to the height-ordered namespace (it is
+	// the reserved primary key), so it cannot drive a height-ordered scan. Fall
+	// through to the intersect path, where EXISTS on the primary key correctly
+	// resolves to the full set instead of scanning an empty prefix.
+	if nonRange[0].Tag == types.BlockHeightKey {
+		return heightOrderedPlan{}, false
+	}
+
 	plan.driverTag = nonRange[0].Tag
 	plan.existsCond = &nonRange[0]
 	return plan, true
