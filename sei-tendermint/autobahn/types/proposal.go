@@ -109,9 +109,8 @@ func (v View) Verify(ep *Epoch) error {
 	if got, want := v.EpochIndex, ep.EpochIndex(); got != want {
 		return fmt.Errorf("epoch_index = %d, want %d", got, want)
 	}
-	if !ep.Roads().Has(v.Index) {
-		roads := ep.Roads()
-		return fmt.Errorf("road_index %v not in epoch roads [%v, %v]", v.Index, roads.First, roads.Last)
+	if rr := ep.RoadRange(); !rr.Has(v.Index) {
+		return fmt.Errorf("road_index %v not in epoch roads [%v, %v]", v.Index, rr.First, rr.Last)
 	}
 	return nil
 }
@@ -236,7 +235,7 @@ func (m *Proposal) NextTimestamp() time.Time {
 // (matching starts against the previous QC) is only enforced by FullProposal.Verify.
 func (m *Proposal) Verify(ep *Epoch) error {
 	if err := m.view.Verify(ep); err != nil {
-		return err
+		return fmt.Errorf("view: %w", err)
 	}
 	c := ep.Committee()
 	for _, r := range m.laneRanges {
@@ -616,7 +615,7 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		if m.GlobalFirst == nil {
 			return nil, fmt.Errorf("global_first: missing")
 		}
-		proposal := newProposal(view, timestamp, laneRanges, app, GlobalBlockNumber(m.GetGlobalFirst()))
+		proposal := newProposal(view, timestamp, laneRanges, app, GlobalBlockNumber(*m.GlobalFirst))
 		if len(proposal.laneRanges) != len(laneRanges) {
 			return nil, fmt.Errorf("laneRanges: duplicate ranges")
 		}

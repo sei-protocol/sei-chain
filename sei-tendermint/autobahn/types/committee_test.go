@@ -127,12 +127,12 @@ func TestPrepareQCVerifyChecksEpochBinding(t *testing.T) {
 		return NewPrepareQC([]*Signed[*PrepareVote]{Sign(keys[0], NewPrepareVote(p))})
 	}
 
-	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.Roads().First})).Verify(ep))
+	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
 
-	wrongEpoch := newProposal(View{Index: ep.Roads().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
+	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
 	require.Error(t, sign(wrongEpoch).Verify(ep))
 
-	outOfRoads := newProposal(View{Index: ep.Roads().Last + 1, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
+	outOfRoads := newProposal(View{Index: ep.RoadRange().Last + 1, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
 	require.Error(t, sign(outOfRoads).Verify(ep))
 }
 
@@ -143,12 +143,12 @@ func TestCommitQCVerifyChecksEpochBinding(t *testing.T) {
 		return NewCommitQC([]*Signed[*CommitVote]{Sign(keys[0], NewCommitVote(p))})
 	}
 
-	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.Roads().First})).Verify(ep))
+	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
 
-	wrongEpoch := newProposal(View{Index: ep.Roads().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
+	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
 	require.Error(t, sign(wrongEpoch).Verify(ep))
 
-	outOfRoads := newProposal(View{Index: ep.Roads().Last + 1, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
+	outOfRoads := newProposal(View{Index: ep.RoadRange().Last + 1, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
 	require.Error(t, sign(outOfRoads).Verify(ep))
 }
 

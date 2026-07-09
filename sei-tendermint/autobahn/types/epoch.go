@@ -45,7 +45,7 @@ func NewEpoch(index EpochIndex, roads RoadRange, firstTimestamp time.Time, commi
 }
 
 func (e *Epoch) EpochIndex() EpochIndex        { return e.epochIndex }
-func (e *Epoch) Roads() RoadRange              { return e.roads }
+func (e *Epoch) RoadRange() RoadRange          { return e.roads }
 func (e *Epoch) FirstTimestamp() time.Time     { return e.firstTimestamp }
 func (e *Epoch) Committee() *Committee         { return e.committee }
 func (e *Epoch) FirstBlock() GlobalBlockNumber { return e.firstBlock }
