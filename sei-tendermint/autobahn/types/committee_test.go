@@ -171,7 +171,7 @@ func TestCommitQCVerifyChecksWeight(t *testing.T) {
 func TestAppQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewAppVote(NewAppProposal(0, 0, GenAppHash(rng), 0))
+	vote := NewAppVote(NewAppProposal(0, 0, GenAppHash(rng), ep.EpochIndex()))
 
 	heavyOnly := NewAppQC([]*Signed[*AppVote]{
 		Sign(keys[0], vote),
@@ -188,12 +188,7 @@ func TestAppQCVerifyChecksWeight(t *testing.T) {
 func TestTimeoutQCVerifyChecksEpochBinding(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	commitVote := NewCommitVote(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}))
-	var commitVotes []*Signed[*CommitVote]
-	for _, k := range keys {
-		commitVotes = append(commitVotes, Sign(k, commitVote))
-	}
-	prev := utils.Some(NewCommitQC(commitVotes))
+	prev := utils.Some(CommitQCAt(ep, keys))
 	view := View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First + 1}
 
 	correct := NewTimeoutQC([]*FullTimeoutVote{
@@ -210,12 +205,7 @@ func TestTimeoutQCVerifyChecksEpochBinding(t *testing.T) {
 func TestTimeoutQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	commitVote := NewCommitVote(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}))
-	var commitVotes []*Signed[*CommitVote]
-	for _, k := range keys {
-		commitVotes = append(commitVotes, Sign(k, commitVote))
-	}
-	prev := utils.Some(NewCommitQC(commitVotes))
+	prev := utils.Some(CommitQCAt(ep, keys))
 	view := View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First + 1}
 
 	heavyOnly := NewTimeoutQC([]*FullTimeoutVote{

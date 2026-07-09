@@ -20,7 +20,7 @@ func TestPruneAnchorConv(t *testing.T) {
 		lane: types.NewLaneQC(makeLaneVotes(keys, block.Header())),
 	}
 	commitQC := makeCommitQC(registry.LatestEpoch(), keys, utils.None[*types.CommitQC](), laneQCs, utils.None[*types.AppQC]())
-	appProposal := types.NewAppProposal(commitQC.GlobalRange().First, commitQC.Proposal().Index(), types.GenAppHash(rng), 0)
+	appProposal := types.NewAppProposal(commitQC.GlobalRange().First, commitQC.Proposal().Index(), types.GenAppHash(rng), commitQC.Proposal().EpochIndex())
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	anchor := &PruneAnchor{AppQC: appQC, CommitQC: commitQC}

@@ -283,6 +283,16 @@ func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
 	)
 }
 
+// CommitQCAt creates a CommitQC at ep.RoadRange().First, signed by all keys.
+func CommitQCAt(ep *Epoch, keys []SecretKey) *CommitQC {
+	vote := NewCommitVote(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}))
+	var votes []*Signed[*CommitVote]
+	for _, k := range keys {
+		votes = append(votes, Sign(k, vote))
+	}
+	return NewCommitQC(votes)
+}
+
 // GenProposal generates a random Proposal.
 func GenProposal(rng utils.Rng) *Proposal {
 	return newProposal(GenView(rng), utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), GlobalBlockNumber(rng.Uint64()))
@@ -384,11 +394,8 @@ func GenCommitVote(rng utils.Rng) *CommitVote {
 
 // GenCommitQC generates a random CommitQC.
 func GenCommitQC(rng utils.Rng) *CommitQC {
-	vote := GenCommitVote(rng)
-	return NewCommitQC(utils.GenSlice(
-		rng,
-		func(rng utils.Rng) *Signed[*CommitVote] { return GenSigned(rng, vote) },
-	))
+	committee, keys := GenCommittee(rng, int(rng.Uint64()%5)+1)
+	return CommitQCAt(GenEpochWithCommittee(rng, committee), keys)
 }
 
 // GenFullCommitQC generates a random FullCommitQC.
