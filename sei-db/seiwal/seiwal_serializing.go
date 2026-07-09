@@ -330,7 +330,12 @@ func (s *serializingWAL[T]) serializerLoop() {
 				return
 			}
 		case serFlush:
-			m.done <- s.inner.Flush()
+			err := s.inner.Flush()
+			m.done <- err
+			if err != nil {
+				s.fail(fmt.Errorf("failed to flush: %w", err))
+				return
+			}
 		case serBounds:
 			ok, first, last, err := s.inner.Bounds()
 			m.reply <- serBoundsResult{ok: ok, first: first, last: last, err: err}

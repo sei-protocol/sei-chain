@@ -404,7 +404,12 @@ func (w *walImpl) writerLoop() {
 				return
 			}
 		case flushRequest:
-			m.done <- w.mutableFile.flush(w.config.FsyncOnFlush)
+			err := w.mutableFile.flush(w.config.FsyncOnFlush)
+			m.done <- err
+			if err != nil {
+				w.fail(err)
+				return
+			}
 		case rangeQuery:
 			m.reply <- w.bounds()
 		case pruneRequest:

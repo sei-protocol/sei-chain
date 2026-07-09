@@ -79,6 +79,36 @@ func TestSerializeFailureClosesInnerWAL(t *testing.T) {
 	require.True(t, inner.mutableFile.sealed) // inner cleanly closed by fail(), not orphaned
 }
 
+// TestGenericWALFlushIOFailureBricksWAL verifies that an inner flush IO failure bricks the serializing WAL too:
+// the inner byte engine tears itself down, and the serializing layer mirrors that rather than delegating
+// subsequent appends to a dead inner WAL.
+func TestGenericWALFlushIOFailureBricksWAL(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	w := openStringWAL(t, cfg)
+
+	ser, ok := w.(*serializingWAL[string])
+	require.True(t, ok)
+	inner, ok := ser.inner.(*walImpl)
+	require.True(t, ok)
+
+	// Close the inner mutable file's descriptor so the flush the inner engine performs fails.
+	require.NoError(t, inner.mutableFile.file.Close())
+
+	require.NoError(t, w.Append(1, "one"))
+	require.Error(t, w.Flush(), "flush must surface the inner IO failure")
+
+	// Bricking cancels the serializing layer's context; wait for it so the assertions below are deterministic.
+	select {
+	case <-ser.ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("serializing WAL did not brick after flush failure")
+	}
+
+	require.Error(t, w.Append(2, "two"), "appends must fail on a bricked WAL")
+	require.Error(t, w.Flush(), "flush must fail on a bricked WAL")
+	require.Error(t, w.Close(), "Close must surface the fatal flush error")
+}
+
 func TestGenericWALRoundTrip(t *testing.T) {
 	w := openStringWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()

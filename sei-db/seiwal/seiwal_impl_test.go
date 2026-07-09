@@ -218,6 +218,41 @@ func TestFailReleasesMutableFile(t *testing.T) {
 	require.NoError(t, w.mutableFile.close()) // idempotent
 }
 
+// TestFlushIOFailureBricksWAL verifies that an IO error during Flush is fatal: the failure is surfaced to the
+// flushing caller, the WAL then refuses all further work, and Close reports the original error — matching how
+// every other writer IO error is handled, so a broken durability guarantee is never silently tolerated.
+func TestFlushIOFailureBricksWAL(t *testing.T) {
+	dir := t.TempDir()
+	w := openWAL(t, testConfig(dir))
+
+	impl, ok := w.(*walImpl)
+	require.True(t, ok)
+
+	// Force the next flush to fail by closing the mutable file's descriptor out from under the writer. The
+	// writer is idle (blocked awaiting a message) and never reassigns the handle, and appending only buffers
+	// bytes, so this affects nothing until the flush attempts to write/fsync the closed descriptor.
+	require.NoError(t, impl.mutableFile.file.Close())
+
+	require.NoError(t, w.Append(1, recordPayload(1)))
+	require.Error(t, w.Flush(), "flush must surface the IO failure")
+
+	// Bricking cancels the context; wait for it so the "refuses further work" assertions are deterministic
+	// (Flush may return the moment the error is sent, a hair before fail() finishes tearing down).
+	select {
+	case <-impl.ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("WAL did not brick after flush failure")
+	}
+
+	require.Error(t, w.Append(2, recordPayload(2)), "appends must fail on a bricked WAL")
+	require.Error(t, w.Flush(), "flush must fail on a bricked WAL")
+	_, _, _, err := w.Bounds()
+	require.Error(t, err, "bounds must fail on a bricked WAL")
+
+	require.Error(t, w.Close(), "Close must surface the fatal flush error")
+	require.Error(t, impl.asyncError())
+}
+
 func TestOrphanFileRecovery(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
