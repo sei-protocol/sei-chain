@@ -144,7 +144,7 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 			n, s.lastQCNext, types.ErrBlockMissingQC)
 	}
 
-	value := encodeBlock(blk)
+	value := encodeBlock(n, blk)
 	hash := blk.Header().Hash()
 	hashAlias := &litttypes.SecondaryKey{
 		Key:    blockHashKey(hash),
@@ -252,31 +252,34 @@ func (s *blockDB) QCs(reverse bool) (types.QCIterator, error) {
 	return &qcIterator{it: it}, nil
 }
 
-func (s *blockDB) ReadBlockByNumber(
-	n types.GlobalBlockNumber,
-) (utils.Option[*types.Block], error) {
-	return getBlock(s.table, blockKey(n))
+func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {
+	result, err := getBlock(s.table, blockKey(n))
+	if err != nil {
+		return utils.None[*types.Block](), err
+	}
+	if bwn, ok := result.Get(); ok {
+		return utils.Some(bwn.Block), nil
+	}
+	return utils.None[*types.Block](), nil
 }
 
-func (s *blockDB) ReadBlockByHash(
-	hash types.BlockHeaderHash,
-) (utils.Option[*types.Block], error) {
+func (s *blockDB) ReadBlockByHash(hash types.BlockHeaderHash) (utils.Option[types.BlockWithNumber], error) {
 	return getBlock(s.table, blockHashKey(hash))
 }
 
-func getBlock(table littdb.Table, key []byte) (utils.Option[*types.Block], error) {
+func getBlock(table littdb.Table, key []byte) (utils.Option[types.BlockWithNumber], error) {
 	value, exists, err := table.Get(key)
 	if err != nil {
-		return utils.None[*types.Block](), fmt.Errorf("failed to read block: %w", err)
+		return utils.None[types.BlockWithNumber](), fmt.Errorf("failed to read block: %w", err)
 	}
 	if !exists {
-		return utils.None[*types.Block](), nil
+		return utils.None[types.BlockWithNumber](), nil
 	}
-	blk, err := decodeBlock(value)
+	n, blk, err := decodeBlock(value)
 	if err != nil {
-		return utils.None[*types.Block](), fmt.Errorf("failed to unmarshal block: %w", err)
+		return utils.None[types.BlockWithNumber](), fmt.Errorf("failed to unmarshal block: %w", err)
 	}
-	return utils.Some(blk), nil
+	return utils.Some(types.BlockWithNumber{Block: blk, Number: n}), nil
 }
 
 func (s *blockDB) ReadQCByBlockNumber(
