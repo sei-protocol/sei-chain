@@ -29,12 +29,17 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.6
 sei-chain
+* [#3717](https://github.com/sei-protocol/sei-chain/pull/3717) Backport `release/v6.6`: Accept legacy cosmos_only SC write mode
+* [#3697](https://github.com/sei-protocol/sei-chain/pull/3697) Backport `release/v6.6`: Fix rpc hash race condition
+* [#3694](https://github.com/sei-protocol/sei-chain/pull/3694) Backport `release/v6.6`: Add GoReleaser release pipeline for static seid binaries (#3425)
+* [#3688](https://github.com/sei-protocol/sei-chain/pull/3688) Bump version file to v6.6.0-rc1 in prep for release
+* [#3686](https://github.com/sei-protocol/sei-chain/pull/3686) Backport `release/v6.6`: Update changelog in prep to cut 6.6 RC1
 * [#3679](https://github.com/sei-protocol/sei-chain/pull/3679) Backport `release/v6.6`: State Store: Compact pruned key range after each prune
 * [#3673](https://github.com/sei-protocol/sei-chain/pull/3673) Backport `release/v6.6`: fix(metrics): Prometheus metrics output
 * [#3672](https://github.com/sei-protocol/sei-chain/pull/3672) Backport `release/v6.6`: [codex] Harden multiversion iterator validation
 * [#3669](https://github.com/sei-protocol/sei-chain/pull/3669) Backport `release/v6.6`: Require absolute path for evmone lib
 * [#3662](https://github.com/sei-protocol/sei-chain/pull/3662) Backport `release/v6.6`: [codex] bump go-ethereum to v1.15.7-sei-17
-* [#3661](https://github.com/sei-protocol/sei-chain/pull/3661) Update checkout GHA step across all workflows
+* [#3661](https://github.com/sei-protocol/sei-chain/pull/3661) Upodate checkout GHA step across all workflows
 * [#3635](https://github.com/sei-protocol/sei-chain/pull/3635) Backport `release/v6.6`: Generate v6.6 CHANGELOG
 * [#3627](https://github.com/sei-protocol/sei-chain/pull/3627) Backport `release/v6.6`: Co-broadcast rich block CW20 transfer with EVM batch
 * [#3625](https://github.com/sei-protocol/sei-chain/pull/3625) Generate v6.6 pre-compiles in prep to freeze feature releases
