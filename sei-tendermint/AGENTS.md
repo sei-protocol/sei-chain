@@ -18,6 +18,13 @@ Within sei-tendermint subdirectory
 * Avoid checking human readable error messages in tests. If programatic error type check is requested, use errors.Is/As/AsType instead.
 * After introducing changes, you may Use `go test --count=0` to quickly check if tests compile. You may run `go test` to actually run the tests
   afterwards. Prefer running modified tests selectively and run the whole test suite only if requested or looking for failures.
+* Proto fields: use `optional` for all scalar and message fields (required for protobuf3 presence
+  detection and wireguard bounds checking). Annotate semantically required fields with `// required`
+  and truly optional fields with `// optional`. Example:
+    optional uint64 index = 1; // required
+    optional AppProposal app = 4; // optional
+  Required fields must be nil-checked at the boundary (constructor and proto Decode) and trusted
+  everywhere else — do not add defensive nil-checks in internal logic.
 * Avoid removing comments and logs which are not obviously obsolete. Keep the original wording, only fixing mistakes or obsolete parts.
 * TestRng instance should be one per test, constructed directly in the test function. In case of nested/table tests, each nested test should create its own instance. 
   Use TestRng.Split() (before spawning) if you need to pass entropy source to a spawned goroutine

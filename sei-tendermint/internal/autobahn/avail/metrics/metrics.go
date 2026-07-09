@@ -43,7 +43,7 @@ var observedCommitQC = newObserved[*types.CommitQC]()
 var observedAppQC = newObserved[*types.AppQC]()
 
 // ObserveCommitQC observes the CommitQC latency.
-func ObserveCommitQC(c *types.Committee, qc *types.CommitQC) {
+func ObserveCommitQC(qc *types.CommitQC) {
 	now := time.Now()
 	for mLast := range observedCommitQC.Lock() {
 		if last, ok := mLast.Get(); ok {
@@ -58,8 +58,8 @@ func ObserveCommitQC(c *types.Committee, qc *types.CommitQC) {
 			Global.commitToCommitLatencyAt(timeouts).Observe(now.Sub(last.time).Seconds())
 		}
 		Global.proposalToCommitLatencyAt().Observe(now.Sub(qc.Proposal().Timestamp()).Seconds())
-		Global.commitRoadIndexAt().Set(int64(qc.Index()))                     // nolint: gosec
-		Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange(c).Next)) // nolint: gosec
+		Global.commitRoadIndexAt().Set(int64(qc.Index()))                    // nolint: gosec
+		Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange().Next)) // nolint: gosec
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
 	}
 }
