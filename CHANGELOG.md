@@ -39,7 +39,7 @@ sei-chain
 * [#3672](https://github.com/sei-protocol/sei-chain/pull/3672) Backport `release/v6.6`: [codex] Harden multiversion iterator validation
 * [#3669](https://github.com/sei-protocol/sei-chain/pull/3669) Backport `release/v6.6`: Require absolute path for evmone lib
 * [#3662](https://github.com/sei-protocol/sei-chain/pull/3662) Backport `release/v6.6`: [codex] bump go-ethereum to v1.15.7-sei-17
-* [#3661](https://github.com/sei-protocol/sei-chain/pull/3661) Upodate checkout GHA step across all workflows
+* [#3661](https://github.com/sei-protocol/sei-chain/pull/3661) Update checkout GHA step across all workflows
 * [#3635](https://github.com/sei-protocol/sei-chain/pull/3635) Backport `release/v6.6`: Generate v6.6 CHANGELOG
 * [#3627](https://github.com/sei-protocol/sei-chain/pull/3627) Backport `release/v6.6`: Co-broadcast rich block CW20 transfer with EVM batch
 * [#3625](https://github.com/sei-protocol/sei-chain/pull/3625) Generate v6.6 pre-compiles in prep to freeze feature releases
