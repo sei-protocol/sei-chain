@@ -57,6 +57,7 @@ func TestBlockDB(t *testing.T) {
 			t.Run("RestartPersistsData", func(t *testing.T) { testRestartPersistsData(t, impl.build) })
 			t.Run("PruneRetainsAtOrAbove", func(t *testing.T) { testPruneRetainsAtOrAbove(t, impl.build) })
 			t.Run("PruneStraddleRetainsQC", func(t *testing.T) { testPruneStraddleRetainsQC(t, impl.build) })
+			t.Run("PruneRefusesBelowWatermark", func(t *testing.T) { testPruneRefusesBelowWatermark(t, impl.build) })
 			t.Run("PruneIdempotentMonotonic", func(t *testing.T) { testPruneIdempotentMonotonic(t, impl.build) })
 			t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, impl.build) })
 			t.Run("WriteOrderRejectedAfterRestart", func(t *testing.T) {
@@ -254,6 +255,49 @@ func testPruneStraddleRetainsQC(t *testing.T, build builder) {
 	got, ok := opt.Get()
 	require.True(t, ok, "straddling QC must be retained")
 	require.Equal(t, straddled.first, got.QC().GlobalRange(committee).First)
+}
+
+// testPruneRefusesBelowWatermark asserts the refuse direction of PruneBefore:
+// once the watermark advances past a block, that block is no longer served by
+// ReadBlockByNumber, ReadBlockByHash, or the Blocks iterator — so a caller can
+// never observe a block whose covering QC may have been pruned out from under it.
+func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+	writeAll(t, db, batches)
+
+	// Prune at the start of the second batch: all of the first batch is below it.
+	watermark := batches[1].first
+	require.NoError(t, db.PruneBefore(watermark))
+
+	below := batches[0]
+	for i, blk := range below.blocks {
+		n := below.first + gbn(i)
+		require.Less(t, n, watermark)
+
+		byNum, err := db.ReadBlockByNumber(n)
+		require.NoError(t, err)
+		require.False(t, byNum.IsPresent(), "block %d below watermark %d must not be served", n, watermark)
+
+		byHash, err := db.ReadBlockByHash(blk.Header().Hash())
+		require.NoError(t, err)
+		require.False(t, byHash.IsPresent(), "block %d below watermark %d must not be served by hash", n, watermark)
+	}
+
+	blockIt, err := db.Blocks(false)
+	require.NoError(t, err)
+	defer func() { _ = blockIt.Close() }()
+	for {
+		ok, err := blockIt.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		require.GreaterOrEqual(t, blockIt.Number(), watermark,
+			"iterator must not yield block %d below watermark %d", blockIt.Number(), watermark)
+	}
 }
 
 // testPruneIdempotentMonotonic asserts PruneBefore is idempotent and the
@@ -761,54 +805,10 @@ func TestMemblockPruneStraddlingQC(t *testing.T) {
 	require.True(t, below.IsPresent(), "memblock retains the straddling QC for sub-watermark in-range lookups")
 }
 
-// TestLittblockReclaimsAcrossRestart verifies the durable reclamation path: data
-// written, then pruned past after a restart (which seals the segments it landed
-// in), is collected by GC. The active segment of a running DB only holds the
-// newest data, which is never below the watermark — hence the restart.
-func TestLittblockReclaimsAcrossRestart(t *testing.T) {
-	dir := t.TempDir()
-	committee, keys := buildCommittee()
-	batches := generateBatches(committee, keys)
-
-	db, err := littblock.NewBlockDB(littConfig(t, dir))
-	require.NoError(t, err)
-	writeAll(t, db, batches)
-	require.NoError(t, db.Flush())
-	require.NoError(t, db.Close())
-
-	// Reopen: the segments written above are now sealed and collectable.
-	db2, err := littblock.NewBlockDB(littConfig(t, dir))
-	require.NoError(t, err)
-	defer func() { _ = db2.Close() }()
-
-	beyond := batches[len(batches)-1].next
-	require.NoError(t, db2.PruneBefore(beyond))
-	require.NoError(t, littblock.ForceGC(db2))
-
-	for _, b := range batches {
-		opt, err := db2.ReadBlockByNumber(b.first)
-		require.NoError(t, err)
-		require.False(t, opt.IsPresent(), "block %d should be reclaimed after restart", b.first)
-		qc, err := db2.ReadQCByBlockNumber(b.first)
-		require.NoError(t, err)
-		require.False(t, qc.IsPresent(), "QC at %d should be reclaimed after restart", b.first)
-	}
-
-	// After reclamation the iterators must surface nothing.
-	blockIt, err := db2.Blocks(false)
-	require.NoError(t, err)
-	ok, err := blockIt.Next()
-	require.NoError(t, err)
-	require.False(t, ok, "all blocks reclaimed: block iterator must be empty")
-	require.NoError(t, blockIt.Close())
-
-	qcIt, err := db2.QCs(false)
-	require.NoError(t, err)
-	ok, err = qcIt.Next()
-	require.NoError(t, err)
-	require.False(t, ok, "all QCs reclaimed: QC iterator must be empty")
-	require.NoError(t, qcIt.Close())
-}
+// The durable reclamation path (data pruned past after a restart is physically
+// collected by GC) is covered by TestLittblockReclaimsAcrossRestart in package
+// littblock, which inspects the raw table directly — public reads can no longer
+// distinguish "reclaimed" from "refused by the read watermark".
 
 // littConfig builds a littblock config rooted at dir with a tiny retention so
 // the prune watermark is the sole observable reclamation gate in tests.

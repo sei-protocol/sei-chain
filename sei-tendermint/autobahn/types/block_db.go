@@ -70,6 +70,11 @@ var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 //     is written, then after a crash if B is persisted then A is also persisted.
 //   - Since QCs must always be written before the blocks they cover, a persisted block is always covered
 //     by a persisted QC, but a persisted QC may or may not have its covered blocks persisted.
+//
+// # A readable block always has a readable covering QC
+//
+// Pruning never leaves a block readable without its covering QC also being readable. And if a block becomes 
+// crash recoverable, its QC is gauranteed to also be crash recoverable.
 type BlockDB interface {
 	// WriteBlock persists a finalized block at GlobalBlockNumber n. A
 	// block for height n may only be written after a QC covering n has
