@@ -131,7 +131,7 @@ message Proposal {
   optional Timestamp timestamp = 5; // required
   repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 100]; // Sorted by lane.
   optional AppProposal app = 4; // optional
-  optional uint64 global_first = 6; // first global block number of this proposal's global range
+  optional uint64 global_first = 6; // required; first global block number of this proposal's global range
 }
 
 message FullProposal {
@@ -224,7 +224,7 @@ message AppProposal {
   // App hash at that block.
   optional bytes app_hash = 3 [(wireguard.max_size) = 32]; // required
   // Epoch this proposal belongs to.
-  optional uint64 epoch_index = 4;
+  optional uint64 epoch_index = 4; // required
 }
 
 // This is the signable message.
