@@ -1,6 +1,7 @@
 package seiwal
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -165,6 +166,33 @@ func TestAppendOrdering(t *testing.T) {
 		require.Equal(t, uint64(1), index)
 		require.Empty(t, data)
 	})
+}
+
+// TestWriterRejectsOutOfOrderRecord exercises the writer-goroutine backstop directly. The caller-side gate
+// in Append can be bypassed by concurrent misuse (the reordering race is non-deterministic), so appendRecord
+// re-asserts strict index increase itself. Driving appendRecord on a standalone walImpl (no running writer
+// loop) verifies that a non-increasing index is rejected rather than written with inverted bounds.
+func TestWriterRejectsOutOfOrderRecord(t *testing.T) {
+	dir := t.TempDir()
+	mf, err := newWalFile(dir, 0)
+	require.NoError(t, err)
+	w := &walImpl{
+		config:      testConfig(dir),
+		metricAttrs: walNameAttr("test"),
+		ctx:         context.Background(),
+		mutableFile: mf,
+	}
+	defer func() { _, _ = w.mutableFile.seal() }()
+
+	write := func(index uint64) error {
+		return w.appendRecord(dataToBeWritten{record: frameRecord(index, recordPayload(index)), index: index})
+	}
+
+	require.NoError(t, write(5))
+	require.Error(t, write(4)) // lower than last written
+	require.Error(t, write(5)) // equal to last written
+	require.NoError(t, write(6))
+	require.Equal(t, uint64(6), w.lastWrittenIndex)
 }
 
 func TestOrphanFileRecovery(t *testing.T) {

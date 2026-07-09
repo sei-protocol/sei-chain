@@ -5,6 +5,10 @@ package seiwal
 // Each record is tagged with a caller-provided monotonic index. The index is what makes garbage
 // collection ("drop everything below N"), iteration ("start at N"), and rollback ("drop everything
 // above N") expressible without the WAL ever interpreting a payload.
+//
+// A WAL instance is not safe for concurrent use: its methods must not be called from multiple
+// goroutines simultaneously. Callers that share a WAL across goroutines must serialize access
+// themselves.
 type WAL[T any] interface {
 
 	// Append a record with the given index and payload.

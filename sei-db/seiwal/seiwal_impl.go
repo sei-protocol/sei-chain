@@ -119,8 +119,10 @@ type walImpl struct {
 	// The first unrecoverable background-goroutine error, surfaced to the caller by Close().
 	asyncErr atomic.Pointer[error]
 
-	// Guards the append-ordering state below, which is read/written synchronously in Append (not on the
-	// writer goroutine).
+	// Guards the caller-side append-ordering state below, which is read/written synchronously in Append
+	// (not on the writer goroutine). This gate is a best-effort, time-of-call convenience for the
+	// (contractually single-threaded) caller; it is not the authoritative ordering guard, since concurrent
+	// callers could still reorder records past it. The writer goroutine holds the authoritative check.
 	appendMu sync.Mutex
 	// The index of the most recently appended record.
 	lastAppendIndex uint64
@@ -128,6 +130,14 @@ type walImpl struct {
 	hasAppended bool
 
 	// The following fields are owned exclusively by the writer goroutine.
+
+	// The index of the most recently written record. A writer-owned backstop that rejects out-of-order
+	// records that slip past the caller-side gate (e.g. under concurrent misuse), turning silent
+	// corruption into a fatal error.
+	lastWrittenIndex uint64
+	
+	// Whether any record has been written (this session or recovered from disk).
+	hasWritten bool
 
 	// The current mutable file accepting records.
 	mutableFile *walFile
@@ -212,6 +222,8 @@ func newWAL(config *Config, rollbackThrough *uint64) (WAL[[]byte], error) {
 	if r := w.bounds(); r.ok {
 		w.lastAppendIndex = r.last
 		w.hasAppended = true
+		w.lastWrittenIndex = r.last
+		w.hasWritten = true
 	}
 
 	w.wg.Add(1)
@@ -418,9 +430,18 @@ func (w *walImpl) writerLoop() {
 // appendRecord appends a record to the mutable file, updates bookkeeping, and rotates once the file exceeds
 // the target size. Every record is complete, so any record is a valid rotation boundary.
 func (w *walImpl) appendRecord(m dataToBeWritten) error {
+	// Authoritative ordering check: the caller-side gate in Append can be bypassed by concurrent callers
+	// (the WAL is documented single-threaded), so re-assert strict increase here on the one writer
+	// goroutine to reject a reordered record rather than write a file with inverted index bounds.
+	if w.hasWritten && m.index <= w.lastWrittenIndex {
+		return fmt.Errorf("append out of order: index %d is not greater than last written index %d",
+			m.index, w.lastWrittenIndex)
+	}
 	if err := w.mutableFile.writeRecord(m.record, m.index); err != nil {
 		return fmt.Errorf("failed to append record for index %d: %w", m.index, err)
 	}
+	w.lastWrittenIndex = m.index
+	w.hasWritten = true
 	walBytesWritten.Add(w.ctx, int64(len(m.record)), w.metricAttrs)
 	walRecordsWritten.Add(w.ctx, 1, w.metricAttrs)
 
