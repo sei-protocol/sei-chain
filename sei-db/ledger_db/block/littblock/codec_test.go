@@ -67,7 +67,7 @@ func TestPrefixedKeys(t *testing.T) {
 func TestBlockRoundTrip(t *testing.T) {
 	rng := utils.TestRngFromSeed(1)
 	for i := range 16 {
-		n := types.GlobalBlockNumber(i * 7)
+		n := types.GlobalBlockNumber(i)
 		blk := types.GenBlock(rng)
 		value := encodeBlock(n, blk)
 		require.Equal(t, blockSerializationVersion, value[0], "value must be version-prefixed")

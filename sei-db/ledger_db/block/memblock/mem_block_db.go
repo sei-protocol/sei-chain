@@ -201,13 +201,13 @@ func (s *blockDB) ReadBlockByNumber(
 
 func (s *blockDB) ReadBlockByHash(
 	hash types.BlockHeaderHash,
-) (utils.Option[*types.Block], types.GlobalBlockNumber, error) {
+) (utils.Option[types.BlockWithNumber], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if e, ok := s.byHash[hash]; ok {
-		return utils.Some(e.blk), e.n, nil
+		return utils.Some(types.BlockWithNumber{Block: e.blk, Number: e.n}), nil
 	}
-	return utils.None[*types.Block](), 0, nil
+	return utils.None[types.BlockWithNumber](), nil
 }
 
 func (s *blockDB) ReadQCByBlockNumber(

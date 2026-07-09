@@ -28,6 +28,14 @@ type BlockNumber uint64
 // GlobalBlockNumber is the number of a block in the global chain.
 type GlobalBlockNumber uint64
 
+// BlockWithNumber pairs a block with its GlobalBlockNumber. It is used as the
+// payload of the utils.Option returned by ReadBlockByHash so that the block
+// number is only present when the block itself is present.
+type BlockWithNumber struct {
+	Block  *Block
+	Number GlobalBlockNumber
+}
+
 // BlockHeaderHash is the hash of a BlockHeader.
 type BlockHeaderHash hashable.Hash[*pb.BlockHeader]
 

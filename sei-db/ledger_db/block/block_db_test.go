@@ -98,7 +98,7 @@ func testEmptyDB(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, blk.IsPresent())
 
-	byHash, _, err := db.ReadBlockByHash(types.GenBlockHeaderHash(utils.TestRngFromSeed(1)))
+	byHash, err := db.ReadBlockByHash(types.GenBlockHeaderHash(utils.TestRngFromSeed(1)))
 	require.NoError(t, err)
 	require.False(t, byHash.IsPresent())
 
@@ -135,7 +135,7 @@ func testReadRoundTrip(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, missNum.IsPresent())
 
-	missHash, _, err := db.ReadBlockByHash(types.GenBlockHeaderHash(utils.TestRngFromSeed(1)))
+	missHash, err := db.ReadBlockByHash(types.GenBlockHeaderHash(utils.TestRngFromSeed(1)))
 	require.NoError(t, err)
 	require.False(t, missHash.IsPresent())
 }
@@ -630,12 +630,12 @@ func testWriteBlockGaps(t *testing.T, build builder) {
 		require.True(t, ok, "block %d should exist", n)
 		require.Equal(t, blocks[n].Header().Hash(), got.Header().Hash())
 
-		byHash, hashNum, err := db.ReadBlockByHash(blocks[n].Header().Hash())
+		byHash, err := db.ReadBlockByHash(blocks[n].Header().Hash())
 		require.NoError(t, err)
-		got, ok = byHash.Get()
+		bwn, ok := byHash.Get()
 		require.True(t, ok, "block %d should be found by hash", n)
-		require.Equal(t, blocks[n].Header().Hash(), got.Header().Hash())
-		require.Equal(t, n, hashNum, "block %d hash lookup should return its number", n)
+		require.Equal(t, blocks[n].Header().Hash(), bwn.Block.Header().Hash())
+		require.Equal(t, n, bwn.Number, "block %d hash lookup should return its number", n)
 	}
 
 	// Numbers in the gaps were never written and must miss.
@@ -832,12 +832,12 @@ func assertBlocksReadable(t *testing.T, db types.BlockDB, batches []batch) {
 			require.True(t, ok, "block %d should exist", n)
 			require.Equal(t, blk.Header().Hash(), got.Header().Hash())
 
-			byHash, hashNum, err := db.ReadBlockByHash(blk.Header().Hash())
+			byHash, err := db.ReadBlockByHash(blk.Header().Hash())
 			require.NoError(t, err)
-			got, ok = byHash.Get()
+			bwn, ok := byHash.Get()
 			require.True(t, ok, "block by hash should exist")
-			require.Equal(t, blk.Header().Hash(), got.Header().Hash())
-			require.Equal(t, n, hashNum, "block %d hash lookup should return its number", n)
+			require.Equal(t, blk.Header().Hash(), bwn.Block.Header().Hash())
+			require.Equal(t, n, bwn.Number, "block %d hash lookup should return its number", n)
 		}
 	}
 }
