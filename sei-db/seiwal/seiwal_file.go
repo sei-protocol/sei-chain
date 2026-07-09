@@ -222,7 +222,7 @@ func (f *walFile) seal() (string, error) {
 				return "", fmt.Errorf("failed to close WAL file: %w", err)
 			}
 		}
-		if err := os.Remove(unsealedPath); err != nil && !os.IsNotExist(err) {
+		if err := removeAndSyncDir(f.directory, unsealedFileName(f.fileSeq)); err != nil {
 			return "", fmt.Errorf("failed to remove empty WAL file: %w", err)
 		}
 		f.sealed = true

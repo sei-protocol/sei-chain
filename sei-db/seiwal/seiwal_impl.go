@@ -261,6 +261,13 @@ func (w *walImpl) Append(index uint64, data []byte) error {
 	if w.closed.Load() {
 		return fmt.Errorf("WAL is closed")
 	}
+	// Fail fast on a bricked WAL. Without this, a fire-and-forget append can win the sendToWriter select
+	// against the already-cancelled senderCtx and enqueue onto a dead writer's buffer, silently dropping the
+	// record and returning nil. asyncErr is recorded before the cancel, so any caller that has observed the
+	// shutdown also observes the error here.
+	if err := w.asyncError(); err != nil {
+		return fmt.Errorf("WAL failed: %w", err)
+	}
 
 	w.appendMu.Lock()
 	if w.hasAppended && index <= w.lastAppendIndex {

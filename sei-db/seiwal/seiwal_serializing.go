@@ -189,6 +189,11 @@ func (s *serializingWAL[T]) Append(index uint64, data T) error {
 	if s.closed.Load() {
 		return fmt.Errorf("WAL is closed")
 	}
+	// Fail fast on a bricked WAL, so a fire-and-forget append cannot win the submit select against the
+	// cancelled senderCtx and be silently dropped onto a dead serializer (see walImpl.Append for detail).
+	if err := s.asyncError(); err != nil {
+		return fmt.Errorf("WAL failed: %w", err)
+	}
 	req := serAppend{
 		index:     index,
 		serialize: func() ([]byte, error) { return s.serialize(data) },
