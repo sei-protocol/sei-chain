@@ -41,6 +41,9 @@ type blockDB struct {
 	lastBlockNumber types.GlobalBlockNumber
 	hasQC           bool
 	lastQCNext      types.GlobalBlockNumber
+
+	// latestQCStartBlock is therecently written QC's starting block number.
+	latestQCStartBlock types.GlobalBlockNumber
 }
 
 // NewBlockDB opens (or creates) a LittDB-backed types.BlockDB from config. The
@@ -129,6 +132,7 @@ func (s *blockDB) recoverCursors() error {
 				if err != nil {
 					return fmt.Errorf("failed to unmarshal newest qc: %w", err)
 				}
+				s.latestQCStartBlock = lowerBound
 				s.lastQCNext = lowerBound + types.GlobalBlockNumber(len(qc.Headers()))
 				s.hasQC = true
 			}
@@ -233,21 +237,27 @@ func (s *blockDB) WriteQC(
 		return fmt.Errorf("failed to put QC [%d,%d): %w", lowerBound, upperBound, err)
 	}
 
+	s.latestQCStartBlock = lowerBound
 	s.lastQCNext = upperBound
 	s.hasQC = true
 	return nil
 }
 
 func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
-	for {
-		cur := s.watermark.Load()
-		if uint64(n) <= cur {
-			return nil
-		}
-		if s.watermark.CompareAndSwap(cur, uint64(n)) {
-			return nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.hasBlocks {
+		if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); n > ceiling {
+			n = ceiling
 		}
 	}
+	// Advance the watermark monotonically. mu serializes writers and PruneBefore
+	// is the only one, so a plain load/store suffices; the field stays atomic
+	// only because the GC filter and readers load it without holding mu.
+	if uint64(n) > s.watermark.Load() {
+		s.watermark.Store(uint64(n))
+	}
+	return nil
 }
 
 // gcFilter marks a key in the shared ledger table as reclaimable, dispatching on

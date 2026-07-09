@@ -1,6 +1,7 @@
 package block
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -59,6 +60,8 @@ func TestBlockDB(t *testing.T) {
 			t.Run("PruneStraddleRetainsQC", func(t *testing.T) { testPruneStraddleRetainsQC(t, impl.build) })
 			t.Run("PruneRefusesBelowWatermark", func(t *testing.T) { testPruneRefusesBelowWatermark(t, impl.build) })
 			t.Run("PruneIdempotentMonotonic", func(t *testing.T) { testPruneIdempotentMonotonic(t, impl.build) })
+			t.Run("PruneNeverEmpties", func(t *testing.T) { testPruneNeverEmpties(t, impl.build) })
+			t.Run("PruneQCAheadOfBlocks", func(t *testing.T) { testPruneQCAheadOfBlocks(t, impl.build) })
 			t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, impl.build) })
 			t.Run("WriteOrderRejectedAfterRestart", func(t *testing.T) {
 				testWriteOrderRejectedAfterRestart(t, impl.build)
@@ -330,6 +333,145 @@ func testPruneIdempotentMonotonic(t *testing.T, build builder) {
 			require.Equal(t, blk.Header().Hash(), got.Header().Hash())
 		}
 	}
+}
+
+// testPruneNeverEmpties asserts the store is never emptied by pruning and that
+// pruning is monotonic around the newest cohort. Any request whose watermark
+// would enter the newest block's cohort — from just past the cohort's first,
+// through the newest block, to well beyond every block — is clamped to the
+// cohort's first, so the whole newest cohort (and its shared QC) stays readable
+// while everything below is gone. The clamp lands on the cohort's first, not
+// merely the newest block: the covering QC is retained regardless and covers the
+// entire cohort, so a larger n must never retain more. Holds across both
+// implementations.
+func testPruneNeverEmpties(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	require.GreaterOrEqual(t, len(batches), 2, "need a below-cohort batch plus the newest cohort")
+	last := batches[len(batches)-1] // the newest block's cohort
+	newest := last.next - 1
+	require.Greater(t, len(last.blocks), 1, "need a multi-block cohort to exercise a within-cohort prune")
+
+	// Every request lands the watermark inside (or past) the newest cohort:
+	// within the cohort, exactly at the newest block, and well past every block.
+	// All must clamp identically to the cohort's first.
+	for _, prune := range []types.GlobalBlockNumber{last.first + 1, newest, last.next + 1000} {
+		t.Run(fmt.Sprintf("prune=%d", prune), func(t *testing.T) {
+			db, _ := openFresh(t, build)
+			defer func() { _ = db.Close() }()
+			writeAll(t, db, batches)
+
+			require.NoError(t, db.PruneBefore(prune))
+
+			// Every block in the newest cohort is still served on every read path.
+			for i, blk := range last.blocks {
+				n := last.first + gbn(i)
+
+				byNum, err := db.ReadBlockByNumber(n)
+				require.NoError(t, err)
+				got, ok := byNum.Get()
+				require.True(t, ok, "block %d in the newest cohort must survive PruneBefore(%d)", n, prune)
+				require.Equal(t, blk.Header().Hash(), got.Header().Hash())
+
+				byHash, err := db.ReadBlockByHash(blk.Header().Hash())
+				require.NoError(t, err)
+				bwn, ok := byHash.Get()
+				require.True(t, ok, "block %d must survive lookup by hash", n)
+				require.Equal(t, n, bwn.Number)
+
+				qc, err := db.ReadQCByBlockNumber(n)
+				require.NoError(t, err)
+				require.True(t, qc.IsPresent(), "the QC covering the newest cohort must survive")
+			}
+
+			// A block below the newest cohort is gone (clamped watermark refuses/removes it).
+			belowBatch := batches[len(batches)-2]
+			require.Less(t, belowBatch.first, last.first)
+			below, err := db.ReadBlockByNumber(belowBatch.first)
+			require.NoError(t, err)
+			require.False(t, below.IsPresent(), "blocks below the newest cohort must not be served")
+
+			// The block iterator yields exactly the newest cohort, and the QC
+			// iterator exactly its covering QC.
+			var expected []types.GlobalBlockNumber
+			for i := range last.blocks {
+				expected = append(expected, last.first+gbn(i))
+			}
+			blockIt, err := db.Blocks(false)
+			require.NoError(t, err)
+			defer func() { _ = blockIt.Close() }()
+			var blockNums []types.GlobalBlockNumber
+			for {
+				ok, err := blockIt.Next()
+				require.NoError(t, err)
+				if !ok {
+					break
+				}
+				blockNums = append(blockNums, blockIt.Number())
+			}
+			require.Equal(t, expected, blockNums,
+				"exactly the newest cohort must remain after PruneBefore(%d)", prune)
+
+			qcIt, err := db.QCs(false)
+			require.NoError(t, err)
+			defer func() { _ = qcIt.Close() }()
+			qcCount := 0
+			for {
+				ok, err := qcIt.Next()
+				require.NoError(t, err)
+				if !ok {
+					break
+				}
+				fqc, err := qcIt.QC()
+				require.NoError(t, err)
+				require.Equal(t, last.first, fqc.QC().GlobalRange(committee).First,
+					"only the QC covering the newest cohort must remain")
+				qcCount++
+			}
+			require.Equal(t, 1, qcCount, "exactly one QC (covering the newest cohort) must remain")
+		})
+	}
+}
+
+// testPruneQCAheadOfBlocks pins the min() guard in the prune clamp. QCs are
+// written before the blocks they cover, so between writing a QC and its first
+// block — and after a crash that persisted a QC but not its blocks — the newest
+// QC starts above the newest block (latestQCStartBlock > lastBlockNumber). A
+// prune-to-empty request must clamp to the newest actual block, not the newest
+// QC's first: clamping to the latter would push the watermark past every written
+// block and empty the store. This holds across both implementations.
+func testPruneQCAheadOfBlocks(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	require.GreaterOrEqual(t, len(batches), 2, "need a filled cohort plus an unfilled newest QC")
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+
+	// Fill the first cohort, then write only the QC of the second — no blocks in
+	// its range. Now latestQCStartBlock (b1.first) exceeds lastBlockNumber (the
+	// last block of b0), since QCs are contiguous (b1.first == b0.next).
+	b0 := batches[0]
+	require.NoError(t, db.WriteQC(b0.first, b0.next, b0.qc))
+	for i, blk := range b0.blocks {
+		require.NoError(t, db.WriteBlock(b0.first+gbn(i), blk))
+	}
+	b1 := batches[1]
+	require.NoError(t, db.WriteQC(b1.first, b1.next, b1.qc))
+	require.Equal(t, b0.next, b1.first, "QCs must be contiguous for this setup")
+
+	newest := b0.next - 1 // newest actual block; b1.first == b0.next > newest
+
+	require.NoError(t, db.PruneBefore(b1.next+1000))
+
+	// The newest actual block and its covering QC are still served: the clamp
+	// used min(latestQCStartBlock, lastBlockNumber), not latestQCStartBlock —
+	// otherwise the watermark would sit above every written block.
+	blk, err := db.ReadBlockByNumber(newest)
+	require.NoError(t, err)
+	require.True(t, blk.IsPresent(), "newest block %d must survive; the clamp must not pass it", newest)
+	qc, err := db.ReadQCByBlockNumber(newest)
+	require.NoError(t, err)
+	require.True(t, qc.IsPresent(), "covering QC of the newest block must survive")
 }
 
 // testIteratorSnapshot asserts that an iterator observes only the records present

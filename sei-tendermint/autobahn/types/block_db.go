@@ -127,6 +127,11 @@ type BlockDB interface {
 	// Idempotent: calling with n ≤ the existing retention watermark is
 	// a no-op; the watermark only advances.
 	//
+	// Pruning never empties the store. Once a block has been written, at
+	// least one block (and a QC covering it) always remains readable — a
+	// request that would remove every block is capped to retain the most
+	// recently written block (and the QC covering it).
+	//
 	// Pruning is asynchronous and MAY BE DELAYED. PruneBefore records the
 	// watermark and returns; reclamation happens later, on the
 	// implementation's own schedule and potentially at a coarse
