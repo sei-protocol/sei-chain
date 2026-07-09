@@ -703,16 +703,21 @@ func (idx *BlockerIndexer) searchHeightOrdered(ctx context.Context, plan heightO
 
 // scanHeightOrderedFast streams the new height-ordered index for plan.driverTag
 // over heights [lo, hi] in order_by height order, deduping heights and stopping
-// at limit (limit <= 0 means unbounded). Because keys are height-major the scan
-// early-stops once it passes the far bound. Each examined entry is charged
-// against the shared budget so the scan fails closed on a broad query even when
-// the result cap is disabled.
+// at limit (limit <= 0 means unbounded). The iterator is seeked to the [lo, hi]
+// key bounds, so out-of-window entries are never scanned; each examined entry is
+// charged against the shared budget, which therefore counts only in-window work
+// and fails closed on a broad query even when the result cap is disabled.
 func (idx *BlockerIndexer) scanHeightOrderedFast(ctx context.Context, plan heightOrderedPlan, lo, hi int64, desc bool, limit int, budget *indexer.ScanBudget) ([]int64, error) {
-	prefix, err := prefixHeightOrdered(plan.driverTag)
+	start, end, err := heightOrderedBounds(plan.driverTag, lo, hi)
 	if err != nil {
 		return nil, err
 	}
-	it, err := idx.prefixIterator(prefix, desc)
+	var it dbm.Iterator
+	if desc {
+		it, err = idx.store.ReverseIterator(start, end)
+	} else {
+		it, err = idx.store.Iterator(start, end)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create height-ordered iterator: %w", err)
 	}
@@ -726,8 +731,8 @@ func (idx *BlockerIndexer) scanHeightOrderedFast(ctx context.Context, plan heigh
 			break
 		}
 
-		// Charge each examined entry against the shared budget so a broad scan
-		// fails closed even when the result cap is disabled.
+		// The iterator is bounded to [lo, hi], so every entry is in-window; the
+		// budget therefore only counts in-window work.
 		if err := budget.Step(); err != nil {
 			return nil, err
 		}
@@ -735,24 +740,6 @@ func (idx *BlockerIndexer) scanHeightOrderedFast(ctx context.Context, plan heigh
 		h, err := parseHeightFromHeightOrderedKey(it.Key())
 		if err != nil {
 			continue
-		}
-
-		// Keys are height-major, so once we pass the far bound in scan order we
-		// can stop; the near bound is skipped until we reach the window.
-		if desc {
-			if h > hi {
-				continue
-			}
-			if h < lo {
-				break
-			}
-		} else {
-			if h < lo {
-				continue
-			}
-			if h > hi {
-				break
-			}
 		}
 
 		if _, dup := seen[h]; dup {

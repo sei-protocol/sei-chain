@@ -3,11 +3,13 @@ package kv
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/google/orderedcode"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query/syntax"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -70,6 +72,32 @@ func eventKeyHeightOrdered(compositeKey, typ, eventValue string, height int64) (
 // height order.
 func prefixHeightOrdered(compositeKey string) ([]byte, error) {
 	return orderedcode.Append(nil, blockHeightOrderedKey, compositeKey)
+}
+
+// heightOrderedBounds returns the [start, end) key range restricting a
+// height-ordered scan of compositeKey to heights [lo, hi]. Because keys are
+// orderedcode(blockHeightOrderedKey, compositeKey, height, ...), start seeks to
+// the first key at height lo and end is the first key past height hi, so the
+// scan visits only in-window entries instead of scanning the whole prefix. When
+// hi is unbounded (math.MaxInt64) end is the prefix upper bound, avoiding
+// overflow.
+func heightOrderedBounds(compositeKey string, lo, hi int64) (start, end []byte, err error) {
+	start, err = orderedcode.Append(nil, blockHeightOrderedKey, compositeKey, lo)
+	if err != nil {
+		return nil, nil, err
+	}
+	if hi == math.MaxInt64 {
+		prefix, err := prefixHeightOrdered(compositeKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		return start, indexer.PrefixUpperBound(prefix), nil
+	}
+	end, err = orderedcode.Append(nil, blockHeightOrderedKey, compositeKey, hi+1)
+	if err != nil {
+		return nil, nil, err
+	}
+	return start, end, nil
 }
 
 // parseHeightFromHeightOrderedKey extracts the height from a height-ordered

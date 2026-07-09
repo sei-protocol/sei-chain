@@ -726,12 +726,22 @@ func (txi *TxIndex) searchHeightOrdered(ctx context.Context, plan heightOrderedP
 
 // scanHeightOrderedFast streams the new height-ordered index for plan.driverTag
 // over heights [lo, hi] in (height, index) order_by order, deduping by hash and
-// stopping at limit (limit <= 0 means unbounded). Because keys are height-major
-// the scan early-stops once it passes the far bound. Each examined entry is
-// charged against the shared budget so the scan fails closed on a broad query
-// even when the result cap is disabled.
+// stopping at limit (limit <= 0 means unbounded). The iterator is seeked to the
+// [lo, hi] key bounds, so out-of-window entries are never scanned; each examined
+// entry is charged against the shared budget, which therefore counts only
+// in-window work and fails closed on a broad query even when the result cap is
+// disabled.
 func (txi *TxIndex) scanHeightOrderedFast(ctx context.Context, plan heightOrderedPlan, lo, hi int64, desc bool, limit int, budget *indexer.ScanBudget) ([]*abci.TxResultV2, error) {
-	it, err := txi.prefixIterator(prefixHeightOrdered(plan.driverTag), desc)
+	start, end := heightOrderedBounds(plan.driverTag, lo, hi)
+	var (
+		it  dbm.Iterator
+		err error
+	)
+	if desc {
+		it, err = txi.store.ReverseIterator(start, end)
+	} else {
+		it, err = txi.store.Iterator(start, end)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create height-ordered iterator: %w", err)
 	}
@@ -745,33 +755,10 @@ func (txi *TxIndex) scanHeightOrderedFast(ctx context.Context, plan heightOrdere
 			break
 		}
 
-		// Charge each examined entry against the shared budget so a broad scan
-		// fails closed even when the result cap is disabled.
+		// The iterator is bounded to [lo, hi], so every entry is in-window; the
+		// budget therefore only counts in-window work.
 		if err := budget.Step(); err != nil {
 			return nil, err
-		}
-
-		height, _, err := parseHeightOrderedKey(it.Key())
-		if err != nil {
-			continue
-		}
-
-		// Keys are height-major, so once we pass the far bound in scan order we
-		// can stop; the near bound is skipped until we reach the window.
-		if desc {
-			if height > hi {
-				continue
-			}
-			if height < lo {
-				break
-			}
-		} else {
-			if height < lo {
-				continue
-			}
-			if height > hi {
-				break
-			}
 		}
 
 		hash := it.Value()
@@ -1264,21 +1251,25 @@ func prefixHeightOrdered(compositeKey string) []byte {
 	return key
 }
 
-// parseHeightOrderedKey extracts (height, index) from a height-ordered event
-// key. See secondaryKeyHeightOrdered for the layout.
-func parseHeightOrderedKey(key []byte) (int64, uint32, error) {
-	var (
-		ns, compositeKey, value string
-		height, index           int64
-	)
-	remaining, err := orderedcode.Parse(string(key), &ns, &compositeKey, &height, &index, &value)
+// heightOrderedBounds returns the [start, end) key range restricting a
+// height-ordered scan of compositeKey to heights [lo, hi]. Because keys are
+// orderedcode(txHeightOrderedKey, compositeKey, height, ...), start seeks to the
+// first key at height lo and end is the first key past height hi, so the scan
+// visits only in-window entries instead of scanning the whole prefix. When hi is
+// unbounded (math.MaxInt64) end is the prefix upper bound, avoiding overflow.
+func heightOrderedBounds(compositeKey string, lo, hi int64) (start, end []byte) {
+	start, err := orderedcode.Append(nil, txHeightOrderedKey, compositeKey, lo)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to parse height-ordered key: %w", err)
+		panic(err)
 	}
-	if len(remaining) != 0 {
-		return 0, 0, fmt.Errorf("unexpected remainder in key: %s", remaining)
+	if hi == math.MaxInt64 {
+		return start, indexer.PrefixUpperBound(prefixHeightOrdered(compositeKey))
 	}
-	return height, uint32(index), nil //nolint:gosec // index is stored as int64(uint32), so the round-trip cannot overflow
+	end, err = orderedcode.Append(nil, txHeightOrderedKey, compositeKey, hi+1)
+	if err != nil {
+		panic(err)
+	}
+	return start, end
 }
 
 // watermarkKey is the reserved key holding the lowest height covered by the
