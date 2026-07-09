@@ -63,8 +63,6 @@ func TestCommitQC(
 		vs := types.ViewSpec{CommitQC: prev, Epoch: ep}
 		p := types.NewAppProposal(cqc.GlobalRange().Next-1, vs.View().Index, types.GenAppHash(rng), ep.EpochIndex())
 		appQC = utils.Some(TestAppQC(keys, p))
-	} else {
-		appQC = utils.None[*types.AppQC]()
 	}
 	cqc := types.BuildCommitQC(ep, keys, prev, laneQCs, appQC)
 	return types.NewFullCommitQC(cqc, headers), blockList

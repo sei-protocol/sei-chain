@@ -164,6 +164,9 @@ func (s *State) PushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 	return s.pushTimeoutQC(ctx, qc)
 }
 
+// TODO: scope prepareVotes, commitVotes, and timeoutVotes to a single epoch
+// so stale votes from a previous epoch are automatically dropped on transition.
+
 // PushPrepareVote processes an unverified Prepare vote message.
 func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
 	committee := s.myView.Load().Epoch.Committee()
