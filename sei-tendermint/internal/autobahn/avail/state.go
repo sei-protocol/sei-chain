@@ -731,7 +731,25 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 					s.markCommitQCsPersisted(qc)
 				}))
 			})
-			for lane := range s.data.Registry().LatestEpoch().Committee().Lanes().All() {
+			// Collect lanes: any lane with blocks in this batch, plus all lanes
+			// in the anchor epoch (for WAL pruning).
+			// TODO: when epoch transitions land, also union in lanes from all
+			// epochs that appear in batch.commitQCs so new-epoch lanes are
+			// never skipped in a cross-epoch batch.
+			batchLanes := map[types.LaneID]struct{}{}
+			for lane := range blocksByLane {
+				batchLanes[lane] = struct{}{}
+			}
+			if anchor, ok := anchorQC.Get(); ok {
+				ep, epOK := s.data.Registry().EpochByIndex(anchor.Proposal().EpochIndex())
+				if !epOK {
+					return fmt.Errorf("unknown epoch_index %d", anchor.Proposal().EpochIndex())
+				}
+				for lane := range ep.Committee().Lanes().All() {
+					batchLanes[lane] = struct{}{}
+				}
+			}
+			for lane := range batchLanes {
 				proposals := blocksByLane[lane]
 				ps.Spawn(func() error {
 					return pers.blocks.MaybePruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))

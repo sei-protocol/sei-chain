@@ -58,8 +58,6 @@ type loadedAvailState struct {
 }
 
 func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inner, error) {
-	pruneCommittee := epoch.Committee()
-
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
 	for lane := range epoch.Committee().Lanes().All() {
@@ -93,7 +91,8 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 			slog.Uint64("roadIndex", uint64(anchor.AppQC.Proposal().RoadIndex())),
 			slog.Uint64("globalNumber", uint64(anchor.AppQC.Proposal().GlobalNumber())),
 		)
-		if _, err := i.prune(pruneCommittee, anchor.AppQC, anchor.CommitQC); err != nil {
+		// TODO: use the committee of the anchor's epoch once epoch transitions are wired up.
+		if _, err := i.prune(epoch.Committee(), anchor.AppQC, anchor.CommitQC); err != nil {
 			return nil, fmt.Errorf("prune: %w", err)
 		}
 		for lane := range i.blocks {

@@ -109,11 +109,12 @@ func TestNewTimeoutQC(t *testing.T) {
 	_, keys := GenCommittee(rng, 10)
 	view := GenView(rng)
 	var votes []*FullTimeoutVote
-	wantView := View{}
+	wantView := View{EpochIndex: view.EpochIndex}
 	for _, k := range keys {
 		pView := View{
-			Index:  view.Index,
-			Number: GenViewNumber(rng) % view.Number,
+			Index:      view.Index,
+			Number:     GenViewNumber(rng) % view.Number,
+			EpochIndex: view.EpochIndex,
 		}
 		p := newProposal(pView, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), GlobalBlockNumber(rng.Uint64()))
 		if wantView.Less(pView) {
