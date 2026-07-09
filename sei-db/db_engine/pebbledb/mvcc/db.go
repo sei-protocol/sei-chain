@@ -208,9 +208,14 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
 	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
+	// Buffer WAL writes when the store itself applies changes asynchronously:
+	// blocking the caller on WAL durability while the pebble apply is deferred
+	// costs ~half the caller's write budget without a stronger guarantee than
+	// the async apply already provides (SS is rebuildable from upstream state).
 	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
-		KeepRecent:    uint64(walKeepRecent),
-		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
+		KeepRecent:      uint64(walKeepRecent),
+		PruneInterval:   time.Duration(config.PruneIntervalSeconds) * time.Second,
+		WriteBufferSize: config.AsyncWriteBuffer,
 	})
 	if err != nil {
 		return nil, err
