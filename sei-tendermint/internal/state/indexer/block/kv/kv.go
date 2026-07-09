@@ -147,6 +147,17 @@ func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query, opts inde
 
 	conditions := q.Syntax()
 
+	// Reject queries that reference the reserved height-ordered / watermark
+	// prefixes as tags. Writes already reject these as event names, but the
+	// scan paths build their prefix directly from the query tag, so an
+	// unguarded EXISTS on one of them would iterate the entire reserved
+	// namespace and behave as a no-op instead of returning no matches.
+	for _, c := range conditions {
+		if c.Tag == blockHeightOrderedKey || c.Tag == blockWatermarkKey {
+			return nil, fmt.Errorf("tag %q is reserved and cannot be queried", c.Tag)
+		}
+	}
+
 	// If there is an exact height query, return the result immediately
 	// (if it exists).
 	height, ok := lookForHeight(conditions)

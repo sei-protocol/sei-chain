@@ -190,6 +190,17 @@ func (txi *TxIndex) Search(ctx context.Context, q *query.Query, opts indexer.Sea
 	// get a list of conditions (like "tx.height > 5")
 	conditions := q.Syntax()
 
+	// Reject queries that reference the reserved height-ordered / watermark
+	// prefixes as tags. Writes already reject these as event names, but the
+	// scan paths build their prefix directly from the query tag, so an
+	// unguarded EXISTS on one of them would iterate the entire reserved
+	// namespace and behave as a no-op instead of returning no matches.
+	for _, c := range conditions {
+		if c.Tag == txHeightOrderedKey || c.Tag == txWatermarkKey {
+			return nil, fmt.Errorf("tag %q is reserved and cannot be queried", c.Tag)
+		}
+	}
+
 	// if there is a hash condition, return the result immediately
 	hash, ok, err := lookForHash(conditions)
 	if err != nil {
