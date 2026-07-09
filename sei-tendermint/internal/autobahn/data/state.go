@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -33,7 +32,6 @@ type Config struct {
 // StateAPI is the interface of the State for consuming global blocks
 // and reporting AppHashes.
 type StateAPI interface {
-	prometheus.Collector
 	GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*types.GlobalBlock, error)
 	// PushAppHash blocks until block n and its QC are durably persisted,
 	// ensuring AppVotes are only issued for data that survives a crash.
@@ -248,7 +246,7 @@ func (i *inner) insertBlock(committee *types.Committee, n types.GlobalBlockNumbe
 	return nil
 }
 
-func (i *inner) updateNextBlock(m *dataMetrics) {
+func (i *inner) updateNextBlock(m *metrics.Metrics) {
 	t := time.Now()
 	for {
 		b, ok := i.blocks[i.nextBlock]
@@ -257,15 +255,15 @@ func (i *inner) updateNextBlock(m *dataMetrics) {
 		}
 		i.nextBlock += 1
 		latency := t.Sub(b.Payload().CreatedAt()).Seconds()
-		m.Blocks.Receive.ObserveWithWeight(latency, 1)
+		m.Blocks.Receive.Observe(latency)
 		m.Txs.Receive.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 	}
 }
 
-func (i *inner) pruneFirst(now time.Time, m *dataMetrics) {
+func (i *inner) pruneFirst(now time.Time, m *metrics.Metrics) {
 	b := i.blocks[i.first]
 	latency := now.Sub(b.Payload().CreatedAt()).Seconds()
-	m.Blocks.Prune.ObserveWithWeight(latency, 1)
+	m.Blocks.Prune.Observe(latency)
 	m.Txs.Prune.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 	delete(i.appProposals, i.first)
 	delete(i.blocks, i.first)
@@ -278,7 +276,7 @@ func (i *inner) pruneFirst(now time.Time, m *dataMetrics) {
 // Contains blocks in global order and proofs of their finality.
 type State struct {
 	cfg     *Config
-	metrics *dataMetrics
+	metrics *metrics.Metrics
 	inner   utils.Watch[*inner]
 	dataWAL *DataWAL
 }
@@ -336,7 +334,7 @@ func NewState(cfg *Config, dataWAL *DataWAL) (*State, error) {
 	}
 	return &State{
 		cfg:     cfg,
-		metrics: newDataMetrics(),
+		metrics: metrics.Get(),
 		inner:   utils.NewWatch(inner),
 		dataWAL: dataWAL,
 	}, nil
@@ -572,7 +570,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		for inner.nextAppProposal <= n {
 			b := inner.blocks[inner.nextAppProposal]
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
-			s.metrics.Blocks.Execute.ObserveWithWeight(latency, 1)
+			s.metrics.Blocks.Execute.Observe(latency)
 			s.metrics.Txs.Execute.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 			inner.appProposals[inner.nextAppProposal] = apt
 			inner.nextAppProposal += 1

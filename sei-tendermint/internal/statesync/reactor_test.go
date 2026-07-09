@@ -55,7 +55,7 @@ func setup(
 	if conn == nil {
 		conn = newTestStatesyncApp()
 	}
-	proxyConn := proxy.New(conn, proxy.NewMetrics())
+	proxyConn := proxy.New(conn)
 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
 		NumNodes: 1,
@@ -79,7 +79,6 @@ func setup(
 		stateStore,
 		blockStore,
 		"",
-		m,
 		nil,   // eventbus can be nil
 		nil,   // post-sync-hook
 		false, // run Sync during Start()
@@ -98,7 +97,6 @@ func setup(
 			tempDir:       t.TempDir(),
 			fetchers:      cfg.Fetchers,
 			retryTimeout:  cfg.ChunkRequestTimeout,
-			metrics:       reactor.metrics,
 		}
 	}
 

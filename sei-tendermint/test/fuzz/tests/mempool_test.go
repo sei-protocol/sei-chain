@@ -14,7 +14,7 @@ func FuzzMempool(f *testing.F) {
 	cfg := config.DefaultMempoolConfig()
 	cfg.Broadcast = false
 
-	mp := mempool.NewTxMempool(cfg.ToMempoolConfig(), kvstore.NewProxy(), mempool.NewMetrics(), mempool.NopTxConstraintsFetcher)
+	mp := mempool.NewTxMempool(cfg.ToMempoolConfig(), kvstore.NewProxy(), mempool.NopTxConstraintsFetcher)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		_, _ = mp.CheckTx(t.Context(), data)

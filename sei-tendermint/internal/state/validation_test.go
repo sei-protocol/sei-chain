@@ -43,7 +43,7 @@ func TestValidateBlockCommit(t *testing.T) {
 
 	state, stateDB, privVals := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
-	proxyApp := proxy.New(app, proxy.NewMetrics())
+	proxyApp := proxy.New(app)
 	mp := makeTxMempool(t, proxyApp)
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
@@ -54,7 +54,6 @@ func TestValidateBlockCommit(t *testing.T) {
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
-		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 	lastCommit := &types.Commit{}
@@ -181,7 +180,7 @@ func TestValidateBlockEvidence(t *testing.T) {
 
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
-	proxyApp := proxy.New(app, proxy.NewMetrics())
+	proxyApp := proxy.New(app)
 	mp := makeTxMempool(t, proxyApp)
 
 	state.ConsensusParams.Evidence.MaxBytes = 1000
@@ -192,7 +191,6 @@ func TestValidateBlockEvidence(t *testing.T) {
 		evpool,
 		blockStore,
 		eventBus,
-		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 	lastCommit := &types.Commit{}

@@ -30,6 +30,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -57,6 +58,8 @@ type Config struct {
 }
 
 type StreamKindConfig struct {
+	// Name of the stream kind. Used for metrics.
+	Name string
 	// Maximal number of concurrent outbound streams.
 	MaxConnects uint64
 	// Maximal number of concurrent inbound streams.
@@ -99,6 +102,9 @@ type frame struct {
 type kindState struct {
 	connectsQueue chan *streamState
 	acceptsQueue  chan *streamState
+
+	connectMetrics *metrics.Metrics
+	acceptMetrics  *metrics.Metrics
 }
 
 type runnerInner struct {
@@ -147,18 +153,18 @@ func (r *runner) getOrAccept(h *pb.Header) (*streamState, error) {
 			return nil, errTooManyAccepts
 		}
 		inner.acceptsSem[kind] -= 1
-		s := newStreamState(id, kind)
+		s := newStreamState(id, kind, r.mux.kinds[kind].acceptMetrics)
 		inner.streams[id] = s
 		return s, nil
 	}
 	panic("unreachable")
 }
 
-func (i *runnerInner) newConnectStream(kind StreamKind) *streamState {
+func (r *runner) newConnectStream(kind StreamKind, inner *runnerInner) *streamState {
 	// Non-blocking since we just closed a connect Stream.
-	s := newStreamState(i.nextID, kind)
-	i.streams[s.id] = s
-	i.nextID += 2
+	s := newStreamState(inner.nextID, kind, r.mux.kinds[kind].connectMetrics)
+	inner.streams[s.id] = s
+	inner.nextID += 2
 	return s
 }
 
@@ -178,7 +184,7 @@ func (r *runner) tryPrune(id streamID) {
 		delete(inner.streams, id)
 		// Free the stream capacity.
 		if id.isConnect() {
-			r.mux.kinds[s.kind].connectsQueue <- inner.newConnectStream(s.kind)
+			r.mux.kinds[s.kind].connectsQueue <- r.newConnectStream(s.kind, inner)
 		} else {
 			inner.acceptsSem[s.kind] += 1
 		}
@@ -357,7 +363,7 @@ func (m *Mux) Run(ctx context.Context, conn conn.Conn) error {
 				}
 				inner.acceptsSem[kind] = min(cfg.MaxAccepts, remCfg.MaxConnects)
 				for range min(cfg.MaxConnects, remCfg.MaxAccepts) {
-					m.kinds[kind].connectsQueue <- inner.newConnectStream(kind)
+					m.kinds[kind].connectsQueue <- r.newConnectStream(kind, inner)
 				}
 			}
 		}
@@ -430,6 +436,9 @@ func NewMux(cfg *Config) *Mux {
 		kinds[kind] = &kindState{
 			acceptsQueue:  make(chan *streamState, c.MaxAccepts),
 			connectsQueue: make(chan *streamState, c.MaxConnects),
+
+			acceptMetrics:  metrics.Get(metrics.RoleAccept, c.Name),
+			connectMetrics: metrics.Get(metrics.RoleConnect, c.Name),
 		}
 	}
 	queue := utils.NewWatch(queue{})

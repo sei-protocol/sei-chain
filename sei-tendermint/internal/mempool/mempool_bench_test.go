@@ -15,7 +15,7 @@ func BenchmarkTxMempool_CheckTx(b *testing.B) {
 	ctx := b.Context()
 
 	client := kvstore.NewApplication()
-	proxyClient := proxy.New(client, proxy.NewMetrics())
+	proxyClient := proxy.New(client)
 
 	// setup the cache and the mempool number for hitting GetEvictableTxs during the
 	// benchmark. 5000 is the current default mempool size in the TM config.

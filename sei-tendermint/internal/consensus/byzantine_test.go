@@ -95,10 +95,10 @@ package consensus
 //
 //			// Make a full instance of the evidence pool
 //			evidenceDB := dbm.NewMemDB()
-//			evpool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NewMetrics(), eventBus)
+//			evpool := evidence.NewPool(evidenceDB, stateStore, blockStore, eventBus)
 //
 //			// Make State
-//			blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NewMetrics())
+//			blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus)
 //			cs, err := NewState( thisConfig.Consensus, stateStore, blockExec, blockStore, mempool, evpool, eventBus, []trace.TracerProviderOption{})
 //			require.NoError(t, err)
 //			// set private validator

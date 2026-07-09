@@ -445,7 +445,7 @@ func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) er
 		}
 		cs.flatKV = nil
 	}
-	logger.Info("derived effective write mode from migration metadata", "mode", derived)
+	logger.Debug("derived effective write mode from migration metadata", "mode", derived)
 	cs.currentWriteMode = derived
 	return nil
 }

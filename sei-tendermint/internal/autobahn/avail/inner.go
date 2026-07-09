@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -163,9 +164,11 @@ func (i *inner) prune(c *types.Committee, appQC *types.AppQC, commitQC *types.Co
 		return false, nil
 	}
 	i.latestAppQC = utils.Some(appQC)
+	metrics.ObserveAppQC(appQC)
 	i.commitQCs.prune(idx)
 	if i.commitQCs.next == idx {
 		i.commitQCs.pushBack(commitQC)
+		metrics.ObserveCommitQC(c, commitQC)
 	}
 	i.appVotes.prune(commitQC.GlobalRange(c).First)
 	for lane := range i.votes {
