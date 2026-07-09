@@ -646,6 +646,12 @@ func (idx *BlockerIndexer) searchHeightOrdered(ctx context.Context, plan heightO
 	fbHi := min(hi, w-1)
 	hasFallback := lo <= fbHi
 
+	// One scan budget is shared across both legs so MaxScan bounds the total
+	// work of the query regardless of order_by, and so the height-ordered fast
+	// leg is charged too — otherwise a query with the result cap disabled
+	// (max-tx-search-results = 0) could stream an entire tag prefix unbounded.
+	budget := indexer.NewScanBudget(opts.MaxScan)
+
 	results := make([]int64, 0, indexer.BoundedCap(opts.Limit))
 	remaining := func() int {
 		if opts.Limit <= 0 {
@@ -659,14 +665,14 @@ func (idx *BlockerIndexer) searchHeightOrdered(ctx context.Context, plan heightO
 
 	if opts.OrderDesc {
 		if hasFast {
-			r, err := idx.scanHeightOrderedFast(ctx, plan, fastLo, hi, true, remaining())
+			r, err := idx.scanHeightOrderedFast(ctx, plan, fastLo, hi, true, remaining(), budget)
 			if err != nil {
 				return nil, err
 			}
 			results = append(results, r...)
 		}
 		if !reachedLimit() && hasFallback {
-			r, err := idx.heightOrderedFallback(ctx, plan, lo, fbHi, true, remaining(), opts.MaxScan)
+			r, err := idx.heightOrderedFallback(ctx, plan, lo, fbHi, true, remaining(), budget)
 			if err != nil {
 				return nil, err
 			}
@@ -674,14 +680,14 @@ func (idx *BlockerIndexer) searchHeightOrdered(ctx context.Context, plan heightO
 		}
 	} else {
 		if hasFallback {
-			r, err := idx.heightOrderedFallback(ctx, plan, lo, fbHi, false, remaining(), opts.MaxScan)
+			r, err := idx.heightOrderedFallback(ctx, plan, lo, fbHi, false, remaining(), budget)
 			if err != nil {
 				return nil, err
 			}
 			results = append(results, r...)
 		}
 		if !reachedLimit() && hasFast {
-			r, err := idx.scanHeightOrderedFast(ctx, plan, fastLo, hi, false, remaining())
+			r, err := idx.scanHeightOrderedFast(ctx, plan, fastLo, hi, false, remaining(), budget)
 			if err != nil {
 				return nil, err
 			}
@@ -698,9 +704,10 @@ func (idx *BlockerIndexer) searchHeightOrdered(ctx context.Context, plan heightO
 // scanHeightOrderedFast streams the new height-ordered index for plan.driverTag
 // over heights [lo, hi] in order_by height order, deduping heights and stopping
 // at limit (limit <= 0 means unbounded). Because keys are height-major the scan
-// early-stops once it passes the far bound. This is a Limit-bounded fast-path
-// scan and is deliberately not charged against the scan budget.
-func (idx *BlockerIndexer) scanHeightOrderedFast(ctx context.Context, plan heightOrderedPlan, lo, hi int64, desc bool, limit int) ([]int64, error) {
+// early-stops once it passes the far bound. Each examined entry is charged
+// against the shared budget so the scan fails closed on a broad query even when
+// the result cap is disabled.
+func (idx *BlockerIndexer) scanHeightOrderedFast(ctx context.Context, plan heightOrderedPlan, lo, hi int64, desc bool, limit int, budget *indexer.ScanBudget) ([]int64, error) {
 	prefix, err := prefixHeightOrdered(plan.driverTag)
 	if err != nil {
 		return nil, err
@@ -717,6 +724,12 @@ func (idx *BlockerIndexer) scanHeightOrderedFast(ctx context.Context, plan heigh
 	for ; it.Valid(); it.Next() {
 		if ctx.Err() != nil {
 			break
+		}
+
+		// Charge each examined entry against the shared budget so a broad scan
+		// fails closed even when the result cap is disabled.
+		if err := budget.Step(); err != nil {
+			return nil, err
 		}
 
 		h, err := parseHeightFromHeightOrderedKey(it.Key())
@@ -769,14 +782,14 @@ func (idx *BlockerIndexer) scanHeightOrderedFast(ctx context.Context, plan heigh
 	return results, nil
 }
 
-// heightOrderedFallback serves the pre-watermark [lo, hi] leg of a
-// heightOrderedPlan from the legacy index. It rebuilds the equivalent legacy
-// EXISTS match, then collects heights in [lo, hi], ordered and capped at limit.
-// The legacy scan is charged against a maxScan budget and fails closed if the
-// budget is exceeded.
-func (idx *BlockerIndexer) heightOrderedFallback(ctx context.Context, plan heightOrderedPlan, lo, hi int64, desc bool, limit, maxScan int) ([]int64, error) {
-	budget := indexer.NewScanBudget(maxScan)
-
+// heightOrderedFallback serves the pre-watermark [lo, hi] leg from the legacy
+// index, ordered and capped at limit, charged against the shared budget.
+//
+// The legacy index is value-ordered, so heights aren't seekable: this scans the
+// whole tag prefix (including >= W entries the fast leg already served) and
+// discards out-of-range ones. Budget pressure from the discards is a
+// transitional-window effect that a reindex removes.
+func (idx *BlockerIndexer) heightOrderedFallback(ctx context.Context, plan heightOrderedPlan, lo, hi int64, desc bool, limit int, budget *indexer.ScanBudget) ([]int64, error) {
 	filtered, err := idx.match(ctx, *plan.existsCond, nil, map[string][]byte{}, true, budget)
 	if err != nil {
 		return nil, err
