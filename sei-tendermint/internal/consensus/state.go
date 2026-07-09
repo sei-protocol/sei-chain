@@ -94,6 +94,7 @@ type evidencePool interface {
 type State struct {
 	// config details
 	config        *config.ConsensusConfig
+	metrics       utils.Mutex[*latencyMetrics]
 	privValidator utils.Option[types.PrivValidator] // for signing votes
 	// privValidator pubkey, memoized for the duration of one block
 	// to avoid extra requests to HSM
@@ -171,6 +172,7 @@ func NewState(
 	cs := &State{
 		eventBus:          eventBus,
 		config:            cfg,
+		metrics:           utils.NewMutex(&latencyMetrics{}),
 		roundState:        cstypes.NewSafeRoundState(),
 		blockExec:         blockExec,
 		blockStore:        blockStore,
@@ -448,7 +450,9 @@ func (cs *State) updateRoundStep(round int32, step cstypes.RoundStepType) {
 			Global.MarkRound(cs.roundState.Round(), cs.roundState.StartTime())
 		}
 		if cs.roundState.Step() != step {
-			Global.MarkStep(cs.roundState.Step())
+			for m := range cs.metrics.Lock() {
+				m.MarkStep(cs.roundState.Step())
+			}
 		}
 	}
 	cs.roundState.SetRound(round)
@@ -761,7 +765,9 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 		err   error
 	)
 
-	Global.MarkStepLatency(cs.roundState.Step())
+	for m := range cs.metrics.Lock() {
+		m.MarkStepLatency(cs.roundState.Step())
+	}
 
 	msg, peerID := mi.Msg, mi.PeerID
 
@@ -886,7 +892,9 @@ func (cs *State) handleTimeout(
 	// the timeout will now cause a state transition
 	cs.mtx.Lock()
 	defer cs.mtx.Unlock()
-	Global.MarkStepLatency(rs.Step)
+	for m := range cs.metrics.Lock() {
+		m.MarkStepLatency(rs.Step)
+	}
 
 	switch ti.Step {
 	case cstypes.RoundStepNewHeight:
@@ -1655,7 +1663,9 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32, 
 
 	if !cs.roundState.ProposalBlockParts().HasHeader(blockID.PartSetHeader) {
 		cs.roundState.SetProposalBlock(nil)
-		Global.MarkBlockGossipStarted()
+		for m := range cs.metrics.Lock() {
+			m.MarkBlockGossipStarted()
+		}
 		cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(blockID.PartSetHeader))
 	}
 
@@ -1751,7 +1761,9 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 
 		// We're getting the wrong block.
 		// Set up ProposalBlockParts, clear ProposalBlock and keep waiting for the parts.
-		Global.MarkBlockGossipStarted()
+		for m := range cs.metrics.Lock() {
+			m.MarkBlockGossipStarted()
+		}
 		cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(blockID.PartSetHeader))
 		cs.roundState.SetProposalBlock(nil)
 
@@ -2092,7 +2104,9 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 			logger.Debug("rejecting proposal with too many parts", "total", proposal.BlockID.PartSetHeader.Total, "max", types.MaxBlockPartsCount)
 			return ErrInvalidProposalPartSetHeader
 		}
-		Global.MarkBlockGossipStarted()
+		for m := range cs.metrics.Lock() {
+			m.MarkBlockGossipStarted()
+		}
 		cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(proposal.BlockID.PartSetHeader))
 		cs.roundState.SetProposalBlock(nil)
 	}
@@ -2148,7 +2162,9 @@ func (cs *State) addProposalBlockPart(
 		)
 	}
 	if added && cs.roundState.ProposalBlockParts().IsComplete() {
-		Global.MarkBlockGossipComplete()
+		for m := range cs.metrics.Lock() {
+			m.MarkBlockGossipComplete()
+		}
 		block, err := cs.getBlockFromBlockParts()
 		if err != nil {
 			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
@@ -2198,7 +2214,9 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 	defer func() {
 		if cs.roundState.ProposalBlock() != nil {
 			// NOTE: it's possible to receive complete proposal blocks for future rounds without having the proposal
-			Global.MarkBlockGossipComplete()
+			for m := range cs.metrics.Lock() {
+				m.MarkBlockGossipComplete()
+			}
 		}
 	}()
 
@@ -2478,7 +2496,9 @@ func (cs *State) addVote(
 				}
 
 				if !cs.roundState.ProposalBlockParts().HasHeader(blockID.PartSetHeader) {
-					Global.MarkBlockGossipStarted()
+					for m := range cs.metrics.Lock() {
+						m.MarkBlockGossipStarted()
+					}
 					cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(blockID.PartSetHeader))
 				}
 

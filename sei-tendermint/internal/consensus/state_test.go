@@ -2909,7 +2909,8 @@ func TestStateTimeoutResolution(t *testing.T) {
 
 	newState := func(cfg *tmconfig.ConsensusConfig, params types.TimeoutParams) *State {
 		return &State{
-			config: cfg,
+			config:  cfg,
+			metrics: utils.NewMutex(&latencyMetrics{}),
 			state: sm.State{
 				ConsensusParams: types.ConsensusParams{
 					Timeout: params,

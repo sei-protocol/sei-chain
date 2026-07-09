@@ -22,6 +22,12 @@ const (
 
 //go:generate go run ../../scripts/metricsgen -struct=Metrics
 
+type latencyMetrics struct {
+	stepStart                   time.Time
+	blockGossipStart            time.Time
+	lastRecordedStepLatencyNano int64
+}
+
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// Height of the chain.
@@ -74,12 +80,10 @@ type Metrics struct {
 
 	// Histogram of durations for each step in the consensus protocol.
 	StepDuration tmprometheus.HistogramVec `metrics_labels:"step" metrics_buckets:"exprange(0.1, 100, 8)"`
-	stepStart    time.Time
 
 	// Histogram of time taken to receive a block in seconds, measured between when a new block is first
 	// discovered to when the block is completed.
 	BlockGossipReceiveLatency tmprometheus.HistogramVec `metrics_buckets:"exprange(0.1, 100, 8)"`
-	blockGossipStart          time.Time
 
 	// Number of block parts received by the node, separated by whether the part
 	// was relevant to the block the node is trying to gather or not.
@@ -171,9 +175,8 @@ type Metrics struct {
 	// ApplyBlockLatency measures how long it takes to execute ApplyBlock in finalize commit step
 	ApplyBlockLatency tmprometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.3, 25)"`
 
-	StepLatency                 *prometheus.GaugeVec `metrics_labels:"step"`
-	lastRecordedStepLatencyNano int64
-	StepCount                   tmprometheus.GaugeIntVec `metrics_labels:"step"`
+	StepLatency *prometheus.GaugeVec     `metrics_labels:"step"`
+	StepCount   tmprometheus.GaugeIntVec `metrics_labels:"step"`
 }
 
 // RecordConsMetrics uses for recording the block related metrics during fast-sync.
@@ -184,12 +187,16 @@ func (m *Metrics) RecordConsMetrics(block *types.Block) {
 	m.CommittedHeightAt().Set(block.Height)
 }
 
-func (m *Metrics) MarkBlockGossipStarted() {
+func (m *latencyMetrics) MarkBlockGossipStarted() {
 	m.blockGossipStart = time.Now()
 }
 
-func (m *Metrics) MarkBlockGossipComplete() {
-	m.BlockGossipReceiveLatencyAt().Observe(time.Since(m.blockGossipStart).Seconds())
+func (m *latencyMetrics) MarkBlockGossipComplete() {
+	start := m.blockGossipStart
+	if start.IsZero() {
+		return
+	}
+	Global.BlockGossipReceiveLatencyAt().Observe(time.Since(start).Seconds())
 }
 
 func (m *Metrics) MarkProposalProcessed(accepted bool) {
@@ -249,19 +256,19 @@ func (m *Metrics) MarkApplyBlockLatency(latency time.Duration) {
 	m.ApplyBlockLatencyAt().Observe(latency.Seconds())
 }
 
-func (m *Metrics) MarkStep(s cstypes.RoundStepType) {
+func (m *latencyMetrics) MarkStep(s cstypes.RoundStepType) {
 	if !m.stepStart.IsZero() {
 		stepTime := time.Since(m.stepStart).Seconds()
 		stepName := strings.TrimPrefix(s.String(), "RoundStep")
-		m.StepDurationAt(stepName).Observe(stepTime)
-		m.StepCountAt(s.String()).Add(1)
+		Global.StepDurationAt(stepName).Observe(stepTime)
+		Global.StepCountAt(s.String()).Add(1)
 	}
 	m.stepStart = time.Now()
 }
 
-func (m *Metrics) MarkStepLatency(s cstypes.RoundStepType) {
+func (m *latencyMetrics) MarkStepLatency(s cstypes.RoundStepType) {
 	now := time.Now().UnixNano()
-	m.StepLatencyAt(s.String()).Add(float64(now - m.lastRecordedStepLatencyNano))
+	Global.StepLatencyAt(s.String()).Add(float64(now - m.lastRecordedStepLatencyNano))
 	m.lastRecordedStepLatencyNano = now
 }
 

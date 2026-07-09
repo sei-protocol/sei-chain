@@ -51,7 +51,7 @@ func newMetrics() *metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "send_bytes",
-			Help:      "Numbed of message bytes sent.",
+			Help:      "Number of message bytes sent.",
 		}, []string{"role", "kind"}),
 		recvBytes: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
