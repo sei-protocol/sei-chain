@@ -130,7 +130,7 @@ type ViewSpec struct {
 	// I.e. that TimeoutQC comes from the expected consensus instance.
 	CommitQC  utils.Option[*CommitQC]
 	TimeoutQC utils.Option[*TimeoutQC]
-	Epoch     *Epoch // required
+	Epoch     *Epoch
 }
 
 // NextGlobalBlock returns the first global block number expected in the next proposal.
