@@ -539,10 +539,7 @@ type RPCConfig struct {
 
 	// Maximum number of index entries a single tx_search / block_search may
 	// examine on the fallback scan path (CONTAINS/MATCHES/value ranges) before
-	// the query is rejected as too broad. This bounds work, not output: unlike
-	// max-tx-search-results (which caps the result set) it protects the node
-	// from a broad query that must scan millions of entries to return a handful
-	// of matches. 0 disables the budget (not recommended on public nodes).
+	// the query is rejected as too broad. 0 disables the budget.
 	MaxEventSearchScan int `mapstructure:"max-event-search-scan"`
 }
 
@@ -578,7 +575,7 @@ func DefaultRPCConfig() *RPCConfig {
 		TimeoutWrite:      30 * time.Second,
 
 		MaxTxSearchResults: 10_000,
-		MaxEventSearchScan: 1_000_000,
+		MaxEventSearchScan: 50_000,
 	}
 }
 

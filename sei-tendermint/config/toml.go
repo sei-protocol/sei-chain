@@ -287,10 +287,10 @@ timeout-write = "{{ .RPC.TimeoutWrite }}"
 # Set to 0 to disable the cap (not recommended on public nodes).
 max-tx-search-results = {{ .RPC.MaxTxSearchResults }}
 
-# Maximum number of index entries a single tx_search / block_search may examine
-# on the fallback scan path (CONTAINS/MATCHES/value ranges) before the query is
-# rejected as too broad. Bounds work rather than output. Set to 0 to disable
-# (not recommended on public nodes).
+# Maximum number of index entries a single query on the /tx_search or
+# /block_search RPC endpoint may examine on the scan path
+# before the query is rejected as too broad.
+# Set to 0 to disable (not recommended on public nodes).
 max-event-search-scan = {{ .RPC.MaxEventSearchScan }}
 
 #######################################################################

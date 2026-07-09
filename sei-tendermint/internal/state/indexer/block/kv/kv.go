@@ -63,30 +63,33 @@ func (idx *BlockerIndexer) Has(height int64) (bool, error) {
 
 // readWatermark returns the lowest block height covered by the height-ordered
 // index. An unset watermark (fresh DB, or upgraded-but-not-yet-written) reads
-// as math.MaxInt64 so every height-ordered query takes the legacy fallback
+// as math.MaxInt64 so every height-ordered query takes the fallback path
 // until the new index has written at least one key.
-func (idx *BlockerIndexer) readWatermark() int64 {
+func (idx *BlockerIndexer) readWatermark() (int64, error) {
 	key, err := watermarkKey()
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
 	bz, err := idx.store.Get(key)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
 	if len(bz) == 0 {
-		return math.MaxInt64
+		return math.MaxInt64, nil
 	}
-	return int64FromBytes(bz)
+	return int64FromBytes(bz), nil
 }
 
 // updateWatermark lowers the persisted watermark to height when height is lower,
 // writing into the provided batch so it commits atomically with the
 // height-ordered keys it accounts for. A watermark that is too high is only
-// over-conservative (routes covered heights to the fallback); a watermark below
-// the keys actually written would be incorrect, so it is never raised here.
+// over-conservative (routes covered heights to the fallback).
 func (idx *BlockerIndexer) updateWatermark(batch dbm.Batch, height int64) error {
-	if height >= idx.readWatermark() {
+	wmIndex, err := idx.readWatermark()
+	if err != nil {
+		return err
+	}
+	if height >= wmIndex {
 		return nil
 	}
 	key, err := watermarkKey()
@@ -168,7 +171,7 @@ func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query, opts inde
 	// scan and point-probed, stream candidates in order_by order and stop at
 	// the limit, so a broad query does not materialize and sort the full match
 	// set. This uses the legacy index / primary key (full coverage) and ignores
-	// the watermark.
+	// the watermark for height order index.
 	if plan, ok := planBounded(conditions, ranges, rangeIndexes); ok {
 		return idx.searchBounded(ctx, plan, opts)
 	}
@@ -609,7 +612,10 @@ func heightBounds(ranges []indexer.QueryRange) (lo, hi int64) {
 // [lo, W-1] are served by the legacy materializing fallback for full coverage.
 // The two sub-ranges are height-disjoint at W, so no global merge is needed.
 func (idx *BlockerIndexer) searchHeightOrdered(ctx context.Context, plan heightOrderedPlan, opts indexer.SearchOptions) ([]int64, error) {
-	w := idx.readWatermark()
+	w, err := idx.readWatermark()
+	if err != nil {
+		return nil, err
+	}
 	lo, hi := heightBounds(plan.heightRanges)
 	if lo > hi {
 		return []int64{}, nil
