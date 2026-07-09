@@ -309,7 +309,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		}
 		// Verify the vote against the CommitQC.
 		qc := inner.commitQCs.q[idx]
-		if err := v.Msg().Proposal().Verify(committee, qc); err != nil {
+		if err := v.Msg().Proposal().Verify(qc); err != nil {
 			return fmt.Errorf("invalid vote: %w", err)
 		}
 		// Push the vote.

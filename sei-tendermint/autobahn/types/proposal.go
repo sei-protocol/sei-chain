@@ -240,12 +240,6 @@ func (m *Proposal) Verify(ep *Epoch) error {
 	}
 	c := ep.Committee()
 	for _, r := range m.laneRanges {
-		if r.first > r.next {
-			return fmt.Errorf("laneRange[%v]: invalid range [%v,%v)", r.Lane(), r.first, r.next)
-		}
-		if r.first == r.next && r.lastHash != (BlockHeaderHash{}) {
-			return fmt.Errorf("laneRange[%v]: non-zero hash for empty range", r.Lane())
-		}
 		if got := r.Len(); got > MaxLaneRangeInProposal {
 			return fmt.Errorf("laneRange[%v].Len() = %d, want <= %d", r.Lane(), got, MaxLaneRangeInProposal)
 		}

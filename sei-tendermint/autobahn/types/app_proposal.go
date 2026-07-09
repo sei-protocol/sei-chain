@@ -44,7 +44,7 @@ func (m *AppProposal) Next() RoadIndex {
 }
 
 // Verify verifies that the AppProposal is consistent with the CommitQC.
-func (m *AppProposal) Verify(c *Committee, qc *CommitQC) error {
+func (m *AppProposal) Verify(qc *CommitQC) error {
 	if got, want := m.RoadIndex(), qc.Proposal().Index(); got != want {
 		return fmt.Errorf("roadIndex() = %v, want %v", got, want)
 	}
