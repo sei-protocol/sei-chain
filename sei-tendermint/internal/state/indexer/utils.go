@@ -1,5 +1,7 @@
 package indexer
 
+import "math"
+
 // maxBoundedPrealloc caps how much a bounded search fast path preallocates for
 // its result slice, so a very large (or disabled) limit does not eagerly
 // allocate.
@@ -32,6 +34,26 @@ func HeightInRange(h int64, qr QueryRange) bool {
 		}
 	}
 	return true
+}
+
+// HeightBounds reduces a set of numeric height ranges to a single inclusive
+// [lo, hi] window. Heights are >= 1, so an absent lower bound defaults to 1 and
+// an absent upper bound to math.MaxInt64.
+func HeightBounds(ranges []QueryRange) (lo, hi int64) {
+	lo, hi = 1, int64(math.MaxInt64)
+	for i := range ranges {
+		if lb := ranges[i].LowerBoundValue(); lb != nil {
+			if v, ok := lb.(int64); ok && v > lo {
+				lo = v
+			}
+		}
+		if ub := ranges[i].UpperBoundValue(); ub != nil {
+			if v, ok := ub.(int64); ok && v < hi {
+				hi = v
+			}
+		}
+	}
+	return lo, hi
 }
 
 // ScanBudget bounds the number of index entries a fallback scan may examine

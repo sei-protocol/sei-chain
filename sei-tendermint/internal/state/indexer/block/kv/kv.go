@@ -367,28 +367,57 @@ func (idx *BlockerIndexer) collectBoundedInHeightRange(ctx context.Context, filt
 
 // searchBounded executes a boundedPlan: it scans the driver prefix in
 // order_by order, point-probes the remaining conditions per candidate height,
-// and stops as soon as opts.Limit matches are collected. Memory is bounded by
-// the number of results kept rather than by the full match cardinality.
+// and stops at opts.Limit. The iterator is seeked to the [lo, hi] height window
+// (both driver keys place the numeric height right after the prefix), and every
+// examined entry is charged against opts.MaxScan so a broad prefix with sparse
+// matches fails closed.
 func (idx *BlockerIndexer) searchBounded(ctx context.Context, plan boundedPlan, opts indexer.SearchOptions) ([]int64, error) {
 	var (
-		prefix []byte
-		err    error
+		base []byte
+		err  error
 	)
 	if plan.driverEquality != nil {
-		prefix, err = orderedcode.Append(nil, plan.driverEquality.Tag, plan.driverEquality.Arg.Value())
+		base, err = orderedcode.Append(nil, plan.driverEquality.Tag, plan.driverEquality.Arg.Value())
 	} else {
 		// Drive off the primary block.height key range.
-		prefix, err = orderedcode.Append(nil, types.BlockHeightKey)
+		base, err = orderedcode.Append(nil, types.BlockHeightKey)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create driver prefix key: %w", err)
 	}
 
-	it, err := idx.prefixIterator(prefix, opts.OrderDesc)
+	// appendHeight appends an encoded height to a copy of base so seeking never
+	// mutates the shared prefix bytes.
+	appendHeight := func(h int64) ([]byte, error) {
+		buf := make([]byte, len(base))
+		copy(buf, base)
+		return orderedcode.Append(buf, h)
+	}
+
+	lo, hi := indexer.HeightBounds(plan.heightRanges)
+	start, err := appendHeight(lo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create driver lower bound key: %w", err)
+	}
+	var end []byte
+	if hi == math.MaxInt64 {
+		end = indexer.PrefixUpperBound(base)
+	} else if end, err = appendHeight(hi + 1); err != nil {
+		return nil, fmt.Errorf("failed to create driver upper bound key: %w", err)
+	}
+
+	var it dbm.Iterator
+	if opts.OrderDesc {
+		it, err = idx.store.ReverseIterator(start, end)
+	} else {
+		it, err = idx.store.Iterator(start, end)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create driver iterator: %w", err)
 	}
 	defer func() { _ = it.Close() }()
+
+	budget := indexer.NewScanBudget(opts.MaxScan)
 
 	results := make([]int64, 0, indexer.BoundedCap(opts.Limit))
 	seen := make(map[int64]struct{})
@@ -396,6 +425,10 @@ func (idx *BlockerIndexer) searchBounded(ctx context.Context, plan boundedPlan, 
 	for ; it.Valid(); it.Next() {
 		if ctx.Err() != nil {
 			break
+		}
+
+		if err := budget.Step(); err != nil {
+			return nil, err
 		}
 
 		h := int64FromBytes(it.Value())
@@ -452,15 +485,6 @@ func (idx *BlockerIndexer) candidateMatches(h int64, plan boundedPlan) (bool, er
 	// the same atomic batch, so this is normally redundant, but it preserves
 	// the historical guarantee and guards against partially written state.
 	return idx.Has(h)
-}
-
-// prefixIterator returns an iterator over the given key prefix. When desc is
-// true it iterates in descending (most-recent-height-first) order.
-func (idx *BlockerIndexer) prefixIterator(prefix []byte, desc bool) (dbm.Iterator, error) {
-	if !desc {
-		return dbm.IteratePrefix(idx.store, prefix)
-	}
-	return idx.store.ReverseIterator(prefix, indexer.PrefixUpperBound(prefix))
 }
 
 // hasEvent reports whether the block at the given height has an indexed event
@@ -605,26 +629,6 @@ func planHeightOrdered(conditions []syntax.Condition, ranges indexer.QueryRanges
 	return plan, true
 }
 
-// heightBounds reduces the plan's block.height ranges to a single inclusive
-// [lo, hi] window. Heights are >= 1, so an absent lower bound defaults to 1
-// (avoiding a pointless legacy scan for a non-existent sub-watermark tail).
-func heightBounds(ranges []indexer.QueryRange) (lo, hi int64) {
-	lo, hi = 1, int64(math.MaxInt64)
-	for i := range ranges {
-		if lb := ranges[i].LowerBoundValue(); lb != nil {
-			if v, ok := lb.(int64); ok && v > lo {
-				lo = v
-			}
-		}
-		if ub := ranges[i].UpperBoundValue(); ub != nil {
-			if v, ok := ub.(int64); ok && v < hi {
-				hi = v
-			}
-		}
-	}
-	return lo, hi
-}
-
 // searchHeightOrdered serves a heightOrderedPlan by splitting the [lo, hi]
 // window at the watermark W: heights in [max(lo, W), hi] are streamed from the
 // new height-ordered index (fast, early-stops at opts.Limit); heights in
@@ -635,7 +639,7 @@ func (idx *BlockerIndexer) searchHeightOrdered(ctx context.Context, plan heightO
 	if err != nil {
 		return nil, err
 	}
-	lo, hi := heightBounds(plan.heightRanges)
+	lo, hi := indexer.HeightBounds(plan.heightRanges)
 	if lo > hi {
 		return []int64{}, nil
 	}
