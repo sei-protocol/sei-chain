@@ -194,6 +194,15 @@ func NewCryptoSim(
 		metrics.startReceiptChannelDepthSampling(recieptsChan, config.BackgroundMetricsScrapeInterval)
 	}
 
+	ssReadSim, err := NewSSReadSimulator(ctx, config, db)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to create SS read simulator: %w", err)
+	}
+	if ssReadSim != nil {
+		database.SetSSReadSampler(ssReadSim)
+	}
+
 	var rateLimiter *rate.Limiter
 	if config.MaxTPS > 0 {
 		rateLimiter = rate.NewLimiter(rate.Limit(config.MaxTPS), config.TransactionsPerBlock)

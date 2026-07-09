@@ -37,6 +37,9 @@ type Database struct {
 
 	// The metrics for the benchmark.
 	metrics *CryptosimMetrics
+
+	// Optional sampler feeding the SS point-read workers with written keys.
+	ssReadSampler *SSReadSimulator
 }
 
 // Creates a new database for the cryptosim benchmark.
@@ -187,6 +190,7 @@ func (d *Database) FinalizeBlock(
 	if err != nil {
 		return fmt.Errorf("failed to apply change sets: %w", err)
 	}
+	d.ssReadSampler.Sample(entry.Version, entry.Changesets)
 
 	d.metrics.ReportBlockFinalized(d.transactionsInCurrentBlock)
 	d.transactionsInCurrentBlock = 0
@@ -237,6 +241,12 @@ func (d *Database) CloseWithoutFinalizing() error {
 }
 
 // Set the function that flushes the executors. This setter is required to break a circular dependency.
+// SetSSReadSampler attaches the SS point-read key sampler. Must be set before
+// the benchmark starts finalizing blocks.
+func (d *Database) SetSSReadSampler(s *SSReadSimulator) {
+	d.ssReadSampler = s
+}
+
 func (d *Database) SetFlushFunc(flushFunc func()) {
 	d.flushFunc = flushFunc
 }

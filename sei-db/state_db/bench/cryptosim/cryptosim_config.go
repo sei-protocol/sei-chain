@@ -219,6 +219,18 @@ type CryptoSimConfig struct {
 	// Maximum number of blocks in a log filter query range. Default 10.
 	ReceiptLogFilterMaxBlockRange int
 
+	// Number of concurrent goroutines issuing SS point reads (StateStore.Get)
+	// against recently written keys at the latest version. 0 disables.
+	// Workers are unthrottled; achieved reads/s is the measurement.
+	SSPointReadWorkers int
+
+	// Number of concurrent goroutines issuing SS point reads at old versions
+	// sampled uniformly from the run's history. 0 disables.
+	SSColdPointReadWorkers int
+
+	// Minimum age, in blocks, of the versions targeted by cold point reads.
+	SSColdReadMinAgeBlocks int64
+
 	// Number of recent blocks to keep before pruning parquet files. 0 disables pruning.
 	ReceiptKeepRecent int64
 
@@ -291,6 +303,9 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ReceiptLogFilterReadMode:          receiptReadModeCache,
 		ReceiptLogFilterMinBlockRange:     1,
 		ReceiptLogFilterMaxBlockRange:     10,
+		SSPointReadWorkers:                0,
+		SSColdPointReadWorkers:            0,
+		SSColdReadMinAgeBlocks:            20_000,
 		ReceiptKeepRecent:                 100_000,
 		ReceiptPruneIntervalSeconds:       600,
 		LogLevel:                          "info",
@@ -408,6 +423,15 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.ReceiptLogFilterMaxBlockRange < c.ReceiptLogFilterMinBlockRange {
 		return fmt.Errorf("ReceiptLogFilterMaxBlockRange must be >= ReceiptLogFilterMinBlockRange (got %d < %d)",
 			c.ReceiptLogFilterMaxBlockRange, c.ReceiptLogFilterMinBlockRange)
+	}
+	if c.SSPointReadWorkers < 0 {
+		return fmt.Errorf("SSPointReadWorkers must be non-negative (got %d)", c.SSPointReadWorkers)
+	}
+	if c.SSColdPointReadWorkers < 0 {
+		return fmt.Errorf("SSColdPointReadWorkers must be non-negative (got %d)", c.SSColdPointReadWorkers)
+	}
+	if c.SSColdReadMinAgeBlocks < 0 {
+		return fmt.Errorf("SSColdReadMinAgeBlocks must be non-negative (got %d)", c.SSColdReadMinAgeBlocks)
 	}
 	if c.StateStoreConfig == nil {
 		return fmt.Errorf("StateStoreConfig is required")

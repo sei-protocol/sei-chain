@@ -69,3 +69,8 @@ func (s *stateStoreWrapper) Importer(_ int64) (scTypes.Importer, error) {
 func (s *stateStoreWrapper) GetPhaseTimer() *metrics.PhaseTimer {
 	return nil
 }
+
+// StateStore exposes the underlying versioned store for read benchmarking.
+func (s *stateStoreWrapper) StateStore() dbTypes.StateStore {
+	return s.base
+}
