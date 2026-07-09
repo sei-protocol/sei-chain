@@ -57,6 +57,28 @@ func collectStrings(t *testing.T, w WAL[string], start uint64) []indexedString {
 	return out
 }
 
+// TestSerializeFailureClosesInnerWAL verifies that a serialize error tears the inner byte WAL down instead of
+// orphaning its writer goroutine and mutable-file handle. The inner WAL is healthy (only serialization failed),
+// so fail() closes it gracefully — observable as the inner mutable file being sealed.
+func TestSerializeFailureClosesInnerWAL(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	boom := errors.New("serialize boom")
+	serialize := func(s string) ([]byte, error) { return nil, boom }
+	w, err := NewGenericWAL[string](cfg, serialize, stringDeserialize)
+	require.NoError(t, err)
+
+	require.NoError(t, w.Append(1, "one")) // scheduling succeeds; serialize fails on the serializer goroutine
+
+	// Close drains the serializer goroutine, which by now has run fail() -> inner.Close().
+	err = w.Close()
+	require.Error(t, err)
+	require.ErrorIs(t, err, boom)
+
+	sw := w.(*serializingWAL[string])
+	inner := sw.inner.(*walImpl)
+	require.True(t, inner.mutableFile.sealed) // inner cleanly closed by fail(), not orphaned
+}
+
 func TestGenericWALRoundTrip(t *testing.T) {
 	w := openStringWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()

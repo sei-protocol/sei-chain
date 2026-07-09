@@ -135,7 +135,7 @@ type walImpl struct {
 	// records that slip past the caller-side gate (e.g. under concurrent misuse), turning silent
 	// corruption into a fatal error.
 	lastWrittenIndex uint64
-	
+
 	// Whether any record has been written (this session or recovered from disk).
 	hasWritten bool
 
@@ -619,6 +619,9 @@ func (w *walImpl) bounds() storedRange {
 func (w *walImpl) fail(err error) {
 	w.asyncErr.CompareAndSwap(nil, &err)
 	w.cancel()
+	if cerr := w.mutableFile.close(); cerr != nil {
+		logger.Error("failed to close mutable WAL file after fatal error", "err", cerr)
+	}
 	logger.Error("WAL encountered a fatal error", "err", err)
 }
 

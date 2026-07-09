@@ -236,6 +236,23 @@ func (it *walIterator) loadNextFile() (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("failed to read WAL file (sequence %d) during iteration: %w", f.fileSeq, err)
 		}
+
+		// A sealed file is durable and complete, so its content must span the [first, last] range its name
+		// promises. parseWalFileData tolerates a torn trailing record — correct for a crashed mutable file, but
+		// a sealed file read here should have none. A shortfall means interior corruption (e.g. bit-rot), which
+		// would otherwise silently drop every record between the corruption point and the name-promised last
+		// index while Bounds/GetStoredRange keep reporting the full range. Fail loudly instead of under-yielding.
+		if !contents.hasRecords {
+			return false, fmt.Errorf(
+				"WAL file (sequence %d) is corrupt: name promises indices [%d, %d] but no intact records were read",
+				f.fileSeq, f.firstIndex, f.lastIndex)
+		}
+		if contents.firstIndex != f.firstIndex || contents.lastIndex != f.lastIndex {
+			return false, fmt.Errorf(
+				"WAL file (sequence %d) is corrupt: name promises indices [%d, %d] but content holds [%d, %d]",
+				f.fileSeq, f.firstIndex, f.lastIndex, contents.firstIndex, contents.lastIndex)
+		}
+
 		for _, record := range contents.records {
 			if record.index < it.start {
 				continue

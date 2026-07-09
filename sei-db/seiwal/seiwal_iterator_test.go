@@ -2,12 +2,57 @@ package seiwal
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+// TestIteratorRejectsCorruptSealedFile verifies that interior corruption in a sealed file is surfaced as an
+// error rather than silently truncating iteration short of the file's name-promised last index. A sealed file
+// is durable and complete, so any shortfall between its content and its name is corruption, not a torn tail.
+func TestIteratorRejectsCorruptSealedFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+
+	w := openWAL(t, cfg)
+	for index := uint64(1); index <= 5; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Close()) // seals records 1..5 into a single file
+
+	names := sealedFileNames(t, dir)
+	require.Len(t, names, 1)
+	path := filepath.Join(dir, names[0])
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	data[len(data)-1] ^= 0xFF // corrupt the last record's CRC so the parser stops short of index 5
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+
+	w2 := openWAL(t, cfg)
+	defer func() { require.NoError(t, w2.Close()) }()
+
+	it, err := w2.Iterator(1)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	var iterErr error
+	for {
+		ok, err := it.Next()
+		if err != nil {
+			iterErr = err
+			break
+		}
+		if !ok {
+			break
+		}
+	}
+	require.Error(t, iterErr)
+	require.Contains(t, iterErr.Error(), "corrupt")
+}
 
 func TestIteratorEmpty(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))

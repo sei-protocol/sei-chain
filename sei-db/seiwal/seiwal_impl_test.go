@@ -195,6 +195,29 @@ func TestWriterRejectsOutOfOrderRecord(t *testing.T) {
 	require.Equal(t, uint64(6), w.lastWrittenIndex)
 }
 
+// TestFailReleasesMutableFile verifies that a fatal error releases the mutable file's handle (rather than
+// leaking the fd until process exit) and that the release is idempotent.
+func TestFailReleasesMutableFile(t *testing.T) {
+	dir := t.TempDir()
+	mf, err := newWalFile(dir, 0)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	w := &walImpl{
+		config:      testConfig(dir),
+		metricAttrs: walNameAttr("test"),
+		ctx:         ctx,
+		cancel:      cancel,
+		mutableFile: mf,
+	}
+	require.NoError(t, w.appendRecord(dataToBeWritten{record: frameRecord(1, recordPayload(1)), index: 1}))
+
+	w.fail(fmt.Errorf("boom"))
+
+	require.Nil(t, w.mutableFile.file)        // fd released
+	require.Error(t, w.asyncError())          // failure recorded
+	require.NoError(t, w.mutableFile.close()) // idempotent
+}
+
 func TestOrphanFileRecovery(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)

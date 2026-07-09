@@ -177,6 +177,17 @@ func (f *walFile) writeRecord(record []byte, index uint64) error {
 	return nil
 }
 
+// close releases the file handle without sealing. Used on the fatal-error path, where the file is left
+// unsealed for recoverOrphans to seal (truncating any torn tail) on the next open. Idempotent.
+func (f *walFile) close() error {
+	if f.file == nil {
+		return nil
+	}
+	err := f.file.Close()
+	f.file = nil
+	return err
+}
+
 // Flush buffered data to the OS. When fsync is true, also fsync the file so the data survives power loss.
 func (f *walFile) flush(fsync bool) error {
 	if f.writer != nil {

@@ -356,6 +356,9 @@ func (s *serializingWAL[T]) serializerLoop() {
 func (s *serializingWAL[T]) fail(err error) {
 	s.asyncErr.CompareAndSwap(nil, &err)
 	s.cancel()
+	if cerr := s.inner.Close(); cerr != nil {
+		logger.Error("failed to close inner WAL after fatal error", "err", cerr)
+	}
 	logger.Error("serializing WAL encountered a fatal error", "err", err)
 }
 
