@@ -632,9 +632,10 @@ func testWriteBlockGaps(t *testing.T, build builder) {
 
 		byHash, err := db.ReadBlockByHash(blocks[n].Header().Hash())
 		require.NoError(t, err)
-		got, ok = byHash.Get()
+		bwn, ok := byHash.Get()
 		require.True(t, ok, "block %d should be found by hash", n)
-		require.Equal(t, blocks[n].Header().Hash(), got.Header().Hash())
+		require.Equal(t, blocks[n].Header().Hash(), bwn.Block.Header().Hash())
+		require.Equal(t, n, bwn.Number, "block %d hash lookup should return its number", n)
 	}
 
 	// Numbers in the gaps were never written and must miss.
@@ -833,9 +834,10 @@ func assertBlocksReadable(t *testing.T, db types.BlockDB, batches []batch) {
 
 			byHash, err := db.ReadBlockByHash(blk.Header().Hash())
 			require.NoError(t, err)
-			got, ok = byHash.Get()
+			bwn, ok := byHash.Get()
 			require.True(t, ok, "block by hash should exist")
-			require.Equal(t, blk.Header().Hash(), got.Header().Hash())
+			require.Equal(t, blk.Header().Hash(), bwn.Block.Header().Hash())
+			require.Equal(t, n, bwn.Number, "block %d hash lookup should return its number", n)
 		}
 	}
 }
