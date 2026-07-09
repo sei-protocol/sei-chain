@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -49,6 +50,9 @@ func startMetricsServer(ctx context.Context, gatherer prometheus.Gatherer, addr 
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{}))
+	// pprof for profiling benchmark runs.
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
