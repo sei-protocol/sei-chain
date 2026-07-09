@@ -12,8 +12,8 @@ import (
 const changesetFormatVersion = byte(1)
 
 // appendChangeset appends the framing [uvarint marshaled length][marshaled NamedChangeSet] for ncs to buf and
-// returns the extended buffer. This is the incremental unit the serializer goroutine accumulates across the
-// multiple Write calls of a single block before appending the whole block as one WAL record.
+// returns the extended buffer. It frames a single changeset; serializeChangesets calls it once per changeset
+// to build a block's WAL record payload.
 func appendChangeset(buf []byte, ncs *proto.NamedChangeSet) ([]byte, error) {
 	if ncs == nil {
 		return nil, fmt.Errorf("changeset is nil")

@@ -58,11 +58,13 @@ type walIterator struct {
 	// Ensures the shutdown sequence runs at most once.
 	closeOnce sync.Once
 
-	// The index and payload returned by Entry, set by the most recent successful Next. Consumer-owned.
+	// The index and payload returned by Entry, set by the most recent successful Next. Owned by the single
+	// consumer goroutine (see the Iterator concurrency contract); never touched by Close or the reader.
 	resultIndex   uint64
 	resultPayload []byte
 
-	// Set once iteration is complete. Consumer-owned.
+	// Set once iteration is complete. Owned by the single consumer goroutine (see the Iterator concurrency
+	// contract): Next and Close both set it, which is why they must not run concurrently.
 	done bool
 
 	// The following fields are owned exclusively by the reader goroutine.

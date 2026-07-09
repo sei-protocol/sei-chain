@@ -57,6 +57,10 @@ type WAL[T any] interface {
 }
 
 // Iterator iterates over the records of a WAL in ascending index order.
+//
+// An Iterator is single-consumer and not safe for concurrent use: all of its methods, including Close, must
+// be called from a single goroutine (or with external serialization). In particular, Close must not be
+// called concurrently with Next from another goroutine.
 type Iterator[T any] interface {
 	// Next advances the iterator to the next record. It returns false when iteration is complete (no more
 	// records), and returns an error if advancing failed. After Next returns (false, nil), iteration is

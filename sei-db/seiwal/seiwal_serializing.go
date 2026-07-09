@@ -373,6 +373,8 @@ func (s *serializingWAL[T]) asyncError() error {
 var _ Iterator[[]byte] = (*serializingIterator[[]byte])(nil)
 
 // serializingIterator adapts an inner byte iterator to a typed iterator by running deserialize inline in Next.
+// Like the inner iterator, it is single-consumer and not safe for concurrent use (see the Iterator
+// concurrency contract).
 type serializingIterator[T any] struct {
 	inner       Iterator[[]byte]
 	deserialize func([]byte) (T, error)
