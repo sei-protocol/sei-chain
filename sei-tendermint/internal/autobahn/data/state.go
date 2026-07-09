@@ -444,8 +444,7 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 // PushBlock pushes block to the state.
 // The QC for n must already be present (guaranteed by PushQC ordering).
 func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block *types.Block) error {
-	// Wait for the QC for n, then read its epoch (drop lock before verify).
-	var ep *types.Epoch
+	var epochIdx types.EpochIndex
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextQC }); err != nil {
 			return err
@@ -454,12 +453,11 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 			// Block arrived after pruning; drop silently so the sender keeps delivering future blocks.
 			return nil
 		}
-		qc := inner.qcs[n]
-		var ok bool
-		ep, ok = s.cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
-		if !ok {
-			return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
-		}
+		epochIdx = inner.qcs[n].QC().Proposal().EpochIndex()
+	}
+	ep, ok := s.cfg.Registry.EpochByIndex(epochIdx)
+	if !ok {
+		return fmt.Errorf("unknown epoch_index %d", epochIdx)
 	}
 	// Verify outside the lock against the known epoch.
 	if err := block.Verify(ep.Committee()); err != nil {
