@@ -85,11 +85,11 @@ func (idx *BlockerIndexer) readWatermark() (int64, error) {
 // height-ordered keys it accounts for. A watermark that is too high is only
 // over-conservative (routes covered heights to the fallback).
 func (idx *BlockerIndexer) updateWatermark(batch dbm.Batch, height int64) error {
-	wmIndex, err := idx.readWatermark()
+	w, err := idx.readWatermark()
 	if err != nil {
 		return err
 	}
-	if height >= wmIndex {
+	if height >= w {
 		return nil
 	}
 	key, err := watermarkKey()

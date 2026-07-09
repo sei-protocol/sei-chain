@@ -643,7 +643,10 @@ func heightBounds(ranges []indexer.QueryRange) (lo, hi int64) {
 // whichever sub-range holds the higher (for desc) or lower (for asc) heights is
 // drained first, and the other only if the limit is not yet met.
 func (txi *TxIndex) searchHeightOrdered(ctx context.Context, plan heightOrderedPlan, opts indexer.SearchOptions) ([]*abci.TxResultV2, error) {
-	w := txi.readWatermark()
+	w, err := txi.readWatermark()
+	if err != nil {
+		return nil, err
+	}
 	lo, hi := heightBounds(plan.heightRanges)
 	if lo > hi {
 		return []*abci.TxResultV2{}, nil
@@ -1268,15 +1271,15 @@ func watermarkKey() []byte {
 // index. An unset watermark (fresh DB, or upgraded-but-not-yet-written) reads
 // as math.MaxInt64 so every height-ordered query takes the legacy fallback
 // until the new index has written at least one key.
-func (txi *TxIndex) readWatermark() int64 {
+func (txi *TxIndex) readWatermark() (int64, error) {
 	bz, err := txi.store.Get(watermarkKey())
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
 	if len(bz) == 0 {
-		return math.MaxInt64
+		return math.MaxInt64, nil
 	}
-	return int64FromBytes(bz)
+	return int64FromBytes(bz), nil
 }
 
 // updateWatermark lowers the persisted watermark to height when height is lower,
@@ -1285,7 +1288,11 @@ func (txi *TxIndex) readWatermark() int64 {
 // over-conservative (routes covered heights to the fallback); a watermark below
 // the keys actually written would be incorrect, so it is never raised here.
 func (txi *TxIndex) updateWatermark(b dbm.Batch, height int64) error {
-	if height >= txi.readWatermark() {
+	w, err := txi.readWatermark()
+	if err != nil {
+		return err
+	}
+	if height >= w {
 		return nil
 	}
 	return b.Set(watermarkKey(), int64ToBytes(height))

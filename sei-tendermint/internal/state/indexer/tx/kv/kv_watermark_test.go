@@ -121,7 +121,9 @@ func hoFixture(t *testing.T) *TxIndex {
 			require.NoError(t, idx.Index([]*abci.TxResultV2{hoTx(h, i)}))
 		}
 	}
-	require.Equal(t, int64(hoWatermark), idx.readWatermark())
+	w, err := idx.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(hoWatermark), w)
 
 	for h := int64(1); h < hoWatermark; h++ {
 		for i := uint32(0); i < 2; i++ {
@@ -129,7 +131,9 @@ func hoFixture(t *testing.T) *TxIndex {
 		}
 	}
 	// Watermark must be unaffected by legacy-only writes.
-	require.Equal(t, int64(hoWatermark), idx.readWatermark())
+	w, err = idx.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(hoWatermark), w)
 	return idx
 }
 
@@ -189,7 +193,9 @@ func TestTxIndexDualWrite(t *testing.T) {
 	require.True(t, hoHeight)
 
 	// Watermark advanced to the indexed height.
-	require.Equal(t, int64(7), idx.readWatermark())
+	w, err := idx.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(7), w)
 }
 
 // TestTxSearchWatermarkSplit exercises the height-ordered split-merge across the
@@ -238,7 +244,9 @@ func TestTxSearchWatermarkUnset(t *testing.T) {
 	for h := int64(1); h <= 5; h++ {
 		indexLegacyOnly(t, idx, hoTx(h, 0))
 	}
-	require.Equal(t, int64(math.MaxInt64), idx.readWatermark())
+	w, err := idx.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(math.MaxInt64), w)
 
 	results, err := idx.Search(t.Context(), query.MustCompile(`app.name EXISTS`),
 		indexer.SearchOptions{OrderDesc: true})

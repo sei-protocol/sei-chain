@@ -100,12 +100,16 @@ func hoFixture(t *testing.T) *BlockerIndexer {
 	for h := int64(hoWatermark); h <= hoMaxHeight; h++ {
 		require.NoError(t, idx.Index(hoBlock(h)))
 	}
-	require.Equal(t, int64(hoWatermark), idx.readWatermark())
+	w, err := idx.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(hoWatermark), w)
 
 	for h := int64(1); h < hoWatermark; h++ {
 		indexLegacyOnly(t, idx, hoBlock(h))
 	}
-	require.Equal(t, int64(hoWatermark), idx.readWatermark())
+	w, err = idx.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(hoWatermark), w)
 	return idx
 }
 
@@ -176,7 +180,9 @@ func TestBlockSearchWatermarkUnset(t *testing.T) {
 	for h := int64(1); h <= 5; h++ {
 		indexLegacyOnly(t, idx, hoBlock(h))
 	}
-	require.Equal(t, int64(math.MaxInt64), idx.readWatermark())
+	w, err := idx.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(math.MaxInt64), w)
 
 	results, err := idx.Search(t.Context(), query.MustCompile(`app.name EXISTS`),
 		indexer.SearchOptions{OrderDesc: true})
