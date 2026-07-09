@@ -14,7 +14,7 @@ import (
 // module's deprecation on chains with pre-deprecation history. It must match
 // the plan name of the release that ships the deprecation; if this change
 // slips to a later release, bump this constant to that release's name.
-const DeprecationUpgradeName = "v6.6"
+const DeprecationUpgradeName = "v6.7"
 
 // chainsWithVestingHistory are the public chains whose history may contain
 // successful MsgCreateVestingAccount transactions. On these chains the
