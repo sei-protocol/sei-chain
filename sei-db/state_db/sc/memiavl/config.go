@@ -69,3 +69,17 @@ func NormalizeSnapshotKeepRecent(keepRecent uint32) uint32 {
 	}
 	return keepRecent
 }
+
+// NormalizeSnapshotInterval clamps a configured snapshot-interval of 0 up to
+// DefaultSnapshotInterval, mirroring the effective cadence Options.FillDefaults
+// applies at runtime. memIAVL never actually disables snapshots (FillDefaults
+// bumps a 0/<=0 interval to DefaultSnapshotInterval), so callers that mirror
+// this interval onto another backend must normalize it first; otherwise a
+// configured 0 would disable that backend's snapshots while memIAVL keeps
+// checkpointing every DefaultSnapshotInterval blocks.
+func NormalizeSnapshotInterval(interval uint32) uint32 {
+	if interval == 0 {
+		return DefaultSnapshotInterval
+	}
+	return interval
+}

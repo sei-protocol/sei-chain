@@ -3,6 +3,7 @@ package config
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
@@ -63,6 +64,22 @@ func TestAlignFlatKVWithMemIAVL(t *testing.T) {
 
 		require.Equal(t, uint32(1), cfg.MemIAVLConfig.SnapshotKeepRecent)
 		require.Equal(t, uint32(1), cfg.FlatKVConfig.SnapshotKeepRecent)
+	})
+
+	// memIAVL never disables snapshots (FillDefaults bumps a 0 interval to the
+	// default), whereas FlatKV treats interval 0 as "disable auto-snapshots". A
+	// configured interval of 0 must therefore be normalized to the default
+	// cadence for BOTH backends so they stay in lockstep instead of FlatKV
+	// silently letting its WAL grow unbounded.
+	t.Run("normalizes interval of 0 to default cadence for both backends", func(t *testing.T) {
+		cfg := DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotInterval = 0
+		cfg.FlatKVConfig.SnapshotInterval = 111
+
+		cfg.AlignFlatKVWithMemIAVL()
+
+		require.Equal(t, uint32(memiavl.DefaultSnapshotInterval), cfg.MemIAVLConfig.SnapshotInterval)
+		require.Equal(t, uint32(memiavl.DefaultSnapshotInterval), cfg.FlatKVConfig.SnapshotInterval)
 	})
 }
 
