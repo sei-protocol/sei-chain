@@ -20,6 +20,11 @@ type stateWALImpl struct {
 	// Set by Close() so subsequent Write/SignalEndOfBlock calls fail fast.
 	closed atomic.Bool
 
+	// The first fatal error from the underlying WAL that bricked this one, surfaced to the caller by every
+	// subsequent operation. Once set, no operation touches the underlying WAL, so a corrupt WAL never
+	// limps onward.
+	asyncErr atomic.Pointer[error]
+
 	// The write-ordering contract state and the accumulation buffer below are mutated by Write and
 	// SignalEndOfBlock, which callers must not invoke concurrently.
 
@@ -79,6 +84,9 @@ func (w *stateWALImpl) Write(blockNumber uint64, cs []*proto.NamedChangeSet) err
 	if w.closed.Load() {
 		return fmt.Errorf("state WAL is closed")
 	}
+	if err := w.asyncError(); err != nil {
+		return fmt.Errorf("state WAL failed: %w", err)
+	}
 	if err := w.enforceWriteOrdering(blockNumber); err != nil {
 		return fmt.Errorf("write rejected: %w", err)
 	}
@@ -91,18 +99,21 @@ func (w *stateWALImpl) SignalEndOfBlock() error {
 	if w.closed.Load() {
 		return fmt.Errorf("state WAL is closed")
 	}
+	if err := w.asyncError(); err != nil {
+		return fmt.Errorf("state WAL failed: %w", err)
+	}
 
 	if !w.hasCurrentBlock || w.currentBlockEnded {
 		return fmt.Errorf("no block in progress to end")
 	}
-	blockNumber := w.currentBlock
-	w.currentBlockEnded = true
-	changeset := w.buf
-	w.buf = nil // hand ownership to the WAL; the next block starts a fresh buffer
 
-	if err := w.wal.Append(blockNumber, changeset); err != nil {
-		return fmt.Errorf("failed to append block %d: %w", blockNumber, err)
+	// Commit the finalization state only after the append succeeds; a failed append bricks the WAL and
+	// leaves the block in progress rather than silently finalizing a block whose changesets were lost.
+	if err := w.wal.Append(w.currentBlock, w.buf); err != nil {
+		return w.fail(fmt.Errorf("failed to append block %d: %w", w.currentBlock, err))
 	}
+	w.currentBlockEnded = true
+	w.buf = nil // hand ownership to the WAL; the next block starts a fresh buffer
 	return nil
 }
 
@@ -136,28 +147,84 @@ func (w *stateWALImpl) enforceWriteOrdering(blockNumber uint64) error {
 
 // Flush blocks until all previously scheduled writes are durable.
 func (w *stateWALImpl) Flush() error {
-	return w.wal.Flush()
+	if w.closed.Load() {
+		return fmt.Errorf("state WAL is closed")
+	}
+	if err := w.asyncError(); err != nil {
+		return fmt.Errorf("state WAL failed: %w", err)
+	}
+	if err := w.wal.Flush(); err != nil {
+		return w.fail(fmt.Errorf("failed to flush state WAL: %w", err))
+	}
+	return nil
 }
 
 // GetStoredRange reports the range of complete blocks stored in the WAL.
 func (w *stateWALImpl) GetStoredRange() (bool, uint64, uint64, error) {
-	return w.wal.Bounds()
+	if w.closed.Load() {
+		return false, 0, 0, fmt.Errorf("state WAL is closed")
+	}
+	if err := w.asyncError(); err != nil {
+		return false, 0, 0, fmt.Errorf("state WAL failed: %w", err)
+	}
+	ok, first, last, err := w.wal.Bounds()
+	if err != nil {
+		return false, 0, 0, w.fail(fmt.Errorf("failed to read WAL bounds: %w", err))
+	}
+	return ok, first, last, nil
 }
 
 // Prune schedules removal of whole underlying files below lowestBlockNumberToKeep. It does not block on
 // completion.
 func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
-	return w.wal.Prune(lowestBlockNumberToKeep)
+	if w.closed.Load() {
+		return fmt.Errorf("state WAL is closed")
+	}
+	if err := w.asyncError(); err != nil {
+		return fmt.Errorf("state WAL failed: %w", err)
+	}
+	if err := w.wal.Prune(lowestBlockNumberToKeep); err != nil {
+		return w.fail(fmt.Errorf("failed to prune state WAL: %w", err))
+	}
+	return nil
 }
 
 // Iterator returns an iterator over the WAL starting at startingBlockNumber. It yields (blockNumber,
 // changesets) directly from the underlying generic WAL.
 func (w *stateWALImpl) Iterator(startingBlockNumber uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
-	return w.wal.Iterator(startingBlockNumber)
+	if w.closed.Load() {
+		return nil, fmt.Errorf("state WAL is closed")
+	}
+	if err := w.asyncError(); err != nil {
+		return nil, fmt.Errorf("state WAL failed: %w", err)
+	}
+	it, err := w.wal.Iterator(startingBlockNumber)
+	if err != nil {
+		return nil, w.fail(fmt.Errorf("failed to create WAL iterator: %w", err))
+	}
+	return it, nil
 }
 
 // Close flushes pending writes, closes the underlying WAL, and releases resources.
 func (w *stateWALImpl) Close() error {
 	w.closed.Store(true)
-	return w.wal.Close()
+	if err := w.wal.Close(); err != nil {
+		return fmt.Errorf("failed to close state WAL: %w", err)
+	}
+	return nil
+}
+
+// fail records err as the first fatal error that bricks the WAL and returns it. Once set, every
+// subsequent operation fails fast rather than touching the underlying WAL.
+func (w *stateWALImpl) fail(err error) error {
+	w.asyncErr.CompareAndSwap(nil, &err)
+	return err
+}
+
+// asyncError returns the first fatal error that bricked the WAL, or nil if none occurred.
+func (w *stateWALImpl) asyncError() error {
+	if p := w.asyncErr.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
