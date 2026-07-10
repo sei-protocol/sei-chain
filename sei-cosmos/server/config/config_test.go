@@ -481,6 +481,30 @@ func TestGetConfigParsesRawSnapshotKeepRecent(t *testing.T) {
 	require.Equal(t, uint32(0), cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
 }
 
+func TestGetConfigHonorsExplicitFlatKVOverrides(t *testing.T) {
+	v := viper.New()
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+	// memIAVL cadence that FlatKV mirrors by default.
+	v.Set("state-commit.sc-snapshot-interval", 5000)
+	v.Set("state-commit.sc-keep-recent", 4)
+	// Explicit (hidden) FlatKV overrides must win over the memIAVL mirror.
+	v.Set("state-commit.flatkv.fsync", true)
+	v.Set("state-commit.flatkv.async-write-buffer", 128)
+	v.Set("state-commit.flatkv.snapshot-interval", 7000)
+	v.Set("state-commit.flatkv.snapshot-keep-recent", 9)
+	v.Set("state-commit.flatkv.enable-read-write-metrics", true)
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	fk := cfg.StateCommit.FlatKVConfig
+	require.True(t, fk.Fsync)
+	require.Equal(t, 128, fk.AsyncWriteBuffer)
+	require.Equal(t, uint32(7000), fk.SnapshotInterval)
+	require.Equal(t, uint32(9), fk.SnapshotKeepRecent)
+	require.True(t, fk.EnableReadWriteMetrics)
+}
+
 func TestGetConfigRejectsInvalidWriteMode(t *testing.T) {
 	v := viper.New()
 

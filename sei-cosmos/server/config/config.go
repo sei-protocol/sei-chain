@@ -457,14 +457,29 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	}
 	scWriteMode = config.ApplyWriteModeAuto(scWriteModeEnableAuto, scWriteMode)
 
-	// FlatKV configuration is intentionally not exposed via app.toml; use the
-	// in-code defaults, except the snapshot cadence which mirrors the memIAVL
-	// (SC) snapshot settings so both backends checkpoint/prune in lockstep. The
-	// keep-recent floor is applied later at store construction
-	// (composite.NewCompositeCommitStore), so this stays a faithful parse.
+	// FlatKV knobs are not rendered in the default app.toml template. By default
+	// FlatKV's snapshot cadence mirrors the memIAVL (SC) settings so both backends
+	// checkpoint/prune in lockstep, but explicit state-commit.flatkv.* keys are
+	// still parsed and honored if an operator adds them by hand (they take
+	// precedence over the memIAVL mirror).
 	flatKVConfig := config.DefaultStateCommitConfig().FlatKVConfig
 	flatKVConfig.SnapshotInterval = v.GetUint32("state-commit.sc-snapshot-interval")
 	flatKVConfig.SnapshotKeepRecent = v.GetUint32("state-commit.sc-keep-recent")
+	if v.IsSet("state-commit.flatkv.fsync") {
+		flatKVConfig.Fsync = v.GetBool("state-commit.flatkv.fsync")
+	}
+	if v.IsSet("state-commit.flatkv.async-write-buffer") {
+		flatKVConfig.AsyncWriteBuffer = v.GetInt("state-commit.flatkv.async-write-buffer")
+	}
+	if v.IsSet("state-commit.flatkv.snapshot-interval") {
+		flatKVConfig.SnapshotInterval = v.GetUint32("state-commit.flatkv.snapshot-interval")
+	}
+	if v.IsSet("state-commit.flatkv.snapshot-keep-recent") {
+		flatKVConfig.SnapshotKeepRecent = v.GetUint32("state-commit.flatkv.snapshot-keep-recent")
+	}
+	if v.IsSet("state-commit.flatkv.enable-read-write-metrics") {
+		flatKVConfig.EnableReadWriteMetrics = v.GetBool("state-commit.flatkv.enable-read-write-metrics")
+	}
 
 	// Apply the in-code default when the key is absent so that nodes upgrading
 	// with an older app.toml (which lacks this key) are still bounded rather
