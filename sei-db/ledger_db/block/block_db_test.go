@@ -61,6 +61,9 @@ func TestBlockDB(t *testing.T) {
 			t.Run("PruneRefusesBelowWatermark", func(t *testing.T) { testPruneRefusesBelowWatermark(t, impl.build) })
 			t.Run("PruneIdempotentMonotonic", func(t *testing.T) { testPruneIdempotentMonotonic(t, impl.build) })
 			t.Run("PruneNeverEmpties", func(t *testing.T) { testPruneNeverEmpties(t, impl.build) })
+			t.Run("PruneEmptyStoreThenWriteBelow", func(t *testing.T) {
+				testPruneEmptyStoreThenWriteBelow(t, impl.build)
+			})
 			t.Run("PruneQCAheadOfBlocks", func(t *testing.T) { testPruneQCAheadOfBlocks(t, impl.build) })
 			t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, impl.build) })
 			t.Run("WriteOrderRejectedAfterRestart", func(t *testing.T) {
@@ -333,6 +336,26 @@ func testPruneIdempotentMonotonic(t *testing.T, build builder) {
 			require.Equal(t, blk.Header().Hash(), got.Header().Hash())
 		}
 	}
+}
+
+// testPruneEmptyStoreThenWriteBelow asserts a prune on an empty store neither
+// refuses nor reclaims data written afterward, even below the requested point.
+// Regression for the empty-store watermark bug, and a memblock/littblock parity
+// check: an empty-store prune must not advance a read/GC watermark past data that
+// does not exist yet.
+func testPruneEmptyStoreThenWriteBelow(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+
+	// Prune above where we are about to write, while the store is still empty.
+	require.NoError(t, db.PruneBefore(batches[1].first))
+
+	// Blocks start at 0, below the prune point; all must remain readable.
+	writeAll(t, db, batches)
+	assertBlocksReadable(t, db, batches)
+	assertQCsReadable(t, db, committee, batches)
 }
 
 // testPruneNeverEmpties asserts the store is never emptied by pruning and that

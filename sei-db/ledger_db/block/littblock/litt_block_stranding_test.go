@@ -312,3 +312,35 @@ func TestLittblockRefusesToOpenWithStrandedBlocks(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorContains(t, err, "no surviving QC")
 }
+
+// TestLittblockEmptyStorePruneDoesNotReclaimLaterWrites is the regression for the
+// empty-store prune bug: a PruneBefore on a store with no blocks must not advance
+// the watermark, or blocks later written below the requested point would be
+// refused by the read gate and physically reclaimed by GC. The watermark must
+// never outrun the data it protects.
+func TestLittblockEmptyStorePruneDoesNotReclaimLaterWrites(t *testing.T) {
+	dir := t.TempDir()
+	rng := utils.TestRngFromSeed(4)
+
+	db, err := NewBlockDB(strandingConfig(t, dir, 8))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	impl := db.(*blockDB)
+
+	// Prune well past where we are about to write, while the store is still empty.
+	require.NoError(t, db.PruneBefore(1000))
+	require.Equal(t, uint64(0), impl.watermark.Load(), "empty-store prune must not advance the watermark")
+
+	// Write blocks 0..9 (below the pruned point) and force a GC pass.
+	writeSyntheticBatches(t, db, rng, 2, 5) // blocks 0..9; QCs [0,5),[5,10)
+	require.NoError(t, ForceGC(db))
+	require.NoError(t, db.Flush())
+
+	// Every written block survives GC on disk and is served by the read gate.
+	for n := types.GlobalBlockNumber(0); n < 10; n++ {
+		require.True(t, physicallyPresent(t, impl, blockKey(n)), "block %d must survive GC", n)
+		blk, err := db.ReadBlockByNumber(n)
+		require.NoError(t, err)
+		require.True(t, blk.IsPresent(), "block %d must be served", n)
+	}
+}

@@ -249,11 +249,17 @@ func (s *blockDB) WriteQC(
 func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.hasBlocks {
-		if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); n > ceiling {
-			n = ceiling
-		}
+
+	if !s.hasBlocks {
+		// Ignore prune requests if we've not got any data yet. Simplifies several edge cases
+		// and is technically a legal implementation of the contract in the godocs.
+		return nil
 	}
+
+	if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); n > ceiling {
+		n = ceiling
+	}
+
 	// Advance the watermark monotonically. mu serializes writers and PruneBefore
 	// is the only one, so a plain load/store suffices; the field stays atomic
 	// only because the GC filter and readers load it without holding mu.
