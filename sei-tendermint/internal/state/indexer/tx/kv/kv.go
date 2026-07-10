@@ -43,12 +43,26 @@ const (
 // 2. event - txhash   (secondary key)
 type TxIndex struct {
 	store dbm.DB
+	// skipWatermark disables all height-ordered watermark writes. It is set only
+	// by the offline reindex constructor (see NewTxIndexSkipWatermark) and is
+	// read-only after construction.
+	skipWatermark bool
 }
 
 // NewTxIndex creates new KV indexer.
 func NewTxIndex(store dbm.DB) *TxIndex {
 	return &TxIndex{
 		store: store,
+	}
+}
+
+// NewTxIndexSkipWatermark creates a KV indexer that writes to both indexes
+// but never establishes or moves the watermark for height-ordered index.
+// It is for offline reindex/backfill command.
+func NewTxIndexSkipWatermark(store dbm.DB) *TxIndex {
+	return &TxIndex{
+		store:         store,
+		skipWatermark: true,
 	}
 }
 
@@ -1293,17 +1307,19 @@ func (txi *TxIndex) readWatermark() (int64, error) {
 	return int64FromBytes(bz), nil
 }
 
-// updateWatermark lowers the persisted watermark to height when height is lower,
-// writing into the provided batch so it commits atomically with the
-// height-ordered keys it accounts for. A watermark that is too high is only
-// over-conservative (routes covered heights to the fallback); a watermark below
-// the keys actually written would be incorrect, so it is never raised here.
+// updateWatermark anchors the persisted watermark at the first height the
+// height-ordered index ever writes and never moves it afterward. Every height >= the watermark is covered contiguously
+// by live forward indexing.
 func (txi *TxIndex) updateWatermark(b dbm.Batch, height int64) error {
+	if txi.skipWatermark {
+		return nil
+	}
 	w, err := txi.readWatermark()
 	if err != nil {
 		return err
 	}
-	if height >= w {
+	if w != math.MaxInt64 {
+		// Already anchored; never move it.
 		return nil
 	}
 	return b.Set(watermarkKey(), int64ToBytes(height))

@@ -340,3 +340,43 @@ func TestTxSearchBudgetVsDeadline(t *testing.T) {
 		indexer.SearchOptions{Limit: 5, OrderDesc: true, MaxScan: 3})
 	require.True(t, errors.Is(err, indexer.ErrSearchScanBudgetExceeded))
 }
+
+// TestTxReindexNoWatermark verifies dual-writing the height-ordered index and not changing watermark
+func TestTxReindexNoWatermark(t *testing.T) {
+	store := dbm.NewMemDB()
+
+	ri := NewTxIndexSkipWatermark(store)
+	for h := int64(1); h <= 5; h++ {
+		require.NoError(t, ri.Index([]*abci.TxResultV2{hoTx(h, 0)}))
+	}
+	w, err := ri.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(math.MaxInt64), w, "reindex must not establish the watermark")
+
+	live := NewTxIndex(store)
+	require.NoError(t, live.Index([]*abci.TxResultV2{hoTx(6, 0)}))
+	w, err = live.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(6), w, "live indexing anchors the watermark forward")
+}
+
+// TestTxReindexDoesNotLowerAnchoredWatermark ensures partial re-indexing will not lower the height-ordered index watermark
+func TestTxReindexDoesNotLowerAnchoredWatermark(t *testing.T) {
+	store := dbm.NewMemDB()
+
+	live := NewTxIndex(store)
+	for h := int64(hoWatermark); h <= hoMaxHeight; h++ {
+		require.NoError(t, live.Index([]*abci.TxResultV2{hoTx(h, 0)}))
+	}
+	w, err := live.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(hoWatermark), w)
+
+	ri := NewTxIndexSkipWatermark(store)
+	for h := int64(1); h < hoWatermark; h++ {
+		require.NoError(t, ri.Index([]*abci.TxResultV2{hoTx(h, 0)}))
+	}
+	w, err = ri.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(hoWatermark), w, "partial reindex below the watermark must not lower it")
+}

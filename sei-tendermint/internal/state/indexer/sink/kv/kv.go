@@ -31,6 +31,16 @@ func NewEventSink(store dbm.DB) indexer.EventSink {
 	}
 }
 
+// NewEventSinkSkipWatermark builds a KV event sink whose indexers dual-write the
+// height-ordered index but never touch the height-ordered index watermark.
+func NewEventSinkSkipWatermark(store dbm.DB) indexer.EventSink {
+	return &EventSink{
+		txi:   kvt.NewTxIndexSkipWatermark(store),
+		bi:    kvb.NewSkipWatermark(store),
+		store: store,
+	}
+}
+
 func (kves *EventSink) Type() indexer.EventSinkType {
 	return indexer.KV
 }

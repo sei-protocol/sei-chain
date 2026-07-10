@@ -118,7 +118,12 @@ func loadEventSinks(cfg *tmcfg.Config) ([]indexer.EventSink, error) {
 			if err != nil {
 				return nil, err
 			}
-			eventSinks = append(eventSinks, kv.NewEventSink(store))
+			// Reindex must not touch the height-ordered watermark: a partial
+			// historical range would otherwise anchor it below heights it does
+			// not cover, routing those heights to the empty fast leg and
+			// silently dropping search matches. The keys are still dual-written;
+			// only the watermark is left to live forward indexing.
+			eventSinks = append(eventSinks, kv.NewEventSinkSkipWatermark(store))
 		case string(indexer.PSQL):
 			conn := cfg.TxIndex.PsqlConn
 			if conn == "" {

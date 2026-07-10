@@ -21,8 +21,8 @@ const (
 	hoTyp       = "finalize_block"
 )
 
-// hoBlock builds a block header at the given height carrying app.name=sei.
-func hoBlock(height int64) types.EventDataNewBlockHeader {
+// blockHeaderWithHeight builds a block header at the given height carrying app.name=sei.
+func blockHeaderWithHeight(height int64) types.EventDataNewBlockHeader {
 	return types.EventDataNewBlockHeader{
 		Header: types.Header{Height: height},
 		ResultFinalizeBlock: abci.ResponseFinalizeBlock{Events: []abci.Event{{
@@ -98,14 +98,14 @@ func hoFixture(t *testing.T) *BlockerIndexer {
 	idx := New(dbm.NewMemDB())
 
 	for h := int64(hoWatermark); h <= hoMaxHeight; h++ {
-		require.NoError(t, idx.Index(hoBlock(h)))
+		require.NoError(t, idx.Index(blockHeaderWithHeight(h)))
 	}
 	w, err := idx.readWatermark()
 	require.NoError(t, err)
 	require.Equal(t, int64(hoWatermark), w)
 
 	for h := int64(1); h < hoWatermark; h++ {
-		indexLegacyOnly(t, idx, hoBlock(h))
+		indexLegacyOnly(t, idx, blockHeaderWithHeight(h))
 	}
 	w, err = idx.readWatermark()
 	require.NoError(t, err)
@@ -178,7 +178,7 @@ func TestBlockSearchWatermarkSplit(t *testing.T) {
 func TestBlockSearchWatermarkUnset(t *testing.T) {
 	idx := New(dbm.NewMemDB())
 	for h := int64(1); h <= 5; h++ {
-		indexLegacyOnly(t, idx, hoBlock(h))
+		indexLegacyOnly(t, idx, blockHeaderWithHeight(h))
 	}
 	w, err := idx.readWatermark()
 	require.NoError(t, err)
@@ -202,7 +202,7 @@ func TestBlockSearchBackfillLowersWatermark(t *testing.T) {
 	require.Equal(t, reference(true, 1, hoMaxHeight, 0), before)
 
 	for h := int64(1); h < hoWatermark; h++ {
-		backfillHeightOrdered(t, idx, hoBlock(h))
+		backfillHeightOrdered(t, idx, blockHeaderWithHeight(h))
 	}
 	setWatermark(t, idx, 1)
 
@@ -217,7 +217,7 @@ func TestBlockSearchBackfillLowersWatermark(t *testing.T) {
 func TestBlockSearchScanBudgetFailClosed(t *testing.T) {
 	idx := New(dbm.NewMemDB())
 	for h := int64(1); h <= 12; h++ {
-		require.NoError(t, idx.Index(hoBlock(h)))
+		require.NoError(t, idx.Index(blockHeaderWithHeight(h)))
 	}
 
 	for _, desc := range []bool{true, false} {
@@ -241,7 +241,7 @@ func TestBlockSearchScanBudgetFailClosed(t *testing.T) {
 func TestBlockSearchBudgetVsDeadline(t *testing.T) {
 	idx := New(dbm.NewMemDB())
 	for h := int64(1); h <= 12; h++ {
-		require.NoError(t, idx.Index(hoBlock(h)))
+		require.NoError(t, idx.Index(blockHeaderWithHeight(h)))
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -254,4 +254,44 @@ func TestBlockSearchBudgetVsDeadline(t *testing.T) {
 	_, err = idx.Search(t.Context(), query.MustCompile(`app.name CONTAINS 'se'`),
 		indexer.SearchOptions{Limit: 5, OrderDesc: true, MaxScan: 3})
 	require.ErrorIs(t, err, indexer.ErrSearchScanBudgetExceeded)
+}
+
+// TestBlockReindexNoWatermark verifies dual-writing the height-ordered index and not changing watermark
+func TestBlockReindexNoWatermark(t *testing.T) {
+	store := dbm.NewMemDB()
+
+	ri := NewSkipWatermark(store)
+	for h := int64(1); h <= 5; h++ {
+		require.NoError(t, ri.Index(blockHeaderWithHeight(h)))
+	}
+	w, err := ri.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(math.MaxInt64), w, "reindex must not establish the watermark")
+
+	live := New(store)
+	require.NoError(t, live.Index(blockHeaderWithHeight(6)))
+	w, err = live.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(6), w, "live indexing anchors the watermark forward")
+}
+
+// TestBlockReindexDoesNotLowerAnchoredWatermark ensures partial re-indexing will not lower the height-ordered index watermark
+func TestBlockReindexDoesNotLowerAnchoredWatermark(t *testing.T) {
+	store := dbm.NewMemDB()
+
+	live := New(store)
+	for h := int64(hoWatermark); h <= hoMaxHeight; h++ {
+		require.NoError(t, live.Index(blockHeaderWithHeight(h)))
+	}
+	w, err := live.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(hoWatermark), w)
+
+	ri := NewSkipWatermark(store)
+	for h := int64(1); h < hoWatermark; h++ {
+		require.NoError(t, ri.Index(blockHeaderWithHeight(h)))
+	}
+	w, err = ri.readWatermark()
+	require.NoError(t, err)
+	require.Equal(t, int64(hoWatermark), w, "partial reindex below the watermark must not lower it")
 }

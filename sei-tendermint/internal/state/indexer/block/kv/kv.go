@@ -42,11 +42,25 @@ const (
 // such that matching search criteria returns the respective block height(s).
 type BlockerIndexer struct {
 	store dbm.DB
+	// skipWatermark disables all height-ordered index watermark writes. It is set only
+	// by the offline reindex constructor (see NewSkipWatermark) and is read-only
+	// after construction.
+	skipWatermark bool
 }
 
 func New(store dbm.DB) *BlockerIndexer {
 	return &BlockerIndexer{
 		store: store,
+	}
+}
+
+// NewSkipWatermark creates a KV indexer that writes to both indexes
+// but never establishes or moves the watermark for height-ordered index.
+// It is for offline reindex/backfill command.
+func NewSkipWatermark(store dbm.DB) *BlockerIndexer {
+	return &BlockerIndexer{
+		store:         store,
+		skipWatermark: true,
 	}
 }
 
@@ -80,16 +94,19 @@ func (idx *BlockerIndexer) readWatermark() (int64, error) {
 	return int64FromBytes(bz), nil
 }
 
-// updateWatermark lowers the persisted watermark to height when height is lower,
-// writing into the provided batch so it commits atomically with the
-// height-ordered keys it accounts for. A watermark that is too high is only
-// over-conservative (routes covered heights to the fallback).
+// updateWatermark anchors the persisted watermark at the first height the
+// height-ordered index ever writes and never moves it afterward. Every height >= the watermark is covered contiguously
+// by live forward indexing.
 func (idx *BlockerIndexer) updateWatermark(batch dbm.Batch, height int64) error {
+	if idx.skipWatermark {
+		return nil
+	}
 	w, err := idx.readWatermark()
 	if err != nil {
 		return err
 	}
-	if height >= w {
+	if w != math.MaxInt64 {
+		// Already anchored; never move it.
 		return nil
 	}
 	key, err := watermarkKey()
