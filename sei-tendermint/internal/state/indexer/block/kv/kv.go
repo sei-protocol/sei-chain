@@ -77,8 +77,7 @@ func (idx *BlockerIndexer) Has(height int64) (bool, error) {
 
 // readWatermark returns the lowest block height covered by the height-ordered
 // index. An unset watermark (fresh DB, or upgraded-but-not-yet-written) reads
-// as math.MaxInt64 so every height-ordered query takes the fallback path
-// until the new index has written at least one key.
+// as math.MaxInt64.
 func (idx *BlockerIndexer) readWatermark() (int64, error) {
 	key, err := watermarkKey()
 	if err != nil {
@@ -92,6 +91,18 @@ func (idx *BlockerIndexer) readWatermark() (int64, error) {
 		return math.MaxInt64, nil
 	}
 	return int64FromBytes(bz), nil
+}
+
+// Watermark returns the lowest block height covered by the height-ordered index
+func (idx *BlockerIndexer) Watermark() (height int64, set bool, err error) {
+	w, err := idx.readWatermark()
+	if err != nil {
+		return 0, false, err
+	}
+	if w == math.MaxInt64 {
+		return 0, false, nil
+	}
+	return w, true, nil
 }
 
 // updateWatermark anchors the persisted watermark at the first height the

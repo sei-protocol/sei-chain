@@ -275,6 +275,23 @@ func TestBlockReindexNoWatermark(t *testing.T) {
 	require.Equal(t, int64(6), w, "live indexing anchors the watermark forward")
 }
 
+// TestBlockWatermarkAccessor verifies the exported Watermark accessor reports the anchored height correctly
+func TestBlockWatermarkAccessor(t *testing.T) {
+	idx := New(dbm.NewMemDB())
+
+	h, set, err := idx.Watermark()
+	require.NoError(t, err)
+	require.False(t, set, "watermark must read as unset on a fresh DB")
+	require.Zero(t, h)
+
+	require.NoError(t, idx.Index(blockHeaderWithHeight(7)))
+
+	h, set, err = idx.Watermark()
+	require.NoError(t, err)
+	require.True(t, set)
+	require.Equal(t, int64(7), h)
+}
+
 // TestBlockReindexDoesNotLowerAnchoredWatermark ensures partial re-indexing will not lower the height-ordered index watermark
 func TestBlockReindexDoesNotLowerAnchoredWatermark(t *testing.T) {
 	store := dbm.NewMemDB()

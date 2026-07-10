@@ -30,8 +30,9 @@ const (
 // MakeReindexEventCommand constructs a command to re-index events in a block height interval.
 func MakeReindexEventCommand(conf *tmcfg.Config) *cobra.Command {
 	var (
-		startHeight int64
-		endHeight   int64
+		startHeight      int64
+		endHeight        int64
+		reportWatermarks bool
 	)
 
 	cmd := &cobra.Command{
@@ -50,6 +51,7 @@ either or both arguments.
 	tendermint reindex-event --start-height 2
 	tendermint reindex-event --end-height 10
 	tendermint reindex-event --start-height 2 --end-height 10
+	tendermint reindex-event --report-watermarks
 	`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			home, err := cmd.Flags().GetString(cli.HomeFlag)
@@ -75,6 +77,13 @@ either or both arguments.
 				return fmt.Errorf("%s: %w", reindexFailed, err)
 			}
 
+			if reportWatermarks {
+				if err = reportEventSinkWatermarks(es); err != nil {
+					return fmt.Errorf("%s: %w", reindexFailed, err)
+				}
+				return nil
+			}
+
 			riArgs := eventReIndexArgs{
 				startHeight: startHeight,
 				endHeight:   endHeight,
@@ -93,7 +102,41 @@ either or both arguments.
 
 	cmd.Flags().Int64Var(&startHeight, "start-height", 0, "the block height would like to start for re-index")
 	cmd.Flags().Int64Var(&endHeight, "end-height", 0, "the block height would like to finish for re-index")
+	cmd.Flags().BoolVar(&reportWatermarks, "report-watermarks", false,
+		"report the KV height-ordered index watermarks for each configured sink and exit without re-indexing")
 	return cmd
+}
+
+// reportEventSinkWatermarks prints the height-ordered index watermarks for every KV event sink.
+func reportEventSinkWatermarks(sinks []indexer.EventSink) error {
+	fmt.Println("height-ordered index watermarks:")
+	for _, s := range sinks {
+		kves, ok := s.(*kv.EventSink)
+		if !ok {
+			fmt.Printf("  %s: no height-ordered index watermark\n", s.Type())
+			continue
+		}
+
+		blockW, blockSet, err := kves.BlockWatermark()
+		if err != nil {
+			return fmt.Errorf("read block watermark: %w", err)
+		}
+		txW, txSet, err := kves.TxWatermark()
+		if err != nil {
+			return fmt.Errorf("read tx watermark: %w", err)
+		}
+
+		fmt.Printf("  %s: block=%s tx=%s\n", s.Type(), formatWatermark(blockW, blockSet), formatWatermark(txW, txSet))
+	}
+	return nil
+}
+
+// formatWatermark renders a watermark for display
+func formatWatermark(height int64, set bool) string {
+	if !set {
+		return "unset"
+	}
+	return fmt.Sprintf("%d", height)
 }
 
 func loadEventSinks(cfg *tmcfg.Config) ([]indexer.EventSink, error) {

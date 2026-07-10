@@ -69,6 +69,16 @@ func (kves *EventSink) HasBlock(h int64) (bool, error) {
 	return kves.bi.Has(h)
 }
 
+// BlockWatermark returns the block height-ordered index watermark and whether it has been anchored.
+func (kves *EventSink) BlockWatermark() (height int64, set bool, err error) {
+	return kves.bi.Watermark()
+}
+
+// TxWatermark returns the tx height-ordered index watermark and whether it has been anchored.
+func (kves *EventSink) TxWatermark() (height int64, set bool, err error) {
+	return kves.txi.Watermark()
+}
+
 func (kves *EventSink) Stop() error {
 	return kves.store.Close()
 }
