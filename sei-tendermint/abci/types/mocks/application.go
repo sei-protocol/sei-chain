@@ -9,8 +9,9 @@ import (
 
 	mock "github.com/stretchr/testify/mock"
 
+	tenderminttypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+
 	types "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	uint256 "github.com/holiman/uint256"
 )
@@ -279,7 +280,7 @@ func (_m *Application) InitChain(_a0 context.Context, _a1 *types.RequestInitChai
 }
 
 // InitLastHeader provides a mock function with given fields: lastHeader
-func (_m *Application) InitLastHeader(lastHeader *tmproto.Header) {
+func (_m *Application) InitLastHeader(lastHeader *tenderminttypes.Header) {
 	_m.Called(lastHeader)
 }
 
