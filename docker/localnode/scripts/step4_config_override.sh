@@ -165,7 +165,6 @@ if [ "$AUTOBAHN" = "true" ]; then
 
   # Generate autobahn config using seid
   seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
-
   # Inject autobahn config file path into config.toml
   # Must be placed before any [section] header so TOML parser reads it as a top-level key.
   if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then

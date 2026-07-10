@@ -69,9 +69,6 @@ const (
 	// headroom without giving up another whole minute on every run.
 	heightPoll       = 1 * time.Second
 	haltStableWindow = 20 * time.Second
-	// Initial fullnode sync can pause at a height briefly while Autobahn
-	// streams settle; require eventual progress rather than one fixed sample.
-	blockProductionAdvanceMax = 30 * time.Second
 	// 2m / 90s give headroom for the fullnode catch-up backlog the
 	// preceding subtest may have left (failover delay during
 	// LivenessUnderMaxFaults can put the fullnode ~600 blocks behind,
@@ -79,6 +76,7 @@ const (
 	// CI runners are slower than local; 1m was tight enough to flake.
 	haltStableTimeout = 2 * time.Minute
 	heightAdvanceMax  = 90 * time.Second
+	txFinalizeMax     = 30 * time.Second
 )
 
 var (
@@ -107,10 +105,8 @@ func listRunningNodes(t *testing.T) []string {
 	return strings.Fields(strings.TrimSpace(string(out)))
 }
 
-// getHeight reads last_block_height from /abci_info and retries until the
-// chain has produced at least one block (height > 0). ABCI returns 0 between
-// InitChain and the first FinalizeBlock; we treat that as "not ready" since
-// all callers assume a live, advancing chain.
+// getHeight reads last_block_height from /abci_info and retries until a
+// non-zero committed height is observed.
 //
 // Uses abci_info instead of /status because /status reads from the CometBFT
 // block store, which autobahn does not populate.
@@ -126,6 +122,15 @@ func getHeight(t *testing.T) int64 {
 	}
 	t.Fatalf("could not get block height after %d retries", heightRetries)
 	return 0
+}
+
+func currentHeight(t *testing.T) int64 {
+	t.Helper()
+	h, err := fetchHeight()
+	if err != nil {
+		t.Fatalf("fetch height: %v", err)
+	}
+	return h
 }
 
 // waitForStableHeight polls getHeight every heightPoll. It returns the
@@ -231,6 +236,116 @@ func dockerExec(t *testing.T, container, script string) string {
 // dockerExecAllowFail runs docker exec but doesn't fail the test on non-zero exit.
 func dockerExecAllowFail(container, script string) {
 	_ = exec.Command("docker", "exec", container, "sh", "-c", script).Run()
+}
+
+func createRecipient(t *testing.T, container, name string) string {
+	t.Helper()
+	createOut := dockerExec(t, container,
+		fmt.Sprintf("printf '12345678\\n12345678\\n' | seid keys add %s --output json 2>/dev/null", name))
+	var key struct {
+		Address string `json:"address"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(createOut)), &key); err != nil {
+		t.Fatalf("parse recipient address: %v\noutput: %s", err, createOut)
+	}
+	return key.Address
+}
+
+func waitForRecipientBalance(t *testing.T, container, address, want string, timeout time.Duration) {
+	t.Helper()
+	queryCmd := fmt.Sprintf("seid q bank balances %s --denom usei --output json 2>/dev/null", address)
+	deadline := time.Now().Add(timeout)
+	var balance string
+	for time.Now().Before(deadline) {
+		out, _ := exec.Command("docker", "exec", container, "sh", "-c", queryCmd).Output()
+		var b struct {
+			Amount string `json:"amount"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &b); err == nil {
+			balance = b.Amount
+			if balance == want {
+				return
+			}
+		}
+		time.Sleep(heightPoll)
+	}
+	t.Fatalf("expected balance %s for %s, got %s", want, address, balance)
+}
+
+func sendBankTxAndWait(t *testing.T, container string) int64 {
+	t.Helper()
+	recipientName := fmt.Sprintf("autobahn_recipient_%d", time.Now().UnixNano())
+	recipientAddr := createRecipient(t, container, recipientName)
+	baseHeight := currentHeight(t)
+
+	var sendCmd string
+	if baseHeight == 0 {
+		sendCmd = fmt.Sprintf(
+			"recipient=%s; "+
+				"printf '12345678\\n' | seid tx bank send node_admin \"$recipient\" 1000000usei "+
+				"--chain-id sei --fees 2000usei --generate-only --output json > /tmp/autobahn_unsigned.json && "+
+				"printf '12345678\\n' | seid tx sign /tmp/autobahn_unsigned.json --from node_admin "+
+				"--chain-id sei --offline --account-number 0 --sequence 0 --output json > /tmp/autobahn_signed.json && "+
+				"seid tx broadcast /tmp/autobahn_signed.json -b sync --output json",
+			recipientAddr,
+		)
+	} else {
+		sendCmd = fmt.Sprintf(
+			"printf '12345678\\n' | seid tx bank send node_admin %s 1000000usei "+
+				"--chain-id sei --fees 2000usei -b sync -y --output json",
+			recipientAddr,
+		)
+	}
+
+	sendOut := dockerExec(t, container, sendCmd)
+	var resp struct {
+		Code   int    `json:"code"`
+		RawLog string `json:"raw_log"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(sendOut)), &resp); err != nil {
+		t.Fatalf("parse send response: %v\noutput: %s", err, sendOut)
+	}
+	if resp.Code != 0 {
+		t.Fatalf("send tx rejected: code=%d raw_log=%s", resp.Code, resp.RawLog)
+	}
+
+	height := waitForHeightAdvance(t, baseHeight, heightAdvanceMax)
+	waitForRecipientBalance(t, container, recipientAddr, "1000000", txFinalizeMax)
+	return height
+}
+
+func sendBankTxExpectNoInclusion(t *testing.T, container string, baseHeight int64, timeout time.Duration) {
+	t.Helper()
+	recipientName := fmt.Sprintf("autobahn_halt_recipient_%d", time.Now().UnixNano())
+	recipientAddr := createRecipient(t, container, recipientName)
+	sendCmd := fmt.Sprintf(
+		"printf '12345678\\n' | seid tx bank send node_admin %s 1000000usei "+
+			"--chain-id sei --fees 2000usei -b sync -y --output json",
+		recipientAddr,
+	)
+	sendOut := dockerExec(t, container, sendCmd)
+	var resp struct {
+		Code   int    `json:"code"`
+		RawLog string `json:"raw_log"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(sendOut)), &resp); err != nil {
+		t.Fatalf("parse send response: %v\noutput: %s", err, sendOut)
+	}
+	if resp.Code != 0 {
+		t.Fatalf("send tx rejected during halt check: code=%d raw_log=%s", resp.Code, resp.RawLog)
+	}
+
+	deadline := time.Now().Add(timeout)
+	last := baseHeight
+	for time.Now().Before(deadline) {
+		h := currentHeight(t)
+		if h > baseHeight {
+			t.Fatalf("expected no inclusion after quorum loss, but height advanced from %d to %d", baseHeight, h)
+		}
+		last = h
+		time.Sleep(heightPoll)
+	}
+	t.Logf("height stayed at %d after submitted tx", last)
 }
 
 // TestMain brings up the autobahn docker cluster before the test runs and
@@ -537,9 +652,12 @@ func testRecovery(t *testing.T) {
 	target := clusterSize - 1 - maxFaults
 	restartNode(t, target)
 
-	// Poll for the chain to advance. Give the restarted seid time to init
-	// and rejoin consensus, plus any fullnode failover.
-	hAfter := waitForHeightAdvance(t, hBefore, heightAdvanceMax)
+	// A committed tx is the liveness signal here: once quorum is restored,
+	// a new tx should finalize and advance height.
+	hAfter := sendBankTxAndWait(t, "sei-node-0")
+	if hAfter <= hBefore {
+		t.Fatalf("expected committed tx after recovery to advance height past %d, got %d", hBefore, hAfter)
+	}
 	t.Logf("height after restart: %d", hAfter)
 
 	// assertAutobahnEnabled greps every running container's log. The restarted
@@ -551,17 +669,15 @@ func testRecovery(t *testing.T) {
 
 func testBlockProduction(t *testing.T) {
 	assertAutobahnEnabled(t)
-	h1 := getHeight(t)
-	t.Logf("height: %d", h1)
-	h2 := waitForHeightAdvance(t, h1, blockProductionAdvanceMax)
-	t.Logf("height after progress: %d", h2)
+	h := sendBankTxAndWait(t, "sei-node-0")
+	t.Logf("height after committed tx: %d", h)
 
-	// Verify the Autobahn-routed tmRPC handlers serve real data at h2 (a
+	// Verify the Autobahn-routed tmRPC handlers serve real data at h (a
 	// recently committed height — past tail of the chain, so historical
 	// query paths are exercised without racing the producer). Each
 	// endpoint asserts one observable property; a single mismatch fails
 	// the test with the specific shape that broke.
-	assertTmRPCEndpoints(t, h2)
+	assertTmRPCEndpoints(t, h)
 }
 
 // assertTmRPCEndpoints exercises the tmRPC surface that PR #3310 wires up
@@ -666,47 +782,8 @@ func fetchTmRPC[T any](t *testing.T, url string, into *T) {
 func testBankTransfer(t *testing.T) {
 	assertAutobahnEnabled(t)
 
-	// Create recipient. stderr is redirected inside the container so stdout is pure JSON.
-	createOut := dockerExec(t, "sei-node-0",
-		"printf '12345678\n12345678\n' | seid keys add test_recipient --output json 2>/dev/null")
-	var key struct {
-		Address string `json:"address"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(createOut)), &key); err != nil {
-		t.Fatalf("parse recipient address: %v\noutput: %s", err, createOut)
-	}
-	t.Logf("recipient: %s", key.Address)
-
-	// Send from node_admin (genesis account) to recipient.
-	// Use -b sync (not -b block) because CometBFT consensus is disabled in autobahn mode.
-	// TODO: support -b block once autobahn supports it.
-	sendCmd := fmt.Sprintf(
-		"printf '12345678\n' | seid tx bank send node_admin %s 1000000usei "+
-			"--chain-id sei --fees 2000usei -b sync -y --output json",
-		key.Address)
-	dockerExec(t, "sei-node-0", sendCmd)
-
-	// Poll for balance. Tolerate transient query failures before the tx finalizes.
-	t.Log("waiting for tx to finalize...")
-	queryCmd := fmt.Sprintf("seid q bank balances %s --denom usei --output json 2>/dev/null", key.Address)
-	var balance string
-	for attempt := 0; attempt < 15; attempt++ {
-		out, _ := exec.Command("docker", "exec", "sei-node-0", "sh", "-c", queryCmd).Output()
-		var b struct {
-			Amount string `json:"amount"`
-		}
-		if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &b); err == nil {
-			balance = b.Amount
-			if balance == "1000000" {
-				break
-			}
-		}
-		time.Sleep(2 * time.Second)
-	}
-	t.Logf("balance: %s usei", balance)
-	if balance != "1000000" {
-		t.Fatalf("expected balance 1000000, got %s", balance)
-	}
+	h := sendBankTxAndWait(t, "sei-node-0")
+	t.Logf("bank transfer committed at height %d", h)
 }
 
 // killNode kills seid inside sei-node-<i> via pkill. Tolerates non-zero exit
@@ -732,7 +809,10 @@ func testLivenessUnderMaxFaults(t *testing.T) {
 	for i := 0; i < maxFaults; i++ {
 		killNode(t, clusterSize-1-i)
 	}
-	hAfter := waitForHeightAdvance(t, hBefore, heightAdvanceMax)
+	hAfter := sendBankTxAndWait(t, "sei-node-0")
+	if hAfter <= hBefore {
+		t.Fatalf("expected committed tx with %d faults to advance height past %d, got %d", maxFaults, hBefore, hAfter)
+	}
 	t.Logf("height after: %d", hAfter)
 }
 
@@ -751,12 +831,5 @@ func testHaltsBeyondMaxFaults(t *testing.T) {
 	killNode(t, clusterSize-1-maxFaults)
 	hBefore := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
 	t.Logf("height: %d (expecting halt)", hBefore)
-	// waitForStableHeight already returned only after haltStableWindow of
-	// no movement; the sample we just took is the halted height.
-	hAfter := getHeight(t)
-	t.Logf("height after stability: %d", hAfter)
-	if hAfter != hBefore {
-		t.Fatalf("chain should halt with %d/%d validators (height changed: %d -> %d)",
-			clusterSize-maxFaults-1, clusterSize, hBefore, hAfter)
-	}
+	sendBankTxExpectNoInclusion(t, "sei-node-0", hBefore, haltStableWindow)
 }
