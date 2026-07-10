@@ -77,7 +77,10 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 
 	resp := app.initChainer(app.deliverState.ctx, *req)
 	app.initChainer(app.processProposalState.ctx, *req)
-	app.initChainer(app.checkState.ctx, *req)
+	// Genesis initialization needs deliver semantics even when populating the
+	// check state branch. Running it in CheckTx mode enables mempool-only fee
+	// checks and can reject valid genesis txs.
+	app.initChainer(app.checkState.ctx.WithIsCheckTx(false), *req)
 
 	// In the case of a new chain, AppHash will be the hash of an empty string.
 	// During an upgrade, it'll be the hash of the last committed block.

@@ -533,19 +533,19 @@ func New(
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
-		BaseApp:               bApp,
-		cdc:                   cdc,
-		appCodec:              appCodec,
-		interfaceRegistry:     interfaceRegistry,
-		keys:                  keys,
-		tkeys:                 tkeys,
-		memKeys:               memKeys,
-		txDecoder:             encodingConfig.TxConfig.TxDecoder(),
-		versionInfo:           version.NewInfo(),
-		metricCounter:         &map[string]float32{},
-		encodingConfig:        encodingConfig,
-		legacyEncodingConfig:  MakeLegacyEncodingConfig(),
-		stateStore:            stateStore,
+		BaseApp:              bApp,
+		cdc:                  cdc,
+		appCodec:             appCodec,
+		interfaceRegistry:    interfaceRegistry,
+		keys:                 keys,
+		tkeys:                tkeys,
+		memKeys:              memKeys,
+		txDecoder:            encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:          version.NewInfo(),
+		metricCounter:        &map[string]float32{},
+		encodingConfig:       encodingConfig,
+		legacyEncodingConfig: MakeLegacyEncodingConfig(),
+		stateStore:           stateStore,
 	}
 
 	for _, option := range appOptions {

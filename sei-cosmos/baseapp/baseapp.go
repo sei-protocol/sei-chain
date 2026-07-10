@@ -122,7 +122,7 @@ type BaseApp struct {
 	processProposalCleanCtx sdk.Context // snapshot before optimistic processing
 	stateToCommit           *state
 	initializedCh           chan struct{}
-	initializedOnce         *sync.Once
+	initializedOnce         sync.Once
 
 	// nextResultHash is the result hash (merkle root over the block's deterministic tx results)
 	// computed in FinalizeBlock and handed to the commit store in Commit, mirroring nextBlockHash.
@@ -292,7 +292,6 @@ func NewBaseApp(
 		commitLock:       &sync.Mutex{},
 		checkTxStateLock: &sync.RWMutex{},
 		initializedCh:    make(chan struct{}),
-		initializedOnce:  &sync.Once{},
 		deliverTxHooks:   []DeliverTxHook{},
 	}
 
