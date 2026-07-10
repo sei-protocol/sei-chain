@@ -101,14 +101,17 @@ func (s *blockDB) WriteQC(
 func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.hasBlocks {
+		// No blocks yet: nothing to prune, and deleting QCs here would strand a
+		// future block whose coverage check still passes. Mirrors littblock.
+		return nil
+	}
 	// Never let the watermark enter the newest block's cohort: clamp its ceiling
 	// at the cohort's first block (latestQCStartBlock), guarded by lastBlockNumber
 	// for a QC written ahead of its blocks. Keeps the newest cohort whole and
 	// pruning monotonic. See littblock and the BlockDB PruneBefore contract.
-	if s.hasBlocks {
-		if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); n > ceiling {
-			n = ceiling
-		}
+	if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); n > ceiling {
+		n = ceiling
 	}
 	for num, blk := range s.byNumber {
 		if num < n {

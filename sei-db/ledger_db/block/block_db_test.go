@@ -65,6 +65,9 @@ func TestBlockDB(t *testing.T) {
 				testPruneEmptyStoreThenWriteBelow(t, impl.build)
 			})
 			t.Run("PruneQCAheadOfBlocks", func(t *testing.T) { testPruneQCAheadOfBlocks(t, impl.build) })
+			t.Run("PruneQCOnlyThenWriteBlock", func(t *testing.T) {
+				testPruneQCOnlyThenWriteBlock(t, impl.build)
+			})
 			t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, impl.build) })
 			t.Run("WriteOrderRejectedAfterRestart", func(t *testing.T) {
 				testWriteOrderRejectedAfterRestart(t, impl.build)
@@ -495,6 +498,37 @@ func testPruneQCAheadOfBlocks(t *testing.T, build builder) {
 	qc, err := db.ReadQCByBlockNumber(newest)
 	require.NoError(t, err)
 	require.True(t, qc.IsPresent(), "covering QC of the newest block must survive")
+}
+
+// testPruneQCOnlyThenWriteBlock asserts that pruning while QCs exist but no
+// blocks have been written yet does not delete the covering QC. A subsequent
+// WriteBlock still passes its coverage check, so deleting the QC here would
+// strand a readable block with no readable covering QC. Regression for the
+// memblock PruneBefore fall-through (the clamp was guarded by hasBlocks but the
+// deletion loops ran regardless); littblock returns early on !hasBlocks.
+func testPruneQCOnlyThenWriteBlock(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+
+	// Write only the QC of the first cohort — no blocks yet (hasQC, !hasBlocks).
+	b0 := batches[0]
+	require.NoError(t, db.WriteQC(b0.first, b0.next, b0.qc))
+
+	// Prune far past the QC. With no blocks, this must be a no-op; the QC cannot
+	// be deleted or a later covered WriteBlock would be orphaned.
+	require.NoError(t, db.PruneBefore(b0.next+1000))
+
+	// The block is still within [b0.first, b0.next), so its coverage check passes.
+	require.NoError(t, db.WriteBlock(b0.first, b0.blocks[0]))
+
+	blk, err := db.ReadBlockByNumber(b0.first)
+	require.NoError(t, err)
+	require.True(t, blk.IsPresent(), "block %d must be readable after write", b0.first)
+	qc, err := db.ReadQCByBlockNumber(b0.first)
+	require.NoError(t, err)
+	require.True(t, qc.IsPresent(), "covering QC of block %d must survive the earlier prune", b0.first)
 }
 
 // testIteratorSnapshot asserts that an iterator observes only the records present
