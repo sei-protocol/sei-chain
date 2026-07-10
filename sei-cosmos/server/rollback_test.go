@@ -68,6 +68,8 @@ func (m *mockApplication) InitChain(ctx context.Context, req *abci.RequestInitCh
 	return &abci.ResponseInitChain{}, nil
 }
 
+func (m *mockApplication) InitLastHeader(*tmproto.Header) {}
+
 func (m *mockApplication) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
 	return &abci.ResponseQuery{}, nil
 }
