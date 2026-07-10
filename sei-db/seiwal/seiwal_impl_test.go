@@ -552,6 +552,90 @@ func TestScanRejectsGapInSealedFiles(t *testing.T) {
 	require.Contains(t, err.Error(), "not contiguous")
 }
 
+// TestNewWALRejectsMidStreamCorruptSealedFile verifies that a checksum mismatch in a non-final record of a
+// sealed file is surfaced as a hard error at open. Corrupted durable data demands human intervention, so the
+// WAL must refuse to open rather than silently serving a view truncated at the corruption point.
+func TestNewWALRejectsMidStreamCorruptSealedFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+
+	w := openWAL(t, cfg)
+	for index := uint64(1); index <= 5; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Close()) // seals records 1..5 into a single file
+
+	names := sealedFileNames(t, dir)
+	require.Len(t, names, 1)
+	path := filepath.Join(dir, names[0])
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	// Flip a byte in the first record's payload so the fault is mid-stream, not a torn trailing record. The
+	// first record's payload begins just past the header and its two single-byte uvarint prefixes (index 1,
+	// length 9), so walHeaderSize+2 lands inside the payload.
+	data[walHeaderSize+2] ^= 0xFF
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+
+	_, err = NewWAL(cfg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "corrupt")
+}
+
+// TestNewWALRejectsTruncatedSealedFile verifies that a sealed file truncated at a clean record boundary — all
+// remaining records checksum correctly, but the content stops short of the last index its name promises — is
+// rejected at open. This is the case parse-strictness alone cannot catch (no torn record remains); the
+// content/name range check must.
+func TestNewWALRejectsTruncatedSealedFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+
+	w := openWAL(t, cfg)
+	for index := uint64(1); index <= 5; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Close()) // seals records 1..5 into a single file named 0-1-5
+
+	names := sealedFileNames(t, dir)
+	require.Len(t, names, 1)
+	path := filepath.Join(dir, names[0])
+
+	// Truncate at the boundary just past the 4th record, leaving indices 1..4 intact while the name still
+	// promises [1, 5].
+	contents, err := readWalFile(path)
+	require.NoError(t, err)
+	require.Len(t, contents.records, 5)
+	require.NoError(t, os.Truncate(path, contents.records[3].end))
+
+	_, err = NewWAL(cfg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "corrupt")
+}
+
+// TestNewWALRejectsSealedFileBadMagic verifies that a sealed file with a clobbered header (invalid magic
+// prefix) is rejected at open rather than treated as empty.
+func TestNewWALRejectsSealedFileBadMagic(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+
+	w := openWAL(t, cfg)
+	for index := uint64(1); index <= 3; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Close())
+
+	names := sealedFileNames(t, dir)
+	require.Len(t, names, 1)
+	path := filepath.Join(dir, names[0])
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	data[0] ^= 0xFF // clobber the magic prefix
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+
+	_, err = NewWAL(cfg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "corrupt")
+}
+
 func TestBoundsEmpty(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()

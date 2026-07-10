@@ -11,9 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIteratorRejectsCorruptSealedFile verifies that interior corruption in a sealed file is surfaced as an
-// error rather than silently truncating iteration short of the file's name-promised last index. A sealed file
-// is durable and complete, so any shortfall between its content and its name is corruption, not a torn tail.
+// TestIteratorRejectsCorruptSealedFile verifies that interior corruption appearing in a sealed file after the
+// WAL is already open (e.g. bit-rot on disk after a clean startup validation) is surfaced as an error rather
+// than silently truncating iteration short of the file's name-promised last index. The corruption is
+// introduced after open so it slips past validateSealedFiles and must be caught by the iterator's re-read.
 func TestIteratorRejectsCorruptSealedFile(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
@@ -27,13 +28,16 @@ func TestIteratorRejectsCorruptSealedFile(t *testing.T) {
 	names := sealedFileNames(t, dir)
 	require.Len(t, names, 1)
 	path := filepath.Join(dir, names[0])
+
+	w2 := openWAL(t, cfg) // healthy at open; validation passes
+	defer func() { require.NoError(t, w2.Close()) }()
+
+	// Corrupt the last record's CRC only now, after open, so the parser stops short of index 5 on the
+	// iterator's re-read of the file from disk.
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
-	data[len(data)-1] ^= 0xFF // corrupt the last record's CRC so the parser stops short of index 5
+	data[len(data)-1] ^= 0xFF
 	require.NoError(t, os.WriteFile(path, data, 0o600))
-
-	w2 := openWAL(t, cfg)
-	defer func() { require.NoError(t, w2.Close()) }()
 
 	it, err := w2.Iterator(1)
 	require.NoError(t, err)

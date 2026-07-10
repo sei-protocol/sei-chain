@@ -2,7 +2,6 @@ package statewal
 
 import (
 	"fmt"
-	"sync"
 	"sync/atomic"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -12,6 +11,8 @@ import (
 var _ StateWAL = (*stateWALImpl)(nil)
 
 // A WAL for storing state changesets by block number.
+//
+// Not safe for concurrent use; see the StateWAL interface doc.
 type stateWALImpl struct {
 	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
 	wal seiwal.WAL[[]*proto.NamedChangeSet]
@@ -19,8 +20,9 @@ type stateWALImpl struct {
 	// Set by Close() so subsequent Write/SignalEndOfBlock calls fail fast.
 	closed atomic.Bool
 
-	// Guards the write-ordering contract state and the accumulation buffer below.
-	mu sync.Mutex
+	// The write-ordering contract state and the accumulation buffer below are mutated by Write and
+	// SignalEndOfBlock, which callers must not invoke concurrently.
+
 	// The block number of the most recent Write or SignalEndOfBlock.
 	currentBlock uint64
 	// Whether currentBlock has been finalized by SignalEndOfBlock.
@@ -77,8 +79,6 @@ func (w *stateWALImpl) Write(blockNumber uint64, cs []*proto.NamedChangeSet) err
 	if w.closed.Load() {
 		return fmt.Errorf("state WAL is closed")
 	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	if err := w.enforceWriteOrdering(blockNumber); err != nil {
 		return fmt.Errorf("write rejected: %w", err)
 	}
@@ -92,16 +92,13 @@ func (w *stateWALImpl) SignalEndOfBlock() error {
 		return fmt.Errorf("state WAL is closed")
 	}
 
-	w.mu.Lock()
 	if !w.hasCurrentBlock || w.currentBlockEnded {
-		w.mu.Unlock()
 		return fmt.Errorf("no block in progress to end")
 	}
 	blockNumber := w.currentBlock
 	w.currentBlockEnded = true
 	changeset := w.buf
 	w.buf = nil // hand ownership to the WAL; the next block starts a fresh buffer
-	w.mu.Unlock()
 
 	if err := w.wal.Append(blockNumber, changeset); err != nil {
 		return fmt.Errorf("failed to append block %d: %w", blockNumber, err)
@@ -111,7 +108,6 @@ func (w *stateWALImpl) SignalEndOfBlock() error {
 
 // enforceWriteOrdering rejects a Write that violates the block-ordering rules (no decreasing block numbers; no
 // advancing to a new block before the current one is ended) and records the new position when it is allowed.
-// The caller must hold w.mu.
 func (w *stateWALImpl) enforceWriteOrdering(blockNumber uint64) error {
 	if !w.hasCurrentBlock {
 		w.currentBlock = blockNumber

@@ -316,20 +316,41 @@ func parseWalFileData(data []byte, parsed parsedFileName, name string) (*walFile
 	}
 	contents.validEnd = walHeaderSize
 
+	// A torn trailing record is expected only in the mutable file after a crash, where discarding it is correct.
+	// A sealed file is durable, fsync'd, and truncated to a record boundary on seal, so any framing or checksum
+	// failure in it is corruption (e.g. bit-rot) that must be surfaced rather than silently discarded — otherwise
+	// records past the fault vanish while the file's name keeps promising them. torn() turns each tolerated break
+	// into a hard error for a sealed file.
+	torn := func(offset int, reason string) error {
+		if !parsed.sealed {
+			return nil
+		}
+		return fmt.Errorf("sealed WAL file %s is corrupt: %s at offset %d", name, reason, offset)
+	}
+
 	offset := walHeaderSize
 	for offset < len(data) {
 		index, idxN := binary.Uvarint(data[offset:])
 		if idxN <= 0 {
+			if err := torn(offset, "torn record index prefix"); err != nil {
+				return nil, err
+			}
 			break // torn or incomplete index prefix
 		}
 		lenStart := offset + idxN
 		length, lenN := binary.Uvarint(data[lenStart:])
 		if lenN <= 0 {
+			if err := torn(offset, "torn record length prefix"); err != nil {
+				return nil, err
+			}
 			break // torn or incomplete length prefix
 		}
 		payloadStart := lenStart + lenN
 		remaining := uint64(len(data) - payloadStart) //nolint:gosec // payloadStart <= len(data), so non-negative
 		if remaining < 4 || length > remaining-4 {
+			if err := torn(offset, "truncated record payload or checksum"); err != nil {
+				return nil, err
+			}
 			break // torn record: payload or checksum truncated (4 trailing bytes are the CRC32)
 		}
 		payloadLen := int(length) //nolint:gosec // bounded above by remaining-4, which is <= len(data)
@@ -337,6 +358,9 @@ func parseWalFileData(data []byte, parsed parsedFileName, name string) (*walFile
 		recordEnd := payloadEnd + 4
 		gotCRC := binary.BigEndian.Uint32(data[payloadEnd:recordEnd])
 		if gotCRC != crc32.ChecksumIEEE(data[offset:payloadEnd]) {
+			if err := torn(offset, "record checksum mismatch"); err != nil {
+				return nil, err
+			}
 			break // torn or corrupt record
 		}
 
@@ -353,6 +377,25 @@ func parseWalFileData(data []byte, parsed parsedFileName, name string) (*walFile
 	}
 
 	return contents, nil
+}
+
+// verifySealedContents confirms that a sealed file's intact content exactly covers the [first, last] index
+// range promised by its name. A sealed file is durable and complete, so a shortfall means interior corruption
+// (e.g. a record truncated to a clean boundary) that leaves parseWalFileData reading fewer records than the
+// name promises, while Bounds/GetStoredRange keep reporting the full range. fileSeq is used only for error
+// messages.
+func verifySealedContents(contents *walFileContents, fileSeq uint64, first uint64, last uint64) error {
+	if !contents.hasRecords {
+		return fmt.Errorf(
+			"WAL file (sequence %d) is corrupt: name promises indices [%d, %d] but no intact records were read",
+			fileSeq, first, last)
+	}
+	if contents.firstIndex != first || contents.lastIndex != last {
+		return fmt.Errorf(
+			"WAL file (sequence %d) is corrupt: name promises indices [%d, %d] but content holds [%d, %d]",
+			fileSeq, first, last, contents.firstIndex, contents.lastIndex)
+	}
+	return nil
 }
 
 // truncateAndSync truncates the file at path to size and fsyncs it, so the shorter length is durable on its

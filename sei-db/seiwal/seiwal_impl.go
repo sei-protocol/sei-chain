@@ -195,6 +195,9 @@ func newWAL(config *Config, rollbackThrough *uint64) (WAL[[]byte], error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan sealed WAL files: %w", err)
 	}
+	if err := validateSealedFiles(config.Path, sealedFiles); err != nil {
+		return nil, fmt.Errorf("corrupt sealed WAL file: %w", err)
+	}
 
 	mutable, err := newWalFile(config.Path, nextFileSeq)
 	if err != nil {
@@ -751,4 +754,22 @@ func scanSealedFiles(directory string) (*util.RandomAccessDeque[*sealedFileInfo]
 		nextFileSeq = p.fileSeq + 1
 	}
 	return sealedFiles, nextFileSeq, nil
+}
+
+// validateSealedFiles reads and checksums every sealed file, confirming each file's content exactly covers the
+// [first, last] index range its name promises. This surfaces corruption (bit-rot, truncation) at open — where
+// it demands human intervention — rather than lazily at iteration time, by which point Bounds/GetStoredRange
+// would already be reporting a range that iteration cannot deliver. Cost is O(total sealed bytes): every sealed
+// file is read and CRC-verified on open.
+func validateSealedFiles(directory string, sealedFiles *util.RandomAccessDeque[*sealedFileInfo]) error {
+	for _, info := range sealedFiles.Iterator() {
+		contents, err := readWalFile(filepath.Join(directory, info.name))
+		if err != nil {
+			return fmt.Errorf("failed to read sealed WAL file %s: %w", info.name, err)
+		}
+		if err := verifySealedContents(contents, info.fileSeq, info.firstIndex, info.lastIndex); err != nil {
+			return err
+		}
+	}
+	return nil
 }

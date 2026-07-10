@@ -6,6 +6,9 @@ import (
 )
 
 // A WAL for state.
+//
+// A StateWAL is not safe for concurrent use. Callers must serialize their calls to a single instance;
+// in particular Write and SignalEndOfBlock share write-ordering state that is not internally locked.
 type StateWAL interface {
 
 	// Write a set of changes to the WAL.
