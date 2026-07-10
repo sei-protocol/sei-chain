@@ -144,6 +144,19 @@ func TestParseSCConfigs_SnapshotKeepRecentClampedToMin(t *testing.T) {
 	assert.Equal(t, uint32(1), scConfig.FlatKVConfig.SnapshotKeepRecent)
 }
 
+func TestParseSCConfigs_SnapshotKeepRecentAbsentUsesDefault(t *testing.T) {
+	// sc-keep-recent omitted entirely: must fall back to the in-code default (2),
+	// not read back 0 and get floored to 1.
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable: true,
+	})
+
+	def := config.DefaultStateCommitConfig().MemIAVLConfig.SnapshotKeepRecent
+	assert.Equal(t, uint32(2), def)
+	assert.Equal(t, def, scConfig.MemIAVLConfig.SnapshotKeepRecent)
+	assert.Equal(t, def, scConfig.FlatKVConfig.SnapshotKeepRecent)
+}
+
 func TestParseSCConfigs_LegacyCosmosOnlyWriteMode(t *testing.T) {
 	scConfig := parseSCConfigs(mapAppOpts{
 		FlagSCEnable:    true,

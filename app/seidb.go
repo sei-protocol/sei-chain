@@ -105,14 +105,36 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig := config.DefaultStateCommitConfig()
 	scConfig.Enable = cast.ToBool(appOpts.Get(FlagSCEnable))
 	scConfig.Directory = cast.ToString(appOpts.Get(FlagSCDirectory))
-	scConfig.MemIAVLConfig.AsyncCommitBuffer = cast.ToInt(appOpts.Get(FlagSCAsyncCommitBuffer))
-	scConfig.MemIAVLConfig.SnapshotKeepRecent = cast.ToUint32(appOpts.Get(FlagSCSnapshotKeepRecent))
-	scConfig.MemIAVLConfig.SnapshotInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotInterval))
-	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotMinTimeInterval))
-	scConfig.MemIAVLConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
-	scConfig.MemIAVLConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
-	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
-	scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(appOpts.Get(FlagSCFlatKVReadWriteMetrics))
+	// Each memIAVL snapshot read is guarded with a presence check so an absent
+	// app.toml key preserves the in-code default rather than reading back the
+	// zero value (e.g. cast.ToUint32(nil) == 0) and clobbering it. This matters
+	// for keys whose default is non-zero (async-commit-buffer 100, snapshot
+	// -interval 10000, keep-recent 2, ...) and especially for keep-recent, which
+	// AlignFlatKVWithMemIAVL below would otherwise floor from 0 to 1.
+	if v := appOpts.Get(FlagSCAsyncCommitBuffer); v != nil {
+		scConfig.MemIAVLConfig.AsyncCommitBuffer = cast.ToInt(v)
+	}
+	if v := appOpts.Get(FlagSCSnapshotKeepRecent); v != nil {
+		scConfig.MemIAVLConfig.SnapshotKeepRecent = cast.ToUint32(v)
+	}
+	if v := appOpts.Get(FlagSCSnapshotInterval); v != nil {
+		scConfig.MemIAVLConfig.SnapshotInterval = cast.ToUint32(v)
+	}
+	if v := appOpts.Get(FlagSCSnapshotMinTimeInterval); v != nil {
+		scConfig.MemIAVLConfig.SnapshotMinTimeInterval = cast.ToUint32(v)
+	}
+	if v := appOpts.Get(FlagSCSnapshotWriterLimit); v != nil {
+		scConfig.MemIAVLConfig.SnapshotWriterLimit = cast.ToInt(v)
+	}
+	if v := appOpts.Get(FlagSCSnapshotPrefetchThreshold); v != nil {
+		scConfig.MemIAVLConfig.SnapshotPrefetchThreshold = cast.ToFloat64(v)
+	}
+	if v := appOpts.Get(FlagSCSnapshotWriteRateMBps); v != nil {
+		scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(v)
+	}
+	if v := appOpts.Get(FlagSCFlatKVReadWriteMetrics); v != nil {
+		scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(v)
+	}
 
 	// Now that the raw flags are parsed, floor memIAVL snapshot-keep-recent and
 	// mirror the (unexposed) FlatKV snapshot cadence onto the memIAVL settings.
