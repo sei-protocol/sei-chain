@@ -5,6 +5,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
+	
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 // Application is an interface that enables any finite, deterministic state machine
@@ -29,6 +31,7 @@ type Application interface {
 
 	// Consensus Connection
 	InitChain(context.Context, *RequestInitChain) (*ResponseInitChain, error) // Initialize blockchain w validators/other info from TendermintCore
+	InitLastHeader(lastHeader *tmproto.Header)
 	ProcessProposal(context.Context, *RequestProcessProposal) (*ResponseProcessProposal, error)
 	// Commit the state and return the application Merkle root hash
 	Commit(context.Context) (*ResponseCommit, error)
@@ -66,6 +69,8 @@ func (BaseApplication) Commit(_ context.Context) (*ResponseCommit, error) {
 func (BaseApplication) Query(_ context.Context, req *RequestQuery) (*ResponseQuery, error) {
 	return &ResponseQuery{Code: CodeTypeOK}, nil
 }
+
+func (BaseApplication) InitLastHeader(lastHeader *tmproto.Header) {}
 
 func (BaseApplication) InitChain(_ context.Context, req *RequestInitChain) (*ResponseInitChain, error) {
 	return &ResponseInitChain{}, nil

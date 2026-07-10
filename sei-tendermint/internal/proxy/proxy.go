@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 // Proxy wraps an ABCI application and records ABCI method timings.
@@ -78,6 +79,10 @@ func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) 
 		}
 	}
 	return res, nil
+}
+
+func (app *Proxy) InitLastHeader(lastHeader *tmproto.Header) {
+	app.app.InitLastHeader(lastHeader)
 }
 
 func (app *Proxy) Info(ctx context.Context, req *types.RequestInfo) (*types.ResponseInfo, error) {

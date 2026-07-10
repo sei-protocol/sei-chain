@@ -373,6 +373,17 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			return fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
 		}
 	} else {
+		b, err := r.data.GlobalBlock(ctx, last)
+		if err != nil {
+			return fmt.Errorf("r.data.GlobalBlock(): %w", err)
+		}
+		app.InitLastHeader((&types.Header{
+			ChainID: r.cfg.GenDoc.ChainID,
+			Height:  int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
+			Time:    b.Timestamp,
+			// TODO: for consistency we should also set proposerAddress here,
+			// but this is a placeholder solution so maybe we don't care.
+		}).ToProto())
 		// Re-commit the last finalized block's app hash to the equivocation guard before re-proposing it
 		// for AppQC voting (PushAppHash below), mirroring executeBlock's commit-before-PushAppHash
 		// ordering. On a normal restart this idempotently matches the hash recorded when `last` was

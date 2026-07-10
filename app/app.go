@@ -475,11 +475,6 @@ type App struct {
 
 	forkInitializer func(sdk.Context)
 
-	httpServerStartSignal     chan struct{}
-	wsServerStartSignal       chan struct{}
-	httpServerStartSignalSent bool
-	wsServerStartSignalSent   bool
-
 	// evmHTTPServer/evmWSServer hold the EVM JSON-RPC HTTP and WebSocket listeners
 	// constructed in RegisterLocalServices so an embedding orchestrator (the
 	// in-process harness) can Stop() them at teardown. Nil when the respective
@@ -551,8 +546,6 @@ func New(
 		encodingConfig:        encodingConfig,
 		legacyEncodingConfig:  MakeLegacyEncodingConfig(),
 		stateStore:            stateStore,
-		httpServerStartSignal: make(chan struct{}, 1),
-		wsServerStartSignal:   make(chan struct{}, 1),
 	}
 
 	for _, option := range appOptions {
@@ -1929,17 +1922,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 		}
 	}()
 
-	defer func() {
-		if !app.httpServerStartSignalSent {
-			app.httpServerStartSignalSent = true
-			app.httpServerStartSignal <- struct{}{}
-		}
-		if !app.wsServerStartSignalSent {
-			app.wsServerStartSignalSent = true
-			app.wsServerStartSignal <- struct{}{}
-		}
-	}()
-
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
 	blockSpanCtx, blockSpan := app.GetBaseApp().TracingInfo.Start("Block")
@@ -2749,7 +2731,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		}
 		app.evmHTTPServer = evmHTTPServer
 		go func() {
-			<-app.httpServerStartSignal
+			<-app.Initialized()
 			if err := evmHTTPServer.Start(); err != nil {
 				panic(err)
 			}
@@ -2764,7 +2746,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		}
 		app.evmWSServer = evmWSServer
 		go func() {
-			<-app.wsServerStartSignal
+			<-app.Initialized()
 			if err := evmWSServer.Start(); err != nil {
 				panic(err)
 			}

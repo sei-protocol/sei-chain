@@ -30,6 +30,11 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 )
 
+func (app *BaseApp) InitLastHeader(lastHeader *tmproto.Header) {
+	app.setCheckState(*lastHeader)
+	app.signalInitialized()
+}
+
 // InitChain implements the ABCI interface. It runs the initialization logic
 // directly on the CommitMultiStore.
 func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
@@ -65,12 +70,14 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 
 	app.SetDeliverStateToCommit()
 
+	defer app.signalInitialized()
 	if app.initChainer == nil {
 		return nil, nil
 	}
 
 	resp := app.initChainer(app.deliverState.ctx, *req)
 	app.initChainer(app.processProposalState.ctx, *req)
+	app.initChainer(app.checkState.ctx, *req)
 
 	// In the case of a new chain, AppHash will be the hash of an empty string.
 	// During an upgrade, it'll be the hash of the last committed block.
@@ -315,6 +322,7 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 
 	// empty/reset the deliver state
 	app.resetStatesExceptCheckState()
+	defer app.signalInitialized()
 
 	var halt bool
 
