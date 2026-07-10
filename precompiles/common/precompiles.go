@@ -103,22 +103,29 @@ func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method
 	if ctxer == nil {
 		return sdk.Context{}, nil, nil, errors.New("cannot get context from EVM")
 	}
-	methodID, err := ExtractMethodID(input)
-	if err != nil {
-		return sdk.Context{}, nil, nil, err
-	}
-	method, err := p.MethodById(methodID)
+	method, err := p.resolveMethod(input)
 	if err != nil {
 		return sdk.Context{}, nil, nil, err
 	}
 
-	argsBz := input[4:]
-	args, err := method.Inputs.Unpack(argsBz)
+	args, err := method.Inputs.Unpack(input[4:])
 	if err != nil {
 		return sdk.Context{}, nil, nil, err
 	}
 
 	return ctxer.Ctx(), method, args, nil
+}
+
+// resolveMethod extracts the 4-byte selector from input and resolves the ABI
+// method WITHOUT decoding the (attacker-controlled) argument payload. Decoding
+// is deliberately deferred so callers can perform it under a gas gate — see
+// DynamicGasPrecompile.RunAndCalculateGas.
+func (p Precompile) resolveMethod(input []byte) (*abi.Method, error) {
+	methodID, err := ExtractMethodID(input)
+	if err != nil {
+		return nil, err
+	}
+	return p.MethodById(methodID)
 }
 
 func (p Precompile) GetABI() abi.ABI {
@@ -162,13 +169,39 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 			err = vm.ErrExecutionReverted
 		}
 	}()
-	ctx, method, args, err := d.Prepare(evm, input)
+	ctxer := state.GetDBImpl(evm.StateDB)
+	if ctxer == nil {
+		return nil, 0, errors.New("cannot get context from EVM")
+	}
+	// Resolve the target method from the 4-byte selector only. The
+	// argument payload is intentionally NOT decoded yet: ABI decoding of
+	// attacker-controlled calldata (e.g. a large dynamic array) can be
+	// expensive, so it must be gated by the gas the caller actually supplied.
+	// The static-precompile path enforces `suppliedGas < RequiredGas` in
+	// vm.RunPrecompiledContract before running; that gate is skipped for
+	// dynamic-gas precompiles, so we apply the equivalent check here before
+	// performing any decode/allocation work.
+	method, err := d.resolveMethod(input)
 	if err != nil {
 		return nil, 0, err
 	}
-	gasLimit := d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), suppliedGas)
-	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
 	operation = method.Name
+
+	ctx := ctxer.Ctx()
+	// Convert the supplied EVM gas into a Cosmos gas budget and refuse to decode
+	// unless it can cover the cost of parsing the calldata. This bounds the
+	// decode/allocation work by the gas the caller paid, so a call that forwards
+	// little or no gas cannot force validators to decode large calldata for free.
+	gasLimit := d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), suppliedGas)
+	if gasLimit < DefaultGasCost(input, false) {
+		return nil, 0, vm.ErrOutOfGas
+	}
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
+
+	args, err := method.Inputs.Unpack(input[4:])
+	if err != nil {
+		return nil, 0, err
+	}
 	em := ctx.EventManager()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	ctx = ctx.WithEVMPrecompileCalledFromDelegateCall(isFromDelegateCall)
