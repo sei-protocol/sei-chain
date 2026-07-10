@@ -12,6 +12,63 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
+// TestMultiTreeImporterIdempotentRename reproduces the state-sync restore
+// crashloop seen on migrate_evm syncers: a prior aborted restore attempt leaves
+// a snapshot-<H> directory behind, and the next attempt's Close() does
+// os.Rename(tmp, snapshot-<H>) which fails "file exists" (ENOTEMPTY) on Linux.
+// The importer must be idempotent across retries.
+func TestMultiTreeImporterIdempotentRename(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Config:          Config{AsyncCommitBuffer: -1},
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	for _, changes := range ChangeSets {
+		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "test", Changeset: changes}}))
+		_, err := db.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	version := db.Version()
+
+	restoreDir := t.TempDir()
+
+	importOnce := func() error {
+		exporter, err := NewMultiTreeExporter(db.dir, uint32(version), true)
+		require.NoError(t, err)
+		importer, err := NewMultiTreeImporter(restoreDir, uint64(version))
+		require.NoError(t, err)
+		for {
+			item, err := exporter.Next()
+			if errors.Is(err, errorutils.ErrorExportDone) {
+				break
+			}
+			require.NoError(t, err)
+			require.NoError(t, importer.Add(item))
+		}
+		require.NoError(t, exporter.Close())
+		return importer.Close()
+	}
+
+	// First import: creates restoreDir/snapshot-<H>.
+	require.NoError(t, importOnce())
+	// Second import at the same version simulates a state-sync retry after a
+	// prior attempt already created snapshot-<H>. Before the fix this fails
+	// os.Rename "file exists" and the syncer crashloops; after the fix the
+	// importer removes the stale target and the rename succeeds.
+	require.NoError(t, importOnce(),
+		"import must be idempotent across a retry that left snapshot-<H> behind")
+
+	// Restored store opens and reaches the imported version.
+	db2, err := OpenDB(0, Options{Dir: restoreDir})
+	require.NoError(t, err)
+	require.Equal(t, version, db2.Version(), "restored store must be at the imported version")
+	require.NoError(t, db2.Close())
+}
+
 func TestSnapshotEncodingRoundTrip(t *testing.T) {
 	// setup test tree
 	tree := New(0)
