@@ -1,13 +1,19 @@
 package memiavl
 
 const (
-	DefaultSnapshotInterval          = 10000
-	DefaultSnapshotKeepRecent        = 0       // set to 0 to only keep one current snapshot
-	DefaultSnapshotMinTimeInterval   = 60 * 60 // 1 hour in seconds
-	DefaultAsyncCommitBuffer         = 100
-	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
-	DefaultSnapshotWriteRateMBps     = 100 // 100 MB/s default
-	DefaultSnapshotWriterLimit       = 4   // controls tree concurrency but not I/O rate (use SnapshotWriteRateMBps for that)
+	DefaultSnapshotInterval = 10000
+	// DefaultSnapshotKeepRecent is how many old snapshots (besides the latest) to
+	// keep by default.
+	DefaultSnapshotKeepRecent = 2
+	// MinSnapshotKeepRecent is the smallest number of old snapshots memIAVL will
+	// retain when the value comes from operator config. A configured value of 0
+	// (keep only the current snapshot) is clamped up to this floor.
+	MinSnapshotKeepRecent            uint32 = 1
+	DefaultSnapshotMinTimeInterval          = 60 * 60 // 1 hour in seconds
+	DefaultAsyncCommitBuffer                = 100
+	DefaultSnapshotPrefetchThreshold        = 0.8 // prefetch if <80% pages in cache
+	DefaultSnapshotWriteRateMBps            = 100 // 100 MB/s default
+	DefaultSnapshotWriterLimit              = 4   // controls tree concurrency but not I/O rate (use SnapshotWriteRateMBps for that)
 )
 
 type Config struct {
@@ -16,8 +22,8 @@ type Config struct {
 	// defaults to 100
 	AsyncCommitBuffer int `mapstructure:"async-commit-buffer"`
 
-	// SnapshotKeepRecent defines what many old snapshots (excluding the latest one) to keep
-	// defaults to 0 to only keep one current snapshot
+	// SnapshotKeepRecent defines how many old snapshots (excluding the latest one) to keep.
+	// Defaults to 2; a configured value of 0 is clamped up to MinSnapshotKeepRecent (1).
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// SnapshotInterval defines the block interval the memiavl snapshot is taken, default to 10000.
@@ -52,4 +58,14 @@ func DefaultConfig() Config {
 		SnapshotWriteRateMBps:     DefaultSnapshotWriteRateMBps,
 		SnapshotWriterLimit:       DefaultSnapshotWriterLimit,
 	}
+}
+
+// NormalizeSnapshotKeepRecent clamps a configured snapshot-keep-recent value to
+// MinSnapshotKeepRecent, so a value of 0 (keep only the current snapshot) is
+// bumped up to keep at least one old snapshot.
+func NormalizeSnapshotKeepRecent(keepRecent uint32) uint32 {
+	if keepRecent < MinSnapshotKeepRecent {
+		return MinSnapshotKeepRecent
+	}
+	return keepRecent
 }

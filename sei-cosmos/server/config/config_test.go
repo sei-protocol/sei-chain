@@ -314,8 +314,9 @@ func TestGetConfig(t *testing.T) {
 	require.Equal(t, DefaultMinGasPrices, cfg.MinGasPrices)
 	require.True(t, cfg.Telemetry.Enabled)
 	require.False(t, cfg.API.Enable)
-	require.Equal(t, seidbconfig.DefaultStateCommitConfig().FlatKVConfig.SnapshotInterval, cfg.StateCommit.FlatKVConfig.SnapshotInterval)
-	require.Equal(t, seidbconfig.DefaultStateCommitConfig().FlatKVConfig.SnapshotKeepRecent, cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
+	// FlatKV snapshot cadence mirrors the memIAVL (SC) snapshot settings.
+	require.Equal(t, cfg.StateCommit.MemIAVLConfig.SnapshotInterval, cfg.StateCommit.FlatKVConfig.SnapshotInterval)
+	require.Equal(t, cfg.StateCommit.MemIAVLConfig.SnapshotKeepRecent, cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
 }
 
 func TestConfigTemplate(t *testing.T) {
@@ -464,6 +465,20 @@ func TestGetConfigStateCommit(t *testing.T) {
 	require.Equal(t, uint32(1800), cfg.StateCommit.MemIAVLConfig.SnapshotMinTimeInterval)
 	require.Equal(t, 4, cfg.StateCommit.MemIAVLConfig.SnapshotWriterLimit)
 	require.Equal(t, 0.9, cfg.StateCommit.MemIAVLConfig.SnapshotPrefetchThreshold)
+}
+
+func TestGetConfigParsesRawSnapshotKeepRecent(t *testing.T) {
+	v := viper.New()
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+	v.Set("state-commit.sc-keep-recent", 0)
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	// GetConfig is a faithful parse of app.toml/flags: the raw 0 is preserved
+	// here and only floored later at store construction. FlatKV mirrors it.
+	require.Equal(t, uint32(0), cfg.StateCommit.MemIAVLConfig.SnapshotKeepRecent)
+	require.Equal(t, uint32(0), cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
 }
 
 func TestGetConfigRejectsInvalidWriteMode(t *testing.T) {

@@ -40,6 +40,32 @@ func TestDefaultStateCommitConfigWriteMode(t *testing.T) {
 	require.True(t, cfg.WriteModeEnableAuto)
 }
 
+func TestAlignFlatKVWithMemIAVL(t *testing.T) {
+	t.Run("mirrors memIAVL snapshot cadence onto FlatKV", func(t *testing.T) {
+		cfg := DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotInterval = 5000
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 3
+		// Start FlatKV from divergent values to prove they get overwritten.
+		cfg.FlatKVConfig.SnapshotInterval = 111
+		cfg.FlatKVConfig.SnapshotKeepRecent = 222
+
+		cfg.AlignFlatKVWithMemIAVL()
+
+		require.Equal(t, uint32(5000), cfg.FlatKVConfig.SnapshotInterval)
+		require.Equal(t, uint32(3), cfg.FlatKVConfig.SnapshotKeepRecent)
+	})
+
+	t.Run("floors keep-recent of 0 to 1 for both backends", func(t *testing.T) {
+		cfg := DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 0
+
+		cfg.AlignFlatKVWithMemIAVL()
+
+		require.Equal(t, uint32(1), cfg.MemIAVLConfig.SnapshotKeepRecent)
+		require.Equal(t, uint32(1), cfg.FlatKVConfig.SnapshotKeepRecent)
+	})
+}
+
 func TestParseSCWriteMode(t *testing.T) {
 	parsed, err := ParseSCWriteMode("cosmos_only")
 	require.NoError(t, err)

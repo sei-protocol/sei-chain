@@ -80,6 +80,10 @@ func TestNewDefaultConfig(t *testing.T) {
 	// WriteMode to auto, overriding the fixed-fallback default (memiavl_only).
 	expectedSC := config.DefaultStateCommitConfig()
 	expectedSC.WriteMode = sctypes.Auto
+	// FlatKV snapshot cadence mirrors the memIAVL (SC) snapshot settings rather
+	// than using FlatKV's own defaults.
+	expectedSC.FlatKVConfig.SnapshotInterval = expectedSC.MemIAVLConfig.SnapshotInterval
+	expectedSC.FlatKVConfig.SnapshotKeepRecent = expectedSC.MemIAVLConfig.SnapshotKeepRecent
 	assert.Equal(t, expectedSC, scConfig)
 	assert.Equal(t, ssConfig, config.DefaultStateStoreConfig())
 	assert.Equal(t, receiptConfig, config.DefaultReceiptStoreConfig())
@@ -113,6 +117,31 @@ func TestParseSCConfigs_FlatKVReadWriteMetrics(t *testing.T) {
 	})
 
 	assert.True(t, scConfig.FlatKVConfig.EnableReadWriteMetrics)
+}
+
+func TestParseSCConfigs_FlatKVSnapshotMirrorsMemIAVL(t *testing.T) {
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable:             true,
+		FlagSCSnapshotInterval:   uint32(5000),
+		FlagSCSnapshotKeepRecent: uint32(3),
+	})
+
+	assert.Equal(t, uint32(5000), scConfig.MemIAVLConfig.SnapshotInterval)
+	assert.Equal(t, uint32(3), scConfig.MemIAVLConfig.SnapshotKeepRecent)
+	assert.Equal(t, scConfig.MemIAVLConfig.SnapshotInterval, scConfig.FlatKVConfig.SnapshotInterval)
+	assert.Equal(t, scConfig.MemIAVLConfig.SnapshotKeepRecent, scConfig.FlatKVConfig.SnapshotKeepRecent)
+}
+
+func TestParseSCConfigs_SnapshotKeepRecentClampedToMin(t *testing.T) {
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable:             true,
+		FlagSCSnapshotKeepRecent: uint32(0),
+	})
+
+	// A configured 0 (keep only the current snapshot) is floored to 1 here in
+	// app config parsing, and FlatKV mirrors the clamped value.
+	assert.Equal(t, uint32(1), scConfig.MemIAVLConfig.SnapshotKeepRecent)
+	assert.Equal(t, uint32(1), scConfig.FlatKVConfig.SnapshotKeepRecent)
 }
 
 func TestParseSCConfigs_LegacyCosmosOnlyWriteMode(t *testing.T) {

@@ -114,6 +114,10 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
 	scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(appOpts.Get(FlagSCFlatKVReadWriteMetrics))
 
+	// Now that the raw flags are parsed, floor memIAVL snapshot-keep-recent and
+	// mirror the (unexposed) FlatKV snapshot cadence onto the memIAVL settings.
+	scConfig.AlignFlatKVWithMemIAVL()
+
 	// sc-write-mode-enable-auto (default true) decides whether the node may run
 	// in auto. An ABSENT key keeps the default (true): nodes provisioned by
 	// older binaries carry an explicit sc-write-mode = "memiavl_only" but no
