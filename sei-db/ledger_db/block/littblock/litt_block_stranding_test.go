@@ -283,3 +283,32 @@ func TestLittblockPartiallyPrunedQCRangeRetained(t *testing.T) {
 		require.True(t, qc.IsPresent(), "covering QC for served block %d must be readable", n)
 	}
 }
+
+// TestLittblockRefusesToOpenWithStrandedBlocks verifies the corruption guard in
+// recoverReadWatermark. The never-empty prune invariant guarantees at least one
+// (block, QC) pair is always retained, so a store holding a block with no
+// surviving QC is corrupt (e.g. a QC WAL file removed out of band). Rather than
+// serve blocks it can no longer trust, the store refuses to open.
+//
+// The state is unreachable through the public API — WriteBlock rejects an
+// uncovered block, and pruning never reclaims the newest cohort's QC — so the
+// test injects it directly: a block primary key written straight to the raw
+// table with no covering QC, exactly the on-disk shape corruption leaves behind.
+func TestLittblockRefusesToOpenWithStrandedBlocks(t *testing.T) {
+	dir := t.TempDir()
+	rng := utils.TestRngFromSeed(3)
+
+	db, err := NewBlockDB(strandingConfig(t, dir, 8))
+	require.NoError(t, err)
+	impl := db.(*blockDB)
+
+	// Bypass WriteBlock's QC guard and write a lone block to the raw table.
+	require.NoError(t, impl.table.Put(blockKey(5), encodeBlock(5, types.GenBlock(rng))))
+	require.NoError(t, db.Flush())
+	require.NoError(t, db.Close())
+
+	// Reopen: recovery finds the block but no QC, so it refuses to open.
+	_, err = NewBlockDB(strandingConfig(t, dir, 8))
+	require.Error(t, err)
+	require.ErrorContains(t, err, "no surviving QC")
+}

@@ -42,7 +42,7 @@ type blockDB struct {
 	hasQC           bool
 	lastQCNext      types.GlobalBlockNumber
 
-	// latestQCStartBlock is therecently written QC's starting block number.
+	// latestQCStartBlock is the most recently written QC's starting block number.
 	latestQCStartBlock types.GlobalBlockNumber
 }
 
@@ -168,10 +168,13 @@ func (s *blockDB) recoverReadWatermark() error {
 		return nil
 	}
 
-	// No QC survives. Any block still present is therefore stranded, so refuse
-	// every one by setting the watermark just past the newest block.
 	if s.hasBlocks {
-		s.watermark.Store(uint64(s.lastBlockNumber) + 1)
+		// No QC survives. The never-empty prune invariant guarantees at least one
+		// (block, QC) pair is always retained, so blocks-without-QC is unreachable
+		// through normal operation — it means the store is corrupt (e.g. a QC WAL
+		// file was removed out of band). Refuse to open rather than serve blocks we
+		// can no longer trust.
+		return fmt.Errorf("corrupt store: newest block %d has no surviving QC covering it", s.lastBlockNumber)
 	}
 	return nil
 }
