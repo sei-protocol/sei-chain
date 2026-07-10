@@ -28,6 +28,10 @@ var _ indexer.TxIndexer = (*TxIndex)(nil)
 // 2. event - txhash   (secondary key)
 type TxIndex struct {
 	store dbm.DB
+	// budget bounds the index entries in-flight searches may visit; nil means
+	// unlimited. It is typically shared with the block indexer so the cap is
+	// process-wide across tx_search and block_search.
+	budget *indexer.ScanBudget
 }
 
 // NewTxIndex creates new KV indexer.
@@ -35,6 +39,13 @@ func NewTxIndex(store dbm.DB) *TxIndex {
 	return &TxIndex{
 		store: store,
 	}
+}
+
+// WithScanBudget attaches a shared scan budget that bounds how many index
+// entries in-flight searches may visit. It returns the receiver for chaining.
+func (txi *TxIndex) WithScanBudget(budget *indexer.ScanBudget) *TxIndex {
+	txi.budget = budget
+	return txi
 }
 
 // Get gets transaction from the TxIndex storage and returns it or nil if the
@@ -137,11 +148,9 @@ func (txi *TxIndex) indexEvents(result *abci.TxResultV2, hash []byte, store dbm.
 // better for the client to provide both lower and upper bounds, so we are not
 // performing a full scan.
 //
-// opts bounds and orders the result set (see indexer.SearchOptions): when a
-// query is eligible for the bounded fast path it is streamed in (height, index)
-// order_by order and capped at opts.Limit during the scan, so a broad query
-// does not materialize and sort the full match set. Otherwise the intersection
-// is materialized as before, then ordered and capped.
+// The entries the scan visits are charged against the
+// shared scan budget (if configured); if the aggregate in-flight charge exceeds
+// the budget, Search aborts with indexer.ErrScanBudgetExceeded.
 //
 // Search will exit early and return any result fetched so far,
 // when a message is received on the context chan.
@@ -149,6 +158,12 @@ func (txi *TxIndex) Search(ctx context.Context, q *query.Query, opts indexer.Sea
 	if ctx.Err() != nil {
 		return make([]*abci.TxResultV2, 0), nil
 	}
+
+	// Charge the entries this search visits against the shared scan budget so a
+	// broad query (or many concurrent ones) cannot exhaust memory. Release
+	// returns the charge to the pool when the search returns.
+	lease := txi.budget.Lease()
+	defer lease.Release()
 
 	// get a list of conditions (like "tx.height > 5")
 	conditions := q.Syntax()
@@ -180,7 +195,7 @@ func (txi *TxIndex) Search(ctx context.Context, q *query.Query, opts indexer.Sea
 	// conditions per candidate, and stop at opts.Limit. Memory is bounded by the
 	// results kept, not by the total match cardinality.
 	if plan, ok := planBounded(conditions, ranges, rangeIndexes); ok {
-		return txi.searchBounded(ctx, plan, opts)
+		return txi.searchBounded(ctx, plan, opts, lease)
 	}
 
 	// Fallback: queries containing CONTAINS/MATCHES/EXISTS, non-height ranges, or
@@ -188,7 +203,10 @@ func (txi *TxIndex) Search(ctx context.Context, q *query.Query, opts indexer.Sea
 	// scan (the tx.height secondary index stores the height as a decimal string,
 	// so its key order is not numeric). Materialize the intersection as before,
 	// then bound and order the result set.
-	filteredHashes := txi.intersect(ctx, conditions, ranges, rangeIndexes)
+	filteredHashes, err := txi.intersect(ctx, conditions, ranges, rangeIndexes, lease)
+	if err != nil {
+		return nil, err
+	}
 	return txi.collectBounded(ctx, filteredHashes, opts)
 }
 
@@ -202,7 +220,8 @@ func (txi *TxIndex) intersect(
 	conditions []syntax.Condition,
 	ranges indexer.QueryRanges,
 	rangeIndexes []int,
-) map[string][]byte {
+	lease *indexer.ScanLease,
+) (map[string][]byte, error) {
 	var hashesInitialized bool
 	filteredHashes := make(map[string][]byte)
 
@@ -213,17 +232,24 @@ func (txi *TxIndex) intersect(
 		skipIndexes = append(skipIndexes, rangeIndexes...)
 
 		for _, qr := range ranges {
+			var err error
 			if !hashesInitialized {
-				filteredHashes = txi.matchRange(ctx, qr, prefixFromCompositeKey(qr.Key), filteredHashes, true)
+				filteredHashes, err = txi.matchRange(ctx, qr, prefixFromCompositeKey(qr.Key), filteredHashes, true, lease)
+				if err != nil {
+					return nil, err
+				}
 				hashesInitialized = true
 
 				// Ignore any remaining conditions if the first condition resulted
 				// in no matches (assuming implicit AND operand).
 				if len(filteredHashes) == 0 {
-					return filteredHashes
+					return filteredHashes, nil
 				}
 			} else {
-				filteredHashes = txi.matchRange(ctx, qr, prefixFromCompositeKey(qr.Key), filteredHashes, false)
+				filteredHashes, err = txi.matchRange(ctx, qr, prefixFromCompositeKey(qr.Key), filteredHashes, false, lease)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -237,21 +263,28 @@ func (txi *TxIndex) intersect(
 			continue
 		}
 
+		var err error
 		if !hashesInitialized {
-			filteredHashes = txi.match(ctx, c, prefixForCondition(c, height), filteredHashes, true)
+			filteredHashes, err = txi.match(ctx, c, prefixForCondition(c, height), filteredHashes, true, lease)
+			if err != nil {
+				return nil, err
+			}
 			hashesInitialized = true
 
 			// Ignore any remaining conditions if the first condition resulted
 			// in no matches (assuming implicit AND operand).
 			if len(filteredHashes) == 0 {
-				return filteredHashes
+				return filteredHashes, nil
 			}
 		} else {
-			filteredHashes = txi.match(ctx, c, prefixForCondition(c, height), filteredHashes, false)
+			filteredHashes, err = txi.match(ctx, c, prefixForCondition(c, height), filteredHashes, false, lease)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
-	return filteredHashes
+	return filteredHashes, nil
 }
 
 // collectBounded materializes filteredHashes into tx results, orders them by
@@ -289,7 +322,7 @@ func (txi *TxIndex) collectBounded(ctx context.Context, filteredHashes map[strin
 // point-probes the remaining conditions per candidate, and stops as soon as
 // opts.Limit matches are collected. Memory is bounded by the number of results
 // kept rather than by the full match cardinality.
-func (txi *TxIndex) searchBounded(ctx context.Context, plan boundedPlan, opts indexer.SearchOptions) ([]*abci.TxResultV2, error) {
+func (txi *TxIndex) searchBounded(ctx context.Context, plan boundedPlan, opts indexer.SearchOptions, lease *indexer.ScanLease) ([]*abci.TxResultV2, error) {
 	prefix := prefixFromCompositeKeyAndValue(plan.driverEquality.Tag, plan.driverEquality.Arg.Value())
 
 	it, err := txi.prefixIterator(prefix, opts.OrderDesc)
@@ -304,6 +337,11 @@ func (txi *TxIndex) searchBounded(ctx context.Context, plan boundedPlan, opts in
 	for ; it.Valid(); it.Next() {
 		if ctx.Err() != nil {
 			break
+		}
+
+		// Charge each driver entry the scan walks against the shared budget.
+		if err := lease.Visit(1); err != nil {
+			return nil, err
 		}
 
 		hash := it.Value()
@@ -511,11 +549,12 @@ func (txi *TxIndex) match(
 	startKeyBz []byte,
 	filteredHashes map[string][]byte,
 	firstRun bool,
-) map[string][]byte {
+	lease *indexer.ScanLease,
+) (map[string][]byte, error) {
 	// A previous match was attempted but resulted in no matches, so we return
 	// no matches (assuming AND operand).
 	if !firstRun && len(filteredHashes) == 0 {
-		return filteredHashes
+		return filteredHashes, nil
 	}
 
 	tmpHashes := make(map[string][]byte)
@@ -524,12 +563,16 @@ func (txi *TxIndex) match(
 	case syntax.TEq:
 		it, err := dbm.IteratePrefix(txi.store, startKeyBz)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		defer func() { _ = it.Close() }()
 
 	iterEqual:
 		for ; it.Valid(); it.Next() {
+			if err := lease.Visit(1); err != nil {
+				return nil, err
+			}
+
 			tmpHashes[string(it.Value())] = it.Value()
 
 			// Potentially exit early.
@@ -540,7 +583,7 @@ func (txi *TxIndex) match(
 			}
 		}
 		if err := it.Error(); err != nil {
-			panic(err)
+			return nil, err
 		}
 
 	case syntax.TExists:
@@ -548,12 +591,16 @@ func (txi *TxIndex) match(
 		// (e.g. "account.owner/<nil>/" won't match w/ a single row)
 		it, err := dbm.IteratePrefix(txi.store, prefixFromCompositeKey(c.Tag))
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		defer func() { _ = it.Close() }()
 
 	iterExists:
 		for ; it.Valid(); it.Next() {
+			if err := lease.Visit(1); err != nil {
+				return nil, err
+			}
+
 			tmpHashes[string(it.Value())] = it.Value()
 
 			// Potentially exit early.
@@ -564,7 +611,7 @@ func (txi *TxIndex) match(
 			}
 		}
 		if err := it.Error(); err != nil {
-			panic(err)
+			return nil, err
 		}
 
 	case syntax.TContains:
@@ -573,12 +620,16 @@ func (txi *TxIndex) match(
 		// we can't iterate with prefix "account.owner/an/" because we might miss keys like "account.owner/Ulan/"
 		it, err := dbm.IteratePrefix(txi.store, prefixFromCompositeKey(c.Tag))
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		defer func() { _ = it.Close() }()
 
 	iterContains:
 		for ; it.Valid(); it.Next() {
+			if err := lease.Visit(1); err != nil {
+				return nil, err
+			}
+
 			value, err := parseValueFromKey(it.Key())
 			if err != nil {
 				continue
@@ -595,18 +646,22 @@ func (txi *TxIndex) match(
 			}
 		}
 		if err := it.Error(); err != nil {
-			panic(err)
+			return nil, err
 		}
 
 	case syntax.TMatches:
 		it, err := dbm.IteratePrefix(txi.store, prefixFromCompositeKey(c.Tag))
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		defer func() { _ = it.Close() }()
 
 	iterMatches:
 		for ; it.Valid(); it.Next() {
+			if err := lease.Visit(1); err != nil {
+				return nil, err
+			}
+
 			value, err := parseValueFromKey(it.Key())
 			if err != nil {
 				continue
@@ -623,10 +678,10 @@ func (txi *TxIndex) match(
 			}
 		}
 		if err := it.Error(); err != nil {
-			panic(err)
+			return nil, err
 		}
 	default:
-		panic("other operators should be handled already")
+		return nil, fmt.Errorf("other operators should be handled already")
 	}
 
 	if len(tmpHashes) == 0 || firstRun {
@@ -637,7 +692,7 @@ func (txi *TxIndex) match(
 		// return no matches (assuming AND operand).
 		//
 		// 2. A previous match was not attempted, so we return all results.
-		return tmpHashes
+		return tmpHashes, nil
 	}
 
 	// Remove/reduce matches in filteredHashes that were not found in this
@@ -655,7 +710,7 @@ func (txi *TxIndex) match(
 		}
 	}
 
-	return filteredHashes
+	return filteredHashes, nil
 }
 
 // matchRange returns all matching txs by hash that meet a given queryRange and
@@ -669,11 +724,12 @@ func (txi *TxIndex) matchRange(
 	startKey []byte,
 	filteredHashes map[string][]byte,
 	firstRun bool,
-) map[string][]byte {
+	lease *indexer.ScanLease,
+) (map[string][]byte, error) {
 	// A previous match was attempted but resulted in no matches, so we return
 	// no matches (assuming AND operand).
 	if !firstRun && len(filteredHashes) == 0 {
-		return filteredHashes
+		return filteredHashes, nil
 	}
 
 	tmpHashes := make(map[string][]byte)
@@ -682,12 +738,16 @@ func (txi *TxIndex) matchRange(
 
 	it, err := dbm.IteratePrefix(txi.store, startKey)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	defer func() { _ = it.Close() }()
 
 iter:
 	for ; it.Valid(); it.Next() {
+		if err := lease.Visit(1); err != nil {
+			return nil, err
+		}
+
 		value, err := parseValueFromKey(it.Key())
 		if err != nil {
 			continue
@@ -727,7 +787,7 @@ iter:
 		}
 	}
 	if err := it.Error(); err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	if len(tmpHashes) == 0 || firstRun {
@@ -738,7 +798,7 @@ iter:
 		// return no matches (assuming AND operand).
 		//
 		// 2. A previous match was not attempted, so we return all results.
-		return tmpHashes
+		return tmpHashes, nil
 	}
 
 	// Remove/reduce matches in filteredHashes that were not found in this
@@ -756,7 +816,7 @@ iter:
 		}
 	}
 
-	return filteredHashes
+	return filteredHashes, nil
 }
 
 // ##########################  Keys  #############################

@@ -287,6 +287,14 @@ timeout-write = "{{ .RPC.TimeoutWrite }}"
 # Set to 0 to disable the cap (not recommended on public nodes).
 max-tx-search-results = {{ .RPC.MaxTxSearchResults }}
 
+# Maximum number of KV index entries that all in-flight tx_search and
+# block_search requests may visit at once. This is a process-wide safety cap
+# that bounds peak memory (and scan CPU) under broad or highly concurrent
+# search load; it is shared across requests, not applied per-query. When the
+# budget is exhausted an in-flight search fails rather than continuing to
+# accumulate. Set to 0 to disable the cap (not recommended on public nodes).
+max-search-scan-budget = {{ .RPC.MaxSearchScanBudget }}
+
 #######################################################################
 ###           P2P Configuration Options                             ###
 #######################################################################

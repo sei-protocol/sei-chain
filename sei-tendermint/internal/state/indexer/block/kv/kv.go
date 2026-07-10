@@ -26,12 +26,23 @@ var _ indexer.BlockIndexer = (*BlockerIndexer)(nil)
 // such that matching search criteria returns the respective block height(s).
 type BlockerIndexer struct {
 	store dbm.DB
+	// budget bounds the index entries in-flight searches may visit; nil means
+	// unlimited. It is typically shared with the tx indexer so the cap is
+	// process-wide across tx_search and block_search.
+	budget *indexer.ScanBudget
 }
 
 func New(store dbm.DB) *BlockerIndexer {
 	return &BlockerIndexer{
 		store: store,
 	}
+}
+
+// WithScanBudget attaches a shared scan budget that bounds how many index
+// entries in-flight searches may visit.
+func (idx *BlockerIndexer) WithScanBudget(budget *indexer.ScanBudget) *BlockerIndexer {
+	idx.budget = budget
+	return idx
 }
 
 // Has returns true if the given height has been indexed. An error is returned
@@ -84,6 +95,9 @@ func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query, opts inde
 		return results, nil
 	}
 
+	lease := idx.budget.Lease()
+	defer lease.Release()
+
 	conditions := q.Syntax()
 
 	// If there is an exact height query, return the result immediately
@@ -111,14 +125,14 @@ func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query, opts inde
 	// the limit, so a broad query does not materialize and sort the full match
 	// set.
 	if plan, ok := planBounded(conditions, ranges, rangeIndexes); ok {
-		return idx.searchBounded(ctx, plan, opts)
+		return idx.searchBounded(ctx, plan, opts, lease)
 	}
 
 	// Fallback: queries containing CONTAINS/MATCHES/EXISTS or non-height ranges
 	// cannot be point-probed against a candidate height (the block's events
 	// live only in the index, so there is nothing cheap to fetch). Materialize
 	// the intersection as before, then bound and order the result set.
-	filteredHeights, err := idx.intersect(ctx, conditions, ranges, rangeIndexes)
+	filteredHeights, err := idx.intersect(ctx, conditions, ranges, rangeIndexes, lease)
 	if err != nil {
 		return nil, err
 	}
@@ -135,6 +149,7 @@ func (idx *BlockerIndexer) intersect(
 	conditions []syntax.Condition,
 	ranges indexer.QueryRanges,
 	rangeIndexes []int,
+	lease *indexer.ScanLease,
 ) (map[string][]byte, error) {
 	var heightsInitialized bool
 	filteredHeights := make(map[string][]byte)
@@ -152,7 +167,7 @@ func (idx *BlockerIndexer) intersect(
 			}
 
 			if !heightsInitialized {
-				filteredHeights, err = idx.matchRange(ctx, qr, prefix, filteredHeights, true)
+				filteredHeights, err = idx.matchRange(ctx, qr, prefix, filteredHeights, true, lease)
 				if err != nil {
 					return nil, err
 				}
@@ -165,7 +180,7 @@ func (idx *BlockerIndexer) intersect(
 					break
 				}
 			} else {
-				filteredHeights, err = idx.matchRange(ctx, qr, prefix, filteredHeights, false)
+				filteredHeights, err = idx.matchRange(ctx, qr, prefix, filteredHeights, false, lease)
 				if err != nil {
 					return nil, err
 				}
@@ -185,7 +200,7 @@ func (idx *BlockerIndexer) intersect(
 		}
 
 		if !heightsInitialized {
-			filteredHeights, err = idx.match(ctx, c, startKey, filteredHeights, true)
+			filteredHeights, err = idx.match(ctx, c, startKey, filteredHeights, true, lease)
 			if err != nil {
 				return nil, err
 			}
@@ -198,7 +213,7 @@ func (idx *BlockerIndexer) intersect(
 				break
 			}
 		} else {
-			filteredHeights, err = idx.match(ctx, c, startKey, filteredHeights, false)
+			filteredHeights, err = idx.match(ctx, c, startKey, filteredHeights, false, lease)
 			if err != nil {
 				return nil, err
 			}
@@ -247,7 +262,7 @@ func (idx *BlockerIndexer) collectBounded(ctx context.Context, filteredHeights m
 // order_by order, point-probes the remaining conditions per candidate height,
 // and stops as soon as opts.Limit matches are collected. Memory is bounded by
 // the number of results kept rather than by the full match cardinality.
-func (idx *BlockerIndexer) searchBounded(ctx context.Context, plan boundedPlan, opts indexer.SearchOptions) ([]int64, error) {
+func (idx *BlockerIndexer) searchBounded(ctx context.Context, plan boundedPlan, opts indexer.SearchOptions, lease *indexer.ScanLease) ([]int64, error) {
 	var (
 		prefix []byte
 		err    error
@@ -274,6 +289,11 @@ func (idx *BlockerIndexer) searchBounded(ctx context.Context, plan boundedPlan, 
 	for ; it.Valid(); it.Next() {
 		if ctx.Err() != nil {
 			break
+		}
+
+		// Charge each driver entry the scan walks against the shared budget.
+		if err := lease.Visit(1); err != nil {
+			return nil, err
 		}
 
 		h := int64FromBytes(it.Value())
@@ -436,6 +456,7 @@ func (idx *BlockerIndexer) matchRange(
 	startKey []byte,
 	filteredHeights map[string][]byte,
 	firstRun bool,
+	lease *indexer.ScanLease,
 ) (map[string][]byte, error) {
 
 	// A previous match was attempted but resulted in no matches, so we return
@@ -456,6 +477,10 @@ func (idx *BlockerIndexer) matchRange(
 
 iter:
 	for ; it.Valid(); it.Next() {
+		if err := lease.Visit(1); err != nil {
+			return nil, err
+		}
+
 		var (
 			eventValue string
 			err        error
@@ -544,6 +569,7 @@ func (idx *BlockerIndexer) match(
 	startKeyBz []byte,
 	filteredHeights map[string][]byte,
 	firstRun bool,
+	lease *indexer.ScanLease,
 ) (map[string][]byte, error) {
 
 	// A previous match was attempted but resulted in no matches, so we return
@@ -563,6 +589,10 @@ func (idx *BlockerIndexer) match(
 		defer func() { _ = it.Close() }()
 
 		for ; it.Valid(); it.Next() {
+			if err := lease.Visit(1); err != nil {
+				return nil, err
+			}
+
 			tmpHeights[string(it.Value())] = it.Value()
 
 			if err := ctx.Err(); err != nil {
@@ -588,6 +618,10 @@ func (idx *BlockerIndexer) match(
 
 	iterExists:
 		for ; it.Valid(); it.Next() {
+			if err := lease.Visit(1); err != nil {
+				return nil, err
+			}
+
 			tmpHeights[string(it.Value())] = it.Value()
 
 			select {
@@ -616,6 +650,10 @@ func (idx *BlockerIndexer) match(
 
 	iterContains:
 		for ; it.Valid(); it.Next() {
+			if err := lease.Visit(1); err != nil {
+				return nil, err
+			}
+
 			eventValue, err := parseValueFromEventKey(it.Key())
 			if err != nil {
 				continue
@@ -650,6 +688,10 @@ func (idx *BlockerIndexer) match(
 
 	iterMatches:
 		for ; it.Valid(); it.Next() {
+			if err := lease.Visit(1); err != nil {
+				return nil, err
+			}
+
 			eventValue, err := parseValueFromEventKey(it.Key())
 			if err != nil {
 				continue
