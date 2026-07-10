@@ -450,7 +450,7 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 				}
 				fqc, err := qcIt.QC()
 				require.NoError(t, err)
-				require.Equal(t, last.first, fqc.QC().GlobalRange(committee).First,
+				require.Equal(t, last.first, fqc.QC().GlobalRange().First,
 					"only the QC covering the newest cohort must remain")
 				qcCount++
 			}
