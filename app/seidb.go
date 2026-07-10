@@ -80,7 +80,6 @@ func SetupSeiDB(
 			"separateDBs", ssConfig.SeparateEVMSubDBs,
 		)
 	}
-	validateConfigs(appOpts)
 	gigaExecutorConfig, err := gigaconfig.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading giga executor config due to %s", err))
@@ -217,16 +216,4 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.SeparateEVMSubDBs = cast.ToBool(appOpts.Get(FlagEVMSSSeparateDBs))
 	ssConfig.EVMSplit = cast.ToBool(appOpts.Get(FlagEVMSSSplit))
 	return ssConfig
-}
-
-func validateConfigs(appOpts servertypes.AppOptions) {
-	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
-	ssEnabled := cast.ToBool(appOpts.Get(FlagSSEnable))
-	snapshotExportInterval := cast.ToUint64(appOpts.Get(FlagSnapshotInterval))
-	// Make sure when snapshot is enabled, we should enable SS store
-	if snapshotExportInterval > 0 && scEnabled {
-		if !ssEnabled {
-			panic(fmt.Sprintf("Config validation failed, SeiDB SS store needs to be enabled when snapshot interval %d > 0", snapshotExportInterval))
-		}
-	}
 }
