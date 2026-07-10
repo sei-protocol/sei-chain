@@ -119,13 +119,9 @@ type walImpl struct {
 	// The first unrecoverable background-goroutine error, surfaced to the caller by Close().
 	asyncErr atomic.Pointer[error]
 
-	// Guards the caller-side append-ordering state below, which is read/written synchronously in Append
-	// (not on the writer goroutine). This gate is a best-effort, time-of-call convenience for the
-	// (contractually single-threaded) caller; it is not the authoritative ordering guard, since concurrent
-	// callers could still reorder records past it. The writer goroutine holds the authoritative check.
-	appendMu sync.Mutex
 	// The index of the most recently appended record.
 	lastAppendIndex uint64
+
 	// Whether any record has been appended (this session or recovered from disk).
 	hasAppended bool
 
@@ -272,15 +268,12 @@ func (w *walImpl) Append(index uint64, data []byte) error {
 		return fmt.Errorf("WAL failed: %w", err)
 	}
 
-	w.appendMu.Lock()
 	if w.hasAppended && index <= w.lastAppendIndex {
-		last := w.lastAppendIndex
-		w.appendMu.Unlock()
-		return fmt.Errorf("append rejected: index %d is not greater than last appended index %d", index, last)
+		return fmt.Errorf(
+			"append rejected: index %d is not greater than last appended index %d", index, w.lastAppendIndex)
 	}
 	w.lastAppendIndex = index
 	w.hasAppended = true
-	w.appendMu.Unlock()
 
 	record := frameRecord(index, data)
 	if err := w.sendToWriter(dataToBeWritten{record: record, index: index}); err != nil {
@@ -556,8 +549,8 @@ func (w *walImpl) startIterator(startIndex uint64) iteratorStartResponse {
 		})
 	}
 
-	pinned := w.pinLowestReadableIndex(startIndex)
-	it := newWalIterator(w, startIndex, pinned, files, w.config.IteratorPrefetchSize)
+	pinned, hasPin := w.pinLowestReadableIndex(startIndex)
+	it := newWalIterator(w, startIndex, pinned, hasPin, files, w.config.IteratorPrefetchSize)
 	return iteratorStartResponse{iterator: it}
 }
 
@@ -575,18 +568,20 @@ func (w *walImpl) sealForIterator() error {
 	return nil
 }
 
-// pinLowestReadableIndex records a read lease and returns the pinned index. An iterator reads records at or
-// above startIndex but never below the oldest record actually stored, so the lease is clamped up to that: a
-// stale low start must not pin files that no longer exist (or wedge pruning forever). Clamping to the oldest
-// stored index also establishes the invariant pruneSealedFiles relies on: a reservation never falls below the
-// lowest stored index, so a file entirely below the lowest reservation is one every iterator has moved past.
-func (w *walImpl) pinLowestReadableIndex(startIndex uint64) uint64 {
-	pinned := startIndex
-	if r := w.bounds(); r.ok && r.first > pinned {
-		pinned = r.first
+// pinLowestReadableIndex records a read lease at index, clamped up to the oldest stored index so no reservation
+// ever falls below it (the invariant pruneSealedFiles relies on). pinned is false when nothing is stored, in
+// which case no lease is registered and the caller must not release index.
+func (w *walImpl) pinLowestReadableIndex(startIndex uint64) (index uint64, pinned bool) {
+	r := w.bounds()
+	if !r.ok {
+		return 0, false
 	}
-	w.indexRefs[pinned]++
-	return pinned
+	index = startIndex
+	if r.first > index {
+		index = r.first
+	}
+	w.indexRefs[index]++
+	return index, true
 }
 
 // releaseIndex drops one reference to a leased index, forgetting it once the count reaches zero.

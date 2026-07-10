@@ -432,6 +432,77 @@ func TestPrunePastAllRecordsEmptiesRange(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestIteratorOnEmptyWALDoesNotBlockPruning covers an iterator created over a fresh, empty WAL: its file
+// snapshot is empty, so it protects nothing and must register no read lease. If it did (pinning the raw
+// startIndex 0), that reservation would sit below every future record and wedge all pruning while the iterator
+// stayed open. Here the iterator is deliberately held open across later appends and a prune, and pruning must
+// still make progress.
+func TestIteratorOnEmptyWALDoesNotBlockPruning(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+	cfg.TargetFileSize = 1 // one record per sealed file, so pruning works file-by-file
+
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+
+	// Create the iterator while the WAL is empty and hold it open (never closed until the end).
+	it, err := w.Iterator(0)
+	require.NoError(t, err)
+	ok, err := it.Next()
+	require.NoError(t, err)
+	require.False(t, ok, "an iterator over an empty WAL yields no records")
+
+	for index := uint64(1); index <= 10; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Flush())
+
+	require.NoError(t, w.Prune(5))
+	stored, first, last, err := w.Bounds()
+	require.NoError(t, err)
+	require.True(t, stored)
+	require.Equal(t, uint64(5), first, "the empty-snapshot iterator must not pin index 0 and block pruning")
+	require.Equal(t, uint64(10), last)
+
+	require.NoError(t, it.Close())
+}
+
+// TestEmptyWALIteratorCloseDoesNotReleaseAnotherLease guards the release path for the empty-snapshot iterator:
+// because it registers no lease, its Close must not decrement indexRefs, or it could release a lease another
+// iterator legitimately holds at the same index (index 0 is a valid start). Here a live iterator pins index 0;
+// closing the empty-WAL iterator must leave that lease intact so index 0's file survives pruning.
+func TestEmptyWALIteratorCloseDoesNotReleaseAnotherLease(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+	cfg.TargetFileSize = 1 // one record per sealed file
+
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+
+	// Created while empty: no lease registered.
+	empty, err := w.Iterator(0)
+	require.NoError(t, err)
+
+	for index := uint64(0); index <= 9; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Flush())
+
+	// Created after data exists: this one legitimately pins index 0.
+	pinned, err := w.Iterator(0)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pinned.Close()) }()
+
+	// Closing the empty-snapshot iterator must not disturb the live lease at index 0.
+	require.NoError(t, empty.Close())
+
+	require.NoError(t, w.Prune(100))
+	stored, first, _, err := w.Bounds()
+	require.NoError(t, err)
+	require.True(t, stored, "the live lease at index 0 must keep records from being fully pruned")
+	require.Equal(t, uint64(0), first, "closing the empty-WAL iterator must not release the other iterator's lease")
+}
+
 func TestActiveIteratorBlocksPruningOfNeededFiles(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)

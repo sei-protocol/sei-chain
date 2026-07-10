@@ -43,8 +43,13 @@ type walIterator struct {
 	// The lowest index the consumer asked for; records below it are skipped.
 	start uint64
 
-	// The index pinned as this iterator's read lease, released on Close.
+	// The index pinned as this iterator's read lease, released on Close. Only meaningful when hasPin is true.
 	pinnedIndex uint64
+
+	// Whether a read lease was registered for this iterator. False when the iterator was created over an empty
+	// file snapshot (nothing to protect from pruning); Close then skips the release so it cannot decrement a
+	// lease another iterator holds at the same index.
+	hasPin bool
 
 	// Records produced by the reader goroutine. Closed by the reader on clean EOF.
 	results chan iteratorResult
@@ -80,13 +85,15 @@ type walIterator struct {
 }
 
 // newWalIterator creates an iterator over wal starting at startIndex and launches its reader goroutine.
-// pinnedIndex is the read lease registered on the iterator's behalf, released by Close. files is the snapshot
-// of files to read (captured on the writer goroutine). prefetch is the number of records the reader may buffer
-// ahead of the consumer.
+// pinnedIndex is the read lease registered on the iterator's behalf, released by Close; hasPin reports whether
+// a lease was actually registered (false for an empty file snapshot, in which case Close registers no release).
+// files is the snapshot of files to read (captured on the writer goroutine). prefetch is the number of records
+// the reader may buffer ahead of the consumer.
 func newWalIterator(
 	wal *walImpl,
 	startIndex uint64,
 	pinnedIndex uint64,
+	hasPin bool,
 	files []iteratorFile,
 	prefetch uint,
 ) *walIterator {
@@ -94,6 +101,7 @@ func newWalIterator(
 		wal:          wal,
 		start:        startIndex,
 		pinnedIndex:  pinnedIndex,
+		hasPin:       hasPin,
 		results:      make(chan iteratorResult, prefetch),
 		stop:         make(chan struct{}),
 		readerExited: make(chan struct{}),
@@ -150,7 +158,9 @@ func (it *walIterator) Close() error {
 	it.closeOnce.Do(func() {
 		close(it.stop)    // tell the reader to stop if it is mid-read
 		<-it.readerExited // wait for it to actually exit before releasing resources
-		it.wal.unpinIndex(it.pinnedIndex)
+		if it.hasPin {
+			it.wal.unpinIndex(it.pinnedIndex)
+		}
 	})
 	it.done = true
 	return nil
