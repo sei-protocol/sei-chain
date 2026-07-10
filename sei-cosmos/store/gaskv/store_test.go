@@ -3,6 +3,7 @@ package gaskv_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
@@ -16,6 +17,30 @@ func bz(s string) []byte { return []byte(s) }
 
 func keyFmt(i int) []byte { return bz(fmt.Sprintf("key%0.8d", i)) }
 func valFmt(i int) []byte { return bz(fmt.Sprintf("value%0.8d", i)) }
+
+type recordingTracer struct {
+	nextID       int
+	iteratorKeys map[int][][]byte
+}
+
+func newRecordingTracer() *recordingTracer {
+	return &recordingTracer{iteratorKeys: map[int][][]byte{}}
+}
+
+func (r *recordingTracer) Get([]byte, []byte, string, time.Duration)     {}
+func (r *recordingTracer) Has([]byte, string, time.Duration)             {}
+func (r *recordingTracer) Set([]byte, []byte, string, time.Duration)     {}
+func (r *recordingTracer) Delete([]byte, string, time.Duration)          {}
+func (r *recordingTracer) DerivePrestateToJson() []byte                  { return nil }
+func (r *recordingTracer) Clear()                                        {}
+func (r *recordingTracer) RecordIteratorNext(int, string, time.Duration) {}
+func (r *recordingTracer) StartIterator([]byte, []byte, bool, string, time.Duration) int {
+	r.nextID++
+	return r.nextID
+}
+func (r *recordingTracer) RecordIteratorValue(iteratorID int, key []byte, _ []byte, _ string) {
+	r.iteratorKeys[iteratorID] = append(r.iteratorKeys[iteratorID], append([]byte(nil), key...))
+}
 
 func TestGasKVStoreBasic(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
@@ -120,4 +145,26 @@ func TestGasKVStoreOutOfGasIterator(t *testing.T) {
 	iterator := st.Iterator(nil, nil)
 	iterator.Next()
 	require.Panics(t, func() { iterator.Value() }, "Expected out-of-gas")
+}
+
+func TestGasKVStoreIteratorTracing(t *testing.T) {
+	mem := dbadapter.Store{DB: dbm.NewMemDB()}
+	meter := types.NewMultiplierGasMeter(100000, 1, 1)
+	tracer := newRecordingTracer()
+	st := gaskv.NewStore(mem, meter, types.KVGasConfig(), "", tracer)
+
+	st.Set(keyFmt(1), valFmt(1))
+	st.Set(keyFmt(2), valFmt(2))
+
+	iterator := st.Iterator(nil, nil)
+	defer func() { require.NoError(t, iterator.Close()) }()
+
+	require.Equal(t, keyFmt(1), iterator.Key())
+	require.Equal(t, valFmt(1), iterator.Value())
+	iterator.Next()
+	require.Equal(t, keyFmt(2), iterator.Key())
+	require.Equal(t, valFmt(2), iterator.Value())
+
+	require.Len(t, tracer.iteratorKeys, 1)
+	require.Equal(t, [][]byte{keyFmt(1), keyFmt(2)}, tracer.iteratorKeys[1])
 }
