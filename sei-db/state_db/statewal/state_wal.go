@@ -44,8 +44,8 @@ type StateWAL interface {
 	// crash durable.
 	SignalEndOfBlock() error
 
-	// Flush the WAL to disk. All data previously passed to Write() before this call will be crash durable
-	// after this call returns.
+	// Flush the WAL to disk. Only completed blocks — those for which SignalEndOfBlock has been called — are
+	// made crash durable; changes for a block that has not yet been ended remain buffered and are not flushed.
 	Flush() error
 
 	// Get the range of block numbers stored in the WAL.
