@@ -56,7 +56,7 @@ type ScanLease struct {
 
 // Visit records that the search has walked n more index entries and charges
 // them to the shared budget. It returns ErrScanBudgetExceeded once the
-// aggregate in-flight charge exceeds the budget's ceiling
+// aggregate in-flight charge exceeds the budget's ceiling.
 func (l *ScanLease) Visit(n int64) error {
 	if l == nil || l.budget == nil || l.budget.max <= 0 || n == 0 {
 		return nil

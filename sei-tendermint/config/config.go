@@ -540,8 +540,8 @@ type RPCConfig struct {
 	// Maximum number of KV index entries that all in-flight tx_search and
 	// block_search requests may visit at once. This is a process-wide safety
 	// cap that bounds peak memory (and scan CPU) under broad or highly
-	// concurrent search load: it is shared across requests, not applied
-	// per-query 0 disables the cap (not recommended on public nodes).
+	// concurrent search load: it is shared across requests, not applied per-query.
+	// 0 disables the cap (not recommended on public nodes).
 	MaxSearchScanBudget int `mapstructure:"max-search-scan-budget"`
 }
 
