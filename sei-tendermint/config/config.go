@@ -577,7 +577,7 @@ func DefaultRPCConfig() *RPCConfig {
 		TimeoutWrite:      30 * time.Second,
 
 		MaxTxSearchResults:  10_000,
-		MaxSearchScanBudget: 2_000_000,
+		MaxSearchScanBudget: 100_000,
 	}
 }
 
