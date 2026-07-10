@@ -253,6 +253,39 @@ func TestFlushIOFailureBricksWAL(t *testing.T) {
 	require.Error(t, impl.asyncError())
 }
 
+// TestIteratorRotateFailureBricksWAL verifies that when the rotation performed during iterator creation fails
+// at opening the fresh mutable file (after the current file was already sealed), the WAL bricks itself rather
+// than limping on with an inconsistent mutable file and later staging a phantom sealed entry.
+func TestIteratorRotateFailureBricksWAL(t *testing.T) {
+	dir := t.TempDir()
+	w := openWAL(t, testConfig(dir))
+
+	impl, ok := w.(*walImpl)
+	require.True(t, ok)
+
+	require.NoError(t, w.Append(1, recordPayload(1)))
+	require.NoError(t, w.Flush())
+
+	// Make the rotation's newWalFile step fail while its seal step still succeeds: occupy the exact path the
+	// next mutable file wants (fileSeq 1 -> "1.wal.u") with a directory, so os.Create there fails with EISDIR.
+	// The seal renames the current file to "0-1-1.wal", unaffected by this blocker.
+	blocker := filepath.Join(dir, unsealedFileName(1))
+	require.NoError(t, os.Mkdir(blocker, 0o755))
+
+	_, err := w.Iterator(1)
+	require.Error(t, err, "iterator creation must surface the rotation failure")
+
+	select {
+	case <-impl.ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("WAL did not brick after rotation failure during iterator creation")
+	}
+
+	require.Error(t, w.Append(2, recordPayload(2)), "appends must fail on a bricked WAL")
+	require.Error(t, w.Close(), "Close must surface the fatal error")
+	require.Error(t, impl.asyncError())
+}
+
 func TestOrphanFileRecovery(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)

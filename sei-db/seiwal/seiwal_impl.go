@@ -428,7 +428,12 @@ func (w *walImpl) writerLoop() {
 				return
 			}
 		case iteratorStartRequest:
-			m.reply <- w.startIterator(m.startIndex)
+			resp := w.startIterator(m.startIndex)
+			m.reply <- resp
+			if resp.err != nil {
+				w.fail(resp.err)
+				return
+			}
 		case unpinRequest:
 			w.releaseIndex(m.index)
 		case closeRequest:
