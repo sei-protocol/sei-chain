@@ -9,6 +9,12 @@ import (
 //
 // A StateWAL is not safe for concurrent use. Callers must serialize their calls to a single instance;
 // in particular Write and SignalEndOfBlock share write-ordering state that is not internally locked.
+//
+// Slices are not copied at the call boundary. Changesets passed to Write — and every byte slice reachable
+// through them — must not be modified after the call: the WAL retains them and serializes them
+// asynchronously, so mutating them races the WAL and can corrupt what is persisted. Likewise the changesets
+// returned by the iterator are owned by the WAL and must be treated as read-only. Callers that need to
+// mutate such data must copy it first.
 type StateWAL interface {
 
 	// Write a set of changes to the WAL.

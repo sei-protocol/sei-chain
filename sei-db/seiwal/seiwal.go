@@ -9,6 +9,12 @@ package seiwal
 // A WAL instance is not safe for concurrent use: its methods must not be called from multiple
 // goroutines simultaneously. Callers that share a WAL across goroutines must serialize access
 // themselves.
+//
+// Slices are not copied at the call boundary. Any slice passed into a WAL method — the payload and every
+// slice reachable through it — must not be modified after the call: the WAL may retain it and read it
+// asynchronously, so mutating it races the WAL and can corrupt what is persisted. Likewise every slice
+// returned from a WAL or its iterator is owned by the WAL and must be treated as read-only. Callers that
+// need to mutate such data must copy it first.
 type WAL[T any] interface {
 
 	// Append a record with the given index and payload.
@@ -18,6 +24,10 @@ type WAL[T any] interface {
 	//
 	// This method only schedules the append; it does not block until the record is durable. Durability is
 	// achieved by a subsequent Flush.
+	//
+	// data, and every slice reachable through it, must not be modified after this call: the payload may be
+	// retained and serialized asynchronously, so mutating it races the WAL and can corrupt what is
+	// persisted. Callers that need to reuse or mutate the buffer must copy it first.
 	Append(index uint64, data T) error
 
 	// Flush blocks until all previously scheduled appends are durable.
@@ -61,6 +71,9 @@ type WAL[T any] interface {
 // An Iterator is single-consumer and not safe for concurrent use: all of its methods, including Close, must
 // be called from a single goroutine (or with external serialization). In particular, Close must not be
 // called concurrently with Next from another goroutine.
+//
+// Every payload returned by an Iterator — and every slice reachable through it — is owned by the WAL and
+// must be treated as read-only. Callers that need to retain or mutate the data must copy it first.
 type Iterator[T any] interface {
 	// Next advances the iterator to the next record. It returns false when iteration is complete (no more
 	// records), and returns an error if advancing failed. After Next returns (false, nil), iteration is
