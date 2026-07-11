@@ -39,6 +39,12 @@ get_from_seq() {
   echo "$s"
 }
 
+get_latest_height() {
+  local h
+  h=$(docker exec "$CONTAINER" curl -s http://localhost:26657/status 2>/dev/null | jq -r '.result.sync_info.latest_block_height // "0"' 2>/dev/null) || true
+  echo "${h:-0}"
+}
+
 # Wait until $FROM_ADDR's sequence advances past $1, with a 5s timeout.
 # Direct causal "previous tx committed" signal: the sender's sequence
 # advances atomically when its tx is included in a block, so by the
@@ -57,7 +63,39 @@ wait_from_seq_advance() {
   done
 }
 
+wait_until_height_exceeds() {
+  local prev="$1"
+  local deadline=$(($(date +%s) + 15))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    local cur; cur=$(get_latest_height)
+    if [[ "$cur" =~ ^[0-9]+$ ]] && [ "$cur" -gt "$prev" ]; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "timed out waiting for height to exceed ${prev}" >&2
+  return 1
+}
+
+bump_chain_to_height() {
+  local target="$1"
+  local height; height=$(get_latest_height)
+  while [[ "$height" =~ ^[0-9]+$ ]] && [ "$height" -lt "$target" ]; do
+    local seq_before; seq_before=$(get_from_seq)
+    local prev_height="$height"
+    run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y >/dev/null
+    wait_from_seq_advance "$seq_before"
+    wait_until_height_exceeds "$prev_height"
+    height=$(get_latest_height)
+  done
+}
+
 # Seed chain with block/tx/contract; export SEI_EVM_IO_SEED_BLOCK so .iox __SEED__ tag resolves to deploy block.
+# Static .io fixtures contain hard-coded historical block numbers up to 0x2d.
+# Under Autobahn without empty blocks, create enough real blocks first so those
+# requests stay within the available history.
+bump_chain_to_height 100
+
 # CLI deploy expects hex file with no whitespace; write trimmed hex to a temp path in the container.
 docker exec "$CONTAINER" /bin/bash -c "tr -d '[:space:]' < \"$CONTRACT_HEX\" > /tmp/minimal_contract.hex"
 # Use -b sync (not -b block): under Autobahn the cosmos KV indexer that

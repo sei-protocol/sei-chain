@@ -198,14 +198,14 @@ describe("EVM Test", function () {
         };
         const result = await ethers.provider.call(tx);
 
-        // wait for block to change
-        while(true){
-          const bn = await ethers.provider.getBlockNumber();
-          if(bn !== currentBlockNumber){
-                break
-          }
-          await sleep(100)
-        }
+        // Force a real block instead of waiting for idle block production.
+        const advanceTx = await owner.sendTransaction({
+          to: owner.address,
+          value: 1n,
+          gasPrice: ethers.parseUnits('100', 'gwei'),
+        });
+        await advanceTx.wait();
+
         const result2 = await ethers.provider.call(tx);
         expect(result).to.equal(result2)
       });
