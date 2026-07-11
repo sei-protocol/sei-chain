@@ -77,6 +77,7 @@ func TestRPCConfigValidateBasic(t *testing.T) {
 		"TimeoutReadHeader",
 		"TimeoutWrite",
 		"MaxTxSearchResults",
+		"MaxSearchScanBudget",
 	}
 
 	for _, fieldName := range fieldsToTest {

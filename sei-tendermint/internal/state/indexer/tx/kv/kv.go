@@ -3,6 +3,7 @@ package kv
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -681,7 +682,7 @@ func (txi *TxIndex) match(
 			return nil, err
 		}
 	default:
-		return nil, fmt.Errorf("other operators should be handled already")
+		return nil, errors.New("other operators should be handled already")
 	}
 
 	if len(tmpHashes) == 0 || firstRun {
