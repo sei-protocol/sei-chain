@@ -54,14 +54,9 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 		}
 	}
 
-	checkHeader := initHeader
-	if checkHeader.Height == 0 {
-		checkHeader.Height = 1
-	}
-
 	// initialize the deliver state and check state with a correct header
 	app.setDeliverState(initHeader)
-	app.setCheckState(checkHeader)
+	app.setCheckState(initHeader)
 	app.setProcessProposalState(initHeader)
 
 	// Store the consensus params in the BaseApp's paramstore. Note, this must be
@@ -86,6 +81,12 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	// check state branch. Running it in CheckTx mode enables mempool-only fee
 	// checks and can reject valid genesis txs.
 	app.initChainer(app.checkState.ctx.WithIsCheckTx(false), *req)
+
+	// After genesis initialization completes, CheckTx should use the first
+	// executable block height rather than height 0.
+	if initHeader.Height == 0 {
+		app.checkState.SetContext(app.checkState.ctx.WithBlockHeight(1))
+	}
 
 	// In the case of a new chain, AppHash will be the hash of an empty string.
 	// During an upgrade, it'll be the hash of the last committed block.

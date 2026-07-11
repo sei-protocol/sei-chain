@@ -168,17 +168,18 @@ func TestCreateQueryContextUsesCheckStateBeforeFirstCommit(t *testing.T) {
 	t.Parallel()
 
 	capKey := sdk.NewKVStoreKey("genesis")
-	app := newBaseApp(t.Name())
+	key := []byte("hello")
+	value := []byte("world")
+	initChainerOpt := func(bapp *BaseApp) {
+		bapp.SetInitChainer(func(ctx sdk.Context, _ abci.RequestInitChain) abci.ResponseInitChain {
+			ctx.KVStore(capKey).Set(key, value)
+			return abci.ResponseInitChain{}
+		})
+	}
+	app := newBaseApp(t.Name(), initChainerOpt)
 	app.MountStores(capKey1, capKey2, capKey)
 	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
 	require.NoError(t, app.LoadLatestVersion())
-
-	key := []byte("hello")
-	value := []byte("world")
-	app.SetInitChainer(func(ctx sdk.Context, _ abci.RequestInitChain) abci.ResponseInitChain {
-		ctx.KVStore(capKey).Set(key, value)
-		return abci.ResponseInitChain{}
-	})
 
 	_, err := app.InitChain(context.Background(), &abci.RequestInitChain{ChainId: "sei"})
 	require.NoError(t, err)
