@@ -714,7 +714,6 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 				"failed to load state at height %d; %s (latest height: %d)", height, err, lastBlockHeight,
 			)
 	}
-
 	checkStateCtx := app.checkState.Context()
 	// branch the commit-multistore for safety
 	ctx := sdk.NewContext(

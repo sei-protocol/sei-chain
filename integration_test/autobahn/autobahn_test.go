@@ -77,6 +77,7 @@ const (
 	haltStableTimeout = 2 * time.Minute
 	heightAdvanceMax  = 90 * time.Second
 	txFinalizeMax     = 30 * time.Second
+	testRecipientEVM  = "0x1000000000000000000000000000000000000001"
 )
 
 var (
@@ -238,106 +239,111 @@ func dockerExecAllowFail(container, script string) {
 	_ = exec.Command("docker", "exec", container, "sh", "-c", script).Run()
 }
 
-func createRecipient(t *testing.T, container, name string) string {
+func parseTxHash(t *testing.T, output string) string {
 	t.Helper()
-	createOut := dockerExec(t, container,
-		fmt.Sprintf("printf '12345678\\n12345678\\n' | seid keys add %s --output json 2>/dev/null", name))
-	var key struct {
-		Address string `json:"address"`
+	for _, line := range strings.Split(output, "\n") {
+		if hash, ok := strings.CutPrefix(strings.TrimSpace(line), "Transaction hash: "); ok {
+			return strings.TrimSpace(hash)
+		}
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(createOut)), &key); err != nil {
-		t.Fatalf("parse recipient address: %v\noutput: %s", err, createOut)
-	}
-	return key.Address
+	t.Fatalf("transaction hash not found in output:\n%s", output)
+	return ""
 }
 
-func waitForRecipientBalance(t *testing.T, container, address, want string, timeout time.Duration) {
+func waitForReceiptBlockNumber(t *testing.T, txHash string, timeout time.Duration) int64 {
 	t.Helper()
-	queryCmd := fmt.Sprintf("seid q bank balances %s --denom usei --output json 2>/dev/null", address)
 	deadline := time.Now().Add(timeout)
-	var balance string
 	for time.Now().Before(deadline) {
-		out, _ := exec.Command("docker", "exec", container, "sh", "-c", queryCmd).Output()
-		var b struct {
-			Amount string `json:"amount"`
+		resp, err := evmRPCInContainer(fullnodeContainer, "eth_getTransactionReceipt", []any{txHash})
+		if err != nil {
+			time.Sleep(heightPoll)
+			continue
 		}
-		if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &b); err == nil {
-			balance = b.Amount
-			if balance == want {
-				return
-			}
+		if resp.Error != nil {
+			t.Fatalf("eth_getTransactionReceipt(%s): code=%d message=%s", txHash, resp.Error.Code, resp.Error.Message)
 		}
-		time.Sleep(heightPoll)
+		if string(resp.Result) == "null" || len(resp.Result) == 0 {
+			time.Sleep(heightPoll)
+			continue
+		}
+
+		var receipt struct {
+			BlockNumber string `json:"blockNumber"`
+			Status      string `json:"status"`
+		}
+		if err := json.Unmarshal(resp.Result, &receipt); err != nil {
+			t.Fatalf("decode receipt for %s: %v\nbody: %s", txHash, err, resp.Result)
+		}
+		if receipt.Status != "" && receipt.Status != "0x1" {
+			t.Fatalf("tx %s reverted with status %s", txHash, receipt.Status)
+		}
+		if receipt.BlockNumber == "" {
+			time.Sleep(heightPoll)
+			continue
+		}
+
+		var height int64
+		if _, err := fmt.Sscanf(receipt.BlockNumber, "0x%x", &height); err != nil {
+			t.Fatalf("parse receipt block number %q for %s: %v", receipt.BlockNumber, txHash, err)
+		}
+		return height
 	}
-	t.Fatalf("expected balance %s for %s, got %s", want, address, balance)
+	t.Fatalf("receipt for %s not observed within %s", txHash, timeout)
+	return 0
 }
 
-func sendBankTxAndWait(t *testing.T, container string) int64 {
+func evmBalanceHex(t *testing.T, address string) string {
 	t.Helper()
-	recipientName := fmt.Sprintf("autobahn_recipient_%d", time.Now().UnixNano())
-	recipientAddr := createRecipient(t, container, recipientName)
-	baseHeight := currentHeight(t)
-
-	var sendCmd string
-	if baseHeight == 0 {
-		sendCmd = fmt.Sprintf(
-			"recipient=%s; "+
-				"printf '12345678\\n' | seid tx bank send node_admin \"$recipient\" 1000000usei "+
-				"--chain-id sei --fees 2000usei --generate-only --output json > /tmp/autobahn_unsigned.json && "+
-				"printf '12345678\\n' | seid tx sign /tmp/autobahn_unsigned.json --from node_admin "+
-				"--chain-id sei --offline --account-number 0 --sequence 0 --output json > /tmp/autobahn_signed.json && "+
-				"seid tx broadcast /tmp/autobahn_signed.json -b sync --output json",
-			recipientAddr,
-		)
-	} else {
-		sendCmd = fmt.Sprintf(
-			"printf '12345678\\n' | seid tx bank send node_admin %s 1000000usei "+
-				"--chain-id sei --fees 2000usei -b sync -y --output json",
-			recipientAddr,
-		)
+	resp, err := evmRPCInContainer(fullnodeContainer, "eth_getBalance", []any{address, "latest"})
+	if err != nil {
+		t.Fatalf("eth_getBalance(%s): %v", address, err)
 	}
-
-	sendOut := dockerExec(t, container, sendCmd)
-	var resp struct {
-		Code   int    `json:"code"`
-		RawLog string `json:"raw_log"`
+	if resp.Error != nil {
+		t.Fatalf("eth_getBalance(%s): code=%d message=%s", address, resp.Error.Code, resp.Error.Message)
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(sendOut)), &resp); err != nil {
-		t.Fatalf("parse send response: %v\noutput: %s", err, sendOut)
+	var balance string
+	if err := json.Unmarshal(resp.Result, &balance); err != nil {
+		t.Fatalf("decode balance for %s: %v\nbody: %s", address, err, resp.Result)
 	}
-	if resp.Code != 0 {
-		t.Fatalf("send tx rejected: code=%d raw_log=%s", resp.Code, resp.RawLog)
-	}
-
-	height := waitForHeightAdvance(t, baseHeight, heightAdvanceMax)
-	waitForRecipientBalance(t, container, recipientAddr, "1000000", txFinalizeMax)
-	return height
+	return balance
 }
 
-func sendBankTxExpectNoInclusion(t *testing.T, container string, baseHeight int64, timeout time.Duration) {
+func sendEvmTx(t *testing.T, container string) string {
 	t.Helper()
-	recipientName := fmt.Sprintf("autobahn_halt_recipient_%d", time.Now().UnixNano())
-	recipientAddr := createRecipient(t, container, recipientName)
-	sendCmd := fmt.Sprintf(
-		"printf '12345678\\n' | seid tx bank send node_admin %s 1000000usei "+
-			"--chain-id sei --fees 2000usei -b sync -y --output json",
-		recipientAddr,
+	sendOut := dockerExec(t, container,
+		fmt.Sprintf(
+			"printf '12345678\\n' | seid tx evm send %s 1 --from node_admin --chain-id sei --evm-rpc %s -b sync -y 2>/dev/null",
+			testRecipientEVM, evmRPCURLOnContainerLocalhost,
+		),
 	)
-	sendOut := dockerExec(t, container, sendCmd)
-	var resp struct {
-		Code   int    `json:"code"`
-		RawLog string `json:"raw_log"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(sendOut)), &resp); err != nil {
-		t.Fatalf("parse send response: %v\noutput: %s", err, sendOut)
-	}
-	if resp.Code != 0 {
-		t.Fatalf("send tx rejected during halt check: code=%d raw_log=%s", resp.Code, resp.RawLog)
-	}
+	return parseTxHash(t, sendOut)
+}
 
+func sendEvmTxAndWait(t *testing.T, container string) int64 {
+	t.Helper()
+	baseHeight := currentHeight(t)
+	txHash := sendEvmTx(t, container)
+	receiptHeight := waitForReceiptBlockNumber(t, txHash, txFinalizeMax)
+	if receiptHeight <= baseHeight {
+		t.Fatalf("expected tx %s to land after height %d, got receipt at %d", txHash, baseHeight, receiptHeight)
+	}
+	waitedHeight := waitForHeightAdvance(t, baseHeight, heightAdvanceMax)
+	if waitedHeight != receiptHeight {
+		t.Logf("height watcher observed %d while receipt reported %d", waitedHeight, receiptHeight)
+	}
+	return receiptHeight
+}
+
+func sendEvmTxExpectNoInclusion(t *testing.T, container string, baseHeight int64, timeout time.Duration) {
+	t.Helper()
+	txHash := sendEvmTx(t, container)
 	deadline := time.Now().Add(timeout)
 	last := baseHeight
 	for time.Now().Before(deadline) {
+		resp, err := evmRPCInContainer(fullnodeContainer, "eth_getTransactionReceipt", []any{txHash})
+		if err == nil && resp != nil && resp.Error == nil && string(resp.Result) != "null" && len(resp.Result) > 0 {
+			t.Fatalf("expected no inclusion after quorum loss, but tx %s received receipt %s", txHash, resp.Result)
+		}
 		h := currentHeight(t)
 		if h > baseHeight {
 			t.Fatalf("expected no inclusion after quorum loss, but height advanced from %d to %d", baseHeight, h)
@@ -595,7 +601,7 @@ func TestAutobahn(t *testing.T) {
 	t.Logf("cluster size = %d, max tolerated faults = %d (assuming equal weights)", clusterSize, maxFaults)
 
 	t.Run("BlockProduction", testBlockProduction)
-	t.Run("BankTransfer", testBankTransfer)
+	t.Run("EVMTransfer", testEVMTransfer)
 	t.Run("LivenessUnderMaxFaults", testLivenessUnderMaxFaults)
 	t.Run("HaltsBeyondMaxFaults", testHaltsBeyondMaxFaults)
 	t.Run("Recovery", testRecovery)
@@ -654,7 +660,7 @@ func testRecovery(t *testing.T) {
 
 	// A committed tx is the liveness signal here: once quorum is restored,
 	// a new tx should finalize and advance height.
-	hAfter := sendBankTxAndWait(t, "sei-node-0")
+	hAfter := sendEvmTxAndWait(t, "sei-node-0")
 	if hAfter <= hBefore {
 		t.Fatalf("expected committed tx after recovery to advance height past %d, got %d", hBefore, hAfter)
 	}
@@ -669,8 +675,8 @@ func testRecovery(t *testing.T) {
 
 func testBlockProduction(t *testing.T) {
 	assertAutobahnEnabled(t)
-	h := sendBankTxAndWait(t, "sei-node-0")
-	t.Logf("height after committed tx: %d", h)
+	h := sendEvmTxAndWait(t, "sei-node-0")
+	t.Logf("height after committed evm tx: %d", h)
 
 	// Verify the Autobahn-routed tmRPC handlers serve real data at h (a
 	// recently committed height — past tail of the chain, so historical
@@ -779,11 +785,15 @@ func fetchTmRPC[T any](t *testing.T, url string, into *T) {
 	}
 }
 
-func testBankTransfer(t *testing.T) {
+func testEVMTransfer(t *testing.T) {
 	assertAutobahnEnabled(t)
-
-	h := sendBankTxAndWait(t, "sei-node-0")
-	t.Logf("bank transfer committed at height %d", h)
+	before := evmBalanceHex(t, testRecipientEVM)
+	h := sendEvmTxAndWait(t, "sei-node-0")
+	after := evmBalanceHex(t, testRecipientEVM)
+	if before == after {
+		t.Fatalf("expected recipient %s balance to change after evm tx at height %d", testRecipientEVM, h)
+	}
+	t.Logf("evm transfer committed at height %d (balance %s -> %s)", h, before, after)
 }
 
 // killNode kills seid inside sei-node-<i> via pkill. Tolerates non-zero exit
@@ -809,7 +819,7 @@ func testLivenessUnderMaxFaults(t *testing.T) {
 	for i := 0; i < maxFaults; i++ {
 		killNode(t, clusterSize-1-i)
 	}
-	hAfter := sendBankTxAndWait(t, "sei-node-0")
+	hAfter := sendEvmTxAndWait(t, "sei-node-0")
 	if hAfter <= hBefore {
 		t.Fatalf("expected committed tx with %d faults to advance height past %d, got %d", maxFaults, hBefore, hAfter)
 	}
@@ -831,5 +841,5 @@ func testHaltsBeyondMaxFaults(t *testing.T) {
 	killNode(t, clusterSize-1-maxFaults)
 	hBefore := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
 	t.Logf("height: %d (expecting halt)", hBefore)
-	sendBankTxExpectNoInclusion(t, "sei-node-0", hBefore, haltStableWindow)
+	sendEvmTxExpectNoInclusion(t, "sei-node-0", hBefore, haltStableWindow)
 }
