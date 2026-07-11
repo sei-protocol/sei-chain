@@ -2,7 +2,12 @@ Within sei-tendermint subdirectory
 * sei-tendermint is a root of the go module, but it is not the root of the repo. When refactoring check references across of the whole repo.
 * use sei-tendermint/libs/utils.Option for optional values, passing nil as function value is not allowed,
     unless explicitly documented (except for maps and slices, for which nil is a valid empty value).
-* use sei-tendermint/libs/utils/scope.Run for structured concurrency (instead of waitgroup)
+* use utils.Recv/utils.Send instead of select { case <-ctx.Done(); ... }
+* use sei-tendermint/libs/utils/scope.Run for structured concurrency (instead of waitgroup).
+    * Don't spawn goroutines with plain "go func(){...}"
+    * using testing.T assertions (inclusing those from "require" library) is not allowed from non-main test goroutine.
+      In particular it is not allowed in Scope.Run() and goroutines spawned via Scope.Spawn (and related ones). On assertion error, return an error
+      or panic directly. If you are unsure if a test helper would be called from non-main test goroutine, dont use testing.T assertions.
 * use new golang features wherever possible, which is at least 1.25. In particular:
     * modern range iteration ("for range N", to iterate N times)
     * avoid capturing loop iterators ("tc := tc" is not needed)
