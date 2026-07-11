@@ -45,10 +45,10 @@ func (loadedGlobalBlockCodec) Unmarshal(raw []byte) (LoadedGlobalBlock, error) {
 
 // globalBlockState is the mutable state protected by GlobalBlockPersister's mutex.
 type globalBlockState struct {
-	iw        utils.Option[*indexedWAL[LoadedGlobalBlock]]
-	committee *types.Committee
-	next      types.GlobalBlockNumber
-	loaded    []LoadedGlobalBlock
+	iw         utils.Option[*indexedWAL[LoadedGlobalBlock]]
+	firstBlock types.GlobalBlockNumber
+	next       types.GlobalBlockNumber
+	loaded     []LoadedGlobalBlock
 }
 
 func (s *globalBlockState) persistBlock(n types.GlobalBlockNumber, block *types.Block) error {
@@ -105,10 +105,10 @@ type GlobalBlockPersister struct {
 // NewGlobalBlockPersister opens (or creates) a WAL in the globalblocks/ subdir
 // and replays all persisted entries. Loaded blocks are available via
 // ConsumeLoaded. When stateDir is None, returns a no-op persister.
-func NewGlobalBlockPersister(stateDir utils.Option[string], committee *types.Committee) (*GlobalBlockPersister, error) {
+func NewGlobalBlockPersister(stateDir utils.Option[string], firstBlock types.GlobalBlockNumber) (*GlobalBlockPersister, error) {
 	sd, ok := stateDir.Get()
 	if !ok {
-		return &GlobalBlockPersister{state: utils.NewMutex(&globalBlockState{committee: committee, next: committee.FirstBlock()})}, nil
+		return &GlobalBlockPersister{state: utils.NewMutex(&globalBlockState{firstBlock: firstBlock, next: firstBlock})}, nil
 	}
 	dir := filepath.Join(sd, globalBlocksDir)
 	iw, err := openIndexedWAL(dir, loadedGlobalBlockCodec{})
@@ -116,7 +116,7 @@ func NewGlobalBlockPersister(stateDir utils.Option[string], committee *types.Com
 		return nil, fmt.Errorf("open global block WAL in %s: %w", dir, err)
 	}
 
-	s := &globalBlockState{iw: utils.Some(iw), committee: committee, next: committee.FirstBlock()}
+	s := &globalBlockState{iw: utils.Some(iw), firstBlock: firstBlock, next: firstBlock}
 	// TODO: avoid loading all blocks on startup; cache only the last N blocks
 	// (e.g. 1000) in memory instead.
 	loaded, err := s.loadAll()
@@ -125,6 +125,7 @@ func NewGlobalBlockPersister(stateDir utils.Option[string], committee *types.Com
 		return nil, err
 	}
 	if len(loaded) > 0 {
+		s.firstBlock = loaded[0].Number
 		s.next = loaded[len(loaded)-1].Number + 1
 	}
 	s.loaded = loaded
@@ -141,13 +142,13 @@ func (gp *GlobalBlockPersister) Next() types.GlobalBlockNumber {
 	panic("unreachable")
 }
 
-// LoadedFirst returns the first loaded block number, or committee.FirstBlock() if empty.
+// LoadedFirst returns the first loaded block number, or firstBlock if empty.
 func (gp *GlobalBlockPersister) LoadedFirst() types.GlobalBlockNumber {
 	for s := range gp.state.Lock() {
 		if len(s.loaded) > 0 {
 			return s.loaded[0].Number
 		}
-		return s.committee.FirstBlock()
+		return s.firstBlock
 	}
 	panic("unreachable")
 }

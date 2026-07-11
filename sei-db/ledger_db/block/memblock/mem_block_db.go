@@ -19,13 +19,21 @@ type qcEntry struct {
 	upper types.GlobalBlockNumber
 }
 
+// hashEntry pairs a block with its GlobalBlockNumber so ReadBlockByHash can
+// return the number, mirroring the littblock implementation which embeds it in
+// the stored value.
+type hashEntry struct {
+	blk *types.Block
+	n   types.GlobalBlockNumber
+}
+
 // blockDB is an in-memory types.BlockDB. It holds blocks and QCs by pointer (no
 // marshaling) and is intended as a test/benchmark fixture, not a durable
 // implementation.
 type blockDB struct {
 	mu         sync.RWMutex
 	byNumber   map[types.GlobalBlockNumber]*types.Block
-	byHash     map[types.BlockHeaderHash]*types.Block
+	byHash     map[types.BlockHeaderHash]hashEntry
 	qcsByLower map[types.GlobalBlockNumber]qcEntry
 
 	// Write-order cursors (see types.BlockDB contract).
@@ -39,7 +47,7 @@ type blockDB struct {
 func NewBlockDB() types.BlockDB {
 	return &blockDB{
 		byNumber:   make(map[types.GlobalBlockNumber]*types.Block),
-		byHash:     make(map[types.BlockHeaderHash]*types.Block),
+		byHash:     make(map[types.BlockHeaderHash]hashEntry),
 		qcsByLower: make(map[types.GlobalBlockNumber]qcEntry),
 	}
 }
@@ -58,7 +66,7 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 			n, s.lastQCNext, types.ErrBlockMissingQC)
 	}
 	s.byNumber[n] = blk
-	s.byHash[blk.Header().Hash()] = blk
+	s.byHash[blk.Header().Hash()] = hashEntry{blk: blk, n: n}
 	s.lastBlockNumber = n
 	s.hasBlocks = true
 	return nil
@@ -193,13 +201,13 @@ func (s *blockDB) ReadBlockByNumber(
 
 func (s *blockDB) ReadBlockByHash(
 	hash types.BlockHeaderHash,
-) (utils.Option[*types.Block], error) {
+) (utils.Option[types.BlockWithNumber], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if blk, ok := s.byHash[hash]; ok {
-		return utils.Some(blk), nil
+	if e, ok := s.byHash[hash]; ok {
+		return utils.Some(types.BlockWithNumber{Block: e.blk, Number: e.n}), nil
 	}
-	return utils.None[*types.Block](), nil
+	return utils.None[types.BlockWithNumber](), nil
 }
 
 func (s *blockDB) ReadQCByBlockNumber(
