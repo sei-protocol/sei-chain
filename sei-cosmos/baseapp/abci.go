@@ -700,21 +700,28 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 			)
 	}
 
-	var cacheMS types.CacheMultiStore
-	if height < app.migrationHeight && app.qms != nil {
-		cacheMS, err = app.qms.CacheMultiStoreWithVersion(height)
-	} else {
-		cacheMS, err = app.cms.CacheMultiStoreWithVersion(height)
-	}
-
-	if err != nil {
-		return sdk.Context{},
-			sdkerrors.Wrapf(
-				sdkerrors.ErrInvalidRequest,
-				"failed to load state at height %d; %s (latest height: %d)", height, err, lastBlockHeight,
-			)
-	}
 	checkStateCtx := app.checkState.Context()
+	var cacheMS types.CacheMultiStore
+	if lastBlockHeight == 0 && height == 0 && app.checkState != nil {
+		// Height 0 means "latest". Before the first Commit, the latest readable
+		// state lives only on checkState (e.g. InitChain writes). Querying the
+		// committed multistore at version 0 would incorrectly hide that state.
+		cacheMS = app.checkState.MultiStore().CacheMultiStore()
+	} else {
+		if height < app.migrationHeight && app.qms != nil {
+			cacheMS, err = app.qms.CacheMultiStoreWithVersion(height)
+		} else {
+			cacheMS, err = app.cms.CacheMultiStoreWithVersion(height)
+		}
+
+		if err != nil {
+			return sdk.Context{},
+				sdkerrors.Wrapf(
+					sdkerrors.ErrInvalidRequest,
+					"failed to load state at height %d; %s (latest height: %d)", height, err, lastBlockHeight,
+				)
+		}
+	}
 	// branch the commit-multistore for safety
 	ctx := sdk.NewContext(
 		cacheMS, checkStateCtx.BlockHeader(), true,

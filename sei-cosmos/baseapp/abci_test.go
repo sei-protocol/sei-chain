@@ -164,6 +164,31 @@ func TestBaseAppCreateQueryContext(t *testing.T) {
 	}
 }
 
+func TestCreateQueryContextUsesCheckStateBeforeFirstCommit(t *testing.T) {
+	t.Parallel()
+
+	capKey := sdk.NewKVStoreKey("genesis")
+	app := newBaseApp(t.Name())
+	app.MountStores(capKey1, capKey2, capKey)
+	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
+	require.NoError(t, app.LoadLatestVersion())
+
+	key := []byte("hello")
+	value := []byte("world")
+	app.SetInitChainer(func(ctx sdk.Context, _ abci.RequestInitChain) abci.ResponseInitChain {
+		ctx.KVStore(capKey).Set(key, value)
+		return abci.ResponseInitChain{}
+	})
+
+	_, err := app.InitChain(context.Background(), &abci.RequestInitChain{ChainId: "sei"})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), app.LastBlockHeight())
+
+	ctx, err := app.CreateQueryContext(0, false)
+	require.NoError(t, err)
+	require.Equal(t, value, ctx.KVStore(capKey).Get(key))
+}
+
 type paramStore struct {
 	db *dbm.MemDB
 }
