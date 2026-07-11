@@ -54,9 +54,14 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 		}
 	}
 
+	checkHeader := initHeader
+	if checkHeader.Height == 0 {
+		checkHeader.Height = 1
+	}
+
 	// initialize the deliver state and check state with a correct header
 	app.setDeliverState(initHeader)
-	app.setCheckState(initHeader)
+	app.setCheckState(checkHeader)
 	app.setProcessProposalState(initHeader)
 
 	// Store the consensus params in the BaseApp's paramstore. Note, this must be

@@ -1157,6 +1157,7 @@ func TestInitChainer(t *testing.T) {
 
 	chainID = app.checkState.ctx.ChainID()
 	require.Equal(t, "test-chain-id", chainID, "ChainID in checkState not set correctly in InitChain")
+	require.Equal(t, int64(1), app.checkState.ctx.BlockHeight(), "checkState height should reflect the first executable block after InitChain")
 
 	app.Commit(context.Background())
 	res, _ = app.Query(context.Background(), &query)
