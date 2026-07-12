@@ -59,14 +59,12 @@ const (
 	// checks (the rpc-node's 8545 isn't host-published).
 	evmRPCURLOnContainerLocalhost = "http://localhost:8545"
 
-	// heightPoll governs both waitForStableHeight and waitForHeightAdvance:
-	// the fullnode's read of /abci_info trails the cluster while
-	// runExecute drains buffered blocks, and a killed-peer failover
-	// (DialInterval-bounded, ~10s) holds height static for that long.
-	// Polling lets each test absorb whatever combination of those delays
-	// actually applies, instead of guessing a sleep duration.
-	// Bounds are 2× the expected failover+drain so a slow CI runner has
-	// headroom without giving up another whole minute on every run.
+	// heightPoll governs waitForStableHeight: the fullnode's read of
+	// /abci_info trails the cluster while runExecute drains buffered
+	// blocks, and a killed-peer failover (DialInterval-bounded, ~10s)
+	// holds height static for that long. Polling lets each test absorb
+	// whatever combination of those delays actually applies, instead of
+	// guessing a sleep duration.
 	heightPoll       = 1 * time.Second
 	haltStableWindow = 20 * time.Second
 	// 2m / 90s give headroom for the fullnode catch-up backlog the
@@ -75,7 +73,6 @@ const (
 	// which takes ~60s to drain on top of the halt-detection window).
 	// CI runners are slower than local; 1m was tight enough to flake.
 	haltStableTimeout = 2 * time.Minute
-	heightAdvanceMax  = 90 * time.Second
 	txFinalizeMax     = 30 * time.Second
 	testRecipientEVM  = "0x1000000000000000000000000000000000000001"
 )
@@ -158,26 +155,6 @@ func waitForStableHeight(t *testing.T, window, timeout time.Duration) int64 {
 		}
 	}
 	t.Fatalf("height did not stabilize within %s (last seen %d)", timeout, h)
-	return 0
-}
-
-// waitForHeightAdvance polls getHeight every heightPoll, returning the
-// first observed value strictly greater than `base`. Used by liveness
-// tests where progress is expected but may be delayed by the fullnode's
-// block-sync failover from a killed peer. Fails the test on timeout.
-func waitForHeightAdvance(t *testing.T, base int64, timeout time.Duration) int64 {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	last := base
-	for time.Now().Before(deadline) {
-		h := getHeight(t)
-		if h > base {
-			return h
-		}
-		last = h
-		time.Sleep(heightPoll)
-	}
-	t.Fatalf("height did not advance past %d within %s (last seen %d)", base, timeout, last)
 	return 0
 }
 
@@ -326,10 +303,6 @@ func sendEvmTxAndWait(t *testing.T, container string) int64 {
 	receiptHeight := waitForReceiptBlockNumber(t, txHash, txFinalizeMax)
 	if receiptHeight <= baseHeight {
 		t.Fatalf("expected tx %s to land after height %d, got receipt at %d", txHash, baseHeight, receiptHeight)
-	}
-	waitedHeight := waitForHeightAdvance(t, baseHeight, heightAdvanceMax)
-	if waitedHeight != receiptHeight {
-		t.Logf("height watcher observed %d while receipt reported %d", waitedHeight, receiptHeight)
 	}
 	return receiptHeight
 }
