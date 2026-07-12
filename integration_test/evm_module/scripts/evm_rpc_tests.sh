@@ -41,7 +41,7 @@ get_from_seq() {
 
 get_latest_height() {
   local h
-  h=$(docker exec "$CONTAINER" curl -s http://localhost:26657/status 2>/dev/null | jq -r '.result.sync_info.latest_block_height // "0"' 2>/dev/null) || true
+  h=$(run seid status 2>/dev/null | jq -r '.SyncInfo.latest_block_height // "0"' 2>/dev/null) || true
   echo "${h:-0}"
 }
 

@@ -11,7 +11,8 @@ source "$(dirname "$0")/../utils/_tx_helpers.sh"
 cd $seihome || exit
 echo "Deploying first set of tokenfactory denoms..."
 
-beginning_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height')
+bootstrap_block_height=$(bank_send_and_get_height "$keyname" "$keyaddress" "1usei") || exit 1
+beginning_block_height="$bootstrap_block_height"
 echo "$beginning_block_height" > $seihome/integration_test/contracts/tfk_beginning_block_height.txt
 echo "$keyaddress"  > $seihome/integration_test/contracts/tfk_creator_id.txt
 
