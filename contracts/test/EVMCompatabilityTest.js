@@ -696,8 +696,9 @@ describe("EVM Test", function () {
             }
             await mineTransferBlock(owner);
           }
-          // use at least 1000000 gas to increase base fee
-          const txResponse = await evmTester.useGas(1000000, { gasPrice: ethers.parseUnits('100', 'gwei') });
+          // Fill the parent block heavily enough that the next block's base fee
+          // must rise above the 1 gwei floor.
+          const txResponse = await evmTester.useGas(9500000, { gasPrice: ethers.parseUnits('100', 'gwei') });
           const receipt = await txResponse.wait();
           const blockHeight = receipt.blockNumber;
 
