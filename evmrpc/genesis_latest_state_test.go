@@ -55,7 +55,7 @@ func (*freshChainClient) Genesis(context.Context) (*coretypes.ResultGenesis, err
 }
 
 func (*freshChainClient) Block(context.Context, *int64) (*coretypes.ResultBlock, error) {
-	return &coretypes.ResultBlock{Block: &tmtypes.Block{Header: tmtypes.Header{Height: 0}}}, nil
+	return nil, coretypes.ErrZeroOrNegativeHeight
 }
 
 func (*freshChainClient) BlockByHash(context.Context, bytes.HexBytes) (*coretypes.ResultBlock, error) {

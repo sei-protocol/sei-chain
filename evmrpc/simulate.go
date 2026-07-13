@@ -520,7 +520,7 @@ func (b *Backend) Engine() consensus.Engine {
 }
 
 func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Header, error) {
-	tmBlock, _, err := b.getBlockByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(bn))
+	tmBlock, err := b.getBlockByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(bn))
 	if err != nil {
 		return nil, err
 	}
@@ -682,38 +682,43 @@ func (b *Backend) SuggestGasTipCap(context.Context) (*big.Int, error) {
 
 // getBlockByNumberOrHash resolves blockNrOrHash to a Tendermint ResultBlock in one RPC path
 // (by hash or by number, including latest). Callers pass the result to getHeader.
-func (b *Backend) getBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*coretypes.ResultBlock, bool, error) {
-	var (
-		block         *coretypes.ResultBlock
-		err           error
-		isLatestBlock bool
-	)
-
+func (b *Backend) getBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*coretypes.ResultBlock, error) {
 	if blockNrOrHash.BlockHash != nil {
-		block, err = blockByHashRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNrOrHash.BlockHash[:], 1)
+		block, err := blockByHashRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNrOrHash.BlockHash[:], 1)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
-		return block, false, nil
+		return block, nil
 	}
 
 	var blockNumberPtr *int64
+	var err error
 	if blockNrOrHash.BlockNumber != nil {
 		blockNumberPtr, err = getBlockNumber(ctx, b.tmClient, *blockNrOrHash.BlockNumber)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
-		if blockNumberPtr == nil {
-			isLatestBlock = true
-		}
-	} else {
-		isLatestBlock = true
 	}
-	block, err = blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNumberPtr, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNumberPtr, 1)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return block, isLatestBlock, nil
+	return block, nil
+}
+
+func isLatestLikeBlockRef(blockNrOrHash rpc.BlockNumberOrHash) bool {
+	if blockNrOrHash.BlockHash != nil {
+		return false
+	}
+	if blockNrOrHash.BlockNumber == nil {
+		return true
+	}
+	switch *blockNrOrHash.BlockNumber {
+	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
+		return true
+	default:
+		return false
+	}
 }
 
 // resolveStateAndHeaderByNumberOrHash normalizes a block reference into the
@@ -722,35 +727,26 @@ func (b *Backend) getBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.
 // latest checkState context over the height-0 Tendermint block so callers receive
 // a coherent (state, header) view.
 func (b *Backend) resolveStateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (sdk.Context, *ethtypes.Header, bool, error) {
-	tmBlock, isLatestBlock, err := b.getBlockByNumberOrHash(ctx, blockNrOrHash)
+	if isLatestLikeBlockRef(blockNrOrHash) {
+		sdkCtx := b.ctxProvider(LatestCtxHeight)
+		tmBlock, err := b.getBlockByNumberOrHash(ctx, blockNrOrHash)
+		if err != nil {
+			return sdkCtx, b.syntheticHeaderFromCtx(sdkCtx), true, nil
+		}
+		header := b.getHeader(ctx, tmBlock)
+		if tmBlock.Block.Height != sdkCtx.BlockHeight() {
+			return sdkCtx, b.syntheticHeaderFromCtx(sdkCtx), true, nil
+		}
+		header.BaseFee = b.keeper.GetNextBaseFeePerGas(sdkCtx).TruncateInt().BigInt()
+		return sdkCtx, header, true, nil
+	}
+
+	tmBlock, err := b.getBlockByNumberOrHash(ctx, blockNrOrHash)
 	if err != nil {
 		return sdk.Context{}, nil, false, err
 	}
-	ctxHeight := tmBlock.Block.Height
-	if isLatestBlock {
-		ctxHeight = LatestCtxHeight
-	}
-	sdkCtx := b.ctxProvider(ctxHeight)
-	header := b.getHeader(ctx, tmBlock)
-	if isLatestBlock {
-		header = b.latestLikeHeaderFromCtx(tmBlock, sdkCtx, header)
-	}
-	return sdkCtx, header, isLatestBlock, nil
-}
-
-// latestLikeHeaderFromCtx normalizes the latest/safe/finalized/pending header
-// view to the execution context callers will use for simulation. For post-commit
-// heads we keep the real Tendermint block metadata but use the latest check-state
-// base fee (the fee for the next block), matching eth_call/CurrentHeader's
-// historical behavior and eth_gasPrice. Before the first Commit, there is no
-// coherent committed block/header for the latest check-state, so we synthesize
-// one directly from sdkCtx instead.
-func (b *Backend) latestLikeHeaderFromCtx(tmBlock *coretypes.ResultBlock, sdkCtx sdk.Context, header *ethtypes.Header) *ethtypes.Header {
-	if tmBlock.Block.Height != sdkCtx.BlockHeight() {
-		return b.syntheticHeaderFromCtx(sdkCtx)
-	}
-	header.BaseFee = b.keeper.GetNextBaseFeePerGas(sdkCtx).TruncateInt().BigInt()
-	return header
+	sdkCtx := b.ctxProvider(tmBlock.Block.Height)
+	return sdkCtx, b.getHeader(ctx, tmBlock), false, nil
 }
 
 // syntheticHeaderFromCtx builds a minimal header directly from the selected SDK

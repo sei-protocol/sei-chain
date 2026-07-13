@@ -295,7 +295,7 @@ func TestCreateAccessList(t *testing.T) {
 	result := resObj["result"].(map[string]any)
 	require.Equal(t, []any{}, result["accessList"]) // the code uses MSTORE which does not trace access list
 
-	resObj = sendRequestBad(t, "createAccessList", txArgs, "latest")
+	resObj = sendRequestBad(t, "createAccessList", txArgs, "0x1")
 	result = resObj["error"].(map[string]any)
 	require.Equal(t, "error block", result["message"])
 
