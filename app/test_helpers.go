@@ -179,9 +179,10 @@ func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub crypt
 		}
 	}
 
-	// Init genesis for GigaEvmKeeper (now uses regular KVStore)
-	genState := evmtypes.DefaultGenesis()
-	wrapper.App.EvmKeeper.InitGenesis(wrapper.Ctx, *genState)
+	// No extra EvmKeeper.InitGenesis here for the same reason as
+	// NewGigaTestWrapper above: the raw re-init writes param bytes that
+	// differ from the genesis-JSON round-trip, skewing ante store-gas
+	// between contexts.
 
 	return wrapper
 }
