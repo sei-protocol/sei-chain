@@ -314,28 +314,18 @@ func (b *Backend) SetTraceContextProvider(provider TraceContextProvider) {
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
-	tmBlock, isLatestBlock, err := b.getBlockByNumberOrHash(ctx, blockNrOrHash)
+	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
+	sdkCtx, header, isLatestBlock, err := b.resolveStateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, nil, err
 	}
-	ctxHeight := LatestCtxHeight
-	if !isLatestBlock {
-		ctxHeight = tmBlock.Block.Height
-	}
-	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
-
-	sdkCtx := b.ctxProvider(ctxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
+	sdkCtx = sdkCtx.WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
 	if !isLatestBlock {
 		// no need to check version for latest block
 		if err := CheckVersion(sdkCtx, b.keeper); err != nil {
 			return nil, nil, err
 		}
 	}
-	header := b.getHeader(ctx, tmBlock)
-	if isLatestBlock && tmBlock.Block.Height != sdkCtx.BlockHeight() {
-		header = b.syntheticHeaderFromCtx(sdkCtx)
-	}
-	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return state.NewDBImpl(sdkCtx, b.keeper, true), header, nil
 }
 
@@ -679,15 +669,10 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 }
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {
-	height := b.ctxProvider(LatestCtxHeight).BlockHeight()
-	ctx := context.Background()
-	var header *ethtypes.Header
-	if tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &height, 1); err == nil {
-		header = b.getHeader(ctx, tmBlock)
-	} else {
+	_, header, _, err := b.resolveStateAndHeaderByNumberOrHash(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	if err != nil {
 		header = b.syntheticHeaderFromCtx(b.ctxProvider(LatestCtxHeight))
 	}
-	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return header
 }
 
@@ -731,14 +716,38 @@ func (b *Backend) getBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.
 	return block, isLatestBlock, nil
 }
 
+// resolveStateAndHeaderByNumberOrHash normalizes a block reference into the
+// SDK context and Ethereum header that should be paired together. For latest-like
+// requests before the first Commit, this intentionally prefers the initialized
+// latest checkState context over the height-0 Tendermint block so callers receive
+// a coherent (state, header) view.
+func (b *Backend) resolveStateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (sdk.Context, *ethtypes.Header, bool, error) {
+	tmBlock, isLatestBlock, err := b.getBlockByNumberOrHash(ctx, blockNrOrHash)
+	if err != nil {
+		return sdk.Context{}, nil, false, err
+	}
+	ctxHeight := tmBlock.Block.Height
+	if isLatestBlock {
+		ctxHeight = LatestCtxHeight
+	}
+	sdkCtx := b.ctxProvider(ctxHeight)
+	header := b.getHeader(ctx, tmBlock)
+	if isLatestBlock && tmBlock.Block.Height != sdkCtx.BlockHeight() {
+		header = b.syntheticHeaderFromCtx(sdkCtx)
+	}
+	return sdkCtx, header, isLatestBlock, nil
+}
+
 // syntheticHeaderFromCtx builds a minimal header directly from the selected SDK
 // context when no coherent Tendermint block/header is available for that state
 // (e.g. latest-like queries before the first Commit).
 func (b *Backend) syntheticHeaderFromCtx(sdkCtx sdk.Context) *ethtypes.Header {
 	zeroExcessBlobGas := uint64(0)
+	baseFee := b.keeper.GetNextBaseFeePerGas(sdkCtx).TruncateInt().BigInt()
 	return &ethtypes.Header{
 		Difficulty:    common.Big0,
 		Number:        big.NewInt(sdkCtx.BlockHeight()),
+		BaseFee:       baseFee,
 		GasLimit:      keeper.DefaultBlockGasLimit,
 		Time:          toUint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
 		ExcessBlobGas: &zeroExcessBlobGas,
