@@ -267,6 +267,9 @@ func (it *walIterator) loadNextFile() (bool, error) {
 
 		for _, record := range contents.records {
 			if record.index < it.start {
+				// Locating the start index is a linear scan over this file's records (and the whole file was just
+				// read into memory above). It's wasteful when start lands deep in a large file. If this becomes a
+				// hotspot, build a small per-file index (offset by index, like LittDB key files) and seek instead.
 				continue
 			}
 			if record.index > it.maxIndex {
