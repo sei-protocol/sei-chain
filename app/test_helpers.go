@@ -141,11 +141,9 @@ func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey,
 }
 
 func NewGigaTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	// No extra EvmKeeper.InitGenesis here: newTestWrapper already runs full
-	// module genesis, and a second raw InitGenesis(DefaultGenesis()) writes
-	// param bytes that differ from the genesis-JSON round-trip (nil slice
-	// marshals to null, seeded []byte{} to []), skewing ante store-gas — and
-	// therefore receipt GasUsed — between giga and v2 test contexts.
+	// newTestWrapper runs full module genesis; a raw InitGenesis(DefaultGenesis())
+	// on top writes byte-different params (nil marshals to null, seeded []byte{}
+	// to []) and skews ante store-gas between executor contexts.
 	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
 }
 
@@ -178,11 +176,6 @@ func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub crypt
 			wrapper.App.GigaEvmKeeper.EvmoneVM = evmoneVM
 		}
 	}
-
-	// No extra EvmKeeper.InitGenesis here for the same reason as
-	// NewGigaTestWrapper above: the raw re-init writes param bytes that
-	// differ from the genesis-JSON round-trip, skewing ante store-gas
-	// between contexts.
 
 	return wrapper
 }
