@@ -53,24 +53,30 @@ get_latest_height() {
 wait_from_seq_advance() {
   local prev="$1"
   if [ -z "$FROM_ADDR" ] || [ -z "$prev" ]; then return 0; fi
-  while true; do
+  local deadline=$(($(date +%s) + 30))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
     local cur; cur=$(get_from_seq)
     if [[ "$cur" =~ ^[0-9]+$ ]] && [ "$cur" -gt "$prev" ]; then
       return 0
     fi
     sleep 0.5
   done
+  echo "timed out waiting for sequence to advance past ${prev}" >&2
+  return 1
 }
 
 wait_until_height_exceeds() {
   local prev="$1"
-  while true; do
+  local deadline=$(($(date +%s) + 30))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
     local cur; cur=$(get_latest_height)
     if [[ "$cur" =~ ^[0-9]+$ ]] && [ "$cur" -gt "$prev" ]; then
       return 0
     fi
     sleep 0.5
   done
+  echo "timed out waiting for height to exceed ${prev}" >&2
+  return 1
 }
 
 bump_chain_to_height() {

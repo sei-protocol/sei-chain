@@ -263,7 +263,7 @@ async function getKeySeiAddress(name) {
 async function waitForProposalStatus(
     proposalId,
     targetStatus,
-    { kickKeyName = adminKeyName } = {},
+    { kickKeyName = adminKeyName, pollIntervalMs = 1000 } = {},
 ) {
     const readProposal = async () => JSON.parse(await execute(`seid q gov proposal ${proposalId} -o json`))
     const ensureNotFailed = (status) => {
@@ -275,39 +275,30 @@ async function waitForProposalStatus(
         }
     }
 
-    let proposal = await readProposal()
-    if (proposal.status === targetStatus) {
-        return proposal
-    }
-    ensureNotFailed(proposal.status)
-
-    const votingEndMs = Date.parse(proposal.voting_end_time ?? "")
-    if (!Number.isFinite(votingEndMs)) {
-        throw new Error(`Proposal ${proposalId} is missing a valid voting_end_time`)
-    }
-
-    const waitMs = votingEndMs + 1000 - Date.now()
-    if (waitMs > 0) {
-        await sleep(waitMs)
-    }
-
-    proposal = await readProposal()
-    if (proposal.status === targetStatus) {
-        return proposal
-    }
-    ensureNotFailed(proposal.status)
-
     const kickAddr = await getKeySeiAddress(kickKeyName)
-    // Progress-only bank send: if voting_end_time has passed but no tx has
-    // arrived to trigger the tally block yet, force one committed block so the
-    // proposal can move to its terminal status.
-    await bankSend(kickAddr, kickKeyName, "1", "usei")
-    proposal = await readProposal()
-    if (proposal.status === targetStatus) {
-        return proposal
+
+    while (true) {
+        const proposal = await readProposal()
+        if (proposal.status === targetStatus) {
+            return proposal
+        }
+        ensureNotFailed(proposal.status)
+
+        const votingEndMs = Date.parse(proposal.voting_end_time ?? "")
+        if (!Number.isFinite(votingEndMs)) {
+            throw new Error(`Proposal ${proposalId} is missing a valid voting_end_time`)
+        }
+
+        if (Date.now() >= votingEndMs + 1000) {
+            // Progress-only bank send: once the currently observed voting end
+            // time has passed, force one committed block so tallying can
+            // advance. Expedited proposals can convert to regular and extend
+            // voting_end_time, so re-read proposal state after every kick.
+            await bankSend(kickAddr, kickKeyName, "1", "usei")
+        }
+
+        await sleep(pollIntervalMs)
     }
-    ensureNotFailed(proposal.status)
-    throw new Error(`Proposal ${proposalId} did not reach ${targetStatus}; current status: ${proposal.status}`)
 }
 
 // Best-effort helper for idempotent bootstrap paths that may run after an
