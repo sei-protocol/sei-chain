@@ -69,6 +69,7 @@ bump_chain_to_height() {
     local tx_hash
     tx_hash=$(run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
     height=$(wait_for_receipt_field "$tx_hash" blockNumber)
+    height=$((height))
   done
 }
 

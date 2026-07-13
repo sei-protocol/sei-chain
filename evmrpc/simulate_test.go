@@ -570,6 +570,8 @@ func TestSimulateBackendBlockResolutionCoverage(t *testing.T) {
 		require.NotNil(t, h)
 		require.Equal(t, int64(1), h.Number.Int64())
 		require.Equal(t, common.BytesToHash(MockBlockID.Hash), h.ParentHash)
+		expectedBaseFee := testApp.EvmKeeper.GetNextBaseFeePerGas(ctxProvider(evmrpc.LatestCtxHeight)).TruncateInt().BigInt()
+		require.Equal(t, 0, h.BaseFee.Cmp(expectedBaseFee))
 	})
 
 	t.Run("CurrentHeader_fallback_gas_limit_when_block_unavailable", func(t *testing.T) {
@@ -581,7 +583,9 @@ func TestSimulateBackendBlockResolutionCoverage(t *testing.T) {
 		h := b2.CurrentHeader()
 		require.NotNil(t, h)
 		require.Equal(t, int64(1), h.Number.Int64())
-		require.Equal(t, uint64(10_000_000), h.GasLimit)
+		require.Equal(t, uint64(baseCtx.ConsensusParams().Block.MaxGas), h.GasLimit)
+		expectedBaseFee := testApp.EvmKeeper.GetNextBaseFeePerGas(ctxProvider(evmrpc.LatestCtxHeight)).TruncateInt().BigInt()
+		require.Equal(t, 0, h.BaseFee.Cmp(expectedBaseFee))
 		require.Equal(t, common.Hash{}, h.ParentHash)
 	})
 }

@@ -732,10 +732,25 @@ func (b *Backend) resolveStateAndHeaderByNumberOrHash(ctx context.Context, block
 	}
 	sdkCtx := b.ctxProvider(ctxHeight)
 	header := b.getHeader(ctx, tmBlock)
-	if isLatestBlock && tmBlock.Block.Height != sdkCtx.BlockHeight() {
-		header = b.syntheticHeaderFromCtx(sdkCtx)
+	if isLatestBlock {
+		header = b.latestLikeHeaderFromCtx(tmBlock, sdkCtx, header)
 	}
 	return sdkCtx, header, isLatestBlock, nil
+}
+
+// latestLikeHeaderFromCtx normalizes the latest/safe/finalized/pending header
+// view to the execution context callers will use for simulation. For post-commit
+// heads we keep the real Tendermint block metadata but use the latest check-state
+// base fee (the fee for the next block), matching eth_call/CurrentHeader's
+// historical behavior and eth_gasPrice. Before the first Commit, there is no
+// coherent committed block/header for the latest check-state, so we synthesize
+// one directly from sdkCtx instead.
+func (b *Backend) latestLikeHeaderFromCtx(tmBlock *coretypes.ResultBlock, sdkCtx sdk.Context, header *ethtypes.Header) *ethtypes.Header {
+	if tmBlock.Block.Height != sdkCtx.BlockHeight() {
+		return b.syntheticHeaderFromCtx(sdkCtx)
+	}
+	header.BaseFee = b.keeper.GetNextBaseFeePerGas(sdkCtx).TruncateInt().BigInt()
+	return header
 }
 
 // syntheticHeaderFromCtx builds a minimal header directly from the selected SDK
@@ -744,11 +759,17 @@ func (b *Backend) resolveStateAndHeaderByNumberOrHash(ctx context.Context, block
 func (b *Backend) syntheticHeaderFromCtx(sdkCtx sdk.Context) *ethtypes.Header {
 	zeroExcessBlobGas := uint64(0)
 	baseFee := b.keeper.GetNextBaseFeePerGas(sdkCtx).TruncateInt().BigInt()
+	var gasLimit uint64
+	if cp := sdkCtx.ConsensusParams(); cp != nil && cp.Block != nil {
+		gasLimit = uint64(cp.Block.MaxGas) //nolint:gosec
+	} else {
+		gasLimit = keeper.DefaultBlockGasLimit
+	}
 	return &ethtypes.Header{
 		Difficulty:    common.Big0,
 		Number:        big.NewInt(sdkCtx.BlockHeight()),
 		BaseFee:       baseFee,
-		GasLimit:      keeper.DefaultBlockGasLimit,
+		GasLimit:      gasLimit,
 		Time:          toUint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
 		ExcessBlobGas: &zeroExcessBlobGas,
 	}
