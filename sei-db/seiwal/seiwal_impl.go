@@ -170,20 +170,6 @@ func recoverDirectory(path string) error {
 	return nil
 }
 
-// scanAndValidate loads the sealed files in a directory (ascending) and verifies each one's content covers
-// exactly the index range its name promises, returning the sequence to assign the next mutable file. Call it
-// after recoverDirectory, when no unsealed files remain.
-func scanAndValidate(path string) (*util.RandomAccessDeque[*sealedFileInfo], uint64, error) {
-	sealedFiles, nextFileSeq, err := scanSealedFiles(path)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to scan sealed WAL files: %w", err)
-	}
-	if err := validateSealedFiles(path, sealedFiles); err != nil {
-		return nil, 0, fmt.Errorf("corrupt sealed WAL file: %w", err)
-	}
-	return sealedFiles, nextFileSeq, nil
-}
-
 func newWAL(config *Config) (WAL[[]byte], error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid WAL config: %w", err)
@@ -191,7 +177,9 @@ func newWAL(config *Config) (WAL[[]byte], error) {
 	if err := recoverDirectory(config.Path); err != nil {
 		return nil, err
 	}
-	sealedFiles, nextFileSeq, err := scanAndValidate(config.Path)
+	// Only the cheap directory-listing scan runs at open: it reads file names, not their contents, and still
+	// rejects structural corruption (a gap in the sealed sequence).
+	sealedFiles, nextFileSeq, err := scanSealedFiles(config.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -750,22 +738,4 @@ func scanSealedFiles(directory string) (*util.RandomAccessDeque[*sealedFileInfo]
 		nextFileSeq = p.fileSeq + 1
 	}
 	return sealedFiles, nextFileSeq, nil
-}
-
-// validateSealedFiles reads and checksums every sealed file, confirming each file's content exactly covers the
-// [first, last] index range its name promises. This surfaces corruption (bit-rot, truncation) at open — where
-// it demands human intervention — rather than lazily at iteration time, by which point Bounds/GetStoredRange
-// would already be reporting a range that iteration cannot deliver. Cost is O(total sealed bytes): every sealed
-// file is read and CRC-verified on open.
-func validateSealedFiles(directory string, sealedFiles *util.RandomAccessDeque[*sealedFileInfo]) error {
-	for _, info := range sealedFiles.Iterator() {
-		contents, err := readWalFile(filepath.Join(directory, info.name))
-		if err != nil {
-			return fmt.Errorf("failed to read sealed WAL file %s: %w", info.name, err)
-		}
-		if err := verifySealedContents(contents, info.fileSeq, info.firstIndex, info.lastIndex); err != nil {
-			return err
-		}
-	}
-	return nil
 }

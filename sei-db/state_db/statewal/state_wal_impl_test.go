@@ -1,6 +1,9 @@
 package statewal
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -280,4 +283,39 @@ func TestPruneAfter(t *testing.T) {
 			require.Equal(t, uint64(4), end)
 		})
 	}
+}
+
+// TestVerifyIntegrity is a wrapper-level smoke test that VerifyIntegrity passes on a clean log and reports a
+// fault when a sealed file is corrupted (the detailed cases are exercised in the seiwal package).
+func TestVerifyIntegrity(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+	cfg.TargetFileSize = 1 // one sealed file per block
+
+	w := openWAL(t, cfg)
+	for block := uint64(1); block <= 5; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Close())
+
+	require.NoError(t, VerifyIntegrity(cfg))
+
+	// Corrupt a byte in one sealed file's body; the on-demand scan must surface it.
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var sealed string
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".wal") {
+			sealed = entry.Name()
+			break
+		}
+	}
+	require.NotEmpty(t, sealed)
+	path := filepath.Join(dir, sealed)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	data[len(data)-5] ^= 0xFF // flip a byte inside the record, before the trailing CRC
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+
+	require.Error(t, VerifyIntegrity(cfg))
 }

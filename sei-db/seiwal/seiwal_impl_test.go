@@ -753,10 +753,10 @@ func TestScanRejectsGapInSealedFiles(t *testing.T) {
 	require.Contains(t, err.Error(), "not contiguous")
 }
 
-// TestNewWALRejectsMidStreamCorruptSealedFile verifies that a checksum mismatch in a non-final record of a
-// sealed file is surfaced as a hard error at open. Corrupted durable data demands human intervention, so the
-// WAL must refuse to open rather than silently serving a view truncated at the corruption point.
-func TestNewWALRejectsMidStreamCorruptSealedFile(t *testing.T) {
+// TestOpenIgnoresMidStreamCorruptSealedFile verifies that a checksum mismatch in a non-final record of a
+// sealed file does NOT block open: open reads file names only, never sealed contents, so it must not scale
+// with (or fault on) stored bytes. The fault is instead surfaced on demand by VerifyIntegrity.
+func TestOpenIgnoresMidStreamCorruptSealedFile(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
 
@@ -777,16 +777,20 @@ func TestNewWALRejectsMidStreamCorruptSealedFile(t *testing.T) {
 	data[walHeaderSize+2] ^= 0xFF
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 
-	_, err = NewWAL(cfg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "corrupt")
+	// Open succeeds despite the corruption — it never touched the sealed contents.
+	w2, err := NewWAL(cfg)
+	require.NoError(t, err)
+	require.NoError(t, w2.Close())
+
+	// The on-demand scan catches the mid-stream fault.
+	require.Error(t, VerifyIntegrity(dir))
 }
 
-// TestNewWALRejectsTruncatedSealedFile verifies that a sealed file truncated at a clean record boundary — all
-// remaining records checksum correctly, but the content stops short of the last index its name promises — is
-// rejected at open. This is the case parse-strictness alone cannot catch (no torn record remains); the
-// content/name range check must.
-func TestNewWALRejectsTruncatedSealedFile(t *testing.T) {
+// TestOpenIgnoresTruncatedSealedFile verifies that a sealed file truncated at a clean record boundary — all
+// remaining records checksum correctly, but the content stops short of the last index its name promises —
+// does not block open (open trusts the name), and is caught by VerifyIntegrity's name-versus-content range
+// check. This is the case parse-strictness alone cannot catch (no torn record remains).
+func TestOpenIgnoresTruncatedSealedFile(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
 
@@ -807,14 +811,114 @@ func TestNewWALRejectsTruncatedSealedFile(t *testing.T) {
 	require.Len(t, contents.records, 5)
 	require.NoError(t, os.Truncate(path, contents.records[3].end))
 
-	_, err = NewWAL(cfg)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "corrupt")
+	w2, err := NewWAL(cfg)
+	require.NoError(t, err)
+	require.NoError(t, w2.Close())
+
+	require.Error(t, VerifyIntegrity(dir))
 }
 
-// TestNewWALRejectsSealedFileBadMagic verifies that a sealed file with a clobbered header (invalid magic
-// prefix) is rejected at open rather than treated as empty.
-func TestNewWALRejectsSealedFileBadMagic(t *testing.T) {
+// TestVerifyIntegrityCleanLog verifies that VerifyIntegrity returns nil for an intact multi-file sealed log.
+func TestVerifyIntegrityCleanLog(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+	cfg.TargetFileSize = 1 // rotate after every record, producing one sealed file per index
+
+	w := openWAL(t, cfg)
+	for index := uint64(1); index <= 5; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Close())
+	require.Greater(t, countSealedFiles(t, dir), 1)
+
+	require.NoError(t, VerifyIntegrity(dir))
+}
+
+// TestVerifyIntegrityDetectsSequenceGap verifies that a missing sealed file (a hole in the sequence) is
+// reported by VerifyIntegrity even though every surviving file is itself intact.
+func TestVerifyIntegrityDetectsSequenceGap(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+	cfg.TargetFileSize = 1 // one sealed file per record
+
+	w := openWAL(t, cfg)
+	for index := uint64(1); index <= 5; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Close())
+
+	names := sealedFileNames(t, dir)
+	require.Greater(t, len(names), 2)
+	// Remove a middle file to punch a hole in the sequence.
+	require.NoError(t, os.Remove(filepath.Join(dir, names[1])))
+
+	err := VerifyIntegrity(dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "gap")
+}
+
+// TestVerifyIntegrityReportsAllFaults verifies that a single VerifyIntegrity pass aggregates every problem it
+// finds rather than stopping at the first one.
+func TestVerifyIntegrityReportsAllFaults(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+	cfg.TargetFileSize = 1 // one sealed file per record
+
+	w := openWAL(t, cfg)
+	for index := uint64(1); index <= 5; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Close())
+
+	names := sealedFileNames(t, dir)
+	require.GreaterOrEqual(t, len(names), 4)
+
+	// Corrupt two different sealed files' payloads. Each file holds a single record, so the payload begins at
+	// walHeaderSize plus the two single-byte uvarint prefixes.
+	for _, name := range []string{names[0], names[2]} {
+		path := filepath.Join(dir, name)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		data[walHeaderSize+2] ^= 0xFF
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+	}
+
+	err := VerifyIntegrity(dir)
+	require.Error(t, err)
+	// errors.Join renders one line per wrapped error; both corrupt files must appear.
+	require.Contains(t, err.Error(), names[0])
+	require.Contains(t, err.Error(), names[2])
+}
+
+// TestVerifyIntegrityIsReadOnly verifies that VerifyIntegrity does not mutate the directory (no orphan
+// sealing, no removals): the exact set of files before and after a scan is identical, even when a corrupt
+// sealed file is present.
+func TestVerifyIntegrityIsReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+
+	w := openWAL(t, cfg)
+	for index := uint64(1); index <= 5; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Close())
+
+	names := sealedFileNames(t, dir)
+	require.Len(t, names, 1)
+	path := filepath.Join(dir, names[0])
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	data[walHeaderSize+2] ^= 0xFF
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+
+	before := sealedFileNames(t, dir)
+	require.Error(t, VerifyIntegrity(dir))
+	require.Equal(t, before, sealedFileNames(t, dir), "VerifyIntegrity must not mutate the directory")
+}
+
+// TestVerifyIntegrityDetectsSealedFileBadMagic verifies that a sealed file with a clobbered header (invalid
+// magic prefix) does not block open (open reads names only) but is surfaced by VerifyIntegrity.
+func TestVerifyIntegrityDetectsSealedFileBadMagic(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
 
@@ -832,9 +936,13 @@ func TestNewWALRejectsSealedFileBadMagic(t *testing.T) {
 	data[0] ^= 0xFF // clobber the magic prefix
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 
-	_, err = NewWAL(cfg)
+	w2, err := NewWAL(cfg)
+	require.NoError(t, err)
+	require.NoError(t, w2.Close())
+
+	err = VerifyIntegrity(dir)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "corrupt")
+	require.Contains(t, err.Error(), "magic")
 }
 
 func TestBoundsEmpty(t *testing.T) {

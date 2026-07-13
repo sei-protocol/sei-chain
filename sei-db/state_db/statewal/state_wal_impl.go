@@ -55,10 +55,13 @@ func New(config *Config) (StateWAL, error) {
 // without constructing a live StateWAL. Like the seiwal function it wraps, it runs the recovery/sanity pass
 // (which seals any unsealed file left by a prior session) before reading, so it mutates the directory.
 //
+// The range is read from sealed file names only, so its cost is a directory listing regardless of how much
+// data the WAL holds; content is not checked. Use VerifyIntegrity to check for corruption.
+//
 // NOT SAFE FOR CONCURRENT USE with a live StateWAL, or with another GetRange/PruneAfter, on the same
-// directory: it seals and validates files a running WAL owns. Call it only while no StateWAL is open there
-// (e.g. offline, at startup before New). For a range query against a live WAL use the instance method
-// GetStoredRange instead.
+// directory: it seals files a running WAL owns. Call it only while no StateWAL is open there (e.g. offline,
+// at startup before New). For a range query against a live WAL use the instance method GetStoredRange
+// instead.
 func GetRange(config *Config) (bool, uint64, uint64, error) {
 	ok, first, last, err := seiwal.GetRange(config.Path)
 	if err != nil {
@@ -69,7 +72,8 @@ func GetRange(config *Config) (bool, uint64, uint64, error) {
 
 // PruneAfter deletes all data for blocks after highestBlockToKeep from the state WAL directory configured by
 // config, without constructing a live StateWAL. It runs the recovery/sanity pass, applies the rollback, and
-// re-validates; blocks with a number <= highestBlockToKeep are kept.
+// re-scans the result structurally (file names / sequence contiguity, not contents); blocks with a number
+// <= highestBlockToKeep are kept.
 //
 // NOT SAFE FOR CONCURRENT USE with a live StateWAL, or with another GetRange/PruneAfter, on the same
 // directory: it seals, rewrites, and removes files a running WAL owns. Call it only while no StateWAL is open
@@ -77,6 +81,20 @@ func GetRange(config *Config) (bool, uint64, uint64, error) {
 func PruneAfter(config *Config, highestBlockToKeep uint64) error {
 	if err := seiwal.PruneAfter(config.Path, highestBlockToKeep); err != nil {
 		return fmt.Errorf("failed to prune state WAL: %w", err)
+	}
+	return nil
+}
+
+// VerifyIntegrity reads every sealed file in the state WAL directory configured by config and confirms each
+// record's CRC and each file's name-versus-content range. This is the expensive O(total stored bytes) check
+// that New/GetRange/PruneAfter deliberately skip; call it only when corruption is suspected. It is read-only
+// and reports every problem it finds in a single pass, returning nil when the durable log is clean.
+//
+// NOT SAFE FOR CONCURRENT USE with a live StateWAL, or with GetRange/PruneAfter, on the same directory. Call
+// it only while no StateWAL is open there (e.g. offline, at startup before New).
+func VerifyIntegrity(config *Config) error {
+	if err := seiwal.VerifyIntegrity(config.Path); err != nil {
+		return fmt.Errorf("state WAL integrity check failed: %w", err)
 	}
 	return nil
 }

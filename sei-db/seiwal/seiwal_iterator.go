@@ -255,11 +255,6 @@ func (it *walIterator) loadNextFile() (bool, error) {
 		}
 
 		if f.sealed {
-			// A sealed file is durable and complete, so its content must span the [first, last] range its name
-			// promises. Fail loudly on any shortfall (interior corruption) instead of silently under-yielding while
-			// Bounds/GetStoredRange keep reporting the full range. This mirrors the check run eagerly at open by
-			// validateSealedFiles. The non-sealed mutable snapshot is skipped: it may hold records past maxIndex and
-			// a torn tail from concurrent writing, both handled below.
 			if err := verifySealedContents(contents, f.fileSeq, f.firstIndex, f.lastIndex); err != nil {
 				return false, err
 			}

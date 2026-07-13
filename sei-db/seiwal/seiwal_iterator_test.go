@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIteratorRejectsCorruptSealedFile verifies that interior corruption appearing in a sealed file after the
-// WAL is already open (e.g. bit-rot on disk after a clean startup validation) is surfaced as an error rather
-// than silently truncating iteration short of the file's name-promised last index. The corruption is
-// introduced after open so it slips past validateSealedFiles and must be caught by the iterator's re-read.
+// TestIteratorRejectsCorruptSealedFile verifies that interior corruption in a sealed file is surfaced as an
+// error rather than silently truncating iteration short of the file's name-promised last index. Open no longer
+// reads sealed contents, so the iterator's per-record CRC re-read is where such corruption is caught at
+// point-of-use (the offline VerifyIntegrity also finds it on demand).
 func TestIteratorRejectsCorruptSealedFile(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
