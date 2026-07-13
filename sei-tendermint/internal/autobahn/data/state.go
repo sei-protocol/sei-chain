@@ -426,9 +426,12 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 		if n < inner.first {
 			return nil, ErrPruned
 		}
-		return inner.qcs[n], nil
+		if qc, ok := inner.qcs[n]; ok {
+			return qc, nil
+		}
+		// Evicted from memory after persist; fall through to BlockDB.
 	}
-	panic("unreachable")
+	return s.qcFromDB(n)
 }
 
 // PushBlock pushes block to the state.
@@ -487,16 +490,22 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 
 // GlobalBlockByHash returns the finalized GlobalBlock whose stored header
 // hashes to the given value, or None if no such block is currently in the
-// retained range. Non-blocking.
+// retained range. Non-blocking. Falls back to BlockDB when the entry was
+// evicted from memory after persist.
 func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
 	for inner := range s.inner.Lock() {
 		n, ok := inner.blockHashes[hash]
 		if !ok {
-			return utils.None[*types.GlobalBlock](), nil
+			break // may still be in BlockDB after eviction
 		}
-		return utils.Some(inner.globalBlockAt(n)), nil
+		b, hasB := inner.blocks[n]
+		qc, hasQC := inner.qcs[n]
+		if hasB && hasQC {
+			return utils.Some(assembleGlobalBlock(n, b, qc)), nil
+		}
+		break // hash known but entries evicted; load from BlockDB
 	}
-	panic("unreachable")
+	return s.globalBlockByHashFromDB(hash)
 }
 
 // Block returns the block with the given global number.
@@ -512,9 +521,12 @@ func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Bl
 		if n < inner.first {
 			return nil, ErrPruned
 		}
-		return inner.blocks[n], nil
+		if b, ok := inner.blocks[n]; ok {
+			return b, nil
+		}
+		// Evicted from memory after persist; fall through to BlockDB.
 	}
-	panic("unreachable")
+	return s.blockFromDB(n)
 }
 
 // TryBlock returns the block with the given global number.
@@ -525,21 +537,29 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 		if n < inner.first {
 			return nil, ErrPruned
 		}
-		b, ok := inner.blocks[n]
-		if !ok {
+		if b, ok := inner.blocks[n]; ok {
+			return b, nil
+		}
+		if n >= inner.nextBlock {
 			return nil, ErrNotFound
 		}
-		return b, nil
+		// Evicted from memory after persist; fall through to BlockDB.
 	}
-	panic("unreachable")
+	b, err := s.blockFromDB(n)
+	if err != nil {
+		if errors.Is(err, ErrPruned) {
+			// Async BlockDB prune may have reclaimed it; surface as not found
+			// for the non-blocking Try* contract when callers race with GC.
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return b, nil
 }
 
-// globalBlockAt assembles the GlobalBlock at height n from inner state.
-// Caller must have verified n is in [inner.first, inner.nextBlock); n
-// outside that range nil-derefs on inner.blocks[n] / inner.qcs[n].
-func (i *inner) globalBlockAt(n types.GlobalBlockNumber) *types.GlobalBlock {
-	b := i.blocks[n]
-	qc := i.qcs[n].QC()
+// assembleGlobalBlock builds a GlobalBlock from a block and its covering QC.
+func assembleGlobalBlock(n types.GlobalBlockNumber, b *types.Block, fqc *types.FullCommitQC) *types.GlobalBlock {
+	qc := fqc.QC()
 	return &types.GlobalBlock{
 		GlobalNumber:  n,
 		Timestamp:     qc.Proposal().BlockTimestamp(n).OrPanic("global block not in QC"),
@@ -551,6 +571,7 @@ func (i *inner) globalBlockAt(n types.GlobalBlockNumber) *types.GlobalBlock {
 
 // GlobalBlock returns the block with the given global number.
 // Returns ErrPruned if the block has already been pruned.
+// Falls back to BlockDB when the entry was evicted from memory after persist.
 func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*types.GlobalBlock, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
@@ -561,9 +582,69 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		if n < inner.first {
 			return nil, ErrPruned
 		}
-		return inner.globalBlockAt(n), nil
+		b, hasB := inner.blocks[n]
+		qc, hasQC := inner.qcs[n]
+		if hasB && hasQC {
+			return assembleGlobalBlock(n, b, qc), nil
+		}
+		// Evicted from memory after persist; fall through to BlockDB.
 	}
-	panic("unreachable")
+	return s.globalBlockFromDB(n)
+}
+
+func (s *State) blockFromDB(n types.GlobalBlockNumber) (*types.Block, error) {
+	opt, err := s.blockDB.ReadBlockByNumber(n)
+	if err != nil {
+		return nil, fmt.Errorf("blockDB.ReadBlockByNumber(%d): %w", n, err)
+	}
+	b, ok := opt.Get()
+	if !ok {
+		return nil, ErrPruned
+	}
+	return b, nil
+}
+
+func (s *State) qcFromDB(n types.GlobalBlockNumber) (*types.FullCommitQC, error) {
+	opt, err := s.blockDB.ReadQCByBlockNumber(n)
+	if err != nil {
+		return nil, fmt.Errorf("blockDB.ReadQCByBlockNumber(%d): %w", n, err)
+	}
+	qc, ok := opt.Get()
+	if !ok {
+		return nil, ErrPruned
+	}
+	return qc, nil
+}
+
+func (s *State) globalBlockFromDB(n types.GlobalBlockNumber) (*types.GlobalBlock, error) {
+	b, err := s.blockFromDB(n)
+	if err != nil {
+		return nil, err
+	}
+	qc, err := s.qcFromDB(n)
+	if err != nil {
+		return nil, err
+	}
+	return assembleGlobalBlock(n, b, qc), nil
+}
+
+func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
+	opt, err := s.blockDB.ReadBlockByHash(hash)
+	if err != nil {
+		return utils.None[*types.GlobalBlock](), fmt.Errorf("blockDB.ReadBlockByHash: %w", err)
+	}
+	bn, ok := opt.Get()
+	if !ok {
+		return utils.None[*types.GlobalBlock](), nil
+	}
+	qc, err := s.qcFromDB(bn.Number)
+	if err != nil {
+		if errors.Is(err, ErrPruned) {
+			return utils.None[*types.GlobalBlock](), nil
+		}
+		return utils.None[*types.GlobalBlock](), err
+	}
+	return utils.Some(assembleGlobalBlock(bn.Number, bn.Block, qc)), nil
 }
 
 // PushAppHash marks blocks up to n as executed. Hash is the execution result.
