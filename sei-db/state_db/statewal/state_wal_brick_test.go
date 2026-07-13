@@ -48,7 +48,7 @@ func (f *fakeWAL) Bounds() (bool, uint64, uint64, error) {
 	return false, 0, 0, nil
 }
 
-func (f *fakeWAL) Prune(lowestIndexToKeep uint64) error {
+func (f *fakeWAL) PruneBefore(lowestIndexToKeep uint64) error {
 	return f.pruneErr
 }
 

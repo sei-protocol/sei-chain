@@ -259,9 +259,18 @@ func (w *walImpl) Append(index uint64, data []byte) error {
 		return fmt.Errorf("WAL is closed")
 	}
 
-	if w.hasAppended && index <= w.lastAppendIndex {
-		return fmt.Errorf(
-			"append rejected: index %d is not greater than last appended index %d", index, w.lastAppendIndex)
+	if w.hasAppended {
+		if w.config.PermitGaps {
+			if index <= w.lastAppendIndex {
+				return fmt.Errorf(
+					"append rejected: index %d is not greater than last appended index %d",
+					index, w.lastAppendIndex)
+			}
+		} else if index != w.lastAppendIndex+1 {
+			return fmt.Errorf(
+				"append rejected: index %d is not contiguous with last appended index %d (expected %d)",
+				index, w.lastAppendIndex, w.lastAppendIndex+1)
+		}
 	}
 	w.lastAppendIndex = index
 	w.hasAppended = true
@@ -307,8 +316,8 @@ func (w *walImpl) Bounds() (bool, uint64, uint64, error) {
 	}
 }
 
-// Prune schedules removal of whole sealed files below lowestIndexToKeep. It does not block on completion.
-func (w *walImpl) Prune(lowestIndexToKeep uint64) error {
+// PruneBefore schedules removal of whole sealed files below lowestIndexToKeep. It does not block on completion.
+func (w *walImpl) PruneBefore(lowestIndexToKeep uint64) error {
 	if err := w.sendToWriter(pruneRequest{through: lowestIndexToKeep}); err != nil {
 		return fmt.Errorf("failed to schedule prune below index %d: %w", lowestIndexToKeep, err)
 	}
@@ -450,9 +459,17 @@ func (w *walImpl) appendRecord(m dataToBeWritten) error {
 	// Authoritative ordering check: the caller-side gate in Append can be bypassed by concurrent callers
 	// (the WAL is documented single-threaded), so re-assert strict increase here on the one writer
 	// goroutine to reject a reordered record rather than write a file with inverted index bounds.
-	if w.hasWritten && m.index <= w.lastWrittenIndex {
-		return fmt.Errorf("append out of order: index %d is not greater than last written index %d",
-			m.index, w.lastWrittenIndex)
+	if w.hasWritten {
+		if w.config.PermitGaps {
+			if m.index <= w.lastWrittenIndex {
+				return fmt.Errorf("append out of order: index %d is not greater than last written index %d",
+					m.index, w.lastWrittenIndex)
+			}
+		} else if m.index != w.lastWrittenIndex+1 {
+			return fmt.Errorf(
+				"append out of order: index %d is not contiguous with last written index %d (expected %d)",
+				m.index, w.lastWrittenIndex, w.lastWrittenIndex+1)
+		}
 	}
 	if err := w.mutableFile.writeRecord(m.record, m.index); err != nil {
 		return fmt.Errorf("failed to append record for index %d: %w", m.index, err)

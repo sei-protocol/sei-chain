@@ -64,12 +64,14 @@ func (c *Config) Validate() error {
 // toSeiwalConfig maps this configuration onto the underlying generic WAL's configuration.
 func (c *Config) toSeiwalConfig() *seiwal.Config {
 	return &seiwal.Config{
-		Path:                  c.Path,
-		Name:                  c.Name,
-		WriteBufferSize:       c.WriteBufferSize,
-		SerializerBufferSize:  c.RequestBufferSize,
-		TargetFileSize:        c.TargetFileSize,
-		FsyncOnFlush:          c.FsyncOnFlush,
+		Path:                 c.Path,
+		Name:                 c.Name,
+		WriteBufferSize:      c.WriteBufferSize,
+		SerializerBufferSize: c.RequestBufferSize,
+		TargetFileSize:       c.TargetFileSize,
+		FsyncOnFlush:         c.FsyncOnFlush,
+		// State blocks must be contiguous — no skipped blocks — so the underlying WAL rejects gaps.
+		PermitGaps:            false,
 		IteratorPrefetchSize:  c.IteratorPrefetchSize,
 		MetricsSampleInterval: c.MetricsSampleInterval,
 	}

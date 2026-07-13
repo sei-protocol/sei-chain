@@ -131,16 +131,44 @@ func TestAppendFlushReopenBounds(t *testing.T) {
 }
 
 func TestAppendOrdering(t *testing.T) {
-	t.Run("index must strictly increase", func(t *testing.T) {
+	t.Run("contiguous indices are required by default", func(t *testing.T) {
 		w := openWAL(t, testConfig(t.TempDir()))
 		defer func() { require.NoError(t, w.Close()) }()
-		require.NoError(t, w.Append(5, recordPayload(5)))
-		require.Error(t, w.Append(4, recordPayload(4)))
-		require.Error(t, w.Append(5, recordPayload(5)))
+		require.NoError(t, w.Append(5, recordPayload(5))) // first append sets the baseline
+		require.Error(t, w.Append(4, recordPayload(4)))   // lower than the last index
+		require.Error(t, w.Append(5, recordPayload(5)))   // equal to the last index
+		require.Error(t, w.Append(7, recordPayload(7)))   // a gap: not exactly last+1
+		require.NoError(t, w.Append(6, recordPayload(6))) // contiguous
 	})
 
-	t.Run("non-contiguous indices are allowed", func(t *testing.T) {
+	t.Run("first append may start at any index", func(t *testing.T) {
 		w := openWAL(t, testConfig(t.TempDir()))
+		defer func() { require.NoError(t, w.Close()) }()
+		require.NoError(t, w.Append(12345, recordPayload(12345)))
+		require.NoError(t, w.Append(12346, recordPayload(12346)))
+		require.Error(t, w.Append(12348, recordPayload(12348)))
+	})
+
+	t.Run("contiguity resumes after reopen", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg := testConfig(dir)
+		w := openWAL(t, cfg)
+		for index := uint64(1); index <= 3; index++ {
+			appendRecord(t, w, index)
+		}
+		require.NoError(t, w.Flush())
+		require.NoError(t, w.Close())
+
+		w2 := openWAL(t, cfg)
+		defer func() { require.NoError(t, w2.Close()) }()
+		require.Error(t, w2.Append(5, recordPayload(5)))   // a gap after the recovered baseline of 3
+		require.NoError(t, w2.Append(4, recordPayload(4))) // contiguous with the recovered baseline
+	})
+
+	t.Run("non-contiguous indices are allowed when gaps permitted", func(t *testing.T) {
+		cfg := testConfig(t.TempDir())
+		cfg.PermitGaps = true
+		w := openWAL(t, cfg)
 		defer func() { require.NoError(t, w.Close()) }()
 		require.NoError(t, w.Append(1, recordPayload(1)))
 		require.NoError(t, w.Append(3, recordPayload(3)))
@@ -192,7 +220,35 @@ func TestWriterRejectsOutOfOrderRecord(t *testing.T) {
 	require.Error(t, write(4)) // lower than last written
 	require.Error(t, write(5)) // equal to last written
 	require.NoError(t, write(6))
+	require.Error(t, write(8)) // a gap: not exactly last+1 (the default forbids gaps)
 	require.Equal(t, uint64(6), w.lastWrittenIndex)
+}
+
+// TestWriterBackstopPermitsGapsWhenConfigured verifies that with PermitGaps enabled the writer-goroutine
+// backstop only rejects non-increasing indices, allowing gaps.
+func TestWriterBackstopPermitsGapsWhenConfigured(t *testing.T) {
+	dir := t.TempDir()
+	mf, err := newWalFile(dir, 0)
+	require.NoError(t, err)
+	cfg := testConfig(dir)
+	cfg.PermitGaps = true
+	w := &walImpl{
+		config:      cfg,
+		metricAttrs: walNameAttr("test"),
+		ctx:         context.Background(),
+		mutableFile: mf,
+	}
+	defer func() { _, _ = w.mutableFile.seal() }()
+
+	write := func(index uint64) error {
+		return w.appendRecord(dataToBeWritten{record: frameRecord(index, recordPayload(index)), index: index})
+	}
+
+	require.NoError(t, write(5))
+	require.NoError(t, write(9)) // a gap is allowed when gaps are permitted
+	require.Error(t, write(9))   // equal to last written
+	require.Error(t, write(3))   // lower than last written
+	require.Equal(t, uint64(9), w.lastWrittenIndex)
 }
 
 // TestFailReleasesMutableFile verifies that a fatal error releases the mutable file's handle (rather than
@@ -403,7 +459,7 @@ func TestPruneDropsWholeFiles(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	require.NoError(t, w.Prune(5))
+	require.NoError(t, w.PruneBefore(5))
 
 	ok, first, last, err := w.Bounds()
 	require.NoError(t, err)
@@ -425,7 +481,7 @@ func TestPrunePastAllRecordsEmptiesRange(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	require.NoError(t, w.Prune(100))
+	require.NoError(t, w.PruneBefore(100))
 
 	ok, _, _, err := w.Bounds()
 	require.NoError(t, err)
@@ -457,7 +513,7 @@ func TestIteratorOnEmptyWALDoesNotBlockPruning(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	require.NoError(t, w.Prune(5))
+	require.NoError(t, w.PruneBefore(5))
 	stored, first, last, err := w.Bounds()
 	require.NoError(t, err)
 	require.True(t, stored)
@@ -496,7 +552,7 @@ func TestEmptyWALIteratorCloseDoesNotReleaseAnotherLease(t *testing.T) {
 	// Closing the empty-snapshot iterator must not disturb the live lease at index 0.
 	require.NoError(t, empty.Close())
 
-	require.NoError(t, w.Prune(100))
+	require.NoError(t, w.PruneBefore(100))
 	stored, first, _, err := w.Bounds()
 	require.NoError(t, err)
 	require.True(t, stored, "the live lease at index 0 must keep records from being fully pruned")
@@ -519,7 +575,7 @@ func TestActiveIteratorBlocksPruningOfNeededFiles(t *testing.T) {
 	it, err := w.Iterator(1)
 	require.NoError(t, err)
 
-	require.NoError(t, w.Prune(5))
+	require.NoError(t, w.PruneBefore(5))
 	ok, first, last, err := w.Bounds()
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -531,7 +587,7 @@ func TestActiveIteratorBlocksPruningOfNeededFiles(t *testing.T) {
 
 	// Releasing the lease lets the same prune make progress.
 	require.NoError(t, it.Close())
-	require.NoError(t, w.Prune(5))
+	require.NoError(t, w.PruneBefore(5))
 	ok, first, _, err = w.Bounds()
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -555,7 +611,7 @@ func TestIteratorAnchoredAboveKeepPointDoesNotBlockPruning(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
-	require.NoError(t, w.Prune(5))
+	require.NoError(t, w.PruneBefore(5))
 	ok, first, _, err := w.Bounds()
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -571,6 +627,7 @@ func TestIteratorInGapBlocksPruningAcrossGap(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
 	cfg.TargetFileSize = 1 // one record per sealed file
+	cfg.PermitGaps = true  // this test exercises index gaps
 
 	w := openWAL(t, cfg)
 	defer func() { require.NoError(t, w.Close()) }()
@@ -586,7 +643,7 @@ func TestIteratorInGapBlocksPruningAcrossGap(t *testing.T) {
 
 	// Prune(12) would remove every file with last index < 12, but the live lease at 5 must keep the files for
 	// indices 10 and 11 (both >= 5). Only the files entirely below the lease (indices 1,2,3) may be dropped.
-	require.NoError(t, w.Prune(12))
+	require.NoError(t, w.PruneBefore(12))
 	_, _, _, err = w.Bounds() // synchronous round-trip forces the async prune to complete
 	require.NoError(t, err)
 
@@ -617,7 +674,7 @@ func TestIteratorLeaseInsideFileRangeBlocksPruning(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
-	require.NoError(t, w.Prune(8))
+	require.NoError(t, w.PruneBefore(8))
 	ok, first, last, err := w.Bounds()
 	require.NoError(t, err)
 	require.True(t, ok)

@@ -95,6 +95,14 @@ func TestContractViolations(t *testing.T) {
 		require.Error(t, w.Write(2, nil))
 	})
 
+	t.Run("cannot skip a block", func(t *testing.T) {
+		w := openWAL(t, testConfig(t.TempDir()))
+		defer func() { require.NoError(t, w.Close()) }()
+		writeBlock(t, w, 1)
+		require.Error(t, w.Write(3, nil)) // block 2 was skipped
+		require.NoError(t, w.Write(2, nil))
+	})
+
 	t.Run("cannot write to an ended block", func(t *testing.T) {
 		w := openWAL(t, testConfig(t.TempDir()))
 		defer func() { require.NoError(t, w.Close()) }()

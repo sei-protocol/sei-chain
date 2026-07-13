@@ -19,8 +19,10 @@ type WAL[T any] interface {
 
 	// Append a record with the given index and payload.
 	//
-	// The index must be strictly greater than the index of the most recently appended record (indices
-	// need not be contiguous, but they must strictly increase).
+	// The required relationship between successive indices depends on Config.PermitGaps. When PermitGaps is
+	// false (the default), each index must be exactly one greater than the previous (strictly contiguous).
+	// When PermitGaps is true, each index need only be strictly greater than the previous, so gaps are
+	// allowed. In either case the first append on a fresh WAL may use any index, which sets the baseline.
 	//
 	// This method only schedules the append; it does not block until the record is durable. Durability is
 	// achieved by a subsequent Flush.
@@ -46,13 +48,13 @@ type WAL[T any] interface {
 		err error,
 	)
 
-	// Prune removes all records with an index less than lowestIndexToKeep.
+	// PruneBefore removes all records with an index less than lowestIndexToKeep.
 	//
 	// This method merely schedules the prune; it does not block until the prune is complete. Pruning is
 	// async and lazy, and implementations are free to delay it arbitrarily long. Pruning removes whole
 	// sealed files only, so records may survive above the requested threshold until their containing file
 	// is fully below it.
-	Prune(lowestIndexToKeep uint64) error
+	PruneBefore(lowestIndexToKeep uint64) error
 
 	// Iterator returns an iterator over the WAL starting at the given index.
 	//

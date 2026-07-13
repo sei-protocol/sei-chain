@@ -140,6 +140,10 @@ func (w *stateWALImpl) enforceWriteOrdering(blockNumber uint64) error {
 		return fmt.Errorf(
 			"cannot write block %d before calling SignalEndOfBlock for block %d", blockNumber, w.currentBlock)
 	}
+	if blockNumber != w.currentBlock+1 {
+		return fmt.Errorf("block number %d is not contiguous with the current block number %d (expected %d)",
+			blockNumber, w.currentBlock, w.currentBlock+1)
+	}
 	w.currentBlock = blockNumber
 	w.currentBlockEnded = false
 	return nil
@@ -183,7 +187,7 @@ func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
 	if w.fatalErr != nil {
 		return fmt.Errorf("state WAL failed: %w", w.fatalErr)
 	}
-	if err := w.wal.Prune(lowestBlockNumberToKeep); err != nil {
+	if err := w.wal.PruneBefore(lowestBlockNumberToKeep); err != nil {
 		return w.fail(fmt.Errorf("failed to prune state WAL: %w", err))
 	}
 	return nil

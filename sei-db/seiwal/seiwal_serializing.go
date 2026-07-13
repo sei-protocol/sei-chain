@@ -234,8 +234,8 @@ func (s *serializingWAL[T]) Bounds() (bool, uint64, uint64, error) {
 	}
 }
 
-// Prune schedules removal of whole inner files below lowestIndexToKeep. It does not block on completion.
-func (s *serializingWAL[T]) Prune(lowestIndexToKeep uint64) error {
+// PruneBefore schedules removal of whole inner files below lowestIndexToKeep. It does not block on completion.
+func (s *serializingWAL[T]) PruneBefore(lowestIndexToKeep uint64) error {
 	if err := s.submit(serPrune{through: lowestIndexToKeep}); err != nil {
 		return fmt.Errorf("failed to schedule prune below index %d: %w", lowestIndexToKeep, err)
 	}
@@ -351,7 +351,7 @@ func (s *serializingWAL[T]) serializerLoop() {
 			ok, first, last, err := s.inner.Bounds()
 			m.reply <- serBoundsResult{ok: ok, first: first, last: last, err: err}
 		case serPrune:
-			if err := s.inner.Prune(m.through); err != nil {
+			if err := s.inner.PruneBefore(m.through); err != nil {
 				s.fail(fmt.Errorf("failed to prune below index %d: %w", m.through, err))
 				return
 			}

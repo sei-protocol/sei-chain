@@ -110,12 +110,14 @@ func TestGenericWALFlushIOFailureBricksWAL(t *testing.T) {
 }
 
 func TestGenericWALRoundTrip(t *testing.T) {
-	w := openStringWAL(t, testConfig(t.TempDir()))
+	cfg := testConfig(t.TempDir())
+	cfg.PermitGaps = true
+	w := openStringWAL(t, cfg)
 	defer func() { require.NoError(t, w.Close()) }()
 
 	require.NoError(t, w.Append(1, "one"))
 	require.NoError(t, w.Append(2, "two"))
-	require.NoError(t, w.Append(5, "five")) // non-contiguous index is allowed
+	require.NoError(t, w.Append(5, "five")) // non-contiguous index is allowed when gaps are permitted
 	require.NoError(t, w.Flush())
 
 	ok, first, last, err := w.Bounds()
@@ -161,7 +163,7 @@ func TestGenericWALPrune(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	require.NoError(t, w.Prune(5))
+	require.NoError(t, w.PruneBefore(5))
 
 	ok, first, last, err := w.Bounds()
 	require.NoError(t, err)

@@ -38,6 +38,12 @@ type Config struct {
 	// merely a process crash. When false, Flush only flushes the in-process buffer to the OS.
 	FsyncOnFlush bool
 
+	// When false, appended indices must be strictly contiguous: each index must equal the
+	// previous index plus one. The first append on a fresh WAL may start at any index and establishes the
+	// baseline; after recovery the baseline is the highest stored index. When true, indices need only be
+	// strictly increasing, so gaps between consecutive indices are permitted.
+	PermitGaps bool
+
 	// The number of records an iterator's reader thread may prefetch ahead of the consumer. A larger value
 	// keeps the reader busy while the consumer processes records, which matters for startup replay speed.
 	// Must be greater than 0.
@@ -57,6 +63,7 @@ func DefaultConfig(path string, name string) *Config {
 		SerializerBufferSize:  16,
 		TargetFileSize:        64 * unit.MB,
 		FsyncOnFlush:          true,
+		PermitGaps:            false,
 		IteratorPrefetchSize:  32,
 		MetricsSampleInterval: 15 * time.Second,
 	}
