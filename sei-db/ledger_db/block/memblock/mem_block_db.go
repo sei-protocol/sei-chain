@@ -41,6 +41,11 @@ type blockDB struct {
 	lastBlockNumber types.GlobalBlockNumber
 	hasQC           bool
 	lastQCNext      types.GlobalBlockNumber
+
+	// latestQCStartBlock is the most recently written QC's starting block number —
+	// the lowest block number in the newest cohort. PruneBefore clamps to it (see
+	// littblock).
+	latestQCStartBlock types.GlobalBlockNumber
 }
 
 // NewBlockDB returns an in-memory types.BlockDB.
@@ -87,6 +92,7 @@ func (s *blockDB) WriteQC(
 			lowerBound, s.lastQCNext, types.ErrQCNonContiguous)
 	}
 	s.qcsByLower[lowerBound] = qcEntry{qc: qc, lower: lowerBound, upper: upperBound}
+	s.latestQCStartBlock = lowerBound
 	s.lastQCNext = upperBound
 	s.hasQC = true
 	return nil
@@ -95,6 +101,18 @@ func (s *blockDB) WriteQC(
 func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.hasBlocks {
+		// No blocks yet: nothing to prune, and deleting QCs here would strand a
+		// future block whose coverage check still passes. Mirrors littblock.
+		return nil
+	}
+	// Never let the watermark enter the newest block's cohort: clamp its ceiling
+	// at the cohort's first block (latestQCStartBlock), guarded by lastBlockNumber
+	// for a QC written ahead of its blocks. Keeps the newest cohort whole and
+	// pruning monotonic. See littblock and the BlockDB PruneBefore contract.
+	if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); n > ceiling {
+		n = ceiling
+	}
 	for num, blk := range s.byNumber {
 		if num < n {
 			delete(s.byNumber, num)

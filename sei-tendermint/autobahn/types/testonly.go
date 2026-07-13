@@ -406,6 +406,17 @@ func GenFullCommitQC(rng utils.Rng) *FullCommitQC {
 	}
 }
 
+// GenFullCommitQCN generates a FullCommitQC carrying exactly n headers. Unlike a
+// QC built via NewFullCommitQC, its header count is not reconciled against the
+// embedded CommitQC's range — it is for tests that only exercise a QC's header
+// count (e.g. a store's range accounting), not its signatures or verification.
+func GenFullCommitQCN(rng utils.Rng, n int) *FullCommitQC {
+	return &FullCommitQC{
+		qc:      GenCommitQC(rng),
+		headers: utils.GenSliceN(rng, n, GenBlockHeader),
+	}
+}
+
 // GenTimeoutVote generates a random TimeoutVote.
 func GenTimeoutVote(rng utils.Rng) *TimeoutVote {
 	return NewTimeoutVote(GenView(rng), utils.Some(GenViewNumber(rng)))
