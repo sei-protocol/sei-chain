@@ -1610,7 +1610,8 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		// Store-iteration panic: re-run via v2 so the result matches v2 exactly.
 		if fallbackToV2 {
 			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
-			appMetrics.gigaFallback.Add(ctx.Context(), 1)
+			appMetrics.gigaFallback.Add(ctx.Context(), 1,
+				otelmetric.WithAttributes(attribute.String("reason", "store_iterator")))
 			res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 			txResults[i] = res
 			ms.Write()
@@ -1618,8 +1619,11 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		}
 
 		if execErr != nil {
-			// Check if this is a fail-fast error (Cosmos precompile interop detected)
+			// Abort errors (validation failure, balance migration, self-destruct,
+			// cosmos-precompile interop) re-run this tx via v2.
 			if gigautils.ShouldExecutionAbort(execErr) {
+				appMetrics.gigaFallback.Add(ctx.Context(), 1,
+					otelmetric.WithAttributes(attribute.String("reason", gigaFallbackReason(execErr))))
 				res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 				txResults[i] = res
 				ms.Write()
@@ -1846,7 +1850,8 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 
 		if fallbackToV2 {
 			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
-			appMetrics.gigaFallback.Add(ctx.Context(), 1)
+			appMetrics.gigaFallback.Add(ctx.Context(), 1,
+				otelmetric.WithAttributes(attribute.String("reason", "occ_batch")))
 			// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
 			evmBatchResult = nil
 			v2Entries = make([]*sdk.DeliverTxEntry, len(txs))
@@ -1998,6 +2003,24 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 
 // executeEVMTxWithGigaExecutor executes a single EVM transaction using the giga executor.
 // The sender address is recovered directly from the transaction signature - no Cosmos SDK ante handlers needed.
+// gigaFallbackReason labels the app_giga_fallback_to_v2 metric with which
+// abort sentinel routed a tx to v2, so operators can tell a validation-failure
+// wave from balance-migration churn.
+func gigaFallbackReason(err error) string {
+	switch err.(type) {
+	case *gigaprecompiles.ValidationFailedAbortError:
+		return "validation_failed"
+	case *gigaprecompiles.BalanceMigrationAbortError:
+		return "balance_migration"
+	case *gigaprecompiles.SelfDestructAbortError:
+		return "self_destruct"
+	case *gigaprecompiles.InvalidPrecompileCallError:
+		return "invalid_precompile"
+	default:
+		return "other"
+	}
+}
+
 func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgEVMTransaction, cache *gigaBlockCache) (*abci.ExecTxResult, error) {
 	// Get the Ethereum transaction from the message
 	ethTx, _ := msg.AsTransaction()
@@ -2025,12 +2048,11 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
 	if validation.err != nil {
-		// Fee/nonce/balance failures fall back to v2 (same doctrine as the
-		// balance-migration case below): v2 rejects these in its ante chain,
-		// whose receipt gas fields giga cannot reconstruct (CON-368 was this
-		// path stamping a synthetic receipt, diverging LastResultsHash on
-		// mixed fleets). The fallback run also owns the nonce bump.
-		return nil, gigaprecompiles.ErrValidationFallback
+		// v2 rejects fee/nonce/balance failures in its ante chain, whose
+		// receipt gas fields giga cannot reconstruct; a giga-side receipt here
+		// diverges LastResultsHash on mixed fleets (CON-368). Fall back to v2,
+		// which also owns the nonce bump.
+		return nil, gigaprecompiles.ErrValidationFailed
 	}
 
 	if !isAssociated {

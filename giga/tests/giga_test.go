@@ -2464,10 +2464,10 @@ func TestGigaValidation_FailureReceiptParity(t *testing.T) {
 	CompareLastResultsHash(t, "FailureReceiptParity", v2Results, gigaResults)
 }
 
-// TestGigaValidation_ErrorCodeParity runs a mixed valid/invalid block and
-// asserts the full receipts — not just error codes — match between V2 and
-// Giga, since every deterministic receipt field feeds LastResultsHash.
-func TestGigaValidation_ErrorCodeParity(t *testing.T) {
+// TestGigaValidation_MixedBlockReceiptParity runs a mixed valid/invalid block
+// and asserts the full receipts match between V2 and Giga, since every
+// deterministic receipt field feeds LastResultsHash.
+func TestGigaValidation_MixedBlockReceiptParity(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(5)
 
@@ -2518,8 +2518,8 @@ func TestGigaValidation_ErrorCodeParity(t *testing.T) {
 
 	// Receipts must be byte-identical — Code/Data/GasWanted/GasUsed feed
 	// LastResultsHash (CON-368).
-	CompareDeterministicFields(t, "ErrorCodeParity", v2Results, gigaResults)
-	CompareLastResultsHash(t, "ErrorCodeParity", v2Results, gigaResults)
+	CompareDeterministicFields(t, "MixedBlockReceiptParity", v2Results, gigaResults)
+	CompareLastResultsHash(t, "MixedBlockReceiptParity", v2Results, gigaResults)
 
 	// Verify expected outcomes
 	require.Equal(t, uint32(0), v2Results[0].Code, "tx[0] should succeed")
@@ -2531,7 +2531,7 @@ func TestGigaValidation_ErrorCodeParity(t *testing.T) {
 // shape: tx0 drains the sender far enough that tx1 (same sender, next nonce)
 // fails its fee check at delivery — a tx that passes admission but fails in
 // the block. Receipts must hash identically across executors; under OCC the
-// giga batch falls back to serialized v2 execution.
+// giga batch re-runs through the v2 OCC scheduler.
 func TestGigaValidation_DrainRace_LastResultsHash(t *testing.T) {
 	runDrainRace := func(t *testing.T, gigaMode ExecutorMode) {
 		blockTime := time.Now()
@@ -2569,8 +2569,9 @@ func TestGigaValidation_DrainRace_LastResultsHash(t *testing.T) {
 		CompareDeterministicFields(t, "DrainRace", v2Results, gigaResults)
 		CompareLastResultsHash(t, "DrainRace", v2Results, gigaResults)
 	}
-	t.Run("GigaSequential", func(t *testing.T) { runDrainRace(t, ModeGigaSequential) })
-	t.Run("GigaOCC", func(t *testing.T) { runDrainRace(t, ModeGigaOCC) })
+	for _, mode := range []ExecutorMode{ModeGigaSequential, ModeGigaOCC} {
+		t.Run(mode.String(), func(t *testing.T) { runDrainRace(t, mode) })
+	}
 }
 
 // TestGigaValidation_ValueExceedsBalance_LastResultsHash covers the balance
@@ -2680,45 +2681,41 @@ func TestGigaValidation_FailureClassParity_AllModes(t *testing.T) {
 		},
 	}
 
-	gigaModes := []struct {
-		name string
-		mode ExecutorMode
-	}{
-		{"GigaSequential", ModeGigaSequential},
-		{"GigaOCC", ModeGigaOCC},
-	}
+	gigaModes := []ExecutorMode{ModeGigaSequential, ModeGigaOCC}
 
 	for _, tc := range cases {
-		for _, gm := range gigaModes {
-			t.Run(tc.name+"/"+gm.name, func(t *testing.T) {
-				blockTime := time.Now()
-				accts := utils.NewTestAccounts(3)
-				signer := utils.NewSigner()
-				recipient := utils.NewSigner()
-				to := recipient.EvmAddress
+		t.Run(tc.name, func(t *testing.T) {
+			for _, gm := range gigaModes {
+				t.Run(gm.String(), func(t *testing.T) {
+					blockTime := time.Now()
+					accts := utils.NewTestAccounts(3)
+					signer := utils.NewSigner()
+					recipient := utils.NewSigner()
+					to := recipient.EvmAddress
 
-				v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
-				v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer.AccountAddress, signer.EvmAddress)
-				v2Txs := tc.build(t, v2Ctx, signer, to)
-				_, v2Results, _ := RunBlock(t, v2Ctx, v2Txs)
+					v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
+					v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer.AccountAddress, signer.EvmAddress)
+					v2Txs := tc.build(t, v2Ctx, signer, to)
+					_, v2Results, _ := RunBlock(t, v2Ctx, v2Txs)
 
-				gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, gm.mode)
-				gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
-				gigaTxs := tc.build(t, gigaCtx, signer, to)
-				_, gigaResults, _ := RunBlock(t, gigaCtx, gigaTxs)
+					gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, gm)
+					gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+					gigaTxs := tc.build(t, gigaCtx, signer, to)
+					_, gigaResults, _ := RunBlock(t, gigaCtx, gigaTxs)
 
-				require.Len(t, gigaResults, len(v2Results))
-				failed := 0
-				for _, r := range v2Results {
-					if r.Code != 0 {
-						failed++
+					require.Len(t, gigaResults, len(v2Results))
+					failed := 0
+					for _, r := range v2Results {
+						if r.Code != 0 {
+							failed++
+						}
 					}
-				}
-				require.Greater(t, failed, 0, "case must produce at least one failed tx under v2, or it covers nothing")
-				CompareDeterministicFields(t, tc.name+"/"+gm.name, v2Results, gigaResults)
-				CompareLastResultsHash(t, tc.name+"/"+gm.name, v2Results, gigaResults)
-			})
-		}
+					require.Greater(t, failed, 0, "case must produce at least one failed tx under v2, or it covers nothing")
+					CompareDeterministicFields(t, tc.name+"/"+gm.String(), v2Results, gigaResults)
+					CompareLastResultsHash(t, tc.name+"/"+gm.String(), v2Results, gigaResults)
+				})
+			}
+		})
 	}
 }
 
