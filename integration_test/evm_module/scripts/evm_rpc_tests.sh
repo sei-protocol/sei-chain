@@ -22,47 +22,10 @@ run() {
     'export PATH=$PATH:/root/go/bin && printf "%s\n" "$SEI_EVM_IO_PASSWORD" | "$@"' bash "$@"
 }
 
-# Resolve sender's cosmos address once. On any failure (transient
-# docker hiccup, container start race, missing key) FROM_ADDR stays
-# empty and the wait helper below becomes a no-op — the script falls
-# back to the original unprotected behavior rather than crashing
-# under set -e.
-FROM_ADDR=$(run seid keys show "$FROM" "${KEYRING_ARGS[@]}" -a 2>/dev/null) || FROM_ADDR=
-
-# Cosmos account sequence for $FROM_ADDR (or empty on any error).
-# Always exits 0 so the calling `local cur=$(get_from_seq)` doesn't
-# trip set -e in command substitution.
-get_from_seq() {
-  if [ -z "$FROM_ADDR" ]; then echo; return 0; fi
-  local s
-  s=$(run seid q account "$FROM_ADDR" -o json 2>/dev/null | jq -r '.sequence // ""' 2>/dev/null) || true
-  echo "$s"
-}
-
 get_latest_height() {
   local h
   h=$(run seid status 2>/dev/null | jq -r '.SyncInfo.latest_block_height // "0"' 2>/dev/null) || true
   echo "${h:-0}"
-}
-
-# Wait until $FROM_ADDR's sequence advances past $1.
-# Direct causal "previous tx committed" signal: the sender's sequence
-# advances atomically when its tx is included in a block, so by the
-# time this returns the next CLI's pre-flight `q account` will read
-# the post-tx sequence. No-op if FROM_ADDR resolution failed.
-wait_from_seq_advance() {
-  local prev="$1"
-  if [ -z "$FROM_ADDR" ] || [ -z "$prev" ]; then return 0; fi
-  local deadline=$(($(date +%s) + 30))
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    local cur; cur=$(get_from_seq)
-    if [[ "$cur" =~ ^[0-9]+$ ]] && [ "$cur" -gt "$prev" ]; then
-      return 0
-    fi
-    sleep 0.5
-  done
-  echo "timed out waiting for sequence to advance past ${prev}" >&2
-  return 1
 }
 
 wait_until_height_exceeds() {
@@ -123,25 +86,16 @@ docker exec "$CONTAINER" /bin/bash -c "tr -d '[:space:]' < \"$CONTRACT_HEX\" > /
 # downstream eth_getTransactionReceipt polling handles inclusion
 # confirmation independently.
 #
-# Poll the sender's sequence between each pair of consecutive -b sync
-# submissions so the next CLI's pre-flight `q account` doesn't race
-# the mempool's still-pending prior tx (otherwise both sign with the
-# same sequence and the second's CheckTx rejects with "incorrect
-# account sequence"). For the send line that's required because it
-# has no `|| true` and a rejection would crash the script under set -e;
-# for the deploy line it's required because a silent CheckTx rejection
-# leaves SEI_EVM_IO_SEED_BLOCK unset and skips the __SEED__ fixtures.
-# The reverter deploy further down only needs protection if the
-# minimal deploy's receipt-poll loop didn't already wait (which it
-# only skips when DEPLOY_TX is empty — i.e. minimal already failed,
-# in which case reverter racing is no worse).
-SEQ_BEFORE_ASSOC=$(get_from_seq)
-run seid tx evm associate-address --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei -b sync -y 2>/dev/null || true
-wait_from_seq_advance "$SEQ_BEFORE_ASSOC"
-SEQ_BEFORE_SEND=$(get_from_seq)
-run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y
-wait_from_seq_advance "$SEQ_BEFORE_SEND"
-SEQ_BEFORE_MINIMAL=$(get_from_seq)
+# These are EVM transactions, so receipt polling is the reliable
+# inclusion signal. Cosmos account sequence waits are not appropriate here.
+SEND_OUT=$(run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y 2>&1)
+SEND_TX=$(echo "$SEND_OUT" | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
+if [[ -z "$SEND_TX" ]]; then
+  echo "Failed to extract seed transfer tx hash:" >&2
+  printf "%s\n" "$SEND_OUT" >&2
+  exit 1
+fi
+wait_for_receipt_field "$SEND_TX" blockNumber >/dev/null
 DEPLOY_OUT=$(run seid tx evm deploy /tmp/minimal_contract.hex --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y 2>&1) || true
 DEPLOY_TX=$(echo "$DEPLOY_OUT" | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
 if [[ -n "$DEPLOY_TX" ]]; then
@@ -153,13 +107,7 @@ if [[ -n "$DEPLOY_TX" ]]; then
 fi
 
 # Deploy reverter contract (reverts with Error("user error")); export SEI_EVM_IO_REVERTER_ADDRESS for .iox __REVERTER__ tag.
-# wait_from_seq_advance even though minimal's receipt-poll loop above
-# usually does the same job — when the grep fails to extract DEPLOY_TX
-# from a successful CheckTx response (CLI format quirk, partial output),
-# the receipt poll is skipped entirely and reverter would otherwise
-# fire with a stale sequence.
 docker exec "$CONTAINER" /bin/bash -c "tr -d '[:space:]' < \"$REVERTER_HEX\" > /tmp/reverter_contract.hex"
-wait_from_seq_advance "$SEQ_BEFORE_MINIMAL"
 REVERTER_OUT=$(run seid tx evm deploy /tmp/reverter_contract.hex --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y 2>&1) || true
 REVERTER_TX=$(echo "$REVERTER_OUT" | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
 if [[ -n "$REVERTER_TX" ]]; then
