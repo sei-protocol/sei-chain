@@ -18,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -2635,33 +2636,45 @@ func TestAlignFlatKVSnapshotWithMemIAVL(t *testing.T) {
 		require.Equal(t, uint32(3), cfg.FlatKVConfig.SnapshotKeepRecent)
 	})
 
-	t.Run("a zero memIAVL keep-recent does not zero out FlatKV", func(t *testing.T) {
+	t.Run("a zero memIAVL keep-recent resolves to the healed default", func(t *testing.T) {
 		cfg := config.DefaultStateCommitConfig()
 		cfg.MemIAVLConfig.SnapshotKeepRecent = 0
-		// FlatKV keeps its own non-zero default rather than mirroring the 0.
-		// memIAVL's own 0 is left untouched here and resolved later by
-		// FillDefaults (0 -> DefaultSnapshotKeepRecent), which matches FlatKV's
-		// default so the two backends still converge.
-		defaultFlatKVKeepRecent := cfg.FlatKVConfig.SnapshotKeepRecent
-		require.NotZero(t, defaultFlatKVKeepRecent)
-
+		// FlatKV must not mirror the raw 0 (which would prune everything but the
+		// latest). Instead it mirrors the value FillDefaults will heal memIAVL to,
+		// keeping the two in lockstep. memIAVL's own 0 is left for FillDefaults.
 		alignFlatKVSnapshotWithMemIAVL(&cfg)
 
 		require.Equal(t, uint32(0), cfg.MemIAVLConfig.SnapshotKeepRecent)
-		require.Equal(t, defaultFlatKVKeepRecent, cfg.FlatKVConfig.SnapshotKeepRecent)
+		require.Equal(t, uint32(memiavl.DefaultSnapshotKeepRecent), cfg.FlatKVConfig.SnapshotKeepRecent)
 	})
 
-	t.Run("a zero memIAVL interval does not disable FlatKV snapshots", func(t *testing.T) {
+	t.Run("a zero memIAVL interval resolves to the healed default", func(t *testing.T) {
 		cfg := config.DefaultStateCommitConfig()
 		cfg.MemIAVLConfig.SnapshotInterval = 0
-		// FlatKV keeps its own non-zero default rather than mirroring the 0
-		// (which would disable FlatKV auto-snapshots).
-		defaultFlatKVInterval := cfg.FlatKVConfig.SnapshotInterval
-		require.NotZero(t, defaultFlatKVInterval)
+		// A raw 0 would disable FlatKV auto-snapshots; instead FlatKV mirrors the
+		// value FillDefaults will heal memIAVL's interval to.
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(memiavl.DefaultSnapshotInterval), cfg.FlatKVConfig.SnapshotInterval)
+		require.NotZero(t, cfg.FlatKVConfig.SnapshotInterval)
+	})
+
+	t.Run("an explicit FlatKV override loses to memIAVL's healed default", func(t *testing.T) {
+		// Upgrade scenario: an old app.toml still pins an explicit FlatKV
+		// keep-recent/interval (the previous template rendered flatkv.* keys)
+		// while sc-* is 0. FlatKV must follow memIAVL's effective (healed) cadence
+		// rather than staying pinned to the stale explicit value, otherwise the
+		// two backends diverge (memIAVL heals 0 -> default, FlatKV keeps the old
+		// explicit value).
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 0
+		cfg.MemIAVLConfig.SnapshotInterval = 0
+		cfg.FlatKVConfig.SnapshotKeepRecent = 2
+		cfg.FlatKVConfig.SnapshotInterval = 7777
 
 		alignFlatKVSnapshotWithMemIAVL(&cfg)
 
-		require.Equal(t, defaultFlatKVInterval, cfg.FlatKVConfig.SnapshotInterval)
-		require.NotZero(t, cfg.FlatKVConfig.SnapshotInterval)
+		require.Equal(t, uint32(memiavl.DefaultSnapshotKeepRecent), cfg.FlatKVConfig.SnapshotKeepRecent)
+		require.Equal(t, uint32(memiavl.DefaultSnapshotInterval), cfg.FlatKVConfig.SnapshotInterval)
 	})
 }

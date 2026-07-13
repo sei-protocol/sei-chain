@@ -193,21 +193,30 @@ func NewCompositeCommitStore(
 // sc-* defaults match FlatKV's own in-code defaults, and only cfg.FlatKVConfig
 // is read when building the FlatKVOnly store.
 //
-// FlatKV derives each value from memIAVL only when memIAVL provides a real
-// (non-zero) value. A zero memIAVL value is deliberately left untouched: memIAVL
-// resolves its own zeros to defaults later in Options.FillDefaults (interval
-// 0 -> DefaultSnapshotInterval, keep-recent 0 -> DefaultSnapshotKeepRecent), and
-// FlatKV keeps its own non-zero in-code default, which matches those memIAVL
-// defaults. Mirroring a raw 0 instead would disable FlatKV snapshots (0 means
-// "disabled" for FlatKV) while memIAVL kept checkpointing, letting FlatKV's WAL
-// grow unbounded.
+// FlatKV mirrors memIAVL's *effective* cadence: a zero memIAVL value is first
+// resolved to the same default Options.FillDefaults would apply at OpenDB
+// (interval 0 -> DefaultSnapshotInterval, keep-recent 0 -> DefaultSnapshotKeepRecent),
+// then assigned to FlatKV unconditionally. Resolving-then-assigning (rather than
+// skipping on a zero and letting FlatKV keep its own in-code default) keeps the
+// two backends in true lockstep without relying on FlatKV's default happening to
+// equal memIAVL's healed default. That reliance is fragile — the defaults are
+// only kept equal by hand — and it breaks for an upgrading node whose old
+// app.toml still carries an explicit state-commit.flatkv.snapshot-keep-recent
+// (rendered by the old template) alongside sc-keep-recent = 0: skipping would
+// leave FlatKV pinned to the stale explicit value while memIAVL healed to a
+// different default. Note that mirroring a raw 0 is never correct here (0 means
+// "disable auto-snapshots" for FlatKV), which is why the zero is resolved first.
 func alignFlatKVSnapshotWithMemIAVL(cfg *config.StateCommitConfig) {
-	if cfg.MemIAVLConfig.SnapshotInterval != 0 {
-		cfg.FlatKVConfig.SnapshotInterval = cfg.MemIAVLConfig.SnapshotInterval
+	interval := cfg.MemIAVLConfig.SnapshotInterval
+	if interval == 0 {
+		interval = memiavl.DefaultSnapshotInterval
 	}
-	if cfg.MemIAVLConfig.SnapshotKeepRecent != 0 {
-		cfg.FlatKVConfig.SnapshotKeepRecent = cfg.MemIAVLConfig.SnapshotKeepRecent
+	keepRecent := cfg.MemIAVLConfig.SnapshotKeepRecent
+	if keepRecent == 0 {
+		keepRecent = memiavl.DefaultSnapshotKeepRecent
 	}
+	cfg.FlatKVConfig.SnapshotInterval = interval
+	cfg.FlatKVConfig.SnapshotKeepRecent = keepRecent
 }
 
 // Initialize records the set of child store names that should exist on
