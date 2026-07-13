@@ -3,9 +3,12 @@ package p2p
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -55,4 +58,27 @@ func TestCommitHashToVault(t *testing.T) {
 		err := commitAppHashToVault(ctx, vault, height, h2)
 		require.Error(t, err)
 	})
+}
+
+func TestApplyBlockDBConfig(t *testing.T) {
+	cfg, err := littblock.DefaultConfig(t.TempDir())
+	require.NoError(t, err)
+	require.Equal(t, 24*time.Hour, cfg.Retention)
+	require.True(t, cfg.Litt.Fsync)
+
+	applyBlockDBConfig(cfg, BlockDBConfig{
+		Retention: utils.Some(30 * time.Second),
+		GCPeriod:  utils.Some(5 * time.Second),
+		Fsync:     utils.Some(false),
+	})
+	require.Equal(t, 30*time.Second, cfg.Retention)
+	require.Equal(t, 5*time.Second, cfg.Litt.GCPeriod)
+	require.False(t, cfg.Litt.Fsync)
+
+	// Zero overrides leave an already-customized config unchanged.
+	before := *cfg
+	applyBlockDBConfig(cfg, BlockDBConfig{})
+	require.Equal(t, before.Retention, cfg.Retention)
+	require.Equal(t, before.Litt.GCPeriod, cfg.Litt.GCPeriod)
+	require.Equal(t, before.Litt.Fsync, cfg.Litt.Fsync)
 }

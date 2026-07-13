@@ -98,6 +98,41 @@ func TestBuildGigaConfig_NonePersistentStateDir(t *testing.T) {
 	assert.False(t, result.PersistentStateDir.IsPresent())
 }
 
+func TestBuildGigaConfig_BlockDBOverrides(t *testing.T) {
+	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
+	fc := defaultFileConfig(t, []config.AutobahnValidator{v1})
+	fc.BlockDB = utils.Some(config.AutobahnBlockDBConfig{
+		Retention: utils.Some(utils.Duration(30 * time.Second)),
+		GCPeriod:  utils.Some(utils.Duration(5 * time.Second)),
+		Fsync:     utils.Some(false),
+	})
+	cfgFile := writeAutobahnConfig(t, fc)
+	nodeKey := makeTestNodeKey([]byte("node-seed"))
+	valKey := makeTestValidatorKey([]byte("val-seed"))
+	txMempool, genDoc := makeTestGigaDeps()
+
+	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
+	require.NoError(t, err)
+	assert.Equal(t, utils.Some(30*time.Second), result.BlockDB.Retention)
+	assert.Equal(t, utils.Some(5*time.Second), result.BlockDB.GCPeriod)
+	assert.Equal(t, utils.Some(false), result.BlockDB.Fsync)
+}
+
+func TestBuildGigaConfig_BlockDBOmittedKeepsZeroOverrides(t *testing.T) {
+	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
+	fc := defaultFileConfig(t, []config.AutobahnValidator{v1})
+	cfgFile := writeAutobahnConfig(t, fc)
+	nodeKey := makeTestNodeKey([]byte("node-seed"))
+	valKey := makeTestValidatorKey([]byte("val-seed"))
+	txMempool, genDoc := makeTestGigaDeps()
+
+	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
+	require.NoError(t, err)
+	assert.False(t, result.BlockDB.Retention.IsPresent())
+	assert.False(t, result.BlockDB.GCPeriod.IsPresent())
+	assert.False(t, result.BlockDB.Fsync.IsPresent())
+}
+
 func TestBuildGigaConfig_EmptyPathErrors(t *testing.T) {
 	nodeKey := makeTestNodeKey([]byte("test-node-key"))
 	valKey := makeTestValidatorKey([]byte("val-seed"))

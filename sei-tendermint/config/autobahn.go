@@ -34,6 +34,24 @@ type AutobahnValidator struct {
 	EVMRPC URL `json:"evmrpc"`
 }
 
+// AutobahnBlockDBConfig holds optional overrides for the LittDB-backed BlockDB
+// opened under persistent_state_dir/blockdb. Absent fields keep
+// littblock.DefaultConfig values. Paths are never taken from here — Autobahn
+// always roots BlockDB at <persistent_state_dir>/blockdb.
+//
+// Disk impact (most → least useful for bounding usage):
+//   - Retention: failsafe TTL; pruned data cannot be GC'd until this old.
+//     Primary knob for worst-case disk after PruneBefore advances.
+//   - GCPeriod: how often GC runs once data is eligible (reclaim latency).
+//   - Fsync: durability vs write latency; does not meaningfully change size.
+//
+// Segment sizing is intentionally not exposed (engine-internal).
+type AutobahnBlockDBConfig struct {
+	Retention utils.Option[utils.Duration] `json:"retention"`
+	GCPeriod  utils.Option[utils.Duration] `json:"gc_period"`
+	Fsync     utils.Option[bool]           `json:"fsync"`
+}
+
 // AutobahnFileConfig is the JSON structure of the autobahn config file.
 type AutobahnFileConfig struct {
 	Validators         []AutobahnValidator  `json:"validators"`
@@ -49,6 +67,9 @@ type AutobahnFileConfig struct {
 	// fullnodes serving downstream block-sync are subject to the same
 	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers"`
+	// BlockDB optionally overrides littblock defaults when PersistentStateDir
+	// is set. Absent ⇒ littblock.DefaultConfig unchanged.
+	BlockDB utils.Option[AutobahnBlockDBConfig] `json:"block_db"`
 }
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when
@@ -79,6 +100,22 @@ func (fc *AutobahnFileConfig) Validate() error {
 	}
 	if fc.DialInterval <= 0 {
 		return errors.New("dial_interval must be > 0")
+	}
+	if bdb, ok := fc.BlockDB.Get(); ok {
+		if err := bdb.Validate(); err != nil {
+			return fmt.Errorf("block_db: %w", err)
+		}
+	}
+	return nil
+}
+
+// Validate checks optional BlockDB overrides. Absent fields are fine.
+func (c AutobahnBlockDBConfig) Validate() error {
+	if r, ok := c.Retention.Get(); ok && r <= 0 {
+		return errors.New("retention must be > 0 when set")
+	}
+	if p, ok := c.GCPeriod.Get(); ok && p <= 0 {
+		return errors.New("gc_period must be > 0 when set")
 	}
 	return nil
 }

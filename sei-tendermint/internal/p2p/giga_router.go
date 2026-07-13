@@ -26,6 +26,15 @@ func (a GigaNodeAddr) String() string {
 	return fmt.Sprintf("%v@%v", a.Key, a.HostPort)
 }
 
+// BlockDBConfig holds optional overrides applied onto littblock.DefaultConfig
+// when opening a durable BlockDB. Absent fields keep littblock defaults.
+// Paths are always derived from PersistentStateDir — never set here.
+type BlockDBConfig struct {
+	Retention utils.Option[time.Duration]
+	GCPeriod  utils.Option[time.Duration]
+	Fsync     utils.Option[bool]
+}
+
 // GigaRouterCommonConfig is the slice of giga config shared by both
 // validator and fullnode constructors.
 type GigaRouterCommonConfig struct {
@@ -36,6 +45,9 @@ type GigaRouterCommonConfig struct {
 	// hashvault, and the validator's consensus persister in sibling subdirs).
 	// If None, persistence is disabled and the node runs fully in-memory.
 	PersistentStateDir utils.Option[string]
+	// BlockDB optionally overrides littblock defaults when PersistentStateDir
+	// is set. Zero value keeps littblock.DefaultConfig unchanged.
+	BlockDB BlockDBConfig
 	// App is the ABCI proxy executeBlock drives. NewGigaValidatorRouter
 	// also passes it to producer.NewState so the producer's internal
 	// mempool drives the same proxy.

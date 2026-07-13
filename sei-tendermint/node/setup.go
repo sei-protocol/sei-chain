@@ -249,6 +249,7 @@ func buildValidatorGigaConfig(
 			DialInterval:            time.Duration(fc.DialInterval),
 			ValidatorAddrs:          validatorAddrs,
 			PersistentStateDir:      fc.PersistentStateDir,
+			BlockDB:                 mapBlockDBConfig(fc.BlockDB),
 			App:                     app,
 			GenDoc:                  genDoc,
 			MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
@@ -391,10 +392,25 @@ func buildFullnodeGigaConfig(
 		DialInterval:            time.Duration(fc.DialInterval),
 		ValidatorAddrs:          validatorAddrs,
 		PersistentStateDir:      fc.PersistentStateDir,
+		BlockDB:                 mapBlockDBConfig(fc.BlockDB),
 		App:                     app,
 		GenDoc:                  genDoc,
 		MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
 	}, nil
+}
+
+// mapBlockDBConfig converts optional Autobahn JSON BlockDB overrides into the
+// in-process GigaRouter form. None ⇒ zero BlockDBConfig (littblock defaults).
+func mapBlockDBConfig(o utils.Option[config.AutobahnBlockDBConfig]) p2p.BlockDBConfig {
+	fc, ok := o.Get()
+	if !ok {
+		return p2p.BlockDBConfig{}
+	}
+	return p2p.BlockDBConfig{
+		Retention: utils.MapOpt(fc.Retention, func(d utils.Duration) time.Duration { return d.Duration() }),
+		GCPeriod:  utils.MapOpt(fc.GCPeriod, func(d utils.Duration) time.Duration { return d.Duration() }),
+		Fsync:     fc.Fsync,
+	}
 }
 
 func createRouter(
