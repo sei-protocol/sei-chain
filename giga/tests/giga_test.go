@@ -2427,8 +2427,8 @@ func TestGigaValidation_InsufficientBalance(t *testing.T) {
 // TestGigaValidation_FailureReceiptParity asserts a validation-failed tx
 // produces a byte-identical receipt under both executors. Giga routes
 // validation failures to v2 (per-tx fallback, same doctrine as balance
-// migration), so the ante-abort receipt — including the gas fields that feed
-// LastResultsHash — matches by construction (CON-368).
+// migration), so the ante-abort receipt (including the gas fields that feed
+// LastResultsHash) matches by construction (CON-368).
 func TestGigaValidation_FailureReceiptParity(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(3)
@@ -2516,7 +2516,7 @@ func TestGigaValidation_MixedBlockReceiptParity(t *testing.T) {
 	require.Len(t, v2Results, 3)
 	require.Len(t, gigaResults, 3)
 
-	// Receipts must be byte-identical — Code/Data/GasWanted/GasUsed feed
+	// Receipts must be byte-identical: Code/Data/GasWanted/GasUsed feed
 	// LastResultsHash (CON-368).
 	CompareDeterministicFields(t, "MixedBlockReceiptParity", v2Results, gigaResults)
 	CompareLastResultsHash(t, "MixedBlockReceiptParity", v2Results, gigaResults)
@@ -2529,7 +2529,7 @@ func TestGigaValidation_MixedBlockReceiptParity(t *testing.T) {
 
 // TestGigaValidation_DrainRace_LastResultsHash reproduces CON-368's block
 // shape: tx0 drains the sender far enough that tx1 (same sender, next nonce)
-// fails its fee check at delivery — a tx that passes admission but fails in
+// fails its fee check at delivery, a tx that passes admission but fails in
 // the block. Receipts must hash identically across executors; under OCC the
 // giga batch re-runs through the v2 OCC scheduler.
 func TestGigaValidation_DrainRace_LastResultsHash(t *testing.T) {

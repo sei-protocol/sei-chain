@@ -141,9 +141,6 @@ func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey,
 }
 
 func NewGigaTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	// newTestWrapper runs full module genesis; a raw InitGenesis(DefaultGenesis())
-	// on top writes byte-different params (nil marshals to null, seeded []byte{}
-	// to []) and skews ante store-gas between executor contexts.
 	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
 }
 
