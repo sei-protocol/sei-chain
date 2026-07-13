@@ -64,12 +64,33 @@ wait_for_receipt_field() {
 bump_chain_to_height() {
   local target="$1"
   local height; height=$(get_latest_height)
-  while [[ "$height" =~ ^[0-9]+$ ]] && [ "$height" -lt "$target" ]; do
+  if ! [[ "$height" =~ ^[0-9]+$ ]]; then
+    echo "failed to read numeric chain height before preseeding: ${height}" >&2
+    return 1
+  fi
+  local max_iters=$((target - height + 5))
+  if [ "$max_iters" -lt 1 ]; then
+    return 0
+  fi
+  local iter=0
+  while [ "$height" -lt "$target" ]; do
+    iter=$((iter + 1))
+    if [ "$iter" -gt "$max_iters" ]; then
+      echo "timed out preseeding historical blocks: height=${height}, target=${target}, attempts=${iter}" >&2
+      return 1
+    fi
     # Progress-only EVM send: these fixtures need real historical blocks first.
     local tx_hash
     tx_hash=$(run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
-    height=$(wait_for_receipt_field "$tx_hash" blockNumber)
-    height=$((height))
+    if [[ -z "$tx_hash" ]]; then
+      echo "failed to extract progress tx hash while preseeding historical blocks" >&2
+      return 1
+    fi
+    local receipt_height
+    if ! receipt_height=$(wait_for_receipt_field "$tx_hash" blockNumber); then
+      return 1
+    fi
+    height=$((receipt_height))
   done
 }
 

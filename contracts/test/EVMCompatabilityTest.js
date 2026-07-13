@@ -4,7 +4,7 @@ const {uniq} = require("lodash");
 const hre = require('hardhat');
 const { ethers, upgrades } = hre;
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-const { deployEvmContract, setupSigners, fundAddress, mineTransferBlock, waitForReceipt } = require("./lib")
+const { deployEvmContract, setupSigners, fundAddress, mineTransferBlock, waitForReceipt, waitForCondition } = require("./lib")
 const axios = require("axios");
 const { default: BigNumber } = require("bignumber.js");
 
@@ -698,11 +698,17 @@ describe("EVM Test", function () {
           const block = await ethers.provider.getBlock(blockHeight);
           const baseFee = Number(block.baseFeePerGas);
           expect(baseFee).to.equal(oneGwei);
-          // Progress-only block: the assertion is about the next block's base
-          // fee, so force that block to exist explicitly.
+          // Progress-only block: the assertion is specifically about child
+          // block H+1 of the heavy tx's block H, so force progress and then
+          // read that exact child block once it exists.
           const nextReceipt = await mineTransferBlock(owner);
           expect(nextReceipt.blockNumber).to.be.greaterThan(blockHeight);
-          const nextBlock = await ethers.provider.getBlock(nextReceipt.blockNumber);
+          const nextBlockHeight = blockHeight + 1;
+          await waitForCondition(
+            async () => (await ethers.provider.getBlock(nextBlockHeight)) !== null,
+            `block ${nextBlockHeight} to exist`,
+          );
+          const nextBlock = await ethers.provider.getBlock(nextBlockHeight);
           const nextBaseFee = Number(nextBlock.baseFeePerGas);
           expect(nextBaseFee).to.be.greaterThan(oneGwei);
         });
