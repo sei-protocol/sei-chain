@@ -2258,19 +2258,15 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 }
 
 // setCodeTxRequiresAuthorityAssociation reports whether an EIP-7702 transaction has any
-// authorization authority that is not yet associated with its true (pubkey-derived) Sei
-// address. Such an authority must be associated (with balance migration) before SetCode
-// runs, which the V2 ante handler does but the giga executor cannot; callers use this to
-// defer the transaction to V2. Authorities with unrecoverable signatures are ignored:
-// EVM execution skips them too, so no direct-cast mapping is created for them. It returns
-// false for non-SetCode transactions (which carry no authorizations).
+// authorization authority that the EVM will apply and that is not yet associated with its
+// true (pubkey-derived) Sei address. Such an authority must be associated (with balance
+// migration) before SetCode runs, which the V2 ante handler does but the giga executor
+// cannot; callers use this to defer the transaction to V2. Authorizations the EVM would
+// skip (wrong chain id, bad nonce, authority has code) are ignored: no mapping is created
+// for them. It returns false for non-SetCode transactions (which carry no authorizations).
 func (app *App) setCodeTxRequiresAuthorityAssociation(ctx sdk.Context, ethTx *ethtypes.Transaction) bool {
 	for _, auth := range ethTx.SetCodeAuthorizations() {
-		_, seiAddr, _, err := helpers.RecoverAddressesFromAuthorization(auth)
-		if err != nil {
-			continue
-		}
-		if _, associated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr); !associated {
+		if _, _, _, ok := helpers.AuthorityToPreAssociate(ctx, &app.GigaEvmKeeper, auth); ok {
 			return true
 		}
 	}

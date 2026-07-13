@@ -133,16 +133,12 @@ func (p *EVMPreprocessDecorator) associateAuthorizationAuthorities(ctx sdk.Conte
 	}
 	ethTx := ethtypes.NewTx(setCodeTx.AsEthereumData())
 	for _, auth := range ethTx.SetCodeAuthorizations() {
-		evmAddr, seiAddr, pubkey, err := helpers.RecoverAddressesFromAuthorization(auth)
-		if err != nil {
-			continue
-		}
-		// Cross-check against go-ethereum's authoritative recovery so we only ever
-		// associate the exact address that SetCode will target during execution.
-		if authAddr, aerr := auth.Authority(); aerr != nil || authAddr != evmAddr {
-			continue
-		}
-		if _, associated := p.evmKeeper.GetEVMAddress(ctx, seiAddr); associated {
+		// Only pre-associate authorities whose authorization the EVM will actually apply
+		// (matching chain id, nonce, and account state). This prevents replaying a
+		// publicly-visible authorization a user signed for another chain to force-associate
+		// them, which the EVM would skip but which still recovers a valid authority.
+		evmAddr, seiAddr, pubkey, ok := helpers.AuthorityToPreAssociate(ctx, p.evmKeeper, auth)
+		if !ok {
 			continue
 		}
 		cacheCtx, write := ctx.CacheContext()
