@@ -110,6 +110,46 @@ wait_until_height_exceeds() {
         "[ \$($seidbin status | jq -r .SyncInfo.latest_block_height) -gt $min_height ]"
 }
 
+get_proposal_status() {
+    $seidbin q gov proposal "$1" --output json 2>/dev/null | jq -r '.status // ""'
+}
+
+wait_for_proposal_status() {
+    local proposal_id="$1"
+    local target_status="$2"
+    local timeout_secs="${3:-120}"
+    local from_key="${4:-admin}"
+    local from_addr; from_addr=$(printf "12345678\n" | $seidbin keys show "$from_key" -a 2>/dev/null)
+    local deadline=$(($(date +%s) + timeout_secs))
+    local deadline_kick_sent=0
+    local status=""
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        local raw; raw=$($seidbin q gov proposal "$proposal_id" --output json 2>/dev/null || true)
+        status=$(echo "$raw" | jq -r '.status // ""' 2>/dev/null)
+        if [ "$status" = "$target_status" ]; then
+            echo "$status"
+            return 0
+        fi
+        if [ "$status" = "PROPOSAL_STATUS_REJECTED" ] || [ "$status" = "PROPOSAL_STATUS_FAILED" ]; then
+            echo "proposal $proposal_id reached terminal status $status while waiting for $target_status" >&2
+            return 1
+        fi
+        local voting_end
+        voting_end=$(echo "$raw" | jq -r '.voting_end_time // ""' 2>/dev/null)
+        local voting_end_epoch=""
+        if [ -n "$voting_end" ]; then
+            voting_end_epoch=$(date -d "$voting_end" +%s 2>/dev/null || true)
+        fi
+        if [ "$deadline_kick_sent" -eq 0 ] && [ -n "$voting_end_epoch" ] && [ "$(date +%s)" -ge $((voting_end_epoch + 1)) ]; then
+            bank_send_and_wait "$from_key" "$from_addr" "1usei" >/dev/null || return 1
+            deadline_kick_sent=1
+        fi
+        sleep 1
+    done
+    echo "timed out waiting for proposal $proposal_id to reach $target_status (last status=${status:-unknown})" >&2
+    return 1
+}
+
 # Submit `tx <subcmd> <args...>` via -b sync from <from-key>, wait for
 # that sender's account sequence to advance, and echo the CheckTx code
 # (0 on success). On CheckTx rejection the rejection log is written to

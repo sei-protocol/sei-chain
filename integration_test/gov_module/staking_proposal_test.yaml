@@ -26,9 +26,8 @@
     - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
     - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
       node: sei-node-3
-    # since expedited quorum is 0.9, we only need 4/4 votes and expect expedited proposal to pass after 20 seconds
-    - cmd: sleep 20
-    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    # since expedited quorum is 0.9, we need 4/4 votes; drive progress until it passes
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && wait_for_proposal_status $PROPOSAL_ID PROPOSAL_STATUS_PASSED 120 admin
       env: PROPOSAL_STATUS
     # Get the params again after proposal is passed
     - cmd: seid q params subspace staking UnbondingTime --output json | jq -r .value | tr -d "\""

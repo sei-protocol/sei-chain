@@ -771,15 +771,22 @@ async function passProposal(proposalId,  desposit="200000000usei", fees="200000u
     } else {
         await execute(`seid tx gov vote ${proposalId} yes --from ${from} -b sync -y --fees ${fees}`)
     }
+    const adminAddr = await getKeySeiAddress(adminKeyName)
+    let deadlineKickSent = false
     // Poll for proposal status with shorter delay for faster tests
     for(let i=0; i<200; i++) {
-        const proposal = await execute(`seid q gov proposal ${proposalId} -o json`)
-        const status = JSON.parse(proposal).status
+        const proposal = JSON.parse(await execute(`seid q gov proposal ${proposalId} -o json`))
+        const status = proposal.status
         if(status === "PROPOSAL_STATUS_PASSED") {
             return proposalId
         }
         if(status === "PROPOSAL_STATUS_REJECTED" || status === "PROPOSAL_STATUS_FAILED") {
             throw new Error(`Proposal ${proposalId} was rejected/failed with status: ${status}`)
+        }
+        const votingEndMs = Date.parse(proposal.voting_end_time ?? "")
+        if (!deadlineKickSent && Number.isFinite(votingEndMs) && Date.now() >= votingEndMs + 1000) {
+            await bankSend(adminAddr, adminKeyName, "1", "usei")
+            deadlineKickSent = true
         }
         await sleep(250)  // Poll every 250ms instead of 1s for faster feedback
     }
