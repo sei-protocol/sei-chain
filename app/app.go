@@ -1624,6 +1624,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			// Abort errors (validation failure, balance migration, self-destruct,
 			// cosmos-precompile interop) re-run this tx via v2.
 			if gigautils.ShouldExecutionAbort(execErr) {
+				utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 				appMetrics.gigaFallback.Add(ctx.Context(), 1,
 					otelmetric.WithAttributes(
 						attribute.String("reason", gigaFallbackReason(execErr)),
