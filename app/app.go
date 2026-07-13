@@ -2001,8 +2001,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 	return events, txResults, endBlockResp, nil
 }
 
-// executeEVMTxWithGigaExecutor executes a single EVM transaction using the giga executor.
-// The sender address is recovered directly from the transaction signature - no Cosmos SDK ante handlers needed.
 // gigaFallbackReason labels the app_giga_fallback_to_v2 metric with which
 // abort sentinel routed a tx to v2, so operators can tell a validation-failure
 // wave from balance-migration churn.
@@ -2021,6 +2019,8 @@ func gigaFallbackReason(err error) string {
 	}
 }
 
+// executeEVMTxWithGigaExecutor executes a single EVM transaction using the giga executor.
+// The sender address is recovered directly from the transaction signature - no Cosmos SDK ante handlers needed.
 func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgEVMTransaction, cache *gigaBlockCache) (*abci.ExecTxResult, error) {
 	// Get the Ethereum transaction from the message
 	ethTx, _ := msg.AsTransaction()
