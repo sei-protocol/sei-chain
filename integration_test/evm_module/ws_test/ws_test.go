@@ -14,13 +14,12 @@ package ws_test
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sei-protocol/sei-chain/integration_test/internal/evmtest"
 )
 
 func wsURL() string {
@@ -32,48 +31,10 @@ func wsURL() string {
 
 func triggerHead(t *testing.T) {
 	t.Helper()
-
-	container := os.Getenv("SEI_EVM_WS_TX_CONTAINER")
-	if container == "" {
-		container = "sei-node-0"
-	}
-	password := os.Getenv("SEI_EVM_WS_TX_PASSWORD")
-	if password == "" {
-		password = "12345678"
-	}
-	from := os.Getenv("SEI_EVM_WS_TX_FROM")
-	if from == "" {
-		from = "admin"
-	}
-	recipient := os.Getenv("SEI_EVM_WS_TX_RECIPIENT")
-	if recipient == "" {
-		recipient = "0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52"
-	}
-	evmRPCURL := os.Getenv("SEI_EVM_WS_TX_EVM_RPC_URL")
-	if evmRPCURL == "" {
-		evmRPCURL = "http://localhost:8545"
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(
-		ctx,
-		"docker", "exec",
-		"--env", fmt.Sprintf("SEI_EVM_WS_PASSWORD=%s", password),
-		container,
-		"/bin/bash", "-c",
-		`export PATH=$PATH:/root/go/bin && printf "%s\n" "$SEI_EVM_WS_PASSWORD" | "$@"`,
-		"bash",
-		"seid", "tx", "evm", "send", recipient, "1",
-		"--from", from,
-		"--chain-id", "sei",
-		"--evm-rpc", evmRPCURL,
-		"-b", "sync",
-		"-y",
-	)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("trigger head tx: %v\n%s", err, out)
+	if _, err := evmtest.SendTinyEvmTx(ctx, evmtest.ConfigFromEnv("SEI_EVM_WS_TX_")); err != nil {
+		t.Fatalf("trigger head tx: %v", err)
 	}
 }
 

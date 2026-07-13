@@ -78,6 +78,15 @@ async function delay() {
     await sleep(1000)
 }
 
+async function mineTransferBlock(sender) {
+    const tx = await sender.sendTransaction({
+        to: sender.address,
+        value: 1n,
+        gasPrice: ethers.parseUnits('100', 'gwei'),
+    })
+    return await tx.wait()
+}
+
 // Default 2 because the very next block after submit can be empty
 // Like provider.getTransactionReceipt, but treats the Autobahn-specific
 // "requested height N is not yet available; safe latest is N-1"
@@ -247,6 +256,39 @@ async function getAdmin() {
 
 async function getKeySeiAddress(name) {
     return (await execute(`seid keys show ${name} -a`)).trim()
+}
+
+async function waitForProposalStatus(
+    proposalId,
+    targetStatus,
+    { timeoutMs = 50000, pollIntervalMs = 250, kickKeyName = adminKeyName } = {},
+) {
+    const kickAddr = await getKeySeiAddress(kickKeyName)
+    const deadline = Date.now() + timeoutMs
+    let deadlineKickSent = false
+
+    while (Date.now() < deadline) {
+        const proposal = JSON.parse(await execute(`seid q gov proposal ${proposalId} -o json`))
+        const status = proposal.status
+        if (status === targetStatus) {
+            return proposal
+        }
+        if (
+            (status === "PROPOSAL_STATUS_REJECTED" || status === "PROPOSAL_STATUS_FAILED") &&
+            status !== targetStatus
+        ) {
+            throw new Error(`Proposal ${proposalId} was rejected/failed with status: ${status}`)
+        }
+
+        const votingEndMs = Date.parse(proposal.voting_end_time ?? "")
+        if (!deadlineKickSent && Number.isFinite(votingEndMs) && Date.now() >= votingEndMs + 1000) {
+            await bankSend(kickAddr, kickKeyName, "1", "usei")
+            deadlineKickSent = true
+        }
+        await sleep(pollIntervalMs)
+    }
+
+    throw new Error(`could not observe proposal ${proposalId} reaching ${targetStatus}`)
 }
 
 // Best-effort helper for idempotent bootstrap paths that may run after an
@@ -771,26 +813,8 @@ async function passProposal(proposalId,  desposit="200000000usei", fees="200000u
     } else {
         await execute(`seid tx gov vote ${proposalId} yes --from ${from} -b sync -y --fees ${fees}`)
     }
-    const adminAddr = await getKeySeiAddress(adminKeyName)
-    let deadlineKickSent = false
-    // Poll for proposal status with shorter delay for faster tests
-    for(let i=0; i<200; i++) {
-        const proposal = JSON.parse(await execute(`seid q gov proposal ${proposalId} -o json`))
-        const status = proposal.status
-        if(status === "PROPOSAL_STATUS_PASSED") {
-            return proposalId
-        }
-        if(status === "PROPOSAL_STATUS_REJECTED" || status === "PROPOSAL_STATUS_FAILED") {
-            throw new Error(`Proposal ${proposalId} was rejected/failed with status: ${status}`)
-        }
-        const votingEndMs = Date.parse(proposal.voting_end_time ?? "")
-        if (!deadlineKickSent && Number.isFinite(votingEndMs) && Date.now() >= votingEndMs + 1000) {
-            await bankSend(adminAddr, adminKeyName, "1", "usei")
-            deadlineKickSent = true
-        }
-        await sleep(250)  // Poll every 250ms instead of 1s for faster feedback
-    }
-    throw new Error("could not pass proposal "+proposalId)
+    await waitForProposalStatus(proposalId, "PROPOSAL_STATUS_PASSED")
+    return proposalId
 }
 
 async function registerPointerForERC20(erc20Address, fees="20000usei", from=adminKeyName) {
@@ -1194,5 +1218,7 @@ module.exports = {
     waitForBaseFeeToEq,
     waitForBaseFeeToBeGt,
     waitForCondition,
+    waitForProposalStatus,
     getAccountSequence,
+    mineTransferBlock,
 };

@@ -20,6 +20,10 @@ _get_account_sequence() {
     $seidbin q account "$1" -o json 2>/dev/null | jq -r '.sequence // 0'
 }
 
+_get_key_address() {
+    printf "12345678\n" | $seidbin keys show "$1" -a 2>/dev/null
+}
+
 # Cosmos account sequence for an address at a historical height. Echoes
 # the sequence number (0 if the account didn't exist yet at <height>),
 # or empty on query failure — distinct from 0 so the caller can retry
@@ -57,7 +61,7 @@ bank_send_and_get_height() {
     local from_key="$1"
     local to_addr="$2"
     local amount_denom="$3"
-    local from_addr; from_addr=$(printf "12345678\n" | $seidbin keys show "$from_key" -a 2>/dev/null)
+    local from_addr; from_addr=$(_get_key_address "$from_key")
     local seq_before; seq_before=$(_get_account_sequence "$from_addr")
     local resp; resp=$(printf "12345678\n" | $seidbin tx bank send "$from_key" "$to_addr" "$amount_denom" \
         -y --chain-id="$chainid" --gas=5000000 --fees=1000000usei \
@@ -119,7 +123,7 @@ wait_for_proposal_status() {
     local target_status="$2"
     local timeout_secs="${3:-120}"
     local from_key="${4:-admin}"
-    local from_addr; from_addr=$(printf "12345678\n" | $seidbin keys show "$from_key" -a 2>/dev/null)
+    local from_addr; from_addr=$(_get_key_address "$from_key")
     local deadline=$(($(date +%s) + timeout_secs))
     local deadline_kick_sent=0
     local status=""
@@ -159,7 +163,7 @@ wait_for_proposal_status() {
 # Usage: code=$(submit_tx_and_wait <from-key> <subcmd-and-args...>)
 submit_tx_and_wait() {
     local from_key="$1"; shift
-    local from_addr; from_addr=$(printf "12345678\n" | $seidbin keys show "$from_key" -a 2>/dev/null)
+    local from_addr; from_addr=$(_get_key_address "$from_key")
     local seq_before; seq_before=$(_get_account_sequence "$from_addr")
     local resp; resp=$(printf "12345678\n" | $seidbin tx "$@" --from "$from_key" \
         -y --chain-id="$chainid" --broadcast-mode=sync --output=json)
@@ -241,7 +245,7 @@ bank_send_and_wait() {
     local from_key="$1"
     local to_addr="$2"
     local amount_denom="$3"
-    local from_addr; from_addr=$(printf "12345678\n" | $seidbin keys show "$from_key" -a 2>/dev/null)
+    local from_addr; from_addr=$(_get_key_address "$from_key")
     local seq_before; seq_before=$(_get_account_sequence "$from_addr")
     local resp; resp=$(printf "12345678\n" | $seidbin tx bank send "$from_key" "$to_addr" "$amount_denom" \
         -y --chain-id="$chainid" --gas=5000000 --fees=1000000usei \

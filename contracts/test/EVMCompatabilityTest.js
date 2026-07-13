@@ -4,7 +4,7 @@ const {uniq} = require("lodash");
 const hre = require('hardhat');
 const { ethers, upgrades } = hre;
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-const { deployEvmContract, setupSigners, fundAddress } = require("./lib")
+const { deployEvmContract, setupSigners, fundAddress, mineTransferBlock } = require("./lib")
 const axios = require("axios");
 const { default: BigNumber } = require("bignumber.js");
 
@@ -19,15 +19,6 @@ async function delay() {
 function debug(msg) {
   // leaving commented out to make output readable (unless debugging)
   // console.log(msg)
-}
-
-async function mineTransferBlock(sender) {
-  const tx = await sender.sendTransaction({
-    to: sender.address,
-    value: 1n,
-    gasPrice: ethers.parseUnits('100', 'gwei'),
-  });
-  return await tx.wait();
 }
 
 async function sendTransactionAndCheckGas(sender, recipient, amount) {

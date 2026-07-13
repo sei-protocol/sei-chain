@@ -13,6 +13,7 @@ package autobahn
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/integration_test/internal/evmtest"
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -216,17 +218,6 @@ func dockerExecAllowFail(container, script string) {
 	_ = exec.Command("docker", "exec", container, "sh", "-c", script).Run()
 }
 
-func parseTxHash(t *testing.T, output string) string {
-	t.Helper()
-	for _, line := range strings.Split(output, "\n") {
-		if hash, ok := strings.CutPrefix(strings.TrimSpace(line), "Transaction hash: "); ok {
-			return strings.TrimSpace(hash)
-		}
-	}
-	t.Fatalf("transaction hash not found in output:\n%s", output)
-	return ""
-}
-
 func waitForReceiptBlockNumber(t *testing.T, txHash string, timeout time.Duration) int64 {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -287,13 +278,20 @@ func evmBalanceHex(t *testing.T, address string) string {
 
 func sendEvmTx(t *testing.T, container string) string {
 	t.Helper()
-	sendOut := dockerExec(t, container,
-		fmt.Sprintf(
-			"printf '12345678\\n' | seid tx evm send %s 1 --from node_admin --chain-id sei --evm-rpc %s -b sync -y 2>/dev/null",
-			testRecipientEVM, evmRPCURLOnContainerLocalhost,
-		),
-	)
-	return parseTxHash(t, sendOut)
+	ctx, cancel := context.WithTimeout(context.Background(), txFinalizeMax)
+	defer cancel()
+	txHash, err := evmtest.SendTinyEvmTx(ctx, evmtest.DockerTxConfig{
+		Container: container,
+		Password:  "12345678",
+		From:      "node_admin",
+		Recipient: testRecipientEVM,
+		ChainID:   "sei",
+		EVMRPCURL: evmRPCURLOnContainerLocalhost,
+	})
+	if err != nil {
+		t.Fatalf("send evm tx: %v", err)
+	}
+	return txHash
 }
 
 func sendEvmTxAndWait(t *testing.T, container string) int64 {
