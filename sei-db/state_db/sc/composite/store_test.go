@@ -1042,6 +1042,13 @@ func evmMigratedConfig() config.StateCommitConfig {
 	cfg.MemIAVLConfig.SnapshotInterval = 1
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	// With SnapshotInterval=1 every commit produces a snapshot, and FlatKV
+	// mirrors this cadence via alignFlatKVSnapshotWithMemIAVL. The default
+	// keep-recent of 1 would prune all but the two newest snapshots, so a
+	// rollback/reconcile to an older version (e.g. v3 after committing v5)
+	// could no longer find a base snapshot at-or-below the target. Retain all
+	// snapshots for the short duration of a test so those paths stay valid.
+	cfg.MemIAVLConfig.SnapshotKeepRecent = 100
 	return cfg
 }
 
