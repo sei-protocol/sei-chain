@@ -180,9 +180,18 @@ func NewCompositeCommitStore(
 
 // alignFlatKVSnapshotWithMemIAVL keeps the two backends' snapshot cadence in
 // sync. FlatKV has no independently-exposed snapshot knobs in app.toml, so it
-// derives its snapshot-interval / keep-recent from memIAVL. This is the single
-// place both backends are constructed from the same config, so it is where the
-// alignment is enforced.
+// derives its snapshot-interval / keep-recent from memIAVL's sc-* keys. This is
+// the single place both backends are constructed from the same config, so it is
+// where the alignment is enforced.
+//
+// This derivation is intentionally unconditional across write modes, including
+// FlatKVOnly — where NewCompositeCommitStore never constructs a memIAVL store.
+// The sc-* keys are the only operator-visible snapshot-cadence knobs now that
+// the flatkv.* keys are hidden from the app.toml template, so they must govern
+// FlatKV's cadence in every mode; otherwise FlatKVOnly would have no
+// template-visible way to tune it. It is harmless when memIAVL is absent: the
+// sc-* defaults match FlatKV's own in-code defaults, and only cfg.FlatKVConfig
+// is read when building the FlatKVOnly store.
 //
 // FlatKV derives each value from memIAVL only when memIAVL provides a real
 // (non-zero) value. A zero memIAVL value is deliberately left untouched: memIAVL

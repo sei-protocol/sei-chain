@@ -481,8 +481,8 @@ func TestGetConfigParsesRawSnapshotKeepRecent(t *testing.T) {
 	require.NoError(t, err)
 	// GetConfig is a faithful parse of app.toml/flags: the raw 0 is preserved for
 	// memIAVL here and only floored later at store construction. FlatKV does not
-	// mirror the sc-* keys in GetConfig (that is AlignFlatKVWithMemIAVL's job), so
-	// it keeps its in-code default.
+	// mirror the sc-* keys in GetConfig (that is composite.alignFlatKVSnapshotWithMemIAVL's
+	// job), so it keeps its in-code default.
 	require.Equal(t, uint32(0), cfg.StateCommit.MemIAVLConfig.SnapshotKeepRecent)
 	require.Equal(t, seidbconfig.DefaultStateCommitConfig().FlatKVConfig.SnapshotKeepRecent, cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
 }
@@ -510,8 +510,8 @@ func TestGetConfigHonorsExplicitFlatKVOverrides(t *testing.T) {
 
 // TestGetConfigFlatKVDefaultsWhenSCSnapshotAbsent locks in the regression fix:
 // GetConfig does not mirror the sc-* keys onto FlatKV (that is
-// AlignFlatKVWithMemIAVL's job at store construction), and an absent
-// sc-snapshot-interval / sc-keep-recent must preserve the in-code FlatKV
+// composite.alignFlatKVSnapshotWithMemIAVL's job at store construction), and an
+// absent sc-snapshot-interval / sc-keep-recent must preserve the in-code FlatKV
 // defaults rather than reading back 0 (which disables FlatKV snapshots and drops
 // all old snapshots).
 func TestGetConfigFlatKVDefaultsWhenSCSnapshotAbsent(t *testing.T) {
@@ -525,6 +525,32 @@ func TestGetConfigFlatKVDefaultsWhenSCSnapshotAbsent(t *testing.T) {
 	require.Equal(t, defaultFlatKV.SnapshotInterval, cfg.StateCommit.FlatKVConfig.SnapshotInterval)
 	require.Equal(t, defaultFlatKV.SnapshotKeepRecent, cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
 	require.NotZero(t, cfg.StateCommit.FlatKVConfig.SnapshotInterval)
+}
+
+// TestGetConfigMemIAVLDefaultsWhenSCKeysAbsent asserts that, with no
+// state-commit.sc-* keys set, GetConfig resolves the memIAVL config to its
+// in-code defaults rather than clobbering the non-zero ones to the zero value.
+func TestGetConfigMemIAVLDefaultsWhenSCKeysAbsent(t *testing.T) {
+	v := viper.New()
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+
+	def := seidbconfig.DefaultStateCommitConfig().MemIAVLConfig
+	mem := cfg.StateCommit.MemIAVLConfig
+	require.Equal(t, def.AsyncCommitBuffer, mem.AsyncCommitBuffer)
+	require.Equal(t, def.SnapshotKeepRecent, mem.SnapshotKeepRecent)
+	require.Equal(t, def.SnapshotInterval, mem.SnapshotInterval)
+	require.Equal(t, def.SnapshotMinTimeInterval, mem.SnapshotMinTimeInterval)
+	require.Equal(t, def.SnapshotWriterLimit, mem.SnapshotWriterLimit)
+	require.Equal(t, def.SnapshotPrefetchThreshold, mem.SnapshotPrefetchThreshold)
+	// The defaults that matter most are the non-zero ones: an absent key must
+	// not silently downgrade the node (e.g. async-commit-buffer to 0 =
+	// synchronous commits, or snapshot-interval to 0).
+	require.NotZero(t, mem.AsyncCommitBuffer)
+	require.NotZero(t, mem.SnapshotInterval)
 }
 
 func TestGetConfigRejectsInvalidWriteMode(t *testing.T) {

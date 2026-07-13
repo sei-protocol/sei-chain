@@ -213,6 +213,32 @@ func TestParseSSConfigs_ReadWriteMetrics(t *testing.T) {
 	assert.True(t, ssConfig.EnableReadWriteMetrics)
 }
 
+// TestSetupSeiDB_StateSyncSnapshotWithoutSSDoesNotPanic guards the removal of
+// the old validateConfigs check, which panicked whenever a state-sync snapshot
+// interval was configured (> 0) while SC was enabled but SS was disabled.
+// State-sync snapshot creation does not read from SS, so that coupling was
+// dropped; this test asserts the previously-forbidden combination now boots
+// cleanly (no panic) and, with SS off, yields a nil state store.
+func TestSetupSeiDB_StateSyncSnapshotWithoutSSDoesNotPanic(t *testing.T) {
+	homePath := t.TempDir()
+	appOpts := mapAppOpts{
+		FlagSCEnable: true,
+		FlagSSEnable: false,
+		// The combination that used to trip validateConfigs: a non-zero
+		// state-sync snapshot interval with SS disabled.
+		"state-sync.snapshot-interval": uint64(10),
+		// Keep the giga executor out of this boot path so the test exercises the
+		// plain SC-only store construction.
+		"giga_executor.enabled": false,
+	}
+
+	require.NotPanics(t, func() {
+		opts, ss := SetupSeiDB(homePath, appOpts, nil)
+		require.NotNil(t, opts)
+		require.Nil(t, ss, "state store must be nil when SS is disabled")
+	})
+}
+
 func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
 	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{})
 	assert.NoError(t, err)
