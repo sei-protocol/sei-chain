@@ -55,7 +55,7 @@ func ConfigFromEnv(prefix string) DockerTxConfig {
 // real block under allow_empty_blocks=false. Callers use it as a liveness/head
 // trigger, not to validate transfer semantics.
 func SendTinyEvmTx(ctx context.Context, cfg DockerTxConfig) (string, error) {
-	cmd := exec.CommandContext(
+	cmd := exec.CommandContext( //nolint:gosec // test-only helper invokes docker with fixed argv shape
 		ctx,
 		"docker", "exec",
 		"--env", fmt.Sprintf("SEI_EVM_PASSWORD=%s", cfg.Password),

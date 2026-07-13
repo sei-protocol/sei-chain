@@ -338,7 +338,15 @@ func (m *WatermarkManager) fetchTendermintWatermarks(ctx context.Context) (int64
 		return 0, 0, err
 	}
 	TraceTendermintIfApplicable(ctx, "Status", []string{}, status)
-	return status.SyncInfo.LatestBlockHeight, status.SyncInfo.EarliestBlockHeight, nil
+	latest := status.SyncInfo.LatestBlockHeight
+	earliest := status.SyncInfo.EarliestBlockHeight
+	if latest == 0 {
+		// Before the first Commit, Tendermint can still report InitialHeight as
+		// the earliest block height even though the only readable "latest" state
+		// is the synthetic height-0 genesis/checkState branch.
+		earliest = 0
+	}
+	return latest, earliest, nil
 }
 
 func (m *WatermarkManager) fetchStateStoreWatermarks() (int64, int64, bool) {

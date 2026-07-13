@@ -32,7 +32,6 @@ Within sei-tendermint subdirectory
   and truly optional fields with `// optional`. Example:
     optional uint64 index = 1; // required
     optional AppProposal app = 4; // optional
-  Required fields must be nil-checked at the boundary (constructor and proto Decode) and trusted
 * Avoid removing comments and logs which are not obviously obsolete. Keep the original wording, only fixing mistakes or obsolete parts.
 * TestRng instance should be one per test, constructed directly in the test function. In case of nested/table tests, each nested test should create its own instance. 
   Use TestRng.Split() (before spawning) if you need to pass entropy source to a spawned goroutine

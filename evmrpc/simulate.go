@@ -318,9 +318,13 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 	if err != nil {
 		return nil, nil, err
 	}
-	height := tmBlock.Block.Height
+	ctxHeight := LatestCtxHeight
+	if !isLatestBlock {
+		ctxHeight = tmBlock.Block.Height
+	}
 	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
-	sdkCtx := b.ctxProvider(height).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
+
+	sdkCtx := b.ctxProvider(ctxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
 	if !isLatestBlock {
 		// no need to check version for latest block
 		if err := CheckVersion(sdkCtx, b.keeper); err != nil {
@@ -328,6 +332,9 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		}
 	}
 	header := b.getHeader(ctx, tmBlock)
+	if isLatestBlock && tmBlock.Block.Height != sdkCtx.BlockHeight() {
+		header = b.syntheticHeaderFromCtx(sdkCtx)
+	}
 	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return state.NewDBImpl(sdkCtx, b.keeper, true), header, nil
 }
@@ -678,7 +685,7 @@ func (b *Backend) CurrentHeader() *ethtypes.Header {
 	if tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &height, 1); err == nil {
 		header = b.getHeader(ctx, tmBlock)
 	} else {
-		header = b.fallbackToEthHeaderOnly(height)
+		header = b.syntheticHeaderFromCtx(b.ctxProvider(LatestCtxHeight))
 	}
 	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return header
@@ -724,15 +731,16 @@ func (b *Backend) getBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.
 	return block, isLatestBlock, nil
 }
 
-// fallbackToEthHeaderOnly builds a minimal header when the block cannot be loaded
-// (e.g. CurrentHeader when Block RPC fails). BaseFee is overwritten by CurrentHeader afterward.
-func (b *Backend) fallbackToEthHeaderOnly(height int64) *ethtypes.Header {
+// syntheticHeaderFromCtx builds a minimal header directly from the selected SDK
+// context when no coherent Tendermint block/header is available for that state
+// (e.g. latest-like queries before the first Commit).
+func (b *Backend) syntheticHeaderFromCtx(sdkCtx sdk.Context) *ethtypes.Header {
 	zeroExcessBlobGas := uint64(0)
 	return &ethtypes.Header{
 		Difficulty:    common.Big0,
-		Number:        big.NewInt(height),
+		Number:        big.NewInt(sdkCtx.BlockHeight()),
 		GasLimit:      keeper.DefaultBlockGasLimit,
-		Time:          toUint64(time.Now().Unix()), //nolint:gosec
+		Time:          toUint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
 		ExcessBlobGas: &zeroExcessBlobGas,
 	}
 }
