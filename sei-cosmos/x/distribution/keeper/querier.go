@@ -142,10 +142,10 @@ func queryDelegationRewards(ctx sdk.Context, _ []string, req abci.RequestQuery, 
 		return nil, types.ErrNoDelegationExists
 	}
 
-	// Read-only: compute rewards without persisting a validator-period increment
-	// (see CalculateDelegationRewardsReadOnly). The CacheContext above already
-	// isolated any writes, so this path is state-neutral either way.
-	rewards := k.CalculateDelegationRewardsReadOnly(ctx, val, del)
+	// Read-only for v6.7.0+; reproduces the pre-v6.7.0 period-increment write only
+	// when re-tracing an older block (see DelegationRewardsForQuery). The
+	// CacheContext above already isolates any such write from committed state.
+	rewards := k.DelegationRewardsForQuery(ctx, val, del)
 	if rewards == nil {
 		rewards = sdk.DecCoins{}
 	}
@@ -177,9 +177,9 @@ func queryDelegatorTotalRewards(ctx sdk.Context, _ []string, req abci.RequestQue
 		func(_ int64, del stakingtypes.DelegationI) (stop bool) {
 			valAddr := del.GetValidatorAddr()
 			val := k.stakingKeeper.Validator(ctx, valAddr)
-			// Read-only: compute rewards without persisting a validator-period
-			// increment (see CalculateDelegationRewardsReadOnly).
-			delReward := k.CalculateDelegationRewardsReadOnly(ctx, val, del)
+			// Read-only for v6.7.0+; reproduces the pre-v6.7.0 period-increment write
+			// only when re-tracing an older block (see DelegationRewardsForQuery).
+			delReward := k.DelegationRewardsForQuery(ctx, val, del)
 
 			delRewards = append(delRewards, types.NewDelegationDelegatorReward(valAddr, delReward))
 			total = total.Add(delReward...)

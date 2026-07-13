@@ -3,11 +3,21 @@ package keeper
 import (
 	"fmt"
 
+	"golang.org/x/mod/semver"
+
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/seilog"
 )
+
+// ReadOnlyRewardsUpgrade is the upgrade at which delegation-reward queries stopped
+// persisting a validator-period increment (see DelegationRewardsForQuery). It is
+// only consulted when re-tracing a historical block (ctx.IsTracing()), and only via
+// semver comparison against ctx.ClosestUpgradeName(), so it just needs to be
+// semver-equal to that release. It follows the app/tags convention (…, v6.5, v6.6),
+// hence "v6.7".
+const ReadOnlyRewardsUpgrade = "v6.7"
 
 var logger = seilog.NewLogger("cosmos", "x", "distribution", "keeper")
 
@@ -104,6 +114,38 @@ func (k Keeper) currentRewardsEndingPeriodAndRatio(ctx sdk.Context, val stakingt
 func (k Keeper) CalculateDelegationRewardsReadOnly(ctx sdk.Context, val stakingtypes.ValidatorI, del stakingtypes.DelegationI) sdk.DecCoins {
 	endingPeriod, endingRatio := k.currentRewardsEndingPeriodAndRatio(ctx, val)
 	return k.calculateDelegationRewards(ctx, val, del, endingPeriod, &endingRatio)
+}
+
+// DelegationRewardsForQuery computes a delegation's rewards for a read-only reward
+// query. It uses the non-mutating read-only path (CalculateDelegationRewardsReadOnly).
+// Before v6.7 these queries persisted a validator-period increment
+// (IncrementValidatorPeriod), which committed when the EVM distribution `rewards()`
+// precompile ran the query on the live context. That old behavior only needs to be
+// reproduced when re-tracing a pre-v6.7 block via debug_trace* — live execution runs
+// only on the current (post-upgrade) binary, which never non-tracingly re-executes a
+// pre-upgrade block (see rewardQueryIsReadOnly).
+func (k Keeper) DelegationRewardsForQuery(ctx sdk.Context, val stakingtypes.ValidatorI, del stakingtypes.DelegationI) sdk.DecCoins {
+	if k.rewardQueryIsReadOnly(ctx) {
+		return k.CalculateDelegationRewardsReadOnly(ctx, val, del)
+	}
+	// Pre-v6.7 behavior: the query incremented the validator period and read the
+	// freshly-persisted ending ratio. Reproduce it exactly for deterministic replay.
+	endingPeriod := k.IncrementValidatorPeriod(ctx, val)
+	return k.CalculateDelegationRewards(ctx, val, del, endingPeriod)
+}
+
+// rewardQueryIsReadOnly reports whether a reward query should use the non-mutating
+// read-only path. Live execution always does: the current binary only ever executes
+// at/after the upgrade that shipped this behavior, so a non-tracing block is never a
+// pre-upgrade block. The only place the old, state-mutating behavior must be
+// reproduced is when re-tracing a historical pre-v6.7 block via debug_trace*, where
+// the era is signaled by the trace harness through ClosestUpgradeName (see
+// app.RPCContextProvider) and compared by semver (empty name sorts before v6.7).
+func (k Keeper) rewardQueryIsReadOnly(ctx sdk.Context) bool {
+	if !ctx.IsTracing() {
+		return true
+	}
+	return semver.Compare(ctx.ClosestUpgradeName(), ReadOnlyRewardsUpgrade) >= 0
 }
 
 // calculateDelegationRewards is the shared core of the reward calculation. When

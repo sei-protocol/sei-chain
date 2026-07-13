@@ -8,6 +8,7 @@ import (
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	distrkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/teststaking"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
@@ -78,9 +79,9 @@ func TestCalculateDelegationRewardsReadOnlyMatchesWritePath(t *testing.T) {
 	require.Equal(t, sdk.DecCoins{{Denom: sdk.DefaultBondDenom, Amount: initial.QuoRaw(2).ToDec()}}, readOnly)
 }
 
-// TestDelegationTotalRewardsQueryIsReadOnly asserts the gRPC query no longer
-// mutates distribution state and is idempotent across repeated calls (before the
-// fix, each call incremented the validator period).
+// TestDelegationTotalRewardsQueryIsReadOnly asserts the gRPC query (live, i.e. not
+// tracing) does not mutate distribution state and is idempotent across repeated
+// calls (before the fix, each call incremented the validator period).
 func TestDelegationTotalRewardsQueryIsReadOnly(t *testing.T) {
 	ctx, app, _, _, _, valAddr := setupRewardsWithSlash(t)
 
@@ -105,4 +106,46 @@ func TestDelegationTotalRewardsQueryIsReadOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resp1.Total, resp2.Total)
 	require.Equal(t, periodBefore, app.DistrKeeper.GetValidatorCurrentRewards(ctx, valAddr).Period)
+}
+
+// TestDelegationRewardsForQueryUpgradeGate asserts the gating: live (non-tracing)
+// execution always uses the read-only path, while re-tracing a historical block
+// reproduces the old mutating behavior for pre-v6.7 blocks and the read-only path
+// for v6.7+ blocks. The reward figure is identical across every path.
+func TestDelegationRewardsForQueryUpgradeGate(t *testing.T) {
+	period := func(app *seiapp.App, ctx sdk.Context, valAddr sdk.ValAddress) uint64 {
+		return app.DistrKeeper.GetValidatorCurrentRewards(ctx, valAddr).Period
+	}
+	expected := func(initial sdk.Int) sdk.DecCoins {
+		return sdk.DecCoins{{Denom: sdk.DefaultBondDenom, Amount: initial.QuoRaw(2).ToDec()}}
+	}
+
+	t.Run("live is read-only", func(t *testing.T) {
+		ctx, app, val, del, initial, valAddr := setupRewardsWithSlash(t)
+		before := period(app, ctx, valAddr)
+		reward := app.DistrKeeper.DelegationRewardsForQuery(ctx, val, del)
+		require.Equal(t, before, period(app, ctx, valAddr),
+			"live (non-tracing) execution must not mutate")
+		require.Equal(t, expected(initial), reward)
+	})
+
+	t.Run("tracing pre-v6.7 mutates", func(t *testing.T) {
+		ctx, app, val, del, initial, valAddr := setupRewardsWithSlash(t)
+		traceOld := ctx.WithIsTracing(true).WithClosestUpgradeName("v6.6")
+		before := period(app, traceOld, valAddr)
+		reward := app.DistrKeeper.DelegationRewardsForQuery(traceOld, val, del)
+		require.Equal(t, before+1, period(app, traceOld, valAddr),
+			"tracing a pre-v6.7 block must reproduce the period increment")
+		require.Equal(t, expected(initial), reward)
+	})
+
+	t.Run("tracing v6.7+ is read-only", func(t *testing.T) {
+		ctx, app, val, del, initial, valAddr := setupRewardsWithSlash(t)
+		traceNew := ctx.WithIsTracing(true).WithClosestUpgradeName(distrkeeper.ReadOnlyRewardsUpgrade)
+		before := period(app, traceNew, valAddr)
+		reward := app.DistrKeeper.DelegationRewardsForQuery(traceNew, val, del)
+		require.Equal(t, before, period(app, traceNew, valAddr),
+			"tracing a v6.7+ block must not mutate")
+		require.Equal(t, expected(initial), reward)
+	})
 }
