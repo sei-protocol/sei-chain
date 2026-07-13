@@ -201,7 +201,7 @@ func TestFailReleasesMutableFile(t *testing.T) {
 	dir := t.TempDir()
 	mf, err := newWalFile(dir, 0)
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancelCause(context.Background())
 	w := &walImpl{
 		config:      testConfig(dir),
 		metricAttrs: walNameAttr("test"),

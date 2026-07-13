@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/metric"
@@ -92,17 +91,18 @@ type walImpl struct {
 	// the writer goroutine.
 	writerChan chan any
 
-	// The hard-stop context the writer watches. Cancelled by fail() on a fatal error and by Close() once
-	// everything has drained.
+	// The hard-stop context the writer watches. Cancelled by fail() with the fatal error as its cause, and
+	// by Close() (with a nil cause) once everything has drained. The cause carries the fatal error to
+	// callers, so no separate error field is needed.
 	ctx context.Context
-	// Cancels ctx, tearing down the writer goroutine.
-	cancel context.CancelFunc
+	// Cancels ctx, tearing down the writer goroutine, recording the fatal error (or nil) as the cause.
+	cancel context.CancelCauseFunc
 
 	// A child of ctx that the writerChan producers watch, cancelled once the writer stops reading so an
 	// in-flight or future push aborts rather than deadlocking.
 	senderCtx context.Context
 	// Cancels senderCtx.
-	senderCancel context.CancelFunc
+	senderCancel context.CancelCauseFunc
 
 	// Tracks the writer and queue-depth sampler goroutines so Close() can wait for them to exit.
 	wg sync.WaitGroup
@@ -113,11 +113,9 @@ type walImpl struct {
 	// Guarantees the Close() shutdown sequence runs at most once.
 	closeOnce sync.Once
 
-	// Set by Close() so subsequent scheduling calls fail fast.
-	closed atomic.Bool
-
-	// The first unrecoverable background-goroutine error, surfaced to the caller by Close().
-	asyncErr atomic.Pointer[error]
+	// Set by Close() so subsequent scheduling calls fail fast. Plain: calling any method after Close is a
+	// contract violation, so this need not be atomic.
+	closed bool
 
 	// The index of the most recently appended record.
 	lastAppendIndex uint64
@@ -200,8 +198,8 @@ func newWAL(config *Config, rollbackThrough *uint64) (WAL[[]byte], error) {
 		return nil, fmt.Errorf("failed to open mutable WAL file: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	senderCtx, senderCancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	senderCtx, senderCancel := context.WithCancelCause(ctx)
 
 	w := &walImpl{
 		config:       config,
@@ -257,15 +255,8 @@ func (w *walImpl) sampleQueueDepth(interval time.Duration) {
 
 // Append frames a record and schedules it for the writer, after enforcing that indices strictly increase.
 func (w *walImpl) Append(index uint64, data []byte) error {
-	if w.closed.Load() {
+	if w.closed {
 		return fmt.Errorf("WAL is closed")
-	}
-	// Fail fast on a bricked WAL. Without this, a fire-and-forget append can win the sendToWriter select
-	// against the already-cancelled senderCtx and enqueue onto a dead writer's buffer, silently dropping the
-	// record and returning nil. asyncErr is recorded before the cancel, so any caller that has observed the
-	// shutdown also observes the error here.
-	if err := w.asyncError(); err != nil {
-		return fmt.Errorf("WAL failed: %w", err)
 	}
 
 	if w.hasAppended && index <= w.lastAppendIndex {
@@ -356,7 +347,7 @@ func (w *walImpl) unpinIndex(index uint64) {
 func (w *walImpl) Close() error {
 	var closeErr error
 	w.closeOnce.Do(func() {
-		w.closed.Store(true)
+		w.closed = true
 		close(w.samplerStop) // stop the queue-depth sampler before waiting for goroutines
 		done := make(chan error, 1)
 		if err := w.sendToWriter(closeRequest{done: done}); err == nil {
@@ -366,7 +357,7 @@ func (w *walImpl) Close() error {
 			}
 		}
 		w.wg.Wait()
-		w.cancel()
+		w.cancel(nil) // a clean close carries no fatal cause; a prior fail() already recorded one
 	})
 	if err := w.asyncError(); err != nil {
 		return fmt.Errorf("WAL closed with error: %w", err)
@@ -377,15 +368,28 @@ func (w *walImpl) Close() error {
 // sendToWriter enqueues a message onto the writer's input channel, aborting if the WAL is shutting down or has
 // failed.
 func (w *walImpl) sendToWriter(msg any) error {
+	// Prioritize shutdown: if the sender context is already done, never race the send case of the select
+	// below, which could otherwise enqueue onto a stopped writer's buffer and silently drop the record.
+	select {
+	case <-w.senderCtx.Done():
+		return w.senderErr()
+	default:
+	}
 	select {
 	case w.writerChan <- msg:
 		return nil
 	case <-w.senderCtx.Done():
-		if err := w.asyncError(); err != nil {
-			return fmt.Errorf("WAL failed: %w", err)
-		}
-		return fmt.Errorf("WAL is closed")
+		return w.senderErr()
 	}
+}
+
+// senderErr reports why a send was aborted: the fatal cause if the WAL bricked, or a plain closed error if it
+// was shut down normally.
+func (w *walImpl) senderErr() error {
+	if cause := context.Cause(w.senderCtx); cause != nil && cause != context.Canceled {
+		return fmt.Errorf("WAL failed: %w", cause)
+	}
+	return fmt.Errorf("WAL is closed")
 }
 
 // writerLoop consumes messages, appending records to the mutable file and handling control messages. It owns
@@ -434,7 +438,7 @@ func (w *walImpl) writerLoop() {
 			m.done <- err
 			// FIFO guarantees every prior append has been processed. Forbid further pushes so any
 			// racing/future schedule aborts instead of deadlocking against the now-exiting writer.
-			w.senderCancel()
+			w.senderCancel(nil) // normal shutdown, not a failure
 			return
 		}
 	}
@@ -630,20 +634,20 @@ func (w *walImpl) bounds() storedRange {
 	return r
 }
 
-// fail records the first fatal background error and triggers shutdown of the pipeline.
+// fail records the first fatal background error and triggers shutdown of the pipeline. The error is recorded
+// as the cancellation cause of ctx, so callers observe it via asyncError / context.Cause.
 func (w *walImpl) fail(err error) {
-	w.asyncErr.CompareAndSwap(nil, &err)
-	w.cancel()
+	w.cancel(err) // the first cancel wins, so the first fatal error is the one retained
 	if cerr := w.mutableFile.close(); cerr != nil {
 		logger.Error("failed to close mutable WAL file after fatal error", "err", cerr)
 	}
 	logger.Error("WAL encountered a fatal error", "err", err)
 }
 
-// asyncError returns the first fatal background error, or nil if none occurred.
+// asyncError returns the first fatal background error, or nil if the WAL is healthy or was closed normally.
 func (w *walImpl) asyncError() error {
-	if p := w.asyncErr.Load(); p != nil {
-		return *p
+	if cause := context.Cause(w.ctx); cause != nil && cause != context.Canceled {
+		return cause
 	}
 	return nil
 }

@@ -151,7 +151,7 @@ func TestIteratorReaderExitsWhenWALTornDownWhileOrphaned(t *testing.T) {
 
 	// Do not consume the iterator: the reader fills the prefetch buffer (size 1) and blocks on send. Tear
 	// down the WAL context out from under it, as fail() or Close() would.
-	w.(*walImpl).cancel()
+	w.(*walImpl).cancel(nil)
 
 	select {
 	case <-iter.readerExited:

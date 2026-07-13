@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/metric"
@@ -76,17 +75,18 @@ type serializingWAL[T any] struct {
 	// Caller entry points funnel through serializerChan as a single ordered stream to the serializer.
 	serializerChan chan any
 
-	// The hard-stop context the serializer watches. Cancelled by fail() on a fatal error and by Close() once
-	// everything has drained.
+	// The hard-stop context the serializer watches. Cancelled by fail() with the fatal error as its cause,
+	// and by Close() (with a nil cause) once everything has drained. The cause carries the fatal error to
+	// callers, so no separate error field is needed.
 	ctx context.Context
-	// Cancels ctx, tearing down the serializer goroutine.
-	cancel context.CancelFunc
+	// Cancels ctx, tearing down the serializer goroutine, recording the fatal error (or nil) as the cause.
+	cancel context.CancelCauseFunc
 
 	// A child of ctx that the serializerChan producers watch, cancelled once the serializer stops reading so
 	// an in-flight or future push aborts rather than deadlocking.
 	senderCtx context.Context
 	// Cancels senderCtx.
-	senderCancel context.CancelFunc
+	senderCancel context.CancelCauseFunc
 
 	// Tracks the serializer and queue-depth sampler goroutines so Close() can wait for them to exit.
 	wg sync.WaitGroup
@@ -97,11 +97,9 @@ type serializingWAL[T any] struct {
 	// Guarantees the Close() shutdown sequence runs at most once.
 	closeOnce sync.Once
 
-	// Set by Close() so subsequent scheduling calls fail fast.
-	closed atomic.Bool
-
-	// The first unrecoverable background-goroutine error, surfaced to the caller by Close().
-	asyncErr atomic.Pointer[error]
+	// Set by Close() so subsequent scheduling calls fail fast. Plain: calling any method after Close is a
+	// contract violation, so this need not be atomic.
+	closed bool
 }
 
 // NewGenericWAL opens a WAL over payloads of type T that does serialization on a background goroutine.
@@ -138,8 +136,8 @@ func newSerializingWAL[T any](
 	serialize func(T) ([]byte, error),
 	deserialize func([]byte) (T, error),
 ) *serializingWAL[T] {
-	ctx, cancel := context.WithCancel(context.Background())
-	senderCtx, senderCancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	senderCtx, senderCancel := context.WithCancelCause(ctx)
 
 	s := &serializingWAL[T]{
 		inner:          inner,
@@ -186,13 +184,8 @@ func (s *serializingWAL[T]) sampleQueueDepth(name string, interval time.Duration
 
 // Append schedules a payload to be serialized and appended at the given index.
 func (s *serializingWAL[T]) Append(index uint64, data T) error {
-	if s.closed.Load() {
+	if s.closed {
 		return fmt.Errorf("WAL is closed")
-	}
-	// Fail fast on a bricked WAL, so a fire-and-forget append cannot win the submit select against the
-	// cancelled senderCtx and be silently dropped onto a dead serializer (see walImpl.Append for detail).
-	if err := s.asyncError(); err != nil {
-		return fmt.Errorf("WAL failed: %w", err)
 	}
 	req := serAppend{
 		index:     index,
@@ -274,7 +267,7 @@ func (s *serializingWAL[T]) Iterator(startIndex uint64) (Iterator[T], error) {
 func (s *serializingWAL[T]) Close() error {
 	var closeErr error
 	s.closeOnce.Do(func() {
-		s.closed.Store(true)
+		s.closed = true
 		close(s.samplerStop) // stop the queue-depth sampler before waiting for goroutines
 		done := make(chan error, 1)
 		if err := s.submit(serClose{done: done}); err == nil {
@@ -284,7 +277,7 @@ func (s *serializingWAL[T]) Close() error {
 			}
 		}
 		s.wg.Wait()
-		s.cancel()
+		s.cancel(nil) // a clean close carries no fatal cause; a prior fail() already recorded one
 	})
 	if err := s.asyncError(); err != nil {
 		return fmt.Errorf("WAL closed with error: %w", err)
@@ -295,15 +288,28 @@ func (s *serializingWAL[T]) Close() error {
 // submit enqueues a message onto the serializer's input channel, aborting if the WAL is shutting down or has
 // failed.
 func (s *serializingWAL[T]) submit(msg any) error {
+	// Prioritize shutdown: if the sender context is already done, never race the send case of the select
+	// below, which could otherwise enqueue onto a stopped serializer's buffer and silently drop the record.
+	select {
+	case <-s.senderCtx.Done():
+		return s.senderErr()
+	default:
+	}
 	select {
 	case s.serializerChan <- msg:
 		return nil
 	case <-s.senderCtx.Done():
-		if err := s.asyncError(); err != nil {
-			return fmt.Errorf("WAL failed: %w", err)
-		}
-		return fmt.Errorf("WAL is closed")
+		return s.senderErr()
 	}
+}
+
+// senderErr reports why a submit was aborted: the fatal cause if the WAL bricked, or a plain closed error if
+// it was shut down normally.
+func (s *serializingWAL[T]) senderErr() error {
+	if cause := context.Cause(s.senderCtx); cause != nil && cause != context.Canceled {
+		return fmt.Errorf("WAL failed: %w", cause)
+	}
+	return fmt.Errorf("WAL is closed")
 }
 
 // serializerLoop serializes each append's payload and delegates it to the inner WAL, handling control
@@ -356,26 +362,26 @@ func (s *serializingWAL[T]) serializerLoop() {
 			m.done <- s.inner.Close()
 			// FIFO guarantees every prior append has been delegated. Forbid further pushes so any
 			// racing/future schedule aborts instead of deadlocking against the now-exiting serializer.
-			s.senderCancel()
+			s.senderCancel(nil) // normal shutdown, not a failure
 			return
 		}
 	}
 }
 
-// fail records the first fatal background error and triggers shutdown of the pipeline.
+// fail records the first fatal background error and triggers shutdown of the pipeline. The error is recorded
+// as the cancellation cause of ctx, so callers observe it via asyncError / context.Cause.
 func (s *serializingWAL[T]) fail(err error) {
-	s.asyncErr.CompareAndSwap(nil, &err)
-	s.cancel()
+	s.cancel(err) // the first cancel wins, so the first fatal error is the one retained
 	if cerr := s.inner.Close(); cerr != nil {
 		logger.Error("failed to close inner WAL after fatal error", "err", cerr)
 	}
 	logger.Error("serializing WAL encountered a fatal error", "err", err)
 }
 
-// asyncError returns the first fatal background error, or nil if none occurred.
+// asyncError returns the first fatal background error, or nil if the WAL is healthy or was closed normally.
 func (s *serializingWAL[T]) asyncError() error {
-	if p := s.asyncErr.Load(); p != nil {
-		return *p
+	if cause := context.Cause(s.ctx); cause != nil && cause != context.Canceled {
+		return cause
 	}
 	return nil
 }
