@@ -3048,7 +3048,7 @@ func (app *App) validateGigaEVMTx(
 		baseFee = new(big.Int)
 	}
 
-	// Check nonce validity - determines if we bump nonce on fee/balance failures
+	// Check nonce validity
 	currentNonce := app.GigaEvmKeeper.GetNonce(ctx, sender)
 	txNonce := ethTx.Nonce()
 
