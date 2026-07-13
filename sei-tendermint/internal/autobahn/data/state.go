@@ -238,7 +238,7 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 			if err != nil {
 				return fmt.Errorf("open QC iterator: %w", err)
 			}
-			defer it.Close()
+			defer func() { _ = it.Close() }()
 			for {
 				ok, err := it.Next()
 				if err != nil || !ok {
@@ -273,7 +273,7 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 			if err != nil {
 				return fmt.Errorf("open block iterator: %w", err)
 			}
-			defer it2.Close()
+			defer func() { _ = it2.Close() }()
 			firstBlock := true
 			var nextExpect types.GlobalBlockNumber
 			for {
