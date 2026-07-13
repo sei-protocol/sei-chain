@@ -322,11 +322,14 @@ resolve_spec() {
   esac
 }
 
-# derive_name SPEC -> a sanitized short name from the host portion.
+# derive_name SPEC -> a sanitized short name from the host[:port] portion. The
+# port is kept (rendered as a '-') so two targets on the same host but different
+# ports (e.g. 10.0.0.1:8545 and 10.0.0.1:9545) derive distinct names instead of
+# colliding -- a collision would silently drop one target in check mode.
 derive_name() {
   local s=$1
   s=${s#*://}; s=${s#svc/}; s=${s#pod/}
-  s=${s%%/*}; s=${s%%:*}
+  s=${s%%/*}
   printf '%s' "$s" | tr -c 'A-Za-z0-9_.-' '-' | sed 's/-*$//'
 }
 
@@ -334,7 +337,7 @@ derive_name() {
 target_names=()
 target_urls=()
 parse_targets() {
-  local entry name spec
+  local entry name spec existing
   local -a entries
   # IFS=',' is scoped to this read only (bash prefix assignment), so the global
   # IFS is left untouched for whitespace splitting elsewhere.
@@ -345,6 +348,18 @@ parse_targets() {
       *=*)      name=${entry%%=*}; spec=${entry#*=} ;;
       *)        spec=$entry; name=$(derive_name "$spec") ;;
     esac
+    # Names key the per-target samples in check mode; a duplicate would collapse
+    # two targets to one entry and make the comparison silently pass. Reject it
+    # rather than report a misconfiguration as CONSISTENT. (Guard the loop for
+    # the empty-array case so it is safe under `set -u` on bash 3.2.)
+    if [ "${#target_names[@]}" -gt 0 ]; then
+      for existing in "${target_names[@]}"; do
+        if [ "$existing" = "$name" ]; then
+          echo "duplicate target name '$name' in TARGETS: each target must resolve to a unique name (use name=SPEC to disambiguate)" >&2
+          exit 2
+        fi
+      done
+    fi
     resolve_spec "$spec"
     target_names+=("$name")
     target_urls+=("$RESOLVED_URL")
@@ -423,10 +438,12 @@ HOST = _p.hostname
 PORT = _p.port or (443 if IS_HTTPS else 80)
 PATH = (_p.path or "/") + (("?" + _p.query) if _p.query else "")
 
+# Must match exactly the methods choose_request() can emit: METHOD_COUNTS is
+# printed for every entry, so a method that is never sent would misleadingly
+# report =0, and a method that is sent but missing here would KeyError.
 methods = [
     "eth_call", "eth_getBalance", "eth_getStorageAt", "eth_getCode",
-    "eth_getTransactionCount", "eth_getBlockByNumber", "eth_getLogs",
-    "eth_blockNumber", "eth_feeHistory",
+    "eth_getBlockByNumber", "eth_getLogs", "eth_blockNumber", "eth_feeHistory",
 ]
 
 
@@ -575,6 +592,13 @@ def worker():
         method, body = encode(i)
         c = client()
         wait_for_rate_slot()
+        # The rate slot can sleep past the duration deadline: with
+        # LOAD_CONCURRENCY >> LOAD_RPS every worker reserves a slot up front and
+        # would otherwise fire it after stop_at, overrunning LOAD_DURATION by
+        # ~(concurrency-1)/LOAD_RPS seconds. Re-check the deadline here so a
+        # duration-bounded run stops near it.
+        if stop_at is not None and time.monotonic() >= stop_at:
+            return
         start = time.perf_counter()
         try:
             text = c.post(body)
@@ -787,7 +811,18 @@ def parse_targets():
         if len(parts) >= 2:
             targets.append((parts[0], parts[1]))
     if len(targets) < 2:
-        raise SystemExit("check mode requires at least two targets")
+        # A misconfiguration, not a mismatch: exit 2 so it never masquerades as
+        # MISMATCH (exit 1).
+        print("check mode requires at least two targets", flush=True)
+        raise SystemExit(2)
+    # Samples are keyed by name, so duplicate names would collapse two targets to
+    # one entry and compare the baseline against itself -- a silent false pass.
+    # The bash layer already rejects this; guard here too since the comparison's
+    # correctness depends on it.
+    names = [name for name, _ in targets]
+    if len(set(names)) != len(names):
+        print("check mode requires unique target names; got duplicates in %r" % names, flush=True)
+        raise SystemExit(2)
     return targets
 
 
@@ -863,7 +898,34 @@ def capture_coherent(name, url):
 
 
 target_names = [name for name, _ in TARGETS]
-start_height = max(block_number(url) for _, url in TARGETS)
+
+
+def initial_height():
+    """Highest current height across targets, tolerating pre-flight failures.
+
+    block_number() raises on an unreachable target, a non-200, a JSON-RPC error
+    object, or a non-hex result. Letting that propagate would abort with a
+    Python traceback and exit code 1 -- indistinguishable from a MISMATCH. Skip
+    the targets that fail here; if none respond, bail as INCONCLUSIVE (exit 2)
+    so the 0/1/2 verdict contract holds.
+    """
+    heights = []
+    for name, url in TARGETS:
+        try:
+            heights.append(block_number(url))
+        except Exception as exc:  # noqa: BLE001 - stdlib script
+            print("CHECK_PREFLIGHT_ERROR node=%s error=%s" % (name, exc), flush=True)
+    if not heights:
+        print(
+            "CHECK_VERDICT verdict=INCONCLUSIVE nothing_compared=1 -- no target answered the "
+            "pre-flight eth_blockNumber, so consistency was NOT verified (this is not a pass).",
+            flush=True,
+        )
+        raise SystemExit(2)
+    return max(heights)
+
+
+start_height = initial_height()
 deadline = time.time() + CHECK_DURATION
 samples = {}
 sample_lock = threading.Lock()
