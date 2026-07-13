@@ -11,6 +11,10 @@ source "$(dirname "$0")/../utils/_tx_helpers.sh"
 cd $seihome || exit
 echo "Deploying first set of tokenfactory denoms..."
 
+# Capture a committed baseline height before the first denom creation. This
+# script later records and compares state around "beginning block height", so
+# under allow_empty_blocks=false we must force one real block and remember the
+# exact inclusion height instead of sampling status at height 0 / an idle tip.
 bootstrap_block_height=$(bank_send_and_get_height "$keyname" "$keyaddress" "1usei") || exit 1
 beginning_block_height="$bootstrap_block_height"
 echo "$beginning_block_height" > $seihome/integration_test/contracts/tfk_beginning_block_height.txt

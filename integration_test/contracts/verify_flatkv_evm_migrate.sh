@@ -763,7 +763,7 @@ EOF"
     cd /sei-protocol/sei-chain
     seidbin=build/seid chainid=sei
     source integration_test/utils/_tx_helpers.sh
-    wait_for_proposal_status '$proposal_id' PROPOSAL_STATUS_PASSED '$GOV_PASS_TIMEOUT' admin
+    wait_for_proposal_status '$proposal_id' PROPOSAL_STATUS_PASSED admin
   " 2>/dev/null || true)
   if [ "$status" != "PROPOSAL_STATUS_PASSED" ]; then
     echo "ERROR: migration param-change proposal $proposal_id did not pass within ${GOV_PASS_TIMEOUT}s (last status=$status)" >&2

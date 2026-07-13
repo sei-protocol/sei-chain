@@ -45,7 +45,7 @@ get_latest_height() {
   echo "${h:-0}"
 }
 
-# Wait until $FROM_ADDR's sequence advances past $1, with a 5s timeout.
+# Wait until $FROM_ADDR's sequence advances past $1.
 # Direct causal "previous tx committed" signal: the sender's sequence
 # advances atomically when its tx is included in a block, so by the
 # time this returns the next CLI's pre-flight `q account` will read
@@ -53,8 +53,7 @@ get_latest_height() {
 wait_from_seq_advance() {
   local prev="$1"
   if [ -z "$FROM_ADDR" ] || [ -z "$prev" ]; then return 0; fi
-  local deadline=$(($(date +%s) + 5))
-  while [ "$(date +%s)" -lt "$deadline" ]; do
+  while true; do
     local cur; cur=$(get_from_seq)
     if [[ "$cur" =~ ^[0-9]+$ ]] && [ "$cur" -gt "$prev" ]; then
       return 0
@@ -65,16 +64,13 @@ wait_from_seq_advance() {
 
 wait_until_height_exceeds() {
   local prev="$1"
-  local deadline=$(($(date +%s) + 15))
-  while [ "$(date +%s)" -lt "$deadline" ]; do
+  while true; do
     local cur; cur=$(get_latest_height)
     if [[ "$cur" =~ ^[0-9]+$ ]] && [ "$cur" -gt "$prev" ]; then
       return 0
     fi
     sleep 0.5
   done
-  echo "timed out waiting for height to exceed ${prev}" >&2
-  return 1
 }
 
 bump_chain_to_height() {

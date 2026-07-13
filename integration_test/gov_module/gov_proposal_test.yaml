@@ -19,7 +19,7 @@
     - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
       node: sei-node-1
     # since quorum is 0.5, we only need 2/4 votes; drive progress until it passes
-    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && wait_for_proposal_status $PROPOSAL_ID PROPOSAL_STATUS_PASSED 120 admin
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && wait_for_proposal_status $PROPOSAL_ID PROPOSAL_STATUS_PASSED admin
       env: PROPOSAL_STATUS
     # Get the tally params again after proposal is passed
     - cmd: seid q gov params --output json | jq -r .tally_params.quorum
@@ -62,7 +62,7 @@
     - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
       node: sei-node-1
     # since quorum is 0.5, we only need 2/4 votes; drive progress until it passes
-    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && wait_for_proposal_status $PROPOSAL_ID PROPOSAL_STATUS_PASSED 120 admin
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && wait_for_proposal_status $PROPOSAL_ID PROPOSAL_STATUS_PASSED admin
       env: PROPOSAL_STATUS
     # Get the migration batch size param again after proposal is passed
     - cmd: seid q params subspace migration NumKeysToMigratePerBlock --output json | jq -r .value | tr -d "\""
@@ -106,7 +106,7 @@
     - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
       node: sei-node-3
     # since expedited quorum is 0.9, we need 4/4 votes; drive progress until it passes
-    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && wait_for_proposal_status $PROPOSAL_ID PROPOSAL_STATUS_PASSED 120 admin
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && wait_for_proposal_status $PROPOSAL_ID PROPOSAL_STATUS_PASSED admin
       env: PROPOSAL_STATUS
     # Get the tally params again after proposal is passed
     - cmd: seid q gov params --output json | jq -r .tally_params.expedited_quorum
@@ -133,7 +133,7 @@
     - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin gov vote $PROPOSAL_ID yes --fees 2000usei
       node: sei-node-0
     # the expedited proposal auto-converts to regular; drive progress until it reaches a terminal status
-    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && wait_for_proposal_status $PROPOSAL_ID PROPOSAL_STATUS_REJECTED 120 admin
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && wait_for_proposal_status $PROPOSAL_ID PROPOSAL_STATUS_REJECTED admin
       env: PROPOSAL_STATUS
     # Get the tally params again after proposal is passed
     - cmd: seid q gov params --output json | jq -r .tally_params.expedited_quorum

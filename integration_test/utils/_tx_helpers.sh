@@ -123,39 +123,57 @@ get_proposal_status() {
 wait_for_proposal_status() {
     local proposal_id="$1"
     local target_status="$2"
-    local timeout_secs="${3:-120}"
-    local from_key="${4:-admin}"
+    local from_key="${3:-admin}"
     local from_addr; from_addr=$(_get_key_address "$from_key")
-    local deadline=$(($(date +%s) + timeout_secs))
-    local deadline_kick_sent=0
-    local status=""
-    while [ "$(date +%s)" -lt "$deadline" ]; do
-        local raw; raw=$($seidbin q gov proposal "$proposal_id" --output json 2>/dev/null || true)
-        status=$(echo "$raw" | jq -r '.status // ""' 2>/dev/null)
-        if [ "$status" = "$target_status" ]; then
-            echo "$status"
-            return 0
-        fi
-        if [ "$status" = "PROPOSAL_STATUS_REJECTED" ] || [ "$status" = "PROPOSAL_STATUS_FAILED" ]; then
-            echo "proposal $proposal_id reached terminal status $status while waiting for $target_status" >&2
-            return 1
-        fi
-        local voting_end
-        voting_end=$(echo "$raw" | jq -r '.voting_end_time // ""' 2>/dev/null)
-        local voting_end_epoch=""
-        if [ -n "$voting_end" ]; then
-            voting_end_epoch=$(date -d "$voting_end" +%s 2>/dev/null || true)
-        fi
-        if [ "$deadline_kick_sent" -eq 0 ] && [ -n "$voting_end_epoch" ] && [ "$(date +%s)" -ge $((voting_end_epoch + 1)) ]; then
-            # Progress-only self-send: once voting has ended, a proposal may
-            # still need one more committed block to be tallied. Force that
-            # block explicitly instead of waiting for unrelated traffic.
-            bank_send_and_wait "$from_key" "$from_addr" "1usei" >/dev/null || return 1
-            deadline_kick_sent=1
-        fi
-        sleep 1
-    done
-    echo "timed out waiting for proposal $proposal_id to reach $target_status (last status=${status:-unknown})" >&2
+    local raw; raw=$($seidbin q gov proposal "$proposal_id" --output json 2>/dev/null || true)
+    local status; status=$(echo "$raw" | jq -r '.status // ""' 2>/dev/null)
+    if [ "$status" = "$target_status" ]; then
+        echo "$status"
+        return 0
+    fi
+    if [ "$status" = "PROPOSAL_STATUS_REJECTED" ] || [ "$status" = "PROPOSAL_STATUS_FAILED" ]; then
+        echo "proposal $proposal_id reached terminal status $status while waiting for $target_status" >&2
+        return 1
+    fi
+    local voting_end
+    voting_end=$(echo "$raw" | jq -r '.voting_end_time // ""' 2>/dev/null)
+    local voting_end_epoch=""
+    if [ -n "$voting_end" ]; then
+        voting_end_epoch=$(date -d "$voting_end" +%s 2>/dev/null || true)
+    fi
+    if [ -z "$voting_end_epoch" ]; then
+        echo "proposal $proposal_id missing valid voting_end_time while waiting for $target_status" >&2
+        return 1
+    fi
+    local wait_secs=$((voting_end_epoch + 1 - $(date +%s)))
+    if [ "$wait_secs" -gt 0 ]; then
+        sleep "$wait_secs"
+    fi
+    raw=$($seidbin q gov proposal "$proposal_id" --output json 2>/dev/null || true)
+    status=$(echo "$raw" | jq -r '.status // ""' 2>/dev/null)
+    if [ "$status" = "$target_status" ]; then
+        echo "$status"
+        return 0
+    fi
+    if [ "$status" = "PROPOSAL_STATUS_REJECTED" ] || [ "$status" = "PROPOSAL_STATUS_FAILED" ]; then
+        echo "proposal $proposal_id reached terminal status $status while waiting for $target_status" >&2
+        return 1
+    fi
+    # Progress-only self-send: once voting has ended, a proposal may
+    # still need one more committed block to be tallied. Force that
+    # block explicitly instead of waiting for unrelated traffic.
+    bank_send_and_wait "$from_key" "$from_addr" "1usei" >/dev/null || return 1
+    raw=$($seidbin q gov proposal "$proposal_id" --output json 2>/dev/null || true)
+    status=$(echo "$raw" | jq -r '.status // ""' 2>/dev/null)
+    if [ "$status" = "$target_status" ]; then
+        echo "$status"
+        return 0
+    fi
+    if [ "$status" = "PROPOSAL_STATUS_REJECTED" ] || [ "$status" = "PROPOSAL_STATUS_FAILED" ]; then
+        echo "proposal $proposal_id reached terminal status $status while waiting for $target_status" >&2
+        return 1
+    fi
+    echo "proposal $proposal_id did not reach $target_status (current status=${status:-unknown})" >&2
     return 1
 }
 

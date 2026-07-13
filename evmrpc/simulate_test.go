@@ -663,10 +663,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	t.Run("TestEthCallRateLimiting", func(t *testing.T) {
 		tEnv := newTestEnv(t)
 		// Test eth_call rate limiting with concurrent requests
-		const (
-			numRequests = 10 // Much more than the limit of 2
-			maxAttempts = 5
-		)
+		const numRequests = 10 // Much more than the limit of 2
 		runBurst := func() []error {
 			results := make(chan error, numRequests)
 			start := make(chan struct{})
@@ -692,38 +689,23 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 			return errors
 		}
 
-		var (
-			successCount      int
-			rejectedCount     int
-			attemptsUsed      int
-			observedRejection bool
-		)
-		for attempt := 1; attempt <= maxAttempts; attempt++ {
-			attemptsUsed = attempt
-			successCount = 0
-			rejectedCount = 0
-
-			for _, err := range runBurst() {
-				if err == nil {
-					successCount++
-				} else if strings.Contains(err.Error(), "eth_call rejected due to rate limit: server busy") {
-					rejectedCount++
-				} else {
-					t.Logf("Unexpected error: %v", err)
-				}
-			}
-
-			require.Equalf(t, numRequests, successCount+rejectedCount, "All requests should be accounted for (attempt %d)", attempt)
-			if rejectedCount > 0 {
-				observedRejection = true
-				break
+		successCount := 0
+		rejectedCount := 0
+		for _, err := range runBurst() {
+			if err == nil {
+				successCount++
+			} else if strings.Contains(err.Error(), "eth_call rejected due to rate limit: server busy") {
+				rejectedCount++
+			} else {
+				t.Logf("Unexpected error: %v", err)
 			}
 		}
 
-		require.Truef(t, observedRejection, "Should have rejected requests due to rate limiting (last burst: %d successful, %d rejected)", successCount, rejectedCount)
+		require.Equal(t, numRequests, successCount+rejectedCount, "All requests should be accounted for")
+		require.Greaterf(t, rejectedCount, 0, "Should have rejected requests due to rate limiting (burst: %d successful, %d rejected)", successCount, rejectedCount)
 		require.Greater(t, successCount, 0, "Should have some successful requests")
 
-		t.Logf("eth_call rate limiting (attempt %d/%d): %d successful, %d rejected out of %d total", attemptsUsed, maxAttempts, successCount, rejectedCount, numRequests)
+		t.Logf("eth_call rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, numRequests)
 	})
 
 	t.Run("TestEstimateGasRateLimiting", func(t *testing.T) {
@@ -891,12 +873,9 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 
 	t.Run("TestDifferentMethodsShareSameLimiter", func(t *testing.T) {
 		// Test that different simulation methods share the same rate limiter.
-		// A single burst can occasionally avoid contention on overloaded CI workers,
-		// so retry a synchronized burst a few times.
 		const (
 			numCallRequests     = 20
 			numEstimateRequests = 20
-			maxAttempts         = 5
 		)
 		totalRequests := numCallRequests + numEstimateRequests
 
@@ -937,33 +916,19 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 			return successCount, rejectedCount
 		}
 
-		var (
-			lastSuccess       int
-			lastRejected      int
-			attemptsUsed      int
-			observedRejection bool
-		)
-		for attempt := 1; attempt <= maxAttempts; attempt++ {
-			attemptsUsed = attempt
-			lastSuccess, lastRejected = runMixedBurst(newTestEnv(t))
-			require.Equalf(t, totalRequests, lastSuccess+lastRejected, "All mixed method requests should be accounted for (attempt %d)", attempt)
-			if lastRejected > 0 {
-				observedRejection = true
-				break
-			}
-		}
+		lastSuccess, lastRejected := runMixedBurst(newTestEnv(t))
+		require.Equal(t, totalRequests, lastSuccess+lastRejected, "All mixed method requests should be accounted for")
 
-		require.Truef(
+		require.Greaterf(
 			t,
-			observedRejection,
-			"Different methods should share the same rate limiter (last burst: %d successful, %d rejected)",
+			lastRejected,
+			0,
+			"Different methods should share the same rate limiter (burst: %d successful, %d rejected)",
 			lastSuccess,
 			lastRejected,
 		)
 		t.Logf(
-			"Mixed methods rate limiting (attempt %d/%d): %d successful, %d rejected out of %d total",
-			attemptsUsed,
-			maxAttempts,
+			"Mixed methods rate limiting: %d successful, %d rejected out of %d total",
 			lastSuccess,
 			lastRejected,
 			totalRequests,
@@ -973,44 +938,31 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	t.Run("TestRateLimitErrorFormat", func(t *testing.T) {
 		tEnv := newTestEnv(t)
 		// Test the error message format by overwhelming the rate limiter
-		const (
-			numRequests = 20
-			maxAttempts = 5
-		)
-		var (
-			rateLimitErrors []error
-			attemptsUsed    int
-		)
-		for attempt := 1; attempt <= maxAttempts; attempt++ {
-			attemptsUsed = attempt
-			results := make(chan error, numRequests)
-			start := make(chan struct{})
-			var wg sync.WaitGroup
+		const numRequests = 20
+		results := make(chan error, numRequests)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
 
-			// Release all requests at once to reliably saturate the limiter.
-			for range numRequests {
-				wg.Go(func() {
-					<-start
-					_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
-					results <- err
-				})
-			}
-			close(start)
-			wg.Wait()
-			close(results)
+		// Release all requests at once to reliably saturate the limiter.
+		for range numRequests {
+			wg.Go(func() {
+				<-start
+				_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
+				results <- err
+			})
+		}
+		close(start)
+		wg.Wait()
+		close(results)
 
-			rateLimitErrors = rateLimitErrors[:0]
-			for err := range results {
-				if err != nil && strings.Contains(err.Error(), "rejected due to rate limit") {
-					rateLimitErrors = append(rateLimitErrors, err)
-				}
-			}
-			if len(rateLimitErrors) > 0 {
-				break
+		var rateLimitErrors []error
+		for err := range results {
+			if err != nil && strings.Contains(err.Error(), "rejected due to rate limit") {
+				rateLimitErrors = append(rateLimitErrors, err)
 			}
 		}
 
-		require.Greaterf(t, len(rateLimitErrors), 0, "Should have at least one rate limit error (attempts %d)", attemptsUsed)
+		require.Greater(t, len(rateLimitErrors), 0, "Should have at least one rate limit error")
 
 		// Verify error message format
 		for _, err := range rateLimitErrors {
@@ -1018,7 +970,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 			require.Contains(t, err.Error(), "server busy")
 		}
 
-		t.Logf("Found %d rate limit errors with correct format (attempt %d/%d)", len(rateLimitErrors), attemptsUsed, maxAttempts)
+		t.Logf("Found %d rate limit errors with correct format", len(rateLimitErrors))
 	})
 }
 

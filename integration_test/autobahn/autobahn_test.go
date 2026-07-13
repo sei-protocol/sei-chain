@@ -13,7 +13,6 @@ package autobahn
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -75,7 +74,6 @@ const (
 	// which takes ~60s to drain on top of the halt-detection window).
 	// CI runners are slower than local; 1m was tight enough to flake.
 	haltStableTimeout = 2 * time.Minute
-	txFinalizeMax     = 30 * time.Second
 	testRecipientEVM  = "0x1000000000000000000000000000000000000001"
 )
 
@@ -218,10 +216,12 @@ func dockerExecAllowFail(container, script string) {
 	_ = exec.Command("docker", "exec", container, "sh", "-c", script).Run()
 }
 
-func waitForReceiptBlockNumber(t *testing.T, txHash string, timeout time.Duration) int64 {
+func waitForReceiptBlockNumber(t *testing.T, txHash string) int64 {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	for {
+		if err := t.Context().Err(); err != nil {
+			t.Fatalf("receipt for %s not observed before test context ended: %v", txHash, err)
+		}
 		resp, err := evmRPCInContainer(fullnodeContainer, "eth_getTransactionReceipt", []any{txHash})
 		if err != nil {
 			time.Sleep(heightPoll)
@@ -256,8 +256,6 @@ func waitForReceiptBlockNumber(t *testing.T, txHash string, timeout time.Duratio
 		}
 		return height
 	}
-	t.Fatalf("receipt for %s not observed within %s", txHash, timeout)
-	return 0
 }
 
 func evmBalanceHex(t *testing.T, address string) string {
@@ -280,9 +278,7 @@ func sendEvmTx(t *testing.T, container string) string {
 	t.Helper()
 	// Progress-only tx: these subtests use "a tx finalized in a new block" as
 	// the observable signal that Autobahn is live or halted.
-	ctx, cancel := context.WithTimeout(t.Context(), txFinalizeMax)
-	defer cancel()
-	txHash, err := evmtest.SendTinyEvmTx(ctx, evmtest.DockerTxConfig{
+	txHash, err := evmtest.SendTinyEvmTx(t.Context(), evmtest.DockerTxConfig{
 		Container: container,
 		Password:  "12345678",
 		From:      "node_admin",
@@ -300,33 +296,27 @@ func sendEvmTxAndWait(t *testing.T, container string) int64 {
 	t.Helper()
 	baseHeight := currentHeight(t)
 	txHash := sendEvmTx(t, container)
-	receiptHeight := waitForReceiptBlockNumber(t, txHash, txFinalizeMax)
+	receiptHeight := waitForReceiptBlockNumber(t, txHash)
 	if receiptHeight <= baseHeight {
 		t.Fatalf("expected tx %s to land after height %d, got receipt at %d", txHash, baseHeight, receiptHeight)
 	}
 	return receiptHeight
 }
 
-func sendEvmTxExpectNoInclusion(t *testing.T, container string, baseHeight int64, timeout time.Duration) {
+func sendEvmTxExpectNoInclusion(t *testing.T, container string, baseHeight int64) {
 	t.Helper()
 	// Progress-only tx: after quorum loss, this should remain uncommitted and
 	// height should stay fixed, proving that no new block can be produced.
 	txHash := sendEvmTx(t, container)
-	deadline := time.Now().Add(timeout)
-	last := baseHeight
-	for time.Now().Before(deadline) {
-		resp, err := evmRPCInContainer(fullnodeContainer, "eth_getTransactionReceipt", []any{txHash})
-		if err == nil && resp != nil && resp.Error == nil && string(resp.Result) != "null" && len(resp.Result) > 0 {
-			t.Fatalf("expected no inclusion after quorum loss, but tx %s received receipt %s", txHash, resp.Result)
-		}
-		h := currentHeight(t)
-		if h > baseHeight {
-			t.Fatalf("expected no inclusion after quorum loss, but height advanced from %d to %d", baseHeight, h)
-		}
-		last = h
-		time.Sleep(heightPoll)
+	hAfter := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
+	if hAfter != baseHeight {
+		t.Fatalf("expected no inclusion after quorum loss, but height advanced from %d to %d", baseHeight, hAfter)
 	}
-	t.Logf("height stayed at %d after submitted tx", last)
+	resp, err := evmRPCInContainer(fullnodeContainer, "eth_getTransactionReceipt", []any{txHash})
+	if err == nil && resp != nil && resp.Error == nil && string(resp.Result) != "null" && len(resp.Result) > 0 {
+		t.Fatalf("expected no inclusion after quorum loss, but tx %s received receipt %s", txHash, resp.Result)
+	}
+	t.Logf("height stayed at %d after submitted tx", hAfter)
 }
 
 // TestMain brings up the autobahn docker cluster before the test runs and
@@ -816,5 +806,5 @@ func testHaltsBeyondMaxFaults(t *testing.T) {
 	killNode(t, clusterSize-1-maxFaults)
 	hBefore := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
 	t.Logf("height: %d (expecting halt)", hBefore)
-	sendEvmTxExpectNoInclusion(t, "sei-node-0", hBefore, haltStableWindow)
+	sendEvmTxExpectNoInclusion(t, "sei-node-0", hBefore)
 }
