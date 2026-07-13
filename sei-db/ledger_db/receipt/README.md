@@ -46,8 +46,8 @@ reads number logs without decoding the preceding receipts. Version metadata
 (`m:latest` / `m:earliest`) also lives in the Pebble index.
 
 Per-block work in a range query (tag scan + body reads) is independent, so the
-range is fanned across a bounded worker pool (`log-filter-parallelism`), which
-cuts wide-range tail latency without adding write cost.
+range is fanned across a bounded worker pool, which cuts wide-range tail latency
+without adding write cost.
 
 ### Durability
 A background flusher bounds LittDB durability lag to ~one block (`5ms`) **off
@@ -94,8 +94,6 @@ Set under `[receipt-store]` in `app.toml`:
 |---|---|---|---|
 | `rs-backend` | `pebbledb` | — | Receipt backend: `pebbledb` or `littidx`. |
 | `db-directory` | `<home>/data/…/receipt` | both | Receipt store data directory. |
-| `prune-interval-seconds` | `600` | both | How often pruning runs. |
-| `log-filter-parallelism` | `16` | `littidx` | Blocks a single `eth_getLogs` query scans concurrently. `<= 0` uses the default. |
 | `async-write-buffer` | `100` | `pebbledb` | Async commit queue length (`<= 0` = synchronous). |
 | `enable-read-write-metrics` | `false` | `pebbledb` | Emit estimated read/write counters. |
 
@@ -107,8 +105,6 @@ Example:
 ```toml
 [receipt-store]
 rs-backend = "littidx"
-log-filter-parallelism = 16
-prune-interval-seconds = 600
 ```
 
 ## Rollout — no migration, state sync only
