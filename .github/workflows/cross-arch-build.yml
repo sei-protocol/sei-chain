@@ -93,6 +93,12 @@ jobs:
       - name: Smoke test
         run: ./build/seid version --long
 
+      # Repeated boots: the gcc>=12 unwind b-tree crash killed ~70% of boots at the
+      # genesis wasm store, so a single boot (let alone `seid version`, which never
+      # touches the wasm VM) can pass on luck. See scripts/boot-smoke.sh.
+      - name: Boot smoke (repeated)
+        run: bash scripts/boot-smoke.sh ./build/seid 8
+
       - name: Upload artifact for inspection
         uses: actions/upload-artifact@v5
         with:
