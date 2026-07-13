@@ -79,25 +79,33 @@ wait_until_height_exceeds() {
   return 1
 }
 
+wait_for_receipt_field() {
+  local tx_hash="$1"
+  local field="$2"
+  local deadline=$(($(date +%s) + 30))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    local resp
+    resp=$(docker exec "$CONTAINER" curl -s -X POST -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionReceipt\",\"params\":[\"$tx_hash\"]}" "$EVM_RPC_URL" 2>/dev/null) || true
+    local value
+    value=$(echo "$resp" | jq -r --arg field "$field" '.result[$field] // empty' 2>/dev/null) || true
+    if [[ -n "$value" && "$value" != "null" ]]; then
+      echo "$value"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "timed out waiting for executed receipt field ${field} for ${tx_hash}" >&2
+  return 1
+}
+
 bump_chain_to_height() {
   local target="$1"
   local height; height=$(get_latest_height)
   while [[ "$height" =~ ^[0-9]+$ ]] && [ "$height" -lt "$target" ]; do
-    local seq_before; seq_before=$(get_from_seq)
-    local prev_height="$height"
-    # Debug path: restore the original progress-only EVM send so we can inspect
-    # the -b sync response if it fails before inclusion.
-    local resp
-    resp=$(run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y 2>&1) || true
-    local code
-    code=$(echo "$resp" | jq -r '.code // empty' 2>/dev/null || true)
-    if [ -n "$code" ] && [ "$code" != "0" ]; then
-      echo "bump_chain_to_height CheckTx rejected: $(echo "$resp" | jq -r '.raw_log // .logs // .error // .message // "unknown error"' 2>/dev/null)" >&2
-      return 1
-    fi
-    wait_from_seq_advance "$seq_before"
-    wait_until_height_exceeds "$prev_height"
-    height=$(get_latest_height)
+    # Progress-only EVM send: these fixtures need real historical blocks first.
+    local tx_hash
+    tx_hash=$(run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
+    height=$(wait_for_receipt_field "$tx_hash" blockNumber)
   done
 }
 
@@ -137,13 +145,7 @@ SEQ_BEFORE_MINIMAL=$(get_from_seq)
 DEPLOY_OUT=$(run seid tx evm deploy /tmp/minimal_contract.hex --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y 2>&1) || true
 DEPLOY_TX=$(echo "$DEPLOY_OUT" | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
 if [[ -n "$DEPLOY_TX" ]]; then
-  sleep 2
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    RESP=$(docker exec "$CONTAINER" curl -s -X POST -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionReceipt\",\"params\":[\"$DEPLOY_TX\"]}" "$EVM_RPC_URL" 2>/dev/null) || true
-    SEED=$(echo "$RESP" | grep -o '"blockNumber":"[^"]*"' | head -1 | cut -d'"' -f4)
-    [[ -n "$SEED" ]] && break
-    sleep 1
-  done
+  SEED=$(wait_for_receipt_field "$DEPLOY_TX" blockNumber) || true
   if [[ -n "$SEED" ]]; then
     export SEI_EVM_IO_SEED_BLOCK="$SEED"
     export SEI_EVM_IO_DEPLOY_TX_HASH="$DEPLOY_TX"
@@ -161,13 +163,7 @@ wait_from_seq_advance "$SEQ_BEFORE_MINIMAL"
 REVERTER_OUT=$(run seid tx evm deploy /tmp/reverter_contract.hex --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y 2>&1) || true
 REVERTER_TX=$(echo "$REVERTER_OUT" | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
 if [[ -n "$REVERTER_TX" ]]; then
-  sleep 2
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    RRESP=$(docker exec "$CONTAINER" curl -s -X POST -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionReceipt\",\"params\":[\"$REVERTER_TX\"]}" "$EVM_RPC_URL" 2>/dev/null) || true
-    REVERTER_ADDR=$(echo "$RRESP" | grep -o '"contractAddress":"[^"]*"' | head -1 | cut -d'"' -f4)
-    [[ -n "$REVERTER_ADDR" ]] && break
-    sleep 1
-  done
+  REVERTER_ADDR=$(wait_for_receipt_field "$REVERTER_TX" contractAddress) || true
   if [[ -n "$REVERTER_ADDR" ]]; then
     export SEI_EVM_IO_REVERTER_ADDRESS="$REVERTER_ADDR"
   fi
