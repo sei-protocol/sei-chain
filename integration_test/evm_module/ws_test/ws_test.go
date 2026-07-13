@@ -31,6 +31,8 @@ func wsURL() string {
 
 func triggerHead(t *testing.T) {
 	t.Helper()
+	// Progress-only tx: newHeads needs one real block after subscription, and
+	// under allow_empty_blocks=false we must create that block explicitly.
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	if _, err := evmtest.SendTinyEvmTx(ctx, evmtest.ConfigFromEnv("SEI_EVM_WS_TX_")); err != nil {

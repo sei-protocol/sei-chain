@@ -52,7 +52,9 @@ _wait_until() {
 # Submit `bank send` via -b sync and echo the exact block height at
 # which the tx committed. Useful when callers need the inclusion
 # height for state-at-height queries (e.g., historical balance lookups
-# at height-1 vs height to validate per-block granularity).
+# at height-1 vs height to validate per-block granularity). Some
+# callers intentionally self-send a dust amount purely to force the
+# chain to produce a real block under allow_empty_blocks=false.
 # Implementation: after the sender's sequence advances, walk back from
 # the observed height querying historical sequence — the largest H
 # where sequence(H) is still pre-tx is one below the inclusion height.
@@ -145,6 +147,9 @@ wait_for_proposal_status() {
             voting_end_epoch=$(date -d "$voting_end" +%s 2>/dev/null || true)
         fi
         if [ "$deadline_kick_sent" -eq 0 ] && [ -n "$voting_end_epoch" ] && [ "$(date +%s)" -ge $((voting_end_epoch + 1)) ]; then
+            # Progress-only self-send: once voting has ended, a proposal may
+            # still need one more committed block to be tallied. Force that
+            # block explicitly instead of waiting for unrelated traffic.
             bank_send_and_wait "$from_key" "$from_addr" "1usei" >/dev/null || return 1
             deadline_kick_sent=1
         fi

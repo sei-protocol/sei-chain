@@ -698,6 +698,8 @@ describe("EVM Test", function () {
           const block = await ethers.provider.getBlock(blockHeight);
           const baseFee = Number(block.baseFeePerGas);
           expect(baseFee).to.equal(oneGwei);
+          // Progress-only block: the assertion is about the next block's base
+          // fee, so force that block to exist explicitly.
           const nextReceipt = await mineTransferBlock(owner);
           expect(nextReceipt.blockNumber).to.be.greaterThan(blockHeight);
           const nextBlock = await ethers.provider.getBlock(nextReceipt.blockNumber);

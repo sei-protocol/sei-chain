@@ -79,6 +79,8 @@ async function delay() {
 }
 
 async function mineTransferBlock(sender) {
+    // Progress-only self-transfer: under allow_empty_blocks=false, tests must
+    // actively create a block when they need "the next block" to exist.
     const tx = await sender.sendTransaction({
         to: sender.address,
         value: 1n,
@@ -261,34 +263,51 @@ async function getKeySeiAddress(name) {
 async function waitForProposalStatus(
     proposalId,
     targetStatus,
-    { timeoutMs = 50000, pollIntervalMs = 250, kickKeyName = adminKeyName } = {},
+    { kickKeyName = adminKeyName } = {},
 ) {
-    const kickAddr = await getKeySeiAddress(kickKeyName)
-    const deadline = Date.now() + timeoutMs
-    let deadlineKickSent = false
-
-    while (Date.now() < deadline) {
-        const proposal = JSON.parse(await execute(`seid q gov proposal ${proposalId} -o json`))
-        const status = proposal.status
-        if (status === targetStatus) {
-            return proposal
-        }
+    const readProposal = async () => JSON.parse(await execute(`seid q gov proposal ${proposalId} -o json`))
+    const ensureNotFailed = (status) => {
         if (
             (status === "PROPOSAL_STATUS_REJECTED" || status === "PROPOSAL_STATUS_FAILED") &&
             status !== targetStatus
         ) {
             throw new Error(`Proposal ${proposalId} was rejected/failed with status: ${status}`)
         }
-
-        const votingEndMs = Date.parse(proposal.voting_end_time ?? "")
-        if (!deadlineKickSent && Number.isFinite(votingEndMs) && Date.now() >= votingEndMs + 1000) {
-            await bankSend(kickAddr, kickKeyName, "1", "usei")
-            deadlineKickSent = true
-        }
-        await sleep(pollIntervalMs)
     }
 
-    throw new Error(`could not observe proposal ${proposalId} reaching ${targetStatus}`)
+    let proposal = await readProposal()
+    if (proposal.status === targetStatus) {
+        return proposal
+    }
+    ensureNotFailed(proposal.status)
+
+    const votingEndMs = Date.parse(proposal.voting_end_time ?? "")
+    if (!Number.isFinite(votingEndMs)) {
+        throw new Error(`Proposal ${proposalId} is missing a valid voting_end_time`)
+    }
+
+    const waitMs = votingEndMs + 1000 - Date.now()
+    if (waitMs > 0) {
+        await sleep(waitMs)
+    }
+
+    proposal = await readProposal()
+    if (proposal.status === targetStatus) {
+        return proposal
+    }
+    ensureNotFailed(proposal.status)
+
+    const kickAddr = await getKeySeiAddress(kickKeyName)
+    // Progress-only bank send: if voting_end_time has passed but no tx has
+    // arrived to trigger the tally block yet, force one committed block so the
+    // proposal can move to its terminal status.
+    await bankSend(kickAddr, kickKeyName, "1", "usei")
+    proposal = await readProposal()
+    if (proposal.status === targetStatus) {
+        return proposal
+    }
+    ensureNotFailed(proposal.status)
+    throw new Error(`Proposal ${proposalId} did not reach ${targetStatus}; current status: ${proposal.status}`)
 }
 
 // Best-effort helper for idempotent bootstrap paths that may run after an

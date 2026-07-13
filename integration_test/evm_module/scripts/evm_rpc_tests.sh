@@ -83,6 +83,8 @@ bump_chain_to_height() {
   while [[ "$height" =~ ^[0-9]+$ ]] && [ "$height" -lt "$target" ]; do
     local seq_before; seq_before=$(get_from_seq)
     local prev_height="$height"
+    # Progress-only EVM send: these historical RPC fixtures need real block
+    # history to exist first when empty blocks are disabled.
     run seid tx evm send "$RECIPIENT" 1 --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b sync -y >/dev/null
     wait_from_seq_advance "$seq_before"
     wait_until_height_exceeds "$prev_height"

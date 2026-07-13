@@ -278,6 +278,8 @@ func evmBalanceHex(t *testing.T, address string) string {
 
 func sendEvmTx(t *testing.T, container string) string {
 	t.Helper()
+	// Progress-only tx: these subtests use "a tx finalized in a new block" as
+	// the observable signal that Autobahn is live or halted.
 	ctx, cancel := context.WithTimeout(context.Background(), txFinalizeMax)
 	defer cancel()
 	txHash, err := evmtest.SendTinyEvmTx(ctx, evmtest.DockerTxConfig{
@@ -307,6 +309,8 @@ func sendEvmTxAndWait(t *testing.T, container string) int64 {
 
 func sendEvmTxExpectNoInclusion(t *testing.T, container string, baseHeight int64, timeout time.Duration) {
 	t.Helper()
+	// Progress-only tx: after quorum loss, this should remain uncommitted and
+	// height should stay fixed, proving that no new block can be produced.
 	txHash := sendEvmTx(t, container)
 	deadline := time.Now().Add(timeout)
 	last := baseHeight
