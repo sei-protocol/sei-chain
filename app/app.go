@@ -1611,7 +1611,9 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		if fallbackToV2 {
 			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 			appMetrics.gigaFallback.Add(ctx.Context(), 1,
-				otelmetric.WithAttributes(attribute.String("reason", "store_iterator")))
+				otelmetric.WithAttributes(
+					attribute.String("reason", "store_iterator"),
+					attribute.String("scope", "tx")))
 			res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 			txResults[i] = res
 			ms.Write()
@@ -1623,7 +1625,9 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			// cosmos-precompile interop) re-run this tx via v2.
 			if gigautils.ShouldExecutionAbort(execErr) {
 				appMetrics.gigaFallback.Add(ctx.Context(), 1,
-					otelmetric.WithAttributes(attribute.String("reason", gigaFallbackReason(execErr))))
+					otelmetric.WithAttributes(
+						attribute.String("reason", gigaFallbackReason(execErr)),
+						attribute.String("scope", "tx")))
 				res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 				txResults[i] = res
 				ms.Write()
@@ -1841,9 +1845,13 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 			return nil, ctx
 		}
 
+		fallbackReason := "other"
 		for _, r := range evmBatchResult {
 			if r.Code == gigautils.GigaAbortCode && r.Codespace == gigautils.GigaAbortCodespace {
 				fallbackToV2 = true
+				if r.Info != "" {
+					fallbackReason = r.Info
+				}
 				break
 			}
 		}
@@ -1851,7 +1859,9 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		if fallbackToV2 {
 			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 			appMetrics.gigaFallback.Add(ctx.Context(), 1,
-				otelmetric.WithAttributes(attribute.String("reason", "occ_batch")))
+				otelmetric.WithAttributes(
+					attribute.String("reason", fallbackReason),
+					attribute.String("scope", "batch")))
 			// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
 			evmBatchResult = nil
 			v2Entries = make([]*sdk.DeliverTxEntry, len(txs))
@@ -2292,7 +2302,7 @@ func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.
 					resp = abci.ResponseDeliverTx{
 						Code:      gigautils.GigaAbortCode,
 						Codespace: gigautils.GigaAbortCodespace,
-						Info:      gigautils.GigaAbortInfo,
+						Info:      "store_iterator",
 						Log:       "giga executor abort: store iteration unsupported, fall back to v2",
 					}
 					return
@@ -2331,7 +2341,7 @@ func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.
 				return abci.ResponseDeliverTx{
 					Code:      gigautils.GigaAbortCode,
 					Codespace: gigautils.GigaAbortCodespace,
-					Info:      gigautils.GigaAbortInfo,
+					Info:      gigaFallbackReason(err),
 					Log:       "giga executor abort: fall back to v2",
 				}
 			}
