@@ -846,13 +846,11 @@ func (s *State) runPersist(ctx context.Context, persistedQC, persistedBlock type
 				evictBelow = inner.nextAppProposal - 1
 			}
 			for ; evictedQC < evictBelow; evictedQC++ {
-				delete(inner.qcs, evictedQC)
-			}
-			for _, lb := range b.blocks {
-				if lb.n < evictBelow {
-					delete(inner.blocks, lb.n)
-					delete(inner.blockHashes, lb.blk.Header().Hash())
+				if b, ok := inner.blocks[evictedQC]; ok {
+					delete(inner.blockHashes, b.Header().Hash())
+					delete(inner.blocks, evictedQC)
 				}
+				delete(inner.qcs, evictedQC)
 			}
 		}
 	}

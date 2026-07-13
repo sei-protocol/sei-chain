@@ -409,6 +409,117 @@ func TestGlobalBlockByHash(t *testing.T) {
 	require.False(t, ok, "GlobalBlockByHash(random) returned Some")
 }
 
+// TestEvictedReadsFallBackToBlockDB verifies that after runPersist evicts
+// executed QCs/blocks from memory, GlobalBlock/Block/QC/TryBlock/ByHash still
+// succeed by reading from BlockDB.
+func TestEvictedReadsFallBackToBlockDB(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange()
+	require.GreaterOrEqual(t, gr1.Len(), 2, "need ≥2 blocks so at least one can be fully evicted")
+
+	evicted := gr1.First // will be deleted from memory; gr1.Next-1 is kept as sentinel
+	wantBlock := blocks1[0]
+	wantHash := wantBlock.Header().Hash()
+	wantQC := qc1
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+		s.SpawnBgNamed("state.Run()", func() error {
+			return utils.IgnoreCancel(state.Run(ctx))
+		})
+
+		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
+			return err
+		}
+		// Execute qc1 so those heights become eligible for eviction.
+		for n := gr1.First; n < gr1.Next; n++ {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+				return fmt.Errorf("PushAppHash(%d): %w", n, err)
+			}
+		}
+		// Pushing qc2 wakes runPersist, which flushes and evicts heights
+		// below nextAppProposal-1 (i.e. all of qc1 except the last).
+		if err := state.PushQC(ctx, qc2, blocks2); err != nil {
+			return err
+		}
+
+		// Wait until the target height is gone from the in-memory maps.
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			gone := false
+			for inner := range state.inner.Lock() {
+				_, hasQC := inner.qcs[evicted]
+				_, hasBlk := inner.blocks[evicted]
+				gone = !hasQC && !hasBlk
+			}
+			if gone {
+				break
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timed out waiting for height %d to be evicted from memory", evicted)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		gotBlk, err := state.Block(ctx, evicted)
+		if err != nil {
+			return fmt.Errorf("Block(%d) after eviction: %w", evicted, err)
+		}
+		if err := utils.TestDiff(wantBlock, gotBlk); err != nil {
+			return fmt.Errorf("Block(%d) after eviction: %w", evicted, err)
+		}
+
+		gotTry, err := state.TryBlock(evicted)
+		if err != nil {
+			return fmt.Errorf("TryBlock(%d) after eviction: %w", evicted, err)
+		}
+		if err := utils.TestDiff(wantBlock, gotTry); err != nil {
+			return fmt.Errorf("TryBlock(%d) after eviction: %w", evicted, err)
+		}
+
+		gotQC, err := state.QC(ctx, evicted)
+		if err != nil {
+			return fmt.Errorf("QC(%d) after eviction: %w", evicted, err)
+		}
+		if err := utils.TestDiff(wantQC, gotQC); err != nil {
+			return fmt.Errorf("QC(%d) after eviction: %w", evicted, err)
+		}
+
+		wantG := &types.GlobalBlock{
+			GlobalNumber:  evicted,
+			Timestamp:     wantQC.QC().Proposal().BlockTimestamp(evicted).OrPanic("global block not in QC"),
+			Header:        wantBlock.Header(),
+			Payload:       wantBlock.Payload(),
+			FinalAppState: wantQC.QC().Proposal().App(),
+		}
+		gotG, err := state.GlobalBlock(ctx, evicted)
+		if err != nil {
+			return fmt.Errorf("GlobalBlock(%d) after eviction: %w", evicted, err)
+		}
+		if err := utils.TestDiff(wantG, gotG); err != nil {
+			return fmt.Errorf("GlobalBlock(%d) after eviction: %w", evicted, err)
+		}
+
+		gotByHash, err := state.GlobalBlockByHash(wantHash)
+		if err != nil {
+			return fmt.Errorf("GlobalBlockByHash after eviction: %w", err)
+		}
+		gb, ok := gotByHash.Get()
+		if !ok {
+			return fmt.Errorf("GlobalBlockByHash after eviction returned None")
+		}
+		if err := utils.TestDiff(wantG, gb); err != nil {
+			return fmt.Errorf("GlobalBlockByHash after eviction: %w", err)
+		}
+		return nil
+	}))
+}
+
 // ── Recovery tests ────────────────────────────────────────────────────
 
 // TestRecoveryEmpty verifies that NewState is a no-op on a fresh BlockDB.
