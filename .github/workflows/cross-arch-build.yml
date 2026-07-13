@@ -54,16 +54,44 @@ jobs:
 
       - name: Verify build binary
         run: ./build/seid version --long
+  # Detect PRs that change the static-build inputs so they run the full static
+  # job below even when targeting main; otherwise a change to the static build
+  # only gets exercised once it reaches a release branch.
+  static-paths:
+    name: "Static build inputs changed?"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PATTERN='^(scripts/(build-static|boot-smoke|check-libwasmvm-static)\.sh|Makefile|third_party/alpine-gcc10-libgcc/|\.goreleaser\.yaml|\.github/workflows/cross-arch-build\.yml)'
+          FILES=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate -q '.[].filename')
+          if echo "$FILES" | grep -qE "$PATTERN"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "static-relevant files: $(echo "$FILES" | grep -cE "$PATTERN" || true)"
+
   linux-amd64-static:
     name: "Linux AMD64 (static)"
     runs-on: ubuntu-latest
-    # The static seid is a release artefact, so only build it for release work,
-    # not on every PR: PRs into release/**, pushes to release/**, or merge-queue
-    # entries targeting release/**.
+    needs: [static-paths]
+    # The static seid is a release artefact: build it for release work (PRs into
+    # release/**, pushes to release/**, merge-queue entries targeting release/**)
+    # and for any PR that changes the static-build inputs themselves. The
+    # !cancelled() keeps this job eligible when static-paths is skipped (push and
+    # merge_group events).
     if: >-
+      !cancelled() && (
       startsWith(github.base_ref, 'release/') ||
       startsWith(github.ref, 'refs/heads/release/') ||
-      startsWith(github.event.merge_group.base_ref, 'refs/heads/release/')
+      startsWith(github.event.merge_group.base_ref, 'refs/heads/release/') ||
+      needs.static-paths.outputs.changed == 'true' )
     steps:
       - name: Checkout code
         # See: https://github.com/actions/checkout/releases/tag/v7.0.0
