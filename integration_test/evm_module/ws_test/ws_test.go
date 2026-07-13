@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/sei-protocol/sei-chain/integration_test/internal/evmtest"
+	"github.com/sei-protocol/sei-chain/testutil/evmtest"
 )
 
 func wsURL() string {

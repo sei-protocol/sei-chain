@@ -24,9 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/integration_test/internal/evmtest"
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/testutil/evmtest"
 )
 
 const (
