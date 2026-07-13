@@ -19,10 +19,7 @@ import (
 // keys[0] is used as the node's signing key.
 func newTestState(rng utils.Rng) (*State, []types.SecretKey, *epoch.Registry) {
 	registry, keys := epoch.GenRegistry(rng, 3)
-	dataState := utils.OrPanic1(data.NewState(
-		&data.Config{Registry: registry},
-		utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock())),
-	))
+	dataState := newTestDataState(registry)
 	s := utils.OrPanic1(NewState(&Config{
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
@@ -269,12 +266,7 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 			PersistentStateDir: utils.Some(dir),
 		}
 	}
-	makeDataState := func() *data.State {
-		return utils.OrPanic1(data.NewState(
-			&data.Config{Registry: registry},
-			utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock())),
-		))
-	}
+	makeDataState := func() *data.State { return newTestDataState(registry) }
 
 	view0 := types.View{Index: 0, Number: 0}
 	pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view0))

@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"slices"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
@@ -15,10 +16,12 @@ import (
 
 type gigaFullnodeRouter struct {
 	*gigaRouterCommon
+
+	blockDB atypes.BlockDB
 }
 
 func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gigaFullnodeRouter, error) {
-	dataState, err := buildDataState(cfg)
+	dataState, blockDB, err := buildDataState(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -34,6 +37,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gig
 			app:                cfg.App,
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
+		blockDB: blockDB,
 	}, nil
 }
 
@@ -42,6 +46,7 @@ func (r *gigaFullnodeRouter) Mempool() utils.Option[*producer.State] {
 }
 
 func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
+	defer func() { _ = r.blockDB.Close() }()
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Single-active subscriber: walk the committee in a stable order,
 		// move to the next on disconnect. Avoids the N× QC duplication of

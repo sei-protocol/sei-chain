@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -25,7 +26,11 @@ type testNode struct {
 func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
 func newTestNode(registry *epoch.Registry, cfg *consensus.Config) *testNode {
-	dataState := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+	cfg.PersistentStateDir = utils.None[string]()
+	dataState, err := data.NewState(&data.Config{Registry: registry}, memblock.NewBlockDB())
+	if err != nil {
+		panic(fmt.Sprintf("data.NewState: %v", err))
+	}
 	consensusState, err := consensus.NewState(cfg, dataState)
 	if err != nil {
 		panic(fmt.Sprintf("consensus.NewState(): %v", err))

@@ -39,8 +39,9 @@ func TestAvailClientServer(t *testing.T) {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 		t.Log("Spawn a fake unconnected node0 to generate some conflicting blocks and push them to node2.")
 		fakeNode0, err := consensus.NewState(&consensus.Config{
-			Key:         keys[0],
-			ViewTimeout: defaultViewTimeout,
+			Key:                keys[0],
+			ViewTimeout:        defaultViewTimeout,
+			PersistentStateDir: utils.Some(t.TempDir()),
 		}, nodes[0].data)
 		if err != nil {
 			return fmt.Errorf("consensus.NewState(): %w", err)

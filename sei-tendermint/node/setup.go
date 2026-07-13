@@ -310,7 +310,9 @@ func buildGigaRouter(
 		if err != nil {
 			return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
 		}
-		rootifyPersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig)
+		if err := preparePersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig); err != nil {
+			return nil, err
+		}
 		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 		// enable/disable decision through as plain config.
 		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
@@ -321,7 +323,9 @@ func buildGigaRouter(
 	if err != nil {
 		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
-	rootifyPersistentStateDir(cfg.RootDir, fnCfg)
+	if err := preparePersistentStateDir(cfg.RootDir, fnCfg); err != nil {
+		return nil, err
+	}
 	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 	// enable/disable decision through as plain config.
 	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
@@ -329,13 +333,21 @@ func buildGigaRouter(
 	return p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey))
 }
 
-// rootifyPersistentStateDir resolves a relative PersistentStateDir
-// against the node's --home dir (mirrors config.go's rootify). Absolute
-// paths pass through; None stays None.
-func rootifyPersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) {
-	if dir, ok := c.PersistentStateDir.Get(); ok && !filepath.IsAbs(dir) {
-		c.PersistentStateDir = utils.Some(filepath.Join(rootDir, dir))
+// preparePersistentStateDir resolves a relative PersistentStateDir against
+// the node's --home dir (mirrors config.go's rootify) and creates it if absent.
+func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) error {
+	dir, ok := c.PersistentStateDir.Get()
+	if !ok {
+		return nil
 	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(rootDir, dir)
+		c.PersistentStateDir = utils.Some(dir)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("creating persistent state dir %q: %w", dir, err)
+	}
+	return nil
 }
 
 // resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject all,

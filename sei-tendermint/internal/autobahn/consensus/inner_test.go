@@ -3,9 +3,13 @@ package consensus
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -15,6 +19,28 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
+
+func newTestBlockDB(t *testing.T, dir string) types.BlockDB {
+	t.Helper()
+	cfg, err := littblock.DefaultConfig(dir)
+	if err != nil {
+		t.Fatalf("littblock.DefaultConfig: %v", err)
+	}
+	db, err := littblock.NewBlockDB(cfg)
+	if err != nil {
+		t.Fatalf("littblock.NewBlockDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func newTestDataState(registry *epoch.Registry) *data.State {
+	s, err := data.NewState(&data.Config{Registry: registry}, memblock.NewBlockDB())
+	if err != nil {
+		panic(fmt.Sprintf("data.NewState: %v", err))
+	}
+	return s
+}
 
 // seedPersistedInner is a test helper that persists a persistedInner using the public API.
 func seedPersistedInner(dir string, state *persistedInner) {
@@ -921,15 +947,21 @@ func (f failPersister[T]) Persist(T) error { return f.err }
 func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 	// Verify that a persist error in runOutputs propagates
 	// and terminates the consensus component (instead of panicking).
+	dir := t.TempDir()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+	db := newTestBlockDB(t, filepath.Join(dir, "blockdb"))
+	ds, err := data.NewState(&data.Config{Registry: registry}, db)
+	if err != nil {
+		t.Fatalf("data.NewState: %v", err)
+	}
 
 	wantErr := errors.New("disk on fire")
 	pers := utils.Some[persist.Persister[*pb.PersistedInner]](failPersister[*pb.PersistedInner]{err: wantErr})
 	cs, err := newState(&Config{
-		Key:         keys[0],
-		ViewTimeout: func(types.View) time.Duration { return time.Hour },
+		Key:                keys[0],
+		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
+		PersistentStateDir: utils.Some(dir),
 	}, ds, pers, utils.None[*pb.PersistedInner]())
 	require.NoError(t, err)
 

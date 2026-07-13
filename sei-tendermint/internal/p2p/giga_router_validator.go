@@ -18,6 +18,7 @@ import (
 type gigaValidatorRouter struct {
 	*gigaRouterCommon
 
+	blockDB   atypes.BlockDB
 	consensus *consensus.State
 	producer  *producer.State
 	// validatorKey is the cached public form of cfg.ValidatorKey, used by
@@ -26,7 +27,7 @@ type gigaValidatorRouter struct {
 }
 
 func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaValidatorRouter, error) {
-	dataState, err := buildDataState(&cfg.GigaRouterCommonConfig)
+	dataState, blockDB, err := buildDataState(&cfg.GigaRouterCommonConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -36,6 +37,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 		PersistentStateDir: cfg.PersistentStateDir,
 	}, dataState)
 	if err != nil {
+		_ = blockDB.Close()
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
 	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
@@ -51,6 +53,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 			app:                cfg.App,
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
+		blockDB:      blockDB,
 		consensus:    consensusState,
 		producer:     producerState,
 		validatorKey: cfg.ValidatorKey.Public(),
@@ -62,6 +65,7 @@ func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
 }
 
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
+	defer func() { _ = r.blockDB.Close() }()
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Validators dial every committee member in parallel — consensus
 		// voting needs fan-out, not stickiness. Same connections also

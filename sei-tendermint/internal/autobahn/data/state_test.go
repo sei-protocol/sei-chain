@@ -5,14 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 	"testing"
 	"testing/synctest"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -48,14 +47,52 @@ func snapshot(s *State) Snapshot {
 	panic("unreachable")
 }
 
+// newTestBlockDB opens (or creates) a LittDB-backed BlockDB at dir.
+// Retention is set to 1ns so ForceGC reclaims pruned data immediately in tests.
+func newTestBlockDB(t *testing.T, dir string) types.BlockDB {
+	t.Helper()
+	cfg, err := littblock.DefaultConfig(dir)
+	if err != nil {
+		t.Fatalf("littblock.DefaultConfig: %v", err)
+	}
+	cfg.Retention = time.Nanosecond
+	db, err := littblock.NewBlockDB(cfg)
+	if err != nil {
+		t.Fatalf("littblock.NewBlockDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+// newTestState constructs a State, replays db, and returns it ready to Run.
+func newTestState(t testing.TB, cfg *Config, db types.BlockDB) *State {
+	t.Helper()
+	s, err := NewState(cfg, db)
+	require.NoError(t, err)
+	return s
+}
+
+// writeToBlockDB writes QC+block pairs sequentially to db and flushes once.
+// qcs[i] and blockss[i] must correspond; QCs must be in ascending order.
+func writeToBlockDB(t *testing.T, db types.BlockDB, qcs []*types.FullCommitQC, blockss [][]*types.Block) {
+	t.Helper()
+	for i, qc := range qcs {
+		gr := qc.QC().GlobalRange()
+		require.NoError(t, db.WriteQC(gr.First, gr.Next, qc))
+		for j, n := 0, gr.First; n < gr.Next; n++ {
+			require.NoError(t, db.WriteBlock(n, blockss[i][j]))
+			j++
+		}
+	}
+	require.NoError(t, db.Flush())
+}
+
 func TestState(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		state := utils.OrPanic1(NewState(&Config{
-			Registry: registry,
-		}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -127,14 +164,12 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	committee := registry.LatestEpoch().Committee()
-	state := utils.OrPanic1(NewState(&Config{
-		Registry: registry,
-	}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
 	// Push a valid QC to advance inner.nextQC.
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	nextQC := qc1.QC().GlobalRange().Next
+	gr1 := qc1.QC().GlobalRange()
 
 	// Construct a malicious QC signed by non-committee keys.
 	// It starts from block 0 (stale) but extends beyond nextQC.
@@ -145,7 +180,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 		badKeys[i] = types.GenSecretKey(rng)
 	}
 	laneBlocks := map[types.LaneID][]*types.Block{}
-	maliciousBlocksTotal := int(nextQC-registry.FirstBlock()) + 1
+	maliciousBlocksTotal := int(gr1.Len()) + 1
 	require.LessOrEqual(t, maliciousBlocksTotal, committee.Lanes().Len()*types.MaxLaneRangeInProposal)
 	for i := range maliciousBlocksTotal {
 		lane := committee.Lanes().At(i % committee.Lanes().Len())
@@ -189,8 +224,8 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 		utils.None[*types.AppQC](),
 	))
 	malGR := proposal.Proposal().Msg().GlobalRange()
-	require.Less(t, malGR.First, nextQC, "test setup: malicious gr.First must be < nextQC")
-	require.Greater(t, malGR.Next, nextQC, "test setup: malicious gr.Next must be > nextQC")
+	require.Less(t, malGR.First, gr1.Next, "test setup: malicious gr.First must be < nextQC")
+	require.Greater(t, malGR.Next, gr1.Next, "test setup: malicious gr.Next must be > nextQC")
 
 	votes := make([]*types.Signed[*types.CommitVote], 0, len(badKeys))
 	for _, k := range badKeys {
@@ -205,7 +240,6 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	_ = state.PushQC(ctx, maliciousQC, malBlocks)
 
 	// Verify state was not corrupted: all previously pushed QCs and blocks are intact.
-	gr1 := qc1.QC().GlobalRange()
 	for n := gr1.First; n < gr1.Next; n++ {
 		got, err := state.QC(ctx, n)
 		require.NoError(t, err)
@@ -237,9 +271,7 @@ func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	state := utils.OrPanic1(NewState(&Config{
-		Registry: registry,
-	}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
 	// Push qc1 with NO blocks — only the QC is stored.
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
@@ -283,9 +315,7 @@ func TestExecution(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		state := utils.OrPanic1(NewState(&Config{
-			Registry: registry,
-		}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -327,9 +357,7 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	state := utils.OrPanic1(NewState(&Config{
-		Registry: registry,
-	}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
 	// Push QC without blocks.
 	qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
@@ -343,26 +371,12 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	require.Equal(t, blocks[0], got)
 }
 
-// TestGlobalBlockByHash isolates the hash-keyed lookup from the
-// consensus-driven harness. We push a single QC + block via the same code
-// path the network would (insertBlock writes to inner.blockHashes), then:
-//
-//   - the block's own header hash resolves to Some(*GlobalBlock) with the
-//     expected height/header/payload — the index points at the right
-//     block, atomically with the block construction
-//   - a zero hash and a random hash both resolve to None — distinct
-//     unknown-hash inputs all read as "not found", no panics
-//   - err is nil throughout — today's in-memory implementation has no
-//     failure mode; the error return on GlobalBlockByHash is reserved
-//     for the future BlockDB-backed path
 func TestGlobalBlockByHash(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	state := utils.OrPanic1(NewState(&Config{
-		Registry: registry,
-	}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
 	qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushQC(ctx, qc, blocks))
@@ -395,471 +409,213 @@ func TestGlobalBlockByHash(t *testing.T) {
 	require.False(t, ok, "GlobalBlockByHash(random) returned Some")
 }
 
-// ── Reconcile tests (grouped by case number) ──────────────────────────
+// ── Recovery tests ────────────────────────────────────────────────────
 
-// TestStateRecoveryBlocksOnly simulates a crash after blocks are written
-// TestReconcileCase1Empty verifies that reconcile is a no-op on a fresh
-// WAL directory with no data.
-func TestReconcileCase1Empty(t *testing.T) {
-	t.Log("Reconcile case 1: Fresh start (empty/empty)")
+// TestRecoveryEmpty verifies that NewState is a no-op on a fresh BlockDB.
+func TestRecoveryEmpty(t *testing.T) {
 	rng := utils.TestRng()
 	registry, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 	fb := registry.FirstBlock()
 
-	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state := utils.OrPanic1(NewState(&Config{Registry: registry}, dw))
-
+	db := newTestBlockDB(t, dir)
+	state := newTestState(t, &Config{Registry: registry}, db)
 	for inner := range state.inner.Lock() {
 		require.Equal(t, fb, inner.first)
 		require.Equal(t, fb, inner.nextQC)
 		require.Equal(t, fb, inner.nextBlock)
 	}
-	require.NoError(t, dw.Close())
 }
 
-// TestReconcileCase2Corrupted verifies that when blocks are persisted but
-// QCs WAL is deleted (corruption), NewDataWAL returns a corruption error.
-func TestReconcileCase2Corrupted(t *testing.T) {
-	t.Log("Reconcile case 2: QCs lost (corruption), returns error")
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	dir := t.TempDir()
-
-	// Persist blocks and QCs normally.
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange()
-
-	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
-	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		require.NoError(t, dw1.Blocks.PersistBlock(n, blocks1[i]))
-		i++
-	}
-	require.NoError(t, dw1.Close())
-
-	// Simulate corruption: delete QCs WAL.
-	require.NoError(t, os.RemoveAll(filepath.Join(dir, "fullcommitqcs")))
-
-	// Reopen should fail — blocks exist but QCs are gone.
-	_, err := NewDataWAL(utils.Some(dir), registry.FirstBlock())
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "corrupted")
-}
-
-// TestStateRecoveryQCsOnly simulates a crash after QCs are written to the
-// WAL but before blocks are written (or after blocks WAL is truncated but
-// QCs WAL is not). On recovery, QCs are loaded but no blocks exist.
-// The cursor sync in NewState must advance the blocks persister so that
-// subsequent PersistBlock calls don't fail with "out of sequence".
-func TestReconcileCase3BlocksLost(t *testing.T) {
-	t.Log("Reconcile case 3: Blocks lost (crash), QCs survive")
+// TestNewStateNilInMemoryMode verifies that NewState(cfg, None) followed by Run
+// works end-to-end: QCs and blocks are accessible in memory with no BlockDB backing.
+func TestNewStateInMemoryMode(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	dir := t.TempDir()
-
-	// First run: populate both WALs.
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange()
 
-	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state1 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw1))
-	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
-	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		require.NoError(t, dw1.Blocks.PersistBlock(n, blocks1[i]))
-		i++
-	}
-	require.NoError(t, dw1.Close())
+	state, err := NewState(&Config{Registry: registry}, memblock.NewBlockDB())
+	require.NoError(t, err)
 
-	// Simulate crash: delete blocks WAL directory, keep QCs WAL.
-	require.NoError(t, os.RemoveAll(filepath.Join(dir, "globalblocks")))
-
-	// Second run: only QCs WAL survives.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state2 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw2))
-
-	// QCs loaded, blocks empty. The state needs blocks re-pushed.
-	// Without the cursor sync fix, PushBlock here would fail with
-	// "out of sequence" because the blocks persister cursor is 0
-	// but inner.nextBlock was advanced by QC data.
-	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		require.NoError(t, state2.PushBlock(ctx, n, blocks1[i]))
-		i++
-	}
-
-	for n := gr1.First; n < gr1.Next; n++ {
-		got, err := state2.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
-
-	// State should accept the next QC normally.
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
-	require.NoError(t, state2.PushQC(ctx, qc2, blocks2))
-	require.Equal(t, qc2.QC().GlobalRange().Next, state2.NextBlock())
-	require.NoError(t, dw2.Close())
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
+			return err
+		}
+		// Verify data is accessible (no panic, no error).
+		gr := qc1.QC().GlobalRange()
+		for n := gr.First; n < gr.Next; n++ {
+			if _, err := state.Block(ctx, n); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
 }
 
-func TestReconcileCase4Normal(t *testing.T) {
-	t.Log("Reconcile case 4: Normal (a=X, b<Y)")
-	ctx := t.Context()
+// TestRecoveryNormal verifies that NewState fully restores QCs and blocks
+// from BlockDB on restart.
+func TestRecoveryNormal(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	// Build two sequential QCs with their blocks.
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 
-	// First run: push both QCs and persist to WALs.
-	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state1 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw1))
-	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
-	require.NoError(t, state1.PushQC(ctx, qc2, blocks2))
-	require.Equal(t, gr2.Next, state1.NextBlock())
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc2))
-	allBlocks := append(blocks1, blocks2...)
-	for i, n := 0, gr1.First; n < gr2.Next; n++ {
-		require.NoError(t, dw1.Blocks.PersistBlock(n, allBlocks[i]))
-		i++
-	}
-	require.NoError(t, dw1.Close())
+	// Session 1: write both QCs and all blocks.
+	db1 := newTestBlockDB(t, dir)
+	writeToBlockDB(t, db1,
+		[]*types.FullCommitQC{qc1, qc2},
+		[][]*types.Block{blocks1, blocks2})
+	require.NoError(t, db1.Close())
 
-	// Second run: reopen from the same directory.
-	// NewState should recover blocks and QCs, and updateNextBlock
-	// should advance nextBlock using preloaded QCs.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state2 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw2))
+	// Session 2: NewState should recover blocks and QCs.
+	db2 := newTestBlockDB(t, dir)
+	state2 := newTestState(t, &Config{Registry: registry}, db2)
 
-	// nextBlock should already be at the end — no PushQC needed.
 	require.Equal(t, gr2.Next, state2.NextBlock())
-
-	// All blocks should be available.
 	for n := gr1.First; n < gr2.Next; n++ {
 		got, err := state2.TryBlock(n)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 	}
-
-	// All QCs should be available.
 	for n := gr1.First; n < gr2.Next; n++ {
-		got, err := state2.QC(ctx, n)
+		got, err := state2.QC(t.Context(), n)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 	}
-	require.NoError(t, dw2.Close())
+	require.NoError(t, db2.Close())
 
-	// Third run: reopen again to verify that the second NewState did
-	// not truncate the WALs. A bug where TruncateBefore(nextBlock)
-	// with nextBlock == persister cursor would TruncateAll would cause
-	// this third restart to find empty WALs.
-	dw3 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state3 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw3))
+	// Session 3: verify session 2 did not corrupt BlockDB.
+	db3 := newTestBlockDB(t, dir)
+	state3 := newTestState(t, &Config{Registry: registry}, db3)
 	require.Equal(t, gr2.Next, state3.NextBlock())
-	for n := gr1.First; n < gr2.Next; n++ {
-		got, err := state3.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
-	require.NoError(t, dw3.Close())
 }
 
-// TestStateRecoveryAfterPruning verifies that after pruning removes entries
-// from both WALs and the state is restarted, it recovers correctly with
-// only the unpruned tail.
-func TestReconcileCase4AfterPruning(t *testing.T) {
-	t.Log("Reconcile case 4 variant: Normal after pruning, both WALs truncated")
+// TestPruningDiscards verifies that PruneBefore advances inner.first and causes
+// TryBlock to return ErrPruned for the discarded range, while keeping at least
+// one entry and keeping later blocks accessible.
+func TestPruningDiscards(t *testing.T) {
 	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc3, blocks3 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc2.QC()))
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
+	gr3 := qc3.QC().GlobalRange()
+
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
+	require.NoError(t, state.PushQC(ctx, qc3, blocks3))
+
+	// Execute all blocks so they are eligible for pruning.
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- state.Run(runCtx) }()
+	for n := gr1.First; n < gr3.Next; n++ {
+		require.NoError(t, state.PushAppHash(ctx, n, types.GenAppHash(rng)))
+	}
+	cancel()
+	<-done
+
+	// Prune qc1 entirely (keep from qc2 onward).
+	require.NoError(t, state.PruneBefore(gr2.First))
+
+	// PruneBefore keeps one sentinel block at firstToKeep-1; capture it.
+	var survivingBlock types.GlobalBlockNumber
+	for inner := range state.inner.Lock() {
+		survivingBlock = inner.first
+	}
+	for n := gr1.First; n < survivingBlock; n++ {
+		_, err := state.TryBlock(n)
+		require.ErrorIs(t, err, ErrPruned)
+	}
+	// survivingBlock itself and everything from gr2.First onward must be readable.
+	for n := survivingBlock; n < gr3.Next; n++ {
+		got, err := state.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	}
+}
+
+// TestRecoveryAfterPruning verifies that NewState recovers correctly when
+// BlockDB only contains data from a later QC range (as left by pruning + GC).
+func TestRecoveryAfterPruning(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	// Build 3 sequential QCs.
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
 	qc3, blocks3 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc2.QC()))
 	gr2 := qc2.QC().GlobalRange()
 	gr3 := qc3.QC().GlobalRange()
 
-	// First run: push all 3 QCs, persist to WALs, then truncate before qc2.
-	gr1 := qc1.QC().GlobalRange()
-	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state1 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw1))
-	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
-	require.NoError(t, state1.PushQC(ctx, qc2, blocks2))
-	require.NoError(t, state1.PushQC(ctx, qc3, blocks3))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc2))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc3))
-	allBlocks := append(append(blocks1, blocks2...), blocks3...)
-	for i, n := 0, gr1.First; n < gr3.Next; n++ {
-		require.NoError(t, dw1.Blocks.PersistBlock(n, allBlocks[i]))
-		i++
-	}
-	require.NoError(t, dw1.TruncateBefore(gr2.First))
-	require.NoError(t, dw1.Close())
+	// Write only qc2 and qc3 — simulating a DB where qc1 was pruned and GC'd.
+	db1 := newTestBlockDB(t, dir)
+	writeToBlockDB(t, db1,
+		[]*types.FullCommitQC{qc2, qc3},
+		[][]*types.Block{blocks2, blocks3})
+	require.NoError(t, db1.Close())
 
-	// Second run: only qc2 and qc3 data should survive.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state2 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw2))
+	// Recovery: first = gr2.First; qc1's range is before first, so ErrPruned.
+	db2 := newTestBlockDB(t, dir)
+	state2 := newTestState(t, &Config{Registry: registry}, db2)
 
 	require.Equal(t, gr3.Next, state2.NextBlock())
-
-	// qc1 blocks should be pruned.
-	for n := qc1.QC().GlobalRange().First; n < qc1.QC().GlobalRange().Next; n++ {
+	for n := qc1.QC().GlobalRange().First; n < gr2.First; n++ {
 		_, err := state2.TryBlock(n)
 		require.ErrorIs(t, err, ErrPruned)
 	}
-
-	// qc2 and qc3 blocks should be available.
 	for n := gr2.First; n < gr3.Next; n++ {
 		got, err := state2.TryBlock(n)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 	}
-	require.NoError(t, dw2.Close())
 }
 
-// Reconcile case 5: Prune crash, blocks ahead (a>X).
-// Blocks WAL was truncated further than QCs during a crash between
-// the two parallel TruncateBefore calls.
-func TestReconcileCase5BlocksAhead(t *testing.T) {
-	t.Log("Reconcile case 5: Prune crash, blocks ahead (a>X)")
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	dir := t.TempDir()
-
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
-	gr1 := qc1.QC().GlobalRange()
-	gr2 := qc2.QC().GlobalRange()
-
-	// Persist both QCs and all blocks.
-	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	require.NoError(t, dw.CommitQCs.PersistQC(qc1))
-	require.NoError(t, dw.CommitQCs.PersistQC(qc2))
-	allBlocks := append(blocks1, blocks2...)
-	for i, n := 0, gr1.First; n < gr2.Next; n++ {
-		require.NoError(t, dw.Blocks.PersistBlock(n, allBlocks[i]))
-		i++
-	}
-	// Simulate crash: blocks truncated to gr2.First but QCs not.
-	require.NoError(t, dw.Blocks.TruncateBefore(gr2.First))
-	require.NoError(t, dw.Close())
-
-	// Reopen: blocks start at gr2.First, QCs start at gr1.First.
-	// Reconcile should truncate QCs to match blocks.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state := utils.OrPanic1(NewState(&Config{Registry: registry}, dw2))
-
-	for inner := range state.inner.Lock() {
-		require.Equal(t, gr2.First, inner.first)
-	}
-	// Blocks in qc2's range should be available.
-	for n := gr2.First; n < gr2.Next; n++ {
-		got, err := state.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
-	require.NoError(t, dw2.Close())
-}
-
-// TestStateRecoverySkipsStaleBlocks verifies that blocks loaded from the WAL
-// that fall before the first QC range are not inserted into the state map.
-// This can happen when the QCs WAL is pruned but the blocks WAL still has
-// older entries (e.g., a crash between the two TruncateBefore calls).
-func TestReconcileCase6QCsAhead(t *testing.T) {
-	t.Log("Reconcile case 6: Prune crash, QCs ahead (a<X)")
+// TestRecoveryBlocksBehind verifies recovery when QCs cover more range than
+// blocks (e.g. a crash during block writes). Blocks up to the crash point are
+// available; the rest are re-fetched via PushBlock.
+func TestRecoveryBlocksBehind(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	// Build 2 sequential QCs.
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 
-	// First run: push both QCs and persist to WALs.
-	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state1 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw1))
-	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
-	require.NoError(t, state1.PushQC(ctx, qc2, blocks2))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc2))
-	allBlocks := append(blocks1, blocks2...)
-	for i, n := 0, gr1.First; n < gr2.Next; n++ {
-		require.NoError(t, dw1.Blocks.PersistBlock(n, allBlocks[i]))
-		i++
-	}
-
-	// Prune only the QCs WAL past qc1, but leave blocks WAL intact.
-	// This simulates a crash between the two TruncateBefore calls.
-	require.NoError(t, dw1.CommitQCs.TruncateBefore(gr2.First))
-	require.NoError(t, dw1.Close())
-
-	// Second run: QCs WAL starts at qc2 but blocks WAL still has qc1's blocks.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state2 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw2))
-
-	// Blocks before qc2's range should NOT be in the state.
-	for n := gr1.First; n < gr1.Next; n++ {
-		_, err := state2.TryBlock(n)
-		require.ErrorIs(t, err, ErrPruned)
-	}
-
-	// Blocks in qc2's range should be available.
-	for n := gr2.First; n < gr2.Next; n++ {
-		got, err := state2.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
-	require.NoError(t, dw2.Close())
-}
-
-// TestStateRecoveryIgnoresBlocksBeyondQC verifies that blocks loaded from the
-// WAL with numbers >= nextQC are ignored. This can happen when blocks are
-// persisted in parallel with QCs and we crash before QCs catch up.
-func TestReconcileCase7BlocksPastQCs(t *testing.T) {
-	t.Log("Reconcile case 7: Persist crash, blocks past QCs (b>=Y)")
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	dir := t.TempDir()
-
-	// Build 2 sequential QCs.
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
-	gr1 := qc1.QC().GlobalRange()
-	gr2 := qc2.QC().GlobalRange()
-
-	// Persist only qc1 to QCs WAL but persist ALL blocks (qc1 + qc2) to blocks WAL.
-	// This simulates blocks being persisted ahead of QCs.
-	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
-	allBlocks := append(blocks1, blocks2...)
-	for i, n := 0, gr1.First; n < gr2.Next; n++ {
-		require.NoError(t, dw1.Blocks.PersistBlock(n, allBlocks[i]))
-		i++
-	}
-	require.NoError(t, dw1.Close())
-
-	// On recovery, only blocks within qc1's range should be loaded.
-	// Blocks in qc2's range have no QC and should be ignored.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state2 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw2))
-
-	// Blocks in qc1's range should be available.
-	for n := gr1.First; n < gr1.Next; n++ {
-		got, err := state2.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
-
-	// Blocks in qc2's range should NOT be in the state (no QC for them).
-	for n := gr2.First; n < gr2.Next; n++ {
-		_, err := state2.TryBlock(n)
-		require.ErrorIs(t, err, ErrNotFound)
-	}
-
-	// State should still accept qc2 normally.
-	require.NoError(t, state2.PushQC(t.Context(), qc2, blocks2))
-	require.Equal(t, gr2.Next, state2.NextBlock())
-	require.NoError(t, dw2.Close())
-}
-
-// TestReconcileTruncatesBlocksTail verifies that blocks persisted without
-// corresponding QCs are removed during WAL reconciliation. This prevents
-// stale blocks from blocking new (different) blocks at the same positions.
-func TestReconcileCase7BlocksTail(t *testing.T) {
-	t.Log("Reconcile case 7: Persist crash, tail truncation with re-push")
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	dir := t.TempDir()
-
-	// Build 2 sequential QCs.
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
-	gr1 := qc1.QC().GlobalRange()
-	gr2 := qc2.QC().GlobalRange()
-
-	// Persist qc1 to both WALs, but only blocks (not QC) for qc2.
-	// This simulates a crash during parallel persistence in runPersist.
-	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
-	allBlocks := append(blocks1, blocks2...)
-	for i, n := 0, gr1.First; n < gr2.Next; n++ {
-		require.NoError(t, dw1.Blocks.PersistBlock(n, allBlocks[i]))
-		i++
-	}
-	require.NoError(t, dw1.Close())
-
-	// Reopen: reconcile should truncate the blocks tail (qc2's blocks).
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-
-	// Blocks persister cursor should now match QCs range.
-	require.Equal(t, dw2.CommitQCs.Next(), dw2.Blocks.Next())
-
-	state := utils.OrPanic1(NewState(&Config{Registry: registry}, dw2))
-
-	// qc1's blocks should be available.
-	for n := gr1.First; n < gr1.Next; n++ {
-		got, err := state.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
-
-	// Now push qc2 with its blocks — should succeed because stale blocks
-	// were removed and the persister cursor was reset.
-	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
-	require.Equal(t, gr2.Next, state.NextBlock())
-	require.NoError(t, dw2.Close())
-}
-
-// TestStateRecoveryBlocksBehindQCs verifies recovery when QCs cover a wider
-// range than blocks (e.g. crash during block persistence). Blocks up to
-// blocksEnd are available; the rest must be re-fetched via PushBlock.
-func TestReconcileCase8BlocksBehind(t *testing.T) {
-	t.Log("Reconcile case 8: QCs ahead normal (b<Y)")
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	dir := t.TempDir()
-
-	// Build 2 sequential QCs.
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
-	gr1 := qc1.QC().GlobalRange()
-	gr2 := qc2.QC().GlobalRange()
-
-	// Persist both QCs but only qc1's blocks to WALs.
-	dw1 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc1))
-	require.NoError(t, dw1.CommitQCs.PersistQC(qc2))
+	// Write both QCs but only qc1's blocks (simulate crash before qc2 blocks).
+	db1 := newTestBlockDB(t, dir)
+	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
+	require.NoError(t, db1.WriteQC(gr2.First, gr2.Next, qc2))
 	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		require.NoError(t, dw1.Blocks.PersistBlock(n, blocks1[i]))
+		require.NoError(t, db1.WriteBlock(n, blocks1[i]))
 		i++
 	}
-	require.NoError(t, dw1.Close())
+	require.NoError(t, db1.Flush())
+	require.NoError(t, db1.Close())
 
-	// On recovery: both QCs loaded, but only qc1's blocks.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state2 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw2))
+	// Recovery: both QCs loaded, but only qc1's blocks.
+	db2 := newTestBlockDB(t, dir)
+	state2 := newTestState(t, &Config{Registry: registry}, db2)
 
-	// qc1's blocks should be available.
 	for n := gr1.First; n < gr1.Next; n++ {
 		got, err := state2.TryBlock(n)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 	}
-
-	// qc2's blocks are missing — not yet available.
 	for n := gr2.First; n < gr2.Next; n++ {
 		_, err := state2.TryBlock(n)
 		require.ErrorIs(t, err, ErrNotFound)
@@ -871,204 +627,296 @@ func TestReconcileCase8BlocksBehind(t *testing.T) {
 		i++
 	}
 	require.Equal(t, gr2.Next, state2.NextBlock())
-	require.NoError(t, dw2.Close())
 }
 
-// TestRecoveryWithPartialQCPrefix verifies that after per-block pruning
-// splits a QC range, recovery sets first from blocks (not QCs), and the
-// node can serve surviving blocks without re-fetching pruned ones.
-func TestReconcilePartialQCPrefix(t *testing.T) {
-	// Reconcile: partial QC prefix from per-block pruning
-	t.Log("Reconcile: partial QC prefix from per-block pruning")
+// TestRecoveryPartialQCPrefix verifies that when the QC spans a wider range
+// than the available blocks (the block prefix was pruned), recovery sets first
+// from the blocks iterator (not the QC iterator).
+func TestRecoveryPartialQCPrefix(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	// Build one QC with enough blocks to split.
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 	if gr1.Next-gr1.First < 3 {
 		t.Skip("need at least 3 blocks in QC range to test split")
 	}
 
-	// Persist QC and all blocks.
-	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	require.NoError(t, dw.CommitQCs.PersistQC(qc1))
+	// Write the QC for the full range, but write blocks only from mid onwards.
+	// This is a valid write sequence: QC first, then blocks in ascending order
+	// starting from mid. It simulates a DB where the block prefix [gr1.First, mid)
+	// was pruned and physically removed.
+	mid := gr1.First + (gr1.Next-gr1.First)/2
+	db1 := newTestBlockDB(t, dir)
+	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
 	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		require.NoError(t, dw.Blocks.PersistBlock(n, blocks1[i]))
+		if n >= mid {
+			require.NoError(t, db1.WriteBlock(n, blocks1[i]))
+		}
 		i++
 	}
-	// Simulate per-block pruning: truncate blocks prefix, keep QC intact.
-	// This creates the split: QC covers [gr1.First, gr1.Next) but blocks
-	// start at mid.
-	mid := gr1.First + (gr1.Next-gr1.First)/2
-	require.NoError(t, dw.Blocks.TruncateBefore(mid))
-	require.NoError(t, dw.Close())
+	require.NoError(t, db1.Flush())
+	require.NoError(t, db1.Close())
 
-	// Recovery should use blocks as golden, not try to re-fetch pruned prefix.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state2 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw2))
+	// Recovery should use blocks as golden: first == mid, not gr1.First.
+	db2 := newTestBlockDB(t, dir)
+	state2 := newTestState(t, &Config{Registry: registry}, db2)
 
-	// first should be at mid (where blocks start), not gr1.First (where QC starts).
 	for inner := range state2.inner.Lock() {
 		require.Equal(t, mid, inner.first,
 			"first should be where blocks start, not where QC starts")
 		require.Equal(t, gr1.Next, inner.nextQC,
 			"QC should still cover the full range")
+		// QC entries below first must be absent — they are unreachable via
+		// pruneFirst and should have been trimmed during recovery.
+		for n := gr1.First; n < mid; n++ {
+			_, ok := inner.qcs[n]
+			require.False(t, ok, "orphaned QC entry at %d should have been trimmed", n)
+		}
 	}
-
-	// Blocks before mid should be pruned, not ErrNotFound.
 	for n := gr1.First; n < mid; n++ {
 		_, err := state2.TryBlock(n)
 		require.ErrorIs(t, err, ErrPruned)
 	}
-
-	// Blocks at mid and above should be available.
 	for n := mid; n < gr1.Next; n++ {
 		got, err := state2.TryBlock(n)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 	}
-	require.NoError(t, dw2.Close())
 }
 
-// TestStateRejectsBlockGapInWAL verifies that NewState returns an error
-// if loaded blocks have a gap (defense in depth for future storage backends).
-func TestReconcileBlockGap(t *testing.T) {
-	// Reconcile: block gap in WAL detected (defense in depth)
-	t.Log("Reconcile: block gap in WAL detected (defense in depth)")
+// TestRecoveryAfterPruneNoGC verifies that restarting before async GC reclaims
+// pruned entries does not cause NewState to fail. Blocks and QCs share the same
+// GC filter in littblock, so below-watermark blocks never survive past their
+// corresponding QCs — the first block iterator entry is always >= inner.first
+// set by the QC pass, so the "block predates first QC start" guard never fires.
+func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange()
-	if gr1.Next-gr1.First < 3 {
-		t.Skip("need at least 3 blocks in QC range to test gap")
-	}
-
-	// Persist QC to real WAL so it loads on restart.
-	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	require.NoError(t, dw.CommitQCs.PersistQC(qc1))
-	require.NoError(t, dw.Close())
-
-	// Reopen and inject blocks with a gap via test helper.
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	dw2.Blocks.SetLoadedForTest([]persist.LoadedGlobalBlock{
-		{Number: gr1.First, Block: blocks1[0]},
-		// skip gr1.First+1
-		{Number: gr1.First + 2, Block: blocks1[2]},
-	})
-
-	_, err := NewState(&Config{Registry: registry}, dw2)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "block gap")
-	require.NoError(t, dw2.Close())
-}
-
-// ── Non-reconcile tests ───────────────────────────────────────────────
-
-// TestPruningKeepsLastQCRange verifies that pruning never removes the last
-// QC range, ensuring WALs are never empty and inner.first is recoverable
-// on restart.
-func TestPruningKeepsLastQCRange(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	dir := t.TempDir()
-
-	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state := utils.OrPanic1(NewState(&Config{Registry: registry}, dw))
-
-	// Push one QC with blocks and execute all of them.
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange()
-	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-
-	// Persist and execute.
-	runCtx, cancel := context.WithCancel(ctx)
-	done := make(chan error, 1)
-	go func() { done <- state.Run(runCtx) }()
-	for n := gr1.First; n < gr1.Next; n++ {
-		require.NoError(t, state.PushAppHash(ctx, n, types.GenAppHash(rng)))
-	}
-	cancel()
-	<-done
-
-	// Try to prune everything — at least one block should survive.
-	state.PruneBefore(gr1.Next)
-	for inner := range state.inner.Lock() {
-		require.Less(t, inner.first, gr1.Next,
-			"pruning should keep at least one block")
-	}
-
-	// Restart from WALs — inner.first should be recoverable.
-	require.NoError(t, dw.Close())
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state2 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw2))
-	for inner := range state2.inner.Lock() {
-		require.GreaterOrEqual(t, inner.first, gr1.First,
-			"after restart, first should be recoverable from WAL")
-	}
-	require.NoError(t, dw2.Close())
-}
-
-// TestPruningWithPartialQCRange verifies that per-block pruning can split
-// a QC range, and recovery handles it correctly by using blocks as the
-// golden source for inner.first.
-func TestPruningWithPartialQCRange(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	dir := t.TempDir()
-
-	dw := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state := utils.OrPanic1(NewState(&Config{Registry: registry}, dw))
-
-	// Push two QCs so we have two distinct QC ranges.
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
-	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
 
-	// Run to persist, then execute all blocks.
+	// Write both QCs and all their blocks to the DB.
+	cfg1, err := littblock.DefaultConfig(dir)
+	require.NoError(t, err)
+	cfg1.Retention = time.Nanosecond
+	db1, err := littblock.NewBlockDB(cfg1)
+	require.NoError(t, err)
+	writeToBlockDB(t, db1, []*types.FullCommitQC{qc1, qc2}, [][]*types.Block{blocks1, blocks2})
+
+	// Prune qc1's range. GC is NOT called — pruned entries remain on disk.
+	require.NoError(t, db1.PruneBefore(gr2.First))
+	require.NoError(t, db1.Close())
+
+	// Reopen the same dir without ForceGC — pruned entries may still be present.
+	cfg2, err := littblock.DefaultConfig(dir)
+	require.NoError(t, err)
+	cfg2.Retention = time.Nanosecond
+	db2, err := littblock.NewBlockDB(cfg2)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db2.Close() })
+
+	// NewState must succeed — below-watermark blocks never outlive their QCs
+	// because blocks and QCs share the same GC filter in littblock. Without GC,
+	// all entries are still present and recovery treats the DB as unpruned.
+	// This is the PruneBefore-without-GC path: the watermark advanced but
+	// physical reclamation has not happened yet, so the DB looks like a
+	// fresh DB containing all data from qc1 and qc2.
+	state := newTestState(t, &Config{Registry: registry}, db2)
+
+	// Without GC all data is still present; qc1 and qc2 blocks are accessible.
+	for n := gr1.First; n < gr2.Next; n++ {
+		_, err := state.TryBlock(n)
+		require.NoError(t, err)
+	}
+}
+
+// TestRecoveryQCsNoBlocks verifies that NewState succeeds when the DB contains
+// QCs but no blocks (crash between QC flush and block writes). The state
+// cursor sits at the QC start with nextBlock == first and no block data.
+func TestRecoveryQCsNoBlocks(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	dir := t.TempDir()
+
+	qc1, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange()
+
+	db1 := newTestBlockDB(t, dir)
+	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
+	require.NoError(t, db1.Flush())
+	require.NoError(t, db1.Close())
+
+	db2 := newTestBlockDB(t, dir)
+	state2 := newTestState(t, &Config{Registry: registry}, db2)
+
+	for inner := range state2.inner.Lock() {
+		require.Equal(t, gr1.First, inner.first)
+		require.Equal(t, gr1.Next, inner.nextQC)
+		require.Equal(t, gr1.First, inner.nextBlock)
+	}
+	for n := gr1.First; n < gr1.Next; n++ {
+		_, err := state2.TryBlock(n)
+		require.ErrorIs(t, err, ErrNotFound)
+	}
+}
+
+// TestRecoveryBlockGap verifies that NewState returns an error when blocks in
+// BlockDB are not contiguous. WriteBlock only enforces strictly-ascending and
+// QC coverage, not continuity, so a gap can arise from corruption.
+func TestRecoveryBlockGap(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	dir := t.TempDir()
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange()
+
+	// TestCommitQC generates 10 global blocks, so the range is always wide
+	// enough to skip one block in the middle.
+	mid := gr1.First + (gr1.Next-gr1.First)/2
+
+	db1 := newTestBlockDB(t, dir)
+	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
+	for i, n := 0, gr1.First; n < gr1.Next; n++ {
+		if n != mid {
+			require.NoError(t, db1.WriteBlock(n, blocks1[i]))
+		}
+		i++
+	}
+	require.NoError(t, db1.Flush())
+	require.NoError(t, db1.Close())
+
+	db2 := newTestBlockDB(t, dir)
+	_, err := NewState(&Config{Registry: registry}, db2)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "block gap in BlockDB")
+}
+
+// ── Non-recovery tests ────────────────────────────────────────────────
+
+// TestPruningKeepsLastQCRange verifies that pruning never removes the last
+// retained block, and that a restart from a BlockDB with only that block
+// recovers correctly.
+func TestPruningKeepsLastQCRange(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange()
+
+	// In-memory: push QC, execute all blocks, then prune everything.
+	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
+
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
-	go func() { done <- state.Run(runCtx) }()
-	for n := gr1.First; n < gr2.Next; n++ {
-		require.NoError(t, state.PushAppHash(ctx, n, types.GenAppHash(rng)))
+	go func() { done <- state1.Run(runCtx) }()
+	for n := gr1.First; n < gr1.Next; n++ {
+		require.NoError(t, state1.PushAppHash(ctx, n, types.GenAppHash(rng)))
 	}
 	cancel()
 	<-done
 
-	// Prune into the middle of qc1's range. Per-block pruning allows this.
+	require.NoError(t, state1.PruneBefore(gr1.Next))
+	var survivingBlock types.GlobalBlockNumber
+	for inner := range state1.inner.Lock() {
+		survivingBlock = inner.first
+		require.Less(t, survivingBlock, gr1.Next, "pruning should keep at least one block")
+	}
+	for n := gr1.First; n < survivingBlock; n++ {
+		_, err := state1.TryBlock(n)
+		require.ErrorIs(t, err, ErrPruned)
+	}
+
+	// Restart: build a fresh BlockDB containing only the surviving block (as GC
+	// would leave it) and verify NewState correctly sets first = survivingBlock.
+	dir := t.TempDir()
+	db := newTestBlockDB(t, dir)
+	require.NoError(t, db.WriteQC(gr1.First, gr1.Next, qc1))
+	require.NoError(t, db.WriteBlock(survivingBlock, blocks1[survivingBlock-gr1.First]))
+	require.NoError(t, db.Flush())
+	require.NoError(t, db.Close())
+
+	db2 := newTestBlockDB(t, dir)
+	state2 := newTestState(t, &Config{Registry: registry}, db2)
+	for inner := range state2.inner.Lock() {
+		require.Equal(t, survivingBlock, inner.first,
+			"after restart, first should match the surviving block")
+	}
+}
+
+// TestPruningWithPartialQCRange verifies per-block pruning across QC ranges:
+// pruning advances first in-memory, and a restart from a post-GC BlockDB
+// (with only the last surviving block) recovers correctly.
+func TestPruningWithPartialQCRange(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
+
+	// In-memory: push 2 QCs, execute, then prune.
+	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
+	require.NoError(t, state1.PushQC(ctx, qc2, blocks2))
+
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- state1.Run(runCtx) }()
+	for n := gr1.First; n < gr2.Next; n++ {
+		require.NoError(t, state1.PushAppHash(ctx, n, types.GenAppHash(rng)))
+	}
+	cancel()
+	<-done
+
+	// Per-block prune into middle of qc1's range.
 	midQC1 := gr1.First + (gr1.Next-gr1.First)/2
 	if midQC1 > gr1.First+1 {
-		state.PruneBefore(midQC1)
-		for inner := range state.inner.Lock() {
+		require.NoError(t, state1.PruneBefore(midQC1))
+		for inner := range state1.inner.Lock() {
 			require.Greater(t, inner.first, gr1.First,
 				"per-block pruning should advance past gr1.First")
 		}
 	}
 
 	// Prune past qc1 entirely.
-	state.PruneBefore(gr2.Next)
-
-	// Restart — recovery uses blocks as golden, skips partial QC prefix.
-	require.NoError(t, dw.Close())
-	dw2 := utils.OrPanic1(NewDataWAL(utils.Some(dir), registry.FirstBlock()))
-	state2 := utils.OrPanic1(NewState(&Config{Registry: registry}, dw2))
-
-	// first should be recoverable and blocks should be available.
-	for inner := range state2.inner.Lock() {
-		require.GreaterOrEqual(t, inner.first, gr2.First,
-			"after restart, first should be at or past gr2.First")
-		require.Less(t, inner.first, gr2.Next,
-			"at least one block should survive")
+	require.NoError(t, state1.PruneBefore(gr2.Next))
+	var survivingBlock types.GlobalBlockNumber
+	for inner := range state1.inner.Lock() {
+		survivingBlock = inner.first
+		require.GreaterOrEqual(t, survivingBlock, gr2.First)
+		require.Less(t, survivingBlock, gr2.Next, "at least one block should survive")
 	}
-	require.NoError(t, dw2.Close())
+	for n := gr1.First; n < survivingBlock; n++ {
+		_, err := state1.TryBlock(n)
+		require.ErrorIs(t, err, ErrPruned)
+	}
+
+	// Restart: build a fresh BlockDB containing only the surviving block from qc2
+	// (qc1 is pruned entirely) and verify NewState recovers correctly.
+	dir := t.TempDir()
+	db := newTestBlockDB(t, dir)
+	require.NoError(t, db.WriteQC(gr2.First, gr2.Next, qc2))
+	require.NoError(t, db.WriteBlock(survivingBlock, blocks2[survivingBlock-gr2.First]))
+	require.NoError(t, db.Flush())
+	require.NoError(t, db.Close())
+
+	db2 := newTestBlockDB(t, dir)
+	state2 := newTestState(t, &Config{Registry: registry}, db2)
+	for inner := range state2.inner.Lock() {
+		require.Equal(t, survivingBlock, inner.first,
+			"after restart, first should match the surviving block")
+	}
 }
 
 // TestRunPruningEmptyState verifies that runPruning does not panic when
@@ -1077,10 +925,10 @@ func TestRunPruningEmptyState(t *testing.T) {
 	rng := utils.TestRng()
 	registry, _ := epoch.GenRegistry(rng, 3)
 
-	state := utils.OrPanic1(NewState(&Config{
+	state := newTestState(t, &Config{
 		Registry:   registry,
 		PruneAfter: utils.Some(time.Duration(0)),
-	}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+	}, newTestBlockDB(t, t.TempDir()))
 
 	// Run briefly — runPruning should not panic on empty state.
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
@@ -1094,9 +942,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 3)
 
-		state := utils.OrPanic1(NewState(&Config{
-			Registry: registry,
-		}, utils.OrPanic1(NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
 		// Push first QC covering [0, N).
 		qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())

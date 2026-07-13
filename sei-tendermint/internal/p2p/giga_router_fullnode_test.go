@@ -57,14 +57,12 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	app := newTestApp()
 	proxyApp := proxy.New(app)
 
-	// Fullnodes have no validator key and no Producer config. The data WAL
-	// reads PersistentStateDir = None (in-memory) for this construction-
-	// shape check; App is required for executeBlock but isn't exercised by
-	// this test.
+	// Fullnodes have no validator key and no Producer config.
+	// App is required for executeBlock but isn't exercised by this test.
 	router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
-		PersistentStateDir: utils.None[string](),
+		PersistentStateDir: utils.Some(t.TempDir()),
 		App:                proxyApp,
 		GenDoc:             genDoc,
 	}, makeKey(rng))

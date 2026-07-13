@@ -3,6 +3,7 @@ package avail
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -11,6 +12,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/stretchr/testify/require"
 )
+
+func newTestDataState(t testing.TB, cfg *data.Config) *data.State {
+	s, err := data.NewState(cfg, memblock.NewBlockDB())
+	if err != nil {
+		t.Fatalf("data.NewState: %v", err)
+	}
+	return s
+}
 
 func TestPruneMismatchedIndices(t *testing.T) {
 	rng := utils.TestRng()
@@ -36,8 +45,8 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	qc1 := makeCommitQC(utils.Some(qc0))
 
 	t.Logf("test State.PushAppQC")
-	ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock()))))
-	state, err := NewState(keys[0], ds, utils.None[string]())
+	ds := newTestDataState(t, &data.Config{Registry: registry})
+	state, err := NewState(keys[0], ds, utils.Some(t.TempDir()))
 	require.NoError(t, err)
 	require.Error(t, state.PushAppQC(makeAppQC(qc0, qc0), qc1), "bad range, bad index should fail")
 	require.Error(t, state.PushAppQC(makeAppQC(qc1, qc0), qc1), "good range, bad index should fail")
@@ -45,8 +54,8 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	require.NoError(t, state.PushAppQC(makeAppQC(qc1, qc1), qc1), "good range, good index should succeed")
 
 	t.Logf("test inner.prune")
-	ds = utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock()))))
-	state, err = NewState(keys[0], ds, utils.None[string]())
+	ds = newTestDataState(t, &data.Config{Registry: registry})
+	state, err = NewState(keys[0], ds, utils.Some(t.TempDir()))
 	require.NoError(t, err)
 	for inner := range state.inner.Lock() {
 		_, err := inner.prune(registry.LatestEpoch().Committee(), makeAppQC(qc1, qc0), qc1)
