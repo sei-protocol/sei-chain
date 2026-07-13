@@ -760,7 +760,7 @@ func (b *Backend) syntheticHeaderFromCtx(sdkCtx sdk.Context) *ethtypes.Header {
 	zeroExcessBlobGas := uint64(0)
 	baseFee := b.keeper.GetNextBaseFeePerGas(sdkCtx).TruncateInt().BigInt()
 	var gasLimit uint64
-	if cp := sdkCtx.ConsensusParams(); cp != nil && cp.Block != nil {
+	if cp := sdkCtx.ConsensusParams(); cp != nil && cp.Block != nil && cp.Block.MaxGas > 0 {
 		gasLimit = uint64(cp.Block.MaxGas) //nolint:gosec
 	} else {
 		gasLimit = keeper.DefaultBlockGasLimit
@@ -784,7 +784,7 @@ func (b *Backend) getHeader(ctx context.Context, tmBlock *coretypes.ResultBlock)
 		baseFee = nil
 	}
 	var gasLimit uint64
-	if cp := sdkCtx.ConsensusParams(); cp != nil && cp.Block != nil {
+	if cp := sdkCtx.ConsensusParams(); cp != nil && cp.Block != nil && cp.Block.MaxGas > 0 {
 		gasLimit = uint64(cp.Block.MaxGas) //nolint:gosec
 	} else {
 		gasLimit = keeper.DefaultBlockGasLimit

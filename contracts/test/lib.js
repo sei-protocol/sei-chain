@@ -86,7 +86,7 @@ async function mineTransferBlock(sender) {
         value: 1n,
         gasPrice: ethers.parseUnits('100', 'gwei'),
     })
-    return await tx.wait()
+    return await waitForReceipt(tx.hash)
 }
 
 // Default 2 because the very next block after submit can be empty

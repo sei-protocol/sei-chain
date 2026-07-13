@@ -4,7 +4,7 @@ const {uniq} = require("lodash");
 const hre = require('hardhat');
 const { ethers, upgrades } = hre;
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-const { deployEvmContract, setupSigners, fundAddress, mineTransferBlock } = require("./lib")
+const { deployEvmContract, setupSigners, fundAddress, mineTransferBlock, waitForReceipt } = require("./lib")
 const axios = require("axios");
 const { default: BigNumber } = require("bignumber.js");
 
@@ -980,7 +980,7 @@ describe("EVM Test", function () {
         // stops working once the chain grows past that (notably under
         // Autobahn's faster block production).
         const tx = await evmTester.emitDummyEvent("test", 0, { gasPrice: ethers.parseUnits('100', 'gwei') });
-        const receipt = await tx.wait();
+        const receipt = await waitForReceipt(tx.hash);
         const filter = {
           fromBlock: receipt.blockNumber,
           toBlock: receipt.blockNumber,
