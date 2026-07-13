@@ -173,6 +173,13 @@ func buildMigrateEVMRouter(
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
+	readonly := memIAVL.GetDB().ReadOnly()
+	if !readonly {
+		logger.Info("created new EVM migration manager",
+			"startVersion", Version0_MemiavlOnly,
+			"targetVersion", Version1_MigrateEVM,
+			"boundary", migrationManager.boundary.String())
+	}
 
 	nonEVMModules, err := keys.AllModulesExcept(keys.EVMStoreKey)
 	if err != nil {

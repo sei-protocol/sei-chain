@@ -3,6 +3,7 @@ package mux
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -39,9 +40,10 @@ type recvState struct {
 }
 
 type streamStateInner struct {
-	send   sendState
-	recv   recvState
-	closed closeState
+	send    sendState
+	recv    recvState
+	closed  closeState
+	metrics *metrics.Stream
 }
 
 type streamState struct {
@@ -50,11 +52,11 @@ type streamState struct {
 	inner utils.Watch[*streamStateInner]
 }
 
-func newStreamState(id streamID, kind StreamKind) *streamState {
+func newStreamState(id streamID, kind StreamKind, m *metrics.Metrics) *streamState {
 	return &streamState{
 		id:    id,
 		kind:  kind,
-		inner: utils.NewWatch(&streamStateInner{}),
+		inner: utils.NewWatch(&streamStateInner{metrics: metrics.NewStream(m)}),
 	}
 }
 

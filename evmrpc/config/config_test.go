@@ -48,6 +48,9 @@ type opts struct {
 	maxRequestBodyBytes          interface{}
 	maxConcurrentRequestBytes    interface{}
 	maxOpenConnections           interface{}
+	maxTraceStructLogBytes       interface{}
+	maxStateOverrideAccounts     interface{}
+	maxStateOverrideSlots        interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -180,6 +183,15 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_open_connections" {
 		return o.maxOpenConnections
 	}
+	if k == "evm.max_trace_struct_log_bytes" {
+		return o.maxTraceStructLogBytes
+	}
+	if k == "evm.max_state_override_accounts" {
+		return o.maxStateOverrideAccounts
+	}
+	if k == "evm.max_state_override_slots" {
+		return o.maxStateOverrideSlots
+	}
 	panic("unknown key")
 }
 
@@ -225,6 +237,9 @@ func getDefaultOpts() opts {
 		int64(5 * 1024 * 1024),
 		int64(128 * 1024 * 1024),
 		2000,
+		uint64(256 * 1024 * 1024),
+		7,
+		9,
 	}
 }
 
@@ -233,6 +248,15 @@ func TestReadConfig(t *testing.T) {
 	cfg, err := config.ReadConfig(&goodOpts)
 	require.Nil(t, err)
 	require.False(t, cfg.EnableParallelizedBlockTrace)
+	// Round-trip: an explicitly-supplied value overrides the default.
+	require.Equal(t, uint64(256*1024*1024), cfg.MaxTraceStructLogBytes)
+	// The shipped default (used when the operator supplies no value).
+	require.Equal(t, uint64(32*1024*1024), config.DefaultConfig.MaxTraceStructLogBytes)
+	// State override caps: round-trip the supplied values, and assert shipped defaults.
+	require.Equal(t, 7, cfg.MaxStateOverrideAccounts)
+	require.Equal(t, 9, cfg.MaxStateOverrideSlots)
+	require.Equal(t, 100, config.DefaultConfig.MaxStateOverrideAccounts)
+	require.Equal(t, 1000, config.DefaultConfig.MaxStateOverrideSlots)
 	badOpts := goodOpts
 	badOpts.httpEnabled = "bad"
 	_, err = config.ReadConfig(&badOpts)
@@ -326,6 +350,21 @@ func TestReadConfig(t *testing.T) {
 
 	badOpts = goodOpts
 	badOpts.enableParallelizedBlockTrace = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.maxTraceStructLogBytes = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.maxStateOverrideAccounts = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.maxStateOverrideSlots = "bad"
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 

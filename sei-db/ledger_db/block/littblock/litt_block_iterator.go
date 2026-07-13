@@ -44,7 +44,7 @@ func (b *blockIterator) Block() (*types.Block, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read block value: %w", err)
 	}
-	blk, err := decodeBlock(value)
+	_, blk, err := decodeBlock(value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal block: %w", err)
 	}

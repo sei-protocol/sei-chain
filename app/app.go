@@ -480,6 +480,14 @@ type App struct {
 	httpServerStartSignalSent bool
 	wsServerStartSignalSent   bool
 
+	// evmHTTPServer/evmWSServer hold the EVM JSON-RPC HTTP and WebSocket listeners
+	// constructed in RegisterLocalServices so an embedding orchestrator (the
+	// in-process harness) can Stop() them at teardown. Nil when the respective
+	// listener is disabled. Production seid does not read these; its process exit
+	// reaps the listeners.
+	evmHTTPServer evmrpc.EVMServer
+	evmWSServer   evmrpc.EVMServer
+
 	txPrioritizer sdk.TxPrioritizer
 
 	benchmarkManager *benchmark.Manager
@@ -815,6 +823,7 @@ func New(
 		} else {
 			logger.Debug("failed to load evmone VM", "error", err)
 		}
+		// evm_giga_mixed_tests.sh matches these ENABLED/DISABLED strings to guard node roles; keep them in sync.
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
 		} else {
@@ -2738,6 +2747,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		if err != nil {
 			panic(err)
 		}
+		app.evmHTTPServer = evmHTTPServer
 		go func() {
 			<-app.httpServerStartSignal
 			if err := evmHTTPServer.Start(); err != nil {
@@ -2752,6 +2762,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		if err != nil {
 			panic(err)
 		}
+		app.evmWSServer = evmWSServer
 		go func() {
 			<-app.wsServerStartSignal
 			if err := evmWSServer.Start(); err != nil {

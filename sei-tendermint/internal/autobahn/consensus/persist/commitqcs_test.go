@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -21,7 +22,7 @@ func testCommitQC(
 	laneQCs map[types.LaneID]*types.LaneQC,
 	appQC utils.Option[*types.AppQC],
 ) *types.CommitQC {
-	vs := types.ViewSpec{CommitQC: prev}
+	vs := types.ViewSpec{CommitQC: prev, Epoch: types.NewEpoch(0, types.OpenRoadRange(), time.Time{}, committee, 0)}
 	leader := committee.Leader(vs.View())
 	var leaderKey types.SecretKey
 	for _, k := range keys {
@@ -32,7 +33,6 @@ func testCommitQC(
 	}
 	fullProposal := utils.OrPanic1(types.NewProposal(
 		leaderKey,
-		committee,
 		vs,
 		time.Now(),
 		laneQCs,
@@ -106,7 +106,8 @@ func TestNewCommitQCPersisterEmptyDir(t *testing.T) {
 
 func TestPersistCommitQCAndLoad(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	qcs := makeSequentialCommitQCs(committee, keys, 3)
@@ -134,7 +135,8 @@ func TestPersistCommitQCAndLoad(t *testing.T) {
 
 func TestCommitQCDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	qcs := makeSequentialCommitQCs(committee, keys, 5)
@@ -156,7 +158,8 @@ func TestCommitQCDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
 
 func TestCommitQCDeleteBeforeZero(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	qcs := makeSequentialCommitQCs(committee, keys, 3)
@@ -183,7 +186,8 @@ func TestCommitQCDeleteBeforeZero(t *testing.T) {
 
 func TestCommitQCPersistDuplicateIsNoOp(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	qcs := makeSequentialCommitQCs(committee, keys, 3)
@@ -200,7 +204,8 @@ func TestCommitQCPersistDuplicateIsNoOp(t *testing.T) {
 
 func TestCommitQCPersistGapRejected(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	qcs := makeSequentialCommitQCs(committee, keys, 5)
@@ -218,7 +223,8 @@ func TestCommitQCPersistGapRejected(t *testing.T) {
 
 func TestLoadAllDetectsCommitQCGap(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	// Build 3 sequential CommitQCs (indices 0, 1, 2).
@@ -241,7 +247,8 @@ func TestLoadAllDetectsCommitQCGap(t *testing.T) {
 
 func TestNoOpCommitQCPersister(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	qcs := makeSequentialCommitQCs(committee, keys, 11)
 
 	// Fresh no-op persister: prune with anchor at index 0 (idx==0,
@@ -274,7 +281,8 @@ func TestNoOpCommitQCPersister(t *testing.T) {
 
 func TestCommitQCDeleteBeforePastAll(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	qcs := makeSequentialCommitQCs(committee, keys, 12)
@@ -305,7 +313,8 @@ func TestCommitQCDeleteBeforePastAll(t *testing.T) {
 // must re-establish the cursor so subsequent persists succeed.
 func TestCommitQCDeleteBeforePastAllCrashRecovery(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	qcs := makeSequentialCommitQCs(committee, keys, 12)
@@ -348,7 +357,8 @@ func TestCommitQCDeleteBeforePastAllCrashRecovery(t *testing.T) {
 // re-establishes the cursor for subsequent writes.
 func TestCommitQCDeleteBeforeWithAnchorRecovers(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	qcs := makeSequentialCommitQCs(committee, keys, 5)
@@ -386,7 +396,8 @@ func TestCommitQCDeleteBeforeWithAnchorRecovers(t *testing.T) {
 
 func TestCommitQCDeleteBeforeThenPersistMore(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	qcs := makeSequentialCommitQCs(committee, keys, 6)
@@ -411,7 +422,8 @@ func TestCommitQCDeleteBeforeThenPersistMore(t *testing.T) {
 
 func TestCommitQCDeleteBeforeAlreadyPruned(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	qcs := makeSequentialCommitQCs(committee, keys, 5)
@@ -439,7 +451,8 @@ func TestCommitQCDeleteBeforeAlreadyPruned(t *testing.T) {
 
 func TestCommitQCProgressiveDeleteBefore(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 4)
+	registry, keys := epoch.GenRegistry(rng, 4)
+	committee := registry.LatestEpoch().Committee()
 	dir := t.TempDir()
 
 	qcs := makeSequentialCommitQCs(committee, keys, 8)

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
@@ -155,7 +156,8 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		return nil, err
 	}
 
-	inner, err := newInner(data.Committee(), loaded)
+	ep := data.Registry().LatestEpoch()
+	inner, err := newInner(ep, loaded)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +166,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	// loadPersistedState.
 	if ls, ok := loaded.Get(); ok {
 		if anchor, ok := ls.pruneAnchor.Get(); ok {
-			for lane := range data.Committee().Lanes().All() {
+			for lane := range ep.Committee().Lanes().All() {
 				if err := pers.blocks.MaybePruneAndPersistLane(lane, utils.Some(anchor.CommitQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
 					return nil, fmt.Errorf("prune stale block WAL entries: %w", err)
 				}
@@ -260,14 +262,22 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	if err := qc.Verify(s.data.Committee()); err != nil {
+	ep, ok := s.data.Registry().EpochByIndex(qc.Proposal().EpochIndex())
+	if !ok {
+		return fmt.Errorf("unknown epoch_index %d", qc.Proposal().EpochIndex())
+	}
+	if err := qc.Verify(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		if idx != inner.commitQCs.next {
 			return nil
 		}
+		if qc.Proposal().EpochIndex() != inner.epoch.EpochIndex() {
+			return fmt.Errorf("commitQC epoch_index %d != current epoch %d", qc.Proposal().EpochIndex(), inner.epoch.EpochIndex())
+		}
 		inner.commitQCs.pushBack(qc)
+		metrics.ObserveCommitQC(qc)
 		// The persist goroutine publishes latestCommitQC after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance
 		// until the CommitQC is durable.
@@ -279,10 +289,15 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 
 // PushAppVote pushes an AppVote to the state.
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
-	if err := v.VerifySig(s.data.Committee()); err != nil {
+	ep, ok := s.data.Registry().EpochByIndex(v.Msg().Proposal().EpochIndex())
+	if !ok {
+		return fmt.Errorf("unknown epoch_index %d", v.Msg().Proposal().EpochIndex())
+	}
+	committee := ep.Committee()
+	idx := v.Msg().Proposal().RoadIndex()
+	if err := v.VerifySig(committee); err != nil {
 		return fmt.Errorf("v.VerifySig(): %w", err)
 	}
-	idx := v.Msg().Proposal().RoadIndex()
 	// Wait for the corresponding commitQC.
 	if err := s.waitForCommitQC(ctx, idx); err != nil {
 		return err
@@ -294,7 +309,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		}
 		// Verify the vote against the CommitQC.
 		qc := inner.commitQCs.q[idx]
-		if err := v.Msg().Proposal().Verify(s.data.Committee(), qc); err != nil {
+		if err := v.Msg().Proposal().Verify(qc); err != nil {
 			return fmt.Errorf("invalid vote: %w", err)
 		}
 		// Push the vote.
@@ -303,11 +318,11 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		for q.next <= n {
 			q.pushBack(newAppVotes())
 		}
-		appQC, ok := q.q[n].pushVote(s.data.Committee(), v)
+		appQC, ok := q.q[n].pushVote(committee, v)
 		if !ok {
 			return nil
 		}
-		updated, err := inner.prune(s.data.Committee(), appQC, qc)
+		updated, err := inner.prune(committee, appQC, qc)
 		if err != nil {
 			return err
 		}
@@ -327,23 +342,29 @@ func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			return nil
 		}
 	}
-	c := s.data.Committee()
-	if err := appQC.Verify(c); err != nil {
+	ep, ok := s.data.Registry().EpochByIndex(commitQC.Proposal().EpochIndex())
+	if !ok {
+		return fmt.Errorf("unknown epoch_index %d", commitQC.Proposal().EpochIndex())
+	}
+	if err := appQC.Verify(ep.Committee()); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
-	if err := commitQC.Verify(c); err != nil {
+	if err := commitQC.Verify(ep); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
 	}
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
+	if got, want := appQC.Proposal().EpochIndex(), commitQC.Proposal().EpochIndex(); got != want {
+		return fmt.Errorf("appQC epoch_index %d != commitQC epoch_index %d", got, want)
+	}
 	// Defense-in-depth check, it should never happen that >f validators sign
 	// a proposal which does not match the commitQC's global range.
-	if !commitQC.GlobalRange(c).Has(appQC.Proposal().GlobalNumber()) {
+	if !commitQC.GlobalRange().Has(appQC.Proposal().GlobalNumber()) {
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		updated, err := inner.prune(s.data.Committee(), appQC, commitQC)
+		updated, err := inner.prune(ep.Committee(), appQC, commitQC)
 		if err != nil {
 			return err
 		}
@@ -391,11 +412,13 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	if p.Key() != h.Lane() {
 		return fmt.Errorf("signer %v does not match lane %v", p.Key(), h.Lane())
 	}
-	if err := p.Msg().Verify(s.data.Committee()); err != nil {
+	if _, err := s.data.Registry().VerifyInWindow(func(c *types.Committee) error {
+		if err := p.Msg().Verify(c); err != nil {
+			return err
+		}
+		return p.VerifySig(c)
+	}); err != nil {
 		return fmt.Errorf("block.Verify(): %w", err)
-	}
-	if err := p.VerifySig(s.data.Committee()); err != nil {
-		return fmt.Errorf("p.VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.blocks[h.Lane()]
@@ -441,11 +464,13 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 // Waits until the lane has enough capacity for the new vote.
 // It does NOT wait for the previous votes.
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
-	if err := vote.Msg().Verify(s.data.Committee()); err != nil {
-		return fmt.Errorf("vote.Msg().Verify(): %w", err)
-	}
-	if err := vote.VerifySig(s.data.Committee()); err != nil {
-		return fmt.Errorf("vote.VerifySig(): %w", err)
+	if _, err := s.data.Registry().VerifyInWindow(func(c *types.Committee) error {
+		if err := vote.Msg().Verify(c); err != nil {
+			return err
+		}
+		return vote.VerifySig(c)
+	}); err != nil {
+		return fmt.Errorf("vote.Verify(): %w", err)
 	}
 	h := vote.Msg().Header()
 	for inner, ctrl := range s.inner.Lock() {
@@ -464,7 +489,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= h.BlockNumber() {
 			q.pushBack(newBlockVotes())
 		}
-		if _, ok := q.q[h.BlockNumber()].pushVote(s.data.Committee(), vote); ok {
+		if _, ok := q.q[h.BlockNumber()].pushVote(inner.epoch, vote); ok {
 			ctrl.Updated()
 		}
 	}
@@ -489,8 +514,8 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 					return nil, data.ErrPruned
 				}
 				// Check if we have the header.
-				if byHash, ok := q.q[n].byHash[want]; ok {
-					h := byHash.votes[0].Msg().Header()
+				if entry, ok := q.q[n].byHash[want]; ok {
+					h := entry.votes[0].Msg().Header()
 					want = h.ParentHash()
 					headers[len(headers)-i-1] = h
 					break
@@ -513,7 +538,11 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 	}
 	// Collect the headers from the votes.
 	var commitHeaders []*types.BlockHeader
-	for lane := range s.data.Committee().Lanes().All() {
+	ep, ok := s.data.Registry().EpochByIndex(qc.Proposal().EpochIndex())
+	if !ok {
+		return nil, fmt.Errorf("unknown epoch_index %d", qc.Proposal().EpochIndex())
+	}
+	for lane := range ep.Committee().Lanes().All() {
 		headers, err := s.headers(ctx, qc.LaneRange(lane))
 		if err != nil {
 			return nil, err
@@ -536,18 +565,18 @@ func (s *State) WaitForLocalCapacity(ctx context.Context, toProduce types.BlockN
 	return nil
 }
 
-// WaitForLaneQCs waits until there is at least 1 LaneQC with a block not finalized by prev.
+// WaitForLaneQCs waits until there is at least 1 LaneQC (for the given epoch)
+// with a block not finalized by prev.
 func (s *State) WaitForLaneQCs(
-	ctx context.Context, prev utils.Option[*types.CommitQC],
+	ctx context.Context, ep *types.Epoch, prev utils.Option[*types.CommitQC],
 ) (map[types.LaneID]*types.LaneQC, error) {
-	c := s.data.Committee()
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}
 		for {
-			for lane := range c.Lanes().All() {
+			for lane := range ep.Committee().Lanes().All() {
 				first := types.LaneRangeOpt(prev, lane).Next()
 				for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
-					if qc, ok := inner.laneQC(c, lane, first+i); ok {
+					if qc, ok := inner.laneQC(lane, first+i); ok {
 						laneQCs[lane] = qc
 					} else {
 						break
@@ -611,7 +640,6 @@ func (s *State) Run(ctx context.Context) error {
 		})
 		// Task inserting FullCommitQCs and local blocks to data state.
 		scope.SpawnNamed("s.data.PushQC", func() error {
-			c := s.data.Committee()
 			for n := types.RoadIndex(0); ; n = max(n+1, s.FirstCommitQC()) {
 				qc, err := s.fullCommitQC(ctx, n)
 				if err != nil {
@@ -622,6 +650,11 @@ func (s *State) Run(ctx context.Context) error {
 				}
 
 				// Collect the blocks we have locally.
+				ep, ok := s.data.Registry().EpochByIndex(qc.QC().Proposal().EpochIndex())
+				if !ok {
+					return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
+				}
+				c := ep.Committee()
 				var blocks []*types.Block
 				for inner := range s.inner.Lock() {
 					for lane := range c.Lanes().All() {
@@ -684,7 +717,7 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 			s.markBlockPersisted(header.Lane(), header.BlockNumber()+1)
 		}
 
-		blocksByLane := make(map[types.LaneID][]*types.Signed[*types.LaneProposal], s.data.Committee().Lanes().Len())
+		blocksByLane := make(map[types.LaneID][]*types.Signed[*types.LaneProposal])
 		for _, proposal := range batch.blocks {
 			lane := proposal.Msg().Block().Header().Lane()
 			blocksByLane[lane] = append(blocksByLane[lane], proposal)
@@ -698,7 +731,25 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 					s.markCommitQCsPersisted(qc)
 				}))
 			})
-			for lane := range s.data.Committee().Lanes().All() {
+			// Collect lanes: any lane with blocks in this batch, plus all lanes
+			// in the anchor epoch (for WAL pruning).
+			// TODO: when epoch transitions land, also union in lanes from all
+			// epochs that appear in batch.commitQCs so new-epoch lanes are
+			// never skipped in a cross-epoch batch.
+			batchLanes := map[types.LaneID]struct{}{}
+			for lane := range blocksByLane {
+				batchLanes[lane] = struct{}{}
+			}
+			if anchor, ok := anchorQC.Get(); ok {
+				ep, epOK := s.data.Registry().EpochByIndex(anchor.Proposal().EpochIndex())
+				if !epOK {
+					return fmt.Errorf("unknown epoch_index %d", anchor.Proposal().EpochIndex())
+				}
+				for lane := range ep.Committee().Lanes().All() {
+					batchLanes[lane] = struct{}{}
+				}
+			}
+			for lane := range batchLanes {
 				proposals := blocksByLane[lane]
 				ps.Spawn(func() error {
 					return pers.blocks.MaybePruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))

@@ -108,6 +108,12 @@ type Config struct {
 	// max number of calls allowed in an eth_estimateGasAfterCalls request
 	MaxEstimateGasCalls int `mapstructure:"max_estimate_gas_calls"`
 
+	// max number of accounts allowed in a single state override
+	MaxStateOverrideAccounts int `mapstructure:"max_state_override_accounts"`
+
+	// max number of storage slots allowed per account in a state override
+	MaxStateOverrideSlots int `mapstructure:"max_state_override_slots"`
+
 	// max number of concurrent NewHead subscriptions
 	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
 
@@ -130,6 +136,16 @@ type Config struct {
 
 	// Timeout for each trace call
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
+
+	// MaxTraceStructLogBytes bounds the retained struct-logger output (in bytes) per
+	// traced transaction on the default debug_trace* endpoints
+	// (debug_traceCall/traceTransaction/traceBlock*), guarding against quadratic memory
+	// growth from traces that read many distinct storage slots. The bound is per
+	// transaction, not per RPC call: geth builds a fresh struct logger for each tx, so a
+	// debug_traceBlock* call over N transactions retains up to N times this value (and the
+	// parallelized path holds several concurrent traces live). Set to 0 for unlimited
+	// (matches upstream geth behavior).
+	MaxTraceStructLogBytes uint64 `mapstructure:"max_trace_struct_log_bytes"`
 
 	// EnableParallelizedBlockTrace enables the parallelized default debug_traceBlock* path.
 	EnableParallelizedBlockTrace bool `mapstructure:"enable_parallelized_block_trace"`
@@ -220,6 +236,8 @@ var DefaultConfig = Config{
 	MaxLogNoBlock:                10000,
 	MaxBlocksForLog:              2000,
 	MaxEstimateGasCalls:          100,
+	MaxStateOverrideAccounts:     100,
+	MaxStateOverrideSlots:        1000,
 	MaxSubscriptionsNewHead:      10000,
 	MaxSubscriptionsLogs:         1000,
 	EnableTestAPI:                false,
@@ -227,6 +245,7 @@ var DefaultConfig = Config{
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
+	MaxTraceStructLogBytes:       32 * 1024 * 1024, // 32 MiB
 	EnableParallelizedBlockTrace: false,
 	RPCStatsInterval:             10 * time.Second,
 	WorkerPoolSize:               min(MaxWorkerPoolSize, runtime.NumCPU()*2), // Default: min(64, CPU cores × 2)
@@ -273,6 +292,8 @@ const (
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
 	flagMaxEstimateGasCalls          = "evm.max_estimate_gas_calls"
+	flagMaxStateOverrideAccounts     = "evm.max_state_override_accounts"
+	flagMaxStateOverrideSlots        = "evm.max_state_override_slots"
 	flagMaxSubscriptionsNewHead      = "evm.max_subscriptions_new_head"
 	flagMaxSubscriptionsLogs         = "evm.max_subscriptions_logs"
 	flagEnableTestAPI                = "evm.enable_test_api"
@@ -280,6 +301,7 @@ const (
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout                 = "evm.trace_timeout"
+	flagMaxTraceStructLogBytes       = "evm.max_trace_struct_log_bytes"
 	flagEnableParallelizedBlockTrace = "evm.enable_parallelized_block_trace"
 	flagRPCStatsInterval             = "evm.rpc_stats_interval"
 	flagWorkerPoolSize               = "evm.worker_pool_size"
@@ -404,6 +426,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagMaxStateOverrideAccounts); v != nil {
+		if cfg.MaxStateOverrideAccounts, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxStateOverrideSlots); v != nil {
+		if cfg.MaxStateOverrideSlots, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
 	if v := opts.Get(flagMaxSubscriptionsNewHead); v != nil {
 		if cfg.MaxSubscriptionsNewHead, err = cast.ToUint64E(v); err != nil {
 			return cfg, err
@@ -436,6 +468,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagTraceTimeout); v != nil {
 		if cfg.TraceTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxTraceStructLogBytes); v != nil {
+		if cfg.MaxTraceStructLogBytes, err = cast.ToUint64E(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -667,6 +704,12 @@ max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
 # max number of calls allowed in an eth_estimateGasAfterCalls request
 max_estimate_gas_calls = {{ .EVM.MaxEstimateGasCalls }}
 
+# max number of accounts allowed in a single state override
+max_state_override_accounts = {{ .EVM.MaxStateOverrideAccounts }}
+
+# max number of storage slots allowed per account in a state override
+max_state_override_slots = {{ .EVM.MaxStateOverrideSlots }}
+
 # max number of concurrent NewHead subscriptions
 max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
 
@@ -683,6 +726,14 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 
 # Timeout for each trace call
 trace_timeout = "{{ .EVM.TraceTimeout }}"
+
+# MaxTraceStructLogBytes bounds the retained struct-logger output (in bytes) per traced
+# transaction on the default debug_trace* endpoints, guarding against quadratic memory growth
+# from traces that read many distinct storage slots. The bound is per transaction, not per RPC
+# call: a debug_traceBlock* call over N transactions retains up to N times this value (and the
+# parallelized path holds several concurrent traces live). Set to 0 for unlimited (matches
+# upstream geth behavior).
+max_trace_struct_log_bytes = {{ .EVM.MaxTraceStructLogBytes }}
 
 # Enable the parallelized default debug_traceBlock* path.
 enable_parallelized_block_trace = {{ .EVM.EnableParallelizedBlockTrace }}

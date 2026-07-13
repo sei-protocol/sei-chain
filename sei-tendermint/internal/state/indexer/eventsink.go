@@ -33,12 +33,12 @@ type EventSink interface {
 	IndexTxEvents([]*abci.TxResultV2) error
 
 	// SearchBlockEvents provides the block search by given query conditions. This function only
-	// supported by the kvEventSink.
-	SearchBlockEvents(context.Context, *query.Query) ([]int64, error)
+	// supported by the kvEventSink. opts bounds and orders the result set; see SearchOptions.
+	SearchBlockEvents(context.Context, *query.Query, SearchOptions) ([]int64, error)
 
 	// SearchTxEvents provides the transaction search by given query conditions. This function only
-	// supported by the kvEventSink.
-	SearchTxEvents(context.Context, *query.Query) ([]*abci.TxResultV2, error)
+	// supported by the kvEventSink. opts bounds and orders the result set; see SearchOptions.
+	SearchTxEvents(context.Context, *query.Query, SearchOptions) ([]*abci.TxResultV2, error)
 
 	// GetTxByHash provides the transaction search by given transaction hash. This function only
 	// supported by the kvEventSink.
