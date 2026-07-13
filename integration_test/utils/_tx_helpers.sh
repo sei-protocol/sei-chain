@@ -123,13 +123,14 @@ get_proposal_status() {
 wait_for_proposal_status() {
     local proposal_id="$1"
     local target_status="$2"
-    local timeout_secs="${3:-120}"
-    local from_key="${4:-admin}"
+    local from_key="${3:-admin}"
+    local timeout_secs="${4:-120}"
     local from_addr; from_addr=$(_get_key_address "$from_key")
     local deadline=$(($(date +%s) + timeout_secs))
+    local status=""
     while [ "$(date +%s)" -lt "$deadline" ]; do
         local raw; raw=$($seidbin q gov proposal "$proposal_id" --output json 2>/dev/null || true)
-        local status; status=$(echo "$raw" | jq -r '.status // ""' 2>/dev/null)
+        status=$(echo "$raw" | jq -r '.status // ""' 2>/dev/null)
         if [ "$status" = "$target_status" ]; then
             echo "$status"
             return 0

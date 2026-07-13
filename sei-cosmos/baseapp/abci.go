@@ -708,7 +708,7 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 
 	checkStateCtx := app.checkState.Context()
 	var cacheMS types.CacheMultiStore
-	if lastBlockHeight == 0 && height == 0 && app.checkState != nil {
+	if lastBlockHeight == 0 && height == 0 {
 		// Height 0 means "latest". Before the first Commit, the latest readable
 		// state lives only on checkState (e.g. InitChain writes). Querying the
 		// committed multistore at version 0 would incorrectly hide that state.

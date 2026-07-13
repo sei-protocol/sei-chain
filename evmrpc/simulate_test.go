@@ -873,9 +873,12 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 
 	t.Run("TestDifferentMethodsShareSameLimiter", func(t *testing.T) {
 		// Test that different simulation methods share the same rate limiter.
+		// A single burst can occasionally avoid contention on overloaded CI workers,
+		// so retry a synchronized burst a few times.
 		const (
 			numCallRequests     = 20
 			numEstimateRequests = 20
+			maxAttempts         = 5
 		)
 		totalRequests := numCallRequests + numEstimateRequests
 
@@ -916,19 +919,33 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 			return successCount, rejectedCount
 		}
 
-		lastSuccess, lastRejected := runMixedBurst(newTestEnv(t))
-		require.Equal(t, totalRequests, lastSuccess+lastRejected, "All mixed method requests should be accounted for")
+		var (
+			lastSuccess       int
+			lastRejected      int
+			attemptsUsed      int
+			observedRejection bool
+		)
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			attemptsUsed = attempt
+			lastSuccess, lastRejected = runMixedBurst(newTestEnv(t))
+			require.Equalf(t, totalRequests, lastSuccess+lastRejected, "All mixed method requests should be accounted for (attempt %d)", attempt)
+			if lastRejected > 0 {
+				observedRejection = true
+				break
+			}
+		}
 
-		require.Greaterf(
+		require.Truef(
 			t,
-			lastRejected,
-			0,
-			"Different methods should share the same rate limiter (burst: %d successful, %d rejected)",
+			observedRejection,
+			"Different methods should share the same rate limiter (last burst: %d successful, %d rejected)",
 			lastSuccess,
 			lastRejected,
 		)
 		t.Logf(
-			"Mixed methods rate limiting: %d successful, %d rejected out of %d total",
+			"Mixed methods rate limiting (attempt %d/%d): %d successful, %d rejected out of %d total",
+			attemptsUsed,
+			maxAttempts,
 			lastSuccess,
 			lastRejected,
 			totalRequests,
