@@ -674,13 +674,11 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 
 			// Release all requests at once to maximize contention on the limiter.
 			for range numRequests {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					<-start
-					_, err := tEnv.simAPI.Call(context.Background(), tEnv.args, nil, nil, nil)
+					_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
 					results <- err
-				}()
+				})
 			}
 
 			close(start)
@@ -909,22 +907,18 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 
 			// Start mixed requests and release them at once to maximize contention.
 			for range numCallRequests {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					<-start
-					_, err := tEnv.simAPI.Call(context.Background(), tEnv.args, nil, nil, nil)
+					_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
 					results <- err
-				}()
+				})
 			}
 			for range numEstimateRequests {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					<-start
-					_, err := tEnv.simAPI.EstimateGas(context.Background(), tEnv.args, nil, nil)
+					_, err := tEnv.simAPI.EstimateGas(t.Context(), tEnv.args, nil, nil)
 					results <- err
-				}()
+				})
 			}
 
 			close(start)
@@ -995,13 +989,11 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 
 			// Release all requests at once to reliably saturate the limiter.
 			for range numRequests {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					<-start
-					_, err := tEnv.simAPI.Call(context.Background(), tEnv.args, nil, nil, nil)
+					_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
 					results <- err
-				}()
+				})
 			}
 			close(start)
 			wg.Wait()

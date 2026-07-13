@@ -280,7 +280,7 @@ func sendEvmTx(t *testing.T, container string) string {
 	t.Helper()
 	// Progress-only tx: these subtests use "a tx finalized in a new block" as
 	// the observable signal that Autobahn is live or halted.
-	ctx, cancel := context.WithTimeout(context.Background(), txFinalizeMax)
+	ctx, cancel := context.WithTimeout(t.Context(), txFinalizeMax)
 	defer cancel()
 	txHash, err := evmtest.SendTinyEvmTx(ctx, evmtest.DockerTxConfig{
 		Container: container,
