@@ -2612,3 +2612,49 @@ func TestLoadVersionReadOnlyDuringMigrateEVMTransition(t *testing.T) {
 	require.True(t, found, "pre-migration evm/ value must be visible to the read-only handle")
 	require.Equal(t, []byte(evmVal), got)
 }
+
+func TestAlignFlatKVSnapshotWithMemIAVL(t *testing.T) {
+	t.Run("FlatKV derives interval and keep-recent from a non-zero memIAVL", func(t *testing.T) {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotInterval = 5000
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 3
+		// Start FlatKV from divergent values to prove they get overwritten.
+		cfg.FlatKVConfig.SnapshotInterval = 111
+		cfg.FlatKVConfig.SnapshotKeepRecent = 222
+
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(5000), cfg.FlatKVConfig.SnapshotInterval)
+		require.Equal(t, uint32(3), cfg.FlatKVConfig.SnapshotKeepRecent)
+	})
+
+	t.Run("a zero memIAVL keep-recent does not zero out FlatKV", func(t *testing.T) {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 0
+		// FlatKV keeps its own non-zero default rather than mirroring the 0.
+		// memIAVL's own 0 is left untouched here and resolved later by
+		// FillDefaults (0 -> DefaultSnapshotKeepRecent), which matches FlatKV's
+		// default so the two backends still converge.
+		defaultFlatKVKeepRecent := cfg.FlatKVConfig.SnapshotKeepRecent
+		require.NotZero(t, defaultFlatKVKeepRecent)
+
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(0), cfg.MemIAVLConfig.SnapshotKeepRecent)
+		require.Equal(t, defaultFlatKVKeepRecent, cfg.FlatKVConfig.SnapshotKeepRecent)
+	})
+
+	t.Run("a zero memIAVL interval does not disable FlatKV snapshots", func(t *testing.T) {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotInterval = 0
+		// FlatKV keeps its own non-zero default rather than mirroring the 0
+		// (which would disable FlatKV auto-snapshots).
+		defaultFlatKVInterval := cfg.FlatKVConfig.SnapshotInterval
+		require.NotZero(t, defaultFlatKVInterval)
+
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, defaultFlatKVInterval, cfg.FlatKVConfig.SnapshotInterval)
+		require.NotZero(t, cfg.FlatKVConfig.SnapshotInterval)
+	})
+}

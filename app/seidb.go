@@ -53,9 +53,6 @@ const (
 	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
 	FlagEVMSSSplit       = "state-store.evm-ss-split"
 	FlagEVMSSSeparateDBs = "state-store.evm-ss-separate-dbs"
-
-	// Other configs
-	FlagSnapshotInterval = "state-sync.snapshot-interval"
 )
 
 var GigaKeys = []string{"evm", "bank"}
@@ -104,12 +101,12 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig := config.DefaultStateCommitConfig()
 	scConfig.Enable = cast.ToBool(appOpts.Get(FlagSCEnable))
 	scConfig.Directory = cast.ToString(appOpts.Get(FlagSCDirectory))
-	// Each memIAVL snapshot read is guarded with a presence check so an absent
-	// app.toml key preserves the in-code default rather than reading back the
-	// zero value (e.g. cast.ToUint32(nil) == 0) and clobbering it. This matters
-	// for keys whose default is non-zero (async-commit-buffer 100, snapshot
-	// -interval 10000, keep-recent 2, ...) and especially for keep-recent, which
-	// AlignFlatKVWithMemIAVL below would otherwise floor from 0 to 1.
+	// Guard every read with a presence check: an absent app.toml key must
+	// preserve the in-code default from DefaultStateCommitConfig above rather
+	// than reading back the zero value (cast.To*(nil) == 0/false) and clobbering
+	// it. This matters for keys whose default is non-zero (async-commit-buffer
+	// 100, snapshot-interval 10000, keep-recent 2, ...) so a config that omits a
+	// key does not silently downgrade the node (e.g. to synchronous commits).
 	if v := appOpts.Get(FlagSCAsyncCommitBuffer); v != nil {
 		scConfig.MemIAVLConfig.AsyncCommitBuffer = cast.ToInt(v)
 	}
@@ -134,10 +131,6 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	if v := appOpts.Get(FlagSCFlatKVReadWriteMetrics); v != nil {
 		scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(v)
 	}
-
-	// Now that the raw flags are parsed, floor memIAVL snapshot-keep-recent and
-	// mirror the (unexposed) FlatKV snapshot cadence onto the memIAVL settings.
-	scConfig.AlignFlatKVWithMemIAVL()
 
 	// sc-write-mode-enable-auto (default true) decides whether the node may run
 	// in auto. An ABSENT key keeps the default (true): nodes provisioned by

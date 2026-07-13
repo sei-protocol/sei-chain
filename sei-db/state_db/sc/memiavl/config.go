@@ -3,17 +3,14 @@ package memiavl
 const (
 	DefaultSnapshotInterval = 10000
 	// DefaultSnapshotKeepRecent is how many old snapshots (besides the latest) to
-	// keep by default.
-	DefaultSnapshotKeepRecent = 2
-	// MinSnapshotKeepRecent is the smallest number of old snapshots memIAVL will
-	// retain when the value comes from operator config. A configured value of 0
-	// (keep only the current snapshot) is clamped up to this floor.
-	MinSnapshotKeepRecent            uint32 = 1
-	DefaultSnapshotMinTimeInterval          = 60 * 60 // 1 hour in seconds
-	DefaultAsyncCommitBuffer                = 100
-	DefaultSnapshotPrefetchThreshold        = 0.8 // prefetch if <80% pages in cache
-	DefaultSnapshotWriteRateMBps            = 100 // 100 MB/s default
-	DefaultSnapshotWriterLimit              = 4   // controls tree concurrency but not I/O rate (use SnapshotWriteRateMBps for that)
+	// keep by default. A configured value of 0 is treated as "unset" and healed
+	// to this default by Options.FillDefaults.
+	DefaultSnapshotKeepRecent        = 1
+	DefaultSnapshotMinTimeInterval   = 60 * 60 // 1 hour in seconds
+	DefaultAsyncCommitBuffer         = 100
+	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
+	DefaultSnapshotWriteRateMBps     = 100 // 100 MB/s default
+	DefaultSnapshotWriterLimit       = 4   // controls tree concurrency but not I/O rate (use SnapshotWriteRateMBps for that)
 )
 
 type Config struct {
@@ -23,7 +20,7 @@ type Config struct {
 	AsyncCommitBuffer int `mapstructure:"async-commit-buffer"`
 
 	// SnapshotKeepRecent defines how many old snapshots (excluding the latest one) to keep.
-	// Defaults to 2; a configured value of 0 is clamped up to MinSnapshotKeepRecent (1).
+	// Defaults to 2; a configured value of 0 is overridden to the default by FillDefaults.
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// SnapshotInterval defines the block interval the memiavl snapshot is taken, default to 10000.
@@ -58,28 +55,4 @@ func DefaultConfig() Config {
 		SnapshotWriteRateMBps:     DefaultSnapshotWriteRateMBps,
 		SnapshotWriterLimit:       DefaultSnapshotWriterLimit,
 	}
-}
-
-// NormalizeSnapshotKeepRecent clamps a configured snapshot-keep-recent value to
-// MinSnapshotKeepRecent, so a value of 0 (keep only the current snapshot) is
-// bumped up to keep at least one old snapshot.
-func NormalizeSnapshotKeepRecent(keepRecent uint32) uint32 {
-	if keepRecent < MinSnapshotKeepRecent {
-		return MinSnapshotKeepRecent
-	}
-	return keepRecent
-}
-
-// NormalizeSnapshotInterval clamps a configured snapshot-interval of 0 up to
-// DefaultSnapshotInterval, mirroring the effective cadence Options.FillDefaults
-// applies at runtime. memIAVL never actually disables snapshots (FillDefaults
-// bumps a 0/<=0 interval to DefaultSnapshotInterval), so callers that mirror
-// this interval onto another backend must normalize it first; otherwise a
-// configured 0 would disable that backend's snapshots while memIAVL keeps
-// checkpointing every DefaultSnapshotInterval blocks.
-func NormalizeSnapshotInterval(interval uint32) uint32 {
-	if interval == 0 {
-		return DefaultSnapshotInterval
-	}
-	return interval
 }

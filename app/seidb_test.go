@@ -80,10 +80,9 @@ func TestNewDefaultConfig(t *testing.T) {
 	// WriteMode to auto, overriding the fixed-fallback default (memiavl_only).
 	expectedSC := config.DefaultStateCommitConfig()
 	expectedSC.WriteMode = sctypes.Auto
-	// FlatKV snapshot cadence mirrors the memIAVL (SC) snapshot settings rather
-	// than using FlatKV's own defaults.
-	expectedSC.FlatKVConfig.SnapshotInterval = expectedSC.MemIAVLConfig.SnapshotInterval
-	expectedSC.FlatKVConfig.SnapshotKeepRecent = expectedSC.MemIAVLConfig.SnapshotKeepRecent
+	// parseSCConfigs is a raw parse and does not align FlatKV with memIAVL (that
+	// happens in composite.NewCompositeCommitStore), so the parsed config matches
+	// the in-code defaults verbatim apart from the resolved write mode.
 	assert.Equal(t, expectedSC, scConfig)
 	assert.Equal(t, ssConfig, config.DefaultStateStoreConfig())
 	assert.Equal(t, receiptConfig, config.DefaultReceiptStoreConfig())
@@ -119,7 +118,10 @@ func TestParseSCConfigs_FlatKVReadWriteMetrics(t *testing.T) {
 	assert.True(t, scConfig.FlatKVConfig.EnableReadWriteMetrics)
 }
 
-func TestParseSCConfigs_FlatKVSnapshotMirrorsMemIAVL(t *testing.T) {
+func TestParseSCConfigs_DoesNotAlignFlatKV(t *testing.T) {
+	// parseSCConfigs is a raw parse: memIAVL takes the flag values while FlatKV
+	// keeps its own in-code defaults. The FlatKV<-memIAVL alignment happens later
+	// in composite.NewCompositeCommitStore, not here.
 	scConfig := parseSCConfigs(mapAppOpts{
 		FlagSCEnable:             true,
 		FlagSCSnapshotInterval:   uint32(5000),
@@ -128,33 +130,38 @@ func TestParseSCConfigs_FlatKVSnapshotMirrorsMemIAVL(t *testing.T) {
 
 	assert.Equal(t, uint32(5000), scConfig.MemIAVLConfig.SnapshotInterval)
 	assert.Equal(t, uint32(3), scConfig.MemIAVLConfig.SnapshotKeepRecent)
-	assert.Equal(t, scConfig.MemIAVLConfig.SnapshotInterval, scConfig.FlatKVConfig.SnapshotInterval)
-	assert.Equal(t, scConfig.MemIAVLConfig.SnapshotKeepRecent, scConfig.FlatKVConfig.SnapshotKeepRecent)
+	def := config.DefaultStateCommitConfig().FlatKVConfig
+	assert.Equal(t, def.SnapshotInterval, scConfig.FlatKVConfig.SnapshotInterval)
+	assert.Equal(t, def.SnapshotKeepRecent, scConfig.FlatKVConfig.SnapshotKeepRecent)
 }
 
-func TestParseSCConfigs_SnapshotKeepRecentClampedToMin(t *testing.T) {
+func TestParseSCConfigs_SnapshotKeepRecentParsedRaw(t *testing.T) {
+	// An explicitly configured value is preserved verbatim; the min-clamp (0 -> 1)
+	// happens later in composite.NewCompositeCommitStore, not here.
 	scConfig := parseSCConfigs(mapAppOpts{
 		FlagSCEnable:             true,
 		FlagSCSnapshotKeepRecent: uint32(0),
 	})
 
-	// A configured 0 (keep only the current snapshot) is floored to 1 here in
-	// app config parsing, and FlatKV mirrors the clamped value.
-	assert.Equal(t, uint32(1), scConfig.MemIAVLConfig.SnapshotKeepRecent)
-	assert.Equal(t, uint32(1), scConfig.FlatKVConfig.SnapshotKeepRecent)
+	assert.Equal(t, uint32(0), scConfig.MemIAVLConfig.SnapshotKeepRecent)
 }
 
-func TestParseSCConfigs_SnapshotKeepRecentAbsentUsesDefault(t *testing.T) {
-	// sc-keep-recent omitted entirely: must fall back to the in-code default (2),
-	// not read back 0 and get floored to 1.
+func TestParseSCConfigs_AbsentKeysKeepDefaults(t *testing.T) {
+	// Keys omitted entirely must fall back to the in-code defaults rather than
+	// being clobbered to the zero value (cast.To*(nil) == 0). Only sc-enable is
+	// set here.
 	scConfig := parseSCConfigs(mapAppOpts{
 		FlagSCEnable: true,
 	})
 
-	def := config.DefaultStateCommitConfig().MemIAVLConfig.SnapshotKeepRecent
-	assert.Equal(t, uint32(2), def)
-	assert.Equal(t, def, scConfig.MemIAVLConfig.SnapshotKeepRecent)
-	assert.Equal(t, def, scConfig.FlatKVConfig.SnapshotKeepRecent)
+	def := config.DefaultStateCommitConfig().MemIAVLConfig
+	assert.Equal(t, def.AsyncCommitBuffer, scConfig.MemIAVLConfig.AsyncCommitBuffer)
+	assert.Equal(t, def.SnapshotKeepRecent, scConfig.MemIAVLConfig.SnapshotKeepRecent)
+	assert.Equal(t, def.SnapshotInterval, scConfig.MemIAVLConfig.SnapshotInterval)
+	assert.Equal(t, def.SnapshotMinTimeInterval, scConfig.MemIAVLConfig.SnapshotMinTimeInterval)
+	assert.Equal(t, def.SnapshotWriterLimit, scConfig.MemIAVLConfig.SnapshotWriterLimit)
+	assert.Equal(t, def.SnapshotPrefetchThreshold, scConfig.MemIAVLConfig.SnapshotPrefetchThreshold)
+	assert.Equal(t, def.SnapshotWriteRateMBps, scConfig.MemIAVLConfig.SnapshotWriteRateMBps)
 }
 
 func TestParseSCConfigs_LegacyCosmosOnlyWriteMode(t *testing.T) {

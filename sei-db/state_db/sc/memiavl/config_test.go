@@ -7,52 +7,25 @@ import (
 )
 
 func TestDefaultConfigSnapshotKeepRecent(t *testing.T) {
-	require.Equal(t, uint32(2), DefaultConfig().SnapshotKeepRecent)
+	require.Equal(t, uint32(1), DefaultConfig().SnapshotKeepRecent)
 }
 
-func TestNormalizeSnapshotKeepRecent(t *testing.T) {
+func TestFillDefaultsSnapshotKeepRecent(t *testing.T) {
 	tests := []struct {
 		name string
 		in   uint32
 		want uint32
 	}{
-		{"zero clamps up to min", 0, 1},
+		{"zero uses default", 0, DefaultSnapshotKeepRecent},
 		{"one stays", 1, 1},
 		{"two stays", 2, 2},
 		{"large stays", 100, 100},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, NormalizeSnapshotKeepRecent(tc.in))
+			opts := Options{Config: Config{SnapshotKeepRecent: tc.in}}
+			opts.FillDefaults()
+			require.Equal(t, tc.want, opts.SnapshotKeepRecent)
 		})
-	}
-}
-
-func TestNormalizeSnapshotInterval(t *testing.T) {
-	tests := []struct {
-		name string
-		in   uint32
-		want uint32
-	}{
-		{"zero uses default cadence", 0, DefaultSnapshotInterval},
-		{"one stays", 1, 1},
-		{"default stays", DefaultSnapshotInterval, DefaultSnapshotInterval},
-		{"custom stays", 5000, 5000},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, NormalizeSnapshotInterval(tc.in))
-		})
-	}
-}
-
-// TestNormalizeSnapshotIntervalMatchesFillDefaults guards the invariant that the
-// standalone normalizer agrees with Options.FillDefaults, which is what memIAVL
-// actually applies at runtime.
-func TestNormalizeSnapshotIntervalMatchesFillDefaults(t *testing.T) {
-	for _, in := range []uint32{0, 1, DefaultSnapshotInterval, 5000} {
-		opts := Options{Config: Config{SnapshotInterval: in}}
-		opts.FillDefaults()
-		require.Equal(t, opts.SnapshotInterval, NormalizeSnapshotInterval(in))
 	}
 }

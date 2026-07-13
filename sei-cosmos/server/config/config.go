@@ -457,14 +457,13 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	}
 	scWriteMode = config.ApplyWriteModeAuto(scWriteModeEnableAuto, scWriteMode)
 
-	// FlatKV knobs are not rendered in the default app.toml template. By default
-	// FlatKV's snapshot cadence mirrors the memIAVL (SC) settings so both backends
-	// checkpoint/prune in lockstep, but explicit state-commit.flatkv.* keys are
-	// still parsed and honored if an operator adds them by hand (they take
-	// precedence over the memIAVL mirror).
+	// FlatKV knobs are not rendered in the default app.toml template. GetConfig
+	// is a faithful parse of app.toml/flags: it only reads the explicit
+	// state-commit.flatkv.* keys (if an operator adds them by hand) on top of the
+	// in-code defaults. The FlatKV-follows-memIAVL mirror (and snapshot cadence
+	// normalization) is applied later by StateCommitConfig.AlignFlatKVWithMemIAVL
+	// at store construction, so we deliberately do not mirror the sc-* keys here.
 	flatKVConfig := config.DefaultStateCommitConfig().FlatKVConfig
-	flatKVConfig.SnapshotInterval = v.GetUint32("state-commit.sc-snapshot-interval")
-	flatKVConfig.SnapshotKeepRecent = v.GetUint32("state-commit.sc-keep-recent")
 	if v.IsSet("state-commit.flatkv.fsync") {
 		flatKVConfig.Fsync = v.GetBool("state-commit.flatkv.fsync")
 	}

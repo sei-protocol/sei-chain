@@ -125,24 +125,3 @@ func (c StateCommitConfig) Validate() error {
 	}
 	return nil
 }
-
-// AlignFlatKVWithMemIAVL applies the FlatKV-follows-memIAVL policy that the app
-// config layer imposes because FlatKV's snapshot knobs are not independently
-// exposed in app.toml. It is applied by app config parsing after the raw flags
-// are read, so the underlying config layers stay a faithful mapping of
-// app.toml/flags:
-//   - the memIAVL snapshot-interval is normalized the way memIAVL normalizes it
-//     at runtime (a configured 0 becomes memiavl.DefaultSnapshotInterval),
-//     because memIAVL never disables snapshots but FlatKV treats interval 0 as
-//     "disable auto-snapshots"; mirroring a raw 0 would let memIAVL keep
-//     checkpointing while FlatKV's WAL grows unbounded;
-//   - the memIAVL snapshot-keep-recent is floored to memiavl.MinSnapshotKeepRecent
-//     (a configured 0, "keep only the current snapshot", becomes 1); and
-//   - FlatKV's snapshot cadence mirrors the (normalized) memIAVL settings so both
-//     backends checkpoint and prune in lockstep.
-func (c *StateCommitConfig) AlignFlatKVWithMemIAVL() {
-	c.MemIAVLConfig.SnapshotInterval = memiavl.NormalizeSnapshotInterval(c.MemIAVLConfig.SnapshotInterval)
-	c.MemIAVLConfig.SnapshotKeepRecent = memiavl.NormalizeSnapshotKeepRecent(c.MemIAVLConfig.SnapshotKeepRecent)
-	c.FlatKVConfig.SnapshotInterval = c.MemIAVLConfig.SnapshotInterval
-	c.FlatKVConfig.SnapshotKeepRecent = c.MemIAVLConfig.SnapshotKeepRecent
-}

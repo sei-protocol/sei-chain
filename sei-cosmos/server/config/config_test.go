@@ -314,9 +314,13 @@ func TestGetConfig(t *testing.T) {
 	require.Equal(t, DefaultMinGasPrices, cfg.MinGasPrices)
 	require.True(t, cfg.Telemetry.Enabled)
 	require.False(t, cfg.API.Enable)
-	// FlatKV snapshot cadence mirrors the memIAVL (SC) snapshot settings.
-	require.Equal(t, cfg.StateCommit.MemIAVLConfig.SnapshotInterval, cfg.StateCommit.FlatKVConfig.SnapshotInterval)
-	require.Equal(t, cfg.StateCommit.MemIAVLConfig.SnapshotKeepRecent, cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
+	// sc-snapshot-interval / sc-keep-recent are absent here, so FlatKV must keep
+	// its in-code defaults rather than being clobbered to 0 (which would disable
+	// FlatKV snapshots / drop all old snapshots). The memIAVL mirror only applies
+	// when the keys are explicitly set.
+	defaultFlatKV := seidbconfig.DefaultStateCommitConfig().FlatKVConfig
+	require.Equal(t, defaultFlatKV.SnapshotInterval, cfg.StateCommit.FlatKVConfig.SnapshotInterval)
+	require.Equal(t, defaultFlatKV.SnapshotKeepRecent, cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
 }
 
 func TestConfigTemplate(t *testing.T) {
@@ -475,20 +479,19 @@ func TestGetConfigParsesRawSnapshotKeepRecent(t *testing.T) {
 
 	cfg, err := GetConfig(v)
 	require.NoError(t, err)
-	// GetConfig is a faithful parse of app.toml/flags: the raw 0 is preserved
-	// here and only floored later at store construction. FlatKV mirrors it.
+	// GetConfig is a faithful parse of app.toml/flags: the raw 0 is preserved for
+	// memIAVL here and only floored later at store construction. FlatKV does not
+	// mirror the sc-* keys in GetConfig (that is AlignFlatKVWithMemIAVL's job), so
+	// it keeps its in-code default.
 	require.Equal(t, uint32(0), cfg.StateCommit.MemIAVLConfig.SnapshotKeepRecent)
-	require.Equal(t, uint32(0), cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
+	require.Equal(t, seidbconfig.DefaultStateCommitConfig().FlatKVConfig.SnapshotKeepRecent, cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
 }
 
 func TestGetConfigHonorsExplicitFlatKVOverrides(t *testing.T) {
 	v := viper.New()
 	v.Set("minimum-gas-prices", DefaultMinGasPrices)
 	v.Set("telemetry.global-labels", []interface{}{})
-	// memIAVL cadence that FlatKV mirrors by default.
-	v.Set("state-commit.sc-snapshot-interval", 5000)
-	v.Set("state-commit.sc-keep-recent", 4)
-	// Explicit (hidden) FlatKV overrides must win over the memIAVL mirror.
+	// Explicit (hidden) FlatKV overrides must win over the in-code defaults.
 	v.Set("state-commit.flatkv.fsync", true)
 	v.Set("state-commit.flatkv.async-write-buffer", 128)
 	v.Set("state-commit.flatkv.snapshot-interval", 7000)
@@ -503,6 +506,25 @@ func TestGetConfigHonorsExplicitFlatKVOverrides(t *testing.T) {
 	require.Equal(t, uint32(7000), fk.SnapshotInterval)
 	require.Equal(t, uint32(9), fk.SnapshotKeepRecent)
 	require.True(t, fk.EnableReadWriteMetrics)
+}
+
+// TestGetConfigFlatKVDefaultsWhenSCSnapshotAbsent locks in the regression fix:
+// GetConfig does not mirror the sc-* keys onto FlatKV (that is
+// AlignFlatKVWithMemIAVL's job at store construction), and an absent
+// sc-snapshot-interval / sc-keep-recent must preserve the in-code FlatKV
+// defaults rather than reading back 0 (which disables FlatKV snapshots and drops
+// all old snapshots).
+func TestGetConfigFlatKVDefaultsWhenSCSnapshotAbsent(t *testing.T) {
+	v := viper.New()
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	defaultFlatKV := seidbconfig.DefaultStateCommitConfig().FlatKVConfig
+	require.Equal(t, defaultFlatKV.SnapshotInterval, cfg.StateCommit.FlatKVConfig.SnapshotInterval)
+	require.Equal(t, defaultFlatKV.SnapshotKeepRecent, cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
+	require.NotZero(t, cfg.StateCommit.FlatKVConfig.SnapshotInterval)
 }
 
 func TestGetConfigRejectsInvalidWriteMode(t *testing.T) {

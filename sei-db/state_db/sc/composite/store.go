@@ -138,6 +138,8 @@ func NewCompositeCommitStore(
 		return nil, fmt.Errorf("invalid state commit config: %w", err)
 	}
 
+	alignFlatKVSnapshotWithMemIAVL(&cfg)
+
 	var memIAVL *memiavl.CommitStore
 	if cfg.WriteMode != types.FlatKVOnly {
 		memIAVL = memiavl.NewCommitStore(homeDir, cfg.MemIAVLConfig)
@@ -174,6 +176,29 @@ func NewCompositeCommitStore(
 		currentWriteMode: cfg.WriteMode,
 		ctx:              ctx,
 	}, nil
+}
+
+// alignFlatKVSnapshotWithMemIAVL keeps the two backends' snapshot cadence in
+// sync. FlatKV has no independently-exposed snapshot knobs in app.toml, so it
+// derives its snapshot-interval / keep-recent from memIAVL. This is the single
+// place both backends are constructed from the same config, so it is where the
+// alignment is enforced.
+//
+// FlatKV derives each value from memIAVL only when memIAVL provides a real
+// (non-zero) value. A zero memIAVL value is deliberately left untouched: memIAVL
+// resolves its own zeros to defaults later in Options.FillDefaults (interval
+// 0 -> DefaultSnapshotInterval, keep-recent 0 -> DefaultSnapshotKeepRecent), and
+// FlatKV keeps its own non-zero in-code default, which matches those memIAVL
+// defaults. Mirroring a raw 0 instead would disable FlatKV snapshots (0 means
+// "disabled" for FlatKV) while memIAVL kept checkpointing, letting FlatKV's WAL
+// grow unbounded.
+func alignFlatKVSnapshotWithMemIAVL(cfg *config.StateCommitConfig) {
+	if cfg.MemIAVLConfig.SnapshotInterval != 0 {
+		cfg.FlatKVConfig.SnapshotInterval = cfg.MemIAVLConfig.SnapshotInterval
+	}
+	if cfg.MemIAVLConfig.SnapshotKeepRecent != 0 {
+		cfg.FlatKVConfig.SnapshotKeepRecent = cfg.MemIAVLConfig.SnapshotKeepRecent
+	}
 }
 
 // Initialize records the set of child store names that should exist on
