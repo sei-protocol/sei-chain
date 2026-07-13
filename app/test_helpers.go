@@ -141,10 +141,12 @@ func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey,
 }
 
 func NewGigaTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	wrapper := newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
-	genState := evmtypes.DefaultGenesis()
-	wrapper.App.EvmKeeper.InitGenesis(wrapper.Ctx, *genState)
-	return wrapper
+	// No extra EvmKeeper.InitGenesis here: newTestWrapper already runs full
+	// module genesis, and a second raw InitGenesis(DefaultGenesis()) writes
+	// param bytes that differ from the genesis-JSON round-trip (nil slice
+	// marshals to null, seeded []byte{} to []), skewing ante store-gas — and
+	// therefore receipt GasUsed — between giga and v2 test contexts.
+	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
 }
 
 // NewGigaTestWrapperWithRegularStore creates a test wrapper that runs Giga executor

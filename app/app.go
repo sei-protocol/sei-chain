@@ -2025,19 +2025,12 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
 	if validation.err != nil {
-		// Validation failed - bump nonce via keeper if it was valid (matches V2's DeliverTxCallback
-		// behavior where nonce is incremented even on fee validation failures).
-		// For successful txs, the nonce is bumped by the EVM during execution.
-		if validation.bumpNonce {
-			app.GigaEvmKeeper.SetNonce(ctx, sender, validation.currentNonce+1)
-			app.EvmKeeper.SetNonceBumped(ctx)
-		}
-		// V2 reports intrinsic gas as gasUsed even on validation failure (for metrics),
-		// but no actual balance is deducted
-		intrinsicGas, _ := core.IntrinsicGas(ethTx.Data(), ethTx.AccessList(), ethTx.SetCodeAuthorizations(), ethTx.To() == nil, true, true, true)
-		validation.err.GasUsed = int64(intrinsicGas)  //nolint:gosec
-		validation.err.GasWanted = int64(ethTx.Gas()) //nolint:gosec
-		return validation.err, nil
+		// Fee/nonce/balance failures fall back to v2 (same doctrine as the
+		// balance-migration case below): v2 rejects these in its ante chain,
+		// whose receipt gas fields giga cannot reconstruct (CON-368 was this
+		// path stamping a synthetic receipt, diverging LastResultsHash on
+		// mixed fleets). The fallback run also owns the nonce bump.
+		return nil, gigaprecompiles.ErrValidationFallback
 	}
 
 	if !isAssociated {
@@ -3006,10 +2999,8 @@ func (app *App) inplacetestnetInitializer(pk cryptotypes.PubKey) error {
 
 // gigaValidationResult holds the result of EVM transaction validation.
 type gigaValidationResult struct {
-	err          *abci.ExecTxResult // nil if validation passed
-	bumpNonce    bool               // true if tx nonce matches expected nonce
-	currentNonce uint64             // the expected nonce at time of validation
-	baseFee      *big.Int           // the base fee used for validation
+	err     *abci.ExecTxResult // nil if validation passed
+	baseFee *big.Int           // the base fee used for validation
 }
 
 // validateGigaEVMTx validates an EVM tx for fee, nonce, and stateless checks.
@@ -3038,7 +3029,6 @@ func (app *App) validateGigaEVMTx(
 	// Check nonce validity - determines if we bump nonce on fee/balance failures
 	currentNonce := app.GigaEvmKeeper.GetNonce(ctx, sender)
 	txNonce := ethTx.Nonce()
-	bumpNonce := txNonce == currentNonce
 
 	// Fee cap below base fee
 	if ethTx.GasFeeCap().Cmp(baseFee) < 0 {
@@ -3047,9 +3037,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrInsufficientFee.ABCICode(),
 				Log:  "max fee per gas less than block base fee",
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
@@ -3061,9 +3049,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrInsufficientFee.ABCICode(),
 				Log:  "max fee per gas less than minimum fee",
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
@@ -3078,9 +3064,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrWrongSequence.ABCICode(),
 				Log:  fmt.Sprintf("nonce too high: address %s, tx: %d state: %d", sender.Hex(), txNonce, currentNonce),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 	if txNonce < currentNonce {
@@ -3089,9 +3073,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrWrongSequence.ABCICode(),
 				Log:  fmt.Sprintf("nonce too low: address %s, tx: %d state: %d", sender.Hex(), txNonce, currentNonce),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 	// Nonce overflow guard (currentNonce + 1 would overflow)
@@ -3101,9 +3083,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrWrongSequence.ABCICode(),
 				Log:  fmt.Sprintf("nonce max: address %s, nonce: %d", sender.Hex(), currentNonce),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
@@ -3117,9 +3097,7 @@ func (app *App) validateGigaEVMTx(
 					Code: sdkerrors.ErrWrongSequence.ABCICode(),
 					Log:  fmt.Sprintf("sender not an eoa: address %s, len(code): %d", sender.Hex(), len(senderCode)),
 				},
-				bumpNonce:    bumpNonce,
-				currentNonce: currentNonce,
-				baseFee:      baseFee,
+				baseFee: baseFee,
 			}
 		}
 	}
@@ -3131,9 +3109,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrWrongSequence.ABCICode(),
 				Log:  fmt.Sprintf("max fee per gas higher than 2^256-1: address %s, maxFeePerGas bit length: %d", sender.Hex(), l),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
@@ -3144,9 +3120,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrWrongSequence.ABCICode(),
 				Log:  fmt.Sprintf("max priority fee per gas higher than 2^256-1: address %s, maxPriorityFeePerGas bit length: %d", sender.Hex(), l),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
@@ -3157,9 +3131,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrWrongSequence.ABCICode(),
 				Log:  fmt.Sprintf("max priority fee per gas higher than max fee per gas: address %s, maxPriorityFeePerGas: %s, maxFeePerGas: %s", sender.Hex(), ethTx.GasTipCap(), ethTx.GasFeeCap()),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
@@ -3172,9 +3144,7 @@ func (app *App) validateGigaEVMTx(
 					Code: sdkerrors.ErrWrongSequence.ABCICode(),
 					Log:  fmt.Sprintf("set-code transaction must not be a create transaction: sender %s", sender.Hex()),
 				},
-				bumpNonce:    bumpNonce,
-				currentNonce: currentNonce,
-				baseFee:      baseFee,
+				baseFee: baseFee,
 			}
 		}
 		// Set-code tx auth list must be non-empty
@@ -3184,9 +3154,7 @@ func (app *App) validateGigaEVMTx(
 					Code: sdkerrors.ErrWrongSequence.ABCICode(),
 					Log:  fmt.Sprintf("set-code transaction with empty auth list: sender %s", sender.Hex()),
 				},
-				bumpNonce:    bumpNonce,
-				currentNonce: currentNonce,
-				baseFee:      baseFee,
+				baseFee: baseFee,
 			}
 		}
 	}
@@ -3214,18 +3182,14 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrInsufficientFunds.ABCICode(),
 				Log:  fmt.Sprintf("insufficient funds for gas * price + value: address %s have %v want %v: insufficient funds", sender.Hex(), senderBalance, balanceCheck),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
 	// All checks passed
 	return gigaValidationResult{
-		err:          nil,
-		bumpNonce:    bumpNonce,
-		currentNonce: currentNonce,
-		baseFee:      baseFee,
+		err:     nil,
+		baseFee: baseFee,
 	}
 }
 

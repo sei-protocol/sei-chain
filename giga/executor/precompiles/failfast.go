@@ -85,6 +85,24 @@ func (e *SelfDestructAbortError) IsAbortError() bool {
 
 var ErrSelfDestructUnsupported error = &SelfDestructAbortError{}
 
+// ValidationFallbackAbortError signals that the transaction failed EVM
+// validation (fee/nonce/balance). V2 rejects these in its ante chain, and the
+// receipt it emits there is path-dependent (GasWanted stays unset; GasUsed is
+// the ante's store-gas consumption), so giga cannot reconstruct it; the caller
+// should fall back to v2, which produces the canonical failure receipt and
+// state effects (nonce bump) by construction.
+type ValidationFallbackAbortError struct{}
+
+func (e *ValidationFallbackAbortError) Error() string {
+	return "EVM validation failed; v2 produces the canonical failure receipt"
+}
+
+func (e *ValidationFallbackAbortError) IsAbortError() bool {
+	return true
+}
+
+var ErrValidationFallback error = &ValidationFallbackAbortError{}
+
 type FailFastPrecompile struct{}
 
 var FailFastSingleton vm.PrecompiledContract = &FailFastPrecompile{}
