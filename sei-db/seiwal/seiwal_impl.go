@@ -45,14 +45,9 @@ type closeRequest struct {
 	done chan error
 }
 
-// unpinRequest releases a read lease previously registered when an iterator was created.
-type unpinRequest struct {
-	index uint64
-}
-
-// iteratorStartRequest asks the writer to construct an iterator. The writer flushes the mutable file (so the
-// iterator observes all prior appends), snapshots the current set of files, registers the read lease, and
-// builds the iterator, all on its own goroutine so construction is serialized with rotation/seal/prune.
+// iteratorStartRequest asks the writer to construct an iterator. The writer hard-links a point-in-time
+// snapshot of the files to read and builds the iterator, all on its own goroutine so the snapshot is
+// serialized with rotation/seal/prune.
 type iteratorStartRequest struct {
 	startIndex uint64
 	reply      chan iteratorStartResponse
@@ -142,9 +137,9 @@ type walImpl struct {
 	// Sealed files in ascending index order. Rotation appends to the back; pruning removes from the front.
 	sealedFiles *util.RandomAccessDeque[*sealedFileInfo]
 
-	// Read leases held by live iterators: record index -> reference count. Pruning will not delete a file
-	// whose index range contains a leased index. Mutated only by the writer goroutine.
-	indexRefs map[uint64]int
+	// The serial number to assign the next iterator, naming its hard-link snapshot directory
+	// (iterator/<serial>/). Mutated only by the writer goroutine.
+	nextIteratorSeq uint64
 }
 
 // recoverDirectory brings a WAL directory into a clean, consistent on-disk state: it removes crash remnants
@@ -154,6 +149,11 @@ type walImpl struct {
 func recoverDirectory(path string) error {
 	if err := util.EnsureDirectoryExists(path, true); err != nil {
 		return fmt.Errorf("failed to ensure WAL directory %s: %w", path, err)
+	}
+	// Blast any hard-link snapshots left by iterators of a prior session; they are ephemeral read-side leases,
+	// never part of the durable WAL, so a crash survivor is always safe to remove.
+	if err := deleteIteratorLinks(path); err != nil {
+		return err
 	}
 	// Clean up remnants of a rollback swap interrupted by a crash before scanning (see rollbackStraddlingFile):
 	// a leftover swap file from an unfinished AtomicWrite, or two sealed files sharing a sequence because the old
@@ -215,7 +215,6 @@ func newWAL(config *Config) (WAL[[]byte], error) {
 		mutableFile:  mutable,
 		nextFileSeq:  nextFileSeq + 1,
 		sealedFiles:  sealedFiles,
-		indexRefs:    make(map[uint64]int),
 		samplerStop:  make(chan struct{}),
 	}
 	// Recover the append-ordering position from the highest index already on disk.
@@ -328,9 +327,9 @@ func (w *walImpl) PruneBefore(lowestIndexToKeep uint64) error {
 }
 
 // Iterator returns an iterator over the WAL starting at startIndex. Construction runs on the writer goroutine
-// (see iteratorStartRequest): the writer flushes so all previously scheduled appends are visible, registers a
-// read lease so pruning cannot delete files out from under the iterator, and builds the iterator. The lease is
-// released by the iterator's Close.
+// (see iteratorStartRequest): the writer captures a hard-link snapshot of the files to read so later rotation
+// and pruning cannot pull them out from under the iterator, and builds the iterator. The snapshot is removed
+// by the iterator's Close.
 func (w *walImpl) Iterator(startIndex uint64) (Iterator[[]byte], error) {
 	reply := make(chan iteratorStartResponse, 1)
 	if err := w.sendToWriter(iteratorStartRequest{startIndex: startIndex, reply: reply}); err != nil {
@@ -348,11 +347,6 @@ func (w *walImpl) Iterator(startIndex uint64) (Iterator[[]byte], error) {
 		}
 		return nil, fmt.Errorf("iterator creation aborted: %w", w.ctx.Err())
 	}
-}
-
-// unpinIndex releases a read lease. Best-effort: if the WAL is already shutting down the lease is moot.
-func (w *walImpl) unpinIndex(index uint64) {
-	_ = w.sendToWriter(unpinRequest{index: index})
 }
 
 // Close flushes pending appends, seals the mutable file, and releases resources.
@@ -443,8 +437,6 @@ func (w *walImpl) writerLoop() {
 				w.fail(resp.err)
 				return
 			}
-		case unpinRequest:
-			w.releaseIndex(m.index)
 		case closeRequest:
 			_, err := w.mutableFile.seal()
 			m.done <- err
@@ -491,8 +483,8 @@ func (w *walImpl) appendRecord(m dataToBeWritten) error {
 }
 
 // rotate seals the current mutable file, records its bookkeeping, and opens a fresh mutable file. It is only
-// called when the mutable file holds at least one record (immediately after an append, or from sealForIterator
-// when it has records), so the seal always produces a sealed file rather than removing an empty one.
+// called when the mutable file holds at least one record (immediately after a size-triggering append), so the
+// seal always produces a sealed file rather than removing an empty one.
 func (w *walImpl) rotate() error {
 	fileSeq := w.mutableFile.fileSeq
 	first := w.mutableFile.firstIndex
@@ -517,27 +509,17 @@ func (w *walImpl) rotate() error {
 // oldest-first (from the front of the deque) with a directory fsync after each removal, so a crash mid-prune
 // leaves a contiguous suffix of files rather than a gap in the sequence. The mutable file is never pruned.
 //
-// A live iterator holds a read lease at some index R and may still read every record from R onward, so no file
-// whose range reaches R or higher may be removed. A file [first, last] is needed iff it overlaps [R, ∞), i.e.
-// iff last >= R. Comparing the lowest live reservation against each file's last index (rather than testing
-// whether the reservation falls inside a file's range) protects exactly the files an iterator can still open —
-// even when the reservation lands in a gap between files or strictly inside a file's range. Because
-// reservations never fall below the lowest stored index (see pinLowestReadableIndex), a file left below the
-// lowest reservation is one the iterator has already moved past and can safely be dropped.
+// Pruning is unconditional with respect to live iterators: an iterator holds its own hard links to every file
+// it reads (see startIterator), so removing a file's canonical name here only drops one link — the inode
+// survives until the iterator's link is removed on Close. Pruning therefore need not know iterators exist.
 //
-// Iteration stops at the first retained file: index ranges grow toward the back, so once a file is kept (by
-// pruneThrough or by the lowest reservation) every later file is kept too.
+// Iteration stops at the first retained file: index ranges grow toward the back, so once a file reaches
+// pruneThrough every later file is kept too.
 func (w *walImpl) pruneSealedFiles(pruneThrough uint64) error {
-	// Reservations are mutated only on this (the writer) goroutine, so the lowest reservation is stable for the
-	// duration of this prune and can be computed once.
-	reservation, hasReservation := w.lowestReservation()
 	for {
 		front, ok := w.sealedFiles.TryPeekFront()
 		if !ok || front.lastIndex >= pruneThrough {
 			break
-		}
-		if hasReservation && front.lastIndex >= reservation {
-			break // a live iterator may still read this file (or a later one); keep it and everything after
 		}
 		path := filepath.Join(w.config.Path, front.name)
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -552,84 +534,74 @@ func (w *walImpl) pruneSealedFiles(pruneThrough uint64) error {
 	return nil
 }
 
-// startIterator builds an iterator on the writer goroutine. It first seals the mutable file (see
-// sealForIterator) so every record written so far lives in an immutable sealed file, then snapshots the sealed
-// files in ascending index order, registers the read lease, and constructs the iterator (which launches its
-// reader goroutine). Running here serializes construction with rotation, seal, and prune, so the snapshot is a
-// consistent point-in-time view: every file the iterator reads is sealed and immutable, opened lazily by name
-// and protected from pruning by the lease, so its contents cannot change underneath the reader.
+// startIterator builds an iterator on the writer goroutine. It captures a point-in-time snapshot by
+// hard-linking every file the iterator will read into a private directory (iterator/<serial>/) and bounding it
+// at the highest index stored now. Running here serializes the snapshot with rotation, seal, and prune. The
+// live WAL may then rotate, seal, and prune freely: the iterator reads only its own hard links, which keep the
+// underlying inodes alive until Close removes them. The mutable file is flushed (not fsynced) so its records
+// are readable through the reader's separate handle — no crash can intervene between creation and use, so
+// durability is irrelevant here.
 func (w *walImpl) startIterator(startIndex uint64) iteratorStartResponse {
-	if err := w.sealForIterator(); err != nil {
-		return iteratorStartResponse{err: fmt.Errorf("failed to seal mutable file before creating iterator: %w", err)}
+	r := w.bounds()
+	if !r.ok {
+		// Nothing stored: an empty iterator with no snapshot directory.
+		return iteratorStartResponse{iterator: newWalIterator(w, startIndex, 0, "", nil, w.config.IteratorPrefetchSize)}
 	}
+	maxIndex := r.last
 
-	files := make([]iteratorFile, 0, w.sealedFiles.Size())
+	// Gather the files to read: sealed files reaching startIndex, then the mutable file if it holds records at
+	// or above startIndex. Files entirely below startIndex are never opened, so they are not linked. The
+	// mutable snapshot's range is capped at maxIndex; the reader drops anything the writer appends past it.
+	var sources []iteratorFile
 	for _, info := range w.sealedFiles.Iterator() {
-		files = append(files, iteratorFile{
-			fileSeq:    info.fileSeq,
-			name:       info.name,
-			firstIndex: info.firstIndex,
-			lastIndex:  info.lastIndex,
+		if info.lastIndex < startIndex {
+			continue
+		}
+		sources = append(sources, iteratorFile{
+			fileSeq: info.fileSeq, name: info.name,
+			firstIndex: info.firstIndex, lastIndex: info.lastIndex, sealed: true,
+		})
+	}
+	if w.mutableFile.hasRecords && w.mutableFile.lastIndex >= startIndex {
+		if err := w.mutableFile.flush(false); err != nil {
+			return iteratorStartResponse{err: fmt.Errorf("failed to flush mutable file for iterator: %w", err)}
+		}
+		sources = append(sources, iteratorFile{
+			fileSeq: w.mutableFile.fileSeq, name: unsealedFileName(w.mutableFile.fileSeq),
+			firstIndex: w.mutableFile.firstIndex, lastIndex: maxIndex, sealed: false,
 		})
 	}
 
-	pinned, hasPin := w.pinLowestReadableIndex(startIndex)
-	it := newWalIterator(w, startIndex, pinned, hasPin, files, w.config.IteratorPrefetchSize)
+	if len(sources) == 0 {
+		// Nothing at or above startIndex to read; no snapshot directory needed.
+		it := newWalIterator(w, startIndex, maxIndex, "", nil, w.config.IteratorPrefetchSize)
+		return iteratorStartResponse{iterator: it}
+	}
+
+	dir := iteratorLinkDir(w.config.Path, w.nextIteratorSeq)
+	if err := w.linkSnapshot(dir, sources); err != nil {
+		_ = os.RemoveAll(dir)
+		return iteratorStartResponse{err: err}
+	}
+	w.nextIteratorSeq++
+	it := newWalIterator(w, startIndex, maxIndex, dir, sources, w.config.IteratorPrefetchSize)
 	return iteratorStartResponse{iterator: it}
 }
 
-// sealForIterator seals the mutable file so a newly-created iterator sees a snapshot that cannot change
-// underneath it: after this call every record lives in an immutable sealed file. It is a no-op when the
-// mutable file holds no records — the iterator reads only sealed files, so an empty mutable file is simply
-// left in place.
-func (w *walImpl) sealForIterator() error {
-	if !w.mutableFile.hasRecords {
-		return nil
+// linkSnapshot creates dir and hard-links each source file into it under the source's basename. The links keep
+// the underlying inodes alive for the iterator even after the WAL rotates or prunes the originals. No fsync:
+// the links are ephemeral read-side leases, reclaimed on Close or, after a crash, at the next open.
+func (w *walImpl) linkSnapshot(dir string, sources []iteratorFile) error {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("failed to create iterator snapshot directory %s: %w", dir, err)
 	}
-	if err := w.rotate(); err != nil {
-		return fmt.Errorf("failed to seal mutable file: %w", err)
-	}
-	return nil
-}
-
-// pinLowestReadableIndex records a read lease at index, clamped up to the oldest stored index so no reservation
-// ever falls below it (the invariant pruneSealedFiles relies on). pinned is false when nothing is stored, in
-// which case no lease is registered and the caller must not release index.
-func (w *walImpl) pinLowestReadableIndex(startIndex uint64) (index uint64, pinned bool) {
-	r := w.bounds()
-	if !r.ok {
-		return 0, false
-	}
-	index = startIndex
-	if r.first > index {
-		index = r.first
-	}
-	w.indexRefs[index]++
-	return index, true
-}
-
-// releaseIndex drops one reference to a leased index, forgetting it once the count reaches zero.
-func (w *walImpl) releaseIndex(index uint64) {
-	if w.indexRefs[index] <= 1 {
-		delete(w.indexRefs, index)
-		return
-	}
-	w.indexRefs[index]--
-}
-
-// lowestReservation returns the smallest index currently leased by a live iterator, and ok=false when no lease
-// is held. A lease at index R means some iterator may still read records at or above R, so every sealed file
-// whose range reaches R or higher must be retained by pruning.
-func (w *walImpl) lowestReservation() (uint64, bool) {
-	var lowest uint64
-	found := false
-	for index := range w.indexRefs {
-		if !found || index < lowest {
-			lowest = index
-			found = true
+	for _, f := range sources {
+		src := filepath.Join(w.config.Path, f.name)
+		if err := os.Link(src, filepath.Join(dir, f.name)); err != nil {
+			return fmt.Errorf("failed to hard-link %s for iterator: %w", f.name, err)
 		}
 	}
-	return lowest, found
+	return nil
 }
 
 // bounds reports the range of record indices across all files. Owned by the writer goroutine.

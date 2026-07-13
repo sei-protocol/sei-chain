@@ -309,39 +309,6 @@ func TestFlushIOFailureBricksWAL(t *testing.T) {
 	require.Error(t, impl.asyncError())
 }
 
-// TestIteratorRotateFailureBricksWAL verifies that when the rotation performed during iterator creation fails
-// at opening the fresh mutable file (after the current file was already sealed), the WAL bricks itself rather
-// than limping on with an inconsistent mutable file and later staging a phantom sealed entry.
-func TestIteratorRotateFailureBricksWAL(t *testing.T) {
-	dir := t.TempDir()
-	w := openWAL(t, testConfig(dir))
-
-	impl, ok := w.(*walImpl)
-	require.True(t, ok)
-
-	require.NoError(t, w.Append(1, recordPayload(1)))
-	require.NoError(t, w.Flush())
-
-	// Make the rotation's newWalFile step fail while its seal step still succeeds: occupy the exact path the
-	// next mutable file wants (fileSeq 1 -> "1.wal.u") with a directory, so os.Create there fails with EISDIR.
-	// The seal renames the current file to "0-1-1.wal", unaffected by this blocker.
-	blocker := filepath.Join(dir, unsealedFileName(1))
-	require.NoError(t, os.Mkdir(blocker, 0o755))
-
-	_, err := w.Iterator(1)
-	require.Error(t, err, "iterator creation must surface the rotation failure")
-
-	select {
-	case <-impl.ctx.Done():
-	case <-time.After(5 * time.Second):
-		t.Fatal("WAL did not brick after rotation failure during iterator creation")
-	}
-
-	require.Error(t, w.Append(2, recordPayload(2)), "appends must fail on a bricked WAL")
-	require.Error(t, w.Close(), "Close must surface the fatal error")
-	require.Error(t, impl.asyncError())
-}
-
 func TestOrphanFileRecovery(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
@@ -489,10 +456,8 @@ func TestPrunePastAllRecordsEmptiesRange(t *testing.T) {
 }
 
 // TestIteratorOnEmptyWALDoesNotBlockPruning covers an iterator created over a fresh, empty WAL: its file
-// snapshot is empty, so it protects nothing and must register no read lease. If it did (pinning the raw
-// startIndex 0), that reservation would sit below every future record and wedge all pruning while the iterator
-// stayed open. Here the iterator is deliberately held open across later appends and a prune, and pruning must
-// still make progress.
+// snapshot is empty (no hard links, no private directory), so it holds nothing on disk. Held open across later
+// appends and a prune, it neither yields anything nor impedes pruning, which proceeds unconditionally.
 func TestIteratorOnEmptyWALDoesNotBlockPruning(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
@@ -523,43 +488,27 @@ func TestIteratorOnEmptyWALDoesNotBlockPruning(t *testing.T) {
 	require.NoError(t, it.Close())
 }
 
-// TestEmptyWALIteratorCloseDoesNotReleaseAnotherLease guards the release path for the empty-snapshot iterator:
-// because it registers no lease, its Close must not decrement indexRefs, or it could release a lease another
-// iterator legitimately holds at the same index (index 0 is a valid start). Here a live iterator pins index 0;
-// closing the empty-WAL iterator must leave that lease intact so index 0's file survives pruning.
-func TestEmptyWALIteratorCloseDoesNotReleaseAnotherLease(t *testing.T) {
-	dir := t.TempDir()
-	cfg := testConfig(dir)
-	cfg.TargetFileSize = 1 // one record per sealed file
-
-	w := openWAL(t, cfg)
-	defer func() { require.NoError(t, w.Close()) }()
-
-	// Created while empty: no lease registered.
-	empty, err := w.Iterator(0)
-	require.NoError(t, err)
-
-	for index := uint64(0); index <= 9; index++ {
-		appendRecord(t, w, index)
+// drainIndices reads an already-open iterator to exhaustion and returns the indices it yields.
+func drainIndices(t *testing.T, it Iterator[[]byte]) []uint64 {
+	t.Helper()
+	var indices []uint64
+	for {
+		ok, err := it.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		index, _ := it.Entry()
+		indices = append(indices, index)
 	}
-	require.NoError(t, w.Flush())
-
-	// Created after data exists: this one legitimately pins index 0.
-	pinned, err := w.Iterator(0)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, pinned.Close()) }()
-
-	// Closing the empty-snapshot iterator must not disturb the live lease at index 0.
-	require.NoError(t, empty.Close())
-
-	require.NoError(t, w.PruneBefore(100))
-	stored, first, _, err := w.Bounds()
-	require.NoError(t, err)
-	require.True(t, stored, "the live lease at index 0 must keep records from being fully pruned")
-	require.Equal(t, uint64(0), first, "closing the empty-WAL iterator must not release the other iterator's lease")
+	return indices
 }
 
-func TestActiveIteratorBlocksPruningOfNeededFiles(t *testing.T) {
+// TestActiveIteratorReadsThroughUnconditionalPruning verifies the hard-link snapshot model: pruning is
+// unconditional (it advances Bounds and removes canonical files immediately, without regard for live
+// iterators), yet an iterator opened before the prune still yields its full snapshot, because it reads through
+// its own hard links whose inodes survive the prune.
+func TestActiveIteratorReadsThroughUnconditionalPruning(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
 	cfg.TargetFileSize = 1 // one record per sealed file, so pruning works file-by-file
@@ -571,27 +520,24 @@ func TestActiveIteratorBlocksPruningOfNeededFiles(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	// Hold an iterator anchored at index 1 (the oldest). Its read lease must keep index 1's file alive.
+	// Snapshot indices 1..10 (hard-linked) at creation.
 	it, err := w.Iterator(1)
 	require.NoError(t, err)
 
+	// Pruning proceeds unconditionally: Bounds advances even though the iterator is live.
 	require.NoError(t, w.PruneBefore(5))
 	ok, first, last, err := w.Bounds()
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Equal(t, uint64(1), first, "index 1 must survive pruning while a live iterator pins it")
+	require.Equal(t, uint64(5), first, "pruning advances the range immediately; it no longer waits for iterators")
 	require.Equal(t, uint64(10), last)
 
-	// The iterator still sees the full, intact sequence.
-	require.Equal(t, []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, collectIndices(t, w, 1))
-
-	// Releasing the lease lets the same prune make progress.
+	// The live iterator still yields the full intact sequence from its hard-link snapshot.
+	require.Equal(t, []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, drainIndices(t, it))
 	require.NoError(t, it.Close())
-	require.NoError(t, w.PruneBefore(5))
-	ok, first, _, err = w.Bounds()
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, uint64(5), first)
+
+	// A fresh iterator sees only the post-prune range.
+	require.Equal(t, []uint64{5, 6, 7, 8, 9, 10}, collectIndices(t, w, 0))
 }
 
 func TestIteratorAnchoredAboveKeepPointDoesNotBlockPruning(t *testing.T) {
@@ -618,12 +564,10 @@ func TestIteratorAnchoredAboveKeepPointDoesNotBlockPruning(t *testing.T) {
 	require.Equal(t, uint64(5), first)
 }
 
-// TestIteratorInGapBlocksPruningAcrossGap covers the index gap case: indices may jump, so an iterator's read
-// lease can land in a gap between stored files. Pruning must still protect every file the iterator will read
-// (those reaching the lease index or higher), even though no file's range contains the lease index itself.
-// The directory is inspected directly rather than relying on iterator output, since the reader goroutine may
-// have buffered the files into memory before an unsafe delete.
-func TestIteratorInGapBlocksPruningAcrossGap(t *testing.T) {
+// TestIteratorAcrossGapReadsThroughPruning covers the index-gap case: indices may jump, so an iterator's
+// snapshot spans a gap between files. Unconditional pruning removes the canonical files, but the iterator
+// reads its gap-spanning snapshot through its hard links.
+func TestIteratorAcrossGapReadsThroughPruning(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
 	cfg.TargetFileSize = 1 // one record per sealed file
@@ -631,34 +575,36 @@ func TestIteratorInGapBlocksPruningAcrossGap(t *testing.T) {
 
 	w := openWAL(t, cfg)
 	defer func() { require.NoError(t, w.Close()) }()
-	// Indices 1,2,3 then a legal jump to 10,11,12. The lease index 5 falls in the gap (3, 10).
+	// Indices 1,2,3 then a legal jump to 10,11,12. The start index 5 falls in the gap (3, 10).
 	for _, index := range []uint64{1, 2, 3, 10, 11, 12} {
 		appendRecord(t, w, index)
 	}
 	require.NoError(t, w.Flush())
 
+	// Snapshot links the files reaching index 5 or higher: those for 10, 11, 12. Files 1,2,3 are below the
+	// start and are not linked.
 	it, err := w.Iterator(5)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
-	// Prune(12) would remove every file with last index < 12, but the live lease at 5 must keep the files for
-	// indices 10 and 11 (both >= 5). Only the files entirely below the lease (indices 1,2,3) may be dropped.
+	// Prune(12) removes every canonical file with last index < 12 (indices 1,2,3,10,11); only 12 remains named.
 	require.NoError(t, w.PruneBefore(12))
-	_, _, _, err = w.Bounds() // synchronous round-trip forces the async prune to complete
+	ok, first, last, err := w.Bounds() // synchronous round-trip forces the async prune to complete
 	require.NoError(t, err)
-
+	require.True(t, ok)
+	require.Equal(t, uint64(12), first)
+	require.Equal(t, uint64(12), last)
 	names := sealedFileNames(t, dir)
-	require.Contains(t, names, sealedFileName(3, 10, 10), "file for index 10 must survive while iterator(5) is live")
-	require.Contains(t, names, sealedFileName(4, 11, 11), "file for index 11 must survive while iterator(5) is live")
-	require.NotContains(t, names, sealedFileName(0, 1, 1), "file for index 1 is below the lease and should be pruned")
+	require.NotContains(t, names, sealedFileName(3, 10, 10), "canonical file for index 10 is pruned")
 
-	require.Equal(t, []uint64{10, 11, 12}, collectIndices(t, w, 5))
+	// The live iterator still yields the gap-spanning snapshot through its hard links.
+	require.Equal(t, []uint64{10, 11, 12}, drainIndices(t, it))
 }
 
-// TestIteratorLeaseInsideFileRangeBlocksPruning checks the boundary where the lease index sits within the kept
-// window: an iterator anchored at 5 must keep indices 5..10 even as pruning is asked to drop through a higher
-// point, because those files reach the lease index or higher.
-func TestIteratorLeaseInsideFileRangeBlocksPruning(t *testing.T) {
+// TestIteratorReadsThroughPruningPastAnchor checks the boundary where the start index sits within the kept
+// window: an iterator anchored at 5 keeps yielding 5..10 through its hard links even as pruning removes the
+// canonical files up through a higher point.
+func TestIteratorReadsThroughPruningPastAnchor(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
 	cfg.TargetFileSize = 1 // one record per sealed file
@@ -678,9 +624,103 @@ func TestIteratorLeaseInsideFileRangeBlocksPruning(t *testing.T) {
 	ok, first, last, err := w.Bounds()
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Equal(t, uint64(5), first, "lease at 5 must keep records from 5 onward")
+	require.Equal(t, uint64(8), first, "pruning advances past the iterator's anchor unconditionally")
 	require.Equal(t, uint64(10), last)
-	require.Equal(t, []uint64{5, 6, 7, 8, 9, 10}, collectIndices(t, w, 5))
+	require.Equal(t, []uint64{5, 6, 7, 8, 9, 10}, drainIndices(t, it))
+}
+
+// TestIteratorDoesNotSealMutableFile verifies the core of the change: opening an iterator over records still
+// in the mutable file reads them via a hard-link snapshot without sealing or rotating, so frequent iteration
+// creates no sealed files and the mutable file keeps accepting contiguous appends.
+func TestIteratorDoesNotSealMutableFile(t *testing.T) {
+	dir := t.TempDir()
+	w := openWAL(t, testConfig(dir)) // large default target: no size-based rotation
+	defer func() { require.NoError(t, w.Close()) }()
+	for index := uint64(1); index <= 3; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Flush())
+	require.Equal(t, 0, countSealedFiles(t, dir), "records stay in the mutable file; nothing sealed yet")
+
+	it, err := w.Iterator(1)
+	require.NoError(t, err)
+	require.Equal(t, 0, countSealedFiles(t, dir), "opening an iterator must not seal the mutable file")
+	require.Equal(t, []uint64{1, 2, 3}, drainIndices(t, it))
+	require.NoError(t, it.Close())
+
+	// The mutable file is untouched, so appends continue contiguously.
+	appendRecord(t, w, 4)
+	require.NoError(t, w.Flush())
+	require.Equal(t, []uint64{1, 2, 3, 4}, collectIndices(t, w, 1))
+}
+
+// TestIteratorExcludesRecordsAppendedAfterCreation verifies the point-in-time cap: records appended (and
+// durably flushed) into the mutable file after the iterator was created are excluded, even though the reader's
+// hard link points at the same, now-larger inode.
+func TestIteratorExcludesRecordsAppendedAfterCreation(t *testing.T) {
+	dir := t.TempDir()
+	w := openWAL(t, testConfig(dir))
+	defer func() { require.NoError(t, w.Close()) }()
+	for index := uint64(1); index <= 3; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Flush())
+
+	it, err := w.Iterator(1) // snapshot caps at index 3
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	appendRecord(t, w, 4)
+	appendRecord(t, w, 5)
+	require.NoError(t, w.Flush())
+
+	require.Equal(t, []uint64{1, 2, 3}, drainIndices(t, it))
+}
+
+// TestIteratorSnapshotDirLifecycle verifies that an iterator's private hard-link directory exists while it is
+// open and is removed on Close.
+func TestIteratorSnapshotDirLifecycle(t *testing.T) {
+	dir := t.TempDir()
+	w := openWAL(t, testConfig(dir))
+	defer func() { require.NoError(t, w.Close()) }()
+	for index := uint64(1); index <= 3; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Flush())
+
+	it, err := w.Iterator(1)
+	require.NoError(t, err)
+
+	linkDir := iteratorLinkDir(dir, 0) // first iterator gets serial 0
+	info, err := os.Stat(linkDir)
+	require.NoError(t, err, "the iterator's snapshot directory must exist while it is open")
+	require.True(t, info.IsDir())
+
+	require.NoError(t, it.Close())
+	_, err = os.Stat(linkDir)
+	require.True(t, os.IsNotExist(err), "Close must remove the iterator's snapshot directory")
+}
+
+// TestStartupBlastsIteratorLinks verifies that hard-link snapshots left by a crashed prior session are blasted
+// at the next open.
+func TestStartupBlastsIteratorLinks(t *testing.T) {
+	dir := t.TempDir()
+	w := openWAL(t, testConfig(dir))
+	for index := uint64(1); index <= 3; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Close())
+
+	// Simulate iterator hard links left behind by a crash.
+	stray := iteratorLinkDir(dir, 7)
+	require.NoError(t, os.MkdirAll(stray, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(stray, "leftover"), []byte("x"), 0o600))
+
+	w2 := openWAL(t, testConfig(dir))
+	defer func() { require.NoError(t, w2.Close()) }()
+
+	_, err := os.Stat(iteratorRoot(dir))
+	require.True(t, os.IsNotExist(err), "startup must blast the entire iterator link tree")
 }
 
 func TestScanRejectsGapInSealedFiles(t *testing.T) {

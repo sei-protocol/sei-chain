@@ -31,6 +31,9 @@ const (
 	walSealedExtension = ".wal"
 	// The serialization version written into each file's header. Bumped if the on-disk format changes.
 	walFormatVersion = byte(1)
+	// The subdirectory of the WAL directory holding per-iterator hard-link snapshots. Each live iterator owns
+	// iterator/<serial>/; the whole tree is blasted at startup (see recoverDirectory) and per-iterator on Close.
+	walIteratorDirName = "iterator"
 )
 
 // The magic prefix written at the start of every WAL file, followed by a single format-version byte.
@@ -43,6 +46,28 @@ var (
 	unsealedFileRegex = regexp.MustCompile(`^(\d+)\.wal\.u$`)
 	sealedFileRegex   = regexp.MustCompile(`^(\d+)-(\d+)-(\d+)\.wal$`)
 )
+
+// iteratorRoot is the directory under a WAL directory that holds every live iterator's hard-link snapshot. It
+// is skipped by every WAL scanner because they ignore directory entries, so its contents never look like WAL
+// files.
+func iteratorRoot(directory string) string {
+	return filepath.Join(directory, walIteratorDirName)
+}
+
+// iteratorLinkDir is the directory holding one iterator's hard-link snapshot, identified by its serial number.
+func iteratorLinkDir(directory string, serial uint64) string {
+	return filepath.Join(iteratorRoot(directory), strconv.FormatUint(serial, 10))
+}
+
+// deleteIteratorLinks blasts the entire iterator hard-link tree. Called at startup to clear links left by a
+// prior session: the links are ephemeral (never fsynced), so any survivor of a crash is safe to remove, and
+// dropping a link to an already-pruned file simply reclaims its inode.
+func deleteIteratorLinks(directory string) error {
+	if err := os.RemoveAll(iteratorRoot(directory)); err != nil {
+		return fmt.Errorf("failed to delete iterator link tree: %w", err)
+	}
+	return nil
+}
 
 // The result of parsing a WAL file name.
 type parsedFileName struct {

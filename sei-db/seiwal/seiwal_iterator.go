@@ -17,13 +17,16 @@ type iteratorResult struct {
 }
 
 // iteratorFile is one entry in an iterator's file snapshot, captured on the writer goroutine when the iterator
-// is created (see startIterator). Every snapshot file is sealed and immutable: it carries its immutable name
-// and is opened lazily by the reader, held against pruning by the iterator's read lease.
+// is created (see startIterator). name is the file's basename inside the iterator's private hard-link
+// directory. A sealed entry is immutable and verified against its [firstIndex, lastIndex] range; a non-sealed
+// entry is the hard-linked mutable file, which may still be growing, so it is parsed torn-tolerantly and
+// bounded by the iterator's maxIndex.
 type iteratorFile struct {
 	fileSeq    uint64
 	name       string
 	firstIndex uint64
 	lastIndex  uint64
+	sealed     bool
 }
 
 // walIterator iterates the WAL a record at a time, in ascending index order. A dedicated reader goroutine
@@ -32,10 +35,11 @@ type iteratorFile struct {
 // replay speed. The reader loads one file at a time, so its memory use is bounded by a single WAL file plus
 // the prefetch buffer.
 //
-// The set of files to read is snapshotted once at creation (files), so the reader walks it in O(n) without
-// re-scanning the directory. Every snapshot file is sealed and immutable (the mutable file is sealed at
-// creation, see startIterator), so its contents cannot change under the reader. A read lease (pinnedIndex)
-// holds the files the reader needs against concurrent pruning; Close releases it.
+// The set of files to read is snapshotted once at creation as hard links in a private directory (dir); the
+// reader walks that list in O(n) without re-scanning. The links keep their inodes alive against concurrent
+// rotation and pruning, so the reader always finds its files; Close removes the directory. Records above
+// maxIndex — the highest index stored at creation — are refused, giving a consistent point-in-time view even
+// though the hard-linked mutable file may keep growing under the reader.
 type walIterator struct {
 	// The WAL this iterator reads from.
 	wal *walImpl
@@ -43,13 +47,13 @@ type walIterator struct {
 	// The lowest index the consumer asked for; records below it are skipped.
 	start uint64
 
-	// The index pinned as this iterator's read lease, released on Close. Only meaningful when hasPin is true.
-	pinnedIndex uint64
+	// The highest index this iterator yields; records above it (appended after creation, or written to the
+	// hard-linked mutable file after the snapshot) are refused, fixing the point-in-time view.
+	maxIndex uint64
 
-	// Whether a read lease was registered for this iterator. False when the iterator was created over an empty
-	// file snapshot (nothing to protect from pruning); Close then skips the release so it cannot decrement a
-	// lease another iterator holds at the same index.
-	hasPin bool
+	// The iterator's private directory of hard-link snapshots (iterator/<serial>/), removed by Close. Empty
+	// when the iterator has no files to read, in which case Close removes nothing.
+	dir string
 
 	// Records produced by the reader goroutine. Closed by the reader on clean EOF.
 	results chan iteratorResult
@@ -85,23 +89,22 @@ type walIterator struct {
 }
 
 // newWalIterator creates an iterator over wal starting at startIndex and launches its reader goroutine.
-// pinnedIndex is the read lease registered on the iterator's behalf, released by Close; hasPin reports whether
-// a lease was actually registered (false for an empty file snapshot, in which case Close registers no release).
-// files is the snapshot of files to read (captured on the writer goroutine). prefetch is the number of records
-// the reader may buffer ahead of the consumer.
+// maxIndex is the highest index it will yield. files is the snapshot of hard-linked files to read (captured on
+// the writer goroutine), living under dir; Close removes dir (empty dir means nothing to read and nothing to
+// remove). prefetch is the number of records the reader may buffer ahead of the consumer.
 func newWalIterator(
 	wal *walImpl,
 	startIndex uint64,
-	pinnedIndex uint64,
-	hasPin bool,
+	maxIndex uint64,
+	dir string,
 	files []iteratorFile,
 	prefetch uint,
 ) *walIterator {
 	it := &walIterator{
 		wal:          wal,
 		start:        startIndex,
-		pinnedIndex:  pinnedIndex,
-		hasPin:       hasPin,
+		maxIndex:     maxIndex,
+		dir:          dir,
 		results:      make(chan iteratorResult, prefetch),
 		stop:         make(chan struct{}),
 		readerExited: make(chan struct{}),
@@ -157,9 +160,11 @@ func (it *walIterator) Entry() (uint64, []byte) {
 func (it *walIterator) Close() error {
 	it.closeOnce.Do(func() {
 		close(it.stop)    // tell the reader to stop if it is mid-read
-		<-it.readerExited // wait for it to actually exit before releasing resources
-		if it.hasPin {
-			it.wal.unpinIndex(it.pinnedIndex)
+		<-it.readerExited // wait for it to actually exit before releasing its file handles
+		if it.dir != "" {
+			// Remove this iterator's hard-link snapshot, freeing any inode it was the last link to. Best-effort:
+			// a leftover is reclaimed by the startup blast. The reader has exited, so no handle is open here.
+			_ = os.RemoveAll(it.dir)
 		}
 	})
 	it.done = true
@@ -243,23 +248,29 @@ func (it *walIterator) loadNextFile() (bool, error) {
 			return false, err
 		}
 
-		parsed := parsedFileName{fileSeq: f.fileSeq, firstIndex: f.firstIndex, lastIndex: f.lastIndex, sealed: true}
+		parsed := parsedFileName{fileSeq: f.fileSeq, firstIndex: f.firstIndex, lastIndex: f.lastIndex, sealed: f.sealed}
 		contents, err := readWalFileFromHandle(handle, parsed)
 		if err != nil {
 			return false, fmt.Errorf("failed to read WAL file (sequence %d) during iteration: %w", f.fileSeq, err)
 		}
 
-		// A sealed file is durable and complete, so its content must span the [first, last] range its name
-		// promises. Fail loudly on any shortfall (interior corruption) instead of silently under-yielding while
-		// Bounds/GetStoredRange keep reporting the full range. This mirrors the check run eagerly at open by
-		// validateSealedFiles.
-		if err := verifySealedContents(contents, f.fileSeq, f.firstIndex, f.lastIndex); err != nil {
-			return false, err
+		if f.sealed {
+			// A sealed file is durable and complete, so its content must span the [first, last] range its name
+			// promises. Fail loudly on any shortfall (interior corruption) instead of silently under-yielding while
+			// Bounds/GetStoredRange keep reporting the full range. This mirrors the check run eagerly at open by
+			// validateSealedFiles. The non-sealed mutable snapshot is skipped: it may hold records past maxIndex and
+			// a torn tail from concurrent writing, both handled below.
+			if err := verifySealedContents(contents, f.fileSeq, f.firstIndex, f.lastIndex); err != nil {
+				return false, err
+			}
 		}
 
 		for _, record := range contents.records {
 			if record.index < it.start {
 				continue
+			}
+			if record.index > it.maxIndex {
+				break // beyond the point-in-time snapshot; records ascend, so nothing further qualifies
 			}
 			it.buffer = append(it.buffer, record)
 		}
@@ -267,10 +278,11 @@ func (it *walIterator) loadNextFile() (bool, error) {
 	}
 }
 
-// openFile opens a snapshot file by its immutable sealed name. The read lease keeps the file alive against
-// pruning, so the open cannot miss it. readWalFileFromHandle closes the returned handle after reading.
+// openFile opens a snapshot file from the iterator's private hard-link directory. The hard link keeps the
+// underlying inode alive against rotation and pruning, so the open cannot miss it even after the WAL removed
+// the file's canonical name. readWalFileFromHandle closes the returned handle after reading.
 func (it *walIterator) openFile(f *iteratorFile) (*os.File, error) {
-	path := filepath.Join(it.wal.config.Path, f.name)
+	path := filepath.Join(it.dir, f.name)
 	handle, err := os.Open(path) //nolint:gosec // path derived from the writer's file snapshot
 	if err != nil {
 		return nil, fmt.Errorf("failed to open WAL file %s during iteration: %w", f.name, err)
