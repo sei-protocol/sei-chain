@@ -183,8 +183,8 @@ func TestGenericWALRollback(t *testing.T) {
 	}
 	require.NoError(t, w.Close())
 
-	w2, err := NewGenericWALWithRollback[string](cfg, 3, stringSerialize, stringDeserialize)
-	require.NoError(t, err)
+	require.NoError(t, PruneAfter(cfg.Path, 3))
+	w2 := openStringWAL(t, cfg)
 	defer func() { require.NoError(t, w2.Close()) }()
 
 	ok, first, last, err := w2.Bounds()

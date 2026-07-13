@@ -51,15 +51,34 @@ func New(config *Config) (StateWAL, error) {
 	return newStateWAL(wal)
 }
 
-// NewWithRollback opens a state WAL and deletes all data for blocks beyond rollbackBlockNumber before
-// returning, so the WAL contains no block greater than rollbackBlockNumber.
-func NewWithRollback(config *Config, rollbackBlockNumber uint64) (StateWAL, error) {
-	wal, err := seiwal.NewGenericWALWithRollback[[]*proto.NamedChangeSet](
-		config.toSeiwalConfig(), rollbackBlockNumber, serializeChangesets, deserializeChangesets)
+// GetRange reports the range of block numbers stored in the state WAL directory configured by config,
+// without constructing a live StateWAL. Like the seiwal function it wraps, it runs the recovery/sanity pass
+// (which seals any unsealed file left by a prior session) before reading, so it mutates the directory.
+//
+// NOT SAFE FOR CONCURRENT USE with a live StateWAL, or with another GetRange/PruneAfter, on the same
+// directory: it seals and validates files a running WAL owns. Call it only while no StateWAL is open there
+// (e.g. offline, at startup before New). For a range query against a live WAL use the instance method
+// GetStoredRange instead.
+func GetRange(config *Config) (bool, uint64, uint64, error) {
+	ok, first, last, err := seiwal.GetRange(config.Path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open state WAL: %w", err)
+		return false, 0, 0, fmt.Errorf("failed to read state WAL range: %w", err)
 	}
-	return newStateWAL(wal)
+	return ok, first, last, nil
+}
+
+// PruneAfter deletes all data for blocks after highestBlockToKeep from the state WAL directory configured by
+// config, without constructing a live StateWAL. It runs the recovery/sanity pass, applies the rollback, and
+// re-validates; blocks with a number <= highestBlockToKeep are kept.
+//
+// NOT SAFE FOR CONCURRENT USE with a live StateWAL, or with another GetRange/PruneAfter, on the same
+// directory: it seals, rewrites, and removes files a running WAL owns. Call it only while no StateWAL is open
+// there (e.g. offline, at startup before New).
+func PruneAfter(config *Config, highestBlockToKeep uint64) error {
+	if err := seiwal.PruneAfter(config.Path, highestBlockToKeep); err != nil {
+		return fmt.Errorf("failed to prune state WAL: %w", err)
+	}
+	return nil
 }
 
 func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {

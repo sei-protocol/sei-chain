@@ -806,7 +806,55 @@ func TestBoundsEmpty(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestRollbackConstructor(t *testing.T) {
+func TestGetRange(t *testing.T) {
+	t.Run("empty directory reports no records", func(t *testing.T) {
+		ok, _, _, err := GetRange(t.TempDir())
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+
+	t.Run("reports the range of a cleanly closed WAL", func(t *testing.T) {
+		dir := t.TempDir()
+		w := openWAL(t, testConfig(dir))
+		for index := uint64(1); index <= 5; index++ {
+			appendRecord(t, w, index)
+		}
+		require.NoError(t, w.Close())
+
+		ok, first, last, err := GetRange(dir)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, uint64(1), first)
+		require.Equal(t, uint64(5), last)
+	})
+
+	t.Run("seals an unsealed orphan then reports the range", func(t *testing.T) {
+		dir := t.TempDir()
+		// Fabricate an orphaned unsealed file (a crash before sealing), records 1..3 intact.
+		f, err := newWalFile(dir, 0)
+		require.NoError(t, err)
+		writeRecordTo(t, f, 1, recordPayload(1))
+		writeRecordTo(t, f, 2, recordPayload(2))
+		writeRecordTo(t, f, 3, recordPayload(3))
+		require.NoError(t, f.flush(true))
+		require.NoError(t, f.file.Close())
+
+		ok, first, last, err := GetRange(dir)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, uint64(1), first)
+		require.Equal(t, uint64(3), last)
+		// GetRange sealed the orphan, so the directory now holds only the sealed file.
+		require.Equal(t, []string{sealedFileName(0, 1, 3)}, sealedFileNames(t, dir))
+
+		// A subsequent normal open round-trips cleanly against the sealed range.
+		w := openWAL(t, testConfig(dir))
+		defer func() { require.NoError(t, w.Close()) }()
+		require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w, 1))
+	})
+}
+
+func TestPruneAfter(t *testing.T) {
 	t.Run("drops whole files beyond the rollback point", func(t *testing.T) {
 		dir := t.TempDir()
 		cfg := testConfig(dir)
@@ -818,8 +866,8 @@ func TestRollbackConstructor(t *testing.T) {
 		}
 		require.NoError(t, w.Close())
 
-		w2, err := NewWALWithRollback(cfg, 3)
-		require.NoError(t, err)
+		require.NoError(t, PruneAfter(cfg.Path, 3))
+		w2 := openWAL(t, cfg)
 		defer func() { require.NoError(t, w2.Close()) }()
 
 		ok, first, last, err := w2.Bounds()
@@ -840,8 +888,8 @@ func TestRollbackConstructor(t *testing.T) {
 		}
 		require.NoError(t, w.Close())
 
-		w2, err := NewWALWithRollback(cfg, 3)
-		require.NoError(t, err)
+		require.NoError(t, PruneAfter(cfg.Path, 3))
+		w2 := openWAL(t, cfg)
 		defer func() { require.NoError(t, w2.Close()) }()
 
 		ok, first, last, err := w2.Bounds()
@@ -883,9 +931,7 @@ func TestRollbackConstructor(t *testing.T) {
 				}
 				require.NoError(t, w.Close())
 
-				w2, err := NewWALWithRollback(cfg, 3)
-				require.NoError(t, err)
-				require.NoError(t, w2.Close())
+				require.NoError(t, PruneAfter(cfg.Path, 3))
 
 				// Reopen normally; the rollback must have durably and consistently reduced the range to [1,3].
 				w3 := openWAL(t, cfg)
@@ -995,9 +1041,7 @@ func TestRollbackCrashDuringSwapWindowRecovers(t *testing.T) {
 	require.NoError(t, w2.Close())
 
 	// The subsequent rollback completes cleanly, and a normal reopen sees the consistent rolled-back range.
-	w3, err := NewWALWithRollback(cfg, 3)
-	require.NoError(t, err)
-	require.NoError(t, w3.Close())
+	require.NoError(t, PruneAfter(cfg.Path, 3))
 
 	w4 := openWAL(t, cfg)
 	defer func() { require.NoError(t, w4.Close()) }()

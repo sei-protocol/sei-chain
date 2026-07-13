@@ -150,47 +150,56 @@ type walImpl struct {
 // NewWAL opens (or creates) a byte-oriented WAL in the configured directory, recovering any files left
 // behind by a previous session. Operates on []byte payloads.
 func NewWAL(config *Config) (WAL[[]byte], error) {
-	return newWAL(config, nil)
+	return newWAL(config)
 }
 
-// NewWALWithRollback opens a byte-oriented WAL and deletes all records with an index greater than
-// rollbackIndex before returning, so the WAL contains no record with an index greater than rollbackIndex.
-func NewWALWithRollback(config *Config, rollbackIndex uint64) (WAL[[]byte], error) {
-	return newWAL(config, &rollbackIndex)
-}
-
-func newWAL(config *Config, rollbackThrough *uint64) (WAL[[]byte], error) {
-	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid WAL config: %w", err)
+// recoverDirectory brings a WAL directory into a clean, consistent on-disk state: it removes crash remnants
+// from an interrupted rollback and seals any unsealed file left behind by a prior session. After it returns,
+// every record lives in a sealed file whose name matches its content, with no orphans remaining. Shared by
+// the WAL constructor and the offline GetRange/PruneAfter utilities, so all three run the same sanity pass.
+func recoverDirectory(path string) error {
+	if err := util.EnsureDirectoryExists(path, true); err != nil {
+		return fmt.Errorf("failed to ensure WAL directory %s: %w", path, err)
 	}
-	if err := util.EnsureDirectoryExists(config.Path, true); err != nil {
-		return nil, fmt.Errorf("failed to ensure WAL directory %s: %w", config.Path, err)
-	}
-
 	// Clean up remnants of a rollback swap interrupted by a crash before scanning (see rollbackStraddlingFile):
 	// a leftover swap file from an unfinished AtomicWrite, or two sealed files sharing a sequence because the old
 	// file was not yet removed. This leaves a set where every sealed sequence is unique and name matches content.
-	if err := util.DeleteOrphanedSwapFiles(config.Path); err != nil {
-		return nil, fmt.Errorf("failed to delete orphaned swap files: %w", err)
+	if err := util.DeleteOrphanedSwapFiles(path); err != nil {
+		return fmt.Errorf("failed to delete orphaned swap files: %w", err)
 	}
-	if err := reconcileRollbackRemnants(config.Path); err != nil {
-		return nil, fmt.Errorf("failed to reconcile rollback remnants: %w", err)
+	if err := reconcileRollbackRemnants(path); err != nil {
+		return fmt.Errorf("failed to reconcile rollback remnants: %w", err)
 	}
-	if err := recoverOrphans(config.Path); err != nil {
-		return nil, fmt.Errorf("failed to recover orphaned WAL files: %w", err)
+	if err := recoverOrphans(path); err != nil {
+		return fmt.Errorf("failed to recover orphaned WAL files: %w", err)
 	}
-	if rollbackThrough != nil {
-		if err := rollbackDirectory(config.Path, *rollbackThrough); err != nil {
-			return nil, fmt.Errorf("failed to roll back WAL beyond index %d: %w", *rollbackThrough, err)
-		}
-	}
+	return nil
+}
 
-	sealedFiles, nextFileSeq, err := scanSealedFiles(config.Path)
+// scanAndValidate loads the sealed files in a directory (ascending) and verifies each one's content covers
+// exactly the index range its name promises, returning the sequence to assign the next mutable file. Call it
+// after recoverDirectory, when no unsealed files remain.
+func scanAndValidate(path string) (*util.RandomAccessDeque[*sealedFileInfo], uint64, error) {
+	sealedFiles, nextFileSeq, err := scanSealedFiles(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to scan sealed WAL files: %w", err)
+		return nil, 0, fmt.Errorf("failed to scan sealed WAL files: %w", err)
 	}
-	if err := validateSealedFiles(config.Path, sealedFiles); err != nil {
-		return nil, fmt.Errorf("corrupt sealed WAL file: %w", err)
+	if err := validateSealedFiles(path, sealedFiles); err != nil {
+		return nil, 0, fmt.Errorf("corrupt sealed WAL file: %w", err)
+	}
+	return sealedFiles, nextFileSeq, nil
+}
+
+func newWAL(config *Config) (WAL[[]byte], error) {
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid WAL config: %w", err)
+	}
+	if err := recoverDirectory(config.Path); err != nil {
+		return nil, err
+	}
+	sealedFiles, nextFileSeq, err := scanAndValidate(config.Path)
+	if err != nil {
+		return nil, err
 	}
 
 	mutable, err := newWalFile(config.Path, nextFileSeq)

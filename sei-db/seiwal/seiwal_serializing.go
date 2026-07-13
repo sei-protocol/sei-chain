@@ -115,21 +115,6 @@ func NewGenericWAL[T any](
 	return newSerializingWAL(config, inner, serialize, deserialize), nil
 }
 
-// NewGenericWALWithRollback is like NewGenericWAL but first rolls the inner WAL back so it contains no record
-// with an index greater than rollbackIndex.
-func NewGenericWALWithRollback[T any](
-	config *Config,
-	rollbackIndex uint64,
-	serialize func(T) ([]byte, error),
-	deserialize func([]byte) (T, error),
-) (WAL[T], error) {
-	inner, err := NewWALWithRollback(config, rollbackIndex)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open inner WAL: %w", err)
-	}
-	return newSerializingWAL(config, inner, serialize, deserialize), nil
-}
-
 func newSerializingWAL[T any](
 	config *Config,
 	inner WAL[[]byte],

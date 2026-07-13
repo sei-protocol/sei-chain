@@ -215,9 +215,34 @@ func TestPruneDropsOldBlocks(t *testing.T) {
 	require.Equal(t, []uint64{5, 6, 7, 8, 9, 10}, collectBlocks(t, w, 0))
 }
 
-// TestRollbackConstructor is a wrapper-level smoke test that NewWithRollback drops blocks beyond the rollback
-// point end to end (the crash-safety details are exercised in the seiwal package).
-func TestRollbackConstructor(t *testing.T) {
+// TestGetRange is a wrapper-level smoke test that the standalone GetRange reports the stored block range of a
+// directory without a live StateWAL (the seal/recovery details are exercised in the seiwal package).
+func TestGetRange(t *testing.T) {
+	t.Run("empty directory reports no blocks", func(t *testing.T) {
+		ok, _, _, err := GetRange(testConfig(t.TempDir()))
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+
+	t.Run("reports the range of a cleanly closed WAL", func(t *testing.T) {
+		cfg := testConfig(t.TempDir())
+		w := openWAL(t, cfg)
+		for block := uint64(1); block <= 4; block++ {
+			writeBlock(t, w, block)
+		}
+		require.NoError(t, w.Close())
+
+		ok, start, end, err := GetRange(cfg)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, uint64(1), start)
+		require.Equal(t, uint64(4), end)
+	})
+}
+
+// TestPruneAfter is a wrapper-level smoke test that PruneAfter drops blocks beyond the rollback point end to
+// end (the crash-safety details are exercised in the seiwal package).
+func TestPruneAfter(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		targetSize uint
@@ -236,8 +261,8 @@ func TestRollbackConstructor(t *testing.T) {
 			}
 			require.NoError(t, w.Close())
 
-			w2, err := NewWithRollback(cfg, 3)
-			require.NoError(t, err)
+			require.NoError(t, PruneAfter(cfg, 3))
+			w2 := openWAL(t, cfg)
 			defer func() { require.NoError(t, w2.Close()) }()
 
 			ok, start, end, err := w2.GetStoredRange()
