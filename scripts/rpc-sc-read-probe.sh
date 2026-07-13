@@ -85,7 +85,7 @@ set -euo pipefail
 #     TARGETS='a=http://10.0.0.1:8545,b=k8s://my-rpc-svc:8545' \
 #     ./scripts/rpc-sc-read-probe.sh
 #
-# Machine-readable output: set OUTPUT_JSON=/path to append one JSON object per
+# Machine-readable output: set OUTPUT_JSON=/path to write one JSON object per
 # target (load) or per run (check) as JSONL, in addition to the human log.
 #
 # Every long-option below also has an identically named UPPERCASE env var, e.g.
@@ -163,12 +163,13 @@ Shared:
   --rpc-timeout SEC      Per-RPC timeout (default: 5)
   --rpc-retries N        Per-RPC retries (default: 3)
   --progress-every N     Progress interval; seconds (check) or count (load) (default: 10)
-  --output-json PATH     Append machine-readable JSONL results to PATH
+  --output-json PATH     Write machine-readable JSONL results to PATH
+                         (one JSON object per target for load / per run for check)
 
 Check/monitor:
   --check-duration SEC   Sampling duration (default: 600)
   --requests-per-height N Requests sampled per node/height (default: 5)
-  --check-poll SEC       Height poll interval (default: 0.2)
+  --check-poll SEC       Backoff between sample attempts (default: 0.2)
   --verbose              Print per-height sampling detail
   --monitor-interval SEC Seconds between monitor rounds (default: 60)
   --monitor-iterations N Monitor rounds; 0 = forever (default: 0)
@@ -335,8 +336,8 @@ target_urls=()
 parse_targets() {
   local entry name spec
   local -a entries
-  # Restrict the comma IFS to the split only; resolve_spec (called below) runs
-  # helpers like `for ... $(seq)` that rely on default whitespace splitting.
+  # IFS=',' is scoped to this read only (bash prefix assignment), so the global
+  # IFS is left untouched for whitespace splitting elsewhere.
   IFS=',' read -r -a entries <<< "$TARGETS"
   for entry in "${entries[@]}"; do
     [ -z "$entry" ] && continue
@@ -352,6 +353,41 @@ parse_targets() {
     echo "no targets parsed from TARGETS='$TARGETS'" >&2; exit 2
   fi
 }
+
+# ===========================================================================
+# Shared Python preamble, prepended to both LOAD_PY and CHECK_PY so load and
+# check exercise the exact same request generator (no silent drift between the
+# two method mixes). All requests use the "latest" tag to hit the live SC path.
+# choose_request references CALL_TO/STATE_ADDRESS/STORAGE_SLOT, which each
+# program defines from the environment before the generator is ever called.
+# ===========================================================================
+read -r -d '' COMMON_PY <<'PYEOF' || true
+def choose_request(i, sc_only=False):
+    bucket = (i * 37) % 100
+    if sc_only:
+        if bucket < 44:
+            return "eth_call", [{"to": CALL_TO, "data": "0x"}, "latest"]
+        if bucket < 64:
+            return "eth_getBalance", [STATE_ADDRESS, "latest"]
+        if bucket < 82:
+            return "eth_getStorageAt", [STATE_ADDRESS, STORAGE_SLOT, "latest"]
+        return "eth_getCode", [STATE_ADDRESS, "latest"]
+    if bucket < 44:
+        return "eth_call", [{"to": CALL_TO, "data": "0x"}, "latest"]
+    if bucket < 64:
+        return "eth_getBlockByNumber", ["latest", False]
+    if bucket < 70:
+        return "eth_getLogs", [{"fromBlock": "latest", "toBlock": "latest", "address": STATE_ADDRESS}]
+    if bucket < 75:
+        return "eth_getStorageAt", [STATE_ADDRESS, STORAGE_SLOT, "latest"]
+    if bucket < 79:
+        return "eth_blockNumber", []
+    if bucket < 82:
+        return "eth_feeHistory", ["0x5", "latest", []]
+    if bucket < 92:
+        return "eth_getBalance", [STATE_ADDRESS, "latest"]
+    return "eth_getCode", [STATE_ADDRESS, "latest"]
+PYEOF
 
 # ===========================================================================
 # Load generator (Python). Keep-alive connections, optional warmup + RPS cap,
@@ -443,35 +479,8 @@ def client():
     return c
 
 
-def choose_request(i):
-    bucket = (i * 37) % 100
-    if LOAD_SC_ONLY:
-        if bucket < 44:
-            return "eth_call", [{"to": CALL_TO, "data": "0x"}, "latest"]
-        if bucket < 64:
-            return "eth_getBalance", [STATE_ADDRESS, "latest"]
-        if bucket < 82:
-            return "eth_getStorageAt", [STATE_ADDRESS, STORAGE_SLOT, "latest"]
-        return "eth_getCode", [STATE_ADDRESS, "latest"]
-    if bucket < 44:
-        return "eth_call", [{"to": CALL_TO, "data": "0x"}, "latest"]
-    if bucket < 64:
-        return "eth_getBlockByNumber", ["latest", False]
-    if bucket < 70:
-        return "eth_getLogs", [{"fromBlock": "latest", "toBlock": "latest", "address": STATE_ADDRESS}]
-    if bucket < 75:
-        return "eth_getStorageAt", [STATE_ADDRESS, STORAGE_SLOT, "latest"]
-    if bucket < 79:
-        return "eth_blockNumber", []
-    if bucket < 82:
-        return "eth_feeHistory", ["0x5", "latest", []]
-    if bucket < 92:
-        return "eth_getBalance", [STATE_ADDRESS, "latest"]
-    return "eth_getCode", [STATE_ADDRESS, "latest"]
-
-
 def encode(i):
-    method, params = choose_request(i)
+    method, params = choose_request(i, LOAD_SC_ONLY)
     body = json.dumps(
         {"jsonrpc": "2.0", "id": i, "method": method, "params": params},
         separators=(",", ":"),
@@ -560,10 +569,26 @@ def worker():
         i = next_request_id()
         if i is None:
             return
+        # Build the request and parse the response OUTSIDE the timed region so
+        # the measurement reflects network/server latency, not client-side JSON
+        # serialization/parsing (which also holds the GIL).
+        method, body = encode(i)
+        c = client()
         wait_for_rate_slot()
         start = time.perf_counter()
-        method, success = do_request(i)
+        try:
+            text = c.post(body)
+            failed = False
+        except Exception:  # noqa: BLE001 - stdlib script
+            text, failed = None, True
         elapsed = (time.perf_counter() - start) * 1000.0
+        if failed:
+            success = False
+        else:
+            try:
+                success = "error" not in json.loads(text)
+            except Exception:  # noqa: BLE001 - stdlib script
+                success = False
         with lock:
             latencies_ms.append(elapsed)
             method_latencies_ms[method].append(elapsed)
@@ -575,9 +600,11 @@ def worker():
                 err += 1
                 method_err[method] += 1
             completed = ok + err
-            if PROGRESS_EVERY > 0 and completed % PROGRESS_EVERY == 0:
-                print("LOAD_PROGRESS target=%s completed=%d ok=%d error=%d"
-                      % (TARGET_NAME, completed, ok, err), flush=True)
+        # Print progress outside the lock so the stdout write never stalls other
+        # workers waiting on the shared stats lock.
+        if PROGRESS_EVERY > 0 and completed % PROGRESS_EVERY == 0:
+            print("LOAD_PROGRESS target=%s completed=%d ok=%d error=%d"
+                  % (TARGET_NAME, completed, ok, err), flush=True)
 
 
 def percentile(sorted_values, pct):
@@ -772,35 +799,12 @@ def vlog(message):
         print(message, flush=True)
 
 
-def choose_request(i):
-    bucket = (i * 37) % 100
-    if bucket < 44:
-        return "eth_call", [{"to": CALL_TO, "data": "0x"}, "latest"]
-    if bucket < 64:
-        return "eth_getBlockByNumber", ["latest", False]
-    if bucket < 70:
-        return "eth_getLogs", [{"fromBlock": "latest", "toBlock": "latest", "address": STATE_ADDRESS}]
-    if bucket < 75:
-        return "eth_getStorageAt", [STATE_ADDRESS, STORAGE_SLOT, "latest"]
-    if bucket < 79:
-        return "eth_blockNumber", []
-    if bucket < 82:
-        return "eth_feeHistory", ["0x5", "latest", []]
-    if bucket < 92:
-        return "eth_getBalance", [STATE_ADDRESS, "latest"]
-    return "eth_getCode", [STATE_ADDRESS, "latest"]
-
-
 def short(text, limit=220):
     return text if len(text) <= limit else text[:limit] + "..."
 
 
-def current_heights():
-    return {name: block_number(url) for name, url in TARGETS}
-
-
-def capture_coherent(name, url, start_id, end_id):
-    """Capture one latency-independent sample.
+def capture_coherent(name, url):
+    """Capture one latency-independent sample of REQUESTS_PER_HEIGHT reads.
 
     Send a single batch of "latest" state reads bracketed by eth_blockNumber
     sentinels. The node processes the batch server-side (near-instant), so if
@@ -813,7 +817,7 @@ def capture_coherent(name, url, start_id, end_id):
     """
     batch = [{"jsonrpc": "2.0", "id": "bn_start", "method": "eth_blockNumber", "params": []}]
     method_by_id = {}
-    for i in range(start_id, end_id + 1):
+    for i in range(1, REQUESTS_PER_HEIGHT + 1):
         method, params = choose_request(i)
         method_by_id[i] = method
         batch.append({"jsonrpc": "2.0", "id": i, "method": method, "params": params})
@@ -851,16 +855,15 @@ def capture_coherent(name, url, start_id, end_id):
         return "crossed", None
 
     rows = []
-    for i in range(start_id, end_id + 1):
+    for i in range(1, REQUESTS_PER_HEIGHT + 1):
         item = by_id.get(i, {"jsonrpc": "2.0", "id": i, "error": "missing batch response"})
         text = json.dumps(item, sort_keys=True, separators=(",", ":"))
-        rows.append({"id": i, "method": method_by_id[i], "canonical": text, "text": text})
+        rows.append({"id": i, "method": method_by_id[i], "text": text})
     return h_start, rows
 
 
 target_names = [name for name, _ in TARGETS]
-start_heights = current_heights()
-start_height = max(start_heights.values())
+start_height = max(block_number(url) for _, url in TARGETS)
 deadline = time.time() + CHECK_DURATION
 samples = {}
 sample_lock = threading.Lock()
@@ -879,7 +882,7 @@ print(
 def watch_worker(name, url):
     seen = set()
     while time.time() < deadline and not stop_event.is_set():
-        height, rows = capture_coherent(name, url, 1, REQUESTS_PER_HEIGHT)
+        height, rows = capture_coherent(name, url)
         if height is None:
             per_node_errors[name] += 1
             time.sleep(CHECK_POLL)
@@ -887,6 +890,7 @@ def watch_worker(name, url):
         if height == "crossed":
             per_node_crossed[name] += 1
             vlog("SAMPLE_CROSSED node=%s (batch spanned a block boundary)" % name)
+            time.sleep(CHECK_POLL)
             continue
         if height < start_height or height in seen:
             time.sleep(CHECK_POLL)
@@ -942,7 +946,7 @@ for height in sorted(snapshot):
         request_ok = True
         for name in target_names[1:]:
             row = node_rows[name][idx]
-            if row["canonical"] != baseline["canonical"]:
+            if row["text"] != baseline["text"]:
                 request_ok = False
                 if mismatches < 5:
                     print(
@@ -968,8 +972,20 @@ print(
     flush=True,
 )
 
+# Verdict + distinct exit codes so callers can tell the three outcomes apart:
+#   CONSISTENT (0)   we compared samples and everything agreed
+#   MISMATCH   (1)   targets returned different results at the SAME height
+#   INCONCLUSIVE (2) nothing was comparable, so consistency was NOT verified
+if mismatches:
+    verdict, exit_code = "MISMATCH", 1
+elif comparable_heights == 0:
+    verdict, exit_code = "INCONCLUSIVE", 2
+else:
+    verdict, exit_code = "CONSISTENT", 0
+
 summary = {
-    "kind": "check", "start_height": start_height, "heights_seen": len(snapshot),
+    "kind": "check", "verdict": verdict,
+    "start_height": start_height, "heights_seen": len(snapshot),
     "comparable_heights": comparable_heights, "skipped_incomplete": incomplete_heights,
     "requests_per_height": REQUESTS_PER_HEIGHT, "matched": matches, "mismatched": mismatches,
     "targets": target_names,
@@ -978,8 +994,36 @@ summary = {
 }
 print("CHECK_RESULT_JSON " + json.dumps(summary, separators=(",", ":")), flush=True)
 
-raise SystemExit(1 if mismatches else 0)
+if verdict == "INCONCLUSIVE":
+    print(
+        "CHECK_VERDICT verdict=INCONCLUSIVE nothing_compared=1 -- no height was sampled "
+        "on ALL targets, so consistency was NOT verified (this is not a pass). Likely "
+        "causes: targets too far apart in height, slow methods causing crossed batches, "
+        "or --check-duration too short. Inspect per-node samples/crossed/errors above.",
+        flush=True,
+    )
+elif verdict == "MISMATCH":
+    print(
+        "CHECK_VERDICT verdict=MISMATCH matched=%d mismatched=%d -- targets returned "
+        "different results at the SAME height (see MISMATCH lines above)."
+        % (matches, mismatches),
+        flush=True,
+    )
+else:
+    print(
+        "CHECK_VERDICT verdict=CONSISTENT matched=%d comparable_heights=%d -- all reads "
+        "agreed at every compared height." % (matches, comparable_heights),
+        flush=True,
+    )
+
+raise SystemExit(exit_code)
 PYEOF
+
+# Prepend the shared generator so both programs define choose_request().
+LOAD_PY="$COMMON_PY
+$LOAD_PY"
+CHECK_PY="$COMMON_PY
+$CHECK_PY"
 
 # ---------------------------------------------------------------------------
 # dispatch_python CODE KEY=VAL...  -> runs CODE locally or in an ephemeral pod,
@@ -1026,24 +1070,24 @@ run_load_targets() {
   return $rc
 }
 
-build_compare_targets_payload() {
-  compare_targets_payload=""
+build_check_targets_payload() {
+  check_targets_payload=""
   local i
   for i in "${!target_names[@]}"; do
-    compare_targets_payload="${compare_targets_payload}${target_names[$i]} ${target_urls[$i]}
+    check_targets_payload="${check_targets_payload}${target_names[$i]} ${target_urls[$i]}
 "
   done
 }
 
 run_check_once() {
-  build_compare_targets_payload
+  build_check_targets_payload
   echo "== check targets=${TARGETS} duration=${CHECK_DURATION}s requests_per_height=$REQUESTS_PER_HEIGHT =="
   dispatch_python "$CHECK_PY" \
     "CHECK_DURATION=$CHECK_DURATION" "REQUESTS_PER_HEIGHT=$REQUESTS_PER_HEIGHT" \
     "CHECK_POLL=$CHECK_POLL" "RPC_TIMEOUT=$RPC_TIMEOUT" "RPC_RETRIES=$RPC_RETRIES" \
     "PROGRESS_EVERY=$PROGRESS_EVERY" "VERBOSE=$VERBOSE" "CALL_TO=$CALL_TO" \
     "STATE_ADDRESS=$STATE_ADDRESS" "STORAGE_SLOT=$STORAGE_SLOT" \
-    "TARGETS_PAYLOAD=$compare_targets_payload"
+    "TARGETS_PAYLOAD=$check_targets_payload"
 }
 
 run_monitor() {
