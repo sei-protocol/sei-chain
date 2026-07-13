@@ -27,7 +27,7 @@ sc-historical-proof-burst = {{ .StateCommit.HistoricalProofBurst }}
 sc-async-commit-buffer = {{ .StateCommit.MemIAVLConfig.AsyncCommitBuffer }}
 
 # KeepRecent defines how many state-commit snapshots (besides the latest one) to keep.
-# Defaults to 2. The minimum is 1: a configured value of 0 is overridden to 1.
+# Defaults to 1: a configured value of 0 is overridden to 1.
 sc-keep-recent = {{ .StateCommit.MemIAVLConfig.SnapshotKeepRecent }}
 
 # SnapshotInterval defines the block interval the snapshot is taken, default to 10000 blocks.

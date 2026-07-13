@@ -105,7 +105,7 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	// preserve the in-code default from DefaultStateCommitConfig above rather
 	// than reading back the zero value (cast.To*(nil) == 0/false) and clobbering
 	// it. This matters for keys whose default is non-zero (async-commit-buffer
-	// 100, snapshot-interval 10000, keep-recent 2, ...) so a config that omits a
+	// 100, snapshot-interval 10000, keep-recent 1, ...) so a config that omits a
 	// key does not silently downgrade the node (e.g. to synchronous commits).
 	if v := appOpts.Get(FlagSCAsyncCommitBuffer); v != nil {
 		scConfig.MemIAVLConfig.AsyncCommitBuffer = cast.ToInt(v)

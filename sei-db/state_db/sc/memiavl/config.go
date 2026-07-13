@@ -20,7 +20,7 @@ type Config struct {
 	AsyncCommitBuffer int `mapstructure:"async-commit-buffer"`
 
 	// SnapshotKeepRecent defines how many old snapshots (excluding the latest one) to keep.
-	// Defaults to 2; a configured value of 0 is overridden to the default by FillDefaults.
+	// Defaults to 1; a configured value of 0 is overridden to the default by FillDefaults.
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// SnapshotInterval defines the block interval the memiavl snapshot is taken, default to 10000.
