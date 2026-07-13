@@ -1,5 +1,7 @@
 package seiwal
 
+import "fmt"
+
 // WAL is a generic, index-keyed, append-only write-ahead log over payloads of type T.
 //
 // Each record is tagged with a caller-provided monotonic index. The index is what makes garbage
@@ -91,4 +93,23 @@ type Iterator[T any] interface {
 
 	// Close releases the resources held by the iterator.
 	Close() error
+}
+
+// NewWAL opens (or creates) a byte-oriented WAL in the configured directory, recovering any files left
+// behind by a previous session. Operates on []byte payloads.
+func NewWAL(config *Config) (WAL[[]byte], error) {
+	return newWAL(config)
+}
+
+// NewGenericWAL opens a WAL over payloads of type T that does serialization on a background goroutine.
+func NewGenericWAL[T any](
+	config *Config,
+	serialize func(T) ([]byte, error),
+	deserialize func([]byte) (T, error),
+) (WAL[T], error) {
+	inner, err := NewWAL(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open inner WAL: %w", err)
+	}
+	return newSerializingWAL(config, inner, serialize, deserialize), nil
 }

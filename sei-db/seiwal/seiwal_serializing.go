@@ -102,19 +102,6 @@ type serializingWAL[T any] struct {
 	closed bool
 }
 
-// NewGenericWAL opens a WAL over payloads of type T that does serialization on a background goroutine.
-func NewGenericWAL[T any](
-	config *Config,
-	serialize func(T) ([]byte, error),
-	deserialize func([]byte) (T, error),
-) (WAL[T], error) {
-	inner, err := NewWAL(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open inner WAL: %w", err)
-	}
-	return newSerializingWAL(config, inner, serialize, deserialize), nil
-}
-
 func newSerializingWAL[T any](
 	config *Config,
 	inner WAL[[]byte],

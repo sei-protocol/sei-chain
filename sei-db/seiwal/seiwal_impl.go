@@ -147,12 +147,6 @@ type walImpl struct {
 	indexRefs map[uint64]int
 }
 
-// NewWAL opens (or creates) a byte-oriented WAL in the configured directory, recovering any files left
-// behind by a previous session. Operates on []byte payloads.
-func NewWAL(config *Config) (WAL[[]byte], error) {
-	return newWAL(config)
-}
-
 // recoverDirectory brings a WAL directory into a clean, consistent on-disk state: it removes crash remnants
 // from an interrupted rollback and seals any unsealed file left behind by a prior session. After it returns,
 // every record lives in a sealed file whose name matches its content, with no orphans remaining. Shared by
