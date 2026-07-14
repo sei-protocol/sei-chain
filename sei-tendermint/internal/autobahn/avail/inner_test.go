@@ -1,6 +1,7 @@
 package avail
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
@@ -14,9 +15,10 @@ import (
 )
 
 func newTestDataState(t testing.TB, cfg *data.Config) *data.State {
+	t.Helper()
 	s, err := data.NewState(cfg, memblock.NewBlockDB())
 	if err != nil {
-		t.Fatalf("data.NewState: %v", err)
+		panic(fmt.Sprintf("data.NewState: %v", err))
 	}
 	return s
 }

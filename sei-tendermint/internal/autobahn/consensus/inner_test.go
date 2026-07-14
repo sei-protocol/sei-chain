@@ -24,11 +24,11 @@ func newTestBlockDB(t *testing.T, dir string) types.BlockDB {
 	t.Helper()
 	cfg, err := littblock.DefaultConfig(dir)
 	if err != nil {
-		t.Fatalf("littblock.DefaultConfig: %v", err)
+		panic(fmt.Sprintf("littblock.DefaultConfig: %v", err))
 	}
 	db, err := littblock.NewBlockDB(cfg)
 	if err != nil {
-		t.Fatalf("littblock.NewBlockDB: %v", err)
+		panic(fmt.Sprintf("littblock.NewBlockDB: %v", err))
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db

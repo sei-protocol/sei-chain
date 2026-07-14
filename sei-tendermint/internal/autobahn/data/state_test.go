@@ -49,42 +49,53 @@ func snapshot(s *State) Snapshot {
 
 // newTestBlockDB opens (or creates) a LittDB-backed BlockDB at dir.
 // Retention is set to 1ns so ForceGC reclaims pruned data immediately in tests.
+// Errors panic so the helper is safe to call from non-main test goroutines.
 func newTestBlockDB(t *testing.T, dir string) types.BlockDB {
 	t.Helper()
 	cfg, err := littblock.DefaultConfig(dir)
 	if err != nil {
-		t.Fatalf("littblock.DefaultConfig: %v", err)
+		panic(fmt.Sprintf("littblock.DefaultConfig: %v", err))
 	}
 	cfg.Retention = time.Nanosecond
 	db, err := littblock.NewBlockDB(cfg)
 	if err != nil {
-		t.Fatalf("littblock.NewBlockDB: %v", err)
+		panic(fmt.Sprintf("littblock.NewBlockDB: %v", err))
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
 // newTestState constructs a State, replays db, and returns it ready to Run.
+// Errors panic so the helper is safe to call from non-main test goroutines.
 func newTestState(t testing.TB, cfg *Config, db types.BlockDB) *State {
 	t.Helper()
 	s, err := NewState(cfg, db)
-	require.NoError(t, err)
+	if err != nil {
+		panic(fmt.Sprintf("NewState: %v", err))
+	}
 	return s
 }
 
 // writeToBlockDB writes QC+block pairs sequentially to db and flushes once.
 // qcs[i] and blockss[i] must correspond; QCs must be in ascending order.
+// Errors panic so the helper is safe to call from non-main test goroutines.
 func writeToBlockDB(t *testing.T, db types.BlockDB, qcs []*types.FullCommitQC, blockss [][]*types.Block) {
 	t.Helper()
 	for i, qc := range qcs {
 		gr := qc.QC().GlobalRange()
-		require.NoError(t, db.WriteQC(gr.First, gr.Next, qc))
+		if err := db.WriteQC(gr.First, gr.Next, qc); err != nil {
+			panic(fmt.Sprintf("WriteQC: %v", err))
+		}
 		for j, n := 0, gr.First; n < gr.Next; n++ {
-			require.NoError(t, db.WriteBlock(n, blockss[i][j]))
+			if err := db.WriteBlock(n, blockss[i][j]); err != nil {
+				panic(fmt.Sprintf("WriteBlock: %v", err))
+			}
 			j++
 		}
 	}
-	require.NoError(t, db.Flush())
+	if err := db.Flush(); err != nil {
+		panic(fmt.Sprintf("Flush: %v", err))
+	}
 }
 
 func TestState(t *testing.T) {
