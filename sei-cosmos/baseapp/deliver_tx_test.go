@@ -1576,8 +1576,7 @@ func TestInfo(t *testing.T) {
 	app := newBaseApp(t.Name())
 
 	// ----- test an empty response -------
-	reqInfo := abci.RequestInfo{}
-	res, _ := app.Info(context.Background(), &reqInfo)
+	res := app.Info()
 
 	// should be empty
 	assert.Equal(t, "", res.Version)

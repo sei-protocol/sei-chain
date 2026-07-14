@@ -704,10 +704,7 @@ func testHandshakeReplay(
 	require.NoError(t, err, "Error on abci handshake")
 
 	// get the latest app hash from the app
-	res, err := proxyApp.Info(ctx, &abci.RequestInfo{Version: ""})
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := proxyApp.Info()
 
 	// the app hash should be synced up
 	if !bytes.Equal(latestAppHash, res.LastBlockAppHash) {

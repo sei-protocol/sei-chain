@@ -15,7 +15,7 @@ import (
 //go:generate ../../scripts/mockery_generate.sh Application
 type Application interface {
 	// Info/Query Connection
-	Info(context.Context, *RequestInfo) (*ResponseInfo, error)    // Return application info
+	Info() *ResponseInfo                                          // Return application info
 	Query(context.Context, *RequestQuery) (*ResponseQuery, error) // Query for state
 	GetValidators() []ValidatorUpdate
 	// LastBlockHeight returns the height of the most recently committed
@@ -52,8 +52,8 @@ var _ Application = BaseApplication{}
 
 type BaseApplication struct{}
 
-func (BaseApplication) Info(_ context.Context, req *RequestInfo) (*ResponseInfo, error) {
-	return &ResponseInfo{}, nil
+func (BaseApplication) Info() *ResponseInfo {
+	return &ResponseInfo{}
 }
 func (BaseApplication) GetValidators() []ValidatorUpdate { return nil }
 func (BaseApplication) LastBlockHeight() int64           { return 0 }

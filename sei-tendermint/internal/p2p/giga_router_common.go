@@ -25,7 +25,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 // maxInboundFullnodePeers caps GigaRouterCommonConfig.MaxInboundFullnodePeers.
@@ -351,10 +350,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 
 	app := r.app
 
-	info, err := app.Info(ctx, &version.RequestInfo)
-	if err != nil {
-		return fmt.Errorf("App.Info(): %w", err)
-	}
+	info := app.Info()
 	last, ok := utils.SafeCast[atypes.GlobalBlockNumber](info.LastBlockHeight)
 	if !ok {
 		return fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)

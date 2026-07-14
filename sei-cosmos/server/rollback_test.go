@@ -60,8 +60,8 @@ func (m *mockApplication) Close() error {
 }
 
 // Implement other required methods with no-ops
-func (m *mockApplication) Info(ctx context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
-	return &abci.ResponseInfo{}, nil
+func (m *mockApplication) Info() *abci.ResponseInfo {
+	return &abci.ResponseInfo{}
 }
 
 func (m *mockApplication) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {

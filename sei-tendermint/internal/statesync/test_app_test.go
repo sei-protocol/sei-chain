@@ -46,7 +46,7 @@ type testStatesyncApp struct {
 	applySnapshotChunk Queue[*abci.RequestApplySnapshotChunk, *abci.ResponseApplySnapshotChunk]
 	listSnapshots      Queue[*abci.RequestListSnapshots, *abci.ResponseListSnapshots]
 	loadSnapshotChunk  Queue[*abci.RequestLoadSnapshotChunk, *abci.ResponseLoadSnapshotChunk]
-	info               Queue[*abci.RequestInfo, *abci.ResponseInfo]
+	info               Queue[struct{}, *abci.ResponseInfo]
 }
 
 func newTestStatesyncApp() *testStatesyncApp {
@@ -82,11 +82,13 @@ func (app *testStatesyncApp) LoadSnapshotChunk(ctx context.Context, req *abci.Re
 	return h(ctx, req)
 }
 
-func (app *testStatesyncApp) Info(ctx context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
+func (app *testStatesyncApp) Info() *abci.ResponseInfo {
 	app.mu.Lock()
 	h := app.info.Pop()
 	app.mu.Unlock()
-	return h(ctx, req)
+	res, err := h(context.Background(), struct{}{})
+	utils.OrPanic(err)
+	return res
 }
 
 func (app *testStatesyncApp) AssertExpectations(t testing.TB) {

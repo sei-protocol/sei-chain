@@ -107,7 +107,7 @@ func (app *BaseApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitCha
 }
 
 // Info implements the ABCI interface.
-func (app *BaseApp) Info(ctx context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
+func (app *BaseApp) Info() *abci.ResponseInfo {
 	lastCommitID := app.cms.LastCommitID()
 
 	return &abci.ResponseInfo{
@@ -117,7 +117,7 @@ func (app *BaseApp) Info(ctx context.Context, req *abci.RequestInfo) (*abci.Resp
 		LastBlockHeight:  lastCommitID.Version,
 		LastBlockAppHash: lastCommitID.Hash,
 		MinimumGasPrices: app.minGasPrices.String(),
-	}, nil
+	}
 }
 
 func (app *BaseApp) MidBlock(ctx sdk.Context, height int64) (events []abci.Event) {

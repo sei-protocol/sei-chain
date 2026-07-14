@@ -85,9 +85,9 @@ func (app *Proxy) InitLastHeader(lastHeader *tmproto.Header) {
 	app.app.InitLastHeader(lastHeader)
 }
 
-func (app *Proxy) Info(ctx context.Context, req *types.RequestInfo) (*types.ResponseInfo, error) {
+func (app *Proxy) Info() *types.ResponseInfo {
 	defer addTimeSample(Global.MethodTimingAt("info", "sync"))()
-	return app.app.Info(ctx, req)
+	return app.app.Info()
 }
 
 func (app *Proxy) Query(ctx context.Context, req *types.RequestQuery) (*types.ResponseQuery, error) {

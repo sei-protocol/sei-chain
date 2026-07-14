@@ -32,8 +32,7 @@ func testKVStore(ctx context.Context, t *testing.T, app types.Application, tx []
 	_, err = app.Commit(ctx)
 	require.NoError(t, err)
 
-	info, err := app.Info(ctx, &types.RequestInfo{})
-	require.NoError(t, err)
+	info := app.Info()
 	require.NotZero(t, info.LastBlockHeight)
 
 	// make sure query is fine

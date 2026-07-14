@@ -110,7 +110,7 @@ func NewApplication(cfg *Config) (*Application, error) {
 }
 
 // Info implements ABCI.
-func (app *Application) Info(_ context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
+func (app *Application) Info() *abci.ResponseInfo {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
@@ -119,7 +119,7 @@ func (app *Application) Info(_ context.Context, req *abci.RequestInfo) (*abci.Re
 		AppVersion:       1,
 		LastBlockHeight:  int64(app.state.Height), //nolint:gosec // Height is a non-negative block height
 		LastBlockAppHash: app.state.Hash,
-	}, nil
+	}
 }
 
 // Info implements ABCI.

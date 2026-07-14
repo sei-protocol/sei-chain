@@ -10,9 +10,7 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 func TestSyncer_verifyApp(t *testing.T) {
@@ -56,8 +54,7 @@ func TestSyncer_verifyApp(t *testing.T) {
 			rts := setup(t, nil, nil, true)
 
 			app := rts.conn
-			app.info.Push(func(_ context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
-				utils.OrPanic(utils.TestDiff(&version.RequestInfo, req))
+			app.info.Push(func(_ context.Context, _ struct{}) (*abci.ResponseInfo, error) {
 				return tc.response, tc.err
 			})
 			err := rts.reactor.syncer.verifyApp(ctx, s, appVersion)
