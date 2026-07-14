@@ -183,6 +183,21 @@ type BlockDB interface {
 	// issuance).
 	Flush() error
 
+	// WriteHighWaterMarks returns the block and QC write tips as one
+	// consistent snapshot. LastBlockNumber is the highest GlobalBlockNumber
+	// accepted by WriteBlock (utils.None if none). LastQCNext is the
+	// exclusive upper bound of the last WriteQC — the lowerBound the next
+	// contiguous WriteQC must use (utils.None if none).
+	//
+	// These are the in-memory write cursors used to enforce Write ordering
+	// (recovered at open); the call does not perform I/O. Because
+	// PruneBefore never removes the newest written cohort, the tips always
+	// describe records that are still present and readable: LastBlockNumber
+	// equals the highest number a reverse Blocks iterator would yield, and
+	// LastQCNext equals GlobalRange().Next of the QC a reverse QCs
+	// iterator would yield.
+	WriteHighWaterMarks() WriteHighWaterMarks
+
 	// Blocks returns an iterator over every persisted block not yet
 	// pruned, for startup replay. Intended to be called once at
 	// construction by data.State.NewState.
@@ -267,6 +282,13 @@ type BlockDB interface {
 	// no other method may be called on the BlockDB; doing so is
 	// undefined.
 	Close() error
+}
+
+// WriteHighWaterMarks are the in-memory block and QC write tips returned by
+// BlockDB.WriteHighWaterMarks.
+type WriteHighWaterMarks struct {
+	LastBlockNumber utils.Option[GlobalBlockNumber]
+	LastQCNext      utils.Option[GlobalBlockNumber]
 }
 
 // BlockIterator iterates over persisted blocks in GlobalBlockNumber order —

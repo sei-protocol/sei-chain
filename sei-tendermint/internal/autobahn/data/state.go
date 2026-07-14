@@ -193,17 +193,6 @@ type State struct {
 	metrics *metrics.Metrics
 	inner   utils.Watch[*inner]
 	blockDB types.BlockDB
-	// Captured in NewState (before any goroutines start) and consumed once at
-	// the top of Run to seed runPersist. Capturing here avoids a race where a
-	// concurrent PushQC (called via an inbound connection after the transport
-	// starts but before Run's scope begins) could advance inner.nextQC/nextBlock
-	// past unpersisted data, causing runPersist to skip writing those entries.
-	//
-	// TODO: remove these once we stop caching all blocks/QCs in memory; BlockDB
-	// should expose the durable high-water marks (or serve the cache) so
-	// runPersist does not need one-shot cursors snapped out of State.
-	blockDBPersistedQC    types.GlobalBlockNumber
-	blockDBPersistedBlock types.GlobalBlockNumber
 }
 
 // NewState constructs a data State, replaying persisted state from blockDB.
@@ -220,10 +209,6 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	}
 	if err := s.loadFromBlockDB(blockDB); err != nil {
 		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
-	}
-	for inner := range s.inner.Lock() {
-		s.blockDBPersistedQC = inner.nextQC
-		s.blockDBPersistedBlock = inner.nextBlock
 	}
 	return s, nil
 }
@@ -783,7 +768,22 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 // per batch. nextBlockToPersist advances to min(persistedQC, persistedBlock)
 // to unblock PushAppHash only when both are durable.
 // Errors propagate vertically (kill the component).
-func (s *State) runPersist(ctx context.Context, persistedQC, persistedBlock types.GlobalBlockNumber) error {
+//
+// Persistence cursors are seeded from BlockDB's in-memory write high-water
+// marks, not from inner.nextQC/nextBlock. Those inner cursors can advance
+// via PushQC between NewState and Run; the BlockDB tips stay put until this
+// loop Writes, so we do not skip heights that are only in memory.
+func (s *State) runPersist(ctx context.Context) error {
+	first := s.cfg.Registry.FirstBlock()
+	tips := s.blockDB.WriteHighWaterMarks()
+	persistedQC := first
+	if n, ok := tips.LastQCNext.Get(); ok {
+		persistedQC = n
+	}
+	persistedBlock := first
+	if n, ok := tips.LastBlockNumber.Get(); ok {
+		persistedBlock = n + 1
+	}
 	evictedQC := persistedQC
 	for {
 		// Wait for unpersisted data and snapshot what needs writing.
@@ -900,7 +900,7 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		scope.SpawnNamed("runPersist", func() error {
-			return s.runPersist(ctx, s.blockDBPersistedQC, s.blockDBPersistedBlock)
+			return s.runPersist(ctx)
 		})
 		if pruneAfter, ok := s.cfg.PruneAfter.Get(); ok {
 			scope.SpawnNamed("runPruning", func() error {

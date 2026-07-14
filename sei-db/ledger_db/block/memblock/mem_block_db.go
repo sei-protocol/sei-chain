@@ -147,6 +147,19 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 
 func (s *blockDB) Flush() error { return nil }
 
+func (s *blockDB) WriteHighWaterMarks() types.WriteHighWaterMarks {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var tips types.WriteHighWaterMarks
+	if s.hasBlocks {
+		tips.LastBlockNumber = utils.Some(s.lastBlockNumber)
+	}
+	if s.hasQC {
+		tips.LastQCNext = utils.Some(s.lastQCNext)
+	}
+	return tips
+}
+
 func (s *blockDB) Blocks(reverse bool) (types.BlockIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

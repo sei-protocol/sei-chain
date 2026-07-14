@@ -328,6 +328,19 @@ func (s *blockDB) Flush() error {
 	return nil
 }
 
+func (s *blockDB) WriteHighWaterMarks() types.WriteHighWaterMarks {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var tips types.WriteHighWaterMarks
+	if s.hasBlocks {
+		tips.LastBlockNumber = utils.Some(s.lastBlockNumber)
+	}
+	if s.hasQC {
+		tips.LastQCNext = utils.Some(s.lastQCNext)
+	}
+	return tips
+}
+
 func (s *blockDB) Blocks(reverse bool) (types.BlockIterator, error) {
 	it, err := s.table.Iterator(reverse)
 	if err != nil {
