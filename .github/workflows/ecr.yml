@@ -76,6 +76,22 @@ jobs:
           build-args: |
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
             GO_BUILD_TAGS=mock_chain_validation
+      # mock_balances + mock_chain_validation combined -- the chaos suite's flavor
+      # (fresh-chain replays with synthetic txs against pre-funded accounts). The
+      # nightly pipeline builds it from main; this step makes it buildable for an
+      # arbitrary ref, so a PR head can run the full harness.
+      - name: Build and push mock_chain_validation-mock_balances seid
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock_chain_validation-mock_balances-${{ inputs.tag || inputs.ref || github.sha }}
+          build-args: |
+            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
+            GO_BUILD_TAGS=mock_balances mock_chain_validation
       - name: Build and push seid
         uses: docker/build-push-action@v6
         with:
