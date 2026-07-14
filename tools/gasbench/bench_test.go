@@ -12,11 +12,12 @@ import (
 // variance.
 func BenchmarkOpcodes(b *testing.B) {
 	cases := BuildCases()
+	def := DefaultConfig()
 	cfg := Config{
-		Warmup:     envInt("GASBENCH_WARMUP", 2000),
-		Iterations: envInt("GASBENCH_ITERS", 20000),
-		DisableGC:  true,
-		LockThread: true,
+		Warmup:     envInt("GASBENCH_WARMUP", def.Warmup),
+		Iterations: envInt("GASBENCH_ITERS", def.Iterations),
+		DisableGC:  def.DisableGC,
+		LockThread: def.LockThread,
 	}
 	sigmaK := envFloat("GASBENCH_SIGMA_K", 3)
 	covFloor := envFloat("GASBENCH_COV_FLOOR", 0.02)
@@ -43,8 +44,6 @@ func BenchmarkOpcodes(b *testing.B) {
 				b.Fatal(err)
 			}
 
-			bStats := Summarize(base.Samples)
-			tStats := Summarize(tgt.Samples)
 			d := Subtract(c.OpcodeID, base, tgt, c.Reps, sigmaK, covFloor)
 
 			// Self-check of the differential construction: the measured
@@ -52,31 +51,37 @@ func BenchmarkOpcodes(b *testing.B) {
 			// delta, or the baseline/target pair is not isolating the
 			// opcode the way BuildCaseWith intends. This is a correctness
 			// check on the harness, not on opcode timing.
+			//
+			// Note: this check is insensitive to a mis-transcribed
+			// OpSpec.Arity that still yields a self-consistent (if wrong)
+			// ExpectedGasDelta -- it catches a wrong ConstGas, a wrong
+			// opcode, or unexpected dynamic/memory gas, not an arity error.
+			// All 22 Specs entries were hand-verified against the fork's
+			// jump-table minStack/maxStack; verify a future addition the
+			// same way.
 			if d.GasDelta != c.ExpectedGasDelta {
 				b.Errorf("%s: gas self-check failed: measured delta %d != expected %d (baseline/target pair does not isolate the opcode)",
 					c.OpcodeID, d.GasDelta, c.ExpectedGasDelta)
 			}
 
-			b.ReportMetric(tStats.Median, "median-ns")
-			b.ReportMetric(tStats.P99, "p99-ns")
-			b.ReportMetric(tStats.CoV, "cov")
+			b.ReportMetric(d.BaselineMedian, "baseline-median-ns")
+			b.ReportMetric(d.TargetMedian, "target-median-ns")
 			b.ReportMetric(d.PerOpNs, "per-op-ns")
 			b.ReportMetric(d.PerOpGas, "per-op-gas")
 
 			for _, w := range append(base.Warnings, tgt.Warnings...) {
 				b.Logf("%s: %s", c.OpcodeID, w)
 			}
+			if !d.NoiseOK {
+				b.Logf("%s: series CoV above floor %.4g (baseline=%.4g target=%.4g) -- measurement not trustworthy",
+					c.OpcodeID, covFloor, d.BaselineCoV, d.TargetCoV)
+			}
 			if !d.Significant {
-				b.Logf("%s: delta %.1fns within noise (uncertainty %.1fns, %gσ)",
+				b.Logf("%s: delta %.1fns within noise (uncertainty %.1fns, %gσ) -- marginal cost not distinguishable from zero at this precision",
 					c.OpcodeID, d.DeltaNs, d.Uncertainty, sigmaK)
 			}
-			status := StatusOK
-			if !d.NoiseOK {
-				status = StatusNoisy
-			}
-			runs = append(runs,
-				NewRun(base, bStats, statusOf(bStats.CoV, covFloor)),
-				NewRun(tgt, tStats, status))
+
+			runs = append(runs, NewRun(c, d, cfg.Iterations))
 		})
 	}
 	writeRuns(b, runs)
@@ -103,13 +108,6 @@ func writeRuns(b *testing.B, runs []Run) {
 			b.Fatalf("write ndjson: %v", err)
 		}
 	}
-}
-
-func statusOf(cov, floor float64) string {
-	if cov > floor {
-		return StatusNoisy
-	}
-	return StatusOK
 }
 
 func envInt(key string, def int) int {

@@ -44,11 +44,20 @@ func newRuntimeConfig(code []byte) (*runtime.Config, error) {
 // opcode signal). Build one Program per bytecode input; call Run in the
 // timing loop.
 //
-// Reusing a single StateDB across Run calls is safe here BECAUSE the
-// benchmark programs are pure compute (no SSTORE/LOG/CREATE): they make no
-// persistent state change, and runtime.Call resets transient storage and the
-// access list on every entry via statedb.Prepare. Do not reuse a Program for
-// state-touching code.
+// Reusing a single StateDB across many Run calls is safe for these
+// pure-compute programs, but not because "no state change occurs": every
+// call's evm.Call takes a Snapshot() that is never reverted or Finalise-d
+// (Finalise is what resets the journal; this harness never calls it), so the
+// journal's revision/touch-change list grows roughly two entries per call
+// across the life of a Program. That growth is harmless here because (a) gas
+// accounting is unaffected -- it comes only from interpreter opcodes -- and
+// (b) the growth is symmetric between baseline and target (both take exactly
+// one Snapshot + one zero-value Transfer per call) and lands as tail latency
+// from periodic slice reallocation, not a shift in the median the
+// difference-of-medians estimator reads. Do NOT assume this still holds if
+// Iterations grows by an order of magnitude, or if a future Case touches
+// persistent state (SSTORE/LOG/CREATE) -- re-check the journal-growth impact
+// before reusing a Program across a much longer or state-touching series.
 type Program struct {
 	cfg *runtime.Config
 }

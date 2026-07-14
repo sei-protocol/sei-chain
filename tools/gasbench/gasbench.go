@@ -58,7 +58,7 @@ func DefaultConfig() Config {
 // Series is the raw output of one measurement: per-iteration wall-clock samples
 // plus the deterministic gas cost.
 type Series struct {
-	InputID  string
+	InputID  string // the measured input's identity, e.g. "ADD/baseline" (opcode + variant)
 	GasUsed  uint64
 	Samples  []time.Duration
 	Warnings []string
