@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"runtime"
 	"runtime/debug"
+	"syscall"
 	"time"
 )
 
@@ -62,6 +63,31 @@ type Series struct {
 	GasUsed  uint64
 	Samples  []time.Duration
 	Warnings []string
+
+	// NvcswDelta/NivcswDelta are process-wide (RUSAGE_SELF, not thread-scoped
+	// -- Go exposes no portable RUSAGE_THREAD) voluntary/involuntary
+	// context-switch counts observed during the timed window (Warmup
+	// excluded). This is the cheapest "active benchmarking" check available
+	// (Gregg): a nonzero NivcswDelta on a nominally pinned core is direct
+	// confirmation the kernel scheduler preempted the measurement thread
+	// mid-window -- the same tick/IRQ/neighbor mechanism a CoV reading only
+	// infers indirectly. See
+	// designs/gas-repricing-telemetry/research/microbenchmark-noise-isolation-tradeoffs.md.
+	NvcswDelta  int64
+	NivcswDelta int64
+}
+
+// rusageSnapshot reads the process's current voluntary/involuntary
+// context-switch counters. Process-wide rather than thread-scoped, so on a
+// process with other active goroutines the delta can include their
+// scheduling activity too; for this harness's single-goroutine measurement
+// loop that's a minor overcount, not a different mechanism.
+func rusageSnapshot() (nvcsw, nivcsw int64, err error) {
+	var ru syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err != nil {
+		return 0, 0, fmt.Errorf("gasbench: getrusage: %w", err)
+	}
+	return int64(ru.Nvcsw), int64(ru.Nivcsw), nil
 }
 
 // Measure runs Warmup discarded iterations, then Iterations timed iterations
@@ -107,6 +133,12 @@ func Measure(id string, run RunOnce, cfg Config) (Series, error) {
 		defer debug.SetGCPercent(prev)
 	}
 
+	nvcswBefore, nivcswBefore, rerr := rusageSnapshot()
+	rusageOK := rerr == nil
+	if rerr != nil {
+		s.Warnings = append(s.Warnings, rerr.Error())
+	}
+
 	for i := 0; i < cfg.Iterations; i++ {
 		start := time.Now()
 		g, err = run()
@@ -118,5 +150,15 @@ func Measure(id string, run RunOnce, cfg Config) (Series, error) {
 		sink ^= g
 	}
 	s.GasUsed = g
+
+	if rusageOK {
+		nvcswAfter, nivcswAfter, rerr := rusageSnapshot()
+		if rerr != nil {
+			s.Warnings = append(s.Warnings, rerr.Error())
+		} else {
+			s.NvcswDelta = nvcswAfter - nvcswBefore
+			s.NivcswDelta = nivcswAfter - nivcswBefore
+		}
+	}
 	return s, nil
 }

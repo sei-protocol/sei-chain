@@ -32,7 +32,8 @@ fi
 export GOMAXPROCS=1
 # GASBENCH_ITERS / GASBENCH_WARMUP are left unset here by default:
 # gasbench.DefaultConfig() in Go is the single source of truth for those two.
-# GASBENCH_COV_FLOOR / GASBENCH_SIGMA_K default in bench_test.go instead (no
+# GASBENCH_COV_CEILING (an advisory health-check, not the acceptance gate --
+# see emit.go/diff.go) / GASBENCH_SIGMA_K default in bench_test.go instead (no
 # Config field for them). Set any of these in the environment only to
 # override for this run.
 export GASBENCH_OUT_CSV="${GASBENCH_OUT_CSV:-gasbench.csv}"
