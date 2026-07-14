@@ -198,6 +198,10 @@ type State struct {
 	// concurrent PushQC (called via an inbound connection after the transport
 	// starts but before Run's scope begins) could advance inner.nextQC/nextBlock
 	// past unpersisted data, causing runPersist to skip writing those entries.
+	//
+	// TODO: remove these once we stop caching all blocks/QCs in memory; BlockDB
+	// should expose the durable high-water marks (or serve the cache) so
+	// runPersist does not need one-shot cursors snapped out of State.
 	blockDBPersistedQC    types.GlobalBlockNumber
 	blockDBPersistedBlock types.GlobalBlockNumber
 }
@@ -227,6 +231,11 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // loadFromBlockDB replays QCs and blocks from blockDB into s.inner.
 // Called from NewState before any goroutines are spawned; the lock is acquired
 // only to satisfy the Watch API.
+//
+// TODO: push the gap / QC-coverage / genesis-bound checks below down into the
+// BlockDB implementation so replay can trust the iterator view rather than
+// re-validating store invariants here (see also Cody's offer to enforce them
+// in littblock).
 func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 	for in := range s.inner.Lock() {
 		// Restore QCs from BlockDB. On the first QC, skipTo its GlobalRange.First
@@ -759,7 +768,7 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 		ctrl.Updated()
 		truncateTo = utils.Some(inner.first)
 	}
-	// Prune BlockDB outside the lock to avoid holding it during disk I/O.
+	// Prune BlockDB outside the lock so pruning cannot deadlock with readers.
 	// PruneBefore advances an in-memory watermark; GC is asynchronous and not
 	// persisted. On restart before GC reclaims entries, NewState may see
 	// below-watermark blocks/QCs and set inner.first lower than the pre-crash
@@ -882,7 +891,7 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 			}
 			pruningTime = inner.appProposals[inner.first].timestamp.Add(after)
 		}
-		// Prune BlockDB outside the lock to avoid holding it during disk I/O.
+		// Prune BlockDB outside the lock so pruning cannot deadlock with readers.
 		if n, ok := truncateTo.Get(); ok {
 			if err := s.blockDB.PruneBefore(n); err != nil {
 				return fmt.Errorf("prune BlockDB before %d: %w", n, err)
