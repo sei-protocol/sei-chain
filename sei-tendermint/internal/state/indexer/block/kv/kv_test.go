@@ -338,3 +338,77 @@ func TestBlockIndexerBounded(t *testing.T) {
 		}
 	})
 }
+
+// TestBlockIndexerScanBudget guards the range-only fast path against the scan
+// budget.
+func TestBlockIndexerScanBudget(t *testing.T) {
+	store := dbm.NewPrefixDB(dbm.NewMemDB(), []byte("block_events_budget"))
+
+	// A chain far larger than the budget. Every height carries app.name=sei.
+	const chain = 50
+	for i := int64(1); i <= chain; i++ {
+		require.NoError(t, blockidxkv.New(store).Index(types.EventDataNewBlockHeader{
+			Header: types.Header{Height: i},
+			ResultFinalizeBlock: abci.ResponseFinalizeBlock{Events: []abci.Event{{
+				Type:       "app",
+				Attributes: []abci.EventAttribute{{Key: []byte("name"), Value: []byte("sei"), Index: true}},
+			}}},
+		}))
+	}
+
+	// A budget far smaller than the chain, but larger than any of the ranges
+	// queried below, so an in-range scan never trips it.
+	idx := blockidxkv.New(store).WithScanBudget(indexer.NewScanBudget(10))
+
+	seekCases := map[string]struct {
+		q       string
+		opts    indexer.SearchOptions
+		results []int64
+	}{
+		// Descending scan, upper-bounded range: matches are the lowest heights,
+		// i.e. the tail of a high->low walk.
+		"upper bound desc": {
+			q:       `block.height <= 5`,
+			opts:    indexer.SearchOptions{OrderDesc: true},
+			results: []int64{5, 4, 3, 2, 1},
+		},
+		// Ascending scan, lower-bounded range: matches are the highest heights,
+		// i.e. the tail of a low->high walk.
+		"lower bound asc": {
+			q:       `block.height >= 46`,
+			opts:    indexer.SearchOptions{OrderDesc: false},
+			results: []int64{46, 47, 48, 49, 50},
+		},
+		"lower bound desc": {
+			q:       `block.height >= 46`,
+			opts:    indexer.SearchOptions{OrderDesc: true},
+			results: []int64{50, 49, 48, 47, 46},
+		},
+		"dual bounded asc": {
+			q:       `block.height >= 3 AND block.height <= 7`,
+			opts:    indexer.SearchOptions{OrderDesc: false},
+			results: []int64{3, 4, 5, 6, 7},
+		},
+	}
+	for name, tc := range seekCases {
+		t.Run(name, func(t *testing.T) {
+			results, err := idx.Search(t.Context(), query.MustCompile(tc.q), tc.opts)
+			require.NoError(t, err)
+			require.Equal(t, tc.results, results)
+		})
+	}
+
+	t.Run("in-range set larger than budget errors", func(t *testing.T) {
+		tight := blockidxkv.New(store).WithScanBudget(indexer.NewScanBudget(3))
+		results, err := tight.Search(t.Context(), query.MustCompile(`block.height <= 40`), indexer.SearchOptions{OrderDesc: true})
+		require.ErrorIs(t, err, indexer.ErrScanBudgetExceeded)
+		require.Nil(t, results)
+	})
+
+	t.Run("broad fallback errors", func(t *testing.T) {
+		tight := blockidxkv.New(store).WithScanBudget(indexer.NewScanBudget(4))
+		results, err := tight.Search(t.Context(), query.MustCompile(`app.name CONTAINS 'se'`), indexer.SearchOptions{OrderDesc: true})
+		require.ErrorIs(t, err, indexer.ErrScanBudgetExceeded)
+		require.Nil(t, results)
+	})
+}
