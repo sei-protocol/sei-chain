@@ -617,6 +617,7 @@ func (w *walImpl) bounds() storedRange {
 // fail records the first fatal background error and triggers shutdown of the pipeline. The error is recorded
 // as the cancellation cause of ctx, so callers observe it via asyncError / context.Cause.
 func (w *walImpl) fail(err error) {
+	w.senderCancel(err)
 	w.cancel(err) // the first cancel wins, so the first fatal error is the one retained
 	if cerr := w.mutableFile.close(); cerr != nil {
 		logger.Error("failed to close mutable WAL file after fatal error", "err", cerr)

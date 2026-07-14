@@ -258,12 +258,15 @@ func TestFailReleasesMutableFile(t *testing.T) {
 	mf, err := newWalFile(dir, 0)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancelCause(context.Background())
+	senderCtx, senderCancel := context.WithCancelCause(ctx)
 	w := &walImpl{
-		config:      testConfig(dir),
-		metricAttrs: walNameAttr("test"),
-		ctx:         ctx,
-		cancel:      cancel,
-		mutableFile: mf,
+		config:       testConfig(dir),
+		metricAttrs:  walNameAttr("test"),
+		ctx:          ctx,
+		cancel:       cancel,
+		senderCtx:    senderCtx,
+		senderCancel: senderCancel,
+		mutableFile:  mf,
 	}
 	require.NoError(t, w.appendRecord(dataToBeWritten{record: frameRecord(1, recordPayload(1)), index: 1}))
 

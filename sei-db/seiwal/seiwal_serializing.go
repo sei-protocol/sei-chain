@@ -351,6 +351,7 @@ func (s *serializingWAL[T]) serializerLoop() {
 // fail records the first fatal background error and triggers shutdown of the pipeline. The error is recorded
 // as the cancellation cause of ctx, so callers observe it via asyncError / context.Cause.
 func (s *serializingWAL[T]) fail(err error) {
+	s.senderCancel(err)
 	s.cancel(err) // the first cancel wins, so the first fatal error is the one retained
 	if cerr := s.inner.Close(); cerr != nil {
 		logger.Error("failed to close inner WAL after fatal error", "err", cerr)
