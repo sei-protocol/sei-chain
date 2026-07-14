@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +21,7 @@ func TestGigaMockBalancesValidationUsesDBImpl(t *testing.T) {
 	gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
 
 	to := recipient.EvmAddress
-	value := new(big.Int).Mul(gigaevmstate.TopOffAmount, big.NewInt(2))
+	value := big.NewInt(1_000_000_000_000_000_000)
 	fee := big.NewInt(100000000000)
 	tx := createCustomEVMTx(t, gigaCtx, signer, &to, value, 21000, fee, fee, 0)
 

@@ -3236,9 +3236,8 @@ func (app *App) validateGigaEVMTx(
 	balanceCheck := new(big.Int).Mul(new(big.Int).SetUint64(ethTx.Gas()), ethTx.GasFeeCap())
 	balanceCheck.Add(balanceCheck, ethTx.Value())
 
-	// Route validation balance handling through DBImpl so mock_balances can top
-	// up the sender via ensureSufficientBalance before the manual precheck.
-	stateDB.EnsureSufficientBalance(sender, balanceCheck)
+	// Route validation balance reads through DBImpl so mock_balances follows
+	// the same ensureMinimumBalance behavior as V2's StateTransition.BuyGas.
 	senderBalance := stateDB.GetBalance(sender).ToBig()
 
 	// Include the derived Sei address balance for unassociated addresses (matches V2 PreprocessDecorator).

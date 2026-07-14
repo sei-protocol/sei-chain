@@ -12,13 +12,6 @@ import (
 
 var ZeroInt = uint256.NewInt(0)
 
-func (s *DBImpl) EnsureSufficientBalance(evmAddr common.Address, amt *big.Int) {
-	if amt == nil || amt.Sign() <= 0 {
-		return
-	}
-	s.ensureSufficientBalance(evmAddr, amt)
-}
-
 func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
 	amt := amtUint256.ToBig()
 	if amt.Sign() == 0 {
