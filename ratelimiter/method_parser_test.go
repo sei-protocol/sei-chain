@@ -1,25 +1,11 @@
 package ratelimiter
 
 import (
-	"io"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
-
-// countingReader records how many bytes were actually read from body, so a test
-// can assert MethodParser stops early instead of draining the whole request.
-type countingReader struct {
-	r    io.Reader
-	read int
-}
-
-func (c *countingReader) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	c.read += n
-	return n, err
-}
 
 func parseSingle(t *testing.T, body string) string {
 	t.Helper()
@@ -76,8 +62,17 @@ func TestParse_NestedParamsSkipped(t *testing.T) {
 	require.Equal(t, "trace_block", parseSingle(t, body))
 }
 
-func TestParse_DuplicateMethodTakesFirst(t *testing.T) {
-	require.Equal(t, "first", parseSingle(t, `{"method":"first","x":1,"method":"second"}`))
+func TestParse_DuplicateMethodRejected(t *testing.T) {
+	// encoding/json (used by the downstream handlers) keeps the last value for a
+	// duplicate key, so charging the first would be a rate-limit bypass; reject.
+	_, _, err := NewMethodParser(0).Parse(strings.NewReader(`{"method":"first","x":1,"method":"second"}`))
+	require.ErrorIs(t, err, ErrDuplicateMethod)
+}
+
+func TestParse_BatchDuplicateMethodRejected(t *testing.T) {
+	body := `[{"method":"eth_call"},{"method":"a","method":"b"}]`
+	_, _, err := NewMethodParser(0).Parse(strings.NewReader(body))
+	require.ErrorIs(t, err, ErrDuplicateMethod)
 }
 
 // --- batch ---
@@ -143,6 +138,15 @@ func TestParse_BatchElementNotObject(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotObject)
 }
 
+func TestParse_TruncatedBatchRejected(t *testing.T) {
+	// Missing closing ']'. dec.More() reports false at EOF without erroring, so
+	// the malformed body must be caught by validating the closing delim — and it
+	// is a parse error, not a probe-limit hit (the budget was never exhausted).
+	_, _, err := NewMethodParser(0).Parse(strings.NewReader(`[{"method":"eth_call"}`))
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrProbeLimit)
+}
+
 func TestParse_EmptyBody(t *testing.T) {
 	_, _, err := NewMethodParser(0).Parse(strings.NewReader(``))
 	require.Error(t, err)
@@ -171,17 +175,13 @@ func TestParse_ProbeLimitExceeded(t *testing.T) {
 	require.ErrorIs(t, err, ErrProbeLimit)
 }
 
-func TestParse_MethodEarlyWithinTinyProbe(t *testing.T) {
-	// method is at the front; a huge params trails it. Even with a tiny probe
-	// budget the parser returns without reading the params.
+func TestParse_LargeTrailingParamsHitProbeLimit(t *testing.T) {
+	// The whole object is read (bounded by the probe) so a trailing duplicate
+	// "method" can be rejected; a params array larger than a tiny probe therefore
+	// yields ErrProbeLimit even though "method" appears first.
 	body := `{"method":"eth_call","params":[` + strings.Repeat("9,", 100_000) + `9]}`
-	cr := &countingReader{r: strings.NewReader(body)}
-	methods, batch, err := NewMethodParser(128).Parse(cr)
-	require.NoError(t, err)
-	require.False(t, batch)
-	require.Equal(t, []string{"eth_call"}, methods)
-	require.LessOrEqual(t, cr.read, 128, "must not read the whole body once method is found")
-	require.Less(t, cr.read, len(body))
+	_, _, err := NewMethodParser(128).Parse(strings.NewReader(body))
+	require.ErrorIs(t, err, ErrProbeLimit)
 }
 
 func TestParse_DefaultProbeLimitApplied(t *testing.T) {

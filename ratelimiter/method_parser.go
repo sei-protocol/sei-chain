@@ -8,10 +8,12 @@ import (
 )
 
 // DefaultMaxProbeBytes bounds how far MethodParser will read into a request body
-// while searching for the "method" field. Both EVM (go-ethereum) and CometBFT
-// clients marshal "method" ahead of "params", so in practice the parser returns
-// long before this limit; it exists only to cap the work an adversarial body
-// (a giant "params" placed before "method") can force before the method is known.
+// while extracting the "method" field. Both EVM (go-ethereum) and CometBFT
+// clients marshal small requests, so in practice the parser reads the whole body
+// well within this limit; it exists to cap the work an adversarial body (a giant
+// "params") can force. Because each request object is read to its end — so a
+// duplicate "method" can be detected and rejected — a body larger than this limit
+// yields ErrProbeLimit rather than a method name.
 const DefaultMaxProbeBytes = 1 << 20 // 1 MiB
 
 var (
@@ -23,6 +25,9 @@ var (
 	ErrNotObject = errors.New("ratelimiter: JSON-RPC request is not an object")
 	// ErrEmptyBatch is returned when the request is a top-level array with no elements.
 	ErrEmptyBatch = errors.New("ratelimiter: JSON-RPC batch is empty")
+	// ErrDuplicateMethod is returned when a request object carries more than one
+	// "method" field.
+	ErrDuplicateMethod = errors.New("ratelimiter: JSON-RPC request has duplicate method field")
 	// ErrProbeLimit is returned when the method field is not found within MaxProbeBytes.
 	ErrProbeLimit = errors.New("ratelimiter: JSON-RPC method not found within probe limit")
 )
@@ -61,7 +66,7 @@ func (p *MethodParser) Parse(r io.Reader) (methods []string, batch bool, err err
 
 	switch delim {
 	case '{':
-		method, err := readMethodFromObject(dec, false)
+		method, err := readMethodFromObject(dec)
 		if err != nil {
 			return nil, false, classifyErr(err, lr)
 		}
@@ -90,9 +95,7 @@ func readBatchMethods(dec *json.Decoder) ([]string, error) {
 		if delim, ok := tok.(json.Delim); !ok || delim != '{' {
 			return out, ErrNotObject
 		}
-		// consumeRemainder=true: drain the rest of the element so the decoder
-		// is positioned at the next array element even when "method" appears early.
-		method, err := readMethodFromObject(dec, true)
+		method, err := readMethodFromObject(dec)
 		if err != nil {
 			return out, err
 		}
@@ -101,18 +104,21 @@ func readBatchMethods(dec *json.Decoder) ([]string, error) {
 	if len(out) == 0 {
 		return out, ErrEmptyBatch
 	}
+	// Consume and validate the closing ']'
+	tok, err := dec.Token()
+	if err != nil {
+		return out, err
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != ']' {
+		return out, ErrNotObject
+	}
 	return out, nil
 }
 
 // readMethodFromObject reads the key/value pairs of a JSON object whose opening
 // '{' has already been consumed from dec, and returns the value of its "method"
 // field. Non-method fields are skipped without allocating their values.
-//
-// If consumeRemainder is true the object is drained fully so dec is positioned
-// immediately after the closing '}' (required when iterating batch elements);
-// otherwise it returns as soon as "method" is found, leaving the remainder of
-// the body unread.
-func readMethodFromObject(dec *json.Decoder, consumeRemainder bool) (string, error) {
+func readMethodFromObject(dec *json.Decoder) (string, error) {
 	var (
 		method string
 		found  bool
@@ -127,7 +133,10 @@ func readMethodFromObject(dec *json.Decoder, consumeRemainder bool) (string, err
 			// A valid JSON object always has string keys; anything else is malformed.
 			return "", ErrNotObject
 		}
-		if key == "method" && !found {
+		if key == "method" {
+			if found {
+				return "", ErrDuplicateMethod
+			}
 			valTok, err := dec.Token()
 			if err != nil {
 				return "", err
@@ -137,9 +146,6 @@ func readMethodFromObject(dec *json.Decoder, consumeRemainder bool) (string, err
 				return "", ErrMethodNotString
 			}
 			method, found = s, true
-			if !consumeRemainder {
-				return method, nil
-			}
 			continue
 		}
 		if err := skipValue(dec); err != nil {
@@ -197,7 +203,8 @@ func classifyErr(err error, lr *io.LimitedReader) error {
 		return ErrProbeLimit
 	}
 	if errors.Is(err, ErrNoMethod) || errors.Is(err, ErrMethodNotString) ||
-		errors.Is(err, ErrNotObject) || errors.Is(err, ErrEmptyBatch) {
+		errors.Is(err, ErrNotObject) || errors.Is(err, ErrEmptyBatch) ||
+		errors.Is(err, ErrDuplicateMethod) {
 		return err
 	}
 	return fmt.Errorf("ratelimiter: parse JSON-RPC method: %w", err)
