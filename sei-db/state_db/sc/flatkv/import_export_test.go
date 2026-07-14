@@ -708,6 +708,10 @@ func TestImporterDoubleImport(t *testing.T) {
 func TestExporterAtHistoricalVersion(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 1
+	// Keep enough historical snapshots that v1 survives after committing v3
+	// (latest v3 + the two older snapshots v2 and v1); the default keep-recent
+	// of 1 would prune v1 and make the historical export below fail.
+	cfg.SnapshotKeepRecent = 2
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
