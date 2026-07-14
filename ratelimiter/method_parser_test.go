@@ -1,6 +1,7 @@
 package ratelimiter
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -255,6 +256,17 @@ func TestParse_DefaultProbeLimitApplied(t *testing.T) {
 	require.Equal(t, int64(DefaultMaxProbeBytes), NewMethodParser(0).maxProbeBytes)
 	require.Equal(t, int64(DefaultMaxProbeBytes), NewMethodParser(-5).maxProbeBytes)
 	require.Equal(t, int64(256), NewMethodParser(256).maxProbeBytes)
+}
+
+func TestParse_MaxInt64ProbeLimitClamped(t *testing.T) {
+	// math.MaxInt64 is clamped so the maxProbeBytes+1 sentinel in Parse cannot
+	// overflow to a negative LimitedReader budget.
+	require.Equal(t, int64(math.MaxInt64-1), NewMethodParser(math.MaxInt64).maxProbeBytes)
+
+	methods, batch, err := NewMethodParser(math.MaxInt64).Parse(strings.NewReader(`{"method":"eth_call"}`))
+	require.NoError(t, err)
+	require.False(t, batch)
+	require.Equal(t, []string{"eth_call"}, methods)
 }
 
 func TestParse_LargeParamsWithinDefaultProbe(t *testing.T) {

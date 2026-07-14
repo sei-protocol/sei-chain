@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 )
 
@@ -39,10 +40,14 @@ type MethodParser struct {
 }
 
 // NewMethodParser returns a MethodParser that reads at most maxProbeBytes from
-// any single request body. A value <= 0 selects DefaultMaxProbeBytes.
+// any single request body.
 func NewMethodParser(maxProbeBytes int64) *MethodParser {
 	if maxProbeBytes <= 0 {
 		maxProbeBytes = DefaultMaxProbeBytes
+	}
+	if maxProbeBytes == math.MaxInt64 {
+		//preventing overflow error
+		maxProbeBytes = math.MaxInt64 - 1
 	}
 	return &MethodParser{maxProbeBytes: maxProbeBytes}
 }
