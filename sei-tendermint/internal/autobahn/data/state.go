@@ -754,7 +754,6 @@ func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n type
 // a QC range; this is handled on recovery (NewState skips partial QC prefixes).
 func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 	pruningTime := time.Now()
-	truncateTo := utils.None[types.GlobalBlockNumber]()
 	for inner, ctrl := range s.inner.Lock() {
 		// Can only prune executed blocks (those with AppProposals).
 		firstToKeep := min(retainFrom, inner.nextAppProposal)
@@ -766,17 +765,14 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 			inner.pruneFirst(pruningTime, s.metrics)
 		}
 		ctrl.Updated()
-		truncateTo = utils.Some(inner.first)
-	}
-	// Prune BlockDB outside the lock so pruning cannot deadlock with readers.
-	// PruneBefore advances an in-memory watermark; GC is asynchronous and not
-	// persisted. On restart before GC reclaims entries, NewState may see
-	// below-watermark blocks/QCs and set inner.first lower than the pre-crash
-	// watermark. This is safe (resurrected data is QC-covered committed data)
-	// and self-heals on the next runPruning cycle. Durable prune bounds come
-	// from the BlockDB retention TTL, not from PruneBefore itself.
-	if n, ok := truncateTo.Get(); ok {
-		return s.blockDB.PruneBefore(n)
+		// BlockDB.PruneBefore only advances an in-memory watermark (async GC;
+		// no disk I/O), so it is safe to call under the inner lock.
+		// The watermark is not persisted: on restart before GC reclaims entries,
+		// NewState may see below-watermark blocks/QCs and set inner.first lower
+		// than the pre-crash watermark. This is safe (resurrected data is
+		// QC-covered committed data) and self-heals on the next runPruning
+		// cycle. Durable prune bounds come from the BlockDB retention TTL.
+		return s.blockDB.PruneBefore(inner.first)
 	}
 	return nil
 }
@@ -869,7 +865,6 @@ func (s *State) runPersist(ctx context.Context, persistedQC, persistedBlock type
 func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 	pruningTime := time.Now()
 	for {
-		truncateTo := utils.None[types.GlobalBlockNumber]()
 		for inner, ctrl := range s.inner.Lock() {
 			// Prune blocks old enough. Keep at least one entry.
 			// Per-block pruning may split QC ranges; handled on recovery.
@@ -881,7 +876,10 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 			}
 			if pruned {
 				ctrl.Updated()
-				truncateTo = utils.Some(inner.first)
+				// BlockDB.PruneBefore is async (watermark only; no disk I/O).
+				if err := s.blockDB.PruneBefore(inner.first); err != nil {
+					return fmt.Errorf("prune BlockDB before %d: %w", inner.first, err)
+				}
 			}
 			// Wait for at least 2 entries before retrying. Without +1,
 			// the loop would spin when only one entry remains (kept by
@@ -890,12 +888,6 @@ func (s *State) runPruning(ctx context.Context, after time.Duration) error {
 				return err
 			}
 			pruningTime = inner.appProposals[inner.first].timestamp.Add(after)
-		}
-		// Prune BlockDB outside the lock so pruning cannot deadlock with readers.
-		if n, ok := truncateTo.Get(); ok {
-			if err := s.blockDB.PruneBefore(n); err != nil {
-				return fmt.Errorf("prune BlockDB before %d: %w", n, err)
-			}
 		}
 		// Wait until the next pruning time.
 		if err := utils.SleepUntil(ctx, pruningTime); err != nil {
