@@ -116,12 +116,14 @@ func (c *BigtableConfig) Validate() error {
 }
 
 func NewBigtableReader(cfg BigtableConfig) (Reader, error) {
-	ctx := context.Background()
-	client, err := OpenBigtableClient(ctx, cfg)
+	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	client, err := OpenBigtableClient(context.Background(), cfg)
 	if err != nil {
 		return nil, err
 	}
-	cfg.ApplyDefaults()
 	return &bigtableReader{
 		client:   client,
 		readRows: client.ReadRows,
@@ -186,7 +188,11 @@ func (c *BigtableClient) ReadRows(ctx context.Context, startKey, endKey []byte, 
 		req.Rows.RowRanges[0].EndKey = nil
 	}
 	req.Filter = bigtableReadFilter(family, qualifiers...)
-	stream, err := c.data.ReadRows(ctx, req)
+	// Cancel on return so an early callback exit tears down the server stream
+	// instead of leaving it to the connection finalizer.
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stream, err := c.data.ReadRows(streamCtx, req)
 	if err != nil {
 		return err
 	}
@@ -301,10 +307,9 @@ func (r *bigtableReader) LastVersion(ctx context.Context) (int64, error) {
 }
 
 func (r *bigtableReader) Has(ctx context.Context, storeName string, key []byte, targetVersion int64) (bool, error) {
-	prefix := bigtableMutationRowPrefixBytes(storeName, key, r.shards)
-	start := bigtableMutationRowKeyBytes(storeName, key, targetVersion, r.shards)
+	start, end := bigtableMutationRowRange(storeName, key, targetVersion, r.shards)
 	var row BigtableRow
-	err := r.readRows(ctx, start, bigtablePrefixEnd(prefix), 1, r.family, func(r BigtableRow) bool {
+	err := r.readRows(ctx, start, end, 1, r.family, func(r BigtableRow) bool {
 		row = r
 		return false
 	}, BigtableDeletedColumn)
@@ -322,10 +327,9 @@ func (r *bigtableReader) Has(ctx context.Context, storeName string, key []byte, 
 }
 
 func (r *bigtableReader) Get(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error) {
-	prefix := bigtableMutationRowPrefixBytes(storeName, key, r.shards)
-	start := bigtableMutationRowKeyBytes(storeName, key, targetVersion, r.shards)
+	start, end := bigtableMutationRowRange(storeName, key, targetVersion, r.shards)
 	var row BigtableRow
-	err := r.readRows(ctx, start, bigtablePrefixEnd(prefix), 1, r.family, func(r BigtableRow) bool {
+	err := r.readRows(ctx, start, end, 1, r.family, func(r BigtableRow) bool {
 		row = r
 		return false
 	}, BigtableValueColumn, BigtableDeletedColumn)
@@ -372,6 +376,8 @@ func BigtableLastVersion(ctx context.Context, readRows BigtableReadRowsFunc) (in
 	return maxVersion, nil
 }
 
+// BigtableValueFromRow interprets a mutation row. The returned Value aliases
+// the row's cell buffer, which the row builder allocates per cell.
 func BigtableValueFromRow(row BigtableRow, family string) (Value, error) {
 	version, ok := BigtableVersionFromRowKey(row.Key)
 	if !ok {
@@ -393,7 +399,7 @@ func BigtableValueFromRow(row BigtableRow, family string) (Value, error) {
 	if deleted || value == nil {
 		return Value{}, ErrNotFound
 	}
-	return Value{Bytes: append([]byte(nil), value...), Version: version}, nil
+	return Value{Bytes: value, Version: version}, nil
 }
 
 func bigtableDeletedFromRow(row BigtableRow, family string) (bool, error) {
@@ -434,6 +440,16 @@ func BigtableMutationRowKey(storeName string, key []byte, version int64, shards 
 func bigtableMutationRowKeyBytes(storeName string, key []byte, version int64, shards int) []byte {
 	prefix := bigtableMutationRowPrefixBytes(storeName, key, shards)
 	return append(prefix, bigtableInvertedVersion(version)...)
+}
+
+// bigtableMutationRowRange returns the start key of a point lookup at
+// targetVersion and the exclusive end of the key's version range, hashing and
+// encoding the shared row prefix only once.
+func bigtableMutationRowRange(storeName string, key []byte, targetVersion int64, shards int) (start, end []byte) {
+	prefix := bigtableMutationRowPrefixBytes(storeName, key, shards)
+	end = bigtablePrefixEnd(prefix)
+	start = append(prefix, bigtableInvertedVersion(targetVersion)...)
+	return start, end
 }
 
 func BigtableVersionRowKey(version int64) string {
@@ -495,6 +511,13 @@ func (b *bigtableRowBuilder) add(chunk *bigtablepb.ReadRowsResponse_CellChunk) (
 		b.qualifier = string(chunk.Qualifier.Value)
 		b.value = b.value[:0]
 		b.inCell = true
+	}
+	// A non-final chunk of a split cell advertises the total value size; grow
+	// the buffer once instead of re-growing on every continuation chunk.
+	if size := int(chunk.ValueSize); size > cap(b.value) {
+		grown := make([]byte, len(b.value), size)
+		copy(grown, b.value)
+		b.value = grown
 	}
 	b.value = append(b.value, chunk.Value...)
 	if b.inCell && chunk.ValueSize == 0 {

@@ -8,12 +8,6 @@ import (
 
 var ErrNotFound = errors.New("historical state not found")
 
-// Key is a string so Lookup is usable as a map key.
-type Lookup struct {
-	StoreName string
-	Key       string
-}
-
 // Value is the actual MVCC value that satisfied the lookup.
 // Version may be older than the requested target version.
 type Value struct {

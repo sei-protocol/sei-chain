@@ -74,7 +74,6 @@ func TestScyllaCQLShape(t *testing.T) {
 	} {
 		require.Contains(t, insertVersionCQL, frag)
 	}
-	require.True(t, strings.Contains(selectLatestVersionCQL, "LIMIT 1"))
 }
 
 func TestScyllaSinkWritesRowsConcurrentlyBeforeVersionMarker(t *testing.T) {

@@ -1,10 +1,8 @@
 package historical
 
 import (
-	"context"
 	"reflect"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -111,75 +109,4 @@ func TestLatestVersionCQLShape(t *testing.T) {
 	require.Contains(t, selectLatestVersionCQL, "FROM state_versions")
 	require.Contains(t, selectLatestVersionCQL, "bucket = ?")
 	require.True(t, strings.Contains(selectLatestVersionCQL, "LIMIT 1"))
-}
-
-func TestScyllaReaderBatchGetParallelizesLookups(t *testing.T) {
-	started := make(chan string, 4)
-	release := make(chan struct{})
-	var active atomic.Int32
-	var sawConcurrent atomic.Bool
-
-	reader := &scyllaReader{
-		get: func(ctx context.Context, _ string, key []byte, targetVersion int64) (Value, error) {
-			if active.Add(1) > 1 {
-				sawConcurrent.Store(true)
-			}
-			defer active.Add(-1)
-			keyString := string(key)
-			started <- keyString
-			select {
-			case <-release:
-			case <-ctx.Done():
-				return Value{}, ctx.Err()
-			}
-			if keyString == "missing" {
-				return Value{}, ErrNotFound
-			}
-			return Value{Bytes: []byte("value-" + keyString), Version: targetVersion - 1}, nil
-		},
-	}
-
-	errCh := make(chan error, 1)
-	var got map[Lookup]Value
-	lookups := []Lookup{
-		{StoreName: "bank", Key: "k1"},
-		{StoreName: "bank", Key: "missing"},
-		{StoreName: "evm", Key: "k2"},
-	}
-	go func() {
-		var err error
-		got, err = reader.BatchGet(context.Background(), 10, lookups)
-		errCh <- err
-	}()
-
-	releaseClosed := false
-	closeRelease := func() {
-		if !releaseClosed {
-			close(release)
-			releaseClosed = true
-		}
-	}
-	defer closeRelease()
-
-	for i := 0; i < 2; i++ {
-		select {
-		case <-started:
-		case <-time.After(time.Second):
-			closeRelease()
-			t.Fatal("timed out waiting for concurrent lookups")
-		}
-	}
-	require.True(t, sawConcurrent.Load())
-
-	closeRelease()
-	select {
-	case err := <-errCh:
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for batch get")
-	}
-	require.Len(t, got, 2)
-	require.Equal(t, []byte("value-k1"), got[lookups[0]].Bytes)
-	require.Equal(t, []byte("value-k2"), got[lookups[2]].Bytes)
-	require.NotContains(t, got, lookups[1])
 }

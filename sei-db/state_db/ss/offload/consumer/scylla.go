@@ -12,7 +12,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/historical"
 )
 
-const defaultScyllaMutationWorkers = 16
+const (
+	defaultScyllaMutationWorkers = 16
+
+	// defaultScyllaRecordWorkers bounds how many records write their rows
+	// concurrently, so peak in-flight CQL writes stay at
+	// recordWorkers*mutationWorkers instead of len(batch)*mutationWorkers.
+	defaultScyllaRecordWorkers = 4
+)
 
 type ScyllaConfig struct {
 	Hosts            []string
@@ -102,21 +109,7 @@ func (s *scyllaSink) Close() error {
 }
 
 func (s *scyllaSink) LastVersion(ctx context.Context) (int64, error) {
-	var maxVersion int64
-	for bucket := 0; bucket < historical.VersionBucketCount; bucket++ {
-		var version int64
-		err := s.session.Query(selectLatestVersionCQL, bucket).WithContext(ctx).Scan(&version)
-		if err != nil {
-			if err == gocql.ErrNotFound {
-				continue
-			}
-			return 0, fmt.Errorf("read latest scylla/cassandra version bucket %d: %w", bucket, err)
-		}
-		if version > maxVersion {
-			maxVersion = version
-		}
-	}
-	return maxVersion, nil
+	return historical.ScyllaLastVersion(ctx, s.session)
 }
 
 func (s *scyllaSink) Write(ctx context.Context, rec Record) error {
@@ -165,12 +158,23 @@ func (s *scyllaSink) writeRecordsPipelined(ctx context.Context, records []Record
 	rowCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var g errgroup.Group
+	// A semaphore rather than errgroup.SetLimit keeps goroutine launching
+	// non-blocking, so the ordered version-marker loop below overlaps with row
+	// writes from the first record onward.
+	sem := make(chan struct{}, defaultScyllaRecordWorkers)
 	rowDone := make([]chan error, len(records))
 	for i := range records {
 		rowDone[i] = make(chan error, 1)
 		i := i
 		rec := records[i]
 		g.Go(func() error {
+			select {
+			case sem <- struct{}{}:
+			case <-rowCtx.Done():
+				rowDone[i] <- rowCtx.Err()
+				return rowCtx.Err()
+			}
+			defer func() { <-sem }()
 			err := s.writeRecordRows(rowCtx, rec.Entry.Version, rec.Entry)
 			if err != nil {
 				err = fmt.Errorf("write scylla/cassandra rows version %d: %w", rec.Entry.Version, err)
@@ -256,12 +260,6 @@ func sessionExec(session *gocql.Session) scyllaExecFunc {
 		return session.Query(stmt, values...).WithContext(ctx).Exec()
 	}
 }
-
-const selectLatestVersionCQL = `
-SELECT version
-FROM state_versions
-WHERE bucket = ?
-LIMIT 1`
 
 const insertVersionCQL = `
 INSERT INTO state_versions (

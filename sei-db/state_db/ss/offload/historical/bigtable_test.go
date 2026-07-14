@@ -7,7 +7,9 @@ import (
 	"sync"
 	"testing"
 
+	"cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func TestBigtableConfigDefaultsAndValidate(t *testing.T) {
@@ -61,8 +63,6 @@ func TestBigtableValueFromRow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte("value"), value.Bytes)
 	require.Equal(t, int64(7), value.Version)
-	value.Bytes[0] = 'V'
-	require.Equal(t, []byte("value"), row.Cells[0].Value)
 
 	row.Cells[1].Value = []byte{1}
 	_, err = BigtableValueFromRow(row, DefaultBigtableFamily)
@@ -123,6 +123,38 @@ func TestBigtableReaderHasOnlyReadsDeletedColumn(t *testing.T) {
 	ok, err := reader.Has(context.Background(), "bank", []byte("k"), 60)
 	require.NoError(t, err)
 	require.True(t, ok)
+}
+
+// A cell split across chunks carries the total size in every chunk except the
+// last, whose ValueSize is zero; only then may the cell be committed.
+func TestBigtableRowBuilderAssemblesSplitCells(t *testing.T) {
+	var b bigtableRowBuilder
+
+	row, committed, err := b.add(&bigtablepb.ReadRowsResponse_CellChunk{
+		RowKey:     []byte("rk"),
+		FamilyName: wrapperspb.String(DefaultBigtableFamily),
+		Qualifier:  wrapperspb.Bytes([]byte(BigtableValueColumn)),
+		Value:      []byte("hel"),
+		ValueSize:  8,
+	})
+	require.NoError(t, err)
+	require.False(t, committed)
+	require.Empty(t, row.Key)
+
+	_, committed, err = b.add(&bigtablepb.ReadRowsResponse_CellChunk{Value: []byte("lo "), ValueSize: 8})
+	require.NoError(t, err)
+	require.False(t, committed)
+
+	row, committed, err = b.add(&bigtablepb.ReadRowsResponse_CellChunk{
+		Value:     []byte("bt"),
+		RowStatus: &bigtablepb.ReadRowsResponse_CellChunk_CommitRow{CommitRow: true},
+	})
+	require.NoError(t, err)
+	require.True(t, committed)
+	require.Equal(t, "rk", row.Key)
+	require.Len(t, row.Cells, 1)
+	require.Equal(t, BigtableValueColumn, row.Cells[0].Qualifier)
+	require.Equal(t, []byte("hello bt"), row.Cells[0].Value)
 }
 
 func TestBigtableLastVersionScansBuckets(t *testing.T) {

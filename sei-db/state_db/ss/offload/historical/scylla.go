@@ -84,10 +84,7 @@ func NewScyllaReader(cfg ScyllaConfig) (Reader, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &scyllaReader{
-		session: session,
-		get:     sessionGet(session),
-	}, nil
+	return &scyllaReader{session: session}, nil
 }
 
 func OpenScyllaSession(cfg ScyllaConfig) (*gocql.Session, error) {
@@ -131,7 +128,6 @@ func scyllaHostSelectionPolicy(datacenter string) gocql.HostSelectionPolicy {
 
 type scyllaReader struct {
 	session *gocql.Session
-	get     scyllaGetFunc
 }
 
 var _ Reader = (*scyllaReader)(nil)
@@ -144,16 +140,36 @@ func (r *scyllaReader) Close() error {
 }
 
 func (r *scyllaReader) LastVersion(ctx context.Context) (int64, error) {
-	var maxVersion int64
+	return ScyllaLastVersion(ctx, r.session)
+}
+
+// ScyllaLastVersion scans the version-marker buckets in parallel and returns
+// the highest ingested version. Shared by the node-side reader and the offload
+// consumer sink.
+func ScyllaLastVersion(ctx context.Context, session *gocql.Session) (int64, error) {
+	versions := make([]int64, VersionBucketCount)
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(defaultScyllaReadWorkers)
 	for bucket := 0; bucket < VersionBucketCount; bucket++ {
-		var version int64
-		err := r.session.Query(selectLatestVersionCQL, bucket).WithContext(ctx).Scan(&version)
-		if err != nil {
-			if err == gocql.ErrNotFound {
-				continue
+		bucket := bucket
+		g.Go(func() error {
+			var version int64
+			err := session.Query(selectLatestVersionCQL, bucket).WithContext(gctx).Scan(&version)
+			if err != nil {
+				if errors.Is(err, gocql.ErrNotFound) {
+					return nil
+				}
+				return fmt.Errorf("read latest scylla/cassandra version bucket %d: %w", bucket, err)
 			}
-			return 0, fmt.Errorf("read latest scylla/cassandra version bucket %d: %w", bucket, err)
-		}
+			versions[bucket] = version
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return 0, err
+	}
+	var maxVersion int64
+	for _, version := range versions {
 		if version > maxVersion {
 			maxVersion = version
 		}
@@ -165,7 +181,7 @@ func (r *scyllaReader) Has(ctx context.Context, storeName string, key []byte, ta
 	var deleted bool
 	err := r.session.Query(hasLookupCQL, storeName, key, targetVersion).WithContext(ctx).Scan(&deleted)
 	if err != nil {
-		if err == gocql.ErrNotFound {
+		if errors.Is(err, gocql.ErrNotFound) {
 			return false, nil
 		}
 		return false, fmt.Errorf("scylla/cassandra has lookup: %w", err)
@@ -174,63 +190,22 @@ func (r *scyllaReader) Has(ctx context.Context, storeName string, key []byte, ta
 }
 
 func (r *scyllaReader) Get(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error) {
-	return r.get(ctx, storeName, key, targetVersion)
-}
-
-func sessionGet(session *gocql.Session) scyllaGetFunc {
-	return func(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error) {
-		var (
-			version int64
-			bz      []byte
-			deleted bool
-		)
-		err := session.Query(getLookupCQL, storeName, key, targetVersion).WithContext(ctx).Scan(&version, &bz, &deleted)
-		if err != nil {
-			if err == gocql.ErrNotFound {
-				return Value{}, ErrNotFound
-			}
-			return Value{}, fmt.Errorf("scylla/cassandra get lookup: %w", err)
-		}
-		if deleted {
+	var (
+		version int64
+		bz      []byte
+		deleted bool
+	)
+	err := r.session.Query(getLookupCQL, storeName, key, targetVersion).WithContext(ctx).Scan(&version, &bz, &deleted)
+	if err != nil {
+		if errors.Is(err, gocql.ErrNotFound) {
 			return Value{}, ErrNotFound
 		}
-		return Value{Bytes: bz, Version: version}, nil
+		return Value{}, fmt.Errorf("scylla/cassandra get lookup: %w", err)
 	}
-}
-
-type scyllaGetFunc func(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error)
-
-func (r *scyllaReader) BatchGet(ctx context.Context, targetVersion int64, lookups []Lookup) (map[Lookup]Value, error) {
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(defaultScyllaReadWorkers)
-	values := make([]Value, len(lookups))
-	found := make([]bool, len(lookups))
-	for i, lookup := range lookups {
-		i := i
-		lookup := lookup
-		g.Go(func() error {
-			value, err := r.Get(gctx, lookup.StoreName, []byte(lookup.Key), targetVersion)
-			if err != nil {
-				if errors.Is(err, ErrNotFound) {
-					return nil
-				}
-				return err
-			}
-			values[i] = value
-			found[i] = true
-			return nil
-		})
+	if deleted {
+		return Value{}, ErrNotFound
 	}
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-	out := make(map[Lookup]Value, len(lookups))
-	for i, lookup := range lookups {
-		if found[i] {
-			out[lookup] = values[i]
-		}
-	}
-	return out, nil
+	return Value{Bytes: bz, Version: version}, nil
 }
 
 func VersionBucket(version int64) int {

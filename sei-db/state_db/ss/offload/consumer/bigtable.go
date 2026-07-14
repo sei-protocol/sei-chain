@@ -129,6 +129,10 @@ func (s *bigtableSink) appendRecordRowMutations(rows []historical.BigtableRowMut
 	return rows
 }
 
+// mutationRow writes value+deleted cells for live pairs but only a deleted
+// cell for tombstones, saving a cell per delete. Readers must therefore check
+// the deleted column before trusting any value cell — a replayed live write
+// followed by a tombstone leaves both cells on the row.
 func (s *bigtableSink) mutationRow(version int64, storeName string, pair *proto.KVPair) historical.BigtableRowMutation {
 	ts := historical.BigtableTimestamp(version)
 	deleted := pair.Delete || pair.Value == nil
