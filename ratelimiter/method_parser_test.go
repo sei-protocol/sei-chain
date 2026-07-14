@@ -75,6 +75,23 @@ func TestParse_BatchDuplicateMethodRejected(t *testing.T) {
 	require.ErrorIs(t, err, ErrDuplicateMethod)
 }
 
+// --- case-insensitive method key (matches encoding/json struct-tag decoding) ---
+
+func TestParse_MethodKeyCaseInsensitive(t *testing.T) {
+	// Downstream dispatchers decode into `Method string `json:"method"``, whose
+	// tag match is case-insensitive; the parser must see these too, else a
+	// capitalized key is invisible here but still dispatched downstream.
+	require.Equal(t, "eth_call", parseSingle(t, `{"Method":"eth_call","id":1}`))
+	require.Equal(t, "eth_call", parseSingle(t, `{"METHOD":"eth_call","id":1}`))
+}
+
+func TestParse_MixedCaseDuplicateMethodRejected(t *testing.T) {
+	// {"method":"cheap","Method":"expensive"} decodes to "expensive" downstream;
+	// treating the two case variants as distinct would let it be charged as cheap.
+	_, _, err := NewMethodParser(0).Parse(strings.NewReader(`{"method":"cheap","Method":"expensive"}`))
+	require.ErrorIs(t, err, ErrDuplicateMethod)
+}
+
 // --- batch ---
 
 func TestParse_Batch(t *testing.T) {
@@ -111,6 +128,31 @@ func TestParse_EmptyBatch(t *testing.T) {
 	_, batch, err := NewMethodParser(0).Parse(strings.NewReader(`[]`))
 	require.ErrorIs(t, err, ErrEmptyBatch)
 	require.True(t, batch)
+}
+
+func TestParse_TruncatedEmptyBatchNotEmptyBatch(t *testing.T) {
+	// A body cut off right after '[' has no closing ']' and must not be reported
+	// as a well-formed empty batch; it is a parse error (budget never exhausted).
+	for _, body := range []string{`[`, `[  `} {
+		_, _, err := NewMethodParser(0).Parse(strings.NewReader(body))
+		require.Error(t, err)
+		require.NotErrorIs(t, err, ErrEmptyBatch)
+		require.NotErrorIs(t, err, ErrProbeLimit)
+	}
+}
+
+func TestParse_TrailingData(t *testing.T) {
+	// Non-whitespace after the top-level value is rejected, matching the stricter
+	// downstream encoding/json decode.
+	_, _, err := NewMethodParser(0).Parse(strings.NewReader(`{"method":"eth_call"}{}`))
+	require.ErrorIs(t, err, ErrTrailingData)
+
+	_, _, err = NewMethodParser(0).Parse(strings.NewReader(`[{"method":"eth_call"}] 5`))
+	require.ErrorIs(t, err, ErrTrailingData)
+
+	// Trailing garbage that is not valid JSON is still rejected (as a parse error).
+	_, _, err = NewMethodParser(0).Parse(strings.NewReader(`{"method":"eth_call"} garbage`))
+	require.Error(t, err)
 }
 
 func TestParse_NoMethodField(t *testing.T) {
@@ -164,6 +206,25 @@ func TestParse_TruncatedBodyNotProbeLimit(t *testing.T) {
 	_, _, err := NewMethodParser(0).Parse(strings.NewReader(`{"params":[1,2,3]`))
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrProbeLimit)
+}
+
+func TestParse_TruncatedAtExactProbeLimitNotProbeLimit(t *testing.T) {
+	// A truncated body whose length is exactly the probe budget must still be a
+	// parse error, not ErrProbeLimit: with N = maxProbeBytes+1 the budget is not
+	// exhausted, distinguishing a cut-off body from an oversized one.
+	body := `{"method":"a"` // 13 bytes, missing the closing '}'
+	_, _, err := NewMethodParser(int64(len(body))).Parse(strings.NewReader(body))
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrProbeLimit)
+}
+
+func TestParse_ExactProbeLimitBodyParses(t *testing.T) {
+	// A complete body of exactly maxProbeBytes bytes parses successfully; the
+	// +1 budget byte means it is never misread as a probe-limit hit.
+	body := `{"method":"a"}` // 14 bytes, complete
+	methods, _, err := NewMethodParser(int64(len(body))).Parse(strings.NewReader(body))
+	require.NoError(t, err)
+	require.Equal(t, []string{"a"}, methods)
 }
 
 // --- probe limit / partial read ---

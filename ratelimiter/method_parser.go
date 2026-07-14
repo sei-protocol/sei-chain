@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // DefaultMaxProbeBytes bounds how far MethodParser will read into a request body
@@ -26,8 +27,11 @@ var (
 	// ErrEmptyBatch is returned when the request is a top-level array with no elements.
 	ErrEmptyBatch = errors.New("ratelimiter: JSON-RPC batch is empty")
 	// ErrDuplicateMethod is returned when a request object carries more than one
-	// "method" field.
+	// "method" field (matched case-insensitively, as encoding/json does).
 	ErrDuplicateMethod = errors.New("ratelimiter: JSON-RPC request has duplicate method field")
+	// ErrTrailingData is returned when non-whitespace data follows the top-level
+	// JSON-RPC value; the downstream encoding/json decode would reject such a body.
+	ErrTrailingData = errors.New("ratelimiter: JSON-RPC request has trailing data")
 	// ErrProbeLimit is returned when the method field is not found within MaxProbeBytes.
 	ErrProbeLimit = errors.New("ratelimiter: JSON-RPC method not found within probe limit")
 )
@@ -51,7 +55,9 @@ func NewMethodParser(maxProbeBytes int64) *MethodParser {
 // carries. A single request object yields a one-element slice with batch=false;
 // a top-level array yields one method per element in order with batch=true.
 func (p *MethodParser) Parse(r io.Reader) (methods []string, batch bool, err error) {
-	lr := &io.LimitedReader{R: r, N: p.maxProbeBytes}
+	// N is maxProbeBytes+1 so that lr.N reaching 0 unambiguously means the body
+	// exceeded the budget.
+	lr := &io.LimitedReader{R: r, N: p.maxProbeBytes + 1}
 	dec := json.NewDecoder(lr)
 
 	tok, err := dec.Token()
@@ -70,16 +76,33 @@ func (p *MethodParser) Parse(r io.Reader) (methods []string, batch bool, err err
 		if err != nil {
 			return nil, false, classifyErr(err, lr)
 		}
+		if err := expectEOF(dec); err != nil {
+			return nil, false, classifyErr(err, lr)
+		}
 		return []string{method}, false, nil
 	case '[':
 		out, err := readBatchMethods(dec)
 		if err != nil {
 			return nil, true, classifyErr(err, lr)
 		}
+		if err := expectEOF(dec); err != nil {
+			return nil, true, classifyErr(err, lr)
+		}
 		return out, true, nil
 	default:
 		return nil, false, ErrNotObject
 	}
+}
+
+// expectEOF confirms the decoder has consumed the whole body, so we can reject trailing non-whitespace data
+func expectEOF(dec *json.Decoder) error {
+	if _, err := dec.Token(); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return err
+	}
+	return ErrTrailingData
 }
 
 // readBatchMethods reads the method of every element of a JSON array whose
@@ -101,10 +124,7 @@ func readBatchMethods(dec *json.Decoder) ([]string, error) {
 		}
 		out = append(out, method)
 	}
-	if len(out) == 0 {
-		return out, ErrEmptyBatch
-	}
-	// Consume and validate the closing ']'
+	// Consume and validate the closing ']' before deciding the batch is empty.
 	tok, err := dec.Token()
 	if err != nil {
 		return out, err
@@ -112,12 +132,15 @@ func readBatchMethods(dec *json.Decoder) ([]string, error) {
 	if delim, ok := tok.(json.Delim); !ok || delim != ']' {
 		return out, ErrNotObject
 	}
+	if len(out) == 0 {
+		return out, ErrEmptyBatch
+	}
 	return out, nil
 }
 
 // readMethodFromObject reads the key/value pairs of a JSON object whose opening
 // '{' has already been consumed from dec, and returns the value of its "method"
-// field. Non-method fields are skipped without allocating their values.
+// field. The key is matched case-insensitively.
 func readMethodFromObject(dec *json.Decoder) (string, error) {
 	var (
 		method string
@@ -133,7 +156,7 @@ func readMethodFromObject(dec *json.Decoder) (string, error) {
 			// A valid JSON object always has string keys; anything else is malformed.
 			return "", ErrNotObject
 		}
-		if key == "method" {
+		if strings.EqualFold(key, "method") {
 			if found {
 				return "", ErrDuplicateMethod
 			}
@@ -204,7 +227,7 @@ func classifyErr(err error, lr *io.LimitedReader) error {
 	}
 	if errors.Is(err, ErrNoMethod) || errors.Is(err, ErrMethodNotString) ||
 		errors.Is(err, ErrNotObject) || errors.Is(err, ErrEmptyBatch) ||
-		errors.Is(err, ErrDuplicateMethod) {
+		errors.Is(err, ErrDuplicateMethod) || errors.Is(err, ErrTrailingData) {
 		return err
 	}
 	return fmt.Errorf("ratelimiter: parse JSON-RPC method: %w", err)
