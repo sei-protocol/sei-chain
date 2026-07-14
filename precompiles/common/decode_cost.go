@@ -102,7 +102,7 @@ func (w *decodeWalker) walk(output []byte, index int, t abi.Type) {
 			w.failed = true
 			return
 		}
-		w.strBytes += uint64(length)
+		w.strBytes += uint64(length) //nolint:gosec // length is a non-negative ABI length bounded by len(output) in abiLengthPrefix
 	case abi.SliceTy:
 		begin, length, ok := abiLengthPrefix(index, output)
 		if !ok {
@@ -112,7 +112,7 @@ func (w *decodeWalker) walk(output []byte, index int, t abi.Type) {
 		w.walkElems(output[begin:], length, *t.Elem)
 	case abi.ArrayTy:
 		if abiIsDynamic(*t.Elem) {
-			offset := int(binary.BigEndian.Uint64(output[index+24 : index+32]))
+			offset := int(binary.BigEndian.Uint64(output[index+24 : index+32])) //nolint:gosec // a wrapped-negative value is rejected by the offset<0 check below
 			if offset < 0 || offset > len(output) {
 				w.failed = true
 				return
@@ -217,13 +217,13 @@ func abiLengthPrefix(index int, output []byte) (start int, length int, ok bool) 
 	if bigOffsetEnd.Cmp(outputLength) > 0 || bigOffsetEnd.BitLen() > 63 {
 		return 0, 0, false
 	}
-	offsetEnd := int(bigOffsetEnd.Uint64())
+	offsetEnd := int(bigOffsetEnd.Uint64()) //nolint:gosec // bigOffsetEnd fits int64 (BitLen<=63 checked above)
 	lengthBig := new(big.Int).SetBytes(output[offsetEnd-32 : offsetEnd])
 	totalSize := new(big.Int).Add(bigOffsetEnd, lengthBig)
 	if totalSize.BitLen() > 63 || totalSize.Cmp(outputLength) > 0 {
 		return 0, 0, false
 	}
-	return offsetEnd, int(lengthBig.Uint64()), true
+	return offsetEnd, int(lengthBig.Uint64()), true //nolint:gosec // lengthBig <= totalSize, which is BitLen<=63 checked above
 }
 
 // abiTuplePointsTo mirrors go-ethereum abi.tuplePointsTo for dynamic tuples.
@@ -235,7 +235,7 @@ func abiTuplePointsTo(index int, output []byte) (start int, ok bool) {
 	if offset.Cmp(big.NewInt(int64(len(output)))) > 0 || offset.BitLen() > 63 {
 		return 0, false
 	}
-	return int(offset.Uint64()), true
+	return int(offset.Uint64()), true //nolint:gosec // offset fits int64 (BitLen<=63 checked above)
 }
 
 // abiIsDynamic mirrors go-ethereum abi.isDynamicType.
