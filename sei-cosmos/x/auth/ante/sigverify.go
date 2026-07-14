@@ -277,15 +277,10 @@ func (svd SigVerificationDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simul
 		}
 
 		// retrieve signer data
-		genesis := ctx.BlockHeight() == 0
 		chainID := ctx.ChainID()
-		var accNum uint64
-		if !genesis {
-			accNum = acc.GetAccountNumber()
-		}
 		signerData := authsigning.SignerData{
 			ChainID:       chainID,
-			AccountNumber: accNum,
+			AccountNumber: acc.GetAccountNumber(),
 			Sequence:      acc.GetSequence(),
 		}
 
@@ -297,9 +292,9 @@ func (svd SigVerificationDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simul
 				if OnlyLegacyAminoSigners(sig.Data) {
 					// If all signers are using SIGN_MODE_LEGACY_AMINO, we rely on VerifySignature to check account sequence number,
 					// and therefore communicate sequence number as a potential cause of error.
-					errMsg = fmt.Sprintf("signature verification failed; please verify account number (%d), sequence (%d) and chain-id (%s)", accNum, acc.GetSequence(), chainID)
+					errMsg = fmt.Sprintf("signature verification failed; please verify account number (%d), sequence (%d) and chain-id (%s)", acc.GetAccountNumber(), acc.GetSequence(), chainID)
 				} else {
-					errMsg = fmt.Sprintf("signature verification failed; please verify account number (%d) and chain-id (%s)", accNum, chainID)
+					errMsg = fmt.Sprintf("signature verification failed; please verify account number (%d) and chain-id (%s)", acc.GetAccountNumber(), chainID)
 				}
 				return ctx, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, errMsg)
 

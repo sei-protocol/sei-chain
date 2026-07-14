@@ -11,7 +11,7 @@ func GetGasMeterSetter(pk paramskeeper.Keeper) func(bool, sdk.Context, uint64, s
 		cosmosGasParams := pk.GetCosmosGasParams(ctx)
 
 		// In simulation, still use multiplier but with infinite gas limit
-		if simulate || ctx.BlockHeight() == 0 {
+		if simulate {
 			return ctx.WithGasMeter(types.NewInfiniteMultiplierGasMeter(cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator))
 		}
 

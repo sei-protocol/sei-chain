@@ -95,9 +95,7 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 	}
 
 	if m.ctxProvider != nil {
-		if ctxHeight := m.ctxProvider(LatestCtxHeight).BlockHeight(); ctxHeight > 0 {
-			setLatest(ctxHeight)
-		}
+		setLatest(m.ctxProvider(LatestCtxHeight).BlockHeight())
 	}
 
 	// State store heights (historical state DB) may lag behind block pruning.

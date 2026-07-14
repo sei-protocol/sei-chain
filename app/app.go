@@ -2560,19 +2560,7 @@ func (app *App) LegacyAmino() *codec.LegacyAmino {
 }
 
 func (app *App) GetValidators() []abci.ValidatorUpdate {
-	// AUTOBAHN: After InitChain but before the first Commit, the committed
-	// store is empty — staking params don't exist, so reading from committed
-	// store panics in MaxValidators. Use DeliverContext when available at
-	// height 0, since it has the uncommitted staking state from InitChain.
-	// CometBFT consensus never hits this because its handshaker commits
-	// after InitChain before any block processing begins.
-	if app.LastBlockHeight() == 0 {
-		if dctx := app.DeliverContext(); dctx != nil {
-			return app.StakingKeeper.GetBondedValidators(*dctx)
-		}
-	}
-	ctx := app.NewUncachedContext(false, tmproto.Header{Height: max(app.LastBlockHeight(), 1)})
-	return app.StakingKeeper.GetBondedValidators(ctx)
+	return app.StakingKeeper.GetBondedValidators(app.GetCheckCtx())
 }
 
 // AppCodec returns an app codec.

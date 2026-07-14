@@ -325,38 +325,40 @@ func (b *Backend) isLatest(ctx context.Context, x rpc.BlockNumberOrHash) (bool, 
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
-	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
+	sdkCtx := b.ctxProvider(LatestCtxHeight)
+	zeroExcessBlobGas := uint64(0)
+	header := &ethtypes.Header{
+		Difficulty:    common.Big0,
+		Number:        big.NewInt(sdkCtx.BlockHeight()),
+		BaseFee:       b.keeper.GetNextBaseFeePerGas(sdkCtx).TruncateInt().BigInt(),
+		GasLimit:      keeper.DefaultBlockGasLimit,
+		Time:          toUint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
+		ExcessBlobGas: &zeroExcessBlobGas,
+	}
 	isLatest, err := b.isLatest(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, nil, err
 	}
-	if isLatest {
-		h, err := b.watermarks.LatestHeight(ctx)
+	if !isLatest || sdkCtx.BlockHeight() > 0 {
+		tmBlock, isLatest, err := b.getBlockByNumberOrHash(ctx, blockNrOrHash)
 		if err != nil {
 			return nil, nil, err
 		}
-		if h == 0 {
-			sdkCtx := b.ctxProvider(h).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
-			header := b.fallbackToEthHeaderOnly(h)
-			header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
-			header.Time = toUint64(sdkCtx.BlockTime().Unix()) //nolint:gosec
-			if cp := sdkCtx.ConsensusParams(); cp != nil && cp.Block != nil {
-				header.GasLimit = uint64(cp.Block.MaxGas) //nolint:gosec
+		header.Number = big.NewInt(tmBlock.Block.Height)
+		header.Time = toUint64(tmBlock.Block.Time.Unix())
+		header.ParentHash = common.BytesToHash(tmBlock.BlockID.Hash)
+		sdkCtx = b.ctxProvider(tmBlock.Block.Height)
+		if !isLatest {
+			if err := CheckVersion(sdkCtx, b.keeper); err != nil {
+				return nil, nil, err
 			}
-			return state.NewDBImpl(sdkCtx, b.keeper, true), header, nil
 		}
 	}
-	tmBlock, _, err := b.getBlockByNumberOrHash(ctx, blockNrOrHash)
-	if err != nil {
-		return nil, nil, err
+	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
+	sdkCtx = sdkCtx.WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
+	if cp := sdkCtx.ConsensusParams(); cp != nil && cp.Block != nil {
+		header.GasLimit = uint64(cp.Block.MaxGas) //nolint:gosec
 	}
-	height := tmBlock.Block.Height
-	sdkCtx := b.ctxProvider(height).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
-	if err := CheckVersion(sdkCtx, b.keeper); err != nil {
-		return nil, nil, err
-	}
-	header := b.getHeader(tmBlock)
-	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return state.NewDBImpl(sdkCtx, b.keeper, true), header, nil
 }
 
