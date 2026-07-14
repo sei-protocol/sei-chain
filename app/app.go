@@ -1612,7 +1612,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 			appMetrics.gigaFallback.Add(ctx.Context(), 1,
 				otelmetric.WithAttributes(
-					attribute.String("reason", "store_iterator"),
+					attribute.String("reason", gigaFallbackStoreIterator),
 					attribute.String("scope", "tx")))
 			res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 			txResults[i] = res
@@ -1846,7 +1846,7 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 			return nil, ctx
 		}
 
-		fallbackReason := "other"
+		fallbackReason := gigaFallbackOther
 		for _, r := range evmBatchResult {
 			if r.Code == gigautils.GigaAbortCode && r.Codespace == gigautils.GigaAbortCodespace {
 				fallbackToV2 = true
@@ -2012,21 +2012,31 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 	return events, txResults, endBlockResp, nil
 }
 
+// Fallback-cause labels for the app_giga_fallback_to_v2 metric.
+const (
+	gigaFallbackValidationFailed  = "validation_failed"
+	gigaFallbackBalanceMigration  = "balance_migration"
+	gigaFallbackSelfDestruct      = "self_destruct"
+	gigaFallbackInvalidPrecompile = "invalid_precompile"
+	gigaFallbackStoreIterator     = "store_iterator"
+	gigaFallbackOther             = "other"
+)
+
 // gigaFallbackReason labels the app_giga_fallback_to_v2 metric with which
 // abort sentinel routed a tx to v2, so operators can tell a validation-failure
 // wave from balance-migration churn.
 func gigaFallbackReason(err error) string {
 	switch err.(type) {
-	case *gigaprecompiles.ValidationFailedAbortError:
-		return "validation_failed"
+	case *gigautils.ValidationFailedAbortError:
+		return gigaFallbackValidationFailed
 	case *gigaprecompiles.BalanceMigrationAbortError:
-		return "balance_migration"
+		return gigaFallbackBalanceMigration
 	case *gigaprecompiles.SelfDestructAbortError:
-		return "self_destruct"
+		return gigaFallbackSelfDestruct
 	case *gigaprecompiles.InvalidPrecompileCallError:
-		return "invalid_precompile"
+		return gigaFallbackInvalidPrecompile
 	default:
-		return "other"
+		return gigaFallbackOther
 	}
 }
 
@@ -2063,7 +2073,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		// receipt gas fields giga cannot reconstruct; a giga-side receipt here
 		// diverges LastResultsHash on mixed fleets (CON-368). Fall back to v2,
 		// which also owns the nonce bump.
-		return nil, gigaprecompiles.ErrValidationFailed
+		return nil, gigautils.ErrValidationFailed
 	}
 
 	if !isAssociated {
@@ -2303,7 +2313,7 @@ func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.
 					resp = abci.ResponseDeliverTx{
 						Code:      gigautils.GigaAbortCode,
 						Codespace: gigautils.GigaAbortCodespace,
-						Info:      "store_iterator",
+						Info:      gigaFallbackStoreIterator,
 						Log:       "giga executor abort: store iteration unsupported, fall back to v2",
 					}
 					return

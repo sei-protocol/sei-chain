@@ -85,21 +85,6 @@ func (e *SelfDestructAbortError) IsAbortError() bool {
 
 var ErrSelfDestructUnsupported error = &SelfDestructAbortError{}
 
-// ValidationFailedAbortError signals an EVM validation failure (fee/nonce/
-// balance), whose canonical failure receipt only v2's ante chain can produce;
-// the caller should fall back to v2.
-type ValidationFailedAbortError struct{}
-
-func (e *ValidationFailedAbortError) Error() string {
-	return "EVM validation failed; v2 produces the canonical failure receipt"
-}
-
-func (e *ValidationFailedAbortError) IsAbortError() bool {
-	return true
-}
-
-var ErrValidationFailed error = &ValidationFailedAbortError{}
-
 type FailFastPrecompile struct{}
 
 var FailFastSingleton vm.PrecompiledContract = &FailFastPrecompile{}
