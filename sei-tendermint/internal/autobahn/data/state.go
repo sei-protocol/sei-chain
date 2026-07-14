@@ -275,7 +275,6 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 				return fmt.Errorf("open block iterator: %w", err)
 			}
 			defer func() { _ = it2.Close() }()
-			firstBlock := true
 			var nextExpect types.GlobalBlockNumber
 			for {
 				ok, err := it2.Next()
@@ -286,8 +285,9 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 				if n >= in.nextQC {
 					return fmt.Errorf("block %d in BlockDB has no QC coverage (nextQC=%d)", n, in.nextQC)
 				}
-				if firstBlock {
-					firstBlock = false
+				// No blocks loaded yet (insertBlock does not advance nextBlock
+				// until after this loop). Mirrors the QC pass's first==nextQC check.
+				if len(in.blocks) == 0 {
 					if n < in.first {
 						return fmt.Errorf("block %d in BlockDB predates first QC start %d", n, in.first)
 					}
