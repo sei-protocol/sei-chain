@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -172,4 +173,27 @@ func TestFundCommunityPool(t *testing.T) {
 
 	assert.Equal(t, initPool.CommunityPool.Add(sdk.NewDecCoinsFromCoins(amount...)...), app.DistrKeeper.GetFeePool(ctx).CommunityPool)
 	assert.Empty(t, app.BankKeeper.GetAllBalances(ctx, addr[0]))
+}
+
+// TestFundCommunityPoolRejectsOutOfRangeAmount verifies that funding the
+// community pool with an amount too large to convert to a whole-coin Dec is
+// rejected at the conversion boundary and leaves the stored fee pool
+// unchanged.
+func TestFundCommunityPoolRejectsOutOfRangeAmount(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	addr := seiapp.AddTestAddrs(app, ctx, 1, sdk.ZeroInt())
+
+	maxAmt := sdk.NewIntFromBigInt(new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1)))
+	coins := sdk.NewCoins(sdk.NewCoin("bigcoin", maxAmt))
+	require.NoError(t, apptesting.FundAccount(app.BankKeeper, ctx, addr[0], coins))
+
+	require.Panics(t, func() {
+		_ = app.DistrKeeper.FundCommunityPool(ctx, coins, addr[0])
+	}, "funding the community pool with an out-of-range amount must be rejected")
+
+	// The stored fee pool must be unchanged after the rejected attempt.
+	require.NotPanics(t, func() { app.DistrKeeper.GetFeePool(ctx) })
+	require.True(t, app.DistrKeeper.GetFeePool(ctx).CommunityPool.IsZero())
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -30,34 +29,23 @@ func TestLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC
 
 func TestCommitQC(
 	rng utils.Rng,
-	committee *types.Committee,
+	ep *types.Epoch,
 	keys []types.SecretKey,
 	prev utils.Option[*types.CommitQC],
 ) (*types.FullCommitQC, []*types.Block) {
+	committee := ep.Committee()
 	blocks := map[types.LaneID][]*types.Block{}
 	makeBlock := func(producer types.LaneID) *types.Block {
 		if bs := blocks[producer]; len(bs) > 0 {
 			parent := bs[len(bs)-1]
-			return types.NewBlock(
-				producer,
-				parent.Header().Next(),
-				parent.Header().Hash(),
-				types.GenPayload(rng),
-			)
+			return types.NewBlock(producer, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
 		}
-		return types.NewBlock(
-			producer,
-			types.LaneRangeOpt(prev, producer).Next(),
-			types.GenBlockHeaderHash(rng),
-			types.GenPayload(rng),
-		)
+		return types.NewBlock(producer, types.LaneRangeOpt(prev, producer).Next(), types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	}
-	// Make some blocks
 	for range 10 {
 		producer := committee.Lanes().At(rng.Intn(committee.Lanes().Len()))
 		blocks[producer] = append(blocks[producer], makeBlock(producer))
 	}
-	// Construct a proposal.
 	laneQCs := map[types.LaneID]*types.LaneQC{}
 	var headers []*types.BlockHeader
 	var blockList []*types.Block
@@ -70,37 +58,14 @@ func TestCommitQC(
 			}
 		}
 	}
-	viewSpec := types.ViewSpec{CommitQC: prev}
-	leader := committee.Leader(viewSpec.View())
-	var leaderKey types.SecretKey
-	for _, k := range keys {
-		if k.Public() == leader {
-			leaderKey = k
-			break
-		}
+	var appQC utils.Option[*types.AppQC]
+	if cqc, ok := prev.Get(); ok {
+		vs := types.ViewSpec{CommitQC: prev, Epoch: ep}
+		p := types.NewAppProposal(cqc.GlobalRange().Next-1, vs.View().Index, types.GenAppHash(rng), ep.EpochIndex())
+		appQC = utils.Some(TestAppQC(keys, p))
 	}
-	proposal := utils.OrPanic1(types.NewProposal(
-		leaderKey,
-		committee,
-		viewSpec,
-		time.Now(),
-		laneQCs,
-		func() utils.Option[*types.AppQC] {
-			if n := types.GlobalRangeOpt(prev, committee).Next; n > 0 {
-				p := types.NewAppProposal(n-1, viewSpec.View().Index, types.GenAppHash(rng))
-				return utils.Some(TestAppQC(keys, p))
-			}
-			return utils.None[*types.AppQC]()
-		}(),
-	))
-	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
-	for _, k := range keys {
-		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.Proposal().Msg())))
-	}
-	return types.NewFullCommitQC(
-		types.NewCommitQC(votes),
-		headers,
-	), blockList
+	cqc := types.BuildCommitQC(ep, keys, prev, laneQCs, appQC)
+	return types.NewFullCommitQC(cqc, headers), blockList
 }
 
 var _ StateAPI = (*MockState)(nil)
