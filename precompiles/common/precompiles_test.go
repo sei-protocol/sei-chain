@@ -94,11 +94,15 @@ func TestPrecompileRun(t *testing.T) {
 
 type MockDynamicGasPrecompileExecutor struct {
 	throw     bool
+	panicWith interface{}
 	evmKeeper utils.EVMKeeper
 }
 
 func (e *MockDynamicGasPrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller ethcommon.Address, callingContract ethcommon.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, _ *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	ctx.EventManager().EmitEvent(sdk.NewEvent("test"))
+	if e.panicWith != nil {
+		panic(e.panicWith)
+	}
 	if e.throw {
 		return nil, 0, errors.New("test")
 	}
@@ -131,6 +135,26 @@ func TestDynamicGasPrecompileRun(t *testing.T) {
 	require.NotNil(t, err)
 	// should not emit any event
 	require.Empty(t, stateDB.Ctx().EventManager().Events())
+}
+
+// TestDynamicGasPrecompileRepanicsNonGas verifies that only gas-meter panics are
+// converted to reverts: a non-gas panic must propagate rather than be masked.
+func TestDynamicGasPrecompileRepanicsNonGas(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	abiBz, err := os.ReadFile("erc20_abi.json")
+	require.Nil(t, err)
+	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
+	require.Nil(t, err)
+	input, err := newAbi.Pack("decimals")
+	require.Nil(t, err)
+
+	precompile := common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{panicWith: "boom", evmKeeper: k}, ethcommon.Address{}, "test")
+	stateDB := state.NewDBImpl(ctx.WithEventManager(sdk.NewEventManager()), k, false)
+	// Ample gas so the decode charges pass and the (panicking) executor runs.
+	require.PanicsWithValue(t, "boom", func() {
+		_, _, _ = precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 100000, big.NewInt(0), nil, false, false)
+	})
 }
 
 // TestDynamicGasPrecompileGasGate is a regression test for a DoS in the dynamic
