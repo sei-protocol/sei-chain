@@ -33,6 +33,16 @@ func withTestMemIAVL(cfg seidbconfig.StateCommitConfig) seidbconfig.StateCommitC
 	cfg.MemIAVLConfig.SnapshotInterval = 1
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	// Snapshotting every block (interval 1) combined with the default
+	// keep-recent of 1 would prune all but the two newest snapshots. FlatKV,
+	// which mirrors this cadence, needs a retained snapshot at-or-below the
+	// rollback target to reconstruct that version, so aggressive pruning would
+	// make the rollback/recovery tests unable to target older versions. In
+	// production (interval 10000) a small rollback always lands within a
+	// retained interval; here we retain all snapshots across the small test
+	// version ranges to model that guarantee. Tests that specifically exercise
+	// pruning override this explicitly.
+	cfg.MemIAVLConfig.SnapshotKeepRecent = 1000
 	cfg.HistoricalProofRateLimit = 0
 	cfg.HistoricalProofMaxInFlight = 100
 	return cfg
@@ -345,6 +355,12 @@ func openFlatKVReadOnly(t *testing.T, dir string, cfg seidbconfig.StateCommitCon
 	require.NoError(t, err)
 	ro, err := store.LoadVersion(version, true)
 	require.NoError(t, err)
+	// Close the parent immediately: the returned read-only view owns an
+	// independent context and resources, so it must survive the parent's
+	// teardown. This doubles as a regression guard — if the clone is ever
+	// re-rooted at the parent's context, cold reads on ro (those that miss the
+	// warm cache and hit the async pebble loader) will fail with "context
+	// canceled".
 	require.NoError(t, store.Close())
 	return ro
 }

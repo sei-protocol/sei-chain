@@ -932,6 +932,56 @@ func (s *coinTestSuite) TestCoinsIsAllGTE() {
 	s.Require().False(sdk.Coins{{"xxx", one}, {"yyy", one}}.IsAllGTE(sdk.Coins{{testDenom2, one}, {"ccc", one}, {"yyy", one}, {"zzz", one}}))
 }
 
+func (s *coinTestSuite) TestCoinsDenomsSubsetOf() {
+	one := sdk.OneInt()
+	two := sdk.NewInt(2)
+
+	// empty receiver is a subset of anything (including empty)
+	s.Require().True(sdk.Coins{}.DenomsSubsetOf(sdk.Coins{}))
+	s.Require().True(sdk.Coins{}.DenomsSubsetOf(sdk.Coins{{testDenom1, one}}))
+
+	// a larger receiver can never be a subset
+	s.Require().False(sdk.Coins{{testDenom1, one}}.DenomsSubsetOf(sdk.Coins{}))
+
+	// amounts are irrelevant, only denom membership matters
+	s.Require().True(sdk.Coins{{testDenom1, one}}.DenomsSubsetOf(sdk.Coins{{testDenom1, one}}))
+	s.Require().True(sdk.Coins{{testDenom1, two}}.DenomsSubsetOf(sdk.Coins{{testDenom1, one}}))
+
+	// proper subset (receiver denoms all present in B)
+	s.Require().True(sdk.Coins{{testDenom1, one}}.DenomsSubsetOf(sdk.Coins{{testDenom1, one}, {testDenom2, one}}))
+	s.Require().True(sdk.Coins{{testDenom1, one}, {testDenom2, one}}.DenomsSubsetOf(sdk.Coins{{testDenom1, one}, {testDenom2, one}}))
+	s.Require().True(sdk.Coins{{testDenom1, one}, {testDenom3, one}}.DenomsSubsetOf(sdk.Coins{{testDenom1, one}, {testDenom2, one}, {testDenom3, one}}))
+
+	// receiver contains a denom missing from B
+	s.Require().False(sdk.Coins{{testDenom1, one}}.DenomsSubsetOf(sdk.Coins{{testDenom2, one}}))
+	s.Require().False(sdk.Coins{{testDenom1, one}, {testDenom2, one}}.DenomsSubsetOf(sdk.Coins{{testDenom1, one}, {testDenom3, one}}))
+	// same length, one denom differs (guards the merge-walk termination)
+	s.Require().False(sdk.Coins{{testDenom2, one}, {testDenom3, one}}.DenomsSubsetOf(sdk.Coins{{testDenom1, one}, {testDenom2, one}}))
+	// receiver denom sorts after everything in B
+	s.Require().False(sdk.Coins{{"zzz", one}}.DenomsSubsetOf(sdk.Coins{{testDenom1, one}, {testDenom2, one}}))
+
+	// large sorted inputs: subset and non-subset
+	const n = 5000
+	full := make(sdk.Coins, n)
+	for i := 0; i < n; i++ {
+		full[i] = sdk.NewCoin(fmt.Sprintf("coin%08d", i), one)
+	}
+	s.Require().NoError(full.Validate(), "generated coins must satisfy the sorted/no-dup invariant")
+
+	half := make(sdk.Coins, 0, n/2)
+	for i := 0; i < n; i += 2 {
+		half = append(half, full[i])
+	}
+	s.Require().True(half.DenomsSubsetOf(full))
+
+	// flip one denom to something not in full => no longer a subset
+	notSubset := make(sdk.Coins, len(half))
+	copy(notSubset, half)
+	notSubset[len(notSubset)-1] = sdk.NewCoin("zzz99999999", one)
+	s.Require().True(notSubset.IsValid())
+	s.Require().False(notSubset.DenomsSubsetOf(full))
+}
+
 func (s *coinTestSuite) TestNewCoins() {
 	tenatom := sdk.NewInt64Coin("atom", 10)
 	tenbtc := sdk.NewInt64Coin("btc", 10)
