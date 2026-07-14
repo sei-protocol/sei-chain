@@ -140,7 +140,7 @@ async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
     // seid tx evm send prints "Transaction hash: 0x..." on its own format
     // (not the standard cosmos JSON response), so we extract from text and
     // wait via the JSON-RPC receipt — semantically equivalent to -b block.
-    const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} -b sync -y`);
+    const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} --evm-rpc=http://localhost:8545 -b sync -y`);
     const evmTxHash = output.replace(/.*0x/, "0x").trim()
     await waitForReceipt(evmTxHash)
     return evmTxHash

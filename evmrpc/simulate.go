@@ -234,7 +234,7 @@ func (e *RevertError) ErrorCode() int {
 }
 
 // ErrorData returns the hex encoded revert reason.
-func (e *RevertError) ErrorData() interface{} {
+func (e *RevertError) ErrorData() any {
 	return e.reason
 }
 
@@ -447,7 +447,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 			})
 		}
 	}
-	header := b.getHeader(ctx, tmBlock)
+	header := b.getHeader(tmBlock)
 	block := &ethtypes.Block{
 		Header_: header,
 		Txs:     txs,
@@ -524,7 +524,7 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 	if err != nil {
 		return nil, err
 	}
-	return b.getHeader(ctx, tmBlock), nil
+	return b.getHeader(tmBlock), nil
 }
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
@@ -671,7 +671,8 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 func (b *Backend) CurrentHeader() *ethtypes.Header {
 	_, header, _, err := b.resolveStateAndHeaderByNumberOrHash(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
 	if err != nil {
-		header = b.syntheticHeaderFromCtx(b.ctxProvider(LatestCtxHeight))
+		// resolveStateAndHeaderByNumberOrHash never returns an error for LatestBlockNumber
+		panic(err)
 	}
 	return header
 }
@@ -733,7 +734,7 @@ func (b *Backend) resolveStateAndHeaderByNumberOrHash(ctx context.Context, block
 		if err != nil {
 			return sdkCtx, b.syntheticHeaderFromCtx(sdkCtx), true, nil
 		}
-		header := b.getHeader(ctx, tmBlock)
+		header := b.getHeader(tmBlock)
 		if tmBlock.Block.Height != sdkCtx.BlockHeight() {
 			return sdkCtx, b.syntheticHeaderFromCtx(sdkCtx), true, nil
 		}
@@ -746,7 +747,7 @@ func (b *Backend) resolveStateAndHeaderByNumberOrHash(ctx context.Context, block
 		return sdk.Context{}, nil, false, err
 	}
 	sdkCtx := b.ctxProvider(tmBlock.Block.Height)
-	return sdkCtx, b.getHeader(ctx, tmBlock), false, nil
+	return sdkCtx, b.getHeader(tmBlock), false, nil
 }
 
 // syntheticHeaderFromCtx builds a minimal header directly from the selected SDK
@@ -771,7 +772,7 @@ func (b *Backend) syntheticHeaderFromCtx(sdkCtx sdk.Context) *ethtypes.Header {
 	}
 }
 
-func (b *Backend) getHeader(ctx context.Context, tmBlock *coretypes.ResultBlock) *ethtypes.Header {
+func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 	height := tmBlock.Block.Height
 	zeroExcessBlobGas := uint64(0)
 	baseFee := b.keeper.GetNextBaseFeePerGas(b.ctxProvider(height - 1)).TruncateInt().BigInt()
