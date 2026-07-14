@@ -546,8 +546,78 @@ func TestEvictedReadsFallBackToBlockDB(t *testing.T) {
 		if err := utils.TestDiff(wantG, gb); err != nil {
 			return fmt.Errorf("GlobalBlockByHash after eviction: %w", err)
 		}
+
+		// Eviction leaves first behind; PruneBefore must not panic when the
+		// in-memory block at first is already gone (metrics are best-effort).
+		if err := state.PruneBefore(gr1.Next); err != nil {
+			return fmt.Errorf("PruneBefore after eviction: %w", err)
+		}
+		for inner := range state.inner.Lock() {
+			if inner.first != gr1.Next-1 {
+				return fmt.Errorf("after PruneBefore, first=%d want %d", inner.first, gr1.Next-1)
+			}
+		}
+		if _, err := state.TryBlock(evicted); !errors.Is(err, ErrPruned) {
+			return fmt.Errorf("TryBlock(%d) after PruneBefore: got %v, want ErrPruned", evicted, err)
+		}
 		return nil
 	}))
+}
+
+// TestPushQCBeforeRunPersistsToBlockDB seeds in-memory QCs/blocks before Run
+// (mirroring inbound PushQC after transport start) and asserts runPersist still
+// writes them — WriteHighWaterMarks seeding, not inner.nextQC/nextBlock.
+func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	dir := t.TempDir()
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange()
+
+	db := newTestBlockDB(t, dir)
+	state := newTestState(t, &Config{Registry: registry}, db)
+
+	// Transport-race window: PushQC before data.Run / runPersist starts.
+	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+	tips := db.WriteHighWaterMarks()
+	require.False(t, tips.LastBlockNumber.IsPresent(), "PushQC must not write BlockDB before Run")
+	require.False(t, tips.LastQCNext.IsPresent())
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		runCtx, cancel := context.WithCancel(ctx)
+		s.SpawnBgNamed("state.Run", func() error {
+			return utils.IgnoreCancel(state.Run(runCtx))
+		})
+		// PushAppHash waits on nextBlockToPersist, so success implies Flush.
+		for n := gr1.First; n < gr1.Next; n++ {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+				cancel()
+				return fmt.Errorf("PushAppHash(%d): %w", n, err)
+			}
+		}
+		cancel()
+		return nil
+	}))
+
+	tips = db.WriteHighWaterMarks()
+	gotBlock, ok := tips.LastBlockNumber.Get()
+	require.True(t, ok)
+	require.Equal(t, gr1.Next-1, gotBlock)
+	gotQC, ok := tips.LastQCNext.Get()
+	require.True(t, ok)
+	require.Equal(t, gr1.Next, gotQC)
+
+	require.NoError(t, db.Close())
+	db2 := newTestBlockDB(t, dir)
+	state2 := newTestState(t, &Config{Registry: registry}, db2)
+	require.Equal(t, gr1.Next, state2.NextBlock())
+	for n := gr1.First; n < gr1.Next; n++ {
+		got, err := state2.TryBlock(n)
+		require.NoError(t, err, "block %d", n)
+		require.NotNil(t, got)
+	}
 }
 
 // TestPruningKeepsLastQCRange verifies that pruning never removes the last

@@ -119,7 +119,7 @@ Output is written to the file specified by --output.`,
 		},
 	}
 	cmd.Flags().StringP("output", "o", "", "output file path for the autobahn config")
-	cmd.Flags().String("persistent-state-dir", "data/autobahn", "directory to persist autobahn consensus and data WALs across restarts; relative paths are resolved against the node's --home dir; pass --persistent-state-dir= (empty) to disable persistence and run in-memory only")
+	cmd.Flags().String("persistent-state-dir", "data/autobahn", "directory to persist autobahn consensus state and BlockDB across restarts; relative paths are resolved against the node's --home dir; pass --persistent-state-dir= (empty) to disable persistence and run in-memory only (memblock)")
 	// Default 30s: this helper is used by docker/local clusters, not production
 	// node bring-up. Pass --blockdb-retention= (empty) to omit block_db and keep
 	// littblock's production default (24h).

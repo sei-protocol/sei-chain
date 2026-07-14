@@ -175,14 +175,18 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 }
 
 func (i *inner) pruneFirst(now time.Time, m *metrics.Metrics) {
-	b := i.blocks[i.first]
-	latency := now.Sub(b.Payload().CreatedAt()).Seconds()
-	m.Blocks.Prune.Observe(latency)
-	m.Txs.Prune.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+	// Block/QC may already be gone: runPersist evicts executed heights from the
+	// in-memory maps (BlockDB owns them) without advancing first. Metrics are
+	// best-effort when the block is still cached.
+	if b, ok := i.blocks[i.first]; ok {
+		latency := now.Sub(b.Payload().CreatedAt()).Seconds()
+		m.Blocks.Prune.Observe(latency)
+		m.Txs.Prune.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+		delete(i.blockHashes, b.Header().Hash())
+		delete(i.blocks, i.first)
+	}
 	delete(i.appProposals, i.first)
-	delete(i.blocks, i.first)
 	delete(i.qcs, i.first)
-	delete(i.blockHashes, b.Header().Hash())
 	i.first += 1
 }
 

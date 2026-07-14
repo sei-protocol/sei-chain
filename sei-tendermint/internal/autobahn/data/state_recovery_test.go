@@ -30,8 +30,8 @@ func TestRecoveryEmpty(t *testing.T) {
 	}
 }
 
-// TestNewStateNilInMemoryMode verifies that NewState(cfg, None) followed by Run
-// works end-to-end: QCs and blocks are accessible in memory with no BlockDB backing.
+// TestNewStateInMemoryMode verifies that NewState with memblock followed by Run
+// works end-to-end: QCs and blocks are accessible without a durable BlockDB dir.
 func TestNewStateInMemoryMode(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
