@@ -34,6 +34,22 @@ func TestConfigValidateBigtable(t *testing.T) {
 	require.ErrorContains(t, cfg.Validate(), backendBigtable)
 }
 
+func TestConfigValidateRejectsAmbiguousDualBackends(t *testing.T) {
+	cfg := Config{
+		Kafka: KafkaReaderConfig{
+			Brokers: []string{"localhost:9092"},
+			Topic:   "historical-offload",
+			GroupID: "g",
+		},
+		Scylla:   ScyllaConfig{Hosts: []string{"127.0.0.1"}, Keyspace: "ks"},
+		Bigtable: BigtableConfig{ProjectID: "p", InstanceID: "i", Table: "t"},
+	}
+	require.ErrorContains(t, cfg.Validate(), "both scylla and bigtable")
+
+	cfg.Backend = backendBigtable
+	require.NoError(t, cfg.Validate())
+}
+
 func TestConfigApplyBackendDefaultsBigtable(t *testing.T) {
 	cfg := Config{Backend: backendBigtable}
 	cfg.applyBackendDefaults()

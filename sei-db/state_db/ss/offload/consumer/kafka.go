@@ -63,6 +63,20 @@ func (c *KafkaReaderConfig) Validate() error {
 	default:
 		return fmt.Errorf("unsupported kafka start offset %q", c.StartOffset)
 	}
+	// Mirror the producer-side SASL checks so a misconfigured consumer fails at
+	// load time instead of with an obscure handshake error on first fetch.
+	switch strings.ToLower(c.SASLMechanism) {
+	case "", "none":
+	case "aws-msk-iam":
+		if !c.TLSEnabled {
+			return fmt.Errorf("kafka tls must be enabled for aws-msk-iam")
+		}
+		if c.Region == "" {
+			return fmt.Errorf("kafka region is required for aws-msk-iam")
+		}
+	default:
+		return fmt.Errorf("unsupported kafka sasl mechanism %q", c.SASLMechanism)
+	}
 	return nil
 }
 

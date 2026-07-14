@@ -36,6 +36,27 @@ func TestKafkaReaderConfigValidate(t *testing.T) {
 	require.ErrorContains(t, cfg.Validate(), "start offset")
 }
 
+func TestKafkaReaderConfigValidateSASL(t *testing.T) {
+	base := KafkaReaderConfig{Brokers: []string{"x"}, Topic: "t", GroupID: "g"}
+
+	cfg := base
+	cfg.SASLMechanism = "aws-msk-iam"
+	require.ErrorContains(t, cfg.Validate(), "tls")
+
+	cfg.TLSEnabled = true
+	require.ErrorContains(t, cfg.Validate(), "region")
+
+	cfg.Region = "us-east-1"
+	require.NoError(t, cfg.Validate())
+
+	cfg = base
+	cfg.SASLMechanism = "plain"
+	require.ErrorContains(t, cfg.Validate(), "sasl mechanism")
+
+	cfg.SASLMechanism = "none"
+	require.NoError(t, cfg.Validate())
+}
+
 func TestDecodeEntry(t *testing.T) {
 	entry := &proto.ChangelogEntry{Version: 7}
 	payload, err := entry.Marshal()

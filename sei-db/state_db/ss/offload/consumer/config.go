@@ -24,7 +24,7 @@ type Config struct {
 	ShardBufferSize int
 	MaxBatchRecords int
 	BatchMaxWaitMS  int
-	// MetricsAddr, when set (e.g. ":9092"), serves Prometheus metrics at
+	// MetricsAddr, when set (e.g. ":2112"), serves Prometheus metrics at
 	// /metrics so the backend cost counters (bigtable_rows_mutated_total,
 	// bigtable_bytes_written_total, bigtable_mutate_latency_seconds, ...) can be
 	// scraped. Empty disables the endpoint.
@@ -34,6 +34,12 @@ type Config struct {
 func (c *Config) Validate() error {
 	if err := c.Kafka.Validate(); err != nil {
 		return fmt.Errorf("kafka: %w", err)
+	}
+	// Match the node-side reader, which refuses to guess between two configured
+	// backends; a consumer silently defaulting to Scylla here could ingest into
+	// a different store than the node reads from.
+	if strings.TrimSpace(c.Backend) == "" && c.Scylla.Configured() && c.Bigtable.Configured() {
+		return fmt.Errorf("both scylla and bigtable are configured; set Backend to pick one")
 	}
 	switch c.BackendName() {
 	case backendScylla:

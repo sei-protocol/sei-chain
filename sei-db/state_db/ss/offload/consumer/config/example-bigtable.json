@@ -18,5 +18,5 @@
   "ShardBufferSize": 128,
   "MaxBatchRecords": 128,
   "BatchMaxWaitMS": 25,
-  "MetricsAddr": ":9092"
+  "MetricsAddr": ":2112"
 }
