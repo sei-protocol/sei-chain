@@ -24,7 +24,7 @@ import (
 // mirror the CometBFT path so external tools see consistent responses.
 func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestValidators) (*coretypes.ResultValidators, error) {
 	if env.gigaRouter().IsPresent() {
-		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
+		height, err := env.autobahnCheckAndGetHeight((*int64)(req.Height))
 		if err != nil {
 			return nil, err
 		}
