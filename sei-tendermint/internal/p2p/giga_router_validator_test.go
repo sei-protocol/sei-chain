@@ -62,17 +62,21 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			proxyApp := proxy.New(app)
 			// In giga mode the CometBFT handshaker is skipped; the router's
 			// runExecute calls InitChain itself on fresh start.
+			commonCfg := GigaRouterCommonConfig{
+				// Aggressive dialing rate to speed up startup.
+				DialInterval:       100 * time.Millisecond,
+				ValidatorAddrs:     addrs,
+				PersistentStateDir: utils.Some(t.TempDir()),
+				App:                proxyApp,
+				GenDoc:             genDoc,
+			}
+			dataState, blockDB, err := BuildDataState(&commonCfg)
+			require.NoError(t, err, "BuildDataState[%v]", i)
+			t.Cleanup(func() { _ = blockDB.Close() })
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
-				GigaRouterCommonConfig: GigaRouterCommonConfig{
-					// Aggressive dialing rate to speed up startup.
-					DialInterval:       100 * time.Millisecond,
-					ValidatorAddrs:     addrs,
-					PersistentStateDir: utils.Some(t.TempDir()),
-					App:                proxyApp,
-					GenDoc:             genDoc,
-				},
-				ValidatorKey: cfg.validatorKey,
-				ViewTimeout:  func(atypes.View) time.Duration { return time.Hour },
+				GigaRouterCommonConfig: commonCfg,
+				ValidatorKey:           cfg.validatorKey,
+				ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
 				Producer: &producer.Config{
 					MaxGasWantedPerBlock:    txGasUsed * maxTxsPerBlock,
 					MaxGasEstimatedPerBlock: txGasUsed * maxTxsPerBlock,
@@ -81,7 +85,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					BlockInterval:           100 * time.Millisecond,
 					AllowEmptyBlocks:        false,
 				},
-			}, cfg.nodeKey)
+			}, cfg.nodeKey, dataState)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
 			router, err := NewRouter(
 				cfg.nodeKey,
@@ -220,16 +224,21 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
+	commonCfg := GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     addrs,
+		PersistentStateDir: utils.Some(t.TempDir()),
+		App:                proxy.New(newTestApp()),
+		GenDoc:             genDoc,
+	}
+	dataState, blockDB, err := BuildDataState(&commonCfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blockDB.Close() })
+
 	router, err := NewGigaValidatorRouter(&GigaValidatorConfig{
-		GigaRouterCommonConfig: GigaRouterCommonConfig{
-			DialInterval:       time.Second,
-			ValidatorAddrs:     addrs,
-			PersistentStateDir: utils.Some(t.TempDir()),
-			App:                proxy.New(newTestApp()),
-			GenDoc:             genDoc,
-		},
-		ValidatorKey: validatorKeys[0],
-		ViewTimeout:  func(atypes.View) time.Duration { return time.Second },
+		GigaRouterCommonConfig: commonCfg,
+		ValidatorKey:           validatorKeys[0],
+		ViewTimeout:            func(atypes.View) time.Duration { return time.Second },
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    1,
 			MaxGasEstimatedPerBlock: 1,
@@ -237,7 +246,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
 		},
-	}, nodeKeys[0])
+	}, nodeKeys[0], dataState)
 	require.NoError(t, err)
 
 	localValidator := validatorKeys[0].Public()

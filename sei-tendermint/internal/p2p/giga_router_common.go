@@ -52,11 +52,15 @@ type gigaRouterCommon struct {
 	inboundFullnodeCap   int64
 }
 
-// buildDataState validates the common config, constructs the committee, opens
+// BuildDataState validates the common config, constructs the committee, opens
 // BlockDB (littblock when PersistentStateDir is set, memblock otherwise), and
-// returns an initialised data.State alongside the BlockDB handle. The caller
-// owns blockDB and must close it after Run returns; data.State never closes it.
-func buildDataState(cfg *GigaRouterCommonConfig) (*data.State, atypes.BlockDB, error) {
+// returns an initialised data.State alongside the BlockDB handle.
+//
+// The caller owns blockDB: close it after giga.Run returns, or immediately if
+// construction of the GigaRouter fails. data.State never closes it. nodeImpl
+// owns this lifecycle in production (open in setup, close after Run via
+// SpawnCritical); tests that call BuildDataState directly must Close themselves.
+func BuildDataState(cfg *GigaRouterCommonConfig) (*data.State, atypes.BlockDB, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}

@@ -57,15 +57,20 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	app := newTestApp()
 	proxyApp := proxy.New(app)
 
-	// Fullnodes have no validator key and no Producer config.
-	// App is required for executeBlock but isn't exercised by this test.
-	router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
+	cfg := &GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: utils.Some(t.TempDir()),
 		App:                proxyApp,
 		GenDoc:             genDoc,
-	}, makeKey(rng))
+	}
+	dataState, blockDB, err := BuildDataState(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blockDB.Close() })
+
+	// Fullnodes have no validator key and no Producer config.
+	// App is required for executeBlock but isn't exercised by this test.
+	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState)
 	require.NoError(t, err)
 
 	// EvmProxy: for every sender, the fullnode router resolves to the

@@ -204,7 +204,8 @@ type State struct {
 
 // NewState constructs a data State, replaying persisted state from blockDB.
 // Use memblock.NewBlockDB() for an in-memory store (testing / no persistent dir).
-// The caller owns blockDB and must close it after Run returns; State never closes it.
+// The caller owns blockDB and must close it after State.Run returns (nodeImpl
+// owns this in production); State never closes it.
 // TODO(gprusak): add support for starting execution from non-zero commit QC.
 func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	s := &State{

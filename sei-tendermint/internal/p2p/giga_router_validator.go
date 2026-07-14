@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
@@ -18,7 +19,6 @@ import (
 type gigaValidatorRouter struct {
 	*gigaRouterCommon
 
-	blockDB   atypes.BlockDB
 	consensus *consensus.State
 	producer  *producer.State
 	// validatorKey is the cached public form of cfg.ValidatorKey, used by
@@ -26,18 +26,16 @@ type gigaValidatorRouter struct {
 	validatorKey atypes.PublicKey
 }
 
-func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaValidatorRouter, error) {
-	dataState, blockDB, err := buildDataState(&cfg.GigaRouterCommonConfig)
-	if err != nil {
-		return nil, err
-	}
+// NewGigaValidatorRouter constructs a validator GigaRouter over an already-built
+// data.State. The caller owns the BlockDB that backs dataState (see BuildDataState);
+// close it if this constructor returns an error.
+func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataState *data.State) (*gigaValidatorRouter, error) {
 	consensusState, err := consensus.NewState(&consensus.Config{
 		Key:                cfg.ValidatorKey,
 		ViewTimeout:        cfg.ViewTimeout,
 		PersistentStateDir: cfg.PersistentStateDir,
 	}, dataState)
 	if err != nil {
-		_ = blockDB.Close()
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
 	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
@@ -53,7 +51,6 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 			app:                cfg.App,
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
-		blockDB:      blockDB,
 		consensus:    consensusState,
 		producer:     producerState,
 		validatorKey: cfg.ValidatorKey.Public(),
@@ -65,7 +62,6 @@ func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
 }
 
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
-	defer func() { _ = r.blockDB.Close() }()
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Validators dial every committee member in parallel — consensus
 		// voting needs fan-out, not stickiness. Same connections also
