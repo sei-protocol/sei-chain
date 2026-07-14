@@ -30,9 +30,11 @@ if [ -r "$gov" ]; then
 fi
 
 export GOMAXPROCS=1
-# GASBENCH_ITERS / GASBENCH_WARMUP / GASBENCH_COV_FLOOR are left unset here by
-# default: gasbench.DefaultConfig() in Go is the single source of truth for
-# those defaults. Set them in the environment only to override for this run.
+# GASBENCH_ITERS / GASBENCH_WARMUP are left unset here by default:
+# gasbench.DefaultConfig() in Go is the single source of truth for those two.
+# GASBENCH_COV_FLOOR / GASBENCH_SIGMA_K default in bench_test.go instead (no
+# Config field for them). Set any of these in the environment only to
+# override for this run.
 export GASBENCH_OUT_CSV="${GASBENCH_OUT_CSV:-gasbench.csv}"
 export GASBENCH_OUT_NDJSON="${GASBENCH_OUT_NDJSON:-gasbench.ndjson}"
 
