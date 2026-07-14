@@ -237,15 +237,14 @@ func (f *walFile) seal() (string, error) {
 		return "", nil
 	}
 	if err := f.flush(true); err != nil {
+		_ = f.close()
 		return "", fmt.Errorf("failed to flush before sealing: %w", err)
 	}
 
 	unsealedPath := filepath.Join(f.directory, unsealedFileName(f.fileSeq))
 	if !f.hasRecords {
-		if f.file != nil {
-			if err := f.file.Close(); err != nil {
-				return "", fmt.Errorf("failed to close WAL file: %w", err)
-			}
+		if err := f.close(); err != nil {
+			return "", fmt.Errorf("failed to close WAL file: %w", err)
 		}
 		if err := removeAndSyncDir(f.directory, unsealedFileName(f.fileSeq)); err != nil {
 			return "", fmt.Errorf("failed to remove empty WAL file: %w", err)
@@ -254,10 +253,8 @@ func (f *walFile) seal() (string, error) {
 		return "", nil
 	}
 
-	if f.file != nil {
-		if err := f.file.Close(); err != nil {
-			return "", fmt.Errorf("failed to close WAL file: %w", err)
-		}
+	if err := f.close(); err != nil {
+		return "", fmt.Errorf("failed to close WAL file: %w", err)
 	}
 
 	sealedName := sealedFileName(f.fileSeq, f.firstIndex, f.lastIndex)

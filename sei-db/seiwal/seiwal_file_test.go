@@ -151,3 +151,35 @@ func TestReadWalFileBadMagic(t *testing.T) {
 	_, err = readWalFile(path)
 	require.Error(t, err)
 }
+
+// TestSealClearsFileHandle verifies that a successful seal() closes and clears f.file, so a later close() is a
+// true no-op rather than a double-close on an already-closed handle — keeping close() idempotent as documented.
+func TestSealClearsFileHandle(t *testing.T) {
+	dir := t.TempDir()
+	f, err := newWalFile(dir, 0)
+	require.NoError(t, err)
+	writeRecordTo(t, f, 1, []byte("one"))
+
+	name, err := f.seal()
+	require.NoError(t, err)
+	require.NotEmpty(t, name)
+	require.Nil(t, f.file)        // seal cleared the handle
+	require.NoError(t, f.close()) // idempotent: no second Close on a closed handle
+}
+
+// TestSealReleasesHandleOnFlushFailure verifies that when the pre-seal flush fails, seal() still releases the
+// file descriptor (clears f.file) rather than leaking it until GC.
+func TestSealReleasesHandleOnFlushFailure(t *testing.T) {
+	dir := t.TempDir()
+	f, err := newWalFile(dir, 0)
+	require.NoError(t, err)
+	writeRecordTo(t, f, 1, []byte("one"))
+
+	// Close the descriptor out from under seal so its flush(true) fails on the still-buffered bytes.
+	require.NoError(t, f.file.Close())
+
+	_, err = f.seal()
+	require.Error(t, err)
+	require.Nil(t, f.file)        // fd released despite the failure
+	require.NoError(t, f.close()) // idempotent
+}

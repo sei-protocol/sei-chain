@@ -258,3 +258,65 @@ func TestGenericWALAppendOrdering(t *testing.T) {
 	// Close surfaces the same fatal error rather than succeeding.
 	require.Error(t, w.Close())
 }
+
+// faultyInner is a WAL[[]byte] whose Bounds/Iterator return an injected error. An inner WAL only errors on
+// those read-path calls once it is already dead, so it models a failed inner engine for the serializing layer.
+type faultyInner struct {
+	boundsErr error
+	iterErr   error
+}
+
+var _ WAL[[]byte] = (*faultyInner)(nil)
+
+func (f *faultyInner) Append(uint64, []byte) error           { return nil }
+func (f *faultyInner) Flush() error                          { return nil }
+func (f *faultyInner) Bounds() (bool, uint64, uint64, error) { return false, 0, 0, f.boundsErr }
+func (f *faultyInner) PruneBefore(uint64) error              { return nil }
+func (f *faultyInner) Iterator(uint64) (Iterator[[]byte], error) {
+	return nil, f.iterErr
+}
+func (f *faultyInner) Close() error { return nil }
+
+// TestGenericWALBricksOnInnerBoundsError verifies that an error from the inner WAL's Bounds — which only
+// happens once the inner engine is already dead — bricks the serializing layer instead of leaving it running
+// against a dead inner until a later mutating call fails.
+func TestGenericWALBricksOnInnerBoundsError(t *testing.T) {
+	boom := errors.New("inner bounds boom")
+	cfg := testConfig(t.TempDir())
+	cfg.MetricsSampleInterval = 0
+	s := newSerializingWAL[string](cfg, &faultyInner{boundsErr: boom}, stringSerialize, stringDeserialize)
+	defer func() { _ = s.Close() }()
+
+	_, _, _, err := s.Bounds()
+	require.Error(t, err)
+	require.ErrorIs(t, err, boom)
+
+	select {
+	case <-s.ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("serializing WAL did not brick after inner Bounds error")
+	}
+	require.ErrorIs(t, s.asyncError(), boom)
+	require.Error(t, s.Append(1, "x"), "appends must fail on a bricked WAL")
+}
+
+// TestGenericWALBricksOnInnerIteratorError is the Iterator analogue of TestGenericWALBricksOnInnerBoundsError.
+func TestGenericWALBricksOnInnerIteratorError(t *testing.T) {
+	boom := errors.New("inner iterator boom")
+	cfg := testConfig(t.TempDir())
+	cfg.MetricsSampleInterval = 0
+	s := newSerializingWAL[string](cfg, &faultyInner{iterErr: boom}, stringSerialize, stringDeserialize)
+	defer func() { _ = s.Close() }()
+
+	_, err := s.Iterator(0)
+	require.Error(t, err)
+	require.ErrorIs(t, err, boom)
+
+	select {
+	case <-s.ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("serializing WAL did not brick after inner Iterator error")
+	}
+	require.ErrorIs(t, s.asyncError(), boom)
+	require.Error(t, s.Append(1, "x"), "appends must fail on a bricked WAL")
+}

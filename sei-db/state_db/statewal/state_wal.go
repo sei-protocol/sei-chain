@@ -81,6 +81,7 @@ type StateWAL interface {
 	// The returned changesets, and every byte slice reachable through them, must be treated as read-only.
 	Iterator(startingBlockNumber uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error)
 
-	// Close the WAL, flushing any pending writes and releasing resources.
+	// Close the WAL, flushing complete blocks (those ended with SignalEndOfBlock) to disk and releasing
+	// resources. Changes for a block that was not ended with SignalEndOfBlock are discarded.
 	Close() error
 }

@@ -62,7 +62,7 @@ func DefaultConfig(path string, name string) *Config {
 		WriteBufferSize:       16,
 		SerializerBufferSize:  16,
 		TargetFileSize:        64 * unit.MB,
-		FsyncOnFlush:          true,
+		FsyncOnFlush:          false,
 		PermitGaps:            false,
 		IteratorPrefetchSize:  32,
 		MetricsSampleInterval: 15 * time.Second,

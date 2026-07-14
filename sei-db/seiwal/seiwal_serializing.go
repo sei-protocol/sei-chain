@@ -322,6 +322,10 @@ func (s *serializingWAL[T]) serializerLoop() {
 		case serBounds:
 			ok, first, last, err := s.inner.Bounds()
 			m.reply <- serBoundsResult{ok: ok, first: first, last: last, err: err}
+			if err != nil {
+				s.fail(fmt.Errorf("bounds query failed: %w", err))
+				return
+			}
 		case serPrune:
 			if err := s.inner.PruneBefore(m.through); err != nil {
 				s.fail(fmt.Errorf("failed to prune below index %d: %w", m.through, err))
@@ -330,6 +334,10 @@ func (s *serializingWAL[T]) serializerLoop() {
 		case serIterator:
 			it, err := s.inner.Iterator(m.startIndex)
 			m.reply <- serIteratorResult{it: it, err: err}
+			if err != nil {
+				s.fail(fmt.Errorf("failed to create iterator: %w", err))
+				return
+			}
 		case serClose:
 			m.done <- s.inner.Close()
 			// FIFO guarantees every prior append has been delegated. Forbid further pushes so any

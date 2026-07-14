@@ -134,6 +134,9 @@ func (it *walIterator) Next() (bool, error) {
 		return it.deliver(result, ok)
 	case <-it.wal.ctx.Done():
 		it.done = true
+		if err := it.wal.asyncError(); err != nil {
+			return false, fmt.Errorf("WAL shut down during iteration: %w", err)
+		}
 		return false, fmt.Errorf("WAL shut down during iteration: %w", it.wal.ctx.Err())
 	}
 }

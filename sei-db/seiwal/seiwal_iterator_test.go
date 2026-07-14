@@ -1,6 +1,7 @@
 package seiwal
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -309,4 +310,54 @@ func TestIteratorDoesNotSeePostConstructionRecords(t *testing.T) {
 		got = append(got, index)
 	}
 	require.Equal(t, []uint64{1, 2, 3}, got, "post-construction record 4 must not be iterated")
+}
+
+// TestIteratorSurfacesFatalCause verifies that when the WAL bricks while an iterator is live, Next surfaces the
+// recorded fatal cause rather than a bare context.Canceled — so a disk failure during replay is not buried
+// under a generic "context canceled" message, matching the asyncError-first pattern used elsewhere in walImpl.
+func TestIteratorSurfacesFatalCause(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	w := openWAL(t, cfg).(*walImpl)
+	defer func() { _ = w.Close() }()
+
+	// More records than the reader can prefetch, so it is still producing (not at a clean EOF) when the WAL
+	// bricks, guaranteeing Next reaches the shutdown branch rather than a normal end-of-iteration.
+	const n = 100
+	for i := uint64(1); i <= n; i++ {
+		appendRecord(t, w, i)
+	}
+	require.NoError(t, w.Flush())
+
+	it, err := w.Iterator(1)
+	require.NoError(t, err)
+	defer func() { _ = it.Close() }()
+
+	// Brick from the writer goroutine: close the mutable fd out from under it, then a flush fails and calls fail().
+	require.NoError(t, w.mutableFile.file.Close())
+	require.NoError(t, w.Append(uint64(n+1), recordPayload(uint64(n+1))))
+	require.Error(t, w.Flush())
+
+	select {
+	case <-w.ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("WAL did not brick after flush failure")
+	}
+	cause := w.asyncError()
+	require.Error(t, cause)
+
+	// Drain whatever the reader had buffered; the first error must carry the fatal cause, not context.Canceled.
+	var got error
+	for {
+		ok, nextErr := it.Next()
+		if nextErr != nil {
+			got = nextErr
+			break
+		}
+		if !ok {
+			break
+		}
+	}
+	require.Error(t, got)
+	require.ErrorIs(t, got, cause)
+	require.NotErrorIs(t, got, context.Canceled)
 }
