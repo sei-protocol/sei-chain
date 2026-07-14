@@ -788,9 +788,17 @@ func (s *State) runPersist(ctx context.Context) error {
 	if n, ok := tips.LastBlockNumber.Get(); ok {
 		persistedBlock = n + 1
 	}
-	evictedQC := persistedQC
+	// Eviction cursor tracks the lowest height still cached in memory. Seed from
+	// recovered inner.first (not the BlockDB write tip): after restart the retain
+	// window is fully loaded in RAM and already durable, so we must walk from
+	// first to reclaim it once PushAppHash advances nextAppProposal.
+	var evictedQC types.GlobalBlockNumber
+	for inner := range s.inner.Lock() {
+		evictedQC = inner.first
+	}
 	for {
-		// Wait for unpersisted data and snapshot what needs writing.
+		// Wait for unpersisted data and/or executable heights to evict, then
+		// snapshot what needs writing.
 		type batch struct {
 			qcs      []*types.FullCommitQC
 			blocks   []blockEntry
@@ -798,72 +806,98 @@ func (s *State) runPersist(ctx context.Context) error {
 			blockEnd types.GlobalBlockNumber
 		}
 		var b batch
+		var doWrite bool
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return persistedQC < inner.nextQC || persistedBlock < inner.nextBlock
+				return persistOrEvictReady(inner, persistedQC, persistedBlock, evictedQC)
 			}); err != nil {
 				return err
 			}
-			b.qcEnd = inner.nextQC
-			b.blockEnd = inner.nextBlock
-			// Collect deduplicated QCs for [persistedQC, nextQC).
-			seen := map[types.GlobalBlockNumber]bool{}
-			for n := persistedQC; n < inner.nextQC; n++ {
-				qc := inner.qcs[n]
-				first := qc.QC().GlobalRange().First
-				if !seen[first] {
-					seen[first] = true
-					b.qcs = append(b.qcs, qc)
+			doWrite = persistedQC < inner.nextQC || persistedBlock < inner.nextBlock
+			if doWrite {
+				b.qcEnd = inner.nextQC
+				b.blockEnd = inner.nextBlock
+				// Collect deduplicated QCs for [persistedQC, nextQC).
+				seen := map[types.GlobalBlockNumber]bool{}
+				for n := persistedQC; n < inner.nextQC; n++ {
+					qc := inner.qcs[n]
+					qcFirst := qc.QC().GlobalRange().First
+					if !seen[qcFirst] {
+						seen[qcFirst] = true
+						b.qcs = append(b.qcs, qc)
+					}
+				}
+				// Collect blocks for [persistedBlock, nextBlock).
+				for n := persistedBlock; n < inner.nextBlock; n++ {
+					b.blocks = append(b.blocks, blockEntry{n: n, blk: inner.blocks[n]})
 				}
 			}
-			// Collect blocks for [persistedBlock, nextBlock).
-			for n := persistedBlock; n < inner.nextBlock; n++ {
-				b.blocks = append(b.blocks, blockEntry{n: n, blk: inner.blocks[n]})
-			}
 		}
-		// Write QCs first (BlockDB contract: QC must precede covered blocks).
-		for _, qc := range b.qcs {
-			gr := qc.QC().GlobalRange()
-			if err := s.blockDB.WriteQC(gr.First, gr.Next, qc); err != nil {
-				return fmt.Errorf("write QC [%d,%d): %w", gr.First, gr.Next, err)
-			}
-		}
-		for _, lb := range b.blocks {
-			if err := s.blockDB.WriteBlock(lb.n, lb.blk); err != nil {
-				return fmt.Errorf("write block %d: %w", lb.n, err)
-			}
-		}
-		// Flush once per batch before advancing nextBlockToPersist, so that
-		// PushAppHash only unblocks after data is crash-durable.
-		if err := s.blockDB.Flush(); err != nil {
-			return fmt.Errorf("flush BlockDB: %w", err)
-		}
-		persistedQC = b.qcEnd
-		persistedBlock = b.blockEnd
-		// Advance nextBlockToPersist to where both QCs and blocks are durable.
-		// Evict blocks and QCs below nextAppProposal — those have been executed
-		// and are now fully owned by BlockDB.
-		newToPersist := min(persistedQC, persistedBlock)
-		for inner, ctrl := range s.inner.Lock() {
-			if newToPersist > inner.nextBlockToPersist {
-				inner.nextBlockToPersist = newToPersist
-				ctrl.Updated()
-			}
-			// Keep qcs/blocks[nextAppProposal-1]: nextToExecute reads it to
-			// compute the next lane block after the last executed global block.
-			evictBelow := evictedQC
-			if inner.nextAppProposal > inner.first {
-				evictBelow = inner.nextAppProposal - 1
-			}
-			for ; evictedQC < evictBelow; evictedQC++ {
-				if b, ok := inner.blocks[evictedQC]; ok {
-					delete(inner.blockHashes, b.Header().Hash())
-					delete(inner.blocks, evictedQC)
+		if doWrite {
+			// Write QCs first (BlockDB contract: QC must precede covered blocks).
+			for _, qc := range b.qcs {
+				gr := qc.QC().GlobalRange()
+				if err := s.blockDB.WriteQC(gr.First, gr.Next, qc); err != nil {
+					return fmt.Errorf("write QC [%d,%d): %w", gr.First, gr.Next, err)
 				}
-				delete(inner.qcs, evictedQC)
+			}
+			for _, lb := range b.blocks {
+				if err := s.blockDB.WriteBlock(lb.n, lb.blk); err != nil {
+					return fmt.Errorf("write block %d: %w", lb.n, err)
+				}
+			}
+			// Flush once per batch before advancing nextBlockToPersist, so that
+			// PushAppHash only unblocks after data is crash-durable.
+			if err := s.blockDB.Flush(); err != nil {
+				return fmt.Errorf("flush BlockDB: %w", err)
+			}
+			persistedQC = b.qcEnd
+			persistedBlock = b.blockEnd
+			newToPersist := min(persistedQC, persistedBlock)
+			for inner, ctrl := range s.inner.Lock() {
+				if newToPersist > inner.nextBlockToPersist {
+					inner.nextBlockToPersist = newToPersist
+					ctrl.Updated()
+				}
+				evictedQC = evictExecuted(inner, evictedQC)
+			}
+		} else {
+			// Restart / catch-up: nothing new to write, but PushAppHash advanced
+			// nextAppProposal over already-durable recovered heights.
+			for inner := range s.inner.Lock() {
+				evictedQC = evictExecuted(inner, evictedQC)
 			}
 		}
 	}
+}
+
+// persistOrEvictReady reports whether runPersist has either unpersisted data or
+// durable executed heights that can be dropped from the in-memory maps.
+func persistOrEvictReady(
+	inner *inner,
+	persistedQC, persistedBlock, evictedQC types.GlobalBlockNumber,
+) bool {
+	if persistedQC < inner.nextQC || persistedBlock < inner.nextBlock {
+		return true
+	}
+	return inner.nextAppProposal > inner.first+1 && evictedQC < inner.nextAppProposal-1
+}
+
+// evictExecuted drops cached blocks/QCs in [evictedQC, nextAppProposal-1).
+// Keeps nextAppProposal-1 for nextToExecute. Caller must hold inner's lock.
+func evictExecuted(inner *inner, evictedQC types.GlobalBlockNumber) types.GlobalBlockNumber {
+	evictBelow := evictedQC
+	if inner.nextAppProposal > inner.first {
+		evictBelow = inner.nextAppProposal - 1
+	}
+	for ; evictedQC < evictBelow; evictedQC++ {
+		if b, ok := inner.blocks[evictedQC]; ok {
+			delete(inner.blockHashes, b.Header().Hash())
+			delete(inner.blocks, evictedQC)
+		}
+		delete(inner.qcs, evictedQC)
+	}
+	return evictedQC
 }
 
 func (s *State) runPruning(ctx context.Context, after time.Duration) error {

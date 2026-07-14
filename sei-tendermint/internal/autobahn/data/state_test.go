@@ -620,6 +620,62 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	}
 }
 
+// TestRestartEvictsRecoveredWindow verifies that after NewState replays a
+// retained BlockDB window into memory, PushAppHash catch-up wakes runPersist to
+// evict durable executed heights (seeded from inner.first, not the write tip).
+func TestRestartEvictsRecoveredWindow(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	dir := t.TempDir()
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange()
+	require.GreaterOrEqual(t, gr1.Len(), 2, "need ≥2 blocks so at least one can be fully evicted")
+
+	db1 := newTestBlockDB(t, dir)
+	writeToBlockDB(t, db1, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
+	require.NoError(t, db1.Close())
+
+	db2 := newTestBlockDB(t, dir)
+	state := newTestState(t, &Config{Registry: registry}, db2)
+	evicted := gr1.First
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run", func() error {
+			return utils.IgnoreCancel(state.Run(ctx))
+		})
+		// Catch-up: all recovered heights are already durable, so PushAppHash
+		// does not block — but must still trigger memory eviction.
+		for n := gr1.First; n < gr1.Next; n++ {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+				return fmt.Errorf("PushAppHash(%d): %w", n, err)
+			}
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			gone := false
+			for inner := range state.inner.Lock() {
+				_, hasQC := inner.qcs[evicted]
+				_, hasBlk := inner.blocks[evicted]
+				gone = !hasQC && !hasBlk
+			}
+			if gone {
+				break
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timed out waiting for recovered height %d to be evicted", evicted)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		// Still readable from BlockDB.
+		if _, err := state.TryBlock(evicted); err != nil {
+			return fmt.Errorf("TryBlock(%d) after eviction: %w", evicted, err)
+		}
+		return nil
+	}))
+}
+
 // TestPruningKeepsLastQCRange verifies that pruning never removes the last
 // retained block, and that a restart from a BlockDB with only that block
 // recovers correctly.
