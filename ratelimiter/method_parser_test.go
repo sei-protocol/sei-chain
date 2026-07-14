@@ -155,6 +155,12 @@ func TestParse_TrailingData(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestParse_TrailingDataBeyondProbeLimit(t *testing.T) {
+	body := `{"method":"eth_call"}` + strings.Repeat(" ", 100_000) + `{}`
+	_, _, err := NewMethodParser(32).Parse(strings.NewReader(body))
+	require.ErrorIs(t, err, ErrProbeLimit)
+}
+
 func TestParse_NoMethodField(t *testing.T) {
 	_, _, err := NewMethodParser(0).Parse(strings.NewReader(`{"jsonrpc":"2.0","id":1,"params":[]}`))
 	require.ErrorIs(t, err, ErrNoMethod)

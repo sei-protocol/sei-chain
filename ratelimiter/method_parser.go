@@ -8,13 +8,9 @@ import (
 	"strings"
 )
 
-// DefaultMaxProbeBytes bounds how far MethodParser will read into a request body
-// while extracting the "method" field. Both EVM (go-ethereum) and CometBFT
-// clients marshal small requests, so in practice the parser reads the whole body
-// well within this limit; it exists to cap the work an adversarial body (a giant
-// "params") can force. Because each request object is read to its end — so a
-// duplicate "method" can be detected and rejected — a body larger than this limit
-// yields ErrProbeLimit rather than a method name.
+// DefaultMaxProbeBytes bounds how far MethodParser reads into a request body. Each object
+// is read to its end (to detect duplicate "method" keys). A body larger than
+// this limit yields ErrProbeLimit.
 const DefaultMaxProbeBytes = 1 << 20 // 1 MiB
 
 var (
@@ -76,7 +72,7 @@ func (p *MethodParser) Parse(r io.Reader) (methods []string, batch bool, err err
 		if err != nil {
 			return nil, false, classifyErr(err, lr)
 		}
-		if err := expectEOF(dec); err != nil {
+		if err := expectEOF(dec, lr); err != nil {
 			return nil, false, classifyErr(err, lr)
 		}
 		return []string{method}, false, nil
@@ -85,7 +81,7 @@ func (p *MethodParser) Parse(r io.Reader) (methods []string, batch bool, err err
 		if err != nil {
 			return nil, true, classifyErr(err, lr)
 		}
-		if err := expectEOF(dec); err != nil {
+		if err := expectEOF(dec, lr); err != nil {
 			return nil, true, classifyErr(err, lr)
 		}
 		return out, true, nil
@@ -94,10 +90,11 @@ func (p *MethodParser) Parse(r io.Reader) (methods []string, batch bool, err err
 	}
 }
 
-// expectEOF confirms the decoder has consumed the whole body, so we can reject trailing non-whitespace data
-func expectEOF(dec *json.Decoder) error {
+// expectEOF confirms the decoder has consumed the whole body, so we can reject
+// trailing non-whitespace data.
+func expectEOF(dec *json.Decoder, lr *io.LimitedReader) error {
 	if _, err := dec.Token(); err != nil {
-		if errors.Is(err, io.EOF) {
+		if errors.Is(err, io.EOF) && lr.N > 0 {
 			return nil
 		}
 		return err
