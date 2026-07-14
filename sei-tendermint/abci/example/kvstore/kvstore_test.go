@@ -95,7 +95,7 @@ func TestValUpdates(t *testing.T) {
 	nInit := 5
 	vals := RandVals(total)
 	// initialize with the first nInit
-	_, err := kvstore.InitChain(ctx, &types.RequestInitChain{})
+	_, err := kvstore.InitChain(&types.RequestInitChain{})
 	if err != nil {
 		t.Fatal(err)
 	}

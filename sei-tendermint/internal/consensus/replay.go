@@ -204,7 +204,7 @@ func (h *Handshaker) ReplayBlocks(
 
 	// If appBlockHeight == 0 it means that we are at genesis and hence should send InitChain.
 	if appBlockHeight == 0 {
-		res, err := app.InitChain(ctx, h.genDoc.ToRequestInitChain())
+		res, err := app.InitChain(h.genDoc.ToRequestInitChain())
 		if err != nil {
 			return nil, err
 		}

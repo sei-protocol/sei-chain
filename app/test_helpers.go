@@ -404,12 +404,11 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 		// TODO: remove once init chain works with SC
 		defer func() { _ = recover() }()
 
-		_, err = res.InitChain(
-			context.Background(), &abci.RequestInitChain{
-				ConsensusParams: DefaultConsensusParams,
-				ChainId:         "sei-test",
-				AppStateBytes:   stateBytes,
-			},
+		_, err = res.InitChain(&abci.RequestInitChain{
+			ConsensusParams: DefaultConsensusParams,
+			ChainId:         "sei-test",
+			AppStateBytes:   stateBytes,
+		},
 		)
 		if err != nil {
 			panic(err)
@@ -473,12 +472,11 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 			panic(err)
 		}
 
-		_, err = res.InitChain(
-			context.Background(), &abci.RequestInitChain{
-				ConsensusParams: DefaultConsensusParams,
-				ChainId:         "sei-test",
-				AppStateBytes:   stateBytes,
-			},
+		_, err = res.InitChain(&abci.RequestInitChain{
+			ConsensusParams: DefaultConsensusParams,
+			ChainId:         "sei-test",
+			AppStateBytes:   stateBytes,
+		},
 		)
 		if err != nil {
 			panic(err)
@@ -521,12 +519,11 @@ func SetupWithScReceiptFromOpts(t *testing.T, isCheckTx bool, enableEVMCustomPre
 
 		defer func() { _ = recover() }()
 
-		_, err = res.InitChain(
-			context.Background(), &abci.RequestInitChain{
-				ConsensusParams: DefaultConsensusParams,
-				ChainId:         "sei-test",
-				AppStateBytes:   stateBytes,
-			},
+		_, err = res.InitChain(&abci.RequestInitChain{
+			ConsensusParams: DefaultConsensusParams,
+			ChainId:         "sei-test",
+			AppStateBytes:   stateBytes,
+		},
 		)
 		if err != nil {
 			panic(err)
@@ -577,11 +574,10 @@ func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, 
 		// TODO: remove once init chain works with SC
 		defer func() { _ = recover() }()
 
-		_, err = res.InitChain(
-			context.Background(), &abci.RequestInitChain{
-				ConsensusParams: DefaultConsensusParams,
-				AppStateBytes:   stateBytes,
-			},
+		_, err = res.InitChain(&abci.RequestInitChain{
+			ConsensusParams: DefaultConsensusParams,
+			AppStateBytes:   stateBytes,
+		},
 		)
 		if err != nil {
 			panic(err)
@@ -621,12 +617,11 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 			panic(err)
 		}
 
-		_, err = app.InitChain(
-			context.Background(), &abci.RequestInitChain{
-				ConsensusParams: DefaultConsensusParams,
-				ChainId:         "sei-test",
-				AppStateBytes:   stateBytes,
-			},
+		_, err = app.InitChain(&abci.RequestInitChain{
+			ConsensusParams: DefaultConsensusParams,
+			ChainId:         "sei-test",
+			AppStateBytes:   stateBytes,
+		},
 		)
 		if err != nil {
 			panic(err)
@@ -748,12 +743,11 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	require.NoError(t, err)
 
 	// init chain will set the validator set and initialize the genesis accounts
-	_, _ = app.InitChain(
-		context.Background(), &abci.RequestInitChain{
-			ConsensusParams: DefaultConsensusParams,
-			ChainId:         "sei-test",
-			AppStateBytes:   stateBytes,
-		},
+	_, _ = app.InitChain(&abci.RequestInitChain{
+		ConsensusParams: DefaultConsensusParams,
+		ChainId:         "sei-test",
+		AppStateBytes:   stateBytes,
+	},
 	)
 
 	// commit genesis changes
@@ -790,12 +784,11 @@ func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, 
 		panic(err)
 	}
 
-	_, _ = app.InitChain(
-		context.Background(), &abci.RequestInitChain{
-			ConsensusParams: DefaultConsensusParams,
-			ChainId:         "sei-test",
-			AppStateBytes:   stateBytes,
-		},
+	_, _ = app.InitChain(&abci.RequestInitChain{
+		ConsensusParams: DefaultConsensusParams,
+		ChainId:         "sei-test",
+		AppStateBytes:   stateBytes,
+	},
 	)
 
 	_, _ = app.Commit(context.Background())

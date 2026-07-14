@@ -64,7 +64,7 @@ func (m *mockApplication) Info(ctx context.Context, req *abci.RequestInfo) (*abc
 	return &abci.ResponseInfo{}, nil
 }
 
-func (m *mockApplication) InitChain(ctx context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (m *mockApplication) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	return &abci.ResponseInitChain{}, nil
 }
 

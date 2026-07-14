@@ -102,7 +102,7 @@ func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) *abci.Respons
 	}
 }
 
-func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (a *testApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	for state, ctrl := range a.state.Lock() {
 		if state.Init.IsPresent() {
 			return nil, fmt.Errorf("chain already initialized")
@@ -217,7 +217,7 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 	appState := testAppStateJSON(rng)
 
 	// InitChain
-	_, err := app.InitChain(ctx, &abci.RequestInitChain{
+	_, err := app.InitChain(&abci.RequestInitChain{
 		InitialHeight: initialHeight,
 		AppStateBytes: appState,
 	})

@@ -101,7 +101,7 @@ func NewProxy() *proxy.Proxy {
 	return proxy.New(NewApplication())
 }
 
-func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
+func (app *Application) InitChain(req *types.RequestInitChain) (*types.ResponseInitChain, error) {
 	return &types.ResponseInitChain{Validators: app.Validators()}, nil
 }
 

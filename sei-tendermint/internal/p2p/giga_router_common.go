@@ -369,7 +369,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		// Re-entering on restart (crashed after InitChain, before first
 		// Commit) is safe — nothing was committed, so it behaves as a
 		// fresh init.
-		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
+		if _, err := app.InitChain(r.cfg.GenDoc.ToRequestInitChain()); err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
 		var ok bool

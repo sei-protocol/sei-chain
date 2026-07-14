@@ -30,7 +30,7 @@ type Application interface {
 	EvmBalance(common.Address, []byte) uint256.Int
 
 	// Consensus Connection
-	InitChain(context.Context, *RequestInitChain) (*ResponseInitChain, error) // Initialize blockchain w validators/other info from TendermintCore
+	InitChain(*RequestInitChain) (*ResponseInitChain, error) // Initialize blockchain w validators/other info from TendermintCore
 	InitLastHeader(lastHeader *tmproto.Header)
 	ProcessProposal(context.Context, *RequestProcessProposal) (*ResponseProcessProposal, error)
 	// Commit the state and return the application Merkle root hash
@@ -72,7 +72,7 @@ func (BaseApplication) Query(_ context.Context, req *RequestQuery) (*ResponseQue
 
 func (BaseApplication) InitLastHeader(lastHeader *tmproto.Header) {}
 
-func (BaseApplication) InitChain(_ context.Context, req *RequestInitChain) (*ResponseInitChain, error) {
+func (BaseApplication) InitChain(req *RequestInitChain) (*ResponseInitChain, error) {
 	return &ResponseInitChain{}, nil
 }
 

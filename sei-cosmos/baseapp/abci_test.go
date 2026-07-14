@@ -105,7 +105,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		tc := tc
 
 		tc.bapp.SetParamStore(&paramStore{db: dbm.NewMemDB()})
-		tc.bapp.InitChain(context.Background(), &abci.RequestInitChain{
+		tc.bapp.InitChain(&abci.RequestInitChain{
 			ConsensusParams: &tmproto.ConsensusParams{
 				Evidence: &tmproto.EvidenceParams{
 					MaxAgeNumBlocks: tc.maxAgeBlocks,
@@ -181,7 +181,7 @@ func TestCreateQueryContextUsesCheckStateBeforeFirstCommit(t *testing.T) {
 	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
 	require.NoError(t, app.LoadLatestVersion())
 
-	_, err := app.InitChain(context.Background(), &abci.RequestInitChain{ChainId: "sei"})
+	_, err := app.InitChain(&abci.RequestInitChain{ChainId: "sei"})
 	require.NoError(t, err)
 	require.Equal(t, int64(0), app.LastBlockHeight())
 
@@ -282,7 +282,7 @@ func TestProcessProposalCleanContextNotAffectedByHandler(t *testing.T) {
 	err := app.LoadLatestVersion()
 	require.NoError(t, err)
 
-	app.InitChain(context.Background(), &abci.RequestInitChain{
+	app.InitChain(&abci.RequestInitChain{
 		AppStateBytes: []byte("{}"),
 		ChainId:       "test-chain",
 	})

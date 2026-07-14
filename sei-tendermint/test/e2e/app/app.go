@@ -123,7 +123,7 @@ func (app *Application) Info(_ context.Context, req *abci.RequestInfo) (*abci.Re
 }
 
 // Info implements ABCI.
-func (app *Application) InitChain(_ context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (app *Application) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 

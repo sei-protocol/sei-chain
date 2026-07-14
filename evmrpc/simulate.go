@@ -670,7 +670,7 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {
 	_, header, _, err := b.resolveStateAndHeaderByNumberOrHash(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
-	if err!=nil {
+	if err != nil {
 		return b.syntheticHeaderFromCtx(b.ctxProvider(LatestCtxHeight))
 	}
 	return header
@@ -730,14 +730,14 @@ func (b *Backend) resolveStateAndHeaderByNumberOrHash(ctx context.Context, block
 	if isLatestLikeBlockRef(blockNrOrHash) {
 		sdkCtx := b.ctxProvider(LatestCtxHeight)
 		h := sdkCtx.BlockHeight()
-		if wmHeight,err := b.watermarks.LatestHeight(ctx); err!=nil {
-			return sdkCtx,nil,false,fmt.Errorf("b.watermarks.LatestHeight(): %w", err)
-		} else if wmHeight!=h {
+		if wmHeight, err := b.watermarks.LatestHeight(ctx); err != nil {
+			return sdkCtx, nil, false, fmt.Errorf("b.watermarks.LatestHeight(): %w", err)
+		} else if wmHeight != h {
 			return sdkCtx, b.syntheticHeaderFromCtx(sdkCtx), true, nil
 		}
 		tmBlock, err := b.tmClient.Block(ctx, &h)
-		if err!=nil {
-			return sdkCtx,nil,false,fmt.Errorf("b.tmClient.Block(): %w",err)
+		if err != nil {
+			return sdkCtx, nil, false, fmt.Errorf("b.tmClient.Block(): %w", err)
 		}
 		header := b.getHeader(tmBlock)
 		header.BaseFee = b.keeper.GetNextBaseFeePerGas(sdkCtx).TruncateInt().BigInt()

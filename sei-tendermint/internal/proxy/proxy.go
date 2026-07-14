@@ -24,9 +24,9 @@ func New(app types.Application) *Proxy {
 	return &Proxy{app: app}
 }
 
-func (app *Proxy) InitChain(ctx context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
+func (app *Proxy) InitChain(req *types.RequestInitChain) (*types.ResponseInitChain, error) {
 	defer addTimeSample(Global.MethodTimingAt("init_chain", "sync"))()
-	return app.app.InitChain(ctx, req)
+	return app.app.InitChain(req)
 }
 
 func (app *Proxy) ProcessProposal(ctx context.Context, req *types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {

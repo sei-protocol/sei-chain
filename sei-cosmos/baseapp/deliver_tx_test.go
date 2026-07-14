@@ -198,7 +198,7 @@ func TestWithRouter(t *testing.T) {
 	}
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 
 	// Create same codec used in txDecoder
 	codec := codec.NewLegacyAmino()
@@ -242,7 +242,7 @@ func TestBaseApp_EndBlock(t *testing.T) {
 	codec := codec.NewLegacyAmino()
 	app := NewBaseApp(name, db, testTxDecoder(codec), nil, &testutil.TestAppOpts{})
 	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
-	app.InitChain(context.Background(), &abci.RequestInitChain{
+	app.InitChain(&abci.RequestInitChain{
 		ConsensusParams: cp,
 	})
 
@@ -284,7 +284,7 @@ func TestQuery(t *testing.T) {
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
 
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 
 	// NOTE: "/store/bank" tells us KVStore
 	// and the final "/key" says to use the data as the
@@ -333,7 +333,7 @@ func TestGRPCQuery(t *testing.T) {
 
 	app := setupBaseApp(t, grpcQueryOpt)
 
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
 	app.setDeliverState(header)
 	app.SetDeliverStateToCommit()
@@ -457,7 +457,7 @@ func TestSimulateTx(t *testing.T) {
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
 
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 
 	// Create same codec used in txDecoder
 	cdc := codec.NewLegacyAmino()
@@ -749,7 +749,7 @@ func TestTxGasLimits(t *testing.T) {
 // 	}
 
 // 	app := setupBaseApp(t, anteOpt, routerOpt)
-// 	app.InitChain(context.Background(), &abci.RequestInitChain{
+// 	app.InitChain(&abci.RequestInitChain{
 // 		ConsensusParams: &tmproto.ConsensusParams{
 // 			Block: &tmproto.BlockParams{
 // 				MaxGas: 100,
@@ -881,7 +881,7 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	cdc := codec.NewLegacyAmino()
 	app := setupBaseApp(t, anteOpt, routerOpt, preCommitHandlerOpt)
 
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 	registerTestCodec(cdc)
 
 	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
@@ -969,7 +969,7 @@ func TestPrecommitHandlerPanic(t *testing.T) {
 	cdc := codec.NewLegacyAmino()
 	app := setupBaseApp(t, anteOpt, routerOpt, preCommitHandlerOpt)
 
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 	registerTestCodec(cdc)
 
 	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
@@ -1078,7 +1078,7 @@ func TestGasConsumptionBadTx(t *testing.T) {
 	registerTestCodec(cdc)
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
-	app.InitChain(context.Background(), &abci.RequestInitChain{
+	app.InitChain(&abci.RequestInitChain{
 		ConsensusParams: &tmproto.ConsensusParams{
 			Block: &tmproto.BlockParams{
 				MaxGas: 9,
@@ -1086,7 +1086,7 @@ func TestGasConsumptionBadTx(t *testing.T) {
 		},
 	})
 
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 
 	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
 	app.setDeliverState(header)
@@ -1128,7 +1128,7 @@ func TestInitChainer(t *testing.T) {
 	}
 
 	// initChainer is nil - nothing happens
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 	res, _ := app.Query(context.Background(), &query)
 	require.Equal(t, 0, len(res.Value))
 
@@ -1140,7 +1140,7 @@ func TestInitChainer(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, int64(0), app.LastBlockHeight())
 
-	initChainRes, _ := app.InitChain(context.Background(), &abci.RequestInitChain{AppStateBytes: []byte("{}"), ChainId: "test-chain-id"}) // must have valid JSON genesis file, even if empty
+	initChainRes, _ := app.InitChain(&abci.RequestInitChain{AppStateBytes: []byte("{}"), ChainId: "test-chain-id"}) // must have valid JSON genesis file, even if empty
 
 	// The AppHash returned by a new chain is the sha256 hash of "".
 	// $ echo -n '' | sha256sum
@@ -1194,10 +1194,9 @@ func TestInitChain_WithInitialHeight(t *testing.T) {
 	cc := codec.NewLegacyAmino()
 	app := NewBaseApp(name, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{})
 
-	app.InitChain(
-		context.Background(), &abci.RequestInitChain{
-			InitialHeight: 3,
-		},
+	app.InitChain(&abci.RequestInitChain{
+		InitialHeight: 3,
+	},
 	)
 	app.Commit(context.Background())
 
@@ -1445,7 +1444,7 @@ func TestDeliverTx(t *testing.T) {
 	}
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 
 	// Create same codec used in txDecoder
 	codec := codec.NewLegacyAmino()
@@ -1508,7 +1507,7 @@ func TestDeliverTxHooks(t *testing.T) {
 	}
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 
 	// Create same codec used in txDecoder
 	codec := codec.NewLegacyAmino()
@@ -1712,7 +1711,7 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 		SetPruning(sdk.PruningOptions{KeepEvery: 1}),
 		routerOpt)...)
 
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 
 	r := rand.New(rand.NewSource(3920758213583))
 	keyCounter := 0
