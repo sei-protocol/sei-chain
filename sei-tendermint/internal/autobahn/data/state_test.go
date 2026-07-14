@@ -560,6 +560,14 @@ func TestEvictedReadsFallBackToBlockDB(t *testing.T) {
 		if _, err := state.TryBlock(evicted); !errors.Is(err, ErrPruned) {
 			return fmt.Errorf("TryBlock(%d) after PruneBefore: got %v, want ErrPruned", evicted, err)
 		}
+		// Hash lookup must honor the logical prune watermark too.
+		byHash, err := state.GlobalBlockByHash(wantHash)
+		if err != nil {
+			return fmt.Errorf("GlobalBlockByHash after PruneBefore: %w", err)
+		}
+		if _, ok := byHash.Get(); ok {
+			return fmt.Errorf("GlobalBlockByHash after PruneBefore returned Some for pruned height")
+		}
 		return nil
 	}))
 }

@@ -489,8 +489,8 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 
 // GlobalBlockByHash returns the finalized GlobalBlock whose stored header
 // hashes to the given value, or None if no such block is currently in the
-// retained range. Non-blocking. Falls back to BlockDB when the entry was
-// evicted from memory after persist.
+// retained range (including heights below inner.first). Non-blocking. Falls
+// back to BlockDB when the entry was evicted from memory after persist.
 func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
 	for inner := range s.inner.Lock() {
 		n, ok := inner.blockHashes[hash]
@@ -529,8 +529,10 @@ func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Bl
 }
 
 // TryBlock returns the block with the given global number.
-// Returns ErrPruned if the block has already been pruned.
-// Returns ErrNotFound if the block is not available yet.
+// Returns ErrPruned if the block has already been pruned (n < first, or BlockDB
+// no longer has it after reclaim). Returns ErrNotFound if the block is not
+// available yet (n >= nextBlock). Evicted-but-still-durable heights load from
+// BlockDB.
 func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 	for inner := range s.inner.Lock() {
 		if n < inner.first {
@@ -544,16 +546,7 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 		}
 		// Evicted from memory after persist; fall through to BlockDB.
 	}
-	b, err := s.blockFromDB(n)
-	if err != nil {
-		if errors.Is(err, ErrPruned) {
-			// Async BlockDB prune may have reclaimed it; surface as not found
-			// for the non-blocking Try* contract when callers race with GC.
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-	return b, nil
+	return s.blockFromDB(n)
 }
 
 // assembleGlobalBlock builds a GlobalBlock from a block and its covering QC.
@@ -635,6 +628,13 @@ func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Optio
 	bn, ok := opt.Get()
 	if !ok {
 		return utils.None[*types.GlobalBlock](), nil
+	}
+	// Match number-based reads: async BlockDB GC may still serve a height that
+	// State has already logically pruned (n < inner.first).
+	for inner := range s.inner.Lock() {
+		if bn.Number < inner.first {
+			return utils.None[*types.GlobalBlock](), nil
+		}
 	}
 	qc, err := s.qcFromDB(bn.Number)
 	if err != nil {
