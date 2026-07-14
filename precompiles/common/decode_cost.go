@@ -20,28 +20,27 @@ const maxDecodeWalkOps = 1 << 20
 
 // DecodeGasCost returns the gas to charge for ABI-decoding a dynamic precompile
 // call's calldata (the full input, including the 4-byte selector) given the
-// method's argument list.
+// method's argument list. ok is false when the calldata is structurally invalid
+// (or too deeply nested to price cheaply); the caller should reject such input
+// rather than decode it, since the real decoder would reject it too.
 //
 // The Go ABI decoder's cost is dominated by copying `string` payloads: it
 // materializes each string via string(output[begin:end]), and because a single
 // string can be referenced by many array/tuple slots, the copied volume can be
 // super-linear in len(input) (worst case ~len(input)^2). `bytes` values are
 // excluded because the decoder reslices them without copying. The charge is
-// therefore a linear pass over the input plus the string-copy volume the
-// decoder would produce, priced at the KV read-per-byte rate.
-func DecodeGasCost(args abi.Arguments, input []byte) uint64 {
+// therefore a linear pass over the input (DefaultGasCost) plus the string-copy
+// volume the decoder would produce, priced at the KV read-per-byte rate.
+func DecodeGasCost(args abi.Arguments, input []byte) (uint64, bool) {
 	base := DefaultGasCost(input, false)
 	if len(input) < 4 {
-		return base
+		return base, true
 	}
 	strBytes, ok := decodeStringCopyBytes(args, input[4:])
 	if !ok {
-		// Structurally inconsistent, or too deeply nested to price cheaply. The
-		// real decoder rejects such input (doing bounded work up to the same
-		// point), so the linear base charge is sufficient.
-		return base
+		return 0, false
 	}
-	return satAdd(base, satMul(storetypes.KVGasConfig().ReadCostPerByte, strBytes))
+	return satAdd(base, satMul(storetypes.KVGasConfig().ReadCostPerByte, strBytes)), true
 }
 
 // decodeStringCopyBytes returns the total number of string-payload bytes the ABI
