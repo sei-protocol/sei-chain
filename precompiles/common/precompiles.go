@@ -196,12 +196,26 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	ctx := ctxer.Ctx()
 	// Install the gas meter derived from the supplied EVM gas, then charge for
 	// decoding the calldata BEFORE decoding it. A call that cannot afford the
-	// decode is rejected here, before the (potentially super-linear) parse and
-	// allocation work is performed. ConsumeGas panics on out-of-gas; the deferred
-	// recover above turns that into a normal reverted precompile call.
+	// decode is rejected here, before the parse/allocation work is performed.
+	// ConsumeGas panics on out-of-gas; the deferred recover above turns that into
+	// a normal reverted precompile call.
 	gasLimit := d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), suppliedGas)
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
-	ctx.GasMeter().ConsumeGas(DecodeGasCost(method.Inputs, input), fmt.Sprintf("%s precompile calldata decode", d.name))
+
+	// Charge a length-proportional amount up front, before the structural scan
+	// inside DecodeGasCost runs, so the scan itself is bounded by the supplied gas
+	// and can never be performed for free even if it later becomes costlier.
+	scanCost := DefaultGasCost(input, false)
+	ctx.GasMeter().ConsumeGas(scanCost, fmt.Sprintf("%s precompile calldata scan", d.name))
+	decodeCost, ok := DecodeGasCost(method.Inputs, input)
+	if !ok {
+		// Calldata is structurally invalid (Unpack would reject it too); reject
+		// now, without attempting the decode.
+		return nil, 0, fmt.Errorf("invalid calldata encoding for %s", d.name)
+	}
+	// DecodeGasCost already includes scanCost; charge only the remaining
+	// (string-copy) portion so the decode is priced exactly once.
+	ctx.GasMeter().ConsumeGas(decodeCost-scanCost, fmt.Sprintf("%s precompile calldata decode", d.name))
 
 	args, err := method.Inputs.Unpack(input[4:])
 	if err != nil {

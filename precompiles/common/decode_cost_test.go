@@ -129,7 +129,9 @@ func TestDecodeGasCost(t *testing.T) {
 	// No-arg selector: just the linear base.
 	noArgs := abi.Arguments{}
 	input := []byte{0x01, 0x02, 0x03, 0x04}
-	require.Equal(t, DefaultGasCost(input, false), DecodeGasCost(noArgs, input))
+	gas, ok := DecodeGasCost(noArgs, input)
+	require.True(t, ok)
+	require.Equal(t, DefaultGasCost(input, false), gas)
 
 	// string arg: base over the whole input plus the string-copy volume.
 	strArgs := abi.Arguments{{Type: mustABIType(t, "string", nil)}}
@@ -137,6 +139,14 @@ func TestDecodeGasCost(t *testing.T) {
 	require.NoError(t, err)
 	input = append([]byte{0xaa, 0xbb, 0xcc, 0xdd}, packed...)
 	want := satAdd(DefaultGasCost(input, false), satMul(perByte, uint64(len("hello world"))))
-	require.Equal(t, want, DecodeGasCost(strArgs, input))
-	require.Greater(t, DecodeGasCost(strArgs, input), DefaultGasCost(input, false))
+	gas, ok = DecodeGasCost(strArgs, input)
+	require.True(t, ok)
+	require.Equal(t, want, gas)
+	require.Greater(t, gas, DefaultGasCost(input, false))
+
+	// Structurally invalid calldata: reported as not-ok so the caller rejects it.
+	arrArgs := abi.Arguments{{Type: mustABIType(t, "string[]", nil)}}
+	bad := append([]byte{0xaa, 0xbb, 0xcc, 0xdd}, append(abiWord(64), abiWord(1)...)...)
+	_, ok = DecodeGasCost(arrArgs, bad)
+	require.False(t, ok)
 }
