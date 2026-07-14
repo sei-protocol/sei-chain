@@ -314,11 +314,11 @@ func (b *Backend) SetTraceContextProvider(provider TraceContextProvider) {
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
-	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
 	sdkCtx, header, isLatestBlock, err := b.resolveStateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, nil, err
 	}
+	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
 	sdkCtx = sdkCtx.WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
 	if !isLatestBlock {
 		// no need to check version for latest block
@@ -628,7 +628,7 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ctxProvider TraceContextProvider) (sdk.Context, *coretypes.ResultBlock, tracers.StateReleaseFunc, error) {
 	emptyRelease := func() {}
 	// get the parent block using block.parentHash
-	prevBlockHeight := block.Number().Int64() - 1
+	prevBlockHeight := max(block.Number().Int64() - 1, 0)
 
 	blockNumber := block.Number().Int64()
 	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNumber, 1)
@@ -730,6 +730,9 @@ func (b *Backend) resolveStateAndHeaderByNumberOrHash(ctx context.Context, block
 	if isLatestLikeBlockRef(blockNrOrHash) {
 		sdkCtx := b.ctxProvider(LatestCtxHeight)
 		h := sdkCtx.BlockHeight()
+		if h <= 0 {
+			return sdkCtx, b.syntheticHeaderFromCtx(sdkCtx), true, nil
+		}
 		if wmHeight, err := b.watermarks.LatestHeight(ctx); err != nil {
 			return sdkCtx, nil, false, fmt.Errorf("b.watermarks.LatestHeight(): %w", err)
 		} else if wmHeight != h {
@@ -737,7 +740,7 @@ func (b *Backend) resolveStateAndHeaderByNumberOrHash(ctx context.Context, block
 		}
 		tmBlock, err := b.tmClient.Block(ctx, &h)
 		if err != nil {
-			return sdkCtx, nil, false, fmt.Errorf("b.tmClient.Block(): %w", err)
+			return sdkCtx, b.syntheticHeaderFromCtx(sdkCtx), true, nil
 		}
 		header := b.getHeader(tmBlock)
 		header.BaseFee = b.keeper.GetNextBaseFeePerGas(sdkCtx).TruncateInt().BigInt()

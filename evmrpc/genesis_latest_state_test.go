@@ -71,9 +71,10 @@ func latestLikeTags() []rpc.BlockNumber {
 	}
 }
 
-func TestStateAPILatestLikeTagsUseGenesisCheckStateBeforeFirstCommit(t *testing.T) {
+func TestStateAPILatestLikeTagsUseGenesisCommittedStateBeforeFirstCommit(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
 	checkCtx := testApp.GetCheckCtx()
+	require.Equal(t, int64(0), checkCtx.BlockHeight())
 	_, address := testkeeper.MockAddressPair()
 	key := common.BytesToHash([]byte("key"))
 	value := common.BytesToHash([]byte("value"))
@@ -116,9 +117,10 @@ func TestStateAPILatestLikeTagsUseGenesisCheckStateBeforeFirstCommit(t *testing.
 	}
 }
 
-func TestSimulationBackendLatestLikeTagsUseGenesisCheckStateBeforeFirstCommit(t *testing.T) {
+func TestSimulationBackendLatestLikeTagsUseGenesisCommittedStateBeforeFirstCommit(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
 	checkCtx := testApp.GetCheckCtx()
+	require.Equal(t, int64(0), checkCtx.BlockHeight())
 	_, address := testkeeper.MockAddressPair()
 	code := []byte{0xde, 0xad, 0xbe, 0xef}
 	amount := sdk.NewInt(4321)

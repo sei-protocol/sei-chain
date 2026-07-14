@@ -82,12 +82,6 @@ func (app *BaseApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitCha
 	// checks and can reject valid genesis txs.
 	app.initChainer(app.checkState.ctx.WithIsCheckTx(false), *req)
 
-	// After genesis initialization completes, CheckTx should use the first
-	// executable block height rather than height 0.
-	if initHeader.Height == 0 {
-		app.checkState.SetContext(app.checkState.ctx.WithBlockHeight(1))
-	}
-
 	// In the case of a new chain, AppHash will be the hash of an empty string.
 	// During an upgrade, it'll be the hash of the last committed block.
 	var appHash []byte
