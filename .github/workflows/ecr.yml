@@ -40,46 +40,6 @@ jobs:
       - name: Set up Docker Buildx
         # See: https://github.com/docker/setup-buildx-action/releases/tag/v4.1.0
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
-      - name: Build and push seid with mock balances
-        uses: docker/build-push-action@v6
-        with:
-          context: '.'
-          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
-          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock-${{ inputs.tag || inputs.ref || github.sha }}
-          build-args: |
-            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
-            GO_BUILD_TAGS=mock_balances
-      - name: Build and push seid with mock block validation
-        uses: docker/build-push-action@v6
-        with:
-          context: '.'
-          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
-          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock_block_validation-${{ inputs.tag || inputs.ref || github.sha }}
-          build-args: |
-            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
-            GO_BUILD_TAGS=mock_block_validation
-      - name: Build and push seid with mock chain validation
-        uses: docker/build-push-action@v6
-        with:
-          context: '.'
-          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
-          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock_chain_validation-${{ inputs.tag || inputs.ref || github.sha }}
-          build-args: |
-            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
-            GO_BUILD_TAGS=mock_chain_validation
-      # mock_balances + mock_chain_validation combined -- the chaos suite's flavor
-      # (fresh-chain replays with synthetic txs against pre-funded accounts). The
-      # nightly pipeline builds it from main; this step makes it buildable for an
-      # arbitrary ref, so a PR head can run the full harness.
       - name: Build and push mock_chain_validation-mock_balances seid
         uses: docker/build-push-action@v6
         with:
@@ -92,14 +52,3 @@ jobs:
           build-args: |
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
             GO_BUILD_TAGS=mock_balances mock_chain_validation
-      - name: Build and push seid
-        uses: docker/build-push-action@v6
-        with:
-          context: '.'
-          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
-          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ inputs.tag || inputs.ref || github.sha }}
-          build-args: |
-            SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
