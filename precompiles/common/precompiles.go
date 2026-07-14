@@ -163,12 +163,18 @@ func NewDynamicGasPrecompile(a abi.ABI, executor DynamicGasPrecompileExecutor, a
 func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, hooks *tracing.Hooks, readOnly bool, isFromDelegateCall bool) (ret []byte, remainingGas uint64, err error) {
 	operation := fmt.Sprintf("%s_unknown", d.name)
 	defer func() {
-		// Turn any panic — most importantly an out-of-gas panic raised while
-		// metering the calldata decode below — into a reverted precompile call,
-		// mirroring how the individual executor methods recover. This keeps a
-		// single precompile call's failure from aborting the enclosing EVM frame.
+		// The calldata-decode gas charges below can panic with a gas-meter
+		// out-of-gas / overflow; turn only those into a reverted precompile call
+		// (a call that could not afford the decode), keeping the failure from
+		// aborting the enclosing EVM frame. Re-panic anything else so genuine
+		// bugs are not masked as reverts.
 		if r := recover(); r != nil {
-			err = fmt.Errorf("%v", r)
+			switch r.(type) {
+			case sdk.ErrorOutOfGas, sdk.ErrorGasOverflow:
+				err = fmt.Errorf("%v", r)
+			default:
+				panic(r)
+			}
 		}
 		HandlePrecompileError(err, evm, operation)
 		if err != nil {
