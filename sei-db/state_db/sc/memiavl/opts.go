@@ -54,6 +54,9 @@ func (opts *Options) FillDefaults() {
 	if opts.SnapshotInterval <= 0 {
 		opts.SnapshotInterval = DefaultSnapshotInterval
 	}
+	if opts.SnapshotKeepRecent <= 0 {
+		opts.SnapshotKeepRecent = DefaultSnapshotKeepRecent
+	}
 
 	// SnapshotWriterLimit controls tree concurrency but not I/O rate (use SnapshotWriteRateMBps for that)
 	if opts.SnapshotWriterLimit <= 0 {

@@ -80,6 +80,9 @@ func TestNewDefaultConfig(t *testing.T) {
 	// WriteMode to auto, overriding the fixed-fallback default (memiavl_only).
 	expectedSC := config.DefaultStateCommitConfig()
 	expectedSC.WriteMode = sctypes.Auto
+	// parseSCConfigs is a raw parse and does not align FlatKV with memIAVL (that
+	// happens in composite.NewCompositeCommitStore), so the parsed config matches
+	// the in-code defaults verbatim apart from the resolved write mode.
 	assert.Equal(t, expectedSC, scConfig)
 	assert.Equal(t, ssConfig, config.DefaultStateStoreConfig())
 	assert.Equal(t, receiptConfig, config.DefaultReceiptStoreConfig())
@@ -113,6 +116,52 @@ func TestParseSCConfigs_FlatKVReadWriteMetrics(t *testing.T) {
 	})
 
 	assert.True(t, scConfig.FlatKVConfig.EnableReadWriteMetrics)
+}
+
+func TestParseSCConfigs_DoesNotAlignFlatKV(t *testing.T) {
+	// parseSCConfigs is a raw parse: memIAVL takes the flag values while FlatKV
+	// keeps its own in-code defaults. The FlatKV<-memIAVL alignment happens later
+	// in composite.NewCompositeCommitStore, not here.
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable:             true,
+		FlagSCSnapshotInterval:   uint32(5000),
+		FlagSCSnapshotKeepRecent: uint32(3),
+	})
+
+	assert.Equal(t, uint32(5000), scConfig.MemIAVLConfig.SnapshotInterval)
+	assert.Equal(t, uint32(3), scConfig.MemIAVLConfig.SnapshotKeepRecent)
+	def := config.DefaultStateCommitConfig().FlatKVConfig
+	assert.Equal(t, def.SnapshotInterval, scConfig.FlatKVConfig.SnapshotInterval)
+	assert.Equal(t, def.SnapshotKeepRecent, scConfig.FlatKVConfig.SnapshotKeepRecent)
+}
+
+func TestParseSCConfigs_SnapshotKeepRecentParsedRaw(t *testing.T) {
+	// An explicitly configured value is preserved verbatim; the min-clamp (0 -> 1)
+	// happens later in composite.NewCompositeCommitStore, not here.
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable:             true,
+		FlagSCSnapshotKeepRecent: uint32(0),
+	})
+
+	assert.Equal(t, uint32(0), scConfig.MemIAVLConfig.SnapshotKeepRecent)
+}
+
+func TestParseSCConfigs_AbsentKeysKeepDefaults(t *testing.T) {
+	// Keys omitted entirely must fall back to the in-code defaults rather than
+	// being clobbered to the zero value (cast.To*(nil) == 0). Only sc-enable is
+	// set here.
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable: true,
+	})
+
+	def := config.DefaultStateCommitConfig().MemIAVLConfig
+	assert.Equal(t, def.AsyncCommitBuffer, scConfig.MemIAVLConfig.AsyncCommitBuffer)
+	assert.Equal(t, def.SnapshotKeepRecent, scConfig.MemIAVLConfig.SnapshotKeepRecent)
+	assert.Equal(t, def.SnapshotInterval, scConfig.MemIAVLConfig.SnapshotInterval)
+	assert.Equal(t, def.SnapshotMinTimeInterval, scConfig.MemIAVLConfig.SnapshotMinTimeInterval)
+	assert.Equal(t, def.SnapshotWriterLimit, scConfig.MemIAVLConfig.SnapshotWriterLimit)
+	assert.Equal(t, def.SnapshotPrefetchThreshold, scConfig.MemIAVLConfig.SnapshotPrefetchThreshold)
+	assert.Equal(t, def.SnapshotWriteRateMBps, scConfig.MemIAVLConfig.SnapshotWriteRateMBps)
 }
 
 func TestParseSCConfigs_LegacyCosmosOnlyWriteMode(t *testing.T) {
@@ -162,6 +211,32 @@ func TestParseSSConfigs_ReadWriteMetrics(t *testing.T) {
 	})
 
 	assert.True(t, ssConfig.EnableReadWriteMetrics)
+}
+
+// TestSetupSeiDB_StateSyncSnapshotWithoutSSDoesNotPanic guards the removal of
+// the old validateConfigs check, which panicked whenever a state-sync snapshot
+// interval was configured (> 0) while SC was enabled but SS was disabled.
+// State-sync snapshot creation does not read from SS, so that coupling was
+// dropped; this test asserts the previously-forbidden combination now boots
+// cleanly (no panic) and, with SS off, yields a nil state store.
+func TestSetupSeiDB_StateSyncSnapshotWithoutSSDoesNotPanic(t *testing.T) {
+	homePath := t.TempDir()
+	appOpts := mapAppOpts{
+		FlagSCEnable: true,
+		FlagSSEnable: false,
+		// The combination that used to trip validateConfigs: a non-zero
+		// state-sync snapshot interval with SS disabled.
+		"state-sync.snapshot-interval": uint64(10),
+		// Keep the giga executor out of this boot path so the test exercises the
+		// plain SC-only store construction.
+		"giga_executor.enabled": false,
+	}
+
+	require.NotPanics(t, func() {
+		opts, ss := SetupSeiDB(homePath, appOpts, nil)
+		require.NotNil(t, opts)
+		require.Nil(t, ss, "state store must be nil when SS is disabled")
+	})
 }
 
 func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
