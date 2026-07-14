@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -178,6 +179,72 @@ func TestFallbackStateStoreDoesNotUseHasOnlyCacheForGet(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte("historical"), value)
 	require.Equal(t, 1, reader.gets)
+}
+
+type fakePerKeyStateStore struct {
+	fakeStateStore
+	perKey map[string]int64
+}
+
+func (f *fakePerKeyStateStore) GetEarliestVersionForKey(storeKey string) int64 {
+	if v, ok := f.perKey[storeKey]; ok {
+		return v
+	}
+	return f.earliest
+}
+
+func TestFallbackStateStoreUsesPerKeyEarliestVersion(t *testing.T) {
+	primary := &fakePerKeyStateStore{
+		fakeStateStore: fakeStateStore{earliest: 10},
+		perKey:         map[string]int64{"evm": 5},
+	}
+	reader := &fakeReader{}
+	store := NewFallbackStateStore(primary, reader)
+
+	// The EVM store still holds version 7 locally even though the cosmos store
+	// pruned to 10; the read must stay on the primary.
+	value, err := store.Get("evm", 7, []byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("primary"), value)
+	require.Equal(t, 1, primary.gets)
+	require.Equal(t, 0, reader.gets)
+
+	// Other store keys fall back below the cosmos horizon as before.
+	value, err = store.Get("bank", 7, []byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("historical"), value)
+	require.Equal(t, 1, reader.gets)
+
+	ok, err := store.Has("evm", 7, []byte("k"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, 1, primary.has)
+	require.Equal(t, 0, reader.has)
+}
+
+func TestFallbackStateStoreExpiresCachedMisses(t *testing.T) {
+	primary := &fakeStateStore{earliest: 10}
+	reader := &fakeReader{getErr: ErrNotFound}
+	store := NewFallbackStateStore(primary, reader)
+
+	value, err := store.Get("bank", 7, []byte("missing"))
+	require.NoError(t, err)
+	require.Nil(t, value)
+	require.Equal(t, 1, reader.gets)
+
+	// Backdate the cached miss to simulate the TTL lapsing after the offload
+	// consumer catches up.
+	cacheKey := historicalReadCacheKey{storeKey: "bank", version: 7, key: "missing"}
+	entry, ok := store.cache.Get(cacheKey)
+	require.True(t, ok)
+	entry.missExpiresAt = time.Now().Add(-time.Second)
+	store.cache.Add(cacheKey, entry)
+
+	reader.getErr = nil
+	value, err = store.Get("bank", 7, []byte("missing"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("historical"), value)
+	require.Equal(t, 2, reader.gets)
 }
 
 func TestFallbackStateStoreDoesNotCacheHistoricalErrors(t *testing.T) {

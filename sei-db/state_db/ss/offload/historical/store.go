@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -14,6 +15,17 @@ import (
 const (
 	defaultHistoricalReadCacheEntries = 64 * 1024
 	maxHistoricalReadCacheValueBytes  = 64 * 1024
+
+	// historicalReadTimeout bounds one backend point read. types.StateStore has
+	// no context parameter, so the deadline must be injected here; without it a
+	// silently dropped connection can park an RPC goroutine in a backend read
+	// until the OS TCP timeout.
+	historicalReadTimeout = 10 * time.Second
+
+	// historicalMissCacheTTL bounds how long a backend miss is trusted. Hits are
+	// immutable (a version's value never changes once written) but a miss can
+	// flip to a hit once the offload consumer catches up.
+	historicalMissCacheTTL = time.Minute
 )
 
 type historicalReadCacheKey struct {
@@ -26,14 +38,25 @@ type historicalReadCacheValue struct {
 	value      []byte
 	found      bool
 	valueKnown bool
+	// missExpiresAt is set only on miss entries; found entries never expire.
+	missExpiresAt time.Time
+}
+
+// PerKeyEarliestVersioner is implemented by primaries whose stores prune
+// independently per store key (e.g. the composite store's cosmos and EVM
+// backends), so the fallback horizon can be checked against the store that
+// will actually serve the read.
+type PerKeyEarliestVersioner interface {
+	GetEarliestVersionForKey(storeKey string) int64
 }
 
 // FallbackStateStore routes pruned point reads to the historical reader.
 // Iteration and writes stay on the primary state store.
 type FallbackStateStore struct {
-	primary types.StateStore
-	reader  Reader
-	cache   *lru.Cache[historicalReadCacheKey, historicalReadCacheValue]
+	primary        types.StateStore
+	perKeyEarliest PerKeyEarliestVersioner
+	reader         Reader
+	cache          *lru.Cache[historicalReadCacheKey, historicalReadCacheValue]
 }
 
 var _ types.StateStore = (*FallbackStateStore)(nil)
@@ -44,16 +67,28 @@ func NewFallbackStateStore(primary types.StateStore, reader Reader) *FallbackSta
 	if err != nil {
 		panic(err)
 	}
-	return &FallbackStateStore{primary: primary, reader: reader, cache: cache}
+	perKeyEarliest, _ := primary.(PerKeyEarliestVersioner)
+	return &FallbackStateStore{primary: primary, perKeyEarliest: perKeyEarliest, reader: reader, cache: cache}
 }
 
-func (s *FallbackStateStore) shouldFallback(version int64) bool {
-	earliest := s.primary.GetEarliestVersion()
+func (s *FallbackStateStore) shouldFallback(storeKey string, version int64) bool {
+	earliest := s.earliestVersionFor(storeKey)
 	return earliest > 0 && version < earliest
 }
 
+func (s *FallbackStateStore) earliestVersionFor(storeKey string) int64 {
+	if s.perKeyEarliest != nil {
+		return s.perKeyEarliest.GetEarliestVersionForKey(storeKey)
+	}
+	return s.primary.GetEarliestVersion()
+}
+
+func (s *FallbackStateStore) readContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), historicalReadTimeout)
+}
+
 func (s *FallbackStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
-	if !s.shouldFallback(version) {
+	if !s.shouldFallback(storeKey, version) {
 		return s.primary.Get(storeKey, version, key)
 	}
 	cacheKey := historicalReadCacheKey{storeKey: storeKey, version: version, key: string(key)}
@@ -63,7 +98,9 @@ func (s *FallbackStateStore) Get(storeKey string, version int64, key []byte) ([]
 		}
 		return value, nil
 	}
-	v, err := s.reader.Get(context.Background(), storeKey, key, version)
+	ctx, cancel := s.readContext()
+	defer cancel()
+	v, err := s.reader.Get(ctx, storeKey, key, version)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			s.cacheMiss(cacheKey)
@@ -84,6 +121,9 @@ func (s *FallbackStateStore) getCachedValue(key historicalReadCacheKey) ([]byte,
 		return nil, false, false
 	}
 	if !value.found {
+		if s.missExpired(key, value) {
+			return nil, false, false
+		}
 		return nil, false, true
 	}
 	if !value.valueKnown {
@@ -100,7 +140,20 @@ func (s *FallbackStateStore) getCachedHas(key historicalReadCacheKey) (bool, boo
 	if !ok {
 		return false, false
 	}
+	if !value.found && s.missExpired(key, value) {
+		return false, false
+	}
 	return value.found, true
+}
+
+// missExpired evicts and reports miss entries whose TTL has lapsed so a
+// backend that has since ingested the version gets re-queried.
+func (s *FallbackStateStore) missExpired(key historicalReadCacheKey, value historicalReadCacheValue) bool {
+	if value.missExpiresAt.IsZero() || time.Now().Before(value.missExpiresAt) {
+		return false
+	}
+	s.cache.Remove(key)
+	return true
 }
 
 func (s *FallbackStateStore) cacheValue(key historicalReadCacheKey, value []byte) {
@@ -114,7 +167,7 @@ func (s *FallbackStateStore) cacheMiss(key historicalReadCacheKey) {
 	if s.cache == nil {
 		return
 	}
-	s.cache.Add(key, historicalReadCacheValue{valueKnown: true})
+	s.cache.Add(key, historicalReadCacheValue{valueKnown: true, missExpiresAt: time.Now().Add(historicalMissCacheTTL)})
 }
 
 func (s *FallbackStateStore) cacheHas(key historicalReadCacheKey) {
@@ -125,14 +178,16 @@ func (s *FallbackStateStore) cacheHas(key historicalReadCacheKey) {
 }
 
 func (s *FallbackStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {
-	if !s.shouldFallback(version) {
+	if !s.shouldFallback(storeKey, version) {
 		return s.primary.Has(storeKey, version, key)
 	}
 	cacheKey := historicalReadCacheKey{storeKey: storeKey, version: version, key: string(key)}
 	if found, ok := s.getCachedHas(cacheKey); ok {
 		return found, nil
 	}
-	found, err := s.reader.Has(context.Background(), storeKey, key, version)
+	ctx, cancel := s.readContext()
+	defer cancel()
+	found, err := s.reader.Has(ctx, storeKey, key, version)
 	if err != nil {
 		return false, err
 	}
@@ -183,10 +238,5 @@ func (s *FallbackStateStore) Import(version int64, ch <-chan types.SnapshotNode)
 }
 
 func (s *FallbackStateStore) Close() error {
-	primaryErr := s.primary.Close()
-	readerErr := s.reader.Close()
-	if primaryErr != nil {
-		return primaryErr
-	}
-	return readerErr
+	return errors.Join(s.primary.Close(), s.reader.Close())
 }
