@@ -1,0 +1,15 @@
+name: 'Go lint repo-specific setup'
+description: >-
+  Sei-chain setup for the shared uci go-lint workflow: reclaim runner disk and
+  move the Go caches onto /mnt so `go vet ./...` over the full tree does not
+  exhaust the root filesystem and crash the runner. Picked up
+  automatically by sei-protocol/uci go-lint.yml's repo-specific setup hook.
+runs:
+  using: composite
+  steps:
+    - name: Reclaim runner disk
+      shell: bash
+      run: bash ./.github/scripts/ci-free-disk.sh
+    - name: Relocate Go caches to /mnt
+      shell: bash
+      run: bash ./.github/scripts/ci-relocate-go-cache.sh
