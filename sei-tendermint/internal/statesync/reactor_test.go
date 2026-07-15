@@ -164,7 +164,7 @@ func TestReactor_Sync(t *testing.T) {
 		appConn.applySnapshotChunk.Set(func(context.Context, *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) {
 			return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
 		})
-		appConn.info.Push(mkHandler(struct{}{}, &abci.ResponseInfo{
+		appConn.info.Push(mkConst(&abci.ResponseInfo{
 			AppVersion:       testAppVersion,
 			LastBlockHeight:  snapshotHeight,
 			LastBlockAppHash: chain[snapshotHeight+1].AppHash,

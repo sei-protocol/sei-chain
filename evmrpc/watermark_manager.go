@@ -101,27 +101,17 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 
 	// State store heights (historical state DB) may lag behind block pruning.
 	if ssLatest, ssEarliest, ok := m.fetchStateStoreWatermarks(); ok {
-		if ssLatest > 0 {
-			setLatest(ssLatest)
-		}
-		if ssEarliest > 0 {
-			setStateEarliest(ssEarliest)
-		}
+		setLatest(ssLatest)
+		setStateEarliest(ssEarliest)
 	}
 
 	// Receipt store version participates only in the latest watermark.
 	if m.receiptStore != nil {
-		if latest := m.receiptStore.LatestVersion(); latest > 0 {
-			setLatest(latest)
-		}
+		setLatest(m.receiptStore.LatestVersion())
 	}
 
 	if !latestSet {
 		return 0, 0, 0, errNoHeightSource
-	}
-
-	if !blockEarliestSet {
-		blockEarliest = 0
 	}
 
 	if !stateEarliestSet {
@@ -169,7 +159,7 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 			return 0, err
 		}
 		height := res.Block.Height
-		if err := m.ensureWithinWatermarks(height, stateEarliest, latest); err != nil {
+		if err := ensureWithinWatermarks(height, stateEarliest, latest); err != nil {
 			return 0, err
 		}
 		return height, nil
@@ -194,7 +184,7 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 	if heightPtr == nil {
 		return latest, nil
 	}
-	if err := m.ensureWithinWatermarks(*heightPtr, stateEarliest, latest); err != nil {
+	if err := ensureWithinWatermarks(*heightPtr, stateEarliest, latest); err != nil {
 		return 0, err
 	}
 	return *heightPtr, nil
@@ -207,14 +197,14 @@ func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, heigh
 	if err != nil {
 		return err
 	}
-	return m.ensureWithinWatermarks(height, blockEarliest, latest)
+	return ensureWithinWatermarks(height, blockEarliest, latest)
 }
 
 // EnsureReceiptHeightAvailable verifies that receipts for the given block height
 // have not been pruned from the receipt store. This is a separate check from
 // EnsureBlockHeightAvailable because the receipt store can be configured with a
 // smaller KeepRecent than the block or state stores.
-func (m *WatermarkManager) EnsureReceiptHeightAvailable(_ context.Context, height int64) error {
+func (m *WatermarkManager) EnsureReceiptHeightAvailable(height int64) error {
 	if m.receiptStore == nil {
 		return nil
 	}
@@ -225,7 +215,7 @@ func (m *WatermarkManager) EnsureReceiptHeightAvailable(_ context.Context, heigh
 	return nil
 }
 
-func (m *WatermarkManager) ensureWithinWatermarks(height, earliest, latest int64) error {
+func ensureWithinWatermarks(height, earliest, latest int64) error {
 	if height > latest {
 		return fmt.Errorf("requested height %d is not yet available; safe latest is %d: %w", height, latest, ErrBlockHeightNotYetAvailable)
 	}

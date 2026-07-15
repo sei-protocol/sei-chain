@@ -110,7 +110,7 @@ func mustDecodeHex(h string) []byte {
 
 func testTxConfigProvider(int64) client.TxConfig { return nil }
 
-func testCtxProvider(int64) sdk.Context { return sdk.Context{} }
+func testCtxProvider(h int64) sdk.Context { return sdk.Context{}.WithBlockHeight(h) }
 
 // GetBlockByHash for a block whose height sits above safe latest must return
 // JSON null per the Ethereum JSON-RPC spec (the block doesn't exist from the

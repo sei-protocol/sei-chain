@@ -114,27 +114,27 @@ func TestEnsureReceiptHeightAvailable(t *testing.T) {
 
 	t.Run("no receipt store allows any height", func(t *testing.T) {
 		wm := NewWatermarkManager(tmClient, nil, nil, nil)
-		require.NoError(t, wm.EnsureReceiptHeightAvailable(context.Background(), 5))
+		require.NoError(t, wm.EnsureReceiptHeightAvailable(5))
 	})
 
 	t.Run("receipt store with no pruning allows any height", func(t *testing.T) {
 		rs := &fakeReceiptStore{latest: 200, earliest: 0}
 		wm := NewWatermarkManager(tmClient, nil, nil, rs)
-		require.NoError(t, wm.EnsureReceiptHeightAvailable(context.Background(), 5))
+		require.NoError(t, wm.EnsureReceiptHeightAvailable(5))
 	})
 
 	t.Run("pruned receipt height returns error", func(t *testing.T) {
 		rs := &fakeReceiptStore{latest: 200, earliest: 150}
 		wm := NewWatermarkManager(tmClient, nil, nil, rs)
-		require.ErrorContains(t, wm.EnsureReceiptHeightAvailable(context.Background(), 100), "receipts have been pruned")
-		require.ErrorContains(t, wm.EnsureReceiptHeightAvailable(context.Background(), 149), "receipts have been pruned")
+		require.ErrorContains(t, wm.EnsureReceiptHeightAvailable(100), "receipts have been pruned")
+		require.ErrorContains(t, wm.EnsureReceiptHeightAvailable(149), "receipts have been pruned")
 	})
 
 	t.Run("height within receipt retention succeeds", func(t *testing.T) {
 		rs := &fakeReceiptStore{latest: 200, earliest: 150}
 		wm := NewWatermarkManager(tmClient, nil, nil, rs)
-		require.NoError(t, wm.EnsureReceiptHeightAvailable(context.Background(), 150))
-		require.NoError(t, wm.EnsureReceiptHeightAvailable(context.Background(), 175))
+		require.NoError(t, wm.EnsureReceiptHeightAvailable(150))
+		require.NoError(t, wm.EnsureReceiptHeightAvailable(175))
 	})
 }
 
