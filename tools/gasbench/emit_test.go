@@ -22,11 +22,25 @@ func TestDistinguishableReadsRawBounds(t *testing.T) {
 		{"straddles zero", -1, 2, false},
 		{"lower bound touches zero", 0, 5, false},
 		{"underpowered ±Inf", math.Inf(-1), math.Inf(1), false},
+		{"NaN bounds", math.NaN(), math.NaN(), false},
 	}
 	for _, tc := range cases {
 		if got := distinguishable(tc.lo, tc.hi); got != tc.want {
 			t.Errorf("%s: distinguishable(%v,%v) = %v, want %v", tc.name, tc.lo, tc.hi, got, tc.want)
 		}
+	}
+}
+
+// TestNullableBoundNonFinite pins D-1's full contract: every non-finite bound
+// (±Inf and NaN — encoding/json rejects both) maps to nil; finite passes through.
+func TestNullableBoundNonFinite(t *testing.T) {
+	for _, x := range []float64{math.Inf(1), math.Inf(-1), math.NaN()} {
+		if nullableBound(x) != nil {
+			t.Errorf("nullableBound(%v) must be nil", x)
+		}
+	}
+	if p := nullableBound(42.5); p == nil || *p != 42.5 {
+		t.Errorf("nullableBound(42.5) got %v, want 42.5", p)
 	}
 }
 

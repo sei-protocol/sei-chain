@@ -1,7 +1,6 @@
 package gasbench
 
 import (
-	"math"
 	"slices"
 
 	"golang.org/x/perf/benchmath"
@@ -53,7 +52,7 @@ func analyzeCrossRun(in crossRunInput, alpha, confidence float64) crossRun {
 		Confidence:    sum.Confidence,
 		P:             cmp.P,
 		Alpha:         cmp.Alpha,
-		Underpowered:  len(in.Deltas) < 2 || math.IsInf(sum.Lo, 0) || math.IsInf(sum.Hi, 0),
+		Underpowered:  len(in.Deltas) < 2 || !finite(sum.Lo) || !finite(sum.Hi),
 		Warnings:      slices.Concat(sum.Warnings, cmp.Warnings),
 	}
 }

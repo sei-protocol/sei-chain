@@ -70,7 +70,7 @@ func rusageSnapshot() (nvcsw, nivcsw int64, err error) {
 	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err != nil {
 		return 0, 0, fmt.Errorf("gasbench: getrusage: %w", err)
 	}
-	return int64(ru.Nvcsw), int64(ru.Nivcsw), nil
+	return ru.Nvcsw, ru.Nivcsw, nil
 }
 
 // Measure runs Warmup discarded iterations, then Iterations timed iterations

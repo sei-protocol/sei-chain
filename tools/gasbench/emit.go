@@ -89,14 +89,18 @@ func classifyStatus(underpowered, distinguishable, effectPass bool) string {
 }
 
 // nullableBound maps a raw CI bound to the wire's nullable column: nil when
-// non-finite (D-1: ±Inf must never reach encoding/json). This is the only
-// place raw->nullable happens; the gate reads the raw bound upstream.
+// non-finite (D-1: neither ±Inf nor NaN may reach encoding/json — it rejects
+// both). This is the only place raw->nullable happens; the gate reads the raw
+// bound upstream.
 func nullableBound(x float64) *float64 {
-	if math.IsInf(x, 0) {
+	if !finite(x) {
 		return nil
 	}
 	return &x
 }
+
+// finite reports whether x is a real number (not ±Inf, not NaN).
+func finite(x float64) bool { return !math.IsInf(x, 0) && !math.IsNaN(x) }
 
 // hostHealth carries the advisory host-health signals for one opcode: the
 // max-across-counts values from the collector. Named fields (like crossRunInput)

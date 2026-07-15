@@ -138,6 +138,14 @@ func BuildCaseWith(s OpSpec, reps int, operands []*uint256.Int) Case {
 	if len(operands) < 2 || len(operands) < s.Arity {
 		panic(fmt.Sprintf("gasbench: %s needs >= max(2, arity=%d) operands, got %d", s.Name, s.Arity, len(operands)))
 	}
+	// Guard the conversions below: reps feeds uint64(reps) in ExpectedGasDelta
+	// and Arity feeds the DUP<arity> opcode byte (DUP16 is the EVM ceiling).
+	if reps <= 0 {
+		panic(fmt.Sprintf("gasbench: %s needs reps > 0, got %d", s.Name, reps))
+	}
+	if s.Arity > 16 {
+		panic(fmt.Sprintf("gasbench: %s has Arity %d > 16 (DUP16 is the deepest lift)", s.Name, s.Arity))
+	}
 
 	var perUnitDelta uint64
 	switch s.Op {
@@ -189,7 +197,7 @@ func BuildCaseWith(s OpSpec, reps int, operands []*uint256.Int) Case {
 		// (equal operands would let uint256 short-circuit DIV/MOD -- see
 		// seedOperands). GasFastestStep is identical for every DUP<k>, so this
 		// leaves the (n-1)*GasQuickStep gas algebra unchanged from a DUP1 fill.
-		dupN := vm.DUP1 + vm.OpCode(s.Arity-1)
+		dupN := vm.DUP1 + vm.OpCode(s.Arity-1) //nolint:gosec // 1 <= Arity <= 16 guarded above
 		for d := 0; d < s.Arity; d++ {
 			base.Push(operands[d])
 			tgt.Push(operands[d])
@@ -218,6 +226,6 @@ func BuildCaseWith(s OpSpec, reps int, operands []*uint256.Int) Case {
 		ConstGas:         s.ConstGas,
 		Baseline:         base.Bytes(),
 		Target:           tgt.Bytes(),
-		ExpectedGasDelta: perUnitDelta * uint64(reps),
+		ExpectedGasDelta: perUnitDelta * uint64(reps), //nolint:gosec // reps > 0 guarded above
 	}
 }
