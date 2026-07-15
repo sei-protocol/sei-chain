@@ -31,6 +31,30 @@ func TestDistinguishableReadsRawBounds(t *testing.T) {
 	}
 }
 
+// TestNewErrorRunWriterSafe pins the failed-subtest path: an empty accumulator
+// becomes an error row whose numerics are all finite/zero and whose CI is null,
+// so a partially-failed run still emits parseable CSV/NDJSON (no NaN).
+func TestNewErrorRunWriterSafe(t *testing.T) {
+	r := NewErrorRun(Case{OpcodeID: "ADD", Class: ClassArithmetic, Reps: 1000, ConstGas: 3}, 20000)
+	if r.Status != StatusError {
+		t.Errorf("status got %q, want %q", r.Status, StatusError)
+	}
+	if r.CILo != nil || r.CIHi != nil {
+		t.Error("error row CI must be null")
+	}
+	if !finite(r.ExecTimeNs) || r.Distinguishable || r.EffectSizePass {
+		t.Errorf("error row must be finite and non-passing: exec=%v dist=%v eff=%v",
+			r.ExecTimeNs, r.Distinguishable, r.EffectSizePass)
+	}
+	var nd, cb bytes.Buffer
+	if err := WriteNDJSON(&nd, []Run{r}); err != nil {
+		t.Fatalf("WriteNDJSON of an error row must not error: %v", err)
+	}
+	if err := WriteCSV(&cb, []Run{r}); err != nil {
+		t.Fatalf("WriteCSV of an error row must not error: %v", err)
+	}
+}
+
 // TestNullableBoundNonFinite pins D-1's full contract: every non-finite bound
 // (±Inf and NaN — encoding/json rejects both) maps to nil; finite passes through.
 func TestNullableBoundNonFinite(t *testing.T) {

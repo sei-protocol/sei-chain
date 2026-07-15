@@ -48,9 +48,10 @@ const (
 	StatusSubThreshold  = "sub_threshold" // distinguishable but below the effect floor -- resolvable, but not meaningfully more expensive in ABSOLUTE time. NOT "correctly priced": a cheap op can still be mispriced. Only `ok` is correlation-eligible.
 	StatusInsignificant = "insignificant" // measurable but the CI straddles zero -- not distinguishable at this precision
 	StatusUnderpowered  = "underpowered"  // too few counts for a finite CI (count<2 or non-finite bound); the verdict short-circuits before distinguishability
-	// StatusError is reserved for a per-case measurement failure. Not
-	// currently produced: bench_test.go fails the whole benchmark loudly
-	// (b.Fatalf) on an invalid program rather than degrading to an error row.
+	// StatusError marks a case whose measurement never happened: its subtest
+	// b.Fatalf'd (invalid program, Measure failure), which unwinds only that
+	// subtest -- the parent still aggregates, and an empty accumulator must
+	// become an error row (NewErrorRun), never NaN in the output.
 	StatusError = "error"
 )
 
@@ -101,6 +102,22 @@ func nullableBound(x float64) *float64 {
 
 // finite reports whether x is a real number (not ±Inf, not NaN).
 func finite(x float64) bool { return !math.IsInf(x, 0) && !math.IsNaN(x) }
+
+// NewErrorRun is the row for a case whose measurement never happened (its
+// subtest failed before accumulating a single count). Every numeric field is
+// finite/zero and the CI is null, so the writers stay NaN-free (D-1) and a
+// consumer filtering on status sees the failure instead of a corrupt number.
+func NewErrorRun(c Case, iterations int) Run {
+	return Run{
+		InputID:    c.OpcodeID,
+		Class:      string(c.Class),
+		Reps:       c.Reps,
+		ConstGas:   c.ConstGas,
+		Iterations: iterations,
+		PValue:     1,
+		Status:     StatusError,
+	}
+}
 
 // hostHealth carries the advisory host-health signals for one opcode: the
 // max-across-counts values from the collector. Named fields (like crossRunInput)

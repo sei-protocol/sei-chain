@@ -129,6 +129,14 @@ type opcodeAccum struct {
 // analysis, and composes the per-opcode Run. Thin glue: the verdict lives in
 // NewRun/classifyStatus (emit.go).
 func aggregate(b *testing.B, acc *opcodeAccum, c Case, alpha, confidence, minPerOpNs float64) Run {
+	// A subtest that b.Fatalf'd (invalid program, Measure failure) unwinds only
+	// its own goroutine; the parent still aggregates. An empty accumulator
+	// through benchmath yields a NaN center that would corrupt the writers --
+	// emit the error row instead.
+	if len(acc.deltas) == 0 {
+		b.Logf("%s: no measurements accumulated (subtest failed); emitting status=error row", c.OpcodeID)
+		return NewErrorRun(c, acc.iterations)
+	}
 	cr := analyzeCrossRun(crossRunInput{
 		BaselineMedians: acc.baseMedians,
 		TargetMedians:   acc.tgtMedians,

@@ -145,6 +145,9 @@ target-minus-baseline delta, so setup/loop overhead has already cancelled
   default confidence — precisely: `<2` counts, or any count whose CI bound is
   non-finite at the requested confidence; see "Output schema"); `ci_lo`/`ci_hi`
   are null. Raise `GASBENCH_COUNT`.
+- `status=error`: the case never produced a measurement — its subtest failed
+  (invalid program, `Measure` error) before accumulating a count. Numerics are
+  zero, CI null; see the test log for the underlying failure.
 - `high_variance=true`: advisory — the run saw unusual dispersion (noisy
   neighbor, throttling). It does not invalidate an `ok` result, and
   `nivcsw` tells you where to look: nonzero means the scheduler preempted
