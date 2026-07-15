@@ -571,7 +571,7 @@ func consumeCompositeFlatKV(opened *openedFlatKV, d *evmDigest, accounts map[str
 			return err
 		}
 		if seen%20000000 == 0 {
-			fmt.Printf("  progress backend=composite source=flatkv input_physical_rows=%d account_buffered=%d code=%d storage=%d legacy=%d\n", seen, len(accounts), d.code.count, d.storage.count, d.misc.count)
+			fmt.Printf("  progress backend=composite source=flatkv input_physical_rows=%d account_buffered=%d code=%d storage=%d misc=%d\n", seen, len(accounts), d.code.count, d.storage.count, d.misc.count)
 		}
 	}
 	if err := iter.Error(); err != nil {
@@ -616,7 +616,7 @@ func consumeCompositeMemiavl(scan evmLeafSource, srcLabel string, boundary migra
 			consumed++
 		}
 		if leaves%20000000 == 0 {
-			fmt.Printf("  progress backend=composite source=%s input_leaves=%d consumed_unmigrated=%d account_buffered=%d code=%d storage=%d legacy=%d\n",
+			fmt.Printf("  progress backend=composite source=%s input_leaves=%d consumed_unmigrated=%d account_buffered=%d code=%d storage=%d misc=%d\n",
 				srcLabel, leaves, consumed, len(accounts), d.code.count, d.storage.count, d.misc.count)
 		}
 		return nil

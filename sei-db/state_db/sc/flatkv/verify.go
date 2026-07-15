@@ -122,8 +122,8 @@ func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[st
 // one DB against a fresh scan, verifies they homomorphically sum to the
 // maintained per-DB root, and returns that (scan-derived) per-DB root for the
 // global accumulation. It fails on: a scanned module missing/mismatched in the
-// maintained map, a maintained module absent from disk yet not zeroed, a
-// stats mismatch, or the per-module sum not equaling the per-DB root.
+// maintained maps, a maintained hash/stats entry for a module absent from disk
+// that is not zeroed, or the per-module sum not equaling the per-DB root.
 func (cs *CommitStore) verifyDBModuleMetadata(
 	dir string,
 	scanHash map[string]*lthash.LtHash,
@@ -149,9 +149,9 @@ func (cs *CommitStore) verifyDBModuleMetadata(
 		}
 	}
 
-	// A maintained module with no keys on disk is allowed only if it has been
-	// zeroed out (identity hash, empty stats) — the residue of deleting every
-	// key of a module.
+	// A maintained hash for a module with no keys on disk is allowed only if
+	// it has been zeroed (identity) — the residue of deleting every key of a
+	// module.
 	for module, wh := range workingHash {
 		if _, ok := scanHash[module]; ok {
 			continue
@@ -162,7 +162,16 @@ func (cs *CommitStore) verifyDBModuleMetadata(
 				dir, module, cs.committedVersion,
 			)
 		}
-		if ws := workingStats[module]; ws != (lthash.ModuleStats{}) {
+	}
+
+	// Same residue rule for stats. Iterate workingStats on its own so an
+	// orphan entry (stats present, no hash entry, no on-disk keys) cannot
+	// slip past the hash-keyed loop above.
+	for module, ws := range workingStats {
+		if _, ok := scanHash[module]; ok {
+			continue
+		}
+		if ws != (lthash.ModuleStats{}) {
 			return nil, fmt.Errorf(
 				"VerifyLtHash: maintained per-module stats for %s/%s are non-zero but the module has no keys on disk (version %d): %+v",
 				dir, module, cs.committedVersion, ws,
