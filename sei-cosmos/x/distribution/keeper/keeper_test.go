@@ -83,6 +83,61 @@ func TestAfterValidatorRemovedFallsBackForInvalidWithdrawAddress(t *testing.T) {
 	require.Equal(t, balanceBefore.Amount.Add(sdk.NewInt(10)), balanceAfter.Amount)
 }
 
+// TestAfterValidatorRemovedRoutesToCommunityPoolForUnreceivableValidator covers the
+// case where the validator operator address itself cannot receive funds — its EVM
+// address was re-associated (e.g. via associatePubKey) away from the direct-cast Sei
+// address it was created under. The withdraw-address fallback in GetDelegatorWithdrawAddr
+// resolves back to that same unreceivable operator address, so the commission
+// force-withdraw fails. AfterValidatorRemoved runs during EndBlock, so it must not panic:
+// the commission is routed to the community pool instead, which conserves value because
+// the coins already back the distribution module account.
+func TestAfterValidatorRemovedRoutesToCommunityPoolForUnreceivableValidator(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	// The validator operator is the direct-cast Sei address of an EVM address.
+	evmAddr := common.HexToAddress("0x3333333333333333333333333333333333333333")
+	castAddr := sdk.AccAddress(evmAddr[:])
+	valAddr := sdk.ValAddress(castAddr)
+	valAccAddr := sdk.AccAddress(valAddr) // == castAddr
+
+	require.True(t, app.BankKeeper.CanSendTo(ctx, castAddr))
+
+	// Re-associate the EVM address to a different true Sei address, mirroring
+	// associatePubKey after a validator was created under the direct-cast address.
+	associatedAddr := seiapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(1000000000))[0]
+	app.EvmKeeper.SetAddressMapping(ctx, associatedAddr, evmAddr)
+
+	// The operator/delegator address can no longer receive funds, and the
+	// withdraw-address fallback resolves back to that same unreceivable address.
+	require.False(t, app.BankKeeper.CanSendTo(ctx, castAddr))
+	require.Equal(t, valAccAddr.String(), app.DistrKeeper.GetDelegatorWithdrawAddr(ctx, valAccAddr).String())
+
+	commission := sdk.DecCoins{sdk.NewDecCoin("usei", sdk.NewInt(10))}
+	coins := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))
+	distrAcc := app.DistrKeeper.GetDistributionAccount(ctx)
+	require.NoError(t, apptesting.FundModuleAccount(app.BankKeeper, ctx, distrAcc.GetName(), coins))
+	app.AccountKeeper.SetModuleAccount(ctx, distrAcc)
+
+	app.DistrKeeper.SetValidatorOutstandingRewards(ctx, valAddr, types.ValidatorOutstandingRewards{Rewards: commission})
+	app.DistrKeeper.SetValidatorAccumulatedCommission(ctx, valAddr, types.ValidatorAccumulatedCommission{Commission: commission})
+
+	communityBefore := app.DistrKeeper.GetFeePool(ctx).CommunityPool.AmountOf("usei")
+	moduleBalanceBefore := app.BankKeeper.GetBalance(ctx, distrAcc.GetAddress(), "usei")
+
+	require.NotPanics(t, func() {
+		app.DistrKeeper.Hooks().AfterValidatorRemoved(ctx, sdk.ConsAddress{}, valAddr)
+	})
+
+	// The commission could not be paid out, so it stays in the distribution module
+	// account and is accounted to the community pool. No value leaves the module and
+	// the unreceivable operator address receives nothing.
+	communityAfter := app.DistrKeeper.GetFeePool(ctx).CommunityPool.AmountOf("usei")
+	require.Equal(t, communityBefore.Add(sdk.NewDec(10)), communityAfter)
+	require.True(t, app.BankKeeper.GetBalance(ctx, castAddr, "usei").IsZero())
+	require.Equal(t, moduleBalanceBefore, app.BankKeeper.GetBalance(ctx, distrAcc.GetAddress(), "usei"))
+}
+
 func TestWithdrawValidatorCommission(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})

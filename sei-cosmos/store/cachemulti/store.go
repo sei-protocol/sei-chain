@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -13,6 +14,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
+
+// freezable is implemented by cache stores that can be marked as superseded by a
+// newer layer so that deeper layers may skip them for reads while they are empty,
+// and reverted back to writable when a layer is re-exposed.
+type freezable interface {
+	Freeze()
+	Unfreeze()
+}
 
 //----------------------------------------
 // Store
@@ -35,6 +44,11 @@ type Store struct {
 
 	mu              *sync.RWMutex // protects stores and parents during lazy creation
 	materializeOnce *sync.Once
+
+	// frozen marks this layer as superseded by a newer cache layer. Set opt-in via
+	// Freeze(); shared (pointer) across value copies of the same layer so that
+	// stores materialized lazily after freezing are also frozen.
+	frozen *atomic.Bool
 
 	closers []io.Closer
 }
@@ -77,6 +91,7 @@ func newStoreWithoutGiga(store types.KVStore, stores map[types.StoreKey]types.Ca
 		traceContext:    traceContext,
 		mu:              &sync.RWMutex{},
 		materializeOnce: &sync.Once{},
+		frozen:          &atomic.Bool{},
 		closers:         []io.Closer{},
 	}
 
@@ -103,6 +118,7 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 	cms.materializeOnce.Do(func() {
 		// Lock held for bulk materialization to avoid per-key lock overhead.
 		cms.mu.Lock()
+		frozen := cms.frozen != nil && cms.frozen.Load()
 		for k := range cms.parents {
 			// Inline the creation here — we already hold the write lock.
 			parent := cms.parents[k]
@@ -110,7 +126,11 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 			if cms.TracingEnabled() {
 				cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
 			}
-			cms.stores[k] = cachekv.NewStore(cw.(types.KVStore), k, types.DefaultCacheSizeLimit)
+			s := cachekv.NewStore(cw.(types.KVStore), k, types.DefaultCacheSizeLimit)
+			if frozen {
+				s.Freeze()
+			}
+			cms.stores[k] = s
 			delete(cms.parents, k)
 		}
 		cms.mu.Unlock()
@@ -161,9 +181,63 @@ func (cms Store) getOrCreateStore(key types.StoreKey) types.CacheWrap {
 		cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
 	}
 	s := cachekv.NewStore(cw.(types.KVStore), key, types.DefaultCacheSizeLimit)
+	if cms.frozen != nil && cms.frozen.Load() {
+		s.Freeze()
+	}
 	cms.stores[key] = s
 	delete(cms.parents, key)
 	return s
+}
+
+// Freeze marks the layer (and every materialized cache store within it) as
+// superseded by a newer cache layer, so deeper layers may skip it for reads while
+// it is empty. Stores materialized after Freeze inherit the frozen state via the
+// shared flag. Freeze is opt-in and idempotent; layers that are never frozen keep
+// the prior behavior exactly.
+func (cms Store) Freeze() {
+	if cms.frozen != nil {
+		cms.frozen.Store(true)
+	}
+	if f, ok := cms.db.(freezable); ok {
+		f.Freeze()
+	}
+	cms.mu.RLock()
+	for _, s := range cms.stores {
+		if f, ok := s.(freezable); ok {
+			f.Freeze()
+		}
+	}
+	cms.mu.RUnlock()
+	for _, s := range cms.gigaStores {
+		if f, ok := s.(freezable); ok {
+			f.Freeze()
+		}
+	}
+}
+
+// Unfreeze reverts Freeze for the layer and every materialized cache store within
+// it. It is called when the layer is re-exposed as the newest (writable) layer,
+// e.g. by RevertToSnapshot, so that it is no longer skipped for reads. Stores
+// materialized after Unfreeze see the cleared flag and are not frozen.
+func (cms Store) Unfreeze() {
+	if cms.frozen != nil {
+		cms.frozen.Store(false)
+	}
+	if f, ok := cms.db.(freezable); ok {
+		f.Unfreeze()
+	}
+	cms.mu.RLock()
+	for _, s := range cms.stores {
+		if f, ok := s.(freezable); ok {
+			f.Unfreeze()
+		}
+	}
+	cms.mu.RUnlock()
+	for _, s := range cms.gigaStores {
+		if f, ok := s.(freezable); ok {
+			f.Unfreeze()
+		}
+	}
 }
 
 // SetTracer sets the tracer for the MultiStore that the underlying

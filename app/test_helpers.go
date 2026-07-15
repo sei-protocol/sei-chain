@@ -141,10 +141,7 @@ func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey,
 }
 
 func NewGigaTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useOcc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
-	wrapper := newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
-	genState := evmtypes.DefaultGenesis()
-	wrapper.App.EvmKeeper.InitGenesis(wrapper.Ctx, *genState)
-	return wrapper
+	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, TestAppOpts{UseSc: true, EnableGiga: true, EnableGigaOCC: useOcc}, baseAppOptions...)
 }
 
 // NewGigaTestWrapperWithRegularStore creates a test wrapper that runs Giga executor
@@ -176,10 +173,6 @@ func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub crypt
 			wrapper.App.GigaEvmKeeper.EvmoneVM = evmoneVM
 		}
 	}
-
-	// Init genesis for GigaEvmKeeper (now uses regular KVStore)
-	genState := evmtypes.DefaultGenesis()
-	wrapper.App.EvmKeeper.InitGenesis(wrapper.Ctx, *genState)
 
 	return wrapper
 }
