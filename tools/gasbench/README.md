@@ -391,7 +391,14 @@ go test ./tools/gasbench/ -run '^$' -bench '^BenchmarkOpcodes$' \
 `Measure`'s, not `b.N`'s, so `b.N` must stay at 1. `-count=K` reruns each
 opcode subtest K times **within the same OS process** (inside a single
 `BenchmarkOpcodes` invocation); benchmath folds those K passes into the one
-aggregate row's cross-run CI. This is cross-run variance, not process-level
+aggregate row's cross-run CI. `-benchtime=1x` does **not** neutralize
+`-count`: the flags act at different layers — `benchtime` caps iterations
+*within* one pass (`launch` adds none beyond `run1`'s single body execution),
+while the `-count` loop sits *outside*, in `processBench`, re-running the
+whole leaf benchmark K times — so each subtest body executes exactly K times
+total. Observable either way: `-count=1` emits `count=1`/`underpowered` rows,
+`-count=10` emits `count=10` rows with finite CIs, and `-v` shows K result
+lines per opcode. This is cross-run variance, not process-level
 independence — true process-level independence would need K separate `go test`
 invocations. See the research doc for why this matters less than it sounds:
 JMH's fork/warmup/measurement-iteration model is the gold standard, but this
