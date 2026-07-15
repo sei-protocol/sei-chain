@@ -143,7 +143,11 @@ func (it *forwardIterator) GetValue() (value []byte, err error) {
 	// The current key is a secondary key. Its primary was visited immediately before it, so we can serve
 	// the value as a sub-slice of the (lazily loaded) primary value. A secondary always references a
 	// sub-range of its primary's value on the same shard.
-	if it.groupValid && it.secondaryWithinGroup(addr) {
+	//
+	// This optimization is invalid for compressed segments: there addr.ValueSize() is the compressed blob
+	// length while groupValue holds the decompressed value, so the sub-slice arithmetic would be wrong.
+	// Fall through to a direct read (which decompresses) instead.
+	if !it.currentSeg.IsCompressed() && it.groupValid && it.secondaryWithinGroup(addr) {
 		if it.groupValue == nil {
 			v, err := reader.Read(it.groupAddr)
 			if err != nil {

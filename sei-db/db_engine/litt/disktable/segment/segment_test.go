@@ -59,6 +59,7 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		1,
+		types.CompressionNone,
 		false,
 		32)
 
@@ -209,6 +210,7 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardCount,
+		types.CompressionNone,
 		false,
 		32)
 
@@ -368,6 +370,7 @@ func TestWriteAndReadColdShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardCount,
+		types.CompressionNone,
 		false,
 		32)
 
@@ -478,6 +481,7 @@ func TestGetFilePaths(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardingFactor,
+		types.CompressionNone,
 		false,
 		32)
 	require.NoError(t, err)
@@ -546,6 +550,7 @@ func TestRoundRobinShardAssignment(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardingFactor,
+		types.CompressionNone,
 		false,
 		32)
 	require.NoError(t, err)
@@ -617,6 +622,7 @@ func newSingleShardSegment(t *testing.T) (*Segment, *SegmentPath, uint32) {
 		[]*SegmentPath{segmentPath},
 		false,
 		1,
+		types.CompressionNone,
 		false,
 		32,
 	)
@@ -776,8 +782,8 @@ func markSegmentUnsealed(t *testing.T, segmentPath *SegmentPath, index uint32) {
 	metaPath := path.Join(segmentPath.SegmentDirectory(), fmt.Sprintf("%d%s", index, MetadataFileExtension))
 	data, err := os.ReadFile(metaPath)
 	require.NoError(t, err)
-	require.Equal(t, V3MetadataSize, len(data))
-	data[V3MetadataSize-1] = 0
+	require.Equal(t, V4MetadataSize, len(data))
+	data[MetadataSealedByteOffset] = 0
 	require.NoError(t, os.WriteFile(metaPath, data, 0600))
 }
 

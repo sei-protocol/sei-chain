@@ -97,6 +97,10 @@ type DiskTable struct {
 	// If true then ensure file operations are synced to disk.
 	fsync bool
 
+	// The algorithm used to compress values written to new segments. types.CompressionNone means values
+	// are stored verbatim. Held only in memory; each segment records its own algorithm for reads.
+	compressionAlgorithm types.CompressionAlgorithm
+
 	// Manages flush requests and flush request batching. This is a performance optimization.
 	flushCoordinator *flushCoordinator
 }
@@ -146,17 +150,18 @@ func NewDiskTable(
 	errorMonitor := util.NewErrorMonitor(runtimeConfig.CTX, runtimeConfig.Logger, runtimeConfig.FatalErrorCallback)
 
 	table := &DiskTable{
-		logger:         runtimeConfig.Logger,
-		errorMonitor:   errorMonitor,
-		clock:          runtimeConfig.Clock,
-		roots:          qualifiedRoots,
-		segmentPaths:   segmentPaths,
-		name:           name,
-		keymap:         keymap,
-		keymapPath:     keymapPath,
-		keymapTypeFile: keymapTypeFile,
-		metrics:        metrics,
-		fsync:          config.Fsync,
+		logger:               runtimeConfig.Logger,
+		errorMonitor:         errorMonitor,
+		clock:                runtimeConfig.Clock,
+		roots:                qualifiedRoots,
+		segmentPaths:         segmentPaths,
+		name:                 name,
+		keymap:               keymap,
+		keymapPath:           keymapPath,
+		keymapTypeFile:       keymapTypeFile,
+		metrics:              metrics,
+		fsync:                config.Fsync,
+		compressionAlgorithm: tableConfig.Compression,
 	}
 	// Sharding factor is supplied at creation time and held only in memory; it is not persisted across restarts.
 	// (TTL is likewise in-memory, but it lives on the GC manager — its only consumer — and is seeded there.)
@@ -206,6 +211,7 @@ func NewDiskTable(
 		segmentPaths,
 		snapshottingEnabled,
 		table.getShardingFactor(),
+		table.compressionAlgorithm,
 		config.Fsync,
 		config.ShardControlChannelSize)
 	if err != nil {
@@ -377,9 +383,29 @@ func NewDiskTable(
 		immutableSegmentSize:    immutableSegmentSize,
 		deletionWatermarkChan:   make(chan int64, config.KeymapManagerWatermarkChannelSize),
 		keymapDeletionWatermark: initialDeletionWatermark,
+		compressionAlgorithm:    tableConfig.Compression,
 	}
 	cLoop.lowestSegmentIndex = lowestSegmentIndex
 	cLoop.threadsafeHighestSegmentIndex.Store(highestSegmentIndex)
+
+	// Wire the compression stage in front of the control loop when compression is enabled. enqueue sends
+	// to inputChannel; the compression loop compresses write requests and forwards every message (in
+	// order, so flush stays ordered behind its writes) to controllerChannel. When compression is
+	// disabled, enqueue targets controllerChannel directly and no compression goroutine runs.
+	var cmpLoop *compressionLoop
+	if tableConfig.Compression == types.CompressionNone {
+		cLoop.inputChannel = cLoop.controllerChannel
+	} else {
+		cmpLoop = &compressionLoop{
+			logger:        runtimeConfig.Logger,
+			errorMonitor:  errorMonitor,
+			algorithm:     tableConfig.Compression,
+			inputChannel:  make(chan any, config.ControlChannelSize),
+			outputChannel: cLoop.controllerChannel,
+		}
+		cLoop.inputChannel = cmpLoop.inputChannel
+	}
+
 	table.controlLoop = cLoop
 	cLoop.updateCurrentSize()
 
@@ -413,6 +439,9 @@ func NewDiskTable(
 	go fLoop.run()
 	go cLoop.run()
 	go gcMgr.run()
+	if cmpLoop != nil {
+		go cmpLoop.run()
+	}
 
 	return table, nil
 }
@@ -997,6 +1026,16 @@ func (d *DiskTable) PutBatch(batch []*types.PutRequest) error {
 			if end > uint64(len(kv.Value)) {
 				return fmt.Errorf(
 					"secondary key range [%d, %d) exceeds value length %d", sk.Offset, end, len(kv.Value))
+			}
+			// On a compressed table, a secondary key may only alias the entire value. A compressed blob
+			// cannot be sliced, so a strict sub-range would require storing a second (duplicated)
+			// compressed copy, which is a documented future optimization rather than current behavior.
+			if d.compressionAlgorithm != types.CompressionNone &&
+				(sk.Offset != 0 || uint64(sk.Length) != uint64(len(kv.Value))) {
+				return fmt.Errorf(
+					"secondary key range [%d, %d) is a strict sub-range of the value (length %d), which is "+
+						"not supported on a compressed table; secondary keys must alias the entire value",
+					sk.Offset, end, len(kv.Value))
 			}
 			skKey := util.UnsafeBytesToString(sk.Key)
 			if _, dup := seen[skKey]; dup {

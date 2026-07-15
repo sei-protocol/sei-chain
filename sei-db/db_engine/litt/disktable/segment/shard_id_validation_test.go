@@ -34,6 +34,7 @@ func TestSegmentReadRejectsOutOfRangeShardID(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardingFactor,
+		types.CompressionNone,
 		false,
 		32)
 	require.NoError(t, err)

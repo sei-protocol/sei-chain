@@ -109,6 +109,7 @@ func CreateSegment(
 	segmentPaths []*SegmentPath,
 	snapshottingEnabled bool,
 	shardingFactor uint8,
+	compressionAlgorithm types.CompressionAlgorithm,
 	fsync bool,
 	shardChannelCapacity int,
 ) (*Segment, error) {
@@ -117,7 +118,7 @@ func CreateSegment(
 		return nil, errors.New("no segment paths provided")
 	}
 
-	metadata, err := createMetadataFile(index, shardingFactor, segmentPaths[0], fsync)
+	metadata, err := createMetadataFile(index, shardingFactor, compressionAlgorithm, segmentPaths[0], fsync)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open metadata file: %v", err)
 	}
@@ -564,6 +565,103 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 	return s.keyCount, s.keyFileSize, nil
 }
 
+// WriteCompressed writes a value whose on-disk representation is the pre-compressed blob compressedValue
+// (produced by the compression stage from data.Value). It behaves like Write except that the bytes
+// written to the value file are compressedValue, and every key in the group is addressed to that single
+// blob: reads fetch the blob and decompress it back to the whole value.
+//
+// Only full-value-alias secondary keys (Offset == 0 && Length == len(data.Value)) are valid on a
+// compressed segment; PutBatch rejects any other secondary before the request reaches here. A
+// compressed blob cannot be sliced, so a full-value alias shares the primary's blob (and therefore its
+// Address) rather than storing a second copy.
+func (s *Segment) WriteCompressed(
+	data *types.PutRequest,
+	compressedValue []byte,
+) (keyCount uint32, keyFileSize uint64, err error) {
+	if s.metadata.sealed {
+		return 0, 0, fmt.Errorf("segment is sealed, cannot write data")
+	}
+
+	// Shard assignment is round-robin, exactly as in Write; see that method for why this needs no lock.
+	shard := s.nextShard
+	s.nextShard++
+	if s.nextShard == s.metadata.shardingFactor {
+		s.nextShard = 0
+	}
+	currentSize := s.shardSizes[shard]
+
+	if currentSize > math.MaxUint32 {
+		return 0, 0,
+			fmt.Errorf("value file already contains %d bytes, cannot add a new value", currentSize)
+	}
+	firstByteIndex := uint32(currentSize)
+	blobLen := uint64(len(compressedValue))
+
+	n := len(data.SecondaryKeys)
+	totalKeys := uint32(1 + n) //nolint:gosec // n bounded by caller validation
+
+	primaryKind := types.KeyKindStandalone
+	if n > 0 {
+		primaryKind = types.KeyKindPrimary
+	}
+
+	// Update accounting before sending so that callers observe consistent state. The shard grows by the
+	// compressed length, since that is what is written to disk.
+	s.unflushedKeyCount.Add(int64(totalKeys))
+	s.shardSizes[shard] += blobLen
+	if s.shardSizes[shard] > s.maxShardSize {
+		s.maxShardSize = s.shardSizes[shard]
+	}
+	s.keyCount += totalKeys
+	s.keyFileSize += keyRecordSize(data.Key)
+	for _, sk := range data.SecondaryKeys {
+		s.keyFileSize += keyRecordSize(sk.Key)
+	}
+
+	shardRequest := &valueToWrite{
+		value:                  compressedValue,
+		expectedFirstByteIndex: firstByteIndex,
+	}
+	err = util.Send(s.errorMonitor, s.shardChannels[shard], shardRequest)
+	if err != nil {
+		return 0, 0,
+			fmt.Errorf("failed to send value to shard control loop: %v", err)
+	}
+
+	// The whole compressed blob is the on-disk representation of the value; the primary and every
+	// (full-value-alias) secondary are addressed to it. Reads decompress the blob to recover the value.
+	blobAddress := types.NewAddress(s.index, firstByteIndex, shard, uint32(blobLen)) //nolint:gosec // bounded above
+
+	primaryRequest := &types.ScopedKey{
+		Key:     data.Key,
+		Address: blobAddress,
+		Kind:    primaryKind,
+	}
+	err = util.Send(s.errorMonitor, s.keyFileChannel, primaryRequest)
+	if err != nil {
+		return 0, 0,
+			fmt.Errorf("failed to send key to key file control loop: %v", err)
+	}
+
+	for i, sk := range data.SecondaryKeys {
+		kind := types.KeyKindSecondary
+		if i == n-1 {
+			kind = types.KeyKindFinalSecondary
+		}
+		secondaryRequest := &types.ScopedKey{
+			Key:     sk.Key,
+			Address: blobAddress, // full-value alias: shares the primary's compressed blob
+			Kind:    kind,
+		}
+		err = util.Send(s.errorMonitor, s.keyFileChannel, secondaryRequest)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to send secondary key to key file control loop: %v", err)
+		}
+	}
+
+	return s.keyCount, s.keyFileSize, nil
+}
+
 // keyRecordSize returns the number of bytes a key file record consumes given a key of the supplied
 // length. Includes the kind byte (1), the uint16 key-length prefix (2), the key bytes, and the
 // fixed-width serialized address.
@@ -600,7 +698,28 @@ func (s *Segment) Read(key []byte, dataAddress types.Address) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read value: %w", err)
 	}
-	return value, nil
+	return s.maybeDecompress(value)
+}
+
+// maybeDecompress decompresses value using the segment's compression algorithm, or returns it unchanged
+// if the segment is not compressed. All value reads (Segment.Read and SegmentReader.Read) pass through
+// here so the on-disk compressed representation is never surfaced to callers.
+func (s *Segment) maybeDecompress(value []byte) ([]byte, error) {
+	if s.metadata.compressionAlgorithm == types.CompressionNone {
+		return value, nil
+	}
+	decompressed, err := types.Decompress(s.metadata.compressionAlgorithm, value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decompress value: %w", err)
+	}
+	return decompressed, nil
+}
+
+// IsCompressed reports whether values in this segment are stored compressed. Callers that read values
+// through a path other than Segment.Read/SegmentReader.Read use this to avoid treating compressed bytes
+// as raw value bytes.
+func (s *Segment) IsCompressed() bool {
+	return s.metadata.compressionAlgorithm != types.CompressionNone
 }
 
 // GetKeys returns all keys in the data segment. Only permitted to be called after the segment has been sealed.
