@@ -90,10 +90,10 @@ func TestFoldChunkStats(t *testing.T) {
 	}
 }
 
-// TestComputeModuleDeltasStatsParallel exercises the pooled path (> chunk size)
+// TestComputeModuleHashInfosStatsParallel exercises the pooled path (> chunk size)
 // and checks the aggregated per-module stats equal a straightforward serial
 // tally, proving the chunk-and-merge does not lose or double-count.
-func TestComputeModuleDeltasStatsParallel(t *testing.T) {
+func TestComputeModuleHashInfosStatsParallel(t *testing.T) {
 	const dir = "d"
 	moduleOf := func([]byte) (string, error) { return "m", nil }
 	c := NewHashCalculator("test", 4, []string{dir}, moduleOf)
@@ -110,7 +110,7 @@ func TestComputeModuleDeltasStatsParallel(t *testing.T) {
 		wantBytes += int64(len(key)) + int64(len(val))
 	}
 
-	deltas, err := c.ComputeModuleDeltas([]DBPairs{{Dir: dir, Pairs: pairs}})
+	deltas, err := c.ComputeModuleHashInfos([]DBPairs{{Dir: dir, Pairs: pairs}})
 	require.NoError(t, err)
 	require.Len(t, deltas, 1)
 

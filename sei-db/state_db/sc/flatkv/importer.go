@@ -55,7 +55,7 @@ type dbWorker struct {
 	moduleStats map[string]lthash.ModuleStats
 	// calc is the shared lattice-hash calculator. Its worker pool is used to
 	// distribute this worker's flushed pairs and compute per-module deltas —
-	// the same path the live commit uses (see HashCalculator.ComputeModuleDeltas).
+	// the same path the live commit uses (see HashCalculator.ComputeModuleHashInfos).
 	calc    *lthash.HashCalculator
 	flushes int64
 	pairs   int64
@@ -132,7 +132,7 @@ func (w *dbWorker) flush() (err error) {
 	// per-module metadata and identical per-DB root a natively-committed store
 	// would — and it lets a single large DB's batch fan out across every core
 	// instead of being pinned to one import worker goroutine.
-	deltas, err := w.calc.ComputeModuleDeltas([]lthash.DBPairs{{Dir: w.dir, Pairs: w.ltPairs}})
+	deltas, err := w.calc.ComputeModuleHashInfos([]lthash.DBPairs{{Dir: w.dir, Pairs: w.ltPairs}})
 	if err != nil {
 		return fmt.Errorf("%s compute module deltas: %w", w.dir, err)
 	}

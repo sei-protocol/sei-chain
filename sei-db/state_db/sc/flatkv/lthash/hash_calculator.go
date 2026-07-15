@@ -65,7 +65,7 @@ type Result struct {
 //     the final per-module hashes, then derive each per-DB root and the global
 //     hash from those.
 //
-// The pool distributes independent per-chunk tasks, so ComputeModuleDeltas is
+// The pool distributes independent per-chunk tasks, so ComputeModuleHashInfos is
 // safe to call concurrently from multiple goroutines that share one
 // HashCalculator (the state-sync importer runs a goroutine per DB). The live
 // commit path is additionally serialized by FlatKV's write lock.
@@ -149,7 +149,7 @@ type ModuleKey struct {
 }
 
 // Compute folds pairSets into the previous hashes and derives the full result:
-// per-module hashes (via ComputeModuleDeltas), each touched per-DB root as the
+// per-module hashes (via ComputeModuleHashInfos), each touched per-DB root as the
 // homomorphic sum of its module hashes, and the global hash as the sum of the
 // per-DB roots.
 //
@@ -179,7 +179,7 @@ func (c *HashCalculator) Compute(
 		newPerModuleStats[dir] = cloneModuleStatsMap(prevPerModuleStats[dir])
 	}
 
-	deltas, err := c.ComputeModuleDeltas(pairSets)
+	deltas, err := c.ComputeModuleHashInfos(pairSets)
 	if err != nil {
 		return nil, err
 	}
@@ -222,30 +222,30 @@ func (c *HashCalculator) Compute(
 	}, nil
 }
 
-// ModuleDelta is the per-(dir, module) change computed for one block/batch: the
-// homomorphic hash delta plus the net key-count and byte deltas implied by the
-// same MixIn/MixOut transitions.
-type ModuleDelta struct {
+// ModuleHashInfo is the per-(dir, module) change computed for one block/batch:
+// the homomorphic hash delta plus the net key-count and byte deltas implied by
+// the same MixIn/MixOut transitions.
+type ModuleHashInfo struct {
 	Hash     *LtHash
 	KeyCount int64
 	Bytes    int64
 }
 
-// ComputeModuleDeltas is the shared per-module hashing primitive used by both
+// ComputeModuleHashInfos is the shared per-module hashing primitive used by both
 // the live commit path (via Compute) and the state-sync importer. It processes
 // the changeset pairs identically for both: bucket each DB's pairs by module,
 // split every bucket into fixed-size chunks, and distribute those chunks across
 // the shared worker pool to compute the per-(dir, module) homomorphic hash delta
 // and the accompanying key-count / byte deltas.
 //
-// Each chunk is an independent, self-terminating task, so ComputeModuleDeltas is
+// Each chunk is an independent, self-terminating task, so ComputeModuleHashInfos is
 // safe to call concurrently from multiple goroutines sharing one pool (the
 // importer runs a goroutine per DB). It never holds a worker while waiting on
 // another task, so no oversubscription or deadlock can arise from the nesting.
 //
 // The caller decides how to apply the deltas: Compute mixes them onto a running
 // per-block hash; the importer folds them into its per-DB accumulators.
-func (c *HashCalculator) ComputeModuleDeltas(pairSets []DBPairs) (map[ModuleKey]*ModuleDelta, error) {
+func (c *HashCalculator) ComputeModuleHashInfos(pairSets []DBPairs) (map[ModuleKey]*ModuleHashInfo, error) {
 	tasks, total, err := c.buildTasks(pairSets)
 	if err != nil {
 		return nil, err
@@ -303,8 +303,8 @@ func (c *HashCalculator) buildTasks(pairSets []DBPairs) (tasks []lthashTask, tot
 //   - update ( old,  new):  0 keys, + (len(newVal)-len(oldVal)) bytes
 //   - delete ( old, !new): -1 key, - (len(key)+len(oldVal)) bytes
 //   - no-op  (!old, !new): unchanged (delete of an absent key)
-func foldChunk(pairs []KVPairWithLastValue) *ModuleDelta {
-	d := &ModuleDelta{Hash: New()}
+func foldChunk(pairs []KVPairWithLastValue) *ModuleHashInfo {
+	d := &ModuleHashInfo{Hash: New()}
 	for _, kv := range pairs {
 		// A member exists iff serializeKV would produce a non-nil buffer, i.e.
 		// key and value are both non-empty. Keeping these predicates identical
@@ -337,7 +337,7 @@ func foldChunk(pairs []KVPairWithLastValue) *ModuleDelta {
 }
 
 // mergeDelta folds src into dst (hash + counts). dst must be non-nil.
-func mergeDelta(dst, src *ModuleDelta) {
+func mergeDelta(dst, src *ModuleHashInfo) {
 	dst.Hash.MixIn(src.Hash)
 	dst.KeyCount += src.KeyCount
 	dst.Bytes += src.Bytes
@@ -345,8 +345,8 @@ func mergeDelta(dst, src *ModuleDelta) {
 
 // computeDeltasSerial folds all tasks into per-(db,module) deltas on the caller
 // goroutine. Used for small blocks where pool overhead does not pay off.
-func computeDeltasSerial(tasks []lthashTask) map[ModuleKey]*ModuleDelta {
-	deltas := make(map[ModuleKey]*ModuleDelta)
+func computeDeltasSerial(tasks []lthashTask) map[ModuleKey]*ModuleHashInfo {
+	deltas := make(map[ModuleKey]*ModuleHashInfo)
 	for _, task := range tasks {
 		d := foldChunk(task.pairs)
 		if acc := deltas[task.key]; acc != nil {
@@ -365,8 +365,8 @@ func computeDeltasSerial(tasks []lthashTask) map[ModuleKey]*ModuleDelta {
 // several goroutines share one pool (the importer's per-DB workers all call
 // through here): a full queue only backpressures the submitter while
 // already-running chunks drain and free workers.
-func (c *HashCalculator) computeDeltasParallel(tasks []lthashTask) map[ModuleKey]*ModuleDelta {
-	results := make([]*ModuleDelta, len(tasks))
+func (c *HashCalculator) computeDeltasParallel(tasks []lthashTask) map[ModuleKey]*ModuleHashInfo {
+	results := make([]*ModuleHashInfo, len(tasks))
 	var wg sync.WaitGroup
 	wg.Add(len(tasks))
 	for i := range tasks {
@@ -381,7 +381,7 @@ func (c *HashCalculator) computeDeltasParallel(tasks []lthashTask) map[ModuleKey
 	// Merge per-chunk results. Multiple chunks of the same (db, module) bucket
 	// sum into one delta; MixIn/addition are commutative so chunk order is
 	// irrelevant.
-	merged := make(map[ModuleKey]*ModuleDelta)
+	merged := make(map[ModuleKey]*ModuleHashInfo)
 	for i, task := range tasks {
 		if acc := merged[task.key]; acc != nil {
 			mergeDelta(acc, results[i])
