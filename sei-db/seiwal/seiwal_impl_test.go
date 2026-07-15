@@ -705,7 +705,8 @@ func TestIteratorDoesNotFlushMutableFileOutsideRange(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, uint64(5), last)
-	require.Equal(t, 1, countSealedFiles(t, dir), "records 1..3 sealed into one file; 4,5 buffered in the mutable file")
+	require.Equal(t, 1, countSealedFiles(t, dir),
+		"records 1..3 sealed into one file; 4,5 buffered in the mutable file")
 
 	mutablePath := unsealedFilePath(t, dir)
 	before := onDiskSize(t, mutablePath)
@@ -713,7 +714,8 @@ func TestIteratorDoesNotFlushMutableFileOutsideRange(t *testing.T) {
 	// Range [1,3] is fully covered by the sealed file; the mutable file (first index 4) must not be flushed.
 	it, err := w.Iterator(1, 3)
 	require.NoError(t, err)
-	require.Equal(t, before, onDiskSize(t, mutablePath), "the mutable file must not be flushed when outside the range")
+	require.Equal(t, before, onDiskSize(t, mutablePath),
+		"the mutable file must not be flushed when outside the range")
 	require.Equal(t, []uint64{1, 2, 3}, drainIndices(t, it))
 	require.NoError(t, it.Close())
 
@@ -847,7 +849,8 @@ func TestScanRejectsGapInSealedFiles(t *testing.T) {
 	require.GreaterOrEqual(t, len(sealed), 3)
 	sort.Slice(sealed, func(i int, j int) bool { return sealed[i].fileSeq < sealed[j].fileSeq })
 	victim := sealed[len(sealed)/2]
-	require.NoError(t, os.Remove(filepath.Join(dir, sealedFileName(victim.fileSeq, victim.firstIndex, victim.lastIndex))))
+	victimName := sealedFileName(victim.fileSeq, victim.firstIndex, victim.lastIndex)
+	require.NoError(t, os.Remove(filepath.Join(dir, victimName)))
 
 	_, err = NewWAL(cfg)
 	require.Error(t, err)
@@ -1166,8 +1169,10 @@ func TestPruneAfter(t *testing.T) {
 			name       string
 			targetSize uint
 		}{
-			{"whole-file removal", 1},                // one record per file: rollback removes whole trailing files
-			{"in-file truncation", 64 * 1024 * 1024}, // all records in one file: rollback truncates it in place
+			// one record per file: rollback removes whole trailing files
+			{"whole-file removal", 1},
+			// all records in one file: rollback truncates it in place
+			{"in-file truncation", 64 * 1024 * 1024},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				dir := t.TempDir()
@@ -1182,7 +1187,8 @@ func TestPruneAfter(t *testing.T) {
 
 				require.NoError(t, PruneAfter(cfg.Path, 3))
 
-				// Reopen normally; the rollback must have durably and consistently reduced the range to [1,3].
+				// Reopen normally; the rollback must have durably and consistently reduced the range
+				// to [1,3].
 				w3 := openWAL(t, cfg)
 				defer func() { require.NoError(t, w3.Close()) }()
 

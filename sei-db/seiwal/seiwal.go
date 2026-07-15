@@ -72,6 +72,9 @@ type WAL[T any] interface {
 	// endIndex to be below startIndex, or for endIndex to be above the highest index currently stored in the
 	// WAL (including when the WAL is empty); both are reported as ErrIteratorRange and leave the WAL usable.
 	//
+	// Construction may also fail with an I/O error (for example, the point-in-time snapshot the iterator reads
+	// from could not be created). Such a failure is returned to the caller and leaves the WAL usable.
+	//
 	// The iterator reads a consistent, point-in-time snapshot of the WAL taken at some instant between the
 	// start and the return of this call. Records appended before that instant are included; records
 	// appended after it are not. For records appended concurrently with this call, whether they are

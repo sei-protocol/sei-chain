@@ -122,7 +122,8 @@ func VerifyIntegrity(path string) error {
 			problems = append(problems, fmt.Errorf("failed to read sealed WAL file %s: %w", name, err))
 			continue
 		}
-		if err := verifySealedContents(contents, parsed.fileSeq, parsed.firstIndex, parsed.lastIndex); err != nil {
+		err = verifySealedContents(contents, parsed.fileSeq, parsed.firstIndex, parsed.lastIndex)
+		if err != nil {
 			problems = append(problems, err)
 		}
 	}

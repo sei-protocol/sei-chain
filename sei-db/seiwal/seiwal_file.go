@@ -368,7 +368,8 @@ func parseWalFileData(data []byte, parsed parsedFileName, name string) (*walFile
 			break // torn or incomplete length prefix
 		}
 		payloadStart := lenStart + lenN
-		remaining := uint64(len(data) - payloadStart) //nolint:gosec // payloadStart <= len(data), so non-negative
+		// payloadStart <= len(data), so the difference is non-negative.
+		remaining := uint64(len(data) - payloadStart) //nolint:gosec
 		if remaining < 4 || length > remaining-4 {
 			if err := torn(offset, "truncated record payload or checksum"); err != nil {
 				return nil, err
@@ -409,7 +410,8 @@ func parseWalFileData(data []byte, parsed parsedFileName, name string) (*walFile
 func verifySealedContents(contents *walFileContents, fileSeq uint64, first uint64, last uint64) error {
 	if !contents.hasRecords {
 		return fmt.Errorf(
-			"WAL file (sequence %d) is corrupt: name promises indices [%d, %d] but no intact records were read",
+			"WAL file (sequence %d) is corrupt: name promises indices [%d, %d] "+
+				"but no intact records were read",
 			fileSeq, first, last)
 	}
 	if contents.firstIndex != first || contents.lastIndex != last {

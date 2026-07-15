@@ -96,6 +96,40 @@ func TestIteratorRangeErrors(t *testing.T) {
 	require.Equal(t, []uint64{1, 2, 3, 4, 5}, collectIndices(t, w, 1, 5))
 }
 
+// TestIteratorSnapshotIOFailureDoesNotBrick verifies that a filesystem failure while building the iterator's
+// hard-link snapshot is surfaced to the caller without bricking the WAL. Such a failure touches only the
+// ephemeral iterator/<serial>/ lease directory, never the WAL data files or the in-memory write state, so the
+// WAL must keep accepting appends and, once the fault clears, serving iterators.
+func TestIteratorSnapshotIOFailureDoesNotBrick(t *testing.T) {
+	dir := t.TempDir()
+	w := openWAL(t, testConfig(dir)).(*walImpl)
+	defer func() { require.NoError(t, w.Close()) }()
+
+	for index := uint64(1); index <= 5; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Flush())
+
+	// Occupy the iterator root with a regular file so MkdirAll of iterator/<serial>/ fails with ENOTDIR. The
+	// mutable-file flush inside startIterator still succeeds, so this exercises only the non-corrupting snapshot
+	// failure, not the fatal flush path.
+	require.NoError(t, os.WriteFile(iteratorRoot(dir), []byte("x"), 0o600))
+
+	_, err := w.Iterator(1, 5)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrIteratorRange, "a snapshot I/O failure is not a caller range error")
+
+	// The failed request left the WAL healthy: no fatal cause recorded, and appends still succeed.
+	require.NoError(t, w.asyncError())
+	appendRecord(t, w, 6)
+	require.NoError(t, w.Flush())
+
+	// Once the fault clears, iteration works again and sees every record, including the one appended after the
+	// failed request.
+	require.NoError(t, os.Remove(iteratorRoot(dir)))
+	require.Equal(t, []uint64{1, 2, 3, 4, 5, 6}, collectIndices(t, w, 1, 6))
+}
+
 // TestIteratorStopsAtEndIndex verifies the core new behavior: the iterator yields no record beyond the
 // requested end index, even though later records exist in the WAL.
 func TestIteratorStopsAtEndIndex(t *testing.T) {
@@ -316,7 +350,8 @@ func drainContiguousFrom(w WAL[[]byte], start uint64) error {
 		index, _ := it.Entry()
 		if index != prev+1 {
 			_ = it.Close()
-			return fmt.Errorf("non-contiguous iteration: got index %d after %d (start %d)", index, prev, start)
+			return fmt.Errorf(
+				"non-contiguous iteration: got index %d after %d (start %d)", index, prev, start)
 		}
 		prev = index
 	}

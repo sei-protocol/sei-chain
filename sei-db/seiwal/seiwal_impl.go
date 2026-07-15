@@ -2,7 +2,6 @@ package seiwal
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,6 +59,11 @@ type iteratorStartRequest struct {
 type iteratorStartResponse struct {
 	iterator *walIterator
 	err      error
+
+	// fatal reports whether err left the WAL in a state that requires bricking the pipeline. A non-fatal err (a
+	// caller range error, or a non-corrupting filesystem failure while building the snapshot) leaves the WAL
+	// usable, so the writer surfaces it to the caller and keeps running.
+	fatal bool
 }
 
 // The index range reported by Bounds.
@@ -347,7 +351,8 @@ func (w *walImpl) PruneBefore(lowestIndexToKeep uint64) error {
 // The snapshot is removed by the iterator's Close.
 func (w *walImpl) Iterator(startIndex uint64, endIndex uint64) (Iterator[[]byte], error) {
 	reply := make(chan iteratorStartResponse, 1)
-	if err := w.sendToWriter(iteratorStartRequest{startIndex: startIndex, endIndex: endIndex, reply: reply}); err != nil {
+	req := iteratorStartRequest{startIndex: startIndex, endIndex: endIndex, reply: reply}
+	if err := w.sendToWriter(req); err != nil {
 		return nil, fmt.Errorf("failed to schedule iterator creation: %w", err)
 	}
 	select {
@@ -451,9 +456,9 @@ func (w *walImpl) writerLoop() {
 		case iteratorStartRequest:
 			resp := w.startIterator(m.startIndex, m.endIndex)
 			m.reply <- resp
-			// A rejected range is the caller's error and leaves the WAL healthy; only a genuine I/O failure
-			// (a failed flush or hard-link) bricks the pipeline.
-			if resp.err != nil && !errors.Is(resp.err, ErrIteratorRange) {
+			// A rejected range and a non-corrupting snapshot I/O failure both leave the WAL healthy; only a
+			// failed flush of buffered records desyncs in-memory state from disk and bricks the pipeline.
+			if resp.fatal {
 				w.fail(resp.err)
 				return
 			}
@@ -477,12 +482,14 @@ func (w *walImpl) appendRecord(m dataToBeWritten) error {
 	if w.hasWritten {
 		if w.config.PermitGaps {
 			if m.index <= w.lastWrittenIndex {
-				return fmt.Errorf("append out of order: index %d is not greater than last written index %d",
+				return fmt.Errorf(
+					"append out of order: index %d is not greater than last written index %d",
 					m.index, w.lastWrittenIndex)
 			}
 		} else if m.index != w.lastWrittenIndex+1 {
 			return fmt.Errorf(
-				"append out of order: index %d is not contiguous with last written index %d (expected %d)",
+				"append out of order: index %d is not contiguous with last written index "+
+					"%d (expected %d)",
 				m.index, w.lastWrittenIndex, w.lastWrittenIndex+1)
 		}
 	}
@@ -561,10 +568,17 @@ func (w *walImpl) pruneSealedFiles(pruneThrough uint64) error {
 // own hard links, which keep the underlying inodes alive until Close removes them. The mutable file is flushed
 // (not fsynced) so its records are readable through the reader's separate handle — no crash can intervene
 // between creation and use, so durability is irrelevant here.
+//
+// Failures split by whether they leave the WAL usable. A range rejection (ErrIteratorRange) is a caller error,
+// and a snapshot failure (MkdirAll/os.Link) touches only the ephemeral iterator/<serial>/ lease directory, so
+// both are returned non-fatally and the WAL keeps running. Only a failed mutable-file flush is fatal: it
+// poisons the file's buffered writer and leaves in-memory bookkeeping ahead of what is durable, so the caller
+// marks the response fatal to brick the pipeline.
 func (w *walImpl) startIterator(startIndex uint64, endIndex uint64) iteratorStartResponse {
 	if endIndex < startIndex {
 		return iteratorStartResponse{
-			err: fmt.Errorf("%w: end index %d is below start index %d", ErrIteratorRange, endIndex, startIndex),
+			err: fmt.Errorf(
+				"%w: end index %d is below start index %d", ErrIteratorRange, endIndex, startIndex),
 		}
 	}
 	r := w.bounds()
@@ -575,7 +589,9 @@ func (w *walImpl) startIterator(startIndex uint64, endIndex uint64) iteratorStar
 	}
 	if endIndex > r.last {
 		return iteratorStartResponse{
-			err: fmt.Errorf("%w: end index %d is beyond the latest stored index %d", ErrIteratorRange, endIndex, r.last),
+			err: fmt.Errorf(
+				"%w: end index %d is beyond the latest stored index %d",
+				ErrIteratorRange, endIndex, r.last),
 		}
 	}
 	maxIndex := endIndex
@@ -598,7 +614,10 @@ func (w *walImpl) startIterator(startIndex uint64, endIndex uint64) iteratorStar
 	// by sealed files, the mutable file is left untouched.
 	if w.mutableFile.hasRecords && w.mutableFile.lastIndex >= startIndex && w.mutableFile.firstIndex <= endIndex {
 		if err := w.mutableFile.flush(false); err != nil {
-			return iteratorStartResponse{err: fmt.Errorf("failed to flush mutable file for iterator: %w", err)}
+			return iteratorStartResponse{
+				err:   fmt.Errorf("failed to flush mutable file for iterator: %w", err),
+				fatal: true,
+			}
 		}
 		sources = append(sources, iteratorFile{
 			fileSeq: w.mutableFile.fileSeq, name: unsealedFileName(w.mutableFile.fileSeq),
@@ -729,11 +748,13 @@ func rollbackDirectory(directory string, rollbackThrough uint64) error {
 
 	for _, parsed := range sealed {
 		if parsed.lastIndex <= rollbackThrough {
-			// This file lies entirely at or below the rollback point; so does every lower-sequence file. Done.
+			// This file lies entirely at or below the rollback point; so does every lower-sequence
+			// file. Done.
 			break
 		}
 		if parsed.firstIndex > rollbackThrough {
-			// Entirely beyond the rollback point: remove the whole file, durably, before the next-lower one.
+			// Entirely beyond the rollback point: remove the whole file, durably, before the
+			// next-lower one.
 			if err := removeAndSyncDir(directory, names[parsed.fileSeq]); err != nil {
 				return fmt.Errorf("failed to roll back %s: %w", names[parsed.fileSeq], err)
 			}
