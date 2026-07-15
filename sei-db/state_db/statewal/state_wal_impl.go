@@ -125,6 +125,11 @@ func (w *stateWALImpl) Write(blockNumber uint64, cs []*proto.NamedChangeSet) err
 	if w.fatalErr != nil {
 		return fmt.Errorf("state WAL failed: %w", w.fatalErr)
 	}
+	for i, ncs := range cs {
+		if ncs == nil {
+			return fmt.Errorf("write rejected: changeset at index %d is nil", i)
+		}
+	}
 	if err := w.enforceWriteOrdering(blockNumber); err != nil {
 		return fmt.Errorf("write rejected: %w", err)
 	}
@@ -165,18 +170,21 @@ func (w *stateWALImpl) enforceWriteOrdering(blockNumber uint64) error {
 		return nil
 	}
 	if blockNumber < w.currentBlock {
-		return fmt.Errorf("block number %d is less than the current block number %d", blockNumber, w.currentBlock)
+		return fmt.Errorf(
+			"block number %d is less than the current block number %d", blockNumber, w.currentBlock)
 	}
 	if blockNumber == w.currentBlock {
 		if w.currentBlockEnded {
-			return fmt.Errorf("block number %d has already ended; cannot write more changes to it", blockNumber)
+			return fmt.Errorf(
+				"block number %d has already ended; cannot write more changes to it", blockNumber)
 		}
 		return nil
 	}
 	// blockNumber > currentBlock
 	if !w.currentBlockEnded {
 		return fmt.Errorf(
-			"cannot write block %d before calling SignalEndOfBlock for block %d", blockNumber, w.currentBlock)
+			"cannot write block %d before calling SignalEndOfBlock for block %d",
+			blockNumber, w.currentBlock)
 	}
 	if blockNumber != w.currentBlock+1 {
 		return fmt.Errorf("block number %d is not contiguous with the current block number %d (expected %d)",

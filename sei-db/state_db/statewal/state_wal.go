@@ -24,6 +24,9 @@ type StateWAL interface {
 	// cs, and every byte slice reachable through it (changeset keys and values), must not be modified after
 	// this call. Callers that need to modify those buffers must copy them first.
 	//
+	// A nil entry in cs is rejected synchronously with an error and leaves the WAL usable; cs itself may be
+	// nil or empty.
+	//
 	// The StateWAL rejects writes for blocks if provided out of order. To avoid errors, observe
 	// the following rules:
 	//
@@ -40,8 +43,8 @@ type StateWAL interface {
 	// Signal that there will be no more writes for the current block number. Attempting to write additional
 	// changes for the same block number after calling this method may result in an error.
 	//
-	// Similar to Write(), this method is asynchronous. Calling this method does not, by itself, make data immediately
-	// crash durable.
+	// Similar to Write(), this method is asynchronous. Calling this method does not, by itself, make
+	// data immediately crash durable.
 	SignalEndOfBlock() error
 
 	// Flush the WAL to disk. Only completed blocks — those for which SignalEndOfBlock has been called — are

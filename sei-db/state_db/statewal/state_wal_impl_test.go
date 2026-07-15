@@ -84,6 +84,33 @@ func TestWriteFlushReopenGetRange(t *testing.T) {
 	require.Equal(t, []uint64{1, 2, 3, 4, 5}, collectBlocks(t, w2, 1, 5))
 }
 
+// TestWriteRejectsNilChangeset verifies that a nil changeset entry is rejected synchronously at the Write call
+// site rather than surfacing later from the serialization goroutine, and that the rejection neither bricks the
+// WAL nor advances the block-ordering state.
+func TestWriteRejectsNilChangeset(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir()))
+	defer func() { require.NoError(t, w.Close()) }()
+
+	valid := makeChangeSet("evm", []byte("k"), []byte("v"))
+
+	// A nil entry is rejected synchronously at the call site, before SignalEndOfBlock/Flush is ever reached.
+	err := w.Write(5, []*proto.NamedChangeSet{valid, nil})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nil")
+
+	// The rejected write is a no-op: it neither bricked the WAL nor advanced the block-ordering state. Were the
+	// state advanced to block 5, this write to the lower block 3 would be rejected as decreasing.
+	require.NoError(t, w.Write(3, []*proto.NamedChangeSet{valid}))
+	require.NoError(t, w.SignalEndOfBlock())
+	require.NoError(t, w.Flush())
+
+	ok, start, end, err := w.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(3), start)
+	require.Equal(t, uint64(3), end)
+}
+
 func TestContractViolations(t *testing.T) {
 	t.Run("block numbers may not decrease", func(t *testing.T) {
 		w := openWAL(t, testConfig(t.TempDir()))
