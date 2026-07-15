@@ -27,12 +27,13 @@ type controlLoop struct {
 
 	// controllerChannel is the channel the control loop reads messages from. When compression is
 	// disabled, enqueue sends directly here (inputChannel == controllerChannel). When compression is
-	// enabled, the compression loop reads inputChannel and forwards messages here.
+	// enabled, the compression loop reads its input channel and forwards messages here.
 	controllerChannel chan any
 
-	// inputChannel is the channel enqueue sends to. It is controllerChannel when compression is disabled,
-	// or the compression loop's input channel when compression is enabled (so every control message,
-	// including flush, passes through the compression stage in order).
+	// inputChannel is the entry point of the control loop's message pipeline: the channel enqueue sends
+	// to. It is controllerChannel when compression is disabled, or the compression loop's input channel
+	// when compression is enabled (so every control message, including flush, passes through the
+	// compression stage in order).
 	inputChannel chan any
 
 	// compressionAlgorithm is the algorithm new segments are created with. types.CompressionNone means
