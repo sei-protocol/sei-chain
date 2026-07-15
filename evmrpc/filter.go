@@ -805,8 +805,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 
 	// maxLog caps the number of matching logs a single query may return, for
 	// both bounded and open-ended queries. Exceeding it is an error (not
-	// silent truncation), so peak memory stays bounded to the cap. A value of 0
-	// disables the cap.
+	// silent truncation), so peak memory stays bounded to the cap. NewFilterAPI
+	// coerces a non-positive value to DefaultMaxLogLimit, so limit is always > 0
+	// here; downstream helpers still treat limit <= 0 as uncapped.
 	limit := f.filterConfig.maxLog
 
 	// blockHash queries must use the hash-aware block fetch path below.
@@ -1023,7 +1024,18 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 		return []*ethtypes.Log{}, nil
 	}
 
-	return f.normalizeRangeQueryLogs(ctx, logs, crit)
+	normalized, err := f.normalizeRangeQueryLogs(ctx, logs, crit)
+	if err != nil {
+		return nil, err
+	}
+
+	// Re-check the cap against the normalized (EVM-visible) count, which the
+	// store's tag-index count does not match.
+	if limit > 0 && int64(len(normalized)) > limit {
+		return nil, receipt.NewTooManyLogsError(limit)
+	}
+
+	return normalized, nil
 }
 
 // normalizeRangeQueryLogs corrects BlockHash, TxIndex, and LogIndex on logs

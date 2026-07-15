@@ -100,7 +100,8 @@ type Config struct {
 	DenyList []string `mapstructure:"deny_list"`
 
 	// max number of logs a single eth_getLogs query may match before it errors,
-	// for both bounded and open-ended block ranges (0 disables the cap)
+	// for both bounded and open-ended block ranges (a non-positive value falls
+	// back to DefaultMaxLogLimit)
 	MaxLogNoBlock int64 `mapstructure:"max_log_no_block"`
 
 	// max number of blocks to query logs for
@@ -696,7 +697,8 @@ enabled_legacy_sei_apis = [
   # "sei2_getBlockTransactionCountByNumber",
 ]
 
-# max number of logs returned if block range is open-ended
+# max number of logs a single eth_getLogs query may match before it errors,
+# for both bounded and open-ended block ranges
 max_log_no_block = {{ .EVM.MaxLogNoBlock }}
 
 # max number of blocks to query logs for
