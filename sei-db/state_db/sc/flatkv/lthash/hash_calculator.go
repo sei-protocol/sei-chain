@@ -13,12 +13,15 @@ const (
 	// EVM storage DB in a big block) fan out across many workers instead of
 	// pinning one. Small enough to balance load, large enough to amortize the
 	// per-task scheduling overhead and result bookkeeping.
-	computeChunkSize = 256
+	computeChunkSize = 100
 
 	// parallelThreshold is the minimum total pair count before the worker pool
 	// is engaged. Below it, the pool hand-off + merge overhead outweighs the
-	// parallelism, so the delta is computed inline on the caller goroutine.
-	parallelThreshold = 256
+	// parallelism, so the delta is computed inline on the caller goroutine. Kept
+	// a multiple of computeChunkSize (>= 2x) so that any batch which does go
+	// parallel splits into several chunks rather than paying the pool tax to run
+	// a single chunk on one worker.
+	parallelThreshold = 1000
 )
 
 // OldValueReader reads the previously-committed serialized value for a set of
