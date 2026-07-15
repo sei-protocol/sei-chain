@@ -311,6 +311,8 @@ func (txi *TxIndex) searchBounded(ctx context.Context, plan boundedPlan, opts in
 			continue
 		}
 
+		// Keys under the driver (tag, value) prefix are always well-formed
+		// secondary keys, so a parse error is unreachable; skip defensively.
 		height, index, err := parseHeightIndexFromKey(it.Key())
 		if err != nil {
 			continue
