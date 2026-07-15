@@ -68,3 +68,4 @@ sei-db/state_db/bench/cryptosim/bin/
 sei-db/state_db/bench/cryptosim/logs/
 sei-db/ledger_db/block/blocksim/bin/
 sei-db/db_engine/litt/bin/
+sei-db/seiwal/walsim/bin/
