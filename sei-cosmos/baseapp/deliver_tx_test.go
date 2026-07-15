@@ -508,6 +508,72 @@ func TestSimulateTx(t *testing.T) {
 	}
 }
 
+func TestInitChainGenesisFlagDoesNotLeakToCheckOrSimulateBeforeFirstCommit(t *testing.T) {
+	type anteCall struct {
+		simulate     bool
+		isCheckTx    bool
+		isSimulation bool
+		isGenesis    bool
+	}
+
+	var anteCalls []anteCall
+	anteOpt := func(bapp *BaseApp) {
+		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+			anteCalls = append(anteCalls, anteCall{
+				simulate:     simulate,
+				isCheckTx:    ctx.IsCheckTx(),
+				isSimulation: ctx.IsSimulation(),
+				isGenesis:    ctx.IsGenesis(),
+			})
+			return ctx, nil
+		})
+	}
+
+	routerOpt := func(bapp *BaseApp) {
+		r := sdk.NewRoute(routeMsgCounter, func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
+			return &sdk.Result{}, nil
+		})
+		bapp.Router().AddRoute(r)
+	}
+
+	var initGenesisFlags []bool
+	initChainerOpt := func(bapp *BaseApp) {
+		bapp.SetInitChainer(func(ctx sdk.Context, _ abci.RequestInitChain) abci.ResponseInitChain {
+			initGenesisFlags = append(initGenesisFlags, ctx.IsGenesis())
+			return abci.ResponseInitChain{}
+		})
+	}
+
+	app := newBaseApp(t.Name(), anteOpt, routerOpt, initChainerOpt)
+	app.MountStores(capKey1, capKey2)
+	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
+	require.NoError(t, app.LoadLatestVersion())
+
+	_, err := app.InitChain(&abci.RequestInitChain{})
+	require.NoError(t, err)
+	require.Equal(t, []bool{true, true, true}, initGenesisFlags)
+	require.Equal(t, int64(0), app.LastBlockHeight())
+
+	tx := newTxCounter(0, 0)
+	_, _, err = app.Check(aminoTxEncoder(), tx)
+	require.NoError(t, err)
+
+	txBytes, err := aminoTxEncoder()(tx)
+	require.NoError(t, err)
+	_, _, err = app.Simulate(txBytes)
+	require.NoError(t, err)
+
+	require.Len(t, anteCalls, 2)
+	require.False(t, anteCalls[0].simulate)
+	require.True(t, anteCalls[0].isCheckTx)
+	require.False(t, anteCalls[0].isSimulation)
+	require.False(t, anteCalls[0].isGenesis)
+	require.True(t, anteCalls[1].simulate)
+	require.True(t, anteCalls[1].isCheckTx)
+	require.True(t, anteCalls[1].isSimulation)
+	require.False(t, anteCalls[1].isGenesis)
+}
+
 func TestRunInvalidTransaction(t *testing.T) {
 	anteOpt := func(bapp *BaseApp) {
 		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {

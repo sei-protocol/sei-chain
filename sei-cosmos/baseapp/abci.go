@@ -58,9 +58,9 @@ func (app *BaseApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitCha
 	app.setDeliverState(initHeader)
 	app.setCheckState(initHeader)
 	app.setProcessProposalState(initHeader)
-	app.deliverState.SetContext(app.deliverState.ctx.WithIsGenesis(true))
-	app.checkState.SetContext(app.checkState.ctx.WithIsGenesis(true))
-	app.processProposalState.SetContext(app.processProposalState.ctx.WithIsGenesis(true))
+	app.deliverState.SetContext(app.deliverState.ctx)
+	app.checkState.SetContext(app.checkState.ctx)
+	app.processProposalState.SetContext(app.processProposalState.ctx)
 
 	// Store the consensus params in the BaseApp's paramstore. Note, this must be
 	// done after the deliver state and context have been set as it's persisted
@@ -78,12 +78,12 @@ func (app *BaseApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitCha
 		return nil, nil
 	}
 
-	resp := app.initChainer(app.deliverState.ctx, *req)
-	app.initChainer(app.processProposalState.ctx, *req)
+	resp := app.initChainer(app.deliverState.ctx.WithIsGenesis(true), *req)
+	app.initChainer(app.processProposalState.ctx.WithIsGenesis(true), *req)
 	// Genesis initialization needs deliver semantics even when populating the
 	// check state branch. Running it in CheckTx mode enables mempool-only fee
 	// checks and can reject valid genesis txs.
-	app.initChainer(app.checkState.ctx.WithIsCheckTx(false), *req)
+	app.initChainer(app.checkState.ctx.WithIsGenesis(true).WithIsCheckTx(false), *req)
 
 	// In the case of a new chain, AppHash will be the hash of an empty string.
 	// During an upgrade, it'll be the hash of the last committed block.

@@ -46,6 +46,7 @@ func NewWatermarkManager(
 
 // Watermarks returns the earliest block height, earliest state height, and
 // latest height that are safe to serve. Earliest heights are inclusive.
+// It is possible that block latest < block earliest, in case there are no blocks yet.
 func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64, error) {
 	var (
 		latest           int64
@@ -125,14 +126,6 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 
 	if !stateEarliestSet {
 		stateEarliest = blockEarliest
-	}
-
-	if blockEarliest > latest {
-		return 0, 0, 0, fmt.Errorf("computed block earliest watermark %d is beyond latest %d", blockEarliest, latest)
-	}
-
-	if stateEarliest > latest {
-		return 0, 0, 0, fmt.Errorf("computed state earliest watermark %d is beyond latest %d", stateEarliest, latest)
 	}
 
 	return blockEarliest, stateEarliest, latest, nil
@@ -338,12 +331,6 @@ func (m *WatermarkManager) fetchTendermintWatermarks(ctx context.Context) (int64
 	TraceTendermintIfApplicable(ctx, "Status", []string{}, status)
 	latest := status.SyncInfo.LatestBlockHeight
 	earliest := status.SyncInfo.EarliestBlockHeight
-	if latest == 0 {
-		// Before the first Commit, Tendermint can still report InitialHeight as
-		// the earliest block height even though the only readable "latest" state
-		// is the synthetic height-0 genesis/checkState branch.
-		earliest = 0
-	}
 	return latest, earliest, nil
 }
 
