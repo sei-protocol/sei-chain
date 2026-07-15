@@ -299,6 +299,35 @@ func testFilterGetLogs(t *testing.T, namespace string, tests []GetFilterLogTests
 	}
 }
 
+// TestFilterGetLogsMatchedLogCap exercises the eth_getLogs matched-log cap
+// end-to-end over the live JSON-RPC handler.
+// This test is intentionally not parallel: it runs during the serial phase, so
+// its cache warm-up below completes before the parallel filter tests resume.
+func TestFilterGetLogsMatchedLogCap(t *testing.T) {
+	// Warm the shared block cache with MockHeight8's canonical block via an
+	// address-less number-range query (no address ⇒ no bloom pre-filter, so the
+	// block is fetched and cached).
+	warmCriteria := map[string]interface{}{
+		"fromBlock": "0x8",
+		"toBlock":   "0x8",
+	}
+	warmRes := sendRequestGood(t, "getLogs", warmCriteria)
+	_, warmErr := warmRes["error"]
+	require.False(t, warmErr, "warm-up number query should not error, got: %v", warmRes)
+
+	filterCriteria := map[string]interface{}{
+		"blockHash": LogCapBlockHash,
+		"address":   []common.Address{common.HexToAddress(LogCapAddr)},
+	}
+	resObj := sendRequestGood(t, "getLogs", filterCriteria)
+
+	_, hasResult := resObj["result"]
+	require.False(t, hasResult, "expected no result once the log cap is exceeded, got: %v", resObj["result"])
+	errObj, ok := resObj["error"].(map[string]interface{})
+	require.True(t, ok, "expected an error object, got: %v", resObj)
+	require.Contains(t, errObj["message"].(string), "too many logs")
+}
+
 func TestFilterGetFilterLogs(t *testing.T) {
 	t.Skip()
 	filterCriteria := map[string]interface{}{

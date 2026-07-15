@@ -110,6 +110,16 @@ var multiTxBlockSynthTx *ethtypes.Transaction
 var Block100NormalTx sdk.Tx
 var block100NormalTx *ethtypes.Transaction
 
+// Single-tx block whose receipt carries >MaxLogNoBlock matching logs.
+var LogCapTx sdk.Tx
+var logCapTx *ethtypes.Transaction
+
+var LogCapBlockHash = "0x00000000000000000000000000000000000000000000000000000000000000ca"
+
+// LogCapAddr is matched only by the logs in the LogCapBlockHash block, so the
+// cap test's filter is unaffected by (and does not affect) any other fixture.
+const LogCapAddr = "0x11111111111111111111111111111111111111ca"
+
 var DebugTraceTx sdk.Tx
 var DebugTracePanicTx sdk.Tx
 var DebugTraceNonPanicTx sdk.Tx
@@ -129,6 +139,27 @@ var MockBlockID = tmtypes.BlockID{
 
 var MockBlockIDMultiTx = tmtypes.BlockID{
 	Hash: bytes.HexBytes(mustHexToBytes(MultiTxBlockHash[2:])),
+}
+
+// mockLogCapBlock returns the single-tx block behind LogCapBlockHash, served
+// only via BlockByHash. It reports MockHeight8 to clear the latest-height
+// watermark.
+func mockLogCapBlock() *coretypes.ResultBlock {
+	return &coretypes.ResultBlock{
+		BlockID: tmtypes.BlockID{Hash: bytes.HexBytes(mustHexToBytes(LogCapBlockHash[2:]))},
+		Block: &tmtypes.Block{
+			Header: mockBlockHeader(MockHeight8),
+			Data: tmtypes.Data{
+				Txs: []tmtypes.Tx{
+					func() []byte {
+						bz, _ := Encoder(LogCapTx)
+						return bz
+					}(),
+				},
+			},
+			LastCommit: &tmtypes.Commit{Height: MockHeight8 - 1},
+		},
+	}
 }
 
 var NewHeadsCalled = make(chan struct{}, 1)
@@ -382,6 +413,9 @@ func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coret
 	}
 	if hash.String() == MultiTxBlockHash[2:] {
 		return c.mockBlock(MockHeight2), nil
+	}
+	if strings.EqualFold(hash.String(), LogCapBlockHash[2:]) {
+		return mockLogCapBlock(), nil
 	}
 	if strings.ToLower(hash.String()) == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
 		// Match real Tendermint behavior for unknown hashes: ResultBlock with
@@ -813,6 +847,18 @@ func generateTxData() {
 		Data:      []byte("abc"),
 		ChainID:   chainId,
 	})
+	// Build the single tx that holds the over-cap log set for the
+	// LogCapBlockHash block.
+	var logCapTxBuilder client.TxBuilder
+	logCapTxBuilder, logCapTx = buildTx(ethtypes.DynamicFeeTx{
+		Nonce:     8,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("logcap"),
+		ChainID:   chainId,
+	})
 	debugTraceTxBuilder, debugTraceEthTx := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
 		GasFeeCap: big.NewInt(1000000000),
@@ -856,6 +902,7 @@ func generateTxData() {
 	MultiTxBlockTx4 = txBuilder4.GetTx()
 	MultiTxBlockSynthTx = synthTxBuilder.GetTx()
 	Block100NormalTx = block100TxBuilder.GetTx()
+	LogCapTx = logCapTxBuilder.GetTx()
 	DebugTraceTx = debugTraceTxBuilder.GetTx()
 	DebugTracePanicTx = debugTracePanicTxBuilder.GetTx()
 	panicEthTx, _ := DebugTracePanicTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
@@ -1094,6 +1141,33 @@ func setupLogs() {
 			Address: "0x1111111111111111111111111111111111111112",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123"},
 		}},
+		GasUsed:           21000,
+		EffectiveGasPrice: 100,
+	})
+	// LogCapBlockHash block (served only via BlockByHash): a single receipt
+	// whose 11 logs all match LogCapAddr — one more than the test server's
+	// MaxLogNoBlock (=10)
+	capLogs := make([]*types.Log, 0, 11)
+	ethCapLogs := make([]*ethtypes.Log, 0, 11)
+	capTopic := common.HexToHash(LogCapBlockHash)
+	for i := 0; i < 11; i++ {
+		capLogs = append(capLogs, &types.Log{
+			Address: LogCapAddr,
+			Topics:  []string{capTopic.Hex()},
+		})
+		ethCapLogs = append(ethCapLogs, &ethtypes.Log{
+			Address: common.HexToAddress(LogCapAddr),
+			Topics:  []common.Hash{capTopic},
+		})
+	}
+	bloomCap := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: ethCapLogs})
+	CtxLogCap := Ctx.WithBlockHeight(MockHeight8)
+	EVMKeeper.MockReceipt(CtxLogCap, logCapTx.Hash(), &types.Receipt{
+		BlockNumber:       MockHeight8,
+		TransactionIndex:  0,
+		TxHashHex:         logCapTx.Hash().Hex(),
+		LogsBloom:         bloomCap[:],
+		Logs:              capLogs,
 		GasUsed:           21000,
 		EffectiveGasPrice: 100,
 	})
