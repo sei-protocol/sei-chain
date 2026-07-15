@@ -114,9 +114,8 @@ func applyBlockDBConfig(dst *littblock.LittBlockConfig, src BlockDBConfig) {
 	if p, ok := src.GCPeriod.Get(); ok {
 		dst.Litt.GCPeriod = p
 	}
-	if f, ok := src.Fsync.Get(); ok {
-		dst.Litt.Fsync = f
-	}
+	// NOT SAFE to set false: crash can lose acknowledged BlockDB writes.
+	dst.Litt.Fsync = true
 }
 
 func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {

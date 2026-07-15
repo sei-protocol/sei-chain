@@ -66,19 +66,21 @@ func TestApplyBlockDBConfig(t *testing.T) {
 	require.Equal(t, 24*time.Hour, cfg.Retention)
 	require.True(t, cfg.Litt.Fsync)
 
+	cfg.Litt.Fsync = false
 	applyBlockDBConfig(cfg, BlockDBConfig{
 		Retention: utils.Some(30 * time.Second),
 		GCPeriod:  utils.Some(5 * time.Second),
-		Fsync:     utils.Some(false),
 	})
 	require.Equal(t, 30*time.Second, cfg.Retention)
 	require.Equal(t, 5*time.Second, cfg.Litt.GCPeriod)
-	require.False(t, cfg.Litt.Fsync)
+	require.True(t, cfg.Litt.Fsync)
 
-	// Zero overrides leave an already-customized config unchanged.
-	before := *cfg
+	// Zero Retention/GCPeriod overrides leave those fields unchanged; fsync stays on.
+	beforeRetention := cfg.Retention
+	beforeGC := cfg.Litt.GCPeriod
+	cfg.Litt.Fsync = false
 	applyBlockDBConfig(cfg, BlockDBConfig{})
-	require.Equal(t, before.Retention, cfg.Retention)
-	require.Equal(t, before.Litt.GCPeriod, cfg.Litt.GCPeriod)
-	require.Equal(t, before.Litt.Fsync, cfg.Litt.Fsync)
+	require.Equal(t, beforeRetention, cfg.Retention)
+	require.Equal(t, beforeGC, cfg.Litt.GCPeriod)
+	require.True(t, cfg.Litt.Fsync)
 }

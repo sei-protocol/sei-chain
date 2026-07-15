@@ -436,7 +436,6 @@ func mapBlockDBConfig(o utils.Option[config.AutobahnBlockDBConfig]) p2p.BlockDBC
 	return p2p.BlockDBConfig{
 		Retention: utils.MapOpt(fc.Retention, func(d utils.Duration) time.Duration { return d.Duration() }),
 		GCPeriod:  utils.MapOpt(fc.GCPeriod, func(d utils.Duration) time.Duration { return d.Duration() }),
-		Fsync:     fc.Fsync,
 	}
 }
 

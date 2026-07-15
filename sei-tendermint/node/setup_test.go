@@ -104,7 +104,6 @@ func TestBuildGigaConfig_BlockDBOverrides(t *testing.T) {
 	fc.BlockDB = utils.Some(config.AutobahnBlockDBConfig{
 		Retention: utils.Some(utils.Duration(30 * time.Second)),
 		GCPeriod:  utils.Some(utils.Duration(5 * time.Second)),
-		Fsync:     utils.Some(false),
 	})
 	cfgFile := writeAutobahnConfig(t, fc)
 	nodeKey := makeTestNodeKey([]byte("node-seed"))
@@ -115,7 +114,6 @@ func TestBuildGigaConfig_BlockDBOverrides(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, utils.Some(30*time.Second), result.BlockDB.Retention)
 	assert.Equal(t, utils.Some(5*time.Second), result.BlockDB.GCPeriod)
-	assert.Equal(t, utils.Some(false), result.BlockDB.Fsync)
 }
 
 func TestBuildGigaConfig_BlockDBOmittedKeepsZeroOverrides(t *testing.T) {
@@ -130,7 +128,6 @@ func TestBuildGigaConfig_BlockDBOmittedKeepsZeroOverrides(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.BlockDB.Retention.IsPresent())
 	assert.False(t, result.BlockDB.GCPeriod.IsPresent())
-	assert.False(t, result.BlockDB.Fsync.IsPresent())
 }
 
 func TestBuildGigaConfig_EmptyPathErrors(t *testing.T) {

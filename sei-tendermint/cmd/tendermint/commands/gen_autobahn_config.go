@@ -36,8 +36,6 @@ Output is written to the file specified by --output.`,
 			persistentStateDir, _ := cmd.Flags().GetString("persistent-state-dir")
 			blockDBRetention, _ := cmd.Flags().GetString("blockdb-retention")
 			blockDBGCPeriod, _ := cmd.Flags().GetString("blockdb-gc-period")
-			blockDBFsyncSet := cmd.Flags().Changed("blockdb-fsync")
-			blockDBFsync, _ := cmd.Flags().GetBool("blockdb-fsync")
 
 			var validators []config.AutobahnValidator
 			for _, dir := range args {
@@ -101,7 +99,7 @@ Output is written to the file specified by --output.`,
 			if persistentStateDir != "" {
 				cfg.PersistentStateDir = utils.Some(persistentStateDir)
 			}
-			blockDB, err := buildGenBlockDBConfig(blockDBRetention, blockDBGCPeriod, blockDBFsyncSet, blockDBFsync)
+			blockDB, err := buildGenBlockDBConfig(blockDBRetention, blockDBGCPeriod)
 			if err != nil {
 				return err
 			}
@@ -125,13 +123,12 @@ Output is written to the file specified by --output.`,
 	// littblock's production default (24h).
 	cmd.Flags().String("blockdb-retention", "30s", "BlockDB retention TTL written into block_db (default 30s for local/docker); pass empty to omit and keep littblock's 24h default")
 	cmd.Flags().String("blockdb-gc-period", "", "optional BlockDB GC period (e.g. 10s); omit to keep littblock default")
-	cmd.Flags().Bool("blockdb-fsync", true, "optional BlockDB fsync override; only written when the flag is explicitly set")
 	return cmd
 }
 
 // buildGenBlockDBConfig builds optional block_db overrides from gen-autobahn-config flags.
-// Empty duration strings and an unset fsync flag leave BlockDB as None.
-func buildGenBlockDBConfig(retention, gcPeriod string, fsyncSet, fsync bool) (utils.Option[config.AutobahnBlockDBConfig], error) {
+// Empty duration strings leave BlockDB as None.
+func buildGenBlockDBConfig(retention, gcPeriod string) (utils.Option[config.AutobahnBlockDBConfig], error) {
 	var bdb config.AutobahnBlockDBConfig
 	set := false
 	if retention != "" {
@@ -148,10 +145,6 @@ func buildGenBlockDBConfig(retention, gcPeriod string, fsyncSet, fsync bool) (ut
 			return utils.None[config.AutobahnBlockDBConfig](), fmt.Errorf("--blockdb-gc-period: %w", err)
 		}
 		bdb.GCPeriod = utils.Some(utils.Duration(d))
-		set = true
-	}
-	if fsyncSet {
-		bdb.Fsync = utils.Some(fsync)
 		set = true
 	}
 	if !set {

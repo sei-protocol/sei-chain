@@ -32,7 +32,6 @@ func (a GigaNodeAddr) String() string {
 type BlockDBConfig struct {
 	Retention utils.Option[time.Duration]
 	GCPeriod  utils.Option[time.Duration]
-	Fsync     utils.Option[bool]
 }
 
 // GigaRouterCommonConfig is the slice of giga config shared by both

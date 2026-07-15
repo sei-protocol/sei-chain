@@ -43,8 +43,7 @@ type AutobahnValidator struct {
 // they live in the littblock / LittDB packages and may change).
 //
 // Disk impact (most → least useful for bounding usage): Retention, then
-// GCPeriod. Fsync trades durability for write latency and does not meaningfully
-// change size. Segment sizing is intentionally not exposed (engine-internal).
+// GCPeriod. Segment sizing is intentionally not exposed (engine-internal).
 type AutobahnBlockDBConfig struct {
 	// Retention is the failsafe minimum age before pruned records may be
 	// reclaimed. Primary knob for worst-case disk after PruneBefore advances.
@@ -53,11 +52,6 @@ type AutobahnBlockDBConfig struct {
 	// GCPeriod is how often GC runs once data is eligible (reclaim latency).
 	// Absent ⇒ littblock.DefaultConfig / LittDB GCPeriod.
 	GCPeriod utils.Option[utils.Duration] `json:"gc_period"`
-	// Fsync controls whether writes are flushed with fsync.
-	// Absent ⇒ littblock.DefaultConfig / LittDB Fsync (production default is on).
-	// Setting false is NOT SAFE for production: crash can lose acknowledged
-	// writes (acceptable only for tests that need speed).
-	Fsync utils.Option[bool] `json:"fsync"`
 }
 
 // AutobahnFileConfig is the JSON structure of the autobahn config file.
