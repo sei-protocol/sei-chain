@@ -99,7 +99,8 @@ type Config struct {
 	// Deny list defines list of methods that EVM RPC should fail fast
 	DenyList []string `mapstructure:"deny_list"`
 
-	// max number of logs returned if block range is open-ended
+	// max number of logs a single eth_getLogs query may match before it errors,
+	// for both bounded and open-ended block ranges (0 disables the cap)
 	MaxLogNoBlock int64 `mapstructure:"max_log_no_block"`
 
 	// max number of blocks to query logs for
