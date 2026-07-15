@@ -83,7 +83,7 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 
 buildCodeLane ──────────────┐
 buildStorageLane ───────────┤
-buildMiscDBLane (evm/) ───┼──► merge iterator ──► memiavl keys + values
+buildMiscDBLane (evm/) ───--┼──► merge iterator ──► memiavl keys + values
 buildAccountNonceLane ──────┤
 buildAccountCodehashLane ───┘
 
@@ -310,7 +310,7 @@ func buildLane[T vtype.VType](
 /* Data flow: buildMiscDBLane
 
   ┌────────────────────────┐       ┌───────────────────┐
-  │ miscWrites (pending) │       │ miscDB (pebble) │
+  │ miscWrites (pending)   │       │ miscDB (pebble)   │
   └────────────────────────┘       └───────────────────┘
              │                              │
              ▼                              ▼

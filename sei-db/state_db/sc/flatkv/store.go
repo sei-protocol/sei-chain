@@ -199,10 +199,15 @@ type CommitStore struct {
 	// Uses an elasticly-sized pool, so it is safe to submit tasks that have dependencies on other tasks in the pool.
 	miscPool threading.Pool
 
+	// A work pool for lattice-hash computation (CPU-bound).
+	//
+	// Uses a fixed-size pool, same lifecycle as readPool / miscPool.
+	ltHashPool threading.Pool
+
 	// ltCalc encapsulates the lattice-hash pipeline (old-value reads, per-key
-	// hashing, and worker-combine into final per-DB / per-module hashes) and
-	// owns the dedicated CPU-bound worker pool it runs on. The commit path is
-	// serialized by s.mu, so the calculator has a single caller at a time.
+	// hashing, and worker-combine into final per-DB / per-module hashes) over
+	// ltHashPool. The commit path is serialized by s.mu, so the calculator has
+	// a single caller at a time.
 	ltCalc *lthash.HashCalculator
 }
 
@@ -275,7 +280,9 @@ func NewCommitStore(
 	miscPoolSize := int(cfg.MiscPoolThreadsPerCore*float64(coreCount) + float64(cfg.MiscConstantThreadCount))
 	miscPool := threading.NewElasticPool("flatkv-misc", miscPoolSize)
 
-	ltCalc := lthash.NewHashCalculator("flatkv-lthash", lthashWorkerCount(cfg, coreCount), dataDBDirs, moduleOfKey)
+	ltHashPoolSize := lthashWorkerCount(cfg, coreCount)
+	ltHashPool := threading.NewFixedPool("flatkv-lthash", ltHashPoolSize, ltHashPoolSize)
+	ltCalc := lthash.NewHashCalculator(ltHashPool, dataDBDirs, moduleOfKey)
 
 	return &CommitStore{
 		ctx:                      ctx,
@@ -295,6 +302,7 @@ func NewCommitStore(
 		phaseTimer:               metrics.NewPhaseTimer(flatkvMeter, "seidb_main_thread"),
 		readPool:                 readPool,
 		miscPool:                 miscPool,
+		ltHashPool:               ltHashPool,
 		ltCalc:                   ltCalc,
 	}, nil
 }
@@ -321,7 +329,9 @@ func (s *CommitStore) resetPools() {
 	miscPoolSize := int(s.config.MiscPoolThreadsPerCore*float64(coreCount) + float64(s.config.MiscConstantThreadCount))
 	s.miscPool = threading.NewElasticPool("flatkv-misc", miscPoolSize)
 
-	s.ltCalc = lthash.NewHashCalculator("flatkv-lthash", lthashWorkerCount(&s.config, coreCount), dataDBDirs, moduleOfKey)
+	ltHashPoolSize := lthashWorkerCount(&s.config, coreCount)
+	s.ltHashPool = threading.NewFixedPool("flatkv-lthash", ltHashPoolSize, ltHashPoolSize)
+	s.ltCalc = lthash.NewHashCalculator(s.ltHashPool, dataDBDirs, moduleOfKey)
 }
 
 func (s *CommitStore) flatkvDir() string {

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 )
 
 func TestModuleStatsMarshalRoundTrip(t *testing.T) {
@@ -96,8 +98,9 @@ func TestFoldChunkStats(t *testing.T) {
 func TestComputeModuleHashInfosStatsParallel(t *testing.T) {
 	const dir = "d"
 	moduleOf := func([]byte) (string, error) { return "m", nil }
-	c := NewHashCalculator("test", 4, []string{dir}, moduleOf)
-	defer c.Close()
+	pool := threading.NewFixedPool("test", 4, 4)
+	defer pool.Close()
+	c := NewHashCalculator(pool, []string{dir}, moduleOf)
 
 	const n = computeChunkSize*3 + 7 // spans several chunks, not a chunk multiple
 	pairs := make([]KVPairWithLastValue, n)

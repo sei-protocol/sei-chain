@@ -57,13 +57,17 @@ type Result struct {
 	Global         *LtHash
 }
 
-// HashCalculator owns the CPU-bound lattice-hash worker pool and encapsulates
-// the per-block lattice-hash pipeline:
+// HashCalculator encapsulates the per-block lattice-hash pipeline over an
+// injected CPU-bound worker pool:
 //
 //  1. ReadOldValues — grab the prior value for each changed key (in parallel).
 //  2. Compute — hash individual keys and combine the per-worker results into
 //     the final per-module hashes, then derive each per-DB root and the global
 //     hash from those.
+//
+// The pool is supplied by the caller (the FlatKV store) rather than created
+// here. The HashCalculator does not own the pool and never closes it; pool
+// lifecycle is the caller's responsibility.
 //
 // The pool distributes independent per-chunk tasks, so ComputeModuleHashInfos is
 // safe to call concurrently from multiple goroutines that share one
@@ -75,24 +79,15 @@ type HashCalculator struct {
 	moduleOf ModuleFunc
 }
 
-// NewHashCalculator creates a HashCalculator backed by a fixed pool of `workers`
-// goroutines (clamped to >= 1). dbDirs is the canonical, ordered set of data DB
-// directories; moduleOf extracts a physical key's owning module.
-func NewHashCalculator(name string, workers int, dbDirs []string, moduleOf ModuleFunc) *HashCalculator {
-	if workers < 1 {
-		workers = 1
-	}
+// NewHashCalculator creates a HashCalculator that runs on the provided pool.
+// dbDirs is the canonical, ordered set of data DB directories; moduleOf extracts
+// a physical key's owning module. The pool is owned by the caller — closing it
+// is the caller's responsibility, not the HashCalculator's.
+func NewHashCalculator(pool threading.Pool, dbDirs []string, moduleOf ModuleFunc) *HashCalculator {
 	return &HashCalculator{
-		pool:     threading.NewFixedPool(name, workers, workers),
+		pool:     pool,
 		dbDirs:   append([]string(nil), dbDirs...),
 		moduleOf: moduleOf,
-	}
-}
-
-// Close shuts down the worker pool.
-func (c *HashCalculator) Close() {
-	if c.pool != nil {
-		c.pool.Close()
 	}
 }
 
@@ -381,6 +376,8 @@ func (c *HashCalculator) computeDeltasParallel(tasks []lthashTask) map[ModuleKey
 	// Merge per-chunk results. Multiple chunks of the same (db, module) bucket
 	// sum into one delta; MixIn/addition are commutative so chunk order is
 	// irrelevant.
+	// TODO: If merging ever becomes a hotspot, in theory we could farm out
+	// merge work to the hashing pool, where each job merges two pairs of results.
 	merged := make(map[ModuleKey]*ModuleHashInfo)
 	for i, task := range tasks {
 		if acc := merged[task.key]; acc != nil {
