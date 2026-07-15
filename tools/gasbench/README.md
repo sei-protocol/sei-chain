@@ -2,11 +2,19 @@
 
 Differential microbenchmark harness that measures per-opcode EVM execution
 time and correlates it with gas cost. Built to unblock the gas-repricing
-project's F2 hypothesis test: does gas cost track execution time.
+project's F2 hypothesis test: does gas cost track execution time — the same
+"gas is not a faithful meter of execution cost" question Broken Metre (Perez &
+Livshits, NDSS 2020, arXiv 1909.07220) posed for mainnet, answered here
+fork-natively. The method — isolate an opcode by repetition, then convert
+runtime to gas — is the accepted state of the art (EIP-7904, Compute Gas Cost
+Increase), whose anchor-rate / MGas·s⁻¹ vocabulary the repricing framing adopts.
 
-Design: `designs/gas-repricing-telemetry/gas-vs-time-instrumentation.md` in
-the `bdchatham-designs` repo. Noise-floor calibration behind the acceptance
-gate below: `designs/gas-repricing-telemetry/research/microbenchmark-noise-isolation-tradeoffs.md`
+Design: `designs/gas-repricing-telemetry/gas-vs-time-instrumentation.md`
+(harness) and `gasbench-benchmath-integration.md` (the cross-run statistics and
+acceptance gate) in the `bdchatham-designs` repo; prior-art lineage in
+`research/gasbench-prior-art-scan.md`. Noise-floor calibration behind the
+acceptance gate below:
+`designs/gas-repricing-telemetry/research/microbenchmark-noise-isolation-tradeoffs.md`
 in the same repo.
 
 ## Quickstart
@@ -22,20 +30,20 @@ GASBENCH_OUT_CSV=gasbench.csv GASBENCH_OUT_NDJSON=gasbench.ndjson \
   tools/gasbench/run.sh | tee gasbench.log
 ```
 
-This benchmarks every scalar opcode in `Specs` and writes one row per
-opcode *per count* to the output files (`-count=10` by default, so 10 rows
-per opcode — `-count` multiplies the subtests inside one benchmark
-invocation, and the file is written once at the end with all of them).
+This benchmarks every scalar opcode in `Specs` and writes ONE aggregate row
+per opcode to the output files (`-count=10` by default: `-count` reruns each
+subtest inside one benchmark invocation, and benchmath folds those passes into
+the row's cross-run CI — the file is written once at the end).
 Relative output paths land in `tools/gasbench/` (the test binary's working
 directory), not where you invoked `run.sh` — pass absolute paths to put
-them elsewhere. The `tee` is optional: the CSV already carries the
-cross-count history step 4 needs; the captured stdout is the
-`benchstat`-consumable form of the same data. Roughly ten minutes at the
-defaults; set `GASBENCH_ITERS=2000 GASBENCH_COUNT=1` for a fast first look.
-On a laptop or shared box, `run.sh` will warn that results are indicative:
-expect cheap opcodes (`ADD`'s per-op cost is ~1ns, a whole-program delta
-close to the noise) to come back `status=insignificant` there, and don't
-read anything into them.
+them elsewhere. The `tee` is optional: it captures the `go test` log (per-opcode
+metrics, host-health warnings), not measurement data — the CSV/NDJSON aggregate
+is the output of record. Roughly ten minutes at the defaults; set
+`GASBENCH_ITERS=2000 GASBENCH_COUNT=1` for a fast first look (note `-count=1` is
+`underpowered` by construction — no finite CI). On a laptop or shared box,
+`run.sh` will warn that results are indicative: expect cheap opcodes (`ADD`'s
+per-op cost is ~1 ns, a whole-program delta close to the noise) to come back
+`insignificant` or `sub_threshold` there, and don't read anything into them.
 
 **2. For real numbers, use a quiet, dedicated Linux host:** bare metal (no
 co-tenants), fixed or pinned CPU frequency, one core reserved for the run
@@ -57,40 +65,57 @@ target-minus-baseline delta, so setup/loop overhead has already cancelled
   so it is smaller (ADD→1, MULMOD→4) and arity-dependent. `gas_used` exists to
   drive the construction self-check; **`const_gas` is the denominator for any
   repricing statement.**
-- **ns-per-gas** = `exec_time_ns / reps / const_gas` — the number the
-  hypothesis test is about: time per gas-the-chain-charges. If pricing tracked
-  execution time it would be roughly constant across opcodes; the spread IS the
-  mispricing signal. Do NOT divide by `gas_used` — that differential denominator
-  is deflated by an arity-correlated factor (up to 3x) and would report a spread
-  even for a perfectly-priced instruction set. Quote the spread only across
-  `significant=true` rows: the cheap ops (DUP1, ADD…) are dominated by the
-  op-minus-filler marginal and routinely come back `insignificant` on a normal
-  host — do not anchor the low end of the spread on one. Comparing rows within
+- **ns-per-gas** = `exec_time_ns / reps / const_gas` — **divide by `const_gas`
+  (nominal), never `gas_used`**: the differential denominator is deflated by an
+  arity-correlated factor (up to 3x) and would report a spread even for a
+  perfectly-priced instruction set. This is the number the hypothesis test is
+  about: time per gas-the-chain-charges (EIP-7904 frames the same quantity as an
+  anchor rate — its 100 MGas/s ≈ 10 ns/gas). If pricing tracked execution time
+  it would be roughly constant across opcodes; the spread IS the mispricing
+  signal. Quote the spread
+  only across `status==ok` rows: the cheap ops (DUP1, ADD…) are dominated by the
+  op-minus-filler marginal and routinely come back `insignificant` or
+  `sub_threshold` on a normal host — do not anchor the low end of the spread on
+  one. Comparing rows within
   one run cancels the common clock-speed factor, so the spread is meaningful
   even though the absolute nanoseconds are host-specific — but microarchitectural
   ratios (adder vs shifter vs multiplier cost) still differ between hosts, which
   is why repricing-grade numbers come from the step-2 host, not a laptop.
 
-**4. Only trust a row that earns it:**
+**4. Only trust a row that earns it — filter on `status`:**
 
-- `significant=false` (the row's `status` reads `insignificant` — same
-  condition, derived field): the delta didn't clear its own measurement
-  uncertainty — treat the time as indistinguishable from zero at this
-  precision. Raise `GASBENCH_ITERS`, or move to the quiet host; don't
-  average or rank insignificant rows.
+- `status=ok` is the only correlation-eligible verdict: the paired delta CI
+  excludes zero (distinguishable) AND the per-op median delta clears the
+  effect-size floor (`GASBENCH_MIN_PEROP_NS`, default 1.0 ns). Sign-check
+  `exec_time_ns`: a negative value is a measured *speedup* (target faster than
+  baseline), still distinguishable — the gate is "measurably different," never
+  "more expensive."
+- `status=sub_threshold`: distinguishable but below the effect floor — "not
+  measurably more expensive in absolute time at this precision." This is NOT
+  "correctly priced": a cheap op can still be mispriced. Do not feed
+  `sub_threshold` rows into the ns-per-gas correlation.
+- `status=insignificant`: the delta CI straddles zero — indistinguishable from
+  no difference at this precision. Raise `GASBENCH_ITERS` or `-count`, or move
+  to the quiet host; don't average or rank insignificant rows.
+- `status=underpowered`: too few counts for a finite CI (`-count<6` at the
+  default confidence — precisely: `<2` counts, or any count whose CI bound is
+  non-finite at the requested confidence; see "Output schema"); `ci_lo`/`ci_hi`
+  are null. Raise `GASBENCH_COUNT`.
 - `high_variance=true`: advisory — the run saw unusual dispersion (noisy
-  neighbor, throttling). It does not invalidate a significant result, and
+  neighbor, throttling). It does not invalidate an `ok` result, and
   `nivcsw` tells you where to look: nonzero means the scheduler preempted
   the process mid-window (blame the host); near-zero alongside the high
   CoV points at a non-scheduler tail inside the harness itself (see
   "Active-benchmarking diagnostics").
-- Rerun-to-rerun agreement is the real confidence check: `run.sh` defaults
-  to `-count=10`, so the CSV has 10 rows per opcode — group by `input_id`
-  and look at the spread of `exec_time_ns` across counts (the same data is
-  in `gasbench.log` in `benchstat`-consumable form). A per-op delta that is
-  stable across counts (and across invocations) is the result; on a
-  dedicated pinned host, expect low-single-digit-percent spread. See
-  "Running it" for what `-count` does and doesn't give you.
+- The cross-count agreement check is now IN the row, not something you
+  reconstruct: `run.sh` defaults to `-count=10`, and benchmath folds those 10
+  passes into the paired delta CI (`ci_lo`/`ci_hi`, at `confidence`). A tight CI
+  that excludes zero IS the stable-across-counts result; a wide one that
+  straddles zero is the noise verdict. There is no longer a per-count row to
+  eyeball or a `benchstat`-consumable stdout to pipe — the aggregate row is the
+  output of record. On a dedicated pinned host, expect the CI half-width to be a
+  low-single-digit percent of `exec_time_ns`. See "Running it" for what
+  `-count` does and doesn't give you.
 
 **Scope:** scalar constant-gas opcodes only (arithmetic/bitwise/comparison/
 stack). Parametric opcodes (`KECCAK256`/`EXP`/copies), the state-touching
@@ -214,23 +239,67 @@ I-cache/D-cache/branch predictor, catch a broken program early), then
 - Timing uses `time.Now`/`time.Since` (monotonic, immune to NTP steps)
   around the tracer-free `RunOnce` call.
 
-## Acceptance gate: Significant, not CoV
+## Acceptance gate: paired delta CI + effect floor, not CoV
 
-`Diff.Significant` (`diff.go`) — `|DeltaNs| > SigmaK * Uncertainty` (and
-`Uncertainty > 0`; a series with fewer than 2 samples has nothing to
-estimate variance from and must never read as significant), where
-`Uncertainty` is the two series' median standard errors propagated in
-quadrature — is the acceptance gate. A raw per-series CoV of several percent
+The verdict lives in `emit.go` (`distinguishable`/`effectSizePass`/
+`classifyStatus`), computed at the cross-run (`-count`) layer by
+`benchmath.AssumeNothing` (`crossrun.go`). It has two independent halves; a row
+is accepted (`status=ok`) only if BOTH clear.
+
+**1. Distinguishable — the statistical half.** Each `-count` pass measures
+baseline then target back-to-back in one pinned, GC-off window, so the design
+is *paired*: `delta_k = target_median_k − baseline_median_k`. The gate is the
+order-statistic CI on that per-count delta series excluding zero —
+`distinguishable := ci_lo > 0 || ci_hi < 0` (`benchmath.AssumeNothing.Summary`
+over the deltas). It is symmetric: a CI wholly below zero (a measured speedup)
+is just as distinguishable as one wholly above — the gate is "measurably
+different," never "more expensive."
+
+Paired, not unpaired, is load-bearing. Across-count common-mode drift
+(frequency wander, cache-state shift — exactly what `-count` exists to survive)
+moves both series together, so the paired delta cancels it. An unpaired
+two-sample test over the baseline-median series vs the target-median series
+loses the signal under that drift: a true +3 ns/op with ±30 ns shared drift
+makes the two median series overlap, while the paired deltas `[3,3,3,…]` are
+unmistakable and their CI cleanly excludes zero. `benchmath` exposes no
+paired/signed-rank test, so the CI on the delta series IS the paired primitive.
+The unpaired Mann-Whitney U p (`p_value`, over the baseline vs target median
+series) is emitted as an **advisory column only** for cross-checking — NOT the
+gate, so its known weaknesses (tie fragility at integer-ns medians, power loss
+under shared drift) never touch the acceptance decision.
+
+**2. Effect-size floor — the practical half.** Distinguishable at large n is
+not the same as meaningful. `status=ok` additionally requires the per-op median
+delta (`exec_time_ns / reps`) to clear `GASBENCH_MIN_PEROP_NS` (default 1.0 ns,
+compared in absolute value so a speedup still counts). A row that is
+distinguishable but below the floor is `sub_threshold`, NOT `ok`.
+
+`sub_threshold` means "not measurably more expensive in absolute time at this
+precision" — it does NOT mean "correctly priced." A cheap-but-mispriced op can
+be demoted on the absolute-ns floor even though its ns-per-gas is an outlier;
+the floor is a *measurability* guard, not a pricing verdict. **Only `status=ok`
+rows are eligible for the ns-per-gas repricing correlation.** The 1.0 ns default
+is a consumer-tunable calibration (it may demote ADD/DUP-class boundary ops on
+some hosts — cite the noise-isolation research when retuning); set
+`GASBENCH_MIN_PEROP_NS<=0` to disable the floor entirely. A gas-relative floor
+(ns-per-nominal-gas deviation) is deferred pending the reference-anchor choice
+(EIP-7904's 100 MGas/s is the citable candidate but is host-frequency-specific).
+
+(Distinguishability is decided at the cross-run n=10 layer, not the within-run
+n≈20000 layer — at within-run n the test is over-powered, any sub-nanosecond
+shift clears it; the effect floor is the second half of the gate.)
+
+**CoV is advisory, never the gate.** A raw per-series CoV of several percent
 under plain core-pinning (no kernel-level isolcpus/nohz_full/rcu_nocbs) is
 expected physics (the periodic scheduler tick, device IRQs, shared-cache
 contention that pinning alone can't remove), not a defect. No major
 benchmarking harness (JMH, criterion.rs, Go's own `benchstat`) gates on a
 fixed dispersion threshold either — all three gate on effect size against
-the estimate's own uncertainty, same as `Significant`.
+the estimate's own uncertainty.
 
 `Diff.HighVariance` (CoV above `CoVCeiling`, default 0.25) is advisory only:
 it flags a run worth a closer look (a noisy neighbor, a throttling event) but
-never overrides `Significant`. The 0.25 default sits above the 4-8% CoV
+never overrides `status`. The 0.25 default sits above the 4-8% CoV
 measured as normal on a dedicated, pinned, bare-metal host with no
 kernel-level isolation, and well below the ~40%+ territory a genuinely
 pathological run would show. See the research doc linked above for the full
@@ -273,36 +342,78 @@ go test ./tools/gasbench/ -run '^$' -bench '^BenchmarkOpcodes$' \
 `-benchtime=1x` matters: `BenchmarkOpcodes`'s inner timing loop is
 `Measure`'s, not `b.N`'s, so `b.N` must stay at 1. `-count=K` reruns each
 opcode subtest K times **within the same OS process** (inside a single
-`BenchmarkOpcodes` invocation, so the output files accumulate all K rows
-per opcode), not as K independent process forks — it gives
-`benchstat`-style cross-run variance, not process-level independence. True process-level independence would need K
-separate `go test` invocations. See the research doc for why this matters
-less than it sounds: JMH's fork/warmup/measurement-iteration model is the
-gold standard, but this MVP's within-process reruns already surfaced
-reproducible per-opcode deltas (see the research doc's empirical run).
+`BenchmarkOpcodes` invocation); benchmath folds those K passes into the one
+aggregate row's cross-run CI. This is cross-run variance, not process-level
+independence — true process-level independence would need K separate `go test`
+invocations. See the research doc for why this matters less than it sounds:
+JMH's fork/warmup/measurement-iteration model is the gold standard, but this
+MVP's within-process reruns already surfaced reproducible per-opcode deltas
+(see the research doc's empirical run). **`-count>=6` is needed for a finite CI**
+at the default confidence; below that a row reads `underpowered` with a
+benchmath warning, so the default `-count=10` has headroom.
 
-Env vars: `GASBENCH_WARMUP`, `GASBENCH_ITERS` (override `DefaultConfig`),
-`GASBENCH_SIGMA_K` (default 3), `GASBENCH_COV_CEILING` (default 0.25),
-`GASBENCH_COUNT` (default 10), `GASBENCH_OUT_CSV`, `GASBENCH_OUT_NDJSON`.
+Env vars:
+
+- `GASBENCH_WARMUP`, `GASBENCH_ITERS` — override `DefaultConfig`'s within-run
+  warmup / timed iterations.
+- `GASBENCH_COUNT` (default 10) — cross-run `-count` passes; see the finite-CI
+  minimum above.
+- `GASBENCH_ALPHA` (default 0.05) — `CompareAlpha` behind the advisory
+  `p_value` (Mann-Whitney U); does not affect the gate.
+- `GASBENCH_CI_CONFIDENCE` (default 0.95) — confidence for the paired delta CI
+  (the gate). Raising it raises the minimum `-count` for a finite CI (~6 at
+  0.95), so bump `GASBENCH_COUNT` in lockstep.
+- `GASBENCH_MIN_PEROP_NS` (default 1.0) — effect-size floor on `|per-op median
+  delta ns|`; distinguishable-but-below → `sub_threshold`. Set `<=0` to disable.
+- `GASBENCH_COV_CEILING` (default 0.25) — advisory `high_variance` ceiling on
+  per-series CoV; never gates the verdict.
+- `GASBENCH_OUT_CSV`, `GASBENCH_OUT_NDJSON` — output paths.
 
 ## Output schema
 
-One `Run` (`emit.go`) per opcode, written as CSV and/or NDJSON:
+One `Run` (`emit.go`) per opcode, written as CSV and/or NDJSON. Columns are in
+`csvHeader` order:
 
-| Field | Meaning |
+| Column | Meaning |
 |---|---|
 | `input_id` | opcode id, e.g. `ADD` |
 | `class` | opcode family, e.g. `arithmetic` |
 | `reps` | opcode executions the delta represents |
-| `gas_used` | *differential* whole-program gas delta (target - baseline), net of filler; per-op = `gas_used/reps`. Drives the construction self-check — NOT the repricing denominator |
+| `gas_used` | *differential* whole-program gas delta (target − baseline), net of filler; per-op = `gas_used/reps`. Drives the construction self-check — NOT what the chain charges, NOT the repricing denominator |
 | `const_gas` | nominal per-op gas the chain charges (jump-table `ConstGas`); the denominator for ns-per-gas — see "Read the output" |
-| `exec_time_ns` | whole-program time delta, ns; per-op = `exec_time_ns/reps` |
-| `status` | `ok` if `significant`, else `insignificant` — never gated on CoV |
-| `iterations` | timed iterations behind each series |
-| `cov` | worse (max) of the baseline/target series CoV — advisory only |
-| `significant` | the acceptance gate |
-| `high_variance` | advisory: CoV exceeded `CoVCeiling` |
-| `nvcsw` / `nivcsw` | worse (max) of the baseline/target voluntary/involuntary context-switch counts |
+| `exec_time_ns` | **median** whole-program time delta over the `-count` passes (`Summary.Center`), ns; always finite; per-op = `exec_time_ns/reps`. **Sign-check it: a negative value is a measured speedup.** |
+| `count` | cross-run n: number of `-count` passes aggregated |
+| `iterations` | within-run timed iterations behind each series |
+| `ci_lo` | order-statistic CI low on `exec_time_ns` (whole-program ns). **Nullable**: empty CSV field / JSON `null` when the bound is non-finite (underpowered) |
+| `ci_hi` | CI high; same nullable rule |
+| `confidence` | actual CI confidence (≥ requested) |
+| `distinguishable` | **the gate, statistical half:** paired delta CI excludes zero (`ci_lo>0 \|\| ci_hi<0`), computed from the raw benchmath bounds — on an underpowered row the emitted `ci_lo`/`ci_hi` are null and this reads `false` |
+| `effect_size_pass` | the gate, practical half: per-op median delta clears `GASBENCH_MIN_PEROP_NS` |
+| `p_value` | **advisory only:** unpaired Mann-Whitney U p over baseline vs target medians; NOT the gate |
+| `alpha` | `CompareAlpha` behind the advisory `p_value` |
+| `status` | `ok \| sub_threshold \| insignificant \| underpowered \| error` — see below; never gated on CoV |
+| `cov` | worse (max) of the baseline/target series CoV, max across counts — advisory only |
+| `high_variance` | advisory: CoV exceeded `CoVCeiling` on any count |
+| `nvcsw` / `nivcsw` | worse (max) of the baseline/target voluntary/involuntary context-switch counts, max across counts |
+
+`status` enum:
+
+- `ok` — distinguishable AND clears the effect floor. **The only
+  correlation-eligible verdict.**
+- `sub_threshold` — distinguishable but below the effect floor: "not measurably
+  more expensive in absolute time," NOT "correctly priced" (a cheap op can
+  still be mispriced).
+- `insignificant` — the delta CI straddles zero: not distinguishable at this
+  precision.
+- `underpowered` — too few counts for a finite CI (`count<2`, or a non-finite
+  bound at the requested confidence); `ci_lo`/`ci_hi` are null.
+- `error` — reserved for a per-case measurement failure; not currently emitted
+  (an invalid program fails the benchmark loudly instead).
+
+**Consumer note:** filter on `status` (only `ok` is correlation-eligible) and
+sign-check `exec_time_ns` (a negative value = a measured speedup). `ci_lo`/`ci_hi`
+are null on underpowered rows — an older CSV wrote `+Inf` here, the current CSV
+writes an empty field.
 
 A per-`Case` self-check (`bench_test.go`) also verifies the measured gas
 delta matches the definitional expected delta from `BuildCaseWith`'s algebra

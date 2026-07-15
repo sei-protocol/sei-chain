@@ -21,13 +21,20 @@ CORE="${GASBENCH_CORE:-3}"
 
 warn() { printf 'WARN: %s\n' "$*" >&2; }
 
+checked_freq=0
 if [ -r /sys/devices/system/cpu/intel_pstate/no_turbo ]; then
+  checked_freq=1
   [ "$(cat /sys/devices/system/cpu/intel_pstate/no_turbo)" = "1" ] || warn "turbo appears ENABLED"
 fi
 gov="/sys/devices/system/cpu/cpu${CORE}/cpufreq/scaling_governor"
 if [ -r "$gov" ]; then
+  checked_freq=1
   [ "$(cat "$gov")" = "performance" ] || warn "cpu${CORE} governor != performance"
 fi
+# These sysfs paths are x86/Linux-specific and absent on ARM (Graviton) and
+# non-Linux. Absence means "could not verify", NOT "clean" -- say so, or the
+# operator reads silence as a passing check.
+[ "$checked_freq" = "1" ] || warn "cannot verify turbo/governor here (no intel_pstate or cpufreq) -- trust numbers only on a known fixed-frequency host"
 
 export GOMAXPROCS=1
 # See README.md "Running it" for the full env-var list and defaults.

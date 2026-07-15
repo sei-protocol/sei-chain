@@ -29,6 +29,13 @@ file is the short orientation.
   override — production never reprices a scalar opcode (stock `vm.Config{}`,
   no custom jump table); the only Sei gas param is `SeiSstoreSetGasEIP2200`,
   a storage opcode and out of scope here.
+- **Data-dependent ops: verify the operands hit the real kernel.** For a
+  `DataDependent` spec, confirm `seedOperands` exercise the intended path, not
+  a `holiman/uint256` short-circuit — equal or degenerate operands make
+  `DIV(x,x)`/`MOD(x,x)` return without dividing, so the row would time a
+  compare. The gas self-check will NOT catch this (gas is unchanged); it's a
+  timing trap. `seedOperands` is ascending (dividend above divisor, smallest at
+  the modulus slot) for this reason — see README.md "Differential construction".
 - Keep code comments lean (what, not why); put methodology/rationale in
   README.md instead of growing doc comments.
 
@@ -47,12 +54,13 @@ README.md "Running it" / "Output schema".
 | File | Contents |
 |---|---|
 | `gasbench.go` | timing core: `Measure`, `Config`, `Series`, rusage snapshot |
-| `diff.go` | `Subtract`: baseline/target differencing, `Diff`, the acceptance gate |
-| `stats.go` | `Summarize`: median/stddev/CoV/standard-error over a sample series |
+| `diff.go` | `Subtract`: per-pass baseline/target differencing, `Diff` (medians/delta/gas/CoV) |
+| `stats.go` | `Summarize`: median/stddev/CoV over a sample series |
+| `crossrun.go` | `analyzeCrossRun`: cross-run benchmath verdict (paired delta CI gate + advisory Mann-Whitney p) |
 | `program.go` | `Program`: warmed tracer-free EVM environment, one bytecode input |
 | `programs.go` | `OpSpec`/`Specs`/`Case`/`BuildCaseWith`: the differential bytecode construction |
-| `emit.go` | `Run`, CSV/NDJSON output |
-| `emit_test.go` | pins `Run.Status` as a pure function of `Diff.Significant` |
+| `emit.go` | `Run`, the verdict (`distinguishable`/`classifyStatus`), CSV/NDJSON output |
+| `emit_test.go` | pins `Run.Status`/CI as pure functions of the `crossRun` verdict (`classifyStatus`, `distinguishable`) |
 | `bench_test.go` | `BenchmarkOpcodes`: wires the above into `go test -bench` |
 | `run.sh` | pinned-core runner + operator checklist for turbo/governor/isolation |
 | `README.md` | operator quickstart + full rationale: construction, acceptance gate, diagnostics |

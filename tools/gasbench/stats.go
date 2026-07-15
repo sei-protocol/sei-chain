@@ -8,16 +8,14 @@ import (
 
 // Stats summarizes a sample series. All time fields are nanoseconds.
 type Stats struct {
-	N        int
-	Min      float64 // least-perturbed estimator for CPU-bound work; noise only adds time
-	Max      float64
-	Mean     float64
-	Median   float64
-	P99      float64
-	Stddev   float64 // sample stddev (n-1)
-	CoV      float64 // Stddev/Mean; advisory only -- see Diff.Significant, README.md "Acceptance gate"
-	SEMean   float64 // standard error of the mean
-	SEMedian float64 // asymptotic standard error of the median
+	N      int
+	Min    float64 // least-perturbed estimator for CPU-bound work; noise only adds time
+	Max    float64
+	Mean   float64
+	Median float64
+	P99    float64
+	Stddev float64 // sample stddev (n-1)
+	CoV    float64 // Stddev/Mean; advisory only -- see README.md "Acceptance gate"
 }
 
 // Summarize computes the full stat set over the samples.
@@ -48,9 +46,6 @@ func Summarize(samples []time.Duration) Stats {
 			ss += dx * dx
 		}
 		st.Stddev = math.Sqrt(ss / float64(n-1))
-		st.SEMean = st.Stddev / math.Sqrt(float64(n))
-		// SE of the median for a roughly-normal center: sqrt(pi/2)*SEMean.
-		st.SEMedian = 1.2533141373155 * st.SEMean
 	}
 	if st.Mean > 0 {
 		st.CoV = st.Stddev / st.Mean

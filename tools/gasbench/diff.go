@@ -1,11 +1,9 @@
 package gasbench
 
-import "math"
-
 // Diff is the difference-of-medians subtraction of a baseline series from a
-// target series, with the median's standard error propagated in quadrature
-// as Uncertainty. See README.md for the estimator choice and the
-// Significant-not-CoV acceptance-gate rationale.
+// target series for one -count pass. Distinguishability is decided at the
+// cross-run layer (crossrun.go), not here: Diff carries only the per-pass
+// point medians, delta, gas, and advisory health signals.
 type Diff struct {
 	OpcodeID string
 
@@ -14,13 +12,10 @@ type Diff struct {
 	BaselineCoV    float64
 	TargetCoV      float64
 
-	DeltaNs     float64 // per-program time attributable to the opcode reps
-	Uncertainty float64 // 1-sigma, propagated in quadrature (ns)
-	SigmaK      float64 // significance multiple applied
-	Significant bool    // |DeltaNs| > SigmaK*Uncertainty -- the acceptance gate (see emit.go's Status)
+	DeltaNs float64 // per-program time attributable to the opcode reps
 
-	// HighVariance is advisory only (CoV exceeded CoVCeiling); it never gates
-	// Significant. See README.md "Acceptance gate".
+	// HighVariance is advisory only (CoV exceeded CoVCeiling). See README.md
+	// "Acceptance gate".
 	HighVariance bool
 	CoVCeiling   float64
 
@@ -40,14 +35,11 @@ type Diff struct {
 	PerOpGas float64 // GasDelta / Reps
 }
 
-// Subtract computes the opcode cost from baseline/target series. sigmaK sets
-// the significance band (e.g. 3 ~ 99.7% for a normal center) and is the
-// acceptance gate. covCeiling is an advisory health-check ceiling, not a
-// gate: a raw per-series CoV above it flags the run for a closer look
-// (a possible neighbor or throttling event) without invalidating an
-// otherwise-significant result. reps normalizes the per-program delta to one
-// opcode.
-func Subtract(opcodeID string, baseline, target Series, reps int, sigmaK, covCeiling float64) Diff {
+// Subtract computes the per-pass opcode cost from baseline/target series.
+// covCeiling is an advisory health-check ceiling, not a gate: a raw per-series
+// CoV above it flags the run for a closer look (a possible neighbor or
+// throttling event). reps normalizes the per-program delta to one opcode.
+func Subtract(opcodeID string, baseline, target Series, reps int, covCeiling float64) Diff {
 	bs := Summarize(baseline.Samples)
 	ts := Summarize(target.Samples)
 
@@ -57,7 +49,6 @@ func Subtract(opcodeID string, baseline, target Series, reps int, sigmaK, covCei
 		TargetMedian:   ts.Median,
 		BaselineCoV:    bs.CoV,
 		TargetCoV:      ts.CoV,
-		SigmaK:         sigmaK,
 		CoVCeiling:     covCeiling,
 		BaselineNvcsw:  baseline.NvcswDelta,
 		TargetNvcsw:    target.NvcswDelta,
@@ -66,12 +57,6 @@ func Subtract(opcodeID string, baseline, target Series, reps int, sigmaK, covCei
 		Reps:           reps,
 	}
 	d.DeltaNs = ts.Median - bs.Median
-	d.Uncertainty = math.Hypot(ts.SEMedian, bs.SEMedian)
-	// Uncertainty == 0 (e.g. Iterations < 2, or an improbable zero-variance
-	// sample) means no variance was ever estimated, not that the delta is
-	// perfectly known -- Significant must never be true from an
-	// unestimated Uncertainty.
-	d.Significant = d.Uncertainty > 0 && math.Abs(d.DeltaNs) > sigmaK*d.Uncertainty
 	d.HighVariance = bs.CoV > covCeiling || ts.CoV > covCeiling
 
 	if target.GasUsed >= baseline.GasUsed {

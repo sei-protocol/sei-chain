@@ -5,78 +5,151 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 )
 
-// Run is one emitted measurement row: the per-opcode differential result,
-// ready for a gas-vs-time correlation. See README.md "Output schema".
+// Run is one emitted measurement row: the per-opcode aggregate over all
+// -count passes, ready for a gas-vs-time correlation. See README.md "Output
+// schema".
 type Run struct {
-	InputID      string  `json:"input_id"`      // opcode id, e.g. "ADD"
-	Class        string  `json:"class"`         // opcode family, e.g. "arithmetic"
-	Reps         int     `json:"reps"`          // opcode executions the delta represents
-	GasUsed      uint64  `json:"gas_used"`      // whole-program gas delta (target - baseline); per-op = GasUsed/Reps -- this is the DIFFERENTIAL (net of filler), not the gas the chain charges
-	ConstGas     uint64  `json:"const_gas"`     // nominal per-op gas the chain charges (jump-table ConstGas); the repricing-relevant denominator for ns-per-gas. See README.md "Read the output"
-	ExecTimeNs   float64 `json:"exec_time_ns"`  // whole-program time delta, ns (target median - baseline median); per-op = ExecTimeNs/Reps
-	Status       string  `json:"status"`        // ok if Significant, else insignificant -- never gated on CoV
-	Iterations   int     `json:"iterations"`    // timed iterations behind each series
-	CoV          float64 `json:"cov"`           // worse (max) of the baseline/target series CoV -- advisory only
-	Significant  bool    `json:"significant"`   // |delta| exceeds SigmaK * propagated uncertainty -- the acceptance gate
-	HighVariance bool    `json:"high_variance"` // advisory: CoV exceeded the health-check ceiling; does not invalidate Status=ok
-	Nvcsw        int64   `json:"nvcsw"`         // worse (max) of the baseline/target voluntary-context-switch count; see README.md "Active-benchmarking diagnostics" for interpreting a zero here
-	Nivcsw       int64   `json:"nivcsw"`        // worse (max) of the baseline/target involuntary-context-switch count; see README.md "Active-benchmarking diagnostics" for interpreting a zero here
+	InputID    string  `json:"input_id"`     // opcode id, e.g. "ADD"
+	Class      string  `json:"class"`        // opcode family, e.g. "arithmetic"
+	Reps       int     `json:"reps"`         // opcode executions the delta represents
+	GasUsed    uint64  `json:"gas_used"`     // whole-program gas delta (target - baseline); per-op = GasUsed/Reps -- this is the DIFFERENTIAL (net of filler), not the gas the chain charges
+	ConstGas   uint64  `json:"const_gas"`    // nominal per-op gas the chain charges (jump-table ConstGas); the repricing-relevant denominator for ns-per-gas. See README.md "Read the output"
+	ExecTimeNs float64 `json:"exec_time_ns"` // median whole-program delta over the counts (Summary.Center); always finite; per-op = ExecTimeNs/Reps
+	Count      int     `json:"count"`        // cross-run n: number of -count passes aggregated
+	Iterations int     `json:"iterations"`   // timed iterations behind each series
+
+	// CILo/CIHi are the order-statistic CI bounds on ExecTimeNs (whole-program
+	// ns). Nullable: nil (JSON null / CSV empty) when the raw benchmath bound
+	// is non-finite (underpowered). THE GATE (Distinguishable) reads the raw
+	// bounds, never these pointers -- see crossrun.go and distinguishable.
+	CILo            *float64 `json:"ci_lo"`
+	CIHi            *float64 `json:"ci_hi"`
+	Confidence      float64  `json:"confidence"`       // actual CI confidence (>= requested)
+	Distinguishable bool     `json:"distinguishable"`  // paired delta CI excludes zero (ci_lo>0 || ci_hi<0) -- the statistical half of the gate (F1)
+	EffectSizePass  bool     `json:"effect_size_pass"` // per-op median delta clears the effect floor -- the practical half of the gate
+	PValue          float64  `json:"p_value"`          // advisory only: unpaired Mann-Whitney U p over baseline vs target medians; NOT the gate
+	Alpha           float64  `json:"alpha"`            // CompareAlpha behind the advisory p_value
+	Status          string   `json:"status"`           // ok | sub_threshold | insignificant | underpowered | error -- never gated on CoV
+
+	CoV          float64 `json:"cov"`           // worse (max) of the baseline/target series CoV, max across counts -- advisory only
+	HighVariance bool    `json:"high_variance"` // advisory: CoV exceeded the health-check ceiling on any count; does not invalidate Status=ok
+	Nvcsw        int64   `json:"nvcsw"`         // worse (max) of the baseline/target voluntary-context-switch count, max across counts; see README.md "Active-benchmarking diagnostics"
+	Nivcsw       int64   `json:"nivcsw"`        // worse (max) of the baseline/target involuntary-context-switch count, max across counts; see README.md "Active-benchmarking diagnostics"
 }
 
-// Status values. See README.md "Acceptance gate" for why Status is
-// Significant-driven, not CoV-driven.
+// Status values. See README.md "Acceptance gate" for why Status reads the
+// paired delta CI (Distinguishable), not CoV.
 const (
-	StatusOK            = "ok"            // Significant is true -- the delta is trustworthy regardless of routine CoV
-	StatusInsignificant = "insignificant" // Significant is false -- the delta does not clear its own measurement uncertainty; more Iterations or a quieter host shrink that uncertainty
+	StatusOK            = "ok"            // distinguishable AND clears the effect-size floor
+	StatusSubThreshold  = "sub_threshold" // distinguishable but below the effect floor -- resolvable, but not meaningfully more expensive in ABSOLUTE time. NOT "correctly priced": a cheap op can still be mispriced. Only `ok` is correlation-eligible.
+	StatusInsignificant = "insignificant" // measurable but the CI straddles zero -- not distinguishable at this precision
+	StatusUnderpowered  = "underpowered"  // too few counts for a finite CI (count<2 or non-finite bound); the verdict short-circuits before distinguishability
 	// StatusError is reserved for a per-case measurement failure. Not
 	// currently produced: bench_test.go fails the whole benchmark loudly
-	// (b.Fatalf) on an invalid program rather than degrading to an error
-	// row, so every emitted Run today is OK or Insignificant.
+	// (b.Fatalf) on an invalid program rather than degrading to an error row.
 	StatusError = "error"
 )
 
-// NewRun builds a Run from a differential result. c is the Case that
-// produced d (for its Class); iterations is the sample count behind each
-// series (baseline and target share one Config, so a single value applies
-// to both).
-func NewRun(c Case, d Diff, iterations int) Run {
-	cov := d.BaselineCoV
-	if d.TargetCoV > cov {
-		cov = d.TargetCoV
-	}
-	nvcsw := d.BaselineNvcsw
-	if d.TargetNvcsw > nvcsw {
-		nvcsw = d.TargetNvcsw
-	}
-	nivcsw := d.BaselineNivcsw
-	if d.TargetNivcsw > nivcsw {
-		nivcsw = d.TargetNivcsw
-	}
-	status := StatusInsignificant
-	if d.Significant {
-		status = StatusOK
-	}
-	return Run{
-		InputID:      d.OpcodeID,
-		Class:        string(c.Class),
-		Reps:         d.Reps,
-		GasUsed:      d.GasDelta,
-		ConstGas:     c.ConstGas,
-		ExecTimeNs:   d.DeltaNs,
-		Status:       status,
-		Iterations:   iterations,
-		CoV:          cov,
-		Significant:  d.Significant,
-		HighVariance: d.HighVariance,
-		Nvcsw:        nvcsw,
-		Nivcsw:       nivcsw,
+// distinguishable is the statistical half of the acceptance gate (F1): the
+// paired delta CI excludes zero. It reads the RAW float64 bounds from crossRun
+// (never the null-mapped *float64), so a non-finite bound is ±Inf-safe -- -Inf
+// is not > 0 and +Inf is not < 0, so an underpowered row is never
+// distinguishable and no nil deref is possible. It is deliberately NOT the
+// advisory p_value.
+func distinguishable(ciLo, ciHi float64) bool { return ciLo > 0 || ciHi < 0 }
+
+// effectSizePass is the practical half of the gate: the per-op median delta
+// clears a minimum absolute-ns floor, so "significant" means "meaningfully more
+// expensive," not merely "distinguishable at large n". A minPerOpNs <= 0
+// disables the floor (every distinguishable row passes). The gas-relative floor
+// is deferred (see README/design).
+func effectSizePass(perOpDeltaNs, minPerOpNs float64) bool {
+	return minPerOpNs <= 0 || math.Abs(perOpDeltaNs) >= minPerOpNs
+}
+
+// classifyStatus derives the verdict. Underpowered short-circuits first (its CI
+// is non-finite, so distinguishability is not meaningful). Acceptance
+// (StatusOK) requires BOTH distinguishable and effectPass; distinguishable but
+// below the floor is StatusSubThreshold. CoV/HighVariance never enter here.
+func classifyStatus(underpowered, distinguishable, effectPass bool) string {
+	switch {
+	case underpowered:
+		return StatusUnderpowered
+	case distinguishable && effectPass:
+		return StatusOK
+	case distinguishable:
+		return StatusSubThreshold
+	default:
+		return StatusInsignificant
 	}
 }
 
-var csvHeader = []string{"input_id", "class", "reps", "gas_used", "const_gas", "exec_time_ns", "status", "iterations", "cov", "significant", "high_variance", "nvcsw", "nivcsw"}
+// nullableBound maps a raw CI bound to the wire's nullable column: nil when
+// non-finite (D-1: ±Inf must never reach encoding/json). This is the only
+// place raw->nullable happens; the gate reads the raw bound upstream.
+func nullableBound(x float64) *float64 {
+	if math.IsInf(x, 0) {
+		return nil
+	}
+	return &x
+}
+
+// hostHealth carries the advisory host-health signals for one opcode: the
+// max-across-counts values from the collector. Named fields (like crossRunInput)
+// keep the same-typed Nvcsw/Nivcsw from transposing at the NewRun call site.
+type hostHealth struct {
+	CoV          float64 // worse-of-pair within-run CoV, max across counts
+	HighVariance bool    // CoV exceeded the ceiling on any count
+	Nvcsw        int64   // worse-of-pair voluntary ctx switches, max across counts
+	Nivcsw       int64   // worse-of-pair involuntary ctx switches, max across counts
+}
+
+// NewRun composes the per-opcode aggregate row. cr carries the cross-run
+// benchmath verdict (raw CI bounds); h carries the advisory host-health signals;
+// minPerOpNs is the effect-size floor (<=0 disables it). The gate reads cr's raw
+// bounds; the wire gets null-mapped ones.
+func NewRun(c Case, cr crossRun, gasUsed uint64, count, iterations int, h hostHealth, minPerOpNs float64) Run {
+	// dist/effect (not the package funcs) to avoid shadowing.
+	dist := distinguishable(cr.CILo, cr.CIHi)
+	effect := effectSizePass(cr.MedianDeltaNs/float64(c.Reps), minPerOpNs)
+	return Run{
+		InputID:         c.OpcodeID,
+		Class:           string(c.Class),
+		Reps:            c.Reps,
+		GasUsed:         gasUsed,
+		ConstGas:        c.ConstGas,
+		ExecTimeNs:      cr.MedianDeltaNs,
+		Count:           count,
+		Iterations:      iterations,
+		CILo:            nullableBound(cr.CILo),
+		CIHi:            nullableBound(cr.CIHi),
+		Confidence:      cr.Confidence,
+		Distinguishable: dist,
+		EffectSizePass:  effect,
+		PValue:          cr.P,
+		Alpha:           cr.Alpha,
+		Status:          classifyStatus(cr.Underpowered, dist, effect),
+		CoV:             h.CoV,
+		HighVariance:    h.HighVariance,
+		Nvcsw:           h.Nvcsw,
+		Nivcsw:          h.Nivcsw,
+	}
+}
+
+var csvHeader = []string{"input_id", "class", "reps", "gas_used", "const_gas", "exec_time_ns", "count", "iterations", "ci_lo", "ci_hi", "confidence", "distinguishable", "effect_size_pass", "p_value", "alpha", "status", "cov", "high_variance", "nvcsw", "nivcsw"}
+
+// formatBound renders a nullable CI bound: empty for a null (underpowered)
+// bound, full precision otherwise.
+func formatBound(p *float64) string {
+	if p == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*p, 'g', -1, 64)
+}
 
 // WriteCSV writes a header plus one row per run.
 func WriteCSV(w io.Writer, runs []Run) error {
@@ -92,14 +165,23 @@ func WriteCSV(w io.Writer, runs []Run) error {
 			strconv.FormatUint(r.GasUsed, 10),
 			strconv.FormatUint(r.ConstGas, 10),
 			strconv.FormatFloat(r.ExecTimeNs, 'g', -1, 64),
-			r.Status,
+			strconv.Itoa(r.Count),
 			strconv.Itoa(r.Iterations),
+			// A null bound (underpowered) renders as an empty field; older CSV
+			// artifacts wrote +Inf here. See README.md schema.
+			formatBound(r.CILo),
+			formatBound(r.CIHi),
+			strconv.FormatFloat(r.Confidence, 'g', -1, 64),
+			strconv.FormatBool(r.Distinguishable),
+			strconv.FormatBool(r.EffectSizePass),
+			strconv.FormatFloat(r.PValue, 'g', -1, 64),
+			strconv.FormatFloat(r.Alpha, 'g', -1, 64),
+			r.Status,
 			// CoV is advisory-only (README.md "Acceptance gate"), so this
 			// deliberately rounds to 6 sig figs for readability; NDJSON's
 			// json.Encoder gives CoV full precision instead -- a consumer
 			// comparing CoV across the two formats will see this difference.
 			strconv.FormatFloat(r.CoV, 'g', 6, 64),
-			strconv.FormatBool(r.Significant),
 			strconv.FormatBool(r.HighVariance),
 			strconv.FormatInt(r.Nvcsw, 10),
 			strconv.FormatInt(r.Nivcsw, 10),
