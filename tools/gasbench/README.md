@@ -53,6 +53,50 @@ least setup because there is no turbo/governor to disable. Kernel-level
 isolation (`isolcpus` etc.) is deliberately NOT required — see "Acceptance
 gate" below for why plain pinning is enough.
 
+<details>
+<summary><b>EC2 recipe (the exact workflow behind the shipped numbers)</b></summary>
+
+A `c6g.metal` (Graviton2: fixed frequency, no SMT, no co-tenants) is the
+least-setup host that satisfies the checklist. Ephemeral workflow via SSM —
+no SSH keys, no inbound ports:
+
+```bash
+# 1. Launch. Needs: an AL2023 arm64 AMI, any egress-capable subnet/SG, and an
+#    instance profile carrying AmazonSSMManagedInstanceCore.
+AMI=$(aws ssm get-parameter \
+  --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64 \
+  --query 'Parameter.Value' --output text)
+IID=$(aws ec2 run-instances --image-id "$AMI" --instance-type c6g.metal \
+  --subnet-id <subnet> --security-group-ids <sg> \
+  --iam-instance-profile Name=<ssm-instance-profile> \
+  --block-device-mappings 'DeviceName=/dev/xvda,Ebs={VolumeSize=60,VolumeType=gp3}' \
+  --query 'Instances[0].InstanceId' --output text)
+
+# 2. Wait for SSM Online (bare metal boots in ~10 min), then bootstrap + run.
+#    Building sei-chain's module graph needs the 60GB root and a few minutes.
+aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript \
+  --parameters '{"commands":[
+    "dnf install -y -q git tar gzip",
+    "curl -sL https://go.dev/dl/go1.25.6.linux-arm64.tar.gz | tar -C /usr/local -xz",
+    "export HOME=/root PATH=/usr/local/go/bin:$PATH",
+    "git clone --depth 1 https://github.com/sei-protocol/sei-chain.git /opt/sei-chain",
+    "cd /opt/sei-chain && go test -count=1 ./tools/gasbench/...",
+    "mkdir -p /opt/out && cd /opt/sei-chain && GASBENCH_OUT_CSV=/opt/out/gasbench.csv GASBENCH_OUT_NDJSON=/opt/out/gasbench.ndjson tools/gasbench/run.sh > /opt/out/run.log 2>&1"
+  ],"executionTimeout":["3600"]}'
+
+# 3. Fetch results (SSM output is text-only; base64 the CSV through it),
+#    then TERMINATE — the box bills ~$2.2/hr and the run needs ~15 min total.
+#    (send "base64 /opt/out/gasbench.csv", decode locally)
+aws ec2 terminate-instances --instance-ids "$IID"
+```
+
+The full suite at defaults is ~11 min on this host; expect every row
+`status=ok` with CI half-widths well under 1% of `exec_time_ns`. `run.sh`
+prints `cannot verify turbo/governor` on Graviton — expected: there is no
+turbo to check, which is the point of the host choice.
+
+</details>
+
 **3. Read the output:** each row is one opcode's *differential* cost — the
 target-minus-baseline delta, so setup/loop overhead has already cancelled
 (see "Differential construction"):
