@@ -58,9 +58,6 @@ func (app *BaseApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitCha
 	app.setDeliverState(initHeader)
 	app.setCheckState(initHeader)
 	app.setProcessProposalState(initHeader)
-	app.deliverState.SetContext(app.deliverState.ctx)
-	app.checkState.SetContext(app.checkState.ctx)
-	app.processProposalState.SetContext(app.processProposalState.ctx)
 
 	// Store the consensus params in the BaseApp's paramstore. Note, this must be
 	// done after the deliver state and context have been set as it's persisted
