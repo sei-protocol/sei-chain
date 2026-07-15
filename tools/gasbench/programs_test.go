@@ -16,5 +16,5 @@ func TestBuildCaseWithPanicsOnUnhandledArityZero(t *testing.T) {
 			t.Error("BuildCaseWith accepted an Arity-0 spec in the default branch; want panic")
 		}
 	}()
-	BuildCaseWith(OpSpec{Name: "PC", Op: vm.PC, Class: ClassStack, Arity: 0, ConstGas: vm.GasQuickStep}, 10, seed256)
+	BuildCaseWith(OpSpec{Name: "PC", Op: vm.PC, Class: ClassStack, Arity: 0, ConstGas: vm.GasQuickStep}, 10, seedOperands)
 }

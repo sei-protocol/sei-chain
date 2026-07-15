@@ -14,7 +14,8 @@ type Run struct {
 	InputID      string  `json:"input_id"`      // opcode id, e.g. "ADD"
 	Class        string  `json:"class"`         // opcode family, e.g. "arithmetic"
 	Reps         int     `json:"reps"`          // opcode executions the delta represents
-	GasUsed      uint64  `json:"gas_used"`      // whole-program gas delta (target - baseline); per-op = GasUsed/Reps
+	GasUsed      uint64  `json:"gas_used"`      // whole-program gas delta (target - baseline); per-op = GasUsed/Reps -- this is the DIFFERENTIAL (net of filler), not the gas the chain charges
+	ConstGas     uint64  `json:"const_gas"`     // nominal per-op gas the chain charges (jump-table ConstGas); the repricing-relevant denominator for ns-per-gas. See README.md "Read the output"
 	ExecTimeNs   float64 `json:"exec_time_ns"`  // whole-program time delta, ns (target median - baseline median); per-op = ExecTimeNs/Reps
 	Status       string  `json:"status"`        // ok if Significant, else insignificant -- never gated on CoV
 	Iterations   int     `json:"iterations"`    // timed iterations behind each series
@@ -63,6 +64,7 @@ func NewRun(c Case, d Diff, iterations int) Run {
 		Class:        string(c.Class),
 		Reps:         d.Reps,
 		GasUsed:      d.GasDelta,
+		ConstGas:     c.ConstGas,
 		ExecTimeNs:   d.DeltaNs,
 		Status:       status,
 		Iterations:   iterations,
@@ -74,7 +76,7 @@ func NewRun(c Case, d Diff, iterations int) Run {
 	}
 }
 
-var csvHeader = []string{"input_id", "class", "reps", "gas_used", "exec_time_ns", "status", "iterations", "cov", "significant", "high_variance", "nvcsw", "nivcsw"}
+var csvHeader = []string{"input_id", "class", "reps", "gas_used", "const_gas", "exec_time_ns", "status", "iterations", "cov", "significant", "high_variance", "nvcsw", "nivcsw"}
 
 // WriteCSV writes a header plus one row per run.
 func WriteCSV(w io.Writer, runs []Run) error {
@@ -88,6 +90,7 @@ func WriteCSV(w io.Writer, runs []Run) error {
 			r.Class,
 			strconv.Itoa(r.Reps),
 			strconv.FormatUint(r.GasUsed, 10),
+			strconv.FormatUint(r.ConstGas, 10),
 			strconv.FormatFloat(r.ExecTimeNs, 'g', -1, 64),
 			r.Status,
 			strconv.Itoa(r.Iterations),

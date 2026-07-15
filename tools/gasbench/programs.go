@@ -82,25 +82,43 @@ type Case struct {
 	Class            Class
 	DataDependent    bool
 	Reps             int
+	ConstGas         uint64 // nominal per-op gas the chain charges (OpSpec.ConstGas); the repricing-relevant denominator, distinct from the differential GasDelta
 	Baseline         []byte
 	Target           []byte
 	ExpectedGasDelta uint64
 }
 
-// seed256 is the fixed working-value operand: full-width (2^256-1) so
-// magnitude-dependent ops exercise their full uint256 limb path.
-var seed256 = new(uint256.Int).Not(uint256.NewInt(0))
+// seedOperands are the distinct, non-zero, ascending working-value operands
+// fed to the general (default) branch -- one per stack slot the opcode
+// consumes, index 0 landing at the modulus/divisor position and the last at
+// the top of the stack.
+//
+// Distinctness and order are load-bearing, not cosmetic. Equal operands make
+// holiman/uint256 short-circuit the arithmetic before the real kernel:
+// DIV(x,x) returns 1 and MOD(x,x) returns 0 without ever calling udivrem
+// (uint256.go Div/Mod), so an all-equal input would time a compare, not a
+// 256-bit division, and understate DIV/MOD by ~10x. Ascending order keeps the
+// arity-2 dividend (top) above the divisor so DIV/MOD reach udivrem, and puts
+// the smallest value at the modulus slot for ADDMOD/MULMOD so their operands
+// are not already reduced. All three are multi-limb; the largest is full-width.
+// See README.md "Differential construction".
+var seedOperands = []*uint256.Int{
+	uint256.MustFromHex("0xffffffffffffffffffffffffffffffffffffffffffffffff"),                 // 2^192-1 (divisor/modulus slot)
+	uint256.MustFromHex("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),         // 2^224-1
+	uint256.MustFromHex("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), // 2^256-1 (full width)
+}
 
-// seedShift is a fixed, in-range (<256) shift amount for SHL/SHR/SAR --
-// see README.md "Differential construction" for why this must differ from
-// seed256.
+// seedShift is a fixed, in-range (<256) shift amount for SHL/SHR/SAR -- it must
+// be a small distinct operand, not a full-width value, or the shift would hit
+// go-ethereum's "shift >= 256 -> 0" early-out. See README.md "Differential
+// construction".
 var seedShift = uint256.NewInt(4)
 
 // BuildCases builds every spec's case at DefaultReps.
 func BuildCases() []Case {
 	out := make([]Case, 0, len(Specs))
 	for _, s := range Specs {
-		out = append(out, BuildCaseWith(s, DefaultReps, seed256))
+		out = append(out, BuildCaseWith(s, DefaultReps, seedOperands))
 	}
 	return out
 }
@@ -109,15 +127,23 @@ func BuildCases() []Case {
 // README.md "Differential construction" for the balanced-DUP/POP algebra;
 // per-branch delta formulas are inlined below next to the code they justify.
 // Every unit is net-0 so stack depth never grows or underflows.
-func BuildCaseWith(s OpSpec, reps int, seed *uint256.Int) Case {
+func BuildCaseWith(s OpSpec, reps int, operands []*uint256.Int) Case {
 	base := program.New()
 	tgt := program.New()
+
+	// DUP1/SWAP1 need two values on the stack; the general branch needs one
+	// distinct operand per slot the opcode consumes. Guard here so a caller
+	// that under-supplies operands fails at construction, not with a silent
+	// stack underflow at measurement.
+	if len(operands) < 2 || len(operands) < s.Arity {
+		panic(fmt.Sprintf("gasbench: %s needs >= max(2, arity=%d) operands, got %d", s.Name, s.Arity, len(operands)))
+	}
 
 	var perUnitDelta uint64
 	switch s.Op {
 	case vm.DUP1:
-		base.Push(seed).Push(seed)
-		tgt.Push(seed).Push(seed)
+		base.Push(operands[0]).Push(operands[1])
+		tgt.Push(operands[0]).Push(operands[1])
 		for i := 0; i < reps; i++ {
 			tgt.Op(vm.DUP1, vm.POP)
 			base.Op(vm.PUSH0, vm.POP)
@@ -125,8 +151,8 @@ func BuildCaseWith(s OpSpec, reps int, seed *uint256.Int) Case {
 		perUnitDelta = s.ConstGas - vm.GasQuickStep // 3 - 2
 
 	case vm.SWAP1:
-		base.Push(seed).Push(seed)
-		tgt.Push(seed).Push(seed)
+		base.Push(operands[0]).Push(operands[1])
+		tgt.Push(operands[0]).Push(operands[1])
 		for i := 0; i < reps; i++ {
 			tgt.Op(vm.SWAP1)
 			base.Op(vm.JUMPDEST)
@@ -134,11 +160,14 @@ func BuildCaseWith(s OpSpec, reps int, seed *uint256.Int) Case {
 		perUnitDelta = s.ConstGas - params.JumpdestGas // 3 - 1
 
 	case vm.SHL, vm.SHR, vm.SAR:
-		// DUP2 (not DUP1 x2, unlike the default branch below): these ops
-		// need two DISTINCT operands, not n copies of one value -- see
-		// README.md "Differential construction".
-		base.Push(seed).Push(seedShift)
-		tgt.Push(seed).Push(seedShift)
+		// Shifts need a small in-range shift amount on top and a full-width
+		// value beneath -- distinct operands, or the shift hits go-ethereum's
+		// ">= 256 -> 0" early-out. This is the arity-2 shape of the default
+		// branch with a bespoke top operand; see README.md "Differential
+		// construction".
+		value := operands[len(operands)-1] // full-width
+		base.Push(value).Push(seedShift)
+		tgt.Push(value).Push(seedShift)
 		for i := 0; i < reps; i++ {
 			tgt.Op(vm.DUP2, vm.DUP2, s.Op, vm.POP)
 			base.Op(vm.DUP2, vm.DUP2, vm.POP, vm.POP)
@@ -153,12 +182,22 @@ func BuildCaseWith(s OpSpec, reps int, seed *uint256.Int) Case {
 		if s.Arity < 1 {
 			panic(fmt.Sprintf("gasbench: %s has Arity %d < 1 and is not special-cased in BuildCaseWith", s.Name, s.Arity))
 		}
-		base.Push(seed).Push(seed)
-		tgt.Push(seed).Push(seed)
+		// Push one DISTINCT operand per slot, then DUP<arity> reps times.
+		// DUP<arity> copies the deepest of the arity operands; repeating it
+		// arity times lifts fresh copies of all arity operands back to the top
+		// in order, so every unit re-runs the op on the SAME distinct tuple
+		// (equal operands would let uint256 short-circuit DIV/MOD -- see
+		// seedOperands). GasFastestStep is identical for every DUP<k>, so this
+		// leaves the (n-1)*GasQuickStep gas algebra unchanged from a DUP1 fill.
+		dupN := vm.DUP1 + vm.OpCode(s.Arity-1)
+		for d := 0; d < s.Arity; d++ {
+			base.Push(operands[d])
+			tgt.Push(operands[d])
+		}
 		for i := 0; i < reps; i++ {
 			for d := 0; d < s.Arity; d++ {
-				tgt.Op(vm.DUP1)
-				base.Op(vm.DUP1)
+				tgt.Op(dupN)
+				base.Op(dupN)
 			}
 			tgt.Op(s.Op, vm.POP)
 			for d := 0; d < s.Arity; d++ {
@@ -176,6 +215,7 @@ func BuildCaseWith(s OpSpec, reps int, seed *uint256.Int) Case {
 		Class:            s.Class,
 		DataDependent:    s.DataDependent,
 		Reps:             reps,
+		ConstGas:         s.ConstGas,
 		Baseline:         base.Bytes(),
 		Target:           tgt.Bytes(),
 		ExpectedGasDelta: perUnitDelta * uint64(reps),

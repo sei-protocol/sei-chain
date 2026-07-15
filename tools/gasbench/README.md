@@ -49,16 +49,27 @@ gate" below for why plain pinning is enough.
 target-minus-baseline delta, so setup/loop overhead has already cancelled
 (see "Differential construction"):
 
-- **per-op time** = `exec_time_ns / reps`; **per-op gas** = `gas_used / reps`.
-- **ns-per-gas** = `exec_time_ns / gas_used` (`gas_used` is positive for
-  every in-scope opcode) — the number the hypothesis test is about. If gas
-  pricing tracked execution time, ns-per-gas would be roughly constant
-  across opcodes; the spread across rows IS the mispricing signal. Comparing
-  rows within one run cancels the common clock-speed factor, so the spread
-  is meaningful even though the absolute nanoseconds are host-specific —
-  but microarchitectural ratios (adder vs shifter vs multiplier cost) still
-  differ between hosts, which is why repricing-grade numbers come from the
-  step-2 host, not a laptop.
+- **per-op time** = `exec_time_ns / reps`.
+- **two gas columns, and they are not the same number.** `const_gas` is the
+  nominal gas the chain actually charges for the opcode (the jump-table
+  constant: ADD=3, MULMOD=8). `gas_used` is the *differential* whole-program
+  delta the harness measured — net of the filler the baseline leaves behind —
+  so it is smaller (ADD→1, MULMOD→4) and arity-dependent. `gas_used` exists to
+  drive the construction self-check; **`const_gas` is the denominator for any
+  repricing statement.**
+- **ns-per-gas** = `exec_time_ns / reps / const_gas` — the number the
+  hypothesis test is about: time per gas-the-chain-charges. If pricing tracked
+  execution time it would be roughly constant across opcodes; the spread IS the
+  mispricing signal. Do NOT divide by `gas_used` — that differential denominator
+  is deflated by an arity-correlated factor (up to 3x) and would report a spread
+  even for a perfectly-priced instruction set. Quote the spread only across
+  `significant=true` rows: the cheap ops (DUP1, ADD…) are dominated by the
+  op-minus-filler marginal and routinely come back `insignificant` on a normal
+  host — do not anchor the low end of the spread on one. Comparing rows within
+  one run cancels the common clock-speed factor, so the spread is meaningful
+  even though the absolute nanoseconds are host-specific — but microarchitectural
+  ratios (adder vs shifter vs multiplier cost) still differ between hosts, which
+  is why repricing-grade numbers come from the step-2 host, not a laptop.
 
 **4. Only trust a row that earns it:**
 
@@ -113,26 +124,39 @@ programs share — loop overhead, setup, dispatch cost — cancels when
 the opcode.
 
 The repeating unit is balanced so gas is net-zero and the stack never grows:
-for an opcode consuming `n` operands and producing 1 result,
+for an opcode consuming `n` operands and producing 1 result, `n` *distinct*
+operands sit at the base of the stack and each unit lifts fresh copies of all
+`n` with `DUP<n>` (`DUP<n>` copies the deepest of the `n`; repeated `n` times
+it re-lifts the whole tuple in order):
 
 ```
-target   = DUP1 x n , OP     , POP        // dup n copies, run op, drop result
-baseline = DUP1 x n , POP x n              // dup n copies, drop them
+setup    = PUSH v0 .. PUSH v_{n-1}        // n distinct operands, once
+target   = DUP<n> x n , OP     , POP      // lift the n-tuple, run op, drop result
+baseline = DUP<n> x n , POP x n           // lift the n-tuple, drop them
 ```
 
-The `n` DUP1s cancel, one POP cancels the target's trailing POP, so the
-per-unit gas delta is `ConstGas(op) - (n-1)*GasQuickStep`. Two opcode
-families are special-cased in `BuildCaseWith`:
+The `n` DUP<n>s cancel, one POP cancels the target's trailing POP, so the
+per-unit gas delta is `ConstGas(op) - (n-1)*GasQuickStep` (every `DUP<k>` is
+`GasFastestStep`, so the fill choice doesn't change the algebra).
+
+**The operands must be distinct, and this is load-bearing, not cosmetic.**
+`holiman/uint256` short-circuits degenerate operands before the real kernel:
+`DIV(x,x)→1` and `MOD(x,x)→0` return without a division, so feeding `n` copies
+of one value (an earlier version's `DUP1 x n`) would time an `Eq` compare, not
+a 256-bit divide — understating DIV/MOD by ~10x and inverting their place in
+the spread. `seedOperands` is ascending so the arity-2 dividend (top) stays
+above the divisor and DIV/MOD reach `udivrem`, and the smallest value lands at
+the modulus slot so ADDMOD/MULMOD operands aren't pre-reduced. Two opcode
+families are still special-cased in `BuildCaseWith`:
 
 - **Stack ops** (`DUP1`, `SWAP1`) aren't "n operands → 1 result" — each gets
   its own construction.
-- **SHL/SHR/SAR** need two *distinct* operands, not `n` copies of the same
-  value: an out-of-range shift amount takes go-ethereum's constant-time
-  early-out (the cheapest possible case; `value.Clear()`, or `SetAllOne()`
-  for SAR on a negative operand) — at shift ≥256 for SHL/SHR, shift >256
-  for SAR — so reusing one seed for both operands would measure that
-  early-out instead of the real limb-shift path. `seedShift` keeps the shift
-  amount in-range and distinct from the value operand.
+- **SHL/SHR/SAR** need a small *in-range* shift amount on top (not a full-width
+  value): an out-of-range shift takes go-ethereum's constant-time early-out
+  (the cheapest case; `value.Clear()`, or `SetAllOne()` for SAR on a negative
+  operand) — at shift ≥256 for SHL/SHR, shift >256 for SAR — so a full-width
+  top operand would measure that early-out instead of the real limb-shift path.
+  `seedShift` keeps the shift amount in-range and distinct from the value.
 
 `EXP` and anything with dynamic/memory/state gas is out of scope — see
 `OpSpec.DataDependent` and the design's Non-goals.
@@ -270,7 +294,8 @@ One `Run` (`emit.go`) per opcode, written as CSV and/or NDJSON:
 | `input_id` | opcode id, e.g. `ADD` |
 | `class` | opcode family, e.g. `arithmetic` |
 | `reps` | opcode executions the delta represents |
-| `gas_used` | whole-program gas delta (target - baseline); per-op = `gas_used/reps` |
+| `gas_used` | *differential* whole-program gas delta (target - baseline), net of filler; per-op = `gas_used/reps`. Drives the construction self-check — NOT the repricing denominator |
+| `const_gas` | nominal per-op gas the chain charges (jump-table `ConstGas`); the denominator for ns-per-gas — see "Read the output" |
 | `exec_time_ns` | whole-program time delta, ns; per-op = `exec_time_ns/reps` |
 | `status` | `ok` if `significant`, else `insignificant` — never gated on CoV |
 | `iterations` | timed iterations behind each series |
