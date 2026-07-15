@@ -38,8 +38,9 @@ file is the short orientation.
 tools/gasbench/run.sh
 ```
 
-Env vars, output schema, and the `-count` semantics caveat: see README.md
-"Running it" / "Output schema".
+End-to-end walkthrough incl. how to interpret the output: README.md
+"Quickstart". Env vars, output schema, and the `-count` semantics caveat:
+README.md "Running it" / "Output schema".
 
 ## Files
 
@@ -54,5 +55,5 @@ Env vars, output schema, and the `-count` semantics caveat: see README.md
 | `emit_test.go` | pins `Run.Status` as a pure function of `Diff.Significant` |
 | `bench_test.go` | `BenchmarkOpcodes`: wires the above into `go test -bench` |
 | `run.sh` | pinned-core runner + operator checklist for turbo/governor/isolation |
-| `README.md` | full rationale: construction, acceptance gate, diagnostics |
+| `README.md` | operator quickstart + full rationale: construction, acceptance gate, diagnostics |
 | `AGENTS.md` | this file |

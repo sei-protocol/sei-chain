@@ -9,6 +9,81 @@ the `bdchatham-designs` repo. Noise-floor calibration behind the acceptance
 gate below: `designs/gas-repricing-telemetry/research/microbenchmark-noise-isolation-tradeoffs.md`
 in the same repo.
 
+## Quickstart
+
+To iterate on this harness with an agent, point it at this directory's
+`AGENTS.md` first — it carries the rules a change here must not break.
+
+**1. Smoke run (any machine, indicative numbers only):**
+
+```bash
+cd sei-chain
+GASBENCH_OUT_CSV=gasbench.csv GASBENCH_OUT_NDJSON=gasbench.ndjson \
+  tools/gasbench/run.sh | tee gasbench.log
+```
+
+This benchmarks every scalar opcode in `Specs` and writes one row per opcode
+to the output files. Relative output paths land in `tools/gasbench/` (the
+test binary's working directory), not where you invoked `run.sh` — pass
+absolute paths to put them elsewhere. Keep the `tee`: the CSV/NDJSON hold
+only the *final* count's rows (each of `-count`'s reruns rewrites the
+files), so the per-count history needed for step 4's agreement check exists
+only in the benchmark stdout you just captured. Several minutes at the
+defaults; set `GASBENCH_ITERS=2000 GASBENCH_COUNT=1` for a fast first look.
+On a laptop or shared box, `run.sh` will warn that results are indicative:
+expect cheap opcodes (`ADD`'s per-op cost is ~1ns, a whole-program delta
+close to the noise) to come back `status=insignificant` there, and don't
+read anything into them.
+
+**2. For real numbers, use a quiet, dedicated Linux host:** bare metal (no
+co-tenants), fixed or pinned CPU frequency, one core reserved for the run
+(`GASBENCH_CORE`). `run.sh`'s header comment is the operator checklist. A
+fixed-frequency ARM server instance (e.g. a Graviton `.metal`) needs the
+least setup because there is no turbo/governor to disable. Kernel-level
+isolation (`isolcpus` etc.) is deliberately NOT required — see "Acceptance
+gate" below for why plain pinning is enough.
+
+**3. Read the output:** each row is one opcode's *differential* cost — the
+target-minus-baseline delta, so setup/loop overhead has already cancelled
+(see "Differential construction"):
+
+- **per-op time** = `exec_time_ns / reps`; **per-op gas** = `gas_used / reps`.
+- **ns-per-gas** = `exec_time_ns / gas_used` (`gas_used` is positive for
+  every in-scope opcode) — the number the hypothesis test is about. If gas
+  pricing tracked execution time, ns-per-gas would be roughly constant
+  across opcodes; the spread across rows IS the mispricing signal. Comparing
+  rows within one run cancels the common clock-speed factor, so the spread
+  is meaningful even though the absolute nanoseconds are host-specific —
+  but microarchitectural ratios (adder vs shifter vs multiplier cost) still
+  differ between hosts, which is why repricing-grade numbers come from the
+  step-2 host, not a laptop.
+
+**4. Only trust a row that earns it:**
+
+- `significant=false` (the row's `status` reads `insignificant` — same
+  condition, derived field): the delta didn't clear its own measurement
+  uncertainty — treat the time as indistinguishable from zero at this
+  precision. Raise `GASBENCH_ITERS`, or move to the quiet host; don't
+  average or rank insignificant rows.
+- `high_variance=true`: advisory — the run saw unusual dispersion (noisy
+  neighbor, throttling). It does not invalidate a significant result, and
+  `nivcsw` tells you where to look: nonzero means the scheduler preempted
+  the process mid-window (blame the host); near-zero alongside the high
+  CoV points at a non-scheduler tail inside the harness itself (see
+  "Active-benchmarking diagnostics").
+- Rerun-to-rerun agreement is the real confidence check: `run.sh` defaults
+  to `-count=10`, and the per-count `per-op-ns`/`per-op-gas` metric lines
+  live in the captured stdout (`gasbench.log` from step 1 — `benchstat`
+  consumes that format directly), not in the CSV. A per-op delta that is
+  stable across counts (and across invocations) is the result. See
+  "Running it" for what `-count` does and doesn't give you.
+
+**Scope:** scalar constant-gas opcodes only (arithmetic/bitwise/comparison/
+stack). Parametric opcodes (`KECCAK256`/`EXP`/copies), the state-touching
+matrix (`SLOAD`/`SSTORE`/`CALL`), and real-block replay are deferred — see
+"Scope" at the bottom for the un-defer triggers. To add an opcode within
+scope, follow `AGENTS.md` "New opcode specs".
+
 ## The load-bearing invariant: never attach a tracer to a timed call
 
 Attaching a `tracing.Hooks` tracer to sum per-opcode gas sets `debug=true` in

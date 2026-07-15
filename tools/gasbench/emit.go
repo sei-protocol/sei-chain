@@ -29,7 +29,7 @@ type Run struct {
 // Significant-driven, not CoV-driven.
 const (
 	StatusOK            = "ok"            // Significant is true -- the delta is trustworthy regardless of routine CoV
-	StatusInsignificant = "insignificant" // Significant is false -- the delta does not clear its own measurement uncertainty; needs more Iterations or a coarser SigmaK, not a quieter host
+	StatusInsignificant = "insignificant" // Significant is false -- the delta does not clear its own measurement uncertainty; more Iterations or a quieter host shrink that uncertainty
 	// StatusError is reserved for a per-case measurement failure. Not
 	// currently produced: bench_test.go fails the whole benchmark loudly
 	// (b.Fatalf) on an invalid program rather than degrading to an error
