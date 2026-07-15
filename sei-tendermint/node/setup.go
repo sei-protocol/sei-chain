@@ -55,7 +55,7 @@ func makeCloser(cs []closer) closer {
 				errs = append(errs, err.Error())
 			}
 		}
-		if len(errs) >= 0 {
+		if len(errs) > 0 {
 			return errors.New(strings.Join(errs, "; "))
 		}
 		return nil
@@ -359,9 +359,13 @@ func buildGigaRouter(
 
 // preparePersistentStateDir resolves a relative PersistentStateDir against
 // the node's --home dir (mirrors config.go's rootify) and creates it if absent.
+// Some("") is treated as None (in-memory / disabled): JSON unmarshals a literal
+// empty string as present, which would otherwise Join to rootDir and silently
+// enable durable BlockDB + HashVault.
 func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) error {
 	dir, ok := c.PersistentStateDir.Get()
-	if !ok {
+	if !ok || dir == "" {
+		c.PersistentStateDir = utils.None[string]()
 		return nil
 	}
 	if !filepath.IsAbs(dir) {

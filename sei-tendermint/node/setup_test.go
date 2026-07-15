@@ -316,3 +316,20 @@ func TestBuildGigaConfig_NodeKeyMismatch(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "node key mismatch")
 }
+
+func TestMakeCloser_NoErrorsReturnsNil(t *testing.T) {
+	cl := makeCloser([]closer{
+		func() error { return nil },
+		func() error { return nil },
+	})
+	require.NoError(t, cl())
+}
+
+func TestPreparePersistentStateDir_EmptyStringIsNone(t *testing.T) {
+	cfg := &p2p.GigaRouterCommonConfig{
+		PersistentStateDir: utils.Some(""),
+	}
+	require.NoError(t, preparePersistentStateDir(t.TempDir(), cfg))
+	_, ok := cfg.PersistentStateDir.Get()
+	require.False(t, ok, "Some(\"\") must be cleared to None for in-memory mode")
+}
