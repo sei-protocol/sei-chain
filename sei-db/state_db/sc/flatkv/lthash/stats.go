@@ -33,8 +33,8 @@ func (s ModuleStats) Add(d ModuleStats) ModuleStats {
 // Marshal encodes stats as 16 big-endian bytes (KeyCount || Bytes).
 func (s ModuleStats) Marshal() []byte {
 	b := make([]byte, moduleStatsEncodedLen)
-	binary.BigEndian.PutUint64(b[0:8], uint64(s.KeyCount))
-	binary.BigEndian.PutUint64(b[8:16], uint64(s.Bytes))
+	binary.BigEndian.PutUint64(b[0:8], uint64(s.KeyCount)) //nolint:gosec // two's-complement round-trip; decoded back to int64 by UnmarshalModuleStats
+	binary.BigEndian.PutUint64(b[8:16], uint64(s.Bytes))   //nolint:gosec // two's-complement round-trip; decoded back to int64 by UnmarshalModuleStats
 	return b
 }
 

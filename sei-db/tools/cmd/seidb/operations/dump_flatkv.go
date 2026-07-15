@@ -45,7 +45,7 @@ const (
 	flatkvBucketAccount = "account"
 	flatkvBucketCode    = "code"
 	flatkvBucketStorage = "storage"
-	flatkvBucketMisc  = "misc"
+	flatkvBucketMisc    = "misc"
 )
 
 // flatkvBucketOrder lists the logical bucket names for dump output files.
