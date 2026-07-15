@@ -961,6 +961,40 @@ func TestVerifyIntegrityDetectsSequenceGap(t *testing.T) {
 	require.Contains(t, err.Error(), "gap")
 }
 
+// TestVerifyIntegrityReportsDuplicateSequence verifies that when an interrupted rollback swap leaves two sealed
+// files sharing a fileSeq (the reduced [1,3] file beside the untouched [1,6] original), VerifyIntegrity
+// checksums each physical file under its own name and reports the duplicate as such. It must not collapse both
+// parsed entries onto one file — which would skip the survivor's CRC entirely, raise a misattributed range
+// mismatch, and report the duplicate as a nonsensical "gap between N and N".
+func TestVerifyIntegrityReportsDuplicateSequence(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir) // large target: all six records land in one file, sequence 0
+
+	w := openWAL(t, cfg)
+	for index := uint64(1); index <= 6; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Close())
+
+	oldName := sealedFileName(0, 1, 6)
+	require.Equal(t, []string{oldName}, sealedFileNames(t, dir))
+
+	// Reproduce the crash state: the reduced file [1,3] beside the untouched original [1,6], both internally
+	// name/content consistent. VerifyIntegrity does not run recovery, so it observes the unreconciled duplicate.
+	reducedName := sealedFileName(0, 1, 3)
+	prefix := recordPrefixBytes(t, filepath.Join(dir, oldName), 3)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, reducedName), prefix, 0o600))
+	require.Equal(t, []string{reducedName, oldName}, sealedFileNames(t, dir))
+
+	err := VerifyIntegrity(dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate")
+	// Each parsed entry resolves to its own file, so neither yields a misattributed range mismatch, and the
+	// duplicate is reported as a duplicate rather than a sequence gap.
+	require.NotContains(t, err.Error(), "content holds")
+	require.NotContains(t, err.Error(), "gap")
+}
+
 // TestVerifyIntegrityReportsAllFaults verifies that a single VerifyIntegrity pass aggregates every problem it
 // finds rather than stopping at the first one.
 func TestVerifyIntegrityReportsAllFaults(t *testing.T) {
