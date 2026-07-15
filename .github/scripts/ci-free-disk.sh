@@ -4,10 +4,7 @@
 #
 # Root cause: the integration and lint jobs exhaust the runner's root
 # filesystem. When '/' fills, the Actions runner *worker process itself* crashes
-# with "No space left on device" mid-step; the job then hangs until the backend
-# force-fails it, which surfaces to engineers as a CI "timeout" and fails the
-# merge queue. Removing preinstalled toolchains that Sei CI never uses frees
-# ~20-30 GB on '/'.
+# with "No space left on device" mid-step.
 #
 # Safe on any ubuntu-* runner: every removal is guarded so a change to the
 # runner image layout can never fail the job.

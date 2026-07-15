@@ -24,7 +24,7 @@ echo "Relocating Docker data-root to ${target}"
 sudo mkdir -p "${target}" /etc/docker
 
 # Merge into any existing daemon.json rather than clobbering it. python3 is
-# preinstalled on all GitHub-hosted ubuntu images (jq may not be installed yet).
+# preinstalled on all GitHub-hosted ubuntu images.
 sudo python3 - "${target}" <<'PY'
 import json, os, sys
 
