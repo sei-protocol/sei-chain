@@ -113,10 +113,7 @@ func (s *CommitStore) Commit() (version int64, err error) {
 	otelMetrics.CurrentVersion.Record(s.ctx, version)
 	logger.Info("FlatKV Commit complete",
 		"version", version,
-		"pendingAccount", pendingAccount,
-		"pendingCode", pendingCode,
-		"pendingStorage", pendingStorage,
-		"pendingMisc", pendingMisc,
+		"totalWriteCount", pendingAccount+pendingCode+pendingStorage+pendingMisc,
 		"elapsed", time.Since(start))
 	return version, nil
 }

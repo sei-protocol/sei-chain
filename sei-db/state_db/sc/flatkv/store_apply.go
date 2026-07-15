@@ -13,15 +13,15 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// ApplyChangeSets buffers EVM changesets and updates the working LtHash.
-// Non-EVM modules are routed to miscDB with a "<module>/" key prefix.
-//
-// The three-step lattice-hash pipeline is owned by s.ltCalc (the lthash
-// HashCalculator): (1) grab the old value for every changed key, (2) hash the
-// individual keys, and (3) combine the workers' results into the final per-DB
-// and per-module hashes. This method only classifies the changesets, applies
-// the EVM value semantics (the process* helpers), and buffers the results.
+// ApplyChangeSets classifies changesets, buffers pending writes, and folds
+// them into the working LtHash. Non-EVM modules go to miscDB under "<module>/".
 func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err error) {
+	// Hold the write lock for the whole body: it both reads (old values) and
+	// mutates (maps.Copy) the pending-writes maps, which iterator construction
+	// and Get read under a read lock.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	obs := s.observeOp("ApplyChangeSets", otelMetrics.ApplyChangesetsLatency,
 		"changesets", len(changeSets))
 	defer obs.done(&err, nil)
@@ -30,103 +30,61 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err e
 		return errReadOnly
 	}
 
-	// Hold the write lock for the whole body: it both reads (old values) and
-	// mutates (maps.Copy) the pending-writes maps, which iterator construction
-	// and Get read under a read lock.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// (0) Classify: split the changesets into per-kind maps keyed by physical
-	// key (domain logic — depends on the EVM key encoding).
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 	changesByType, err := classifyAndPrefix(changeSets)
 	if err != nil {
 		return err
 	}
-	blockHeight := s.committedVersion + 1
+	pairSets, counts, err := s.prepareWrites(changesByType, s.committedVersion+1)
+	if err != nil {
+		return err
+	}
 
-	// (1) Grab the old value for each changed key, in parallel, via the
-	// calculator.
+	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
+	res, err := s.ltCalc.Compute(pairSets, s.perDBWorkingLtHash, s.perDBModuleWorkingLtHash, s.perDBModuleWorkingStats)
+	if err != nil {
+		return err
+	}
+
+	s.perDBWorkingLtHash = res.PerDB
+	s.perDBModuleWorkingLtHash = res.PerModule
+	s.perDBModuleWorkingStats = res.PerModuleStats
+	s.workingLtHash = res.Global
+	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
+
+	s.phaseTimer.SetPhase("apply_change_done")
+	logger.Debug("FlatKV ApplyChangeSets complete",
+		"changesets", len(changeSets),
+		"writes", counts.accountWrites+counts.storageWrites+counts.codeWrites+counts.miscWrites,
+		"elapsed", obs.elapsed())
+	return nil
+}
+
+// applyCounts records per-DB write tallies for logging and metrics.
+type applyCounts struct {
+	accountWrites, storageWrites, codeWrites, miscWrites int
+}
+
+// prepareWrites reads prior values, applies EVM value semantics, buffers the
+// resulting rows into the pending-write maps, and returns per-DB LtHash pairs
+// for Compute. Only accounts need old values in structured form (to merge
+// partial nonce/codehash updates); other DBs pass raw old bytes through.
+func (s *CommitStore) prepareWrites(
+	changesByType map[keys.EVMKeyKind]map[string][]byte,
+	blockHeight int64,
+) ([]lthash.DBPairs, applyCounts, error) {
+	var counts applyCounts
+
 	s.phaseTimer.SetPhase("apply_change_sets_batch_read")
 	readStart := time.Now()
 	oldByDB, err := s.ltCalc.ReadOldValues(s, keysByDBFromClassified(changesByType))
 	otelMetrics.BatchReadOldValuesLatency.Record(s.ctx, secondsSince(readStart),
 		metric.WithAttributes(successAttr(err)))
 	if err != nil {
-		return fmt.Errorf("failed to batch read old values: %w", err)
+		return nil, counts, fmt.Errorf("failed to batch read old values: %w", err)
 	}
 
-	// Apply EVM value semantics and gather the LtHash pairs for each DB, then
-	// buffer the new writes.
 	s.phaseTimer.SetPhase("apply_change_sets_gather_pairs")
-	pairSets, counts, err := s.prepareWrites(changesByType, oldByDB, blockHeight)
-	if err != nil {
-		return err
-	}
-
-	// (2)+(3) Hash individual keys and combine the workers' results into the
-	// final per-module hashes, then derive each per-DB root as the homomorphic
-	// sum of its module hashes and the global hash as the sum of the per-DB
-	// roots. Because LtHash is homomorphic, the derived roots are identical to
-	// folding the whole delta into the root directly, so the global evm_lattice
-	// store hash (and the consensus AppHash) is unchanged.
-	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
-	res, err := s.ltCalc.Compute(pairSets, s.perDBWorkingLtHash, s.perDBModuleWorkingLtHash, s.perDBModuleWorkingStats)
-	if err != nil {
-		return err
-	}
-	s.perDBWorkingLtHash = res.PerDB
-	s.perDBModuleWorkingLtHash = res.PerModule
-	s.perDBModuleWorkingStats = res.PerModuleStats
-	s.workingLtHash = res.Global
-
-	// Now that we've made it through the batch without errors, record the
-	// change sets as pending.
-	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
-
-	s.phaseTimer.SetPhase("apply_change_done")
-	logger.Debug("FlatKV ApplyChangeSets complete",
-		"changesets", len(changeSets),
-		"accountChanges", counts.accountChanges,
-		"accountWrites", counts.accountWrites,
-		"storageChanges", counts.storageChanges,
-		"storageWrites", counts.storageWrites,
-		"codeChanges", counts.codeChanges,
-		"codeWrites", counts.codeWrites,
-		"miscChanges", counts.miscChanges,
-		"miscWrites", counts.miscWrites,
-		"pendingAccount", len(s.accountWrites),
-		"pendingStorage", len(s.storageWrites),
-		"pendingCode", len(s.codeWrites),
-		"pendingMisc", len(s.miscWrites),
-		"elapsed", obs.elapsed())
-	return nil
-}
-
-// applyCounts records per-DB change/write tallies for logging and metrics.
-type applyCounts struct {
-	accountChanges, storageChanges, codeChanges, miscChanges int
-	accountWrites, storageWrites, codeWrites, miscWrites     int
-}
-
-// prepareWrites applies the EVM value semantics to the classified changes,
-// buffers the resulting new values into the pending-write maps, and returns the
-// per-DB LtHash pairs (new + old serialized values) for the calculator to hash.
-//
-// oldByDB holds the prior serialized value for each changed key, grouped by DB
-// dir, as read by the calculator. Only the account path needs the old value in
-// structured form (to merge partial nonce/codehash updates), so it deserializes
-// those on demand; all other DBs pass the raw old bytes straight through.
-func (s *CommitStore) prepareWrites(
-	changesByType map[keys.EVMKeyKind]map[string][]byte,
-	oldByDB map[string]map[string][]byte,
-	blockHeight int64,
-) ([]lthash.DBPairs, applyCounts, error) {
-	var counts applyCounts
-	counts.storageChanges = len(changesByType[keys.EVMKeyStorage])
-	counts.accountChanges = len(changesByType[keys.EVMKeyNonce]) + len(changesByType[keys.EVMKeyCodeHash])
-	counts.codeChanges = len(changesByType[keys.EVMKeyCode])
-	counts.miscChanges = len(changesByType[keys.EVMKeyMisc])
 
 	// Account: merge partial nonce/codehash updates onto the old account.
 	accountOld, err := deserializeAccountOld(oldByDB[accountDBDir])
