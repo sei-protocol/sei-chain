@@ -2,25 +2,10 @@ package gasbench
 
 import "math"
 
-// Diff is the subtraction of a baseline series (opcode replaced by a
-// JUMPDEST/no-op) from a target series (opcode present). Everything the two
-// programs share -- loop overhead, setup, timer cost -- cancels in the mean;
-// what remains is attributable to the opcode.
-//
-// The estimator here is difference-of-medians with the median's asymptotic
-// standard error propagated in quadrature. Medians reject the additive-noise
-// tail better than means. A min-difference with a bootstrap CI is the
-// estimator to reach for if the central assumption proves too coarse; it is
-// the honest follow-up, not the MVP.
-//
-// Acceptance is Significant, not CoV. A raw per-series CoV of several percent
-// under plain core-pinning (no kernel-level isolcpus/nohz_full/rcu_nocbs) is
-// expected physics -- the periodic scheduler tick, device IRQs, and
-// shared-cache contention that pinning alone cannot remove -- not a defect.
-// No major benchmarking harness (JMH, criterion.rs, Go's own benchstat) gates
-// on a fixed dispersion threshold either; all three gate on effect size
-// against the estimate's own uncertainty, which is what Significant computes.
-// See designs/gas-repricing-telemetry/research/microbenchmark-noise-isolation-tradeoffs.md.
+// Diff is the difference-of-medians subtraction of a baseline series from a
+// target series, with the median's standard error propagated in quadrature
+// as Uncertainty. See README.md for the estimator choice and the
+// Significant-not-CoV acceptance-gate rationale.
 type Diff struct {
 	OpcodeID string
 
@@ -34,20 +19,17 @@ type Diff struct {
 	SigmaK      float64 // significance multiple applied
 	Significant bool    // |DeltaNs| > SigmaK*Uncertainty -- the acceptance gate (see emit.go's Status)
 
-	// HighVariance is an advisory-only flag: true when either series' CoV
-	// exceeds CoVCeiling. It does not gate Status; it exists to catch a
-	// genuinely pathological run (a noisy neighbor, a throttling event) --
-	// distinct from the routine several-percent CoV a pinned-but-not-isolated
-	// core sees, which HighVariance's default ceiling is set well above.
+	// HighVariance is advisory only (CoV exceeded CoVCeiling); it never gates
+	// Significant. See README.md "Acceptance gate".
 	HighVariance bool
 	CoVCeiling   float64
 
-	// BaselineNivcsw/TargetNivcsw are involuntary-context-switch counts
-	// observed during each series' timed window (process-wide; see
-	// Series.NivcswDelta). Nonzero values are direct evidence the kernel
-	// preempted the measurement thread mid-window -- the mechanism behind
-	// HighVariance and behind ordinary CoV, made observable rather than
-	// merely inferred.
+	// BaselineNvcsw/TargetNvcsw and BaselineNivcsw/TargetNivcsw are each
+	// series' voluntary/involuntary context-switch counts (see
+	// Series.NvcswDelta/NivcswDelta). See README.md "Active-benchmarking
+	// diagnostics".
+	BaselineNvcsw  int64
+	TargetNvcsw    int64
 	BaselineNivcsw int64
 	TargetNivcsw   int64
 
@@ -77,6 +59,8 @@ func Subtract(opcodeID string, baseline, target Series, reps int, sigmaK, covCei
 		TargetCoV:      ts.CoV,
 		SigmaK:         sigmaK,
 		CoVCeiling:     covCeiling,
+		BaselineNvcsw:  baseline.NvcswDelta,
+		TargetNvcsw:    target.NvcswDelta,
 		BaselineNivcsw: baseline.NivcswDelta,
 		TargetNivcsw:   target.NivcswDelta,
 		Reps:           reps,

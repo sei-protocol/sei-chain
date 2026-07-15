@@ -1,9 +1,6 @@
 // Package gasbench measures per-opcode EVM execution time and correlates it
-// with gas cost via differential microbenchmarking.
-//
-// The harness is tracer-free by construction: nothing here attaches an EVM
-// tracer, so the interpreter runs its hot path unobserved. Timing uses the
-// monotonic clock (time.Now/time.Since) around a caller-supplied RunOnce.
+// with gas cost via differential microbenchmarking. See README.md for the
+// full methodology and rationale.
 package gasbench
 
 import (
@@ -15,28 +12,19 @@ import (
 )
 
 // RunOnce executes a pre-loaded EVM program to completion through the
-// tracer-free interpreter and reports the gas it consumed.
+// tracer-free interpreter and reports the gas it consumed. It closes over
+// its program (see Program.Run) so the timing loop never rebuilds
+// interpreter/StateDB state per call.
 //
-// A RunOnce closes over its program (see Program.Run in program.go) so the
-// timing loop never rebuilds interpreter/StateDB state per call. Rebuilding
-// per call would swamp a nanosecond-scale opcode signal with allocation
-// noise; the differential construction only holds if baseline and target pay
-// identical, amortized-out setup cost.
-//
-// Contract the EVM-wiring side must satisfy:
+// Contract:
 //   - Deterministic: identical program yields identical gasUsed and
-//     equivalent work every call; no state carried across calls that would
-//     drift the timing (Program.Run resets transient storage/access list
-//     per entry, which is safe only for pure-compute, non-state-touching
-//     programs).
+//     equivalent work every call.
 //   - Self-contained and tracer-free: no I/O, logging, or tracer on the hot
-//     path; the only thing measured is interpreter execution.
-//   - Sufficient work: the program runs the opcode-under-test enough times
-//     that total runtime is well above timer resolution (target >= ~10us),
-//     so per-call time.Now overhead and clock granularity do not dominate.
-//   - Allocation-light: GC is disabled during the window, so allocations
-//     across warmup+Iterations must fit in RAM. Keep the program lean or
-//     lower Iterations.
+//     path.
+//   - Sufficient work: total runtime well above timer resolution
+//     (target >= ~10us).
+//   - Allocation-light: GC is disabled during the window (see Measure), so
+//     allocations across warmup+Iterations must fit in RAM.
 type RunOnce func() (gasUsed uint64, err error)
 
 // sink defeats dead-code elimination of the gas result. A single measurement
@@ -64,24 +52,16 @@ type Series struct {
 	Samples  []time.Duration
 	Warnings []string
 
-	// NvcswDelta/NivcswDelta are process-wide (RUSAGE_SELF, not thread-scoped
-	// -- Go exposes no portable RUSAGE_THREAD) voluntary/involuntary
-	// context-switch counts observed during the timed window (Warmup
-	// excluded). This is the cheapest "active benchmarking" check available
-	// (Gregg): a nonzero NivcswDelta on a nominally pinned core is direct
-	// confirmation the kernel scheduler preempted the measurement thread
-	// mid-window -- the same tick/IRQ/neighbor mechanism a CoV reading only
-	// infers indirectly. See
-	// designs/gas-repricing-telemetry/research/microbenchmark-noise-isolation-tradeoffs.md.
+	// NvcswDelta/NivcswDelta are process-wide (RUSAGE_SELF) voluntary/
+	// involuntary context-switch counts over the timed window (Warmup
+	// excluded). See README.md "Active-benchmarking diagnostics".
 	NvcswDelta  int64
 	NivcswDelta int64
 }
 
 // rusageSnapshot reads the process's current voluntary/involuntary
-// context-switch counters. Process-wide rather than thread-scoped, so on a
-// process with other active goroutines the delta can include their
-// scheduling activity too; for this harness's single-goroutine measurement
-// loop that's a minor overcount, not a different mechanism.
+// context-switch counters (process-wide, not thread-scoped: Go's syscall
+// package exposes no portable RUSAGE_THREAD).
 func rusageSnapshot() (nvcsw, nivcsw int64, err error) {
 	var ru syscall.Rusage
 	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err != nil {

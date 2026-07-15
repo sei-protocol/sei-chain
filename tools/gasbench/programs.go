@@ -7,11 +7,8 @@ import (
 	"github.com/holiman/uint256"
 )
 
-// DefaultReps is the number of unrolled body units per program. Straight-line
-// (no loop counter) keeps the interpreter dispatch loop identical between
-// baseline and target; the count is fixed and equal for both, so loop-control
-// cost cannot leak into the differential. 1000 gives a strong signal while
-// staying well under any code/gas limit.
+// DefaultReps is the number of unrolled (straight-line, no loop counter)
+// body units per program, fixed and equal for baseline and target.
 const DefaultReps = 1000
 
 // Class groups opcodes by arithmetic character.
@@ -32,24 +29,15 @@ type OpSpec struct {
 	Arity    int    // stack items consumed by the op (operands)
 	ConstGas uint64 // definitional constant gas from the fork jump table
 	// DataDependent is true when execution TIME varies with operand
-	// magnitude (uint256 limb-count loops) even though gas is constant.
-	// Treat these as curves, not points, if the harness ever sweeps operands
-	// (deferred - see the design's Non-goals).
+	// magnitude even though gas is constant. See README.md "Scope".
 	DataDependent bool
 }
 
-// Specs is the benchmarkable scalar-opcode set. Every entry is CONSTANT-gas
-// in this fork (verified against core/vm/jump_table.go + core/vm/eips.go);
-// none has dynamic gas, none touches memory/state. EXP is deliberately
-// omitted: its gas is parametric (gasExpFrontier over exponent byte length),
-// so it does not belong in a constant-gas differential.
-//
-// No scalar opcode here is repriced on Sei: production always builds the EVM
-// with a stock vm.Config{} (x/evm/keeper/evm.go, msg_server.go, ante/fee.go),
-// no custom jump table, no opcode gas overrides. The only Sei gas param is
-// SeiSstoreSetGasEIP2200 (x/evm/types/params.go), a storage opcode and out of
-// scope here. If a scalar opcode is ever repriced, its gas must come from the
-// live x/evm params, not this table's geth constant.
+// Specs is the benchmarkable scalar-opcode set: every entry is
+// constant-gas in this fork (verified against core/vm/jump_table.go +
+// core/vm/eips.go), none touches memory/state. EXP is omitted: its gas is
+// parametric (gasExpFrontier), not constant. See AGENTS.md for the
+// hand-verification requirement when adding an entry.
 var Specs = []OpSpec{
 	// arithmetic
 	{"ADD", vm.ADD, ClassArithmetic, 2, vm.GasFastestStep, false},
@@ -79,17 +67,13 @@ var Specs = []OpSpec{
 	{"SWAP1", vm.SWAP1, ClassStack, 0, vm.GasFastestStep, false},
 }
 
-// Case is a differential bytecode pair for one opcode, ready for measurement.
-// Baseline and target are identical except that target executes the opcode;
-// both run the same fixed unit count and both terminate cleanly on STOP with
-// a balanced stack.
+// Case is a differential bytecode pair for one opcode, ready for
+// measurement. See README.md "Differential construction".
 //
-// ExpectedGasDelta is the definitional, whole-program gas the opcode adds
-// (per-unit delta * Reps) - NOT necessarily Reps*ConstGas, because a net-0,
-// cleanly-looping body needs stack rebalancing (see BuildPairWith). It is the
-// expected value; the measured Diff.GasDelta from a live run is the ground
-// truth, and the two should be cross-checked (see bench_test.go) as a
-// self-check of the differential construction itself.
+// ExpectedGasDelta is the definitional whole-program gas delta from
+// BuildCaseWith's algebra (not necessarily Reps*ConstGas -- stack
+// rebalancing adds its own cost); bench_test.go cross-checks it against the
+// measured Diff.GasDelta as a self-check of the construction itself.
 type Case struct {
 	OpcodeID         string
 	Class            Class
@@ -100,20 +84,13 @@ type Case struct {
 	ExpectedGasDelta uint64
 }
 
-// seed256 is the fixed operand pushed once as the working value. Full-width
-// (2^256-1) so the magnitude-dependent ops (MUL/DIV/MOD/ADDMOD/MULMOD)
-// exercise their full uint256 limb path rather than a small-number fast
-// case. Exposed via BuildCaseWith for operand sweeps.
+// seed256 is the fixed working-value operand: full-width (2^256-1) so
+// magnitude-dependent ops exercise their full uint256 limb path.
 var seed256 = new(uint256.Int).Not(uint256.NewInt(0))
 
-// seedShift is a fixed, in-range (<256) shift amount for SHL/SHR/SAR. A
-// shift amount >= 256 takes go-ethereum's value.Clear() early-out (the
-// degenerate, cheapest case: the result is zero without touching the
-// value's limbs), so reusing seed256 as BOTH operands -- as the generic
-// same-value construction below does for every other opcode -- measures
-// that early-out, not representative shift work. Kept separate from the
-// value operand so the shift ops still exercise the interpreter's limb-shift
-// path on a full-width value.
+// seedShift is a fixed, in-range (<256) shift amount for SHL/SHR/SAR --
+// see README.md "Differential construction" for why this must differ from
+// seed256.
 var seedShift = uint256.NewInt(4)
 
 // BuildCases builds every spec's case at DefaultReps.
@@ -125,41 +102,10 @@ func BuildCases() []Case {
 	return out
 }
 
-// BuildCaseWith constructs the differential case for one opcode.
-//
-// Construction (the balanced-DUP/POP differential, the fork's
-// benchmarkNonModifyingCode technique adapted to a bounded, clean-terminating
-// straight line). For an op consuming n operands and producing 1 result, the
-// net-0 repeating unit is:
-//
-//	target   = DUP1 x n , OP     , POP        // dup n copies of top, run op, drop result
-//	baseline = DUP1 x n , POP x n             // dup n copies of top, drop them
-//
-// The n DUP1s are identical on both sides and cancel; one POP cancels the
-// target's trailing POP. What remains -- the whole differential -- is the op
-// vs (n-1) extra POPs, so the per-unit gas delta = ConstGas(op) - (n-1)*GasQuickStep.
-//   - n=1 (NOT, ISZERO): delta = ConstGas(op)               (op isolated exactly)
-//   - n=2 (most ops):    delta = ConstGas(op) - 2
-//   - n=3 (ADDMOD/MULMOD): delta = ConstGas(op) - 4
-//
-// Stack ops are special-cased (not "n operands -> 1 result"):
-//   - DUP1  (1->2): target = DUP1 POP ; baseline = PUSH0 POP -> delta = 3-2 = 1
-//   - SWAP1 (2->2): target = SWAP1     ; baseline = JUMPDEST  -> delta = 3-1 = 2
-//
-// SHL/SHR/SAR are also special-cased: they need two DISTINCT operands (see
-// seedShift), not "n copies of the same value". The prologue pushes
-// (seed, seedShift); DUP2 reaches two positions down without disturbing the
-// other operand, so the SAME (value, shift) pair is reused net-0 across
-// every unit:
-//
-//	target   = DUP2, DUP2, OP , POP    // dup shift then value, run op, drop result
-//	baseline = DUP2, DUP2, POP, POP    // dup shift then value, drop both
-//
-// This yields the same arity=2 shape as the general case:
-// delta = ConstGas(op) - GasQuickStep (one extra POP in baseline vs target).
-//
-// Every case's prologue seeds its own stack, and every unit is net-0 so stack
-// depth never grows (no 1024-depth risk) and never underflows.
+// BuildCaseWith constructs the differential case for one opcode. See
+// README.md "Differential construction" for the balanced-DUP/POP algebra;
+// per-branch delta formulas are inlined below next to the code they justify.
+// Every unit is net-0 so stack depth never grows or underflows.
 func BuildCaseWith(s OpSpec, reps int, seed *uint256.Int) Case {
 	base := program.New()
 	tgt := program.New()

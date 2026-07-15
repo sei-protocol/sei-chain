@@ -7,9 +7,8 @@ import (
 )
 
 // BenchmarkOpcodes drives one differential measurement per scalar opcode
-// Case. Run with -benchtime=1x (the inner loop is Measure's, not b.N) and
-// -count=K to get K independent process runs for benchstat cross-run
-// variance.
+// Case. See README.md "Running it" for the required -benchtime=1x flag and
+// what -count=K actually gives you (not K independent process forks).
 func BenchmarkOpcodes(b *testing.B) {
 	cases := BuildCases()
 	def := DefaultConfig()
@@ -20,13 +19,7 @@ func BenchmarkOpcodes(b *testing.B) {
 		LockThread: def.LockThread,
 	}
 	sigmaK := envFloat("GASBENCH_SIGMA_K", 3)
-	// 0.25: an advisory health-check ceiling, not the acceptance gate (that's
-	// Significant). Set well above the several-percent CoV plain core-pinning
-	// sees in practice (measured 4-8% on a dedicated bare-metal host with no
-	// kernel-level isolation), so it only fires on something genuinely
-	// pathological -- a noisy neighbor, a throttling event -- not routine
-	// scheduler-tick/IRQ noise. See
-	// designs/gas-repricing-telemetry/research/microbenchmark-noise-isolation-tradeoffs.md.
+	// 0.25 default: see README.md "Acceptance gate" for the calibration.
 	covCeiling := envFloat("GASBENCH_COV_CEILING", 0.25)
 
 	var runs []Run
@@ -53,19 +46,10 @@ func BenchmarkOpcodes(b *testing.B) {
 
 			d := Subtract(c.OpcodeID, base, tgt, c.Reps, sigmaK, covCeiling)
 
-			// Self-check of the differential construction: the measured
-			// whole-program gas delta must equal the definitional expected
-			// delta, or the baseline/target pair is not isolating the
-			// opcode the way BuildCaseWith intends. This is a correctness
-			// check on the harness, not on opcode timing.
-			//
-			// Note: this check is insensitive to a mis-transcribed
-			// OpSpec.Arity that still yields a self-consistent (if wrong)
-			// ExpectedGasDelta -- it catches a wrong ConstGas, a wrong
-			// opcode, or unexpected dynamic/memory gas, not an arity error.
-			// All 22 Specs entries were hand-verified against the fork's
-			// jump-table minStack/maxStack; verify a future addition the
-			// same way.
+			// Self-check of the harness construction (see README.md "Output
+			// schema"), not of opcode timing. Insensitive to a
+			// mis-transcribed OpSpec.Arity that still yields a
+			// self-consistent ExpectedGasDelta -- see AGENTS.md.
 			if d.GasDelta != c.ExpectedGasDelta {
 				b.Errorf("%s: gas self-check failed: measured delta %d != expected %d (baseline/target pair does not isolate the opcode)",
 					c.OpcodeID, d.GasDelta, c.ExpectedGasDelta)

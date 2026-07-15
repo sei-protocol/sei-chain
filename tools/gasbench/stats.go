@@ -15,7 +15,7 @@ type Stats struct {
 	Median   float64
 	P99      float64
 	Stddev   float64 // sample stddev (n-1)
-	CoV      float64 // Stddev/Mean; the acceptance gate ("noise floor")
+	CoV      float64 // Stddev/Mean; advisory only -- see Diff.Significant, README.md "Acceptance gate"
 	SEMean   float64 // standard error of the mean
 	SEMedian float64 // asymptotic standard error of the median
 }

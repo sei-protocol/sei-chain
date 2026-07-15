@@ -15,15 +15,9 @@ import (
 var contractAddr = common.BytesToAddress([]byte("contract"))
 
 // newRuntimeConfig builds a fresh, tracer-free interpreter config against a
-// fresh in-memory StateDB.
-//
-// This does NOT use runtime.Execute. Execute discards leftOverGas (it only
-// surfaces gas via a tracer's OnTxEnd hook, and we run tracer-free -
-// EVMConfig.Tracer == nil, the debug=false path), so it cannot return gas.
-// runtime.Call is the identical fresh-EVM, tracer-free code path but returns
-// leftOverGas directly. We replicate Execute's fresh-state setup
-// (state.New + CreateAccount + SetCode) so the "fresh in-memory StateDB,
-// stateless" property this MVP relies on is preserved.
+// fresh in-memory StateDB. Uses runtime.Call, not runtime.Execute: Execute
+// discards leftOverGas (see Program.Run). Replicates Execute's fresh-state
+// setup (state.New + CreateAccount + SetCode).
 func newRuntimeConfig(code []byte) (*runtime.Config, error) {
 	cfg := new(runtime.Config)
 	runtime.SetDefaults(cfg) // Shanghai+Cancun active, GasLimit=MaxUint64, no tracer
@@ -40,23 +34,8 @@ func newRuntimeConfig(code []byte) (*runtime.Config, error) {
 }
 
 // Program holds a warmed EVM environment so a timing loop measures only the
-// hot Call, not StateDB construction (which would swamp a nanosecond-scale
-// opcode signal). Build one Program per bytecode input; call Run in the
-// timing loop.
-//
-// Reusing a single StateDB across many Run calls is safe for these
-// pure-compute programs, but not because "no state change occurs": every
-// call's evm.Call takes a Snapshot() that is never reverted or Finalise-d
-// (Finalise is what resets the journal; this harness never calls it), so the
-// journal's revision/touch-change list grows roughly two entries per call
-// across the life of a Program. That growth is harmless here because (a) gas
-// accounting is unaffected -- it comes only from interpreter opcodes -- and
-// (b) the growth is symmetric between baseline and target (both take exactly
-// one Snapshot + one zero-value Transfer per call) and lands as tail latency
-// from periodic slice reallocation, not a shift in the median the
-// difference-of-medians estimator reads. Do NOT assume this still holds if
-// Iterations grows by an order of magnitude, or if a future Case touches
-// persistent state (SSTORE/LOG/CREATE) -- re-check the journal-growth impact
+// hot Call, not StateDB construction. Build one Program per bytecode input;
+// call Run in the timing loop. See README.md "Program reuse across calls"
 // before reusing a Program across a much longer or state-touching series.
 type Program struct {
 	cfg *runtime.Config
@@ -77,22 +56,15 @@ func NewProgram(code []byte) (*Program, error) {
 	return p, nil
 }
 
-// Run executes the loaded code once, returning EVM gas consumed. This is the
-// hot function for the timing loop: it does no per-call state allocation.
+// Run executes the loaded code once through a bare go-ethereum EVM (no
+// Cosmos ante handler or GasMeter -- see README.md "Gas isolation from the
+// Cosmos layer") and returns EVM gas consumed (cfg.GasLimit - leftOverGas).
 //
-// gasUsed is cfg.GasLimit - leftOverGas: total EVM gas the interpreter
-// charged. There is deliberately NO Cosmos/Sei gas meter in this path -
-// runtime.Call builds a bare go-ethereum EVM with no ante handler and no
-// sei-cosmos GasMeter. Isolating the EVM interpreter from the Cosmos layer is
-// the entire point of the stateless-compute MVP.
-//
-// err is nil on a clean STOP/RETURN. On REVERT err is vm.ErrExecutionReverted
-// (gasUsed is partial - unused gas is refunded on revert). On out-of-gas err
-// is vm.ErrOutOfGas (gasUsed == GasLimit). On a bad/undefined opcode err is
-// vm.ErrInvalidOpCode. The differential programs built in programs.go
-// terminate cleanly (STOP, balanced stack), so a non-nil err means the run
-// is INVALID - the caller must discard the sample, never treat it as a
-// measurement. Matches the gasbench.RunOnce contract (gasbench.go).
+// err is nil on a clean STOP/RETURN, vm.ErrExecutionReverted on REVERT
+// (gasUsed partial), vm.ErrOutOfGas on out-of-gas (gasUsed == GasLimit), or
+// vm.ErrInvalidOpCode on a bad opcode. Every Case built by programs.go
+// terminates cleanly, so a non-nil err means the run is invalid -- see the
+// RunOnce contract in gasbench.go.
 func (p *Program) Run() (gasUsed uint64, err error) {
 	_, leftOverGas, callErr := runtime.Call(contractAddr, nil, p.cfg)
 	return p.cfg.GasLimit - leftOverGas, callErr
