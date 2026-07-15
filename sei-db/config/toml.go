@@ -178,7 +178,7 @@ evm-ss-separate-dbs = {{ .StateStore.SeparateEVMSubDBs }}
 # Historical reads (e.g. eth debug_trace*, archival queries) are served from the SS                                                                                                                                                       
 # backend rather than memIAVL, so a larger cache reduces disk-bound random reads.                                                                                                                                                         
 # Set <= 0 to use the default. Defaults to 33554432 (32 MiB).                                                                                                                                                                             
-ss-cache-size-bytes = {{ .StateStore.CacheSizeBytes }}
+ss-cache-size-bytes = {{ .Stat eStore.CacheSizeBytes }}
 `
 
 // ReceiptStoreConfigTemplate defines the configuration template for receipt-store

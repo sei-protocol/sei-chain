@@ -613,6 +613,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			EVMSplit:          v.GetBool("state-store.evm-ss-split"),
 			EVMDBDirectory:    v.GetString("state-store.evm-ss-db-directory"),
 			SeparateEVMSubDBs: v.GetBool("state-store.evm-ss-separate-dbs"),
+			CacheSizeBytes:    v.GetInt64("state-store.evm-ss-cache-size-bytes"),
 		},
 		Genesis: GenesisConfig{
 			StreamImport:      v.GetBool("genesis.stream-import"),

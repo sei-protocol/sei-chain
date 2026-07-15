@@ -87,7 +87,7 @@ type StateStoreConfig struct {
 	// queries) are served from the SS backend rather than memIAVL, so a larger
 	// cache reduces disk-bound random reads. Set <= 0 to use the default.
 	// defaults to 32 MiB
-	CacheSizeBytes int64 `mapstructure:"cache-size-bytes"`
+	CacheSizeBytes int64 `mapstructure:"ss-cache-size-bytes"`
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig

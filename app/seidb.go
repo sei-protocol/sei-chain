@@ -49,6 +49,7 @@ const (
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 	FlagSSReadWriteMetrics  = "state-store.ss-enable-read-write-metrics"
+	FlagSSCacheSize         = "state-store.ss-cache-size-bytes"
 
 	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
 	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
@@ -186,6 +187,9 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
 	ssConfig.EnableReadWriteMetrics = cast.ToBool(appOpts.Get(FlagSSReadWriteMetrics))
+	if v := appOpts.Get(FlagSSCacheSize); v != nil {
+		ssConfig.CacheSizeBytes = cast.ToInt64(v)
+	}
 
 	// EVM optimization fields (embedded in SS config)
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
