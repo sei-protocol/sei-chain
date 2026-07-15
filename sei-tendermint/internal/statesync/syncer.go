@@ -573,7 +573,10 @@ func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, appVersion u
 			appVersion, resp.AppVersion)
 	}
 
-	if !bytes.Equal(snapshot.trustedAppHash, resp.LastBlockAppHash) {
+	// Shadow migration builds intentionally diverge from the canonical
+	// AppHash supplied by the light client. Match block validation and replay
+	// by skipping only that comparison; app version and height remain checked.
+	if !types.SkipAppHashValidationForBuild() && !bytes.Equal(snapshot.trustedAppHash, resp.LastBlockAppHash) {
 		logger.Error("appHash verification failed",
 			"expected", snapshot.trustedAppHash,
 			"actual", resp.LastBlockAppHash)

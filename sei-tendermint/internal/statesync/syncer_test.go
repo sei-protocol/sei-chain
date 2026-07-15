@@ -748,6 +748,10 @@ func TestSyncer_verifyApp(t *testing.T) {
 	const appVersion = 9
 	appVersionMismatchErr := errors.New("app version mismatch. Expected: 9, got: 2")
 	s := &snapshot{Height: 3, Format: 1, Chunks: 5, Hash: []byte{1, 2, 3}, trustedAppHash: []byte("app_hash")}
+	invalidHashErr := errVerifyFailed
+	if types.SkipAppHashValidationForBuild() {
+		invalidHashErr = nil
+	}
 
 	testcases := map[string]struct {
 		response  *abci.ResponseInfo
@@ -773,7 +777,7 @@ func TestSyncer_verifyApp(t *testing.T) {
 			LastBlockHeight:  3,
 			LastBlockAppHash: []byte("xxx"),
 			AppVersion:       appVersion,
-		}, nil, errVerifyFailed},
+		}, nil, invalidHashErr},
 		"error": {nil, boom, boom},
 	}
 
