@@ -14,7 +14,7 @@ import (
 )
 
 // RawGlobalIterator returns an iterator over all committed keys across the
-// data DBs (account, code, storage, legacy), merged in global lexicographic
+// data DBs (account, code, storage, misc), merged in global lexicographic
 // order. Within each DB, keys are in Pebble order. Per-DB _meta/* keys are
 // skipped. Pending writes are not visible. metadataDB is not included.
 func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
@@ -57,7 +57,7 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 		return nil, fmt.Errorf("store name cannot be empty")
 	}
 
-	// Read lock for the construction span: buildEvmIterator/buildLegacyDBLane
+	// Read lock for the construction span: buildEvmIterator/buildMiscDBLane
 	// snapshot the pending-writes maps and pin the Pebble view here, so the
 	// returned iterator may safely outlive a concurrent ApplyChangeSets/Commit.
 	s.mu.RLock()
@@ -69,7 +69,7 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 		iter, err = s.buildEvmIterator(start, end, ascending)
 	} else {
 		lowerBound, upperBound := moduleIteratorBounds(store, start, end)
-		iter, err = s.buildLegacyDBLane(store, lowerBound, upperBound, ascending)
+		iter, err = s.buildMiscDBLane(store, lowerBound, upperBound, ascending)
 	}
 	if err != nil {
 		return nil, err
@@ -83,7 +83,7 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 
 buildCodeLane ──────────────┐
 buildStorageLane ───────────┤
-buildLegacyDBLane (evm/) ───┼──► merge iterator ──► memiavl keys + values
+buildMiscDBLane (evm/) ───┼──► merge iterator ──► memiavl keys + values
 buildAccountNonceLane ──────┤
 buildAccountCodehashLane ───┘
 
@@ -118,15 +118,15 @@ func (s *CommitStore) buildEvmIterator(
 		lanes = append(lanes, lane)
 	}
 
-	// Legacy is the identity-mapped catch-all (no single type prefix), so it uses
+	// Misc is the identity-mapped catch-all (no single type prefix), so it uses
 	// the whole-range translation and is always built.
-	legacyLower, legacyUpper := moduleIteratorBounds(keys.EVMStoreKey, start, end)
-	legacyLane, err := s.buildLegacyDBLane(keys.EVMStoreKey, legacyLower, legacyUpper, ascending)
+	miscLower, miscUpper := moduleIteratorBounds(keys.EVMStoreKey, start, end)
+	miscLane, err := s.buildMiscDBLane(keys.EVMStoreKey, miscLower, miscUpper, ascending)
 	if err != nil {
 		closeIterators(lanes)
 		return nil, err
 	}
-	lanes = append(lanes, legacyLane)
+	lanes = append(lanes, miscLane)
 
 	// TODO: once we move account balances to FlatKV, we need to add a lane for them here.
 
@@ -173,7 +173,7 @@ func (sp evmLaneSpec) bounds(start []byte, end []byte) (lower []byte, upper []by
 }
 
 // evmLaneSpecs returns the optimized lanes, in no particular order (the merging
-// iterator orders the combined output). The legacy catch-all lane is handled
+// iterator orders the combined output). The misc catch-all lane is handled
 // separately because it has no single type prefix.
 func (s *CommitStore) evmLaneSpecs() []evmLaneSpec {
 	return []evmLaneSpec{
@@ -307,10 +307,10 @@ func buildLane[T vtype.VType](
 	return transformedIterator, nil
 }
 
-/* Data flow: buildLegacyDBLane
+/* Data flow: buildMiscDBLane
 
   ┌────────────────────────┐       ┌───────────────────┐
-  │ legacyWrites (pending) │       │ legacyDB (pebble) │
+  │ miscWrites (pending) │       │ miscDB (pebble) │
   └────────────────────────┘       └───────────────────┘
              │                              │
              ▼                              ▼
@@ -325,7 +325,7 @@ func buildLane[T vtype.VType](
                │ merge iterator │  pending writes "win"
                └────────────────┘
                         │
-        physical key + serialized LegacyData
+        physical key + serialized MiscData
 		     includes deleted values
                         │
                         ▼
@@ -339,7 +339,7 @@ func buildLane[T vtype.VType](
                         ▼
 */
 
-func (s *CommitStore) buildLegacyDBLane(
+func (s *CommitStore) buildMiscDBLane(
 	store string,
 	lowerBound, upperBound []byte,
 	ascending bool,
@@ -354,17 +354,17 @@ func (s *CommitStore) buildLegacyDBLane(
 		}
 		if moduleName != store {
 			return nil, nil, false, fmt.Errorf(
-				"legacy iterator key %q has module %q, expected %q",
+				"misc iterator key %q has module %q, expected %q",
 				key, moduleName, store,
 			)
 		}
-		ld, err := vtype.DeserializeLegacyData(value)
+		ld, err := vtype.DeserializeMiscData(value)
 		if err != nil {
 			return nil, nil, false, err
 		}
 		return logicalKey, ld.GetValue(), false, nil
 	}
-	return buildLane(s.legacyWrites, s.legacyDB, lowerBound, upperBound, ascending, serializeForIter, transform)
+	return buildLane(s.miscWrites, s.miscDB, lowerBound, upperBound, ascending, serializeForIter, transform)
 }
 
 /* Data flow: buildCodeLane

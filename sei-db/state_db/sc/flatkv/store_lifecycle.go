@@ -14,7 +14,7 @@ import (
 // isClosed reports whether the store's DB handles have been released.
 func (s *CommitStore) isClosed() bool {
 	return s.metadataDB == nil && s.accountDB == nil &&
-		s.codeDB == nil && s.storageDB == nil && s.legacyDB == nil
+		s.codeDB == nil && s.storageDB == nil && s.miscDB == nil
 }
 
 // closeDBsOnly closes all database handles and the WAL but retains the
@@ -55,11 +55,11 @@ func (s *CommitStore) closeDBsOnly() error {
 		s.accountDB = nil
 	}
 
-	if s.legacyDB != nil {
-		if err := s.legacyDB.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("legacyDB close: %w", err))
+	if s.miscDB != nil {
+		if err := s.miscDB.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("miscDB close: %w", err))
 		}
-		s.legacyDB = nil
+		s.miscDB = nil
 	}
 
 	s.localMeta = make(map[string]*ktype.LocalMeta)
@@ -79,6 +79,9 @@ func (s *CommitStore) Close() error {
 	}
 	if s.miscPool != nil {
 		s.miscPool.Close()
+	}
+	if s.ltCalc != nil {
+		s.ltCalc.Close()
 	}
 	err := s.closeDBsOnly()
 	s.cancel()

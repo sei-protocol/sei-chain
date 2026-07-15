@@ -43,7 +43,7 @@ const (
 	accountDBDir = "account"
 	codeDBDir    = "code"
 	storageDBDir = "storage"
-	legacyDBDir  = "legacy"
+	miscDBDir    = "misc"
 	metadataDir  = "metadata"
 
 	// Suffixes for atomic directory operations
@@ -56,7 +56,7 @@ const (
 )
 
 // dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
-var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
+var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir}
 
 // InitializeDataDirectories sets the DataDir for each nested PebbleDB config
 // that does not already have one, using DataDir as the base path. The DBs live
@@ -72,8 +72,8 @@ func InitializeDataDirectories(c *config.Config) {
 	if c.StorageDBConfig.DataDir == "" {
 		c.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
 	}
-	if c.LegacyDBConfig.DataDir == "" {
-		c.LegacyDBConfig.DataDir = filepath.Join(workDir, legacyDBDir)
+	if c.MiscDBConfig.DataDir == "" {
+		c.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
 	}
 	if c.MetadataDBConfig.DataDir == "" {
 		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
@@ -87,13 +87,13 @@ func applyPebbleMetricsConfig(c *config.Config) {
 	c.AccountDBConfig.EnableMetrics = c.EnablePebbleMetrics
 	c.CodeDBConfig.EnableMetrics = c.EnablePebbleMetrics
 	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.LegacyDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.MiscDBConfig.EnableMetrics = c.EnablePebbleMetrics
 	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
 
 	c.AccountDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 	c.CodeDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 	c.StorageDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.LegacyDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.MiscDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 	c.MetadataDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 }
 
@@ -129,7 +129,7 @@ type CommitStore struct {
 	accountDB  seidbtypes.KeyValueDB // "evm/"+0x0a+addr(20) → vtype.AccountData
 	codeDB     seidbtypes.KeyValueDB // "evm/"+0x07+addr(20) → vtype.CodeData
 	storageDB  seidbtypes.KeyValueDB // "evm/"+0x03+addr(20)||slot(32) → vtype.StorageData
-	legacyDB   seidbtypes.KeyValueDB // "module/"+key → vtype.LegacyData
+	miscDB     seidbtypes.KeyValueDB // "module/"+key → vtype.MiscData
 
 	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
 	localMeta map[string]*ktype.LocalMeta
@@ -150,11 +150,27 @@ type CommitStore struct {
 	// working hashes are loaded from LocalMeta.
 	perDBWorkingLtHash map[string]*lthash.LtHash
 
+	// Per-DB, per-module working LtHash: dbDir -> module name -> hash.
+	// The per-DB root (perDBWorkingLtHash[dir]) is the homomorphic sum of
+	// the module hashes here. account/code/storage DBs only ever carry the
+	// "evm" module; miscDB may carry several (evm plus cosmos modules).
+	// Persisted alongside the per-DB root in each DB's LocalMeta and reloaded
+	// on startup. This is bookkeeping metadata only: it does not feed the
+	// global evm_lattice/AppHash.
+	perDBModuleWorkingLtHash map[string]map[string]*lthash.LtHash
+
+	// Per-DB, per-module working stats: dbDir -> module name -> key-count /
+	// byte totals. Accumulated alongside perDBModuleWorkingLtHash using the
+	// same key-membership rule, persisted in each DB's LocalMeta, and reloaded
+	// on startup. Consensus-irrelevant bookkeeping; per-DB / global totals are
+	// derived on demand.
+	perDBModuleWorkingStats map[string]map[string]lthash.ModuleStats
+
 	// Pending writes buffer
 	accountWrites map[string]*vtype.AccountData
 	codeWrites    map[string]*vtype.CodeData
 	storageWrites map[string]*vtype.StorageData
-	legacyWrites  map[string]*vtype.LegacyData
+	miscWrites    map[string]*vtype.MiscData
 
 	changelog wal.ChangelogWAL
 
@@ -182,14 +198,20 @@ type CommitStore struct {
 	//
 	// Uses an elasticly-sized pool, so it is safe to submit tasks that have dependencies on other tasks in the pool.
 	miscPool threading.Pool
+
+	// ltCalc encapsulates the lattice-hash pipeline (old-value reads, per-key
+	// hashing, and worker-combine into final per-DB / per-module hashes) and
+	// owns the dedicated CPU-bound worker pool it runs on. The commit path is
+	// serialized by s.mu, so the calculator has a single caller at a time.
+	ltCalc *lthash.HashCalculator
 }
 
 var _ Store = (*CommitStore)(nil)
 
 // dataDBs returns the four data PebbleDB instances in fixed iteration order:
-// accountDB, codeDB, storageDB, legacyDB. metadataDB is excluded.
+// accountDB, codeDB, storageDB, miscDB. metadataDB is excluded.
 func (s *CommitStore) dataDBs() []seidbtypes.KeyValueDB {
-	return []seidbtypes.KeyValueDB{s.accountDB, s.codeDB, s.storageDB, s.legacyDB}
+	return []seidbtypes.KeyValueDB{s.accountDB, s.codeDB, s.storageDB, s.miscDB}
 }
 
 type namedDB struct {
@@ -203,19 +225,19 @@ func (s *CommitStore) namedDataDBs() []namedDB {
 		{accountDBDir, s.accountDB},
 		{codeDBDir, s.codeDB},
 		{storageDBDir, s.storageDB},
-		{legacyDBDir, s.legacyDB},
+		{miscDBDir, s.miscDB},
 	}
 }
 
 // routePhysicalKey maps a physical DB key to its target database.
-// Non-EVM modules are routed to legacyDB; EVM keys are routed by kind.
+// Non-EVM modules are routed to miscDB; EVM keys are routed by kind.
 func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueDB, error) {
 	moduleName, innerKey, err := ktype.StripModulePrefix(physicalKey)
 	if err != nil {
 		return nil, err
 	}
 	if moduleName != keys.EVMStoreKey {
-		return s.legacyDB, nil
+		return s.miscDB, nil
 	}
 	kind, _ := keys.ParseEVMKey(innerKey)
 	switch kind {
@@ -226,7 +248,7 @@ func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueD
 	case keys.EVMKeyStorage:
 		return s.storageDB, nil
 	default:
-		return s.legacyDB, nil
+		return s.miscDB, nil
 	}
 }
 
@@ -253,23 +275,38 @@ func NewCommitStore(
 	miscPoolSize := int(cfg.MiscPoolThreadsPerCore*float64(coreCount) + float64(cfg.MiscConstantThreadCount))
 	miscPool := threading.NewElasticPool("flatkv-misc", miscPoolSize)
 
+	ltCalc := lthash.NewHashCalculator("flatkv-lthash", lthashWorkerCount(cfg, coreCount), dataDBDirs, moduleOfKey)
+
 	return &CommitStore{
-		ctx:                ctx,
-		cancel:             cancel,
-		config:             *cfg,
-		localMeta:          make(map[string]*ktype.LocalMeta),
-		accountWrites:      make(map[string]*vtype.AccountData),
-		codeWrites:         make(map[string]*vtype.CodeData),
-		storageWrites:      make(map[string]*vtype.StorageData),
-		legacyWrites:       make(map[string]*vtype.LegacyData),
-		pendingChangeSets:  make([]*proto.NamedChangeSet, 0),
-		committedLtHash:    lthash.New(),
-		workingLtHash:      lthash.New(),
-		perDBWorkingLtHash: make(map[string]*lthash.LtHash),
-		phaseTimer:         metrics.NewPhaseTimer(flatkvMeter, "seidb_main_thread"),
-		readPool:           readPool,
-		miscPool:           miscPool,
+		ctx:                      ctx,
+		cancel:                   cancel,
+		config:                   *cfg,
+		localMeta:                make(map[string]*ktype.LocalMeta),
+		accountWrites:            make(map[string]*vtype.AccountData),
+		codeWrites:               make(map[string]*vtype.CodeData),
+		storageWrites:            make(map[string]*vtype.StorageData),
+		miscWrites:               make(map[string]*vtype.MiscData),
+		pendingChangeSets:        make([]*proto.NamedChangeSet, 0),
+		committedLtHash:          lthash.New(),
+		workingLtHash:            lthash.New(),
+		perDBWorkingLtHash:       make(map[string]*lthash.LtHash),
+		perDBModuleWorkingLtHash: newPerDBModuleLtHashMap(),
+		perDBModuleWorkingStats:  newPerDBModuleStatsMap(),
+		phaseTimer:               metrics.NewPhaseTimer(flatkvMeter, "seidb_main_thread"),
+		readPool:                 readPool,
+		miscPool:                 miscPool,
+		ltCalc:                   ltCalc,
 	}, nil
+}
+
+// lthashWorkerCount computes the fixed lattice-hash pool worker count from
+// config, clamped to at least 1 (LtHash computation always needs a worker).
+func lthashWorkerCount(cfg *config.Config, coreCount int) int {
+	n := int(cfg.LtHashThreadsPerCore * float64(coreCount))
+	if n < 1 {
+		n = 1
+	}
+	return n
 }
 
 // resetPools recreates the context and thread pools after a full Close().
@@ -283,6 +320,8 @@ func (s *CommitStore) resetPools() {
 
 	miscPoolSize := int(s.config.MiscPoolThreadsPerCore*float64(coreCount) + float64(s.config.MiscConstantThreadCount))
 	s.miscPool = threading.NewElasticPool("flatkv-misc", miscPoolSize)
+
+	s.ltCalc = lthash.NewHashCalculator("flatkv-lthash", lthashWorkerCount(&s.config, coreCount), dataDBDirs, moduleOfKey)
 }
 
 func (s *CommitStore) flatkvDir() string {
@@ -407,7 +446,7 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 	ro.config.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
 	ro.config.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
 	ro.config.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
-	ro.config.LegacyDBConfig.DataDir = filepath.Join(workDir, legacyDBDir)
+	ro.config.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
 	ro.config.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
 
 	// Transfer the lazily-acquired lock to the clone so that ro.Close()
@@ -617,7 +656,7 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 			s.accountDB = nil
 			s.codeDB = nil
 			s.storageDB = nil
-			s.legacyDB = nil
+			s.miscDB = nil
 			s.changelog = nil
 			s.localMeta = make(map[string]*ktype.LocalMeta)
 		}
@@ -642,11 +681,11 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 	}
 	toClose = append(toClose, s.storageDB)
 
-	s.legacyDB, err = s.openPebbleDB(&s.config.LegacyDBConfig, &s.config.LegacyCacheConfig)
+	s.miscDB, err = s.openPebbleDB(&s.config.MiscDBConfig, &s.config.MiscCacheConfig)
 	if err != nil {
-		return fmt.Errorf("failed to open legacy DB: %w", err)
+		return fmt.Errorf("failed to open misc DB: %w", err)
 	}
-	toClose = append(toClose, s.legacyDB)
+	toClose = append(toClose, s.miscDB)
 
 	s.metadataDB, err = s.openPebbleDB(&s.config.MetadataDBConfig, &s.config.MetadataCacheConfig)
 	if err != nil {
@@ -712,6 +751,13 @@ func (s *CommitStore) loadGlobalMetadata() error {
 			s.perDBWorkingLtHash[dbDir] = meta.LtHash.Clone()
 		} else {
 			s.perDBWorkingLtHash[dbDir] = lthash.New()
+		}
+		if meta != nil {
+			s.perDBModuleWorkingLtHash[dbDir] = cloneModuleHashes(meta.ModuleLtHashes)
+			s.perDBModuleWorkingStats[dbDir] = cloneModuleStats(meta.ModuleStats)
+		} else {
+			s.perDBModuleWorkingLtHash[dbDir] = make(map[string]*lthash.LtHash)
+			s.perDBModuleWorkingStats[dbDir] = make(map[string]lthash.ModuleStats)
 		}
 		if meta != nil && meta.CommittedVersion < s.committedVersion {
 			logger.Warn("DB LocalMeta version behind global version, will catchup",
@@ -845,6 +891,8 @@ func (s *CommitStore) resetForImport() error {
 	s.committedLtHash = lthash.New()
 	s.workingLtHash = lthash.New()
 	s.perDBWorkingLtHash = newPerDBLtHashMap()
+	s.perDBModuleWorkingLtHash = newPerDBModuleLtHashMap()
+	s.perDBModuleWorkingStats = newPerDBModuleStatsMap()
 
 	return nil
 }

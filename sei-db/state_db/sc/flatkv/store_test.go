@@ -54,7 +54,7 @@ func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
 	cfg.AccountDBConfig.EnableMetrics = true
 	cfg.CodeDBConfig.EnableMetrics = true
 	cfg.StorageDBConfig.EnableMetrics = true
-	cfg.LegacyDBConfig.EnableMetrics = true
+	cfg.MiscDBConfig.EnableMetrics = true
 	cfg.MetadataDBConfig.EnableMetrics = true
 
 	InitializeDataDirectories(cfg)
@@ -62,7 +62,7 @@ func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
 	require.False(t, cfg.AccountDBConfig.EnableMetrics)
 	require.False(t, cfg.CodeDBConfig.EnableMetrics)
 	require.False(t, cfg.StorageDBConfig.EnableMetrics)
-	require.False(t, cfg.LegacyDBConfig.EnableMetrics)
+	require.False(t, cfg.MiscDBConfig.EnableMetrics)
 	require.False(t, cfg.MetadataDBConfig.EnableMetrics)
 }
 
@@ -1307,7 +1307,7 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	// LtHash. This simulates a crash where the version watermark wasn't
 	// persisted but the actual data and hash are intact.
 	batch := s.accountDB.NewBatch()
-	require.NoError(t, writeLocalMetaToBatch(batch, 4, savedAccountLtHash))
+	require.NoError(t, writeLocalMetaToBatch(batch, 4, savedAccountLtHash, s.perDBModuleWorkingLtHash[accountDBDir], s.perDBModuleWorkingStats[accountDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
 
@@ -1361,7 +1361,7 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 
 	// Simulate crash: storageDB only flushed v3 (version watermark behind).
 	batch := s.storageDB.NewBatch()
-	require.NoError(t, writeLocalMetaToBatch(batch, 3, savedStorageLtHash))
+	require.NoError(t, writeLocalMetaToBatch(batch, 3, savedStorageLtHash, s.perDBModuleWorkingLtHash[storageDBDir], s.perDBModuleWorkingStats[storageDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
 
@@ -1495,7 +1495,7 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 	_ = batch.Close()
 
 	// Next ApplyChangeSets touching this account should detect the corruption
-	// during batchReadOldValues.
+	// when deserializing the old account value (deserializeAccountOld).
 	cs2 := &proto.NamedChangeSet{
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 99)}},
@@ -1736,7 +1736,7 @@ func TestInitializeDataDirectories(t *testing.T) {
 	cfg.AccountDBConfig.DataDir = ""
 	cfg.CodeDBConfig.DataDir = ""
 	cfg.StorageDBConfig.DataDir = ""
-	cfg.LegacyDBConfig.DataDir = ""
+	cfg.MiscDBConfig.DataDir = ""
 	cfg.MetadataDBConfig.DataDir = ""
 
 	InitializeDataDirectories(cfg)
@@ -1744,7 +1744,7 @@ func TestInitializeDataDirectories(t *testing.T) {
 	require.Equal(t, "/base/flatkv/working/account", cfg.AccountDBConfig.DataDir)
 	require.Equal(t, "/base/flatkv/working/code", cfg.CodeDBConfig.DataDir)
 	require.Equal(t, "/base/flatkv/working/storage", cfg.StorageDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/legacy", cfg.LegacyDBConfig.DataDir)
+	require.Equal(t, "/base/flatkv/working/misc", cfg.MiscDBConfig.DataDir)
 	require.Equal(t, "/base/flatkv/working/metadata", cfg.MetadataDBConfig.DataDir)
 }
 

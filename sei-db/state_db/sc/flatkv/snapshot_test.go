@@ -277,7 +277,7 @@ func TestMigrationFromFlatLayout(t *testing.T) {
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
 
 	// Simulate the old flat layout by creating DB dirs directly
-	for _, sub := range []string{accountDBDir, codeDBDir, storageDBDir, metadataDir, legacyDBDir} {
+	for _, sub := range []string{accountDBDir, codeDBDir, storageDBDir, metadataDir, miscDBDir} {
 		dbPath := filepath.Join(flatkvDir, sub)
 		require.NoError(t, os.MkdirAll(dbPath, 0750))
 		// Create an actual PebbleDB so Open works

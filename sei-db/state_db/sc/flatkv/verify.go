@@ -40,7 +40,7 @@ func verifyLtHashInternal(cs *CommitStore) error {
 
 	var pairs []lthash.KVPairWithLastValue
 
-	for _, db := range []seidbtypes.KeyValueDB{cs.accountDB, cs.codeDB, cs.storageDB, cs.legacyDB} {
+	for _, db := range []seidbtypes.KeyValueDB{cs.accountDB, cs.codeDB, cs.storageDB, cs.miscDB} {
 		if db == nil {
 			continue
 		}

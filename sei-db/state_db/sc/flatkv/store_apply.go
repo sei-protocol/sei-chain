@@ -3,16 +3,24 @@ package flatkv
 import (
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
+	"go.opentelemetry.io/otel/metric"
 )
 
-// ApplyChangeSets buffers EVM changesets and updates LtHash.
-// Non-EVM modules are routed to legacyDB with a "<module>/" key prefix.
+// ApplyChangeSets buffers EVM changesets and updates the working LtHash.
+// Non-EVM modules are routed to miscDB with a "<module>/" key prefix.
+//
+// The three-step lattice-hash pipeline is owned by s.ltCalc (the lthash
+// HashCalculator): (1) grab the old value for every changed key, (2) hash the
+// individual keys, and (3) combine the workers' results into the final per-DB
+// and per-module hashes. This method only classifies the changesets, applies
+// the EVM value semantics (the process* helpers), and buffers the results.
 func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err error) {
 	obs := s.observeOp("ApplyChangeSets", otelMetrics.ApplyChangesetsLatency,
 		"changesets", len(changeSets))
@@ -22,145 +30,217 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err e
 		return errReadOnly
 	}
 
-	// Hold the write lock for the whole body: it both reads
-	// (batchReadOldValues) and mutates (maps.Copy) the pending-writes maps,
-	// which iterator construction and Get read under a read lock.
+	// Hold the write lock for the whole body: it both reads (old values) and
+	// mutates (maps.Copy) the pending-writes maps, which iterator construction
+	// and Get read under a read lock.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	///////////
-	// Setup //
-	///////////
+	// (0) Classify: split the changesets into per-kind maps keyed by physical
+	// key (domain logic — depends on the EVM key encoding).
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-
 	changesByType, err := classifyAndPrefix(changeSets)
 	if err != nil {
 		return err
 	}
-	storageChanges := len(changesByType[keys.EVMKeyStorage])
-	accountChanges := len(changesByType[keys.EVMKeyNonce]) + len(changesByType[keys.EVMKeyCodeHash])
-	codeChanges := len(changesByType[keys.EVMKeyCode])
-	legacyChanges := len(changesByType[keys.EVMKeyLegacy])
-
 	blockHeight := s.committedVersion + 1
 
-	////////////////////
-	// Batch Read Old //
-	////////////////////
+	// (1) Grab the old value for each changed key, in parallel, via the
+	// calculator.
 	s.phaseTimer.SetPhase("apply_change_sets_batch_read")
-
-	storageOld, accountOld, codeOld, legacyOld, err := s.batchReadOldValues(changesByType)
+	readStart := time.Now()
+	oldByDB, err := s.ltCalc.ReadOldValues(s, keysByDBFromClassified(changesByType))
+	otelMetrics.BatchReadOldValuesLatency.Record(s.ctx, secondsSince(readStart),
+		metric.WithAttributes(successAttr(err)))
 	if err != nil {
 		return fmt.Errorf("failed to batch read old values: %w", err)
 	}
 
-	//////////////////
-	// Gather Pairs //
-	//////////////////
+	// Apply EVM value semantics and gather the LtHash pairs for each DB, then
+	// buffer the new writes.
 	s.phaseTimer.SetPhase("apply_change_sets_gather_pairs")
-
-	// Gather account pairs
-	accountWrites, err := mergeAccountUpdates(
-		changesByType[keys.EVMKeyNonce],
-		changesByType[keys.EVMKeyCodeHash],
-		nil, // TODO: update this when we add a balance key!
-	)
+	pairSets, counts, err := s.prepareWrites(changesByType, oldByDB, blockHeight)
 	if err != nil {
-		return fmt.Errorf("failed to gather account updates: %w", err)
+		return err
 	}
-	newAccountValues := deriveNewAccountValues(accountWrites, accountOld, blockHeight)
-	accountPairs := gatherLTHashPairs(newAccountValues, accountOld)
-	maps.Copy(s.accountWrites, newAccountValues)
 
-	storageWrites, err := processStorageChanges(changesByType[keys.EVMKeyStorage], blockHeight)
-	if err != nil {
-		return fmt.Errorf("failed to parse storage changes: %w", err)
-	}
-	storagePairs := gatherLTHashPairs(storageWrites, storageOld)
-	maps.Copy(s.storageWrites, storageWrites)
-
-	codeWrites, err := processCodeChanges(changesByType[keys.EVMKeyCode], blockHeight)
-	if err != nil {
-		return fmt.Errorf("failed to parse code changes: %w", err)
-	}
-	codePairs := gatherLTHashPairs(codeWrites, codeOld)
-	maps.Copy(s.codeWrites, codeWrites)
-
-	legacyWrites, err := processLegacyChanges(changesByType[keys.EVMKeyLegacy], blockHeight)
-	if err != nil {
-		return fmt.Errorf("failed to parse legacy changes: %w", err)
-	}
-	legacyPairs := gatherLTHashPairs(legacyWrites, legacyOld)
-	maps.Copy(s.legacyWrites, legacyWrites)
-
-	addKVPairs(s.ctx, accountDBDir, len(newAccountValues))
-	addKVPairs(s.ctx, storageDBDir, len(storageWrites))
-	addKVPairs(s.ctx, codeDBDir, len(codeWrites))
-	addKVPairs(s.ctx, legacyDBDir, len(legacyWrites))
-	recordPendingWrites(s.ctx, accountDBDir, len(s.accountWrites))
-	recordPendingWrites(s.ctx, storageDBDir, len(s.storageWrites))
-	recordPendingWrites(s.ctx, codeDBDir, len(s.codeWrites))
-	recordPendingWrites(s.ctx, legacyDBDir, len(s.legacyWrites))
-
-	////////////////////
-	// Compute LTHash //
-	////////////////////
+	// (2)+(3) Hash individual keys and combine the workers' results into the
+	// final per-module hashes, then derive each per-DB root as the homomorphic
+	// sum of its module hashes and the global hash as the sum of the per-DB
+	// roots. Because LtHash is homomorphic, the derived roots are identical to
+	// folding the whole delta into the root directly, so the global evm_lattice
+	// store hash (and the consensus AppHash) is unchanged.
 	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
-
-	type dbPairs struct {
-		dir   string
-		pairs []lthash.KVPairWithLastValue
+	res, err := s.ltCalc.Compute(pairSets, s.perDBWorkingLtHash, s.perDBModuleWorkingLtHash, s.perDBModuleWorkingStats)
+	if err != nil {
+		return err
 	}
-	for _, dp := range [4]dbPairs{
-		{storageDBDir, storagePairs},
-		{accountDBDir, accountPairs},
-		{codeDBDir, codePairs},
-		{legacyDBDir, legacyPairs},
-	} {
-		if len(dp.pairs) > 0 {
-			newHash, _ := lthash.ComputeLtHash(s.perDBWorkingLtHash[dp.dir], dp.pairs)
-			s.perDBWorkingLtHash[dp.dir] = newHash
-		}
-	}
+	s.perDBWorkingLtHash = res.PerDB
+	s.perDBModuleWorkingLtHash = res.PerModule
+	s.perDBModuleWorkingStats = res.PerModuleStats
+	s.workingLtHash = res.Global
 
-	// Global LTHash = sum of per-DB hashes (homomorphic property).
-	// Compute into a fresh hash and swap to avoid a transient empty state
-	// on workingLtHash (safe for future pipelining / async callers).
-	globalHash := lthash.New()
-	for _, dir := range dataDBDirs {
-		globalHash.MixIn(s.perDBWorkingLtHash[dir])
-	}
-	s.workingLtHash = globalHash
-
-	//////////////
-	// Finalize //
-	//////////////
-
-	// Now that we've made it through the batch without errors, we can add the change sets to the pending change sets.
+	// Now that we've made it through the batch without errors, record the
+	// change sets as pending.
 	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
 
 	s.phaseTimer.SetPhase("apply_change_done")
 	logger.Debug("FlatKV ApplyChangeSets complete",
 		"changesets", len(changeSets),
-		"accountChanges", accountChanges,
-		"accountWrites", len(newAccountValues),
-		"storageChanges", storageChanges,
-		"storageWrites", len(storageWrites),
-		"codeChanges", codeChanges,
-		"codeWrites", len(codeWrites),
-		"legacyChanges", legacyChanges,
-		"legacyWrites", len(legacyWrites),
+		"accountChanges", counts.accountChanges,
+		"accountWrites", counts.accountWrites,
+		"storageChanges", counts.storageChanges,
+		"storageWrites", counts.storageWrites,
+		"codeChanges", counts.codeChanges,
+		"codeWrites", counts.codeWrites,
+		"miscChanges", counts.miscChanges,
+		"miscWrites", counts.miscWrites,
 		"pendingAccount", len(s.accountWrites),
 		"pendingStorage", len(s.storageWrites),
 		"pendingCode", len(s.codeWrites),
-		"pendingLegacy", len(s.legacyWrites),
+		"pendingMisc", len(s.miscWrites),
 		"elapsed", obs.elapsed())
 	return nil
 }
 
+// applyCounts records per-DB change/write tallies for logging and metrics.
+type applyCounts struct {
+	accountChanges, storageChanges, codeChanges, miscChanges int
+	accountWrites, storageWrites, codeWrites, miscWrites     int
+}
+
+// prepareWrites applies the EVM value semantics to the classified changes,
+// buffers the resulting new values into the pending-write maps, and returns the
+// per-DB LtHash pairs (new + old serialized values) for the calculator to hash.
+//
+// oldByDB holds the prior serialized value for each changed key, grouped by DB
+// dir, as read by the calculator. Only the account path needs the old value in
+// structured form (to merge partial nonce/codehash updates), so it deserializes
+// those on demand; all other DBs pass the raw old bytes straight through.
+func (s *CommitStore) prepareWrites(
+	changesByType map[keys.EVMKeyKind]map[string][]byte,
+	oldByDB map[string]map[string][]byte,
+	blockHeight int64,
+) ([]lthash.DBPairs, applyCounts, error) {
+	var counts applyCounts
+	counts.storageChanges = len(changesByType[keys.EVMKeyStorage])
+	counts.accountChanges = len(changesByType[keys.EVMKeyNonce]) + len(changesByType[keys.EVMKeyCodeHash])
+	counts.codeChanges = len(changesByType[keys.EVMKeyCode])
+	counts.miscChanges = len(changesByType[keys.EVMKeyMisc])
+
+	// Account: merge partial nonce/codehash updates onto the old account.
+	accountOld, err := deserializeAccountOld(oldByDB[accountDBDir])
+	if err != nil {
+		return nil, counts, err
+	}
+	accountUpdates, err := mergeAccountUpdates(
+		changesByType[keys.EVMKeyNonce],
+		changesByType[keys.EVMKeyCodeHash],
+		nil, // TODO: update this when we add a balance key!
+	)
+	if err != nil {
+		return nil, counts, fmt.Errorf("failed to gather account updates: %w", err)
+	}
+	newAccounts := deriveNewAccountValues(accountUpdates, accountOld, blockHeight)
+	accountPairs := gatherPairs(newAccounts, oldByDB[accountDBDir])
+	maps.Copy(s.accountWrites, newAccounts)
+	counts.accountWrites = len(newAccounts)
+
+	storageWrites, err := processStorageChanges(changesByType[keys.EVMKeyStorage], blockHeight)
+	if err != nil {
+		return nil, counts, fmt.Errorf("failed to parse storage changes: %w", err)
+	}
+	storagePairs := gatherPairs(storageWrites, oldByDB[storageDBDir])
+	maps.Copy(s.storageWrites, storageWrites)
+	counts.storageWrites = len(storageWrites)
+
+	codeWrites, err := processCodeChanges(changesByType[keys.EVMKeyCode], blockHeight)
+	if err != nil {
+		return nil, counts, fmt.Errorf("failed to parse code changes: %w", err)
+	}
+	codePairs := gatherPairs(codeWrites, oldByDB[codeDBDir])
+	maps.Copy(s.codeWrites, codeWrites)
+	counts.codeWrites = len(codeWrites)
+
+	miscWrites, err := processMiscChanges(changesByType[keys.EVMKeyMisc], blockHeight)
+	if err != nil {
+		return nil, counts, fmt.Errorf("failed to parse misc changes: %w", err)
+	}
+	miscPairs := gatherPairs(miscWrites, oldByDB[miscDBDir])
+	maps.Copy(s.miscWrites, miscWrites)
+	counts.miscWrites = len(miscWrites)
+
+	addKVPairs(s.ctx, accountDBDir, counts.accountWrites)
+	addKVPairs(s.ctx, storageDBDir, counts.storageWrites)
+	addKVPairs(s.ctx, codeDBDir, counts.codeWrites)
+	addKVPairs(s.ctx, miscDBDir, counts.miscWrites)
+	recordPendingWrites(s.ctx, accountDBDir, len(s.accountWrites))
+	recordPendingWrites(s.ctx, storageDBDir, len(s.storageWrites))
+	recordPendingWrites(s.ctx, codeDBDir, len(s.codeWrites))
+	recordPendingWrites(s.ctx, miscDBDir, len(s.miscWrites))
+
+	return []lthash.DBPairs{
+		{Dir: storageDBDir, Pairs: storagePairs},
+		{Dir: accountDBDir, Pairs: accountPairs},
+		{Dir: codeDBDir, Pairs: codePairs},
+		{Dir: miscDBDir, Pairs: miscPairs},
+	}, counts, nil
+}
+
+// keysByDBFromClassified maps the per-kind classified changes to the set of
+// physical keys per data DB dir, so the calculator can read old values grouped
+// by DB. Account keys come from both the nonce and codehash kinds.
+func keysByDBFromClassified(changesByType map[keys.EVMKeyKind]map[string][]byte) map[string]map[string]struct{} {
+	out := make(map[string]map[string]struct{}, len(dataDBDirs))
+	add := func(dir string, changes map[string][]byte) {
+		if len(changes) == 0 {
+			return
+		}
+		set := out[dir]
+		if set == nil {
+			set = make(map[string]struct{}, len(changes))
+			out[dir] = set
+		}
+		for key := range changes {
+			set[key] = struct{}{}
+		}
+	}
+	add(storageDBDir, changesByType[keys.EVMKeyStorage])
+	add(accountDBDir, changesByType[keys.EVMKeyNonce])
+	add(accountDBDir, changesByType[keys.EVMKeyCodeHash])
+	add(codeDBDir, changesByType[keys.EVMKeyCode])
+	add(miscDBDir, changesByType[keys.EVMKeyMisc])
+	return out
+}
+
+// deserializeAccountOld parses the raw old account bytes read by the calculator
+// into structured AccountData, needed to merge partial account-field updates.
+func deserializeAccountOld(raw map[string][]byte) (map[string]*vtype.AccountData, error) {
+	old := make(map[string]*vtype.AccountData, len(raw))
+	for key, b := range raw {
+		if b == nil {
+			continue
+		}
+		v, err := vtype.DeserializeAccountData(b)
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize accountDB old value: %w", err)
+		}
+		old[key] = v
+	}
+	return old, nil
+}
+
+// moduleOfKey extracts the owning module from a physical key. Injected into the
+// lthash HashCalculator so it can bucket pairs by module without importing ktype
+// (ktype already imports lthash).
+func moduleOfKey(physicalKey []byte) (string, error) {
+	module, _, err := ktype.StripModulePrefix(physicalKey)
+	return module, err
+}
+
 // classifyAndPrefix splits changeSets into per-EVMKeyKind maps whose keys are
 // already in physical format ("module/" + prefix_encoded_key). Non-EVM modules are
-// merged into the EVMKeyLegacy bucket with a "<module>/" prefix.
+// merged into the EVMKeyMisc bucket with a "<module>/" prefix.
 //
 // This replaces the former sortChangeSets + prefixModuleKeys two-pass approach,
 // avoiding an extra map allocation and repeated string concatenation per key.
@@ -189,7 +269,7 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 				}
 
 				var physKey string
-				if kind == keys.EVMKeyLegacy {
+				if kind == keys.EVMKeyMisc {
 					physKey = string(ktype.ModulePhysicalKey(keys.EVMStoreKey, pair.Key))
 				} else {
 					physKey = string(ktype.EVMPhysicalKey(kind, keyBytes))
@@ -203,13 +283,13 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 				}
 			}
 		} else {
-			legacyMap := getOrCreate(keys.EVMKeyLegacy, len(cs.Changeset.Pairs))
+			miscMap := getOrCreate(keys.EVMKeyMisc, len(cs.Changeset.Pairs))
 			for _, pair := range cs.Changeset.Pairs {
 				physKey := string(ktype.ModulePhysicalKey(cs.Name, pair.Key))
 				if pair.Delete {
-					legacyMap[physKey] = nil
+					miscMap[physKey] = nil
 				} else {
-					legacyMap[physKey] = nonNilValue(pair.Value)
+					miscMap[physKey] = nonNilValue(pair.Value)
 				}
 			}
 		}
@@ -279,32 +359,36 @@ func processCodeChanges(
 	return result, nil
 }
 
-// Process incoming legacy changes into a form appropriate for hashing and insertion into the DB.
-func processLegacyChanges(
+// Process incoming misc changes into a form appropriate for hashing and insertion into the DB.
+func processMiscChanges(
 	rawChanges map[string][]byte,
 	blockHeight int64,
-) (map[string]*vtype.LegacyData, error) {
-	result := make(map[string]*vtype.LegacyData, len(rawChanges))
+) (map[string]*vtype.MiscData, error) {
+	result := make(map[string]*vtype.MiscData, len(rawChanges))
 
 	for keyStr, rawChange := range rawChanges {
 		if rawChange == nil {
-			result[keyStr] = vtype.NewLegacyData().SetBlockHeight(blockHeight).MarkDeleted()
+			result[keyStr] = vtype.NewMiscData().SetBlockHeight(blockHeight).MarkDeleted()
 		} else {
-			result[keyStr] = vtype.NewLegacyData().SetBlockHeight(blockHeight).SetValue(rawChange)
+			result[keyStr] = vtype.NewMiscData().SetBlockHeight(blockHeight).SetValue(rawChange)
 		}
 	}
 	return result, nil
 }
 
-func gatherLTHashPairs[T vtype.VType](
+// gatherPairs builds the LtHash pairs for one DB from its new typed values and
+// the raw old serialized bytes read by the calculator. The old bytes are used
+// verbatim as LastValue: by the round-trip identity of the value serializers
+// they equal the exact bytes previously folded into the hash, so unmixing them
+// cancels that contribution precisely. A key with no prior value (or a pending
+// deletion) has a nil entry in rawOld and thus a nil LastValue (nothing to
+// unmix).
+func gatherPairs[T vtype.VType](
 	newValues map[string]T,
-	oldValues map[string]T,
+	rawOld map[string][]byte,
 ) []lthash.KVPairWithLastValue {
-
 	pairs := make([]lthash.KVPairWithLastValue, 0, len(newValues))
-
 	for keyStr, newValue := range newValues {
-		oldValue := oldValues[keyStr]
 		isDelete := newValue.IsDelete()
 
 		var newBytes []byte
@@ -312,19 +396,13 @@ func gatherLTHashPairs[T vtype.VType](
 			newBytes = newValue.Serialize()
 		}
 
-		var oldBytes []byte
-		if !oldValue.IsDelete() {
-			oldBytes = oldValue.Serialize()
-		}
-
 		pairs = append(pairs, lthash.KVPairWithLastValue{
 			Key:       []byte(keyStr),
 			Value:     newBytes,
-			LastValue: oldBytes,
+			LastValue: rawOld[keyStr],
 			Delete:    isDelete,
 		})
 	}
-
 	return pairs
 }
 
