@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
@@ -46,4 +47,21 @@ func TestVerifyDBModuleMetadataZeroResidueOK(t *testing.T) {
 	root, err := cs.verifyDBModuleMetadata(storageDBDir, nil, nil)
 	require.NoError(t, err)
 	require.True(t, root.IsZero())
+}
+
+// TestVerifyLtHashIgnoresEmptyValueRows pins the membership predicate shared
+// with foldChunk / serializeKV: a live Pebble row with an empty value is not
+// part of the LtHash set and must not inflate the verification scan's stats
+// (or hash) relative to incrementally maintained bookkeeping.
+func TestVerifyLtHashIgnoresEmptyValueRows(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	commitStorageEntry(t, s, addrN(0x01), slotN(0x01), []byte{0xAA})
+
+	// Plant an empty-value row that foldChunk would never count.
+	emptyKey := storagePhysKey(addrN(0x02), slotN(0x02))
+	require.NoError(t, s.storageDB.Set(emptyKey, nil, types.WriteOptions{}))
+
+	require.NoError(t, VerifyLtHash(s))
 }

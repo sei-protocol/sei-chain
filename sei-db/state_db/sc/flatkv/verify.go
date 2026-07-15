@@ -74,9 +74,11 @@ func verifyLtHashInternal(cs *CommitStore) error {
 }
 
 // scanDBByModule full-scans one data DB and returns, per module, the LtHash of
-// its keys and their key-count / byte footprint. Meta keys are skipped. Module
-// membership uses the same physical-key routing the write path uses, so the
-// result is directly comparable to the maintained per-module metadata.
+// its keys and their key-count / byte footprint. Meta keys are skipped. Only
+// rows with a non-empty key and non-empty value are counted — the same
+// membership predicate foldChunk / serializeKV use for LtHash MixIn — so the
+// scan is directly comparable to the maintained per-module metadata. Module
+// membership uses the same physical-key routing the write path uses.
 func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[string]lthash.ModuleStats, error) {
 	iter, err := db.NewIter(&seidbtypes.IterOptions{})
 	if err != nil {
@@ -88,6 +90,11 @@ func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[st
 	stats := make(map[string]lthash.ModuleStats)
 	for ; iter.Valid(); iter.Next() {
 		if ktype.IsMetaKey(iter.Key()) {
+			continue
+		}
+		// Match foldChunk / serializeKV: empty key or empty value is not a
+		// hash-set member and must not appear in stats.
+		if len(iter.Key()) == 0 || len(iter.Value()) == 0 {
 			continue
 		}
 		module, err := moduleOfKey(iter.Key())

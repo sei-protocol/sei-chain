@@ -18,8 +18,9 @@ import (
 
 // fullScanModuleStats tallies, per module, the live key count and total
 // footprint (physical key bytes + stored value bytes) of every non-meta key in
-// db. This is the ground truth the incrementally-maintained working stats must
-// always equal. Test-only.
+// db whose key and value are both non-empty — matching foldChunk / serializeKV
+// membership. This is the ground truth the incrementally-maintained working
+// stats must always equal. Test-only.
 func fullScanModuleStats(t *testing.T, db types.KeyValueDB) map[string]lthash.ModuleStats {
 	t.Helper()
 	iter, err := db.NewIter(&types.IterOptions{})
@@ -29,6 +30,9 @@ func fullScanModuleStats(t *testing.T, db types.KeyValueDB) map[string]lthash.Mo
 	out := make(map[string]lthash.ModuleStats)
 	for ; iter.Valid(); iter.Next() {
 		if ktype.IsMetaKey(iter.Key()) {
+			continue
+		}
+		if len(iter.Key()) == 0 || len(iter.Value()) == 0 {
 			continue
 		}
 		module, _, err := ktype.StripModulePrefix(iter.Key())
