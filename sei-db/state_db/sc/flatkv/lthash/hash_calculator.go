@@ -354,36 +354,37 @@ func computeDeltasSerial(tasks []lthashTask) map[ModuleKey]*ModuleHashInfo {
 }
 
 // computeDeltasParallel distributes tasks across the fixed pool as independent,
-// self-terminating units — one fold per chunk — then merges the per-chunk
-// results. Unlike a "long-lived worker loop reading a task channel" design, no
-// submitted task ever blocks waiting for a later submit, so this is safe when
-// several goroutines share one pool (the importer's per-DB workers all call
-// through here): a full queue only backpressures the submitter while
-// already-running chunks drain and free workers.
+// self-terminating units — one fold per chunk — then merges results as they
+// arrive. A buffered result channel (capacity = task count) ensures workers
+// never block on send, so a full pool queue only backpressures the submitter
+// while already-running chunks drain. This is safe when several goroutines
+// share one pool (the importer's per-DB workers all call through here).
+// MixIn/addition are commutative, so merge order does not matter.
 func (c *HashCalculator) computeDeltasParallel(tasks []lthashTask) map[ModuleKey]*ModuleHashInfo {
-	results := make([]*ModuleHashInfo, len(tasks))
-	var wg sync.WaitGroup
-	wg.Add(len(tasks))
+	type result struct {
+		key  ModuleKey
+		info *ModuleHashInfo
+	}
+	// Buffer must be large enough for every task: we submit all work before
+	// draining results, and Submit can block when the pool queue is full. If a
+	// finished worker then blocked on an unbuffered send here, nothing would
+	// free a queue slot and we'd deadlock. MixIn/addition are commutative, so
+	// merge order does not matter.
+	results := make(chan result, len(tasks))
 	for i := range tasks {
-		idx := i
+		task := tasks[i]
 		c.pool.Submit(func() {
-			defer wg.Done()
-			results[idx] = foldChunk(tasks[idx].pairs)
+			results <- result{key: task.key, info: foldChunk(task.pairs)}
 		})
 	}
-	wg.Wait()
 
-	// Merge per-chunk results. Multiple chunks of the same (db, module) bucket
-	// sum into one delta; MixIn/addition are commutative so chunk order is
-	// irrelevant.
-	// TODO: If merging ever becomes a hotspot, in theory we could farm out
-	// merge work to the hashing pool, where each job merges two pairs of results.
 	merged := make(map[ModuleKey]*ModuleHashInfo)
-	for i, task := range tasks {
-		if acc := merged[task.key]; acc != nil {
-			mergeDelta(acc, results[i])
+	for range tasks {
+		r := <-results
+		if acc := merged[r.key]; acc != nil {
+			mergeDelta(acc, r.info)
 		} else {
-			merged[task.key] = results[i]
+			merged[r.key] = r.info
 		}
 	}
 	return merged
