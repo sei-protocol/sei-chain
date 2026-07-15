@@ -212,7 +212,7 @@ func BuildCaseWith(s OpSpec, reps int, operands []*uint256.Int) Case {
 				base.Op(vm.POP)
 			}
 		}
-		perUnitDelta = s.ConstGas - uint64(s.Arity-1)*vm.GasQuickStep
+		perUnitDelta = s.ConstGas - uint64(s.Arity-1)*vm.GasQuickStep //nolint:gosec // 1 <= Arity <= 16 guarded above
 	}
 
 	base.Op(vm.STOP)
