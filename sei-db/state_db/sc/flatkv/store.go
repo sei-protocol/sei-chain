@@ -747,6 +747,9 @@ func (s *CommitStore) loadGlobalMetadata() error {
 	// corruption), lower committedVersion so catchup replays from there.
 	for _, dbDir := range dataDBDirs {
 		meta := s.localMeta[dbDir]
+		if err := validatePerModuleMetadata(dbDir, meta); err != nil {
+			return err
+		}
 		if meta != nil && meta.LtHash != nil {
 			s.perDBWorkingLtHash[dbDir] = meta.LtHash.Clone()
 		} else {

@@ -166,6 +166,35 @@ func writeLocalMetaToBatch(
 	return nil
 }
 
+// validatePerModuleMetadata enforces the load-time invariant that a persisted
+// non-identity per-DB root is always accompanied by its per-module
+// decomposition. FlatKV writes the per-DB root and its per-module hashes in the
+// same atomic batch (see writeLocalMetaToBatch / commitBatches), so a correctly
+// written store never has one without the other; an empty module map alongside
+// a non-zero root can only mean the store predates per-module hashing.
+//
+// Migration of such stores is intentionally unsupported (fresh stores only). If
+// we proceeded, the first write would route through HashCalculator.Compute,
+// which rebuilds each touched DB's root as SumModuleHashes(perModule[dir]) — a
+// map holding only that block's delta — silently discarding the pre-existing
+// keys' contribution to the per-DB root and thus the global store hash /
+// AppHash. Fail loudly here instead of corrupting state.
+func validatePerModuleMetadata(dbDir string, meta *ktype.LocalMeta) error {
+	if meta == nil || meta.LtHash == nil || meta.LtHash.IsZero() {
+		return nil
+	}
+	if len(meta.ModuleLtHashes) == 0 {
+		return fmt.Errorf(
+			"flatkv: %s carries a non-identity per-DB LtHash root but no "+
+				"per-module metadata; this store predates per-module hashing "+
+				"and cannot be opened (migration is intentionally unsupported — "+
+				"recreate the store from a snapshot or genesis)",
+			dbDir,
+		)
+	}
+	return nil
+}
+
 // cloneModuleHashes returns a deep copy of a per-module hash map (cloning each
 // LtHash). A nil or empty source yields a fresh empty map.
 func cloneModuleHashes(src map[string]*lthash.LtHash) map[string]*lthash.LtHash {

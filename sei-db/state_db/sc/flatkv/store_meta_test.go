@@ -56,6 +56,94 @@ func TestLoadLocalMeta(t *testing.T) {
 	})
 }
 
+// TestValidatePerModuleMetadata pins the load-time guard's decision matrix: a
+// non-identity per-DB root without per-module metadata is the one rejected case
+// (a store predating per-module hashing), which would otherwise silently
+// corrupt the per-DB root — and thus the global store hash / AppHash — on the
+// first write.
+func TestValidatePerModuleMetadata(t *testing.T) {
+	nonZero, _ := lthash.ComputeLtHash(nil, []lthash.KVPairWithLastValue{
+		{Key: []byte("k"), Value: []byte("v")},
+	})
+	require.False(t, nonZero.IsZero(), "precondition: crafted root must be non-identity")
+
+	cases := []struct {
+		name    string
+		meta    *ktype.LocalMeta
+		wantErr bool
+	}{
+		{"nil meta", nil, false},
+		{"nil root", &ktype.LocalMeta{}, false},
+		{"identity root, no modules", &ktype.LocalMeta{LtHash: lthash.New()}, false},
+		{
+			"non-identity root with modules",
+			&ktype.LocalMeta{LtHash: nonZero.Clone(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
+			false,
+		},
+		{"non-identity root without modules", &ktype.LocalMeta{LtHash: nonZero.Clone()}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validatePerModuleMetadata(storageDBDir, tc.meta)
+			if tc.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "predates per-module hashing")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestLoadRejectsStoreMissingPerModuleMetadata drives the guard through the real
+// load path: it commits data, strips the per-module hash keys off disk to
+// imitate a pre-per-module store, and confirms reopening fails loudly instead of
+// discarding the pre-existing root on the next write.
+func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	// A committed EVM storage entry gives storageDB a non-identity per-DB root
+	// plus an "EVM" per-module hash.
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+
+	// Simulate a store written before per-module hashing: strip every
+	// per-module meta key (hashes + stats) while keeping the per-DB root.
+	iter, err := s.storageDB.NewIter(&types.IterOptions{
+		LowerBound: ktype.ModuleLtHashPrefixBytes,
+		UpperBound: ktype.PrefixEnd(ktype.ModuleLtHashPrefixBytes),
+	})
+	require.NoError(t, err)
+	var keys [][]byte
+	for ; iter.Valid(); iter.Next() {
+		keys = append(keys, append([]byte(nil), iter.Key()...))
+	}
+	require.NoError(t, iter.Error())
+	require.NoError(t, iter.Close())
+	require.NotEmpty(t, keys, "precondition: storageDB must carry per-module meta keys")
+	for _, k := range keys {
+		require.NoError(t, s.storageDB.Delete(k, types.WriteOptions{}))
+	}
+	require.NoError(t, s.Close())
+
+	// Reopening must reject the tampered store loudly rather than corrupt it.
+	cfg2 := config.DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	defer s2.Close()
+	_, err = s2.LoadVersion(0, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "predates per-module hashing")
+}
+
 func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
