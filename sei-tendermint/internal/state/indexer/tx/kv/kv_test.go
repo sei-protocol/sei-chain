@@ -325,7 +325,8 @@ func TestTxSearchMultipleTxs(t *testing.T) {
 }
 
 func TestTxSearchBounded(t *testing.T) {
-	idx := NewTxIndex(dbm.NewMemDB())
+	store := dbm.NewMemDB()
+	idx := NewTxIndex(store)
 
 	// Two txs per height for heights 1..5. Every tx carries app.name=sei; the
 	// index-0 tx of each height also carries app.kind=even. Tx bytes are unique
@@ -438,14 +439,32 @@ func TestTxSearchBounded(t *testing.T) {
 		})
 	}
 
-	// A cancelled context makes the bounded scan return the results gathered so
-	// far without an error, rather than failing the whole query.
-	t.Run("cancelled context returns partial results", func(t *testing.T) {
+	// A context cancelled before the search even starts returns an empty result without an error.
+	t.Run("cancelled context before scan returns empty", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		results, err := idx.Search(ctx, query.MustCompile(`app.name = 'sei'`), indexer.SearchOptions{Limit: 5, OrderDesc: true})
 		require.NoError(t, err)
 		require.Empty(t, results)
+	})
+
+	// A context cancelled mid-scan makes the bounded scan stop and return the
+	// rows gathered so far — an ordered prefix of the full result — without an error
+	t.Run("cancelled context mid-scan returns ordered prefix", func(t *testing.T) {
+		full, err := idx.Search(t.Context(), query.MustCompile(`app.name = 'sei'`), indexer.SearchOptions{OrderDesc: true})
+		require.NoError(t, err)
+		require.Greater(t, len(full), 2, "need several matches so a partial return is observable")
+
+		ctx, cancel := context.WithCancel(t.Context())
+		// Cancel while fetching the second matching row: searchBounded appends
+		// that row, then observes cancellation at the top of the next iteration
+		// and stops. The result is a non-empty, in-order prefix of full.
+		scoped := &cancelAfterGetDB{DB: store, cancel: cancel, after: 2}
+		results, err := NewTxIndex(scoped).Search(ctx, query.MustCompile(`app.name = 'sei'`), indexer.SearchOptions{Limit: 5, OrderDesc: true})
+		require.NoError(t, err)
+		require.NotEmpty(t, results)
+		require.Less(t, len(results), len(full), "cancellation must truncate the scan")
+		require.Equal(t, pairs(full[:len(results)]), pairs(results))
 	})
 
 	// Capping in the scan must not diverge from materialize-then-cap: for any
@@ -485,6 +504,25 @@ type countingDB struct {
 func (c *countingDB) Has(key []byte) (bool, error) {
 	c.hasCount++
 	return c.DB.Has(key)
+}
+
+// cancelAfterGetDB wraps a dbm.DB and cancels a context on the after-th primary
+// Get. searchBounded calls Get once per matched row, so this stops a bounded
+// scan after a known number of rows are gathered, exercising the in-loop
+// partial-return path rather than the top-level cancellation guard.
+type cancelAfterGetDB struct {
+	dbm.DB
+	cancel context.CancelFunc
+	after  int
+	gets   int
+}
+
+func (c *cancelAfterGetDB) Get(key []byte) ([]byte, error) {
+	c.gets++
+	if c.gets == c.after {
+		c.cancel()
+	}
+	return c.DB.Get(key)
 }
 
 func TestTxSearchBoundedPrefersHeightDriver(t *testing.T) {
