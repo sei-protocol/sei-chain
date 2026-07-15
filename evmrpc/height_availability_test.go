@@ -14,7 +14,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -24,7 +23,7 @@ import (
 const highBlockHashHex = "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed"
 
 type heightTestClient struct {
-	mock.Client
+	client.Client
 	highHash  bytes.HexBytes
 	highBlock *coretypes.ResultBlock
 	earliest  int64
@@ -45,7 +44,6 @@ func (*heightTestClient) EvmProxy(common.Address) utils.Option[*url.URL] {
 
 func newHeightTestClient(highHeight, earliest, latest int64) *heightTestClient {
 	return &heightTestClient{
-		Client:   mock.Client{},
 		highHash: bytes.HexBytes(mustDecodeHex(highBlockHashHex[2:])),
 		highBlock: &coretypes.ResultBlock{
 			Block: &tmtypes.Block{
@@ -83,6 +81,14 @@ func (c *heightTestClient) Status(context.Context) (*coretypes.ResultStatus, err
 		SyncInfo: coretypes.SyncInfo{
 			LatestBlockHeight:   c.latest,
 			EarliestBlockHeight: c.earliest,
+		},
+	}, nil
+}
+
+func (c *heightTestClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) {
+	return &coretypes.ResultGenesis{
+		Genesis: &tmtypes.GenesisDoc{
+			InitialHeight: c.earliest,
 		},
 	}, nil
 }
@@ -269,7 +275,8 @@ func TestGetBlockReceiptsGenesisByNumber(t *testing.T) {
 func TestGetBlockByNumberExcludeTraceFailGenesis(t *testing.T) {
 	t.Parallel()
 
-	api := NewSeiBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
+	client := newHeightTestClient(1, 1, 1)
+	api := NewSeiBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
 	block, err := api.GetBlockByNumberExcludeTraceFail(context.Background(), 0, false)
 	require.NoError(t, err)
 	require.NotNil(t, block)

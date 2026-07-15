@@ -150,17 +150,13 @@ func NewSei2BlockAPI(
 	return blockAPI
 }
 
-func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
-	// Match eth_getBlockByNumber("0x0"): synthetic genesis, not the Tendermint block at height 0.
-	if number == 0 {
-		return encodeGenesisBlock(), nil
-	}
+func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]any, returnErr error) {	
 	// Exclude synthetic txs (filterTransactions drops them) and ante-failure
 	// stub receipts (EncodeTmBlock drops them via excludeUntraceable).
 	return a.getBlockByNumber(ctx, number, fullTx, false, true)
 }
 
-func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
+func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]any, returnErr error) {
 	// See note on GetBlockByNumberExcludeTraceFail.
 	return a.getBlockByHash(ctx, blockHash, fullTx, false, true)
 }
@@ -213,12 +209,12 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	return a.getEvmTxCount(block), nil
 }
 
-func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
+func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]any, returnErr error) {
 	// used for both: eth_ and sei_ namespaces
 	return a.getBlockByHash(ctx, blockHash, fullTx, a.includeShellReceipts, false)
 }
 
-func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, excludeUntraceable bool) (result map[string]interface{}, returnErr error) {
+func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, excludeUntraceable bool) (result map[string]any, returnErr error) {
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr, recover())
@@ -250,15 +246,11 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
 }
 
-func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
+func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]any, returnErr error) {
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr, recover())
-	}()
-	if number == 0 {
-		// for compatibility with the graph, always return genesis block
-		return encodeGenesisBlock(), nil
-	}
+	}()	
 	return a.getBlockByNumber(ctx, number, fullTx, a.includeShellReceipts, false)
 }
 
@@ -268,10 +260,14 @@ func (a *BlockAPI) getBlockByNumber(
 	fullTx bool,
 	includeSyntheticTxs bool,
 	excludeUntraceable bool,
-) (result map[string]interface{}, returnErr error) {
+) (result map[string]any, returnErr error) {
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
+	}
+	// synthetic genesis block, not the Tendermint block at height 0.
+	if number == 0 || (numberPtr == nil && a.ctxProvider(LatestCtxHeight).BlockHeight() == 0) {
+		return encodeGenesisBlock(), nil
 	}
 
 	// Validate EVM block height for pacific-1 chain
@@ -293,7 +289,7 @@ func (a *BlockAPI) getBlockByNumber(
 	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
 }
 
-func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
+func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]any, returnErr error) {
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr, recover())
@@ -344,7 +340,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	// cannot spawn an unbounded number of goroutines. errgroup.SetLimit blocks
 	// Go() until a slot frees, bounding the number of live goroutines rather
 	// than just the number doing concurrent work.
-	allReceipts := make([]map[string]interface{}, len(txHashes))
+	allReceipts := make([]map[string]any, len(txHashes))
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(maxBlockReceiptsConcurrency)
 	for i, hash := range txHashes {
@@ -375,7 +371,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
-	compactReceipts := make([]map[string]interface{}, 0)
+	compactReceipts := make([]map[string]any, 0)
 	for _, r := range allReceipts {
 		if len(r) > 0 {
 			compactReceipts = append(compactReceipts, r)
@@ -409,7 +405,7 @@ func EncodeTmBlock(
 	excludeUntraceable bool,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
-) (map[string]interface{}, error) {
+) (map[string]any, error) {
 	number := big.NewInt(block.Block.Height)
 	blockhash := common.HexToHash(block.BlockID.Hash.String())
 	blockTime := block.Block.Time
@@ -427,7 +423,7 @@ func EncodeTmBlock(
 	}
 	var blockGasUsed int64
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
-	transactions := []interface{}{}
+	transactions := []any{}
 	latestCtx := ctxProvider(LatestCtxHeight)
 
 	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSyntheticTxs, includeBankTransfers, cacheCreationMutex, globalBlockCache)
@@ -535,7 +531,7 @@ func EncodeTmBlock(
 	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
 		gasLimit = cp.Block.MaxGas
 	}
-	result := map[string]interface{}{
+	result := map[string]any{
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,
 		"parentHash":       lastHash,
