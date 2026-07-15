@@ -167,29 +167,43 @@ func writeLocalMetaToBatch(
 }
 
 // validatePerModuleMetadata enforces the load-time invariant that a persisted
-// non-identity per-DB root is always accompanied by its per-module
-// decomposition. FlatKV writes the per-DB root and its per-module hashes in the
-// same atomic batch (see writeLocalMetaToBatch / commitBatches), so a correctly
-// written store never has one without the other; an empty module map alongside
-// a non-zero root can only mean the store predates per-module hashing.
+// per-DB root is consistent with its per-module decomposition. FlatKV writes
+// the per-DB root and its per-module hashes in the same atomic batch (see
+// writeLocalMetaToBatch / commitBatches), so a correctly written store always
+// satisfies SumModuleHashes(ModuleLtHashes) == LtHash.
 //
-// Migration of such stores is intentionally unsupported (fresh stores only). If
-// we proceeded, the first write would route through HashCalculator.Compute,
-// which rebuilds each touched DB's root as SumModuleHashes(perModule[dir]) — a
-// map holding only that block's delta — silently discarding the pre-existing
-// keys' contribution to the per-DB root and thus the global store hash /
-// AppHash. Fail loudly here instead of corrupting state.
+// Two failure modes are rejected here:
+//  1. Non-identity root with an empty module map — the store predates
+//     per-module hashing; migration is intentionally unsupported.
+//  2. Module map present but its homomorphic sum does not equal the root —
+//     incomplete / drifted bookkeeping (e.g. a subset of module /hash keys
+//     lost while the root survived). On the next write,
+//     HashCalculator.Compute rebuilds the root as SumModuleHashes over that
+//     incomplete map, silently dropping a module's contribution to the
+//     per-DB root and thus the global store hash / AppHash.
+//
+// Fail loudly at load instead of corrupting consensus-critical state.
 func validatePerModuleMetadata(dbDir string, meta *ktype.LocalMeta) error {
-	if meta == nil || meta.LtHash == nil || meta.LtHash.IsZero() {
+	if meta == nil || meta.LtHash == nil {
 		return nil
 	}
 	if len(meta.ModuleLtHashes) == 0 {
+		if meta.LtHash.IsZero() {
+			return nil
+		}
 		return fmt.Errorf(
 			"flatkv: %s carries a non-identity per-DB LtHash root but no "+
 				"per-module metadata; this store predates per-module hashing "+
 				"and cannot be opened (migration is intentionally unsupported — "+
 				"recreate the store from a snapshot or genesis)",
 			dbDir,
+		)
+	}
+	sum := lthash.SumModuleHashes(meta.ModuleLtHashes)
+	if !meta.LtHash.Equal(sum) {
+		return fmt.Errorf(
+			"flatkv: %s per-module hashes do not sum to per-DB root (root=%x sum=%x)",
+			dbDir, meta.LtHash.Checksum(), sum.Checksum(),
 		)
 	}
 	return nil

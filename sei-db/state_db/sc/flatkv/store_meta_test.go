@@ -56,38 +56,69 @@ func TestLoadLocalMeta(t *testing.T) {
 	})
 }
 
-// TestValidatePerModuleMetadata pins the load-time guard's decision matrix: a
-// non-identity per-DB root without per-module metadata is the one rejected case
-// (a store predating per-module hashing), which would otherwise silently
-// corrupt the per-DB root — and thus the global store hash / AppHash — on the
-// first write.
+// TestValidatePerModuleMetadata pins the load-time guard's decision matrix:
+// empty module map with a non-identity root (pre-per-module store) and a
+// non-empty module map that does not sum to the root (incomplete / drifted
+// bookkeeping) are rejected; both would otherwise silently corrupt the
+// per-DB root — and thus the global store hash / AppHash — on the first write.
 func TestValidatePerModuleMetadata(t *testing.T) {
 	nonZero, _ := lthash.ComputeLtHash(nil, []lthash.KVPairWithLastValue{
 		{Key: []byte("k"), Value: []byte("v")},
 	})
 	require.False(t, nonZero.IsZero(), "precondition: crafted root must be non-identity")
 
+	other, _ := lthash.ComputeLtHash(nil, []lthash.KVPairWithLastValue{
+		{Key: []byte("other"), Value: []byte("w")},
+	})
+	require.False(t, other.IsZero())
+	require.False(t, nonZero.Equal(other), "precondition: distinct hashes")
+
+	// Two-module root: sum equals root only when both modules are present.
+	combined := nonZero.Clone()
+	combined.MixIn(other)
+
 	cases := []struct {
-		name    string
-		meta    *ktype.LocalMeta
-		wantErr bool
+		name       string
+		meta       *ktype.LocalMeta
+		wantErrSub string // empty => expect success
 	}{
-		{"nil meta", nil, false},
-		{"nil root", &ktype.LocalMeta{}, false},
-		{"identity root, no modules", &ktype.LocalMeta{LtHash: lthash.New()}, false},
+		{"nil meta", nil, ""},
+		{"nil root", &ktype.LocalMeta{}, ""},
+		{"identity root, no modules", &ktype.LocalMeta{LtHash: lthash.New()}, ""},
 		{
-			"non-identity root with modules",
+			"non-identity root with matching modules",
 			&ktype.LocalMeta{LtHash: nonZero.Clone(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
-			false,
+			"",
 		},
-		{"non-identity root without modules", &ktype.LocalMeta{LtHash: nonZero.Clone()}, true},
+		{
+			"multi-module root with matching modules",
+			&ktype.LocalMeta{
+				LtHash: combined.Clone(),
+				ModuleLtHashes: map[string]*lthash.LtHash{
+					"EVM":  nonZero.Clone(),
+					"bank": other.Clone(),
+				},
+			},
+			"",
+		},
+		{"non-identity root without modules", &ktype.LocalMeta{LtHash: nonZero.Clone()}, "predates per-module hashing"},
+		{
+			"modules do not sum to root",
+			&ktype.LocalMeta{LtHash: combined.Clone(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
+			"do not sum to per-DB root",
+		},
+		{
+			"identity root with non-zero modules",
+			&ktype.LocalMeta{LtHash: lthash.New(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
+			"do not sum to per-DB root",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validatePerModuleMetadata(storageDBDir, tc.meta)
-			if tc.wantErr {
+			if tc.wantErrSub != "" {
 				require.Error(t, err)
-				require.Contains(t, err.Error(), "predates per-module hashing")
+				require.Contains(t, err.Error(), tc.wantErrSub)
 			} else {
 				require.NoError(t, err)
 			}
