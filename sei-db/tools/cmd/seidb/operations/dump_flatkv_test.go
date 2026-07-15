@@ -61,7 +61,7 @@ func TestDumpFlatKVFromStoreAllBuckets(t *testing.T) {
 		"account": {lines: 2}, // 2 nonces -> 2 account rows
 		"code":    {lines: 1}, // 1 code
 		"storage": {lines: 3}, // 3 storage slots
-		"misc":  {lines: 1}, // 1 bank row
+		"misc":    {lines: 1}, // 1 bank row
 	}
 
 	for name, w := range want {
