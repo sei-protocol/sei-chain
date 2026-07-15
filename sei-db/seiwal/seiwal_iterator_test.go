@@ -59,6 +59,48 @@ func TestIteratorRejectsCorruptSealedFile(t *testing.T) {
 	require.Contains(t, iterErr.Error(), "corrupt")
 }
 
+// TestIteratorRejectsCorruptMutableSnapshot verifies that interior corruption in the still-unsealed mutable
+// file, within the range the iterator's point-in-time snapshot promises, is surfaced as an error rather than
+// silently truncating. Those records were complete when the snapshot was taken, so a short read is corruption,
+// not a live-write torn tail — and iteration must not depend on whether the file later gets sealed for real.
+func TestIteratorRejectsCorruptMutableSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir) // large target: records 1..5 stay in the unsealed mutable file, sequence 0
+
+	w := openWAL(t, cfg)
+	for index := uint64(1); index <= 5; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Flush()) // records readable on disk; the file is still unsealed
+	defer func() { require.NoError(t, w.Close()) }()
+	require.Empty(t, sealedFileNames(t, dir))
+
+	// Corrupt record 5's CRC in the mutable file, within the [1,5] range the snapshot will promise.
+	path := filepath.Join(dir, unsealedFileName(0))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	data[len(data)-1] ^= 0xFF
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+
+	it, err := w.Iterator(1, 5)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	var iterErr error
+	for {
+		ok, err := it.Next()
+		if err != nil {
+			iterErr = err
+			break
+		}
+		if !ok {
+			break
+		}
+	}
+	require.Error(t, iterErr)
+	require.Contains(t, iterErr.Error(), "corrupt")
+}
+
 // TestIteratorEmptyWALErrors verifies that an empty WAL has no latest index, so any requested end index is
 // beyond it: iterator creation fails with ErrIteratorRange rather than returning an empty iterator, and the
 // rejection leaves the WAL usable.

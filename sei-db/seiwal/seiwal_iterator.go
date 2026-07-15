@@ -268,6 +268,22 @@ func (it *walIterator) loadNextFile() (bool, error) {
 			if err := verifySealedContents(contents, f.fileSeq, f.firstIndex, f.lastIndex); err != nil {
 				return false, err
 			}
+		} else {
+			// The unsealed mutable snapshot's records through f.lastIndex (the snapshot bound) were complete
+			// when the snapshot was taken, so a short read is corruption in known-complete data — not a
+			// live-write torn tail, which can only appear past the bound and is dropped by the maxIndex filter.
+			if !contents.hasRecords {
+				return false, fmt.Errorf(
+					"WAL file (sequence %d) is corrupt: no intact records were read, "+
+						"but the snapshot promises indices through %d",
+					f.fileSeq, f.lastIndex)
+			}
+			if contents.lastIndex < f.lastIndex {
+				return false, fmt.Errorf(
+					"WAL file (sequence %d) is corrupt: content covers indices through %d, "+
+						"short of the snapshot bound %d",
+					f.fileSeq, contents.lastIndex, f.lastIndex)
+			}
 		}
 
 		for _, record := range contents.records {
