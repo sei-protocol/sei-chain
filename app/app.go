@@ -142,6 +142,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
@@ -2082,6 +2083,15 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		return nil, gigaprecompiles.ErrBalanceMigrationRequired
 	}
 
+	// EIP-7702 authorization authorities must be associated with their true (pubkey-derived)
+	// Sei address before SetCode installs delegation code, otherwise SetCode creates a mutable
+	// direct-cast mapping that a later associatePubKey can remap (orphaning staking/distribution
+	// state). That pre-association is done in the V2 ante handler and requires balance migration,
+	// which giga's cachekv cannot perform, so defer such transactions to V2.
+	if app.setCodeTxRequiresAuthorityAssociation(ctx, ethTx) {
+		return nil, gigaprecompiles.ErrBalanceMigrationRequired
+	}
+
 	// Create state DB for this transaction (only for valid transactions)
 	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
 	defer stateDB.Cleanup()
@@ -2282,6 +2292,22 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 			Nonce:   ethTx.Nonce(),
 		},
 	}, nil
+}
+
+// setCodeTxRequiresAuthorityAssociation reports whether an EIP-7702 transaction has any
+// authorization authority that the EVM will apply and that is not yet associated with its
+// true (pubkey-derived) Sei address. Such an authority must be associated (with balance
+// migration) before SetCode runs, which the V2 ante handler does but the giga executor
+// cannot; callers use this to defer the transaction to V2. Authorizations the EVM would
+// skip (wrong chain id, bad nonce, authority has code) are ignored: no mapping is created
+// for them. It returns false for non-SetCode transactions (which carry no authorizations).
+func (app *App) setCodeTxRequiresAuthorityAssociation(ctx sdk.Context, ethTx *ethtypes.Transaction) bool {
+	for _, auth := range ethTx.SetCodeAuthorizations() {
+		if _, _, _, ok := helpers.AuthorityToPreAssociate(ctx, &app.GigaEvmKeeper, auth); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // gigaDeliverTx is the OCC-compatible deliverTx function for the giga executor.
