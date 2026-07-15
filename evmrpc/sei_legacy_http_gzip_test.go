@@ -109,7 +109,7 @@ func readGzipBody(t *testing.T, rec *httptest.ResponseRecorder) []byte {
 func TestHandleBatch_NonGatedMethods_GzipIntact(t *testing.T) {
 	// Wrap: gate → gzip → echo.  Without the fix the gate's recorder
 	// captures the gzip bytes and replays them raw → broken gzip frame.
-	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), allowAll)
+	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), allowAll, 0)
 
 	body := `[
 		{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber"},
@@ -138,7 +138,7 @@ func TestHandleBatch_NonGatedMethods_GzipIntact(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestHandleSingle_NonGatedMethod_GzipIntact(t *testing.T) {
-	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), allowAll)
+	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), allowAll, 0)
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"eth_call"}`
 	rec := httptest.NewRecorder()
@@ -163,7 +163,7 @@ func TestHandleSingle_NonGatedMethod_GzipIntact(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestHandleSingle_GatedMethod_DeprecationHeader(t *testing.T) {
-	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), allowAll)
+	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), allowAll, 0)
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getFilterLogs"}`
 	rec := httptest.NewRecorder()
@@ -182,7 +182,7 @@ func TestHandleSingle_GatedMethod_DeprecationHeader(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestHandleBatch_GatedMethod_DeprecationHeader(t *testing.T) {
-	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), allowAll)
+	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), allowAll, 0)
 
 	body := `[
 		{"jsonrpc":"2.0","id":1,"method":"sei_getFilterLogs"},
@@ -205,7 +205,7 @@ func TestHandleBatch_GatedMethod_DeprecationHeader(t *testing.T) {
 
 func TestHandleSingle_BlockedMethod_ReturnsError(t *testing.T) {
 	// Empty allowlist → all sei_* methods are blocked.
-	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), map[string]struct{}{})
+	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), map[string]struct{}{}, 0)
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getFilterLogs"}`
 	rec := httptest.NewRecorder()

@@ -22,4 +22,6 @@ var (
 	ErrNoMessages = sdkerrors.Register(DefaultCodespace, 6, "allowed messages are empty")
 	// ErrMessageNotAllowed error if message is not allowed
 	ErrMessageNotAllowed = sdkerrors.Register(DefaultCodespace, 7, "message not allowed")
+	// ErrTooManyDenoms error if an allowance coin list exceeds MaxAllowanceDenoms
+	ErrTooManyDenoms = sdkerrors.Register(DefaultCodespace, 8, "too many denominations in allowance")
 )

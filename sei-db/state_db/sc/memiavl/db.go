@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/alitto/pond"
@@ -811,6 +813,22 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 
 	// Rename temporary directory to final location
 	if err := os.Rename(path, targetPath); err != nil {
+		// An existing snapshot-<h> directory (from a prior atomic rename) can be
+		// used; drop our redundant temp rather than failing this rewrite. Only a
+		// directory is a valid prior snapshot -- a non-directory at the path is
+		// corruption/external interference and must not be adopted.
+		if errors.Is(err, fs.ErrExist) || errors.Is(err, syscall.ENOTEMPTY) {
+			if info, statErr := os.Stat(targetPath); statErr != nil || !info.IsDir() {
+				return fmt.Errorf("snapshot path %q exists but is not a usable directory: %w", targetPath, err)
+			}
+			logger.Info("reusing existing snapshot directory, dropping redundant temp",
+				"snapshotDir", snapshotDir,
+			)
+			if rmErr := os.RemoveAll(path); rmErr != nil {
+				return rmErr
+			}
+			return updateCurrentSymlink(db.dir, snapshotDir)
+		}
 		logger.Error("failed to rename snapshot directory, cleaning up",
 			"tmpDir", tmpDir,
 			"targetDir", snapshotDir,
@@ -1231,6 +1249,11 @@ func initEmptyDB(dir string, initialVersion uint32) error {
 // it could fail under concurrent usage for tmp file conflicts.
 func updateCurrentSymlink(dir, snapshot string) error {
 	tmpPath := currentTmpPath(dir)
+	// A crash between Symlink and Rename can leave current-tmp behind; remove it
+	// so a re-offered restore is idempotent rather than failing with EEXIST.
+	if err := os.Remove(tmpPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	if err := os.Symlink(snapshot, tmpPath); err != nil {
 		return err
 	}

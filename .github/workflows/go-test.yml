@@ -26,7 +26,8 @@ jobs:
     env:
       GOFLAGS: -race -tags=ledger,test_ledger_mock
     steps:
-      - uses: actions/checkout@v5
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           fetch-depth: 1
 
@@ -68,7 +69,8 @@ jobs:
         if: github.event_name == 'merge_group'
         run: echo 'Coverage skipped in merge queue'
 
-      - uses: actions/checkout@v5
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         if: github.event_name != 'merge_group'
         with:
           # Depth 0 for PRs so merge-base diff against the base branch works.

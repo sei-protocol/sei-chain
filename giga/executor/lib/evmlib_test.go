@@ -28,3 +28,22 @@ func TestLibSHA256MatchesCheckedInLibrary(t *testing.T) {
 	got := hex.EncodeToString(h.Sum(nil))
 	require.Equal(t, libSHA256, got, "checked-in %s digest = %s, want %s", libName, got, libSHA256)
 }
+
+func TestResolveLibPathRejectsRelativeOverrideDir(t *testing.T) {
+	t.Setenv(libDirEnv, ".")
+
+	_, err := resolveLibPath()
+	require.ErrorContains(t, err, libDirEnv+" must be an absolute path")
+}
+
+func TestResolveLibPathUsesAbsoluteOverrideDir(t *testing.T) {
+	dir := t.TempDir()
+	libPath := filepath.Join(dir, libName)
+	require.NoError(t, os.WriteFile(libPath, []byte("test evmone library"), 0o600))
+	t.Setenv(libDirEnv, dir)
+
+	got, err := resolveLibPath()
+	require.NoError(t, err)
+	require.Equal(t, libPath, got)
+	require.True(t, filepath.IsAbs(got))
+}

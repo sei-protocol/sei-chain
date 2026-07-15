@@ -17,6 +17,16 @@ func (n *noOpHashLogger) ReportChangeset(uint64, []*proto.NamedChangeSet) {
 	// intentional no-op
 }
 
+func (n *noOpHashLogger) RegisterHashType(string) error {
+	// intentional no-op
+	return nil
+}
+
+func (n *noOpHashLogger) UnregisterHashType(string) error {
+	// intentional no-op
+	return nil
+}
+
 func (n *noOpHashLogger) ReportHash(uint64, string, []byte) error {
 	// intentional no-op
 	return nil

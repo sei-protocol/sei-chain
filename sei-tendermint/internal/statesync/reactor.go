@@ -182,7 +182,6 @@ type Reactor struct {
 	stateProvider  StateProvider
 
 	eventBus           *eventbus.EventBus
-	metrics            *Metrics
 	backfillBlockTotal int64
 	backfilledBlocks   int64
 
@@ -218,7 +217,6 @@ func NewReactor(
 	stateStore sm.Store,
 	blockStore *store.BlockStore,
 	tempDir string,
-	ssMetrics *Metrics,
 	eventBus *eventbus.EventBus,
 	postSyncHook func(context.Context, sm.State) error,
 	needsStateSync bool,
@@ -252,7 +250,6 @@ func NewReactor(
 		blockStore:                    blockStore,
 		peers:                         NewPeerList(),
 		providers:                     make(map[types.NodeID]*BlockProvider),
-		metrics:                       ssMetrics,
 		eventBus:                      eventBus,
 		postSyncHook:                  postSyncHook,
 		needsStateSync:                needsStateSync,
@@ -325,7 +322,6 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			tempDir:          r.tempDir,
 			fetchers:         r.cfg.Fetchers,
 			retryTimeout:     r.cfg.ChunkRequestTimeout,
-			metrics:          r.metrics,
 			useLocalSnapshot: r.cfg.UseLocalSnapshot,
 		}
 	}
@@ -497,7 +493,7 @@ func (r *Reactor) backfill(
 		"stopHeight", stopHeight, "stopTime", stopTime, "trustedBlockID", trustedBlockID)
 
 	r.backfillBlockTotal = startHeight - stopHeight + 1
-	r.metrics.BackFillBlocksTotal.Set(float64(r.backfillBlockTotal))
+	Global.BackFillBlocksTotalAt().Set(r.backfillBlockTotal)
 
 	const sleepTime = 1 * time.Second
 	var (
@@ -625,13 +621,13 @@ func (r *Reactor) backfill(
 			lastValidatorSet = resp.block.ValidatorSet
 
 			r.backfilledBlocks++
-			r.metrics.BackFilledBlocks.Add(1)
+			Global.BackFilledBlocksAt().Add(1)
 
 			// The block height might be less than the stopHeight because of the stopTime condition
 			// hasn't been fulfilled.
 			if resp.block.Height < stopHeight {
 				r.backfillBlockTotal++
-				r.metrics.BackFillBlocksTotal.Set(float64(r.backfillBlockTotal))
+				Global.BackFillBlocksTotalAt().Set(r.backfillBlockTotal)
 			}
 
 		case <-queue.done():

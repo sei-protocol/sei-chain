@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -13,7 +14,8 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/tracers"
-	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // run init()s to register JS tracers
+	_ "github.com/ethereum/go-ethereum/eth/tracers/js" // run init()s to register JS tracers
+	traceLogger "github.com/ethereum/go-ethereum/eth/tracers/logger"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -50,6 +52,7 @@ type DebugAPI struct {
 	traceCallSemaphore chan struct{} // Semaphore for limiting concurrent trace calls
 	maxBlockLookback   int64
 	traceTimeout       time.Duration
+	maxStructLogBytes  int // per-call cap on retained default struct-logger output; 0 = unlimited
 	profiledBlockTrace bool
 }
 
@@ -203,7 +206,34 @@ func NewDebugAPI(
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
+		maxStructLogBytes:  clampUint64ToInt(debugCfg.MaxTraceStructLogBytes),
 		profiledBlockTrace: debugCfg.EnableParallelizedBlockTrace,
+	}
+}
+
+// clampUint64ToInt converts an operator-configured uint64 to int, saturating at
+// math.MaxInt instead of wrapping to a negative value. A negative maxStructLogBytes
+// would be treated as "disabled" by clampDefaultStructLogLimit, silently defeating
+// the cap — the opposite of an operator setting a very large limit.
+func clampUint64ToInt(v uint64) int {
+	if v > uint64(math.MaxInt) {
+		return math.MaxInt
+	}
+	return int(v)
+}
+
+// clampDefaultStructLogLimit caps the default struct logger's retained output at
+// api.maxStructLogBytes. No-op for custom tracers, a disabled cap (0), or a
+// smaller caller-supplied Limit.
+func (api *DebugAPI) clampDefaultStructLogLimit(config *tracers.TraceConfig) {
+	if config == nil || config.Tracer != nil || api.maxStructLogBytes <= 0 {
+		return
+	}
+	if config.Config == nil {
+		config.Config = &traceLogger.Config{}
+	}
+	if config.Limit <= 0 || config.Limit > api.maxStructLogBytes {
+		config.Limit = api.maxStructLogBytes
 	}
 }
 
@@ -227,6 +257,10 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
+	if config == nil {
+		config = &tracers.TraceConfig{}
+	}
+	api.clampDefaultStructLogLimit(config)
 	return api.tracersAPI.TraceTransaction(ctx, hash, config)
 }
 
@@ -430,6 +464,10 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 		return cached, nil
 	}
 
+	if config == nil {
+		config = &tracers.TraceConfig{}
+	}
+	api.clampDefaultStructLogLimit(config)
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
 	} else {
@@ -458,6 +496,10 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 		return cached, nil
 	}
 
+	if config == nil {
+		config = &tracers.TraceConfig{}
+	}
+	api.clampDefaultStructLogLimit(config)
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
 	} else {
@@ -482,6 +524,13 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		return nil, returnErr
 	}
 
+	if config == nil {
+		config = &tracers.TraceCallConfig{}
+	}
+	if returnErr = validateStateOverrides(config.StateOverrides, api.backend.MaxStateOverrideAccounts(), api.backend.MaxStateOverrideSlots()); returnErr != nil {
+		return nil, returnErr
+	}
+	api.clampDefaultStructLogLimit(&config.TraceConfig)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
 }
@@ -535,6 +584,13 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	if returnErr = api.guardHistoricalDebugTraceByTxHash(ctx, "debug_traceStateAccess", hash); returnErr != nil {
 		return nil, returnErr
 	}
+
+	ctx, done, err := api.prepareTraceContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+
 	tendermintTraces := &TendermintTraces{Traces: []TendermintTrace{}}
 	ctx = WithTendermintTraces(ctx, tendermintTraces)
 	receiptTraces := &ReceiptTraces{Traces: []RawResponseReceipt{}}
@@ -561,6 +617,11 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	}
 	stateDB, _, err := tracingBackend.ReplayTransactionTillIndex(ctx, block, int(index)) //nolint:gosec
 	if err != nil {
+		return nil, err
+	}
+	// Bail before the potentially expensive prestate/trace serialization if the
+	// trace deadline has already elapsed during replay.
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	response := StateAccessResponse{

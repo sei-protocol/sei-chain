@@ -29,9 +29,12 @@ type Table interface {
 	// each and do not duplicate value bytes. Secondary keys must be globally unique just like
 	// primary keys, and must not collide with the primary key or other secondaries.
 	//
-	// The maximum size of a key (primary or secondary) is 64 KiB (2^16 - 1 bytes). The maximum size
-	// of the value is 2^32 bytes. This database has been optimized under the assumption that values
-	// are generally much larger than keys. This affects performance, but not correctness.
+	// The maximum size of a key (primary or secondary) is 64 KiB (2^16 - 1 bytes). The maximum size of a
+	// value is 2^32 - 1 bytes (math.MaxUint32, ~4 GiB); a larger value is rejected with an error. (This
+	// limit is stricter than it was before secondary keys existed: a value's byte offsets are stored as
+	// uint32, and each value is written whole within a single segment file below the 2^32 boundary.) This
+	// database has been optimized under the assumption that values are generally much larger than keys.
+	// This affects performance, but not correctness.
 	//
 	// Although writes are individually atomic, the DB makes no guarantees about atomicity of multiple writes in
 	// aggregate. That is to say, if a caller writes A and then B and the DB crashes before flushing, it may be the
@@ -47,9 +50,10 @@ type Table interface {
 	//
 	// Each PutRequest may include zero or more secondary keys (see Put for semantics).
 	//
-	// The maximum size of a key (primary or secondary) is 64 KiB (2^16 - 1 bytes). The maximum size
-	// of a value is 2^32 bytes. This database has been optimized under the assumption that values
-	// are generally much larger than keys. This affects performance, but not correctness.
+	// The maximum size of a key (primary or secondary) is 64 KiB (2^16 - 1 bytes). The maximum size of a
+	// value is 2^32 - 1 bytes (math.MaxUint32, ~4 GiB); a larger value is rejected with an error. This
+	// database has been optimized under the assumption that values are generally much larger than keys.
+	// This affects performance, but not correctness.
 	//
 	// Although writes in a batch are individually atomic, the DB makes no guarantees about atomicity of multiple
 	// writes in aggregate. That is to say, if a caller writes A and then B in a batch and the DB crashes before
@@ -65,21 +69,14 @@ type Table interface {
 	// (returns false if the key does not exist). If an error is returned, the value of the other returned values are
 	// undefined.
 	//
-	// The maximum size of a key is 2^32 bytes. The maximum size of a value is 2^32 bytes.
-	// This database has been optimized under the assumption that values are generally much larger than keys.
-	// This affects performance, but not correctness.
+	// The maximum size of a key is 64 KiB (2^16 - 1 bytes). The maximum size of a value is 2^32 - 1 bytes
+	// (math.MaxUint32, ~4 GiB). This database has been optimized under the assumption that values are
+	// generally much larger than keys. This affects performance, but not correctness.
 	//
 	// For the sake of performance, the returned data is NOT safe to mutate. If you need to modify the data,
 	// make a copy of it first. It is also not safe to modify the key byte slice after it is passed to this
 	// method.
 	Get(key []byte) (value []byte, exists bool, err error)
-
-	// CacheAwareGet is identical to Get, except that it permits the caller to determine whether the value
-	// should still be read if it is not present in the cache. If read, it also returns whether the value
-	// was present in the cache. Note that the 'exists' return value is always accurate even if onlyReadFromCache
-	// is true. If onlyReadFromCache is true and the value exists but is not in the cache, the returned values are
-	// (nil, true, false, nil).
-	CacheAwareGet(key []byte, onlyReadFromCache bool) (value []byte, exists bool, hot bool, err error)
 
 	// Exists returns true if the key exists in the database, and false otherwise. This is faster than calling Get.
 	//

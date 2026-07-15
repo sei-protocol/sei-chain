@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders, rawSei, rawGeth, expectJsonRpcError, blockGasInfo } from '../utils/chainUtils';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError, blockGasInfo, waitUntil } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState, claimPool } from '../utils/testUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import { burnGasBurst } from '../utils/txUtils';
@@ -11,6 +11,8 @@ import {
     gasPrice,
     DEFAULT_PRIORITY_FEE_WEI,
     CONGESTION_THRESHOLD,
+    isCongested,
+    maxPriorityFeePerGasAtStableBlock,
 } from '../utils/gasPriceUtils';
 
 describe('eth_maxPriorityFeePerGas', function () {
@@ -43,26 +45,27 @@ describe('eth_maxPriorityFeePerGas', function () {
         });
 
         it('falls back to the 1-gwei default while the latest block is uncongested', async () => {
-            const head = await blockGasInfo(sei, 'latest');
-            // EVM-only gas (what the node measures) <= total block gas, so a sub-threshold
-            // gasUsed/gasLimit here guarantees the node also sees the block as uncongested.
-            const ratio = Number(head.gasUsed) / Number(head.gasLimit);
-            if (ratio >= CONGESTION_THRESHOLD) return; // congested sample; the default does not apply
-            const tip = await maxPriorityFeePerGas(sei);
-            expect(tip, 'uncongested tip == 1 gwei default').to.equal(DEFAULT_PRIORITY_FEE_WEI);
+            const sample = await waitUntil(
+                async () => {
+                    const stable = await maxPriorityFeePerGasAtStableBlock(sei);
+                    return isCongested(stable) ? null : stable;
+                },
+                { timeoutMs: 60_000, intervalMs: 250, label: 'EVM-uncongested priority-fee head' },
+            );
+            expect(sample.tip, 'uncongested tip == 1 gwei default').to.equal(
+                DEFAULT_PRIORITY_FEE_WEI,
+            );
         });
 
         it('returns either the 1-gwei default or the latest-block 50th-pct tip (congestion rule)', async () => {
-            const [tip, fh] = await Promise.all([
-                maxPriorityFeePerGas(sei),
-                feeHistory(sei, 1, 'latest', [50]),
-            ]);
+            const sample = await maxPriorityFeePerGasAtStableBlock(sei);
+            const fh = await feeHistory(sei, 1, ethers.toQuantity(sample.block), [50]);
             const reward = fh.reward?.[0]?.[0];
             const congestedTip = reward ? BigInt(reward) : 0n;
             expect(
-                tip === DEFAULT_PRIORITY_FEE_WEI || tip === congestedTip,
-                `tip ${tip} must be the 1-gwei default (${DEFAULT_PRIORITY_FEE_WEI}) ` +
-                    `or the latest-block 50th-pct tip (${congestedTip})`,
+                sample.tip === DEFAULT_PRIORITY_FEE_WEI || sample.tip === congestedTip,
+                `tip ${sample.tip} from block ${sample.block} must be the 1-gwei default ` +
+                    `(${DEFAULT_PRIORITY_FEE_WEI}) or that block's 50th-pct tip (${congestedTip})`,
             ).to.equal(true);
         });
 

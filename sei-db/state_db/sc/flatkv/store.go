@@ -385,7 +385,15 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 			return nil, fmt.Errorf("loadVersionReadOnly: pre-init cleanup: %w", err)
 		}
 	}
-	ro, err := NewCommitStore(s.ctx, &s.config)
+	// Give the clone an independent context rather than deriving it from the
+	// parent (s.ctx). The read-only store owns its own resources (thread pools,
+	// pebble handles) and is torn down by its own Close, which cancels the
+	// context NewCommitStore derives here. Rooting it at s.ctx instead would
+	// cancel the clone's context — and abort in-flight reads with "context
+	// canceled" — the moment the parent is closed, even though the caller may
+	// still be using the returned view. The clone's lifecycle is therefore
+	// decoupled from the parent's.
+	ro, err := NewCommitStore(context.Background(), &s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create readonly store: %w", err)
 	}

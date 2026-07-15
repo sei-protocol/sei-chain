@@ -92,7 +92,9 @@ func TestRemoveSnapshotDir(t *testing.T) {
 
 func TestRewriteSnapshotBackground(t *testing.T) {
 	db, err := OpenDB(0, Options{
-		Config:          Config{SnapshotKeepRecent: 0}, // only a single snapshot is kept
+		// SnapshotKeepRecent 0 is healed to DefaultSnapshotKeepRecent (1) by
+		// FillDefaults, so the latest snapshot plus one older snapshot are kept.
+		Config:          Config{SnapshotKeepRecent: 0},
 		Dir:             t.TempDir(),
 		CreateIfMissing: true,
 		InitialStores:   []string{"test"},
@@ -152,12 +154,12 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	wg.Wait()
 
 	// Wait for async prune to finish by checking the actual directory state.
-	// After prune completes, only 4 entries should remain:
-	// snapshot, current link, LOCK, changelog WAL dir
+	// keep-recent heals to 1, so after prune completes 5 entries should remain:
+	// latest snapshot, one older snapshot, current link, LOCK, changelog WAL dir
 	require.Eventually(t, func() bool {
 		entries, err := os.ReadDir(db.dir)
-		return err == nil && len(entries) == 4
-	}, 3*time.Second, 50*time.Millisecond, "prune should complete and leave exactly 4 entries")
+		return err == nil && len(entries) == 5
+	}, 3*time.Second, 50*time.Millisecond, "prune should complete and leave exactly 5 entries")
 	// stopCh is closed by defer above
 }
 
@@ -1100,4 +1102,17 @@ func TestCloseWithSuccessfulBackgroundSnapshot(t *testing.T) {
 	// This tests the result.mtree != nil branch in Close()
 	err = db.Close()
 	require.NoError(t, err)
+}
+
+// A crash between Symlink and Rename can leave current-tmp behind; a re-offered
+// restore must still repoint current rather than failing with EEXIST.
+func TestUpdateCurrentSymlinkClearsStaleTmp(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Symlink("snapshot-0", currentTmpPath(dir)))
+
+	require.NoError(t, updateCurrentSymlink(dir, "snapshot-1"))
+
+	target, err := os.Readlink(currentPath(dir))
+	require.NoError(t, err)
+	require.Equal(t, "snapshot-1", target)
 }

@@ -73,6 +73,7 @@ func NewEVMHTTPServer(
 		IdleTimeout:       config.IdleTimeout,
 	})
 	methodTimeout := tmutils.Some(httpServer.timeouts.WriteTimeout)
+	httpServer.SetMaxOpenConns(config.MaxOpenConnections)
 	if err := httpServer.SetListenAddr(LocalAddress, config.HTTPPort); err != nil {
 		return nil, err
 	}
@@ -81,6 +82,8 @@ func NewEVMHTTPServer(
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
 		MaxEstimateGasCalls:          config.MaxEstimateGasCalls,
+		MaxStateOverrideAccounts:     config.MaxStateOverrideAccounts,
+		MaxStateOverrideSlots:        config.MaxStateOverrideSlots,
 	}
 	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 
@@ -228,6 +231,8 @@ func NewEVMHTTPServer(
 	}
 	httpConfig.batchItemLimit = config.BatchRequestLimit
 	httpConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
+	httpConfig.maxRequestBodyBytes = config.MaxRequestBodyBytes
+	httpConfig.maxConcurrentRequestBytes = config.MaxConcurrentRequestBytes
 	if err := httpServer.EnableRPC(apis, httpConfig); err != nil {
 		return nil, err
 	}
@@ -262,6 +267,7 @@ func NewEVMWebSocketServer(
 		IdleTimeout:       config.IdleTimeout,
 	})
 	methodTimeout := tmutils.Some(httpServer.timeouts.WriteTimeout)
+	httpServer.SetMaxOpenConns(config.MaxOpenConnections)
 	if err := httpServer.SetListenAddr(LocalAddress, config.WSPort); err != nil {
 		return nil, err
 	}
@@ -270,6 +276,8 @@ func NewEVMWebSocketServer(
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
 		MaxEstimateGasCalls:          config.MaxEstimateGasCalls,
+		MaxStateOverrideAccounts:     config.MaxStateOverrideAccounts,
+		MaxStateOverrideSlots:        config.MaxStateOverrideSlots,
 	}
 	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 	// DB semaphore aligned with worker count

@@ -40,7 +40,8 @@ jobs:
     outputs:
       tests: ${{ steps.build.outputs.tests }}
     steps:
-      - uses: actions/checkout@v5
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Build matrix
         id: build
         env:
@@ -74,7 +75,8 @@ jobs:
       GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
       GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
     steps:
-      - uses: actions/checkout@v5
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Login to Docker Hub
         # See: https://github.com/docker/login-action/releases/tag/v4.2.0
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
@@ -121,6 +123,13 @@ jobs:
           labels: sei-chain.ci-run-id=${{ github.run_id }}
           cache-from: type=registry,ref=${{ env.GHCR_RPCNODE }}:cache
           cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:cache,mode=max', env.GHCR_RPCNODE) || '' }}
+      # rpcnode is independent of the seid build, so push it now: push failures
+      # (retried below) surface before the expensive seid build rather than after.
+      - name: Push rpcnode image to GHCR for test jobs
+        run: |
+          source .github/scripts/docker-registry-retry.sh
+          docker tag sei-chain/rpcnode "${GHCR_RPCNODE}:${{ github.run_id }}"
+          push_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
@@ -128,13 +137,11 @@ jobs:
         env:
           DOCKER_PLATFORM: linux/amd64
         run: make build-seid-in-localnode-ci
-      # Registry pulls are content-addressed and retried per layer by the docker client
-      - name: Push images to GHCR for test jobs
+      - name: Push localnode image to GHCR for test jobs
         run: |
+          source .github/scripts/docker-registry-retry.sh
           docker tag sei-chain/localnode "${GHCR_LOCALNODE}:${{ github.run_id }}"
-          docker tag sei-chain/rpcnode "${GHCR_RPCNODE}:${{ github.run_id }}"
-          docker push "${GHCR_LOCALNODE}:${{ github.run_id }}"
-          docker push "${GHCR_RPCNODE}:${{ github.run_id }}"
+          push_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
       - name: Package CI artifacts
         run: tar -czf integration-build.tar.gz build/seid
       - name: Upload integration CI artifacts
@@ -150,7 +157,7 @@ jobs:
     # matrix on pull_request by the set-matrix job above; a smoke of Autobahn
     # coverage still runs on PRs via the dedicated autobahn-integration-tests
     # job below. On push and merge queue the full matrix runs.
-    needs: [set-matrix, prepare-cluster]
+    needs: [ set-matrix, prepare-cluster ]
     runs-on: ubuntu-large
     timeout-minutes: 30
     permissions:
@@ -171,7 +178,8 @@ jobs:
       matrix:
         test: ${{ fromJSON(needs.set-matrix.outputs.tests) }}
     steps:
-      - uses: actions/checkout@v3
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -206,15 +214,7 @@ jobs:
       - name: Load prebuilt seid and pull Docker images
         run: |
           tar -xzf integration-build.tar.gz
-          pull_with_retry() {
-            local ref="$1"
-            for attempt in 1 2 3 4 5; do
-              if docker pull "$ref"; then return 0; fi
-              echo "docker pull $ref failed (attempt $attempt), retrying in $((attempt*5))s..."
-              sleep $((attempt*5))
-            done
-            echo "docker pull $ref failed after 5 attempts"; return 1
-          }
+          source .github/scripts/docker-registry-retry.sh
           pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
           pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
@@ -316,7 +316,8 @@ jobs:
       GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
       GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
     steps:
-      - uses: actions/checkout@v5
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
@@ -343,8 +344,9 @@ jobs:
       - name: Load prebuilt seid and pull Docker images
         run: |
           tar -xzf integration-build.tar.gz
-          docker pull "${GHCR_LOCALNODE}:${{ github.run_id }}"
-          docker pull "${GHCR_RPCNODE}:${{ github.run_id }}"
+          source .github/scripts/docker-registry-retry.sh
+          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
           docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
       - name: Run autobahn integration tests
@@ -375,7 +377,7 @@ jobs:
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
-    needs: [prepare-cluster, integration-tests, autobahn-integration-tests]
+    needs: [ prepare-cluster, integration-tests, autobahn-integration-tests ]
     if: always()
     steps:
       - name: Verify prepare and test jobs succeeded

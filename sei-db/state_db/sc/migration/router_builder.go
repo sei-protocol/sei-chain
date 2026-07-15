@@ -158,10 +158,6 @@ func buildMigrateEVMRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	if migrationBatchSize <= 0 {
-		return nil, fmt.Errorf("migrationBatchSize must be greater than 0")
-	}
-
 	// Manages migration and routing for keys in the evm/ module.
 	migrationManager, err := NewMigrationManager(
 		migrationBatchSize,
@@ -176,6 +172,13 @@ func buildMigrateEVMRouter(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
+	}
+	readonly := memIAVL.GetDB().ReadOnly()
+	if !readonly {
+		logger.Info("created new EVM migration manager",
+			"startVersion", Version0_MemiavlOnly,
+			"targetVersion", Version1_MigrateEVM,
+			"boundary", migrationManager.boundary.String())
 	}
 
 	nonEVMModules, err := keys.AllModulesExcept(keys.EVMStoreKey)
@@ -282,10 +285,6 @@ func buildMigrateAllButBankRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	if migrationBatchSize <= 0 {
-		return nil, fmt.Errorf("migrationBatchSize must be greater than 0")
-	}
-
 	allModulesButEvmAndBank, err := keys.AllModulesExcept(keys.EVMStoreKey, keys.BankStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
@@ -411,10 +410,6 @@ func buildMigrateBankRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	if migrationBatchSize <= 0 {
-		return nil, fmt.Errorf("migrationBatchSize must be greater than 0")
-	}
-
 	allButBankModules, err := keys.AllModulesExcept(keys.BankStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
