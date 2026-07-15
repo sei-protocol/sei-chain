@@ -79,4 +79,10 @@ func TestAnalyzeCrossRunUnderpowered(t *testing.T) {
 	if cr.MedianDeltaNs != 3 {
 		t.Errorf("point median of a single delta got %v, want 3", cr.MedianDeltaNs)
 	}
+	if !math.IsInf(cr.CILo, -1) || !math.IsInf(cr.CIHi, 1) {
+		t.Errorf("n=1 CI bounds got [%v, %v], want ±Inf", cr.CILo, cr.CIHi)
+	}
+	if len(cr.Warnings) == 0 {
+		t.Error("n=1 must surface at least one benchmath warning")
+	}
 }

@@ -60,7 +60,10 @@ README.md "Running it" / "Output schema".
 | `program.go` | `Program`: warmed tracer-free EVM environment, one bytecode input |
 | `programs.go` | `OpSpec`/`Specs`/`Case`/`BuildCaseWith`: the differential bytecode construction |
 | `emit.go` | `Run`, the verdict (`distinguishable`/`classifyStatus`), CSV/NDJSON output |
-| `emit_test.go` | pins `Run.Status`/CI as pure functions of the `crossRun` verdict (`classifyStatus`, `distinguishable`) |
+| `emit_test.go` | pins `Run.Status`/CI as pure functions of the `crossRun` verdict (`classifyStatus`, `distinguishable`), the effect floor, and D-1 null-CI writer safety |
+| `crossrun_test.go` | pins `analyzeCrossRun`: drift-survival (paired beats unpaired), straddles-zero, underpowered |
+| `diff_test.go` | pins `Subtract`'s per-pass contract (delta/gas/per-op) |
+| `programs_test.go` | pins the `BuildCaseWith` arity-0 panic guard |
 | `bench_test.go` | `BenchmarkOpcodes`: wires the above into `go test -bench` |
 | `run.sh` | pinned-core runner + operator checklist for turbo/governor/isolation |
 | `README.md` | operator quickstart + full rationale: construction, acceptance gate, diagnostics |

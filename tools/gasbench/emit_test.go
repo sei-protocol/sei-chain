@@ -2,6 +2,8 @@ package gasbench
 
 import (
 	"bytes"
+	"encoding/csv"
+	"encoding/json"
 	"math"
 	"testing"
 )
@@ -158,5 +160,61 @@ func TestNewRunEffectFloorPasses(t *testing.T) {
 	}
 	if r.Status != StatusOK {
 		t.Errorf("status = %q, want %q", r.Status, StatusOK)
+	}
+}
+
+// TestWriteRoundTripMixed pins the writers on a mixed batch: a finite-CI ok row
+// and an underpowered null-CI row. NDJSON must round-trip through a standard
+// decoder (finite bound -> the float, null -> nil), and CSV must render the
+// finite bound as a number and the null bound as an empty field.
+func TestWriteRoundTripMixed(t *testing.T) {
+	okRun := NewRun(
+		Case{OpcodeID: "DIV", Class: ClassArithmetic, Reps: 1000, ConstGas: 5},
+		crossRun{MedianDeltaNs: 72534, CILo: 72501, CIHi: 72558.5, Confidence: 0.978, P: 4e-5, Alpha: 0.05},
+		3000, 10, 20000, hostHealth{CoV: 0.01}, 1.0)
+	upRun := NewRun(
+		Case{OpcodeID: "ADD", Class: ClassArithmetic, Reps: 1000, ConstGas: 3},
+		crossRun{MedianDeltaNs: 3, CILo: math.Inf(-1), CIHi: math.Inf(1), P: 1, Underpowered: true},
+		1000, 1, 20000, hostHealth{}, 1.0)
+	runs := []Run{okRun, upRun}
+
+	var nd bytes.Buffer
+	if err := WriteNDJSON(&nd, runs); err != nil {
+		t.Fatalf("WriteNDJSON: %v", err)
+	}
+	dec := json.NewDecoder(&nd)
+	var got [2]Run
+	for i := range got {
+		if err := dec.Decode(&got[i]); err != nil {
+			t.Fatalf("decode NDJSON row %d: %v", i, err)
+		}
+	}
+	if got[0].CILo == nil || *got[0].CILo != 72501 {
+		t.Errorf("ok row ci_lo round-trip got %v, want 72501", got[0].CILo)
+	}
+	if got[1].CILo != nil || got[1].CIHi != nil {
+		t.Errorf("underpowered row CI must decode to nil, got %v/%v", got[1].CILo, got[1].CIHi)
+	}
+	if got[0].Status != StatusOK || got[1].Status != StatusUnderpowered {
+		t.Errorf("statuses got %q/%q, want %q/%q", got[0].Status, got[1].Status, StatusOK, StatusUnderpowered)
+	}
+
+	var cb bytes.Buffer
+	if err := WriteCSV(&cb, runs); err != nil {
+		t.Fatalf("WriteCSV: %v", err)
+	}
+	recs, err := csv.NewReader(&cb).ReadAll()
+	if err != nil {
+		t.Fatalf("parse CSV: %v", err)
+	}
+	// header + 2 rows; ci_lo/ci_hi are columns 8/9 (0-indexed).
+	if len(recs) != 3 {
+		t.Fatalf("CSV records got %d, want 3", len(recs))
+	}
+	if recs[1][8] != "72501" {
+		t.Errorf("ok row ci_lo CSV got %q, want %q", recs[1][8], "72501")
+	}
+	if recs[2][8] != "" || recs[2][9] != "" {
+		t.Errorf("underpowered row CI CSV must be empty, got %q/%q", recs[2][8], recs[2][9])
 	}
 }

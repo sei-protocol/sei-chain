@@ -392,7 +392,7 @@ One `Run` (`emit.go`) per opcode, written as CSV and/or NDJSON. Columns are in
 | `p_value` | **advisory only:** unpaired Mann-Whitney U p over baseline vs target medians; NOT the gate |
 | `alpha` | `CompareAlpha` behind the advisory `p_value` |
 | `status` | `ok \| sub_threshold \| insignificant \| underpowered \| error` — see below; never gated on CoV |
-| `cov` | worse (max) of the baseline/target series CoV, max across counts — advisory only |
+| `cov` | worse (max) of the baseline/target series CoV, max across counts — advisory only. CSV rounds to 6 sig figs for readability; NDJSON carries full precision — expect tail digits to differ across formats |
 | `high_variance` | advisory: CoV exceeded `CoVCeiling` on any count |
 | `nvcsw` / `nivcsw` | worse (max) of the baseline/target voluntary/involuntary context-switch counts, max across counts |
 
@@ -425,7 +425,8 @@ checklist a new `Specs` entry needs.
 ## Scope
 
 Cleanly-benchmarkable-as-a-scalar opcodes only (arithmetic/bitwise/
-comparison/stack/control). Deferred, not yet implemented: parametric-curve
+comparison/stack — the four `Class` families in `Specs`). Deferred, not yet
+implemented: parametric-curve
 opcodes (`KECCAK256`/`EXP`/copy/memory/`LOG` by size), the state-touching
 context-dependent matrix (`SLOAD`/`SSTORE` by warm/cold, `CALL` family,
 `CREATE`), real-block replay (F1), and Sei's custom precompiles (0x1001+,
