@@ -30,7 +30,8 @@ func TestSubtractNeverSignificantWithZeroUncertainty(t *testing.T) {
 	for _, tc := range cases {
 		d := Subtract("ADD", tc.baseline, tc.target, 1, 3, 0.25)
 		if d.Uncertainty != 0 {
-			t.Fatalf("%s: Uncertainty = %v, want 0 for this fixture", tc.name, d.Uncertainty)
+			t.Errorf("%s: Uncertainty = %v, want 0 for this fixture", tc.name, d.Uncertainty)
+			continue
 		}
 		if d.Significant {
 			t.Errorf("%s: Significant = true with Uncertainty == 0 and DeltaNs = %v -- an unestimated uncertainty must never pass the gate",

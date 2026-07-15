@@ -49,9 +49,10 @@ families are special-cased in `BuildCaseWith`:
 - **Stack ops** (`DUP1`, `SWAP1`) aren't "n operands → 1 result" — each gets
   its own construction.
 - **SHL/SHR/SAR** need two *distinct* operands, not `n` copies of the same
-  value: an out-of-range shift amount takes go-ethereum's `value.Clear()`
-  early-out (the cheapest possible case) — at shift ≥256 for SHL/SHR, shift
-  >256 for SAR — so reusing one seed for both operands would measure that
+  value: an out-of-range shift amount takes go-ethereum's constant-time
+  early-out (the cheapest possible case; `value.Clear()`, or `SetAllOne()`
+  for SAR on a negative operand) — at shift ≥256 for SHL/SHR, shift >256
+  for SAR — so reusing one seed for both operands would measure that
   early-out instead of the real limb-shift path. `seedShift` keeps the shift
   amount in-range and distinct from the value operand.
 
