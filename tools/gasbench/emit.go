@@ -21,7 +21,7 @@ type Run struct {
 	CoV          float64 `json:"cov"`           // worse (max) of the baseline/target series CoV -- advisory only
 	Significant  bool    `json:"significant"`   // |delta| exceeds SigmaK * propagated uncertainty -- the acceptance gate
 	HighVariance bool    `json:"high_variance"` // advisory: CoV exceeded the health-check ceiling; does not invalidate Status=ok
-	Nvcsw        int64   `json:"nvcsw"`         // worse (max) of the baseline/target voluntary-context-switch count
+	Nvcsw        int64   `json:"nvcsw"`         // worse (max) of the baseline/target voluntary-context-switch count; see README.md "Active-benchmarking diagnostics" for interpreting a zero here
 	Nivcsw       int64   `json:"nivcsw"`        // worse (max) of the baseline/target involuntary-context-switch count; see README.md "Active-benchmarking diagnostics" for interpreting a zero here
 }
 

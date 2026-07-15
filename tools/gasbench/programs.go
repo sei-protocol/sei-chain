@@ -131,6 +131,10 @@ func BuildCaseWith(s OpSpec, reps int, seed *uint256.Int) Case {
 		perUnitDelta = s.ConstGas - params.JumpdestGas // 3 - 1
 
 	case vm.SHL, vm.SHR, vm.SAR:
+		// DUP2 (not DUP1 x2, unlike the default branch below): these ops
+		// need two DISTINCT operands, not n copies of one value -- see
+		// README.md "Differential construction" (the value.Clear() early-out
+		// a same-value construction would accidentally measure).
 		base.Push(seed).Push(seedShift)
 		tgt.Push(seed).Push(seedShift)
 		for i := 0; i < reps; i++ {
@@ -140,6 +144,8 @@ func BuildCaseWith(s OpSpec, reps int, seed *uint256.Int) Case {
 		perUnitDelta = s.ConstGas - vm.GasQuickStep // 3 - 2, same shape as the n=2 default case
 
 	default:
+		// General n-operand case: see README.md "Differential construction"
+		// for the (n-1)*GasQuickStep derivation this formula implements.
 		base.Push(seed).Push(seed)
 		tgt.Push(seed).Push(seed)
 		for i := 0; i < reps; i++ {

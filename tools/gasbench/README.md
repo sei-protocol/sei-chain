@@ -9,19 +9,22 @@ the `bdchatham-designs` repo. Noise-floor calibration behind the acceptance
 gate below: `designs/gas-repricing-telemetry/research/microbenchmark-noise-isolation-tradeoffs.md`
 in the same repo.
 
-## The load-bearing invariant: never measure gas and time in the same run
+## The load-bearing invariant: never attach a tracer to a timed call
 
 Attaching a `tracing.Hooks` tracer to sum per-opcode gas sets `debug=true` in
-the interpreter loop, which dilates per-step execution time. So:
+the interpreter loop, which dilates per-step execution time. This harness
+only measures whole-program gas (not a per-opcode breakdown), and
+whole-program gas needs no tracer at all: `Program.Run`
+(`GasLimit - leftOverGas` via `runtime.Call`, not `runtime.Execute`, which
+discards `leftOverGas`) returns it directly. So the *same* tracer-free call
+that's timed also yields its gas — `Measure` (`gasbench.go`) reads `gasUsed`
+from the identical `run()` invocation that `time.Since` wraps. There is no
+separate gas-only pass in this harness.
 
-- **Time** comes from a tracer-free run (`vm.Config{}`, nil `Tracer` —
-  production's own hot path).
-- **Gas** is deterministic and comes from a separate, tracer-free run too
-  (`GasLimit - leftOverGas` via `runtime.Call`, not `runtime.Execute`, which
-  discards `leftOverGas`).
-
-Both series in a `Case` (baseline and target) are measured this way, so
-gas and time are never read off the same call.
+**If a future phase adds a per-opcode gas breakdown**, that requires
+attaching a tracer, and the timed run must stay tracer-free — that
+breakdown would have to come from a *separate* tracer-on call whose timing
+is never read, not from the timed call.
 
 ## Differential construction
 
@@ -79,8 +82,8 @@ order-of-magnitude more iterations, or for a `Case` that touches persistent
 state (SSTORE/LOG/CREATE).**
 
 This periodic reallocation is also the one CoV-inflating noise source the
-`getrusage` diagnostics below structurally cannot see (it's not a scheduler
-preemption).
+`getrusage`-based diagnostics ("Active-benchmarking diagnostics" below)
+structurally cannot see (it's not a scheduler preemption).
 
 ## Error contract
 
@@ -109,7 +112,8 @@ I-cache/D-cache/branch predictor, catch a broken program early), then
 
 `Diff.Significant` (`diff.go`) — `|DeltaNs| > SigmaK * Uncertainty`, where
 `Uncertainty` is the two series' median standard errors propagated in
-quadrature — is the acceptance gate. A raw per-series CoV of several percent
+quadrature — is the acceptance gate. A raw per-series coefficient of
+variation (CoV, stddev/mean) of several percent
 under plain core-pinning (no kernel-level isolcpus/nohz_full/rcu_nocbs) is
 expected physics (the periodic scheduler tick, device IRQs, shared-cache
 contention that pinning alone can't remove), not a defect. No major
@@ -194,8 +198,9 @@ One `Run` (`emit.go`) per opcode, written as CSV and/or NDJSON:
 A per-`Case` self-check (`bench_test.go`) also verifies the measured gas
 delta matches the definitional expected delta from `BuildCaseWith`'s algebra
 — a correctness check on the harness construction itself, not on opcode
-timing. All 22 `Specs` entries were hand-verified against the fork's
-jump-table `minStack`/`maxStack`; verify a future addition the same way.
+timing. It catches a wrong `ConstGas` but not a self-consistent wrong
+`Arity`; see `AGENTS.md` "New opcode specs" for the hand-verification
+checklist a new `Specs` entry needs.
 
 ## Scope
 
