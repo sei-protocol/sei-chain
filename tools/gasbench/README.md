@@ -22,13 +22,15 @@ GASBENCH_OUT_CSV=gasbench.csv GASBENCH_OUT_NDJSON=gasbench.ndjson \
   tools/gasbench/run.sh | tee gasbench.log
 ```
 
-This benchmarks every scalar opcode in `Specs` and writes one row per opcode
-to the output files. Relative output paths land in `tools/gasbench/` (the
-test binary's working directory), not where you invoked `run.sh` — pass
-absolute paths to put them elsewhere. Keep the `tee`: the CSV/NDJSON hold
-only the *final* count's rows (each of `-count`'s reruns rewrites the
-files), so the per-count history needed for step 4's agreement check exists
-only in the benchmark stdout you just captured. Several minutes at the
+This benchmarks every scalar opcode in `Specs` and writes one row per
+opcode *per count* to the output files (`-count=10` by default, so 10 rows
+per opcode — `-count` multiplies the subtests inside one benchmark
+invocation, and the file is written once at the end with all of them).
+Relative output paths land in `tools/gasbench/` (the test binary's working
+directory), not where you invoked `run.sh` — pass absolute paths to put
+them elsewhere. The `tee` is optional: the CSV already carries the
+cross-count history step 4 needs; the captured stdout is the
+`benchstat`-consumable form of the same data. Roughly ten minutes at the
 defaults; set `GASBENCH_ITERS=2000 GASBENCH_COUNT=1` for a fast first look.
 On a laptop or shared box, `run.sh` will warn that results are indicative:
 expect cheap opcodes (`ADD`'s per-op cost is ~1ns, a whole-program delta
@@ -72,10 +74,11 @@ target-minus-baseline delta, so setup/loop overhead has already cancelled
   CoV points at a non-scheduler tail inside the harness itself (see
   "Active-benchmarking diagnostics").
 - Rerun-to-rerun agreement is the real confidence check: `run.sh` defaults
-  to `-count=10`, and the per-count `per-op-ns`/`per-op-gas` metric lines
-  live in the captured stdout (`gasbench.log` from step 1 — `benchstat`
-  consumes that format directly), not in the CSV. A per-op delta that is
-  stable across counts (and across invocations) is the result. See
+  to `-count=10`, so the CSV has 10 rows per opcode — group by `input_id`
+  and look at the spread of `exec_time_ns` across counts (the same data is
+  in `gasbench.log` in `benchstat`-consumable form). A per-op delta that is
+  stable across counts (and across invocations) is the result; on a
+  dedicated pinned host, expect low-single-digit-percent spread. See
   "Running it" for what `-count` does and doesn't give you.
 
 **Scope:** scalar constant-gas opcodes only (arithmetic/bitwise/comparison/
@@ -244,10 +247,11 @@ go test ./tools/gasbench/ -run '^$' -bench '^BenchmarkOpcodes$' \
 ```
 
 `-benchtime=1x` matters: `BenchmarkOpcodes`'s inner timing loop is
-`Measure`'s, not `b.N`'s, so `b.N` must stay at 1. `-count=K` reruns the
-benchmark K times **within the same OS process**, not as K independent
-process forks — it gives `benchstat`-style cross-run variance, not
-process-level independence. True process-level independence would need K
+`Measure`'s, not `b.N`'s, so `b.N` must stay at 1. `-count=K` reruns each
+opcode subtest K times **within the same OS process** (inside a single
+`BenchmarkOpcodes` invocation, so the output files accumulate all K rows
+per opcode), not as K independent process forks — it gives
+`benchstat`-style cross-run variance, not process-level independence. True process-level independence would need K
 separate `go test` invocations. See the research doc for why this matters
 less than it sounds: JMH's fork/warmup/measurement-iteration model is the
 gold standard, but this MVP's within-process reruns already surfaced
