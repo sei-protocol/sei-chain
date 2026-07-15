@@ -29,6 +29,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.6
 sei-chain
+* [#3757](https://github.com/sei-protocol/sei-chain/pull/3757) Backport `release/v6.6`: fix(giga): route EVM validation failures to v2 fallback (CON-368)
+* [#3748](https://github.com/sei-protocol/sei-chain/pull/3748) Bump version in prep to release v6.6-rc3
 * [#3743](https://github.com/sei-protocol/sei-chain/pull/3743) Backport `release/v6.6`: feat(cosmos): range-check Dec conversions and DecCoin validation (CON-369)
 * [#3732](https://github.com/sei-protocol/sei-chain/pull/3732) Bump version in prep to release v6.6-rc2
 * [#3731](https://github.com/sei-protocol/sei-chain/pull/3731) Backport `release/v6.6`: Update v6.6 changelog in prep to cut RC2
