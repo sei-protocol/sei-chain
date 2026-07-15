@@ -2,6 +2,7 @@ package seiwal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,6 +51,7 @@ type closeRequest struct {
 // serialized with rotation/seal/prune.
 type iteratorStartRequest struct {
 	startIndex uint64
+	endIndex   uint64
 	reply      chan iteratorStartResponse
 }
 
@@ -314,13 +316,13 @@ func (w *walImpl) PruneBefore(lowestIndexToKeep uint64) error {
 	return nil
 }
 
-// Iterator returns an iterator over the WAL starting at startIndex. Construction runs on the writer goroutine
-// (see iteratorStartRequest): the writer captures a hard-link snapshot of the files to read so later rotation
-// and pruning cannot pull them out from under the iterator, and builds the iterator. The snapshot is removed
-// by the iterator's Close.
-func (w *walImpl) Iterator(startIndex uint64) (Iterator[[]byte], error) {
+// Iterator returns an iterator over the inclusive index range [startIndex, endIndex]. Construction runs on
+// the writer goroutine (see iteratorStartRequest): the writer captures a hard-link snapshot of the files to
+// read so later rotation and pruning cannot pull them out from under the iterator, and builds the iterator.
+// The snapshot is removed by the iterator's Close.
+func (w *walImpl) Iterator(startIndex uint64, endIndex uint64) (Iterator[[]byte], error) {
 	reply := make(chan iteratorStartResponse, 1)
-	if err := w.sendToWriter(iteratorStartRequest{startIndex: startIndex, reply: reply}); err != nil {
+	if err := w.sendToWriter(iteratorStartRequest{startIndex: startIndex, endIndex: endIndex, reply: reply}); err != nil {
 		return nil, fmt.Errorf("failed to schedule iterator creation: %w", err)
 	}
 	select {
@@ -419,9 +421,11 @@ func (w *walImpl) writerLoop() {
 				return
 			}
 		case iteratorStartRequest:
-			resp := w.startIterator(m.startIndex)
+			resp := w.startIterator(m.startIndex, m.endIndex)
 			m.reply <- resp
-			if resp.err != nil {
+			// A rejected range is the caller's error and leaves the WAL healthy; only a genuine I/O failure
+			// (a failed flush or hard-link) bricks the pipeline.
+			if resp.err != nil && !errors.Is(resp.err, ErrIteratorRange) {
 				w.fail(resp.err)
 				return
 			}
@@ -524,25 +528,37 @@ func (w *walImpl) pruneSealedFiles(pruneThrough uint64) error {
 
 // startIterator builds an iterator on the writer goroutine. It captures a point-in-time snapshot by
 // hard-linking every file the iterator will read into a private directory (iterator/<serial>/) and bounding it
-// at the highest index stored now. Running here serializes the snapshot with rotation, seal, and prune. The
-// live WAL may then rotate, seal, and prune freely: the iterator reads only its own hard links, which keep the
-// underlying inodes alive until Close removes them. The mutable file is flushed (not fsynced) so its records
-// are readable through the reader's separate handle — no crash can intervene between creation and use, so
-// durability is irrelevant here.
-func (w *walImpl) startIterator(startIndex uint64) iteratorStartResponse {
+// at endIndex, which must not exceed the highest index stored now. Running here serializes the snapshot with
+// rotation, seal, and prune. The live WAL may then rotate, seal, and prune freely: the iterator reads only its
+// own hard links, which keep the underlying inodes alive until Close removes them. The mutable file is flushed
+// (not fsynced) so its records are readable through the reader's separate handle — no crash can intervene
+// between creation and use, so durability is irrelevant here.
+func (w *walImpl) startIterator(startIndex uint64, endIndex uint64) iteratorStartResponse {
+	if endIndex < startIndex {
+		return iteratorStartResponse{
+			err: fmt.Errorf("%w: end index %d is below start index %d", ErrIteratorRange, endIndex, startIndex),
+		}
+	}
 	r := w.bounds()
 	if !r.ok {
-		// Nothing stored: an empty iterator with no snapshot directory.
-		return iteratorStartResponse{iterator: newWalIterator(w, startIndex, 0, "", nil, w.config.IteratorPrefetchSize)}
+		return iteratorStartResponse{
+			err: fmt.Errorf("%w: end index %d requested but the WAL is empty", ErrIteratorRange, endIndex),
+		}
 	}
-	maxIndex := r.last
+	if endIndex > r.last {
+		return iteratorStartResponse{
+			err: fmt.Errorf("%w: end index %d is beyond the latest stored index %d", ErrIteratorRange, endIndex, r.last),
+		}
+	}
+	maxIndex := endIndex
 
-	// Gather the files to read: sealed files reaching startIndex, then the mutable file if it holds records at
-	// or above startIndex. Files entirely below startIndex are never opened, so they are not linked. The
-	// mutable snapshot's range is capped at maxIndex; the reader drops anything the writer appends past it.
+	// Gather the files to read: those whose range overlaps [startIndex, endIndex], plus the mutable file if it
+	// holds records in range. Files entirely below startIndex or entirely above endIndex are never opened, so
+	// they are not linked. The mutable snapshot's range is capped at maxIndex; the reader drops anything the
+	// writer appends past it.
 	var sources []iteratorFile
 	for _, info := range w.sealedFiles.Iterator() {
-		if info.lastIndex < startIndex {
+		if info.lastIndex < startIndex || info.firstIndex > endIndex {
 			continue
 		}
 		sources = append(sources, iteratorFile{
@@ -550,7 +566,9 @@ func (w *walImpl) startIterator(startIndex uint64) iteratorStartResponse {
 			firstIndex: info.firstIndex, lastIndex: info.lastIndex, sealed: true,
 		})
 	}
-	if w.mutableFile.hasRecords && w.mutableFile.lastIndex >= startIndex {
+	// Flush the mutable file only when it is actually needed to cover the range. When endIndex is fully served
+	// by sealed files, the mutable file is left untouched.
+	if w.mutableFile.hasRecords && w.mutableFile.lastIndex >= startIndex && w.mutableFile.firstIndex <= endIndex {
 		if err := w.mutableFile.flush(false); err != nil {
 			return iteratorStartResponse{err: fmt.Errorf("failed to flush mutable file for iterator: %w", err)}
 		}

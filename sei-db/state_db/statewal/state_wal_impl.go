@@ -1,6 +1,7 @@
 package statewal
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -230,17 +231,24 @@ func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
 	return nil
 }
 
-// Iterator returns an iterator over the WAL starting at startingBlockNumber. It yields (blockNumber,
-// changesets) directly from the underlying generic WAL.
-func (w *stateWALImpl) Iterator(startingBlockNumber uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
+// Iterator returns an iterator over the inclusive block range [startingBlockNumber, endingBlockNumber]. It
+// yields (blockNumber, changesets) directly from the underlying generic WAL.
+func (w *stateWALImpl) Iterator(
+	startingBlockNumber uint64,
+	endingBlockNumber uint64,
+) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
 	if w.closed {
 		return nil, fmt.Errorf("state WAL is closed")
 	}
 	if w.fatalErr != nil {
 		return nil, fmt.Errorf("state WAL failed: %w", w.fatalErr)
 	}
-	it, err := w.wal.Iterator(startingBlockNumber)
+	it, err := w.wal.Iterator(startingBlockNumber, endingBlockNumber)
 	if err != nil {
+		// A rejected range is the caller's error and leaves the WAL usable; only a genuine WAL failure bricks.
+		if errors.Is(err, seiwal.ErrIteratorRange) {
+			return nil, fmt.Errorf("failed to create WAL iterator: %w", err)
+		}
 		return nil, w.fail(fmt.Errorf("failed to create WAL iterator: %w", err))
 	}
 	return it, nil

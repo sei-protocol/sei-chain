@@ -40,7 +40,7 @@ func TestIteratorRejectsCorruptSealedFile(t *testing.T) {
 	data[len(data)-1] ^= 0xFF
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 
-	it, err := w2.Iterator(1)
+	it, err := w2.Iterator(1, 5)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
@@ -59,17 +59,54 @@ func TestIteratorRejectsCorruptSealedFile(t *testing.T) {
 	require.Contains(t, iterErr.Error(), "corrupt")
 }
 
-func TestIteratorEmpty(t *testing.T) {
+// TestIteratorEmptyWALErrors verifies that an empty WAL has no latest index, so any requested end index is
+// beyond it: iterator creation fails with ErrIteratorRange rather than returning an empty iterator, and the
+// rejection leaves the WAL usable.
+func TestIteratorEmptyWALErrors(t *testing.T) {
 	w := openWAL(t, testConfig(t.TempDir()))
 	defer func() { require.NoError(t, w.Close()) }()
 
-	it, err := w.Iterator(0)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, it.Close()) }()
+	_, err := w.Iterator(0, 0)
+	require.ErrorIs(t, err, ErrIteratorRange)
 
-	ok, err := it.Next()
-	require.NoError(t, err)
-	require.False(t, ok)
+	// The WAL is unharmed by the rejected request: it still accepts appends and iterates.
+	appendRecord(t, w, 1)
+	require.NoError(t, w.Flush())
+	require.Equal(t, []uint64{1}, collectIndices(t, w, 1, 1))
+}
+
+// TestIteratorRangeErrors verifies the two invalid-range rejections on a non-empty WAL: an end index below the
+// start index, and an end index beyond the latest stored index. Both report ErrIteratorRange and leave the WAL
+// usable.
+func TestIteratorRangeErrors(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir()))
+	defer func() { require.NoError(t, w.Close()) }()
+	for index := uint64(1); index <= 5; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Flush())
+
+	_, err := w.Iterator(3, 2)
+	require.ErrorIs(t, err, ErrIteratorRange, "end index below start index must be rejected")
+
+	_, err = w.Iterator(1, 6)
+	require.ErrorIs(t, err, ErrIteratorRange, "end index beyond the latest stored index must be rejected")
+
+	// Neither rejection bricked the WAL: a valid request still works.
+	require.Equal(t, []uint64{1, 2, 3, 4, 5}, collectIndices(t, w, 1, 5))
+}
+
+// TestIteratorStopsAtEndIndex verifies the core new behavior: the iterator yields no record beyond the
+// requested end index, even though later records exist in the WAL.
+func TestIteratorStopsAtEndIndex(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir()))
+	defer func() { require.NoError(t, w.Close()) }()
+	for index := uint64(1); index <= 10; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Flush())
+
+	require.Equal(t, []uint64{3, 4, 5, 6, 7}, collectIndices(t, w, 3, 7))
 }
 
 func TestIteratorFromMiddle(t *testing.T) {
@@ -80,7 +117,7 @@ func TestIteratorFromMiddle(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	require.Equal(t, []uint64{3, 4, 5}, collectIndices(t, w, 3))
+	require.Equal(t, []uint64{3, 4, 5}, collectIndices(t, w, 3, 5))
 }
 
 func TestIteratorAcrossFiles(t *testing.T) {
@@ -93,7 +130,7 @@ func TestIteratorAcrossFiles(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	require.Equal(t, []uint64{2, 3, 4, 5}, collectIndices(t, w, 2))
+	require.Equal(t, []uint64{2, 3, 4, 5}, collectIndices(t, w, 2, 5))
 }
 
 func TestIteratorWithTinyPrefetchBuffer(t *testing.T) {
@@ -109,7 +146,7 @@ func TestIteratorWithTinyPrefetchBuffer(t *testing.T) {
 	require.NoError(t, w.Flush())
 
 	require.Equal(t, []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
-		collectIndices(t, w, 1))
+		collectIndices(t, w, 1, 20))
 }
 
 func TestIteratorCloseBeforeDrainDoesNotLeak(t *testing.T) {
@@ -123,7 +160,7 @@ func TestIteratorCloseBeforeDrainDoesNotLeak(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	it, err := w.Iterator(1)
+	it, err := w.Iterator(1, 20)
 	require.NoError(t, err)
 	// Consume just one record, then close while the reader is still mid-stream (blocked on the full buffer).
 	ok, err := it.Next()
@@ -146,7 +183,7 @@ func TestIteratorReaderExitsWhenWALTornDownWhileOrphaned(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	it, err := w.Iterator(1)
+	it, err := w.Iterator(1, 20)
 	require.NoError(t, err)
 	iter := it.(*walIterator)
 
@@ -183,7 +220,7 @@ func TestIteratorYieldsRecordContents(t *testing.T) {
 	require.NoError(t, w.Append(1, []byte("hello world")))
 	require.NoError(t, w.Flush())
 
-	it, err := w.Iterator(1)
+	it, err := w.Iterator(1, 1)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
@@ -250,11 +287,19 @@ func TestConcurrentIterationDuringRotation(t *testing.T) {
 	}
 }
 
-// drainContiguousFrom fully consumes an iterator anchored at start, verifying the yielded indices form a
-// gap-free, strictly-increasing run beginning at start (an empty run is allowed: the writer may not have
-// produced start yet). Returns the first error encountered.
+// drainContiguousFrom fully consumes an iterator over [start, currentLast], verifying the yielded indices
+// form a gap-free, strictly-increasing run beginning at start (an empty run is allowed: the writer may not
+// have produced start yet). The end is read from the WAL's current bounds so a concurrent writer's latest
+// index does not need to be known in advance. Returns the first error encountered.
 func drainContiguousFrom(w WAL[[]byte], start uint64) error {
-	it, err := w.Iterator(start)
+	ok, _, last, err := w.Bounds()
+	if err != nil {
+		return fmt.Errorf("bounds: %w", err)
+	}
+	if !ok || last < start {
+		return nil // nothing at or above start yet
+	}
+	it, err := w.Iterator(start, last)
 	if err != nil {
 		return fmt.Errorf("create iterator: %w", err)
 	}
@@ -291,7 +336,7 @@ func TestIteratorDoesNotSeePostConstructionRecords(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	it, err := w.Iterator(1)
+	it, err := w.Iterator(1, 3)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
@@ -328,7 +373,7 @@ func TestIteratorSurfacesFatalCause(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	it, err := w.Iterator(1)
+	it, err := w.Iterator(1, n)
 	require.NoError(t, err)
 	defer func() { _ = it.Close() }()
 

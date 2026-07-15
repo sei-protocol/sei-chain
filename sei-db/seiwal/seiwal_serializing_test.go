@@ -38,9 +38,9 @@ type indexedString struct {
 	value string
 }
 
-func collectStrings(t *testing.T, w WAL[string], start uint64) []indexedString {
+func collectStrings(t *testing.T, w WAL[string], start uint64, end uint64) []indexedString {
 	t.Helper()
-	it, err := w.Iterator(start)
+	it, err := w.Iterator(start, end)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
@@ -126,8 +126,8 @@ func TestGenericWALRoundTrip(t *testing.T) {
 	require.Equal(t, uint64(1), first)
 	require.Equal(t, uint64(5), last)
 
-	require.Equal(t, []indexedString{{1, "one"}, {2, "two"}, {5, "five"}}, collectStrings(t, w, 0))
-	require.Equal(t, []indexedString{{2, "two"}, {5, "five"}}, collectStrings(t, w, 2))
+	require.Equal(t, []indexedString{{1, "one"}, {2, "two"}, {5, "five"}}, collectStrings(t, w, 0, 5))
+	require.Equal(t, []indexedString{{2, "two"}, {5, "five"}}, collectStrings(t, w, 2, 5))
 }
 
 func TestGenericWALReopen(t *testing.T) {
@@ -149,7 +149,7 @@ func TestGenericWALReopen(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, uint64(1), first)
 	require.Equal(t, uint64(3), last)
-	require.Equal(t, []indexedString{{1, "v1"}, {2, "v2"}, {3, "v3"}}, collectStrings(t, w2, 0))
+	require.Equal(t, []indexedString{{1, "v1"}, {2, "v2"}, {3, "v3"}}, collectStrings(t, w2, 0, 3))
 }
 
 func TestGenericWALPrune(t *testing.T) {
@@ -192,7 +192,7 @@ func TestGenericWALRollback(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, uint64(1), first)
 	require.Equal(t, uint64(3), last)
-	require.Equal(t, []indexedString{{1, "v1"}, {2, "v2"}, {3, "v3"}}, collectStrings(t, w2, 0))
+	require.Equal(t, []indexedString{{1, "v1"}, {2, "v2"}, {3, "v3"}}, collectStrings(t, w2, 0, 3))
 }
 
 func TestGenericWALSerializeErrorSurfaces(t *testing.T) {
@@ -230,7 +230,7 @@ func TestGenericWALDeserializeErrorSurfaces(t *testing.T) {
 	require.NoError(t, w.Append(2, "poison"))
 	require.NoError(t, w.Flush())
 
-	it, err := w.Iterator(0)
+	it, err := w.Iterator(0, 2)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
@@ -272,7 +272,7 @@ func (f *faultyInner) Append(uint64, []byte) error           { return nil }
 func (f *faultyInner) Flush() error                          { return nil }
 func (f *faultyInner) Bounds() (bool, uint64, uint64, error) { return false, 0, 0, f.boundsErr }
 func (f *faultyInner) PruneBefore(uint64) error              { return nil }
-func (f *faultyInner) Iterator(uint64) (Iterator[[]byte], error) {
+func (f *faultyInner) Iterator(uint64, uint64) (Iterator[[]byte], error) {
 	return nil, f.iterErr
 }
 func (f *faultyInner) Close() error { return nil }
@@ -308,7 +308,7 @@ func TestGenericWALBricksOnInnerIteratorError(t *testing.T) {
 	s := newSerializingWAL[string](cfg, &faultyInner{iterErr: boom}, stringSerialize, stringDeserialize)
 	defer func() { _ = s.Close() }()
 
-	_, err := s.Iterator(0)
+	_, err := s.Iterator(0, 0)
 	require.Error(t, err)
 	require.ErrorIs(t, err, boom)
 

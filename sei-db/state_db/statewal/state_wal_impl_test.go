@@ -29,11 +29,11 @@ func writeBlock(t *testing.T, w StateWAL, block uint64) {
 	require.NoError(t, w.SignalEndOfBlock())
 }
 
-// collectBlocks iterates from start and returns the block number of each entry, verifying that entries are
-// strictly increasing and never below start.
-func collectBlocks(t *testing.T, w StateWAL, start uint64) []uint64 {
+// collectBlocks iterates the inclusive range [start, end] and returns the block number of each entry,
+// verifying that entries are strictly increasing and never below start or above end.
+func collectBlocks(t *testing.T, w StateWAL, start uint64, end uint64) []uint64 {
 	t.Helper()
-	it, err := w.Iterator(start)
+	it, err := w.Iterator(start, end)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
@@ -46,6 +46,7 @@ func collectBlocks(t *testing.T, w StateWAL, start uint64) []uint64 {
 		}
 		blockNumber, _ := it.Entry()
 		require.GreaterOrEqual(t, blockNumber, start)
+		require.LessOrEqual(t, blockNumber, end)
 		if len(blocks) > 0 {
 			require.Greater(t, blockNumber, blocks[len(blocks)-1])
 		}
@@ -80,7 +81,7 @@ func TestWriteFlushReopenGetRange(t *testing.T) {
 	require.Equal(t, uint64(1), start)
 	require.Equal(t, uint64(5), end)
 
-	require.Equal(t, []uint64{1, 2, 3, 4, 5}, collectBlocks(t, w2, 1))
+	require.Equal(t, []uint64{1, 2, 3, 4, 5}, collectBlocks(t, w2, 1, 5))
 }
 
 func TestContractViolations(t *testing.T) {
@@ -150,7 +151,7 @@ func TestIncompleteBlockDiscardedOnReopen(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, uint64(1), start)
 	require.Equal(t, uint64(3), end)
-	require.Equal(t, []uint64{1, 2, 3}, collectBlocks(t, w2, 1))
+	require.Equal(t, []uint64{1, 2, 3}, collectBlocks(t, w2, 1, 3))
 
 	// Block 4 may now be re-executed cleanly.
 	writeBlock(t, w2, 4)
@@ -185,7 +186,7 @@ func TestEmptyChangesetBlockIsStored(t *testing.T) {
 	require.Equal(t, uint64(1), start)
 	require.Equal(t, uint64(1), end)
 
-	it, err := w.Iterator(1)
+	it, err := w.Iterator(1, 1)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 	ok, err = it.Next()
@@ -215,7 +216,7 @@ func TestPruneDropsOldBlocks(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, uint64(5), start)
 	require.Equal(t, uint64(10), end)
-	require.Equal(t, []uint64{5, 6, 7, 8, 9, 10}, collectBlocks(t, w, 0))
+	require.Equal(t, []uint64{5, 6, 7, 8, 9, 10}, collectBlocks(t, w, 0, 10))
 }
 
 // TestGetRange is a wrapper-level smoke test that the standalone GetRange reports the stored block range of a
@@ -273,7 +274,7 @@ func TestPruneAfter(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, uint64(1), start)
 			require.Equal(t, uint64(3), end)
-			require.Equal(t, []uint64{1, 2, 3}, collectBlocks(t, w2, 1))
+			require.Equal(t, []uint64{1, 2, 3}, collectBlocks(t, w2, 1, 3))
 
 			// Writing continues cleanly after the rollback point.
 			writeBlock(t, w2, 4)
