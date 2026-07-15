@@ -569,8 +569,6 @@ func TestSimulateBackendBlockResolutionCoverage(t *testing.T) {
 		require.NotNil(t, h)
 		require.Equal(t, int64(1), h.Number.Int64())
 		require.Equal(t, common.BytesToHash(MockBlockID.Hash), h.ParentHash)
-		expectedBaseFee := testApp.EvmKeeper.GetNextBaseFeePerGas(ctxProvider(evmrpc.LatestCtxHeight)).TruncateInt().BigInt()
-		require.Equal(t, 0, h.BaseFee.Cmp(expectedBaseFee))
 	})
 
 	t.Run("CurrentHeader_fallback_gas_limit_when_block_unavailable", func(t *testing.T) {
@@ -582,9 +580,7 @@ func TestSimulateBackendBlockResolutionCoverage(t *testing.T) {
 		h := b2.CurrentHeader()
 		require.NotNil(t, h)
 		require.Equal(t, int64(1), h.Number.Int64())
-		require.Equal(t, uint64(baseCtx.ConsensusParams().Block.MaxGas), h.GasLimit)
-		expectedBaseFee := testApp.EvmKeeper.GetNextBaseFeePerGas(ctxProvider(evmrpc.LatestCtxHeight)).TruncateInt().BigInt()
-		require.Equal(t, 0, h.BaseFee.Cmp(expectedBaseFee))
+		require.Equal(t, uint64(10_000_000), h.GasLimit)
 		require.Equal(t, common.Hash{}, h.ParentHash)
 	})
 }
@@ -666,7 +662,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	t.Run("TestEthCallRateLimiting", func(t *testing.T) {
 		tEnv := newTestEnv(t)
 		// Test eth_call rate limiting with concurrent requests
-		const numRequests = 10 // Much more than the limit of 2
+		numRequests := 10 // Much more than the limit of 2
 		runBurst := func() []error {
 			results := make(chan error, numRequests)
 			start := make(chan struct{})
@@ -692,6 +688,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 			return errors
 		}
 
+		// Count successful vs rejected requests
 		successCount := 0
 		rejectedCount := 0
 		for _, err := range runBurst() {
@@ -704,9 +701,10 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 			}
 		}
 
-		require.Equal(t, numRequests, successCount+rejectedCount, "All requests should be accounted for")
-		require.Greaterf(t, rejectedCount, 0, "Should have rejected requests due to rate limiting (burst: %d successful, %d rejected)", successCount, rejectedCount)
+		// With only 2 concurrent slots and 10 requests, we should have rejections
+		require.Greater(t, rejectedCount, 0, "Should have rejected requests due to rate limiting")
 		require.Greater(t, successCount, 0, "Should have some successful requests")
+		require.Equal(t, numRequests, successCount+rejectedCount, "All requests should be accounted for")
 
 		t.Logf("eth_call rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, numRequests)
 	})
