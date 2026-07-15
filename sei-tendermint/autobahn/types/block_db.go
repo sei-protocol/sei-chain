@@ -70,6 +70,11 @@ var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 //     is written, then after a crash if B is persisted then A is also persisted.
 //   - Since QCs must always be written before the blocks they cover, a persisted block is always covered
 //     by a persisted QC, but a persisted QC may or may not have its covered blocks persisted.
+//
+// # A readable block always has a readable covering QC
+//
+// Pruning never leaves a block readable without its covering QC also being readable. And if a block becomes
+// crash recoverable, its QC is guaranteed to also be crash recoverable.
 type BlockDB interface {
 	// WriteBlock persists a finalized block at GlobalBlockNumber n. A
 	// block for height n may only be written after a QC covering n has
@@ -121,6 +126,11 @@ type BlockDB interface {
 	//
 	// Idempotent: calling with n ≤ the existing retention watermark is
 	// a no-op; the watermark only advances.
+	//
+	// Pruning never empties the store. Once a block has been written, at
+	// least one block (and a QC covering it) always remains readable — a
+	// request that would remove every block is capped to retain the most
+	// recently written block (and the QC covering it).
 	//
 	// Pruning is asynchronous and MAY BE DELAYED. PruneBefore records the
 	// watermark and returns; reclamation happens later, on the
@@ -191,13 +201,12 @@ type BlockDB interface {
 
 	// ReadBlockByNumber returns the block at GlobalBlockNumber n.
 	//
-	// Returns utils.None if no block has been written at n. A pruned
-	// block MAY also return None, but this is not guaranteed:
-	// reclamation is asynchronous, so a below-watermark block may remain
-	// readable until it is actually reclaimed. Implementations must not
-	// block waiting for a future write — "not yet written" is reported as
-	// utils.None identical to "never written". Blocking semantics
-	// (wait for a write at n) live above this interface, in
+	// Returns utils.None if no block is readable at n — either because
+	// none was written at n or because it has been pruned. A pruned block
+	// may or may not still be readable; callers must not rely on either.
+	// Never blocks waiting for a future write: "not yet written" is
+	// reported as utils.None identical to "never written". Blocking
+	// semantics (wait for a write at n) live above this interface, in
 	// data.State.
 	ReadBlockByNumber(n GlobalBlockNumber) (utils.Option[*Block], error)
 
@@ -206,10 +215,9 @@ type BlockDB interface {
 	// same value as block.Header().Hash() for the block that was passed
 	// to WriteBlock.
 	//
-	// Returns utils.None if no such block has been written. A pruned
-	// block MAY also return None, but — as with ReadBlockByNumber —
-	// reclamation is asynchronous, so a pruned block may remain readable
-	// until it is actually reclaimed. Non-blocking.
+	// Returns utils.None if no such block is readable — either because
+	// none was written or because it has been pruned (see
+	// ReadBlockByNumber). Non-blocking.
 	ReadBlockByHash(hash BlockHeaderHash) (utils.Option[BlockWithNumber], error)
 
 	// ReadQCByBlockNumber returns the FullCommitQC whose
@@ -218,12 +226,10 @@ type BlockDB interface {
 	// blocks, the same *FullCommitQC is returned for every n in its
 	// range.
 	//
-	// Returns utils.None if no QC has been written that covers n. A QC
-	// whose range is below the retention watermark MAY also return None,
-	// but this is not guaranteed: reclamation is asynchronous and coarse,
-	// and a QC straddling the watermark is retained outright, so a
-	// below-watermark lookup may still resolve to a retained QC. Callers
-	// must not rely on below-watermark lookups missing. Non-blocking.
+	// Returns utils.None if no readable QC covers n — either because none
+	// was written that covers n or because it has been pruned. A pruned
+	// QC may or may not still be readable; callers must not rely on
+	// either. Non-blocking.
 	ReadQCByBlockNumber(n GlobalBlockNumber) (utils.Option[*FullCommitQC], error)
 
 	// Close releases resources held by the store. After Close returns,

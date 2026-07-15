@@ -26,8 +26,8 @@ sc-historical-proof-burst = {{ .StateCommit.HistoricalProofBurst }}
 # performance, setting to 0 means synchronous commit.
 sc-async-commit-buffer = {{ .StateCommit.MemIAVLConfig.AsyncCommitBuffer }}
 
-# KeepRecent defines how many state-commit snapshots (besides the latest one) to keep
-# defaults to 0 to only keep one current snapshot
+# KeepRecent defines how many state-commit snapshots (besides the latest one) to keep.
+# Defaults to 1: a configured value of 0 is overridden to 1.
 sc-keep-recent = {{ .StateCommit.MemIAVLConfig.SnapshotKeepRecent }}
 
 # SnapshotInterval defines the block interval the snapshot is taken, default to 10000 blocks.
@@ -93,26 +93,7 @@ sc-hash-logger-max-disk-size = {{ .StateCommit.HashLogger.MaxDiskSize }}
 ###############################################################################
 
 [state-commit.flatkv]
-# Fsync controls whether PebbleDB writes (data DBs + metadataDB) use fsync.
-# WAL always uses NoSync (matching memiavl); crash recovery relies on
-# WAL catchup, which is idempotent. Default: false.
-fsync = {{ .StateCommit.FlatKVConfig.Fsync }}
-
-# AsyncWriteBuffer defines the size of the async write buffer for data DBs.
-# Set <= 0 for synchronous writes.
-async-write-buffer = {{ .StateCommit.FlatKVConfig.AsyncWriteBuffer }}
-
-# SnapshotInterval defines how often (in blocks) a PebbleDB checkpoint is taken.
-# 0 disables auto-snapshots. Default: 10000.
-snapshot-interval = {{ .StateCommit.FlatKVConfig.SnapshotInterval }}
-
-# SnapshotKeepRecent defines how many old snapshots to keep besides the latest one.
-# 0 = keep only the current snapshot. Default: 2.
-snapshot-keep-recent = {{ .StateCommit.FlatKVConfig.SnapshotKeepRecent }}
-
-# EnableReadWriteMetrics emits estimated read/write counters for FlatKV's Pebble DBs.
-# Default: false.
-enable-read-write-metrics = {{ .StateCommit.FlatKVConfig.EnableReadWriteMetrics }}
+# FlatKV runs with in-code defaults for now; no options are exposed here yet.
 `
 
 // StateStoreConfigTemplate defines the configuration template for state-store

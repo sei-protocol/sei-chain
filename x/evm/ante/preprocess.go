@@ -102,7 +102,50 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		}
 	}
 
+	// EIP-7702 authorization authorities are distinct accounts from the tx sender, so the
+	// sender association above does not cover them. Associate each authority to its true
+	// (pubkey-derived) Sei address before EVM execution installs delegation code for it.
+	// Otherwise SetCode creates a mutable direct-cast EVM->Sei mapping that a later
+	// associatePubKey call can remap, orphaning any staking/distribution state created
+	// under the direct-cast identity (which can then halt the chain via the distribution
+	// validator-removal hook).
+	p.associateAuthorizationAuthorities(ctx, msg, associateHelper)
+
 	return next(ctx, tx, simulate)
+}
+
+// associateAuthorizationAuthorities associates every EIP-7702 authorization authority in
+// the transaction with its true (pubkey-derived) Sei address, so that a subsequent
+// SetCode for the authority does not create a mutable direct-cast mapping. It is
+// best-effort: authorities with invalid signatures (which EVM execution would also skip)
+// or that are already associated are left untouched, and an association failure skips
+// only that authority rather than rejecting the transaction, which go-ethereum would
+// still accept.
+func (p *EVMPreprocessDecorator) associateAuthorizationAuthorities(ctx sdk.Context, msg *evmtypes.MsgEVMTransaction, associateHelper *helpers.AssociationHelper) {
+	txData, err := evmtypes.UnpackTxData(msg.Data)
+	if err != nil {
+		return
+	}
+	setCodeTx, ok := txData.(*ethtx.SetCodeTx)
+	if !ok {
+		// Only SetCode (EIP-7702) transactions carry authorizations.
+		return
+	}
+	ethTx := ethtypes.NewTx(setCodeTx.AsEthereumData())
+	for _, auth := range ethTx.SetCodeAuthorizations() {
+		// Only pre-associate authorities whose authorization the EVM will actually apply
+		// (matching chain id, nonce, and account state). This prevents replaying a
+		// publicly-visible authorization a user signed for another chain to force-associate
+		// them, which the EVM would skip but which still recovers a valid authority.
+		evmAddr, seiAddr, pubkey, ok := helpers.AuthorityToPreAssociate(ctx, p.evmKeeper, auth)
+		if !ok {
+			continue
+		}
+		cacheCtx, write := ctx.CacheContext()
+		if err := associateHelper.AssociateAddresses(cacheCtx, seiAddr, evmAddr, pubkey, false); err == nil {
+			write()
+		}
+	}
 }
 
 func (p *EVMPreprocessDecorator) IsAccountBalancePositive(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address) bool {

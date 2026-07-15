@@ -53,9 +53,6 @@ const (
 	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
 	FlagEVMSSSplit       = "state-store.evm-ss-split"
 	FlagEVMSSSeparateDBs = "state-store.evm-ss-separate-dbs"
-
-	// Other configs
-	FlagSnapshotInterval = "state-sync.snapshot-interval"
 )
 
 var GigaKeys = []string{"evm", "bank"}
@@ -80,7 +77,6 @@ func SetupSeiDB(
 			"separateDBs", ssConfig.SeparateEVMSubDBs,
 		)
 	}
-	validateConfigs(appOpts)
 	gigaExecutorConfig, err := gigaconfig.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading giga executor config due to %s", err))
@@ -105,14 +101,36 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig := config.DefaultStateCommitConfig()
 	scConfig.Enable = cast.ToBool(appOpts.Get(FlagSCEnable))
 	scConfig.Directory = cast.ToString(appOpts.Get(FlagSCDirectory))
-	scConfig.MemIAVLConfig.AsyncCommitBuffer = cast.ToInt(appOpts.Get(FlagSCAsyncCommitBuffer))
-	scConfig.MemIAVLConfig.SnapshotKeepRecent = cast.ToUint32(appOpts.Get(FlagSCSnapshotKeepRecent))
-	scConfig.MemIAVLConfig.SnapshotInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotInterval))
-	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotMinTimeInterval))
-	scConfig.MemIAVLConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
-	scConfig.MemIAVLConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
-	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
-	scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(appOpts.Get(FlagSCFlatKVReadWriteMetrics))
+	// Guard every read with a presence check: an absent app.toml key must
+	// preserve the in-code default from DefaultStateCommitConfig above rather
+	// than reading back the zero value (cast.To*(nil) == 0/false) and clobbering
+	// it. This matters for keys whose default is non-zero (async-commit-buffer
+	// 100, snapshot-interval 10000, keep-recent 1, ...) so a config that omits a
+	// key does not silently downgrade the node (e.g. to synchronous commits).
+	if v := appOpts.Get(FlagSCAsyncCommitBuffer); v != nil {
+		scConfig.MemIAVLConfig.AsyncCommitBuffer = cast.ToInt(v)
+	}
+	if v := appOpts.Get(FlagSCSnapshotKeepRecent); v != nil {
+		scConfig.MemIAVLConfig.SnapshotKeepRecent = cast.ToUint32(v)
+	}
+	if v := appOpts.Get(FlagSCSnapshotInterval); v != nil {
+		scConfig.MemIAVLConfig.SnapshotInterval = cast.ToUint32(v)
+	}
+	if v := appOpts.Get(FlagSCSnapshotMinTimeInterval); v != nil {
+		scConfig.MemIAVLConfig.SnapshotMinTimeInterval = cast.ToUint32(v)
+	}
+	if v := appOpts.Get(FlagSCSnapshotWriterLimit); v != nil {
+		scConfig.MemIAVLConfig.SnapshotWriterLimit = cast.ToInt(v)
+	}
+	if v := appOpts.Get(FlagSCSnapshotPrefetchThreshold); v != nil {
+		scConfig.MemIAVLConfig.SnapshotPrefetchThreshold = cast.ToFloat64(v)
+	}
+	if v := appOpts.Get(FlagSCSnapshotWriteRateMBps); v != nil {
+		scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(v)
+	}
+	if v := appOpts.Get(FlagSCFlatKVReadWriteMetrics); v != nil {
+		scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(v)
+	}
 
 	// sc-write-mode-enable-auto (default true) decides whether the node may run
 	// in auto. An ABSENT key keeps the default (true): nodes provisioned by
@@ -191,16 +209,4 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.SeparateEVMSubDBs = cast.ToBool(appOpts.Get(FlagEVMSSSeparateDBs))
 	ssConfig.EVMSplit = cast.ToBool(appOpts.Get(FlagEVMSSSplit))
 	return ssConfig
-}
-
-func validateConfigs(appOpts servertypes.AppOptions) {
-	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
-	ssEnabled := cast.ToBool(appOpts.Get(FlagSSEnable))
-	snapshotExportInterval := cast.ToUint64(appOpts.Get(FlagSnapshotInterval))
-	// Make sure when snapshot is enabled, we should enable SS store
-	if snapshotExportInterval > 0 && scEnabled {
-		if !ssEnabled {
-			panic(fmt.Sprintf("Config validation failed, SeiDB SS store needs to be enabled when snapshot interval %d > 0", snapshotExportInterval))
-		}
-	}
 }
