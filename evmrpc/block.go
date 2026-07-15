@@ -150,7 +150,7 @@ func NewSei2BlockAPI(
 	return blockAPI
 }
 
-func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]any, returnErr error) {	
+func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]any, returnErr error) {
 	// Exclude synthetic txs (filterTransactions drops them) and ante-failure
 	// stub receipts (EncodeTmBlock drops them via excludeUntraceable).
 	return a.getBlockByNumber(ctx, number, fullTx, false, true)
@@ -250,7 +250,7 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr, recover())
-	}()	
+	}()
 	return a.getBlockByNumber(ctx, number, fullTx, a.includeShellReceipts, false)
 }
 

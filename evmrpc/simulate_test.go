@@ -44,15 +44,8 @@ import (
 
 func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
 	t.Helper()
-	if store == nil {
-		return
-	}
-	if latest <= 0 {
-		latest = 1
-	}
 	require.NoError(t, store.SetLatestVersion(latest))
 	require.NoError(t, store.SetEarliestVersion(1))
-	require.Equal(t, int64(1), store.EarliestVersion())
 }
 
 // bcAlwaysFailClient fails every Block call (header resolution uses a single block fetch).
@@ -433,6 +426,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 		EVMTimeout: time.Second * 30,
 	}
 
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), 3000)
 	tmClient := NewMockClientWithLatest(3000)
 	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend := evmrpc.NewBackend(
@@ -504,6 +498,7 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
 	cfg := &evmrpc.SimulateConfig{GasCap: 10_000_000, EVMTimeout: time.Second}
 
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), 1)
 	tmClient := &MockClient{}
 	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
@@ -528,6 +523,7 @@ func TestGasLimitFallbackToDefault(t *testing.T) {
 	// Case 1: ConsensusParams is nil → DefaultBlockGasLimit.
 	nilParamsCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1).WithConsensusParams(nil)
 	ctxProvider1 := func(h int64) sdk.Context { return nilParamsCtx.WithBlockHeight(h) }
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), 1)
 	tmClient1 := &MockClient{}
 	watermarks1 := evmrpc.NewWatermarkManager(tmClient1, ctxProvider1, nil, testApp.EvmKeeper.ReceiptStore())
 	backend1 := evmrpc.NewBackend(ctxProvider1, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, tmClient1, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks1)
@@ -1046,6 +1042,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 	testApp := app.Setup(t, false, false, false)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(v65Height).WithClosestUpgradeName("v6.5")
 	testApp.UpgradeKeeper.SetDone(ctx, "v6.5")
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), v65Height)
 	ctxProvider := func(height int64) sdk.Context {
 		if height == evmrpc.LatestCtxHeight {
 			return ctx
@@ -1184,6 +1181,7 @@ func TestBlockByNumberNonTracedTxPassesTxBytes(t *testing.T) {
 		return ctx.WithBlockHeight(height)
 	}
 
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), blockHeight)
 	tmClient := &fixedBlockClient{block: tmBlock}
 	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend := evmrpc.NewBackend(
