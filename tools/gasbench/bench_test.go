@@ -56,20 +56,24 @@ func BenchmarkOpcodes(b *testing.B) {
 			// schema"), not of opcode timing. Insensitive to a
 			// mis-transcribed OpSpec.Arity that still yields a
 			// self-consistent ExpectedGasDelta -- see AGENTS.md.
-			if d.GasDelta != c.ExpectedGasDelta {
-				b.Errorf("%s: gas self-check failed: measured delta %d != expected %d (baseline/target pair does not isolate the opcode)",
-					c.OpcodeID, d.GasDelta, c.ExpectedGasDelta)
-			}
-
 			// Lock-free like sink (gasbench.go): subtests and -count reruns are
 			// sequential (no b.Parallel). A future parallelize needs a mutex.
 			acc := &collectors[i]
 			acc.iterations = cfg.Iterations
+			if d.GasDelta != c.ExpectedGasDelta {
+				b.Errorf("%s: gas self-check failed: measured delta %d != expected %d (baseline/target pair does not isolate the opcode)",
+					c.OpcodeID, d.GasDelta, c.ExpectedGasDelta)
+				// b.Errorf does not unwind; taint the case so aggregate emits
+				// status=error instead of a normal-looking row built on a
+				// construction that failed its own invariant.
+				acc.selfCheckFailed = true
+			}
 			// The gas delta is definitional and must be identical every count;
 			// a drift means the differential construction is not deterministic.
 			if acc.gasDeltaSet && d.GasDelta != acc.gasDelta {
 				b.Errorf("%s: gas delta not identical across counts: %d != first-count %d",
 					c.OpcodeID, d.GasDelta, acc.gasDelta)
+				acc.selfCheckFailed = true
 			}
 			if !acc.gasDeltaSet {
 				acc.gasDelta, acc.gasDeltaSet = d.GasDelta, true
@@ -113,16 +117,17 @@ func BenchmarkOpcodes(b *testing.B) {
 // crossRunInput instead. The Case is not stored here -- aggregation reads it
 // from cases[i].
 type opcodeAccum struct {
-	iterations   int
-	baseMedians  []float64 // within-run median per count, ns
-	tgtMedians   []float64 // within-run median per count, ns
-	deltas       []float64 // per-count delta, ns (tgtMed - baseMed)
-	gasDelta     uint64    // exact; guarded identical every count
-	gasDeltaSet  bool
-	covMax       float64 // running max of per-count worse-of-pair CoV (advisory)
-	highVariance bool    // OR across counts (advisory)
-	nvcsw        int64   // running max of worse-of-pair voluntary ctx switches
-	nivcsw       int64   // running max of worse-of-pair involuntary ctx switches
+	iterations      int
+	baseMedians     []float64 // within-run median per count, ns
+	tgtMedians      []float64 // within-run median per count, ns
+	deltas          []float64 // per-count delta, ns (tgtMed - baseMed)
+	gasDelta        uint64    // exact; guarded identical every count
+	gasDeltaSet     bool
+	selfCheckFailed bool    // a gas self-check b.Errorf fired; the case is tainted
+	covMax          float64 // running max of per-count worse-of-pair CoV (advisory)
+	highVariance    bool    // OR across counts (advisory)
+	nvcsw           int64   // running max of worse-of-pair voluntary ctx switches
+	nivcsw          int64   // running max of worse-of-pair involuntary ctx switches
 }
 
 // aggregate builds the cross-run input from the collector, runs the benchmath
@@ -133,8 +138,12 @@ func aggregate(b *testing.B, acc *opcodeAccum, c Case, alpha, confidence, minPer
 	// its own goroutine; the parent still aggregates. An empty accumulator
 	// through benchmath yields a NaN center that would corrupt the writers --
 	// emit the error row instead.
-	if len(acc.deltas) == 0 {
-		b.Logf("%s: no measurements accumulated (subtest failed); emitting status=error row", c.OpcodeID)
+	if len(acc.deltas) == 0 || acc.selfCheckFailed {
+		reason := "no measurements accumulated (subtest failed)"
+		if acc.selfCheckFailed {
+			reason = "gas self-check failed (construction invalid)"
+		}
+		b.Logf("%s: %s; emitting status=error row", c.OpcodeID, reason)
 		return NewErrorRun(c, acc.iterations)
 	}
 	cr := analyzeCrossRun(crossRunInput{

@@ -43,7 +43,15 @@ export GASBENCH_OUT_NDJSON="${GASBENCH_OUT_NDJSON:-gasbench.ndjson}"
 
 PIN=(env)
 if command -v taskset >/dev/null 2>&1; then
-  PIN=(taskset -c "$CORE")
+  # taskset -c N aborts outright if CPU index N does not exist (e.g. the
+  # default CORE=3 on a 2-core CI runner), so validate against the host and
+  # fall back to unpinned like the no-taskset branch instead of failing the run.
+  ncpu=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+  if [ "$CORE" -ge 0 ] 2>/dev/null && [ "$CORE" -lt "$ncpu" ]; then
+    PIN=(taskset -c "$CORE")
+  else
+    warn "GASBENCH_CORE=$CORE out of range (host has $ncpu CPUs); running unpinned -- results are indicative only"
+  fi
 else
   warn "taskset not found (non-Linux?); running unpinned -- results are indicative only"
 fi
