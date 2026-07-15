@@ -3,7 +3,6 @@
 # Move Docker's data-root onto the runner's large ephemeral disk (/mnt) so that
 # image layers and container writable layers (the running Sei cluster's state)
 # accumulate off the small root filesystem.
-# fix.
 #
 # No-op (clean exit) when /mnt is unavailable or Docker is not present, so it is
 # safe across runner classes. Must run BEFORE any docker pull/build so images

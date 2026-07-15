@@ -9,11 +9,12 @@
 # them. GOCACHE is the dominant consumer (the build cache); GOMODCACHE and
 # GOTMPDIR are moved too.
 #
-# GOPATH is deliberately left untouched: the Makefile mounts a hardcoded
-# $HOME/go/pkg/mod into the build container but pre-creates the dir via
-# `go env GOPATH`; overriding GOPATH would decouple those two and leave the
-# container writing to a root-owned auto-created mount. No-op when /mnt is
-# unavailable.
+# The Makefile derives its container/compose module-cache mount from
+# `go env GOMODCACHE` (via GO_PKG_PATH), so relocating GOMODCACHE here also
+# moves the in-container module cache to /mnt and keeps it aligned with the
+# cache actions/setup-go restores. GOPATH is deliberately left untouched (it
+# only affects binary/tool install paths we do not relocate). No-op when /mnt
+# is unavailable.
 set -euo pipefail
 
 if [ ! -d /mnt ] || ! sudo test -w /mnt; then
