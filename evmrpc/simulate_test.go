@@ -32,7 +32,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tenderminttypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -1000,7 +999,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 // pin a specific Block.Header / BlockID combination without dragging in the
 // rest of the mock infrastructure.
 type fixedBlockClient struct {
-	mock.Client
+	client.Client
 	block *coretypes.ResultBlock
 }
 

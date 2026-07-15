@@ -28,7 +28,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -297,7 +296,7 @@ func TestGetTransactionReceiptExcludeTraceFailLateReceipt(t *testing.T) {
 // lowLatestTMClient reports a fixed LatestBlockHeight via Status, regardless
 // of what blocks the receipt store contains.
 type lowLatestTMClient struct {
-	mock.Client
+	client.Client
 	latest int64
 }
 
