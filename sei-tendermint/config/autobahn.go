@@ -35,21 +35,30 @@ type AutobahnValidator struct {
 }
 
 // AutobahnBlockDBConfig holds optional overrides for the LittDB-backed BlockDB
-// opened under persistent_state_dir/blockdb. Absent fields keep
-// littblock.DefaultConfig values. Paths are never taken from here — Autobahn
-// always roots BlockDB at <persistent_state_dir>/blockdb.
+// opened under persistent_state_dir/blockdb. Paths are never taken from here —
+// Autobahn always roots BlockDB at <persistent_state_dir>/blockdb.
 //
-// Disk impact (most → least useful for bounding usage):
-//   - Retention: failsafe TTL; pruned data cannot be GC'd until this old.
-//     Primary knob for worst-case disk after PruneBefore advances.
-//   - GCPeriod: how often GC runs once data is eligible (reclaim latency).
-//   - Fsync: durability vs write latency; does not meaningfully change size.
+// Each field is independently optional. Absent fields keep littblock /
+// LittDB defaults from littblock.DefaultConfig:
+//   - Retention: 24h (failsafe TTL; pruned data cannot be GC'd until this old)
+//   - GCPeriod:  10s (how often GC runs once data is eligible)
+//   - Fsync:     true (flush durability)
 //
-// Segment sizing is intentionally not exposed (engine-internal).
+// Disk impact (most → least useful for bounding usage): Retention, then
+// GCPeriod. Fsync trades durability for write latency and does not meaningfully
+// change size. Segment sizing is intentionally not exposed (engine-internal).
 type AutobahnBlockDBConfig struct {
+	// Retention is the failsafe minimum age before pruned records may be
+	// reclaimed. Primary knob for worst-case disk after PruneBefore advances.
+	// Absent ⇒ 24h.
 	Retention utils.Option[utils.Duration] `json:"retention"`
-	GCPeriod  utils.Option[utils.Duration] `json:"gc_period"`
-	Fsync     utils.Option[bool]           `json:"fsync"`
+	// GCPeriod is how often GC runs once data is eligible (reclaim latency).
+	// Absent ⇒ 10s.
+	GCPeriod utils.Option[utils.Duration] `json:"gc_period"`
+	// Fsync controls whether writes are flushed with fsync. Absent ⇒ true.
+	// Setting false is NOT SAFE for production: crash can lose acknowledged
+	// writes (acceptable only for tests that need speed).
+	Fsync utils.Option[bool] `json:"fsync"`
 }
 
 // AutobahnFileConfig is the JSON structure of the autobahn config file.
@@ -67,8 +76,9 @@ type AutobahnFileConfig struct {
 	// fullnodes serving downstream block-sync are subject to the same
 	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers"`
-	// BlockDB optionally overrides littblock defaults when PersistentStateDir
-	// is set. Absent ⇒ littblock.DefaultConfig unchanged.
+	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig
+	// when PersistentStateDir is set. Absent ⇒ all littblock defaults (see
+	// AutobahnBlockDBConfig). Ignored when PersistentStateDir is absent (memblock).
 	BlockDB utils.Option[AutobahnBlockDBConfig] `json:"block_db"`
 }
 
