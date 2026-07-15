@@ -38,11 +38,9 @@ type AutobahnValidator struct {
 // opened under persistent_state_dir/blockdb. Paths are never taken from here —
 // Autobahn always roots BlockDB at <persistent_state_dir>/blockdb.
 //
-// Each field is independently optional. Absent fields keep littblock /
-// LittDB defaults from littblock.DefaultConfig:
-//   - Retention: 24h (failsafe TTL; pruned data cannot be GC'd until this old)
-//   - GCPeriod:  10s (how often GC runs once data is eligible)
-//   - Fsync:     true (flush durability)
+// Each field is independently optional. Absent fields keep whatever
+// littblock.DefaultConfig currently uses (do not duplicate those values here —
+// they live in the littblock / LittDB packages and may change).
 //
 // Disk impact (most → least useful for bounding usage): Retention, then
 // GCPeriod. Fsync trades durability for write latency and does not meaningfully
@@ -50,12 +48,13 @@ type AutobahnValidator struct {
 type AutobahnBlockDBConfig struct {
 	// Retention is the failsafe minimum age before pruned records may be
 	// reclaimed. Primary knob for worst-case disk after PruneBefore advances.
-	// Absent ⇒ 24h.
+	// Absent ⇒ littblock.DefaultConfig Retention.
 	Retention utils.Option[utils.Duration] `json:"retention"`
 	// GCPeriod is how often GC runs once data is eligible (reclaim latency).
-	// Absent ⇒ 10s.
+	// Absent ⇒ littblock.DefaultConfig / LittDB GCPeriod.
 	GCPeriod utils.Option[utils.Duration] `json:"gc_period"`
-	// Fsync controls whether writes are flushed with fsync. Absent ⇒ true.
+	// Fsync controls whether writes are flushed with fsync.
+	// Absent ⇒ littblock.DefaultConfig / LittDB Fsync (production default is on).
 	// Setting false is NOT SAFE for production: crash can lose acknowledged
 	// writes (acceptable only for tests that need speed).
 	Fsync utils.Option[bool] `json:"fsync"`
@@ -77,8 +76,9 @@ type AutobahnFileConfig struct {
 	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers"`
 	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig
-	// when PersistentStateDir is set. Absent ⇒ all littblock defaults (see
-	// AutobahnBlockDBConfig). Ignored when PersistentStateDir is absent (memblock).
+	// when PersistentStateDir is set. Absent ⇒ littblock.DefaultConfig unchanged
+	// (see AutobahnBlockDBConfig for field semantics). Ignored when
+	// PersistentStateDir is absent (memblock).
 	BlockDB utils.Option[AutobahnBlockDBConfig] `json:"block_db"`
 }
 
