@@ -167,6 +167,61 @@ func TestCompressionFlushOrdering(t *testing.T) {
 	}
 }
 
+// TestCompressionToggleAcrossRestarts writes into the same table under alternating compression settings
+// (off -> on -> off -> on), restarting between each phase, then reads everything back. It exercises the
+// core guarantee that each segment is decoded with the algorithm it was written with, independent of the
+// table's current configuration.
+func TestCompressionToggleAcrossRestarts(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	name := "toggle"
+
+	phases := []struct {
+		label string
+		algo  types.CompressionAlgorithm
+	}{
+		{"off1", types.CompressionNone},
+		{"on1", types.CompressionS2},
+		{"off2", types.CompressionNone},
+		{"on2", types.CompressionS2},
+	}
+
+	written := make(map[string][]byte)
+
+	for _, phase := range phases {
+		table := buildCompressedMemKeyDiskTable(t, time.Now, name, []string{dir}, phase.algo)
+
+		// Every key written in a prior phase (under a possibly different algorithm) must still read back
+		// correctly after this restart.
+		for k, v := range written {
+			got, ok, err := table.Get([]byte(k))
+			require.NoError(t, err, "reading %q in phase %s", k, phase.label)
+			require.True(t, ok, "missing %q in phase %s", k, phase.label)
+			require.Equal(t, v, got, "value mismatch for %q in phase %s", k, phase.label)
+		}
+
+		// Write this phase's keys into a fresh segment created under this phase's algorithm.
+		for i := 0; i < 5; i++ {
+			key := fmt.Sprintf("%s-%d", phase.label, i)
+			value := append(compressiblePayload(), []byte(key)...)
+			require.NoError(t, table.Put([]byte(key), value))
+			written[key] = value
+		}
+		require.NoError(t, table.Flush())
+		require.NoError(t, table.Close())
+	}
+
+	// Final restart: read everything back, spanning segments written under both algorithms.
+	final := buildCompressedMemKeyDiskTable(t, time.Now, name, []string{dir}, types.CompressionNone)
+	defer func() { require.NoError(t, final.Close()) }()
+	for k, v := range written {
+		got, ok, err := final.Get([]byte(k))
+		require.NoError(t, err)
+		require.True(t, ok, "missing %q after final restart", k)
+		require.Equal(t, v, got, "value mismatch for %q after final restart", k)
+	}
+}
+
 func TestCompressionIteration(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -212,4 +267,39 @@ func TestCompressionIteration(t *testing.T) {
 		require.Equal(t, r.value, seen[r.key], "primary %s", r.key)
 		require.Equal(t, r.value, seen[r.key+"-alias"], "alias for %s", r.key)
 	}
+}
+
+// TestCompressionReverseIteration verifies that reverse iteration over a compressed segment returns the
+// correct decompressed value for each key (reverse iteration reads through Segment.Read).
+func TestCompressionReverseIteration(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	table := buildCompressedMemKeyDiskTable(t, time.Now, "reverse", []string{dir}, types.CompressionS2)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	want := make(map[string][]byte)
+	for i := 0; i < 10; i++ {
+		key := fmt.Sprintf("k-%02d", i)
+		value := append(compressiblePayload(), byte(i))
+		require.NoError(t, table.Put([]byte(key), value))
+		want[key] = value
+	}
+	require.NoError(t, table.Flush())
+
+	it, err := table.Iterator(true)
+	require.NoError(t, err)
+	seen := make(map[string][]byte)
+	for {
+		ok, err := it.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		key, _ := it.GetKey()
+		value, err := it.GetValue()
+		require.NoError(t, err)
+		seen[string(key)] = append([]byte(nil), value...)
+	}
+	require.NoError(t, it.Close())
+	require.Equal(t, want, seen)
 }
