@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
@@ -107,6 +108,11 @@ type walImpl struct {
 	// Closed by Close() to stop the queue-depth sampler goroutine.
 	samplerStop chan struct{}
 
+	// The exclusive advisory lock on the WAL directory, held for this instance's entire lifetime and
+	// released by Close(). It prevents a second WAL instance or an offline utility from mutating the same
+	// directory concurrently.
+	fileLock filelock.TryLockerSafe
+
 	// Guarantees the Close() shutdown sequence runs at most once.
 	closeOnce sync.Once
 
@@ -176,6 +182,22 @@ func newWAL(config *Config) (WAL[[]byte], error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid WAL config: %w", err)
 	}
+
+	// Take the directory lock before touching any files: recoverDirectory (below) mutates the directory, so
+	// we must own it exclusively first. The lock is released by Close(), or here on any open failure.
+	if err := util.EnsureDirectoryExists(config.Path, true); err != nil {
+		return nil, fmt.Errorf("failed to ensure WAL directory %s: %w", config.Path, err)
+	}
+	fileLock, err := acquireDirLock(config.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock WAL directory %s: %w", config.Path, err)
+	}
+	defer func() {
+		if fileLock != nil {
+			releaseDirLock(fileLock, config.Path)
+		}
+	}()
+
 	if err := recoverDirectory(config.Path); err != nil {
 		return nil, err
 	}
@@ -196,6 +218,7 @@ func newWAL(config *Config) (WAL[[]byte], error) {
 
 	w := &walImpl{
 		config:       config,
+		fileLock:     fileLock,
 		metricAttrs:  walNameAttr(config.Name),
 		writerChan:   make(chan any, config.WriteBufferSize),
 		ctx:          ctx,
@@ -223,6 +246,8 @@ func newWAL(config *Config) (WAL[[]byte], error) {
 		go w.sampleQueueDepth(config.MetricsSampleInterval)
 	}
 
+	// Ownership of the lock has passed to w (released by Close); disarm the open-failure cleanup above.
+	fileLock = nil
 	return w, nil
 }
 
@@ -354,6 +379,9 @@ func (w *walImpl) Close() error {
 		}
 		w.wg.Wait()
 		w.cancel(nil) // a clean close carries no fatal cause; a prior fail() already recorded one
+		// Release the directory lock only after every goroutine has stopped, so nothing touches the files
+		// after another owner could acquire the directory.
+		releaseDirLock(w.fileLock, w.config.Path)
 	})
 	if err := w.asyncError(); err != nil {
 		return fmt.Errorf("WAL closed with error: %w", err)
