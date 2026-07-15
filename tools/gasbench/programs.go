@@ -1,6 +1,8 @@
 package gasbench
 
 import (
+	"fmt"
+
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/core/vm/program"
 	"github.com/ethereum/go-ethereum/params"
@@ -14,6 +16,7 @@ const DefaultReps = 1000
 // Class groups opcodes by arithmetic character.
 type Class string
 
+// Opcode classes.
 const (
 	ClassArithmetic Class = "arithmetic"
 	ClassBitwise    Class = "bitwise"
@@ -133,8 +136,7 @@ func BuildCaseWith(s OpSpec, reps int, seed *uint256.Int) Case {
 	case vm.SHL, vm.SHR, vm.SAR:
 		// DUP2 (not DUP1 x2, unlike the default branch below): these ops
 		// need two DISTINCT operands, not n copies of one value -- see
-		// README.md "Differential construction" (the value.Clear() early-out
-		// a same-value construction would accidentally measure).
+		// README.md "Differential construction".
 		base.Push(seed).Push(seedShift)
 		tgt.Push(seed).Push(seedShift)
 		for i := 0; i < reps; i++ {
@@ -146,6 +148,11 @@ func BuildCaseWith(s OpSpec, reps int, seed *uint256.Int) Case {
 	default:
 		// General n-operand case: see README.md "Differential construction"
 		// for the (n-1)*GasQuickStep derivation this formula implements.
+		// Arity 0 must be special-cased above (like DUP1/SWAP1): the
+		// (n-1)*GasQuickStep term below assumes n >= 1.
+		if s.Arity < 1 {
+			panic(fmt.Sprintf("gasbench: %s has Arity %d < 1 and is not special-cased in BuildCaseWith", s.Name, s.Arity))
+		}
 		base.Push(seed).Push(seed)
 		tgt.Push(seed).Push(seed)
 		for i := 0; i < reps; i++ {

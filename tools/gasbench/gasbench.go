@@ -27,8 +27,11 @@ import (
 //     allocations across warmup+Iterations must fit in RAM.
 type RunOnce func() (gasUsed uint64, err error)
 
-// sink defeats dead-code elimination of the gas result. A single measurement
-// goroutine (GOMAXPROCS=1, locked thread) means no synchronization is needed.
+// sink defeats dead-code elimination of the gas result. Safe without
+// synchronization only because BenchmarkOpcodes's subtests run sequentially
+// (no b.Parallel) -- GOMAXPROCS=1 and thread-locking do not by themselves
+// make the ^= below race-free, and do not protect this var if a future
+// change parallelizes the subtests.
 var sink uint64
 
 // Config controls one measurement series.

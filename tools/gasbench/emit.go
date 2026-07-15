@@ -91,6 +91,10 @@ func WriteCSV(w io.Writer, runs []Run) error {
 			strconv.FormatFloat(r.ExecTimeNs, 'g', -1, 64),
 			r.Status,
 			strconv.Itoa(r.Iterations),
+			// CoV is advisory-only (README.md "Acceptance gate"), so this
+			// deliberately rounds to 6 sig figs for readability; NDJSON's
+			// json.Encoder gives CoV full precision instead -- a consumer
+			// comparing CoV across the two formats will see this difference.
 			strconv.FormatFloat(r.CoV, 'g', 6, 64),
 			strconv.FormatBool(r.Significant),
 			strconv.FormatBool(r.HighVariance),

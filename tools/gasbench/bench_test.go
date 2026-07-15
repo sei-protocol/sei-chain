@@ -24,7 +24,6 @@ func BenchmarkOpcodes(b *testing.B) {
 
 	var runs []Run
 	for _, c := range cases {
-		c := c
 		b.Run(c.OpcodeID, func(b *testing.B) {
 			baseProg, err := NewProgram(c.Baseline)
 			if err != nil {

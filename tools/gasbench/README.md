@@ -49,10 +49,11 @@ families are special-cased in `BuildCaseWith`:
 - **Stack ops** (`DUP1`, `SWAP1`) aren't "n operands → 1 result" — each gets
   its own construction.
 - **SHL/SHR/SAR** need two *distinct* operands, not `n` copies of the same
-  value: a shift amount ≥256 takes go-ethereum's `value.Clear()` early-out
-  (the cheapest possible case), so reusing one seed for both operands would
-  measure that early-out instead of the real limb-shift path. `seedShift`
-  keeps the shift amount in-range and distinct from the value operand.
+  value: an out-of-range shift amount takes go-ethereum's `value.Clear()`
+  early-out (the cheapest possible case) — at shift ≥256 for SHL/SHR, shift
+  >256 for SAR — so reusing one seed for both operands would measure that
+  early-out instead of the real limb-shift path. `seedShift` keeps the shift
+  amount in-range and distinct from the value operand.
 
 `EXP` and anything with dynamic/memory/state gas is out of scope — see
 `OpSpec.DataDependent` and the design's Non-goals.
@@ -63,7 +64,8 @@ families are special-cased in `BuildCaseWith`:
 handler and no Sei `GasMeter`. `gasUsed` is pure EVM gas
 (`cfg.GasLimit - leftOverGas`); there is deliberately no Cosmos gas meter in
 this path. Correlate against **EVM** gas, not the Cosmos gas meter — mixing
-the two units was the CON-368 trap (`msg_server.go:152`).
+the two units was the CON-368 trap (`x/evm/keeper/msg_server.go`'s
+`serverRes.GasUsed` assignment, which is in EVM's gas unit, not Sei's).
 
 ## Program reuse across calls (journal growth)
 
@@ -81,9 +83,10 @@ estimator reads. **Re-check this before reusing a `Program` across an
 order-of-magnitude more iterations, or for a `Case` that touches persistent
 state (SSTORE/LOG/CREATE).**
 
-This periodic reallocation is also the one CoV-inflating noise source the
-`getrusage`-based diagnostics ("Active-benchmarking diagnostics" below)
-structurally cannot see (it's not a scheduler preemption).
+This periodic reallocation is also the one noise source that inflates the
+coefficient of variation (CoV, stddev/mean — see "Acceptance gate" below)
+without the `getrusage`-based diagnostics ("Active-benchmarking diagnostics"
+further below) being able to see it (it's not a scheduler preemption).
 
 ## Error contract
 
@@ -110,10 +113,11 @@ I-cache/D-cache/branch predictor, catch a broken program early), then
 
 ## Acceptance gate: Significant, not CoV
 
-`Diff.Significant` (`diff.go`) — `|DeltaNs| > SigmaK * Uncertainty`, where
+`Diff.Significant` (`diff.go`) — `|DeltaNs| > SigmaK * Uncertainty` (and
+`Uncertainty > 0`; a series with fewer than 2 samples has nothing to
+estimate variance from and must never read as significant), where
 `Uncertainty` is the two series' median standard errors propagated in
-quadrature — is the acceptance gate. A raw per-series coefficient of
-variation (CoV, stddev/mean) of several percent
+quadrature — is the acceptance gate. A raw per-series CoV of several percent
 under plain core-pinning (no kernel-level isolcpus/nohz_full/rcu_nocbs) is
 expected physics (the periodic scheduler tick, device IRQs, shared-cache
 contention that pinning alone can't remove), not a defect. No major

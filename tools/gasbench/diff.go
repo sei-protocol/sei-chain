@@ -67,7 +67,11 @@ func Subtract(opcodeID string, baseline, target Series, reps int, sigmaK, covCei
 	}
 	d.DeltaNs = ts.Median - bs.Median
 	d.Uncertainty = math.Hypot(ts.SEMedian, bs.SEMedian)
-	d.Significant = math.Abs(d.DeltaNs) > sigmaK*d.Uncertainty
+	// Uncertainty == 0 (e.g. Iterations < 2, or an improbable zero-variance
+	// sample) means no variance was ever estimated, not that the delta is
+	// perfectly known -- Significant must never be true from an
+	// unestimated Uncertainty.
+	d.Significant = d.Uncertainty > 0 && math.Abs(d.DeltaNs) > sigmaK*d.Uncertainty
 	d.HighVariance = bs.CoV > covCeiling || ts.CoV > covCeiling
 
 	if target.GasUsed >= baseline.GasUsed {
