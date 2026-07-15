@@ -45,9 +45,11 @@ func (w *gzipResponseWriter) init() {
 		}
 	}
 
-	// Skip compression if the inner handler already encoded the response or
-	// explicitly opted out via Transfer-Encoding: identity.
-	if hdr.Get("content-encoding") != "" || hdr.Get("transfer-encoding") == "identity" {
+	// Skip compression if the inner handler already encoded the response, opted
+	// out via Transfer-Encoding: identity, or emitted a byte range whose
+	// Content-Range offsets describe the uncompressed body.
+	if hdr.Get("content-encoding") != "" || hdr.Get("transfer-encoding") == "identity" ||
+		hdr.Get("content-range") != "" {
 		return
 	}
 
@@ -70,9 +72,10 @@ func (w *gzipResponseWriter) Header() http.Header {
 
 func (w *gzipResponseWriter) WriteHeader(status int) {
 	// Bodyless responses must not be compressed — gzip would write a stream
-	// terminator into what must be an empty body (RFC 7230 §3.3).
+	// terminator into what must be an empty body (RFC 7230 §3.3). 206 responses
+	// carry Content-Range offsets that describe the uncompressed body.
 	if status == http.StatusNoContent || status == http.StatusNotModified ||
-		(status >= 100 && status <= 199) {
+		status == http.StatusPartialContent || (status >= 100 && status <= 199) {
 		w.inited = true // skip gzip setup
 		w.resp.WriteHeader(status)
 		return
@@ -121,6 +124,17 @@ func (w *gzipResponseWriter) close() {
 		return
 	}
 	_ = w.gz.Close()
+	gzPool.Put(w.gz)
+	w.gz = nil
+}
+
+// abort returns the writer to the pool without emitting the gzip footer, used
+// when a panic unwinds mid-response so we don't frame a valid gzip stream
+// ahead of the plaintext 500 body appended by the recovery handler.
+func (w *gzipResponseWriter) abort() {
+	if w.gz == nil {
+		return
+	}
 	gzPool.Put(w.gz)
 	w.gz = nil
 }
@@ -208,7 +222,13 @@ func NewGzipHandler(next http.Handler) http.Handler {
 		}
 
 		wrapper := &gzipResponseWriter{resp: w}
-		defer wrapper.close()
+		defer func() {
+			if p := recover(); p != nil {
+				wrapper.abort()
+				panic(p)
+			}
+			wrapper.close()
+		}()
 
 		next.ServeHTTP(wrapper, r)
 	})

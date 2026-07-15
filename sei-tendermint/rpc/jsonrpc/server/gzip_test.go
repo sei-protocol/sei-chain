@@ -445,6 +445,85 @@ func TestNewGzipHandler_NoBodyFor204(t *testing.T) {
 	}
 }
 
+func TestNewGzipHandler_PartialContentPassthrough(t *testing.T) {
+	body := strings.Repeat("x", minCompressBytes)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", "bytes 0-1023/4096")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = io.WriteString(w, body)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rr := httptest.NewRecorder()
+
+	NewGzipHandler(inner).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusPartialContent {
+		t.Fatalf("expected 206, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("Content-Encoding"); got != "" {
+		t.Fatalf("expected no Content-Encoding for 206, got %q", got)
+	}
+	if rr.Body.String() != body {
+		t.Fatalf("body mismatch: %q", rr.Body.String())
+	}
+}
+
+func TestNewGzipHandler_ContentRangePassthrough(t *testing.T) {
+	body := strings.Repeat("x", minCompressBytes)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", "bytes 0-1023/4096")
+		_, _ = io.WriteString(w, body)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rr := httptest.NewRecorder()
+
+	NewGzipHandler(inner).ServeHTTP(rr, req)
+
+	if got := rr.Header().Get("Content-Encoding"); got != "" {
+		t.Fatalf("expected no Content-Encoding when Content-Range is set, got %q", got)
+	}
+	if rr.Body.String() != body {
+		t.Fatalf("body mismatch: %q", rr.Body.String())
+	}
+}
+
+func TestNewGzipHandler_PanicSkipsGzipFooter(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, strings.Repeat("x", minCompressBytes))
+		panic("boom")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rr := httptest.NewRecorder()
+
+	defer func() {
+		if p := recover(); p != "boom" {
+			t.Fatalf("expected panic to propagate, got %v", p)
+		}
+		// abort() must not append the gzip footer; the truncated stream ends
+		// without a valid gzip trailer so it cannot decode as a complete stream.
+		if _, err := io.ReadAll(mustGzipReader(t, rr.Body.Bytes())); err == nil {
+			t.Fatal("expected truncated (footer-less) gzip stream after panic")
+		}
+	}()
+
+	NewGzipHandler(inner).ServeHTTP(rr, req)
+}
+
+func mustGzipReader(t *testing.T, b []byte) *gzip.Reader {
+	t.Helper()
+	gr, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		t.Fatalf("gzip.NewReader: %v", err)
+	}
+	return gr
+}
+
 func TestNewGzipHandler_CloseErrorIsSilent(t *testing.T) {
 	// gz.Close() is called with _ = to silence the error because headers are
 	// already sent and there is no recovery path. This test injects a broken
