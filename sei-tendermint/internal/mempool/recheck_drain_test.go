@@ -22,9 +22,13 @@ import (
 
 // evmNonceApp models a Sei-like EVM antehandler for mempool tests:
 //   - tracks the next-expected nonce per sender (the "mined" nonce frontier)
+//   - tracks the per-sender balance used for affordability/recheck decisions
 //   - returns nonce metadata used by mempool-side pending evaluation
 //
-// Test format: "evm=<sender>=<nonce>=<priority>".
+// Test format is either 4-part or 5-part:
+//   - "evm=<sender>=<nonce>=<priority>"                    (no balance requirement)
+//   - "evm=<sender>=<nonce>=<priority>=<requiredBalance>"  (5th field is the
+//     EVMRequiredBalance, i.e. the balance the tx must be able to afford)
 type evmNonceApp struct {
 	abci.Application
 
@@ -110,6 +114,19 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *ab
 	if nonce < expected {
 		// Already mined. Reject.
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 2}}
+	}
+
+	// On recheck, reject when the sender can no longer afford the tx, mirroring a
+	// real EVM antehandler rejecting insufficient-funds txs. This models
+	// EVMFeeCheckDecorator.BuyGas in x/evm/ante/fee.go, which today runs on both
+	// CheckTx and ReCheckTx (it is NOT gated behind !IsReCheckTx) and returns
+	// ErrInsufficientFunds when the sender cannot cover gas. If BuyGas is ever
+	// gated behind !ctx.IsReCheckTx(), recheck would stop catching drained
+	// balances and this mock rejection would pin fiction — update it in lockstep.
+	// Scoped to recheck so initial admission (affordable at submit time) is
+	// unaffected, which also preserves the errSameNonce admission-path test.
+	if req.Type == abci.CheckTxTypeV2Recheck && requiredBalance.CmpUint64(uint64(a.balanceOf(senderAddr))) > 0 {
+		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 3}}
 	}
 
 	res := &abci.ResponseCheckTxV2{
@@ -258,4 +275,182 @@ func TestTxMempool_EvmNextPendingNonceReplacesSameNonceByPriority(t *testing.T) 
 	_, ok = txmp.txStore.ByHash(types.Tx(highPriorityTx).Hash())
 	require.True(t, ok)
 	require.Equal(t, uint64(5), txmp.EvmNextPendingNonce(sender))
+}
+
+// TestTxMempool_DrainRaceSameBlockIncludesInvalidTx pins the REAL arctic-1
+// (recheck_tx=false) drain-race behavior: when tx1 (nonce N) and tx2 (nonce N+1)
+// from one sender are BOTH admitted affordable and neither has executed yet,
+// a single Reap returns BOTH into the same block — tx2 IS INCLUDED.
+//
+// Mechanism (verified against tx.go): the readiness cascade in txStore.insert
+// (the loop at tx.go:417-433) promotes each successive nonce to READY while the
+// tx at that nonce is affordable, but it checks every tx against the SAME,
+// undrained account.balance — it never subtracts what earlier nonces would
+// spend. So with balance=100 and each tx requiring 100, tx1 goes ready and then
+// tx2 goes ready too (100 >= 100). isReady (tx.go:449-452) is a pure nonce<
+// nextNonce test, so both read as ready. inInclusionOrder puts both in the ready
+// set and Reap (tx.go:631-671) walks that set, breaking only on !isReady — which
+// never trips here — so both tx1 and tx2 come out in one reap.
+//
+// The balance recompute/demote only runs inside compact during a later
+// txStore.Update, i.e. AFTER this block would already be proposed and shipped —
+// too late to keep tx2 out. On chain, tx1 executes and drains the balance, then
+// tx2 fails at delivery-time BuyGas (x/evm/ante/fee.go) and commits as a
+// status=0 / gasUsed=0 receipt. That execution-time failure is out of mempool
+// scope; this test asserts only the mempool contract: tx2 is reaped/included.
+//
+// Inclusion is proven by direct membership in the reaped set (not by Size),
+// because a pending tx would be counted by Size but skipped by Reap — membership
+// is the assertion that actually distinguishes inclusion from quarantine.
+func TestTxMempool_DrainRaceSameBlockIncludesInvalidTx(t *testing.T) {
+	ctx := t.Context()
+	sender := common.HexToAddress("0x00000000000000000000000000000000000000df")
+
+	app := newEVMNonceApp()
+	app.setBalance(sender, 100)
+	cfg := TestConfig()
+	cfg.CacheSize = 5000
+	// Pin the reap notify-gate off (tx.go: reap runs only when ready.count >=
+	// TxNotifyThreshold). 0 is today's default, so both ready nonces reap
+	// unconditionally; setting it explicitly keeps this test's premise from
+	// silently breaking if that default is ever raised above 2.
+	cfg.TxNotifyThreshold = 0
+	txmp := setup(cfg, proxy.New(app), NopTxConstraintsFetcher)
+
+	// Nonces 0 and 1 from one sender, each requiring the full balance of 100.
+	// Both are affordable at admission, so the readiness cascade promotes both.
+	// Insertion order is N then N+1 (the arctic-1 / Yasin repro order); in the
+	// new mempool readiness is order-independent, so both are ready either way.
+	tx1 := []byte(fmt.Sprintf("evm=%s=0=1=100", sender.Hex()))
+	tx2 := []byte(fmt.Sprintf("evm=%s=1=1=100", sender.Hex()))
+	_, err := txmp.CheckTx(ctx, tx1)
+	require.NoError(t, err)
+	_, err = txmp.CheckTx(ctx, tx2)
+	require.NoError(t, err)
+
+	// Both must be READY (none pending): the drain-race precondition.
+	require.Equal(t, 2, txmp.Size())
+	require.Equal(t, 0, txmp.PendingSize())
+	require.Equal(t, 2, txmp.NumTxsNotPending())
+
+	// Reap once, BEFORE any Update/compact has recomputed balances. This is the
+	// proposal-time reap; both ready nonces come out into one block.
+	reaped, _ := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(10))}, true)
+
+	reapedHashes := map[types.TxHash]struct{}{}
+	for _, tx := range reaped {
+		reapedHashes[tx.Hash()] = struct{}{}
+	}
+	_, tx1Reaped := reapedHashes[types.Tx(tx1).Hash()]
+	_, tx2Reaped := reapedHashes[types.Tx(tx2).Hash()]
+
+	require.Len(t, reaped, 2, "both nonces reap into one block")
+	require.True(t, tx1Reaped, "tx1 (nonce N) is reaped")
+	require.True(t, tx2Reaped, "tx2 (nonce N+1) is INCLUDED same-block despite the drain race")
+}
+
+// TestTxMempool_DrainRaceRecheckGatesEviction pins the CROSS-block drain-race
+// path: what happens to the survivor tx2 (nonce N+1) in the Update AFTER tx1
+// (nonce N) has already mined in a prior block and drained the sender.
+//
+// This is NOT the arctic-1 same-block inclusion path (that is
+// TestTxMempool_DrainRaceSameBlockIncludesInvalidTx, where both txs reap into
+// one block before any Update runs). Here tx1 is mined via a standalone Update
+// and tx2 is re-evaluated in that same Update against the now-drained balance.
+// Whether tx2 is dropped before it can be reaped again is gated purely by the
+// recheck arg to Update (ConsensusParams.ABCI.RecheckTx):
+//   - recheck=true  -> tx2 is READY at recheck time, so the recheck loop
+//     re-CheckTx's it, BuyGas fails on insufficient balance, and it is evicted.
+//   - recheck=false -> tx2 is not app-rechecked; the post-Update compact refetches
+//     the drained balance and demotes tx2 to PENDING (not evicted, not ready).
+//     It is retained but no longer reapable, i.e. quarantined until funded.
+//
+// Note recheck=false here demotes-to-pending; it does NOT include tx2. Inclusion
+// only happens on the same-block path, before any balance recompute has run.
+// This is config-driven, not a bug; the test documents current behavior so a
+// future change to the recheck gate is visible.
+func TestTxMempool_DrainRaceRecheckGatesEviction(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		recheck      bool
+		wantSize     int
+		wantPending  int
+		wantRetained bool
+	}{
+		{name: "recheck_true_evicts", recheck: true, wantSize: 0, wantPending: 0, wantRetained: false},
+		{name: "recheck_false_demotes_to_pending", recheck: false, wantSize: 1, wantPending: 1, wantRetained: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			sender := common.HexToAddress("0x00000000000000000000000000000000000000dd")
+
+			app := newEVMNonceApp()
+			app.setBalance(sender, 100)
+			cfg := TestConfig()
+			cfg.CacheSize = 5000
+			txmp := setup(cfg, proxy.New(app), NopTxConstraintsFetcher)
+
+			// Nonces 0 and 1 from one sender, each requiring the full balance of
+			// 100. Both are affordable, hence READY, at admission.
+			tx1 := []byte(fmt.Sprintf("evm=%s=0=1=100", sender.Hex()))
+			tx2 := []byte(fmt.Sprintf("evm=%s=1=1=100", sender.Hex()))
+			_, err := txmp.CheckTx(ctx, tx1)
+			require.NoError(t, err)
+			_, err = txmp.CheckTx(ctx, tx2)
+			require.NoError(t, err)
+			require.Equal(t, 2, txmp.Size())
+			require.Equal(t, 0, txmp.PendingSize())
+
+			// tx1 mines in this standalone Update and drains the sender to 0. Until
+			// the post-Update compact refetches the balance, tx2 is still READY (in
+			// ReadyTxs), so the recheck loop can see it when recheck=true.
+			app.markMined(sender)
+			app.setBalance(sender, 0)
+
+			blockTxs := types.Txs{types.Tx(tx1)}
+			results := []*abci.ExecTxResult{{Code: code.CodeTypeOK}}
+			require.NoError(t, txmp.Update(ctx, 1, blockTxs, results, utils.OrPanic1(NopTxConstraintsFetcher()), tc.recheck))
+
+			require.Equal(t, tc.wantSize, txmp.Size())
+			require.Equal(t, tc.wantPending, txmp.PendingSize())
+			_, ok := txmp.txStore.ByHash(types.Tx(tx2).Hash())
+			require.Equal(t, tc.wantRetained, ok, "tx2 retained-as-pending iff recheck=false")
+		})
+	}
+}
+
+// TestTxMempool_DrainRaceRecheckScopeSkipsPendingTx documents current
+// pending-scope behavior: recheck only re-validates ReadyTxs (see the ReadyTxs
+// scan in TxMempool.Update in mempool.go), so a tx that is PENDING at recheck
+// time is never re-CheckTx'd and thus is not evicted for insufficient balance,
+// even under recheck=true. Here a nonce gap keeps the tx pending; draining the
+// balance below its requiredBalance changes nothing because the recheck loop
+// never sees it. Characterization only, not an assertion of correctness.
+func TestTxMempool_DrainRaceRecheckScopeSkipsPendingTx(t *testing.T) {
+	ctx := t.Context()
+	sender := common.HexToAddress("0x00000000000000000000000000000000000000ee")
+
+	app := newEVMNonceApp()
+	app.setBalance(sender, 100)
+	cfg := TestConfig()
+	cfg.CacheSize = 5000
+	txmp := setup(cfg, proxy.New(app), NopTxConstraintsFetcher)
+
+	// Expected nonce is 0, but only nonce 1 is submitted: the missing nonce-0
+	// gap keeps this tx PENDING (never promoted to ready).
+	tx := []byte(fmt.Sprintf("evm=%s=1=1=100", sender.Hex()))
+	_, err := txmp.CheckTx(ctx, tx)
+	require.NoError(t, err)
+	require.Equal(t, 1, txmp.Size())
+	require.Equal(t, 1, txmp.PendingSize())
+
+	// Drain below requiredBalance, then recheck. Because the tx is pending it is
+	// outside the recheck loop's ReadyTxs scope, so recheck=true does NOT evict.
+	app.setBalance(sender, 0)
+	require.NoError(t, txmp.Update(ctx, 1, nil, nil, utils.OrPanic1(NopTxConstraintsFetcher()), true))
+
+	require.Equal(t, 1, txmp.Size(), "pending tx survives recheck=true (out of ReadyTxs scope)")
+	require.Equal(t, 1, txmp.PendingSize())
+	_, ok := txmp.txStore.ByHash(types.Tx(tx).Hash())
+	require.True(t, ok, "pending became-unaffordable tx is retained under recheck=true")
 }
