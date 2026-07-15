@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -802,23 +803,30 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		return nil, 0, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
 	}
 
+	// maxLog caps the number of matching logs a single query may return, for
+	// both bounded and open-ended queries. Exceeding it is an error (not
+	// silent truncation), so peak memory stays bounded to the cap. A value of 0
+	// disables the cap.
+	limit := f.filterConfig.maxLog
+
 	// blockHash queries must use the hash-aware block fetch path below.
 	// Range-query receipt stores only constrain by numeric block range and
 	// do not enforce crit.BlockHash.
 	if crit.BlockHash == nil {
 		// Try efficient range query first
 		// #nosec G115 -- begin and end are validated to be positive block heights above
-		if logs, rangeErr := f.tryFilterLogsRange(ctx, uint64(begin), uint64(end), crit); rangeErr == nil {
+		if logs, rangeErr := f.tryFilterLogsRange(ctx, uint64(begin), uint64(end), crit, limit); rangeErr == nil {
 			return logs, end, nil
 		} else if !errors.Is(rangeErr, receipt.ErrRangeQueryNotSupported) {
-			// If it's a real error (not just unsupported), return it
+			// A real error (including receipt.ErrTooManyLogs) short-circuits;
+			// only "unsupported" falls through to the block-by-block path.
 			return nil, 0, rangeErr
 		}
 	}
 	// Fall back to block-by-block querying for backends that don't support range queries
 
 	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
-	blocks, end, applyOpenEndedLogLimit, err := f.fetchBlocksByCrit(ctx, crit, lastToHeight, bloomIndexes)
+	blocks, end, err := f.fetchBlocksByCrit(ctx, crit, lastToHeight, bloomIndexes)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -828,6 +836,12 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	sortedBatches := make([][]*ethtypes.Log, 0)
 	var wg sync.WaitGroup
 	var submitError error
+	// collected tracks matched logs across workers so the fan-out can stop
+	// queueing batches once the cap is exceeded.
+	var collected int64
+	capExceeded := func() bool {
+		return limit > 0 && atomic.LoadInt64(&collected) > limit
+	}
 
 	processBatch := func(batch []*coretypes.ResultBlock) {
 		defer wg.Done()
@@ -835,7 +849,14 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		localLogs := f.globalLogSlicePool.Get()
 
 		for _, block := range batch {
+			// Cooperative early-abort: once any worker has pushed the matched
+			// count past the cap, stop materializing further blocks.
+			if capExceeded() {
+				break
+			}
+			before := len(localLogs)
 			f.GetLogsForBlockPooled(block, crit, &localLogs)
+			atomic.AddInt64(&collected, int64(len(localLogs)-before))
 		}
 
 		// Sort the local batch
@@ -855,6 +876,11 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Batch process with fail-fast
 	blockBatch := make([]*coretypes.ResultBlock, 0, evmrpcconfig.WorkerBatchSize)
 	for block := range blocks {
+		// Stop queueing once the cap is exceeded; in-flight batches finish and
+		// the overflow is reported after wg.Wait.
+		if capExceeded() {
+			break
+		}
 		blockBatch = append(blockBatch, block)
 
 		if len(blockBatch) >= evmrpcconfig.WorkerBatchSize {
@@ -874,8 +900,8 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		return nil, 0, submitError
 	}
 
-	// Process remaining blocks
-	if len(blockBatch) > 0 {
+	// Process remaining blocks, unless the cap is already exceeded
+	if len(blockBatch) > 0 && !capExceeded() {
 		wg.Add(1)
 		if err := runner.SubmitWithMetrics(func() { processBatch(blockBatch) }); err != nil {
 			wg.Done()
@@ -893,13 +919,15 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		}
 	}()
 
-	// Push the cap into the merge so it stops popping once the limit is reached,
-	// bounding the merged result allocation to O(maxLog) instead of O(total
-	// matching logs). A limit of 0 means no cap.
-	var limit int64
-	if applyOpenEndedLogLimit {
-		limit = f.filterConfig.maxLog
+	// Drain the blocks channel so its producer goroutines are not left blocked
+	// on a full buffer when we broke out of the loop above on overflow.
+	for range blocks {
 	}
+
+	if limit > 0 && collected > limit {
+		return nil, 0, receipt.NewTooManyLogsError(limit)
+	}
+
 	res = f.mergeSortedLogs(sortedBatches, limit)
 
 	// Ensure we never return nil, always return an array (even if empty)
@@ -974,7 +1002,9 @@ func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
 
 // tryFilterLogsRange attempts to use the efficient range query if supported by the backend.
 // Returns ErrRangeQueryNotSupported if the backend doesn't support range queries.
-func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+// When limit > 0 the backend aborts with receipt.ErrTooManyLogs once more than
+// limit logs match, bounding peak memory; limit <= 0 means no cap.
+func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, limit int64) ([]*ethtypes.Log, error) {
 	store := f.k.ReceiptStore()
 	if store == nil {
 		return nil, receipt.ErrRangeQueryNotSupported
@@ -984,7 +1014,7 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 	// #nosec G115 -- toBlock is a block height which fits in int64
 	sdkCtx := f.ctxProvider(int64(toBlock))
 
-	logs, err := store.FilterLogs(sdkCtx, fromBlock, toBlock, crit)
+	logs, err := store.FilterLogs(sdkCtx, fromBlock, toBlock, crit, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1170,7 +1200,7 @@ func MatchesCriteria(log *ethtypes.Log, crit filters.FilterCriteria) bool {
 }
 
 // Optimized fetchBlocksByCrit with batch processing
-func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]BloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
+func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]BloomIndexes) (chan *coretypes.ResultBlock, int64, error) {
 	if crit.BlockHash != nil {
 		// Check for invalid zero hash
 		zeroHash := common.Hash{}
@@ -1178,7 +1208,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			// For invalid hash, return empty channel instead of error
 			res := make(chan *coretypes.ResultBlock)
 			close(res)
-			return res, 0, false, nil
+			return res, 0, nil
 		}
 
 		block, err := blockByHashRespectingWatermarks(ctx, f.tmClient, f.watermarks, crit.BlockHash[:], 1)
@@ -1186,18 +1216,22 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			// For non-existent blocks, return empty channel instead of error
 			res := make(chan *coretypes.ResultBlock)
 			close(res)
-			return res, 0, false, nil
+			return res, 0, nil
 		}
 		res := make(chan *coretypes.ResultBlock, 1)
 		res <- block
 		close(res)
-		return res, 0, false, nil
+		return res, 0, nil
 	}
 
-	applyOpenEndedLogLimit := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
+	// Open-ended queries (missing fromBlock or toBlock) have their block range
+	// windowed down to the most recent maxBlock blocks rather than erroring; a
+	// bounded query whose range is too large still errors. The matched-log cap
+	// (maxLog) is enforced separately by the caller.
+	applyOpenEndedBlockWindow := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
 	latest, err := f.watermarks.LatestHeight(ctx)
 	if err != nil {
-		return nil, 0, false, err
+		return nil, 0, err
 	}
 	earliest, err := f.watermarks.EarliestHeight(ctx)
 	if err != nil {
@@ -1205,22 +1239,22 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	}
 	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
 	if err != nil {
-		return nil, 0, false, err
+		return nil, 0, err
 	}
 
 	blockRange := end - begin + 1
-	if applyOpenEndedLogLimit && blockRange > f.filterConfig.maxBlock {
+	if applyOpenEndedBlockWindow && blockRange > f.filterConfig.maxBlock {
 		begin = end - f.filterConfig.maxBlock + 1
 		if begin < earliest {
 			begin = earliest
 		}
-	} else if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && blockRange > f.filterConfig.maxBlock {
+	} else if !applyOpenEndedBlockWindow && f.filterConfig.maxBlock > 0 && blockRange > f.filterConfig.maxBlock {
 		// Use consistent error message format
-		return nil, 0, false, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
+		return nil, 0, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
 	}
 
 	if begin > end {
-		return nil, 0, false, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
+		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
 	}
 
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
@@ -1243,7 +1277,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			}
 		}(batchStart, batchEnd)); err != nil {
 			wg.Done()
-			return nil, 0, false, fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
+			return nil, 0, fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 		}
 	}
 
@@ -1262,10 +1296,10 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	}
 
 	if firstErr != nil {
-		return nil, 0, false, firstErr
+		return nil, 0, firstErr
 	}
 
-	return res, end, applyOpenEndedLogLimit, nil
+	return res, end, nil
 }
 
 // Batch processing function for blocks

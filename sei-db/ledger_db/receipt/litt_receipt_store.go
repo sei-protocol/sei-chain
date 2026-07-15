@@ -337,11 +337,11 @@ func (s *littReceiptStore) nextPartIndex(blockNumber uint64) (uint32, error) {
 
 // FilterLogs answers eth_getLogs via the tag index. Both bounds inclusive; for
 // a single block set fromBlock == toBlock.
-func (s *littReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, limit int64) ([]*ethtypes.Log, error) {
 	if fromBlock > toBlock {
 		return nil, fmt.Errorf("fromBlock (%d) > toBlock (%d)", fromBlock, toBlock)
 	}
-	return s.filterLogsByTags(fromBlock, toBlock, crit)
+	return s.filterLogsByTags(fromBlock, toBlock, crit, limit)
 }
 
 // startFlusher bounds litt durability lag to littFlushInterval from a
