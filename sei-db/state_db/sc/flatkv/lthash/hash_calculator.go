@@ -102,7 +102,7 @@ func (c *HashCalculator) ReadOldValues(
 		dir  string
 		keys map[string]struct{}
 	}
-	var jobs []job
+	jobs := make([]job, 0, len(keysByDB))
 	for dir, keySet := range keysByDB {
 		if len(keySet) == 0 {
 			continue
