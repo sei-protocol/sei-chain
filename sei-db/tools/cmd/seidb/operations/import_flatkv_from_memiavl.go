@@ -33,15 +33,30 @@ const translatorBatchSize = 2048
 
 // ImportFlatKVFromMemiavlCmd imports selected memiavl modules into FlatKV.
 //
-// Initial production scope is intentionally narrow: only the evm module is
+// This is an offline test-seeding and pre-migration recovery utility. Typical
+// uses are constructing FlatKV fixtures from an existing memiavl-only data
+// directory, testing memiavl-to-FlatKV encoding, or rebuilding FlatKV from a
+// pre-migration memiavl backup without replaying from genesis. It is not the
+// production MigrationManager path and does not perform state sync or write
+// migration metadata.
+//
+// The supported scope is intentionally narrow: only the evm module is
 // accepted. Non-EVM modules remain in memiavl and are not copied into FlatKV.
 // Importing resets FlatKV and replaces it with the selected memiavl data; the
-// CLI refuses to run over existing FlatKV data unless --force is supplied.
+// CLI refuses to run over existing FlatKV data unless --force is supplied. The
+// source node must be stopped; the command holds memiavl's writer lock for the
+// full import and fails if a live node already owns it.
 func ImportFlatKVFromMemiavlCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import-flatkv-from-memiavl",
 		Short: "Import selected memiavl modules into FlatKV",
 		Long: strings.TrimSpace(`Import selected memiavl modules into FlatKV.
+
+This is an offline test-seeding and pre-migration recovery tool, not the
+production migration or state-sync path. Use it to construct FlatKV test data
+from a memiavl-only store or to rebuild FlatKV from a pre-migration backup.
+It does not write migration metadata. Stop seid before running it; the import
+fails if the memiavl database is locked by a running node.
 
 WARNING: this restore-style import resets the FlatKV directory before loading
 the imported rows. If FlatKV already has committed data, the command refuses to
@@ -152,6 +167,24 @@ func emitPairs(importer sctypes.Importer, pairs []flatkv.PhysicalKVPair, height 
 
 func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules []string, height int64, force bool) (err error) {
 	cosmosDir := utils.GetCosmosSCStorePath(homeDir)
+	if height > math.MaxUint32 {
+		return fmt.Errorf("height %d out of range", height)
+	}
+
+	// Exclude a live memiavl writer for the entire check-and-import sequence.
+	// Without this lock, the node could commit after memiavlLatest is checked
+	// but before FlatKV is finalized, leaving the stores at different heights
+	// and causing reconciliation to roll memiavl back on the next startup.
+	memLock, err := memiavl.LockFile(filepath.Join(cosmosDir, memiavl.LockFileName))
+	if err != nil {
+		return fmt.Errorf("failed to lock memiavl database for FlatKV import (is seid still running?): %w", err)
+	}
+	defer func() {
+		if unlockErr := memLock.Unlock(); unlockErr != nil && err == nil {
+			err = fmt.Errorf("failed to unlock memiavl database after FlatKV import: %w", unlockErr)
+		}
+	}()
+
 	memiavlLatest, err := memiavl.GetLatestVersion(cosmosDir)
 	if err != nil {
 		return fmt.Errorf("failed to resolve latest memiavl version from %s: %w", cosmosDir, err)
@@ -161,9 +194,6 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 	}
 	if height <= 0 {
 		return fmt.Errorf("height must be positive after resolution, got %d", height)
-	}
-	if height > math.MaxUint32 {
-		return fmt.Errorf("height %d out of range", height)
 	}
 	// Refuse mismatched heights. If we wrote FlatKV at H < memiavlLatest,
 	// the next GIGA_STORAGE startup would call

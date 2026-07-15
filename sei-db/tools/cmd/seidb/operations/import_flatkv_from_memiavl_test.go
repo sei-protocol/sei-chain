@@ -82,6 +82,37 @@ func TestImportMemiavlModulesToFlatKVEncodesEVMValues(t *testing.T) {
 	require.Equal(t, legacyValue, gotLegacy)
 }
 
+func TestImportMemiavlModulesToFlatKVRefusesLiveWriter(t *testing.T) {
+	homeDir := t.TempDir()
+	addr := addrN(0x42)
+
+	memStore := newTestMemiavlStore(t, homeDir)
+	require.NoError(t, memStore.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			noncePair(addr, 7),
+		}},
+	}}))
+	_, err := memStore.Commit()
+	require.NoError(t, err)
+
+	err = importMemiavlModulesToFlatKV(
+		context.Background(), homeDir, []string{keys.EVMStoreKey}, 0, false,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to lock memiavl database for FlatKV import")
+
+	// Lock contention must be detected before FlatKV is opened or modified.
+	flatStore := newTestFlatKVStoreAtHome(t, homeDir)
+	require.Equal(t, int64(0), flatStore.Version())
+	require.NoError(t, flatStore.Close())
+
+	require.NoError(t, memStore.Close())
+	require.NoError(t, importMemiavlModulesToFlatKV(
+		context.Background(), homeDir, []string{keys.EVMStoreKey}, 0, false,
+	))
+}
+
 func TestImportMemiavlModulesToFlatKVRefusesExistingFlatKVWithoutForce(t *testing.T) {
 	homeDir := t.TempDir()
 	oldAddr := addrN(0x11)
