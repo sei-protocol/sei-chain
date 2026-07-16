@@ -57,6 +57,7 @@ type FallbackStateStore struct {
 	perKeyEarliest PerKeyEarliestVersioner
 	reader         Reader
 	cache          *lru.Cache[historicalReadCacheKey, historicalReadCacheValue]
+	metrics        *fallbackMetrics
 }
 
 var _ types.StateStore = (*FallbackStateStore)(nil)
@@ -68,7 +69,13 @@ func NewFallbackStateStore(primary types.StateStore, reader Reader) *FallbackSta
 		panic(err)
 	}
 	perKeyEarliest, _ := primary.(PerKeyEarliestVersioner)
-	return &FallbackStateStore{primary: primary, perKeyEarliest: perKeyEarliest, reader: reader, cache: cache}
+	return &FallbackStateStore{
+		primary:        primary,
+		perKeyEarliest: perKeyEarliest,
+		reader:         reader,
+		cache:          cache,
+		metrics:        newFallbackMetrics(),
+	}
 }
 
 func (s *FallbackStateStore) shouldFallback(storeKey string, version int64) bool {
@@ -93,6 +100,7 @@ func (s *FallbackStateStore) Get(storeKey string, version int64, key []byte) ([]
 	}
 	cacheKey := historicalReadCacheKey{storeKey: storeKey, version: version, key: string(key)}
 	if value, found, ok := s.getCachedValue(cacheKey); ok {
+		s.metrics.recordRead("get", fallbackOutcomeCacheHit)
 		if !found {
 			return nil, nil
 		}
@@ -103,11 +111,14 @@ func (s *FallbackStateStore) Get(storeKey string, version int64, key []byte) ([]
 	v, err := s.reader.Get(ctx, storeKey, key, version)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
+			s.metrics.recordRead("get", fallbackOutcomeBackendMiss)
 			s.cacheMiss(cacheKey)
 			return nil, nil
 		}
+		s.metrics.recordRead("get", fallbackOutcomeError)
 		return nil, err
 	}
+	s.metrics.recordRead("get", fallbackOutcomeBackendHit)
 	s.cacheValue(cacheKey, v.Bytes)
 	return v.Bytes, nil
 }
@@ -183,17 +194,21 @@ func (s *FallbackStateStore) Has(storeKey string, version int64, key []byte) (bo
 	}
 	cacheKey := historicalReadCacheKey{storeKey: storeKey, version: version, key: string(key)}
 	if found, ok := s.getCachedHas(cacheKey); ok {
+		s.metrics.recordRead("has", fallbackOutcomeCacheHit)
 		return found, nil
 	}
 	ctx, cancel := s.readContext()
 	defer cancel()
 	found, err := s.reader.Has(ctx, storeKey, key, version)
 	if err != nil {
+		s.metrics.recordRead("has", fallbackOutcomeError)
 		return false, err
 	}
 	if found {
+		s.metrics.recordRead("has", fallbackOutcomeBackendHit)
 		s.cacheHas(cacheKey)
 	} else {
+		s.metrics.recordRead("has", fallbackOutcomeBackendMiss)
 		s.cacheMiss(cacheKey)
 	}
 	return found, nil
