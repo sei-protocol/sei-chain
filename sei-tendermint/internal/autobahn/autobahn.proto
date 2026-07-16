@@ -119,6 +119,7 @@ message View {
   option (wireguard.sized) = true;
   optional uint64 index = 1; // required
   optional uint64 number = 2; // required
+  optional uint64 epoch_index = 3; // epoch this view belongs to; required
 }
 
 message Proposal {
@@ -130,6 +131,7 @@ message Proposal {
   optional Timestamp timestamp = 5; // required
   repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 100]; // Sorted by lane.
   optional AppProposal app = 4; // optional
+  optional uint64 global_first = 6; // required; first global block number of this proposal's global range
 }
 
 message FullProposal {
@@ -221,6 +223,8 @@ message AppProposal {
   optional uint64 road_index = 2; // required
   // App hash at that block.
   optional bytes app_hash = 3 [(wireguard.max_size) = 32]; // required
+  // Epoch this proposal belongs to.
+  optional uint64 epoch_index = 4; // required
 }
 
 // This is the signable message.

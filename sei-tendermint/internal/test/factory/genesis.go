@@ -13,6 +13,10 @@ func GenesisDoc(
 	validators []*types.Validator,
 	consensusParams *types.ConsensusParams,
 ) *types.GenesisDoc {
+	existing, err := types.GenesisDocFromFile(config.GenesisFile())
+	if err != nil {
+		panic(err)
+	}
 
 	genesisValidators := make([]types.GenesisValidator, len(validators))
 
@@ -26,7 +30,7 @@ func GenesisDoc(
 	return &types.GenesisDoc{
 		GenesisTime:     time,
 		InitialHeight:   1,
-		ChainID:         config.ChainID(),
+		ChainID:         existing.ChainID,
 		Validators:      genesisValidators,
 		ConsensusParams: consensusParams,
 	}

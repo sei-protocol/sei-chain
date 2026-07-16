@@ -25,7 +25,7 @@ func TestCheckTxSafeReturnsErrorOnPanic(t *testing.T) {
 		checkTx: func(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
 			panic("boom")
 		},
-	}, NopMetrics())
+	})
 	_, err := proxyApp.CheckTxSafe(t.Context(), &types.RequestCheckTxV2{Tx: []byte("tx")})
 	require.Error(t, err)
 }
@@ -47,7 +47,7 @@ func TestCheckTxSafeReturnsErrorOnMissingEVMHash(t *testing.T) {
 			res.EVMHash = common.Hash{}
 			return res
 		},
-	}, NopMetrics())
+	})
 	_, err := proxyApp.CheckTxSafe(t.Context(), &types.RequestCheckTxV2{Tx: []byte("tx")})
 	require.Error(t, err)
 }
@@ -59,7 +59,7 @@ func TestCheckTxSafeReturnsErrorOnMissingSeiSenderAddress(t *testing.T) {
 			res.SeiSenderAddress = nil
 			return res
 		},
-	}, NopMetrics())
+	})
 	_, err := proxyApp.CheckTxSafe(t.Context(), &types.RequestCheckTxV2{Tx: []byte("tx")})
 	require.Error(t, err)
 }
@@ -69,7 +69,7 @@ func TestCheckTxSafeAllowsValidEVMResponse(t *testing.T) {
 		checkTx: func(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
 			return validEVMResponse()
 		},
-	}, NopMetrics())
+	})
 	_, err := proxyApp.CheckTxSafe(t.Context(), &types.RequestCheckTxV2{Tx: []byte("tx")})
 	require.NoError(t, err)
 }
