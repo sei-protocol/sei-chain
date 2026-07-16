@@ -215,7 +215,7 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 	}
 
 	for _, cs := range changeSets {
-		if len(cs.Changeset.Pairs) == 0 {
+		if cs == nil || len(cs.Changeset.Pairs) == 0 {
 			continue
 		}
 
@@ -241,6 +241,16 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 				}
 			}
 		} else {
+			// An empty module name would fold into "/"+key here and later
+			// persist as the per-module meta key "_meta/x:/hash", which
+			// ParseModuleLtHashKey rejects on reload — a store that ever
+			// commits one becomes permanently unopenable (sum-to-root check
+			// fails forever). Reject it up front instead; module names are
+			// never empty in normal operation (Cosmos SDK's NewKVStoreKey
+			// panics on an empty name), so this only guards malformed input.
+			if cs.Name == "" {
+				return nil, fmt.Errorf("flatkv: empty module name in changeset")
+			}
 			miscMap := getOrCreate(keys.EVMKeyMisc, len(cs.Changeset.Pairs))
 			for _, pair := range cs.Changeset.Pairs {
 				physKey := string(ktype.ModulePhysicalKey(cs.Name, pair.Key))

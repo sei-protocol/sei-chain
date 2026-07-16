@@ -201,6 +201,24 @@ func TestStoreEmptyChangesets(t *testing.T) {
 	require.Equal(t, int64(1), s.Version())
 }
 
+// TestStoreApplyRejectsEmptyModuleName guards against a non-EVM changeset with
+// an empty Name. An empty module folds into the physical key as "/"+key,
+// whose per-module meta key ("_meta/x:/hash") ParseModuleLtHashKey rejects on
+// reload — silently accepting it here would make the store permanently
+// unopenable rather than failing fast at Apply time.
+func TestStoreApplyRejectsEmptyModuleName(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	cs := &proto.NamedChangeSet{
+		Name:      "",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}}},
+	}
+
+	err := s.ApplyChangeSets([]*proto.NamedChangeSet{cs})
+	require.ErrorContains(t, err, "empty module name")
+}
+
 func TestStoreClearsPendingAfterCommit(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
