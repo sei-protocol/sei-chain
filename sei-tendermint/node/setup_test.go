@@ -101,10 +101,10 @@ func TestBuildGigaConfig_NonePersistentStateDir(t *testing.T) {
 func TestBuildGigaConfig_BlockDBOverrides(t *testing.T) {
 	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
 	fc := defaultFileConfig(t, []config.AutobahnValidator{v1})
-	fc.BlockDB = utils.Some(config.AutobahnBlockDBConfig{
+	fc.BlockDB = config.AutobahnBlockDBConfig{
 		Retention: utils.Some(utils.Duration(30 * time.Second)),
 		GCPeriod:  utils.Some(utils.Duration(5 * time.Second)),
-	})
+	}
 	cfgFile := writeAutobahnConfig(t, fc)
 	nodeKey := makeTestNodeKey([]byte("node-seed"))
 	valKey := makeTestValidatorKey([]byte("val-seed"))

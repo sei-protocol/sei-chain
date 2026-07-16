@@ -426,13 +426,9 @@ func buildFullnodeGigaConfig(
 	}, nil
 }
 
-// mapBlockDBConfig converts optional Autobahn JSON BlockDB overrides into the
-// in-process GigaRouter form. None ⇒ zero BlockDBConfig (littblock defaults).
-func mapBlockDBConfig(o utils.Option[config.AutobahnBlockDBConfig]) p2p.BlockDBConfig {
-	fc, ok := o.Get()
-	if !ok {
-		return p2p.BlockDBConfig{}
-	}
+// mapBlockDBConfig converts Autobahn JSON BlockDB overrides into the
+// in-process GigaRouter form. Zero value ⇒ littblock defaults.
+func mapBlockDBConfig(fc config.AutobahnBlockDBConfig) p2p.BlockDBConfig {
 	return p2p.BlockDBConfig{
 		Retention: utils.MapOpt(fc.Retention, func(d utils.Duration) time.Duration { return d.Duration() }),
 		GCPeriod:  utils.MapOpt(fc.GCPeriod, func(d utils.Duration) time.Duration { return d.Duration() }),

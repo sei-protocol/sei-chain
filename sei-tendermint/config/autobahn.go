@@ -70,10 +70,10 @@ type AutobahnFileConfig struct {
 	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers"`
 	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig
-	// when PersistentStateDir is set. Absent ⇒ littblock.DefaultConfig unchanged
+	// when PersistentStateDir is set. Zero value ⇒ littblock.DefaultConfig unchanged
 	// (see AutobahnBlockDBConfig for field semantics). Ignored when
-	// PersistentStateDir is absent (memblock).
-	BlockDB utils.Option[AutobahnBlockDBConfig] `json:"block_db"`
+	// PersistentStateDir is absent (memblock). Omitted from JSON when empty.
+	BlockDB AutobahnBlockDBConfig `json:"block_db,omitzero"`
 }
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when
@@ -105,10 +105,8 @@ func (fc *AutobahnFileConfig) Validate() error {
 	if fc.DialInterval <= 0 {
 		return errors.New("dial_interval must be > 0")
 	}
-	if bdb, ok := fc.BlockDB.Get(); ok {
-		if err := bdb.Validate(); err != nil {
-			return fmt.Errorf("block_db: %w", err)
-		}
+	if err := fc.BlockDB.Validate(); err != nil {
+		return fmt.Errorf("block_db: %w", err)
 	}
 	return nil
 }

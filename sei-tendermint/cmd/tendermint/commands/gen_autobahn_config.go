@@ -127,31 +127,25 @@ Output is written to the file specified by --output.`,
 }
 
 // buildGenBlockDBConfig builds optional block_db overrides from gen-autobahn-config flags.
-// Empty duration strings leave BlockDB as None.
-func buildGenBlockDBConfig(retention, gcPeriod string) (utils.Option[config.AutobahnBlockDBConfig], error) {
+// Empty duration strings leave BlockDB as the zero value (omitted from JSON).
+func buildGenBlockDBConfig(retention, gcPeriod string) (config.AutobahnBlockDBConfig, error) {
 	var bdb config.AutobahnBlockDBConfig
-	set := false
 	if retention != "" {
 		d, err := time.ParseDuration(retention)
 		if err != nil {
-			return utils.None[config.AutobahnBlockDBConfig](), fmt.Errorf("--blockdb-retention: %w", err)
+			return config.AutobahnBlockDBConfig{}, fmt.Errorf("--blockdb-retention: %w", err)
 		}
 		bdb.Retention = utils.Some(utils.Duration(d))
-		set = true
 	}
 	if gcPeriod != "" {
 		d, err := time.ParseDuration(gcPeriod)
 		if err != nil {
-			return utils.None[config.AutobahnBlockDBConfig](), fmt.Errorf("--blockdb-gc-period: %w", err)
+			return config.AutobahnBlockDBConfig{}, fmt.Errorf("--blockdb-gc-period: %w", err)
 		}
 		bdb.GCPeriod = utils.Some(utils.Duration(d))
-		set = true
-	}
-	if !set {
-		return utils.None[config.AutobahnBlockDBConfig](), nil
 	}
 	if err := bdb.Validate(); err != nil {
-		return utils.None[config.AutobahnBlockDBConfig](), fmt.Errorf("block_db: %w", err)
+		return config.AutobahnBlockDBConfig{}, fmt.Errorf("block_db: %w", err)
 	}
-	return utils.Some(bdb), nil
+	return bdb, nil
 }
