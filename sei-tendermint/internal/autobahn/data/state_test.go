@@ -496,8 +496,8 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 }
 
 // TestPruningKeepsLastQCRange verifies that pruning never removes the last
-// retained block, and that a restart from a BlockDB with only that block
-// recovers correctly.
+// retained block, and that a restart from a BlockDB with a consistent QC+block
+// range recovers from the QC start (littblock retains straddling ranges intact).
 func TestPruningKeepsLastQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -523,26 +523,33 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 		require.ErrorIs(t, err, ErrPruned)
 	}
 
-	// Restart: build a fresh BlockDB containing only the surviving block (as GC
-	// would leave it) and verify NewState correctly sets first = survivingBlock.
+	// Incomplete store (QC covers a range but only the survivor block is present)
+	// must fail NewState — we do not normalize partial QC prefixes.
+	dirBad := t.TempDir()
+	dbBad := newTestBlockDB(t, dirBad)
+	require.NoError(t, dbBad.WriteQC(gr1.First, gr1.Next, qc1))
+	require.NoError(t, dbBad.WriteBlock(survivingBlock, blocks1[survivingBlock-gr1.First]))
+	require.NoError(t, dbBad.Flush())
+	require.NoError(t, dbBad.Close())
+	_, err := NewState(&Config{Registry: registry}, newTestBlockDB(t, dirBad))
+	require.Error(t, err)
+
+	// Consistent post-GC shape: full QC range of blocks. Restart recovers at QC start.
 	dir := t.TempDir()
 	db := newTestBlockDB(t, dir)
-	require.NoError(t, db.WriteQC(gr1.First, gr1.Next, qc1))
-	require.NoError(t, db.WriteBlock(survivingBlock, blocks1[survivingBlock-gr1.First]))
-	require.NoError(t, db.Flush())
+	writeToBlockDB(t, db, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
 	require.NoError(t, db.Close())
 
 	db2 := newTestBlockDB(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 	for inner := range state2.inner.Lock() {
-		require.Equal(t, survivingBlock, inner.first,
-			"after restart, first should match the surviving block")
+		require.Equal(t, gr1.First, inner.first)
 	}
 }
 
 // TestPruningWithPartialQCRange verifies per-block pruning across QC ranges:
-// pruning advances first in-memory, and a restart from a post-GC BlockDB
-// (with only the last surviving block) recovers correctly.
+// pruning advances first in-memory, and a restart from a consistent BlockDB
+// recovers from the retained QC start.
 func TestPruningWithPartialQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -583,20 +590,26 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 		require.ErrorIs(t, err, ErrPruned)
 	}
 
-	// Restart: build a fresh BlockDB containing only the surviving block from qc2
-	// (qc1 is pruned entirely) and verify NewState recovers correctly.
+	// Incomplete qc2 suffix alone must error.
+	dirBad := t.TempDir()
+	dbBad := newTestBlockDB(t, dirBad)
+	require.NoError(t, dbBad.WriteQC(gr2.First, gr2.Next, qc2))
+	require.NoError(t, dbBad.WriteBlock(survivingBlock, blocks2[survivingBlock-gr2.First]))
+	require.NoError(t, dbBad.Flush())
+	require.NoError(t, dbBad.Close())
+	_, err := NewState(&Config{Registry: registry}, newTestBlockDB(t, dirBad))
+	require.Error(t, err)
+
+	// Consistent retained range: full qc2.
 	dir := t.TempDir()
 	db := newTestBlockDB(t, dir)
-	require.NoError(t, db.WriteQC(gr2.First, gr2.Next, qc2))
-	require.NoError(t, db.WriteBlock(survivingBlock, blocks2[survivingBlock-gr2.First]))
-	require.NoError(t, db.Flush())
+	writeToBlockDB(t, db, []*types.FullCommitQC{qc2}, [][]*types.Block{blocks2})
 	require.NoError(t, db.Close())
 
 	db2 := newTestBlockDB(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 	for inner := range state2.inner.Lock() {
-		require.Equal(t, survivingBlock, inner.first,
-			"after restart, first should match the surviving block")
+		require.Equal(t, gr2.First, inner.first)
 	}
 }
 

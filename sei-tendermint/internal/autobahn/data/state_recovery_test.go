@@ -225,9 +225,9 @@ func TestRecoveryBlocksBehind(t *testing.T) {
 	require.Equal(t, gr2.Next, state2.NextBlock())
 }
 
-// TestRecoveryPartialQCPrefix verifies that when the QC spans a wider range
-// than the available blocks (the block prefix was pruned), recovery sets first
-// from the blocks iterator (not the QC iterator).
+// TestRecoveryPartialQCPrefix verifies that a QC covering a wider range than
+// the available blocks (block prefix missing) is rejected — we do not normalize
+// by advancing first to the first present block.
 func TestRecoveryPartialQCPrefix(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -240,9 +240,6 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 	}
 
 	// Write the QC for the full range, but write blocks only from mid onwards.
-	// This is a valid write sequence: QC first, then blocks in ascending order
-	// starting from mid. It simulates a DB where the block prefix [gr1.First, mid)
-	// was pruned and physically removed.
 	mid := gr1.First + (gr1.Next-gr1.First)/2
 	db1 := newTestBlockDB(t, dir)
 	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
@@ -255,31 +252,8 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 	require.NoError(t, db1.Flush())
 	require.NoError(t, db1.Close())
 
-	// Recovery should use blocks as golden: first == mid, not gr1.First.
-	db2 := newTestBlockDB(t, dir)
-	state2 := newTestState(t, &Config{Registry: registry}, db2)
-
-	for inner := range state2.inner.Lock() {
-		require.Equal(t, mid, inner.first,
-			"first should be where blocks start, not where QC starts")
-		require.Equal(t, gr1.Next, inner.nextQC,
-			"QC should still cover the full range")
-		// QC entries below first must be absent — they are unreachable via
-		// pruneFirst and should have been trimmed during recovery.
-		for n := gr1.First; n < mid; n++ {
-			_, ok := inner.qcs[n]
-			require.False(t, ok, "orphaned QC entry at %d should have been trimmed", n)
-		}
-	}
-	for n := gr1.First; n < mid; n++ {
-		_, err := state2.TryBlock(n)
-		require.ErrorIs(t, err, ErrPruned)
-	}
-	for n := mid; n < gr1.Next; n++ {
-		got, err := state2.TryBlock(n)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-	}
+	_, err := NewState(&Config{Registry: registry}, newTestBlockDB(t, dir))
+	require.Error(t, err)
 }
 
 // TestRecoveryAfterPruneNoGC verifies that restarting before async GC reclaims

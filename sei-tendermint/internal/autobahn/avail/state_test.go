@@ -93,7 +93,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 	committee := registry.LatestEpoch().Committee()
 
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		ds := newTestDataState(t, &data.Config{Registry: registry})
+		ds := newTestDataState(&data.Config{Registry: registry})
 		s.SpawnBgNamed("data.State.Run()", func() error {
 			return utils.IgnoreCancel(ds.Run(ctx))
 		})
@@ -223,7 +223,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 	var wantNextBlocks map[types.LaneID]types.BlockNumber
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		ds := newTestDataState(t, &data.Config{Registry: registry})
+		ds := newTestDataState(&data.Config{Registry: registry})
 		s.SpawnBgNamed("data.Run", func() error {
 			return utils.IgnoreCancel(ds.Run(ctx))
 		})
@@ -298,7 +298,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 	}))
 
 	// Phase 2: Restart from the same directory.
-	ds2 := newTestDataState(t, &data.Config{Registry: registry})
+	ds2 := newTestDataState(&data.Config{Registry: registry})
 	state2, err := NewState(keys[0], ds2, utils.Some(dir))
 	require.NoError(t, err)
 
@@ -323,7 +323,7 @@ func TestStateMismatchedQCs(t *testing.T) {
 	committee := registry.LatestEpoch().Committee()
 	initialBlock := registry.FirstBlock()
 
-	ds := newTestDataState(t, &data.Config{Registry: registry})
+	ds := newTestDataState(&data.Config{Registry: registry})
 	state, err := NewState(keys[0], ds, utils.Some(t.TempDir()))
 	require.NoError(t, err)
 
@@ -378,7 +378,7 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	ds := newTestDataState(t, &data.Config{Registry: registry})
+	ds := newTestDataState(&data.Config{Registry: registry})
 	state := utils.OrPanic1(NewState(keys[0], ds, utils.Some(t.TempDir())))
 
 	// Produce a valid first block on our lane.
@@ -401,7 +401,7 @@ func TestPushBlockRejectsWrongSigner(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	ds := newTestDataState(t, &data.Config{Registry: registry})
+	ds := newTestDataState(&data.Config{Registry: registry})
 	state := utils.OrPanic1(NewState(keys[0], ds, utils.Some(t.TempDir())))
 
 	// Create a block on keys[0]'s lane but sign it with keys[1].
@@ -420,7 +420,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 	t.Run("empty dir loads fresh state", func(t *testing.T) {
 		dir := t.TempDir()
-		ds := newTestDataState(t, &data.Config{Registry: registry})
+		ds := newTestDataState(&data.Config{Registry: registry})
 
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
@@ -433,7 +433,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 	t.Run("loads persisted AppQC", func(t *testing.T) {
 		dir := t.TempDir()
-		ds := newTestDataState(t, &data.Config{Registry: registry})
+		ds := newTestDataState(&data.Config{Registry: registry})
 
 		roadIdx := types.RoadIndex(7)
 		globalNum := types.GlobalBlockNumber(50)
@@ -474,7 +474,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 	t.Run("loads persisted blocks", func(t *testing.T) {
 		dir := t.TempDir()
-		ds := newTestDataState(t, &data.Config{Registry: registry})
+		ds := newTestDataState(&data.Config{Registry: registry})
 		lane := keys[0].Public()
 
 		// Persist blocks using BlockPersister.
@@ -498,7 +498,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 	t.Run("loads persisted AppQC and blocks together", func(t *testing.T) {
 		dir := t.TempDir()
-		ds := newTestDataState(t, &data.Config{Registry: registry})
+		ds := newTestDataState(&data.Config{Registry: registry})
 		lane := keys[0].Public()
 
 		roadIdx := types.RoadIndex(2)
@@ -551,7 +551,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 	t.Run("loads persisted commitQCs", func(t *testing.T) {
 		dir := t.TempDir()
-		ds := newTestDataState(t, &data.Config{Registry: registry})
+		ds := newTestDataState(&data.Config{Registry: registry})
 
 		// Persist CommitQCs to disk.
 		cp, _, err := persist.NewCommitQCPersister(utils.Some(dir))
@@ -576,7 +576,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 	t.Run("loads persisted commitQCs with AppQC", func(t *testing.T) {
 		dir := t.TempDir()
-		ds := newTestDataState(t, &data.Config{Registry: registry})
+		ds := newTestDataState(&data.Config{Registry: registry})
 
 		// Persist AppQC at road index 1.
 		roadIdx := types.RoadIndex(1)
@@ -649,7 +649,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 	t.Run("anchor past all persisted commitQCs truncates WAL", func(t *testing.T) {
 		dir := t.TempDir()
-		ds := newTestDataState(t, &data.Config{Registry: registry})
+		ds := newTestDataState(&data.Config{Registry: registry})
 
 		// Build a chain of 10 CommitQCs (indices 0-9).
 		qcs := make([]*types.CommitQC, 10)
@@ -692,7 +692,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 	t.Run("anchor past all persisted blocks truncates lane WAL", func(t *testing.T) {
 		dir := t.TempDir()
-		ds := newTestDataState(t, &data.Config{Registry: registry})
+		ds := newTestDataState(&data.Config{Registry: registry})
 		lane := keys[0].Public()
 
 		// Persist commitQCs 0-9 and blocks 0-2 for one lane.
@@ -740,7 +740,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 	t.Run("corrupt AppQC data returns error", func(t *testing.T) {
 		dir := t.TempDir()
-		ds := newTestDataState(t, &data.Config{Registry: registry})
+		ds := newTestDataState(&data.Config{Registry: registry})
 
 		// Create a throwaway persister to discover the A/B filenames,
 		// then corrupt them so NewState fails on load.

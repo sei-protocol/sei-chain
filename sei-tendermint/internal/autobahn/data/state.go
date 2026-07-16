@@ -42,8 +42,8 @@ var _ StateAPI = (*State)(nil)
 
 // blockEntry is a (number, block) pair collected in runPersist batches.
 type blockEntry struct {
-	n   types.GlobalBlockNumber
-	blk *types.Block
+	n     types.GlobalBlockNumber
+	block *types.Block
 }
 
 type appProposalWithTimestamp struct {
@@ -138,17 +138,14 @@ func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error
 // allows batch insertion (e.g. PushQC inserts multiple blocks, then
 // advances nextBlock once).
 func (i *inner) insertBlock(committee *types.Committee, n types.GlobalBlockNumber, block *types.Block) error {
-	if n < i.first || n >= i.nextQC {
-		return nil // outside QC range
-	}
-	if _, ok := i.blocks[n]; ok {
-		return nil // already have it
-	}
-	qc := i.qcs[n]
-	if qc == nil {
-		// Evicted after execution; nothing to insert.
+	// Contiguous prefix is done or evicted; only [nextBlock, nextQC) inserts.
+	if n < i.nextBlock || n >= i.nextQC {
 		return nil
 	}
+	if _, ok := i.blocks[n]; ok {
+		return nil // already have it (gap fill)
+	}
+	qc := i.qcs[n]
 	storedGR := qc.QC().GlobalRange()
 	want := qc.Headers()[n-storedGR.First].Hash()
 	got := block.Header().Hash()
@@ -221,18 +218,15 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // Called from NewState before any goroutines are spawned; the lock is acquired
 // only to satisfy the Watch API.
 //
-// TODO: push the gap / QC-coverage / genesis-bound checks below down into the
-// BlockDB implementation so replay can trust the iterator view rather than
-// re-validating store invariants here (see also Cody's offer to enforce them
-// in littblock).
+// Inconsistencies (gaps, block without QC, first-block/QC mismatch, etc.) are
+// returned as errors rather than normalized — BlockDB is expected to present a
+// consistent iterator view (see littblock watermark / stranding rules).
 func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 	for in := range s.inner.Lock() {
 		// Restore QCs from BlockDB. On the first QC, skipTo its GlobalRange.First
-		// to advance past any pruned prefix (a straddling QC starts before the
-		// prune boundary). Subsequent QCs must be consecutive — insertQC errors
-		// on any gap.
-		var err error
-		err = func() error {
+		// to advance past any pruned prefix. Subsequent QCs must be consecutive —
+		// insertQC errors on any gap.
+		err := func() error {
 			it, err := blockDB.QCs(false)
 			if err != nil {
 				return fmt.Errorf("open QC iterator: %w", err)
@@ -263,10 +257,8 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 			return err
 		}
 
-		// Restore blocks from BlockDB. The first retained block drives inner.first —
-		// a straddling QC may start before the prune boundary, so QC data alone
-		// cannot determine where blocks begin. insertBlock's n >= nextQC guard
-		// enforces the no-block-without-QC invariant.
+		// Restore blocks from BlockDB. First block must align with first QC start
+		// (set by the QC pass); a mismatch is corruption / incomplete store.
 		err = func() error {
 			it2, err := blockDB.Blocks(false)
 			if err != nil {
@@ -286,19 +278,9 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 				// No blocks loaded yet (insertBlock does not advance nextBlock
 				// until after this loop). Mirrors the QC pass's first==nextQC check.
 				if len(in.blocks) == 0 {
-					if n < in.first {
-						return fmt.Errorf("block %d in BlockDB predates first QC start %d", n, in.first)
+					if n != in.first {
+						return fmt.Errorf("BlockDB inconsistent: first block %d != first QC start %d", n, in.first)
 					}
-					// Drop QC entries below the first retained block (straddling-QC
-					// case: QC started before the prune boundary so the QC pass
-					// populated in.qcs for [qcFirst, n); those entries are unreachable
-					// via pruneFirst which starts at first=n).
-					for k := in.first; k < n; k++ {
-						delete(in.qcs, k)
-					}
-					in.first = n
-					in.nextBlock = n
-					in.nextAppProposal = n
 					nextExpect = n
 				}
 				// updateNextBlock only advances nextBlock through contiguous present
@@ -740,7 +722,8 @@ func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n type
 
 // PruneBefore removes blocks, QCs, and AppProposals before retainFrom.
 // Blocks at retainFrom and above are kept. Per-block pruning may split
-// a QC range; this is handled on recovery (NewState skips partial QC prefixes).
+// a QC range in memory; BlockDB retains straddling QCs with their full
+// block ranges so restart sees a consistent first-block/QC start.
 func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 	pruningTime := time.Now()
 	for inner, ctrl := range s.inner.Lock() {
@@ -829,7 +812,7 @@ func (s *State) runPersist(ctx context.Context) error {
 				}
 				// Collect blocks for [persistedBlock, nextBlock).
 				for n := persistedBlock; n < inner.nextBlock; n++ {
-					b.blocks = append(b.blocks, blockEntry{n: n, blk: inner.blocks[n]})
+					b.blocks = append(b.blocks, blockEntry{n: n, block: inner.blocks[n]})
 				}
 			}
 		}
@@ -842,7 +825,7 @@ func (s *State) runPersist(ctx context.Context) error {
 				}
 			}
 			for _, lb := range b.blocks {
-				if err := s.blockDB.WriteBlock(lb.n, lb.blk); err != nil {
+				if err := s.blockDB.WriteBlock(lb.n, lb.block); err != nil {
 					return fmt.Errorf("write block %d: %w", lb.n, err)
 				}
 			}

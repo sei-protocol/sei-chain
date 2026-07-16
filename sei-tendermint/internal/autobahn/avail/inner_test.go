@@ -1,7 +1,6 @@
 package avail
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
@@ -14,13 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestDataState(t testing.TB, cfg *data.Config) *data.State {
-	t.Helper()
-	s, err := data.NewState(cfg, memblock.NewBlockDB())
-	if err != nil {
-		panic(fmt.Sprintf("data.NewState: %v", err))
-	}
-	return s
+func newTestDataState(cfg *data.Config) *data.State {
+	return utils.OrPanic1(data.NewState(cfg, memblock.NewBlockDB()))
 }
 
 func TestPruneMismatchedIndices(t *testing.T) {
@@ -47,7 +41,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	qc1 := makeCommitQC(utils.Some(qc0))
 
 	t.Logf("test State.PushAppQC")
-	ds := newTestDataState(t, &data.Config{Registry: registry})
+	ds := newTestDataState(&data.Config{Registry: registry})
 	state, err := NewState(keys[0], ds, utils.Some(t.TempDir()))
 	require.NoError(t, err)
 	require.Error(t, state.PushAppQC(makeAppQC(qc0, qc0), qc1), "bad range, bad index should fail")
@@ -56,7 +50,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	require.NoError(t, state.PushAppQC(makeAppQC(qc1, qc1), qc1), "good range, good index should succeed")
 
 	t.Logf("test inner.prune")
-	ds = newTestDataState(t, &data.Config{Registry: registry})
+	ds = newTestDataState(&data.Config{Registry: registry})
 	state, err = NewState(keys[0], ds, utils.Some(t.TempDir()))
 	require.NoError(t, err)
 	for inner := range state.inner.Lock() {
