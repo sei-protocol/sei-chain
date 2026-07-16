@@ -12,19 +12,25 @@ type stateMutationKey struct {
 	key       string
 }
 
+// compactRecords drops records without entries and collapses records that
+// share a changelog version (Kafka at-least-once redelivery) onto the latest
+// one, so sinks write each version's rows once and version markers carry the
+// newest offset. Order is preserved by the first occurrence of each version.
 func compactRecords(records []Record) []Record {
+	indexByVersion := make(map[int64]int, len(records))
+	out := make([]Record, 0, len(records))
 	for _, rec := range records {
 		if rec.Entry == nil {
-			out := make([]Record, 0, len(records))
-			for _, rec := range records {
-				if rec.Entry != nil {
-					out = append(out, rec)
-				}
-			}
-			return out
+			continue
 		}
+		if idx, ok := indexByVersion[rec.Entry.Version]; ok {
+			out[idx] = rec
+			continue
+		}
+		indexByVersion[rec.Entry.Version] = len(out)
+		out = append(out, rec)
 	}
-	return records
+	return out
 }
 
 func compactMutations(entry *proto.ChangelogEntry) []stateMutation {

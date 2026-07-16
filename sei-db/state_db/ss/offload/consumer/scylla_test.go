@@ -52,6 +52,22 @@ func TestCompactRecordsDropsNilEntries(t *testing.T) {
 	require.Equal(t, int64(2), records[1].Entry.Version)
 }
 
+func TestCompactRecordsCollapsesRedeliveredVersions(t *testing.T) {
+	records := compactRecords([]Record{
+		{Offset: 10, Entry: &proto.ChangelogEntry{Version: 1}},
+		{Offset: 11, Entry: &proto.ChangelogEntry{Version: 2}},
+		{Offset: 12, Entry: &proto.ChangelogEntry{Version: 1}},
+		{Offset: 13, Entry: &proto.ChangelogEntry{Version: 3}},
+	})
+	require.Len(t, records, 3)
+	// Version order is preserved; the redelivered version keeps its slot but
+	// carries the newest offset for the version marker.
+	require.Equal(t, int64(1), records[0].Entry.Version)
+	require.Equal(t, int64(12), records[0].Offset)
+	require.Equal(t, int64(2), records[1].Entry.Version)
+	require.Equal(t, int64(3), records[2].Entry.Version)
+}
+
 func TestScyllaCQLShape(t *testing.T) {
 	for _, frag := range []string{
 		"INSERT INTO state_mutations",
