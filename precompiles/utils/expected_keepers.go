@@ -11,23 +11,34 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
+	evidencetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	paramsproposal "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
+	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	ibctypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 type Keepers interface {
 	BankK() BankKeeper
 	BankMS() BankMsgServer
+	BankQ() BankQuerier
 	EVMK() EVMKeeper
 	AccountK() AccountKeeper
+	AuthQ() AuthQuerier
+	AuthzQ() AuthzQuerier
 	OracleK() OracleKeeper
 	WasmdK() WasmdKeeper
 	WasmdVK() WasmdViewKeeper
@@ -35,20 +46,32 @@ type Keepers interface {
 	StakingQ() StakingQuerier
 	GovK() GovKeeper
 	GovMS() GovMsgServer
+	GovQ() GovQuerier
 	DistributionK() DistributionKeeper
+	DistributionQ() DistributionQuerier
+	EvidenceQ() EvidenceQuerier
+	FeegrantQ() FeegrantQuerier
+	MintQ() MintQuerier
+	ParamsQ() ParamsQuerier
+	SlashingQ() SlashingQuerier
+	UpgradeQ() UpgradeQuerier
 	TransferK() TransferKeeper
 	ClientK() ClientKeeper
 	ConnectionK() ConnectionKeeper
 	ChannelK() ChannelKeeper
 	TxConfig() client.TxConfig
+	Codec() codec.Codec
 }
 
 type EmptyKeepers struct{}
 
 func (ek *EmptyKeepers) BankK() BankKeeper                 { return nil }
 func (ek *EmptyKeepers) BankMS() BankMsgServer             { return nil }
+func (ek *EmptyKeepers) BankQ() BankQuerier                { return nil }
 func (ek *EmptyKeepers) EVMK() EVMKeeper                   { return nil }
 func (ek *EmptyKeepers) AccountK() AccountKeeper           { return nil }
+func (ek *EmptyKeepers) AuthQ() AuthQuerier                { return nil }
+func (ek *EmptyKeepers) AuthzQ() AuthzQuerier              { return nil }
 func (ek *EmptyKeepers) OracleK() OracleKeeper             { return nil }
 func (ek *EmptyKeepers) WasmdK() WasmdKeeper               { return nil }
 func (ek *EmptyKeepers) WasmdVK() WasmdViewKeeper          { return nil }
@@ -56,12 +79,23 @@ func (ek *EmptyKeepers) StakingK() StakingKeeper           { return nil }
 func (ek *EmptyKeepers) StakingQ() StakingQuerier          { return nil }
 func (ek *EmptyKeepers) GovK() GovKeeper                   { return nil }
 func (ek *EmptyKeepers) GovMS() GovMsgServer               { return nil }
+func (ek *EmptyKeepers) GovQ() GovQuerier                  { return nil }
 func (ek *EmptyKeepers) DistributionK() DistributionKeeper { return nil }
-func (ek *EmptyKeepers) TransferK() TransferKeeper         { return nil }
-func (ek *EmptyKeepers) ClientK() ClientKeeper             { return nil }
-func (ek *EmptyKeepers) ConnectionK() ConnectionKeeper     { return nil }
-func (ek *EmptyKeepers) ChannelK() ChannelKeeper           { return nil }
-func (ek *EmptyKeepers) TxConfig() client.TxConfig         { return nil }
+func (ek *EmptyKeepers) DistributionQ() DistributionQuerier {
+	return nil
+}
+func (ek *EmptyKeepers) EvidenceQ() EvidenceQuerier    { return nil }
+func (ek *EmptyKeepers) FeegrantQ() FeegrantQuerier    { return nil }
+func (ek *EmptyKeepers) MintQ() MintQuerier            { return nil }
+func (ek *EmptyKeepers) ParamsQ() ParamsQuerier        { return nil }
+func (ek *EmptyKeepers) SlashingQ() SlashingQuerier    { return nil }
+func (ek *EmptyKeepers) UpgradeQ() UpgradeQuerier      { return nil }
+func (ek *EmptyKeepers) TransferK() TransferKeeper     { return nil }
+func (ek *EmptyKeepers) ClientK() ClientKeeper         { return nil }
+func (ek *EmptyKeepers) ConnectionK() ConnectionKeeper { return nil }
+func (ek *EmptyKeepers) ChannelK() ChannelKeeper       { return nil }
+func (ek *EmptyKeepers) TxConfig() client.TxConfig     { return nil }
+func (ek *EmptyKeepers) Codec() codec.Codec            { return nil }
 
 type BankKeeper interface {
 	SendCoins(sdk.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error
@@ -209,4 +243,80 @@ type ConnectionKeeper interface {
 
 type ChannelKeeper interface {
 	GetChannel(ctx sdk.Context, portID, channelID string) (types.Channel, bool)
+}
+
+type BankQuerier interface {
+	SpendableBalances(ctx context.Context, req *banktypes.QuerySpendableBalancesRequest) (*banktypes.QuerySpendableBalancesResponse, error)
+	TotalSupply(ctx context.Context, req *banktypes.QueryTotalSupplyRequest) (*banktypes.QueryTotalSupplyResponse, error)
+	Params(ctx context.Context, req *banktypes.QueryParamsRequest) (*banktypes.QueryParamsResponse, error)
+	DenomMetadata(c context.Context, req *banktypes.QueryDenomMetadataRequest) (*banktypes.QueryDenomMetadataResponse, error)
+	DenomsMetadata(c context.Context, req *banktypes.QueryDenomsMetadataRequest) (*banktypes.QueryDenomsMetadataResponse, error)
+}
+
+type AuthQuerier interface {
+	Accounts(c context.Context, req *authtypes.QueryAccountsRequest) (*authtypes.QueryAccountsResponse, error)
+	Account(c context.Context, req *authtypes.QueryAccountRequest) (*authtypes.QueryAccountResponse, error)
+	Params(c context.Context, req *authtypes.QueryParamsRequest) (*authtypes.QueryParamsResponse, error)
+	NextAccountNumber(c context.Context, req *authtypes.QueryNextAccountNumberRequest) (*authtypes.QueryNextAccountNumberResponse, error)
+}
+
+type AuthzQuerier interface {
+	Grants(c context.Context, req *authz.QueryGrantsRequest) (*authz.QueryGrantsResponse, error)
+	GranterGrants(c context.Context, req *authz.QueryGranterGrantsRequest) (*authz.QueryGranterGrantsResponse, error)
+	GranteeGrants(c context.Context, req *authz.QueryGranteeGrantsRequest) (*authz.QueryGranteeGrantsResponse, error)
+}
+
+type GovQuerier interface {
+	Proposal(c context.Context, req *govtypes.QueryProposalRequest) (*govtypes.QueryProposalResponse, error)
+	Proposals(c context.Context, req *govtypes.QueryProposalsRequest) (*govtypes.QueryProposalsResponse, error)
+	Vote(c context.Context, req *govtypes.QueryVoteRequest) (*govtypes.QueryVoteResponse, error)
+	Votes(c context.Context, req *govtypes.QueryVotesRequest) (*govtypes.QueryVotesResponse, error)
+	Params(c context.Context, req *govtypes.QueryParamsRequest) (*govtypes.QueryParamsResponse, error)
+	Deposit(c context.Context, req *govtypes.QueryDepositRequest) (*govtypes.QueryDepositResponse, error)
+	Deposits(c context.Context, req *govtypes.QueryDepositsRequest) (*govtypes.QueryDepositsResponse, error)
+	TallyResult(c context.Context, req *govtypes.QueryTallyResultRequest) (*govtypes.QueryTallyResultResponse, error)
+}
+
+type DistributionQuerier interface {
+	Params(c context.Context, req *distrtypes.QueryParamsRequest) (*distrtypes.QueryParamsResponse, error)
+	ValidatorOutstandingRewards(c context.Context, req *distrtypes.QueryValidatorOutstandingRewardsRequest) (*distrtypes.QueryValidatorOutstandingRewardsResponse, error)
+	ValidatorCommission(c context.Context, req *distrtypes.QueryValidatorCommissionRequest) (*distrtypes.QueryValidatorCommissionResponse, error)
+	ValidatorSlashes(c context.Context, req *distrtypes.QueryValidatorSlashesRequest) (*distrtypes.QueryValidatorSlashesResponse, error)
+	DelegationRewards(c context.Context, req *distrtypes.QueryDelegationRewardsRequest) (*distrtypes.QueryDelegationRewardsResponse, error)
+	DelegatorValidators(c context.Context, req *distrtypes.QueryDelegatorValidatorsRequest) (*distrtypes.QueryDelegatorValidatorsResponse, error)
+	DelegatorWithdrawAddress(c context.Context, req *distrtypes.QueryDelegatorWithdrawAddressRequest) (*distrtypes.QueryDelegatorWithdrawAddressResponse, error)
+	CommunityPool(c context.Context, req *distrtypes.QueryCommunityPoolRequest) (*distrtypes.QueryCommunityPoolResponse, error)
+}
+
+type EvidenceQuerier interface {
+	Evidence(c context.Context, req *evidencetypes.QueryEvidenceRequest) (*evidencetypes.QueryEvidenceResponse, error)
+	AllEvidence(c context.Context, req *evidencetypes.QueryAllEvidenceRequest) (*evidencetypes.QueryAllEvidenceResponse, error)
+}
+
+type FeegrantQuerier interface {
+	Allowance(c context.Context, req *feegrant.QueryAllowanceRequest) (*feegrant.QueryAllowanceResponse, error)
+	Allowances(c context.Context, req *feegrant.QueryAllowancesRequest) (*feegrant.QueryAllowancesResponse, error)
+	AllowancesByGranter(c context.Context, req *feegrant.QueryAllowancesByGranterRequest) (*feegrant.QueryAllowancesByGranterResponse, error)
+}
+
+type MintQuerier interface {
+	Params(c context.Context, req *minttypes.QueryParamsRequest) (*minttypes.QueryParamsResponse, error)
+	Minter(c context.Context, req *minttypes.QueryMinterRequest) (*minttypes.QueryMinterResponse, error)
+}
+
+type ParamsQuerier interface {
+	Params(c context.Context, req *paramsproposal.QueryParamsRequest) (*paramsproposal.QueryParamsResponse, error)
+}
+
+type SlashingQuerier interface {
+	Params(c context.Context, req *slashingtypes.QueryParamsRequest) (*slashingtypes.QueryParamsResponse, error)
+	SigningInfo(c context.Context, req *slashingtypes.QuerySigningInfoRequest) (*slashingtypes.QuerySigningInfoResponse, error)
+	SigningInfos(c context.Context, req *slashingtypes.QuerySigningInfosRequest) (*slashingtypes.QuerySigningInfosResponse, error)
+}
+
+type UpgradeQuerier interface {
+	CurrentPlan(c context.Context, req *upgradetypes.QueryCurrentPlanRequest) (*upgradetypes.QueryCurrentPlanResponse, error)
+	AppliedPlan(c context.Context, req *upgradetypes.QueryAppliedPlanRequest) (*upgradetypes.QueryAppliedPlanResponse, error)
+	UpgradedConsensusState(c context.Context, req *upgradetypes.QueryUpgradedConsensusStateRequest) (*upgradetypes.QueryUpgradedConsensusStateResponse, error)
+	ModuleVersions(c context.Context, req *upgradetypes.QueryModuleVersionsRequest) (*upgradetypes.QueryModuleVersionsResponse, error)
 }

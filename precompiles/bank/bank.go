@@ -13,20 +13,26 @@ import (
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 const (
-	SendMethod        = "send"
-	SendNativeMethod  = "sendNative"
-	BalanceMethod     = "balance"
-	AllBalancesMethod = "all_balances"
-	NameMethod        = "name"
-	SymbolMethod      = "symbol"
-	DecimalsMethod    = "decimals"
-	SupplyMethod      = "supply"
+	SendMethod              = "send"
+	SendNativeMethod        = "sendNative"
+	BalanceMethod           = "balance"
+	AllBalancesMethod       = "all_balances"
+	NameMethod              = "name"
+	SymbolMethod            = "symbol"
+	DecimalsMethod          = "decimals"
+	SupplyMethod            = "supply"
+	SpendableBalancesMethod = "spendableBalances"
+	TotalSupplyMethod       = "totalSupply"
+	ParamsMethod            = "params"
+	DenomMetadataMethod     = "denomMetadata"
+	DenomsMetadataMethod    = "denomsMetadata"
 )
 
 const (
@@ -42,22 +48,53 @@ type PrecompileExecutor struct {
 	accountKeeper putils.AccountKeeper
 	bankKeeper    putils.BankKeeper
 	bankMsgServer putils.BankMsgServer
+	bankQuerier   putils.BankQuerier
 	evmKeeper     putils.EVMKeeper
 	address       common.Address
 
-	SendID        []byte
-	SendNativeID  []byte
-	BalanceID     []byte
-	AllBalancesID []byte
-	NameID        []byte
-	SymbolID      []byte
-	DecimalsID    []byte
-	SupplyID      []byte
+	SendID              []byte
+	SendNativeID        []byte
+	BalanceID           []byte
+	AllBalancesID       []byte
+	NameID              []byte
+	SymbolID            []byte
+	DecimalsID          []byte
+	SupplyID            []byte
+	SpendableBalancesID []byte
+	TotalSupplyID       []byte
+	ParamsID            []byte
+	DenomMetadataID     []byte
+	DenomsMetadataID    []byte
 }
 
 type CoinBalance struct {
 	Amount *big.Int
 	Denom  string
+}
+
+type SendEnabled struct {
+	Denom   string
+	Enabled bool
+}
+
+type Params struct {
+	SendEnabled        []SendEnabled
+	DefaultSendEnabled bool
+}
+
+type DenomUnit struct {
+	Denom    string
+	Exponent uint32
+	Aliases  []string
+}
+
+type Metadata struct {
+	Description string
+	DenomUnits  []DenomUnit
+	Base        string
+	Display     string
+	Name        string
+	Symbol      string
 }
 
 func GetABI() abi.ABI {
@@ -69,6 +106,7 @@ func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error
 	p := &PrecompileExecutor{
 		bankKeeper:    keepers.BankK(),
 		bankMsgServer: keepers.BankMS(),
+		bankQuerier:   keepers.BankQ(),
 		evmKeeper:     keepers.EVMK(),
 		accountKeeper: keepers.AccountK(),
 		address:       common.HexToAddress(BankAddress),
@@ -92,6 +130,16 @@ func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error
 			p.DecimalsID = m.ID
 		case SupplyMethod:
 			p.SupplyID = m.ID
+		case SpendableBalancesMethod:
+			p.SpendableBalancesID = m.ID
+		case TotalSupplyMethod:
+			p.TotalSupplyID = m.ID
+		case ParamsMethod:
+			p.ParamsID = m.ID
+		case DenomMetadataMethod:
+			p.DenomMetadataID = m.ID
+		case DenomsMetadataMethod:
+			p.DenomsMetadataID = m.ID
 		}
 	}
 
@@ -126,7 +174,17 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	case DecimalsMethod:
 		return p.decimals(ctx, method, args, value)
 	case SupplyMethod:
+		return p.supply(ctx, method, args, value)
+	case SpendableBalancesMethod:
+		return p.spendableBalances(ctx, method, args, value)
+	case TotalSupplyMethod:
 		return p.totalSupply(ctx, method, args, value)
+	case ParamsMethod:
+		return p.params(ctx, method, args, value)
+	case DenomMetadataMethod:
+		return p.denomMetadata(ctx, method, args, value)
+	case DenomsMetadataMethod:
+		return p.denomsMetadata(ctx, method, args, value)
 	}
 	return
 }
@@ -342,7 +400,7 @@ func (p PrecompileExecutor) decimals(ctx sdk.Context, method *abi.Method, _ []in
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
 }
 
-func (p PrecompileExecutor) totalSupply(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+func (p PrecompileExecutor) supply(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -355,6 +413,213 @@ func (p PrecompileExecutor) totalSupply(ctx sdk.Context, method *abi.Method, arg
 	coin := p.bankKeeper.GetSupply(ctx, denom)
 	bz, err := method.Outputs.Pack(coin.Amount.BigInt())
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+}
+
+func (p PrecompileExecutor) spendableBalances(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		return nil, 0, err
+	}
+
+	seiAddr, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	req := &banktypes.QuerySpendableBalancesRequest{
+		Address: seiAddr.String(),
+		Pagination: &query.PageRequest{
+			Key: args[1].([]byte),
+		},
+	}
+
+	resp, err := p.bankQuerier.SpendableBalances(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	balances := make([]CoinBalance, 0, len(resp.Balances))
+	for _, coin := range resp.Balances {
+		balances = append(balances, CoinBalance{
+			Amount: coin.Amount.BigInt(),
+			Denom:  coin.Denom,
+		})
+	}
+	var nextKey []byte
+	if resp.Pagination != nil {
+		nextKey = resp.Pagination.NextKey
+	}
+
+	bz, err := method.Outputs.Pack(balances, nextKey)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+func (p PrecompileExecutor) totalSupply(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
+
+	req := &banktypes.QueryTotalSupplyRequest{
+		Pagination: &query.PageRequest{
+			Key: args[0].([]byte),
+		},
+	}
+
+	resp, err := p.bankQuerier.TotalSupply(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	supply := make([]CoinBalance, 0, len(resp.Supply))
+	for _, coin := range resp.Supply {
+		supply = append(supply, CoinBalance{
+			Amount: coin.Amount.BigInt(),
+			Denom:  coin.Denom,
+		})
+	}
+	var nextKey []byte
+	if resp.Pagination != nil {
+		nextKey = resp.Pagination.NextKey
+	}
+
+	bz, err := method.Outputs.Pack(supply, nextKey)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+func (p PrecompileExecutor) params(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 0); err != nil {
+		return nil, 0, err
+	}
+
+	resp, err := p.bankQuerier.Params(sdk.WrapSDKContext(ctx), &banktypes.QueryParamsRequest{})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	sendEnabled := make([]SendEnabled, 0, len(resp.Params.SendEnabled))
+	for _, se := range resp.Params.SendEnabled {
+		if se == nil {
+			continue
+		}
+		sendEnabled = append(sendEnabled, SendEnabled{
+			Denom:   se.Denom,
+			Enabled: se.Enabled,
+		})
+	}
+	params := Params{
+		SendEnabled:        sendEnabled,
+		DefaultSendEnabled: resp.Params.DefaultSendEnabled,
+	}
+
+	bz, err := method.Outputs.Pack(params)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+func (p PrecompileExecutor) denomMetadata(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
+
+	req := &banktypes.QueryDenomMetadataRequest{
+		Denom: args[0].(string),
+	}
+
+	resp, err := p.bankQuerier.DenomMetadata(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	bz, err := method.Outputs.Pack(convertMetadataToPrecompileType(resp.Metadata))
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+func (p PrecompileExecutor) denomsMetadata(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
+
+	req := &banktypes.QueryDenomsMetadataRequest{
+		Pagination: &query.PageRequest{
+			Key: args[0].([]byte),
+		},
+	}
+
+	resp, err := p.bankQuerier.DenomsMetadata(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	metadatas := make([]Metadata, 0, len(resp.Metadatas))
+	for _, metadata := range resp.Metadatas {
+		metadatas = append(metadatas, convertMetadataToPrecompileType(metadata))
+	}
+	var nextKey []byte
+	if resp.Pagination != nil {
+		nextKey = resp.Pagination.NextKey
+	}
+
+	bz, err := method.Outputs.Pack(metadatas, nextKey)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+func convertMetadataToPrecompileType(metadata banktypes.Metadata) Metadata {
+	denomUnits := make([]DenomUnit, 0, len(metadata.DenomUnits))
+	for _, denomUnit := range metadata.DenomUnits {
+		if denomUnit == nil {
+			continue
+		}
+		aliases := denomUnit.Aliases
+		if aliases == nil {
+			aliases = []string{}
+		}
+		denomUnits = append(denomUnits, DenomUnit{
+			Denom:    denomUnit.Denom,
+			Exponent: denomUnit.Exponent,
+			Aliases:  aliases,
+		})
+	}
+	return Metadata{
+		Description: metadata.Description,
+		DenomUnits:  denomUnits,
+		Base:        metadata.Base,
+		Display:     metadata.Display,
+		Name:        metadata.Name,
+		Symbol:      metadata.Symbol,
+	}
 }
 
 func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
