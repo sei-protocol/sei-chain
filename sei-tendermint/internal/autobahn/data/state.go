@@ -476,15 +476,13 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
 	for inner := range s.inner.Lock() {
 		n, ok := inner.blockHashes[hash]
-		if !ok {
-			break // may still be in BlockDB after eviction
+		if ok {
+			b, hasB := inner.blocks[n]
+			qc, hasQC := inner.qcs[n]
+			if hasB && hasQC {
+				return utils.Some(assembleGlobalBlock(n, b, qc)), nil
+			}
 		}
-		b, hasB := inner.blocks[n]
-		qc, hasQC := inner.qcs[n]
-		if hasB && hasQC {
-			return utils.Some(assembleGlobalBlock(n, b, qc)), nil
-		}
-		break // hash known but entries evicted; load from BlockDB
 	}
 	return s.globalBlockByHashFromDB(hash)
 }
