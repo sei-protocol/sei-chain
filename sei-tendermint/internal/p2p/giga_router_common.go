@@ -10,8 +10,6 @@ import (
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -52,23 +50,22 @@ type gigaRouterCommon struct {
 	inboundFullnodeCap   int64
 }
 
-// BuildDataState validates the common config, constructs the committee, opens
-// BlockDB (littblock when PersistentStateDir is set, memblock otherwise), and
-// returns an initialised data.State alongside the BlockDB handle.
+// BuildDataState validates the common config, constructs the committee, and
+// returns an initialised data.State backed by blockDB.
 //
 // The caller owns blockDB: close it after giga.Run returns, or immediately if
 // construction of the GigaRouter fails. data.State never closes it. nodeImpl
-// owns this lifecycle in production (open in setup, close after Run via
-// SpawnCritical); tests that call BuildDataState directly must Close themselves.
-func BuildDataState(cfg *GigaRouterCommonConfig) (*data.State, atypes.BlockDB, error) {
+// opens BlockDB in setup and closes after Run via SpawnCritical; tests that call
+// BuildDataState directly must open and Close blockDB themselves.
+func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
-		return nil, nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
+		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
 	if cfg.DialInterval <= 0 {
-		return nil, nil, fmt.Errorf("GigaRouterCommonConfig.DialInterval = %v, want > 0", cfg.DialInterval)
+		return nil, fmt.Errorf("GigaRouterCommonConfig.DialInterval = %v, want > 0", cfg.DialInterval)
 	}
 	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
-		return nil, nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
+		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
 	}
 	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
@@ -77,28 +74,17 @@ func BuildDataState(cfg *GigaRouterCommonConfig) (*data.State, atypes.BlockDB, e
 	}
 	genesisCommittee, err := atypes.NewCommittee(genesisWeights)
 	if err != nil {
-		return nil, nil, fmt.Errorf("genesis committee: %w", err)
+		return nil, fmt.Errorf("genesis committee: %w", err)
 	}
 	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime)
 	if err != nil {
-		return nil, nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
-	}
-	var blockDB atypes.BlockDB
-	if _, ok := cfg.PersistentStateDir.Get(); ok {
-		var err error
-		blockDB, err = littblock.NewBlockDB(&cfg.LittBlockConfig)
-		if err != nil {
-			return nil, nil, fmt.Errorf("open BlockDB: %w", err)
-		}
-	} else {
-		blockDB = memblock.NewBlockDB()
+		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
 	ds, err := data.NewState(&data.Config{Registry: registry}, blockDB)
 	if err != nil {
-		_ = blockDB.Close()
-		return nil, nil, fmt.Errorf("data.NewState: %w", err)
+		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
-	return ds, blockDB, nil
+	return ds, nil
 }
 
 func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {

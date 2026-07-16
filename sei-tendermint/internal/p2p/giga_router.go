@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -37,10 +36,6 @@ type GigaRouterCommonConfig struct {
 	// hashvault, and the validator's consensus persister in sibling subdirs).
 	// If None, persistence is disabled and the node runs fully in-memory.
 	PersistentStateDir utils.Option[string]
-	// LittBlockConfig is the resolved config used when PersistentStateDir is
-	// set. Callers must populate it via AutobahnBlockDBConfig.LittBlockConfig
-	// (node.preparePersistentStateDir in production) before BuildDataState.
-	LittBlockConfig littblock.LittBlockConfig
 	// App is the ABCI proxy executeBlock drives. NewGigaValidatorRouter
 	// also passes it to producer.NewState so the producer's internal
 	// mempool drives the same proxy.

@@ -70,18 +70,19 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
 			require.NoError(t, err, "littblock.DefaultConfig[%v]", i)
 			littCfg.Litt.Fsync = true
+			blockDB, err := littblock.NewBlockDB(littCfg)
+			require.NoError(t, err, "littblock.NewBlockDB[%v]", i)
+			t.Cleanup(func() { _ = blockDB.Close() })
 			commonCfg := GigaRouterCommonConfig{
 				// Aggressive dialing rate to speed up startup.
 				DialInterval:       100 * time.Millisecond,
 				ValidatorAddrs:     addrs,
 				PersistentStateDir: utils.Some(dir),
-				LittBlockConfig:    *littCfg,
 				App:                proxyApp,
 				GenDoc:             genDoc,
 			}
-			dataState, blockDB, err := BuildDataState(&commonCfg)
+			dataState, err := BuildDataState(&commonCfg, blockDB)
 			require.NoError(t, err, "BuildDataState[%v]", i)
-			t.Cleanup(func() { _ = blockDB.Close() })
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
 				GigaRouterCommonConfig: commonCfg,
 				ValidatorKey:           cfg.validatorKey,
@@ -239,17 +240,18 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	littCfg.Litt.Fsync = true
+	blockDB, err := littblock.NewBlockDB(littCfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blockDB.Close() })
 	commonCfg := GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: utils.Some(dir),
-		LittBlockConfig:    *littCfg,
 		App:                proxy.New(newTestApp()),
 		GenDoc:             genDoc,
 	}
-	dataState, blockDB, err := BuildDataState(&commonCfg)
+	dataState, err := BuildDataState(&commonCfg, blockDB)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = blockDB.Close() })
 
 	router, err := NewGigaValidatorRouter(&GigaValidatorConfig{
 		GigaRouterCommonConfig: commonCfg,

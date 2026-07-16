@@ -479,6 +479,16 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		_ = n.closeGigaBlockDB()
 	}()
 
+	// Start giga before the transport so runPersist is active before inbound
+	// giga connections can advance inner cursors via PushQC.
+	if giga, ok := n.giga.Get(); ok {
+		gigaSpawned = true
+		n.SpawnCritical("giga", func(ctx context.Context) error {
+			defer func() { _ = n.closeGigaBlockDB() }()
+			return giga.Run(ctx)
+		})
+	}
+
 	// EventBus and IndexerService must be started before the handshake because
 	// we might need to index the txs of the replayed block as this might not have happened
 	// when the node stopped last time (i.e. the node stopped or crashed after it saved the block
@@ -584,18 +594,6 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	n.rpcEnv.IsListening = true
 	if m, ok := n.mempool.Get(); ok {
 		n.SpawnCritical("mempool", m.Run)
-	}
-	// Run the GigaRouter alongside the transport. n.giga is the canonical
-	// reference; the Router holds a copy only for its own internal use
-	// (dispatching inbound giga connections). Lifecycle is owned here:
-	// BlockDB was opened in setup and is closed after Run returns so we do not
-	// race BaseService's OnStop-before-wg.Wait ordering.
-	if giga, ok := n.giga.Get(); ok {
-		gigaSpawned = true
-		n.SpawnCritical("giga", func(ctx context.Context) error {
-			defer func() { _ = n.closeGigaBlockDB() }()
-			return giga.Run(ctx)
-		})
 	}
 
 	for _, reactor := range n.services {

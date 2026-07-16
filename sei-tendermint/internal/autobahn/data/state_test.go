@@ -441,7 +441,7 @@ func TestGlobalBlockByHash(t *testing.T) {
 
 // TestPushQCBeforeRunPersistsToBlockDB seeds in-memory QCs/blocks before Run
 // (mirroring inbound PushQC after transport start) and asserts runPersist still
-// writes them — WriteHighWaterMarks seeding, not inner.nextQC/nextBlock.
+// writes them — Status seeding, not inner.nextQC/nextBlock.
 func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -456,7 +456,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 
 	// Transport-race window: PushQC before data.Run / runPersist starts.
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	tips := db.WriteHighWaterMarks()
+	tips := db.Status()
 	require.False(t, tips.LastBlockNumber.IsPresent(), "PushQC must not write BlockDB before Run")
 	require.False(t, tips.LastQCNext.IsPresent())
 
@@ -476,7 +476,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 		return nil
 	}))
 
-	tips = db.WriteHighWaterMarks()
+	tips = db.Status()
 	gotBlock, ok := tips.LastBlockNumber.Get()
 	require.True(t, ok)
 	require.Equal(t, gr1.Next-1, gotBlock)

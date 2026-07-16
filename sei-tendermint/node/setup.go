@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -278,9 +279,9 @@ func buildValidatorGigaConfig(
 // operator misconfiguration is visible at startup.
 //
 // The returned BlockDB is owned by the caller (nodeImpl): open happens here
-// via BuildDataState before the transport starts, so inbound giga connections
-// see a fully replayed data.State. Close after giga.Run returns (or immediately
-// if this function / subsequent construction fails).
+// before the transport starts, so inbound giga connections see a fully
+// replayed data.State. Close after giga.Run returns (or immediately if this
+// function / subsequent construction fails).
 func buildGigaRouter(
 	cfg *config.Config,
 	nodeKey types.NodeKey,
@@ -316,15 +317,20 @@ func buildGigaRouter(
 		if err != nil {
 			return nil, nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
 		}
-		if err := preparePersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig, fc.BlockDB); err != nil {
+		if err := preparePersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig); err != nil {
 			return nil, nil, err
 		}
 		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 		// enable/disable decision through as plain config.
 		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
-		dataState, blockDB, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig)
+		blockDB, err := openBlockDB(&valCfg.GigaRouterCommonConfig, fc.BlockDB)
 		if err != nil {
+			return nil, nil, err
+		}
+		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockDB)
+		if err != nil {
+			_ = blockDB.Close()
 			return nil, nil, err
 		}
 		giga, err := p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey), dataState)
@@ -338,15 +344,20 @@ func buildGigaRouter(
 	if err != nil {
 		return nil, nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
-	if err := preparePersistentStateDir(cfg.RootDir, fnCfg, fc.BlockDB); err != nil {
+	if err := preparePersistentStateDir(cfg.RootDir, fnCfg); err != nil {
 		return nil, nil, err
 	}
 	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 	// enable/disable decision through as plain config.
 	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	dataState, blockDB, err := p2p.BuildDataState(fnCfg)
+	blockDB, err := openBlockDB(fnCfg, fc.BlockDB)
 	if err != nil {
+		return nil, nil, err
+	}
+	dataState, err := p2p.BuildDataState(fnCfg, blockDB)
+	if err != nil {
+		_ = blockDB.Close()
 		return nil, nil, err
 	}
 	giga, err := p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey), dataState)
@@ -361,13 +372,11 @@ func buildGigaRouter(
 // the node's --home dir (mirrors config.go's rootify) and creates it if absent.
 // Some("") is treated as None (in-memory / disabled): JSON unmarshals a literal
 // empty string as present, which would otherwise Join to rootDir and silently
-// enable durable BlockDB + HashVault. When the dir is enabled, blockDBCfg is
-// resolved into c.LittBlockConfig (defaults + overlays, fsync forced on).
-func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig, blockDBCfg config.AutobahnBlockDBConfig) error {
+// enable durable BlockDB + HashVault.
+func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) error {
 	dir, ok := c.PersistentStateDir.Get()
 	if !ok || dir == "" {
 		c.PersistentStateDir = utils.None[string]()
-		c.LittBlockConfig = littblock.LittBlockConfig{}
 		return nil
 	}
 	if !filepath.IsAbs(dir) {
@@ -377,12 +386,25 @@ func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig, bl
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("creating persistent state dir %q: %w", dir, err)
 	}
+	return nil
+}
+
+// openBlockDB opens littblock when PersistentStateDir is set, memblock otherwise.
+// preparePersistentStateDir must have run first so dir is rootified and created.
+func openBlockDB(c *p2p.GigaRouterCommonConfig, blockDBCfg config.AutobahnBlockDBConfig) (atypes.BlockDB, error) {
+	dir, ok := c.PersistentStateDir.Get()
+	if !ok {
+		return memblock.NewBlockDB(), nil
+	}
 	littCfg, err := blockDBCfg.LittBlockConfig(filepath.Join(dir, "blockdb"))
 	if err != nil {
-		return fmt.Errorf("block_db: %w", err)
+		return nil, fmt.Errorf("block_db: %w", err)
 	}
-	c.LittBlockConfig = littCfg
-	return nil
+	blockDB, err := littblock.NewBlockDB(&littCfg)
+	if err != nil {
+		return nil, fmt.Errorf("open BlockDB: %w", err)
+	}
+	return blockDB, nil
 }
 
 // resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject all,

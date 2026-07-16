@@ -133,7 +133,10 @@ func (i *inner) insertBlock(committee *types.Committee, n types.GlobalBlockNumbe
 	if _, ok := i.blocks[n]; ok {
 		return nil // already have it (gap fill)
 	}
-	qc := i.qcs[n]
+	qc, ok := i.qcs[n]
+	if !ok {
+		return nil // evicted or never loaded
+	}
 	storedGR := qc.QC().GlobalRange()
 	want := qc.Headers()[n-storedGR.First].Hash()
 	got := block.Header().Hash()
@@ -418,9 +421,6 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if inner.qcs[n] == nil {
-			return nil
-		}
 		if err := inner.insertBlock(ep.Committee(), n, block); err != nil {
 			return err
 		}
@@ -570,9 +570,6 @@ func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Optio
 	}
 	qc, err := s.qcFromDB(bn.Number)
 	if err != nil {
-		if errors.Is(err, ErrPruned) || errors.Is(err, ErrNotFound) {
-			return utils.None[*types.GlobalBlock](), nil
-		}
 		return utils.None[*types.GlobalBlock](), err
 	}
 	return utils.Some(assembleGlobalBlock(bn.Number, bn.Block, qc)), nil
@@ -685,13 +682,13 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 // to unblock PushAppHash only when both are durable.
 // Errors propagate vertically (kill the component).
 //
-// Persistence cursors are seeded from BlockDB's in-memory write high-water
-// marks, not from inner.nextQC/nextBlock. Those inner cursors can advance
-// via PushQC between NewState and Run; the BlockDB tips stay put until this
-// loop Writes, so we do not skip heights that are only in memory.
+// Persistence cursors are seeded from BlockDB.Status(), not from
+// inner.nextQC/nextBlock. Those inner cursors can advance via PushQC between
+// NewState and Run; the BlockDB tips stay put until this loop Writes, so we do
+// not skip heights that are only in memory.
 func (s *State) runPersist(ctx context.Context) error {
 	first := s.cfg.Registry.FirstBlock()
-	tips := s.blockDB.WriteHighWaterMarks()
+	tips := s.blockDB.Status()
 	persistedQC := first
 	if n, ok := tips.LastQCNext.Get(); ok {
 		persistedQC = n

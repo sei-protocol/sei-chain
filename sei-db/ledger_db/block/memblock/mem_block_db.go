@@ -147,10 +147,10 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 
 func (s *blockDB) Flush() error { return nil }
 
-func (s *blockDB) WriteHighWaterMarks() types.WriteHighWaterMarks {
+func (s *blockDB) Status() types.DBStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var tips types.WriteHighWaterMarks
+	var tips types.DBStatus
 	if s.hasBlocks {
 		tips.LastBlockNumber = utils.Some(s.lastBlockNumber)
 	}

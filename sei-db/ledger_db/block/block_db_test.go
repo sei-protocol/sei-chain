@@ -69,7 +69,7 @@ func TestBlockDB(t *testing.T) {
 			t.Run("PruneQCOnlyThenWriteBlock", func(t *testing.T) {
 				testPruneQCOnlyThenWriteBlock(t, impl.build)
 			})
-			t.Run("WriteHighWaterMarks", func(t *testing.T) { testWriteHighWaterMarks(t, impl.build) })
+			t.Run("Status", func(t *testing.T) { testStatus(t, impl.build) })
 			t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, impl.build) })
 			t.Run("WriteOrderRejectedAfterRestart", func(t *testing.T) {
 				testWriteOrderRejectedAfterRestart(t, impl.build)
@@ -132,22 +132,22 @@ func testEmptyDB(t *testing.T, build builder) {
 	require.False(t, ok, "empty db should yield no QCs")
 	require.NoError(t, qcIt.Close())
 
-	tips := db.WriteHighWaterMarks()
+	tips := db.Status()
 	require.False(t, tips.LastBlockNumber.IsPresent(), "empty db has no block write tip")
 	require.False(t, tips.LastQCNext.IsPresent(), "empty db has no QC write tip")
 }
 
-// testWriteHighWaterMarks asserts WriteHighWaterMarks matches the highest
-// block/QC still present (via reverse iterators), including after prune and
-// restart, and that a QC written ahead of its blocks advances only LastQCNext.
-func testWriteHighWaterMarks(t *testing.T, build builder) {
+// testStatus asserts Status matches the highest block/QC still present
+// (via reverse iterators), including after prune and restart, and that a QC
+// written ahead of its blocks advances only LastQCNext.
+func testStatus(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	db, o := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 
 	require.NoError(t, db.WriteQC(batches[0].first, batches[0].next, batches[0].qc))
-	tips := db.WriteHighWaterMarks()
+	tips := db.Status()
 	gotQC, ok := tips.LastQCNext.Get()
 	require.True(t, ok)
 	require.Equal(t, batches[0].next, gotQC)
@@ -159,7 +159,7 @@ func testWriteHighWaterMarks(t *testing.T, build builder) {
 	}
 	writeAll(t, db, batches[1:])
 	last := batches[len(batches)-1]
-	tips = db.WriteHighWaterMarks()
+	tips = db.Status()
 	gotBlock, ok := tips.LastBlockNumber.Get()
 	require.True(t, ok)
 	require.Equal(t, last.next-1, gotBlock)
@@ -173,7 +173,7 @@ func testWriteHighWaterMarks(t *testing.T, build builder) {
 	require.Greater(t, len(batches), 1)
 	require.NoError(t, db.PruneBefore(batches[1].first))
 	assertTipsMatchPresent(t, db)
-	tips = db.WriteHighWaterMarks()
+	tips = db.Status()
 	gotBlock, ok = tips.LastBlockNumber.Get()
 	require.True(t, ok)
 	require.Equal(t, last.next-1, gotBlock, "prune must not move the block write tip")
@@ -183,7 +183,7 @@ func testWriteHighWaterMarks(t *testing.T, build builder) {
 
 	db = restart(t, o, db)
 	assertTipsMatchPresent(t, db)
-	tips = db.WriteHighWaterMarks()
+	tips = db.Status()
 	gotBlock, ok = tips.LastBlockNumber.Get()
 	require.True(t, ok)
 	require.Equal(t, last.next-1, gotBlock, "block tip must survive restart")
@@ -192,26 +192,26 @@ func testWriteHighWaterMarks(t *testing.T, build builder) {
 	require.Equal(t, last.next, gotQC, "QC tip must survive restart")
 }
 
-// assertTipsMatchPresent checks WriteHighWaterMarks against one reverse-iterator
+// assertTipsMatchPresent checks Status against one reverse-iterator
 // step for blocks and QCs (the highest records the public read API still serves).
 func assertTipsMatchPresent(t *testing.T, db types.BlockDB) {
 	t.Helper()
-	tips := db.WriteHighWaterMarks()
+	tips := db.Status()
 
 	highest, hasBlock := recoverHighestBlock(t, db)
 	if n, ok := tips.LastBlockNumber.Get(); ok {
-		require.True(t, hasBlock, "WriteHighWaterMarks has a block tip but Blocks is empty")
+		require.True(t, hasBlock, "Status has a block tip but Blocks is empty")
 		require.Equal(t, highest, n, "LastBlockNumber must be the highest present block")
 	} else {
-		require.False(t, hasBlock, "Blocks has data but WriteHighWaterMarks has no block tip")
+		require.False(t, hasBlock, "Blocks has data but Status has no block tip")
 	}
 
 	lastQC, hasQC := recoverLastQC(t, db)
 	if n, ok := tips.LastQCNext.Get(); ok {
-		require.True(t, hasQC, "WriteHighWaterMarks has a QC tip but QCs is empty")
+		require.True(t, hasQC, "Status has a QC tip but QCs is empty")
 		require.Equal(t, lastQC.GlobalRange().Next, n, "LastQCNext must be Next of the highest present QC")
 	} else {
-		require.False(t, hasQC, "QCs has data but WriteHighWaterMarks has no QC tip")
+		require.False(t, hasQC, "QCs has data but Status has no QC tip")
 	}
 }
 

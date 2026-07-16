@@ -65,17 +65,18 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	littCfg.Litt.Fsync = true
+	blockDB, err := littblock.NewBlockDB(littCfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blockDB.Close() })
 	cfg := &GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: utils.Some(dir),
-		LittBlockConfig:    *littCfg,
 		App:                proxyApp,
 		GenDoc:             genDoc,
 	}
-	dataState, blockDB, err := BuildDataState(cfg)
+	dataState, err := BuildDataState(cfg, blockDB)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = blockDB.Close() })
 
 	// Fullnodes have no validator key and no Producer config.
 	// App is required for executeBlock but isn't exercised by this test.
