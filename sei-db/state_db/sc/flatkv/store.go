@@ -241,6 +241,15 @@ func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueD
 	if err != nil {
 		return nil, err
 	}
+	if moduleName == "" {
+		// An empty module name would fold into moduleLtHash[""]/moduleStats[""]
+		// and later persist as the per-module meta key "_meta/x:/hash", which
+		// ParseModuleLtHashKey rejects on the very next reopen — permanently
+		// bricking the store (root != sum(modules) forever). Reject it here,
+		// at the state-sync import dispatch boundary, mirroring the
+		// classifyAndPrefix guard on the live-commit path (store_apply.go).
+		return nil, fmt.Errorf("flatkv: empty module name in physical key %q", physicalKey)
+	}
 	if moduleName != keys.EVMStoreKey {
 		return s.miscDB, nil
 	}
