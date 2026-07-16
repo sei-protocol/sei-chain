@@ -73,7 +73,10 @@ ifeq ($(firstword $(sort go1.23 $(shell go env GOVERSION))), go1.23)
 	ldflags += -checklinkname=0
 endif
 ifeq ($(LINK_STATICALLY),true)
-	ldflags += -linkmode=external -extldflags "-Wl,-z,muldefs -static"
+	# STATIC_EXTRA_LDFLAGS lets the static build inject linker search paths, e.g.
+	# scripts/build-static.sh points it at the pinned pre-gcc-12 libgcc (see
+	# third_party/alpine-gcc10-libgcc/README.md).
+	ldflags += -linkmode=external -extldflags "-Wl,-z,muldefs -static $(STATIC_EXTRA_LDFLAGS)"
 endif
 ldflags += $(LDFLAGS)
 ldflags := $(strip $(ldflags))
