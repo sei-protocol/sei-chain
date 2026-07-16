@@ -138,6 +138,8 @@ func NewCompositeCommitStore(
 		return nil, fmt.Errorf("invalid state commit config: %w", err)
 	}
 
+	alignFlatKVSnapshotWithMemIAVL(&cfg)
+
 	var memIAVL *memiavl.CommitStore
 	if cfg.WriteMode != types.FlatKVOnly {
 		memIAVL = memiavl.NewCommitStore(homeDir, cfg.MemIAVLConfig)
@@ -174,6 +176,47 @@ func NewCompositeCommitStore(
 		currentWriteMode: cfg.WriteMode,
 		ctx:              ctx,
 	}, nil
+}
+
+// alignFlatKVSnapshotWithMemIAVL keeps the two backends' snapshot cadence in
+// sync. FlatKV has no independently-exposed snapshot knobs in app.toml, so it
+// derives its snapshot-interval / keep-recent from memIAVL's sc-* keys. This is
+// the single place both backends are constructed from the same config, so it is
+// where the alignment is enforced.
+//
+// This derivation is intentionally unconditional across write modes, including
+// FlatKVOnly — where NewCompositeCommitStore never constructs a memIAVL store.
+// The sc-* keys are the only operator-visible snapshot-cadence knobs now that
+// the flatkv.* keys are hidden from the app.toml template, so they must govern
+// FlatKV's cadence in every mode; otherwise FlatKVOnly would have no
+// template-visible way to tune it. It is harmless when memIAVL is absent: the
+// sc-* defaults match FlatKV's own in-code defaults, and only cfg.FlatKVConfig
+// is read when building the FlatKVOnly store.
+//
+// FlatKV mirrors memIAVL's *effective* cadence: a zero memIAVL value is first
+// resolved to the same default Options.FillDefaults would apply at OpenDB
+// (interval 0 -> DefaultSnapshotInterval, keep-recent 0 -> DefaultSnapshotKeepRecent),
+// then assigned to FlatKV unconditionally. Resolving-then-assigning (rather than
+// skipping on a zero and letting FlatKV keep its own in-code default) keeps the
+// two backends in true lockstep without relying on FlatKV's default happening to
+// equal memIAVL's healed default. That reliance is fragile — the defaults are
+// only kept equal by hand — and it breaks for an upgrading node whose old
+// app.toml still carries an explicit state-commit.flatkv.snapshot-keep-recent
+// (rendered by the old template) alongside sc-keep-recent = 0: skipping would
+// leave FlatKV pinned to the stale explicit value while memIAVL healed to a
+// different default. Note that mirroring a raw 0 is never correct here (0 means
+// "disable auto-snapshots" for FlatKV), which is why the zero is resolved first.
+func alignFlatKVSnapshotWithMemIAVL(cfg *config.StateCommitConfig) {
+	interval := cfg.MemIAVLConfig.SnapshotInterval
+	if interval == 0 {
+		interval = memiavl.DefaultSnapshotInterval
+	}
+	keepRecent := cfg.MemIAVLConfig.SnapshotKeepRecent
+	if keepRecent == 0 {
+		keepRecent = memiavl.DefaultSnapshotKeepRecent
+	}
+	cfg.FlatKVConfig.SnapshotInterval = interval
+	cfg.FlatKVConfig.SnapshotKeepRecent = keepRecent
 }
 
 // Initialize records the set of child store names that should exist on
@@ -445,7 +488,7 @@ func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) er
 		}
 		cs.flatKV = nil
 	}
-	logger.Info("derived effective write mode from migration metadata", "mode", derived)
+	logger.Debug("derived effective write mode from migration metadata", "mode", derived)
 	cs.currentWriteMode = derived
 	return nil
 }
@@ -1146,6 +1189,33 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 			return fmt.Errorf("failed to rollback evm commit store: %w", err)
 		}
 	}
+
+	// Clear both sticky commit-info latches so the next LastCommitInfo /
+	// WorkingCommitInfo re-derives from the rolled-back migration metadata.
+	// Rollback can move the boundary backwards across a seam that either
+	// flag latched on:
+	//   - latticeAppendLatched: set after the migrate_evm activation; a
+	//     rollback to a pre-activation height (memiavl-only AppHash, no
+	//     evm_lattice) must stop appending the lattice.
+	//   - memiavlHashExcluded: set after the bank migration completes
+	//     (version 3); a rollback below completion must re-include memiavl's
+	//     per-store infos, which the AppHash still carries at that height.
+	// Without these resets the in-process post-rollback commit info (the hash
+	// `seid rollback` prints and rootmulti caches in rs.lastCommitInfo)
+	// diverges from the canonical AppHash for the target height. The gates
+	// re-latch correctly on the next call against the rolled-back metadata.
+	//
+	// Note: currentWriteMode is not re-derived here. It only matters when a
+	// rollback crosses a seam whose latest-derived mode differs from the
+	// target's (e.g. a rollback all the way across a completed migration);
+	// that in-process view self-heals on the next `seid start`, which
+	// re-derives the mode from the rolled-back metadata.
+	cs.latticeAppendLatched.Store(false)
+	cs.memiavlHashExcluded.Store(false)
+
+	// Rollback is offline (no commit cycle in flight); clear the per-block
+	// migration-advance gate defensively.
+	cs.migrationAdvancedThisCommit = false
 
 	return nil
 }

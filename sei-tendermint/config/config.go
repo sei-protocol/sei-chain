@@ -177,9 +177,6 @@ func (cfg *Config) DeprecatedFieldWarning() error {
 
 // BaseConfig defines the base configuration for a Tendermint node
 type BaseConfig struct {
-	// chainID is unexposed and immutable but here for convenience
-	chainID string
-
 	// The root directory for all data.
 	// This should be set in viper so it can unmarshal into this struct
 	RootDir string `mapstructure:"home"`
@@ -268,15 +265,10 @@ func DefaultBaseConfig() BaseConfig {
 // TestBaseConfig returns a base configuration for testing a Tendermint node
 func TestBaseConfig() BaseConfig {
 	cfg := DefaultBaseConfig()
-	cfg.chainID = "tendermint_test"
 	cfg.Mode = ModeValidator
 	cfg.ProxyApp = "kvstore"
 	cfg.DBBackend = "memdb"
 	return cfg
-}
-
-func (cfg BaseConfig) ChainID() string {
-	return cfg.chainID
 }
 
 // GenesisFile returns the full path to the genesis.json file
@@ -1458,7 +1450,8 @@ type InstrumentationConfig struct {
 	// 0 - unlimited.
 	MaxOpenConnections int `mapstructure:"max-open-connections"`
 
-	// Instrumentation namespace.
+	// Deprecated: Instrumentation namespace is ignored. Tendermint Prometheus
+	// metrics always use the fixed "tendermint" namespace.
 	Namespace string `mapstructure:"namespace"`
 }
 

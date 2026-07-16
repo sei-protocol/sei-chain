@@ -1,6 +1,7 @@
 package kv
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -350,12 +351,14 @@ func (txi *TxIndex) searchBounded(ctx context.Context, plan boundedPlan, opts in
 			continue
 		}
 
+		// Keys under the driver (tag, value) prefix are always well-formed
+		// secondary keys, so a parse error is unreachable; skip defensively.
 		height, index, err := parseHeightIndexFromKey(it.Key())
 		if err != nil {
 			continue
 		}
 
-		match, err := txi.candidateMatches(height, index, plan, lease)
+		match, err := txi.candidateMatches(height, index, hash, plan, lease)
 		if err != nil {
 			return nil, err
 		}
@@ -387,10 +390,11 @@ func (txi *TxIndex) searchBounded(ctx context.Context, plan boundedPlan, opts in
 }
 
 // candidateMatches reports whether the tx at (height, index) satisfies every
+// non-driver condition in the plan, verifying probes against hash.
 // non-driver condition in the plan: tx.height range bounds are evaluated
 // directly from height, and equality probes are tested with a single point
 // lookup against the event index. Each probe is charged against lease.
-func (txi *TxIndex) candidateMatches(height int64, index uint32, plan boundedPlan, lease *indexer.ScanLease) (bool, error) {
+func (txi *TxIndex) candidateMatches(height int64, index uint32, hash []byte, plan boundedPlan, lease *indexer.ScanLease) (bool, error) {
 	for i := range plan.heightRanges {
 		if !indexer.HeightInRange(height, plan.heightRanges[i]) {
 			return false, nil
@@ -398,15 +402,15 @@ func (txi *TxIndex) candidateMatches(height int64, index uint32, plan boundedPla
 	}
 
 	for i := range plan.equalityProbes {
+		c := plan.equalityProbes[i]
 		if err := lease.Visit(1); err != nil {
 			return false, err
 		}
-		c := plan.equalityProbes[i]
-		ok, err := txi.store.Has(secondaryKey(c.Tag, c.Arg.Value(), height, index))
+		got, err := txi.store.Get(secondaryKey(c.Tag, c.Arg.Value(), height, index))
 		if err != nil {
 			return false, err
 		}
-		if !ok {
+		if !bytes.Equal(got, hash) {
 			return false, nil
 		}
 	}

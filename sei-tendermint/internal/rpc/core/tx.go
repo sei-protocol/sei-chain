@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
@@ -90,22 +89,10 @@ func (env *Environment) TxSearch(ctx context.Context, req *coretypes.RequestTxSe
 				return nil, err
 			}
 
-			// sort results (must be done before cap and pagination)
-			if orderDesc {
-				sort.Slice(results, func(i, j int) bool {
-					if results[i].Height == results[j].Height {
-						return results[i].Index > results[j].Index
-					}
-					return results[i].Height > results[j].Height
-				})
-			} else {
-				sort.Slice(results, func(i, j int) bool {
-					if results[i].Height == results[j].Height {
-						return results[i].Index < results[j].Index
-					}
-					return results[i].Height < results[j].Height
-				})
-			}
+			// Results already arrive ordered by (height, index) per orderDesc:
+			// the kv indexer either sorts the materialized set or scans its
+			// order-preserving secondary index in order_by order, so no re-sort
+			// is needed here.
 
 			// Safety net: the kv indexer already bounds to MaxTxSearchResults,
 			// but keep the cap so the response stays bounded for any sink that

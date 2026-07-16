@@ -43,6 +43,7 @@ type RPC[API any, Req, Resp protoutils.Sized] struct {
 
 type rpcConfig struct {
 	limit Limit
+	name  string
 }
 
 type service map[mux.StreamKind]*rpcConfig
@@ -51,6 +52,7 @@ func (s service) muxServerConfig() *mux.Config {
 	kinds := map[mux.StreamKind]*mux.StreamKindConfig{}
 	for kind, rpc := range s {
 		kinds[kind] = &mux.StreamKindConfig{
+			Name:        rpc.name,
 			MaxConnects: rpc.limit.Concurrent,
 		}
 	}
@@ -70,7 +72,7 @@ func (s service) muxClientConfig() *mux.Config {
 	return cfg
 }
 
-func Register[API any, Req, Resp protoutils.Sized](kind mux.StreamKind, limit Limit, req Msg[Req], resp Msg[Resp]) *RPC[API, Req, Resp] {
+func Register[API any, Req, Resp protoutils.Sized](kind mux.StreamKind, name string, limit Limit, req Msg[Req], resp Msg[Resp]) *RPC[API, Req, Resp] {
 	t := reflect.TypeFor[API]()
 	if _, ok := registry[t]; !ok {
 		registry[t] = service{}
@@ -86,8 +88,16 @@ func Register[API any, Req, Resp protoutils.Sized](kind mux.StreamKind, limit Li
 	if err := resp.Verify(); err != nil {
 		panic(fmt.Errorf("RPC %v: %w", kind, err))
 	}
-	service[kind] = &rpcConfig{limit: limit}
-	return &RPC[API, Req, Resp]{kind, limit, req, resp}
+	service[kind] = &rpcConfig{
+		limit: limit,
+		name:  name,
+	}
+	return &RPC[API, Req, Resp]{
+		Kind:  kind,
+		Limit: limit,
+		Req:   req,
+		Resp:  resp,
+	}
 }
 
 type Server[API any] struct{ mux *mux.Mux }
@@ -106,7 +116,7 @@ func NewClient[API any]() Client[API] {
 
 func (c Client[API]) Run(ctx context.Context, conn conn.Conn) error { return c.mux.Run(ctx, conn) }
 
-// TODO: add client-size rate limiting.
+// TODO: add client-side rate limiting.
 func (r *RPC[API, Req, Resp]) Call(ctx context.Context, client Client[API]) (Stream[Req, Resp], error) {
 	s, err := client.mux.Accept(ctx, r.Kind, uint64(r.Resp.MsgSize), uint64(r.Resp.Window))
 	if err != nil {
@@ -124,11 +134,12 @@ func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], han
 					if err := limiter.Wait(ctx); err != nil {
 						return err
 					}
-					stream, err := server.mux.Connect(ctx, r.Kind, uint64(r.Req.MsgSize), uint64(r.Req.Window)) //nolint:gosec // MsgSize and Window are validated config values
+					muxStream, err := server.mux.Connect(ctx, r.Kind, uint64(r.Req.MsgSize), uint64(r.Req.Window)) //nolint:gosec // MsgSize and Window are validated config values
 					if err != nil {
 						return err
 					}
-					err = handler(ctx, Stream[Resp, Req]{inner: stream})
+					stream := Stream[Resp, Req]{inner: muxStream}
+					err = handler(ctx, stream)
 					stream.Close()
 					if err != nil {
 						return err
@@ -144,9 +155,11 @@ func (r *RPC[API, Req, Resp]) Serve(ctx context.Context, server Server[API], han
 type Stream[SendT, RecvT protoutils.Message] struct{ inner *mux.Stream }
 
 func (s Stream[SendT, RecvT]) Close() { s.inner.Close() }
+
 func (s Stream[SendT, RecvT]) Send(ctx context.Context, msg SendT) error {
 	return s.inner.Send(ctx, protoutils.Marshal(msg))
 }
+
 func (s Stream[SendT, RecvT]) Recv(ctx context.Context) (RecvT, error) {
 	raw, err := s.inner.Recv(ctx, true)
 	if err != nil {

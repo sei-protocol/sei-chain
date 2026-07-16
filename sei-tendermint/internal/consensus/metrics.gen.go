@@ -3,339 +3,492 @@
 package consensus
 
 import (
-	"github.com/go-kit/kit/metrics/discard"
-	prometheus "github.com/go-kit/kit/metrics/prometheus"
-	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
-func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
-	labels := []string{}
-	for i := 0; i < len(labelsAndValues); i += 2 {
-		labels = append(labels, labelsAndValues[i])
-	}
+var Global = NewMetrics()
+
+func init() {
+	prometheus.MustRegister(
+		Global.Height,
+		Global.ValidatorLastSignedHeight,
+		Global.Rounds,
+		Global.RoundDuration,
+		Global.Validators,
+		Global.ValidatorsPower,
+		Global.ValidatorPower,
+		Global.ValidatorMissedBlocks,
+		Global.MissingValidators,
+		Global.MissingValidatorsPower,
+		Global.ByzantineValidators,
+		Global.ByzantineValidatorsPower,
+		Global.BlockIntervalSeconds,
+		Global.NumTxs,
+		Global.BlockSizeBytes,
+		Global.TotalTxs,
+		Global.CommittedHeight,
+		Global.BlockSyncing,
+		Global.StateSyncing,
+		Global.BlockParts,
+		Global.StepDuration,
+		Global.BlockGossipReceiveLatency,
+		Global.BlockGossipPartsReceived,
+		Global.ProposalBlockCreatedOnPropose,
+		Global.ProposalTxs,
+		Global.ProposalMissingTxs,
+		Global.MissingTxs,
+		Global.QuorumPrevoteDelay,
+		Global.FullPrevoteDelay,
+		Global.ProposalTimestampDifference,
+		Global.ProposalReceiveCount,
+		Global.ProposalCreateCount,
+		Global.RoundVotingPowerPercent,
+		Global.LateVotes,
+		Global.FinalRound,
+		Global.ProposeLatency,
+		Global.PrevoteLatency,
+		Global.ConsensusTime,
+		Global.CompleteProposalTime,
+		Global.ApplyBlockLatency,
+		Global.StepLatency,
+		Global.StepCount,
+	)
+}
+
+func NewMetrics() *Metrics {
 	return &Metrics{
-		Height: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		Height: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "height",
 			Help:      "Height of the chain.",
-		}, labels).With(labelsAndValues...),
-		ValidatorLastSignedHeight: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, nil),
+		ValidatorLastSignedHeight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validator_last_signed_height",
 			Help:      "Last height signed by this validator if the node is a validator.",
-		}, append(labels, "validator_address")).With(labelsAndValues...),
-		Rounds: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, []string{"validator_address"}),
+		Rounds: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "rounds",
 			Help:      "Number of rounds.",
-		}, labels).With(labelsAndValues...),
-		RoundDuration: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+		}, nil),
+		RoundDuration: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "round_duration",
 			Help:      "Histogram of round duration.",
-
-			Buckets: stdprometheus.ExponentialBucketsRange(0.1, 100, 8),
-		}, labels).With(labelsAndValues...),
-		Validators: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.ExponentialBucketsRange(0.1, 100, 8),
+		}, nil),
+		Validators: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validators",
 			Help:      "Number of validators.",
-		}, labels).With(labelsAndValues...),
-		ValidatorsPower: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, nil),
+		ValidatorsPower: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validators_power",
 			Help:      "Total power of all validators.",
-		}, labels).With(labelsAndValues...),
-		ValidatorPower: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, nil),
+		ValidatorPower: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validator_power",
 			Help:      "Power of a validator.",
-		}, append(labels, "validator_address")).With(labelsAndValues...),
-		ValidatorMissedBlocks: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, []string{"validator_address"}),
+		ValidatorMissedBlocks: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "validator_missed_blocks",
 			Help:      "Amount of blocks missed per validator.",
-		}, append(labels, "validator_address")).With(labelsAndValues...),
-		MissingValidators: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, []string{"validator_address"}),
+		MissingValidators: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "missing_validators",
 			Help:      "Number of validators who did not sign.",
-		}, labels).With(labelsAndValues...),
-		MissingValidatorsPower: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, nil),
+		MissingValidatorsPower: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "missing_validators_power",
 			Help:      "Total power of the missing validators.",
-		}, append(labels, "validator_address")).With(labelsAndValues...),
-		ByzantineValidators: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, []string{"validator_address"}),
+		ByzantineValidators: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "byzantine_validators",
 			Help:      "Number of validators who tried to double sign.",
-		}, labels).With(labelsAndValues...),
-		ByzantineValidatorsPower: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, nil),
+		ByzantineValidatorsPower: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "byzantine_validators_power",
 			Help:      "Total power of the byzantine validators.",
-		}, labels).With(labelsAndValues...),
-		BlockIntervalSeconds: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+		}, nil),
+		BlockIntervalSeconds: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_interval_seconds",
 			Help:      "Time in seconds between this and the last block.",
-
-			Buckets: stdprometheus.ExponentialBuckets(0.1, 1.3, 20),
-		}, labels).With(labelsAndValues...),
-		NumTxs: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.ExponentialBuckets(0.1, 1.3, 20),
+		}, nil),
+		NumTxs: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "num_txs",
 			Help:      "Number of transactions.",
-		}, labels).With(labelsAndValues...),
-		BlockSizeBytes: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+		}, nil),
+		BlockSizeBytes: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_size_bytes",
 			Help:      "Size of the block.",
-
-			Buckets: stdprometheus.ExponentialBuckets(1000, 1.5, 25),
-		}, labels).With(labelsAndValues...),
-		TotalTxs: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.ExponentialBuckets(1000, 1.5, 25),
+		}, nil),
+		TotalTxs: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "total_txs",
 			Help:      "Total number of transactions.",
-		}, labels).With(labelsAndValues...),
-		CommittedHeight: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, nil),
+		CommittedHeight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "latest_block_height",
 			Help:      "The latest block height.",
-		}, labels).With(labelsAndValues...),
-		BlockSyncing: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, nil),
+		BlockSyncing: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_syncing",
 			Help:      "Whether or not a node is block syncing. 1 if yes, 0 if no.",
-		}, labels).With(labelsAndValues...),
-		StateSyncing: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, nil),
+		StateSyncing: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "state_syncing",
 			Help:      "Whether or not a node is state syncing. 1 if yes, 0 if no.",
-		}, labels).With(labelsAndValues...),
-		BlockParts: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+		}, nil),
+		BlockParts: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_parts",
 			Help:      "Number of block parts transmitted by each peer.",
-		}, append(labels, "peer_id")).With(labelsAndValues...),
-		StepDuration: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+		}, []string{"peer_id"}),
+		StepDuration: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "step_duration",
 			Help:      "Histogram of durations for each step in the consensus protocol.",
-
-			Buckets: stdprometheus.ExponentialBucketsRange(0.1, 100, 8),
-		}, append(labels, "step")).With(labelsAndValues...),
-		BlockGossipReceiveLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.ExponentialBucketsRange(0.1, 100, 8),
+		}, []string{"step"}),
+		BlockGossipReceiveLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_gossip_receive_latency",
 			Help:      "Histogram of time taken to receive a block in seconds, measured between when a new block is first discovered to when the block is completed.",
-
-			Buckets: stdprometheus.ExponentialBucketsRange(0.1, 100, 8),
-		}, labels).With(labelsAndValues...),
-		BlockGossipPartsReceived: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.ExponentialBucketsRange(0.1, 100, 8),
+		}, nil),
+		BlockGossipPartsReceived: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_gossip_parts_received",
 			Help:      "Number of block parts received by the node, separated by whether the part was relevant to the block the node is trying to gather or not.",
-		}, append(labels, "matches_current")).With(labelsAndValues...),
-		ProposalBlockCreatedOnPropose: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+		}, []string{"matches_current"}),
+		ProposalBlockCreatedOnPropose: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_block_created_on_propose",
 			Help:      "Number of proposal blocks created on propose received.",
-		}, append(labels, "success")).With(labelsAndValues...),
-		ProposalTxs: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, []string{"success"}),
+		ProposalTxs: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_txs",
 			Help:      "Number of txs in a proposal.",
-		}, labels).With(labelsAndValues...),
-		ProposalMissingTxs: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, nil),
+		ProposalMissingTxs: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_missing_txs",
 			Help:      "Number of missing txs when trying to create proposal.",
-		}, labels).With(labelsAndValues...),
-		MissingTxs: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, nil),
+		MissingTxs: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "missing_txs",
 			Help:      "Number of missing txs when a proposal is received",
-		}, append(labels, "proposer_address")).With(labelsAndValues...),
-		QuorumPrevoteDelay: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, []string{"proposer_address"}),
+		QuorumPrevoteDelay: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "quorum_prevote_delay",
 			Help:      "Interval in seconds between the proposal timestamp and the timestamp of the earliest prevote that achieved a quorum.",
-		}, append(labels, "proposer_address")).With(labelsAndValues...),
-		FullPrevoteDelay: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, []string{"proposer_address"}),
+		FullPrevoteDelay: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "full_prevote_delay",
 			Help:      "Interval in seconds between the proposal timestamp and the timestamp of the latest prevote in a round where all validators voted.",
-		}, append(labels, "proposer_address")).With(labelsAndValues...),
-		ProposalTimestampDifference: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+		}, []string{"proposer_address"}),
+		ProposalTimestampDifference: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_timestamp_difference",
 			Help:      "Difference between the timestamp in the proposal message and the local time of the validator at the time it received the message.",
-
-			Buckets: []float64{-10, -.5, -.025, 0, .1, .5, 1, 1.5, 2, 10},
-		}, append(labels, "is_timely")).With(labelsAndValues...),
-		ProposalReceiveCount: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Buckets:   []float64{-10, -.5, -.025, 0, .1, .5, 1, 1.5, 2, 10},
+		}, []string{"is_timely"}),
+		ProposalReceiveCount: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_receive_count",
 			Help:      "Total number of proposals received by the node since process start labeled by application response status.",
-		}, append(labels, "status")).With(labelsAndValues...),
-		ProposalCreateCount: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+		}, []string{"status"}),
+		ProposalCreateCount: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "proposal_create_count",
 			Help:      "Total number of proposals created by the node since process start.",
-		}, labels).With(labelsAndValues...),
-		RoundVotingPowerPercent: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, nil),
+		RoundVotingPowerPercent: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "round_voting_power_percent",
 			Help:      "A value between 0 and 1.0 representing the percentage of the total voting power per vote type received within a round.",
-		}, append(labels, "vote_type")).With(labelsAndValues...),
-		LateVotes: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+		}, []string{"vote_type"}),
+		LateVotes: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "late_votes",
 			Help:      "Number of votes received by the node since process start that correspond to earlier heights and rounds than this node is currently in.",
-		}, append(labels, "validator_address")).With(labelsAndValues...),
-		FinalRound: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+		}, []string{"validator_address"}),
+		FinalRound: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "final_round",
 			Help:      "The final round number for where the proposal block reach consensus in, starting at 0.",
-
-			Buckets: []float64{0, 1, 2, 3, 5, 10},
-		}, append(labels, "proposer_address")).With(labelsAndValues...),
-		ProposeLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Buckets:   []float64{0, 1, 2, 3, 5, 10},
+		}, []string{"proposer_address"}),
+		ProposeLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "propose_latency",
 			Help:      "Number of seconds from when the consensus round started till the proposal receive time",
-
-			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
-		}, append(labels, "proposer_address")).With(labelsAndValues...),
-		PrevoteLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.ExponentialBucketsRange(0.01, 10, 10),
+		}, []string{"proposer_address"}),
+		PrevoteLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "prevote_latency",
 			Help:      "Number of seconds from when first prevote arrive till other remaining prevote arrives for each validator",
-
-			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
-		}, append(labels, "validator_address")).With(labelsAndValues...),
-		ConsensusTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.ExponentialBucketsRange(0.01, 10, 10),
+		}, []string{"validator_address"}),
+		ConsensusTime: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "consensus_time",
 			Help:      "Number of seconds spent on consensus",
-
-			Buckets: stdprometheus.ExponentialBuckets(0.01, 1.3, 25),
-		}, labels).With(labelsAndValues...),
-		CompleteProposalTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.ExponentialBuckets(0.01, 1.3, 25),
+		}, nil),
+		CompleteProposalTime: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "complete_proposal_time",
 			Help:      "CompleteProposalTime measures how long it takes between receiving a proposal and finishing processing all of its parts. Note that this means it also includes network latency from block parts gossip",
-
-			Buckets: stdprometheus.ExponentialBuckets(0.01, 1.3, 25),
-		}, labels).With(labelsAndValues...),
-		ApplyBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.ExponentialBuckets(0.01, 1.3, 25),
+		}, nil),
+		ApplyBlockLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "apply_block_latency",
 			Help:      "ApplyBlockLatency measures how long it takes to execute ApplyBlock in finalize commit step",
-
-			Buckets: stdprometheus.ExponentialBuckets(0.01, 1.3, 25),
-		}, labels).With(labelsAndValues...),
-		StepLatency: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.ExponentialBuckets(0.01, 1.3, 25),
+		}, nil),
+		StepLatency: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "step_latency",
 			Help:      "",
-		}, append(labels, "step")).With(labelsAndValues...),
-		StepCount: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
+		}, []string{"step"}),
+		StepCount: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "step_count",
 			Help:      "",
-		}, append(labels, "step")).With(labelsAndValues...),
+		}, []string{"step"}),
 	}
 }
 
-func NopMetrics() *Metrics {
-	return &Metrics{
-		Height:                        discard.NewGauge(),
-		ValidatorLastSignedHeight:     discard.NewGauge(),
-		Rounds:                        discard.NewGauge(),
-		RoundDuration:                 discard.NewHistogram(),
-		Validators:                    discard.NewGauge(),
-		ValidatorsPower:               discard.NewGauge(),
-		ValidatorPower:                discard.NewGauge(),
-		ValidatorMissedBlocks:         discard.NewGauge(),
-		MissingValidators:             discard.NewGauge(),
-		MissingValidatorsPower:        discard.NewGauge(),
-		ByzantineValidators:           discard.NewGauge(),
-		ByzantineValidatorsPower:      discard.NewGauge(),
-		BlockIntervalSeconds:          discard.NewHistogram(),
-		NumTxs:                        discard.NewGauge(),
-		BlockSizeBytes:                discard.NewHistogram(),
-		TotalTxs:                      discard.NewGauge(),
-		CommittedHeight:               discard.NewGauge(),
-		BlockSyncing:                  discard.NewGauge(),
-		StateSyncing:                  discard.NewGauge(),
-		BlockParts:                    discard.NewCounter(),
-		StepDuration:                  discard.NewHistogram(),
-		BlockGossipReceiveLatency:     discard.NewHistogram(),
-		BlockGossipPartsReceived:      discard.NewCounter(),
-		ProposalBlockCreatedOnPropose: discard.NewCounter(),
-		ProposalTxs:                   discard.NewGauge(),
-		ProposalMissingTxs:            discard.NewGauge(),
-		MissingTxs:                    discard.NewGauge(),
-		QuorumPrevoteDelay:            discard.NewGauge(),
-		FullPrevoteDelay:              discard.NewGauge(),
-		ProposalTimestampDifference:   discard.NewHistogram(),
-		ProposalReceiveCount:          discard.NewCounter(),
-		ProposalCreateCount:           discard.NewCounter(),
-		RoundVotingPowerPercent:       discard.NewGauge(),
-		LateVotes:                     discard.NewCounter(),
-		FinalRound:                    discard.NewHistogram(),
-		ProposeLatency:                discard.NewHistogram(),
-		PrevoteLatency:                discard.NewHistogram(),
-		ConsensusTime:                 discard.NewHistogram(),
-		CompleteProposalTime:          discard.NewHistogram(),
-		ApplyBlockLatency:             discard.NewHistogram(),
-		StepLatency:                   discard.NewGauge(),
-		StepCount:                     discard.NewGauge(),
-	}
+func (m *Metrics) HeightAt() *tmprometheus.GaugeInt {
+	return m.Height.WithLabelValues()
+}
+
+func (m *Metrics) ValidatorLastSignedHeightAt(validator_address string) *tmprometheus.GaugeInt {
+	return m.ValidatorLastSignedHeight.WithLabelValues(validator_address)
+}
+
+func (m *Metrics) RoundsAt() *tmprometheus.GaugeInt {
+	return m.Rounds.WithLabelValues()
+}
+
+func (m *Metrics) RoundDurationAt() *tmprometheus.Histogram {
+	return m.RoundDuration.WithLabelValues()
+}
+
+func (m *Metrics) ValidatorsAt() *tmprometheus.GaugeInt {
+	return m.Validators.WithLabelValues()
+}
+
+func (m *Metrics) ValidatorsPowerAt() *tmprometheus.GaugeInt {
+	return m.ValidatorsPower.WithLabelValues()
+}
+
+func (m *Metrics) ValidatorPowerAt(validator_address string) *tmprometheus.GaugeInt {
+	return m.ValidatorPower.WithLabelValues(validator_address)
+}
+
+func (m *Metrics) ValidatorMissedBlocksAt(validator_address string) *tmprometheus.GaugeInt {
+	return m.ValidatorMissedBlocks.WithLabelValues(validator_address)
+}
+
+func (m *Metrics) MissingValidatorsAt() *tmprometheus.GaugeInt {
+	return m.MissingValidators.WithLabelValues()
+}
+
+func (m *Metrics) MissingValidatorsPowerAt(validator_address string) *tmprometheus.GaugeInt {
+	return m.MissingValidatorsPower.WithLabelValues(validator_address)
+}
+
+func (m *Metrics) ByzantineValidatorsAt() *tmprometheus.GaugeInt {
+	return m.ByzantineValidators.WithLabelValues()
+}
+
+func (m *Metrics) ByzantineValidatorsPowerAt() *tmprometheus.GaugeInt {
+	return m.ByzantineValidatorsPower.WithLabelValues()
+}
+
+func (m *Metrics) BlockIntervalSecondsAt() *tmprometheus.Histogram {
+	return m.BlockIntervalSeconds.WithLabelValues()
+}
+
+func (m *Metrics) NumTxsAt() *tmprometheus.GaugeInt {
+	return m.NumTxs.WithLabelValues()
+}
+
+func (m *Metrics) BlockSizeBytesAt() *tmprometheus.Histogram {
+	return m.BlockSizeBytes.WithLabelValues()
+}
+
+func (m *Metrics) TotalTxsAt() *tmprometheus.GaugeInt {
+	return m.TotalTxs.WithLabelValues()
+}
+
+func (m *Metrics) CommittedHeightAt() *tmprometheus.GaugeInt {
+	return m.CommittedHeight.WithLabelValues()
+}
+
+func (m *Metrics) BlockSyncingAt() *tmprometheus.GaugeInt {
+	return m.BlockSyncing.WithLabelValues()
+}
+
+func (m *Metrics) StateSyncingAt() *tmprometheus.GaugeInt {
+	return m.StateSyncing.WithLabelValues()
+}
+
+func (m *Metrics) BlockPartsAt(peer_id string) *tmprometheus.CounterInt {
+	return m.BlockParts.WithLabelValues(peer_id)
+}
+
+func (m *Metrics) StepDurationAt(step string) *tmprometheus.Histogram {
+	return m.StepDuration.WithLabelValues(step)
+}
+
+func (m *Metrics) BlockGossipReceiveLatencyAt() *tmprometheus.Histogram {
+	return m.BlockGossipReceiveLatency.WithLabelValues()
+}
+
+func (m *Metrics) BlockGossipPartsReceivedAt(matches_current string) *tmprometheus.CounterInt {
+	return m.BlockGossipPartsReceived.WithLabelValues(matches_current)
+}
+
+func (m *Metrics) ProposalBlockCreatedOnProposeAt(success string) *tmprometheus.CounterInt {
+	return m.ProposalBlockCreatedOnPropose.WithLabelValues(success)
+}
+
+func (m *Metrics) ProposalTxsAt() prometheus.Gauge {
+	return m.ProposalTxs.WithLabelValues()
+}
+
+func (m *Metrics) ProposalMissingTxsAt() *tmprometheus.GaugeInt {
+	return m.ProposalMissingTxs.WithLabelValues()
+}
+
+func (m *Metrics) MissingTxsAt(proposer_address string) prometheus.Gauge {
+	return m.MissingTxs.WithLabelValues(proposer_address)
+}
+
+func (m *Metrics) QuorumPrevoteDelayAt(proposer_address string) prometheus.Gauge {
+	return m.QuorumPrevoteDelay.WithLabelValues(proposer_address)
+}
+
+func (m *Metrics) FullPrevoteDelayAt(proposer_address string) prometheus.Gauge {
+	return m.FullPrevoteDelay.WithLabelValues(proposer_address)
+}
+
+func (m *Metrics) ProposalTimestampDifferenceAt(is_timely string) *tmprometheus.Histogram {
+	return m.ProposalTimestampDifference.WithLabelValues(is_timely)
+}
+
+func (m *Metrics) ProposalReceiveCountAt(status string) *tmprometheus.CounterInt {
+	return m.ProposalReceiveCount.WithLabelValues(status)
+}
+
+func (m *Metrics) ProposalCreateCountAt() *tmprometheus.CounterInt {
+	return m.ProposalCreateCount.WithLabelValues()
+}
+
+func (m *Metrics) RoundVotingPowerPercentAt(vote_type string) prometheus.Gauge {
+	return m.RoundVotingPowerPercent.WithLabelValues(vote_type)
+}
+
+func (m *Metrics) LateVotesAt(validator_address string) *tmprometheus.CounterInt {
+	return m.LateVotes.WithLabelValues(validator_address)
+}
+
+func (m *Metrics) FinalRoundAt(proposer_address string) *tmprometheus.Histogram {
+	return m.FinalRound.WithLabelValues(proposer_address)
+}
+
+func (m *Metrics) ProposeLatencyAt(proposer_address string) *tmprometheus.Histogram {
+	return m.ProposeLatency.WithLabelValues(proposer_address)
+}
+
+func (m *Metrics) PrevoteLatencyAt(validator_address string) *tmprometheus.Histogram {
+	return m.PrevoteLatency.WithLabelValues(validator_address)
+}
+
+func (m *Metrics) ConsensusTimeAt() *tmprometheus.Histogram {
+	return m.ConsensusTime.WithLabelValues()
+}
+
+func (m *Metrics) CompleteProposalTimeAt() *tmprometheus.Histogram {
+	return m.CompleteProposalTime.WithLabelValues()
+}
+
+func (m *Metrics) ApplyBlockLatencyAt() *tmprometheus.Histogram {
+	return m.ApplyBlockLatency.WithLabelValues()
+}
+
+func (m *Metrics) StepLatencyAt(step string) prometheus.Gauge {
+	return m.StepLatency.WithLabelValues(step)
+}
+
+func (m *Metrics) StepCountAt(step string) *tmprometheus.GaugeInt {
+	return m.StepCount.WithLabelValues(step)
 }

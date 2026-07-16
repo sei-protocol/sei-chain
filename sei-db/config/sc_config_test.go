@@ -39,3 +39,16 @@ func TestDefaultStateCommitConfigWriteMode(t *testing.T) {
 	require.Equal(t, types.MemiavlOnly, cfg.WriteMode)
 	require.True(t, cfg.WriteModeEnableAuto)
 }
+
+func TestParseSCWriteMode(t *testing.T) {
+	parsed, err := ParseSCWriteMode("cosmos_only")
+	require.NoError(t, err)
+	require.Equal(t, types.MemiavlOnly, parsed)
+
+	parsed, err = ParseSCWriteMode("migrate_evm")
+	require.NoError(t, err)
+	require.Equal(t, types.MigrateEVM, parsed)
+
+	_, err = ParseSCWriteMode("bogus")
+	require.Error(t, err)
+}
