@@ -50,7 +50,7 @@ func (a CompressionAlgorithm) String() string {
 }
 
 // Compress returns the compressed form of src using the given algorithm. For CompressionNone it returns
-// src unchanged. The returned slice is a freshly allocated buffer that does not alias src.
+// src unchanged (the result may alias src). The caller must not mutate src or the returned slice.
 func Compress(algorithm CompressionAlgorithm, src []byte) ([]byte, error) {
 	switch algorithm {
 	case CompressionNone:
@@ -63,7 +63,8 @@ func Compress(algorithm CompressionAlgorithm, src []byte) ([]byte, error) {
 }
 
 // Decompress returns the decompressed form of src, which must have been produced by Compress with the
-// same algorithm. For CompressionNone it returns src unchanged.
+// same algorithm. For CompressionNone it returns src unchanged (the result may alias src). The caller
+// must not mutate src or the returned slice.
 func Decompress(algorithm CompressionAlgorithm, src []byte) ([]byte, error) {
 	switch algorithm {
 	case CompressionNone:

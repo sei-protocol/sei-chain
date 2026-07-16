@@ -146,7 +146,10 @@ func (it *forwardIterator) GetValue() (value []byte, err error) {
 	//
 	// This optimization is invalid for compressed segments: there addr.ValueSize() is the compressed blob
 	// length while groupValue holds the decompressed value, so the sub-slice arithmetic would be wrong.
-	// Fall through to a direct read (which decompresses) instead.
+	// Fall through to a direct read (which decompresses) instead. That re-reads and re-decodes the blob
+	// rather than reusing the primary's decoded value, but this path is intentionally not optimized: the
+	// only legal secondary on a compressed segment is a full-value alias, so reading its value returns the
+	// same bytes as the primary — a redundant workload not worth extra machinery.
 	if !it.currentSeg.IsCompressed() && it.groupValid && it.secondaryWithinGroup(addr) {
 		if it.groupValue == nil {
 			v, err := reader.Read(it.groupAddr)
