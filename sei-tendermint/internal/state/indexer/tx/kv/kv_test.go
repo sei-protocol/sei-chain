@@ -493,17 +493,17 @@ func TestTxSearchBounded(t *testing.T) {
 	})
 }
 
-// countingDB wraps a dbm.DB and counts point lookups (Has) so a test can assert
-// that a bounded scan point-probes only the candidates in its driver prefix
-// rather than every row in the full match set.
+// countingDB wraps a dbm.DB and counts point lookups (Get) so a test can
+// assert that a bounded scan point-probes only the candidates in its driver
+// prefix rather than every row in the full match set.
 type countingDB struct {
 	dbm.DB
-	hasCount int
+	getCount int
 }
 
-func (c *countingDB) Has(key []byte) (bool, error) {
-	c.hasCount++
-	return c.DB.Has(key)
+func (c *countingDB) Get(key []byte) ([]byte, error) {
+	c.getCount++
+	return c.DB.Get(key)
 }
 
 // cancelAfterGetDB wraps a dbm.DB and cancels a context on the after-th primary
@@ -546,7 +546,7 @@ func TestTxSearchBoundedPrefersHeightDriver(t *testing.T) {
 		require.NoError(t, idx.Index([]*abci.TxResultV2{res}))
 	}
 
-	store.hasCount = 0
+	store.getCount = 0
 	results, err := idx.Search(
 		t.Context(),
 		query.MustCompile(`sender.addr = 'addr1' AND tx.height = 7`),
@@ -557,7 +557,9 @@ func TestTxSearchBoundedPrefersHeightDriver(t *testing.T) {
 	// Correctness: only the height-7 tx matches.
 	require.Len(t, results, 1)
 	require.Equal(t, int64(7), results[0].Height)
-	require.Equal(t, 1, store.hasCount, "bounded scan probed %d times; must probe only block-7 candidates, not every sender.addr row", store.hasCount)
+	// One Get to probe sender.addr for the single block-7 candidate, plus one
+	// Get to fetch the matched tx by hash.
+	require.Equal(t, 2, store.getCount, "bounded scan issued %d point lookups; must probe only block-7 candidates, not every sender.addr row", store.getCount)
 }
 
 func txResultWithEvents(events []abci.Event) *abci.TxResultV2 {

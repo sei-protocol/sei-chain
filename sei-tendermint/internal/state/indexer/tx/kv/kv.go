@@ -1,6 +1,7 @@
 package kv
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -318,7 +319,7 @@ func (txi *TxIndex) searchBounded(ctx context.Context, plan boundedPlan, opts in
 			continue
 		}
 
-		match, err := txi.candidateMatches(height, index, plan)
+		match, err := txi.candidateMatches(height, index, hash, plan)
 		if err != nil {
 			return nil, err
 		}
@@ -350,10 +351,8 @@ func (txi *TxIndex) searchBounded(ctx context.Context, plan boundedPlan, opts in
 }
 
 // candidateMatches reports whether the tx at (height, index) satisfies every
-// non-driver condition in the plan: tx.height range bounds are evaluated
-// directly from height, and equality probes are tested with a single point
-// lookup against the event index.
-func (txi *TxIndex) candidateMatches(height int64, index uint32, plan boundedPlan) (bool, error) {
+// non-driver condition in the plan, verifying probes against hash.
+func (txi *TxIndex) candidateMatches(height int64, index uint32, hash []byte, plan boundedPlan) (bool, error) {
 	for i := range plan.heightRanges {
 		if !indexer.HeightInRange(height, plan.heightRanges[i]) {
 			return false, nil
@@ -362,11 +361,11 @@ func (txi *TxIndex) candidateMatches(height int64, index uint32, plan boundedPla
 
 	for i := range plan.equalityProbes {
 		c := plan.equalityProbes[i]
-		ok, err := txi.store.Has(secondaryKey(c.Tag, c.Arg.Value(), height, index))
+		got, err := txi.store.Get(secondaryKey(c.Tag, c.Arg.Value(), height, index))
 		if err != nil {
 			return false, err
 		}
-		if !ok {
+		if !bytes.Equal(got, hash) {
 			return false, nil
 		}
 	}
