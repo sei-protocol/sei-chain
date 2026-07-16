@@ -3,12 +3,9 @@ package p2p
 import (
 	"context"
 	"testing"
-	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -58,29 +55,4 @@ func TestCommitHashToVault(t *testing.T) {
 		err := commitAppHashToVault(ctx, vault, height, h2)
 		require.Error(t, err)
 	})
-}
-
-func TestApplyBlockDBConfig(t *testing.T) {
-	cfg, err := littblock.DefaultConfig(t.TempDir())
-	require.NoError(t, err)
-	require.Equal(t, 24*time.Hour, cfg.Retention)
-	require.True(t, cfg.Litt.Fsync)
-
-	cfg.Litt.Fsync = false
-	applyBlockDBConfig(cfg, BlockDBConfig{
-		Retention: utils.Some(30 * time.Second),
-		GCPeriod:  utils.Some(5 * time.Second),
-	})
-	require.Equal(t, 30*time.Second, cfg.Retention)
-	require.Equal(t, 5*time.Second, cfg.Litt.GCPeriod)
-	require.True(t, cfg.Litt.Fsync)
-
-	// Zero Retention/GCPeriod overrides leave those fields unchanged; fsync stays on.
-	beforeRetention := cfg.Retention
-	beforeGC := cfg.Litt.GCPeriod
-	cfg.Litt.Fsync = false
-	applyBlockDBConfig(cfg, BlockDBConfig{})
-	require.Equal(t, beforeRetention, cfg.Retention)
-	require.Equal(t, beforeGC, cfg.Litt.GCPeriod)
-	require.True(t, cfg.Litt.Fsync)
 }

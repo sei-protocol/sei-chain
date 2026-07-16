@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -120,4 +121,25 @@ func (c AutobahnBlockDBConfig) Validate() error {
 		return errors.New("gc_period must be > 0 when set")
 	}
 	return nil
+}
+
+// LittBlockConfig returns littblock.DefaultConfig(dir) with this config's
+// optional overrides applied. Fsync is always forced on.
+func (c AutobahnBlockDBConfig) LittBlockConfig(dir string) (littblock.LittBlockConfig, error) {
+	if err := c.Validate(); err != nil {
+		return littblock.LittBlockConfig{}, err
+	}
+	cfg, err := littblock.DefaultConfig(dir)
+	if err != nil {
+		return littblock.LittBlockConfig{}, fmt.Errorf("littblock.DefaultConfig: %w", err)
+	}
+	if r, ok := c.Retention.Get(); ok {
+		cfg.Retention = r.Duration()
+	}
+	if p, ok := c.GCPeriod.Get(); ok {
+		cfg.Litt.GCPeriod = p.Duration()
+	}
+	// NOT SAFE to set false: crash can lose acknowledged BlockDB writes.
+	cfg.Litt.Fsync = true
+	return *cfg, nil
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -249,7 +250,6 @@ func buildValidatorGigaConfig(
 			DialInterval:            time.Duration(fc.DialInterval),
 			ValidatorAddrs:          validatorAddrs,
 			PersistentStateDir:      fc.PersistentStateDir,
-			BlockDB:                 mapBlockDBConfig(fc.BlockDB),
 			App:                     app,
 			GenDoc:                  genDoc,
 			MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
@@ -288,7 +288,7 @@ func buildGigaRouter(
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 ) (p2p.GigaRouter, atypes.BlockDB, error) {
-	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
+	fc, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -316,7 +316,7 @@ func buildGigaRouter(
 		if err != nil {
 			return nil, nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
 		}
-		if err := preparePersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig); err != nil {
+		if err := preparePersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig, fc.BlockDB); err != nil {
 			return nil, nil, err
 		}
 		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
@@ -338,7 +338,7 @@ func buildGigaRouter(
 	if err != nil {
 		return nil, nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
-	if err := preparePersistentStateDir(cfg.RootDir, fnCfg); err != nil {
+	if err := preparePersistentStateDir(cfg.RootDir, fnCfg, fc.BlockDB); err != nil {
 		return nil, nil, err
 	}
 	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
@@ -361,11 +361,13 @@ func buildGigaRouter(
 // the node's --home dir (mirrors config.go's rootify) and creates it if absent.
 // Some("") is treated as None (in-memory / disabled): JSON unmarshals a literal
 // empty string as present, which would otherwise Join to rootDir and silently
-// enable durable BlockDB + HashVault.
-func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) error {
+// enable durable BlockDB + HashVault. When the dir is enabled, blockDBCfg is
+// resolved into c.LittBlockConfig (defaults + overlays, fsync forced on).
+func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig, blockDBCfg config.AutobahnBlockDBConfig) error {
 	dir, ok := c.PersistentStateDir.Get()
 	if !ok || dir == "" {
 		c.PersistentStateDir = utils.None[string]()
+		c.LittBlockConfig = littblock.LittBlockConfig{}
 		return nil
 	}
 	if !filepath.IsAbs(dir) {
@@ -375,6 +377,11 @@ func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) er
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("creating persistent state dir %q: %w", dir, err)
 	}
+	littCfg, err := blockDBCfg.LittBlockConfig(filepath.Join(dir, "blockdb"))
+	if err != nil {
+		return fmt.Errorf("block_db: %w", err)
+	}
+	c.LittBlockConfig = littCfg
 	return nil
 }
 
@@ -419,20 +426,10 @@ func buildFullnodeGigaConfig(
 		DialInterval:            time.Duration(fc.DialInterval),
 		ValidatorAddrs:          validatorAddrs,
 		PersistentStateDir:      fc.PersistentStateDir,
-		BlockDB:                 mapBlockDBConfig(fc.BlockDB),
 		App:                     app,
 		GenDoc:                  genDoc,
 		MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(fc.MaxInboundFullnodePeers),
 	}, nil
-}
-
-// mapBlockDBConfig converts Autobahn JSON BlockDB overrides into the
-// in-process GigaRouter form. Zero value ⇒ littblock defaults.
-func mapBlockDBConfig(fc config.AutobahnBlockDBConfig) p2p.BlockDBConfig {
-	return p2p.BlockDBConfig{
-		Retention: utils.MapOpt(fc.Retention, func(d utils.Duration) time.Duration { return d.Duration() }),
-		GCPeriod:  utils.MapOpt(fc.GCPeriod, func(d utils.Duration) time.Duration { return d.Duration() }),
-	}
 }
 
 func createRouter(

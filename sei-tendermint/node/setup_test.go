@@ -101,6 +101,7 @@ func TestBuildGigaConfig_NonePersistentStateDir(t *testing.T) {
 func TestBuildGigaConfig_BlockDBOverrides(t *testing.T) {
 	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
 	fc := defaultFileConfig(t, []config.AutobahnValidator{v1})
+	fc.PersistentStateDir = utils.Some("data/autobahn")
 	fc.BlockDB = config.AutobahnBlockDBConfig{
 		Retention: utils.Some(utils.Duration(30 * time.Second)),
 		GCPeriod:  utils.Some(utils.Duration(5 * time.Second)),
@@ -112,13 +113,17 @@ func TestBuildGigaConfig_BlockDBOverrides(t *testing.T) {
 
 	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)
-	assert.Equal(t, utils.Some(30*time.Second), result.BlockDB.Retention)
-	assert.Equal(t, utils.Some(5*time.Second), result.BlockDB.GCPeriod)
+	require.NoError(t, preparePersistentStateDir(t.TempDir(), &result.GigaRouterCommonConfig, fc.BlockDB))
+	require.NotNil(t, result.LittBlockConfig.Litt)
+	assert.Equal(t, 30*time.Second, result.LittBlockConfig.Retention)
+	assert.Equal(t, 5*time.Second, result.LittBlockConfig.Litt.GCPeriod)
+	assert.True(t, result.LittBlockConfig.Litt.Fsync)
 }
 
-func TestBuildGigaConfig_BlockDBOmittedKeepsZeroOverrides(t *testing.T) {
+func TestBuildGigaConfig_BlockDBOmittedKeepsDefaults(t *testing.T) {
 	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
 	fc := defaultFileConfig(t, []config.AutobahnValidator{v1})
+	fc.PersistentStateDir = utils.Some("data/autobahn")
 	cfgFile := writeAutobahnConfig(t, fc)
 	nodeKey := makeTestNodeKey([]byte("node-seed"))
 	valKey := makeTestValidatorKey([]byte("val-seed"))
@@ -126,8 +131,10 @@ func TestBuildGigaConfig_BlockDBOmittedKeepsZeroOverrides(t *testing.T) {
 
 	result, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)
-	assert.False(t, result.BlockDB.Retention.IsPresent())
-	assert.False(t, result.BlockDB.GCPeriod.IsPresent())
+	require.NoError(t, preparePersistentStateDir(t.TempDir(), &result.GigaRouterCommonConfig, fc.BlockDB))
+	require.NotNil(t, result.LittBlockConfig.Litt)
+	assert.Equal(t, 24*time.Hour, result.LittBlockConfig.Retention)
+	assert.True(t, result.LittBlockConfig.Litt.Fsync)
 }
 
 func TestBuildGigaConfig_EmptyPathErrors(t *testing.T) {
@@ -326,7 +333,8 @@ func TestPreparePersistentStateDir_EmptyStringIsNone(t *testing.T) {
 	cfg := &p2p.GigaRouterCommonConfig{
 		PersistentStateDir: utils.Some(""),
 	}
-	require.NoError(t, preparePersistentStateDir(t.TempDir(), cfg))
+	require.NoError(t, preparePersistentStateDir(t.TempDir(), cfg, config.AutobahnBlockDBConfig{}))
 	_, ok := cfg.PersistentStateDir.Get()
 	require.False(t, ok, "Some(\"\") must be cleared to None for in-memory mode")
+	require.Nil(t, cfg.LittBlockConfig.Litt)
 }

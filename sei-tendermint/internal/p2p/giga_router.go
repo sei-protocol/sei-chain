@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -26,14 +27,6 @@ func (a GigaNodeAddr) String() string {
 	return fmt.Sprintf("%v@%v", a.Key, a.HostPort)
 }
 
-// BlockDBConfig holds optional overrides applied onto littblock.DefaultConfig
-// when opening a durable BlockDB. Absent fields keep littblock defaults.
-// Paths are always derived from PersistentStateDir — never set here.
-type BlockDBConfig struct {
-	Retention utils.Option[time.Duration]
-	GCPeriod  utils.Option[time.Duration]
-}
-
 // GigaRouterCommonConfig is the slice of giga config shared by both
 // validator and fullnode constructors.
 type GigaRouterCommonConfig struct {
@@ -44,9 +37,10 @@ type GigaRouterCommonConfig struct {
 	// hashvault, and the validator's consensus persister in sibling subdirs).
 	// If None, persistence is disabled and the node runs fully in-memory.
 	PersistentStateDir utils.Option[string]
-	// BlockDB optionally overrides littblock defaults when PersistentStateDir
-	// is set. Zero value keeps littblock.DefaultConfig unchanged.
-	BlockDB BlockDBConfig
+	// LittBlockConfig is the resolved config used when PersistentStateDir is
+	// set. Callers must populate it via AutobahnBlockDBConfig.LittBlockConfig
+	// (node.preparePersistentStateDir in production) before BuildDataState.
+	LittBlockConfig littblock.LittBlockConfig
 	// App is the ABCI proxy executeBlock drives. NewGigaValidatorRouter
 	// also passes it to producer.NewState so the producer's internal
 	// mempool drives the same proxy.

@@ -84,13 +84,9 @@ func BuildDataState(cfg *GigaRouterCommonConfig) (*data.State, atypes.BlockDB, e
 		return nil, nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
 	var blockDB atypes.BlockDB
-	if dir, ok := cfg.PersistentStateDir.Get(); ok {
-		blockCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
-		if err != nil {
-			return nil, nil, fmt.Errorf("littblock.DefaultConfig: %w", err)
-		}
-		applyBlockDBConfig(blockCfg, cfg.BlockDB)
-		blockDB, err = littblock.NewBlockDB(blockCfg)
+	if _, ok := cfg.PersistentStateDir.Get(); ok {
+		var err error
+		blockDB, err = littblock.NewBlockDB(&cfg.LittBlockConfig)
 		if err != nil {
 			return nil, nil, fmt.Errorf("open BlockDB: %w", err)
 		}
@@ -103,19 +99,6 @@ func BuildDataState(cfg *GigaRouterCommonConfig) (*data.State, atypes.BlockDB, e
 		return nil, nil, fmt.Errorf("data.NewState: %w", err)
 	}
 	return ds, blockDB, nil
-}
-
-// applyBlockDBConfig overlays optional Autobahn overrides onto a littblock
-// DefaultConfig. Paths are left untouched.
-func applyBlockDBConfig(dst *littblock.LittBlockConfig, src BlockDBConfig) {
-	if r, ok := src.Retention.Get(); ok {
-		dst.Retention = r
-	}
-	if p, ok := src.GCPeriod.Get(); ok {
-		dst.Litt.GCPeriod = p
-	}
-	// NOT SAFE to set false: crash can lose acknowledged BlockDB writes.
-	dst.Litt.Fsync = true
 }
 
 func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {

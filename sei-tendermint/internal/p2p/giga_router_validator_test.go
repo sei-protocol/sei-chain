@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -62,11 +64,18 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			proxyApp := proxy.New(app)
 			// In giga mode the CometBFT handshaker is skipped; the router's
 			// runExecute calls InitChain itself on fresh start.
+			dir := t.TempDir()
+			// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
+			// (zero overrides); p2p can't import config (import cycle).
+			littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+			require.NoError(t, err, "littblock.DefaultConfig[%v]", i)
+			littCfg.Litt.Fsync = true
 			commonCfg := GigaRouterCommonConfig{
 				// Aggressive dialing rate to speed up startup.
 				DialInterval:       100 * time.Millisecond,
 				ValidatorAddrs:     addrs,
-				PersistentStateDir: utils.Some(t.TempDir()),
+				PersistentStateDir: utils.Some(dir),
+				LittBlockConfig:    *littCfg,
 				App:                proxyApp,
 				GenDoc:             genDoc,
 			}
@@ -224,10 +233,17 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
+	dir := t.TempDir()
+	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
+	// (zero overrides); p2p can't import config (import cycle).
+	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+	require.NoError(t, err)
+	littCfg.Litt.Fsync = true
 	commonCfg := GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
-		PersistentStateDir: utils.Some(t.TempDir()),
+		PersistentStateDir: utils.Some(dir),
+		LittBlockConfig:    *littCfg,
 		App:                proxy.New(newTestApp()),
 		GenDoc:             genDoc,
 	}
