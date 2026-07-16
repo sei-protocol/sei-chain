@@ -68,19 +68,19 @@ func TestParseEVMKey(t *testing.T) {
 		{
 			name:      "EVMAddressToSeiAddress goes to Legacy",
 			key:       concat(testEVMAddrToSeiPrefix, addr),
-			wantKind:  EVMKeyLegacy,
+			wantKind:  EVMKeyMisc,
 			wantBytes: concat(testEVMAddrToSeiPrefix, addr), // Full key preserved
 		},
 		{
 			name:      "SeiAddressToEVMAddress goes to Legacy",
 			key:       concat(testSeiAddrToEVMPrefix, addr),
-			wantKind:  EVMKeyLegacy,
+			wantKind:  EVMKeyMisc,
 			wantBytes: concat(testSeiAddrToEVMPrefix, addr), // Full key preserved
 		},
 		{
 			name:      "UnknownPrefix goes to Legacy",
 			key:       []byte{0xFF, 0xAA},
-			wantKind:  EVMKeyLegacy,
+			wantKind:  EVMKeyMisc,
 			wantBytes: []byte{0xFF, 0xAA}, // Full key preserved
 		},
 		{
@@ -92,31 +92,31 @@ func TestParseEVMKey(t *testing.T) {
 		{
 			name:      "NonceTooShort goes to Legacy",
 			key:       nonceKeyPrefix,
-			wantKind:  EVMKeyLegacy,
+			wantKind:  EVMKeyMisc,
 			wantBytes: nonceKeyPrefix,
 		},
 		{
 			name:      "NonceWrongLenShort goes to Legacy",
 			key:       concat(nonceKeyPrefix, addr[:AddressLen-1]),
-			wantKind:  EVMKeyLegacy,
+			wantKind:  EVMKeyMisc,
 			wantBytes: concat(nonceKeyPrefix, addr[:AddressLen-1]),
 		},
 		{
 			name:      "NonceWrongLenLong goes to Legacy",
 			key:       concat(nonceKeyPrefix, concat(addr, []byte{0x00})),
-			wantKind:  EVMKeyLegacy,
+			wantKind:  EVMKeyMisc,
 			wantBytes: concat(nonceKeyPrefix, concat(addr, []byte{0x00})),
 		},
 		{
 			name:      "StorageTooShort goes to Legacy",
 			key:       concat(stateKeyPrefix, addr),
-			wantKind:  EVMKeyLegacy,
+			wantKind:  EVMKeyMisc,
 			wantBytes: concat(stateKeyPrefix, addr),
 		},
 		{
 			name:      "StorageWrongLenLong goes to Legacy",
 			key:       concat(concat(concat(stateKeyPrefix, addr), slot), []byte{0x00}),
-			wantKind:  EVMKeyLegacy,
+			wantKind:  EVMKeyMisc,
 			wantBytes: concat(concat(concat(stateKeyPrefix, addr), slot), []byte{0x00}),
 		},
 	}
