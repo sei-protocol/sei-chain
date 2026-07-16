@@ -28,17 +28,16 @@ const (
 	SubmitProposalMethod = "submitProposal"
 )
 
-// Query method names. VoteQueryMethod and DepositQueryMethod are ABI overloads
-// of the vote/deposit transaction methods; the go-ethereum abi package resolves
-// the name conflicts by appending "0" to the later-declared method, so the
-// resolved names below depend on abi.json declaration order.
+// Query method names. The vote/deposit queries are named getVote/getDeposit
+// rather than overloading the vote/deposit transaction methods: overloads
+// break common tooling (e.g. ethers.js refuses ambiguous function names).
 const (
 	ProposalQueryMethod    = "proposal"
 	ProposalsQueryMethod   = "proposals"
-	VoteQueryMethod        = "vote0"
+	VoteQueryMethod        = "getVote"
 	VotesQueryMethod       = "votes"
 	ParamsQueryMethod      = "params"
-	DepositQueryMethod     = "deposit0"
+	DepositQueryMethod     = "getDeposit"
 	DepositsQueryMethod    = "deposits"
 	TallyResultQueryMethod = "tallyResult"
 )

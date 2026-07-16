@@ -152,7 +152,7 @@ interface IGov {
      * @param voter The voter address
      * @return vote The vote details
      */
-    function vote(
+    function getVote(
         uint64 proposalID,
         address voter
     ) external view returns (VoteData memory vote);
@@ -181,7 +181,7 @@ interface IGov {
      * @param depositor The depositor address
      * @return deposit The deposit details
      */
-    function deposit(
+    function getDeposit(
         uint64 proposalID,
         address depositor
     ) external view returns (DepositData memory deposit);
