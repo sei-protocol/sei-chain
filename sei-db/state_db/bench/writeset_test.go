@@ -171,6 +171,38 @@ func TestLoadWriteSetValidates(t *testing.T) {
 	require.ErrorContains(t, err, "unsupported module")
 }
 
+func TestValidateRejectsWrongLengthValue(t *testing.T) {
+	addr := "0x1000000000000000000000000000000000000001"
+
+	// A wrong-length value for a fixed-width kind is rejected up front, so the
+	// benchmark never feeds divergent data to memiavl (permissive) vs FlatKV
+	// (which hard-errors on bad lengths deep inside ApplyChangeSets).
+	for _, tc := range []struct {
+		name  string
+		entry WriteSetEntry
+	}{
+		{"short nonce", WriteSetEntry{Kind: WriteKindNonce, Address: addr, Value: "0x2a000000"}},
+		{"short codehash", WriteSetEntry{Kind: WriteKindCodeHash, Address: addr, Value: "0x2a"}},
+		{"short storage", WriteSetEntry{Kind: WriteKindStorage, Address: addr,
+			Slot: "0x" + hex.EncodeToString(make([]byte, 32)), Value: "0x2a"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := &WriteSet{Blocks: []WriteSetBlock{{Writes: []WriteSetEntry{tc.entry}}}}
+			err := ws.Validate()
+			require.ErrorContains(t, err, "expected")
+			_, err = ws.BlockChangesets(0)
+			require.ErrorContains(t, err, "expected")
+		})
+	}
+
+	// Correctly-sized fixed-width values and unconstrained kinds (code/raw) pass.
+	ws := &WriteSet{Blocks: []WriteSetBlock{{Writes: []WriteSetEntry{
+		{Kind: WriteKindNonce, Address: addr, Value: "0x" + hex.EncodeToString(make([]byte, 8))},
+		{Kind: WriteKindCode, Address: addr, Value: "0x602a60005500"},
+	}}}}
+	require.NoError(t, ws.Validate())
+}
+
 func writeFile(path, contents string) error {
 	return os.WriteFile(path, []byte(contents), 0o600)
 }

@@ -92,7 +92,7 @@ func (ws *WriteSet) Validate() error {
 				return fmt.Errorf("block %d write %d: %w", bi, wi, err)
 			}
 			if !w.Delete {
-				if _, err := decodeHexField("value", w.Value, 0); err != nil {
+				if _, err := decodeEntryValue(w); err != nil {
 					return fmt.Errorf("block %d write %d: %w", bi, wi, err)
 				}
 			}
@@ -122,7 +122,7 @@ func (ws *WriteSet) BlockChangesets(blockIdx int) ([]*proto.NamedChangeSet, erro
 		}
 		pair := &proto.KVPair{Key: key, Delete: w.Delete}
 		if !w.Delete {
-			value, err := decodeHexField("value", w.Value, 0)
+			value, err := decodeEntryValue(w)
 			if err != nil {
 				return nil, fmt.Errorf("block %d write %d: %w", blockIdx, wi, err)
 			}
@@ -172,6 +172,30 @@ func buildEntryKey(w WriteSetEntry) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("unknown write kind %q", w.Kind)
 	}
+}
+
+// valueLenForKind returns the exact byte length a kind's value must have, or 0
+// when the length is unconstrained (code and raw). The fixed widths mirror the
+// FlatKV apply path (vtype.ParseNonce/ParseCodeHash/ParseStorageValue), so a
+// wrong-length value in a hand-authored write-set file is rejected up front by
+// Validate rather than only failing later inside ApplyChangeSets on FlatKV
+// (memiavl stores raw bytes and would silently accept it, breaking the
+// same-write-set-across-backends premise of the benchmark).
+func valueLenForKind(kind string) int {
+	switch kind {
+	case WriteKindNonce:
+		return 8
+	case WriteKindStorage, WriteKindCodeHash:
+		return 32
+	default: // WriteKindCode, WriteKindRaw: unconstrained
+		return 0
+	}
+}
+
+// decodeEntryValue decodes a write entry's value, enforcing the fixed width its
+// kind requires (see valueLenForKind).
+func decodeEntryValue(w WriteSetEntry) ([]byte, error) {
+	return decodeHexField("value", w.Value, valueLenForKind(w.Kind))
 }
 
 // decodeHexField decodes a hex field, tolerating a 0x prefix. wantLen of 0
