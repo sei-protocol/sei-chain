@@ -25,6 +25,15 @@ import (
 //   - balance changes are bank-module writes and are NOT converted; they are
 //     counted in SkippedBalanceChanges so callers can see what was dropped
 //
+// Known v1 fidelity gap: deploying to a previously-unassociated address also
+// writes the Sei<->EVM address mapping (two raw keys, 0x01||evm and 0x02||sei)
+// and creates a Sei account, via x/evm's SetCode -> SetAddressMapping path. Those
+// writes are NOT emitted here because a prestate trace does not reveal the prior
+// association state, so we cannot tell whether the mapping write actually fired
+// (the same reason balance changes are skipped). New-contract deploy replays
+// therefore slightly undercount apply/commit cost; emitting them conditionally
+// is left to a future revision.
+//
 // Addresses and slots are emitted in sorted order so conversion output is
 // deterministic for a given trace.
 
@@ -117,12 +126,21 @@ func ConvertPrestateDiff(data []byte) (*ConvertResult, error) {
 		}
 	}
 
-	// Slots that were zeroed appear in pre but not post: emit deletes.
+	// Slots that were zeroed appear in pre but not post: emit deletes. Membership
+	// is tested on the normalized (padded) slot key because the write pass
+	// normalizes the post slot the same way; comparing raw hex could miss a match
+	// when pre and post encode the same slot differently (padded vs unpadded, 0x
+	// prefix, case), emitting a spurious delete that clobbers the write — deletes
+	// are appended after writes, and both engines apply last-write-wins per key.
 	for _, addr := range sortedKeys(diff.Pre) {
 		pre := diff.Pre[addr]
 		post := diff.Post[addr]
+		postSlots := make(map[string]struct{}, len(post.Storage))
+		for slot := range post.Storage {
+			postSlots[padTo32(slot)] = struct{}{}
+		}
 		for _, slot := range sortedKeys(pre.Storage) {
-			if _, stillSet := post.Storage[slot]; !stillSet {
+			if _, stillSet := postSlots[padTo32(slot)]; !stillSet {
 				writes = append(writes, WriteSetEntry{
 					Kind:    WriteKindStorage,
 					Address: addr,
@@ -160,7 +178,9 @@ func convertStorage(addr string, _, post prestateAccount) []WriteSetEntry {
 }
 
 // convertCode emits the code, codehash, and codesize writes that a contract
-// deployment produces.
+// deployment produces. It deliberately omits the Sei<->EVM address-mapping and
+// account-creation writes that SetCode also performs for a previously
+// unassociated address; see the fidelity-gap note in the file header.
 func convertCode(addr, codeHex string) ([]WriteSetEntry, error) {
 	code, err := hex.DecodeString(strings.TrimPrefix(codeHex, "0x"))
 	if err != nil {

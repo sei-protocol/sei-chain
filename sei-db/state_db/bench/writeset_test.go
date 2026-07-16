@@ -82,6 +82,35 @@ func TestConvertPrestateDiffEmitsDeletes(t *testing.T) {
 	require.Equal(t, 1, deletes, "slot zeroed in post emits a delete")
 }
 
+func TestConvertPrestateDiffNoSpuriousDeleteOnEncodingMismatch(t *testing.T) {
+	// The same slot is unpadded in pre but padded in post. The delete pass must
+	// normalize both before comparing, or it emits a delete that clobbers the
+	// write (last-write-wins), losing the updated value.
+	trace := `{
+      "pre":  {"0x1000000000000000000000000000000000000001": {"storage": {"0x01": "0x2a"}}},
+      "post": {"0x1000000000000000000000000000000000000001": {"storage": {
+        "0x0000000000000000000000000000000000000000000000000000000000000001": "0x2b"}}}
+    }`
+	converted, err := ConvertPrestateDiff([]byte(trace))
+	require.NoError(t, err)
+
+	for _, w := range converted.WriteSet.Blocks[0].Writes {
+		require.False(t, w.Delete, "same slot written in post must not also be deleted")
+	}
+
+	changesets, err := converted.WriteSet.BlockChangesets(0)
+	require.NoError(t, err)
+	var storageWrites int
+	for _, pair := range changesets[0].Changeset.Pairs {
+		if pair.Key[0] == 0x03 {
+			storageWrites++
+			require.False(t, pair.Delete)
+			require.Equal(t, byte(0x2b), pair.Value[31], "updated value survives")
+		}
+	}
+	require.Equal(t, 1, storageWrites)
+}
+
 func TestConvertPrestateDiffCodeDeployment(t *testing.T) {
 	trace := `{
       "pre":  {"0x2000000000000000000000000000000000000002": {}},

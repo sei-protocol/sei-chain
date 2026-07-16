@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -31,9 +32,23 @@ func BenchmarkWriteSetReplay(b *testing.B) {
 
 	for _, backend := range []wrappers.DBType{wrappers.MemIAVL, wrappers.FlatKV} {
 		b.Run(string(backend), func(b *testing.B) {
+			// Accumulate across iterations and report once: b.ReportMetric keeps
+			// only the last value for a given unit, so reporting inside the loop
+			// would surface a single iteration instead of an average over b.N.
+			var totalApply, totalCommit time.Duration
+			var totalKeys int
 			for range b.N {
-				runWriteSetReplay(b, backend, ws)
+				result := runWriteSetReplay(b, backend, ws)
+				totalApply += result.ApplyDuration
+				totalCommit += result.CommitDuration
+				totalKeys += result.Keys
 			}
+			if totalKeys == 0 {
+				return
+			}
+			keys := float64(totalKeys)
+			b.ReportMetric(totalApply.Seconds()/keys*1e9, "apply_ns/key")
+			b.ReportMetric(totalCommit.Seconds()/keys*1e9, "commit_ns/key")
 		})
 	}
 }
@@ -57,7 +72,7 @@ func loadBenchWriteSet(b *testing.B) *WriteSet {
 	return nil
 }
 
-func runWriteSetReplay(b *testing.B, backend wrappers.DBType, ws *WriteSet) {
+func runWriteSetReplay(b *testing.B, backend wrappers.DBType, ws *WriteSet) ReplayResult {
 	b.StopTimer()
 	dbDir := b.TempDir()
 	wrapper, err := OpenReplayWrapper(b.Context(), backend, dbDir)
@@ -80,12 +95,7 @@ func runWriteSetReplay(b *testing.B, backend wrappers.DBType, ws *WriteSet) {
 	b.StopTimer()
 	require.NoError(b, err)
 
-	keys := float64(result.Keys)
-	if keys == 0 {
-		return
-	}
-	b.ReportMetric(result.ApplyDuration.Seconds()/keys*1e9, "apply_ns/key")
-	b.ReportMetric(result.CommitDuration.Seconds()/keys*1e9, "commit_ns/key")
 	fmt.Printf("[Replay %s] blocks=%d keys=%d apply=%s commit=%s\n",
 		backend, result.Blocks, result.Keys, result.ApplyDuration, result.CommitDuration)
+	return result
 }
