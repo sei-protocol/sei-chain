@@ -133,10 +133,9 @@ func (i *inner) insertBlock(committee *types.Committee, n types.GlobalBlockNumbe
 	if _, ok := i.blocks[n]; ok {
 		return nil // already have it (gap fill)
 	}
-	qc, ok := i.qcs[n]
-	if !ok {
-		return nil // evicted or never loaded
-	}
+	// n is in [nextBlock, nextQC); QCs are contiguous and eviction stops below
+	// nextAppProposal <= nextBlock, so qcs[n] is always present.
+	qc := i.qcs[n]
 	storedGR := qc.QC().GlobalRange()
 	want := qc.Headers()[n-storedGR.First].Hash()
 	got := block.Header().Hash()
