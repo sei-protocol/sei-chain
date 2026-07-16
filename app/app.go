@@ -2129,10 +2129,11 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	}
 
 	if execErr != nil {
-		// State-transition failures are rare and their canonical fee, nonce,
-		// receipt, and ABCI result behavior lives in v2. The stateDB has not
-		// been finalized, so its transaction-local cache is discarded by
-		// Cleanup before the caller re-runs the transaction through v2.
+		// EIP-7623's floor-data-gas check is the known natural failure here:
+		// other Execute() failure classes are pre-checked upstream. Canonical
+		// fee, nonce, receipt, and ABCI result behavior lives in v2. The
+		// stateDB has not been finalized, so Cleanup discards its
+		// transaction-local cache before the caller re-runs the tx through v2.
 		return nil, gigautils.ErrExecutionFailed
 	}
 

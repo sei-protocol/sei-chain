@@ -3,9 +3,6 @@ package giga_test
 import (
 	"bytes"
 	"fmt"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
-
 	"math/big"
 	"testing"
 	"time"
@@ -17,9 +14,12 @@ import (
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
+	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -1932,13 +1932,18 @@ func TestGiga_FailedExecutionFallsBackToV2(t *testing.T) {
 	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 	require.NoError(t, err)
 
+	type balance struct {
+		usei sdk.Int
+		wei  sdk.Int
+	}
 	type outcome struct {
-		ctx     *GigaTestContext
-		results []*abci.ExecTxResult
-		nonce   uint64
-		receipt *types.Receipt
-		usei    sdk.Int
-		wei     sdk.Int
+		ctx          *GigaTestContext
+		results      []*abci.ExecTxResult
+		nonce        uint64
+		receipt      *types.Receipt
+		sender       balance
+		feeCollector balance
+		coinbase     balance
 	}
 	run := func(mode ExecutorMode) outcome {
 		testCtx := NewGigaTestContext(t, accts, blockTime, 1, mode)
@@ -1955,16 +1960,27 @@ func TestGiga_FailedExecutionFallsBackToV2(t *testing.T) {
 		require.NoError(t, receiptErr)
 		require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
 
+		getBalance := func(address sdk.AccAddress) balance {
+			return balance{
+				usei: testCtx.TestApp.BankKeeper.GetBalance(testCtx.Ctx, address, "usei").Amount,
+				wei:  testCtx.TestApp.BankKeeper.GetWeiBalance(testCtx.Ctx, address),
+			}
+		}
 		return outcome{
-			ctx:     testCtx,
-			results: results,
-			nonce:   testCtx.TestApp.EvmKeeper.GetNonce(testCtx.Ctx, signer.EvmAddress),
-			receipt: receipt,
-			usei:    testCtx.TestApp.BankKeeper.GetBalance(testCtx.Ctx, signer.AccountAddress, "usei").Amount,
-			wei:     testCtx.TestApp.BankKeeper.GetWeiBalance(testCtx.Ctx, signer.AccountAddress),
+			ctx:          testCtx,
+			results:      results,
+			nonce:        testCtx.TestApp.EvmKeeper.GetNonce(testCtx.Ctx, signer.EvmAddress),
+			receipt:      receipt,
+			sender:       getBalance(signer.AccountAddress),
+			feeCollector: getBalance(testCtx.TestApp.AccountKeeper.GetModuleAddress(authtypes.FeeCollectorName)),
+			coinbase:     getBalance(evmstate.GetCoinbaseAddress(0)),
 		}
 	}
 
+	assertBalanceEqual := func(name, account string, want, got balance) {
+		require.True(t, want.usei.Equal(got.usei), "%s: %s usei balance", name, account)
+		require.True(t, want.wei.Equal(got.wei), "%s: %s wei balance", name, account)
+	}
 	v2 := run(ModeV2Sequential)
 	require.Equal(t, uint64(1), v2.nonce)
 	for _, mode := range []ExecutorMode{ModeGigaSequential, ModeGigaOCC} {
@@ -1974,8 +1990,9 @@ func TestGiga_FailedExecutionFallsBackToV2(t *testing.T) {
 		CompareLastResultsHash(t, name, v2.results, got.results)
 		assertReceiptsEqual(t, name, 0, v2.ctx.Mode, got.ctx.Mode, v2.receipt, got.receipt)
 		require.Equal(t, v2.nonce, got.nonce, "%s: nonce", name)
-		require.True(t, v2.usei.Equal(got.usei), "%s: usei balance", name)
-		require.True(t, v2.wei.Equal(got.wei), "%s: wei balance", name)
+		assertBalanceEqual(name, "sender", v2.sender, got.sender)
+		assertBalanceEqual(name, "fee collector", v2.feeCollector, got.feeCollector)
+		assertBalanceEqual(name, "tx coinbase", v2.coinbase, got.coinbase)
 	}
 }
 
