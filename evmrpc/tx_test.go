@@ -334,7 +334,7 @@ func TestGetTransactionReceiptReturnsNullAboveWatermark(t *testing.T) {
 
 	tmClient := &lowLatestTMClient{latest: MockHeight8}
 	ctxProvider := func(int64) sdk.Context { return Ctx.WithBlockHeight(MockHeight8) }
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, nil)
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, EVMKeeper.ReceiptStore())
 	txAPI := evmrpc.NewTransactionAPI(tmClient, EVMKeeper, ctxProvider, nil, t.TempDir(), evmrpc.ConnectionTypeHTTP, utils.None[time.Duration](), watermarks, evmrpc.NewBlockCache(8), &sync.Mutex{})
 
 	result, err := txAPI.GetTransactionReceipt(context.Background(), hash)

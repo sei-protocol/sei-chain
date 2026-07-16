@@ -418,6 +418,9 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 
 	// Create a backend with our test context provider
 	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			height = 3000
+		}
 		return testCtx.WithBlockHeight(height)
 	}
 
@@ -462,6 +465,9 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	// Test with a different chain ID (not pacific-1)
 	testCtxDifferentChain := testCtx.WithChainID("test-chain")
 	ctxProviderDifferentChain := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			height = 3000
+		}
 		return testCtxDifferentChain.WithBlockHeight(height)
 	}
 
@@ -495,7 +501,12 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1).
 		WithConsensusParams(&tenderminttypes.ConsensusParams{Block: &tenderminttypes.BlockParams{MaxGas: 200_000_000}})
 
-	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
+	ctxProvider := func(h int64) sdk.Context {
+		if h == evmrpc.LatestCtxHeight {
+			h = 1
+		}
+		return baseCtx.WithBlockHeight(h)
+	}
 	cfg := &evmrpc.SimulateConfig{GasCap: 10_000_000, EVMTimeout: time.Second}
 
 	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), 1)
@@ -522,7 +533,12 @@ func TestGasLimitFallbackToDefault(t *testing.T) {
 
 	// Case 1: ConsensusParams is nil → DefaultBlockGasLimit.
 	nilParamsCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1).WithConsensusParams(nil)
-	ctxProvider1 := func(h int64) sdk.Context { return nilParamsCtx.WithBlockHeight(h) }
+	ctxProvider1 := func(h int64) sdk.Context {
+		if h == evmrpc.LatestCtxHeight {
+			h = 1
+		}
+		return nilParamsCtx.WithBlockHeight(h)
+	}
 	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), 1)
 	tmClient1 := &MockClient{}
 	watermarks1 := evmrpc.NewWatermarkManager(tmClient1, ctxProvider1, nil, testApp.EvmKeeper.ReceiptStore())
@@ -533,7 +549,12 @@ func TestGasLimitFallbackToDefault(t *testing.T) {
 
 	// Case 2: Block fails — resolution errors out entirely.
 	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
-	ctxProvider2 := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
+	ctxProvider2 := func(h int64) sdk.Context {
+		if h == evmrpc.LatestCtxHeight {
+			h = 1
+		}
+		return baseCtx.WithBlockHeight(h)
+	}
 	bcClient := &bcAlwaysFailClient{MockClient: &MockClient{}}
 	watermarks2 := evmrpc.NewWatermarkManager(bcClient, ctxProvider2, nil, testApp.EvmKeeper.ReceiptStore())
 	backend2 := evmrpc.NewBackend(ctxProvider2, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, bcClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks2)

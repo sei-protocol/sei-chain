@@ -116,7 +116,16 @@ func mustDecodeHex(h string) []byte {
 
 func testTxConfigProvider(int64) client.TxConfig { return nil }
 
-func testCtxProvider(h int64) sdk.Context { return sdk.Context{}.WithBlockHeight(h) }
+func testCtxProvider(h int64) sdk.Context {
+	if h == LatestCtxHeight {
+		return sdk.Context{}.WithBlockHeight(1 << 60)
+	}
+	return sdk.Context{}.WithBlockHeight(h)
+}
+
+func newHeightTestWatermarks(client client.LocalClient, latest int64) *WatermarkManager {
+	return NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: latest})
+}
 
 // GetBlockByHash for a block whose height sits above safe latest must return
 // JSON null per the Ethereum JSON-RPC spec (the block doesn't exist from the
@@ -129,7 +138,7 @@ func TestBlockAPIAboveWatermarkReturnsNull(t *testing.T) {
 	latest := int64(100)
 	highHeight := latest + 5
 	client := newHeightTestClient(highHeight, earliest, latest)
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	watermarks := newHeightTestWatermarks(client, latest)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	result, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
@@ -150,7 +159,7 @@ func TestGetBlockByHashNotFoundReturnsNull(t *testing.T) {
 		heightTestClient: base,
 		notFoundHash:     bytes.HexBytes(mustDecodeHex(notFoundHashHex[2:])),
 	}
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	watermarks := newHeightTestWatermarks(client, latest)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 	ctx := context.Background()
 
@@ -178,7 +187,7 @@ func TestGetBlockReceiptsNotFoundReturnsNull(t *testing.T) {
 		heightTestClient: base,
 		notFoundHash:     bytes.HexBytes(mustDecodeHex(notFoundHashHex[2:])),
 	}
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	watermarks := newHeightTestWatermarks(client, latest)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 	ctx := context.Background()
 
@@ -208,7 +217,7 @@ func TestBlockAPILatestTagResolves(t *testing.T) {
 	earliest := int64(1)
 	latest := int64(100)
 	client := newHeightTestClient(latest+5, earliest, latest)
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	watermarks := newHeightTestWatermarks(client, latest)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 	ctx := context.Background()
 
@@ -304,7 +313,7 @@ func TestLogFetcherSkipsUnavailableCachedBlock(t *testing.T) {
 	latest := int64(90)
 	highHeight := latest + 3
 	client := newHeightTestClient(highHeight, earliest, latest)
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	watermarks := newHeightTestWatermarks(client, latest)
 	cache := NewBlockCache(2)
 	cache.Add(highHeight, &BlockCacheEntry{
 		Block:    client.highBlock,
@@ -373,7 +382,7 @@ func TestStateAPIGetProofUnavailableHeight(t *testing.T) {
 	latest := int64(80)
 	highHeight := latest + 4
 	client := newHeightTestClient(highHeight, earliest, latest)
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	watermarks := newHeightTestWatermarks(client, latest)
 	api := NewStateAPI(client, nil, testCtxProvider, ConnectionTypeHTTP, watermarks)
 
 	blockParam := rpc.BlockNumberOrHashWithHash(common.HexToHash(highBlockHashHex), true)

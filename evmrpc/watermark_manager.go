@@ -48,56 +48,24 @@ func NewWatermarkManager(
 // latest height that are safe to serve. Earliest heights are inclusive.
 // It is possible that block latest < block earliest, in case there are no blocks yet.
 func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64, error) {
-	var (
-		latest           int64
-		blockEarliest    int64
-		stateEarliest    int64
-		stateEarliestSet bool
-	)
-
-	setLatest := func(candidate int64) {
-		if candidate >= 0 {
-			latest = min(latest,candidate)
-		}
-	}
-
-	setStateEarliest := func(candidate int64) {
-		if candidate < 0 {
-			return
-		}
-		if !stateEarliestSet || candidate > stateEarliest {
-			stateEarliest = candidate
-			stateEarliestSet = true
-		}
-	}
-
 	// Tendermint heights govern both block availability and the latest safe height.
 	tmLatest, tmEarliest, err := m.fetchTendermintWatermarks(ctx)
-	if err!=nil {
+	if err != nil {
 		return 0, 0, 0, err
 	}
-	latest = tmLatest
-	blockEarliest = tmEarliest
-
-	if m.ctxProvider != nil {
-		setLatest(m.ctxProvider(LatestCtxHeight).BlockHeight())
-	}
-
-	// Receipt store version participates only in the latest watermark.
-	if m.receiptStore != nil {
-		setLatest(m.receiptStore.LatestVersion())
-	}
+	blockEarliest := tmEarliest
+	latest := min(
+		tmLatest,
+		m.ctxProvider(LatestCtxHeight).BlockHeight(),
+		m.receiptStore.LatestVersion(),
+	)
 
 	// State store heights (historical state DB) may lag behind block pruning.
+	stateEarliest := latest // no historical storage => just the current state.
 	if m.stateStore != nil {
-		setLatest(m.stateStore.GetLatestVersion())
-		setStateEarliest(m.stateStore.GetEarliestVersion())
+		latest = min(latest, m.stateStore.GetLatestVersion())
+		stateEarliest = m.stateStore.GetEarliestVersion()
 	}
-
-	if !stateEarliestSet {
-		stateEarliest = blockEarliest
-	}
-
 	return blockEarliest, stateEarliest, latest, nil
 }
 
@@ -185,9 +153,6 @@ func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, heigh
 // EnsureBlockHeightAvailable because the receipt store can be configured with a
 // smaller KeepRecent than the block or state stores.
 func (m *WatermarkManager) EnsureReceiptHeightAvailable(height int64) error {
-	if m.receiptStore == nil {
-		return nil
-	}
 	earliest := m.receiptStore.EarliestVersion()
 	if height < earliest {
 		return fmt.Errorf("requested height %d receipts have been pruned; earliest available is %d", height, earliest)

@@ -128,7 +128,7 @@ func TestBlockTransactionCountMatchesGetBlockByNumber(t *testing.T) {
 	list := encoded["transactions"].([]interface{})
 
 	tm := &parityTxCountTMClient{block: block}
-	wm := evmrpc.NewWatermarkManager(tm, ctxProvider, nil, nil)
+	wm := evmrpc.NewWatermarkManager(tm, ctxProvider, nil, k.ReceiptStore())
 	api := evmrpc.NewBlockAPI(tm, k, ctxProvider, txConfigProvider, evmrpc.ConnectionTypeHTTP, wm, cache, mu)
 	rpcCount, err := api.GetBlockTransactionCountByNumber(context.Background(), rpc.BlockNumber(parityTestHeight))
 	require.NoError(t, err)
