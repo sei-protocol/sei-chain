@@ -77,6 +77,15 @@ jobs:
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      # Reclaim disk and push Docker + Go caches onto /mnt before the
+      # image builds so the runner's small root filesystem does not fill up and
+      # crash the runner mid-job.
+      - name: Reclaim runner disk
+        run: bash .github/scripts/ci-free-disk.sh
+      - name: Relocate Docker data-root to /mnt
+        run: bash .github/scripts/ci-relocate-docker-data-root.sh
+      - name: Relocate Go caches to /mnt
+        run: bash .github/scripts/ci-relocate-go-cache.sh
       - name: Login to Docker Hub
         # See: https://github.com/docker/login-action/releases/tag/v4.2.0
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
@@ -180,6 +189,12 @@ jobs:
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Reclaim runner disk
+        run: bash .github/scripts/ci-free-disk.sh
+      - name: Relocate Docker data-root to /mnt
+        run: bash .github/scripts/ci-relocate-docker-data-root.sh
+      - name: Relocate Go caches to /mnt
+        run: bash .github/scripts/ci-relocate-go-cache.sh
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -214,11 +229,17 @@ jobs:
       - name: Load prebuilt seid and pull Docker images
         run: |
           tar -xzf integration-build.tar.gz
+          # The seid binary is now extracted to build/seid; drop the
+          # tarball so its copy does not sit on disk for the rest of the job.
+          rm -f integration-build.tar.gz
           source .github/scripts/docker-registry-retry.sh
           pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
           pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
           docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
+          # Drop the redundant run-id-tagged references now that the images are
+          # retagged as sei-chain/*; keeps a single tag per image.
+          docker image rm "${GHCR_LOCALNODE}:${{ github.run_id }}" "${GHCR_RPCNODE}:${{ github.run_id }}" || true
       - name: Start 4 node docker cluster
         run: DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start-ci
 
@@ -318,6 +339,12 @@ jobs:
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Reclaim runner disk
+        run: bash .github/scripts/ci-free-disk.sh
+      - name: Relocate Docker data-root to /mnt
+        run: bash .github/scripts/ci-relocate-docker-data-root.sh
+      - name: Relocate Go caches to /mnt
+        run: bash .github/scripts/ci-relocate-go-cache.sh
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
@@ -344,11 +371,17 @@ jobs:
       - name: Load prebuilt seid and pull Docker images
         run: |
           tar -xzf integration-build.tar.gz
+          # The seid binary is now extracted to build/seid; drop the
+          # tarball so its copy does not sit on disk for the rest of the job.
+          rm -f integration-build.tar.gz
           source .github/scripts/docker-registry-retry.sh
           pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
           pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
           docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
+          # Drop the redundant run-id-tagged references now that the images are
+          # retagged as sei-chain/*; keeps a single tag per image.
+          docker image rm "${GHCR_LOCALNODE}:${{ github.run_id }}" "${GHCR_RPCNODE}:${{ github.run_id }}" || true
       - name: Run autobahn integration tests
         run: make autobahn-integration-test
       - name: Print node logs on failure
