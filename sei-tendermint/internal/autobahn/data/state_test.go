@@ -34,8 +34,8 @@ func newSnapshot() Snapshot {
 func snapshot(s *State) Snapshot {
 	for inner := range s.inner.Lock() {
 		aps := map[types.GlobalBlockNumber]*types.AppProposal{}
-		for n, apt := range inner.appProposals {
-			aps[n] = apt.proposal
+		for n, ap := range inner.appProposals {
+			aps[n] = ap
 		}
 		return Snapshot{
 			QCs:          maps.Clone(inner.qcs),
@@ -495,9 +495,10 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	}
 }
 
-// TestPruningKeepsLastQCRange verifies that pruning never removes the last
-// retained block, and that a restart from a BlockDB with a consistent QC+block
-// range recovers from the QC start (littblock retains straddling ranges intact).
+// TestPruningKeepsLastQCRange verifies BlockDB's never-empty prune: asking to
+// prune past the tip still leaves the newest cohort readable. An incomplete
+// BlockDB (QC without a full block prefix) fails NewState; a consistent range
+// recovers from the QC start.
 func TestPruningKeepsLastQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -506,29 +507,25 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 
-	// In-memory: push QC, execute all blocks, then prune everything.
 	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
-
 	require.NoError(t, pushAppHashesRunning(ctx, state1, rng, gr1.First, gr1.Next))
 
+	// Prune past every block; BlockDB clamps to retain the newest cohort.
 	require.NoError(t, state1.PruneBefore(gr1.Next))
-	var survivingBlock types.GlobalBlockNumber
-	for inner := range state1.inner.Lock() {
-		survivingBlock = inner.first
-		require.Less(t, survivingBlock, gr1.Next, "pruning should keep at least one block")
-	}
-	for n := gr1.First; n < survivingBlock; n++ {
-		_, err := state1.TryBlock(n)
-		require.ErrorIs(t, err, ErrPruned)
+	for n := gr1.First; n < gr1.Next; n++ {
+		got, err := state1.TryBlock(n)
+		require.NoError(t, err, "never-empty prune should keep cohort block %d", n)
+		require.NotNil(t, got)
 	}
 
-	// Incomplete store (QC covers a range but only the survivor block is present)
+	// Incomplete store (QC covers a range but only one block is present)
 	// must fail NewState — we do not normalize partial QC prefixes.
+	survivor := gr1.Next - 1
 	dirBad := t.TempDir()
 	dbBad := newTestBlockDB(t, dirBad)
 	require.NoError(t, dbBad.WriteQC(gr1.First, gr1.Next, qc1))
-	require.NoError(t, dbBad.WriteBlock(survivingBlock, blocks1[survivingBlock-gr1.First]))
+	require.NoError(t, dbBad.WriteBlock(survivor, blocks1[survivor-gr1.First]))
 	require.NoError(t, dbBad.Flush())
 	require.NoError(t, dbBad.Close())
 	_, err := NewState(&Config{Registry: registry}, newTestBlockDB(t, dirBad))
@@ -542,14 +539,17 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 
 	db2 := newTestBlockDB(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
-	for inner := range state2.inner.Lock() {
-		require.Equal(t, gr1.First, inner.first)
+	require.Equal(t, gr1.Next, state2.NextBlock())
+	for n := gr1.First; n < gr1.Next; n++ {
+		got, err := state2.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
 	}
 }
 
-// TestPruningWithPartialQCRange verifies per-block pruning across QC ranges:
-// pruning advances first in-memory, and a restart from a consistent BlockDB
-// recovers from the retained QC start.
+// TestPruningWithPartialQCRange verifies BlockDB watermark pruning across QC
+// ranges, and that a restart from a consistent BlockDB recovers from the
+// retained QC start.
 func TestPruningWithPartialQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -560,7 +560,6 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 
-	// In-memory: push 2 QCs, execute, then prune.
 	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
 	require.NoError(t, state1.PushQC(ctx, qc2, blocks2))
@@ -569,32 +568,32 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 
 	// Per-block prune into middle of qc1's range.
 	midQC1 := gr1.First + (gr1.Next-gr1.First)/2
-	if midQC1 > gr1.First+1 {
+	if midQC1 > gr1.First {
 		require.NoError(t, state1.PruneBefore(midQC1))
-		for inner := range state1.inner.Lock() {
-			require.Greater(t, inner.first, gr1.First,
-				"per-block pruning should advance past gr1.First")
+		for n := gr1.First; n < midQC1; n++ {
+			_, err := state1.TryBlock(n)
+			require.ErrorIs(t, err, ErrPruned)
 		}
 	}
 
-	// Prune past qc1 entirely.
+	// Prune past qc1 entirely; BlockDB never-empty keeps the newest cohort (qc2).
 	require.NoError(t, state1.PruneBefore(gr2.Next))
-	var survivingBlock types.GlobalBlockNumber
-	for inner := range state1.inner.Lock() {
-		survivingBlock = inner.first
-		require.GreaterOrEqual(t, survivingBlock, gr2.First)
-		require.Less(t, survivingBlock, gr2.Next, "at least one block should survive")
-	}
-	for n := gr1.First; n < survivingBlock; n++ {
+	for n := gr1.First; n < gr2.First; n++ {
 		_, err := state1.TryBlock(n)
 		require.ErrorIs(t, err, ErrPruned)
 	}
+	for n := gr2.First; n < gr2.Next; n++ {
+		got, err := state1.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	}
 
 	// Incomplete qc2 suffix alone must error.
+	survivor := gr2.Next - 1
 	dirBad := t.TempDir()
 	dbBad := newTestBlockDB(t, dirBad)
 	require.NoError(t, dbBad.WriteQC(gr2.First, gr2.Next, qc2))
-	require.NoError(t, dbBad.WriteBlock(survivingBlock, blocks2[survivingBlock-gr2.First]))
+	require.NoError(t, dbBad.WriteBlock(survivor, blocks2[survivor-gr2.First]))
 	require.NoError(t, dbBad.Flush())
 	require.NoError(t, dbBad.Close())
 	_, err := NewState(&Config{Registry: registry}, newTestBlockDB(t, dirBad))
@@ -608,26 +607,12 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 
 	db2 := newTestBlockDB(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
-	for inner := range state2.inner.Lock() {
-		require.Equal(t, gr2.First, inner.first)
+	require.Equal(t, gr2.Next, state2.NextBlock())
+	for n := gr2.First; n < gr2.Next; n++ {
+		got, err := state2.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
 	}
-}
-
-// TestRunPruningEmptyState verifies that runPruning does not panic when
-// the state has no QCs (e.g. on first startup before any data arrives).
-func TestRunPruningEmptyState(t *testing.T) {
-	rng := utils.TestRng()
-	registry, _ := epoch.GenRegistry(rng, 3)
-
-	state := newTestState(t, &Config{
-		Registry:   registry,
-		PruneAfter: utils.Some(time.Duration(0)),
-	}, newTestBlockDB(t, t.TempDir()))
-
-	// Run briefly — runPruning should not panic on empty state.
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-	defer cancel()
-	_ = state.Run(ctx) // returns context.DeadlineExceeded, that's fine
 }
 
 func TestPushBlockWaitsForQC(t *testing.T) {

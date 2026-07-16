@@ -132,8 +132,8 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlo
 		// Map Autobahn's pruning sentinel to CometBFT's, so callers
 		// (env.Block, evmrpc, ops tooling) get the same error type they
 		// already handle on the CometBFT path. base is None because the
-		// active lower bound (data.State.inner.first) is internal to
-		// data.State; both call sites format through the same helper.
+		// active lower bound lives in BlockDB's prune watermark (internal
+		// to the store); both call sites format through the same helper.
 		if errors.Is(err, data.ErrPruned) {
 			return nil, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
 		}

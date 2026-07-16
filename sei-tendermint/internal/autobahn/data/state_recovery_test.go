@@ -23,10 +23,10 @@ func TestRecoveryEmpty(t *testing.T) {
 
 	db := newTestBlockDB(t, dir)
 	state := newTestState(t, &Config{Registry: registry}, db)
+	require.Equal(t, fb, state.NextBlock())
 	for inner := range state.inner.Lock() {
-		require.Equal(t, fb, inner.first)
 		require.Equal(t, fb, inner.nextQC)
-		require.Equal(t, fb, inner.nextBlock)
+		require.Equal(t, fb, inner.nextAppProposal)
 	}
 }
 
@@ -99,9 +99,10 @@ func TestRecoveryNormal(t *testing.T) {
 	require.Equal(t, gr2.Next, state3.NextBlock())
 }
 
-// TestPruningDiscards verifies that PruneBefore advances inner.first and causes
-// TryBlock to return ErrPruned for the discarded range, while keeping at least
-// one entry and keeping later blocks accessible.
+// TestPruningDiscards verifies that PruneBefore advances BlockDB's watermark so
+// TryBlock returns ErrPruned for the discarded range, while later blocks stay
+// accessible. In-memory maps are cleared by eviction after execution, not by
+// PruneBefore itself.
 func TestPruningDiscards(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -125,17 +126,11 @@ func TestPruningDiscards(t *testing.T) {
 	// Prune qc1 entirely (keep from qc2 onward).
 	require.NoError(t, state.PruneBefore(gr2.First))
 
-	// PruneBefore keeps one sentinel block at firstToKeep-1; capture it.
-	var survivingBlock types.GlobalBlockNumber
-	for inner := range state.inner.Lock() {
-		survivingBlock = inner.first
-	}
-	for n := gr1.First; n < survivingBlock; n++ {
+	for n := gr1.First; n < gr2.First; n++ {
 		_, err := state.TryBlock(n)
 		require.ErrorIs(t, err, ErrPruned)
 	}
-	// survivingBlock itself and everything from gr2.First onward must be readable.
-	for n := survivingBlock; n < gr3.Next; n++ {
+	for n := gr2.First; n < gr3.Next; n++ {
 		got, err := state.TryBlock(n)
 		require.NoError(t, err)
 		require.NotNil(t, got)
@@ -259,8 +254,8 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 // TestRecoveryAfterPruneNoGC verifies that restarting before async GC reclaims
 // pruned entries does not cause NewState to fail. Blocks and QCs share the same
 // GC filter in littblock, so below-watermark blocks never survive past their
-// corresponding QCs — the first block iterator entry is always >= inner.first
-// set by the QC pass, so the "block predates first QC start" guard never fires.
+// corresponding QCs — the first block iterator entry is always >= the recovery
+// floor set by the QC pass, so the "block predates first QC start" guard never fires.
 func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -308,7 +303,7 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 
 // TestRecoveryQCsNoBlocks verifies that NewState succeeds when the DB contains
 // QCs but no blocks (crash between QC flush and block writes). The state
-// cursor sits at the QC start with nextBlock == first and no block data.
+// cursor sits at the QC start with nextBlock at that floor and no block data.
 func TestRecoveryQCsNoBlocks(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -325,10 +320,10 @@ func TestRecoveryQCsNoBlocks(t *testing.T) {
 	db2 := newTestBlockDB(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 
+	require.Equal(t, gr1.First, state2.NextBlock())
 	for inner := range state2.inner.Lock() {
-		require.Equal(t, gr1.First, inner.first)
 		require.Equal(t, gr1.Next, inner.nextQC)
-		require.Equal(t, gr1.First, inner.nextBlock)
+		require.Equal(t, gr1.First, inner.nextAppProposal)
 	}
 	for n := gr1.First; n < gr1.Next; n++ {
 		_, err := state2.TryBlock(n)

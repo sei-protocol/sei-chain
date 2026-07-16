@@ -15,18 +15,16 @@ import (
 
 const blocksCacheSize = 4000
 
-// ErrNotFound is returned when the resource is not found.
+// ErrNotFound is returned when the resource is not found / not yet available.
 var ErrNotFound = errors.New("not found")
 
-// ErrPruned is returned when the resource has been is pruned.
-var ErrPruned = errors.New("pruned")
+// ErrPruned aliases types.ErrPruned (BlockDB below-watermark).
+var ErrPruned = types.ErrPruned
 
 // Config is the config for the data State.
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
 	Registry *epoch.Registry
-	// PruneAfter is the duration after which the state prunes executed blocks.
-	PruneAfter utils.Option[time.Duration]
 }
 
 // StateAPI is the interface of the State for consuming global blocks
@@ -46,32 +44,25 @@ type blockEntry struct {
 	block *types.Block
 }
 
-type appProposalWithTimestamp struct {
-	proposal  *types.AppProposal
-	timestamp time.Time
-}
-
 type inner struct {
-	qcs    map[types.GlobalBlockNumber]*types.FullCommitQC // [first,nextQC)
-	blocks map[types.GlobalBlockNumber]*types.Block        // [first,nextBlock) + subset of [nextBlock,nextQC)
-	// appProposal[n] contains appProposal block >=n.
-	appProposals map[types.GlobalBlockNumber]appProposalWithTimestamp // [first,nextAppProposal)
+	qcs    map[types.GlobalBlockNumber]*types.FullCommitQC // sparse; may be evicted below nextAppProposal
+	blocks map[types.GlobalBlockNumber]*types.Block        // sparse; may be evicted below nextAppProposal
+	// appProposals[n] contains the AppProposal for block n. Entries are
+	// removed by evictExecuted together with their blocks/QCs.
+	appProposals map[types.GlobalBlockNumber]*types.AppProposal
 
 	// blockHashes is a hash → height index for GlobalBlockByHash. Maintained
-	// in lockstep with blocks via insertBlock / pruneFirst, covering the same
-	// retain window.
+	// in lockstep with blocks via insertBlock / evictExecuted.
 	//
 	// TODO: replace with blockDB.ReadBlockByHash once BlockDB exposes the
 	// primary GlobalBlockNumber alongside the block on a secondary-key lookup.
 	blockHashes map[types.BlockHeaderHash]types.GlobalBlockNumber
 
-	// first <= nextAppProposal <= nextBlockToPersist <= nextBlock <= nextQC
+	// nextAppProposal <= nextBlockToPersist <= nextBlock <= nextQC
 	//
-	// This invariant guarantees no race between pruning and persisting:
-	// blocks are not eligible for pruning until they have an AppProposal
-	// (first <= nextAppProposal), which requires persistence
-	// (nextAppProposal <= nextBlockToPersist).
-	first              types.GlobalBlockNumber
+	// AppProposals require persistence (nextAppProposal <= nextBlockToPersist).
+	// Prune status lives in BlockDB only; in-memory maps are cleared by
+	// evictExecuted after execution, not by PruneBefore.
 	nextAppProposal    types.GlobalBlockNumber
 	nextBlockToPersist types.GlobalBlockNumber
 	nextBlock          types.GlobalBlockNumber
@@ -79,17 +70,15 @@ type inner struct {
 }
 
 func newInner(firstBlock types.GlobalBlockNumber) *inner {
-	first := firstBlock
 	return &inner{
 		qcs:                map[types.GlobalBlockNumber]*types.FullCommitQC{},
 		blocks:             map[types.GlobalBlockNumber]*types.Block{},
-		appProposals:       map[types.GlobalBlockNumber]appProposalWithTimestamp{},
+		appProposals:       map[types.GlobalBlockNumber]*types.AppProposal{},
 		blockHashes:        map[types.BlockHeaderHash]types.GlobalBlockNumber{},
-		first:              first,
-		nextAppProposal:    first,
-		nextBlockToPersist: first,
-		nextBlock:          first,
-		nextQC:             first,
+		nextAppProposal:    firstBlock,
+		nextBlockToPersist: firstBlock,
+		nextBlock:          firstBlock,
+		nextQC:             firstBlock,
 	}
 }
 
@@ -97,7 +86,6 @@ func newInner(firstBlock types.GlobalBlockNumber) *inner {
 // Used on recovery when the first loaded QC starts past committee.FirstBlock()
 // (i.e. data before n was pruned in a previous run).
 func (i *inner) skipTo(n types.GlobalBlockNumber) {
-	i.first = n
 	i.nextAppProposal = n
 	i.nextBlockToPersist = n
 	i.nextBlock = n
@@ -171,22 +159,6 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 	}
 }
 
-func (i *inner) pruneFirst(now time.Time, m *metrics.Metrics) {
-	// Block/QC may already be gone: runPersist evicts executed heights from the
-	// in-memory maps (BlockDB owns them) without advancing first. Metrics are
-	// best-effort when the block is still cached.
-	if b, ok := i.blocks[i.first]; ok {
-		latency := now.Sub(b.Payload().CreatedAt()).Seconds()
-		m.Blocks.Prune.Observe(latency)
-		m.Txs.Prune.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
-		delete(i.blockHashes, b.Header().Hash())
-		delete(i.blocks, i.first)
-	}
-	delete(i.appProposals, i.first)
-	delete(i.qcs, i.first)
-	i.first += 1
-}
-
 // State of the chain.
 // Contains blocks in global order and proofs of their finality.
 type State struct {
@@ -218,6 +190,8 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // Called from NewState before any goroutines are spawned; the lock is acquired
 // only to satisfy the Watch API.
 //
+// The recovery floor is derived from BlockDB: empty store keeps
+// registry.FirstBlock(); otherwise cursors skipTo the first retained QC start.
 // Inconsistencies (gaps, block without QC, first-block/QC mismatch, etc.) are
 // returned as errors rather than normalized — BlockDB is expected to present a
 // consistent iterator view (see littblock watermark / stranding rules).
@@ -241,12 +215,14 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 				if err != nil {
 					return err
 				}
-				if in.first == in.nextQC {
+				if len(in.qcs) == 0 {
 					gr := qc.QC().GlobalRange()
 					if gr.First < in.nextQC {
 						return fmt.Errorf("QC in BlockDB predates committee genesis %d: got %d", in.nextQC, gr.First)
 					}
-					in.skipTo(gr.First)
+					if gr.First > in.nextQC {
+						in.skipTo(gr.First)
+					}
 				}
 				if err := in.insertQC(s.cfg.Registry, qc); err != nil {
 					return fmt.Errorf("load QC from BlockDB: %w", err)
@@ -259,6 +235,9 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 
 		// Restore blocks from BlockDB. First block must align with first QC start
 		// (set by the QC pass); a mismatch is corruption / incomplete store.
+		// After the QC pass with no AppProposals, nextAppProposal is the recovery
+		// floor (registry.FirstBlock() or first retained QC start).
+		recoveryFloor := in.nextAppProposal
 		err = func() error {
 			it2, err := blockDB.Blocks(false)
 			if err != nil {
@@ -276,10 +255,10 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 					return fmt.Errorf("block %d in BlockDB has no QC coverage (nextQC=%d)", n, in.nextQC)
 				}
 				// No blocks loaded yet (insertBlock does not advance nextBlock
-				// until after this loop). Mirrors the QC pass's first==nextQC check.
+				// until after this loop).
 				if len(in.blocks) == 0 {
-					if n != in.first {
-						return fmt.Errorf("BlockDB inconsistent: first block %d != first QC start %d", n, in.first)
+					if n != recoveryFloor {
+						return fmt.Errorf("BlockDB inconsistent: first block %d != first QC start %d", n, recoveryFloor)
 					}
 					nextExpect = n
 				}
@@ -404,9 +383,6 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 		}); err != nil {
 			return nil, err
 		}
-		if n < inner.first {
-			return nil, ErrPruned
-		}
 		if qc, ok := inner.qcs[n]; ok {
 			return qc, nil
 		}
@@ -425,14 +401,10 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextQC }); err != nil {
 			return err
 		}
-		if n < inner.first {
-			// Block arrived after pruning; drop silently so the sender keeps delivering future blocks.
-			return nil
-		}
 		qc := inner.qcs[n]
 		if qc == nil {
-			// QC was evicted after the height was executed (n < nextAppProposal).
-			// The block is no longer needed in memory.
+			// QC was evicted after the height was executed, or never loaded
+			// (below the recovery floor). The block is no longer needed in memory.
 			return nil
 		}
 		epochIdx = qc.QC().Proposal().EpochIndex()
@@ -446,9 +418,6 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if n < inner.first {
-			return nil
-		}
 		if inner.qcs[n] == nil {
 			return nil
 		}
@@ -470,9 +439,9 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 }
 
 // GlobalBlockByHash returns the finalized GlobalBlock whose stored header
-// hashes to the given value, or None if no such block is currently in the
-// retained range (including heights below inner.first). Non-blocking. Falls
-// back to BlockDB when the entry was evicted from memory after persist.
+// hashes to the given value, or None if no such block is currently retained.
+// Non-blocking. Falls back to BlockDB when the entry was evicted from memory
+// after persist.
 func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
 	for inner := range s.inner.Lock() {
 		n, ok := inner.blockHashes[hash]
@@ -497,9 +466,6 @@ func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Bl
 		}); err != nil {
 			return nil, err
 		}
-		if n < inner.first {
-			return nil, ErrPruned
-		}
 		if b, ok := inner.blocks[n]; ok {
 			return b, nil
 		}
@@ -509,15 +475,11 @@ func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Bl
 }
 
 // TryBlock returns the block with the given global number.
-// Returns ErrPruned if the block has already been pruned (n < first, or BlockDB
-// no longer has it after reclaim). Returns ErrNotFound if the block is not
-// available yet (n >= nextBlock). Evicted-but-still-durable heights load from
-// BlockDB.
+// Returns ErrPruned if BlockDB no longer has it (below its prune watermark).
+// Returns ErrNotFound if the block is not available yet (n >= nextBlock).
+// Evicted-but-still-durable heights load from BlockDB.
 func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 	for inner := range s.inner.Lock() {
-		if n < inner.first {
-			return nil, ErrPruned
-		}
 		if b, ok := inner.blocks[n]; ok {
 			return b, nil
 		}
@@ -551,9 +513,6 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		}); err != nil {
 			return nil, err
 		}
-		if n < inner.first {
-			return nil, ErrPruned
-		}
 		b, hasB := inner.blocks[n]
 		qc, hasQC := inner.qcs[n]
 		if hasB && hasQC {
@@ -571,7 +530,7 @@ func (s *State) blockFromDB(n types.GlobalBlockNumber) (*types.Block, error) {
 	}
 	b, ok := opt.Get()
 	if !ok {
-		return nil, ErrPruned
+		return nil, ErrNotFound
 	}
 	return b, nil
 }
@@ -583,7 +542,7 @@ func (s *State) qcFromDB(n types.GlobalBlockNumber) (*types.FullCommitQC, error)
 	}
 	qc, ok := opt.Get()
 	if !ok {
-		return nil, ErrPruned
+		return nil, ErrNotFound
 	}
 	return qc, nil
 }
@@ -609,16 +568,9 @@ func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Optio
 	if !ok {
 		return utils.None[*types.GlobalBlock](), nil
 	}
-	// Match number-based reads: async BlockDB GC may still serve a height that
-	// State has already logically pruned (n < inner.first).
-	for inner := range s.inner.Lock() {
-		if bn.Number < inner.first {
-			return utils.None[*types.GlobalBlock](), nil
-		}
-	}
 	qc, err := s.qcFromDB(bn.Number)
 	if err != nil {
-		if errors.Is(err, ErrPruned) {
+		if errors.Is(err, ErrPruned) || errors.Is(err, ErrNotFound) {
 			return utils.None[*types.GlobalBlock](), nil
 		}
 		return utils.None[*types.GlobalBlock](), err
@@ -645,10 +597,6 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.qcs[n].QC().Proposal().EpochIndex(),
 		)
 		t := time.Now()
-		apt := appProposalWithTimestamp{
-			proposal:  proposal,
-			timestamp: t,
-		}
 		// TODO(gprusak): this will be problematic on restart,
 		// nextAppProposal should be initiated wrt current application height,
 		// so that we don't iterate over all blocks in storage on startup.
@@ -657,7 +605,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
 			s.metrics.Blocks.Execute.Observe(latency)
 			s.metrics.Txs.Execute.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
-			inner.appProposals[inner.nextAppProposal] = apt
+			inner.appProposals[inner.nextAppProposal] = proposal
 			inner.nextAppProposal += 1
 		}
 		ctrl.Updated()
@@ -673,17 +621,18 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextAppProposal }); err != nil {
 			return nil, err
 		}
-		if n < inner.first {
+		ap, ok := inner.appProposals[n]
+		if !ok {
 			return nil, ErrPruned
 		}
-		return inner.appProposals[n].proposal, nil
+		return ap, nil
 	}
 	panic("unreachable")
 }
 
 func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	// TODO(gprusak): decide whether 0 is a good result in this case in general.
-	if i.first == i.nextAppProposal {
+	if len(i.appProposals) == 0 {
 		return 0
 	}
 	n := i.nextAppProposal - 1
@@ -718,31 +667,13 @@ func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n type
 	panic("unreachable")
 }
 
-// PruneBefore removes blocks, QCs, and AppProposals before retainFrom.
-// Blocks at retainFrom and above are kept. Per-block pruning may split
-// a QC range in memory; BlockDB retains straddling QCs with their full
-// block ranges so restart sees a consistent first-block/QC start.
+// PruneBefore asks BlockDB to drop data before retainFrom. In-memory maps are
+// not pruned here — runPersist's evictExecuted clears executed heights after
+// persist. Only executed heights are eligible (capped to nextAppProposal).
+// BlockDB enforces its own never-empty retention.
 func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
-	pruningTime := time.Now()
-	for inner, ctrl := range s.inner.Lock() {
-		// Can only prune executed blocks (those with AppProposals).
-		firstToKeep := min(retainFrom, inner.nextAppProposal)
-		if firstToKeep <= inner.first {
-			return nil
-		}
-		// Keep at least one entry so BlockDB is never empty on restart.
-		for inner.first+1 < firstToKeep {
-			inner.pruneFirst(pruningTime, s.metrics)
-		}
-		ctrl.Updated()
-		// BlockDB.PruneBefore only advances an in-memory watermark (async GC;
-		// no disk I/O), so it is safe to call under the inner lock.
-		// The watermark is not persisted: on restart before GC reclaims entries,
-		// NewState may see below-watermark blocks/QCs and set inner.first lower
-		// than the pre-crash watermark. This is safe (resurrected data is
-		// QC-covered committed data) and self-heals on the next runPruning
-		// cycle. Durable prune bounds come from the BlockDB retention TTL.
-		return s.blockDB.PruneBefore(inner.first)
+	for inner := range s.inner.Lock() {
+		return s.blockDB.PruneBefore(min(retainFrom, inner.nextAppProposal))
 	}
 	return nil
 }
@@ -770,12 +701,12 @@ func (s *State) runPersist(ctx context.Context) error {
 		persistedBlock = n + 1
 	}
 	// Eviction cursor tracks the lowest height still cached in memory. Seed from
-	// recovered inner.first (not the BlockDB write tip): after restart the retain
-	// window is fully loaded in RAM and already durable, so we must walk from
-	// first to reclaim it once PushAppHash advances nextAppProposal.
+	// nextAppProposal (recovery floor at Run start; AppProposals are not
+	// recovered): after restart the retain window is fully loaded in RAM and
+	// already durable, so we must walk from that floor once PushAppHash advances.
 	var evictedQC types.GlobalBlockNumber
 	for inner := range s.inner.Lock() {
-		evictedQC = inner.first
+		evictedQC = inner.nextAppProposal
 	}
 	for {
 		// Wait for unpersisted data and/or executable heights to evict, then
@@ -861,14 +792,16 @@ func persistOrEvictReady(
 	if persistedQC < inner.nextQC || persistedBlock < inner.nextBlock {
 		return true
 	}
-	return inner.nextAppProposal > inner.first+1 && evictedQC < inner.nextAppProposal-1
+	// Need at least two executed heights so we can evict while keeping
+	// nextAppProposal-1 for nextToExecute.
+	return inner.nextAppProposal > evictedQC+1
 }
 
-// evictExecuted drops cached blocks/QCs in [evictedQC, nextAppProposal-1).
+// evictExecuted drops cached blocks/QCs/AppProposals in [evictedQC, nextAppProposal-1).
 // Keeps nextAppProposal-1 for nextToExecute. Caller must hold inner's lock.
 func evictExecuted(inner *inner, evictedQC types.GlobalBlockNumber) types.GlobalBlockNumber {
 	evictBelow := evictedQC
-	if inner.nextAppProposal > inner.first {
+	if inner.nextAppProposal > evictedQC {
 		evictBelow = inner.nextAppProposal - 1
 	}
 	for ; evictedQC < evictBelow; evictedQC++ {
@@ -877,55 +810,17 @@ func evictExecuted(inner *inner, evictedQC types.GlobalBlockNumber) types.Global
 			delete(inner.blocks, evictedQC)
 		}
 		delete(inner.qcs, evictedQC)
+		delete(inner.appProposals, evictedQC)
 	}
 	return evictedQC
 }
 
-func (s *State) runPruning(ctx context.Context, after time.Duration) error {
-	pruningTime := time.Now()
-	for {
-		for inner, ctrl := range s.inner.Lock() {
-			// Prune blocks old enough. Keep at least one entry.
-			// Per-block pruning may split QC ranges; handled on recovery.
-			// TODO: a proper fix would not prune until AppQC exists.
-			pruned := false
-			for inner.first+1 < inner.nextAppProposal && pruningTime.Sub(inner.appProposals[inner.first].timestamp) >= after {
-				inner.pruneFirst(pruningTime, s.metrics)
-				pruned = true
-			}
-			if pruned {
-				ctrl.Updated()
-				// BlockDB.PruneBefore is async (watermark only; no disk I/O).
-				if err := s.blockDB.PruneBefore(inner.first); err != nil {
-					return fmt.Errorf("prune BlockDB before %d: %w", inner.first, err)
-				}
-			}
-			// Wait for at least 2 entries before retrying. Without +1,
-			// the loop would spin when only one entry remains (kept by
-			// the +1 guard above).
-			if err := ctrl.WaitUntil(ctx, func() bool { return inner.first+1 < inner.nextAppProposal }); err != nil {
-				return err
-			}
-			pruningTime = inner.appProposals[inner.first].timestamp.Add(after)
-		}
-		// Wait until the next pruning time.
-		if err := utils.SleepUntil(ctx, pruningTime); err != nil {
-			return err
-		}
-	}
-}
-
-// Run starts the background goroutines (persistence and pruning).
+// Run starts the background persistence goroutine.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		scope.SpawnNamed("runPersist", func() error {
 			return s.runPersist(ctx)
 		})
-		if pruneAfter, ok := s.cfg.PruneAfter.Get(); ok {
-			scope.SpawnNamed("runPruning", func() error {
-				return s.runPruning(ctx, pruneAfter)
-			})
-		}
 		return nil
 	})
 }

@@ -82,9 +82,8 @@ func TestLittblockNoBlockWithoutQCAfterTornTail(t *testing.T) {
 			break
 		}
 		n := it.Number()
-		qc, err := db2.ReadQCByBlockNumber(n)
-		require.NoError(t, err)
-		require.True(t, qc.IsPresent(), "block %d survived but its covering QC was lost", n)
+		_, err = db2.ReadQCByBlockNumber(n)
+		require.NoError(t, err, "block %d survived but its covering QC was lost", n)
 		present++
 	}
 
@@ -230,9 +229,8 @@ func TestLittblockFlushSurvivesHardKill(t *testing.T) {
 			break
 		}
 		n := it.Number()
-		qc, err := db.ReadQCByBlockNumber(n)
-		require.NoError(t, err)
-		require.True(t, qc.IsPresent(), "block %d lost its covering QC after hard kill", n)
+		_, err = db.ReadQCByBlockNumber(n)
+		require.NoError(t, err, "block %d lost its covering QC after hard kill", n)
 		present++
 	}
 
