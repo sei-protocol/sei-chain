@@ -15,6 +15,14 @@ if [ ! -d /mnt ] || ! sudo test -w /mnt; then
   echo "/mnt is not available/writable; leaving Docker data-root on '/'."
   exit 0
 fi
+# GitHub larger runners (e.g. ubuntu-large) expose /mnt as a directory on the
+# single OS disk, not a separate ephemeral volume. Relocating within the same
+# filesystem frees no capacity and still costs a docker daemon restart, so skip
+# it when /mnt and / are the same device.
+if [ "$(stat -c '%d' /mnt 2>/dev/null)" = "$(stat -c '%d' / 2>/dev/null)" ]; then
+  echo "/mnt shares the root filesystem; leaving Docker data-root on '/'."
+  exit 0
+fi
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker not installed; nothing to relocate."
   exit 0
