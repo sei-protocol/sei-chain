@@ -140,10 +140,6 @@ type BlockDB interface {
 	// watermark guarantees nothing below n is removed before n is
 	// reached, but does NOT bound when eligible data is actually
 	// reclaimed — pruned entries may remain readable for a while.
-	//
-	// Callers must ensure no in-flight reader is holding a pointer
-	// returned from a Read* call for a record being pruned. Pruning a
-	// record still being processed is undefined.
 	PruneBefore(n GlobalBlockNumber) error
 
 	// Flush blocks until every Write that has returned before Flush is
