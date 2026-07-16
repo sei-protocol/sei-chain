@@ -3,6 +3,8 @@ package memiavl
 import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
+
+	smetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
 var (
@@ -28,11 +30,13 @@ var (
 			"memiavl_restart_latency",
 			metric.WithDescription("Time taken to restart the memiavl database"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		SnapshotRewriteLatency: must(meter.Float64Histogram(
 			"memiavl_snapshot_rewrite_latency",
 			metric.WithDescription("Time taken to write to the new memiavl snapshot"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		NumSnapshotRewriteAttempts: must(meter.Int64Counter(
 			"memiavl_num_snapshot_rewrite_attempts",
@@ -42,6 +46,7 @@ var (
 			"memiavl_snapshot_prune_latency",
 			metric.WithDescription("Time taken to prune memiavl snapshot"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		NumSnapshotPruneAttempts: must(meter.Int64Counter(
 			"memiavl_num_snapshot_prune_attempts",
@@ -52,11 +57,13 @@ var (
 			"memiavl_snapshot_catchup_after_rewrite_latency",
 			metric.WithDescription("Time taken to catchup and replay after snapshot rewrite"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		CatchupBeforeReloadLatency: must(meter.Float64Histogram(
 			"memiavl_snapshot_catchup_before_reload_latency",
 			metric.WithDescription("Time taken to catchup and replay before switch to new snapshot"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		CatchupReplayNumBlocks: must(meter.Int64Counter(
 			"memiavl_snapshot_catchup_replay_num_blocks",
@@ -71,11 +78,13 @@ var (
 			"memiavl_commit_latency",
 			metric.WithDescription("Time taken to commit"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		ApplyChangesetLatency: must(meter.Float64Histogram(
 			"memiavl_apply_changeset_latency",
 			metric.WithDescription("Time taken to apply changesets"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		NumOfKVPairs: must(meter.Int64Counter(
 			"memiavl_num_of_kv_pairs",

@@ -3,6 +3,8 @@ package mvcc
 import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
+
+	smetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
 var (
@@ -42,31 +44,37 @@ var (
 			"pebble_get_latency",
 			metric.WithDescription("Time taken to get a key from PebbleDB"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		applyChangesetLatency: must(meter.Float64Histogram(
 			"pebble_apply_changeset_latency",
 			metric.WithDescription("Time taken to apply changeset to PebbleDB"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		applyChangesetAsyncLatency: must(meter.Float64Histogram(
 			"pebble_apply_changeset_async_latency",
 			metric.WithDescription("Time taken to queue changeset for async write"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		pruneLatency: must(meter.Float64Histogram(
 			"pebble_prune_latency",
 			metric.WithDescription("Time taken to prune old versions from PebbleDB"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		importLatency: must(meter.Float64Histogram(
 			"pebble_import_latency",
 			metric.WithDescription("Time taken to import snapshot data to PebbleDB"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		batchWriteLatency: must(meter.Float64Histogram(
 			"pebble_batch_write_latency",
 			metric.WithDescription("Time taken to write a batch to PebbleDB"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 
 		compactionCount: must(meter.Int64Counter(
@@ -78,6 +86,7 @@ var (
 			"pebble_compaction_duration",
 			metric.WithDescription("Duration of compaction operations"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		compactionBytesRead: must(meter.Int64Counter(
 			"pebble_compaction_bytes_read",
@@ -99,6 +108,7 @@ var (
 			"pebble_flush_duration",
 			metric.WithDescription("Duration of memtable flush operations"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		flushBytesWritten: must(meter.Int64Counter(
 			"pebble_flush_bytes_written",
@@ -152,6 +162,7 @@ var (
 			"pebble_batch_size",
 			metric.WithDescription("Size of batches written to PebbleDB"),
 			metric.WithUnit("By"),
+			metric.WithExplicitBucketBoundaries(smetrics.ByteSizeBuckets...),
 		)),
 		pendingChangesQueueDepth: must(meter.Int64Gauge(
 			"pebble_pending_changes_queue_depth",
@@ -162,6 +173,7 @@ var (
 			"pebble_iterator_iterations",
 			metric.WithDescription("Number of iterations per iterator"),
 			metric.WithUnit("{count}"),
+			metric.WithExplicitBucketBoundaries(smetrics.CountBuckets...),
 		)),
 	}
 )

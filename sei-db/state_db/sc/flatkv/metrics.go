@@ -8,6 +8,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	smetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
 var (
@@ -38,26 +40,31 @@ var (
 			"flatkv_open_latency",
 			metric.WithDescription("Time taken to open the FlatKV store"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		ApplyChangesetsLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_apply_changesets_latency",
 			metric.WithDescription("Time taken to apply changesets to FlatKV"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		CommitLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_commit_latency",
 			metric.WithDescription("Time taken to commit FlatKV changes"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		CommitBatchLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_commit_batch_latency",
 			metric.WithDescription("Time taken to commit a FlatKV data DB batch"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		BatchReadOldValuesLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_batch_read_old_values_latency",
 			metric.WithDescription("Time taken to batch read old FlatKV values"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		NumKVPairs: must(flatkvMeter.Int64Counter(
 			"flatkv_num_kv_pairs",
@@ -78,6 +85,7 @@ var (
 			"flatkv_catchup_latency",
 			metric.WithDescription("Time taken to replay FlatKV WAL entries"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		CatchupReplayNumBlocks: must(flatkvMeter.Int64Counter(
 			"flatkv_catchup_replay_num_blocks",
@@ -88,11 +96,13 @@ var (
 			"flatkv_snapshot_write_latency",
 			metric.WithDescription("Time taken to write a FlatKV snapshot"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		SnapshotPruneLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_snapshot_prune_latency",
 			metric.WithDescription("Time taken to prune FlatKV snapshots"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		SnapshotPruneAttempts: must(flatkvMeter.Int64Counter(
 			"flatkv_snapshot_prune_attempts",
@@ -108,11 +118,13 @@ var (
 			"flatkv_rollback_latency",
 			metric.WithDescription("Time taken to rollback FlatKV state"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		ImportLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_import_latency",
 			metric.WithDescription("Time taken to import FlatKV snapshot data"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		ImportKVPairs: must(flatkvMeter.Int64Counter(
 			"flatkv_import_kv_pairs",
@@ -123,11 +135,13 @@ var (
 			"flatkv_import_worker_flush_latency",
 			metric.WithDescription("Time taken to flush a FlatKV import worker batch"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 		FlushLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_flush_latency",
 			metric.WithDescription("Time taken to flush a FlatKV data DB"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(smetrics.LatencyBuckets...),
 		)),
 	}
 )
