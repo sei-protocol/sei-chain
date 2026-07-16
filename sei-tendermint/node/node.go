@@ -466,23 +466,11 @@ func makeNode(
 }
 
 // OnStart starts the Node. It implements service.Service.
-func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
-	// If Start fails before giga is spawned, BaseService does not call OnStop
-	// and never cancels SpawnCritical — so BlockDB would otherwise leak.
-	// When giga has already been spawned, its wrapper closes BlockDB after
-	// Run observes the service-context cancel issued once OnStart returns.
-	gigaSpawned := false
-	defer func() {
-		if err == nil || gigaSpawned {
-			return
-		}
-		_ = n.closeGigaBlockDB()
-	}()
-
-	// Start giga before the transport so runPersist is active before inbound
-	// giga connections can advance inner cursors via PushQC.
+func (n *nodeImpl) OnStart(ctx context.Context) error {
+	// Start giga first so runPersist is active before inbound giga connections
+	// can advance inner cursors via PushQC, and so BaseService cancels
+	// SpawnCritical (closing BlockDB via the wrapper) if later OnStart steps fail.
 	if giga, ok := n.giga.Get(); ok {
-		gigaSpawned = true
 		n.SpawnCritical("giga", func(ctx context.Context) error {
 			defer func() { _ = n.closeGigaBlockDB() }()
 			return giga.Run(ctx)
@@ -493,11 +481,11 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	// we might need to index the txs of the replayed block as this might not have happened
 	// when the node stopped last time (i.e. the node stopped or crashed after it saved the block
 	// but before it indexed the txs)
-	if err = n.rpcEnv.EventBus.Start(ctx); err != nil {
+	if err := n.rpcEnv.EventBus.Start(ctx); err != nil {
 		return err
 	}
 
-	if err = n.indexerService.Start(ctx); err != nil {
+	if err := n.indexerService.Start(ctx); err != nil {
 		return err
 	}
 
@@ -507,7 +495,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	if n.shouldHandshake {
 		// Create the handshaker, which calls RequestInfo, sets the AppVersion on the state,
 		// and replays any blocks as necessary to sync tendermint with the app.
-		if err = consensus.NewHandshaker(
+		if err := consensus.NewHandshaker(
 			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc, n.consensusPolicy,
 		).Handshake(ctx, n.rpcEnv.App); err != nil {
 			return err
@@ -588,7 +576,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	}
 
 	// Start the transport.
-	if err = n.router.Start(ctx); err != nil {
+	if err := n.router.Start(ctx); err != nil {
 		return err
 	}
 	n.rpcEnv.IsListening = true
@@ -669,8 +657,7 @@ func (n *nodeImpl) OnStop() {
 }
 
 // closeGigaBlockDB closes the Autobahn BlockDB at most once. Safe to call from
-// makeNode's failure defer, OnStart's pre-giga failure path, and the giga
-// SpawnCritical wrapper.
+// makeNode's failure defer and the giga SpawnCritical wrapper.
 func (n *nodeImpl) closeGigaBlockDB() error {
 	var err error
 	n.gigaBlockDBCloseOnce.Do(func() {

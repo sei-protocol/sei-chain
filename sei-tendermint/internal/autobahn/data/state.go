@@ -21,6 +21,9 @@ var ErrNotFound = errors.New("not found")
 // ErrPruned aliases types.ErrPruned (BlockDB below-watermark).
 var ErrPruned = types.ErrPruned
 
+// ErrBlockGap is returned by NewState when BlockDB blocks are not contiguous.
+var ErrBlockGap = errors.New("block gap in BlockDB")
+
 // Config is the config for the data State.
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
@@ -268,7 +271,7 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 				// entries, so runPersist always writes [persistedBlock, nextBlock)
 				// fully populated. A gap here means BlockDB corruption.
 				if n != nextExpect {
-					return fmt.Errorf("block gap in BlockDB: expected %d, got %d", nextExpect, n)
+					return fmt.Errorf("%w: expected %d, got %d", ErrBlockGap, nextExpect, n)
 				}
 				nextExpect++
 				blk, err := it2.Block()

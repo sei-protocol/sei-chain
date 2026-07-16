@@ -396,6 +396,5 @@ func TestRecoveryBlockGap(t *testing.T) {
 
 	db2 := newTestBlockDB(t, dir)
 	_, err := NewState(&Config{Registry: registry}, db2)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "block gap in BlockDB")
+	require.ErrorIs(t, err, ErrBlockGap)
 }
