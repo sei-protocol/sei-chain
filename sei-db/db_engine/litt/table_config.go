@@ -56,8 +56,10 @@ type TableConfig struct {
 	//
 	// When compression is enabled, secondary keys may only alias the entire value
 	// (Offset == 0 && Length == len(value)); a secondary key that indexes a strict sub-range of a value
-	// is rejected at write time, because a compressed blob cannot be sliced. Like the other fields here
-	// (except Name), this setting is not persisted and must be supplied again after each restart.
+	// is rejected at write time, because a compressed blob cannot be sliced. This restriction could be
+	// lifted with additional engineering, but we should have a real use case before making the attempt.
+	// Like the other fields here (except Name), this setting is not persisted and must be supplied again
+	// after each restart.
 	Compression types.CompressionAlgorithm
 }
 

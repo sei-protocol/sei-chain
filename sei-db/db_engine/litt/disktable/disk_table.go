@@ -402,6 +402,9 @@ func NewDiskTable(
 			algorithm:     tableConfig.Compression,
 			inputChannel:  make(chan any, config.ControlChannelSize),
 			outputChannel: cLoop.controllerChannel,
+			metrics:       metrics,
+			name:          name,
+			clock:         runtimeConfig.Clock,
 		}
 		cLoop.inputChannel = cmpLoop.inputChannel
 	}
