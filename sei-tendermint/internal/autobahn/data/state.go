@@ -61,8 +61,8 @@ type inner struct {
 	// nextAppProposal <= nextBlockToPersist <= nextBlock <= nextQC
 	//
 	// AppProposals require persistence (nextAppProposal <= nextBlockToPersist).
-	// Prune status lives in BlockDB only; in-memory maps are cleared by
-	// evictExecuted after execution, not by PruneBefore.
+	// Executed heights are dropped from memory by evictExecuted and also by
+	// PruneBefore (to match BlockDB's watermark when eviction lags).
 	nextAppProposal    types.GlobalBlockNumber
 	nextBlockToPersist types.GlobalBlockNumber
 	nextBlock          types.GlobalBlockNumber
@@ -663,13 +663,41 @@ func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n type
 	panic("unreachable")
 }
 
-// PruneBefore asks BlockDB to drop data before retainFrom. In-memory maps are
-// not pruned here — runPersist's evictExecuted clears executed heights after
-// persist. Only executed heights are eligible (capped to nextAppProposal).
-// BlockDB enforces its own never-empty retention.
+// PruneBefore asks BlockDB to drop data before retainFrom and clears matching
+// in-memory cache entries so TryBlock/Block cannot serve heights that BlockDB
+// would refuse with ErrPruned. Only executed heights are eligible (capped to
+// nextAppProposal). Keeps nextAppProposal-1 for nextToExecute, matching
+// evictExecuted. BlockDB enforces its own never-empty retention.
 func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 	for inner := range s.inner.Lock() {
-		return s.blockDB.PruneBefore(min(retainFrom, inner.nextAppProposal))
+		retain := min(retainFrom, inner.nextAppProposal)
+		if err := s.blockDB.PruneBefore(retain); err != nil {
+			return err
+		}
+		// Drop RAM below retain, but never the nextToExecute sentinel.
+		evictBelow := retain
+		if inner.nextAppProposal > 0 {
+			if sentinel := inner.nextAppProposal - 1; retain > sentinel {
+				evictBelow = sentinel
+			}
+		}
+		for n, b := range inner.blocks {
+			if n < evictBelow {
+				delete(inner.blockHashes, b.Header().Hash())
+				delete(inner.blocks, n)
+			}
+		}
+		for n := range inner.qcs {
+			if n < evictBelow {
+				delete(inner.qcs, n)
+			}
+		}
+		for n := range inner.appProposals {
+			if n < evictBelow {
+				delete(inner.appProposals, n)
+			}
+		}
+		return nil
 	}
 	return nil
 }

@@ -101,8 +101,7 @@ func TestRecoveryNormal(t *testing.T) {
 
 // TestPruningDiscards verifies that PruneBefore advances BlockDB's watermark so
 // TryBlock returns ErrPruned for the discarded range, while later blocks stay
-// accessible. In-memory maps are cleared by eviction after execution, not by
-// PruneBefore itself.
+// accessible. PruneBefore also clears matching in-memory cache entries.
 func TestPruningDiscards(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -134,6 +133,44 @@ func TestPruningDiscards(t *testing.T) {
 		got, err := state.TryBlock(n)
 		require.NoError(t, err)
 		require.NotNil(t, got)
+	}
+}
+
+// TestPruneBeforeClearsStaleMemoryCache covers the window where PushAppHash has
+// advanced nextAppProposal (so BlockDB prune is eligible) but evictExecuted has
+// not yet dropped the old in-memory entries. Without pruning RAM in PruneBefore,
+// TryBlock would keep serving those heights from the cache.
+func TestPruneBeforeClearsStaleMemoryCache(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
+
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
+	require.NoError(t, pushAppHashesRunning(ctx, state, rng, gr1.First, gr2.Next))
+
+	// Re-inject a below-watermark entry as if eviction had not run yet.
+	for inner := range state.inner.Lock() {
+		inner.blocks[gr1.First] = blocks1[0]
+		inner.qcs[gr1.First] = qc1
+		inner.blockHashes[blocks1[0].Header().Hash()] = gr1.First
+	}
+
+	require.NoError(t, state.PruneBefore(gr2.First))
+	_, err := state.TryBlock(gr1.First)
+	require.ErrorIs(t, err, ErrPruned)
+
+	// nextToExecute sentinel (nextAppProposal-1) must survive.
+	for inner := range state.inner.Lock() {
+		sentinel := inner.nextAppProposal - 1
+		_, ok := inner.blocks[sentinel]
+		require.True(t, ok, "PruneBefore must keep nextAppProposal-1=%d", sentinel)
 	}
 }
 
