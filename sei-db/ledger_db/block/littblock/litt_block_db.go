@@ -318,7 +318,7 @@ func (s *blockDB) QCs(reverse bool) (types.QCIterator, error) {
 func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {
 	// Refuse below-watermark blocks: they may be stranded (covering QC reclaimed).
 	if uint64(n) < s.watermark.Load() {
-		return utils.None[*types.Block](), nil
+		return utils.None[*types.Block](), types.ErrPruned
 	}
 	result, err := getBlock(s.table, blockKey(n))
 	if err != nil {
@@ -363,7 +363,7 @@ func (s *blockDB) ReadQCByBlockNumber(
 ) (utils.Option[*types.FullCommitQC], error) {
 	// Below-watermark blocks are not served, so neither is their covering QC.
 	if uint64(n) < s.watermark.Load() {
-		return utils.None[*types.FullCommitQC](), nil
+		return utils.None[*types.FullCommitQC](), types.ErrPruned
 	}
 	value, exists, err := s.table.Get(qcKey(n))
 	if err != nil {

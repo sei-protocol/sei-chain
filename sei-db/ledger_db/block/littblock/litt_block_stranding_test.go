@@ -103,10 +103,10 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 	// The gate refuses the stranded blocks and their (absent) QCs.
 	for n := types.GlobalBlockNumber(0); n < 5; n++ {
 		blk, err := db3.ReadBlockByNumber(n)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, types.ErrPruned, "stranded/pruned block %d must be reported pruned", n)
 		require.False(t, blk.IsPresent(), "stranded/pruned block %d must not be served", n)
 		qc, err := db3.ReadQCByBlockNumber(n)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, types.ErrPruned, "QC for pruned block %d must be reported pruned", n)
 		require.False(t, qc.IsPresent(), "QC for pruned block %d must not be served", n)
 	}
 
@@ -195,7 +195,7 @@ func TestLittblockReclaimsAcrossRestart(t *testing.T) {
 		require.True(t, qc.IsPresent(), "QC covering cohort block %d must remain readable", n)
 	}
 	below, err := db2.ReadBlockByNumber(14)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, types.ErrPruned, "block 14 below the newest cohort must be reported pruned")
 	require.False(t, below.IsPresent(), "block 14 below the newest cohort must not be served")
 }
 
@@ -271,7 +271,7 @@ func TestLittblockPartiallyPrunedQCRangeRetained(t *testing.T) {
 	// and the covering QC is readable for every served block.
 	for n := types.GlobalBlockNumber(5); n < 7; n++ {
 		blk, err := db2.ReadBlockByNumber(n)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, types.ErrPruned, "sub-watermark block %d must be reported pruned", n)
 		require.False(t, blk.IsPresent(), "sub-watermark block %d must not be served despite surviving on disk", n)
 	}
 	for n := types.GlobalBlockNumber(7); n < 10; n++ {

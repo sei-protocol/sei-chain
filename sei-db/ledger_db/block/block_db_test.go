@@ -59,6 +59,7 @@ func TestBlockDB(t *testing.T) {
 			t.Run("PruneRetainsAtOrAbove", func(t *testing.T) { testPruneRetainsAtOrAbove(t, impl.build) })
 			t.Run("PruneStraddleRetainsQC", func(t *testing.T) { testPruneStraddleRetainsQC(t, impl.build) })
 			t.Run("PruneRefusesBelowWatermark", func(t *testing.T) { testPruneRefusesBelowWatermark(t, impl.build) })
+			t.Run("PrunedDistinctFromNotFound", func(t *testing.T) { testPrunedDistinctFromNotFound(t, impl.build) })
 			t.Run("PruneIdempotentMonotonic", func(t *testing.T) { testPruneIdempotentMonotonic(t, impl.build) })
 			t.Run("PruneNeverEmpties", func(t *testing.T) { testPruneNeverEmpties(t, impl.build) })
 			t.Run("PruneEmptyStoreThenWriteBelow", func(t *testing.T) {
@@ -287,7 +288,7 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 		require.Less(t, n, watermark)
 
 		byNum, err := db.ReadBlockByNumber(n)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, types.ErrPruned, "block %d below watermark %d must be reported pruned", n, watermark)
 		require.False(t, byNum.IsPresent(), "block %d below watermark %d must not be served", n, watermark)
 
 		byHash, err := db.ReadBlockByHash(blk.Header().Hash())
@@ -307,6 +308,41 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 		require.GreaterOrEqual(t, blockIt.Number(), watermark,
 			"iterator must not yield block %d below watermark %d", blockIt.Number(), watermark)
 	}
+}
+
+// testPrunedDistinctFromNotFound is the crux of the ErrPruned contract: after a
+// prune, a below-watermark by-number read reports ErrPruned (gone for good — a
+// peer should stop retrying), while a never-written height at or above the
+// watermark reports a plain utils.None with a nil error (absent, but a future
+// write may fill it). Both implementations must agree.
+func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+	writeAll(t, db, batches)
+
+	watermark := batches[1].first
+	require.NoError(t, db.PruneBefore(watermark))
+
+	// Below the watermark: ErrPruned, for both the block and its covering QC.
+	belowNum := batches[0].first
+	require.Less(t, belowNum, watermark)
+	blk, err := db.ReadBlockByNumber(belowNum)
+	require.ErrorIs(t, err, types.ErrPruned, "below-watermark block must report ErrPruned")
+	require.False(t, blk.IsPresent())
+	qc, err := db.ReadQCByBlockNumber(belowNum)
+	require.ErrorIs(t, err, types.ErrPruned, "below-watermark QC must report ErrPruned")
+	require.False(t, qc.IsPresent())
+
+	// Above the watermark but never written: not pruned, just absent.
+	unwritten := batches[len(batches)-1].next + 1000
+	missBlk, err := db.ReadBlockByNumber(unwritten)
+	require.NoError(t, err, "never-written height must not report ErrPruned")
+	require.False(t, missBlk.IsPresent())
+	missQC, err := db.ReadQCByBlockNumber(unwritten)
+	require.NoError(t, err, "never-written height must not report ErrPruned")
+	require.False(t, missQC.IsPresent())
 }
 
 // testPruneIdempotentMonotonic asserts PruneBefore is idempotent and the
@@ -414,7 +450,7 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 			belowBatch := batches[len(batches)-2]
 			require.Less(t, belowBatch.first, last.first)
 			below, err := db.ReadBlockByNumber(belowBatch.first)
-			require.NoError(t, err)
+			require.ErrorIs(t, err, types.ErrPruned, "blocks below the newest cohort must be reported pruned")
 			require.False(t, below.IsPresent(), "blocks below the newest cohort must not be served")
 
 			// The block iterator yields exactly the newest cohort, and the QC
@@ -921,11 +957,11 @@ func TestMemblockPruneRemovesBelowWatermark(t *testing.T) {
 	for i := range batches[0].blocks {
 		n := batches[0].first + gbn(i)
 		opt, err := db.ReadBlockByNumber(n)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, types.ErrPruned, "block %d should be pruned", n)
 		require.False(t, opt.IsPresent(), "block %d should be pruned", n)
 	}
 	qc, err := db.ReadQCByBlockNumber(batches[0].first)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, types.ErrPruned, "QC below watermark should be pruned")
 	require.False(t, qc.IsPresent(), "QC below watermark should be pruned")
 
 	// Watermark block is retained.
@@ -964,10 +1000,10 @@ func TestMemblockPruneRemovesBelowWatermark(t *testing.T) {
 
 // TestMemblockPruneStraddlingQC verifies the exact in-memory behavior when the
 // watermark falls inside a QC's range: blocks below it are removed, blocks at or
-// above it stay, and the straddling QC survives and resolves for every in-range
-// lookup. memblock keeps no watermark, so even sub-watermark lookups hit the
-// retained QC — which the contract permits (below-watermark lookups MAY miss,
-// but are not required to).
+// above it stay, and the straddling QC survives and resolves for in-range
+// lookups at or above the watermark. Sub-watermark lookups are refused with
+// ErrPruned even though the straddling QC is physically retained — memblock
+// tracks the watermark and gates by number, matching littblock.
 func TestMemblockPruneStraddlingQC(t *testing.T) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
@@ -979,11 +1015,11 @@ func TestMemblockPruneStraddlingQC(t *testing.T) {
 	require.Greater(t, straddled.next, watermark, "watermark must fall strictly inside the batch range")
 	require.NoError(t, db.PruneBefore(watermark))
 
-	// Blocks below the watermark within the straddled batch are gone...
+	// Blocks below the watermark within the straddled batch are refused...
 	for i := 0; gbn(i) < watermark-straddled.first; i++ {
 		opt, err := db.ReadBlockByNumber(straddled.first + gbn(i))
-		require.NoError(t, err)
-		require.False(t, opt.IsPresent(), "block %d below watermark must be pruned", straddled.first+gbn(i))
+		require.ErrorIs(t, err, types.ErrPruned, "block %d below watermark must be pruned", straddled.first+gbn(i))
+		require.False(t, opt.IsPresent(), "block %d below watermark must not be served", straddled.first+gbn(i))
 	}
 	// ...while those at or above it remain.
 	for i := int(watermark - straddled.first); i < len(straddled.blocks); i++ {
@@ -992,16 +1028,17 @@ func TestMemblockPruneStraddlingQC(t *testing.T) {
 		require.True(t, opt.IsPresent(), "block %d at/above watermark must be retained", straddled.first+gbn(i))
 	}
 
-	// The straddling QC stays (its Next > watermark). memblock tracks no
-	// watermark, so it resolves the retained QC for every n in its range,
-	// including sub-watermark lookups — which the contract permits.
+	// The straddling QC stays (its Next > watermark) and resolves for in-range
+	// lookups at or above the watermark.
 	above, err := db.ReadQCByBlockNumber(watermark)
 	require.NoError(t, err)
 	require.True(t, above.IsPresent(), "straddling QC must be retained for lookups at/above watermark")
 
+	// A sub-watermark lookup is refused with ErrPruned even though the QC that
+	// covers it is retained: the by-number gate rejects the height first.
 	below, err := db.ReadQCByBlockNumber(straddled.first)
-	require.NoError(t, err)
-	require.True(t, below.IsPresent(), "memblock retains the straddling QC for sub-watermark in-range lookups")
+	require.ErrorIs(t, err, types.ErrPruned, "sub-watermark lookup must be reported pruned")
+	require.False(t, below.IsPresent(), "sub-watermark lookup must not be served")
 }
 
 // The durable reclamation path (data pruned past after a restart is physically

@@ -21,6 +21,14 @@ var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
 // before that block (see the BlockDB ordering contract).
 var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 
+// ErrPruned is returned by the by-number read methods (ReadBlockByNumber and
+// ReadQCByBlockNumber) when the requested GlobalBlockNumber is strictly below
+// the retention watermark: the record has been pruned (or is being reclaimed)
+// and will never become readable again. It is distinct from a utils.None
+// result, which means "not present" and may still be filled by a future write.
+// Callers use ErrPruned to stop retrying.
+var ErrPruned = errors.New("block: below retention watermark")
+
 // BlockDB is the durable backing store for data.State. It persists the two
 // kinds of finalized records the consensus state machine produces —
 // finalized blocks (indexed by GlobalBlockNumber and by header hash) and
@@ -197,13 +205,17 @@ type BlockDB interface {
 
 	// ReadBlockByNumber returns the block at GlobalBlockNumber n.
 	//
-	// Returns utils.None if no block is readable at n — either because
-	// none was written at n or because it has been pruned. A pruned block
-	// may or may not still be readable; callers must not rely on either.
-	// Never blocks waiting for a future write: "not yet written" is
-	// reported as utils.None identical to "never written". Blocking
-	// semantics (wait for a write at n) live above this interface, in
-	// data.State.
+	// The result is one of:
+	//   - utils.Some with a nil error: the block is present at n.
+	//   - ErrPruned: n is strictly below the retention watermark. The block
+	//     has been pruned and will never become readable again; the caller
+	//     should stop retrying.
+	//   - utils.None with a nil error: n is at or above the watermark but no
+	//     block is present. It was either never written or not yet written —
+	//     the two are indistinguishable — and a future write may fill it.
+	//
+	// Never blocks waiting for a future write; blocking semantics (wait for a
+	// write at n) live above this interface, in data.State.
 	ReadBlockByNumber(n GlobalBlockNumber) (utils.Option[*Block], error)
 
 	// ReadBlockByHash returns the block whose header hashes to the
@@ -222,10 +234,15 @@ type BlockDB interface {
 	// blocks, the same *FullCommitQC is returned for every n in its
 	// range.
 	//
-	// Returns utils.None if no readable QC covers n — either because none
-	// was written that covers n or because it has been pruned. A pruned
-	// QC may or may not still be readable; callers must not rely on
-	// either. Non-blocking.
+	// The result is one of:
+	//   - utils.Some with a nil error: a QC covering n is present.
+	//   - ErrPruned: n is strictly below the retention watermark. The covering
+	//     QC has been pruned and will never become readable again; the caller
+	//     should stop retrying.
+	//   - utils.None with a nil error: n is at or above the watermark but no QC
+	//     covers it. Either no covering QC was written or it is not yet written.
+	//
+	// Non-blocking.
 	ReadQCByBlockNumber(n GlobalBlockNumber) (utils.Option[*FullCommitQC], error)
 
 	// Close releases resources held by the store. After Close returns,
