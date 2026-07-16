@@ -39,7 +39,7 @@ func TestSemanticMemiavlDigestMatchesTranslatorForCoreEVMKeys(t *testing.T) {
 	require.Equal(t, translatorDigest.account, semanticDigest.account)
 	require.Equal(t, translatorDigest.code, semanticDigest.code)
 	require.Equal(t, translatorDigest.storage, semanticDigest.storage)
-	require.Equal(t, translatorDigest.legacy, semanticDigest.legacy)
+	require.Equal(t, translatorDigest.misc, semanticDigest.misc)
 }
 
 func TestSemanticMemiavlInspectMatchesTranslatorForCoreEVMKeys(t *testing.T) {
@@ -95,15 +95,15 @@ func coreEVMRawPairs() []*proto.KVPair {
 	codeHash := bytesOfLen(32, 0xAB)
 	storageValue := bytesOfLen(32, 0x2A)
 	code := []byte{0x60, 0x2A, 0x60, 0x00}
-	legacyKey := append([]byte{0x09}, addr...)
-	legacyValue := []byte{0xAA, 0xBB}
+	miscKey := append([]byte{0x09}, addr...)
+	miscValue := []byte{0xAA, 0xBB}
 
 	return []*proto.KVPair{
 		{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr), Value: nonceBytes(7)},
 		{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr), Value: codeHash},
 		{Key: keys.BuildEVMKey(keys.EVMKeyStorage, storageKeyBytes), Value: storageValue},
 		{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr), Value: code},
-		{Key: legacyKey, Value: legacyValue},
+		{Key: miscKey, Value: miscValue},
 		// Both paths should treat these as delete-equivalent and omit them.
 		{Key: keys.BuildEVMKey(keys.EVMKeyStorage, append(append([]byte{}, addr...), bytesOfLen(32, 0x08)...)), Value: make([]byte, 32)},
 		{Key: keys.BuildEVMKey(keys.EVMKeyCode, bytesOfLen(keys.AddressLen, 0x99)), Value: nil},
@@ -131,42 +131,42 @@ func nonceBytes(n uint64) []byte {
 	return bz
 }
 
-// TestLegacyForCompareOmitsMigrationMarkerRows pins the marker adjustment that
+// TestMiscForCompareOmitsMigrationMarkerRows pins the marker adjustment that
 // lets a memiavl-only node, a completed node (carrying the migration-version
 // marker), and an in-progress node (carrying the migration-boundary cursor) all
-// produce the same legacy digest for identical EVM state. Both FlatKV-only
-// MigrationStore rows are folded into the legacy bucket during the scan but must
+// produce the same misc digest for identical EVM state. Both FlatKV-only
+// MigrationStore rows are folded into the misc bucket during the scan but must
 // be XORed back out for the final cross-backend comparison.
-func TestLegacyForCompareOmitsMigrationMarkerRows(t *testing.T) {
-	legacyKey := append([]byte{0x09}, bytesOfLen(keys.AddressLen, 0x33)...)
-	legacyVal := vtype.NewLegacyData().SetBlockHeight(10).SetValue([]byte{0xDE, 0xAD}).Serialize()
-	versionVal := vtype.NewLegacyData().SetBlockHeight(20).SetValue([]byte{0x01}).Serialize()
-	boundaryVal := vtype.NewLegacyData().SetBlockHeight(30).SetValue([]byte{0x02, 0x03}).Serialize()
+func TestMiscForCompareOmitsMigrationMarkerRows(t *testing.T) {
+	miscKey := append([]byte{0x09}, bytesOfLen(keys.AddressLen, 0x33)...)
+	miscVal := vtype.NewMiscData().SetBlockHeight(10).SetValue([]byte{0xDE, 0xAD}).Serialize()
+	versionVal := vtype.NewMiscData().SetBlockHeight(20).SetValue([]byte{0x01}).Serialize()
+	boundaryVal := vtype.NewMiscData().SetBlockHeight(30).SetValue([]byte{0x02, 0x03}).Serialize()
 
-	// memiavl-only / clean node: only the plain legacy row.
+	// memiavl-only / clean node: only the plain misc row.
 	clean := evmDigest{}
-	require.NoError(t, clean.consume(legacyKey, legacyVal))
+	require.NoError(t, clean.consume(miscKey, miscVal))
 
 	// completed node: plain row + migration-version marker.
 	completed := evmDigest{}
-	require.NoError(t, completed.consume(legacyKey, legacyVal))
+	require.NoError(t, completed.consume(miscKey, miscVal))
 	require.NoError(t, completed.consume(migrationVersionPhysKey, versionVal))
 	require.True(t, completed.migrationVersionFound)
 
 	// in-progress node: plain row + migration-boundary cursor.
 	inProgress := evmDigest{}
-	require.NoError(t, inProgress.consume(legacyKey, legacyVal))
+	require.NoError(t, inProgress.consume(miscKey, miscVal))
 	require.NoError(t, inProgress.consume(migrationBoundaryPhysKey, boundaryVal))
 	require.True(t, inProgress.migrationBoundaryFound)
 
-	// Raw legacy buckets differ because each folds in its marker row.
-	require.NotEqual(t, clean.legacy, completed.legacy)
-	require.NotEqual(t, clean.legacy, inProgress.legacy)
+	// Raw misc buckets differ because each folds in its marker row.
+	require.NotEqual(t, clean.misc, completed.misc)
+	require.NotEqual(t, clean.misc, inProgress.misc)
 
 	// After the marker adjustment all three agree (digest and count).
-	cleanAcc, cleanCount := clean.legacyForCompare()
-	compAcc, compCount := completed.legacyForCompare()
-	progAcc, progCount := inProgress.legacyForCompare()
+	cleanAcc, cleanCount := clean.miscForCompare()
+	compAcc, compCount := completed.miscForCompare()
+	progAcc, progCount := inProgress.miscForCompare()
 	require.Equal(t, cleanAcc, compAcc, "completed node must match clean after omitting migration-version")
 	require.Equal(t, cleanCount, compCount)
 	require.Equal(t, cleanAcc, progAcc, "in-progress node must match clean after omitting migration-boundary")
