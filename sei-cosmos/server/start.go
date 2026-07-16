@@ -165,13 +165,11 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 				tracerProviderOptions = []trace.TracerProviderOption{}
 			}
 
-			logger.Info("Creating node metrics provider")
-			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)(clientCtx.ChainID)
-
 			config, err := config.GetConfig(serverCtx.Viper)
 			if err != nil {
 				return err
 			}
+			config.Telemetry = injectTelemetryChainID(config.Telemetry, clientCtx.ChainID)
 			apiMetrics, err := telemetry.New(config.Telemetry)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telemetry: %w", err)
@@ -190,7 +188,6 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 					clientCtx,
 					appCreator,
 					tracerProviderOptions,
-					nodeMetricsProvider,
 					apiMetrics,
 				)
 				if !errors.Is(err, ErrShouldRestart) {
@@ -248,6 +245,19 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	mustMarkDeprecated(cmd, flagTransport, "out-of-process ABCI has been removed; this flag is ignored")
 }
 
+func injectTelemetryChainID(cfg telemetry.Config, chainID string) telemetry.Config {
+	if chainID == "" {
+		return cfg
+	}
+	for _, label := range cfg.GlobalLabels {
+		if len(label) > 0 && label[0] == "chain_id" {
+			return cfg
+		}
+	}
+	cfg.GlobalLabels = append(cfg.GlobalLabels, []string{"chain_id", chainID})
+	return cfg
+}
+
 func mustMarkDeprecated(cmd *cobra.Command, name, message string) {
 	cmd.Flags().String(name, "", "")
 	if err := cmd.Flags().MarkDeprecated(name, message); err != nil {
@@ -260,7 +270,6 @@ func startInProcess(
 	clientCtx client.Context,
 	appCreator types.AppCreator,
 	tracerProviderOptions []trace.TracerProviderOption,
-	nodeMetricsProvider *node.NodeMetrics,
 	apiMetrics *telemetry.Metrics,
 ) error {
 	cfg := ctx.Config
@@ -349,7 +358,6 @@ func startInProcess(
 			app,
 			gen,
 			tracerProviderOptions,
-			nodeMetricsProvider,
 			tmtypes.DefaultConsensusPolicy(),
 		)
 		if err != nil {
@@ -399,7 +407,7 @@ func startInProcess(
 	}
 
 	if config.GRPC.Enable {
-		grpcSrv, err := servergrpc.StartGRPCServer(clientCtx, app, config.GRPC.Address)
+		grpcSrv, err := servergrpc.StartGRPCServer(clientCtx, app, config.GRPC)
 		if err != nil {
 			return err
 		}

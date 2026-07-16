@@ -82,17 +82,6 @@ These transactions are included in blocks but not executed. The following endpoi
 
 #### Available Endpoints
 
-##### Block Tracing
-- `sei_traceBlockByNumberExcludeTraceFail`
-  - Enhanced version of `debug_traceBlockByNumber`
-  - Excludes transactions that failed pre-state checks
-  - Provides cleaner tracing output
-
-- `sei_traceBlockByHashExcludeTraceFail`
-  - Enhanced version of `debug_traceBlockByHash`
-  - Excludes transactions that failed pre-state checks
-  - Useful for debugging specific blocks
-
 ##### Transaction and Block Data
 - `sei_getTransactionReceiptExcludeTraceFail`
   - Enhanced version of `eth_getTransactionReceipt`
@@ -107,7 +96,6 @@ These transactions are included in blocks but not executed. The following endpoi
 #### Best Practices
 1. Use these endpoints when you need to:
    - Filter out failed transactions
-   - Get cleaner debugging output
    - Focus on successfully executed transactions
 
 2. Consider using the standard `eth_` endpoints when you need to:

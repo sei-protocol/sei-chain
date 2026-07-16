@@ -5,7 +5,6 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	db "github.com/tendermint/tm-db"
 )
 
 var _ Router = (*PassthroughRouter)(nil)
@@ -22,21 +21,18 @@ var _ Router = (*PassthroughRouter)(nil)
 // memiavl already reports unknown child stores from
 // GetChildStoreByName.
 type PassthroughRouter struct {
-	reader          DBReader
-	writer          DBWriter
-	iteratorBuilder DBIteratorBuilder
-	proofBuilder    DBProofBuilder
+	reader       DBReader
+	writer       DBWriter
+	proofBuilder DBProofBuilder
 }
 
 // NewPassthroughRouter builds a router that forwards every operation
 // to the supplied accessors. The reader and writer are required.
-// iteratorBuilder and proofBuilder are optional: when nil, the
-// corresponding Router method returns an error describing the missing
-// capability (e.g. flatkv has no proof builder).
+// proofBuilder is optional: when nil, GetProof returns an error
+// describing the missing capability (e.g. flatkv has no proof builder).
 func NewPassthroughRouter(
 	reader DBReader,
 	writer DBWriter,
-	iteratorBuilder DBIteratorBuilder,
 	proofBuilder DBProofBuilder,
 ) (*PassthroughRouter, error) {
 	if reader == nil {
@@ -46,10 +42,9 @@ func NewPassthroughRouter(
 		return nil, fmt.Errorf("writer must not be nil")
 	}
 	return &PassthroughRouter{
-		reader:          reader,
-		writer:          writer,
-		iteratorBuilder: iteratorBuilder,
-		proofBuilder:    proofBuilder,
+		reader:       reader,
+		writer:       writer,
+		proofBuilder: proofBuilder,
 	}, nil
 }
 
@@ -65,15 +60,6 @@ func (p *PassthroughRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, 
 	return p.writer(changesets, firstBatchInBlock)
 }
 
-// Iterator forwards to the wrapped iterator builder. If no iterator
-// builder was supplied, returns an error describing the limitation.
-func (p *PassthroughRouter) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
-	if p.iteratorBuilder == nil {
-		return nil, fmt.Errorf("iteration not supported by passthrough router (store=%q)", store)
-	}
-	return p.iteratorBuilder(store, start, end, ascending)
-}
-
 // GetProof forwards to the wrapped proof builder. If no proof builder
 // was supplied, returns an error describing the limitation.
 func (p *PassthroughRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
@@ -82,3 +68,7 @@ func (p *PassthroughRouter) GetProof(store string, key []byte) (*ics23.Commitmen
 	}
 	return p.proofBuilder(store, key)
 }
+
+// SetMigrationBatchSize is a no-op: a passthrough router targets a single
+// backend and performs no data migration.
+func (p *PassthroughRouter) SetMigrationBatchSize(int) {}

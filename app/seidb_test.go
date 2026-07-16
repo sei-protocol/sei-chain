@@ -6,7 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,6 +37,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSCConfig.MemIAVLConfig.SnapshotPrefetchThreshold
 	case FlagSCSnapshotWriteRateMBps:
 		return defaultSCConfig.MemIAVLConfig.SnapshotWriteRateMBps
+	case FlagSCFlatKVReadWriteMetrics:
+		return defaultSCConfig.FlatKVConfig.EnableReadWriteMetrics
 	case FlagSSEnable:
 		return defaultSSConfig.Enable
 	case FlagSSBackend:
@@ -51,8 +53,12 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.PruneIntervalSeconds
 	case FlagSSImportNumWorkers:
 		return defaultSSConfig.ImportNumWorkers
+	case FlagSSReadWriteMetrics:
+		return defaultSSConfig.EnableReadWriteMetrics
 	case receiptStoreBackendKey:
 		return defaultReceiptConfig.Backend
+	case receiptStoreReadWriteMetricsKey:
+		return defaultReceiptConfig.EnableReadWriteMetrics
 	case FlagEVMSSDirectory:
 		return defaultSSConfig.EVMDBDirectory
 	case FlagEVMSSSplit:
@@ -96,7 +102,14 @@ func TestNewDefaultConfig(t *testing.T) {
 	ssConfig := parseSSConfigs(appOpts)
 	receiptConfig, err := config.ReadReceiptConfig(appOpts)
 	assert.NoError(t, err)
-	assert.Equal(t, scConfig, config.DefaultStateCommitConfig())
+	// WriteModeEnableAuto defaults to true, so parseSCConfigs resolves the effective
+	// WriteMode to auto, overriding the fixed-fallback default (memiavl_only).
+	expectedSC := config.DefaultStateCommitConfig()
+	expectedSC.WriteMode = sctypes.Auto
+	// parseSCConfigs is a raw parse and does not align FlatKV with memIAVL (that
+	// happens in composite.NewCompositeCommitStore), so the parsed config matches
+	// the in-code defaults verbatim apart from the resolved write mode.
+	assert.Equal(t, expectedSC, scConfig)
 	assert.Equal(t, ssConfig, config.DefaultStateStoreConfig())
 	assert.Equal(t, receiptConfig, config.DefaultReceiptStoreConfig())
 }
@@ -120,6 +133,85 @@ func TestParseSCConfigs_HistoricalProofFlags(t *testing.T) {
 	assert.Equal(t, 7, scConfig.HistoricalProofMaxInFlight)
 	assert.Equal(t, 12.5, scConfig.HistoricalProofRateLimit)
 	assert.Equal(t, 3, scConfig.HistoricalProofBurst)
+}
+
+func TestParseSCConfigs_FlatKVReadWriteMetrics(t *testing.T) {
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable:                 true,
+		FlagSCFlatKVReadWriteMetrics: true,
+	})
+
+	assert.True(t, scConfig.FlatKVConfig.EnableReadWriteMetrics)
+}
+
+func TestParseSCConfigs_DoesNotAlignFlatKV(t *testing.T) {
+	// parseSCConfigs is a raw parse: memIAVL takes the flag values while FlatKV
+	// keeps its own in-code defaults. The FlatKV<-memIAVL alignment happens later
+	// in composite.NewCompositeCommitStore, not here.
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable:             true,
+		FlagSCSnapshotInterval:   uint32(5000),
+		FlagSCSnapshotKeepRecent: uint32(3),
+	})
+
+	assert.Equal(t, uint32(5000), scConfig.MemIAVLConfig.SnapshotInterval)
+	assert.Equal(t, uint32(3), scConfig.MemIAVLConfig.SnapshotKeepRecent)
+	def := config.DefaultStateCommitConfig().FlatKVConfig
+	assert.Equal(t, def.SnapshotInterval, scConfig.FlatKVConfig.SnapshotInterval)
+	assert.Equal(t, def.SnapshotKeepRecent, scConfig.FlatKVConfig.SnapshotKeepRecent)
+}
+
+func TestParseSCConfigs_SnapshotKeepRecentParsedRaw(t *testing.T) {
+	// An explicitly configured value is preserved verbatim; the min-clamp (0 -> 1)
+	// happens later in composite.NewCompositeCommitStore, not here.
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable:             true,
+		FlagSCSnapshotKeepRecent: uint32(0),
+	})
+
+	assert.Equal(t, uint32(0), scConfig.MemIAVLConfig.SnapshotKeepRecent)
+}
+
+func TestParseSCConfigs_AbsentKeysKeepDefaults(t *testing.T) {
+	// Keys omitted entirely must fall back to the in-code defaults rather than
+	// being clobbered to the zero value (cast.To*(nil) == 0). Only sc-enable is
+	// set here.
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable: true,
+	})
+
+	def := config.DefaultStateCommitConfig().MemIAVLConfig
+	assert.Equal(t, def.AsyncCommitBuffer, scConfig.MemIAVLConfig.AsyncCommitBuffer)
+	assert.Equal(t, def.SnapshotKeepRecent, scConfig.MemIAVLConfig.SnapshotKeepRecent)
+	assert.Equal(t, def.SnapshotInterval, scConfig.MemIAVLConfig.SnapshotInterval)
+	assert.Equal(t, def.SnapshotMinTimeInterval, scConfig.MemIAVLConfig.SnapshotMinTimeInterval)
+	assert.Equal(t, def.SnapshotWriterLimit, scConfig.MemIAVLConfig.SnapshotWriterLimit)
+	assert.Equal(t, def.SnapshotPrefetchThreshold, scConfig.MemIAVLConfig.SnapshotPrefetchThreshold)
+	assert.Equal(t, def.SnapshotWriteRateMBps, scConfig.MemIAVLConfig.SnapshotWriteRateMBps)
+}
+
+func TestParseSCConfigs_LegacyCosmosOnlyWriteMode(t *testing.T) {
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable:    true,
+		FlagSCWriteMode: "cosmos_only",
+	})
+	assert.Equal(t, sctypes.Auto, scConfig.WriteMode)
+
+	scConfig = parseSCConfigs(mapAppOpts{
+		FlagSCEnable:              true,
+		FlagSCWriteMode:           "cosmos_only",
+		FlagSCWriteModeEnableAuto: false,
+	})
+	assert.Equal(t, sctypes.MemiavlOnly, scConfig.WriteMode)
+}
+
+func TestParseSCConfigs_InvalidWriteModePanicMentionsSC(t *testing.T) {
+	assert.PanicsWithValue(t, `invalid SC write mode "bogus": invalid write mode: bogus`, func() {
+		parseSCConfigs(mapAppOpts{
+			FlagSCEnable:    true,
+			FlagSCWriteMode: "bogus",
+		})
+	})
 }
 
 func TestParseSSConfigs_EVMFlags(t *testing.T) {
@@ -184,6 +276,41 @@ func TestParseSSConfigs_HistoricalBigtableFlags(t *testing.T) {
 	assert.Equal(t, 512, ssConfig.HistoricalOffloadBigtableShards)
 }
 
+func TestParseSSConfigs_ReadWriteMetrics(t *testing.T) {
+	ssConfig := parseSSConfigs(mapAppOpts{
+		FlagSSEnable:           true,
+		FlagSSReadWriteMetrics: true,
+	})
+
+	assert.True(t, ssConfig.EnableReadWriteMetrics)
+}
+
+// TestSetupSeiDB_StateSyncSnapshotWithoutSSDoesNotPanic guards the removal of
+// the old validateConfigs check, which panicked whenever a state-sync snapshot
+// interval was configured (> 0) while SC was enabled but SS was disabled.
+// State-sync snapshot creation does not read from SS, so that coupling was
+// dropped; this test asserts the previously-forbidden combination now boots
+// cleanly (no panic) and, with SS off, yields a nil state store.
+func TestSetupSeiDB_StateSyncSnapshotWithoutSSDoesNotPanic(t *testing.T) {
+	homePath := t.TempDir()
+	appOpts := mapAppOpts{
+		FlagSCEnable: true,
+		FlagSSEnable: false,
+		// The combination that used to trip validateConfigs: a non-zero
+		// state-sync snapshot interval with SS disabled.
+		"state-sync.snapshot-interval": uint64(10),
+		// Keep the giga executor out of this boot path so the test exercises the
+		// plain SC-only store construction.
+		"giga_executor.enabled": false,
+	}
+
+	require.NotPanics(t, func() {
+		opts, ss := SetupSeiDB(homePath, appOpts, nil)
+		require.NotNil(t, opts)
+		require.Nil(t, ss, "state store must be nil when SS is disabled")
+	})
+}
+
 func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
 	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{})
 	assert.NoError(t, err)
@@ -192,10 +319,10 @@ func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
 
 func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
 	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{
-		receiptStoreBackendKey: "parquet",
+		receiptStoreBackendKey: "pebbledb",
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, "parquet", receiptConfig.Backend)
+	assert.Equal(t, "pebbledb", receiptConfig.Backend)
 	assert.Equal(t, config.DefaultReceiptStoreConfig().AsyncWriteBuffer, receiptConfig.AsyncWriteBuffer)
 	assert.Equal(t, 0, receiptConfig.KeepRecent)
 }
@@ -203,16 +330,18 @@ func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
 func TestParseReceiptConfigs_UsesConfiguredValues(t *testing.T) {
 	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{
 		receiptStoreDBDirectoryKey:          "/tmp/custom-receipt-db",
-		receiptStoreBackendKey:              "parquet",
+		receiptStoreBackendKey:              "pebbledb",
 		receiptStoreAsyncWriteBufferKey:     7,
 		receiptStorePruneIntervalSecondsKey: 9,
+		receiptStoreReadWriteMetricsKey:     true,
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, "/tmp/custom-receipt-db", receiptConfig.DBDirectory)
-	assert.Equal(t, "parquet", receiptConfig.Backend)
+	assert.Equal(t, "pebbledb", receiptConfig.Backend)
 	assert.Equal(t, 7, receiptConfig.AsyncWriteBuffer)
 	assert.Equal(t, 0, receiptConfig.KeepRecent)
 	assert.Equal(t, 9, receiptConfig.PruneIntervalSeconds)
+	assert.True(t, receiptConfig.EnableReadWriteMetrics)
 }
 
 func TestParseReceiptConfigs_RejectsInvalidBackend(t *testing.T) {
@@ -257,15 +386,4 @@ func TestReadReceiptStoreConfigFallsBackToZeroWhenNeitherSet(t *testing.T) {
 	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{})
 	require.NoError(t, err)
 	assert.Equal(t, 0, receiptConfig.KeepRecent)
-}
-
-// TestFullAppPathWithParquetReceiptStore exercises the full app.New path with rs-backend = "parquet"
-// and asserts the parquet receipt store is actually instantiated (not pebble).
-func TestFullAppPathWithParquetReceiptStore(t *testing.T) {
-	app := SetupWithScReceiptFromOpts(t, false, false, TestAppOpts{
-		UseSc:          true,
-		ReceiptBackend: "parquet",
-	})
-	require.NotNil(t, app.receiptStore, "receipt store should be created")
-	assert.Equal(t, "parquet", receipt.BackendTypeName(app.receiptStore), "receipt store backend should be parquet")
 }

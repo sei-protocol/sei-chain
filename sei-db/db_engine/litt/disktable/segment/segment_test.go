@@ -59,7 +59,8 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		1,
-		false)
+		false,
+		32)
 
 	require.NoError(t, err)
 
@@ -208,7 +209,8 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardCount,
-		false)
+		false,
+		32)
 
 	require.NoError(t, err)
 
@@ -366,7 +368,8 @@ func TestWriteAndReadColdShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardCount,
-		false)
+		false,
+		32)
 
 	require.NoError(t, err)
 
@@ -475,7 +478,8 @@ func TestGetFilePaths(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardingFactor,
-		false)
+		false,
+		32)
 	require.NoError(t, err)
 
 	files := segment.GetFilePaths()
@@ -542,7 +546,8 @@ func TestRoundRobinShardAssignment(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardingFactor,
-		false)
+		false,
+		32)
 	require.NoError(t, err)
 
 	// Capture the address that the segment assigns to each write, in insertion order.
@@ -613,6 +618,7 @@ func newSingleShardSegment(t *testing.T) (*Segment, *SegmentPath, uint32) {
 		false,
 		1,
 		false,
+		32,
 	)
 	require.NoError(t, err)
 	return seg, segmentPath, index
@@ -814,6 +820,70 @@ func reloadSegmentExpectingRecovery(t *testing.T, segmentPath *SegmentPath, inde
 	keys, err := seg.GetKeys()
 	require.NoError(t, err)
 	return keys, seg
+}
+
+// TestSealLoadedSegmentSingleShardPrefix locks the single-shard durability invariant: with one shard
+// all values append to a single value file and all keys to a single key file in write order, so after
+// a crash the surviving Put groups form a contiguous PREFIX of the write order — never a gapped
+// subset. Each sub-case seals a segment, truncates one file to simulate a torn tail, reloads, and
+// asserts the survivors are exactly key000..key{j-1}.
+func TestSealLoadedSegmentSingleShardPrefix(t *testing.T) {
+	t.Parallel()
+
+	const (
+		n        = 8
+		valueLen = 10 // each value below is exactly 10 bytes
+	)
+	keyFor := func(i int) []byte { return []byte(fmt.Sprintf("key%03d", i)) }
+	valueFor := func(i int) []byte { return []byte(fmt.Sprintf("val%07d", i)) }
+
+	// writeRun writes n standalone Puts to a fresh single-shard segment, seals it, and flips the
+	// metadata back to unsealed to simulate a crash before the seal completed.
+	writeRun := func(t *testing.T) (*SegmentPath, uint32) {
+		seg, segmentPath, index := newSingleShardSegment(t)
+		for i := 0; i < n; i++ {
+			writeNoErr(t, seg, &types.PutRequest{Key: keyFor(i), Value: valueFor(i)})
+		}
+		_, err := seg.Seal(time.Now())
+		require.NoError(t, err)
+		markSegmentUnsealed(t, segmentPath, index)
+		return segmentPath, index
+	}
+
+	// assertPrefix asserts the recovered keys are exactly key000..key{survivors-1} in write order with
+	// no gaps, and that every survivor's value range fits within the (possibly truncated) value file.
+	assertPrefix := func(t *testing.T, keys []*types.ScopedKey, survivors int, valueFileSize int) {
+		require.Len(t, keys, survivors)
+		for i := 0; i < survivors; i++ {
+			require.Equal(t, string(keyFor(i)), string(keys[i].Key), "record %d", i)
+			end := int(keys[i].Address.Offset()) + int(keys[i].Address.ValueSize())
+			require.LessOrEqual(t, end, valueFileSize, "survivor %d value must fit in the value file", i)
+		}
+	}
+
+	t.Run("value_file_torn_mid_value", func(t *testing.T) {
+		t.Parallel()
+		segmentPath, index := writeRun(t)
+		// Values occupy [i*10,(i+1)*10); total 80 bytes. Truncate to 55, landing inside value 5
+		// ([50,60)). Survivors are the values whose end <= 55, i.e. key000..key004.
+		const truncatedSize = 55
+		truncateValueFileBy(t, segmentPath, index, 0, n*valueLen-truncatedSize)
+		keys, _ := reloadSegmentExpectingRecovery(t, segmentPath, index)
+		assertPrefix(t, keys, 5, truncatedSize)
+	})
+
+	t.Run("key_file_torn_mid_record", func(t *testing.T) {
+		t.Parallel()
+		segmentPath, index := writeRun(t)
+		// Keys are fixed length, so every key record is the same size. Cut 3*r-1 bytes from the tail:
+		// records for key005..key007 are removed (key005's record is left 1 byte short, so it is torn
+		// and discarded). The value file is intact, so the survivors are bounded by the key-file
+		// prefix: key000..key004.
+		r := int(keyRecordSize(keyFor(0)))
+		truncateKeyFileBy(t, segmentPath, index, 3*r-1)
+		keys, _ := reloadSegmentExpectingRecovery(t, segmentPath, index)
+		assertPrefix(t, keys, 5, n*valueLen)
+	})
 }
 
 // TestSealLoadedSegmentGroupAtomicity covers all of the torn-write scenarios that

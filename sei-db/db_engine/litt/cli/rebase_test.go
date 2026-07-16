@@ -1,15 +1,31 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"path"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
+
+// buildTables builds the named tables once (BuildTable errors if a table is opened more than once) and returns
+// a map of name to handle.
+func buildTables(t *testing.T, db litt.DB, tableConfig litt.TableConfig, names []string) map[string]litt.Table {
+	tables := make(map[string]litt.Table, len(names))
+	for _, name := range names {
+		cfg := tableConfig
+		cfg.Name = name
+		table, err := db.BuildTable(cfg)
+		require.NoError(t, err)
+		tables[name] = table
+	}
+	return tables
+}
 
 func rebaseTest(
 	t *testing.T,
@@ -71,12 +87,16 @@ func rebaseTest(
 	config, err := litt.DefaultConfig(sourceDirList...)
 	require.NoError(t, err)
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint8(shardingFactor)
 	config.Fsync = false
 	config.TargetSegmentFileSize = 100
 
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = uint8(shardingFactor)
+
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
+
+	tables := buildTables(t, db, tableConfig, tableNames)
 
 	expectedData := make(map[string] /*table*/ map[string] /*value*/ []byte)
 	for _, tableName := range tableNames {
@@ -87,8 +107,7 @@ func rebaseTest(
 	keyCount := uint64(1024)
 	for i := uint64(0); i < keyCount; i++ {
 		tableIndex := rand.Uint64Range(0, tableCount)
-		table, err := db.GetTable(tableNames[tableIndex])
-		require.NoError(t, err)
+		table := tables[tableNames[tableIndex]]
 		key := rand.PrintableBytes(32)
 		value := rand.PrintableVariableBytes(10, 100)
 
@@ -99,16 +118,14 @@ func rebaseTest(
 
 	// Flush all tables.
 	for _, tableName := range tableNames {
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err)
+		table := tables[tableName]
 		err = table.Flush()
 		require.NoError(t, err, "failed to flush table %s", table.Name())
 	}
 
 	// Verify the data in the DB.
 	for tableName := range expectedData {
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err, "failed to get table %s", tableName)
+		table := tables[tableName]
 		for key := range expectedData[tableName] {
 			value, ok, err := table.Get([]byte(key))
 			require.NoError(t, err, "failed to get key %s in table %s", key, tableName)
@@ -150,8 +167,7 @@ func rebaseTest(
 
 	// The failed rebase should not have changed the data in the DB.
 	for tableName := range expectedData {
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err, "failed to get table %s", tableName)
+		table := tables[tableName]
 		for key := range expectedData[tableName] {
 			value, ok, err := table.Get([]byte(key))
 			require.NoError(t, err, "failed to get key %s in table %s", key, tableName)
@@ -197,10 +213,11 @@ func rebaseTest(
 	db, err = littbuilder.NewDB(config)
 	require.NoError(t, err, "failed to open DB after rebase")
 
+	tables = buildTables(t, db, tableConfig, tableNames)
+
 	// Verify the data in the DB.
 	for tableName := range expectedData {
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err, "failed to get table %s", tableName)
+		table := tables[tableName]
 		for key := range expectedData[tableName] {
 			value, ok, err := table.Get([]byte(key))
 			require.NoError(t, err, "failed to get key %s in table %s", key, tableName)
@@ -316,13 +333,17 @@ func TestRebaseSnapshot(t *testing.T) {
 	config, err := litt.DefaultConfig(roots...)
 	require.NoError(t, err)
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = shardingFactor
 	config.Fsync = false
 	config.SnapshotDirectory = snapshotDir
 	config.TargetSegmentFileSize = 100
 
+	tableConfig := litt.DefaultTableConfig("")
+	tableConfig.ShardingFactor = shardingFactor
+
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
+
+	tables := buildTables(t, db, tableConfig, tableNames)
 
 	expectedData := make(map[string] /*table*/ map[string] /*value*/ []byte)
 	for _, tableName := range tableNames {
@@ -333,8 +354,7 @@ func TestRebaseSnapshot(t *testing.T) {
 	keyCount := uint64(1024)
 	for i := uint64(0); i < keyCount; i++ {
 		tableIndex := rand.Uint64Range(0, tableCount)
-		table, err := db.GetTable(tableNames[tableIndex])
-		require.NoError(t, err)
+		table := tables[tableNames[tableIndex]]
 		key := rand.PrintableBytes(32)
 		value := rand.PrintableVariableBytes(10, 100)
 
@@ -345,16 +365,14 @@ func TestRebaseSnapshot(t *testing.T) {
 
 	// Flush all tables.
 	for _, tableName := range tableNames {
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err)
+		table := tables[tableName]
 		err = table.Flush()
 		require.NoError(t, err, "failed to flush table %s", table.Name())
 	}
 
 	// Verify the data in the DB.
 	for tableName := range expectedData {
-		table, err := db.GetTable(tableName)
-		require.NoError(t, err, "failed to get table %s", tableName)
+		table := tables[tableName]
 		for key := range expectedData[tableName] {
 			value, ok, err := table.Get([]byte(key))
 			require.NoError(t, err, "failed to get key %s in table %s", key, tableName)
@@ -389,4 +407,63 @@ func TestRebaseSnapshot(t *testing.T) {
 		false,
 		false)
 	require.Error(t, err)
+}
+
+// TestRebaseMigratesGCWatermark verifies that the rebase CLI moves a table's gc-watermark file along with
+// its keymap. Without this, the watermark is orphaned in the source root: it never follows the keymap to its
+// new root, and the leftover file makes the final os.Remove(sourceTableDir) fail with "directory not empty".
+func TestRebaseMigratesGCWatermark(t *testing.T) {
+	logger := slog.Default()
+	testDir := t.TempDir()
+
+	sourceDirs := []string{path.Join(testDir, "src0"), path.Join(testDir, "src1")}
+	destDirs := []string{path.Join(testDir, "dst0"), path.Join(testDir, "dst1")}
+
+	tableName := "watermarked"
+
+	config, err := litt.DefaultConfig(sourceDirs...)
+	require.NoError(t, err)
+	config.Fsync = false
+	config.TargetSegmentFileSize = 100
+
+	db, err := littbuilder.NewDB(config)
+	require.NoError(t, err)
+
+	table, err := db.BuildTable(litt.DefaultTableConfig(tableName))
+	require.NoError(t, err)
+
+	for i := 0; i < 200; i++ {
+		require.NoError(t, table.Put([]byte(fmt.Sprintf("key-%06d", i)), []byte(fmt.Sprintf("value-%06d", i))))
+	}
+	require.NoError(t, table.Flush())
+	require.NoError(t, db.Close())
+
+	// Locate the keymap's source root and plant a gc-watermark in that table root, as a session that ran GC
+	// before being shut down would have left behind.
+	keymapDir, _, _, err := littbuilder.FindKeymapLocation(sourceDirs, tableName)
+	require.NoError(t, err)
+	require.NotEmpty(t, keymapDir)
+	sourceTableRoot := path.Dir(keymapDir)
+
+	watermark, err := disktable.LoadGCWatermarkFile(sourceTableRoot)
+	require.NoError(t, err)
+	require.NoError(t, watermark.Update(3))
+
+	// Rebase from the source roots to the (disjoint) destination roots.
+	err = rebase(logger, sourceDirs, destDirs, false, false, false)
+	require.NoError(t, err)
+
+	// The source table directory must be gone; the leftover watermark previously blocked its removal.
+	exists, err := util.Exists(sourceTableRoot)
+	require.NoError(t, err)
+	require.False(t, exists, "source table directory should have been removed")
+
+	// The watermark must have followed the keymap to its destination root.
+	destKeymapDir, _, _, err := littbuilder.FindKeymapLocation(destDirs, tableName)
+	require.NoError(t, err)
+	require.NotEmpty(t, destKeymapDir)
+	destWatermarkPath := path.Join(path.Dir(destKeymapDir), disktable.GCWatermarkFileName)
+	exists, err = util.Exists(destWatermarkPath)
+	require.NoError(t, err)
+	require.True(t, exists, "gc-watermark should have been migrated to the destination keymap root")
 }

@@ -3,6 +3,7 @@ syntax = "proto3";
 package autobahn;
 
 import "hashable/hashable.proto";
+import "wireguard/wireguard.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb";
 
@@ -11,6 +12,7 @@ option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/a
 // See `google.protobuf.Timestamp` for more detailed specification.
 message Timestamp {
   option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
 
   // Represents seconds of UTC time since Unix epoch
   // 1970-01-01T00:00:00Z. Must be from 0001-01-01T00:00:00Z to
@@ -56,103 +58,130 @@ message TransactionResp {
 
 message PublicKey {
   option (hashable.hashable) = true;
-  optional bytes ed25519 = 1; // required
+  option (wireguard.sized) = true;
+  optional bytes ed25519 = 1 [(wireguard.max_size) = 32]; // required
 }
 
 message Signature {
   option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
   optional PublicKey key = 1; // required
-  optional bytes sig = 2; // required
+  optional bytes sig = 2 [(wireguard.max_size) = 64]; // required
 }
 
 message BlockHeader {
   option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
   optional PublicKey lane = 1; // required
   optional uint64 block_number = 2; // required
-  optional bytes parent_hash = 3; // required
-  optional bytes payload_hash = 4; // required
+  optional bytes parent_hash = 3 [(wireguard.max_size) = 32]; // required
+  optional bytes payload_hash = 4 [(wireguard.max_size) = 32]; // required
 }
 
 message Payload {
+  reserved "total_gas", "edge_count", "coinbase", "basefee";
+  reserved 2, 3, 4, 5;
   option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
   optional Timestamp created_at = 1; // required
-  optional uint64 total_gas = 2; // required
-  optional int64 edge_count = 3; // required
-  optional bytes coinbase = 4; // required
-  optional int64 basefee = 5; // required
-  repeated bytes txs = 6;
+  optional uint64 total_gas_wanted = 7; // required
+  optional uint64 total_gas_estimated = 8; // required
+  repeated bytes txs = 6 [
+    (wireguard.max_count) = 2000,
+    (wireguard.max_total_size) = 2048000
+  ];
 }
 
 message Block {
   option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
   optional BlockHeader header = 1; // required
   optional Payload payload = 2; // required
 }
 
 message LaneQC {
+  option (wireguard.sized) = true;
   BlockHeader vote = 1;
-  repeated Signature sigs = 2;
+  repeated Signature sigs = 2 [(wireguard.max_count) = 100];
 }
 
 message LaneRange {
   option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
   optional PublicKey lane = 1; // required
   optional uint64 first = 2; // required
   optional uint64 next = 3; // required
-  optional bytes last_hash = 4; // required
+  optional bytes last_hash = 4 [(wireguard.max_size) = 32]; // required
 }
 
 message View {
   option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
   optional uint64 index = 1; // required
   optional uint64 number = 2; // required
+  optional uint64 epoch_index = 3; // epoch this view belongs to; required
 }
 
 message Proposal {
   reserved 2;
   reserved "created_at";
   option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
   optional View view = 1; // required.
   optional Timestamp timestamp = 5; // required
-  repeated LaneRange lane_ranges = 3; // Sorted by lane.
+  repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 100]; // Sorted by lane.
   optional AppProposal app = 4; // optional
+  optional uint64 global_first = 6; // required; first global block number of this proposal's global range
 }
 
 message FullProposal {
-  SignedMsg proposal = 1;
-  repeated LaneQC lane_qcs = 2;
+  reserved "proposal";
+  reserved 1;
+  option (wireguard.sized) = true;
+  SignedProposal proposal_v2 = 5;
+  repeated LaneQC lane_qcs = 2 [(wireguard.max_count) = 100];
   optional AppQC app_qc = 3;
   optional TimeoutQC timeout_qc = 4; // justifies the proposal.
 }
 
 message PrepareQC {
+  option (wireguard.sized) = true;
   Proposal vote = 1;
-  repeated Signature sigs = 2;
+  repeated Signature sigs = 2 [(wireguard.max_count) = 100];
 }
 
 message CommitQC {
+  option (wireguard.sized) = true;
   Proposal vote = 1;
-  repeated Signature sigs = 3;
+  repeated Signature sigs = 3 [(wireguard.max_count) = 100];
 }
 
 message FullCommitQC {
+  option (wireguard.sized) = true;
   CommitQC qc = 1;
-  repeated BlockHeader headers = 2;
+  repeated BlockHeader headers = 2 [(wireguard.max_count) = 1000];
 }
 
 message TimeoutVote {
   option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
   optional View view = 1; // required
   optional uint64 latest_prepare_qc_view_number = 2; // optional
 }
 
 message TimeoutQC {
-  repeated SignedMsg votes = 1;
+  option (wireguard.sized) = true;
+  reserved "votes";
+  reserved 1;
+  repeated SignedTimeoutVote votes_v2 = 3 [(wireguard.max_count) = 100];
   optional PrepareQC latest_prepare_qc = 2;
 }
 
 message FullTimeoutVote {
-  SignedMsg vote = 1;
+  reserved "vote";
+  reserved 1;
+  option (wireguard.sized) = true;
+  SignedTimeoutVote vote_v2 = 3;
   optional PrepareQC latest_prepare_qc = 2;
 }
 
@@ -161,12 +190,14 @@ message FullTimeoutVote {
 // Do NOT persist internal derived fields (e.g., cached computations, runtime state).
 // Derived fields are implementation-dependent and should be recomputed on load.
 message PersistedInner {
+  reserved "commit_vote", "prepare_vote";
+  reserved 4, 5;
   optional CommitQC commit_qc = 1;
   optional PrepareQC prepare_qc = 2;
   optional TimeoutQC timeout_qc = 3;
 
-  optional SignedMsg commit_vote = 4;
-  optional SignedMsg prepare_vote = 5;
+  optional SignedProposal commit_vote_v2 = 7;
+  optional SignedProposal prepare_vote_v2 = 8;
   optional FullTimeoutVote timeout_vote = 6;
 }
 
@@ -178,24 +209,29 @@ message PersistedAvailPruneAnchor {
 }
 
 message AppQC {
+  option (wireguard.sized) = true;
   AppProposal vote = 1;
-  repeated Signature sigs = 2;
+  repeated Signature sigs = 2 [(wireguard.max_count) = 100];
 }
 
 message AppProposal {
   option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
   // Global block number.
   optional uint64 global_number = 1; // required
   // Index of the commit qc finalizing the block.
   optional uint64 road_index = 2; // required
   // App hash at that block.
-  optional bytes app_hash = 3; // required
+  optional bytes app_hash = 3 [(wireguard.max_size) = 32]; // required
+  // Epoch this proposal belongs to.
+  optional uint64 epoch_index = 4; // required
 }
 
 // This is the signable message.
 // To sign ConsensusMsg/BlockMsg, you need to embed it in Msg first.
 message Msg {
   option (hashable.hashable) = true;
+  option (wireguard.sized) = true;
   oneof t { // required
     // Lane
     Block lane_proposal = 1;
@@ -212,17 +248,51 @@ message Msg {
   }
 }
 
-message SignedMsg {
-  Msg msg = 1;
+message SignedProposal {
+  option (wireguard.sized) = true;
+  Proposal msg = 1;
+  Signature sig = 2;
+}
+
+message SignedTimeoutVote {
+  option (wireguard.sized) = true;
+  TimeoutVote msg = 1;
+  Signature sig = 2;
+}
+
+message SignedAppVote {
+  option (wireguard.sized) = true;
+  AppProposal msg = 1;
+  Signature sig = 2;
+}
+
+message SignedBlock {
+  option (wireguard.sized) = true;
+  Block msg = 1;
+  Signature sig = 2;
+}
+
+message SignedBlockHeader {
+  option (wireguard.sized) = true;
+  BlockHeader msg = 1;
+  Signature sig = 2;
+}
+
+message SignedAppProposal {
+  option (wireguard.sized) = true;
+  AppProposal msg = 1;
   Signature sig = 2;
 }
 
 // TODO(gprusak): rename to ConsensusMsg
 message ConsensusReq {
+  reserved "prepare_vote", "commit_vote";
+  reserved 2, 3;
+  option (wireguard.sized) = true;
   oneof t {
     FullProposal proposal = 1;
-    SignedMsg prepare_vote = 2;
-    SignedMsg commit_vote = 3;
+    SignedProposal prepare_vote_v2 = 6;
+    SignedProposal commit_vote_v2 = 7;
     FullTimeoutVote timeout_vote = 4;
     TimeoutQC timeout_qc = 5;
   }

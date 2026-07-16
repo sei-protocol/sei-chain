@@ -83,15 +83,10 @@ func TestTransientStorageChangeRevert_Update(t *testing.T) {
 	require.Equal(t, prevalue, db.tempState.transientStates[addr.Hex()][key.Hex()])
 }
 
-func TestAccountStatusChangeRevert_NoOp(t *testing.T) {
-	// Ensure that reverting with nil prev deletes the account entry.
+func TestWatermarkRevert(t *testing.T) {
 	db := &DBImpl{tempState: NewTemporaryState()}
-	addr := common.Address{12}
-	db.tempState.transientAccounts[addr.Hex()] = AccountCreated
-	change := &accountStatusChange{account: addr, prev: nil}
-	change.revert(db)
-	_, ok := db.tempState.transientAccounts[addr.Hex()]
-	require.False(t, ok)
+	change := &watermark{version: 1}
+	change.revert(db) // should do nothing, just ensure no panic
 }
 
 func TestAccountStatusChangeRevert_Delete(t *testing.T) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -32,6 +32,11 @@ const (
 	SeiNamespace  = "sei"
 	Sei2Namespace = "sei2"
 )
+
+// maxBlockReceiptsConcurrency is a hard cap on the number of goroutines
+// eth_getBlockReceipts (and its sei_/sei2_ variants) will fan out to when
+// fetching per-tx receipts.
+const maxBlockReceiptsConcurrency = 100
 
 // genesisBlockHashHex is the block hash returned by GetBlockByNumber("0x0"). Hash-based lookups
 // must recognize this so that count/block-by-hash stay consistent with block-by-number.
@@ -172,8 +177,15 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, numberPtr, 1)
+	// Ethereum JSON-RPC: non-existent / future numeric block => null, not an error.
+	block, err := blockByNumberOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, numberPtr, 1)
 	if err != nil {
+		return nil, err
+	}
+	if block == nil {
+		return nil, nil
+	}
+	if err = a.watermarks.EnsureReceiptHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 	return a.getEvmTxCount(block), nil
@@ -187,8 +199,15 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	if blockHash == genesisBlockHash {
 		return genesisBlockTxCount, nil
 	}
-	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
+	// Ethereum JSON-RPC: non-existent block hash => null, not an error.
+	block, err := blockByHashOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
+		return nil, err
+	}
+	if block == nil {
+		return nil, nil
+	}
+	if err = a.watermarks.EnsureReceiptHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 	return a.getEvmTxCount(block), nil
@@ -212,12 +231,14 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if blockHash == genesisBlockHash {
 		return encodeGenesisBlock(), nil
 	}
-	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
-	if errors.Is(err, ErrBlockNotFoundByHash) {
-		return nil, nil
-	}
+	// Ethereum JSON-RPC: non-existent block hash (unknown OR above safe latest)
+	// => null, not an error. The helper handles both cases.
+	block, err := blockByHashOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 
 	// Validate EVM block height for pacific-1 chain
@@ -261,13 +282,13 @@ func (a *BlockAPI) getBlockByNumber(
 		}
 	}
 
-	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, numberPtr, 1)
 	// Ethereum JSON-RPC: non-existent / future numeric block => null, not an error.
-	if errors.Is(err, ErrBlockHeightNotYetAvailable) {
-		return nil, nil
-	}
+	block, err := blockByNumberOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, numberPtr, 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
 }
@@ -289,18 +310,28 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	if blockNrOrHash.BlockNumber != nil && *blockNrOrHash.BlockNumber == 0 {
 		return []map[string]any{}, nil
 	}
-	// Get height from params
-	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, a.watermarks, blockNrOrHash)
-	if errors.Is(err, ErrBlockNotFoundByHash) {
+	// Ethereum JSON-RPC: non-existent / above-watermark block => null, not an error.
+	// Dispatch on hash vs number directly so a nil heightPtr from getBlockNumber
+	// (the "latest"/"safe"/"finalized"/"pending" tags) resolves to the safe-latest
+	// height via blockByNumberOrNullForJSONRPC rather than being misread as
+	// "block doesn't exist".
+	var (
+		block *coretypes.ResultBlock
+		err   error
+	)
+	if blockNrOrHash.BlockHash != nil {
+		block, err = blockByHashOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, blockNrOrHash.BlockHash[:], 1)
+	} else {
+		var numberPtr *int64
+		if numberPtr, err = getBlockNumber(ctx, a.tmClient, *blockNrOrHash.BlockNumber); err == nil {
+			block, err = blockByNumberOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, numberPtr, 1)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if block == nil {
 		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, heightPtr, 1)
-	if err != nil {
-		return nil, err
 	}
 
 	// Get all tx hashes for the block
@@ -308,34 +339,42 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 
 	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, shouldIncludeSynthetic(a.namespace), a.cacheCreationMutex, a.globalBlockCache)
 
-	// Get tx receipts for all hashes in parallel
-	wg := sync.WaitGroup{}
-	mtx := sync.Mutex{}
+	// Get tx receipts for all hashes in parallel, with a hard cap on the
+	// goroutine fan-out, so a block with a very large number of txs
+	// cannot spawn an unbounded number of goroutines. errgroup.SetLimit blocks
+	// Go() until a slot frees, bounding the number of live goroutines rather
+	// than just the number doing concurrent work.
 	allReceipts := make([]map[string]interface{}, len(txHashes))
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(maxBlockReceiptsConcurrency)
 	for i, hash := range txHashes {
-		wg.Add(1)
-		go func(i int, hash typedTxHash) {
-			defer wg.Done()
+		g.Go(func() error {
 			defer recoverAndLog()
+			// Bail early if a sibling goroutine already errored or the caller
+			// cancelled; no point doing work the group is about to discard.
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			receipt, err := getOrSetCachedReceiptErr(a.cacheCreationMutex, a.globalBlockCache, a.ctxProvider(height), a.keeper, block, hash.hash)
 			if err != nil {
-				if !strings.Contains(err.Error(), "not found") {
-					mtx.Lock()
-					returnErr = err
-					mtx.Unlock()
+				// A missing receipt is expected for some hashes and is not an
+				// error; skip it and leave allReceipts[i] empty.
+				if strings.Contains(err.Error(), "not found") {
+					return nil
 				}
-				return
+				return err
 			}
 			encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts, a.globalBlockCache, a.cacheCreationMutex)
 			if err != nil {
-				mtx.Lock()
-				returnErr = err
-				mtx.Unlock()
+				return err
 			}
 			allReceipts[i] = encodedReceipt
-		}(i, hash)
+			return nil
+		})
 	}
-	wg.Wait()
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
 	compactReceipts := make([]map[string]interface{}, 0)
 	for _, r := range allReceipts {
 		if len(r) > 0 {
@@ -344,9 +383,6 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	}
 	for i, cr := range compactReceipts {
 		cr["transactionIndex"] = hexutil.Uint64(i) //nolint:gosec
-	}
-	if returnErr != nil {
-		return nil, returnErr
 	}
 	return compactReceipts, nil
 }

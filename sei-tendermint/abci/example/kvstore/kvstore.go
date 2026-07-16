@@ -98,7 +98,7 @@ func NewApplication() *Application {
 }
 
 func NewProxy() *proxy.Proxy {
-	return proxy.New(NewApplication(), proxy.NopMetrics())
+	return proxy.New(NewApplication())
 }
 
 func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
@@ -115,6 +115,12 @@ func (app *Application) Info(_ context.Context, req *types.RequestInfo) (*types.
 		LastBlockHeight:  app.state.Height,
 		LastBlockAppHash: app.state.AppHash,
 	}, nil
+}
+
+func (app *Application) LastBlockHeight() int64 {
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	return app.state.Height
 }
 
 func (app *Application) GetValidators() []types.ValidatorUpdate {

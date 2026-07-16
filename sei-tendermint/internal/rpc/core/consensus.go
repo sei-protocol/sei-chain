@@ -91,13 +91,21 @@ func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestVa
 // More: https://docs.tendermint.com/master/rpc/#/Info/dump_consensus_state
 func (env *Environment) DumpConsensusState(ctx context.Context) (*coretypes.ResultDumpConsensusState, error) {
 	// Get Peer consensus states.
+	reactor, err := env.requireConsensusReactor()
+	if err != nil {
+		return nil, err
+	}
+	consensusState, err := env.requireConsensusState()
+	if err != nil {
+		return nil, err
+	}
 
 	peerStates := map[types.NodeID]coretypes.PeerStateInfo{}
 	for _, info := range env.Router.ConnInfos() {
 		if _, ok := peerStates[info.ID]; ok {
 			continue
 		}
-		peerState, ok := env.ConsensusReactor.GetPeerState(info.ID)
+		peerState, ok := reactor.GetPeerState(info.ID)
 		if !ok {
 			continue
 		}
@@ -122,7 +130,7 @@ func (env *Environment) DumpConsensusState(ctx context.Context) (*coretypes.Resu
 	}
 
 	// Get self round state.
-	roundState, err := env.ConsensusState.GetRoundStateJSON()
+	roundState, err := consensusState.GetRoundStateJSON()
 	if err != nil {
 		return nil, err
 	}
@@ -136,8 +144,12 @@ func (env *Environment) DumpConsensusState(ctx context.Context) (*coretypes.Resu
 // UNSTABLE
 // More: https://docs.tendermint.com/master/rpc/#/Info/consensus_state
 func (env *Environment) GetConsensusState(ctx context.Context) (*coretypes.ResultConsensusState, error) {
+	consensusState, err := env.requireConsensusState()
+	if err != nil {
+		return nil, err
+	}
 	// Get self round state.
-	bz, err := env.ConsensusState.GetRoundStateSimpleJSON()
+	bz, err := consensusState.GetRoundStateSimpleJSON()
 	return &coretypes.ResultConsensusState{RoundState: bz}, err
 }
 
@@ -158,7 +170,7 @@ func (env *Environment) ConsensusParams(ctx context.Context, req *coretypes.Requ
 	}
 
 	consensusParams.Synchrony = consensusParams.Synchrony.SynchronyParamsOrDefaults()
-	consensusParams.Timeout = consensusParams.Timeout.TimeoutParamsOrDefaults()
+	consensusParams.Timeout = consensusParams.Timeout.Or(types.DefaultTimeoutParams())
 
 	return &coretypes.ResultConsensusParams{
 		BlockHeight:     height,

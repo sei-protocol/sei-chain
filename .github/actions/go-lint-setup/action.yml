@@ -1,0 +1,14 @@
+name: 'Go lint repo-specific setup'
+description: >-
+  Sei-chain setup for the shared uci go-lint workflow: reclaim runner disk so
+  `go vet ./...` over the full tree does not exhaust the root filesystem and
+  crash the runner. Picked up automatically by sei-protocol/uci go-lint.yml's
+  repo-specific setup hook.
+runs:
+  using: composite
+  steps:
+    # Reclaim only. This hook runs after uci's setup-go, which already restored
+    # the Go cache to '/'; relocating it to /mnt here would force a cold vet.
+    - name: Reclaim runner disk
+      shell: bash
+      run: bash ./.github/scripts/ci-free-disk.sh

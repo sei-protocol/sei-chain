@@ -9,7 +9,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
 )
 
 // mockDB is a simple in-memory key-value store that records every batch of
@@ -104,22 +103,11 @@ func newTestManager(
 	iter MigrationIterator,
 	size int,
 ) (*MigrationManager, error) {
-	return newTestManagerWithOldIteratorBuilder(t, oldReader, oldWriter, newReader, newWriter, nil, iter, size)
-}
-
-func newTestManagerWithOldIteratorBuilder(
-	t *testing.T,
-	oldReader DBReader, oldWriter DBWriter,
-	newReader DBReader, newWriter DBWriter,
-	oldIteratorBuilder DBIteratorBuilder,
-	iter MigrationIterator,
-	size int,
-) (*MigrationManager, error) {
 	t.Helper()
 	return NewMigrationManager(
 		size,
 		testStartVersion, testTargetVersion,
-		oldReader, oldWriter, newReader, newWriter, oldIteratorBuilder, iter,
+		oldReader, oldWriter, newReader, newWriter, iter,
 		nil,
 	)
 }
@@ -854,23 +842,20 @@ func fuzzApplyToReference(ref map[string]map[string][]byte, changesets []*proto.
 
 // --- Constructor validation (Issue 2, Issue 11) ---
 
-func TestNewMigrationManager_RejectsNonPositiveBatchSize(t *testing.T) {
-	cases := []int{0, -1, -100}
-	for _, size := range cases {
-		t.Run(fmt.Sprintf("size=%d", size), func(t *testing.T) {
-			oldDB := newMockDB()
-			newDB := newMockDB()
-			iter := NewMockMigrationIterator(nil, false)
+// A batch size of 0 is valid: the migration manager comes up paused and
+// advances no keys until SetMigrationBatchSize raises it above 0.
+func TestNewMigrationManager_AcceptsZeroBatchSize(t *testing.T) {
+	oldDB := newMockDB()
+	newDB := newMockDB()
+	iter := NewMockMigrationIterator(nil, false)
 
-			_, err := newTestManager(t,
-				oldDB.reader(), oldDB.writer(),
-				newDB.reader(), newDB.writer(),
-				iter, size,
-			)
-			require.Error(t, err)
-			require.Contains(t, err.Error(), "batch size must be positive")
-		})
-	}
+	m, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter, 0,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, m)
 }
 
 func TestNewMigrationManager_NilDependencies(t *testing.T) {
@@ -965,50 +950,6 @@ func TestNewMigrationManager_AcceptsNewDBAtTargetVersion(t *testing.T) {
 	require.Equal(t, []byte("v2"), val)
 	require.Empty(t, oldDB.writeLog,
 		"old DB must not be written when manager comes up post-completion")
-}
-
-func TestIterator_DoesNotReadOldDBAfterMigrationComplete(t *testing.T) {
-	oldDB := newMockDB()
-	newDB := newMockDB()
-
-	oldIteratorErr := fmt.Errorf("old iterator called")
-	oldIteratorCalls := 0
-	oldIteratorBuilder := func(string, []byte, []byte, bool) (dbm.Iterator, error) {
-		oldIteratorCalls++
-		return nil, oldIteratorErr
-	}
-	mgr, err := newTestManagerWithOldIteratorBuilder(t,
-		oldDB.reader(), oldDB.writer(),
-		newDB.reader(), newDB.writer(),
-		oldIteratorBuilder,
-		NewMockMigrationIterator(nil, false), 10,
-	)
-	require.NoError(t, err)
-
-	// NotStarted: iterator is forwarded to the old DB.
-	itr, err := mgr.Iterator("bank", nil, nil, true)
-	require.ErrorIs(t, err, oldIteratorErr)
-	require.Nil(t, itr)
-	require.Equal(t, 1, oldIteratorCalls)
-
-	// InProgress: still forwarded to the old DB. This is a known
-	// caveat (results may be incomplete because already-migrated keys
-	// are no longer in the old DB) but is acceptable for the current
-	// best-effort production callers; see Iterator's godoc.
-	mgr.boundary = NewMigrationBoundary("bank", []byte("a"))
-	itr, err = mgr.Iterator("bank", nil, nil, true)
-	require.ErrorIs(t, err, oldIteratorErr)
-	require.Nil(t, itr)
-	require.Equal(t, 2, oldIteratorCalls)
-
-	// Complete: old DB has been retired, manager must refuse.
-	mgr.boundary = MigrationBoundaryComplete
-	itr, err = mgr.Iterator("bank", nil, nil, true)
-	require.Error(t, err)
-	require.Nil(t, itr)
-	require.Contains(t, err.Error(), "migration is complete")
-	require.Equal(t, 2, oldIteratorCalls,
-		"completed migration must not call into the old-DB iterator")
 }
 
 // --- Issue 7: old-DB changeset grouping ---
@@ -1209,7 +1150,6 @@ func TestBuildRoute_ReturnsValidRoute(t *testing.T) {
 	require.NotNil(t, route)
 	require.NotNil(t, route.reader)
 	require.NotNil(t, route.writer)
-	require.NotNil(t, route.iteratorBuilder)
 	require.NotNil(t, route.proofBuilder)
 }
 
@@ -1449,22 +1389,6 @@ func TestBuildRoute_WriterRejectsMigrationStore(t *testing.T) {
 	}, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), MigrationStore)
-}
-
-func TestBuildRoute_IteratorReturnsNotSupported(t *testing.T) {
-	// MigrationManager doesn't currently support iteration, but the
-	// route must still wire its iterator builder through to the manager
-	// so callers get the manager's specific "not supported" error
-	// rather than the router's generic one.
-	mgr, _, _ := inProgressManager(t)
-	route, err := mgr.BuildRoute("bank")
-	require.NoError(t, err)
-	require.NotNil(t, route.iteratorBuilder, "iterator builder must be wired even when unsupported")
-
-	itr, err := route.iteratorBuilder("bank", nil, nil, true)
-	require.Error(t, err)
-	require.Nil(t, itr)
-	require.Contains(t, err.Error(), "iteration not supported")
 }
 
 func TestBuildRoute_GetProofReturnsNotSupported(t *testing.T) {

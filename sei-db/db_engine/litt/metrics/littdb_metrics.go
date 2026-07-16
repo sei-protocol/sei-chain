@@ -42,6 +42,9 @@ type LittDBMetrics struct {
 	// The number of keys in individual tables in the database.
 	tableKeyCount metric.Int64Gauge
 
+	// The number of currently-open iterators for individual tables in the database.
+	openIteratorCount metric.Int64Gauge
+
 	// The number of bytes read from disk since startup.
 	bytesReadCounter metric.Int64Counter
 
@@ -108,6 +111,14 @@ func NewLittDBMetrics() *LittDBMetrics {
 	tableKeyCount, _ := meter.Int64Gauge(
 		"litt_table_key_count",
 		metric.WithDescription("The number of keys in individual tables in the database."),
+		metric.WithUnit("{count}"),
+	)
+
+	openIteratorCount, _ := meter.Int64Gauge(
+		"litt_open_iterator_count",
+		metric.WithDescription(
+			"The number of currently-open iterators for individual tables in the database. "+
+				"A persistently nonzero value indicates a leaked iterator, which suspends garbage collection."),
 		metric.WithUnit("{count}"),
 	)
 
@@ -214,6 +225,7 @@ func NewLittDBMetrics() *LittDBMetrics {
 	return &LittDBMetrics{
 		tableSizeInBytes:         tableSizeInBytes,
 		tableKeyCount:            tableKeyCount,
+		openIteratorCount:        openIteratorCount,
 		bytesReadCounter:         bytesReadCounter,
 		keysReadCounter:          keysReadCounter,
 		cacheHitCounter:          cacheHitCounter,
@@ -258,6 +270,16 @@ func (m *LittDBMetrics) CollectPeriodicMetrics(tables map[string]litt.ManagedTab
 		tableKeyCount := table.KeyCount()
 		m.tableKeyCount.Record(ctx, int64(tableKeyCount), attrs) //nolint:gosec // key count fits int64
 	}
+}
+
+// ReportOpenIteratorCount reports the current number of open iterators for a table. A persistently
+// nonzero value when no iteration is expected indicates a leaked iterator, which suspends garbage
+// collection for the table.
+func (m *LittDBMetrics) ReportOpenIteratorCount(tableName string, count int64) {
+	if m == nil {
+		return
+	}
+	m.openIteratorCount.Record(context.Background(), count, tableAttr(tableName))
 }
 
 // ReportReadOperation reports the results of a read operation.

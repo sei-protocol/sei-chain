@@ -17,6 +17,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+// searchOpts is the zero-value (unbounded, ascending) options used by the tests
+// in this package
+var searchOpts = indexer.SearchOptions{}
+
 func TestTxIndex(t *testing.T) {
 	txIndexer := NewTxIndex(dbm.NewMemDB())
 
@@ -135,7 +139,7 @@ func TestTxSearch(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.q, func(t *testing.T) {
-			results, err := indexer.Search(ctx, query.MustCompile(tc.q))
+			results, err := indexer.Search(ctx, query.MustCompile(tc.q), searchOpts)
 			assert.NoError(t, err)
 
 			assert.Len(t, results, tc.resultsLength)
@@ -161,7 +165,7 @@ func TestTxSearchWithCancelation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	results, err := indexer.Search(ctx, query.MustCompile(`account.number = 1`))
+	results, err := indexer.Search(ctx, query.MustCompile(`account.number = 1`), searchOpts)
 	assert.NoError(t, err)
 	assert.Empty(t, results)
 }
@@ -233,7 +237,7 @@ func TestTxSearchDeprecatedIndexing(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.q, func(t *testing.T) {
-			results, err := indexer.Search(ctx, query.MustCompile(tc.q))
+			results, err := indexer.Search(ctx, query.MustCompile(tc.q), searchOpts)
 			require.NoError(t, err)
 			for _, txr := range results {
 				for _, tr := range tc.results {
@@ -257,7 +261,7 @@ func TestTxSearchOneTxWithMultipleSameTagsButDifferentValues(t *testing.T) {
 
 	ctx := t.Context()
 
-	results, err := indexer.Search(ctx, query.MustCompile(`account.number >= 1`))
+	results, err := indexer.Search(ctx, query.MustCompile(`account.number >= 1`), searchOpts)
 	assert.NoError(t, err)
 
 	assert.Len(t, results, 1)
@@ -314,7 +318,7 @@ func TestTxSearchMultipleTxs(t *testing.T) {
 
 	ctx := t.Context()
 
-	results, err := indexer.Search(ctx, query.MustCompile(`account.number >= 1`))
+	results, err := indexer.Search(ctx, query.MustCompile(`account.number >= 1`), searchOpts)
 	assert.NoError(t, err)
 
 	require.Len(t, results, 3)

@@ -29,7 +29,12 @@ import (
 )
 
 const (
-	tmRPCBase     = "http://localhost:26657"
+	// tmRPCBase points at the fullnode sidecar's CometBFT RPC (port 26657
+	// inside the container, host-published at 26669 via the rpc-node's
+	// docker run port mapping). The whole test suite routes its RPC reads
+	// through here — matches the production shape where clients talk to
+	// fullnodes, not validators.
+	tmRPCBase     = "http://localhost:26669"
 	abciInfoURL   = tmRPCBase + "/abci_info"
 	heightRetries = 60
 	heightBackoff = 500 * time.Millisecond
@@ -44,6 +49,36 @@ const (
 	clusterBootTimeout  = 5 * time.Minute
 	clusterBootPoll     = 5 * time.Second
 	autobahnSettleDelay = 30 * time.Second
+
+	// Fullnode sidecar lifecycle (TestMain).
+	fullnodeContainer   = "sei-rpc-node"
+	fullnodeBootTimeout = 5 * time.Minute
+	fullnodeBootPoll    = 5 * time.Second
+	// evmRPCURLOnContainerLocalhost is the EVM RPC address inside the
+	// rpc-node container — used with `docker exec ... curl` for readiness
+	// checks (the rpc-node's 8545 isn't host-published).
+	evmRPCURLOnContainerLocalhost = "http://localhost:8545"
+
+	// heightPoll governs both waitForStableHeight and waitForHeightAdvance:
+	// the fullnode's read of /abci_info trails the cluster while
+	// runExecute drains buffered blocks, and a killed-peer failover
+	// (DialInterval-bounded, ~10s) holds height static for that long.
+	// Polling lets each test absorb whatever combination of those delays
+	// actually applies, instead of guessing a sleep duration.
+	// Bounds are 2× the expected failover+drain so a slow CI runner has
+	// headroom without giving up another whole minute on every run.
+	heightPoll       = 1 * time.Second
+	haltStableWindow = 20 * time.Second
+	// Initial fullnode sync can pause at a height briefly while Autobahn
+	// streams settle; require eventual progress rather than one fixed sample.
+	blockProductionAdvanceMax = 30 * time.Second
+	// 2m / 90s give headroom for the fullnode catch-up backlog the
+	// preceding subtest may have left (failover delay during
+	// LivenessUnderMaxFaults can put the fullnode ~600 blocks behind,
+	// which takes ~60s to drain on top of the halt-detection window).
+	// CI runners are slower than local; 1m was tight enough to flake.
+	haltStableTimeout = 2 * time.Minute
+	heightAdvanceMax  = 90 * time.Second
 )
 
 var (
@@ -90,6 +125,53 @@ func getHeight(t *testing.T) int64 {
 		time.Sleep(heightBackoff)
 	}
 	t.Fatalf("could not get block height after %d retries", heightRetries)
+	return 0
+}
+
+// waitForStableHeight polls getHeight every heightPoll. It returns the
+// height once the value has stayed constant for at least `window`. Useful
+// after killing validators: cluster halt is observable through the rpc-
+// only's read of /abci_info only once any in-flight blocks have drained
+// through runExecute and any block-sync failover has finished — both
+// bounded in absolute time but variable per run. Fails the test if no
+// stable window appears within `timeout`.
+func waitForStableHeight(t *testing.T, window, timeout time.Duration) int64 {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	h := getHeight(t)
+	stableSince := time.Now()
+	for time.Now().Before(deadline) {
+		if time.Since(stableSince) >= window {
+			return h
+		}
+		time.Sleep(heightPoll)
+		nh := getHeight(t)
+		if nh != h {
+			h = nh
+			stableSince = time.Now()
+		}
+	}
+	t.Fatalf("height did not stabilize within %s (last seen %d)", timeout, h)
+	return 0
+}
+
+// waitForHeightAdvance polls getHeight every heightPoll, returning the
+// first observed value strictly greater than `base`. Used by liveness
+// tests where progress is expected but may be delayed by the fullnode's
+// block-sync failover from a killed peer. Fails the test on timeout.
+func waitForHeightAdvance(t *testing.T, base int64, timeout time.Duration) int64 {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	last := base
+	for time.Now().Before(deadline) {
+		h := getHeight(t)
+		if h > base {
+			return h
+		}
+		last = h
+		time.Sleep(heightPoll)
+	}
+	t.Fatalf("height did not advance past %d within %s (last seen %d)", base, timeout, last)
 	return 0
 }
 
@@ -167,6 +249,11 @@ func TestMain(m *testing.M) {
 	if err := setupCluster(); err != nil {
 		fmt.Fprintf(os.Stderr, "cluster setup failed: %v\n", err)
 		teardownCluster() // best-effort
+		os.Exit(1)
+	}
+	if err := setupFullnodeNode(); err != nil {
+		fmt.Fprintf(os.Stderr, "fullnode sidecar setup failed: %v\n", err)
+		teardownCluster()
 		os.Exit(1)
 	}
 	code := m.Run()
@@ -250,8 +337,112 @@ func countSeiContainers() (int, error) {
 	return len(strings.Fields(strings.TrimSpace(string(out)))), nil
 }
 
-// teardownCluster runs `make docker-cluster-stop`, ignoring errors.
+// setupFullnodeNode boots an autobahn fullnode sidecar alongside the validator
+// cluster. Backgrounded via cmd.Start() because `make run-rpc-node-skipbuild`
+// uses `docker run --rm` (foreground until the container exits); the actual
+// container detaches from this process once it starts.
+//
+// Uses run-rpc-node-skipbuild so the rpc-node reuses the seid binary the
+// validator containers already compiled — skips a second multi-minute
+// `go install` cycle. The autobahn role itself comes from mode = "full"
+// in docker/rpcnode/config/config.toml — setup.go picks the fullnode
+// constructor when there's no local validator key.
+func setupFullnodeNode() error {
+	fmt.Println("=== Starting fullnode sidecar ===")
+	_ = runMake(nil, "kill-rpc-node") // best-effort cleanup
+
+	// Discover the cluster size from docker so the rpc-node's autobahn config
+	// covers exactly the validators that came up — non-four-node test runs
+	// would otherwise produce a mismatched committee.
+	clusterSize, err := countSeiContainers()
+	if err != nil {
+		return fmt.Errorf("count cluster containers: %w", err)
+	}
+	if clusterSize == 0 {
+		return fmt.Errorf("no sei-node-* containers found; setupCluster must run first")
+	}
+	cmd := exec.Command("make", "run-rpc-node-skipbuild")
+	cmd.Env = append(os.Environ(), "AUTOBAHN=true", fmt.Sprintf("CLUSTER_SIZE=%d", clusterSize))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start make run-rpc-node-skipbuild: %w", err)
+	}
+	// Reap the process when it eventually exits (e.g. on container kill);
+	// not blocking on Wait here since the container runs for the duration
+	// of the test suite.
+	go func() { _ = cmd.Wait() }()
+
+	deadline := time.Now().Add(fullnodeBootTimeout)
+	for time.Now().Before(deadline) {
+		if fullnodeRunning() && fullnodeEVMReady() {
+			fmt.Println("fullnode sidecar is ready")
+			return nil
+		}
+		time.Sleep(fullnodeBootPoll)
+	}
+	return fmt.Errorf("fullnode sidecar didn't come up within %s", fullnodeBootTimeout)
+}
+
+func fullnodeRunning() bool {
+	out, err := exec.Command("docker", "ps",
+		"--filter", "name="+fullnodeContainer,
+		"--filter", "status=running",
+		"--format", "{{.Names}}").Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == fullnodeContainer
+}
+
+func fullnodeEVMReady() bool {
+	r, err := evmRPCInContainer(fullnodeContainer, "eth_chainId", []any{})
+	return err == nil && r.Error == nil && len(r.Result) > 0
+}
+
+type evmRPCResponse struct {
+	Result json.RawMessage `json:"result"`
+	Error  *evmRPCError    `json:"error,omitempty"`
+}
+
+type evmRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// evmRPCInContainer POSTs a JSON-RPC call to the given container's
+// localhost:8545. The fullnode container's 8545 isn't host-published; this
+// is the only way to talk to it without changing the run target.
+func evmRPCInContainer(container, method string, params any) (*evmRPCResponse, error) {
+	body, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out, err := exec.Command("docker", "exec", container,
+		"curl", "-sf", "-X", "POST",
+		"-H", "content-type: application/json",
+		"--data", string(body),
+		evmRPCURLOnContainerLocalhost).Output()
+	if err != nil {
+		return nil, fmt.Errorf("docker exec curl: %v", err)
+	}
+	var r evmRPCResponse
+	if err := json.Unmarshal(out, &r); err != nil {
+		return nil, fmt.Errorf("decode (body=%s): %w", out, err)
+	}
+	return &r, nil
+}
+
+// teardownCluster tears down every container TestMain brought up: first
+// the fullnode sidecar (so its run-rpc-node `docker run --rm` process
+// exits cleanly), then the validator cluster. Best-effort — errors are
+// ignored so a partially-failed setupCluster can still clean up. Adding
+// new sidecars later goes here too.
 func teardownCluster() {
+	fmt.Println("=== Stopping fullnode sidecar ===")
+	_ = runMake(nil, "kill-rpc-node")
 	fmt.Println("=== Stopping cluster ===")
 	_ = runMake(nil, "docker-cluster-stop")
 }
@@ -332,10 +523,10 @@ func testRecovery(t *testing.T) {
 		killNode(t, clusterSize-1-i)
 	}
 
-	// Let the chain settle into its halted height, then confirm it's halted.
-	time.Sleep(10 * time.Second)
-	hBefore := getHeight(t)
-	time.Sleep(5 * time.Second)
+	// Wait for the fullnode's view of height to stabilize (cluster halt +
+	// fullnode drain + any failover from a killed peer). The window inside
+	// waitForStableHeight already proves the chain isn't advancing.
+	hBefore := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
 	if h := getHeight(t); h != hBefore {
 		t.Fatalf("expected halted chain after killing %d nodes, but height advanced (%d -> %d)",
 			maxFaults+1, hBefore, h)
@@ -347,21 +538,9 @@ func testRecovery(t *testing.T) {
 	restartNode(t, target)
 
 	// Poll for the chain to advance. Give the restarted seid time to init
-	// and rejoin consensus.
-	deadline := time.Now().Add(90 * time.Second)
-	var hAfter int64
-	for time.Now().Before(deadline) {
-		hAfter = getHeight(t)
-		if hAfter > hBefore {
-			break
-		}
-		time.Sleep(2 * time.Second)
-	}
+	// and rejoin consensus, plus any fullnode failover.
+	hAfter := waitForHeightAdvance(t, hBefore, heightAdvanceMax)
 	t.Logf("height after restart: %d", hAfter)
-	if hAfter <= hBefore {
-		t.Fatalf("chain did not resume advancing after restart of node %d (%d -> %d)",
-			target, hBefore, hAfter)
-	}
 
 	// assertAutobahnEnabled greps every running container's log. The restarted
 	// node is among them, and start_sei.sh truncates its log on restart (`>`
@@ -374,12 +553,8 @@ func testBlockProduction(t *testing.T) {
 	assertAutobahnEnabled(t)
 	h1 := getHeight(t)
 	t.Logf("height: %d", h1)
-	time.Sleep(5 * time.Second)
-	h2 := getHeight(t)
-	t.Logf("height after 5s: %d", h2)
-	if h2 <= h1 {
-		t.Fatalf("block height not advancing (%d -> %d)", h1, h2)
-	}
+	h2 := waitForHeightAdvance(t, h1, blockProductionAdvanceMax)
+	t.Logf("height after progress: %d", h2)
 
 	// Verify the Autobahn-routed tmRPC handlers serve real data at h2 (a
 	// recently committed height — past tail of the chain, so historical
@@ -545,6 +720,11 @@ func killNode(t *testing.T, i int) {
 // testLivenessUnderMaxFaults kills f = maxFaults nodes (from the highest index
 // downward). With clusterSize - f = 2f + 1 honest nodes left, the chain should
 // still advance.
+//
+// Polls for height to advance (instead of a fixed sleep): if the fullnode
+// happened to be subscribed to the killed peer, its block-sync subscriber
+// pauses for DialInterval (~10s) before failing over, so height stays at
+// hBefore until then.
 func testLivenessUnderMaxFaults(t *testing.T) {
 	assertAutobahnEnabled(t)
 	hBefore := getHeight(t)
@@ -552,27 +732,29 @@ func testLivenessUnderMaxFaults(t *testing.T) {
 	for i := 0; i < maxFaults; i++ {
 		killNode(t, clusterSize-1-i)
 	}
-	time.Sleep(10 * time.Second)
-	hAfter := getHeight(t)
+	hAfter := waitForHeightAdvance(t, hBefore, heightAdvanceMax)
 	t.Logf("height after: %d", hAfter)
-	if hAfter <= hBefore {
-		t.Fatalf("chain should continue with %d/%d validators (%d -> %d)",
-			clusterSize-maxFaults, clusterSize, hBefore, hAfter)
-	}
 }
 
 // testHaltsBeyondMaxFaults kills one more node beyond maxFaults (relies on the
 // prior LivenessUnderMaxFaults having already killed the first maxFaults). The
 // chain should stop advancing.
+//
+// Reads come through the fullnode sidecar, which lags the cluster while it
+// drains buffered blocks through runExecute (and longer when the killed
+// peer was the one fullnode was subscribed to — failover sleeps
+// DialInterval before retrying). Instead of guessing a fixed settle, we
+// poll getHeight and only sample once the value has been stable for a
+// short window.
 func testHaltsBeyondMaxFaults(t *testing.T) {
 	assertAutobahnEnabled(t)
 	killNode(t, clusterSize-1-maxFaults)
-	time.Sleep(5 * time.Second)
-	hBefore := getHeight(t)
+	hBefore := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
 	t.Logf("height: %d (expecting halt)", hBefore)
-	time.Sleep(15 * time.Second)
+	// waitForStableHeight already returned only after haltStableWindow of
+	// no movement; the sample we just took is the halted height.
 	hAfter := getHeight(t)
-	t.Logf("height after 15s: %d", hAfter)
+	t.Logf("height after stability: %d", hAfter)
 	if hAfter != hBefore {
 		t.Fatalf("chain should halt with %d/%d validators (height changed: %d -> %d)",
 			clusterSize-maxFaults-1, clusterSize, hBefore, hAfter)

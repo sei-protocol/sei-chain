@@ -23,30 +23,16 @@ package litt
 // - transactions (individual operations are atomic, but there is no way to group operations atomically)
 // - fine granularity for TTL (all data in the same table must have the same TTL)
 type DB interface {
-	// GetTable gets a table by name, creating one if it does not exist.
+	// BuildTable opens the table named by config.Name, creating one on disk if it does not exist. It must be
+	// called exactly once per table per DB lifetime: calling BuildTable for a table that is already open
+	// returns an error. The caller owns the returned handle.
 	//
-	// Table names appear as directories on the file system, and so table names are restricted to be
-	// ASCII alphanumeric characters, dashes, and underscores. The name must be at least one character long.
-	//
-	// The first time a table is fetched (either a new table or an existing one loaded from disk), its TTL is always
-	// set to 0 (i.e. it has no TTL, meaning data is never deleted). If you want to set a TTL, you must call
-	// Table.SetTTL() to do so. This is necessary after each time the database is started/restarted.
-	GetTable(name string) (Table, error)
-
-	// DropTable deletes a table and all of its data. This is a no-op if the table does not exist.
-	//
-	// Note that it is NOT thread safe to drop a table concurrently with any operation that accesses the table.
-	// The table returned by GetTable() before DropTable() is called must not be used once DropTable() is called.
-	DropTable(name string) error
-
-	// Size returns the on-disk size of the database in bytes.
-	//
-	// Note that this size may not accurately reflect the size of the keymap. This is because some third party
-	// libraries used for certain keymap implementations do not provide an accurate way to measure size.
-	Size() uint64
-
-	// KeyCount returns the number of keys in the database.
-	KeyCount() uint64
+	// The supplied TableConfig is validated (see TableConfig.Validate); an invalid name or sharding factor
+	// results in an error. Use DefaultTableConfig(name) to obtain a config with sane defaults. With the
+	// exception of the name, none of the config settings are persisted to disk, so they are not retained across
+	// restarts and must be supplied again (or changed via the Table setters) each time the database is
+	// started/restarted.
+	BuildTable(config TableConfig) (Table, error)
 
 	// Close stops the database. This method must be called when the database is no longer needed.
 	// Close ensures that all non-flushed data is crash durable on disk before returning. Calls to

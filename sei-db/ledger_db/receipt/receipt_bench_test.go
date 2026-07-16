@@ -12,7 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// BenchmarkReceiptWriteAsync compares async write throughput between pebble and parquet.
+// BenchmarkReceiptWriteAsync compares async write throughput for pebble.
 func BenchmarkReceiptWriteAsync(b *testing.B) {
 	const (
 		blocks           = 5000 // 5k
@@ -21,9 +21,6 @@ func BenchmarkReceiptWriteAsync(b *testing.B) {
 	b.Run(fmt.Sprintf("blocks=%d/per_block=%d", blocks, receiptsPerBlock), func(b *testing.B) {
 		b.Run("pebble-async-with-wal", func(b *testing.B) {
 			benchmarkPebbleWriteAsync(b, receiptsPerBlock, blocks)
-		})
-		b.Run("parquet-async-with-wal", func(b *testing.B) {
-			benchmarkParquetWriteAsync(b, receiptsPerBlock, blocks)
 		})
 	})
 }

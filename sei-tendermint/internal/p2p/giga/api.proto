@@ -3,58 +3,80 @@ syntax = "proto3";
 package p2p.giga;
 
 import "autobahn/autobahn.proto";
+import "wireguard/wireguard.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb";
 
-message LaneReq {
-  autobahn.SignedMsg lane_proposal = 1;
+message ConsensusResp {
+  option (wireguard.sized) = true;
 }
 
-message LaneResp {
-  autobahn.SignedMsg lane_vote = 1;
+message PingReq {
+  option (wireguard.sized) = true;
 }
 
-message LaneQCsResp {}
-
-message ConsensusResp {}
-
-message PingReq {}
-message PingResp {}
+message PingResp {
+  option (wireguard.sized) = true;
+}
 
 message LaneVote {
-  autobahn.SignedMsg lane_vote = 1;
+  option (wireguard.sized) = true;
+  reserved "lane_vote";
+  reserved 1;
+  autobahn.SignedBlockHeader lane_vote_v2 = 2;
 }
 
 message LaneProposal {
-  autobahn.SignedMsg lane_proposal = 1;
+  option (wireguard.sized) = true;
+  reserved "lane_proposal";
+  reserved 1;
+  autobahn.SignedBlock lane_proposal_v2 = 2;
 }
 
 message AppVote {
-  autobahn.SignedMsg app_vote = 1;
+  option (wireguard.sized) = true;
+  reserved "app_vote";
+  reserved 1;
+  autobahn.SignedAppVote app_vote_v2 = 2;
 }
 
 message StreamLaneProposalsReq {
+  option (wireguard.sized) = true;
   uint64 first_block_number = 1;
 }
 
-message StreamAppQCsReq {}
+message StreamAppQCsReq {
+  option (wireguard.sized) = true;
+}
 message StreamAppQCsResp {
-  autobahn.AppQC app_qc = 1;
-  autobahn.CommitQC commit_qc = 2;
+  option (wireguard.sized) = true;
+  autobahn.AppQC app_qc = 1; // required
+  autobahn.CommitQC commit_qc = 2; // required
 }
 
-message StreamCommitQCsReq {}
-message StreamLaneVotesReq {}
-message StreamAppVotesReq {}
+message StreamCommitQCsReq {
+  option (wireguard.sized) = true;
+}
+
+message StreamLaneVotesReq {
+  option (wireguard.sized) = true;
+}
+
+message StreamAppVotesReq {
+  option (wireguard.sized) = true;
+}
 
 message GetBlockReq {
+  option (wireguard.sized) = true;
   uint64 global_number = 1;
 }
 
 message GetBlockResp {
+  option (wireguard.sized) = true;
   optional autobahn.Block block = 1;
 }
 
 message StreamFullCommitQCsReq {
+  option (wireguard.sized) = true;
   uint64 next_block = 1;
 }

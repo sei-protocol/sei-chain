@@ -8,7 +8,6 @@ import (
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
 )
 
 // blockingRouter is a Router whose every operation reports its method name
@@ -43,17 +42,13 @@ func (b *blockingRouter) ApplyChangeSets(_ []*proto.NamedChangeSet, _ bool) erro
 	return nil
 }
 
-func (b *blockingRouter) Iterator(_ string, _ []byte, _ []byte, _ bool) (dbm.Iterator, error) {
-	b.entered <- "Iterator"
-	<-b.release
-	return nil, errors.New("iterator: not implemented in blockingRouter")
-}
-
 func (b *blockingRouter) GetProof(_ string, _ []byte) (*ics23.CommitmentProof, error) {
 	b.entered <- "GetProof"
 	<-b.release
 	return nil, errors.New("proof: not implemented in blockingRouter")
 }
+
+func (b *blockingRouter) SetMigrationBatchSize(int) {}
 
 // expectEntered receives one message from ch and asserts it equals expected.
 // Fails the test if no message arrives within timeout.
@@ -70,8 +65,8 @@ func expectEntered(t *testing.T, ch <-chan string, expected string, timeout time
 // TestThreadSafeRouter_Delegates verifies that every Router method is
 // forwarded to the inner router, with arguments and return values intact.
 // Uses TestInMemoryRouter as the inner router to get end-to-end behaviour
-// for Read / ApplyChangeSets, plus its built-in errors for Iterator and
-// GetProof to confirm those are forwarded too.
+// for Read / ApplyChangeSets, plus its built-in error for GetProof to
+// confirm that is forwarded too.
 func TestThreadSafeRouter_Delegates(t *testing.T) {
 	inner := NewTestInMemoryRouter()
 	tsr, err := NewThreadSafeRouter(inner)
@@ -94,9 +89,6 @@ func TestThreadSafeRouter_Delegates(t *testing.T) {
 	require.False(t, ok)
 	require.Nil(t, val)
 
-	_, err = tsr.Iterator("bank", nil, nil, true)
-	require.Error(t, err, "Iterator must propagate the inner router's error")
-
 	_, err = tsr.GetProof("bank", []byte("k"))
 	require.Error(t, err, "GetProof must propagate the inner router's error")
 }
@@ -111,8 +103,8 @@ func TestThreadSafeRouter_NilInner(t *testing.T) {
 }
 
 // TestThreadSafeRouter_WriteExcludesReads confirms that an in-flight
-// ApplyChangeSets blocks every read-side call (Read / Iterator / GetProof)
-// from reaching the inner router until the write completes.
+// ApplyChangeSets blocks every read-side call (Read / GetProof) from
+// reaching the inner router until the write completes.
 func TestThreadSafeRouter_WriteExcludesReads(t *testing.T) {
 	br := newBlockingRouter()
 	tsr, err := NewThreadSafeRouter(br)
@@ -128,10 +120,8 @@ func TestThreadSafeRouter_WriteExcludesReads(t *testing.T) {
 	// Launch each read-side call in its own goroutine. None should reach
 	// the inner router while the write lock is held.
 	readDone := make(chan struct{})
-	iterDone := make(chan struct{})
 	proofDone := make(chan struct{})
 	go func() { _, _, _ = tsr.Read("s", nil); close(readDone) }()
-	go func() { _, _ = tsr.Iterator("s", nil, nil, true); close(iterDone) }()
 	go func() { _, _ = tsr.GetProof("s", nil); close(proofDone) }()
 
 	// Negative assertion: no read-side call should enter the inner router
@@ -149,12 +139,12 @@ func TestThreadSafeRouter_WriteExcludesReads(t *testing.T) {
 	br.release <- struct{}{}
 	require.NoError(t, <-writeDone)
 
-	// All three queued read-side calls now reach the inner router (in some
+	// Both queued read-side calls now reach the inner router (in some
 	// order); release each in turn and confirm every goroutine returns.
-	for range 3 {
+	for range 2 {
 		select {
 		case op := <-br.entered:
-			require.Contains(t, []string{"Read", "Iterator", "GetProof"}, op,
+			require.Contains(t, []string{"Read", "GetProof"}, op,
 				"unexpected inner-router method")
 			br.release <- struct{}{}
 		case <-time.After(time.Second):
@@ -162,45 +152,41 @@ func TestThreadSafeRouter_WriteExcludesReads(t *testing.T) {
 		}
 	}
 	<-readDone
-	<-iterDone
 	<-proofDone
 }
 
-// TestThreadSafeRouter_ReadsAreConcurrent confirms that Read, Iterator, and
-// GetProof can all be in flight at the inner router simultaneously — i.e.
-// the wrapper does not serialise them.
+// TestThreadSafeRouter_ReadsAreConcurrent confirms that Read and GetProof
+// can both be in flight at the inner router simultaneously — i.e. the
+// wrapper does not serialise them.
 func TestThreadSafeRouter_ReadsAreConcurrent(t *testing.T) {
 	br := newBlockingRouter()
 	tsr, err := NewThreadSafeRouter(br)
 	require.NoError(t, err)
 
 	readDone := make(chan struct{})
-	iterDone := make(chan struct{})
 	proofDone := make(chan struct{})
 	go func() { _, _, _ = tsr.Read("s", nil); close(readDone) }()
-	go func() { _, _ = tsr.Iterator("s", nil, nil, true); close(iterDone) }()
 	go func() { _, _ = tsr.GetProof("s", nil); close(proofDone) }()
 
-	// All three calls must enter the inner router before any are released.
+	// Both calls must enter the inner router before any are released.
 	// If the wrapper accidentally serialised them (e.g. used Lock instead
 	// of RLock), we'd only see one entry until that call's release was
 	// sent — which never arrives in this loop, so the test would time out.
 	seen := map[string]int{}
-	for range 3 {
+	for range 2 {
 		select {
 		case op := <-br.entered:
 			seen[op]++
 		case <-time.After(time.Second):
-			t.Fatalf("only %d/3 read-side calls entered the inner router; an exclusive lock is blocking them", len(seen))
+			t.Fatalf("only %d/2 read-side calls entered the inner router; an exclusive lock is blocking them", len(seen))
 		}
 	}
-	require.Equal(t, map[string]int{"Read": 1, "Iterator": 1, "GetProof": 1}, seen)
+	require.Equal(t, map[string]int{"Read": 1, "GetProof": 1}, seen)
 
-	for range 3 {
+	for range 2 {
 		br.release <- struct{}{}
 	}
 	<-readDone
-	<-iterDone
 	<-proofDone
 }
 

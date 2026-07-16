@@ -17,344 +17,187 @@ on:
       - main
       - release/**
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 defaults:
   run:
     shell: bash
 
 jobs:
-  # Build localnode/rpcnode images and seid once; matrix jobs reuse via artifacts.
+  # Generate the integration-test matrix from integration-test-matrix.json.
+  # On pull_request we drop entries tagged `merge_only: true` (Autobahn Gov/Mint/
+  # Upgrade GIGA-mode variants) to cut per-PR ubuntu-large fan-out; on push and merge
+  # queue the full matrix runs. The matrix is built here, in a job output,
+  # because the `matrix` context is NOT available to a job-level `if:` — a
+  # per-combination `if` on the test job would fail workflow validation
+  # (startup failure), so the filtering must happen before the matrix expands.
+  set-matrix:
+    name: Resolve integration test matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tests: ${{ steps.build.outputs.tests }}
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Build matrix
+        id: build
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          matrix_file=.github/workflows/integration-test-matrix.json
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            # Defer merge_only Autobahn Gov/Mint/Upgrade entries to merge queue / push.
+            tests=$(jq -c '[.[] | select(.merge_only != true)]' "$matrix_file")
+          else
+            tests=$(jq -c '.' "$matrix_file")
+          fi
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
+          echo "Selected $(echo "$tests" | jq 'length') of $(jq 'length' "$matrix_file") matrix entries for event '$EVENT_NAME'."
+
+  # Build localnode/rpcnode images and seid once; matrix jobs pull the images
+  # from GHCR (tagged with the run id) and download seid as a small artifact.
   prepare-cluster:
     name: Prepare integration test cluster
     runs-on: ubuntu-large
     timeout-minutes: 45
+    # packages:write required to push images and buildx cache to GHCR. Fork PRs
+    # cannot publish org packages, so integration tests cannot run from forks; a
+    # maintainer must push external contributions to a branch on this repo.
+    # cache-to is restricted to push events to avoid cache thrashing on PRs.
+    permissions:
+      packages: write
+      contents: read
+    env:
+      GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
+      GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.25.6'
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      # Reclaim disk and push Docker + Go caches onto /mnt before the
+      # image builds so the runner's small root filesystem does not fill up and
+      # crash the runner mid-job.
+      - name: Reclaim runner disk
+        run: bash .github/scripts/ci-free-disk.sh
+      - name: Relocate Docker data-root to /mnt
+        run: bash .github/scripts/ci-relocate-docker-data-root.sh
+      - name: Relocate Go caches to /mnt
+        run: bash .github/scripts/ci-relocate-go-cache.sh
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
         if: env.DOCKERHUB_USERNAME != ''
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build Docker images and seid binary
+      - name: Login to GitHub Container Registry
+        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        # See: https://github.com/docker/setup-buildx-action/releases/tag/v4.1.0
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+      - name: Build localnode image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/localnode
+          file: docker/localnode/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: sei-chain/localnode
+          # Run-id label makes each run's image digest unique (config-only
+          # change, layer cache unaffected) so old run tags can be pruned without
+          # touching digests other runs still reference.
+          labels: sei-chain.ci-run-id=${{ github.run_id }}
+          cache-from: type=registry,ref=${{ env.GHCR_LOCALNODE }}:cache
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:cache,mode=max', env.GHCR_LOCALNODE) || '' }}
+      - name: Build rpcnode image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/rpcnode
+          file: docker/rpcnode/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: sei-chain/rpcnode
+          labels: sei-chain.ci-run-id=${{ github.run_id }}
+          cache-from: type=registry,ref=${{ env.GHCR_RPCNODE }}:cache
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:cache,mode=max', env.GHCR_RPCNODE) || '' }}
+      # rpcnode is independent of the seid build, so push it now: push failures
+      # (retried below) surface before the expensive seid build rather than after.
+      - name: Push rpcnode image to GHCR for test jobs
+        run: |
+          source .github/scripts/docker-registry-retry.sh
+          docker tag sei-chain/rpcnode "${GHCR_RPCNODE}:${{ github.run_id }}"
+          push_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.6'
+      - name: Build seid binary in localnode container
         env:
           DOCKER_PLATFORM: linux/amd64
-        run: make build-integration-ci-artifacts
-      - name: Package CI artifacts
+        run: make build-seid-in-localnode-ci
+      - name: Push localnode image to GHCR for test jobs
         run: |
-          tar -czf integration-build.tar.gz build/seid
-          docker save sei-chain/localnode sei-chain/rpcnode | zstd -T0 --fast -o integration-docker-images.tar.zst
+          source .github/scripts/docker-registry-retry.sh
+          docker tag sei-chain/localnode "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          push_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
+      - name: Package CI artifacts
+        run: tar -czf integration-build.tar.gz build/seid
       - name: Upload integration CI artifacts
         uses: actions/upload-artifact@v4
         with:
           name: integration-ci-artifacts
-          path: |
-            integration-build.tar.gz
-            integration-docker-images.tar.zst
+          path: integration-build.tar.gz
           retention-days: 1
 
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
-    needs: prepare-cluster
+    # The merge_only Autobahn Gov/Mint/Upgrade variants are filtered out of the
+    # matrix on pull_request by the set-matrix job above; a smoke of Autobahn
+    # coverage still runs on PRs via the dedicated autobahn-integration-tests
+    # job below. On push and merge queue the full matrix runs.
+    needs: [ set-matrix, prepare-cluster ]
     runs-on: ubuntu-large
     timeout-minutes: 30
+    permissions:
+      packages: read
+      contents: read
     env:
+      JOB_TIMEOUT: 28m
+      GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
+      GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
     strategy:
       # other jobs should run even if one integration test fails
       fail-fast: false
+      # Matrix is resolved by the set-matrix job from
+      # integration-test-matrix.json (merge_only entries filtered on PRs).
       matrix:
-        test: [
-          {
-            name: "Wasm Module",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml",
-              "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml"
-            ]
-          },
-          {
-            name: "Mint & Staking & Bank Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml"
-            ]
-          },
-          {
-            name: "Autobahn Mint & Staking & Bank Module",
-            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml"
-            ]
-          },
-          {
-            name: "Gov & Oracle & Authz Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml"
-            ]
-          },
-          {
-            name: "Autobahn Gov & Oracle & Authz Module",
-            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml"
-            ]
-          },
-          {
-            name: "Chain Operation Test",
-            env: "GIGA_STORAGE=true",
-            scripts: [
-              "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
-              "until [[ $(docker exec sei-rpc-node build/seid status |jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done",
-              "echo rpc node started",
-              "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml",
-              "./integration_test/contracts/verify_statesync_flatkv_digest.sh",
-              "./integration_test/contracts/verify_cross_validator_flatkv_digest.sh"
-            ]
-          },
-          {
-            name: "Distribution Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml",
-            ]
-          },
-          {
-            name: "Upgrade Module (Major)",
-            env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
-            ]
-          },
-          {
-            name: "Autobahn Upgrade Module (Major)",
-            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
-            ]
-          },
-          {
-            name: "Upgrade Module (Minor)",
-            env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
-            ]
-          },
-          {
-            name: "Autobahn Upgrade Module (Minor)",
-            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
-            ]
-          },
-          {
-            name: "SeiDB State Store",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
-              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
-            ],
-          },
-          {
-            name: "Autobahn SeiDB State Store",
-            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
-              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
-            ],
-          },
-          {
-            # Umbrella job for all FlatKV-specific docker-level coverage.
-            # Future FlatKV scenarios (additional bucket layouts, snapshot
-            # rotation, etc.) should be appended here rather than added as
-            # new matrix rows, so the CI surface stays one row per concern.
-            #
-            # The cluster boots with GIGA_STORAGE=true, so FlatKV is enabled
-            # from genesis (sc-write-mode = test_only_dual_write) and the
-            # FlatKV LtHash is folded into every block's AppHash from block 1.
-            # No mid-life migration is exercised here; an offline
-            # memiavl -> FlatKV import would change the AppHash trajectory
-            # at the import boundary and break tendermint replay.
-            #
-            # Step ordering:
-            #   1-3  Deploy an EVM fixture, smoke-check EVM RPC reads, and
-            #        verify the fixture round-tripped through dual_write into
-            #        physical FlatKV.
-            #   4    SIGKILL one validator, restart, and assert 4-node FlatKV
-            #        digest equality. Exercises WAL recovery on a live FlatKV
-            #        cluster.
-            #   5-7  Destructive disaster-recovery scenarios. They run last
-            #        because they wipe or damage one validator's local state.
-            name: "FlatKV Integration",
-            env: "GIGA_STORAGE=true",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
-              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
-              "./integration_test/contracts/verify_flatkv_crash_recovery.sh",
-              "./integration_test/contracts/verify_flatkv_statesync_crash_recovery.sh",
-              "./integration_test/contracts/verify_flatkv_total_loss_recovery.sh",
-              "./integration_test/contracts/verify_flatkv_partial_loss_fails_loudly.sh",
-            ],
-          },
-          {
-            # FlatKV EVM migrate cluster coverage.
-            #
-            # The cluster boots with GIGA_MIGRATE_FROM_MEMIAVL=true so
-            # every validator starts in sc-write-mode = memiavl_only,
-            # i.e. v0 (FlatKV not yet allocated). This is the inverse of
-            # the FlatKV Integration row above (which boots in
-            # test_only_dual_write) and is what makes the migration
-            # script's pre-flip check meaningful: if the matrix env ever
-            # silently lands the cluster in any mode other than
-            # memiavl_only, the script will fail loudly at the pre-flip
-            # grep instead of "succeeding" with a no-op migration.
-            #
-            # Steps:
-            #   1  Deposit an EVM fixture while in v0 so the migration
-            #      has real account+code+storage to drain. The fixture
-            #      writes roughly 4000 storage keys by default so the
-            #      migration spans multiple batches instead of trivially
-            #      completing against an empty or smoke-sized tree.
-            #   2  Coordinated stop -> sed sc-write-mode -> restart on
-            #      all 4 validators, then poll seidb migrate-evm-status
-            #      until every validator reports completion. Cross-
-            #      validator FlatKV digest agreement is asserted at a
-            #      shared post-migration height; any non-determinism in
-            #      the batch copier would surface here as a digest
-            #      mismatch.
-            #   3  Re-run the fixture round-trip check against the
-            #      now-FlatKV-backed EVM state, confirming pre-migration
-            #      data survives the migration intact (read transparency).
-            name: "FlatKV EVM Migrate",
-            env: "GIGA_MIGRATE_FROM_MEMIAVL=true",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-              "./integration_test/contracts/verify_flatkv_evm_migrate.sh",
-              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
-            ],
-          },
-          {
-            name: "EVM Module",
-            env: "GIGA_STORAGE=true",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_tests.sh",
-              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
-              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
-            ]
-          },
-          {
-            name: "Autobahn EVM Module",
-            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_tests.sh",
-              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
-              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
-            ]
-          },
-          {
-            name: "EVM Interoperability",
-            env: "GIGA_STORAGE=true",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
-            ]
-          },
-          {
-            name: "Autobahn EVM Interoperability",
-            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
-            ]
-          },
-          {
-            name: "Disable WASM Tests",
-            scripts: [
-              "./integration_test/evm_module/scripts/disable_wasm.sh",
-            ]
-          },
-          {
-            name: "dApp Tests",
-            env: "GIGA_STORAGE=true",
-            scripts: [
-              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
-            ]
-          },
-          {
-            name: "EVM GIGA Module",
-            env: "GIGA_STORAGE=true GIGA_EXECUTOR=true GIGA_OCC=true",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_giga_tests.sh"
-            ]
-          },
-          {
-            name: "Autobahn EVM GIGA Module",
-            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_giga_tests.sh"
-            ]
-          },
-          {
-            name: "EVM GIGA Mixed (Determinism)",
-            env: "GIGA_STORAGE=true",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_giga_mixed_tests.sh"
-            ]
-          },
-          {
-            name: "EVM RPC .io/.iox (spec fixtures)",
-            env: "GIGA_STORAGE=true",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
-            ]
-          },
-          {
-            name: "Autobahn RPC .io/.iox (spec fixtures)",
-            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
-            ]
-          },
-        ]
+        test: ${{ fromJSON(needs.set-matrix.outputs.tests) }}
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Reclaim runner disk
+        run: bash .github/scripts/ci-free-disk.sh
+      - name: Relocate Docker data-root to /mnt
+        run: bash .github/scripts/ci-relocate-docker-data-root.sh
+      - name: Relocate Go caches to /mnt
+        run: bash .github/scripts/ci-relocate-go-cache.sh
+      - uses: actions/setup-node@v4
         with:
-          python-version: '3.10'
-      - uses: actions/setup-node@v2
-        with:
-          node-version: '20'
-
-      - name: Pyyaml
-        run: |
-          pip3 install pyyaml
+          node-version: '22'
 
       - name: Install jq
         run: sudo apt-get install -y jq
@@ -364,21 +207,39 @@ jobs:
         with:
           go-version: '1.25.6'
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
         if: env.DOCKERHUB_USERNAME != ''
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to GitHub Container Registry
+        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Download integration CI artifacts
         uses: actions/download-artifact@v4
         with:
           name: integration-ci-artifacts
-      - name: Load prebuilt seid and Docker images
+      - name: Load prebuilt seid and pull Docker images
         run: |
           tar -xzf integration-build.tar.gz
-          zstd -d -c integration-docker-images.tar.zst | docker load
+          # The seid binary is now extracted to build/seid; drop the
+          # tarball so its copy does not sit on disk for the rest of the job.
+          rm -f integration-build.tar.gz
+          source .github/scripts/docker-registry-retry.sh
+          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
+          docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
+          docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
+          # Drop the redundant run-id-tagged references now that the images are
+          # retagged as sei-chain/*; keeps a single tag per image.
+          docker image rm "${GHCR_LOCALNODE}:${{ github.run_id }}" "${GHCR_RPCNODE}:${{ github.run_id }}" || true
       - name: Start 4 node docker cluster
         run: DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start-ci
 
@@ -394,7 +255,7 @@ jobs:
         run: ${{matrix.test.env}} make run-rpc-node-integration-ci &
 
       - name: Verify Sei Chain is running
-        run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
+        run: go test -tags yaml_integration -v -timeout 5m ./integration_test/runner/... -run TestStartup
 
       - name: ${{ matrix.test.name }}
         run: |
@@ -452,10 +313,104 @@ jobs:
           path: artifacts/sei-${{ steps.log_artifact_meta.outputs.artifact_name }}
           if-no-files-found: warn
 
+      - name: Upload RPC parity test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpc-parity-report-${{ steps.log_artifact_meta.outputs.artifact_name }}
+          path: integration_test/rpc_tests/reports/merged
+          if-no-files-found: ignore
+
+  # Autobahn integration suite (Autobahn Basic) — boots its own cluster via
+  # TestMain (docker-cluster-start / -stop), so it runs in a separate job
+  # rather than as a matrix entry that would share the integration-tests
+  # cluster.
+  autobahn-integration-tests:
+    name: Integration Test (Autobahn Basic)
+    runs-on: ubuntu-large
+    timeout-minutes: 45
+    needs: prepare-cluster
+    permissions:
+      packages: read
+      contents: read
+    env:
+      GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
+      GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Reclaim runner disk
+        run: bash .github/scripts/ci-free-disk.sh
+      - name: Relocate Docker data-root to /mnt
+        run: bash .github/scripts/ci-relocate-docker-data-root.sh
+      - name: Relocate Go caches to /mnt
+        run: bash .github/scripts/ci-relocate-go-cache.sh
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.6'
+      - name: Install jq
+        run: sudo apt-get install -y jq
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: env.DOCKERHUB_USERNAME != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download integration CI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-ci-artifacts
+      - name: Load prebuilt seid and pull Docker images
+        run: |
+          tar -xzf integration-build.tar.gz
+          # The seid binary is now extracted to build/seid; drop the
+          # tarball so its copy does not sit on disk for the rest of the job.
+          rm -f integration-build.tar.gz
+          source .github/scripts/docker-registry-retry.sh
+          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
+          docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
+          docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
+          # Drop the redundant run-id-tagged references now that the images are
+          # retagged as sei-chain/*; keeps a single tag per image.
+          docker image rm "${GHCR_LOCALNODE}:${{ github.run_id }}" "${GHCR_RPCNODE}:${{ github.run_id }}" || true
+      - name: Run autobahn integration tests
+        run: make autobahn-integration-test
+      - name: Print node logs on failure
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          for c in sei-node-0 sei-node-1 sei-node-2 sei-node-3 sei-rpc-node; do
+            echo "==================== ${c} (docker logs tail) ===================="
+            docker logs --tail 200 "${c}" || true
+          done
+      - name: Collect logs directory
+        if: ${{ always() }}
+        run: |
+          mkdir -p artifacts/sei-autobahn-integration
+          if [ -d build/generated/logs ]; then
+            cp -r build/generated/logs artifacts/sei-autobahn-integration/
+          fi
+      - name: Upload logs directory
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-autobahn-integration
+          path: artifacts/sei-autobahn-integration
+          if-no-files-found: warn
+
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
-    needs: [prepare-cluster, integration-tests]
+    needs: [ prepare-cluster, integration-tests, autobahn-integration-tests ]
     if: always()
     steps:
       - name: Verify prepare and test jobs succeeded
@@ -466,6 +421,10 @@ jobs:
           fi
           if [[ "${{ needs.integration-tests.result }}" != "success" ]]; then
             echo "integration-tests job did not succeed (${{ needs.integration-tests.result }})"
+            exit 1
+          fi
+          if [[ "${{ needs.autobahn-integration-tests.result }}" != "success" ]]; then
+            echo "autobahn-integration-tests job did not succeed (${{ needs.autobahn-integration-tests.result }})"
             exit 1
           fi
           echo "All integration test jobs passed."

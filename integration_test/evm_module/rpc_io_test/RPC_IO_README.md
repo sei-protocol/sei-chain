@@ -41,7 +41,7 @@ GIGA_EXECUTOR=true GIGA_OCC=true DOCKER_DETACH=true make docker-cluster-start
 ./integration_test/evm_module/scripts/evm_rpc_tests.sh
 ```
 
-Without `GIGA_EXECUTOR` and `GIGA_OCC`, the cluster uses the legacy (V2) executor. The Makefile passes these through to `docker compose`; the node image uses them in `docker/localnode/scripts/step4_config_override.sh`.
+Leaving `GIGA_EXECUTOR` unset runs giga (the app's `DefaultConfig` is `Enabled: true`); set `GIGA_EXECUTOR=false` for the legacy (V2) executor. The Makefile passes these through to `docker compose`; the node image uses them in `docker/localnode/scripts/step4_config_override.sh`.
 
 1. Run the suite against the **legacy** endpoint and record the final report:
    ```bash
@@ -282,8 +282,6 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | sei_legacy_deprecation                 | sei_sign-disabled.iox                                          | Sei          |
 | sei_newBlockFilter                     | newBlockFilter.io                                              | Sei          |
 | sei_newFilter                          | newFilter.io                                                   | Sei          |
-| sei_traceBlockByHashExcludeTraceFail   | traceBlockByHashExcludeTraceFail.iox                           | Sei          |
-| sei_traceBlockByNumberExcludeTraceFail | traceBlockByNumberExcludeTraceFail.iox                         | Sei          |
 | sei_uninstallFilter                    | uninstallFilter.io                                             | Sei          |
 | txpool_content                         | content.io                                                     | Sei          |
 | web3_clientVersion                     | clientVersion.io                                               | Sei          |

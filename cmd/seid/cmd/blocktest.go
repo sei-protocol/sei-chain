@@ -15,6 +15,7 @@ import (
 
 	ethtests "github.com/ethereum/go-ethereum/tests"
 	"github.com/sei-protocol/sei-chain/app"
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
@@ -45,6 +46,14 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 			if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
 				return err
 			}
+			// The block test harness drives FinalizeBlock directly and verifies
+			// state through the standard EvmKeeper. The Giga executor is a
+			// separate parallel execution engine (and falls back to v2 for the
+			// unassociated raw-eth addresses these tests use), so force it off
+			// here to keep blocktests on the reference EVM path regardless of
+			// the node's default Giga configuration.
+			serverCtx.Viper.Set(gigaconfig.FlagEnabled, false)
+			serverCtx.Viper.Set(gigaconfig.FlagOCCEnabled, false)
 			home := serverCtx.Viper.GetString(flags.FlagHome)
 
 			cache := store.NewCommitKVStoreCacheManager()

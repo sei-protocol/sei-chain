@@ -139,7 +139,7 @@ func NewHandshaker(
 }
 
 func newReplayTxMempool(app *proxy.Proxy) *mempool.TxMempool {
-	return mempool.NewTxMempool(config.DefaultMempoolConfig().ToMempoolConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	return mempool.NewTxMempool(config.DefaultMempoolConfig().ToMempoolConfig(), app, mempool.NopTxConstraintsFetcher)
 }
 
 // NBlocks returns the number of blocks applied to the state.
@@ -261,7 +261,9 @@ func (h *Handshaker) ReplayBlocks(
 	switch {
 	case storeBlockHeight == 0:
 		if err := checkAppHashEqualsOneFromState(appHash, state); err != nil {
-			return nil, err
+			if err = h.consensusPolicy.HandleError(fmt.Errorf("%w: %w", types.ErrAppHash, err)); err != nil {
+				return nil, err
+			}
 		}
 		return appHash, nil
 
@@ -304,7 +306,9 @@ func (h *Handshaker) ReplayBlocks(
 				return nil, err
 			}
 			if err := checkAppHashEqualsOneFromState(appHash, state); err != nil {
-				return nil, err
+				if err = h.consensusPolicy.HandleError(fmt.Errorf("%w: %w", types.ErrAppHash, err)); err != nil {
+					return nil, err
+				}
 			}
 			return appHash, nil
 		}
@@ -388,14 +392,16 @@ func (h *Handshaker) replayBlocks(
 		// Extra check to ensure the app was not changed in a way it shouldn't have.
 		if len(appHash) > 0 {
 			if err := checkAppHashEqualsOneFromBlock(appHash, block); err != nil {
-				return nil, err
+				if err = h.consensusPolicy.HandleError(fmt.Errorf("%w: %w", types.ErrAppHash, err)); err != nil {
+					return nil, err
+				}
 			}
 		}
 
 		if i == finalBlock && !mutateState {
 			// We emit events for the index services at the final block due to the sync issue when
 			// the node shutdown during the block committing status.
-			blockExec := sm.NewBlockExecutor(h.stateStore, app, newReplayTxMempool(app), sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics(), h.consensusPolicy)
+			blockExec := sm.NewBlockExecutor(h.stateStore, app, newReplayTxMempool(app), sm.EmptyEvidencePool{}, h.store, h.eventBus, h.consensusPolicy)
 			appHash, err = sm.ExecCommitBlock(ctx,
 				blockExec, app, block, h.stateStore, h.genDoc.InitialHeight, state)
 			if err != nil {
@@ -421,7 +427,9 @@ func (h *Handshaker) replayBlocks(
 		appHash = state.AppHash
 	}
 	if err := checkAppHashEqualsOneFromState(appHash, state); err != nil {
-		return nil, err
+		if err = h.consensusPolicy.HandleError(fmt.Errorf("%w: %w", types.ErrAppHash, err)); err != nil {
+			return nil, err
+		}
 	}
 	return appHash, nil
 }
@@ -438,7 +446,7 @@ func (h *Handshaker) replayBlock(
 
 	// Use stubs for both mempool and evidence pool since no transactions nor
 	// evidence are needed here - block already exists.
-	blockExec := sm.NewBlockExecutor(h.stateStore, app, newReplayTxMempool(app), sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics(), h.consensusPolicy)
+	blockExec := sm.NewBlockExecutor(h.stateStore, app, newReplayTxMempool(app), sm.EmptyEvidencePool{}, h.store, h.eventBus, h.consensusPolicy)
 
 	var err error
 	state, err = blockExec.ApplyBlock(ctx, state, meta.BlockID, block, nil)

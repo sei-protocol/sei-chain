@@ -2,99 +2,55 @@ package persist
 
 import (
 	"testing"
-	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 func makeSequentialFullCommitQCs(
 	rng utils.Rng,
-	committee *types.Committee,
+	registry *epoch.Registry,
 	keys []types.SecretKey,
 	n int,
 ) []*types.FullCommitQC {
 	qcs := make([]*types.FullCommitQC, n)
 	prev := utils.None[*types.CommitQC]()
 	for i := range n {
-		blocks := map[types.LaneID][]*types.Block{}
-		for range 3 {
-			lane := committee.Lanes().At(rng.Intn(committee.Lanes().Len()))
-			var b *types.Block
-			if bs := blocks[lane]; len(bs) > 0 {
-				parent := bs[len(bs)-1]
-				b = types.NewBlock(lane, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
-			} else {
-				b = types.NewBlock(
-					lane,
-					types.LaneRangeOpt(prev, lane).Next(),
-					types.GenBlockHeaderHash(rng),
-					types.GenPayload(rng),
-				)
-			}
-			blocks[lane] = append(blocks[lane], b)
-		}
-		laneQCs := map[types.LaneID]*types.LaneQC{}
-		var headers []*types.BlockHeader
-		for lane := range committee.Lanes().All() {
-			if bs := blocks[lane]; len(bs) > 0 {
-				votes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
-				for _, k := range keys {
-					votes = append(votes, types.Sign(k, types.NewLaneVote(bs[len(bs)-1].Header())))
-				}
-				laneQCs[lane] = types.NewLaneQC(votes)
-				for _, b := range bs {
-					headers = append(headers, b.Header())
-				}
-			}
-		}
-		viewSpec := types.ViewSpec{CommitQC: prev}
-		leader := committee.Leader(viewSpec.View())
-		var leaderKey types.SecretKey
+		vs := types.ViewSpec{CommitQC: prev, Epoch: registry.LatestEpoch()}
+		committee := vs.Epoch.Committee()
+		lane := committee.Lanes().At(rng.Intn(committee.Lanes().Len()))
+		b := types.NewBlock(lane, types.LaneRangeOpt(prev, lane).Next(), types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+		lv := types.NewLaneVote(b.Header())
+		lvotes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
 		for _, k := range keys {
-			if k.Public() == leader {
-				leaderKey = k
-				break
-			}
+			lvotes = append(lvotes, types.Sign(k, lv))
 		}
-		proposal := utils.OrPanic1(types.NewProposal(
-			leaderKey,
-			committee,
-			viewSpec,
-			time.Now(),
-			laneQCs,
-			utils.None[*types.AppQC](),
-		))
-		votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
-		for _, k := range keys {
-			votes = append(votes, types.Sign(k, types.NewCommitVote(proposal.Proposal().Msg())))
-		}
-		cqc := types.NewCommitQC(votes)
-		qcs[i] = types.NewFullCommitQC(cqc, headers)
-		prev = utils.Some(cqc)
+		laneQCs := map[types.LaneID]*types.LaneQC{lane: types.NewLaneQC(lvotes)}
+		cqc := types.BuildCommitQC(vs.Epoch, keys, prev, laneQCs, utils.None[*types.AppQC]())
+		qcs[i] = types.NewFullCommitQC(cqc, []*types.BlockHeader{b.Header()})
+		prev = utils.Some(qcs[i].QC())
 	}
 	return qcs
 }
 
 func TestNewFullCommitQCPersisterEmptyDir(t *testing.T) {
-	rng := utils.TestRng()
-	committee, _ := types.GenCommittee(rng, 3)
 	dir := t.TempDir()
-	gp, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp, err := NewFullCommitQCPersister(utils.Some(dir), 0)
 	require.NoError(t, err)
 	require.NotNil(t, gp)
 	require.Equal(t, 0, len(gp.ConsumeLoaded()))
-	require.Equal(t, committee.FirstBlock(), gp.Next())
+	require.Equal(t, types.GlobalBlockNumber(0), gp.Next())
 	require.NoError(t, gp.Close())
 }
 
 func TestNewFullCommitQCPersisterNoop(t *testing.T) {
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	qcs := makeSequentialFullCommitQCs(rng, committee, keys, 5)
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qcs := makeSequentialFullCommitQCs(rng, registry, keys, 5)
 
-	gp, err := NewFullCommitQCPersister(utils.None[string](), committee)
+	gp, err := NewFullCommitQCPersister(utils.None[string](), registry.FirstBlock())
 	require.NoError(t, err)
 	require.NotNil(t, gp)
 	require.Equal(t, 0, len(gp.ConsumeLoaded()))
@@ -102,7 +58,7 @@ func TestNewFullCommitQCPersisterNoop(t *testing.T) {
 	for _, qc := range qcs {
 		require.NoError(t, gp.PersistQC(qc))
 	}
-	lastNext := qcs[len(qcs)-1].QC().GlobalRange(committee).Next
+	lastNext := qcs[len(qcs)-1].QC().GlobalRange().Next
 	require.Equal(t, lastNext, gp.Next())
 
 	// Truncate past everything in no-op mode advances cursor.
@@ -112,27 +68,48 @@ func TestNewFullCommitQCPersisterNoop(t *testing.T) {
 	require.NoError(t, gp.Close())
 }
 
-func TestFullCommitQCPersistAndReload(t *testing.T) {
+func TestFullCommitQCPersisterFirstBlockFromWAL(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	qcs := makeSequentialFullCommitQCs(rng, committee, keys, 5)
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qcs := makeSequentialFullCommitQCs(rng, registry, keys, 3)
+	wantFirst := qcs[0].QC().GlobalRange().First
 
-	gp, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	for _, qc := range qcs {
 		require.NoError(t, gp.PersistQC(qc))
 	}
-	lastNext := qcs[len(qcs)-1].QC().GlobalRange(committee).Next
+	require.NoError(t, gp.Close())
+
+	// Reopen with a wrong firstBlock — WAL should take precedence.
+	gp2, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock()+999)
+	require.NoError(t, err)
+	require.Equal(t, wantFirst, gp2.LoadedFirst())
+	require.NoError(t, gp2.Close())
+}
+
+func TestFullCommitQCPersistAndReload(t *testing.T) {
+	dir := t.TempDir()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qcs := makeSequentialFullCommitQCs(rng, registry, keys, 5)
+
+	gp, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
+	require.NoError(t, err)
+	for _, qc := range qcs {
+		require.NoError(t, gp.PersistQC(qc))
+	}
+	lastNext := qcs[len(qcs)-1].QC().GlobalRange().Next
 	require.Equal(t, lastNext, gp.Next())
 	require.NoError(t, gp.Close())
 
-	gp2, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp2, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	loaded := gp2.ConsumeLoaded()
 	require.Equal(t, len(qcs), len(loaded))
 	for i, lqc := range loaded {
-		require.Equal(t, qcs[i].QC().GlobalRange(committee).First, lqc.QC().GlobalRange(committee).First)
+		require.Equal(t, qcs[i].QC().GlobalRange().First, lqc.QC().GlobalRange().First)
 	}
 	require.Equal(t, lastNext, gp2.Next())
 	require.NoError(t, gp2.Close())
@@ -141,46 +118,46 @@ func TestFullCommitQCPersistAndReload(t *testing.T) {
 func TestFullCommitQCTruncateAndReload(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	qcs := makeSequentialFullCommitQCs(rng, committee, keys, 5)
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qcs := makeSequentialFullCommitQCs(rng, registry, keys, 5)
 
-	gp, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	for _, qc := range qcs {
 		require.NoError(t, gp.PersistQC(qc))
 	}
 	// Truncate before the third QC's range start, which should remove
 	// all QCs whose range is fully below that point.
-	truncPoint := qcs[2].QC().GlobalRange(committee).First
+	truncPoint := qcs[2].QC().GlobalRange().First
 	require.NoError(t, gp.TruncateBefore(truncPoint))
 	require.NoError(t, gp.Close())
 
-	gp2, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp2, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	loaded := gp2.ConsumeLoaded()
 	// QCs 0 and 1 should be gone (their ranges are fully before truncPoint).
 	// QC 2 should be the first one remaining.
 	require.GreaterOrEqual(t, len(loaded), 1)
-	require.Equal(t, qcs[2].QC().GlobalRange(committee).First, loaded[0].QC().GlobalRange(committee).First)
+	require.Equal(t, qcs[2].QC().GlobalRange().First, loaded[0].QC().GlobalRange().First)
 	require.NoError(t, gp2.Close())
 }
 
 func TestFullCommitQCTruncateAll(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	qcs := makeSequentialFullCommitQCs(rng, committee, keys, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qcs := makeSequentialFullCommitQCs(rng, registry, keys, 3)
 
-	gp, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	for _, qc := range qcs {
 		require.NoError(t, gp.PersistQC(qc))
 	}
-	lastNext := qcs[len(qcs)-1].QC().GlobalRange(committee).Next
+	lastNext := qcs[len(qcs)-1].QC().GlobalRange().Next
 	require.NoError(t, gp.TruncateBefore(lastNext+100))
 	require.NoError(t, gp.Close())
 
-	gp2, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp2, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	require.Equal(t, 0, len(gp2.ConsumeLoaded()))
 	require.NoError(t, gp2.Close())
@@ -189,24 +166,24 @@ func TestFullCommitQCTruncateAll(t *testing.T) {
 func TestFullCommitQCDuplicateIgnored(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	qcs := makeSequentialFullCommitQCs(rng, committee, keys, 2)
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qcs := makeSequentialFullCommitQCs(rng, registry, keys, 2)
 
-	gp, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	require.NoError(t, gp.PersistQC(qcs[0]))
 	require.NoError(t, gp.PersistQC(qcs[0])) // duplicate
-	require.Equal(t, qcs[0].QC().GlobalRange(committee).Next, gp.Next())
+	require.Equal(t, qcs[0].QC().GlobalRange().Next, gp.Next())
 	require.NoError(t, gp.Close())
 }
 
 func TestFullCommitQCGapError(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	qcs := makeSequentialFullCommitQCs(rng, committee, keys, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qcs := makeSequentialFullCommitQCs(rng, registry, keys, 3)
 
-	gp, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	// Skip qcs[0] and try to persist qcs[1] directly.
 	err = gp.PersistQC(qcs[1])
@@ -218,10 +195,10 @@ func TestFullCommitQCGapError(t *testing.T) {
 func TestFullCommitQCTruncateBeforeNoop(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	qcs := makeSequentialFullCommitQCs(rng, committee, keys, 3)
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qcs := makeSequentialFullCommitQCs(rng, registry, keys, 3)
 
-	gp, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	for _, qc := range qcs {
 		require.NoError(t, gp.PersistQC(qc))
@@ -230,7 +207,7 @@ func TestFullCommitQCTruncateBeforeNoop(t *testing.T) {
 	require.NoError(t, gp.TruncateBefore(0))
 	require.NoError(t, gp.Close())
 
-	gp2, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp2, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	require.Equal(t, 3, len(gp2.ConsumeLoaded()))
 	require.NoError(t, gp2.Close())
@@ -239,26 +216,26 @@ func TestFullCommitQCTruncateBeforeNoop(t *testing.T) {
 func TestFullCommitQCContinueAfterReload(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	qcs := makeSequentialFullCommitQCs(rng, committee, keys, 6)
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qcs := makeSequentialFullCommitQCs(rng, registry, keys, 6)
 
-	gp, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	for _, qc := range qcs[:3] {
 		require.NoError(t, gp.PersistQC(qc))
 	}
 	require.NoError(t, gp.Close())
 
-	gp2, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp2, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	require.Equal(t, 3, len(gp2.ConsumeLoaded()))
 	for _, qc := range qcs[3:] {
 		require.NoError(t, gp2.PersistQC(qc))
 	}
-	require.Equal(t, qcs[5].QC().GlobalRange(committee).Next, gp2.Next())
+	require.Equal(t, qcs[5].QC().GlobalRange().Next, gp2.Next())
 	require.NoError(t, gp2.Close())
 
-	gp3, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp3, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	require.Equal(t, 6, len(gp3.ConsumeLoaded()))
 	require.NoError(t, gp3.Close())
@@ -267,23 +244,23 @@ func TestFullCommitQCContinueAfterReload(t *testing.T) {
 func TestFullCommitQCTruncateMidRange(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-	qcs := makeSequentialFullCommitQCs(rng, committee, keys, 5)
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qcs := makeSequentialFullCommitQCs(rng, registry, keys, 5)
 
-	gp, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+	gp, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 	require.NoError(t, err)
 	for _, qc := range qcs {
 		require.NoError(t, gp.PersistQC(qc))
 	}
 	// Truncate at a point inside the first QC's range.
 	// The first QC should be kept because its range extends past truncPoint.
-	gr0 := qcs[0].QC().GlobalRange(committee)
+	gr0 := qcs[0].QC().GlobalRange()
 	if gr0.Len() > 1 {
 		midPoint := gr0.First + types.GlobalBlockNumber(gr0.Len()/2)
 		require.NoError(t, gp.TruncateBefore(midPoint))
 		require.NoError(t, gp.Close())
 
-		gp2, err := NewFullCommitQCPersister(utils.Some(dir), committee)
+		gp2, err := NewFullCommitQCPersister(utils.Some(dir), registry.FirstBlock())
 		require.NoError(t, err)
 		require.Equal(t, 5, len(gp2.ConsumeLoaded()))
 		require.NoError(t, gp2.Close())

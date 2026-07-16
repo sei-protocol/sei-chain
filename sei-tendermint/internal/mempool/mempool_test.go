@@ -3,8 +3,8 @@ package mempool
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
-	"math/big"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
@@ -46,8 +47,8 @@ func (app *application) EvmNonce(common.Address) uint64 {
 	return 0
 }
 
-func (app *application) EvmBalance(common.Address, []byte) *big.Int {
-	return big.NewInt(0)
+func (app *application) EvmBalance(common.Address, []byte) uint256.Int {
+	return uint256.Int{}
 }
 
 func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
@@ -96,11 +97,12 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
 			},
+			EVMHash:            common.Hash(sha256.Sum256(req.Tx)),
 			EVMNonce:           nonce,
 			EVMSenderAddress:   common.HexToAddress(account),
 			SeiSenderAddress:   sdk.AccAddress(common.HexToAddress(account).Bytes()),
 			IsEVM:              true,
-			EVMRequiredBalance: big.NewInt(0),
+			EVMRequiredBalance: uint256.Int{},
 		}
 		return res
 	}
@@ -143,7 +145,7 @@ func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPri
 }
 
 func setup(cfg *Config, app *proxy.Proxy, txConstraintsFetcher TxConstraintsFetcher) *TxMempool {
-	return NewTxMempool(cfg, app, NopMetrics(), txConstraintsFetcher)
+	return NewTxMempool(cfg, app, txConstraintsFetcher)
 }
 
 func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int) []testTx {
@@ -207,7 +209,7 @@ func TestTxMempool_TxsAvailable(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
 	cfg.CacheSize = 0
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 
 	ensureNoTxFire := func() {
 		timer := time.NewTimer(500 * time.Millisecond)
@@ -265,7 +267,7 @@ func TestTxMempool_Size(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
 	cfg.CacheSize = 0
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 	txs := checkTxs(ctx, t, txmp, 100)
 	require.Equal(t, len(txs), txmp.Size())
 	require.Equal(t, 0, txmp.PendingSize())
@@ -295,7 +297,7 @@ func TestTxMempool_Flush(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
 	cfg.CacheSize = 0
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 	txs := checkTxs(ctx, t, txmp, 100)
 	require.Equal(t, len(txs), txmp.Size())
 	require.Equal(t, totalTxSizeBytes(txs), txmp.SizeBytes())
@@ -326,7 +328,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
 	cfg := TestConfig()
 	cfg.CacheSize = 0
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100) // all txs request 1 gas unit
 	require.Equal(t, len(tTxs), txmp.Size())
 	require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
@@ -416,7 +418,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
 	cfg := TestConfig()
 	cfg.CacheSize = 0
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100)
 
 	txMap := make(map[types.TxHash]testTx)
@@ -458,7 +460,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
 	cfg.CacheSize = 0
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100)
 	require.Equal(t, len(tTxs), txmp.Size())
 	require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
@@ -525,7 +527,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_MinGasEVMTxThreshold(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated, gasWanted: &gasWanted}
 	cfg := TestConfig()
 	cfg.CacheSize = 0
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 	address := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
 
 	// Insert a single EVM tx (format: evm-sender=account=priority=nonce)
@@ -548,7 +550,7 @@ func TestTxMempool_CheckTxExceedsMaxSize(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
 	cfg.CacheSize = 0
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	tx := make([]byte, txmp.config.MaxTxBytes+1)
@@ -572,7 +574,7 @@ func TestTxMempool_Prioritization(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
 	cfg.CacheSize = 100
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 
 	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
 	address2 := "0xfD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
@@ -630,7 +632,7 @@ func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
 	cfg.CacheSize = 100
 	cfg.Size = 5
 	cfg.PendingSize = 0
-	txmp := NewTxMempool(cfg, proxy.New(client, proxy.NopMetrics()), NopMetrics(), NopTxConstraintsFetcher)
+	txmp := NewTxMempool(cfg, proxy.New(client), NopTxConstraintsFetcher)
 
 	insertedTxs := make([]types.Tx, 0, 2*cfg.Size+1)
 	pruned := false
@@ -651,12 +653,6 @@ func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
 	require.True(t, pruned)
 	require.LessOrEqual(t, txmp.Size(), cfg.Size)
 	require.Positive(t, txmp.Size())
-
-	for _, tx := range insertedTxs {
-		_, inMempool := txmp.txStore.ByHash(tx.Hash())
-		inCache := txmp.txStore.CacheHas(tx.Hash())
-		require.Equal(t, inMempool, inCache)
-	}
 }
 
 func TestTxMempool_CheckTxDuplicateRejected(t *testing.T) {
@@ -665,7 +661,7 @@ func TestTxMempool_CheckTxDuplicateRejected(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
 	cfg.CacheSize = 100
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	prefix := make([]byte, 20)
@@ -686,7 +682,7 @@ func TestTxMempool_ConcurrentTxs(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
 	cfg.CacheSize = 100
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	checkTxDone := make(chan struct{})
 
@@ -757,7 +753,7 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	cfg := TestConfig()
 	cfg.CacheSize = 500
 	cfg.TTLNumBlocks = utils.Some(int64(10))
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 	txmp.height = 100
 
 	tTxs := checkTxs(ctx, t, txmp, 100)
@@ -810,7 +806,7 @@ func TestMempoolExpiration(t *testing.T) {
 	cfg.CacheSize = 0
 	cfg.TTLDuration = utils.Some(time.Nanosecond)
 	cfg.RemoveExpiredTxsFromQueue = true
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 	txs := checkTxs(ctx, t, txmp, 100)
 	require.Equal(t, len(txs), txmp.Size())
 
@@ -831,7 +827,7 @@ func TestTxMempool_ReapTxs_EVMFirst(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
 	cfg.CacheSize = 0
-	txmp := setup(cfg, proxy.New(client, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 
 	evmAddress1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
 	evmAddress2 := "0xfD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
@@ -895,7 +891,7 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 	app := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
 	cfg.CacheSize = 500
-	txmp := setup(cfg, proxy.New(app, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(app), NopTxConstraintsFetcher)
 
 	tx := types.Tx("sender-0-0=key=1000")
 
@@ -940,13 +936,70 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 	require.Equal(t, 1, txmp.Size())
 }
 
+func TestTxMempool_EvmMetadataCacheShortCircuitsAndReadmitsAfterFailedExecution(t *testing.T) {
+	ctx := t.Context()
+	sender := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+
+	for _, tc := range []struct {
+		name     string
+		betterTx types.Tx
+		worseTx  types.Tx
+	}{
+		{
+			name:     "same nonce lower priority",
+			betterTx: types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 10, 0)),
+			worseTx:  types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 9, 0)),
+		},
+		{
+			name:     "same nonce higher priority but too high required balance",
+			betterTx: types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 10, 0)),
+			// Here priority is higher but requiredBalance is too large.
+			// Note that reinsertion will succeed, but the transaction will be pending.
+			worseTx: types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 20, 101)),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newEVMNonceApp()
+			app.setNonce(sender, 7)
+			app.setBalance(sender, 100)
+
+			cfg := TestConfig()
+			cfg.CacheSize = 100
+			txmp := setup(cfg, proxy.New(app), NopTxConstraintsFetcher)
+
+			_, err := txmp.CheckTx(ctx, tc.betterTx)
+			require.NoError(t, err)
+
+			_, err = txmp.CheckTx(ctx, tc.worseTx)
+			require.ErrorIs(t, err, errSameNonce)
+			require.Equal(t, 1, txmp.Size())
+
+			_, err = txmp.CheckTx(ctx, tc.worseTx)
+			require.Equal(t, ErrTxInCache, err)
+			require.Equal(t, 1, txmp.Size())
+
+			txmp.Lock()
+			require.NoError(t, txmp.Update(ctx, 1, types.Txs{tc.betterTx}, []*abci.ExecTxResult{
+				{Code: 11},
+			}, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
+			txmp.Unlock()
+
+			require.Equal(t, 0, txmp.Size())
+
+			_, err = txmp.CheckTx(ctx, tc.worseTx)
+			require.NoError(t, err)
+			require.Equal(t, 1, txmp.Size())
+		})
+	}
+}
+
 func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	ctx := t.Context()
 
 	app := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
 	cfg.CacheSize = 500
-	txmp := setup(cfg, proxy.New(app, proxy.NopMetrics()), NopTxConstraintsFetcher)
+	txmp := setup(cfg, proxy.New(app), NopTxConstraintsFetcher)
 
 	tx := types.Tx("sender-0-0=key=1000")
 	txHash := tx.Hash()
@@ -973,7 +1026,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 
 	// Success clears the failure tracker. Simulate LRU eviction of the
 	// main cache entry so we can verify the tracker was actually reset.
-	txmp.txStore.CacheRemove(txHash)
+	txStoreCacheRemove(txmp.txStore, txHash)
 
 	// Tx should now be re-admittable
 	_, err = txmp.CheckTx(ctx, tx)

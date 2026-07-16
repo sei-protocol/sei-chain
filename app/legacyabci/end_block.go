@@ -2,8 +2,6 @@ package legacyabci
 
 import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis"
-	crisiskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
 	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
@@ -15,7 +13,6 @@ import (
 )
 
 type EndBlockKeepers struct {
-	CrisisKeeper  *crisiskeeper.Keeper
 	GovKeeper     *govkeeper.Keeper
 	StakingKeeper *stakingkeeper.Keeper
 	OracleKeeper  *oraclekeeper.Keeper
@@ -23,7 +20,6 @@ type EndBlockKeepers struct {
 }
 
 func EndBlock(ctx sdk.Context, height int64, blockGasUsed int64, keepers EndBlockKeepers) []abci.ValidatorUpdate {
-	crisis.EndBlocker(ctx, *keepers.CrisisKeeper)
 	gov.EndBlocker(ctx, *keepers.GovKeeper)
 	vals := staking.EndBlocker(ctx, *keepers.StakingKeeper)
 	oracle.EndBlocker(ctx, *keepers.OracleKeeper)

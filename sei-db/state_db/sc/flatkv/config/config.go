@@ -10,7 +10,7 @@ import (
 
 const (
 	DefaultSnapshotInterval   uint32 = 10000
-	DefaultSnapshotKeepRecent uint32 = 2
+	DefaultSnapshotKeepRecent uint32 = 1
 )
 
 // Config defines configuration for the FlatKV (EVM) commit store.
@@ -39,12 +39,16 @@ type Config struct {
 
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
-	// Default: 2
+	// Default: 1
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// EnablePebbleMetrics defines if the Pebble metrics should be enabled.
 	// Default: true
 	EnablePebbleMetrics bool `mapstructure:"enable-pebble-metrics"`
+
+	// EnableReadWriteMetrics emits simple estimated read/write counters for FlatKV's Pebble DBs.
+	// Default: false
+	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
 
 	// AccountDBConfig defines the PebbleDB configuration for the account database.
 	AccountDBConfig pebbledb.PebbleDBConfig

@@ -30,11 +30,11 @@ func (nes *EventSink) IndexTxEvents(results []*abci.TxResultV2) error {
 	return nil
 }
 
-func (nes *EventSink) SearchBlockEvents(ctx context.Context, q *query.Query) ([]int64, error) {
+func (nes *EventSink) SearchBlockEvents(ctx context.Context, q *query.Query, opts indexer.SearchOptions) ([]int64, error) {
 	return nil, nil
 }
 
-func (nes *EventSink) SearchTxEvents(ctx context.Context, q *query.Query) ([]*abci.TxResultV2, error) {
+func (nes *EventSink) SearchTxEvents(ctx context.Context, q *query.Query, opts indexer.SearchOptions) ([]*abci.TxResultV2, error) {
 	return nil, nil
 }
 

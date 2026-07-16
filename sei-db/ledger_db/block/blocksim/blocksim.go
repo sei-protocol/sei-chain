@@ -6,12 +6,18 @@ import (
 	"os"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
+	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
-	memblockdb "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/mem_block_db"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"golang.org/x/time/rate"
 )
+
+// Fixed committee genesis time; the simulator does not depend on wall-clock
+// genesis, and a constant keeps committee construction deterministic.
+var genesisTime = time.Unix(1_700_000_000, 0)
 
 // The benchmark runner for the blocksim benchmark.
 type BlockSim struct {
@@ -20,7 +26,7 @@ type BlockSim struct {
 
 	config *BlocksimConfig
 
-	db        block.BlockDB
+	db        types.BlockDB
 	generator *BlockGenerator
 	metrics   *BlocksimMetrics
 
@@ -30,9 +36,10 @@ type BlockSim struct {
 	lastConsoleUpdateBlockCount int64
 	startTimestamp              time.Time
 	totalBlocksWritten          int64
-	totalTransactionsWritten    int64
+	totalQCsWritten             int64
 	totalBytesWritten           int64
 	highestBlockHeight          uint64
+	lastPrunedAt                uint64
 
 	// A message is sent on this channel when the benchmark is fully stopped.
 	closeChan chan struct{}
@@ -77,17 +84,66 @@ func NewBlockSim(
 	fmt.Printf("Running blocksim benchmark from data directory: %s\n", config.DataDir)
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
 
-	db, err := openBlockDB(config.Backend, config.DataDir)
+	fmt.Printf("Initializing random number generator.\n")
+	rng := tmutils.TestRngFromSeed(config.Seed)
+
+	committee, keys, err := buildCommittee(rng, int(config.CommitteeSize)) //nolint:gosec // CommitteeSize is a small config value
+	if err != nil {
+		return nil, err
+	}
+
+	// Pre-generate a random buffer once; all block/QC data generation slices into it
+	// (zero-copy) so the generator never runs math/rand on the hot path.
+	cannedRand := crand.NewCannedRandom(int(config.RandomDataBufferSizeBytes), config.Seed) //nolint:gosec // buffer size is bounded by config
+
+	db, err := openBlockDB(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	fmt.Printf("Initializing random number generator.\n")
-	rng := rand.NewCannedRandom(int(config.CannedRandomSize), config.Seed) //nolint:gosec
-
 	ctx, cancel := context.WithCancel(ctx)
 
-	generator := NewBlockGenerator(ctx, config, rng, 1)
+	blockCount, qcCount, err := countExistingState(db)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to read existing state: %w", err)
+	}
+	fmt.Printf("Loaded %d blocks and %d QCs from existing state.\n", blockCount, qcCount)
+
+	// Recover the persisted tail so generation resumes after existing history
+	// instead of restarting from global block 0 (which would collide with the
+	// on-disk data).
+	prev, highestOpt, err := recoverResumeState(db)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to recover resume state: %w", err)
+	}
+	var highest uint64
+	if prevQC, ok := prev.Get(); ok {
+		// A hard crash can leave the QC ahead of its blocks (the BlockDB
+		// guarantees a persisted block is always covered by a persisted QC, never
+		// the reverse). Backfill the missing tail so the store ends exactly at the
+		// last QC's range — the next batch then appends contiguously. Block bytes
+		// are irrelevant here (this is a DB stress test), so the backfill writes
+		// freshly generated blocks under the already-persisted QC.
+		qcRange := prevQC.GlobalRange()
+		lastQCNext := uint64(qcRange.Next)
+		firstMissing := uint64(qcRange.First)
+		if h, ok := highestOpt.Get(); ok {
+			firstMissing = h + 1
+		}
+		for n := firstMissing; n < lastQCNext; n++ {
+			blk := backfillBlock(cannedRand, committee, config)
+			if err := db.WriteBlock(types.GlobalBlockNumber(n), blk); err != nil { //nolint:gosec // n < lastQCNext
+				cancel()
+				return nil, fmt.Errorf("failed to backfill block %d: %w", n, err)
+			}
+		}
+		highest = lastQCNext - 1
+		fmt.Printf("Resuming from block %d.\n", highest)
+	}
+
+	generator := NewBlockGenerator(ctx, config, cannedRand, committee, keys, prev)
 
 	consoleUpdatePeriod := time.Duration(config.ConsoleUpdateIntervalSeconds * float64(time.Second))
 
@@ -108,15 +164,129 @@ func NewBlockSim(
 		consoleUpdatePeriod:   consoleUpdatePeriod,
 		lastConsoleUpdateTime: start,
 		startTimestamp:        start,
+		highestBlockHeight:    highest,
+		lastPrunedAt:          highest,
 		closeChan:             make(chan struct{}, 1),
 		suspendChan:           make(chan bool, 1),
 		rateLimiter:           rateLimiter,
 	}
 
-	metrics.StartBlockDBPolling(ctx, db, config.BackgroundMetricsScrapeInterval)
-
 	go b.run()
 	return b, nil
+}
+
+// countExistingState scans the block and QC iterators to count what is already
+// persisted, exercising the replay path at startup.
+func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
+	blockIt, err := db.Blocks(false)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to open block iterator: %w", err)
+	}
+	defer func() { _ = blockIt.Close() }()
+	for {
+		ok, err := blockIt.Next()
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to advance block iterator: %w", err)
+		}
+		if !ok {
+			break
+		}
+		blocks++
+	}
+
+	qcIt, err := db.QCs(false)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to open QC iterator: %w", err)
+	}
+	defer func() { _ = qcIt.Close() }()
+	for {
+		ok, err := qcIt.Next()
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to advance QC iterator: %w", err)
+		}
+		if !ok {
+			break
+		}
+		qcs++
+	}
+	return blocks, qcs, nil
+}
+
+// recoverResumeState reads the persisted tail so the benchmark resumes appending
+// after existing history rather than restarting from global block 0. It returns
+// the last persisted QC (to seed the generator's chain via BlockGenerator.prev)
+// and the highest persisted block number (None if no blocks are persisted, which
+// the caller must distinguish from block 0). Blocks and QCs are recovered
+// independently with a single reverse-iterator step each, because a hard crash
+// can leave the QC ahead of its blocks. An empty store yields (None, None, nil),
+// preserving genesis-start behavior.
+func recoverResumeState(
+	db types.BlockDB,
+) (tmutils.Option[*types.CommitQC], tmutils.Option[uint64], error) {
+	prev := tmutils.None[*types.CommitQC]()
+	highest := tmutils.None[uint64]()
+
+	blockIt, err := db.Blocks(true)
+	if err != nil {
+		return prev, highest, fmt.Errorf("failed to open reverse block iterator: %w", err)
+	}
+	defer func() { _ = blockIt.Close() }()
+	ok, err := blockIt.Next()
+	if err != nil {
+		return prev, highest, fmt.Errorf("failed to read newest block: %w", err)
+	}
+	if ok {
+		highest = tmutils.Some(uint64(blockIt.Number()))
+	}
+
+	qcIt, err := db.QCs(true)
+	if err != nil {
+		return prev, highest, fmt.Errorf("failed to open reverse QC iterator: %w", err)
+	}
+	defer func() { _ = qcIt.Close() }()
+	ok, err = qcIt.Next()
+	if err != nil {
+		return prev, highest, fmt.Errorf("failed to read newest QC: %w", err)
+	}
+	if ok {
+		fqc, err := qcIt.QC()
+		if err != nil {
+			return prev, highest, fmt.Errorf("failed to decode newest QC: %w", err)
+		}
+		prev = tmutils.Some(fqc.QC())
+	}
+
+	return prev, highest, nil
+}
+
+// buildCommittee creates a round-robin committee of the given size along with
+// the secret keys that sign its QCs, with global numbering starting at 0.
+func buildCommittee(rng tmutils.Rng, size int) (*types.Committee, []types.SecretKey, error) {
+	keys := make([]types.SecretKey, size)
+	replicas := make([]types.PublicKey, size)
+	for i := range keys {
+		keys[i] = types.GenSecretKey(rng)
+		replicas[i] = keys[i].Public()
+	}
+	committee, err := types.NewRoundRobinElection(replicas)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build committee: %w", err)
+	}
+	return committee, keys, nil
+}
+
+// backfillBlock builds a throwaway block for crash-recovery backfill using canned random
+// data. The block's content and internal header are irrelevant — the store keys blocks by
+// the global number passed to WriteBlock — so this avoids real crypto and math/rand.
+func backfillBlock(rand *crand.CannedRandom, committee *types.Committee, config *BlocksimConfig) *types.Block {
+	txs := make([][]byte, config.TransactionsPerBlock)
+	for i := range txs {
+		txs[i] = rand.Bytes(int(config.BytesPerTransaction)) //nolint:gosec // payload sizes are bounded by config validation
+	}
+	payload := tmutils.OrPanic1(types.PayloadBuilder{CreatedAt: time.Now(), Txs: txs}.Build())
+	payloadHash := tmutils.OrPanic1(types.ParsePayloadHash(rand.Bytes(hashSizeBytes)))
+	parentHash := tmutils.OrPanic1(types.ParseBlockHeaderHash(rand.Bytes(hashSizeBytes)))
+	return types.NewBlockForTesting(committee.Lanes().At(0), 0, parentHash, payload, payloadHash)
 }
 
 // The main loop of the benchmark.
@@ -145,9 +315,8 @@ func (b *BlockSim) run() {
 				utils.FormatDuration(time.Since(b.startTimestamp), 1))
 			b.cancel()
 			return
-		case blk := <-b.generator.blocksChan:
-			b.maybeThrottle()
-			b.handleNextBlock(blk)
+		case batch := <-b.generator.batchChan:
+			b.handleNextBatch(batch)
 		}
 
 		b.generateConsoleReport(false)
@@ -164,29 +333,50 @@ func (b *BlockSim) maybeThrottle() {
 	}
 }
 
-func (b *BlockSim) handleNextBlock(blk *block.BinaryBlock) {
-	b.metrics.SetMainThreadPhase("write_block")
-	if err := b.db.WriteBlock(b.ctx, blk); err != nil {
-		fmt.Printf("failed to write block %d: %v\n", blk.Height, err)
+// handleNextBatch persists one batch: its QC, then all of its blocks. The QC is
+// written first because the BlockDB contract requires a covering QC before any
+// block it covers (WriteBlock rejects an uncovered block). It is deliberately
+// atomic with respect to shutdown — it writes the whole batch and only returns
+// early on a write *error*, never on context cancellation (run observes shutdown
+// solely between batches, and the only mid-batch ctx use, maybeThrottle, merely
+// stops throttling and proceeds with the write). Combined with flushes happening
+// only after the full batch (here, in suspend, and in teardown), a cleanly
+// shut-down store always ends at a complete batch boundary (highest block ==
+// last QC's Next-1), so it resumes with no gap. A hard crash may leave the QC
+// ahead of its blocks (never a block without its QC); resume backfills the gap.
+// Do NOT add a mid-batch ctx abort: it would let a clean shutdown leave a
+// partial batch.
+func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
+	b.metrics.SetMainThreadPhase("write_qc")
+	if err := b.db.WriteQC(batch.first, batch.next, batch.qc); err != nil {
+		fmt.Printf("failed to write QC: %v\n", err)
 		b.cancel()
 		return
 	}
+	b.totalQCsWritten++
+	b.metrics.ReportQCWritten()
 
-	txCount := int64(len(blk.Transactions))
-	blockBytes := int64(len(blk.Hash) + len(blk.BlockData))
-	for _, tx := range blk.Transactions {
-		blockBytes += int64(len(tx.Hash) + len(tx.Transaction))
+	b.metrics.SetMainThreadPhase("write_block")
+	for i, blk := range batch.blocks {
+		b.maybeThrottle()
+		n := batch.first + types.GlobalBlockNumber(i) //nolint:gosec // batch index is small and non-negative
+		if err := b.db.WriteBlock(n, blk); err != nil {
+			fmt.Printf("failed to write block %d: %v\n", n, err)
+			b.cancel()
+			return
+		}
+		blockBytes := payloadBytes(blk)
+		b.totalBlocksWritten++
+		b.totalBytesWritten += blockBytes
+		b.highestBlockHeight = uint64(n)
+		b.metrics.ReportBlockWritten(blockBytes, int64(len(blk.Payload().Txs())))
 	}
-	b.totalBlocksWritten++
-	b.totalTransactionsWritten += txCount
-	b.totalBytesWritten += blockBytes
-	b.highestBlockHeight = blk.Height
-	b.metrics.ReportBlockWritten(txCount, blockBytes)
+	b.metrics.RecordHighestHeight(b.highestBlockHeight)
 
 	// Periodic flush.
 	if b.config.FlushIntervalBlocks > 0 && b.totalBlocksWritten%int64(b.config.FlushIntervalBlocks) == 0 { //nolint:gosec
 		b.metrics.SetMainThreadPhase("flush")
-		if err := b.db.Flush(b.ctx); err != nil {
+		if err := b.db.Flush(); err != nil {
 			fmt.Printf("failed to flush: %v\n", err)
 			b.cancel()
 			return
@@ -195,21 +385,33 @@ func (b *BlockSim) handleNextBlock(blk *block.BinaryBlock) {
 	}
 
 	// Periodic prune.
-	if blk.Height > 0 && blk.Height%b.config.PruneIntervalBlocks == 0 {
+	if b.highestBlockHeight > b.config.UnprunedBlocks &&
+		b.highestBlockHeight-b.lastPrunedAt >= b.config.PruneIntervalBlocks {
 		b.metrics.SetMainThreadPhase("prune")
-		lowestToKeep := blk.Height - b.config.UnprunedBlocks
-		if err := b.db.Prune(b.ctx, lowestToKeep); err != nil {
+		lowestToKeep := b.highestBlockHeight - b.config.UnprunedBlocks
+		if err := b.db.PruneBefore(types.GlobalBlockNumber(lowestToKeep)); err != nil {
 			fmt.Printf("failed to prune: %v\n", err)
 			b.cancel()
 			return
 		}
+		b.lastPrunedAt = b.highestBlockHeight
 		b.metrics.ReportPrune()
+		b.metrics.RecordLowestHeight(lowestToKeep)
 	}
+}
+
+// payloadBytes returns the total size of a block's payload transactions.
+func payloadBytes(blk *types.Block) int64 {
+	var total int64
+	for _, tx := range blk.Payload().ToBuilder().Txs {
+		total += int64(len(tx))
+	}
+	return total
 }
 
 func (b *BlockSim) suspend() {
 	// Flush before suspending so state is durable.
-	if err := b.db.Flush(b.ctx); err != nil {
+	if err := b.db.Flush(); err != nil {
 		fmt.Printf("failed to flush on suspend: %v\n", err)
 	}
 
@@ -227,7 +429,7 @@ func (b *BlockSim) suspend() {
 			// Reset console metrics on resume.
 			b.totalBlocksWritten = 0
 			b.totalBytesWritten = 0
-			b.totalTransactionsWritten = 0
+			b.totalQCsWritten = 0
 			b.startTimestamp = time.Now()
 			fmt.Printf("Benchmark resumed.\n")
 			return
@@ -237,10 +439,10 @@ func (b *BlockSim) suspend() {
 
 func (b *BlockSim) teardown() {
 	fmt.Printf("Flushing and closing database.\n")
-	if err := b.db.Flush(b.ctx); err != nil {
+	if err := b.db.Flush(); err != nil {
 		fmt.Printf("failed to flush during teardown: %v\n", err)
 	}
-	if err := b.db.Close(b.ctx); err != nil {
+	if err := b.db.Close(); err != nil {
 		fmt.Printf("failed to close database: %v\n", err)
 	}
 
@@ -315,13 +517,24 @@ func (b *BlockSim) Resume() {
 	}
 }
 
-// openBlockDB creates a BlockDB for the given backend name.
-func openBlockDB(backend string, dataDir string) (block.BlockDB, error) {
-	switch backend {
+// openBlockDB creates a types.BlockDB for the configured backend.
+func openBlockDB(config *BlocksimConfig) (types.BlockDB, error) {
+	switch config.Backend {
 	case "mem":
-		return memblockdb.NewMemBlockDB(), nil
+		return memblock.NewBlockDB(), nil
+	case "litt":
+		littConfig, err := littblock.DefaultConfig(config.DataDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build litt block db config: %w", err)
+		}
+		littConfig.Retention = time.Duration(config.LittRetentionSeconds) * time.Second
+		// Record litt_* metrics into blocksim's already-configured global OTel MeterProvider (set up in
+		// main before the DB is opened). MetricsServeEndpoint stays false so LittDB does not stand up its
+		// own registry/server; the metrics surface on blocksim's single /metrics endpoint.
+		littConfig.Litt.MetricsEnabled = config.LittMetricsEnabled
+		return littblock.NewBlockDB(littConfig)
 	default:
-		return nil, fmt.Errorf("unknown BlockDB backend: %q", backend)
+		return nil, fmt.Errorf("unknown block store backend: %q", config.Backend)
 	}
 }
 

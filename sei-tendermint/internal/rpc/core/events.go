@@ -149,8 +149,9 @@ func (env *Environment) UnsubscribeAll(ctx context.Context) (*coretypes.ResultUn
 // of maxItems and waitTime may be capped to sensible internal maxima without
 // reporting an error to the caller.
 func (env *Environment) Events(ctx context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
-	if env.EventLog == nil {
-		return nil, errors.New("the event log is not enabled")
+	eventLog, err := env.requireEventLog()
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse and validate parameters.
@@ -190,7 +191,6 @@ func (env *Environment) Events(ctx context.Context, req *coretypes.RequestEvents
 
 	var info eventlog.Info
 	var items []*eventlog.Item
-	var err error
 	accept := func(itm *eventlog.Item) error {
 		// N.B. We accept up to one item more than requested, so we can tell how
 		// to set the "more" flag in the response.
@@ -211,7 +211,7 @@ func (env *Environment) Events(ctx context.Context, req *coretypes.RequestEvents
 		// and we want to keep waiting until we have relevant results (or time out).
 		cur := after
 		for len(items) == 0 {
-			info, err = env.EventLog.WaitScan(ctx, cur, accept)
+			info, err = eventLog.WaitScan(ctx, cur, accept)
 			if err != nil {
 				// Don't report a timeout as a request failure.
 				if errors.Is(err, context.DeadlineExceeded) {
@@ -223,7 +223,7 @@ func (env *Environment) Events(ctx context.Context, req *coretypes.RequestEvents
 		}
 	} else {
 		// Quick poll, return only what is already available.
-		info, err = env.EventLog.Scan(accept)
+		info, err = eventLog.Scan(accept)
 	}
 	if err != nil {
 		return nil, err

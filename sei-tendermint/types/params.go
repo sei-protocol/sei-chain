@@ -1,6 +1,7 @@
 package types
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	tmstrings "github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -56,6 +58,22 @@ type BlockParams struct {
 	MaxGas        int64 `json:"max_gas,string"`
 	MinTxsInBlock int64 `json:"min_txs_in_block,string"` // deprecated
 	MaxGasWanted  int64 `json:"max_gas_wanted,string"`
+}
+
+func (bp *BlockParams) MaxGasWantedUint64() uint64 {
+	if bp.MaxGasWanted < 0 {
+		// -1 is interpreted as infinity
+		return utils.Max[uint64]()
+	}
+	return uint64(bp.MaxGasWanted)
+}
+
+func (bp *BlockParams) MaxGasUint64() uint64 {
+	if bp.MaxGas < 0 {
+		// -1 is interpreted as infinity
+		return utils.Max[uint64]()
+	}
+	return uint64(bp.MaxGas)
 }
 
 // EvidenceParams determine how we handle evidence of malfeasance.
@@ -194,29 +212,16 @@ func DefaultABCIParams() ABCIParams {
 	}
 }
 
-// TimeoutParamsOrDefaults returns the SynchronyParams, filling in any zero values
-// with the Tendermint defined default values.
-func (t TimeoutParams) TimeoutParamsOrDefaults() TimeoutParams {
-	// TODO: Remove this method and all uses once development on v0.37 begins.
-	// See: https://github.com/tendermint/tendermint/issues/8187
-
-	defaults := DefaultTimeoutParams()
-	if t.Propose == 0 {
-		t.Propose = defaults.Propose
+// replaces zeros in t with values in defaults.
+func (t TimeoutParams) Or(defaults TimeoutParams) TimeoutParams {
+	return TimeoutParams{
+		Propose:             cmp.Or(t.Propose, defaults.Propose),
+		ProposeDelta:        cmp.Or(t.ProposeDelta, defaults.ProposeDelta),
+		Vote:                cmp.Or(t.Vote, defaults.Vote),
+		VoteDelta:           cmp.Or(t.VoteDelta, defaults.VoteDelta),
+		Commit:              cmp.Or(t.Commit, defaults.Commit),
+		BypassCommitTimeout: cmp.Or(t.BypassCommitTimeout, defaults.BypassCommitTimeout),
 	}
-	if t.ProposeDelta == 0 {
-		t.ProposeDelta = defaults.ProposeDelta
-	}
-	if t.Vote == 0 {
-		t.Vote = defaults.Vote
-	}
-	if t.VoteDelta == 0 {
-		t.VoteDelta = defaults.VoteDelta
-	}
-	if t.Commit == 0 {
-		t.Commit = defaults.Commit
-	}
-	return t
 }
 
 // ProposeTimeout returns the amount of time to wait for a proposal.

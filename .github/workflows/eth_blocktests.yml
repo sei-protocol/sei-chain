@@ -14,6 +14,10 @@ on:
       - main
       - release/**
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 defaults:
  run:
   shell: bash
@@ -45,7 +49,8 @@ jobs:
         # generate runner index array from 0 to total-runners
         runner-index: ${{fromJson(needs.runner-indexes.outputs.json)}}
     steps:
-      - uses: actions/checkout@v2
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
       - name: Set up Go
         uses: actions/setup-go@v6

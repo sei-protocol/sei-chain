@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 )
@@ -90,4 +91,26 @@ func TestGuardHistoricalDebugTraceHeight(t *testing.T) {
 	err = api.guardHistoricalDebugTraceHeight(context.Background(), "debug_traceBlockByNumber", 9)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "block number 9 is beyond max lookback of 0")
+}
+
+func TestGuardHistoricalDebugTraceByHashUsesTendermintHeight(t *testing.T) {
+	latestHeight := int64(10)
+	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
+	tmClient := newHeightTestClient(8, 1, latestHeight)
+	api := &DebugAPI{
+		tmClient:         tmClient,
+		ctxProvider:      func(int64) sdk.Context { return latestCtx },
+		connectionType:   ConnectionTypeHTTP,
+		maxBlockLookback: 1,
+		backend: &Backend{
+			watermarks: NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, nil),
+		},
+	}
+
+	err := api.guardHistoricalDebugTraceByHash(context.Background(), "debug_traceBlockByHash", common.HexToHash(highBlockHashHex))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "block number 8 is beyond max lookback of 1")
+
+	err = api.guardHistoricalDebugTraceByHash(context.Background(), "debug_traceCall", common.HexToHash("0x1"))
+	require.NoError(t, err)
 }

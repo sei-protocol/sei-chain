@@ -6,13 +6,12 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	db "github.com/tendermint/tm-db"
 )
 
 // Route binds a set of module/store names to the database accessors
-// (reader, writer, and optionally iterator and proof builders) that
+// (reader, writer, and optionally proof builders) that
 // should be used to access them. A ModuleRouter dispatches reads,
-// writes, iteration and proof requests to the matching Route.
+// writes, and proof requests to the matching Route.
 type Route struct {
 	// The module names to route to this destination. Guaranteed to
 	// contain no duplicates by NewRoute.
@@ -21,10 +20,16 @@ type Route struct {
 	reader DBReader
 	// For writing values to the database.
 	writer DBWriter
-	// For getting an iterator over a range of keys in a store. If nil, the route does not support iteration.
-	iteratorBuilder DBIteratorBuilder
 	// For building a proof of the value for a key in a store. If nil, the route does not support proofs.
 	proofBuilder DBProofBuilder
+	// owner is the Router whose accessors back this route, if any. It lets
+	// a ModuleRouter propagate control signals (today:
+	// SetMigrationBatchSize) to the underlying router — chiefly a
+	// MigrationManager whose Read/ApplyChangeSets/GetProof are otherwise
+	// only reachable through the closures above. Leaf routes that point
+	// straight at a single backend (routeToMemIAVL / routeToFlatKV) leave
+	// it nil, so those signals are skipped for them.
+	owner Router
 }
 
 // NewRoute creates a new Route.
@@ -37,8 +42,6 @@ func NewRoute(
 	reader DBReader,
 	// For writing values to the database.
 	writer DBWriter,
-	// For getting an iterator over a range of keys in a store. If nil, the route does not support iteration.
-	iteratorBuilder DBIteratorBuilder,
 	// For building a proof of the value for a key in a store. If nil, the route does not support proofs.
 	proofBuilder DBProofBuilder,
 	// The module names to route to this destination. Must not contain
@@ -62,11 +65,10 @@ func NewRoute(
 	// be able to mutate our internal state after construction.
 	owned := append([]string(nil), modules...)
 	return &Route{
-		modules:         owned,
-		reader:          reader,
-		writer:          writer,
-		iteratorBuilder: iteratorBuilder,
-		proofBuilder:    proofBuilder,
+		modules:      owned,
+		reader:       reader,
+		writer:       writer,
+		proofBuilder: proofBuilder,
 	}, nil
 }
 
@@ -174,13 +176,20 @@ func (m *ModuleRouter) GetProof(store string, key []byte) (*ics23.CommitmentProo
 	return r.proofBuilder(store, key)
 }
 
-func (m *ModuleRouter) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
-	r, ok := m.moduleToRoute[store]
-	if !ok {
-		return nil, fmt.Errorf("module %q is not registered with any Route", store)
+// SetMigrationBatchSize forwards the new batch size to every route that
+// has an owning Router (e.g. a MigrationManager). Routes that point
+// directly at a single backend have no owner and are skipped. A given
+// owner is signalled at most once even if it backs multiple routes.
+func (m *ModuleRouter) SetMigrationBatchSize(batchSize int) {
+	signalled := make(map[Router]struct{}, len(m.routes))
+	for _, r := range m.routes {
+		if r.owner == nil {
+			continue
+		}
+		if _, done := signalled[r.owner]; done {
+			continue
+		}
+		signalled[r.owner] = struct{}{}
+		r.owner.SetMigrationBatchSize(batchSize)
 	}
-	if r.iteratorBuilder == nil {
-		return nil, fmt.Errorf("iterator builder not supported for store %q", store)
-	}
-	return r.iteratorBuilder(store, start, end, ascending)
 }

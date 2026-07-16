@@ -172,6 +172,10 @@ func (p PrecompileExecutor) ExtractAsUint256(_ sdk.Context, _ *abi.Method, args 
 	// Convert byte slice to string and trim quotation marks
 	strValue := strings.Trim(string(result), "\"")
 
+	if len(strValue) > 100 {
+		return nil, fmt.Errorf("value string too long: got %d, max 100", len(strValue))
+	}
+
 	// Convert the string to big.Int
 	value, success := new(big.Int).SetString(strValue, 10)
 	if !success {

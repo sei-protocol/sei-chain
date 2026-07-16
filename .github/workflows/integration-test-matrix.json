@@ -1,0 +1,251 @@
+[
+  {
+    "name": "Wasm Module",
+    "scripts": [
+      "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestWasmModuleCore",
+      "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestWasmModuleEmergencyWithdraw"
+    ]
+  },
+  {
+    "name": "Mint & Staking & Bank Module",
+    "scripts": [
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestMintModule|TestStakingModule|TestBankModule\""
+    ]
+  },
+  {
+    "name": "Autobahn Mint & Staking & Bank Module",
+    "merge_only": true,
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+    "scripts": [
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestMintModule|TestStakingModule|TestAutobahnBankModule\""
+    ]
+  },
+  {
+    "name": "Gov & Oracle & Authz Module",
+    "scripts": [
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule|TestAuthzModule\""
+    ]
+  },
+  {
+    "name": "Autobahn Gov & Oracle & Authz Module",
+    "merge_only": true,
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+    "scripts": [
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule|TestAuthzModule\""
+    ]
+  },
+  {
+    "name": "Chain Operation Test",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
+      "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
+      "until [[ $(docker exec sei-rpc-node build/seid status |jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done",
+      "echo rpc node started",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestChainOperation|TestStateSync\"",
+      "./integration_test/contracts/verify_statesync_flatkv_digest.sh",
+      "./integration_test/contracts/verify_cross_validator_flatkv_digest.sh"
+    ]
+  },
+  {
+    "name": "Distribution Module",
+    "scripts": [
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestDistributionModule"
+    ]
+  },
+  {
+    "name": "Upgrade Module (Major)",
+    "env": "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+    "scripts": [
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMajor"
+    ]
+  },
+  {
+    "name": "Autobahn Upgrade Module (Major)",
+    "merge_only": true,
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+    "scripts": [
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMajor"
+    ]
+  },
+  {
+    "name": "Upgrade Module (Minor)",
+    "env": "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+    "scripts": [
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMinor"
+    ]
+  },
+  {
+    "name": "Autobahn Upgrade Module (Minor)",
+    "merge_only": true,
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+    "scripts": [
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMinor"
+    ]
+  },
+  {
+    "name": "SeiDB State Store",
+    "scripts": [
+      "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
+      "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBStateStore"
+    ]
+  },
+  {
+    "name": "Autobahn SeiDB State Store",
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+    "scripts": [
+      "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
+      "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBStateStore"
+    ]
+  },
+  {
+    "_comment": "Umbrella job for all FlatKV-specific docker-level coverage. Future FlatKV scenarios (additional bucket layouts, snapshot rotation, etc.) should be appended here rather than added as new matrix rows, so the CI surface stays one row per concern. The cluster boots with GIGA_STORAGE=true, so FlatKV is enabled from genesis (sc-write-mode = test_only_dual_write) and the FlatKV LtHash is folded into every block's AppHash from block 1. No mid-life migration is exercised here; an offline memiavl -> FlatKV import would change the AppHash trajectory at the import boundary and break tendermint replay. Step ordering: 1-3 deploy an EVM fixture, smoke-check EVM RPC reads, and verify the fixture round-tripped through dual_write into physical FlatKV; 4 SIGKILL one validator, restart, and assert 4-node FlatKV digest equality (WAL recovery on a live FlatKV cluster); 5-7 destructive disaster-recovery scenarios, run last because they wipe or damage one validator's local state.",
+    "name": "FlatKV Integration",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
+      "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV",
+      "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
+      "./integration_test/contracts/verify_flatkv_crash_recovery.sh",
+      "./integration_test/contracts/verify_flatkv_statesync_crash_recovery.sh",
+      "./integration_test/contracts/verify_flatkv_total_loss_recovery.sh",
+      "./integration_test/contracts/verify_flatkv_partial_loss_fails_loudly.sh"
+    ]
+  },
+  {
+    "_comment": "Post-migration FlatKV-only state-sync coverage. The cluster boots directly in sc-write-mode = flatkv_only, so memiavl is not allocated and all module state is served from FlatKV. The script kills and wipes one validator, configures it for state-sync from the remaining validators, and verifies the recovered FlatKV digest matches the donors at a shared height.",
+    "name": "FlatKV Only State Sync",
+    "env": "GIGA_FLATKV_ONLY=true",
+    "scripts": [
+      "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+      "./integration_test/contracts/verify_flatkv_only_statesync.sh"
+    ]
+  },
+  {
+    "name": "EVM Module (Compat)",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_compat_tests.sh"
+    ]
+  },
+  {
+    "name": "EVM Module (Precompile & Endpoints)",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
+      "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV",
+      "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh"
+    ]
+  },
+  {
+    "name": "Autobahn EVM Module (Compat)",
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_compat_tests.sh"
+    ]
+  },
+  {
+    "name": "Autobahn EVM Module (Precompile & Endpoints)",
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
+      "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV",
+      "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh"
+    ]
+  },
+  {
+    "name": "EVM Interoperability (Pointer Tests)",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_interoperability_pointer_tests.sh"
+    ]
+  },
+  {
+    "name": "EVM Interoperability (Misc Tests)",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_interoperability_misc_tests.sh"
+    ]
+  },
+  {
+    "name": "Autobahn EVM Interoperability (Pointer Tests)",
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_interoperability_pointer_tests.sh"
+    ]
+  },
+  {
+    "name": "Autobahn EVM Interoperability (Misc Tests)",
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_interoperability_misc_tests.sh"
+    ]
+  },
+  {
+    "name": "Disable WASM Tests",
+    "scripts": [
+      "./integration_test/evm_module/scripts/disable_wasm.sh"
+    ]
+  },
+  {
+    "name": "dApp Tests (Uniswap)",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
+      "./integration_test/dapp_tests/dapp_uniswap_tests.sh"
+    ]
+  },
+  {
+    "name": "dApp Tests (NFT & Steak)",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
+      "./integration_test/dapp_tests/dapp_nft_steak_tests.sh"
+    ]
+  },
+  {
+    "name": "EVM GIGA Module",
+    "env": "GIGA_STORAGE=true GIGA_EXECUTOR=true GIGA_OCC=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_giga_tests.sh"
+    ]
+  },
+  {
+    "name": "Autobahn EVM GIGA Module",
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_giga_tests.sh"
+    ]
+  },
+  {
+    "name": "EVM GIGA Mixed (Determinism)",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_giga_mixed_tests.sh"
+    ]
+  },
+  {
+    "name": "EVM RPC .io/.iox (spec fixtures)",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
+    ]
+  },
+  {
+    "name": "Autobahn RPC .io/.iox (spec fixtures)",
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_OCC=false GIGA_STORAGE=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
+    ]
+  },
+  {
+    "name": "EVM RPC Parity (geth reference)",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
+      "./integration_test/rpc_tests/scripts/run-ci.sh"
+    ]
+  }
+]

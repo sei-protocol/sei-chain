@@ -29,7 +29,9 @@ type opts struct {
 	denyList                     interface{}
 	maxLogNoBlock                interface{}
 	maxBlocksForLog              interface{}
+	maxEstimateGasCalls          interface{}
 	maxSubscriptionsNewHead      interface{}
+	maxSubscriptionsLogs         interface{}
 	enableTestAPI                interface{}
 	maxConcurrentTraceCalls      interface{}
 	maxConcurrentSimulationCalls interface{}
@@ -39,6 +41,16 @@ type opts struct {
 	rpcStatsInterval             interface{}
 	workerPoolSize               interface{}
 	workerQueueSize              interface{}
+	ipRateLimitRPS               interface{}
+	ipRateLimitBurst             interface{}
+	batchRequestLimit            interface{}
+	batchResponseMaxSize         interface{}
+	maxRequestBodyBytes          interface{}
+	maxConcurrentRequestBytes    interface{}
+	maxOpenConnections           interface{}
+	maxTraceStructLogBytes       interface{}
+	maxStateOverrideAccounts     interface{}
+	maxStateOverrideSlots        interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -102,8 +114,14 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_blocks_for_log" {
 		return o.maxBlocksForLog
 	}
+	if k == "evm.max_estimate_gas_calls" {
+		return o.maxEstimateGasCalls
+	}
 	if k == "evm.max_subscriptions_new_head" {
 		return o.maxSubscriptionsNewHead
+	}
+	if k == "evm.max_subscriptions_logs" {
+		return o.maxSubscriptionsLogs
 	}
 	if k == "evm.enable_test_api" {
 		return o.enableTestAPI
@@ -144,6 +162,36 @@ func (o *opts) Get(k string) interface{} {
 		k == "evm.trace_bake_snapshot_window" {
 		return nil
 	}
+	if k == "evm.ip_rate_limit_rps" {
+		return o.ipRateLimitRPS
+	}
+	if k == "evm.ip_rate_limit_burst" {
+		return o.ipRateLimitBurst
+	}
+	if k == "evm.batch_request_limit" {
+		return o.batchRequestLimit
+	}
+	if k == "evm.batch_response_max_size" {
+		return o.batchResponseMaxSize
+	}
+	if k == "evm.max_request_body_bytes" {
+		return o.maxRequestBodyBytes
+	}
+	if k == "evm.max_concurrent_request_bytes" {
+		return o.maxConcurrentRequestBytes
+	}
+	if k == "evm.max_open_connections" {
+		return o.maxOpenConnections
+	}
+	if k == "evm.max_trace_struct_log_bytes" {
+		return o.maxTraceStructLogBytes
+	}
+	if k == "evm.max_state_override_accounts" {
+		return o.maxStateOverrideAccounts
+	}
+	if k == "evm.max_state_override_slots" {
+		return o.maxStateOverrideSlots
+	}
 	panic("unknown key")
 }
 
@@ -170,7 +218,9 @@ func getDefaultOpts() opts {
 		make([]string, 0),
 		20000,
 		1000,
+		100,
 		10000,
+		1000,
 		false,
 		uint64(10),
 		uint64(10),
@@ -180,6 +230,16 @@ func getDefaultOpts() opts {
 		10 * time.Second,
 		32,
 		1000,
+		200.0,
+		400,
+		1000,
+		25 * 1000 * 1000,
+		int64(5 * 1024 * 1024),
+		int64(128 * 1024 * 1024),
+		2000,
+		uint64(256 * 1024 * 1024),
+		7,
+		9,
 	}
 }
 
@@ -188,6 +248,15 @@ func TestReadConfig(t *testing.T) {
 	cfg, err := config.ReadConfig(&goodOpts)
 	require.Nil(t, err)
 	require.False(t, cfg.EnableParallelizedBlockTrace)
+	// Round-trip: an explicitly-supplied value overrides the default.
+	require.Equal(t, uint64(256*1024*1024), cfg.MaxTraceStructLogBytes)
+	// The shipped default (used when the operator supplies no value).
+	require.Equal(t, uint64(32*1024*1024), config.DefaultConfig.MaxTraceStructLogBytes)
+	// State override caps: round-trip the supplied values, and assert shipped defaults.
+	require.Equal(t, 7, cfg.MaxStateOverrideAccounts)
+	require.Equal(t, 9, cfg.MaxStateOverrideSlots)
+	require.Equal(t, 100, config.DefaultConfig.MaxStateOverrideAccounts)
+	require.Equal(t, 1000, config.DefaultConfig.MaxStateOverrideSlots)
 	badOpts := goodOpts
 	badOpts.httpEnabled = "bad"
 	_, err = config.ReadConfig(&badOpts)
@@ -284,6 +353,21 @@ func TestReadConfig(t *testing.T) {
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
+	badOpts = goodOpts
+	badOpts.maxTraceStructLogBytes = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.maxStateOverrideAccounts = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.maxStateOverrideSlots = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
 	// Test bad types for worker pool config
 	badOpts = goodOpts
 	badOpts.workerPoolSize = "bad"
@@ -294,6 +378,29 @@ func TestReadConfig(t *testing.T) {
 	badOpts.workerQueueSize = "bad"
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
+
+	// Test bad types for rate limit config
+	badOpts = goodOpts
+	badOpts.ipRateLimitRPS = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.ipRateLimitBurst = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	// Test bad types for batch limit config
+	badOpts = goodOpts
+	badOpts.batchRequestLimit = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.batchResponseMaxSize = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
 }
 
 // Test worker pool configuration values
@@ -353,6 +460,64 @@ func TestReadConfigWorkerPool(t *testing.T) {
 	}
 }
 
+func TestReadConfigBatchLimits(t *testing.T) {
+	// Defaults flow through when not overridden.
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, config.DefaultConfig.BatchRequestLimit, cfg.BatchRequestLimit)
+	require.Equal(t, config.DefaultConfig.BatchResponseMaxSize, cfg.BatchResponseMaxSize)
+
+	// Custom values (including 0 to disable) flow through.
+	o := getDefaultOpts()
+	o.batchRequestLimit = 50
+	o.batchResponseMaxSize = 0
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Equal(t, 50, cfg.BatchRequestLimit)
+	require.Equal(t, 0, cfg.BatchResponseMaxSize)
+}
+
+func TestReadConfigRequestSizeLimits(t *testing.T) {
+	// Defaults flow through when not overridden.
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, config.DefaultConfig.MaxRequestBodyBytes, cfg.MaxRequestBodyBytes)
+	require.Equal(t, config.DefaultConfig.MaxConcurrentRequestBytes, cfg.MaxConcurrentRequestBytes)
+
+	// Custom values (including 0 to use default / disable) flow through.
+	o := getDefaultOpts()
+	o.maxRequestBodyBytes = int64(1024)
+	o.maxConcurrentRequestBytes = int64(0)
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Equal(t, int64(1024), cfg.MaxRequestBodyBytes)
+	require.Equal(t, int64(0), cfg.MaxConcurrentRequestBytes)
+}
+
+func TestReadConfigMaxOpenConnections(t *testing.T) {
+	// Default flows through when not overridden.
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, config.DefaultConfig.MaxOpenConnections, cfg.MaxOpenConnections)
+
+	// Custom value (including 0 to disable) flows through.
+	o := getDefaultOpts()
+	o.maxOpenConnections = 0
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Equal(t, 0, cfg.MaxOpenConnections)
+
+	o.maxOpenConnections = 500
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Equal(t, 500, cfg.MaxOpenConnections)
+
+	// A negative value is rejected rather than silently disabling the limit.
+	o.maxOpenConnections = -1
+	_, err = config.ReadConfig(&o)
+	require.Error(t, err)
+}
+
 func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {
 	opts := getDefaultOpts()
 	opts.enableParallelizedBlockTrace = true
@@ -360,4 +525,17 @@ func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {
 	cfg, err := config.ReadConfig(&opts)
 	require.NoError(t, err)
 	require.True(t, cfg.EnableParallelizedBlockTrace)
+}
+
+func TestReadConfigMaxSubscriptionsLogs(t *testing.T) {
+	opts := getDefaultOpts()
+	opts.maxSubscriptionsLogs = uint64(42)
+	cfg, err := config.ReadConfig(&opts)
+	require.NoError(t, err)
+	require.Equal(t, uint64(42), cfg.MaxSubscriptionsLogs)
+
+	// A non-numeric value is rejected.
+	opts.maxSubscriptionsLogs = "bad"
+	_, err = config.ReadConfig(&opts)
+	require.Error(t, err)
 }

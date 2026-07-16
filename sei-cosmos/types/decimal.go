@@ -126,10 +126,16 @@ func NewDecFromInt(i Int) Dec {
 
 // NewDecFromIntWithPrec creates a new Dec from Int with decimal place at prec.
 // CONTRACT: prec <= Precision
+//
+// Scaling by 10^Precision can take a max-magnitude Int (bitLen 256) beyond
+// maxDecBitLen (315), so the result is range-checked to keep the conversion
+// within the canonical Dec range.
 func NewDecFromIntWithPrec(i Int, prec int64) Dec {
-	return Dec{
+	result := Dec{
 		new(big.Int).Mul(i.BigInt(), precisionMultiplier(prec)),
 	}
+	result.assertInValidRange()
+	return result
 }
 
 // create a decimal from an input decimal string.
@@ -149,6 +155,9 @@ func NewDecFromIntWithPrec(i Int, prec int64) Dec {
 //
 // CONTRACT - This function does not mutate the input str.
 func NewDecFromStr(str string) (Dec, error) {
+	if len(str) > 100 {
+		return Dec{}, fmt.Errorf("decimal string too long: got %d, max 100", len(str))
+	}
 	if len(str) == 0 {
 		return Dec{}, fmt.Errorf("%s: %w", str, ErrEmptyDecimalStr)
 	}
@@ -703,6 +712,11 @@ func (d Dec) MarshalYAML() (interface{}, error) {
 func (d Dec) Marshal() ([]byte, error) {
 	if d.i == nil {
 		d.i = new(big.Int)
+	}
+	// Enforce the canonical range on encode so Marshal and Unmarshal accept the
+	// same set of values.
+	if !d.IsInValidRange() {
+		return nil, fmt.Errorf("decimal out of range; bitLen: got %d, max %d", d.i.BitLen(), maxDecBitLen)
 	}
 	return d.i.MarshalText()
 }

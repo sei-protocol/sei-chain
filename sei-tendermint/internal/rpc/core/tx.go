@@ -67,21 +67,28 @@ func (env *Environment) TxSearch(ctx context.Context, req *coretypes.RequestTxSe
 
 	for _, sink := range env.EventSinks {
 		if sink.Type() == indexer.KV {
-			results, err := sink.SearchTxEvents(ctx, q)
+			// TODO(PLT-748): the kv tx indexer currently ignores these opts and
+			// the cap below still applies after sort (PLT-700). Once the tx
+			// scan path is bounded like the block indexer, this pushes the cap
+			// and ordering down to the scan.
+			results, err := sink.SearchTxEvents(ctx, q, indexer.SearchOptions{
+				Limit:     env.Config.MaxTxSearchResults,
+				OrderDesc: req.OrderBy != AscendingOrder,
+			})
 			if err != nil {
 				return nil, err
 			}
 
-			// sort results (must be done before pagination)
+			// sort results (must be done before cap and pagination)
 			switch req.OrderBy {
-			case "desc", "":
+			case DescendingOrder, "":
 				sort.Slice(results, func(i, j int) bool {
 					if results[i].Height == results[j].Height {
 						return results[i].Index > results[j].Index
 					}
 					return results[i].Height > results[j].Height
 				})
-			case "asc":
+			case AscendingOrder:
 				sort.Slice(results, func(i, j int) bool {
 					if results[i].Height == results[j].Height {
 						return results[i].Index < results[j].Index
@@ -90,6 +97,10 @@ func (env *Environment) TxSearch(ctx context.Context, req *coretypes.RequestTxSe
 				})
 			default:
 				return nil, fmt.Errorf("expected order_by to be either `asc` or `desc` or empty: %w", coretypes.ErrInvalidRequest)
+			}
+
+			if max := env.Config.MaxTxSearchResults; max > 0 && len(results) > max {
+				results = results[:max]
 			}
 
 			// paginate results

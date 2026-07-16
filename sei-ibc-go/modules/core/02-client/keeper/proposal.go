@@ -5,6 +5,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
@@ -58,6 +60,12 @@ func (k Keeper) ClientUpdateProposal(ctx sdk.Context, p *types.ClientUpdatePropo
 	logger.Info("client updated after governance proposal passed", "client-id", p.SubjectClientId, "height", clientState.GetLatestHeight().String())
 
 	defer func() {
+		ibcClientMetrics.ibcClientUpdate.Add(ctx.Context(), 1, otelmetric.WithAttributes(
+			attribute.String(types.LabelClientType, clientState.ClientType()),
+			attribute.String(types.LabelClientID, p.SubjectClientId),
+			attribute.String(types.LabelUpdateType, "proposal"),
+		))
+		// TODO(PLT-428): remove once ibc_client_update verified
 		telemetry.IncrCounterWithLabels(
 			[]string{"ibc", "client", "update"},
 			1,

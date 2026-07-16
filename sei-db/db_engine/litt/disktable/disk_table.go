@@ -24,8 +24,6 @@ var _ litt.ManagedTable = (*DiskTable)(nil)
 // keymapReloadBatchSize is the size of the batch used for reloading keys from segments into the keymap.
 const keymapReloadBatchSize = 1024
 
-const tableFlushChannelCapacity = 8
-
 // DiskTable manages a table's Segments.
 type DiskTable struct {
 	// The logger for the disk table.
@@ -46,8 +44,9 @@ type DiskTable struct {
 	// The table's name.
 	name string
 
-	// The table's metadata.
-	metadata *tableMetadata
+	// The table's sharding factor, supplied at creation time and held only in memory (not persisted across
+	// restarts). Accessed/modified by concurrent goroutines (the control loop and read sites).
+	shardingFactor atomic.Uint32
 
 	// A map of keys to their addresses.
 	keymap keymap.Keymap
@@ -75,8 +74,16 @@ type DiskTable struct {
 	// The control loop is a goroutine responsible for scheduling operations that mutate the table.
 	controlLoop *controlLoop
 
+	// The GC manager is a goroutine that performs garbage collection: it schedules keymap deletes for expired
+	// segments and durably advances the gc-watermark. The control loop later reclaims the collected files.
+	gcManager *gcManager
+
 	// The flush loop is a goroutine responsible for blocking on flush operations.
 	flushLoop *flushLoop
+
+	// The keymap manager is a goroutine responsible for asynchronously applying keymap mutations: puts (once
+	// segment data is crash durable) and deletes (during garbage collection).
+	keymapManager *keymapManager
 
 	// Encapsulates metrics for the database.
 	metrics *metrics.LittDBMetrics
@@ -97,7 +104,9 @@ type DiskTable struct {
 // NewDiskTable creates a new DiskTable.
 func NewDiskTable(
 	config *litt.Config,
+	runtimeConfig *litt.RuntimeConfig,
 	name string,
+	tableConfig litt.TableConfig,
 	keymap keymap.Keymap,
 	keymapPath string,
 	keymapTypeFile *keymap.KeymapTypeFile,
@@ -134,60 +143,24 @@ func NewDiskTable(
 		}
 	}
 
-	var metadataFilePath string
-	var metadata *tableMetadata
-
-	// Find the table metadata file or create a new one.
-	for _, root := range qualifiedRoots {
-		possibleMetadataPath := metadataPath(root)
-		exists, err := util.Exists(possibleMetadataPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check if metadata file exists: %w", err)
-		}
-		if exists {
-			if metadataFilePath != "" {
-				return nil, fmt.Errorf("multiple metadata files found: %s and %s",
-					metadataFilePath, possibleMetadataPath)
-			}
-
-			// We've found an existing metadata file. Use it.
-			metadataFilePath = possibleMetadataPath
-		}
-	}
-	if metadataFilePath == "" {
-		// No metadata file exists yet. Create a new one in the first root.
-		var err error
-		metadataDir := qualifiedRoots[0]
-		metadata, err = newTableMetadata(config.Logger, metadataDir, config.TTL, config.ShardingFactor, config.Fsync)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create table metadata: %w", err)
-		}
-	} else {
-		// Metadata file exists, so we need to load it.
-		var err error
-		metadataDir := path.Dir(metadataFilePath)
-		metadata, err = loadTableMetadata(config.Logger, metadataDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load table metadata: %w", err)
-		}
-	}
-
-	errorMonitor := util.NewErrorMonitor(config.CTX, config.Logger, config.FatalErrorCallback)
+	errorMonitor := util.NewErrorMonitor(runtimeConfig.CTX, runtimeConfig.Logger, runtimeConfig.FatalErrorCallback)
 
 	table := &DiskTable{
-		logger:         config.Logger,
+		logger:         runtimeConfig.Logger,
 		errorMonitor:   errorMonitor,
-		clock:          config.Clock,
+		clock:          runtimeConfig.Clock,
 		roots:          qualifiedRoots,
 		segmentPaths:   segmentPaths,
 		name:           name,
-		metadata:       metadata,
 		keymap:         keymap,
 		keymapPath:     keymapPath,
 		keymapTypeFile: keymapTypeFile,
 		metrics:        metrics,
 		fsync:          config.Fsync,
 	}
+	// Sharding factor is supplied at creation time and held only in memory; it is not persisted across restarts.
+	// (TTL is likewise in-memory, but it lives on the GC manager — its only consumer — and is seeded there.)
+	table.setShardingFactor(tableConfig.ShardingFactor)
 	table.flushCoordinator = newFlushCoordinator(errorMonitor, table.flushInternal, config.MinimumFlushInterval)
 
 	snapshottingEnabled := config.SnapshotDirectory != ""
@@ -195,11 +168,11 @@ func NewDiskTable(
 	// Load segments.
 	lowestSegmentIndex, highestSegmentIndex, segments, err :=
 		segment.GatherSegmentFiles(
-			config.Logger,
+			runtimeConfig.Logger,
 			errorMonitor,
 			table.segmentPaths,
 			snapshottingEnabled,
-			config.Clock(),
+			runtimeConfig.Clock(),
 			true,
 			config.Fsync)
 	if err != nil {
@@ -227,13 +200,14 @@ func NewDiskTable(
 		nextSegmentIndex = highestSegmentIndex + 1
 	}
 	mutableSegment, err := segment.CreateSegment(
-		config.Logger,
+		runtimeConfig.Logger,
 		errorMonitor,
 		nextSegmentIndex,
 		segmentPaths,
 		snapshottingEnabled,
-		metadata.GetShardingFactor(),
-		config.Fsync)
+		table.getShardingFactor(),
+		config.Fsync,
+		config.ShardControlChannelSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mutable segment: %w", err)
 	}
@@ -243,12 +217,66 @@ func NewDiskTable(
 	}
 	segments[nextSegmentIndex] = mutableSegment
 
+	// Load the durable GC watermark (lowest readable segment). It lives at the table root so it survives a
+	// keymap rebuild. Reconcile against the lowest segment actually present on disk: a value at or below it
+	// means those segments were already physically deleted (clamp up to the lowest present); a value above it
+	// means GC durably deleted some segments' keymap entries but crashed before their files were removed, so
+	// segments [lowestSegmentIndex, lowestReadableSegment) are still on disk but logically deleted (the control
+	// loop will reclaim their files, and repair/reload will not resurrect them).
+	var gcWatermarkFile *GCWatermarkFile
+	for _, root := range qualifiedRoots {
+		f, err := LoadGCWatermarkFile(root)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load gc-watermark file from %s: %w", root, err)
+		}
+		if f.IsDefined() {
+			gcWatermarkFile = f
+			break
+		}
+		if gcWatermarkFile == nil {
+			gcWatermarkFile = f
+		}
+	}
+	lowestReadableSegment := lowestSegmentIndex
+	if gcWatermarkFile.IsDefined() && gcWatermarkFile.LowestReadableSegment() > lowestReadableSegment {
+		lowestReadableSegment = gcWatermarkFile.LowestReadableSegment()
+	}
+
+	// The gc-watermark must never point above the highest segment on disk. Reclamation removes a contiguous
+	// prefix, so the surviving segments [lowestSegmentIndex, highestSegmentIndex] are contiguous and all present
+	// in the map, and the mutable segment at highestSegmentIndex is never collected — so a readable floor at or
+	// below highestSegmentIndex always lands on a segment that exists. A value above it means the durable
+	// gc-watermark file is inconsistent with the segment files on disk (corruption or an external edit); refuse to
+	// start rather than nil-dereference a missing segment during keymap repair/purge or boundary-key reads.
+	if lowestReadableSegment > highestSegmentIndex {
+		return nil, fmt.Errorf(
+			"gc-watermark (lowest readable segment %d) exceeds highest segment %d on disk; "+
+				"the gc-watermark file is inconsistent with the segment files",
+			lowestReadableSegment, highestSegmentIndex)
+	}
+
 	if reloadKeymap {
-		config.Logger.Info("reloading keymap from segments")
-		err = table.reloadKeymap(segments, lowestSegmentIndex, highestSegmentIndex)
+		runtimeConfig.Logger.Info("reloading keymap from segments")
+		err = table.reloadKeymap(segments, lowestReadableSegment, highestSegmentIndex)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load keymap from segments: %w", err)
 		}
+	} else {
+		err = table.repairKeymap(segments, lowestReadableSegment, highestSegmentIndex)
+		if err != nil {
+			return nil, fmt.Errorf("failed to repair keymap: %w", err)
+		}
+	}
+
+	// Purge keymap entries for segments GC logically deleted (the durable gc-watermark was advanced past them)
+	// but whose asynchronous keymap deletes may have been lost in a crash. repair/reload never delete, so
+	// without this a lost delete would leave entries pointing at segments [lowestSegmentIndex,
+	// lowestReadableSegment) that the control loop is about to reclaim, resurrecting collected keys. Doing it
+	// here, synchronously and before any goroutine can reclaim files, restores keymap-delete-before-file-delete
+	// ordering across a crash.
+	err = table.purgeCollectedKeymapEntries(segments, lowestSegmentIndex, lowestReadableSegment)
+	if err != nil {
+		return nil, fmt.Errorf("failed to purge collected keymap entries: %w", err)
 	}
 
 	var upperBoundSnapshotFile *BoundaryFile
@@ -256,7 +284,7 @@ func NewDiskTable(
 		// Initialize snapshot files if snapshotting is enabled.
 		upperBoundSnapshotFile, err = table.repairSnapshot(
 			config.SnapshotDirectory,
-			lowestSegmentIndex,
+			lowestReadableSegment,
 			highestSegmentIndex,
 			segments)
 		if err != nil {
@@ -264,27 +292,69 @@ func NewDiskTable(
 		}
 	}
 
-	// Start the flush loop.
+	// Start the keymap manager. The flush loop schedules keymap puts onto it once segment data is durable, and
+	// the GC manager schedules keymap deletes onto it during collection. At startup every segment below
+	// lowestReadableSegment is logically deleted (its keymap entries are durably gone), so both the deletion
+	// watermark (which gates the control loop's file deletion) and the GC manager's "scheduled for deletion"
+	// cursor start just below the lowest readable segment. Seeding the watermark this way makes the control
+	// loop's first file-deletion pass reclaim any files in [lowestSegmentIndex, lowestReadableSegment) left
+	// behind by a crash after the keymap entries were deleted but before the files were removed. The manager
+	// reports subsequent deletion-watermark advances by calling controlLoop.publishDeletionWatermark.
+	initialDeletionWatermark := int64(lowestReadableSegment) - 1
+
+	// The control loop hands each segment to the GC manager (via gcManager.registerImmutableSegment) as it is
+	// sealed; the GC manager keeps its own local view of sealed segments rather than reading the control loop's
+	// map. Seed that view with the sealed segments already on disk: [lowestReadableSegment, highestSegmentIndex).
+	// The range is contiguous and fully present (see above), excludes the mutable highest segment, and excludes
+	// the already-collected [lowestSegmentIndex, lowestReadableSegment) prefix the control loop reclaims first.
+	// Reserve each seeded segment so its files survive while it sits in the GC manager's local view (where
+	// collectExpiredSegments may read its keys). The GC manager releases the reservation once it is done with the
+	// segment, mirroring registerImmutableSegment for segments sealed later. This runs synchronously before any
+	// goroutine starts and each segment has a reservation count of exactly 1, so Reserve always succeeds.
+	initialSealedSegments := make(map[uint32]*segment.Segment)
+	for i := lowestReadableSegment; i < highestSegmentIndex; i++ {
+		if !segments[i].Reserve() {
+			return nil, fmt.Errorf("failed to reserve sealed segment %d for gc manager seeding", i)
+		}
+		initialSealedSegments[i] = segments[i]
+	}
+
+	// Build the goroutines' structs first, then wire their cross-references, then start them. The keymap manager
+	// writes to the control-loop-owned deletion-watermark channel via controlLoop.publishDeletionWatermark, so
+	// kManager.controlLoop must be set before kManager.run() starts (established below, before the go statements).
+	kManager := newKeymapManager(
+		errorMonitor,
+		keymap,
+		&table.unflushedDataCache,
+		metrics,
+		runtimeConfig.Clock,
+		name,
+		config.KeymapManagerChannelSize,
+		config.KeymapManagerMaxBatchSize,
+		config.KeymapManagerMaxBatchBytes,
+		config.GCBatchSize,
+		config.KeymapManagerMaxInterval,
+		config.KeymapManagerMaxBufferedDeletes,
+	)
+	table.keymapManager = kManager
+
 	fLoop := &flushLoop{
-		logger:                 config.Logger,
-		diskTable:              table,
+		logger:                 runtimeConfig.Logger,
+		keymapManager:          kManager,
 		errorMonitor:           errorMonitor,
-		flushChannel:           make(chan any, tableFlushChannelCapacity),
+		flushChannel:           make(chan any, config.FlushChannelSize),
 		metrics:                metrics,
-		clock:                  config.Clock,
+		clock:                  runtimeConfig.Clock,
 		name:                   name,
 		upperBoundSnapshotFile: upperBoundSnapshotFile,
 	}
 	table.flushLoop = fLoop
-	go fLoop.run()
 
-	// Start the control loop.
 	cLoop := &controlLoop{
-		logger:                  config.Logger,
+		logger:                  runtimeConfig.Logger,
 		diskTable:               table,
 		errorMonitor:            errorMonitor,
 		controllerChannel:       make(chan any, config.ControlChannelSize),
-		lowestSegmentIndex:      lowestSegmentIndex,
 		highestSegmentIndex:     highestSegmentIndex,
 		segments:                segments,
 		size:                    &table.size,
@@ -292,23 +362,57 @@ func NewDiskTable(
 		targetFileSize:          config.TargetSegmentFileSize,
 		targetKeyFileSize:       config.TargetSegmentKeyFileSize,
 		maxKeyCount:             config.MaxSegmentKeyCount,
-		clock:                   config.Clock,
+		autoFlushByteThreshold:  config.AutoFlushByteThreshold,
+		shardControlChannelSize: config.ShardControlChannelSize,
+		clock:                   runtimeConfig.Clock,
 		segmentPaths:            segmentPaths,
 		snapshottingEnabled:     snapshottingEnabled,
-		metadata:                metadata,
 		fsync:                   config.Fsync,
 		metrics:                 metrics,
 		name:                    name,
-		gcBatchSize:             config.GCBatchSize,
 		keymap:                  keymap,
+		keymapManager:           kManager,
 		flushLoop:               fLoop,
 		garbageCollectionPeriod: config.GCPeriod,
 		immutableSegmentSize:    immutableSegmentSize,
+		deletionWatermarkChan:   make(chan int64, config.KeymapManagerWatermarkChannelSize),
+		keymapDeletionWatermark: initialDeletionWatermark,
 	}
+	cLoop.lowestSegmentIndex = lowestSegmentIndex
 	cLoop.threadsafeHighestSegmentIndex.Store(highestSegmentIndex)
 	table.controlLoop = cLoop
 	cLoop.updateCurrentSize()
+
+	// The keymap manager reports deletion-watermark advances by calling cLoop.publishDeletionWatermark; give it
+	// the reference now, before its goroutine starts.
+	kManager.controlLoop = cLoop
+
+	// Start the GC manager. It performs collection off the control loop: reading expired segments' keys,
+	// advancing the durable gc-watermark, and scheduling their keymap deletes. Its "scheduled for deletion"
+	// cursor starts just below the lowest readable segment, so it does not re-schedule deletes for segments
+	// already collected before a crash. It owns the channel by which the control loop hands over sealed segments.
+	gcMgr := newGCManager(
+		runtimeConfig.Logger,
+		errorMonitor,
+		config.GCSegmentChannelSize,
+		initialSealedSegments,
+		kManager,
+		runtimeConfig.Clock,
+		metrics,
+		name,
+		config.GCPeriod,
+		gcWatermarkFile,
+		tableConfig.GCFilter,
+		initialDeletionWatermark,
+		tableConfig.TTL,
+	)
+	table.gcManager = gcMgr
+
+	// Everything is wired; start the goroutines.
+	go kManager.run()
+	go fLoop.run()
 	go cLoop.run()
+	go gcMgr.run()
 
 	return table, nil
 }
@@ -327,7 +431,7 @@ func (d *DiskTable) Size() uint64 {
 // file for the repaired snapshot.
 func (d *DiskTable) repairSnapshot(
 	symlinkDirectory string,
-	lowestSegmentIndex uint32,
+	lowestReadableSegment uint32,
 	highestSegmentIndex uint32,
 	segments map[uint32]*segment.Segment) (*BoundaryFile, error) {
 
@@ -381,11 +485,15 @@ func (d *DiskTable) repairSnapshot(
 		return nil, fmt.Errorf("failed to load snapshot boundary file: %w", err)
 	}
 
-	firstSegmentToConsider := lowestSegmentIndex
+	firstSegmentToConsider := lowestReadableSegment
 	if lowerBoundSnapshotFile.IsDefined() {
 		// The lower bound file contains the index of the highest segment that has been GC'd by an external process.
-		// We should ignore the segment at this index, and all segments with lower indices.
-		firstSegmentToConsider = lowerBoundSnapshotFile.BoundaryIndex() + 1
+		// We should ignore the segment at this index, and all segments with lower indices. But never drop below the
+		// gc-watermark (lowestReadableSegment): a stale external bound below the watermark must not pull
+		// logically-deleted segments back into the snapshot, which would resurrect collected keys on restore.
+		if next := lowerBoundSnapshotFile.BoundaryIndex() + 1; next > firstSegmentToConsider {
+			firstSegmentToConsider = next
+		}
 	}
 
 	// Skip iterating over the highest segment index (i.e. don't do i <= highestSegmentIndex). The highest segment
@@ -410,10 +518,17 @@ func (d *DiskTable) repairSnapshot(
 
 // reloadKeymap reloads the keymap from the segments. This is necessary when the keymap is lost, the keymap doesn't
 // save its data on disk, or we are migrating from one keymap type to another.
+//
+// Segments below lowestReadableSegment are skipped: their keys were durably deleted by garbage collection (the
+// gc-watermark survives a keymap rebuild precisely so this rebuild can honor it). Reloading them would resurrect
+// keys that were already collected. NOTE: if BOTH the keymap and the gc-watermark file are lost, this rebuild
+// has no record of in-flight GC and may resurrect keys from segments that were being collected; that
+// total-loss case predates the gc-watermark and remains the only window in which it can happen.
 func (d *DiskTable) reloadKeymap(
 	segments map[uint32]*segment.Segment,
-	lowestSegmentIndex uint32,
-	highestSegmentIndex uint32) error {
+	lowestReadableSegment uint32,
+	highestSegmentIndex uint32,
+) error {
 
 	start := d.clock()
 	defer func() {
@@ -422,7 +537,7 @@ func (d *DiskTable) reloadKeymap(
 
 	batch := make([]*types.ScopedKey, 0, keymapReloadBatchSize)
 
-	for i := lowestSegmentIndex; i <= highestSegmentIndex; i++ {
+	for i := lowestReadableSegment; i <= highestSegmentIndex; i++ {
 		if !segments[i].IsSealed() {
 			// ignore unsealed segment, this will have been created in the current session and will not
 			// yet contain any data.
@@ -474,6 +589,146 @@ func (d *DiskTable) reloadKeymap(
 	return nil
 }
 
+// After a crash, it's possible that there may be a small number of key-value pairs in segment files that
+// never made it into the keymap. This method detects these orphaned key-value pairs and puts them into the keymap.
+//
+// Segments below lowestReadableSegment are never examined: their keys were durably deleted by garbage collection
+// (the gc-watermark advanced past them before their keymap entries were deleted), so a key of theirs missing
+// from the keymap is an intentional GC deletion, not a lost async write. Rescuing it would resurrect collected
+// data. This is the durable barrier that lets repair distinguish the two; the in-memory deletion watermark used
+// to be reset on reboot, which is what allowed the resurrection bug.
+func (d *DiskTable) repairKeymap(
+	segments map[uint32]*segment.Segment,
+	lowestReadableSegment uint32,
+	highestSegmentIndex uint32,
+) error {
+
+	start := d.clock()
+	var rescued []*types.ScopedKey
+	defer func() {
+		d.logger.Debug("repaired keymap", "keysRescued", len(rescued), "duration", d.clock().Sub(start))
+	}()
+
+	// The keymap is always written in the same order that keys are appended to the segment key files, and the
+	// keymap recovers to a prefix of those writes. Any keys missing from the keymap are therefore a contiguous
+	// suffix (the most recently written keys). We walk keys newest-first, collecting any that are absent from the
+	// keymap, and stop at the first key that is present: everything older than it is already durable.
+	//
+	// The rescued keys MUST be written in a single atomic batch. If we instead flushed incrementally, a crash
+	// partway through would leave the newest rescued keys present while older ones were still missing. The next
+	// repair would walk newest-first, immediately hit one of those newly-written keys, stop, and never rescue
+	// the older keys that are still absent. A single batch makes repair all-or-nothing: a crash either leaves
+	// nothing written (the next repair redoes it) or everything written (the next repair sees an intact prefix).
+
+	reachedDurablePrefix := false
+	for i := highestSegmentIndex; !reachedDurablePrefix; i-- {
+		seg := segments[i]
+		if seg.IsSealed() {
+			keys, err := seg.GetKeys()
+			if err != nil {
+				return fmt.Errorf("failed to get keys from segment %d: %w", i, err)
+			}
+			for keyIndex := len(keys) - 1; keyIndex >= 0; keyIndex-- {
+				key := keys[keyIndex]
+
+				_, present, err := d.keymap.Get(key.Key)
+				if err != nil {
+					return fmt.Errorf("failed to check keymap for key in segment %d: %w", i, err)
+				}
+				if present {
+					// Reached the durable prefix; every older key is already in the keymap.
+					reachedDurablePrefix = true
+					break
+				}
+
+				rescued = append(rescued, key)
+			}
+		}
+
+		if i == lowestReadableSegment {
+			break
+		}
+	}
+
+	if len(rescued) == 0 {
+		return nil
+	}
+
+	if err := d.keymap.Put(rescued); err != nil {
+		return fmt.Errorf("failed to put rescued keys into keymap: %w", err)
+	}
+
+	return nil
+}
+
+// purgeCollectedKeymapEntries deletes keymap entries for the segments in [lowestSegmentIndex,
+// lowestReadableSegment): segments that garbage collection logically deleted (the durable gc-watermark was
+// advanced past them) but whose asynchronous keymap deletes may have been lost in a crash before they were
+// applied. repairKeymap and reloadKeymap only add keys, never remove them, so a lost delete would otherwise
+// leave entries pointing at segments the control loop is about to reclaim, resurrecting collected keys via
+// Get/Exists. This runs synchronously at startup, before any goroutine can reclaim files, so a segment's keymap
+// entries are durably gone before its files are deleted (preserving keymap-delete-before-file-delete ordering
+// across a crash). Deleting an already-absent key is a no-op, so this is safe to repeat and is a complete no-op
+// on a clean restart, where lowestReadableSegment == lowestSegmentIndex.
+func (d *DiskTable) purgeCollectedKeymapEntries(
+	segments map[uint32]*segment.Segment,
+	lowestSegmentIndex uint32,
+	lowestReadableSegment uint32,
+) error {
+
+	if lowestReadableSegment <= lowestSegmentIndex {
+		// No collected-but-unreclaimed segments (the common case on a clean restart).
+		return nil
+	}
+
+	start := d.clock()
+	purged := 0
+	defer func() {
+		d.logger.Debug("purged collected keymap entries", "keysPurged", purged, "duration", d.clock().Sub(start))
+	}()
+
+	batch := make([]*types.ScopedKey, 0, keymapReloadBatchSize)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if err := d.keymap.Delete(batch); err != nil {
+			return fmt.Errorf("failed to delete keys from keymap: %w", err)
+		}
+		purged += len(batch)
+		batch = make([]*types.ScopedKey, 0, keymapReloadBatchSize)
+		return nil
+	}
+
+	for i := lowestSegmentIndex; i < lowestReadableSegment; i++ {
+		seg := segments[i]
+		if seg == nil {
+			// Should be impossible: collected-but-unreclaimed segments are a contiguous prefix and are all
+			// present in the map (the load-time gc-watermark check guarantees lowestReadableSegment is in range).
+			// Bubble up rather than nil-dereference if that invariant is ever violated.
+			return fmt.Errorf("segment %d missing while purging collected keymap entries", i)
+		}
+		if !seg.IsSealed() {
+			// Defensive: collected segments are always sealed, so they have durable keys to purge.
+			continue
+		}
+		keys, err := seg.GetKeys()
+		if err != nil {
+			return fmt.Errorf("failed to get keys from segment %d: %w", i, err)
+		}
+		for _, key := range keys {
+			batch = append(batch, key)
+			if len(batch) == keymapReloadBatchSize {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return flush()
+}
+
 func (d *DiskTable) Name() string {
 	return d.name
 }
@@ -509,11 +764,16 @@ func (d *DiskTable) Close() error {
 	return nil
 }
 
-// Destroy stops the disk table and delete all files.
-func (d *DiskTable) Destroy() error {
+// IsDropped returns true if the table has been dropped (see Drop).
+func (d *DiskTable) IsDropped() bool {
+	return d.destroyed.Load()
+}
+
+// Drop stops the disk table and deletes all files.
+func (d *DiskTable) Drop() error {
 	firstTimeDestroying := d.destroyed.CompareAndSwap(false, true)
 	if !firstTimeDestroying {
-		return nil // already destroyed
+		return nil // already dropped
 	}
 
 	err := d.Close()
@@ -582,10 +842,19 @@ func (d *DiskTable) Destroy() error {
 		}
 	}
 
-	// delete the metadata file
-	err = d.metadata.delete()
-	if err != nil {
-		return fmt.Errorf("failed to delete metadata: %w", err)
+	// Delete the gc-watermark file (it lives at the table root, so the root cannot be removed while it remains).
+	for _, root := range d.roots {
+		gcWatermarkPath := path.Join(root, GCWatermarkFileName)
+		exists, err := util.Exists(gcWatermarkPath)
+		if err != nil {
+			return fmt.Errorf("failed to check if gc-watermark file exists: %w", err)
+		}
+		if exists {
+			err = os.Remove(gcWatermarkPath)
+			if err != nil {
+				return fmt.Errorf("failed to remove gc-watermark file: %w", err)
+			}
+		}
 	}
 
 	// delete the root directories for the table
@@ -599,17 +868,25 @@ func (d *DiskTable) Destroy() error {
 	return nil
 }
 
+// getShardingFactor returns the in-memory sharding factor for the table. Capped at litt.MaxShardingFactor
+// (255) so the value always fits in a single byte.
+func (d *DiskTable) getShardingFactor() uint8 {
+	return uint8(d.shardingFactor.Load()) //nolint:gosec // bounded to uint8 by setShardingFactor / constructor
+}
+
+// setShardingFactor sets the in-memory sharding factor for the table.
+func (d *DiskTable) setShardingFactor(shardingFactor uint8) {
+	d.shardingFactor.Store(uint32(shardingFactor))
+}
+
 // SetTTL sets the TTL for the disk table. If set to 0, no TTL is enforced. This setting affects both new
-// data and data already written.
+// data and data already written. The TTL is consumed only by the GC manager, so it is pushed there directly.
 func (d *DiskTable) SetTTL(ttl time.Duration) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf("cannot process SetTTL() request, DB is in panicked state due to error: %w", err)
 	}
 
-	err := d.metadata.SetTTL(ttl)
-	if err != nil {
-		return fmt.Errorf("failed to set TTL: %w", err)
-	}
+	d.gcManager.setTTL(ttl)
 	return nil
 }
 
@@ -672,58 +949,6 @@ func (d *DiskTable) Get(key []byte) (value []byte, exists bool, err error) {
 	return data, true, nil
 }
 
-func (d *DiskTable) CacheAwareGet(
-	key []byte,
-	onlyReadFromCache bool,
-) (value []byte, exists bool, hot bool, err error) {
-
-	if ok, err := d.errorMonitor.IsOk(); !ok {
-		return nil, false, false, fmt.Errorf(
-			"cannot process CacheAwareGet() request, DB is in panicked state due to error: %w", err)
-	}
-
-	// First, check if the key is in the unflushed data map. If so, return it from there.
-	// Performance wise, this has equivalent semantics to reading the value from
-	// a cache, so we'd might as well count it as a cache hit.
-	var rawValue any
-	if rawValue, exists = d.unflushedDataCache.Load(util.UnsafeBytesToString(key)); exists {
-		value = rawValue.([]byte)
-		return value, true, true, nil
-	}
-
-	// Look up the address of the data.
-	var address types.Address
-	address, exists, err = d.keymap.Get(key)
-	if err != nil {
-		return nil, false, false, fmt.Errorf("failed to get address: %w", err)
-	}
-	if !exists {
-		return nil, false, false, nil
-	}
-
-	if onlyReadFromCache {
-		// The value exists but we are not allowed to read it from disk.
-		return nil, true, false, nil
-	}
-
-	// Reserve the segment that contains the data.
-	seg, ok := d.controlLoop.getReservedSegment(address.Index())
-	if !ok {
-		// This can happen if there is a race between this thread and the GC thread, i.e.
-		// if we start reading a value just as the garbage collector decides to delete it.
-		return nil, false, false, nil
-	}
-	defer seg.Release()
-
-	// Read the data from disk.
-	value, err = seg.Read(key, address)
-	if err != nil {
-		return nil, false, false, fmt.Errorf("failed to read data: %w", err)
-	}
-
-	return value, true, false, nil
-}
-
 func (d *DiskTable) Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error {
 	return d.PutBatch([]*types.PutRequest{{Key: key, Value: value, SecondaryKeys: secondaryKeys}})
 }
@@ -749,7 +974,7 @@ func (d *DiskTable) PutBatch(batch []*types.PutRequest) error {
 			return fmt.Errorf("key is too large, length must not exceed 2^16 bytes: %d bytes", len(kv.Key))
 		}
 		if len(kv.Value) > math.MaxUint32 {
-			return fmt.Errorf("value is too large, length must not exceed 2^32 bytes: %d bytes", len(kv.Value))
+			return fmt.Errorf("value is too large, length must not exceed 2^32 - 1 bytes: %d bytes", len(kv.Value))
 		}
 
 		// Validate every secondary key in this request, and detect duplicate keys (primary vs
@@ -825,12 +1050,24 @@ func (d *DiskTable) Exists(key []byte) (bool, error) {
 		return true, nil
 	}
 
-	_, ok, err := d.keymap.Get(key)
+	address, ok, err := d.keymap.Get(key)
 	if err != nil {
 		return false, fmt.Errorf("failed to get address: %w", err)
 	}
+	if !ok {
+		return false, nil
+	}
 
-	return ok, nil
+	// A keymap entry can outlive its segment: a keymap delete lost in a crash leaves a stale entry pointing at
+	// a segment the control loop then reclaims. Confirm the backing segment is still live (mirroring Get) so a
+	// stale entry never reports a key that Get would not return. This is a map lookup + reservation, no disk read.
+	seg, ok := d.controlLoop.getReservedSegment(address.Index())
+	if !ok {
+		return false, nil
+	}
+	seg.Release()
+
+	return true, nil
 }
 
 // Flush flushes all data to disk. Blocks until all data previously submitted to Put has been written to disk.
@@ -901,50 +1138,104 @@ func (d *DiskTable) RunGC() error {
 			"cannot process RunGC() request, DB is in panicked state due to error: %w", err)
 	}
 
+	// Collection and the keymap deletes it schedules happen asynchronously across the GC manager and the keymap
+	// manager. To make an explicit RunGC() deterministic, drive the steps in order: run a collection pass on the
+	// GC manager (scheduling keymap deletes for expired segments and durably advancing the gc-watermark), sync
+	// the keymap manager so those deletes are applied and the deletion watermark advances, then have the control
+	// loop delete the now-eligible segment files.
+	if err := d.gcManager.runOnce(); err != nil {
+		return err
+	}
+	if err := d.keymapManager.sync(); err != nil {
+		return fmt.Errorf("failed to sync keymap manager during GC: %w", err)
+	}
+	if err := d.runGCPass(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// runGCPass triggers the control loop's collected-segment file deletion and waits for it to complete.
+func (d *DiskTable) runGCPass() error {
 	request := &controlLoopGCRequest{
 		completionChan: make(chan struct{}, 1),
 	}
 
-	err := d.controlLoop.enqueue(request)
-	if err != nil {
+	if err := d.controlLoop.enqueue(request); err != nil {
 		return fmt.Errorf("failed to send GC request: %w", err)
 	}
 
-	_, err = util.Await(d.errorMonitor, request.completionChan)
-	if err != nil {
+	if _, err := util.Await(d.errorMonitor, request.completionChan); err != nil {
 		return fmt.Errorf("failed to await GC completion: %w", err)
 	}
 
 	return nil
 }
 
-// writeKeysToKeymap flushes all keys to the keymap. Once they are flushed, it also removes the keys from the
-// unflushedDataCache.
-func (d *DiskTable) writeKeysToKeymap(keys []*types.ScopedKey) error {
-	if len(keys) == 0 {
-		// Nothing to flush.
-		return nil
+// Iterator returns a new iterator over the keys in the table.
+func (d *DiskTable) Iterator(reverse bool) (litt.Iterator, error) {
+	if ok, err := d.errorMonitor.IsOk(); !ok {
+		return nil, fmt.Errorf("cannot process Iterator() request, DB is in panicked state due to error: %w", err)
 	}
 
-	if d.metrics != nil {
-		start := d.clock()
-		defer func() {
-			end := d.clock()
-			delta := end.Sub(start)
-			d.metrics.ReportKeymapFlushLatency(d.name, delta)
-		}()
+	request := &controlLoopOpenIteratorRequest{
+		responseChan: make(chan []*segment.Segment, 1),
 	}
-
-	err := d.keymap.Put(keys)
+	err := d.controlLoop.enqueue(request)
 	if err != nil {
-		return fmt.Errorf("failed to flush keys: %w", err)
+		return nil, fmt.Errorf("failed to send open iterator request: %w", err)
 	}
 
-	// Keys are now durably written to both the segment and the keymap. It is therefore safe to remove them from the
-	// unflushed data cache.
-	for _, ka := range keys {
-		d.unflushedDataCache.Delete(util.UnsafeBytesToString(ka.Key))
+	segs, err := util.Await(d.errorMonitor, request.responseChan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to await iterator open: %w", err)
 	}
 
-	return nil
+	if reverse {
+		return newReverseIterator(d, segs), nil
+	}
+	return newForwardIterator(d, segs), nil
+}
+
+// GetOldestKey returns the oldest non-deleted primary key in the table.
+func (d *DiskTable) GetOldestKey() (key []byte, exists bool, err error) {
+	resp, err := d.boundaryKeys()
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get oldest key: %w", err)
+	}
+	return resp.oldestKey, resp.oldestExists, nil
+}
+
+// GetNewestKey returns the newest primary key in the table.
+func (d *DiskTable) GetNewestKey() (key []byte, exists bool, err error) {
+	resp, err := d.boundaryKeys()
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get newest key: %w", err)
+	}
+	return resp.newestKey, resp.newestExists, nil
+}
+
+// boundaryKeys sends a request to the control loop for the oldest and newest primary keys.
+func (d *DiskTable) boundaryKeys() (*boundaryKeysResponse, error) {
+	if ok, err := d.errorMonitor.IsOk(); !ok {
+		return nil, fmt.Errorf("cannot process request, DB is in panicked state due to error: %w", err)
+	}
+
+	request := &controlLoopBoundaryKeysRequest{
+		responseChan: make(chan *boundaryKeysResponse, 1),
+	}
+	err := d.controlLoop.enqueue(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send boundary keys request: %w", err)
+	}
+
+	resp, err := util.Await(d.errorMonitor, request.responseChan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to await boundary keys: %w", err)
+	}
+	if resp.err != nil {
+		return nil, resp.err
+	}
+	return resp, nil
 }

@@ -16,7 +16,6 @@ import (
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
 )
 
 var _ Router = (*TestMultiDB)(nil)
@@ -54,9 +53,10 @@ func (m *TestMultiDB) GetProof(store string, key []byte) (*ics23.CommitmentProof
 	panic("not implemented")
 }
 
-func (m *TestMultiDB) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-	// The multi-DB utility does not support testing of iteration.
-	panic("unimplemented")
+func (m *TestMultiDB) SetMigrationBatchSize(batchSize int) {
+	for _, nestedDB := range m.nestedDBs {
+		nestedDB.SetMigrationBatchSize(batchSize)
+	}
 }
 
 func (m *TestMultiDB) Read(store string, key []byte) ([]byte, bool, error) {
@@ -105,13 +105,11 @@ func (r *TestFlatKVRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, _
 	return r.flatKV.ApplyChangeSets(changesets)
 }
 
-func (r *TestFlatKVRouter) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-	return nil, errors.New("TestFlatKVRouter does not support iteration")
-}
-
 func (r *TestFlatKVRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
 	return nil, errors.New("TestFlatKVRouter does not support proofs")
 }
+
+func (r *TestFlatKVRouter) SetMigrationBatchSize(int) {}
 
 // TestMemIAVLRouter is a [Router] that sends all operations to a single underlying
 // memiavl.CommitStore. It does not support iteration or proofs.
@@ -138,13 +136,11 @@ func (r *TestMemIAVLRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, 
 	return r.memIAVL.ApplyChangeSets(changesets)
 }
 
-func (r *TestMemIAVLRouter) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-	return nil, errors.New("TestMemIAVLRouter does not support iteration")
-}
-
 func (r *TestMemIAVLRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
 	return nil, errors.New("TestMemIAVLRouter does not support proofs")
 }
+
+func (r *TestMemIAVLRouter) SetMigrationBatchSize(int) {}
 
 // TestInMemoryRouter is a [Router] backed by an in-memory map. The outer map keys
 // are store (module) names and the inner map keys are store keys. It does not
@@ -195,13 +191,11 @@ func (r *TestInMemoryRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet,
 	return nil
 }
 
-func (r *TestInMemoryRouter) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-	return nil, errors.New("TestInMemoryRouter does not support iteration")
-}
-
 func (r *TestInMemoryRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
 	return nil, errors.New("TestInMemoryRouter does not support proofs")
 }
+
+func (r *TestInMemoryRouter) SetMigrationBatchSize(int) {}
 
 // VerifyKeyPlacement verifies that every key in the oracle is in the correct backend.
 // Keys whose store name appears in flatKVStores must be readable from flatKVRouter and

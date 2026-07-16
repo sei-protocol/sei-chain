@@ -249,30 +249,25 @@ func TestBlockPoolMaliciousNodeMaxInt64(t *testing.T) {
 	require.Equal(t, int64(initialHeight), pool.maxPeerHeight)
 }
 
-func TestBlockPoolIsCaughtUpUsesMonotoneMaxPeerHeight(t *testing.T) {
-	const startHeight = 7
+func TestBlockPoolIsCaughtUpUsesCurrentMaxPeerHeight(t *testing.T) {
+	const maxHeight = 7
 	goodNodeID := types.NodeID(strings.Repeat("a", 40))
 	badNodeID := types.NodeID(strings.Repeat("b", 40))
 	otherGoodNodeID := types.NodeID(strings.Repeat("c", 40))
 	peers := testPeers{
-		goodNodeID:      {goodNodeID, 1, startHeight, make(chan inputData)},
+		goodNodeID:      {goodNodeID, 1, maxHeight, make(chan inputData)},
 		badNodeID:       {badNodeID, 1, math.MaxInt64, make(chan inputData)},
-		otherGoodNodeID: {otherGoodNodeID, 1, startHeight, make(chan inputData)},
+		otherGoodNodeID: {otherGoodNodeID, 1, maxHeight, make(chan inputData)},
 	}
-	pool := NewBlockPool(1, makeRouter(peers))
+	pool := NewBlockPool(maxHeight-1, makeRouter(peers))
 
-	pool.SetPeerRange(goodNodeID, 1, startHeight)
+	pool.SetPeerRange(goodNodeID, 1, maxHeight)
 	pool.SetPeerRange(badNodeID, 1, math.MaxInt64)
-	pool.SetPeerRange(otherGoodNodeID, 1, startHeight)
-	pool.SetPeerRange(badNodeID, 1, startHeight)
+	pool.SetPeerRange(otherGoodNodeID, 1, maxHeight)
 
-	pool.height = startHeight - 1
 	require.False(t, pool.IsCaughtUp())
 
-	pool.height = startHeight
-	require.False(t, pool.IsCaughtUp())
-
-	pool.height = math.MaxInt64 - 1
+	pool.SetPeerRange(badNodeID, 1, maxHeight)
 	require.True(t, pool.IsCaughtUp())
 }
 

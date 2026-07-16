@@ -14,14 +14,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -239,7 +232,7 @@ func TestRouter_PexOnHandshake_DialerDisabled(t *testing.T) {
 
 	// Add a node with PexOnHandshake = false and connect it to nodes[0]
 	newNode := network.MakeNode(t, TestNodeOptions{PexOnHandshake: false})
-	newNode.Connect(ctx, nodes[0])
+	require.NoError(t, newNode.Connect(ctx, nodes[0]))
 
 	// newNode should NOT learn about nodes[1] during handshake.
 	require.True(t, slices.Index(
@@ -256,17 +249,16 @@ func TestRouter_PexOnHandshake_ListenerPeersPropagated(t *testing.T) {
 	nodes := network.Nodes()
 
 	t.Log("Connect nodes 1,2 to 0.")
-	nodes[1].Connect(ctx, nodes[0])
-	nodes[2].Connect(ctx, nodes[0])
+	require.NoError(t, nodes[1].Connect(ctx, nodes[0]))
+	require.NoError(t, nodes[2].Connect(ctx, nodes[0]))
 
 	t.Log("Node 2 should learn about node 1 during handshake with 0, and connect to it eventually.")
-	nodes[2].WaitForConn(ctx, nodes[1].NodeID, true)
+	require.NoError(t, nodes[2].WaitForConn(ctx, nodes[1].NodeID, true))
 }
 
 func makeRouterWithOptionsAndKey(opts *RouterOptions, key NodeSecretKey) *Router {
 	info := makeInfo(key)
 	return utils.OrPanic1(NewRouter(
-		NopMetrics(),
 		key,
 		func() *types.NodeInfo { return &info },
 		dbm.NewMemDB(),
@@ -308,80 +300,6 @@ func TestRouter_GigaNotSetByDefault(t *testing.T) {
 	rng := utils.TestRng()
 	router := makeRouter(rng)
 	require.False(t, router.giga.IsPresent(), "GigaRouter should not be set with default options")
-}
-
-func TestRouter_GigaSetWhenConfigured(t *testing.T) {
-	rng := utils.TestRng()
-	nodeKey := makeKey(rng)
-	// Use a separate key for the validator to verify both propagate independently.
-	valKey := atypes.SecretKeyFromED25519(ed25519.SecretKey(makeKey(rng)))
-
-	validatorAddrs := map[atypes.PublicKey]GigaNodeAddr{
-		valKey.Public(): {
-			Key:      nodeKey.Public(),
-			HostPort: tcp.HostPort{Hostname: "10.0.0.1", Port: 9999},
-		},
-	}
-
-	// Use intentionally non-default values to ensure config actually propagates.
-	opts := makeRouterOptions()
-	proxyApp := proxy.New(abci.BaseApplication{}, proxy.NopMetrics())
-	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
-	opts.Giga = utils.Some(&GigaRouterConfig{
-		DialInterval:   7 * time.Second,
-		ValidatorAddrs: validatorAddrs,
-		Consensus: &consensus.Config{
-			Key:                valKey,
-			ViewTimeout:        func(atypes.View) time.Duration { return 3 * time.Second },
-			PersistentStateDir: utils.None[string](),
-		},
-		Producer: &producer.Config{
-			MaxGasPerBlock:   77_000_000,
-			MaxTxsPerBlock:   7_777,
-			MaxTxsPerSecond:  utils.Some(uint64(999)),
-			MempoolSize:      3_333,
-			BlockInterval:    777 * time.Millisecond,
-			AllowEmptyBlocks: true,
-		},
-		TxMempool: txMempool,
-		GenDoc: &types.GenesisDoc{
-			ChainID:       "giga-e2e-test",
-			InitialHeight: 42,
-			GenesisTime:   time.Now(),
-		},
-	})
-
-	router := makeRouterWithOptionsAndKey(opts, nodeKey)
-	require.True(t, router.giga.IsPresent(), "GigaRouter should be set when Giga config is provided")
-
-	giga, _ := router.giga.Get()
-
-	// Verify non-default config values were propagated.
-	require.Equal(t, 7*time.Second, giga.cfg.DialInterval)
-	require.Len(t, giga.cfg.ValidatorAddrs, 1)
-	addr, ok := giga.cfg.ValidatorAddrs[valKey.Public()]
-	require.True(t, ok, "validator key should be in ValidatorAddrs")
-	require.Equal(t, nodeKey.Public(), addr.Key, "node key should match")
-	require.Equal(t, "10.0.0.1", addr.HostPort.Hostname)
-	require.Equal(t, uint16(9999), addr.HostPort.Port)
-
-	// Verify consensus key is the validator key (distinct from node key).
-	require.Equal(t, valKey.Public(), giga.cfg.Consensus.Key.Public())
-	require.Equal(t, 3*time.Second, giga.cfg.Consensus.ViewTimeout(atypes.View{}))
-
-	// Verify producer config with non-default values.
-	require.Equal(t, uint64(77_000_000), giga.cfg.Producer.MaxGasPerBlock)
-	require.Equal(t, uint64(7_777), giga.cfg.Producer.MaxTxsPerBlock)
-	maxTps, tpsOk := giga.cfg.Producer.MaxTxsPerSecond.Get()
-	require.True(t, tpsOk)
-	require.Equal(t, uint64(999), maxTps)
-	require.Equal(t, uint64(3_333), giga.cfg.Producer.MempoolSize)
-	require.Equal(t, 777*time.Millisecond, giga.cfg.Producer.BlockInterval)
-	require.True(t, giga.cfg.Producer.AllowEmptyBlocks)
-
-	// Verify genesis doc.
-	require.Equal(t, "giga-e2e-test", giga.cfg.GenDoc.ChainID)
-	require.Equal(t, int64(42), giga.cfg.GenDoc.InitialHeight)
 }
 
 func blindHandshake(ctx context.Context, c tcp.Conn, key NodeSecretKey, info types.NodeInfo) error {
@@ -837,7 +755,6 @@ func TestRouter_PeerDB(t *testing.T) {
 		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			t.Logf("start the second node")
 			r2 := utils.OrPanic1(NewRouter(
-				NopMetrics(),
 				key,
 				func() *types.NodeInfo { return &info },
 				db,
@@ -867,7 +784,6 @@ func TestRouter_PeerDB(t *testing.T) {
 
 		t.Logf("restart the second node")
 		r2 := utils.OrPanic1(NewRouter(
-			NopMetrics(),
 			key,
 			func() *types.NodeInfo { return &info },
 			db,

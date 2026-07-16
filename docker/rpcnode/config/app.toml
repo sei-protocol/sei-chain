@@ -297,8 +297,6 @@ enabled_legacy_sei_apis = [
   "sei_getVMError",
   "sei_newBlockFilter",
   "sei_newFilter",
-  "sei_traceBlockByHashExcludeTraceFail",
-  "sei_traceBlockByNumberExcludeTraceFail",
   "sei_uninstallFilter",
   "sei2_getBlockByHash",
   "sei2_getBlockByHashExcludeTraceFail",

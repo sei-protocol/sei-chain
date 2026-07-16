@@ -18,9 +18,6 @@ import (
 // that have been written to the segment but have not yet been flushed to disk.
 const unflushedKeysInitialCapacity = 128
 
-// shardControlChannelCapacity is the capacity of the channel used to send messages to the shard control loop.
-const shardControlChannelCapacity = 32
-
 // Segment is a chunk of data stored on disk. All data in a particular data segment is expired at the same time.
 //
 // This struct is not safe for operations that mutate the segment, access control must be handled by the caller.
@@ -112,7 +109,9 @@ func CreateSegment(
 	segmentPaths []*SegmentPath,
 	snapshottingEnabled bool,
 	shardingFactor uint8,
-	fsync bool) (*Segment, error) {
+	fsync bool,
+	shardChannelCapacity int,
+) (*Segment, error) {
 
 	if len(segmentPaths) == 0 {
 		return nil, errors.New("no segment paths provided")
@@ -149,14 +148,14 @@ func CreateSegment(
 
 	shardChannels := make([]chan any, metadata.shardingFactor)
 	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
-		shardChannels[shard] = make(chan any, shardControlChannelCapacity)
+		shardChannels[shard] = make(chan any, shardChannelCapacity)
 	}
 
 	// If at all possible, we want to size this channel so that the goroutines writing data to the sharded value files
 	// do not block on insertion into this channel. Scale the size of this channel by the number of shards, as more
 	// shards mean there may be a higher rate of writes to this channel. Widen to int before multiplying so that the
 	// product does not wrap at 256 (metadata.shardingFactor is a uint8).
-	keyFileChannel := make(chan any, int(shardControlChannelCapacity)*int(metadata.shardingFactor))
+	keyFileChannel := make(chan any, shardChannelCapacity*int(metadata.shardingFactor))
 
 	segment := &Segment{
 		logger:              logger,
@@ -449,9 +448,17 @@ func lookForFile(paths []*SegmentPath, fileName string) (*SegmentPath, error) {
 	return locations[0], nil
 }
 
-// SetNextSegment sets the next segment in the chain.
+// SetNextSegment sets the next segment in the chain. The next segment is reserved so that it cannot be deleted
+// until this segment's own deletion releases it (delete -> nextSegment.Release), which is what enforces in-order
+// segment reclamation. The next segment is always freshly created here with a positive reservation count, so
+// Reserve cannot fail; a false return means the chained-reservation invariant is broken, so fail loudly rather
+// than wiring up a dead segment that would later be released below zero.
 func (s *Segment) SetNextSegment(nextSegment *Segment) {
-	nextSegment.Reserve()
+	if !nextSegment.Reserve() {
+		s.errorMonitor.Panic(fmt.Errorf(
+			"failed to reserve next segment %d from segment %d", nextSegment.index, s.index))
+		return
+	}
 	s.nextSegment = nextSegment
 }
 
@@ -481,31 +488,17 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 	}
 	currentSize := s.shardSizes[shard]
 
+	// Defensive invariant: the control loop rolls to a fresh segment before writing any value whose bytes
+	// would cross the 2^32 addressable limit (see disktable control_loop handleWriteRequest), so a mutable
+	// segment never grows to where the next value's first byte would be unaddressable. A whole value is
+	// always written contiguously below 2^32, which also keeps every secondary key's start
+	// (firstByteIndex + Offset, a sub-range of the value) addressable.
 	if currentSize > math.MaxUint32 {
-		// No matter the configuration, we absolutely cannot permit a value to be written if the first byte of the
-		// value would be beyond position 2^32. This is because we only have 32 bits in an address to store the
-		// position of a value's first byte.
 		return 0, 0,
 			fmt.Errorf("value file already contains %d bytes, cannot add a new value", currentSize)
 	}
 	firstByteIndex := uint32(currentSize)
 	valueLen := uint64(len(data.Value))
-	if uint64(firstByteIndex)+valueLen > math.MaxUint32 {
-		return 0, 0,
-			fmt.Errorf("value of length %d would push value file past 2^32 bytes (current size %d)",
-				valueLen, currentSize)
-	}
-
-	// Validate every secondary key's address fits in uint32 *before* sending anything, so we never
-	// produce a partial write.
-	for _, sk := range data.SecondaryKeys {
-		end := uint64(firstByteIndex) + uint64(sk.Offset) + uint64(sk.Length)
-		if end > math.MaxUint32 {
-			return 0, 0,
-				fmt.Errorf("secondary key range [%d, %d) would exceed 2^32 byte addressable range",
-					uint64(firstByteIndex)+uint64(sk.Offset), end)
-		}
-	}
 
 	n := len(data.SecondaryKeys)
 	totalKeys := uint32(1 + n) //nolint:gosec // n bounded by caller validation

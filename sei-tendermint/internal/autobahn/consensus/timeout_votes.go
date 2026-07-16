@@ -1,20 +1,20 @@
 package consensus
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 type timeoutVotes struct {
 	byKey  map[types.PublicKey]*types.FullTimeoutVote
-	byView map[types.View]map[types.PublicKey]*types.FullTimeoutVote
+	byView map[types.View]*voteSet[*types.FullTimeoutVote]
 	qc     utils.AtomicSend[utils.Option[*types.TimeoutQC]]
 }
 
 func newTimeoutVotes() *timeoutVotes {
 	return &timeoutVotes{
 		byKey:  map[types.PublicKey]*types.FullTimeoutVote{},
-		byView: map[types.View]map[types.PublicKey]*types.FullTimeoutVote{},
+		byView: map[types.View]*voteSet[*types.FullTimeoutVote]{},
 		qc:     utils.NewAtomicSend(utils.None[*types.TimeoutQC]()),
 	}
 }
@@ -30,19 +30,21 @@ func (tv *timeoutVotes) pushVote(c *types.Committee, vote *types.FullTimeoutVote
 			return
 		}
 		// Prune the old vote.
-		delete(tv.byView[oldView], key)
-		if len(tv.byView[oldView]) == 0 {
+		tv.byView[oldView].weight -= c.Weight(key)
+		delete(tv.byView[oldView].votes, key)
+		if len(tv.byView[oldView].votes) == 0 {
 			delete(tv.byView, oldView)
 		}
 	}
 	// Insert the new vote.
 	tv.byKey[key] = vote
 	if _, ok := tv.byView[view]; !ok {
-		tv.byView[view] = map[types.PublicKey]*types.FullTimeoutVote{}
+		tv.byView[view] = newVoteSet[*types.FullTimeoutVote]()
 	}
-	tv.byView[view][key] = vote
+	tv.byView[view].weight += c.Weight(key)
+	tv.byView[view].votes[key] = vote
 	// Check if we have enough votes for a TimeoutQC.
-	if len(tv.byView[view]) < c.TimeoutQuorum() {
+	if tv.byView[view].weight < c.TimeoutQuorum() {
 		return
 	}
 	// Construct a TimeoutQC from the votes.
@@ -51,7 +53,7 @@ func (tv *timeoutVotes) pushVote(c *types.Committee, vote *types.FullTimeoutVote
 		return
 	}
 	var votes []*types.FullTimeoutVote
-	for _, v := range tv.byView[view] {
+	for _, v := range tv.byView[view].votes {
 		votes = append(votes, v)
 	}
 	tv.qc.Store(utils.Some(types.NewTimeoutQC(votes)))

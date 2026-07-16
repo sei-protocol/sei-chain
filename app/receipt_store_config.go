@@ -13,6 +13,7 @@ const (
 	receiptStoreDBDirectoryKey          = "receipt-store.db-directory"
 	receiptStoreAsyncWriteBufferKey     = "receipt-store.async-write-buffer"
 	receiptStorePruneIntervalSecondsKey = "receipt-store.prune-interval-seconds"
+	receiptStoreReadWriteMetricsKey     = "receipt-store.enable-read-write-metrics"
 )
 
 func readReceiptStoreConfig(homePath string, appOpts seidbconfig.AppOptions) (seidbconfig.ReceiptStoreConfig, error) {

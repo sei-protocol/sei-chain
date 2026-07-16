@@ -31,6 +31,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -117,7 +118,7 @@ var TxNonEvm sdk.Tx
 var TxNonEvmWithSyntheticLog sdk.Tx
 var UnconfirmedTx sdk.Tx
 
-var SConfig = evmrpc.SimulateConfig{GasCap: 10000000}
+var SConfig = evmrpc.SimulateConfig{GasCap: 10000000, MaxStateOverrideAccounts: 100, MaxStateOverrideSlots: 1000}
 
 var filterTimeoutDuration = 500 * time.Millisecond
 var TotalTxCount int = 11
@@ -146,8 +147,20 @@ func (*MockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
-func (*MockClient) EvmProxy(common.Address) (*url.URL, bool) {
-	return nil, false
+func (*MockClient) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
+	tx, err := Encoder(UnconfirmedTx)
+	if err != nil {
+		return nil, false
+	}
+	ethTx, _ := UnconfirmedTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
+	if ethTx == nil || ethTx.Hash() != hash {
+		return nil, false
+	}
+	return tx, true
+}
+
+func (*MockClient) EvmProxy(common.Address) tmutils.Option[*url.URL] {
+	return tmutils.None[*url.URL]()
 }
 
 func NewMockClientWithLatest(latest int64) *MockClient {
@@ -371,7 +384,10 @@ func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coret
 		return c.mockBlock(MockHeight2), nil
 	}
 	if strings.ToLower(hash.String()) == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
-		return nil, errors.New("not found")
+		// Match real Tendermint behavior for unknown hashes: ResultBlock with
+		// Block: nil + no error. blockByHashWithRetry wraps this as
+		// ErrBlockNotFoundByHash, which JSON-RPC endpoints convert to null.
+		return &coretypes.ResultBlock{Block: nil}, nil
 	}
 	return c.mockBlock(MockHeight8), nil
 }

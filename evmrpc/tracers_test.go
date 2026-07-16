@@ -98,33 +98,19 @@ func TestTraceTransactionTimeout(t *testing.T) {
 	require.NotEmpty(t, errMsg)
 }
 
-func TestTraceBlockByNumberLookbackLimit(t *testing.T) {
-	// Using the strict server (look‑back = 1). Block 0 is far behind.
+// TestTraceStateAccessTimeout asserts that debug_traceStateAccess honors the
+// configured TraceTimeout via prepareTraceContext: the strict server uses a
+// 1ns TraceTimeout, so the context expires before the replay loop completes
+// and the call fails with a deadline error rather than running unbounded.
+func TestTraceStateAccessTimeout(t *testing.T) {
 	resObj := sendRequestStrictWithNamespace(
 		t,
-		"sei",
-		"traceBlockByNumberExcludeTraceFail",
-		"0x0",                    // genesis block
-		map[string]interface{}{}, // empty TraceConfig
+		"debug",
+		"traceStateAccess",
+		DebugTraceHashHex,
 	)
 
 	errObj, ok := resObj["error"].(map[string]interface{})
-	require.True(t, ok, "expected look‑back guard to trigger")
-	require.NotEmpty(t, errObj["message"].(string))
-}
-
-func TestTraceBlockByNumberUnlimitedLookback(t *testing.T) {
-	// Using the archive server (look‑back = -1). Block 0 should be accessible.
-	resObj := sendRequestArchiveWithNamespace(
-		t,
-		"sei",
-		"traceBlockByNumberExcludeTraceFail",
-		"0x0",                    // genesis block
-		map[string]interface{}{}, // empty TraceConfig
-	)
-
-	_, ok := resObj["error"]
-	require.False(t, ok, "expected look-back to be unlimited")
-	_, ok = resObj["result"]
-	require.True(t, ok, "expected result to be present")
+	require.True(t, ok, "expected error from strict (1ns timeout) server, got: %v", resObj)
+	require.Contains(t, errObj["message"], "context deadline exceeded")
 }

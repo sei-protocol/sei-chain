@@ -1,6 +1,8 @@
 package composite
 
 import (
+	"encoding/hex"
+	"sort"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -9,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -230,7 +233,7 @@ func driveMigrationWorkload(
 	t.Helper()
 
 	memCfg := config.DefaultStateCommitConfig()
-	memCfg.WriteMode = config.MemiavlOnly
+	memCfg.WriteMode = types.MemiavlOnly
 	// AsyncCommitBuffer=0 keeps WAL writes synchronous; without it
 	// GetLatestVersion / on-disk reconcile races with the in-flight
 	// commit and the post-reopen version checks become flaky.
@@ -257,12 +260,12 @@ func driveMigrationWorkload(
 	require.NoError(t, cs.Close())
 
 	migCfg := config.DefaultStateCommitConfig()
-	migCfg.WriteMode = config.MigrateEVM
-	migCfg.KeysToMigratePerBlock = keysToMigratePerBlock
+	migCfg.WriteMode = types.MigrateEVM
 	migCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	cs, err = NewCompositeCommitStore(t.Context(), dir, migCfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(keysToMigratePerBlock))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -285,12 +288,12 @@ func driveMigrationWorkload(
 func reopenInMigrateEVM(t *testing.T, dir string, batch int) *CompositeCommitStore {
 	t.Helper()
 	cfg := config.DefaultStateCommitConfig()
-	cfg.WriteMode = config.MigrateEVM
-	cfg.KeysToMigratePerBlock = batch
+	cfg.WriteMode = types.MigrateEVM
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(batch))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -303,7 +306,7 @@ func TestComposite_MigrateEVM_SecondNonEmptyFlushDoesNotAdvanceMigration(t *test
 	key2 := evmStorageTestKey(0x02)
 
 	memCfg := config.DefaultStateCommitConfig()
-	memCfg.WriteMode = config.MemiavlOnly
+	memCfg.WriteMode = types.MemiavlOnly
 	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 	require.NoError(t, err)
@@ -366,6 +369,164 @@ func evmStorageTestValue(seed byte) []byte {
 	return value
 }
 
+func zeroStorageTestValue() []byte {
+	return make([]byte, 32)
+}
+
+func isZeroTestValue(v []byte) bool {
+	if len(v) == 0 {
+		return true
+	}
+	for _, b := range v {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func pruneZeroStorageViaRoutedGet(t *testing.T, cs *CompositeCommitStore, limit int) (int, int) {
+	t.Helper()
+	iter, err := cs.Iterator(keys.EVMStoreKey, keys.StateKeyPrefix(), []byte{0x04}, true)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, iter.Close()) }()
+
+	var deletes []*proto.KVPair
+	processed := 0
+	for ; iter.Valid() && processed < limit; iter.Next() {
+		key := append([]byte(nil), iter.Key()...)
+		processed++
+
+		// Match x/evm's migration-safe prune contract: iterator output is only a
+		// candidate source; deletion is decided from the routed logical read path.
+		value, found, err := cs.Get(keys.EVMStoreKey, key)
+		require.NoError(t, err)
+		if found && isZeroTestValue(value) {
+			deletes = append(deletes, &proto.KVPair{Key: key, Delete: true})
+		}
+	}
+	require.NoError(t, iter.Error())
+
+	if len(deletes) > 0 {
+		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{{
+			Name: keys.EVMStoreKey,
+			Changeset: proto.ChangeSet{
+				Pairs: deletes,
+			},
+		}}))
+	} else {
+		require.NoError(t, cs.ApplyChangeSets(nil))
+	}
+	return processed, len(deletes)
+}
+
+func requireEVMStorageKeysAbsentFromIterator(t *testing.T, cs *CompositeCommitStore, absentKeys ...[]byte) {
+	t.Helper()
+	absent := make(map[string]struct{}, len(absentKeys))
+	for _, key := range absentKeys {
+		absent[string(key)] = struct{}{}
+	}
+
+	iter, err := cs.Iterator(keys.EVMStoreKey, keys.StateKeyPrefix(), []byte{0x04}, true)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, iter.Close()) }()
+	for ; iter.Valid(); iter.Next() {
+		_, forbidden := absent[string(iter.Key())]
+		require.Falsef(t, forbidden, "pruned zero-storage key %x must not appear in composite iterator", iter.Key())
+	}
+	require.NoError(t, iter.Error())
+}
+
+func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T) {
+	dir := t.TempDir()
+	zeroKeyBeforeBoundary := evmStorageTestKey(0x01)
+	nonZeroKey := evmStorageTestKey(0x02)
+	zeroKeyAfterBoundary := evmStorageTestKey(0x03)
+
+	memCfg := config.DefaultStateCommitConfig()
+	memCfg.WriteMode = types.MemiavlOnly
+	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: zeroKeyBeforeBoundary, Value: zeroStorageTestValue()},
+			{Key: nonZeroKey, Value: evmStorageTestValue(0x22)},
+			{Key: zeroKeyAfterBoundary, Value: zeroStorageTestValue()},
+		}},
+	}}))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+	require.NoError(t, cs.Close())
+
+	cs = reopenInMigrateEVM(t, dir, 1)
+
+	processed, deleted := pruneZeroStorageViaRoutedGet(t, cs, 10)
+	require.Equal(t, 3, processed)
+	require.Equal(t, 2, deleted)
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	for _, key := range [][]byte{zeroKeyBeforeBoundary, zeroKeyAfterBoundary} {
+		value, found, err := cs.Get(keys.EVMStoreKey, key)
+		require.NoError(t, err)
+		require.Falsef(t, found, "pruned zero-storage key %x must be logically absent", key)
+		require.Nil(t, value)
+	}
+	value, found, err := cs.Get(keys.EVMStoreKey, nonZeroKey)
+	require.NoError(t, err)
+	require.True(t, found, "non-zero storage key must survive prune")
+	require.Equal(t, evmStorageTestValue(0x22), value)
+	requireEVMStorageKeysAbsentFromIterator(t, cs, zeroKeyBeforeBoundary, zeroKeyAfterBoundary)
+
+	workload := newMigrationWorkload(0x5150)
+	runUntilMigrationComplete(t, cs, workload, 20)
+	for _, key := range [][]byte{zeroKeyBeforeBoundary, zeroKeyAfterBoundary} {
+		value, found, err := cs.Get(keys.EVMStoreKey, key)
+		require.NoError(t, err)
+		require.Falsef(t, found, "pruned zero-storage key %x must remain absent after migration completes", key)
+		require.Nil(t, value)
+	}
+	value, found, err = cs.Get(keys.EVMStoreKey, nonZeroKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, evmStorageTestValue(0x22), value)
+	requireEVMStorageKeysAbsentFromIterator(t, cs, zeroKeyBeforeBoundary, zeroKeyAfterBoundary)
+	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+
+	preFlipVersion := cs.Version()
+	preFlipHash := append([]byte(nil), cs.flatKV.CommittedRootHash()...)
+	require.NoError(t, cs.Close())
+
+	finalCfg := evmMigratedConfig()
+	finalCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cs, err = NewCompositeCommitStore(t.Context(), dir, finalCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+
+	require.Equal(t, preFlipVersion, cs.Version())
+	require.Equal(t, preFlipHash, cs.flatKV.CommittedRootHash())
+	for _, key := range [][]byte{zeroKeyBeforeBoundary, zeroKeyAfterBoundary} {
+		value, found, err := cs.Get(keys.EVMStoreKey, key)
+		require.NoError(t, err)
+		require.Falsef(t, found, "pruned zero-storage key %x must remain absent after EVMMigrated reopen", key)
+		require.Nil(t, value)
+	}
+	value, found, err = cs.Get(keys.EVMStoreKey, nonZeroKey)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, evmStorageTestValue(0x22), value)
+	requireEVMStorageKeysAbsentFromIterator(t, cs, zeroKeyBeforeBoundary, zeroKeyAfterBoundary)
+	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+}
+
 // runUntilMigrationComplete drives the workload through commits until
 // the flatkv migration-version key reaches Version1_MigrateEVM. Fails
 // the test if completion takes more than maxBlocks (guards against a
@@ -403,6 +564,43 @@ func requireOracleMatches(t *testing.T, cs *CompositeCommitStore, oracle map[mig
 	}
 }
 
+// requireEVMIteratorMatchesOracle iterates the composite's EVM store over
+// the full logical key range and asserts the merged stream equals exactly
+// the EVM entries in oracle, in ascending key order. During an in-flight
+// migration the EVM keyspace is split across both backends (un-migrated
+// keys in memiavl, migrated keys in flatkv), so this directly exercises
+// composite.iterate's cross-backend stitching: the merged result must be a
+// single, correctly-ordered, duplicate-free view of the union.
+//
+// The bounds [0x00, 0xff) cover every key the workload emits (storage-kind
+// EVM keys all share the 0x03 prefix), and start/end are non-nil as
+// composite.iterate requires.
+func requireEVMIteratorMatchesOracle(t *testing.T, cs *CompositeCommitStore, oracle map[migKeyPair][]byte) {
+	t.Helper()
+
+	type kvPair struct{ k, v string }
+	var want []kvPair
+	for kp, v := range oracle {
+		if kp.store == keys.EVMStoreKey {
+			want = append(want, kvPair{kp.key, string(v)})
+		}
+	}
+	sort.Slice(want, func(i, j int) bool { return want[i].k < want[j].k })
+
+	iter, err := cs.Iterator(keys.EVMStoreKey, []byte{0x00}, []byte{0xff}, true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer func() { _ = iter.Close() }()
+
+	var got []kvPair
+	for ; iter.Valid(); iter.Next() {
+		got = append(got, kvPair{string(iter.Key()), string(iter.Value())})
+	}
+	require.NoError(t, iter.Error())
+	require.Equal(t, want, got,
+		"composite EVM iteration must equal the oracle (merged memiavl+flatkv stream)")
+}
+
 // TestComposite_MigrateEVM_HappyPath drives the full MemiavlOnly ->
 // MigrateEVM lifecycle through the production CompositeCommitStore
 // entry point. The migration-package TestMigrateEVM covers the
@@ -436,7 +634,14 @@ func TestComposite_MigrateEVM_HappyPath(t *testing.T) {
 	// cycle. This is the read-transparency invariant (I3): the boundary
 	// between memiavl-resident and flatkv-resident EVM keys must not
 	// be observable through the composite Get path.
-	requireOracleMatches(t, cs, workload.snapshotOracle())
+	midFlightOracle := workload.snapshotOracle()
+	requireOracleMatches(t, cs, midFlightOracle)
+
+	// Same invariant for iteration: with the migration in flight the EVM
+	// keyspace is split across memiavl (un-migrated) and flatkv
+	// (migrated), so composite.Iterator must stitch both backends into a
+	// single ordered stream that exactly equals the oracle.
+	requireEVMIteratorMatchesOracle(t, cs, midFlightOracle)
 
 	// Drive blocks until the boundary closes. 200 is generous; the
 	// expected count is < 100 even with full churn.
@@ -444,6 +649,11 @@ func TestComposite_MigrateEVM_HappyPath(t *testing.T) {
 
 	finalOracle := workload.snapshotOracle()
 	requireOracleMatches(t, cs, finalOracle)
+
+	// Post-migration all EVM data lives in flatkv; iteration must still
+	// return the full, correctly-ordered set from the (now sole) backend
+	// holding the data.
+	requireEVMIteratorMatchesOracle(t, cs, finalOracle)
 
 	// I2: memiavl's evm tree must be empty post-migration. All evm
 	// data lives in flatkv at this point; if memiavl still has any
@@ -486,7 +696,7 @@ func TestComposite_MigrateEVM_CrashAndResume(t *testing.T) {
 		workload := newMigrationWorkload(seed)
 
 		memCfg := config.DefaultStateCommitConfig()
-		memCfg.WriteMode = config.MemiavlOnly
+		memCfg.WriteMode = types.MemiavlOnly
 		memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 		require.NoError(t, err)
@@ -575,7 +785,7 @@ func TestComposite_MigrateEVM_DeterministicAcrossTwoStores(t *testing.T) {
 		workload := newMigrationWorkload(seed)
 
 		memCfg := config.DefaultStateCommitConfig()
-		memCfg.WriteMode = config.MemiavlOnly
+		memCfg.WriteMode = types.MemiavlOnly
 		memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 		require.NoError(t, err)
@@ -678,4 +888,351 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 	t.Cleanup(func() { _ = iter.Close() })
 	require.False(t, iter.Valid(),
 		"post-flip memiavl evm tree must remain empty (EVM writes route to flatkv)")
+}
+
+// cloneCommitInfo deep-copies a *proto.CommitInfo so a captured snapshot
+// survives later commits / reopens that mutate the live store.
+func cloneCommitInfo(ci *proto.CommitInfo) *proto.CommitInfo {
+	if ci == nil {
+		return nil
+	}
+	out := &proto.CommitInfo{
+		Version:    ci.Version,
+		StoreInfos: make([]proto.StoreInfo, len(ci.StoreInfos)),
+	}
+	for i, si := range ci.StoreInfos {
+		out.StoreInfos[i] = proto.StoreInfo{
+			Name: si.Name,
+			CommitId: proto.CommitID{
+				Version: si.CommitId.Version,
+				Hash:    append([]byte(nil), si.CommitId.Hash...),
+			},
+		}
+	}
+	return out
+}
+
+// requireCommitInfoEqual asserts two commit infos carry the same version
+// and the same per-store hashes. It compares name->hex maps so a failure
+// names exactly which store (e.g. evm_lattice vs a memiavl module)
+// diverged and by how much, rather than dumping opaque byte slices.
+func requireCommitInfoEqual(t *testing.T, want, got *proto.CommitInfo, msg string) {
+	t.Helper()
+	require.NotNilf(t, want, "%s: no canonical commit info captured", msg)
+	require.NotNilf(t, got, "%s: got nil commit info", msg)
+	require.Equalf(t, want.Version, got.Version, "%s: version", msg)
+
+	hashByName := func(ci *proto.CommitInfo) map[string]string {
+		m := make(map[string]string, len(ci.StoreInfos))
+		for _, si := range ci.StoreInfos {
+			m[si.Name] = hex.EncodeToString(si.CommitId.Hash)
+		}
+		return m
+	}
+	require.Equalf(t, hashByName(want), hashByName(got), "%s: per-store hashes", msg)
+}
+
+// rollbackSnapSettings selects the snapshot cadence applied to both
+// backends in the rollback reproduction test. Zero disables periodic
+// snapshots (everything replays from the genesis snapshot); a small
+// positive interval forces snapshots mid-run so rollback must seek a
+// snapshot below the target and discard snapshots above it.
+type rollbackSnapSettings struct {
+	memiavlInterval uint32
+	flatkvInterval  uint32
+}
+
+// openCompositeForRollback opens a composite store with deterministic,
+// synchronous commit settings and the requested snapshot cadence. Used
+// by the rollback reproduction test so the same forward/rollback driver
+// runs with and without snapshot boundaries straddling the target.
+func openCompositeForRollback(
+	t *testing.T, dir string, mode types.WriteMode, batch int, snap rollbackSnapSettings,
+) *CompositeCommitStore {
+	t.Helper()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = mode
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cfg.MemIAVLConfig.SnapshotInterval = snap.memiavlInterval
+	// Disable the time throttle so snapshots fire on the block interval
+	// alone, and keep several so the rollback target sits below the
+	// newest snapshot but above an older retained one.
+	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	cfg.MemIAVLConfig.SnapshotKeepRecent = 5
+	cfg.FlatKVConfig.SnapshotInterval = snap.flatkvInterval
+	cfg.FlatKVConfig.SnapshotKeepRecent = 5
+
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(batch))
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	return cs
+}
+
+// TestComposite_MigrateEVM_RollbackAcrossActivationBoundary reproduces
+// the rollback failure at the memiavl-only -> migrate_evm activation
+// boundary. Blocks before the migration boundary commits are memiavl-only
+// AppHash blocks (no evm_lattice); once the boundary opens, later AppHashes
+// include the lattice. CompositeCommitStore.latticeAppendLatched latches to
+// true the first time it observes the open boundary. A node opened at a
+// post-activation height (latch=true) that is rolled back before activation
+// must invalidate that latch, or LastCommitInfo wrongly appends the stale
+// lattice and produces a non-canonical AppHash.
+func TestComposite_MigrateEVM_RollbackAcrossActivationBoundary(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0x5701)
+
+	const phase1Blocks = 8
+	const batch = 4
+
+	// Phase 1: MemiavlOnly bootstrap.
+	cs := openCompositeForRollback(t, dir, types.MemiavlOnly, batch, rollbackSnapSettings{})
+	for i := 0; i < phase1Blocks; i++ {
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(30, 0, 0, 5, 0)))
+		_, err := cs.Commit()
+		require.NoError(t, err)
+	}
+	// Capture the canonical pre-activation commit info. It must not carry
+	// the lattice because all consensus state still lives in memiavl.
+	target := int64(phase1Blocks)
+	canonicalTarget := cloneCommitInfo(cs.LastCommitInfo())
+	require.False(t, hasLattice(canonicalTarget),
+		"sanity: canonical pre-activation commit info must not contain evm_lattice")
+	require.NoError(t, cs.Close())
+
+	// Phase 2: MigrateEVM. Capture the canonical commit info at each
+	// version. Versions after activation must include the lattice.
+	cs = openCompositeForRollback(t, dir, types.MigrateEVM, batch, rollbackSnapSettings{})
+	canonical := map[int64]*proto.CommitInfo{}
+	const phase2Blocks = 10
+	for i := 0; i < phase2Blocks; i++ {
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(8, 4, 1, 2, 1)))
+		v, err := cs.Commit()
+		require.NoError(t, err)
+		canonical[v] = cloneCommitInfo(cs.LastCommitInfo())
+	}
+	finalVer := cs.Version()
+	require.NoError(t, cs.Close())
+
+	require.Contains(t, canonical, finalVer)
+	require.True(t, hasLattice(canonical[finalVer]),
+		"sanity: canonical post-activation commit info must contain evm_lattice")
+
+	// Reopen fresh at the latest (post-H_start) height, then roll back
+	// across the boundary exactly as `seid rollback` would.
+	//
+	// The CLI reads the latest commit info before rolling back (it
+	// prints "Initial App state height=.. hash=.."), and
+	// rootmulti.loadVersion itself calls scStore.LastCommitInfo()
+	// during load. Either path observes the open migration boundary at
+	// the post-activation height and latches latticeAppendLatched=true.
+	// We reproduce that read here so the rollback runs with the flag
+	// already latched, as it is in production.
+	cs = openCompositeForRollback(t, dir, types.MigrateEVM, batch, rollbackSnapSettings{})
+	preRollback := cs.LastCommitInfo()
+	require.True(t, hasLattice(preRollback),
+		"sanity: latest commit info is post-activation and must carry the lattice (this latches the flag)")
+
+	require.NoError(t, cs.Rollback(target))
+	require.Equal(t, target, cs.Version())
+
+	// In-process post-rollback view: the AppHash the `seid rollback` CLI
+	// prints and the value rootmulti caches in rs.lastCommitInfo. Before
+	// the latch reset in Rollback this wrongly included the evm_lattice
+	// for a pre-activation height.
+	require.False(t, hasLattice(cs.LastCommitInfo()),
+		"post-rollback commit info for a pre-activation height must not carry evm_lattice")
+	requireCommitInfoEqual(t, canonicalTarget, cs.LastCommitInfo(),
+		"post-rollback LastCommitInfo across the activation boundary (same process)")
+	require.NoError(t, cs.Close())
+
+	// Post-restart view: the AppHash `seid start` hands to Tendermint.
+	cs = openCompositeForRollback(t, dir, types.MigrateEVM, batch, rollbackSnapSettings{})
+	defer func() { _ = cs.Close() }()
+	require.Equal(t, target, cs.Version())
+	requireCommitInfoEqual(t, canonicalTarget, cs.LastCommitInfo(),
+		"post-restart LastCommitInfo across the activation boundary (fresh process)")
+}
+
+// hasLattice reports whether a commit info carries the synthetic
+// evm_lattice store info contributed by the flatkv backend.
+func hasLattice(ci *proto.CommitInfo) bool {
+	if ci == nil {
+		return false
+	}
+	for _, si := range ci.StoreInfos {
+		if si.Name == "evm_lattice" {
+			return true
+		}
+	}
+	return false
+}
+
+// TestComposite_MigrateEVM_RollbackRestoresCanonicalCommitInfo pins the
+// invariant that `seid rollback` violated on the mid-migration hstart-2
+// node: rolling a migrate_evm composite store back to version T must
+// reproduce the exact commit info (and therefore AppHash) the chain
+// committed at T during forward progress. If the post-rollback
+// LastCommitInfo diverges, Tendermint's handshake at restart fails with
+// "Did you reset Tendermint without resetting your application's data?"
+// because the app's AppHash no longer matches the value Tendermint
+// recorded for that height.
+//
+// The test captures the canonical commit info at every committed version
+// during forward migration, then reopens fresh (mirroring the CLI
+// constructing the app and loading latest), rolls back into the middle
+// of the run, and asserts the commit info matches — both immediately
+// after Rollback (the hash the CLI prints) and after a subsequent reopen
+// (the hash `seid start` hands to Tendermint).
+//
+// The snapshots_across_boundary subtest reproduces the production
+// conditions most likely to break rollback: both backends took periodic
+// snapshots, so the rollback target lands between an older retained
+// snapshot and newer snapshots that must be discarded and replayed past.
+func TestComposite_MigrateEVM_RollbackRestoresCanonicalCommitInfo(t *testing.T) {
+	cases := []struct {
+		name string
+		snap rollbackSnapSettings
+	}{
+		{name: "no_periodic_snapshots", snap: rollbackSnapSettings{}},
+		{name: "snapshots_across_boundary", snap: rollbackSnapSettings{memiavlInterval: 2, flatkvInterval: 2}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			workload := newMigrationWorkload(0x5701)
+
+			const phase1Blocks = 8
+			const phase2Blocks = 16
+			const batch = 4
+
+			// Phase 1: MemiavlOnly bootstrap so there is pre-migration
+			// state living on memiavl when the boundary opens.
+			cs := openCompositeForRollback(t, dir, types.MemiavlOnly, batch, tc.snap)
+			for i := 0; i < phase1Blocks; i++ {
+				require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(30, 0, 0, 5, 0)))
+				_, err := cs.Commit()
+				require.NoError(t, err)
+			}
+			require.NoError(t, cs.Close())
+
+			// Phase 2: MigrateEVM. Record the canonical commit info at
+			// each committed version. A small batch relative to the live
+			// EVM key count keeps the migration in progress across the
+			// whole run, so every captured version carries the
+			// evm_lattice store info.
+			cs = openCompositeForRollback(t, dir, types.MigrateEVM, batch, tc.snap)
+			canonical := map[int64]*proto.CommitInfo{}
+			for i := 0; i < phase2Blocks; i++ {
+				require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(8, 4, 1, 2, 1)))
+				v, err := cs.Commit()
+				require.NoError(t, err)
+				canonical[v] = cloneCommitInfo(cs.LastCommitInfo())
+			}
+
+			done, err := migration.IsAtVersion(flatKVReaderFor(cs), uint64(migration.Version1_MigrateEVM))
+			require.NoError(t, err)
+			require.False(t, done,
+				"migration must still be in progress for this test to exercise the migrate_evm rollback path")
+
+			finalVer := cs.Version()
+			require.NoError(t, cs.Close())
+
+			target := finalVer - 5
+			require.Contains(t, canonical, target, "target must be a captured version")
+
+			// Reopen fresh, mirroring `seid rollback` building the app
+			// via appCreator and LoadVersion(0), then perform the
+			// rollback exactly as rootmulti.RollbackToVersion does.
+			cs = openCompositeForRollback(t, dir, types.MigrateEVM, batch, tc.snap)
+			require.NoError(t, cs.Rollback(target))
+			require.Equal(t, target, cs.Version())
+
+			requireCommitInfoEqual(t, canonical[target], cs.LastCommitInfo(),
+				"post-rollback LastCommitInfo (the AppHash the CLI prints)")
+			require.NoError(t, cs.Close())
+
+			// Reopen once more, mirroring `seid start` after the
+			// rollback. The AppHash Tendermint validates during the
+			// handshake is derived from this freshly-loaded
+			// LastCommitInfo.
+			cs = openCompositeForRollback(t, dir, types.MigrateEVM, batch, tc.snap)
+			defer func() { _ = cs.Close() }()
+			require.Equal(t, target, cs.Version())
+			requireCommitInfoEqual(t, canonical[target], cs.LastCommitInfo(),
+				"post-restart LastCommitInfo (the AppHash `seid start` hands to Tendermint)")
+		})
+	}
+}
+
+// TestComposite_MigrateBank_RollbackAcrossCompletionBoundary is the
+// memiavl-side mirror of TestComposite_MigrateEVM_RollbackAcrossActivationBoundary.
+// Once the bank migration completes (version 3) a store with memiavl still
+// open latches memiavlHashExcluded=true and drops memiavl's per-store infos
+// from the commit info (the flatkv_only shape). Rolling back below the
+// completion boundary must re-include memiavl, or the in-process
+// post-rollback AppHash diverges from the canonical value the chain
+// committed at that height (which still carries the memiavl stores).
+func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xB0A7)
+	const batch = 8
+
+	cs := openAutoStore(t, dir, batch)
+
+	// Bootstrap bank+evm state under MemiavlOnly (bank-heavy so migrate_bank
+	// later spans several blocks), then walk the ladder to migrate_bank.
+	for i := 0; i < 12; i++ {
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(6, 0, 0, 40, 0)))
+		_, err := cs.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 400)
+	require.NoError(t, cs.SetWriteMode(types.EVMMigrated))
+	runBlocks(t, cs, workload, 2)
+	require.NoError(t, cs.SetWriteMode(types.MigrateAllButBank))
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version2_MigrateAllButBank, 400)
+	require.NoError(t, cs.SetWriteMode(types.AllMigratedButBank))
+	runBlocks(t, cs, workload, 2)
+
+	require.NoError(t, cs.SetWriteMode(types.MigrateBank))
+	require.Equal(t, types.MigrateBank, cs.currentWriteMode)
+
+	// One migrate_bank block that does not complete the migration: memiavl
+	// is still part of the AppHash here. Capture it as the rollback target.
+	require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 0, 2)))
+	_, err := cs.Commit()
+	require.NoError(t, err)
+	target := cs.Version()
+	canonicalTarget := cloneCommitInfo(cs.LastCommitInfo())
+	require.Greater(t, len(canonicalTarget.StoreInfos), 1,
+		"sanity: migrate_bank in-progress commit info must still include memiavl stores")
+
+	// Drive to bank completion while staying in currentWriteMode
+	// MigrateBank (do NOT flip to FlatKVOnly), so the rollback exercises the
+	// latch reset rather than a mode change. Reaching version 3 latches
+	// memiavlHashExcluded=true and drops memiavl from the commit info.
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version3_FlatKVOnly, 800)
+	require.Equal(t, []string{"evm_lattice"}, storeInfoNames(cs),
+		"once bank migration completes, memiavl infos are excluded (latches memiavlHashExcluded)")
+
+	// Roll back across the completion boundary. Without resetting
+	// memiavlHashExcluded the post-rollback commit info would keep the
+	// flatkv_only shape and drop memiavl.
+	require.NoError(t, cs.Rollback(target))
+	require.Equal(t, target, cs.Version())
+	requireCommitInfoEqual(t, canonicalTarget, cs.LastCommitInfo(),
+		"post-rollback commit info across the bank-completion boundary must re-include memiavl")
+	require.NoError(t, cs.Close())
+
+	// Fresh restart re-derives from the rolled-back metadata and must agree.
+	cs = openAutoStore(t, dir, batch)
+	defer func() { _ = cs.Close() }()
+	require.Equal(t, target, cs.Version())
+	requireCommitInfoEqual(t, canonicalTarget, cs.LastCommitInfo(),
+		"post-restart commit info across the bank-completion boundary must re-include memiavl")
 }

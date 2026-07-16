@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
-	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 )
 
 // defaultDirPerm is the default permissions used when creating directories.
@@ -142,6 +141,36 @@ genesis-file = "{{ js .BaseConfig.Genesis }}"
 node-key-file = "{{ js .BaseConfig.NodeKey }}"
 
 #######################################################################
+###                   Autobahn Configuration                        ###
+#######################################################################
+
+# Path to a JSON file containing the Autobahn (GigaRouter) configuration.
+# Leave empty to disable Autobahn. The autobahn role follows the top-level
+# "mode" field: mode = "validator" runs the validator path; any other mode
+# runs as a fullnode that loads the committee for routing only and
+# forwards eth_sendRawTransaction to the shard owner. A warning is logged
+# at startup if mode disagrees with committee membership.
+#
+# Placed here (as a top-level key, before any [section] header) so the
+# TOML parser sees it at root scope where mapstructure expects it — viper
+# would otherwise nest it under the immediately preceding section.
+autobahn-config-file = "{{ .AutobahnConfigFile }}"
+
+# hash-vault-disabled-unsafe disables the app-hash equivocation guard (HashVault).
+# DO NOT set this to true unless you are knowingly running an UNSAFE node as a last-resort
+# recovery measure. A node with this enabled has NO protection against changing its mind about
+# a committed block's app hash, and will log error-level warnings on every startup.
+#
+# It is safer to leave HashVault enabled: if you hit a startup panic, first remove the HashVault
+# files as instructed in the panic message and let the node run. Only disable HashVault if you are
+# very sure the stored hashes are totally wrong and you keep hitting the same panic on new blocks.
+#
+# Placed here (as a top-level key, before any [section] header) so the TOML parser sees it at
+# root scope where mapstructure expects it — viper would otherwise nest it under the
+# immediately preceding section.
+hash-vault-disabled-unsafe = {{ .HashVaultDisabledUnsafe }}
+
+#######################################################################
 ###                 Advanced Configuration Options                  ###
 #######################################################################
 
@@ -244,6 +273,18 @@ pprof-laddr = "{{ .RPC.PprofListenAddress }}"
 
 # timeout for any read request
 timeout-read = "{{ .RPC.TimeoutRead }}"
+
+# timeout to read HTTP request headers; mitigates slowloris attacks.
+# Set to "0s" to disable (not recommended).
+timeout-read-header = "{{ .RPC.TimeoutReadHeader }}"
+
+# HTTP write timeout; acts as a hard backstop for all handlers.
+# Set to "0s" to disable (not recommended).
+timeout-write = "{{ .RPC.TimeoutWrite }}"
+
+# Maximum number of results returned by tx_search and block_search.
+# Set to 0 to disable the cap (not recommended on public nodes).
+max-tx-search-results = {{ .RPC.MaxTxSearchResults }}
 
 #######################################################################
 ###           P2P Configuration Options                             ###
@@ -576,9 +617,6 @@ prometheus-listen-addr = "{{ .Instrumentation.PrometheusListenAddr }}"
 # 0 - unlimited.
 max-open-connections = {{ .Instrumentation.MaxOpenConnections }}
 
-# Instrumentation namespace
-namespace = "{{ .Instrumentation.Namespace }}"
-
 #######################################################################
 ###       Priv Validator Configuration (Auto-managed)              ###
 #######################################################################
@@ -627,11 +665,6 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 
 # Cooldown between each restart
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
-
-# Path to a JSON file containing the Autobahn (GigaRouter) configuration.
-# Leave empty to disable Autobahn.
-autobahn-config-file = "{{ .AutobahnConfigFile }}"
-
 `
 
 // defaultConfigTemplate combines manual and auto-managed templates for backward compatibility
@@ -686,7 +719,6 @@ func ResetTestRootWithChainID(dir, testName string, chainID string) (*Config, er
 
 	config := TestConfig().SetRoot(rootDir)
 	config.P2P.ListenAddress = tcp.TestReserveAddr().String()
-	config.Instrumentation.Namespace = fmt.Sprintf("%s_%s_%s", testName, chainID, tmrand.Str(16))
 	return config, nil
 }
 

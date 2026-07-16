@@ -3,21 +3,26 @@ package avail
 import (
 	"log/slog"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/seilog"
 )
 
 var logger = seilog.NewLogger("tendermint", "internal", "autobahn", "avail")
 
+type voteSet[V any] struct {
+	weight uint64
+	votes  []V
+}
+
 type appVotes struct {
 	byKey  map[types.PublicKey]*types.Signed[*types.AppVote]
-	byHash map[types.Hash[*types.AppVote]][]*types.Signed[*types.AppVote]
+	byHash map[types.Hash[*types.AppVote]]*voteSet[*types.Signed[*types.AppVote]]
 }
 
 func newAppVotes() appVotes {
 	return appVotes{
 		byKey:  map[types.PublicKey]*types.Signed[*types.AppVote]{},
-		byHash: map[types.Hash[*types.AppVote]][]*types.Signed[*types.AppVote]{},
+		byHash: map[types.Hash[*types.AppVote]]*voteSet[*types.Signed[*types.AppVote]]{},
 	}
 }
 
@@ -28,12 +33,21 @@ func (av appVotes) pushVote(c *types.Committee, vote *types.Signed[*types.AppVot
 		return nil, false
 	}
 	av.byKey[k] = vote
-	av.byHash[vote.Hash()] = append(av.byHash[vote.Hash()], vote)
-	if len(av.byKey) == c.AppQuorum() && len(av.byHash) > 1 {
-		logger.Error("appHash missmatch", slog.Uint64("n", uint64(vote.Msg().Proposal().GlobalNumber())))
+	byHash, ok := av.byHash[vote.Hash()]
+	if !ok {
+		if len(av.byHash) == 1 {
+			logger.Error("appHash mismatch", slog.Uint64("n", uint64(vote.Msg().Proposal().GlobalNumber())))
+		}
+		byHash = &voteSet[*types.Signed[*types.AppVote]]{}
+		av.byHash[vote.Hash()] = byHash
 	}
-	if vs := av.byHash[vote.Hash()]; len(vs) == c.AppQuorum() {
-		return types.NewAppQC(vs), true
+	if byHash.weight >= c.AppQuorum() {
+		return nil, false
+	}
+	byHash.weight += c.Weight(k)
+	byHash.votes = append(byHash.votes, vote)
+	if byHash.weight >= c.AppQuorum() {
+		return types.NewAppQC(byHash.votes), true
 	}
 	return nil, false
 }

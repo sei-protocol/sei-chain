@@ -234,12 +234,12 @@ INSERT INTO `+tableTxResults+` (block_id, index, created_at, tx_hash, tx_result)
 }
 
 // SearchBlockEvents is not implemented by this sink, and reports an error for all queries.
-func (es *EventSink) SearchBlockEvents(ctx context.Context, q *query.Query) ([]int64, error) {
+func (es *EventSink) SearchBlockEvents(ctx context.Context, q *query.Query, opts indexer.SearchOptions) ([]int64, error) {
 	return nil, errors.New("block search is not supported via the postgres event sink")
 }
 
 // SearchTxEvents is not implemented by this sink, and reports an error for all queries.
-func (es *EventSink) SearchTxEvents(ctx context.Context, q *query.Query) ([]*abci.TxResultV2, error) {
+func (es *EventSink) SearchTxEvents(ctx context.Context, q *query.Query, opts indexer.SearchOptions) ([]*abci.TxResultV2, error) {
 	return nil, errors.New("tx search is not supported via the postgres event sink")
 }
 

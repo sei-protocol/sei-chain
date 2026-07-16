@@ -30,6 +30,10 @@ type Config struct {
 	// See https://godoc.org/net/http#Server.ReadTimeout
 	ReadTimeout time.Duration
 
+	// Limits the time allowed to read request headers, mitigating slowloris attacks.
+	// See https://pkg.go.dev/net/http#Server.ReadHeaderTimeout
+	ReadHeaderTimeout time.Duration
+
 	// Used to set the HTTP server's per-request write timeout.  Note that this
 	// affects ALL methods on the server, so it should not be set too low. This
 	// should be used as a safety valve, not a resource-control timeout.
@@ -51,7 +55,8 @@ func DefaultConfig() *Config {
 	return &Config{
 		MaxOpenConnections: 0, // unlimited
 		ReadTimeout:        10 * time.Second,
-		WriteTimeout:       0,       // no default timeout
+		ReadHeaderTimeout:  10 * time.Second,
+		WriteTimeout:       30 * time.Second,
 		MaxBodyBytes:       1000000, // 1MB
 		MaxHeaderBytes:     1 << 20, // same as the net/http default
 	}
@@ -63,10 +68,11 @@ func Serve(ctx context.Context, listener net.Listener, handler http.Handler, con
 	logger.Info("starting RPC HTTP server", "addr", listener.Addr())
 	h := recoverAndLogHandler(MaxBytesHandler(handler, config.MaxBodyBytes))
 	s := &http.Server{
-		Handler:        h,
-		ReadTimeout:    config.ReadTimeout,
-		WriteTimeout:   config.WriteTimeout,
-		MaxHeaderBytes: config.MaxHeaderBytes,
+		Handler:           h,
+		ReadTimeout:       config.ReadTimeout,
+		ReadHeaderTimeout: config.ReadHeaderTimeout,
+		WriteTimeout:      config.WriteTimeout,
+		MaxHeaderBytes:    config.MaxHeaderBytes,
 	}
 	sig := make(chan struct{})
 	go func() {
@@ -97,10 +103,11 @@ func ServeTLS(ctx context.Context, listener net.Listener, handler http.Handler, 
 		"keyFile", keyFile)
 
 	s := &http.Server{
-		Handler:        recoverAndLogHandler(MaxBytesHandler(handler, config.MaxBodyBytes)),
-		ReadTimeout:    config.ReadTimeout,
-		WriteTimeout:   config.WriteTimeout,
-		MaxHeaderBytes: config.MaxHeaderBytes,
+		Handler:           recoverAndLogHandler(MaxBytesHandler(handler, config.MaxBodyBytes)),
+		ReadTimeout:       config.ReadTimeout,
+		ReadHeaderTimeout: config.ReadHeaderTimeout,
+		WriteTimeout:      config.WriteTimeout,
+		MaxHeaderBytes:    config.MaxHeaderBytes,
 	}
 	sig := make(chan struct{})
 	go func() {

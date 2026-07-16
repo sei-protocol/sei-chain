@@ -62,7 +62,7 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 
 	require.Equal(t, uint64(1), resCtx.EVMNonce())
 	require.Equal(t, sender, resCtx.EVMSenderAddress())
-	require.Equal(t, tx.Hash().Hex(), resCtx.EVMTxHash())
+	require.Equal(t, tx.Hash(), resCtx.EVMTxHash())
 	require.Equal(t, true, resCtx.IsEVM())
 
 	// should return error if acc is not found (i.e. preprocess not called)

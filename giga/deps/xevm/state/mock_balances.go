@@ -59,13 +59,11 @@ func (s *DBImpl) topOffAccount(seiAddr sdk.AccAddress, amt *big.Int) {
 		s.k.AccountKeeper().SetAccount(s.ctx, s.k.AccountKeeper().NewAccountWithAddress(s.ctx, seiAddr))
 	}
 
-	// Mint and send (use NopLogger to suppress log spam)
 	usei, wei := SplitUseiWeiAmount(amt)
 	coinsAmt := sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei.Add(sdk.OneInt())))
-	ctx := s.ctx
-	if err := s.k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt); err != nil {
+	if err := s.k.BankKeeper().MintCoins(s.ctx, types.ModuleName, coinsAmt); err != nil {
 		return
 	}
 	moduleAddr := s.k.AccountKeeper().GetModuleAddress(types.ModuleName)
-	_ = s.k.BankKeeper().SendCoinsAndWei(ctx, moduleAddr, seiAddr, usei, wei)
+	_ = s.k.BankKeeper().SendCoinsAndWei(s.ctx, moduleAddr, seiAddr, usei, wei)
 }

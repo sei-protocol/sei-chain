@@ -2,8 +2,6 @@ package state
 
 import (
 	"bytes"
-	"slices"
-	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -15,35 +13,34 @@ import (
 )
 
 func (s *DBImpl) CreateAccount(acc common.Address) {
-	// clear any existing state but keep balance untouched, journaled for revert
+	// clear any existing state but keep balance untouched
 	if !s.ctx.IsTracing() {
 		// too slow on historical DB so not doing it for tracing for now.
 		// could cause tracing to be incorrect in theory.
-		s.clearAccountStateJournaled(acc)
+		s.clearAccountState(acc)
 	}
 	s.MarkAccount(acc, AccountCreated)
 }
 
 func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
-	return s.k.GetState(s.committedCtx, addr, hash)
+	return s.getState(s.snapshottedCtxs[0], addr, hash)
 }
 
 func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
-	return s.k.GetState(s.ctx, addr, hash)
+	return s.getState(s.ctx, addr, hash)
+}
+
+func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash) common.Hash {
+	return s.k.GetState(ctx, addr, hash)
 }
 
 func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) common.Hash {
 	old := s.GetState(addr, key)
-	if old == val {
-		s.k.SetState(s.ctx, addr, key, val)
-		return old
-	}
 	if s.logger != nil && s.logger.OnStorageChange != nil {
 		s.logger.OnStorageChange(addr, key, old, val)
 	}
 
 	s.k.SetState(s.ctx, addr, key, val)
-	s.journal = append(s.journal, &storageChange{addr: addr, key: key, prev: old})
 	return old
 }
 
@@ -77,7 +74,6 @@ func (s *DBImpl) SelfDestruct(acc common.Address) uint256.Int {
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
 		// remove the association
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
-		s.journal = append(s.journal, &deleteMappingChange{evmAddr: acc, seiAddr: seiAddr})
 	}
 	b := s.GetBalance(acc)
 	s.SubBalance(acc, b, tracing.BalanceDecreaseSelfdestruct)
@@ -105,46 +101,68 @@ func (s *DBImpl) HasSelfDestructed(acc common.Address) bool {
 	return bytes.Equal(val, AccountDeleted)
 }
 
-// Snapshot records the current journal length as a revision and pushes the current
-// EventManager onto the stack, creating a fresh one for subsequent events.
-func (s *DBImpl) Snapshot() int {
-	id := s.nextRevisionId
-	s.nextRevisionId++
-	s.validRevisions = append(s.validRevisions, revision{
-		id:           id,
-		journalIndex: len(s.journal),
-	})
-	// Push current EM and create a fresh one so reverted events are discarded.
-	s.snapshottedEventManagers = append(s.snapshottedEventManagers, s.ctx.EventManager())
-	s.ctx = s.ctx.WithEventManager(sdk.NewEventManager())
-	return id
+// AnySelfDestructed reports whether any account was self-destructed in this tx,
+// letting callers fall back to v2 before Finalize iterates the store and panics.
+func (s *DBImpl) AnySelfDestructed() bool {
+	for _, status := range s.tempState.transientAccounts {
+		if bytes.Equal(status, AccountDeleted) {
+			return true
+		}
+	}
+	return false
 }
 
-// RevertToSnapshot reverts all journal entries back to the snapshot identified by rev,
-// restores the EventManager, and truncates the revision list.
+func (s *DBImpl) Snapshot() int {
+	oldMS := s.ctx.MultiStore()
+	newCtx := s.ctx.WithMultiStore(oldMS.CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	// Freeze the superseded layer so deeper layers can skip it for reads while it
+	// stays empty; this keeps a Cosmos read at call depth N from walking all N
+	// nested cache layers (quadratic). Never freeze the base layer
+	// (snapshottedCtxs[0]) — it is the flush target and is read directly by
+	// GetCommittedState. See x/evm/state/state.go for the full rationale.
+	if len(s.snapshottedCtxs) > 0 {
+		if f, ok := oldMS.(interface{ Freeze() }); ok {
+			f.Freeze()
+		}
+	}
+	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
+	s.ctx = newCtx
+	version := len(s.snapshottedCtxs) - 1
+	s.journal = append(s.journal, &watermark{version: version})
+	return len(s.snapshottedCtxs) - 1
+}
+
 func (s *DBImpl) RevertToSnapshot(rev int) {
-	// Binary-search for the revision with the given id (like go-ethereum).
-	idx := sort.Search(len(s.validRevisions), func(i int) bool {
-		return s.validRevisions[i].id >= rev
-	})
-	if idx == len(s.validRevisions) || s.validRevisions[idx].id != rev {
+	// Add bounds checking
+	if rev < 0 || rev >= len(s.snapshottedCtxs) {
 		panic("invalid revision number")
 	}
-	snapshot := s.validRevisions[idx]
 
-	// Revert journal entries in reverse order down to the snapshot point.
-	for i := len(s.journal) - 1; i >= snapshot.journalIndex; i-- {
-		s.journal[i].revert(s)
+	s.ctx = s.snapshottedCtxs[rev]
+	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
+
+	// The re-exposed layer is the writable top again; unfreeze it so reads no
+	// longer skip it (Snapshot froze it when it was superseded). See
+	// x/evm/state/state.go for the rationale.
+	if f, ok := s.ctx.MultiStore().(interface{ Unfreeze() }); ok {
+		f.Unfreeze()
 	}
-	s.journal = s.journal[:snapshot.journalIndex]
 
-	// Restore the EventManager that was active when the snapshot was taken.
-	// snapshottedEventManagers has one entry per snapshot; idx corresponds to this snapshot.
-	s.ctx = s.ctx.WithEventManager(s.snapshottedEventManagers[idx])
-	s.snapshottedEventManagers = s.snapshottedEventManagers[:idx]
+	// Find the watermark index to truncate the journal
+	watermarkIndex := -1
+	for i := len(s.journal) - 1; i >= 0; i-- {
+		entry := s.journal[i]
+		entry.revert(s)
+		if wm, ok := entry.(*watermark); ok && wm.version == rev {
+			watermarkIndex = i
+			break
+		}
+	}
 
-	// Truncate the revision list (removing this snapshot and any taken after it).
-	s.validRevisions = s.validRevisions[:idx]
+	// Truncate the journal to remove reverted entries
+	if watermarkIndex >= 0 {
+		s.journal = s.journal[:watermarkIndex]
+	}
 }
 
 func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
@@ -173,8 +191,6 @@ func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
 	}
 }
 
-// clearAccountState unconditionally wipes code and storage for acc.
-// Used by Finalize (self-destruct cleanup) and SetStorage. NOT journaled.
 func (s *DBImpl) clearAccountState(acc common.Address) {
 	if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:]) {
 		s.k.PurgePrefix(s.ctx, types.StateKey(acc))
@@ -182,56 +198,6 @@ func (s *DBImpl) clearAccountState(acc common.Address) {
 		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
 		deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
 	}
-}
-
-// clearAccountStateJournaled wipes code, nonce, and storage for acc, recording
-// the previous values in the journal so a RevertToSnapshot can restore them.
-// Called from CreateAccount (when not tracing).
-func (s *DBImpl) clearAccountStateJournaled(acc common.Address) {
-	// Only clear if a code hash exists (mirrors clearAccountState logic).
-	codeHashStore := s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix)
-	if !codeHashStore.Has(acc[:]) {
-		return
-	}
-
-	// Save previous state for potential revert.
-	codeStore := s.k.PrefixStore(s.ctx, types.CodeKeyPrefix)
-	prevCode := codeStore.Get(acc[:])
-	prevCodeExists := prevCode != nil
-	prevNonce := s.k.GetNonce(s.ctx, acc)
-	prevNonceExists := s.k.PrefixStore(s.ctx, types.NonceKeyPrefix).Has(acc[:])
-
-	// Collect all storage slots for this account using GetAllKeyStrsInRange.
-	// The prefix store's GetAllKeyStrsInRange returns raw parent-store keys,
-	// so we strip the per-address state prefix to obtain each slot hash.
-	prevSlots := make(map[common.Hash]common.Hash)
-	statePrefix := types.StateKey(acc)
-	stateStore := s.k.PrefixStore(s.ctx, statePrefix)
-	rawKeys := stateStore.GetAllKeyStrsInRange(nil, nil)
-	prefixLen := len(statePrefix)
-	for _, raw := range rawKeys {
-		if len(raw) <= prefixLen {
-			continue
-		}
-		slotKey := common.BytesToHash([]byte(raw)[prefixLen:])
-		slotVal := s.k.GetState(s.ctx, acc, slotKey)
-		if slotVal != (common.Hash{}) {
-			prevSlots[slotKey] = slotVal
-		}
-	}
-
-	// Append journal entry before making changes.
-	s.journal = append(s.journal, &createAccountChange{
-		addr:            acc,
-		prevCode:        slices.Clone(prevCode),
-		prevCodeExists:  prevCodeExists,
-		prevNonce:       prevNonce,
-		prevNonceExists: prevNonceExists,
-		prevSlots:       prevSlots,
-	})
-
-	// Clear the account state.
-	s.clearAccountState(acc)
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {

@@ -3,11 +3,11 @@ package mempool
 import (
 	"errors"
 	"fmt"
-	"math/big"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -16,7 +16,13 @@ import (
 )
 
 func newTxStoreForTest() *txStore {
-	return NewTxStore(TestConfig(), proxy.New(kvstore.NewApplication(), proxy.NopMetrics()), NopMetrics())
+	return NewTxStore(TestConfig(), proxy.New(kvstore.NewApplication()))
+}
+
+func txStoreCacheRemove(txStore *txStore, txHash types.TxHash) {
+	for inner := range txStore.inner.Lock() {
+		inner.cache.Remove(txHash)
+	}
 }
 
 func txStoreStateForTest(ready, pending []*WrappedTx) txStoreState {
@@ -122,7 +128,8 @@ func (e *testEnv) readyTxs() []*WrappedTx {
 			if !ok {
 				break
 			}
-			if int(wtx.evm.OrPanic("").requiredBalance.Int64()) > balance {
+			requiredBalance := wtx.evm.OrPanic("").requiredBalance
+			if requiredBalance.CmpUint64(uint64(balance)) > 0 {
 				break
 			}
 			ready = append(ready, wtx)
@@ -155,6 +162,14 @@ func toTxs(wtxs []*WrappedTx) types.Txs {
 	return txs
 }
 
+func genEvmHash(rng utils.Rng) common.Hash {
+	return common.BytesToHash(utils.GenBytes(rng, common.HashLength))
+}
+
+func genEvmAddress(rng utils.Rng) common.Address {
+	return common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+}
+
 func makeEvmTxForTest(
 	rng utils.Rng,
 	address common.Address,
@@ -171,8 +186,9 @@ func makeEvmTxForTest(
 		evm: utils.Some(evmTx{
 			address:         address,
 			seiAddress:      address.Bytes(),
+			hash:            genEvmHash(rng),
 			nonce:           nonce,
-			requiredBalance: big.NewInt(int64(requiredBalance)),
+			requiredBalance: *uint256.NewInt(uint64(requiredBalance)),
 		}),
 	}
 }
@@ -229,6 +245,21 @@ func TestTxStore_GetTxByHash(t *testing.T) {
 	require.Equal(t, wtx.Tx(), res)
 }
 
+func TestTxStore_GetTxByEvmHash(t *testing.T) {
+	rng := utils.TestRng()
+	txs := newTxStoreForTest()
+	wtx := makeEvmTxForTest(rng, genEvmAddress(rng), 7, 1, 0)
+	hash := wtx.evm.OrPanic("evm tx").hash
+
+	res, ok := txs.ByEvmHash(hash)
+	require.False(t, ok)
+
+	require.NoError(t, txs.Insert(wtx))
+	res, ok = txs.ByEvmHash(hash)
+	require.True(t, ok)
+	require.Equal(t, wtx.Tx(), res)
+}
+
 func TestTxStore_SetTx(t *testing.T) {
 	txs := newTxStoreForTest()
 	wtx := &WrappedTx{
@@ -263,10 +294,10 @@ func TestTxStore_Size(t *testing.T) {
 func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 	rng := utils.TestRng()
 	app := newEVMNonceApp()
-	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NopMetrics()), NopMetrics())
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
 
 	makeTx := func(address common.Address, nonce uint64) *WrappedTx {
-		requiredBalance := big.NewInt(rng.Int63n(256))
+		requiredBalance := *uint256.NewInt(uint64(rng.Int63n(256)))
 		return &WrappedTx{
 			hashedTx:     newHashedTx(utils.GenBytes(rng, 32)),
 			timestamp:    time.Now(),
@@ -276,6 +307,7 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 			evm: utils.Some(evmTx{
 				address:         address,
 				seiAddress:      address.Bytes(),
+				hash:            genEvmHash(rng),
 				nonce:           nonce,
 				requiredBalance: requiredBalance,
 			}),
@@ -347,7 +379,7 @@ func testTxStoreUpdateExpiresTransactions(t *testing.T, removeExpiredTxsFromQueu
 	cfg.RemoveExpiredTxsFromQueue = removeExpiredTxsFromQueue
 
 	app := newEVMNonceApp()
-	txStore := NewTxStore(cfg, proxy.New(app, proxy.NopMetrics()), NopMetrics())
+	txStore := NewTxStore(cfg, proxy.New(app))
 	baseTime := time.Unix(1_700_000_000, 0)
 
 	makeTx := func(address common.Address, nonce uint64, height int64, timestamp time.Time) *WrappedTx {
@@ -361,8 +393,9 @@ func testTxStoreUpdateExpiresTransactions(t *testing.T, removeExpiredTxsFromQueu
 			evm: utils.Some(evmTx{
 				address:         address,
 				seiAddress:      address.Bytes(),
+				hash:            genEvmHash(rng),
 				nonce:           nonce,
-				requiredBalance: big.NewInt(0),
+				requiredBalance: uint256.Int{},
 			}),
 		}
 	}
@@ -444,8 +477,8 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 		removeExpiredFromQueue bool
 		wantReadyPresent       bool
 		wantPendingPresent     bool
-		wantReadyCached        bool
-		wantPendingCached      bool
+		wantReadyRejected      bool
+		wantPendingRejected    bool
 	}{
 		{
 			name:                   "remove expired and drop from cache",
@@ -453,8 +486,8 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			removeExpiredFromQueue: true,
 			wantReadyPresent:       false,
 			wantPendingPresent:     false,
-			wantReadyCached:        false,
-			wantPendingCached:      false,
+			wantReadyRejected:      false,
+			wantPendingRejected:    false,
 		},
 		{
 			name:                   "remove expired and keep in cache",
@@ -462,8 +495,8 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			removeExpiredFromQueue: true,
 			wantReadyPresent:       false,
 			wantPendingPresent:     false,
-			wantReadyCached:        true,
-			wantPendingCached:      true,
+			wantReadyRejected:      true,
+			wantPendingRejected:    true,
 		},
 		{
 			name:                   "keep expired ready and drop expired pending from cache",
@@ -471,8 +504,8 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			removeExpiredFromQueue: false,
 			wantReadyPresent:       true,
 			wantPendingPresent:     false,
-			wantReadyCached:        true,
-			wantPendingCached:      false,
+			wantReadyRejected:      true,
+			wantPendingRejected:    false,
 		},
 		{
 			name:                   "keep expired ready and keep expired pending in cache",
@@ -480,8 +513,8 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			removeExpiredFromQueue: false,
 			wantReadyPresent:       true,
 			wantPendingPresent:     false,
-			wantReadyCached:        true,
-			wantPendingCached:      true,
+			wantReadyRejected:      true,
+			wantPendingRejected:    true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -493,7 +526,7 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			cfg.RemoveExpiredTxsFromQueue = tc.removeExpiredFromQueue
 
 			app := newEVMNonceApp()
-			txStore := NewTxStore(cfg, proxy.New(app, proxy.NopMetrics()), NopMetrics())
+			txStore := NewTxStore(cfg, proxy.New(app))
 			env := newTestEnv(rng, txStore, app, 1)
 			address := env.accounts[0].address
 			env.app.setNonce(address, 7)
@@ -508,8 +541,9 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 				evm: utils.Some(evmTx{
 					address:         address,
 					seiAddress:      address.Bytes(),
+					hash:            genEvmHash(rng),
 					nonce:           7,
-					requiredBalance: big.NewInt(0),
+					requiredBalance: uint256.Int{},
 				}),
 			}
 			pending := &WrappedTx{
@@ -521,8 +555,9 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 				evm: utils.Some(evmTx{
 					address:         address,
 					seiAddress:      address.Bytes(),
+					hash:            genEvmHash(rng),
 					nonce:           8,
-					requiredBalance: big.NewInt(200),
+					requiredBalance: *uint256.NewInt(200),
 				}),
 			}
 
@@ -541,71 +576,50 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			_, pendingPresent := txStore.ByHash(pending.Hash())
 			require.Equal(t, tc.wantReadyPresent, readyPresent)
 			require.Equal(t, tc.wantPendingPresent, pendingPresent)
-			require.Equal(t, tc.wantReadyCached, txStore.CacheHas(ready.Hash()))
-			require.Equal(t, tc.wantPendingCached, txStore.CacheHas(pending.Hash()))
+			require.Equal(t, tc.wantReadyRejected, txStore.ShouldReject(ready.Hash()))
+			require.Equal(t, tc.wantPendingRejected, txStore.ShouldReject(pending.Hash()))
 		})
 	}
 }
 
-func TestTxStore_NoncePrunedTxCacheBehavior(t *testing.T) {
+func TestTxStore_NoncePrunedTxsRejectedAsOldNonce(t *testing.T) {
 	rng := utils.TestRng()
+	cfg := TestConfig()
+	cfg.CacheSize = 10
 
-	for _, tc := range []struct {
-		name                  string
-		keepInvalidTxsInCache bool
-		wantCached            bool
-	}{
-		{
-			name:                  "drop pruned txs from cache",
-			keepInvalidTxsInCache: false,
-			wantCached:            false,
-		},
-		{
-			name:                  "keep pruned txs in cache",
-			keepInvalidTxsInCache: true,
-			wantCached:            true,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := TestConfig()
-			cfg.CacheSize = 10
-			cfg.KeepInvalidTxsInCache = tc.keepInvalidTxsInCache
+	app := newEVMNonceApp()
+	txStore := NewTxStore(cfg, proxy.New(app))
+	env := newTestEnv(rng, txStore, app, 1)
+	address := env.accounts[0].address
+	env.app.setNonce(address, 7)
+	env.app.setBalance(address, 100)
 
-			app := newEVMNonceApp()
-			txStore := NewTxStore(cfg, proxy.New(app, proxy.NopMetrics()), NopMetrics())
-			env := newTestEnv(rng, txStore, app, 1)
-			address := env.accounts[0].address
-			env.app.setNonce(address, 7)
-			env.app.setBalance(address, 100)
+	prunedReady := makeEvmTxForTest(rng, address, 7, 10, 0)
+	prunedPending := makeEvmTxForTest(rng, address, 8, 20, 200)
+	require.NoError(t, txStore.Insert(prunedReady))
+	require.NoError(t, txStore.Insert(prunedPending))
 
-			prunedReady := makeEvmTxForTest(rng, address, 7, 10, 0)
-			prunedPending := makeEvmTxForTest(rng, address, 8, 20, 200)
-			require.NoError(t, txStore.Insert(prunedReady))
-			require.NoError(t, txStore.Insert(prunedPending))
+	env.app.setNonce(address, 9)
+	txStore.Update(updateSpec{
+		Now:           time.Now(),
+		Height:        1,
+		TxResults:     map[types.TxHash]bool{},
+		Constraints:   NopTxConstraints(),
+		NewPriorities: map[types.TxHash]int64{},
+	})
 
-			env.app.setNonce(address, 9)
-			txStore.Update(updateSpec{
-				Now:           time.Now(),
-				Height:        1,
-				TxResults:     map[types.TxHash]bool{},
-				Constraints:   NopTxConstraints(),
-				NewPriorities: map[types.TxHash]int64{},
-			})
-
-			_, readyPresent := txStore.ByHash(prunedReady.Hash())
-			_, pendingPresent := txStore.ByHash(prunedPending.Hash())
-			require.False(t, readyPresent)
-			require.False(t, pendingPresent)
-			require.Equal(t, tc.wantCached, txStore.CacheHas(prunedReady.Hash()))
-			require.Equal(t, tc.wantCached, txStore.CacheHas(prunedPending.Hash()))
-		})
-	}
+	_, readyPresent := txStore.ByHash(prunedReady.Hash())
+	_, pendingPresent := txStore.ByHash(prunedPending.Hash())
+	require.False(t, readyPresent)
+	require.False(t, pendingPresent)
+	require.True(t, txStore.ShouldReject(prunedReady.Hash()))
+	require.True(t, txStore.ShouldReject(prunedPending.Hash()))
 }
 
 func TestTxStore_ReplacesReadyTxByHigherPriority(t *testing.T) {
 	rng := utils.TestRng()
 	app := newEVMNonceApp()
-	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NopMetrics()), NopMetrics())
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
 	env := newTestEnv(rng, txStore, app, 1)
 	address := env.accounts[0].address
 	env.app.setNonce(address, 7)
@@ -627,7 +641,12 @@ func TestTxStore_ReplacesReadyTxByHigherPriority(t *testing.T) {
 	env.assertState(t)
 	_, ok := env.txStore.ByHash(old.Hash())
 	require.False(t, ok)
+	_, ok = env.txStore.ByEvmHash(old.evm.OrPanic("evm tx").hash)
+	require.False(t, ok)
 	got, ok := env.txStore.ByHash(replacement.Hash())
+	require.True(t, ok)
+	require.Equal(t, replacement.Tx(), got)
+	got, ok = env.txStore.ByEvmHash(replacement.evm.OrPanic("evm tx").hash)
 	require.True(t, ok)
 	require.Equal(t, replacement.Tx(), got)
 
@@ -644,10 +663,36 @@ func TestTxStore_ReplacesReadyTxByHigherPriority(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestTxStore_RejectsDuplicateEvmHash(t *testing.T) {
+	rng := utils.TestRng()
+	app := newEVMNonceApp()
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
+	address := genEvmAddress(rng)
+	app.setNonce(address, 7)
+	app.setBalance(address, 100)
+
+	first := makeEvmTxForTest(rng, address, 7, 10, 0)
+	second := makeEvmTxForTest(rng, address, 8, 20, 0)
+	second.evm = utils.Some(func() evmTx {
+		evm := second.evm.OrPanic("")
+		evm.hash = first.evm.OrPanic("").hash
+		return evm
+	}())
+
+	require.NoError(t, txStore.Insert(first))
+	require.ErrorIs(t, txStore.Insert(second), errDuplicateTx)
+
+	got, ok := txStore.ByEvmHash(first.evm.OrPanic("evm tx").hash)
+	require.True(t, ok)
+	require.Equal(t, first.Tx(), got)
+	_, ok = txStore.ByHash(second.Hash())
+	require.False(t, ok)
+}
+
 func TestTxStore_ReplacesReadyThenPendingTxByHigherPriority(t *testing.T) {
 	rng := utils.TestRng()
 	app := newEVMNonceApp()
-	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NopMetrics()), NopMetrics())
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
 	env := newTestEnv(rng, txStore, app, 1)
 	address := env.accounts[0].address
 	env.app.setNonce(address, 7)
@@ -684,7 +729,7 @@ func TestTxStore_ReplacesReadyThenPendingTxByHigherPriority(t *testing.T) {
 func TestTxStore_ReplacesPendingTxByHigherPriority(t *testing.T) {
 	rng := utils.TestRng()
 	app := newEVMNonceApp()
-	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NopMetrics()), NopMetrics())
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
 	env := newTestEnv(rng, txStore, app, 1)
 	address := env.accounts[0].address
 	env.app.setNonce(address, 7)
@@ -714,7 +759,7 @@ func TestTxStore_InsertCompactionKeepsReadyListInSync(t *testing.T) {
 	cfg.PendingSize = 0
 
 	app := newEVMNonceApp()
-	txStore := NewTxStore(cfg, proxy.New(app, proxy.NopMetrics()), NopMetrics())
+	txStore := NewTxStore(cfg, proxy.New(app))
 	inserted := map[types.TxHash]*WrappedTx{}
 
 	for range 20 * cfg.Size {

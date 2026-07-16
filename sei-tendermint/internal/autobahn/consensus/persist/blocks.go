@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/seilog"
 )
@@ -179,7 +179,7 @@ func laneDir(lane types.LaneID) string {
 }
 
 func newLaneWALState(dir string) (*laneWALState, error) {
-	iw, err := openIndexedWAL(dir, types.SignedMsgConv[*types.LaneProposal]())
+	iw, err := openIndexedWAL(dir, types.SignedLaneProposalConv)
 	if err != nil {
 		return nil, err
 	}

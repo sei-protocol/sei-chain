@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
@@ -269,7 +269,9 @@ func (env *Environment) BlockResults(ctx context.Context, req *coretypes.Request
 		return &coretypes.ResultBlockResults{
 			Height: height,
 			ConsensusParamUpdates: &tmproto.ConsensusParams{
-				Block: &tmproto.BlockParams{MaxGas: giga.MaxGasPerBlock()},
+				Block: &tmproto.BlockParams{
+					MaxGas: utils.Clamp[int64](giga.MaxGasEstimatedPerBlock()),
+				},
 			},
 		}, nil
 	}
@@ -299,6 +301,9 @@ func (env *Environment) BlockResults(ctx context.Context, req *coretypes.Request
 	}, nil
 }
 
+const AscendingOrder = "asc"
+const DescendingOrder = "desc"
+
 // BlockSearch searches for a paginated set of blocks matching the provided query.
 func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestBlockSearch) (*coretypes.ResultBlockSearch, error) {
 	if !indexer.KVSinkEnabled(env.EventSinks) {
@@ -317,21 +322,40 @@ func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestB
 		}
 	}
 
-	results, err := kvsink.SearchBlockEvents(ctx, q)
+	// Validate order_by up front so we can push the ordering (and the result
+	// cap) down into the indexer; a broad query is then bounded at the scan
+	// path rather than after materializing and sorting the full match set.
+	var orderDesc bool
+	switch req.OrderBy {
+	case DescendingOrder, "":
+		orderDesc = true
+
+	case AscendingOrder:
+		orderDesc = false
+
+	default:
+		return nil, fmt.Errorf("expected order_by to be either `asc` or `desc` or empty: %w", coretypes.ErrInvalidRequest)
+	}
+
+	results, err := kvsink.SearchBlockEvents(ctx, q, indexer.SearchOptions{
+		Limit:     env.Config.MaxTxSearchResults,
+		OrderDesc: orderDesc,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	// sort results (must be done before pagination)
-	switch req.OrderBy {
-	case "desc", "":
+	// sort results (must be done before cap and pagination)
+	if orderDesc {
 		sort.Slice(results, func(i, j int) bool { return results[i] > results[j] })
-
-	case "asc":
+	} else {
 		sort.Slice(results, func(i, j int) bool { return results[i] < results[j] })
+	}
 
-	default:
-		return nil, fmt.Errorf("expected order_by to be either `asc` or `desc` or empty: %w", coretypes.ErrInvalidRequest)
+	// Safety net: the kv indexer already bounds to MaxTxSearchResults, but keep
+	// the cap so the response stays bounded for any sink that ignores the limit.
+	if maxResults := env.Config.MaxTxSearchResults; maxResults > 0 && len(results) > maxResults {
+		results = results[:maxResults]
 	}
 
 	// paginate results

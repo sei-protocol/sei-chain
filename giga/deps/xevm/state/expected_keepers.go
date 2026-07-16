@@ -18,7 +18,6 @@ type EVMKeeper interface {
 	BankKeeper() bankkeeper.Keeper
 	GetBaseDenom(sdk.Context) string
 	DeleteAddressMapping(sdk.Context, sdk.AccAddress, common.Address)
-	SetAddressMapping(sdk.Context, sdk.AccAddress, common.Address)
 	GetCode(sdk.Context, common.Address) []byte
 	SetCode(sdk.Context, common.Address, []byte)
 	GetCodeHash(sdk.Context, common.Address) common.Hash

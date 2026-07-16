@@ -12,6 +12,12 @@ import (
 
 const testRouterStoreName = "bank"
 
+// staticRouter wraps a fixed Router in the provider form the constructor
+// expects. Tests that exercise provider liveness build their own closure.
+func staticRouter(r Router) func() Router {
+	return func() Router { return r }
+}
+
 // newRouterCommitKVStoreForTest returns a RouterCommitKVStore wrapping a fresh
 // TestInMemoryRouter with a constant version. Tests that need a different
 // inner router or a non-constant versionProvider construct the store
@@ -19,8 +25,39 @@ const testRouterStoreName = "bank"
 func newRouterCommitKVStoreForTest(t *testing.T, version int64) (*RouterCommitKVStore, *TestInMemoryRouter) {
 	t.Helper()
 	inner := NewTestInMemoryRouter()
-	store := NewRouterCommitKVStore(inner, testRouterStoreName, func() int64 { return version })
+	store := NewRouterCommitKVStore(staticRouter(inner), testRouterStoreName, func() int64 { return version }, nil)
 	return store, inner
+}
+
+// TestRouterCommitKVStore_RouterProviderResolvesPerCall pins the live-binding
+// contract: the provider is consulted on every operation, so an owner that
+// swaps its router (e.g. composite.SetWriteMode on a runtime write-mode
+// transition) is immediately visible through views created before the swap.
+func TestRouterCommitKVStore_RouterProviderResolvesPerCall(t *testing.T) {
+	first := NewTestInMemoryRouter()
+	second := NewTestInMemoryRouter()
+	current := Router(first)
+	store := NewRouterCommitKVStore(
+		func() Router { return current },
+		testRouterStoreName,
+		func() int64 { return 0 },
+		nil,
+	)
+
+	store.Set([]byte("k"), []byte("via-first"))
+	require.Equal(t, []byte("via-first"), store.Get([]byte("k")))
+
+	current = second
+	require.Nil(t, store.Get([]byte("k")),
+		"after the swap, reads must hit the new router (which has no data)")
+	store.Set([]byte("k"), []byte("via-second"))
+	require.Equal(t, []byte("via-second"), store.Get([]byte("k")))
+
+	val, found, err := first.Read(testRouterStoreName, []byte("k"))
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, []byte("via-first"), val,
+		"the pre-swap write must have landed on the first router only")
 }
 
 func TestRouterCommitKVStore_GetReturnsValueWrittenViaRouter(t *testing.T) {
@@ -69,8 +106,8 @@ func TestRouterCommitKVStore_RemoveDeletesViaRouter(t *testing.T) {
 // underlying router.
 func TestRouterCommitKVStore_BindsToSingleStoreName(t *testing.T) {
 	inner := NewTestInMemoryRouter()
-	bankStore := NewRouterCommitKVStore(inner, "bank", func() int64 { return 0 })
-	evmStore := NewRouterCommitKVStore(inner, "evm", func() int64 { return 0 })
+	bankStore := NewRouterCommitKVStore(staticRouter(inner), "bank", func() int64 { return 0 }, nil)
+	evmStore := NewRouterCommitKVStore(staticRouter(inner), "evm", func() int64 { return 0 }, nil)
 
 	bankStore.Set([]byte("k"), []byte("from-bank"))
 	evmStore.Set([]byte("k"), []byte("from-evm"))
@@ -95,7 +132,7 @@ func TestRouterCommitKVStore_BindsToSingleStoreName(t *testing.T) {
 // runtime.
 func TestRouterCommitKVStore_VersionInvokesProviderEachCall(t *testing.T) {
 	current := int64(7)
-	store := NewRouterCommitKVStore(NewTestInMemoryRouter(), testRouterStoreName, func() int64 { return current })
+	store := NewRouterCommitKVStore(staticRouter(NewTestInMemoryRouter()), testRouterStoreName, func() int64 { return current }, nil)
 
 	require.Equal(t, int64(7), store.Version())
 	current = 42
@@ -127,9 +164,22 @@ func TestRouterCommitKVStore_CloseReturnsError(t *testing.T) {
 	require.EqualError(t, err, "RouterCommitKVStore.Close: illegal during standard lifecycle")
 }
 
-func TestRouterCommitKVStore_IteratorPanicsOnRouterError(t *testing.T) {
-	// TestInMemoryRouter.Iterator always returns an error; the wrapper must
-	// surface that as a panic.
+func TestRouterCommitKVStore_IteratorPanicsOnBuilderError(t *testing.T) {
+	// An iterator builder that returns an error must be surfaced as a panic.
+	store := NewRouterCommitKVStore(
+		staticRouter(NewTestInMemoryRouter()),
+		testRouterStoreName,
+		func() int64 { return 0 },
+		func([]byte, []byte, bool) (dbm.Iterator, error) {
+			return nil, errors.New("boom")
+		},
+	)
+	require.Panics(t, func() { _ = store.Iterator(nil, nil, true) })
+}
+
+func TestRouterCommitKVStore_IteratorPanicsWhenNoBuilderConfigured(t *testing.T) {
+	// With no iterator builder configured, calling Iterator must panic rather
+	// than nil-dereference.
 	store, _ := newRouterCommitKVStoreForTest(t, 0)
 	require.Panics(t, func() { _ = store.Iterator(nil, nil, true) })
 }
@@ -143,9 +193,9 @@ func TestRouterCommitKVStore_GetProofPanicsOnRouterError(t *testing.T) {
 
 // failingRouter is a Router whose Read and ApplyChangeSets return injected
 // sentinel errors. It exists so we can exercise the panic-on-error path for
-// the methods that TestInMemoryRouter implements without errors. Iterator and
-// GetProof always return a not-implemented error and are not used by these
-// tests; TestInMemoryRouter already covers their panic paths.
+// the methods that TestInMemoryRouter implements without errors. GetProof
+// always returns a not-implemented error and is not used by these tests;
+// TestInMemoryRouter already covers its panic path.
 type failingRouter struct {
 	readErr  error
 	writeErr error
@@ -161,19 +211,18 @@ func (f *failingRouter) ApplyChangeSets([]*proto.NamedChangeSet, bool) error {
 	return f.writeErr
 }
 
-func (f *failingRouter) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {
-	return nil, errors.New("failingRouter.Iterator: not used by these tests")
-}
-
 func (f *failingRouter) GetProof(string, []byte) (*ics23.CommitmentProof, error) {
 	return nil, errors.New("failingRouter.GetProof: not used by these tests")
 }
 
+func (f *failingRouter) SetMigrationBatchSize(int) {}
+
 func TestRouterCommitKVStore_GetPanicsOnRouterError(t *testing.T) {
 	store := NewRouterCommitKVStore(
-		&failingRouter{readErr: errors.New("boom")},
+		staticRouter(&failingRouter{readErr: errors.New("boom")}),
 		testRouterStoreName,
 		func() int64 { return 0 },
+		nil,
 	)
 	require.PanicsWithError(t, `RouterCommitKVStore.Get(store="bank"): boom`, func() {
 		_ = store.Get([]byte("k"))
@@ -182,9 +231,10 @@ func TestRouterCommitKVStore_GetPanicsOnRouterError(t *testing.T) {
 
 func TestRouterCommitKVStore_HasPanicsOnRouterError(t *testing.T) {
 	store := NewRouterCommitKVStore(
-		&failingRouter{readErr: errors.New("boom")},
+		staticRouter(&failingRouter{readErr: errors.New("boom")}),
 		testRouterStoreName,
 		func() int64 { return 0 },
+		nil,
 	)
 	require.PanicsWithError(t, `RouterCommitKVStore.Has(store="bank"): boom`, func() {
 		_ = store.Has([]byte("k"))
@@ -193,9 +243,10 @@ func TestRouterCommitKVStore_HasPanicsOnRouterError(t *testing.T) {
 
 func TestRouterCommitKVStore_SetPanicsOnRouterError(t *testing.T) {
 	store := NewRouterCommitKVStore(
-		&failingRouter{writeErr: errors.New("boom")},
+		staticRouter(&failingRouter{writeErr: errors.New("boom")}),
 		testRouterStoreName,
 		func() int64 { return 0 },
+		nil,
 	)
 	require.PanicsWithError(t, `RouterCommitKVStore.ApplyChangeSets(store="bank"): boom`, func() {
 		store.Set([]byte("k"), []byte("v"))
@@ -204,9 +255,10 @@ func TestRouterCommitKVStore_SetPanicsOnRouterError(t *testing.T) {
 
 func TestRouterCommitKVStore_RemovePanicsOnRouterError(t *testing.T) {
 	store := NewRouterCommitKVStore(
-		&failingRouter{writeErr: errors.New("boom")},
+		staticRouter(&failingRouter{writeErr: errors.New("boom")}),
 		testRouterStoreName,
 		func() int64 { return 0 },
+		nil,
 	)
 	require.PanicsWithError(t, `RouterCommitKVStore.ApplyChangeSets(store="bank"): boom`, func() {
 		store.Remove([]byte("k"))

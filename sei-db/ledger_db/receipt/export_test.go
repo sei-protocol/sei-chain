@@ -16,18 +16,9 @@ func GetLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
 	return getLogsForTx(receipt, logStartIndex)
 }
 
-// CloseTxHashIndex closes the tx hash index held by a parquet receipt store,
-// allowing the same directory to be reopened in crash-recovery tests.
-func CloseTxHashIndex(store ReceiptStore) {
-	if c, ok := store.(*cachedReceiptStore); ok {
-		store = c.backend
-	}
-	if pq, ok := store.(*parquetReceiptStore); ok && pq.txHashIndex != nil {
-		if pq.indexPruner != nil {
-			pq.indexPruner.Stop()
-			pq.indexPruner = nil
-		}
-		_ = pq.txHashIndex.Close()
-		pq.txHashIndex = nil
-	}
+// PruneLittIdx runs a synchronous prune on a littidx store, removing every
+// block below cutoff. Test-only hook so prune behavior can be asserted without
+// waiting on the background interval.
+func PruneLittIdx(store ReceiptStore, cutoff uint64) error {
+	return store.(*littReceiptStore).pruneBlocksBelow(cutoff)
 }

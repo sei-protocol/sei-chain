@@ -23,7 +23,10 @@ type Keymap interface {
 	// Put adds keys to the keymap as a batch. This method is required to store the address, but can ignore
 	// other fields in the ScopedKey struct such as the value length.
 	//
-	// A keymap provides atomicity for individual key-address pairs, but not for the batch as a whole.
+	// The batch must be applied atomically with respect to crash recovery: the entire batch either becomes
+	// durable as a unit or not at all. After a crash, recovery must never observe a batch that was only
+	// partially applied. Keymap repair relies on this guarantee: it rescues keys missing from the keymap in
+	// a single Put, and a partially-durable batch would leave a hole that subsequent repairs cannot detect.
 	//
 	// It is not safe to modify the contents of any slices passed to this function after the call.
 	// This includes the byte slices containing the keys.

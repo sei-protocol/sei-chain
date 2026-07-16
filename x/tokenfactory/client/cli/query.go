@@ -105,8 +105,14 @@ func GetCmdDenomsFromCreator() *cobra.Command {
 				return err
 			}
 
+			pageReq, err := client.ReadPageRequest(cmd.Flags())
+			if err != nil {
+				return err
+			}
+
 			res, err := queryClient.DenomsFromCreator(cmd.Context(), &types.QueryDenomsFromCreatorRequest{
-				Creator: args[0],
+				Creator:    args[0],
+				Pagination: pageReq,
 			})
 			if err != nil {
 				return err
@@ -117,6 +123,7 @@ func GetCmdDenomsFromCreator() *cobra.Command {
 	}
 
 	flags.AddQueryFlagsToCmd(cmd)
+	flags.AddPaginationFlagsToCmd(cmd, "denoms-from-creator")
 
 	return cmd
 }

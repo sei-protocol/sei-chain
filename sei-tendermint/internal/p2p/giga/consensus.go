@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -77,11 +77,11 @@ func (x *Service) clientPing(ctx context.Context, client rpc.Client[API]) error 
 func (x *Service) clientConsensus(ctx context.Context, c rpc.Client[API]) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Send updates about new consensus messages.
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeProposal()) })
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribePrepareVote()) })
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeCommitVote()) })
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeTimeoutVote()) })
-		s.Spawn(func() error { return sendUpdates(ctx, c, x.state.SubscribeTimeoutQC()) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.validatorState().SubscribeProposal()) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.validatorState().SubscribePrepareVote()) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.validatorState().SubscribeCommitVote()) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.validatorState().SubscribeTimeoutVote()) })
+		s.Spawn(func() error { return sendUpdates(ctx, c, x.validatorState().SubscribeTimeoutQC()) })
 		return nil
 	})
 }
@@ -110,28 +110,28 @@ func (x *Service) serverConsensus(ctx context.Context, server rpc.Server[API]) e
 			}
 			req, err := types.ConsensusReqConv.DecodeReq(reqRaw)
 			if err != nil {
-				return fmt.Errorf("types.SignedMsgConv.DecodeReq(): %w", err)
+				return fmt.Errorf("types.ConsensusReqConv.DecodeReq(): %w", err)
 			}
 			switch req := req.(type) {
 			case *types.ConsensusReqPrepareVote:
-				if err := x.state.PushPrepareVote(req.Signed); err != nil {
-					return fmt.Errorf("x.state.PushPrepareVote(): %w", err)
+				if err := x.validatorState().PushPrepareVote(req.Signed); err != nil {
+					return fmt.Errorf("x.validatorState().PushPrepareVote(): %w", err)
 				}
 			case *types.ConsensusReqCommitVote:
-				if err := x.state.PushCommitVote(req.Signed); err != nil {
-					return fmt.Errorf("x.state.PushCommitVote(): %w", err)
+				if err := x.validatorState().PushCommitVote(req.Signed); err != nil {
+					return fmt.Errorf("x.validatorState().PushCommitVote(): %w", err)
 				}
 			case *types.FullTimeoutVote:
-				if err := x.state.PushTimeoutVote(req); err != nil {
-					return fmt.Errorf("x.state.PushTimeoutVote(): %w", err)
+				if err := x.validatorState().PushTimeoutVote(req); err != nil {
+					return fmt.Errorf("x.validatorState().PushTimeoutVote(): %w", err)
 				}
 			case *types.FullProposal:
-				if err := x.state.PushProposal(ctx, req); err != nil {
-					return fmt.Errorf("x.state.PushProposal(): %w", err)
+				if err := x.validatorState().PushProposal(ctx, req); err != nil {
+					return fmt.Errorf("x.validatorState().PushProposal(): %w", err)
 				}
 			case *types.TimeoutQC:
-				if err := x.state.PushTimeoutQC(ctx, req); err != nil {
-					return fmt.Errorf("x.state.PushTimeoutQC(): %w", err)
+				if err := x.validatorState().PushTimeoutQC(ctx, req); err != nil {
+					return fmt.Errorf("x.validatorState().PushTimeoutQC(): %w", err)
 				}
 			default:
 				return fmt.Errorf("unknown consensus request type: %T", req)

@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package wireguardplugin.invalid;
+
+import "wireguard/wireguard.proto";
+
+option go_package = "github.com/example/wireguardplugin/invalid";
+
+message UnsizedInner {
+  bytes payload = 1;
+}
+
+message SizedUnsizedNestedWithoutFieldSize {
+  option (wireguard.sized) = true;
+
+  UnsizedInner inner = 1;
+}

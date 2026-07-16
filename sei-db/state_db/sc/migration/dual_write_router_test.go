@@ -7,15 +7,7 @@ import (
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
 )
-
-// noopIter returns (nil, nil) for any input. Used to satisfy the
-// constructor's strict non-nil iterator-builder requirement when a test
-// does not exercise iteration.
-func noopIter(_ string, _, _ []byte, _ bool) (dbm.Iterator, error) {
-	return nil, nil
-}
 
 // noopProof returns (nil, nil) for any input. Used to satisfy the
 // constructor's strict non-nil proof-builder requirement when a test
@@ -27,7 +19,7 @@ func noopProof(_ string, _ []byte) (*ics23.CommitmentProof, error) {
 // --- Constructor tests ---
 
 func TestNewTestOnlyDualWriteRouter_Success(t *testing.T) {
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), noopProof, "evm")
 	r, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
 	require.NoError(t, err)
 	require.NotNil(t, r)
@@ -41,7 +33,7 @@ func TestNewTestOnlyDualWriteRouter_NilPrimaryRejected(t *testing.T) {
 }
 
 func TestNewTestOnlyDualWriteRouter_NilSecondaryRejected(t *testing.T) {
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), noopProof, "evm")
 	r, err := NewTestOnlyDualWriteRouter(primary, nil)
 	require.Error(t, err)
 	require.Nil(t, r)
@@ -52,25 +44,14 @@ func TestNewTestOnlyDualWriteRouter_NilSecondaryRejected(t *testing.T) {
 // strict-at-construction contract: a primary with a nil proofBuilder is
 // rejected. This is intentionally stricter than ModuleRouter (which
 // errors lazily at GetProof time) and means a route built by
-// routeToFlatKV (which deliberately passes nil for both builders) cannot
+// routeToFlatKV (which deliberately passes a nil proof builder) cannot
 // be the primary today.
 func TestNewTestOnlyDualWriteRouter_NilProofBuilderRejected(t *testing.T) {
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, nil, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), nil, "evm")
 	r, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
 	require.Error(t, err)
 	require.Nil(t, r)
 	require.Contains(t, err.Error(), "proof builder")
-}
-
-// TestNewTestOnlyDualWriteRouter_NilIteratorBuilderRejected pins the
-// strict-at-construction contract: a primary with a nil iteratorBuilder
-// is rejected. Same rationale as the proofBuilder case above.
-func TestNewTestOnlyDualWriteRouter_NilIteratorBuilderRejected(t *testing.T) {
-	primary := newRouteWithBuilders(t, newMockDB(), nil, noopProof, "evm")
-	r, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
-	require.Error(t, err)
-	require.Nil(t, r)
-	require.Contains(t, err.Error(), "iterator builder")
 }
 
 // --- ApplyChangeSets tests ---
@@ -83,7 +64,7 @@ func TestNewTestOnlyDualWriteRouter_NilIteratorBuilderRejected(t *testing.T) {
 func TestApplyChangeSets_FansOutToBoth(t *testing.T) {
 	primaryDB := newMockDB()
 	secondaryDB := newMockDB()
-	primary := newRouteWithBuilders(t, primaryDB, noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, primaryDB, noopProof, "evm")
 	r, err := NewTestOnlyDualWriteRouter(primary, secondaryDB.writer())
 	require.NoError(t, err)
 
@@ -105,7 +86,7 @@ func TestApplyChangeSets_PrimaryErrorPropagated(t *testing.T) {
 	primary, err := NewRoute(
 		newMockDB().reader(),
 		failWriter(sentinel),
-		noopIter, noopProof,
+		noopProof,
 		"evm",
 	)
 	require.NoError(t, err)
@@ -122,7 +103,7 @@ func TestApplyChangeSets_PrimaryErrorPropagated(t *testing.T) {
 
 func TestApplyChangeSets_SecondaryErrorPropagated(t *testing.T) {
 	sentinel := errors.New("secondary boom")
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), noopProof, "evm")
 	r, err := NewTestOnlyDualWriteRouter(primary, failWriter(sentinel))
 	require.NoError(t, err)
 
@@ -142,7 +123,7 @@ func TestApplyChangeSets_SecondaryErrorPropagated(t *testing.T) {
 func TestApplyChangeSets_ForwardsAllChangesetsRegardlessOfPrimaryModules(t *testing.T) {
 	primaryDB := newMockDB()
 	secondaryDB := newMockDB()
-	primary := newRouteWithBuilders(t, primaryDB, noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, primaryDB, noopProof, "evm")
 	r, err := NewTestOnlyDualWriteRouter(primary, secondaryDB.writer())
 	require.NoError(t, err)
 
@@ -169,7 +150,7 @@ func TestApplyChangeSets_NilAndEmptyChangesetsForwarded(t *testing.T) {
 			primaryCalls++
 			return nil
 		},
-		noopIter, noopProof,
+		noopProof,
 		"evm",
 	)
 	require.NoError(t, err)
@@ -195,7 +176,7 @@ func TestApplyChangeSets_NilAndEmptyChangesetsForwarded(t *testing.T) {
 func TestRead_DelegatesToPrimary(t *testing.T) {
 	primaryDB := newMockDB()
 	primaryDB.seed(map[string]map[string][]byte{"evm": {"k": []byte("v")}})
-	primary := newRouteWithBuilders(t, primaryDB, noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, primaryDB, noopProof, "evm")
 	r, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
 	require.NoError(t, err)
 
@@ -206,7 +187,7 @@ func TestRead_DelegatesToPrimary(t *testing.T) {
 }
 
 func TestRead_NotFoundReturnsFalse(t *testing.T) {
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), noopProof, "evm")
 	r, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
 	require.NoError(t, err)
 
@@ -221,7 +202,7 @@ func TestRead_PrimaryErrorWrapped(t *testing.T) {
 	primary, err := NewRoute(
 		failReader(sentinel),
 		newMockDB().writer(),
-		noopIter, noopProof,
+		noopProof,
 		"evm",
 	)
 	require.NoError(t, err)
@@ -239,7 +220,7 @@ func TestRead_PrimaryErrorWrapped(t *testing.T) {
 func TestRead_DoesNotConsultSecondary(t *testing.T) {
 	primaryDB := newMockDB()
 	primaryDB.seed(map[string]map[string][]byte{"evm": {"k": []byte("v")}})
-	primary := newRouteWithBuilders(t, primaryDB, noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, primaryDB, noopProof, "evm")
 
 	secondaryCalls := 0
 	secondary := func(_ []*proto.NamedChangeSet, _ bool) error {
@@ -256,51 +237,6 @@ func TestRead_DoesNotConsultSecondary(t *testing.T) {
 	require.Equal(t, 0, secondaryCalls, "Read must never invoke the secondary writer")
 }
 
-// --- Iterator tests ---
-
-func TestIterator_DelegatesToPrimary(t *testing.T) {
-	var (
-		gotStore     string
-		gotStart     []byte
-		gotEnd       []byte
-		gotAscending bool
-	)
-	recordingIter := func(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-		gotStore = store
-		gotStart = start
-		gotEnd = end
-		gotAscending = ascending
-		return nil, nil
-	}
-	primary := newRouteWithBuilders(t, newMockDB(), recordingIter, noopProof, "evm")
-	r, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
-	require.NoError(t, err)
-
-	iter, err := r.Iterator("evm", []byte("a"), []byte("z"), true)
-	require.NoError(t, err)
-	require.Nil(t, iter)
-	require.Equal(t, "evm", gotStore)
-	require.Equal(t, []byte("a"), gotStart)
-	require.Equal(t, []byte("z"), gotEnd)
-	require.True(t, gotAscending)
-}
-
-func TestIterator_PrimaryErrorWrapped(t *testing.T) {
-	sentinel := errors.New("iterator boom")
-	failingIter := func(_ string, _, _ []byte, _ bool) (dbm.Iterator, error) {
-		return nil, sentinel
-	}
-	primary := newRouteWithBuilders(t, newMockDB(), failingIter, noopProof, "evm")
-	r, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
-	require.NoError(t, err)
-
-	iter, iterErr := r.Iterator("evm", []byte("a"), []byte("z"), true)
-	require.Error(t, iterErr)
-	require.ErrorIs(t, iterErr, sentinel)
-	require.Contains(t, iterErr.Error(), "primary iterator builder")
-	require.Nil(t, iter)
-}
-
 // --- GetProof tests ---
 
 func TestGetProof_DelegatesToPrimary(t *testing.T) {
@@ -314,7 +250,7 @@ func TestGetProof_DelegatesToPrimary(t *testing.T) {
 		gotKey = key
 		return sentinelProof, nil
 	}
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, recordingProof, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), recordingProof, "evm")
 	r, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
 	require.NoError(t, err)
 
@@ -330,7 +266,7 @@ func TestGetProof_PrimaryErrorWrapped(t *testing.T) {
 	failingProof := func(_ string, _ []byte) (*ics23.CommitmentProof, error) {
 		return nil, sentinel
 	}
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, failingProof, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), failingProof, "evm")
 	r, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
 	require.NoError(t, err)
 
@@ -351,7 +287,7 @@ func TestGetProof_PrimaryErrorWrapped(t *testing.T) {
 // for ApplyChangeSets.
 
 func TestDualWriteBuildRoute_ReturnsValidRoute(t *testing.T) {
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), noopProof, "evm")
 	dwr, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
 	require.NoError(t, err)
 
@@ -361,12 +297,11 @@ func TestDualWriteBuildRoute_ReturnsValidRoute(t *testing.T) {
 	require.Equal(t, []string{"evm", "bank"}, route.modules)
 	require.NotNil(t, route.reader)
 	require.NotNil(t, route.writer)
-	require.NotNil(t, route.iteratorBuilder)
 	require.NotNil(t, route.proofBuilder)
 }
 
 func TestDualWriteBuildRoute_DuplicateModuleNamesRejected(t *testing.T) {
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), noopProof, "evm")
 	dwr, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
 	require.NoError(t, err)
 
@@ -378,7 +313,7 @@ func TestDualWriteBuildRoute_DuplicateModuleNamesRejected(t *testing.T) {
 }
 
 func TestDualWriteBuildRoute_EmptyModulesAllowed(t *testing.T) {
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), noopProof, "evm")
 	dwr, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
 	require.NoError(t, err)
 
@@ -390,7 +325,7 @@ func TestDualWriteBuildRoute_EmptyModulesAllowed(t *testing.T) {
 func TestDualWriteBuildRoute_ReaderDispatchesToPrimary(t *testing.T) {
 	primaryDB := newMockDB()
 	primaryDB.seed(map[string]map[string][]byte{"evm": {"k": []byte("v")}})
-	primary := newRouteWithBuilders(t, primaryDB, noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, primaryDB, noopProof, "evm")
 
 	secondaryCalls := 0
 	secondary := func(_ []*proto.NamedChangeSet, _ bool) error {
@@ -414,7 +349,7 @@ func TestDualWriteBuildRoute_ReaderErrorsWrapped(t *testing.T) {
 	sentinel := errors.New("disk on fire")
 	primary, err := NewRoute(failReader(sentinel),
 		newMockDB().writer(),
-		noopIter, noopProof,
+		noopProof,
 		"evm")
 	require.NoError(t, err)
 	dwr, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
@@ -433,7 +368,7 @@ func TestDualWriteBuildRoute_ReaderErrorsWrapped(t *testing.T) {
 func TestDualWriteBuildRoute_WriterFansOutToBothBackends(t *testing.T) {
 	primaryDB := newMockDB()
 	secondaryDB := newMockDB()
-	primary := newRouteWithBuilders(t, primaryDB, noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, primaryDB, noopProof, "evm")
 	dwr, err := NewTestOnlyDualWriteRouter(primary, secondaryDB.writer())
 	require.NoError(t, err)
 	route, err := dwr.BuildRoute("evm")
@@ -455,7 +390,7 @@ func TestDualWriteBuildRoute_WriterPrimaryErrorWrapped(t *testing.T) {
 	sentinel := errors.New("primary boom")
 	primary, err := NewRoute(newMockDB().reader(),
 		failWriter(sentinel),
-		noopIter, noopProof,
+		noopProof,
 		"evm")
 	require.NoError(t, err)
 	dwr, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
@@ -471,7 +406,7 @@ func TestDualWriteBuildRoute_WriterPrimaryErrorWrapped(t *testing.T) {
 
 func TestDualWriteBuildRoute_WriterSecondaryErrorWrapped(t *testing.T) {
 	sentinel := errors.New("secondary boom")
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), noopProof, "evm")
 	dwr, err := NewTestOnlyDualWriteRouter(primary, failWriter(sentinel))
 	require.NoError(t, err)
 	route, err := dwr.BuildRoute("evm")
@@ -483,45 +418,10 @@ func TestDualWriteBuildRoute_WriterSecondaryErrorWrapped(t *testing.T) {
 	require.Contains(t, writeErr.Error(), "secondary writer")
 }
 
-func TestDualWriteBuildRoute_IteratorDelegatesToPrimary(t *testing.T) {
-	wantIter := &stubIterator{id: "primary"}
-	recordingIter, calls := recordingIteratorBuilder(wantIter, nil)
-	primary := newRouteWithBuilders(t, newMockDB(), recordingIter, noopProof, "evm")
-	dwr, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
-	require.NoError(t, err)
-	route, err := dwr.BuildRoute("evm")
-	require.NoError(t, err)
-
-	gotIter, err := route.iteratorBuilder("evm", []byte("a"), []byte("z"), true)
-	require.NoError(t, err)
-	require.Same(t, wantIter, gotIter,
-		"route iterator must return the exact iterator from the primary's builder")
-	require.Len(t, *calls, 1)
-	require.Equal(t, iteratorCall{
-		store: "evm", start: []byte("a"), end: []byte("z"), ascending: true,
-	}, (*calls)[0])
-}
-
-func TestDualWriteBuildRoute_IteratorErrorsWrapped(t *testing.T) {
-	sentinel := errors.New("iterator boom")
-	failingIter, _ := recordingIteratorBuilder(nil, sentinel)
-	primary := newRouteWithBuilders(t, newMockDB(), failingIter, noopProof, "evm")
-	dwr, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
-	require.NoError(t, err)
-	route, err := dwr.BuildRoute("evm")
-	require.NoError(t, err)
-
-	iter, iterErr := route.iteratorBuilder("evm", nil, nil, true)
-	require.Error(t, iterErr)
-	require.ErrorIs(t, iterErr, sentinel)
-	require.Contains(t, iterErr.Error(), "primary iterator builder")
-	require.Nil(t, iter)
-}
-
 func TestDualWriteBuildRoute_ProofDelegatesToPrimary(t *testing.T) {
 	wantProof := &ics23.CommitmentProof{}
 	recordingProof, calls := recordingProofBuilder(wantProof, nil)
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, recordingProof, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), recordingProof, "evm")
 	dwr, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
 	require.NoError(t, err)
 	route, err := dwr.BuildRoute("evm")
@@ -539,7 +439,7 @@ func TestDualWriteBuildRoute_ProofDelegatesToPrimary(t *testing.T) {
 func TestDualWriteBuildRoute_ProofErrorsWrapped(t *testing.T) {
 	sentinel := errors.New("proof boom")
 	failingProof, _ := recordingProofBuilder(nil, sentinel)
-	primary := newRouteWithBuilders(t, newMockDB(), noopIter, failingProof, "evm")
+	primary := newRouteWithBuilders(t, newMockDB(), failingProof, "evm")
 	dwr, err := NewTestOnlyDualWriteRouter(primary, newMockDB().writer())
 	require.NoError(t, err)
 	route, err := dwr.BuildRoute("evm")
@@ -561,7 +461,7 @@ func TestDualWriteBuildRoute_ProofErrorsWrapped(t *testing.T) {
 func TestDualWriteBuildRoute_IntegrationWithModuleRouter(t *testing.T) {
 	primaryDB := newMockDB()
 	secondaryDB := newMockDB()
-	primary := newRouteWithBuilders(t, primaryDB, noopIter, noopProof, "evm")
+	primary := newRouteWithBuilders(t, primaryDB, noopProof, "evm")
 	dwr, err := NewTestOnlyDualWriteRouter(primary, secondaryDB.writer())
 	require.NoError(t, err)
 
@@ -569,7 +469,7 @@ func TestDualWriteBuildRoute_IntegrationWithModuleRouter(t *testing.T) {
 	require.NoError(t, err)
 
 	otherDB := newMockDB()
-	otherRoute := newRouteWithBuilders(t, otherDB, noopIter, noopProof, "bank")
+	otherRoute := newRouteWithBuilders(t, otherDB, noopProof, "bank")
 
 	router, err := NewModuleRouter(dualWriteRoute, otherRoute)
 	require.NoError(t, err)

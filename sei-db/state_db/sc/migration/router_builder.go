@@ -7,18 +7,17 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
-	dbm "github.com/tendermint/tm-db"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 // Builds a router for the given migration write mode. A router is responsible for splitting
 // reads/writes between the memiavl and flatkv backends.
 func BuildRouter(
 	ctx context.Context,
-	writeMode config.WriteMode,
+	writeMode types.WriteMode,
 	memIAVL *memiavl.CommitStore,
 	flatKV flatkv.Store,
 	// If this router will be doing data migration, this is the number of keys to migrate in each batch.
@@ -26,13 +25,13 @@ func BuildRouter(
 ) (Router, error) {
 
 	switch writeMode {
-	case config.MemiavlOnly:
+	case types.MemiavlOnly:
 		router, err := buildMemiavlOnlyRouter(memIAVL)
 		if err != nil {
 			return nil, fmt.Errorf("buildMemiavlOnlyRouter: %w", err)
 		}
 		return router, nil
-	case config.MigrateEVM:
+	case types.MigrateEVM:
 		router, err := buildMigrateEVMRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateEVMRouter: %w", err)
@@ -42,7 +41,7 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case config.EVMMigrated:
+	case types.EVMMigrated:
 		router, err := buildEVMMigratedRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildEVMMigratedRouter: %w", err)
@@ -52,7 +51,7 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case config.MigrateAllButBank:
+	case types.MigrateAllButBank:
 		router, err := buildMigrateAllButBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateAllButBankRouter: %w", err)
@@ -62,7 +61,7 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case config.AllMigratedButBank:
+	case types.AllMigratedButBank:
 		router, err := buildAllMigratedButBankRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildAllMigratedButBankRouter: %w", err)
@@ -72,7 +71,7 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case config.MigrateBank:
+	case types.MigrateBank:
 		router, err := buildMigrateBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateBankRouter: %w", err)
@@ -82,13 +81,13 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case config.FlatKVOnly:
+	case types.FlatKVOnly:
 		router, err := buildFlatKVOnlyRouter(flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildFlatKVOnlyRouter: %w", err)
 		}
 		return router, nil
-	case config.TestOnlyDualWrite:
+	case types.TestOnlyDualWrite:
 		router, err := buildTestOnlyDualWriteRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildTestOnlyDualWriteRouter: %w", err)
@@ -121,7 +120,6 @@ func buildMemiavlOnlyRouter(
 	router, err := NewPassthroughRouter(
 		buildMemIAVLReader(memIAVL),
 		buildMemIAVLWriter(memIAVL),
-		buildMemIAVLIteratorBuilder(memIAVL),
 		buildMemIAVLProofBuilder(memIAVL),
 	)
 	if err != nil {
@@ -160,10 +158,6 @@ func buildMigrateEVMRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	if migrationBatchSize <= 0 {
-		return nil, fmt.Errorf("migrationBatchSize must be greater than 0")
-	}
-
 	// Manages migration and routing for keys in the evm/ module.
 	migrationManager, err := NewMigrationManager(
 		migrationBatchSize,
@@ -173,12 +167,18 @@ func buildMigrateEVMRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.EVMStoreKey}),
 		NewMigrationMetrics(ctx, Version1_MigrateEVM, 10*time.Second),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
+	}
+	readonly := memIAVL.GetDB().ReadOnly()
+	if !readonly {
+		logger.Info("created new EVM migration manager",
+			"startVersion", Version0_MemiavlOnly,
+			"targetVersion", Version1_MigrateEVM,
+			"boundary", migrationManager.boundary.String())
 	}
 
 	nonEVMModules, err := keys.AllModulesExcept(keys.EVMStoreKey)
@@ -285,10 +285,6 @@ func buildMigrateAllButBankRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	if migrationBatchSize <= 0 {
-		return nil, fmt.Errorf("migrationBatchSize must be greater than 0")
-	}
-
 	allModulesButEvmAndBank, err := keys.AllModulesExcept(keys.EVMStoreKey, keys.BankStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
@@ -303,7 +299,6 @@ func buildMigrateAllButBankRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), allModulesButEvmAndBank),
 		NewMigrationMetrics(ctx, Version2_MigrateAllButBank, 10*time.Second),
 	)
@@ -415,10 +410,6 @@ func buildMigrateBankRouter(
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
 	}
-	if migrationBatchSize <= 0 {
-		return nil, fmt.Errorf("migrationBatchSize must be greater than 0")
-	}
-
 	allButBankModules, err := keys.AllModulesExcept(keys.BankStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
@@ -435,7 +426,6 @@ func buildMigrateBankRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.BankStoreKey}),
 		NewMigrationMetrics(ctx, Version3_FlatKVOnly, 10*time.Second),
 	)
@@ -479,7 +469,6 @@ func buildFlatKVOnlyRouter(
 	router, err := NewPassthroughRouter(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		nil, // iteration not supported by flatkv
 		nil, // proof building not supported by flatkv
 	)
 	if err != nil {
@@ -556,8 +545,17 @@ func buildTestOnlyDualWriteRouter(
 }
 
 // Build a function capable of reading data from memiavl.
+//
+// During state-sync the underlying memiavl DB may not yet be open: the
+// snapshot is still being applied while the mempool reactor is already
+// dispatching CheckTx calls. Treat that pre-load window as "no committed
+// state" by reporting key-not-found rather than erroring; once LoadVersion
+// opens the DB the original "store not found" config-error path resumes.
 func buildMemIAVLReader(memIAVL *memiavl.CommitStore) DBReader {
 	return func(store string, key []byte) ([]byte, bool, error) {
+		if !memIAVL.IsLoaded() {
+			return nil, false, nil
+		}
 		childStore := memIAVL.GetChildStoreByName(store)
 		if childStore == nil {
 			return nil, false, fmt.Errorf("store not found: %s", store)
@@ -568,8 +566,16 @@ func buildMemIAVLReader(memIAVL *memiavl.CommitStore) DBReader {
 }
 
 // Build a function capable of writing data to memiavl.
+//
+// Writes should never reach this closure before memiavl is loaded: the
+// commit pipeline only runs after the snapshot has been applied. Return a
+// loud error if it ever happens so the bug surfaces instead of corrupting
+// silently.
 func buildMemIAVLWriter(memIAVL *memiavl.CommitStore) DBWriter {
 	return func(changesets []*proto.NamedChangeSet, _ bool) error {
+		if !memIAVL.IsLoaded() {
+			return fmt.Errorf("memiavl commit store not loaded yet; refusing to apply %d changeset(s)", len(changesets))
+		}
 		err := memIAVL.ApplyChangeSets(changesets)
 		if err != nil {
 			return fmt.Errorf("ApplyChangeSets: %w", err)
@@ -578,20 +584,12 @@ func buildMemIAVLWriter(memIAVL *memiavl.CommitStore) DBWriter {
 	}
 }
 
-// Build a function capable of getting an iterator over a range of keys in a memiavl store.
-func buildMemIAVLIteratorBuilder(memIAVL *memiavl.CommitStore) DBIteratorBuilder {
-	return func(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-		childStore := memIAVL.GetChildStoreByName(store)
-		if childStore == nil {
-			return nil, fmt.Errorf("store not found: %s", store)
-		}
-		return childStore.Iterator(start, end, ascending), nil
-	}
-}
-
 // Build a function capable of building a proof of the value for a key in a memiavl store.
 func buildMemIAVLProofBuilder(memIAVL *memiavl.CommitStore) DBProofBuilder {
 	return func(store string, key []byte) (*ics23.CommitmentProof, error) {
+		if !memIAVL.IsLoaded() {
+			return nil, fmt.Errorf("memiavl commit store not loaded yet; cannot build proof for store %q", store)
+		}
 		childStore := memIAVL.GetChildStoreByName(store)
 		if childStore == nil {
 			return nil, fmt.Errorf("store not found: %s", store)
@@ -624,7 +622,6 @@ func routeToMemIAVL(memIAVL *memiavl.CommitStore, moduleNames ...string) (*Route
 	return NewRoute(
 		buildMemIAVLReader(memIAVL),
 		buildMemIAVLWriter(memIAVL),
-		buildMemIAVLIteratorBuilder(memIAVL),
 		buildMemIAVLProofBuilder(memIAVL),
 		moduleNames...,
 	)
@@ -635,7 +632,6 @@ func routeToFlatKV(flatKV flatkv.Store, moduleNames ...string) (*Route, error) {
 	return NewRoute(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		nil, // iteration not supported
 		nil, // proof building not supported
 		moduleNames...,
 	)

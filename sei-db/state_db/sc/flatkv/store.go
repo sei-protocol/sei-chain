@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/zbiljic/go-filelock"
@@ -88,11 +89,35 @@ func applyPebbleMetricsConfig(c *config.Config) {
 	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
 	c.LegacyDBConfig.EnableMetrics = c.EnablePebbleMetrics
 	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
+
+	c.AccountDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.CodeDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.StorageDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.LegacyDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.MetadataDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 }
 
 // CommitStore implements flatkv.Store for EVM state storage.
-// NOT thread-safe; callers must serialize all operations.
+//
+// Concurrency: writes (ApplyChangeSets, Commit) and the reads that touch the
+// pending-writes maps (Get, Has, GetBlockHeightModified) and iterator
+// construction (Iterator, RawGlobalIterator) are guarded by mu. Iterators
+// snapshot their data at construction time (pending writes are cloned and the
+// Pebble view is pinned), so once built they may be used and Closed without
+// holding mu and may safely outlive a subsequent ApplyChangeSets/Commit. All
+// other lifecycle operations (LoadVersion, Rollback, snapshot/import/export,
+// Close) must still be serialized by the caller.
 type CommitStore struct {
+	// mu guards the pending-writes maps against concurrent iterator
+	// construction / reads while ApplyChangeSets and Commit mutate them.
+	//
+	// TODO(concurrency): this is a coarse lock taken at the exported entry
+	// points. Commit in particular holds the write lock across its WAL fsync
+	// and periodic auto-snapshot. That is acceptable while commits are not
+	// pipelined with reads; revisit with a finer-grained scheme (guarding only
+	// the in-memory maps) if/when pipelining is introduced.
+	mu sync.RWMutex
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	config config.Config
@@ -113,6 +138,12 @@ type CommitStore struct {
 	committedVersion int64
 	committedLtHash  *lthash.LtHash
 	workingLtHash    *lthash.LtHash
+
+	// earliestVersion is the version this store's history begins at, as
+	// recorded by SetInitialVersion (the seeded version). 0 when unknown:
+	// genesis stores and stores created before the record existed. See
+	// EarliestVersion.
+	earliestVersion int64
 
 	// Per-DB working LTHash tracking. Authoritative copies live in each
 	// DB's LocalMeta (atomically committed with data). On startup the
@@ -354,7 +385,15 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 			return nil, fmt.Errorf("loadVersionReadOnly: pre-init cleanup: %w", err)
 		}
 	}
-	ro, err := NewCommitStore(s.ctx, &s.config)
+	// Give the clone an independent context rather than deriving it from the
+	// parent (s.ctx). The read-only store owns its own resources (thread pools,
+	// pebble handles) and is torn down by its own Close, which cancels the
+	// context NewCommitStore derives here. Rooting it at s.ctx instead would
+	// cancel the clone's context — and abort in-flight reads with "context
+	// canceled" — the moment the parent is closed, even though the caller may
+	// still be using the returned view. The clone's lifecycle is therefore
+	// decoupled from the parent's.
+	ro, err := NewCommitStore(context.Background(), &s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create readonly store: %w", err)
 	}
@@ -646,6 +685,12 @@ func (s *CommitStore) loadGlobalMetadata() error {
 	}
 	s.committedVersion = globalVersion
 
+	earliestVersion, err := s.loadGlobalEarliestVersion()
+	if err != nil {
+		return fmt.Errorf("failed to load global earliest version: %w", err)
+	}
+	s.earliestVersion = earliestVersion
+
 	globalLtHash, err := s.loadGlobalLtHash()
 	if err != nil {
 		return fmt.Errorf("failed to load global LtHash: %w", err)
@@ -717,6 +762,11 @@ func (s *CommitStore) RootHash() []byte {
 func (s *CommitStore) CommittedRootHash() []byte {
 	checksum := s.committedLtHash.Checksum()
 	return checksum[:]
+}
+
+// EarliestVersion implements Store.
+func (s *CommitStore) EarliestVersion() int64 {
+	return s.earliestVersion
 }
 
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
