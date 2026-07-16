@@ -287,7 +287,7 @@ func (idx *BlockerIndexer) searchBounded(ctx context.Context, plan boundedPlan, 
 			continue
 		}
 
-		match, err := idx.candidateMatches(h, plan)
+		match, err := idx.candidateMatches(h, plan, lease)
 		if err != nil {
 			return nil, err
 		}
@@ -353,8 +353,8 @@ func (idx *BlockerIndexer) driverIterator(plan boundedPlan, desc bool) (dbm.Iter
 // candidateMatches reports whether the block at height h satisfies every
 // non-driver condition in the plan: height-range bounds are evaluated directly
 // from h, and equality probes are tested with a single point lookup against the
-// event index.
-func (idx *BlockerIndexer) candidateMatches(h int64, plan boundedPlan) (bool, error) {
+// event index. Each probe is charged against lease.
+func (idx *BlockerIndexer) candidateMatches(h int64, plan boundedPlan, lease *indexer.ScanLease) (bool, error) {
 	for i := range plan.heightRanges {
 		if !indexer.HeightInRange(h, plan.heightRanges[i]) {
 			return false, nil
@@ -362,6 +362,9 @@ func (idx *BlockerIndexer) candidateMatches(h int64, plan boundedPlan) (bool, er
 	}
 
 	for i := range plan.equalityProbes {
+		if err := lease.Visit(1); err != nil {
+			return false, err
+		}
 		c := plan.equalityProbes[i]
 		ok, err := idx.hasEvent(c.Tag, c.Arg.Value(), h)
 		if err != nil {
