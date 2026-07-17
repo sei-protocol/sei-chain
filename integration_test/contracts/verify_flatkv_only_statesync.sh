@@ -353,7 +353,7 @@ flatkv_dump_digest() {
       --db-dir $FLATKV_DIR \
       --output-dir \"\$out_dir\" \
       --height $version > /dev/null
-    tail -q -n +2 \"\$out_dir/account\" \"\$out_dir/code\" \"\$out_dir/storage\" \"\$out_dir/legacy\" \
+    tail -q -n +2 \"\$out_dir/account\" \"\$out_dir/code\" \"\$out_dir/storage\" \"\$out_dir/misc\" \
       | sha256sum | cut -d' ' -f1
   "
 }
