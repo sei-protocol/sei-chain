@@ -159,8 +159,14 @@ func getMetadataFileIndex(fileName string) (uint32, error) {
 	return uint32(index), nil //nolint:gosec // segment index fits uint32
 }
 
-// Size returns the size of the metadata file in bytes.
+// Size returns the size of the metadata file in bytes. A metadata file loaded from disk as a legacy v3
+// file (no compression byte) is 18 bytes until it is rewritten; every file written by the current build
+// is v4 (19 bytes). serialize() bumps segmentVersion to LatestSegmentVersion on write, so this reflects
+// the actual on-disk size in both cases.
 func (m *metadataFile) Size() uint64 {
+	if m.segmentVersion == ShardedAddressSegmentVersion {
+		return V3MetadataSize
+	}
 	return V4MetadataSize
 }
 
@@ -188,8 +194,10 @@ func (m *metadataFile) seal(now time.Time, keyCount uint32) error {
 }
 
 // serialize serializes the metadata file to a byte array. Metadata is always written at
-// LatestSegmentVersion (v4), including the trailing compression-algorithm byte.
+// LatestSegmentVersion (v4), including the trailing compression-algorithm byte. A file loaded as legacy
+// v3 is therefore promoted to v4 the moment it is rewritten, so segmentVersion is updated to match.
 func (m *metadataFile) serialize() []byte {
+	m.segmentVersion = LatestSegmentVersion
 	data := make([]byte, V4MetadataSize)
 
 	binary.BigEndian.PutUint32(data[0:4], uint32(LatestSegmentVersion))
