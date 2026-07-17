@@ -1,7 +1,6 @@
 package gov
 
 import (
-	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -66,7 +65,7 @@ type PrecompileExecutor struct {
 	SubmitProposalID []byte
 }
 
-func NewPrecompile(keepers utils.Keepers) (*pcommon.Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
@@ -96,24 +95,16 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.Precompile, error) {
 	}
 
 	// Create the precompile
-	return pcommon.NewPrecompile(newAbi, p, p.address, "gov"), nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, p, p.address, "gov"), nil
 }
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
-	if bytes.Equal(method.ID, p.VoteID) || bytes.Equal(method.ID, p.VoteWeightedID) {
-		return 30000
-	} else if bytes.Equal(method.ID, p.DepositID) {
-		return 30000
-	} else if bytes.Equal(method.ID, p.SubmitProposalID) {
-		return 50000
-	} else if !p.IsTransaction(method.Name) {
-		// query methods are charged the default read gas cost
-		return pcommon.DefaultGasCost(input, false)
-	}
+	return pcommon.DefaultGasCost(input, p.IsTransaction(method.Name))
+}
 
-	// This should never happen since this is going to fail during Run
-	return pcommon.UnknownMethodCallGas
+func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
+	return p.evmKeeper
 }
 
 // IsTransaction returns true for methods that mutate state. All gov query
@@ -127,9 +118,9 @@ func (p PrecompileExecutor) IsTransaction(method string) bool {
 	}
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, hooks *tracing.Hooks) (bz []byte, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (bz []byte, remainingGas uint64, err error) {
 	if ctx.EVMPrecompileCalledFromDelegateCall() {
-		return nil, errors.New("cannot delegatecall gov")
+		return nil, 0, errors.New("cannot delegatecall gov")
 	}
 
 	switch method.Name {
@@ -152,7 +143,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	}
 
 	if readOnly {
-		return nil, errors.New("cannot call gov precompile from staticcall")
+		return nil, 0, errors.New("cannot call gov precompile from staticcall")
 	}
 
 	switch method.Name {
@@ -168,17 +159,17 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
-func (p PrecompileExecutor) vote(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) vote(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	voter, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		return nil, types.NewAssociationMissingErr(caller.Hex())
+		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
 	}
 	proposalID := args[0].(uint64)
 	voteOption := args[1].(int32)
@@ -186,28 +177,32 @@ func (p PrecompileExecutor) vote(ctx sdk.Context, method *abi.Method, caller com
 	msg := govtypes.NewMsgVote(voter, proposalID, govtypes.VoteOption(voteOption))
 	err := msg.ValidateBasic()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	goCtx := sdk.WrapSDKContext(ctx)
 	_, err = p.govMsgServer.Vote(goCtx, msg)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return method.Outputs.Pack(true)
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) voteWeighted(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) voteWeighted(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	voter, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		return nil, types.NewAssociationMissingErr(caller.Hex())
+		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
 	}
 	proposalID := args[0].(uint64)
 
@@ -220,7 +215,7 @@ func (p PrecompileExecutor) voteWeighted(ctx sdk.Context, method *abi.Method, ca
 
 	maxOptions := 4
 	if len(weightedOptionsStruct) > maxOptions {
-		return nil, fmt.Errorf("too many vote options provided: maximum allowed is %d", maxOptions)
+		return nil, 0, fmt.Errorf("too many vote options provided: maximum allowed is %d", maxOptions)
 	}
 
 	// Convert to WeightedVoteOptions
@@ -229,7 +224,7 @@ func (p PrecompileExecutor) voteWeighted(ctx sdk.Context, method *abi.Method, ca
 		// Parse weight as decimal
 		weight, err := sdk.NewDecFromStr(optionStruct.Weight)
 		if err != nil {
-			return nil, fmt.Errorf("invalid weight format: %w", err)
+			return nil, 0, fmt.Errorf("invalid weight format: %w", err)
 		}
 
 		voteOptions[i] = govtypes.WeightedVoteOption{
@@ -241,64 +236,72 @@ func (p PrecompileExecutor) voteWeighted(ctx sdk.Context, method *abi.Method, ca
 	msg := govtypes.NewMsgVoteWeighted(voter, proposalID, voteOptions)
 	err := msg.ValidateBasic()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	goCtx := sdk.WrapSDKContext(ctx)
 	_, err = p.govMsgServer.VoteWeighted(goCtx, msg)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return method.Outputs.Pack(true)
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
+func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, uint64, error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	depositor, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		return nil, types.NewAssociationMissingErr(caller.Hex())
+		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
 	}
 	proposalID := args[0].(uint64)
 	if value == nil || value.Sign() == 0 {
-		return nil, errors.New("set `value` field to non-zero to deposit fund")
+		return nil, 0, errors.New("set `value` field to non-zero to deposit fund")
 	}
 	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), depositor, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	msg := govtypes.NewMsgDeposit(depositor, proposalID, sdk.NewCoins(coin))
 	err = msg.ValidateBasic()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	goCtx := sdk.WrapSDKContext(ctx)
 	_, err = p.govMsgServer.Deposit(goCtx, msg)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return method.Outputs.Pack(true)
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
+func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, uint64, error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	proposer, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		return nil, types.NewAssociationMissingErr(caller.Hex())
+		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
 	}
 
 	// Parse the proposal JSON
 	proposalJSON := args[0].(string)
 	var proposal Proposal
 	if err := json.Unmarshal([]byte(proposalJSON), &proposal); err != nil {
-		return nil, fmt.Errorf("failed to parse proposal JSON: %w", err)
+		return nil, 0, fmt.Errorf("failed to parse proposal JSON: %w", err)
 	}
 
 	initialDeposit, err := pcommon.HandlePaymentUsei(
@@ -312,26 +315,26 @@ func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, 
 		evm.GetDepth())
 
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Create the proposal content using the handler system
 	content, err := p.createProposalContent(ctx, proposal)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Create the MsgSubmitProposal
 	msg, err :=
 		govtypes.NewMsgSubmitProposalWithExpedite(content, sdk.NewCoins(initialDeposit), proposer, proposal.IsExpedited)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Validate the Msg
 	err = msg.ValidateBasic()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Create a MsgServer context
@@ -340,11 +343,15 @@ func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, 
 	// Submit the proposal using the MsgServer
 	res, err := p.govMsgServer.SubmitProposal(goCtx, msg)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Return the proposal ID
-	return method.Outputs.Pack(res.ProposalId)
+	bz, err := method.Outputs.Pack(res.ProposalId)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
 // Coin mirrors the abi.json Coin tuple. Field order must match the tuple
@@ -412,39 +419,43 @@ type GovParams struct {
 	ExpeditedThreshold    string
 }
 
-func (p PrecompileExecutor) proposalQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) proposalQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req := &govtypes.QueryProposalRequest{ProposalId: args[0].(uint64)}
 	resp, err := p.govQuerier.Proposal(sdk.WrapSDKContext(ctx), req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	proposal, err := p.convertProposal(resp.Proposal)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return method.Outputs.Pack(proposal)
+	bz, err := method.Outputs.Pack(proposal)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) proposalsQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) proposalsQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	voter, err := p.optionalBech32FromArg(ctx, args[1])
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	depositor, err := p.optionalBech32FromArg(ctx, args[2])
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req := &govtypes.QueryProposalsRequest{
 		ProposalStatus: govtypes.ProposalStatus(args[0].(int32)),
@@ -456,13 +467,13 @@ func (p PrecompileExecutor) proposalsQuery(ctx sdk.Context, method *abi.Method, 
 	}
 	resp, err := p.govQuerier.Proposals(sdk.WrapSDKContext(ctx), req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	proposals := make([]ProposalData, len(resp.Proposals))
 	for i, proposal := range resp.Proposals {
 		converted, err := p.convertProposal(proposal)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		proposals[i] = converted
 	}
@@ -470,19 +481,23 @@ func (p PrecompileExecutor) proposalsQuery(ctx sdk.Context, method *abi.Method, 
 	if resp.Pagination != nil {
 		nextKey = resp.Pagination.NextKey
 	}
-	return method.Outputs.Pack(proposals, nextKey)
+	bz, err := method.Outputs.Pack(proposals, nextKey)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) voteQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) voteQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	voter, err := pcommon.GetSeiAddressFromArg(ctx, args[1], p.evmKeeper)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req := &govtypes.QueryVoteRequest{
 		ProposalId: args[0].(uint64),
@@ -490,17 +505,21 @@ func (p PrecompileExecutor) voteQuery(ctx sdk.Context, method *abi.Method, args 
 	}
 	resp, err := p.govQuerier.Vote(sdk.WrapSDKContext(ctx), req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return method.Outputs.Pack(convertVote(resp.Vote))
+	bz, err := method.Outputs.Pack(convertVote(resp.Vote))
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) votesQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) votesQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req := &govtypes.QueryVotesRequest{
 		ProposalId: args[0].(uint64),
@@ -510,7 +529,7 @@ func (p PrecompileExecutor) votesQuery(ctx sdk.Context, method *abi.Method, args
 	}
 	resp, err := p.govQuerier.Votes(sdk.WrapSDKContext(ctx), req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	votes := make([]VoteData, len(resp.Votes))
 	for i, vote := range resp.Votes {
@@ -520,28 +539,32 @@ func (p PrecompileExecutor) votesQuery(ctx sdk.Context, method *abi.Method, args
 	if resp.Pagination != nil {
 		nextKey = resp.Pagination.NextKey
 	}
-	return method.Outputs.Pack(votes, nextKey)
+	bz, err := method.Outputs.Pack(votes, nextKey)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) paramsQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) paramsQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := pcommon.ValidateArgsLength(args, 0); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	goCtx := sdk.WrapSDKContext(ctx)
 	votingResp, err := p.govQuerier.Params(goCtx, &govtypes.QueryParamsRequest{ParamsType: govtypes.ParamVoting})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	depositResp, err := p.govQuerier.Params(goCtx, &govtypes.QueryParamsRequest{ParamsType: govtypes.ParamDeposit})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	tallyResp, err := p.govQuerier.Params(goCtx, &govtypes.QueryParamsRequest{ParamsType: govtypes.ParamTallying})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	params := GovParams{
 		VotingPeriod:          uint64(votingResp.VotingParams.VotingPeriod.Seconds()),
@@ -555,19 +578,23 @@ func (p PrecompileExecutor) paramsQuery(ctx sdk.Context, method *abi.Method, arg
 		ExpeditedQuorum:       tallyResp.TallyParams.ExpeditedQuorum.String(),
 		ExpeditedThreshold:    tallyResp.TallyParams.ExpeditedThreshold.String(),
 	}
-	return method.Outputs.Pack(params)
+	bz, err := method.Outputs.Pack(params)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) depositQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) depositQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	depositor, err := pcommon.GetSeiAddressFromArg(ctx, args[1], p.evmKeeper)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req := &govtypes.QueryDepositRequest{
 		ProposalId: args[0].(uint64),
@@ -575,17 +602,21 @@ func (p PrecompileExecutor) depositQuery(ctx sdk.Context, method *abi.Method, ar
 	}
 	resp, err := p.govQuerier.Deposit(sdk.WrapSDKContext(ctx), req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return method.Outputs.Pack(convertDeposit(resp.Deposit))
+	bz, err := method.Outputs.Pack(convertDeposit(resp.Deposit))
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) depositsQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) depositsQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req := &govtypes.QueryDepositsRequest{
 		ProposalId: args[0].(uint64),
@@ -595,7 +626,7 @@ func (p PrecompileExecutor) depositsQuery(ctx sdk.Context, method *abi.Method, a
 	}
 	resp, err := p.govQuerier.Deposits(sdk.WrapSDKContext(ctx), req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	deposits := make([]DepositData, len(resp.Deposits))
 	for i, deposit := range resp.Deposits {
@@ -605,22 +636,30 @@ func (p PrecompileExecutor) depositsQuery(ctx sdk.Context, method *abi.Method, a
 	if resp.Pagination != nil {
 		nextKey = resp.Pagination.NextKey
 	}
-	return method.Outputs.Pack(deposits, nextKey)
+	bz, err := method.Outputs.Pack(deposits, nextKey)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) tallyResultQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) tallyResultQuery(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req := &govtypes.QueryTallyResultRequest{ProposalId: args[0].(uint64)}
 	resp, err := p.govQuerier.TallyResult(sdk.WrapSDKContext(ctx), req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return method.Outputs.Pack(convertTallyResult(resp.Tally))
+	bz, err := method.Outputs.Pack(convertTallyResult(resp.Tally))
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
 // optionalBech32FromArg resolves an EVM address argument to its associated Sei

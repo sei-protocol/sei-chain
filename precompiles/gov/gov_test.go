@@ -805,7 +805,7 @@ func TestGovQueryPrecompile(t *testing.T) {
 		require.Nil(t, err)
 		statedb := state.NewDBImpl(ctx, k, true)
 		evm := vm.EVM{StateDB: statedb}
-		ret, err := p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), nil, true, false, nil)
+		ret, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 1000000, nil, nil, true, false)
 		require.Nil(t, err)
 		outputs, err := method.Outputs.Unpack(ret)
 		require.Nil(t, err)
@@ -920,7 +920,7 @@ func TestGovQueryPrecompile(t *testing.T) {
 		require.Nil(t, err)
 		statedb := state.NewDBImpl(ctx, k, true)
 		evm := vm.EVM{StateDB: statedb}
-		_, err = p.Run(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), nil, true, false, nil)
+		_, _, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 1000000, nil, nil, true, false)
 		require.NotNil(t, err)
 	})
 }
