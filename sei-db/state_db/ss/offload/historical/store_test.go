@@ -59,6 +59,10 @@ type fakeReader struct {
 	getErr    error
 	hasResult bool
 	hasSet    bool
+	// lastVersion overrides the reported ingestion watermark; zero means
+	// "fully caught up" so coverage gating stays out of unrelated tests.
+	lastVersion  int64
+	lastVersions int
 }
 
 func (f *fakeReader) Get(context.Context, string, []byte, int64) (Value, error) {
@@ -77,13 +81,19 @@ func (f *fakeReader) Has(context.Context, string, []byte, int64) (bool, error) {
 	return true, nil
 }
 
-func (f *fakeReader) LastVersion(context.Context) (int64, error) { return 0, nil }
-func (f *fakeReader) Close() error                               { return nil }
+func (f *fakeReader) LastVersion(context.Context) (int64, error) {
+	f.lastVersions++
+	if f.lastVersion != 0 {
+		return f.lastVersion, nil
+	}
+	return 1 << 62, nil
+}
+func (f *fakeReader) Close() error { return nil }
 
 func TestFallbackStateStoreRoutesPrunedPointReads(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{}
-	store := NewFallbackStateStore(primary, reader)
+	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
 
 	value, err := store.Get("bank", 7, []byte("k"))
 	require.NoError(t, err)
@@ -101,7 +111,7 @@ func TestFallbackStateStoreRoutesPrunedPointReads(t *testing.T) {
 func TestFallbackStateStoreKeepsRecentPointReadsOnPrimary(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{}
-	store := NewFallbackStateStore(primary, reader)
+	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
 
 	value, err := store.Get("bank", 10, []byte("k"))
 	require.NoError(t, err)
@@ -113,7 +123,7 @@ func TestFallbackStateStoreKeepsRecentPointReadsOnPrimary(t *testing.T) {
 func TestFallbackStateStoreCachesHistoricalPointReads(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{}
-	store := NewFallbackStateStore(primary, reader)
+	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
 
 	value, err := store.Get("bank", 7, []byte("k"))
 	require.NoError(t, err)
@@ -134,7 +144,7 @@ func TestFallbackStateStoreCachesHistoricalPointReads(t *testing.T) {
 func TestFallbackStateStoreCachesHistoricalMisses(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{getErr: ErrNotFound, hasSet: true}
-	store := NewFallbackStateStore(primary, reader)
+	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
 
 	value, err := store.Get("bank", 7, []byte("missing"))
 	require.NoError(t, err)
@@ -154,7 +164,7 @@ func TestFallbackStateStoreCachesHistoricalMisses(t *testing.T) {
 func TestFallbackStateStoreCachesHistoricalHasResults(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{hasResult: true, hasSet: true}
-	store := NewFallbackStateStore(primary, reader)
+	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
 
 	ok, err := store.Has("bank", 7, []byte("k"))
 	require.NoError(t, err)
@@ -169,7 +179,7 @@ func TestFallbackStateStoreCachesHistoricalHasResults(t *testing.T) {
 func TestFallbackStateStoreDoesNotUseHasOnlyCacheForGet(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{hasResult: true, hasSet: true}
-	store := NewFallbackStateStore(primary, reader)
+	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
 
 	ok, err := store.Has("bank", 7, []byte("k"))
 	require.NoError(t, err)
@@ -199,7 +209,7 @@ func TestFallbackStateStoreUsesPerKeyEarliestVersion(t *testing.T) {
 		perKey:         map[string]int64{"evm": 5},
 	}
 	reader := &fakeReader{}
-	store := NewFallbackStateStore(primary, reader)
+	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
 
 	// The EVM store still holds version 7 locally even though the cosmos store
 	// pruned to 10; the read must stay on the primary.
@@ -222,10 +232,63 @@ func TestFallbackStateStoreUsesPerKeyEarliestVersion(t *testing.T) {
 	require.Equal(t, 0, reader.has)
 }
 
+func TestFallbackStateStoreCoverageFloor(t *testing.T) {
+	primary := &fakeStateStore{earliest: 100}
+	reader := &fakeReader{}
+	store := NewFallbackStateStore(primary, reader, FallbackOptions{EarliestVersion: 50})
+
+	// The floor becomes the advertised earliest so height gates admit pruned
+	// heights the fallback can serve.
+	require.Equal(t, int64(50), store.GetEarliestVersion())
+
+	// In [floor, local earliest): fallback serves the read.
+	value, err := store.Get("bank", 60, []byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("historical"), value)
+	require.Equal(t, 1, reader.gets)
+
+	// Below the floor: the backend has no coverage; stay on the primary.
+	value, err = store.Get("bank", 49, []byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("primary"), value)
+	require.Equal(t, 1, reader.gets)
+
+	// Negative versions never fall back.
+	_, err = store.Get("bank", -1, []byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, 1, reader.gets)
+}
+
+func TestFallbackStateStoreRejectsReadsBeyondBackendCoverage(t *testing.T) {
+	primary := &fakeStateStore{earliest: 100}
+	reader := &fakeReader{lastVersion: 40}
+	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
+
+	// The backend has only ingested up to 40; a pruned read at 90 must error
+	// instead of returning silently-empty state.
+	_, err := store.Get("bank", 90, []byte("k"))
+	require.ErrorContains(t, err, "behind requested version")
+	require.Equal(t, 0, reader.gets)
+
+	_, err = store.Has("bank", 90, []byte("k"))
+	require.ErrorContains(t, err, "behind requested version")
+	require.Equal(t, 0, reader.has)
+
+	// The watermark refresh is rate-limited: the second miss must not trigger
+	// another LastVersion call.
+	require.Equal(t, 1, reader.lastVersions)
+
+	// Reads at or below the ingested watermark are served.
+	value, err := store.Get("bank", 40, []byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("historical"), value)
+	require.Equal(t, 1, reader.gets)
+}
+
 func TestFallbackStateStoreExpiresCachedMisses(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{getErr: ErrNotFound}
-	store := NewFallbackStateStore(primary, reader)
+	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
 
 	value, err := store.Get("bank", 7, []byte("missing"))
 	require.NoError(t, err)
@@ -250,7 +313,7 @@ func TestFallbackStateStoreExpiresCachedMisses(t *testing.T) {
 func TestFallbackStateStoreDoesNotCacheHistoricalErrors(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{getErr: errors.New("boom")}
-	store := NewFallbackStateStore(primary, reader)
+	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
 
 	_, err := store.Get("bank", 7, []byte("k"))
 	require.Error(t, err)

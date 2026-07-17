@@ -29,6 +29,9 @@ func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.Stat
 	if !scyllaConfigured && !bigtableConfigured {
 		return primary, nil
 	}
+	fallbackOpts := historical.FallbackOptions{
+		EarliestVersion: ssConfig.HistoricalOffloadEarliestVersion,
+	}
 	if bigtableConfigured {
 		reader, err := historical.NewBigtableReader(historical.BigtableConfig{
 			ProjectID:  ssConfig.HistoricalOffloadBigtableProjectID,
@@ -42,7 +45,7 @@ func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.Stat
 			_ = primary.Close()
 			return nil, fmt.Errorf("open bigtable historical offload reader: %w", err)
 		}
-		return historical.NewFallbackStateStore(primary, reader), nil
+		return historical.NewFallbackStateStore(primary, reader, fallbackOpts), nil
 	}
 	reader, err := historical.NewScyllaReader(historical.ScyllaConfig{
 		Hosts:       splitCSV(ssConfig.HistoricalOffloadScyllaHosts),
@@ -57,7 +60,7 @@ func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.Stat
 		_ = primary.Close()
 		return nil, fmt.Errorf("open scylla/cassandra historical offload reader: %w", err)
 	}
-	return historical.NewFallbackStateStore(primary, reader), nil
+	return historical.NewFallbackStateStore(primary, reader, fallbackOpts), nil
 }
 
 func scyllaHistoricalOffloadConfigured(cfg config.StateStoreConfig) bool {

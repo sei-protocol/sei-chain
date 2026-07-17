@@ -263,6 +263,7 @@ func TestParseSSConfigs_HistoricalBigtableFlags(t *testing.T) {
 		FlagHistoricalOffloadBigtableFamily:     "state",
 		FlagHistoricalOffloadBigtableAppProfile: "historical",
 		FlagHistoricalOffloadBigtableShards:     512,
+		FlagHistoricalOffloadEarliestVersion:    int64(1234),
 		FlagSSAsyncWriterBuffer:                 0,
 	}
 
@@ -274,6 +275,7 @@ func TestParseSSConfigs_HistoricalBigtableFlags(t *testing.T) {
 	assert.Equal(t, "state", ssConfig.HistoricalOffloadBigtableFamily)
 	assert.Equal(t, "historical", ssConfig.HistoricalOffloadBigtableAppProfile)
 	assert.Equal(t, 512, ssConfig.HistoricalOffloadBigtableShards)
+	assert.Equal(t, int64(1234), ssConfig.HistoricalOffloadEarliestVersion)
 }
 
 func TestParseSSConfigs_ReadWriteMetrics(t *testing.T) {

@@ -110,6 +110,12 @@ type StateStoreConfig struct {
 	HistoricalOffloadBigtableFamily     string `mapstructure:"historical-offload-bigtable-family"`
 	HistoricalOffloadBigtableAppProfile string `mapstructure:"historical-offload-bigtable-app-profile"`
 	HistoricalOffloadBigtableShards     int    `mapstructure:"historical-offload-bigtable-shards"`
+
+	// HistoricalOffloadEarliestVersion is the operator-declared earliest version
+	// (inclusive) fully ingested into the historical backend. When > 0 it is
+	// advertised as the store's earliest version so height gates admit pruned
+	// reads; reads below it stay on the primary.
+	HistoricalOffloadEarliestVersion int64 `mapstructure:"historical-offload-earliest-version"`
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig

@@ -119,10 +119,11 @@ func (m *bigtableMetrics) recordWrite(ctx context.Context, table string, latency
 const fallbackMeterName = "seidb_historical_fallback"
 
 const (
-	fallbackOutcomeCacheHit    = "cache_hit"
-	fallbackOutcomeBackendHit  = "backend_hit"
-	fallbackOutcomeBackendMiss = "backend_miss"
-	fallbackOutcomeError       = "error"
+	fallbackOutcomeCacheHit      = "cache_hit"
+	fallbackOutcomeBackendHit    = "backend_hit"
+	fallbackOutcomeBackendMiss   = "backend_miss"
+	fallbackOutcomeBackendBehind = "backend_behind"
+	fallbackOutcomeError         = "error"
 )
 
 // fallbackMetrics counts pruned point reads by operation (get/has) and outcome

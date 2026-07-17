@@ -175,6 +175,12 @@ historical-offload-bigtable-table = "{{ .StateStore.HistoricalOffloadBigtableTab
 historical-offload-bigtable-family = "{{ .StateStore.HistoricalOffloadBigtableFamily }}"
 historical-offload-bigtable-app-profile = "{{ .StateStore.HistoricalOffloadBigtableAppProfile }}"
 historical-offload-bigtable-shards = {{ .StateStore.HistoricalOffloadBigtableShards }}
+
+# Earliest version (inclusive) fully ingested into the historical backend.
+# When > 0 it becomes the node's advertised earliest version, so RPC height
+# gates admit pruned heights the fallback can serve; point reads below it stay
+# local. Leave 0 until backfill/ingestion coverage reaches the desired height.
+historical-offload-earliest-version = {{ .StateStore.HistoricalOffloadEarliestVersion }}
 `
 
 // ReceiptStoreConfigTemplate defines the configuration template for receipt-store

@@ -107,6 +107,7 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, `historical-offload-bigtable-instance = ""`, "Missing historical Bigtable instance")
 	require.Contains(t, output, `historical-offload-bigtable-table = ""`, "Missing historical Bigtable table")
 	require.Contains(t, output, "historical-offload-bigtable-shards = 0", "Missing historical Bigtable shards")
+	require.Contains(t, output, "historical-offload-earliest-version = 0", "Missing historical earliest version")
 }
 
 // TestReceiptStoreConfigTemplate verifies that all field paths in the receipt-store TOML template

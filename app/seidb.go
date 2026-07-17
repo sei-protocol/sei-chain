@@ -68,6 +68,7 @@ const (
 	FlagHistoricalOffloadBigtableFamily     = "state-store.historical-offload-bigtable-family"
 	FlagHistoricalOffloadBigtableAppProfile = "state-store.historical-offload-bigtable-app-profile"
 	FlagHistoricalOffloadBigtableShards     = "state-store.historical-offload-bigtable-shards"
+	FlagHistoricalOffloadEarliestVersion    = "state-store.historical-offload-earliest-version"
 )
 
 var GigaKeys = []string{"evm", "bank"}
@@ -236,5 +237,6 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.HistoricalOffloadBigtableFamily = cast.ToString(appOpts.Get(FlagHistoricalOffloadBigtableFamily))
 	ssConfig.HistoricalOffloadBigtableAppProfile = cast.ToString(appOpts.Get(FlagHistoricalOffloadBigtableAppProfile))
 	ssConfig.HistoricalOffloadBigtableShards = cast.ToInt(appOpts.Get(FlagHistoricalOffloadBigtableShards))
+	ssConfig.HistoricalOffloadEarliestVersion = cast.ToInt64(appOpts.Get(FlagHistoricalOffloadEarliestVersion))
 	return ssConfig
 }

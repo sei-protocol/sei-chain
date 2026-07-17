@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -13,8 +16,11 @@ import (
 )
 
 const (
-	defaultHistoricalReadCacheEntries = 64 * 1024
-	maxHistoricalReadCacheValueBytes  = 64 * 1024
+	// Cache entries and the per-value cap bound worst-case memory at
+	// entries*cap (256 MiB) even when an external caller crafts distinct
+	// large-value historical queries.
+	defaultHistoricalReadCacheEntries = 32 * 1024
+	maxHistoricalReadCacheValueBytes  = 8 * 1024
 
 	// historicalReadTimeout bounds one backend point read. types.StateStore has
 	// no context parameter, so the deadline must be injected here; without it a
@@ -26,6 +32,10 @@ const (
 	// immutable (a version's value never changes once written) but a miss can
 	// flip to a hit once the offload consumer catches up.
 	historicalMissCacheTTL = time.Minute
+
+	// backendVersionRecheckInterval rate-limits LastVersion refreshes when a
+	// requested version is ahead of the backend's cached ingestion watermark.
+	backendVersionRecheckInterval = 30 * time.Second
 )
 
 type historicalReadCacheKey struct {
@@ -50,6 +60,17 @@ type PerKeyEarliestVersioner interface {
 	GetEarliestVersionForKey(storeKey string) int64
 }
 
+// FallbackOptions tunes FallbackStateStore behavior.
+type FallbackOptions struct {
+	// EarliestVersion is the operator-declared earliest version (inclusive)
+	// fully ingested into the historical backend. When set (> 0) it becomes the
+	// store's advertised earliest version, so height gates such as the EVM RPC
+	// watermark admit pruned heights that the fallback can serve; reads below
+	// it stay on the primary. When zero, the advertised earliest remains the
+	// local prune horizon and height gates keep rejecting pruned heights.
+	EarliestVersion int64
+}
+
 // FallbackStateStore routes pruned point reads to the historical reader.
 // Iteration and writes stay on the primary state store.
 type FallbackStateStore struct {
@@ -58,12 +79,19 @@ type FallbackStateStore struct {
 	reader         Reader
 	cache          *lru.Cache[historicalReadCacheKey, historicalReadCacheValue]
 	metrics        *fallbackMetrics
+	coverageFloor  int64
+
+	// backendLast caches the backend's last ingested version; it is refreshed
+	// at most every backendVersionRecheckInterval when a read runs ahead of it.
+	backendLast      atomic.Int64
+	backendCheckedAt atomic.Int64
+	backendMu        sync.Mutex
 }
 
 var _ types.StateStore = (*FallbackStateStore)(nil)
 
 // NewFallbackStateStore takes ownership of primary and reader for Close.
-func NewFallbackStateStore(primary types.StateStore, reader Reader) *FallbackStateStore {
+func NewFallbackStateStore(primary types.StateStore, reader Reader, opts FallbackOptions) *FallbackStateStore {
 	cache, err := lru.New[historicalReadCacheKey, historicalReadCacheValue](defaultHistoricalReadCacheEntries)
 	if err != nil {
 		panic(err)
@@ -75,12 +103,46 @@ func NewFallbackStateStore(primary types.StateStore, reader Reader) *FallbackSta
 		reader:         reader,
 		cache:          cache,
 		metrics:        newFallbackMetrics(),
+		coverageFloor:  opts.EarliestVersion,
 	}
 }
 
 func (s *FallbackStateStore) shouldFallback(storeKey string, version int64) bool {
+	if version < 0 || (s.coverageFloor > 0 && version < s.coverageFloor) {
+		return false
+	}
 	earliest := s.earliestVersionFor(storeKey)
 	return earliest > 0 && version < earliest
+}
+
+// ensureBackendCoverage refuses fallback reads above the backend's last
+// ingested version so consumer lag surfaces as an error instead of silently
+// empty state (which would also poison the miss cache).
+func (s *FallbackStateStore) ensureBackendCoverage(ctx context.Context, version int64) error {
+	if version <= s.backendLast.Load() {
+		return nil
+	}
+	s.backendMu.Lock()
+	defer s.backendMu.Unlock()
+	last := s.backendLast.Load()
+	if version <= last {
+		return nil
+	}
+	if time.Now().UnixNano()-s.backendCheckedAt.Load() >= backendVersionRecheckInterval.Nanoseconds() {
+		refreshed, err := s.reader.LastVersion(ctx)
+		if err != nil {
+			return fmt.Errorf("check historical backend coverage: %w", err)
+		}
+		s.backendCheckedAt.Store(time.Now().UnixNano())
+		if refreshed > last {
+			last = refreshed
+			s.backendLast.Store(refreshed)
+		}
+	}
+	if version > last {
+		return fmt.Errorf("historical backend has ingested up to version %d, behind requested version %d", last, version)
+	}
+	return nil
 }
 
 func (s *FallbackStateStore) earliestVersionFor(storeKey string) int64 {
@@ -108,6 +170,10 @@ func (s *FallbackStateStore) Get(storeKey string, version int64, key []byte) ([]
 	}
 	ctx, cancel := s.readContext()
 	defer cancel()
+	if err := s.ensureBackendCoverage(ctx, version); err != nil {
+		s.metrics.recordRead("get", fallbackOutcomeBackendBehind)
+		return nil, err
+	}
 	v, err := s.reader.Get(ctx, storeKey, key, version)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -199,6 +265,10 @@ func (s *FallbackStateStore) Has(storeKey string, version int64, key []byte) (bo
 	}
 	ctx, cancel := s.readContext()
 	defer cancel()
+	if err := s.ensureBackendCoverage(ctx, version); err != nil {
+		s.metrics.recordRead("has", fallbackOutcomeBackendBehind)
+		return false, err
+	}
 	found, err := s.reader.Has(ctx, storeKey, key, version)
 	if err != nil {
 		s.metrics.recordRead("has", fallbackOutcomeError)
@@ -232,7 +302,19 @@ func (s *FallbackStateStore) SetLatestVersion(version int64) error {
 	return s.primary.SetLatestVersion(version)
 }
 
-func (s *FallbackStateStore) GetEarliestVersion() int64 { return s.primary.GetEarliestVersion() }
+// GetEarliestVersion advertises the earliest queryable version. With a
+// configured coverage floor the fallback serves point reads below the local
+// prune horizon, so height gates (e.g. the EVM RPC watermark) must see the
+// floor rather than the local horizon or every historical query is rejected
+// before it reaches the store. Iterators do not use the fallback; range
+// queries between the floor and the local horizon see only local data.
+func (s *FallbackStateStore) GetEarliestVersion() int64 {
+	local := s.primary.GetEarliestVersion()
+	if s.coverageFloor > 0 && local > 0 && s.coverageFloor < local {
+		return s.coverageFloor
+	}
+	return local
+}
 
 func (s *FallbackStateStore) SetEarliestVersion(version int64, ignoreVersion bool) error {
 	return s.primary.SetEarliestVersion(version, ignoreVersion)
