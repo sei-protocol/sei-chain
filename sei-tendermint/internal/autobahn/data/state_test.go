@@ -549,7 +549,8 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 
 // TestPruningWithPartialQCRange verifies BlockDB watermark pruning across QC
 // ranges, and that a restart from a consistent BlockDB recovers from the
-// retained QC start.
+// retained QC start. BlockDB clamps prune requests to QC First (cohort-atomic
+// readability), so a mid-range prune does not refuse heights inside that QC.
 func TestPruningWithPartialQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -566,13 +567,14 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 
 	require.NoError(t, pushAppHashesRunning(ctx, state1, rng, gr1.First, gr2.Next))
 
-	// Per-block prune into middle of qc1's range.
+	// Mid-QC prune clamps to gr1.First, so the whole qc1 cohort stays readable.
 	midQC1 := gr1.First + (gr1.Next-gr1.First)/2
 	if midQC1 > gr1.First {
 		require.NoError(t, state1.PruneBefore(midQC1))
 		for n := gr1.First; n < midQC1; n++ {
-			_, err := state1.TryBlock(n)
-			require.ErrorIs(t, err, ErrPruned)
+			got, err := state1.TryBlock(n)
+			require.NoError(t, err, "mid-QC prune must not refuse block %d (clamped to QC First)", n)
+			require.NotNil(t, got)
 		}
 	}
 

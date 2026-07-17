@@ -572,6 +572,9 @@ func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Optio
 	}
 	qc, err := s.qcFromDB(bn.Number)
 	if err != nil {
+		if errors.Is(err, ErrPruned) || errors.Is(err, ErrNotFound) {
+			return utils.None[*types.GlobalBlock](), nil
+		}
 		return utils.None[*types.GlobalBlock](), err
 	}
 	return utils.Some(assembleGlobalBlock(bn.Number, bn.Block, qc)), nil
