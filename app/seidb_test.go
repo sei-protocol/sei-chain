@@ -91,6 +91,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.HistoricalOffloadBigtableAppProfile
 	case FlagHistoricalOffloadBigtableShards:
 		return defaultSSConfig.HistoricalOffloadBigtableShards
+	case FlagHistoricalOffloadEarliestVersion:
+		return defaultSSConfig.HistoricalOffloadEarliestVersion
 	}
 	return nil
 }

@@ -37,11 +37,15 @@ func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.Stat
 		AppProfile: ssConfig.HistoricalOffloadBigtableAppProfile,
 		Shards:     ssConfig.HistoricalOffloadBigtableShards,
 	}
-	if scyllaCfg.Configured() && bigtableCfg.Configured() {
+	// Scylla's configured check uses the raw hosts string so a garbage value
+	// (e.g. only commas) fails reader validation loudly instead of silently
+	// running without the fallback.
+	scyllaConfigured := strings.TrimSpace(ssConfig.HistoricalOffloadScyllaHosts) != "" || scyllaCfg.Configured()
+	if scyllaConfigured && bigtableCfg.Configured() {
 		_ = primary.Close()
 		return nil, fmt.Errorf("only one historical offload fallback can be configured")
 	}
-	if !scyllaCfg.Configured() && !bigtableCfg.Configured() {
+	if !scyllaConfigured && !bigtableCfg.Configured() {
 		return primary, nil
 	}
 	if bigtableCfg.Configured() {
