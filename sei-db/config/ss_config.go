@@ -81,27 +81,6 @@ type StateStoreConfig struct {
 	// preserving the same logical store key and full key encoding inside each DB.
 	SeparateEVMSubDBs bool `mapstructure:"evm-separate-dbs"`
 
-	// HistoricalOffloadScyllaHosts enables ScyllaDB/Cassandra fallback reads
-	// for versions pruned from local SS when non-empty. Hosts are comma-separated
-	// host[:port] values.
-	HistoricalOffloadScyllaHosts string `mapstructure:"historical-offload-scylla-hosts"`
-
-	// HistoricalOffloadScyllaKeyspace is the keyspace containing state_mutations.
-	HistoricalOffloadScyllaKeyspace string `mapstructure:"historical-offload-scylla-keyspace"`
-
-	// HistoricalOffloadScyllaUsername and Password are optional.
-	HistoricalOffloadScyllaUsername string `mapstructure:"historical-offload-scylla-username"`
-	HistoricalOffloadScyllaPassword string `mapstructure:"historical-offload-scylla-password"`
-
-	// HistoricalOffloadScyllaDatacenter enables DC-aware routing when set.
-	HistoricalOffloadScyllaDatacenter string `mapstructure:"historical-offload-scylla-datacenter"`
-
-	// HistoricalOffloadScyllaConsistency defaults to local_quorum when empty.
-	HistoricalOffloadScyllaConsistency string `mapstructure:"historical-offload-scylla-consistency"`
-
-	// HistoricalOffloadScyllaTimeoutMS defaults in the Scylla reader when zero.
-	HistoricalOffloadScyllaTimeoutMS int `mapstructure:"historical-offload-scylla-timeout-ms"`
-
 	// HistoricalOffloadBigtableProjectID enables Bigtable fallback reads when
 	// project, instance, and table are set.
 	HistoricalOffloadBigtableProjectID  string `mapstructure:"historical-offload-bigtable-project-id"`

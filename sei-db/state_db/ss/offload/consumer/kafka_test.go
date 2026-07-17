@@ -11,7 +11,7 @@ func TestKafkaReaderConfigApplyDefaults(t *testing.T) {
 	cfg := KafkaReaderConfig{
 		Brokers: []string{"localhost:9092"},
 		Topic:   "historical-offload",
-		GroupID: "scylla",
+		GroupID: "bigtable",
 	}
 	cfg.ApplyDefaults()
 	require.Equal(t, "sei-historical-offload-consumer", cfg.ClientID)

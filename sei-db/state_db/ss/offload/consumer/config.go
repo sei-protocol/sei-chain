@@ -4,21 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 )
 
 const (
-	backendScylla   = "scylla"
-	backendBigtable = "bigtable"
-
-	defaultBigtableMaxBatchRecords = 128
-	defaultBigtableBatchMaxWaitMS  = 25
+	defaultMaxBatchRecords = 128
+	defaultBatchMaxWaitMS  = 25
 )
 
 type Config struct {
-	Backend         string
 	Kafka           KafkaReaderConfig
-	Scylla          ScyllaConfig
 	Bigtable        BigtableConfig
 	Workers         int
 	ShardBufferSize int
@@ -35,25 +29,10 @@ func (c *Config) Validate() error {
 	if err := c.Kafka.Validate(); err != nil {
 		return fmt.Errorf("kafka: %w", err)
 	}
-	// Match the node-side reader, which refuses to guess between two configured
-	// backends; a consumer silently defaulting to Scylla here could ingest into
-	// a different store than the node reads from.
-	if strings.TrimSpace(c.Backend) == "" && c.Scylla.Configured() && c.Bigtable.Configured() {
-		return fmt.Errorf("both scylla and bigtable are configured; set Backend to pick one")
-	}
-	switch c.BackendName() {
-	case backendScylla:
-		if err := c.Scylla.Validate(); err != nil {
-			return fmt.Errorf("scylla: %w", err)
-		}
-	case backendBigtable:
-		bigtable := c.Bigtable
-		bigtable.ApplyDefaults()
-		if err := bigtable.Validate(); err != nil {
-			return fmt.Errorf("bigtable: %w", err)
-		}
-	default:
-		return fmt.Errorf("unsupported backend %q", c.Backend)
+	bigtable := c.Bigtable
+	bigtable.ApplyDefaults()
+	if err := bigtable.Validate(); err != nil {
+		return fmt.Errorf("bigtable: %w", err)
 	}
 	if c.Workers < 0 {
 		return fmt.Errorf("workers must be non-negative")
@@ -70,37 +49,12 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-func (c *Config) BackendName() string {
-	backend := strings.ToLower(strings.TrimSpace(c.Backend))
-	if backend != "" {
-		return backend
-	}
-	if c.Bigtable.Configured() && !c.Scylla.Configured() {
-		return backendBigtable
-	}
-	return backendScylla
-}
-
-func (c *Config) applyBackendDefaults() {
-	if c.BackendName() != backendBigtable {
-		return
-	}
+func (c *Config) applyDefaults() {
 	if c.MaxBatchRecords == 0 {
-		c.MaxBatchRecords = defaultBigtableMaxBatchRecords
+		c.MaxBatchRecords = defaultMaxBatchRecords
 	}
 	if c.BatchMaxWaitMS == 0 {
-		c.BatchMaxWaitMS = defaultBigtableBatchMaxWaitMS
-	}
-}
-
-func NewSinkFromConfig(cfg Config) (Sink, error) {
-	switch cfg.BackendName() {
-	case backendScylla:
-		return NewScyllaSink(cfg.Scylla)
-	case backendBigtable:
-		return NewBigtableSink(cfg.Bigtable)
-	default:
-		return nil, fmt.Errorf("unsupported backend %q", cfg.Backend)
+		c.BatchMaxWaitMS = defaultBatchMaxWaitMS
 	}
 }
 
@@ -114,7 +68,7 @@ func LoadConfig(path string) (*Config, error) {
 	if err := json.Unmarshal(raw, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
-	cfg.applyBackendDefaults()
+	cfg.applyDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}

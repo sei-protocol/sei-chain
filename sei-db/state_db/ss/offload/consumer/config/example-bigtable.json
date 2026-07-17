@@ -1,5 +1,4 @@
 {
-  "Backend": "bigtable",
   "Kafka": {
     "Brokers": ["bootstrap.my-cluster.us-east1.managedkafka.my-gcp-project.cloud.goog:9092"],
     "Topic": "historical-offload",

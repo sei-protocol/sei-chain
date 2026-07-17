@@ -30,7 +30,19 @@ const (
 
 	BigtableValueColumn   = "value"
 	BigtableDeletedColumn = "deleted"
+
+	// VersionBucketCount spreads monotonically increasing block-version markers
+	// across a bounded set of row prefixes while keeping LastVersion cheap.
+	VersionBucketCount = 64
 )
+
+// VersionBucket maps a version to its marker bucket.
+func VersionBucket(version int64) int {
+	if version < 0 {
+		version = -version
+	}
+	return int(version % VersionBucketCount)
+}
 
 const (
 	bigtableEndpoint = "bigtable.googleapis.com:443"

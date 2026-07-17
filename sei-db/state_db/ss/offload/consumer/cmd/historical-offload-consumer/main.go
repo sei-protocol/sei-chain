@@ -43,9 +43,9 @@ func main() {
 		log.Printf("serving consumer metrics at %s/metrics", cfg.MetricsAddr)
 	}
 
-	sink, err := consumer.NewSinkFromConfig(*cfg)
+	sink, err := consumer.NewBigtableSink(cfg.Bigtable)
 	if err != nil {
-		log.Fatalf("open %s sink: %v", cfg.BackendName(), err)
+		log.Fatalf("open bigtable sink: %v", err)
 	}
 	defer func() { _ = sink.Close() }()
 

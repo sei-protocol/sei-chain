@@ -65,20 +65,6 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.EVMSplit
 	case FlagEVMSSSeparateDBs:
 		return defaultSSConfig.SeparateEVMSubDBs
-	case FlagHistoricalOffloadScyllaHosts:
-		return defaultSSConfig.HistoricalOffloadScyllaHosts
-	case FlagHistoricalOffloadScyllaKeyspace:
-		return defaultSSConfig.HistoricalOffloadScyllaKeyspace
-	case FlagHistoricalOffloadScyllaUsername:
-		return defaultSSConfig.HistoricalOffloadScyllaUsername
-	case FlagHistoricalOffloadScyllaPassword:
-		return defaultSSConfig.HistoricalOffloadScyllaPassword
-	case FlagHistoricalOffloadScyllaDatacenter:
-		return defaultSSConfig.HistoricalOffloadScyllaDatacenter
-	case FlagHistoricalOffloadScyllaConsistency:
-		return defaultSSConfig.HistoricalOffloadScyllaConsistency
-	case FlagHistoricalOffloadScyllaTimeoutMS:
-		return defaultSSConfig.HistoricalOffloadScyllaTimeoutMS
 	case FlagHistoricalOffloadBigtableProjectID:
 		return defaultSSConfig.HistoricalOffloadBigtableProjectID
 	case FlagHistoricalOffloadBigtableInstance:
@@ -230,30 +216,6 @@ func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	assert.Equal(t, "/tmp/evm-ss", ssConfig.EVMDBDirectory)
 	assert.True(t, ssConfig.EVMSplit)
 	assert.True(t, ssConfig.SeparateEVMSubDBs)
-}
-
-func TestParseSSConfigs_HistoricalScyllaFlags(t *testing.T) {
-	appOpts := mapAppOpts{
-		FlagSSEnable:                           true,
-		FlagHistoricalOffloadScyllaHosts:       "10.0.0.1:9042,10.0.0.2:9042",
-		FlagHistoricalOffloadScyllaKeyspace:    "sei_history",
-		FlagHistoricalOffloadScyllaUsername:    "sei",
-		FlagHistoricalOffloadScyllaPassword:    "secret",
-		FlagHistoricalOffloadScyllaDatacenter:  "use1",
-		FlagHistoricalOffloadScyllaConsistency: "local_quorum",
-		FlagHistoricalOffloadScyllaTimeoutMS:   1500,
-		FlagSSAsyncWriterBuffer:                0,
-	}
-
-	ssConfig := parseSSConfigs(appOpts)
-	assert.True(t, ssConfig.Enable)
-	assert.Equal(t, "10.0.0.1:9042,10.0.0.2:9042", ssConfig.HistoricalOffloadScyllaHosts)
-	assert.Equal(t, "sei_history", ssConfig.HistoricalOffloadScyllaKeyspace)
-	assert.Equal(t, "sei", ssConfig.HistoricalOffloadScyllaUsername)
-	assert.Equal(t, "secret", ssConfig.HistoricalOffloadScyllaPassword)
-	assert.Equal(t, "use1", ssConfig.HistoricalOffloadScyllaDatacenter)
-	assert.Equal(t, "local_quorum", ssConfig.HistoricalOffloadScyllaConsistency)
-	assert.Equal(t, 1500, ssConfig.HistoricalOffloadScyllaTimeoutMS)
 }
 
 func TestParseSSConfigs_HistoricalBigtableFlags(t *testing.T) {

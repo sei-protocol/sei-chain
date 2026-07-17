@@ -2,8 +2,6 @@ package ss
 
 import (
 	"fmt"
-	"strings"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -15,19 +13,12 @@ import (
 // The backend (pebbledb or rocksdb) is resolved at compile time via build-tag-gated
 // files in the backend package. When WriteMode/ReadMode are both cosmos_only (the default),
 // the EVM stores are not opened and the composite store behaves identically to a plain cosmos state store.
+// When the Bigtable historical offload is configured, the store is wrapped so
+// pruned point reads fall back to Bigtable.
 func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.StateStore, error) {
 	primary, err := composite.NewCompositeStateStore(ssConfig, homeDir)
 	if err != nil {
 		return nil, err
-	}
-	scyllaCfg := historical.ScyllaConfig{
-		Hosts:       splitCSV(ssConfig.HistoricalOffloadScyllaHosts),
-		Keyspace:    ssConfig.HistoricalOffloadScyllaKeyspace,
-		Username:    ssConfig.HistoricalOffloadScyllaUsername,
-		Password:    ssConfig.HistoricalOffloadScyllaPassword,
-		Datacenter:  ssConfig.HistoricalOffloadScyllaDatacenter,
-		Consistency: ssConfig.HistoricalOffloadScyllaConsistency,
-		Timeout:     time.Duration(ssConfig.HistoricalOffloadScyllaTimeoutMS) * time.Millisecond,
 	}
 	bigtableCfg := historical.BigtableConfig{
 		ProjectID:  ssConfig.HistoricalOffloadBigtableProjectID,
@@ -37,44 +28,13 @@ func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.Stat
 		AppProfile: ssConfig.HistoricalOffloadBigtableAppProfile,
 		Shards:     ssConfig.HistoricalOffloadBigtableShards,
 	}
-	// Scylla's configured check uses the raw hosts string so a garbage value
-	// (e.g. only commas) fails reader validation loudly instead of silently
-	// running without the fallback.
-	scyllaConfigured := strings.TrimSpace(ssConfig.HistoricalOffloadScyllaHosts) != "" || scyllaCfg.Configured()
-	if scyllaConfigured && bigtableCfg.Configured() {
-		_ = primary.Close()
-		return nil, fmt.Errorf("only one historical offload fallback can be configured")
-	}
-	if !scyllaConfigured && !bigtableCfg.Configured() {
+	if !bigtableCfg.Configured() {
 		return primary, nil
 	}
-	if bigtableCfg.Configured() {
-		reader, err := historical.NewBigtableReader(bigtableCfg)
-		if err != nil {
-			_ = primary.Close()
-			return nil, fmt.Errorf("open bigtable historical offload reader: %w", err)
-		}
-		return historical.NewFallbackStateStore(primary, reader, ssConfig.HistoricalOffloadEarliestVersion), nil
-	}
-	reader, err := historical.NewScyllaReader(scyllaCfg)
+	reader, err := historical.NewBigtableReader(bigtableCfg)
 	if err != nil {
 		_ = primary.Close()
-		return nil, fmt.Errorf("open scylla/cassandra historical offload reader: %w", err)
+		return nil, fmt.Errorf("open bigtable historical offload reader: %w", err)
 	}
 	return historical.NewFallbackStateStore(primary, reader, ssConfig.HistoricalOffloadEarliestVersion), nil
-}
-
-func splitCSV(value string) []string {
-	if strings.TrimSpace(value) == "" {
-		return nil
-	}
-	parts := strings.Split(value, ",")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			out = append(out, part)
-		}
-	}
-	return out
 }
