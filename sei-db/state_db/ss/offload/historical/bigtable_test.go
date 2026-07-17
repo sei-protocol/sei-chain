@@ -9,6 +9,8 @@ import (
 
 	"cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -155,6 +157,51 @@ func TestBigtableRowBuilderAssemblesSplitCells(t *testing.T) {
 	require.Len(t, row.Cells, 1)
 	require.Equal(t, BigtableValueColumn, row.Cells[0].Qualifier)
 	require.Equal(t, []byte("hello bt"), row.Cells[0].Value)
+}
+
+func TestReadRowsWithRetryRetriesUnavailable(t *testing.T) {
+	attempts := 0
+	once := func(_ context.Context, _, _ []byte, _ int64, _ string, f func(BigtableRow) bool, _ ...string) error {
+		attempts++
+		if attempts < 3 {
+			return status.Error(codes.Unavailable, "tablet moved")
+		}
+		f(BigtableRow{Key: "rk"})
+		return nil
+	}
+	var got []string
+	err := readRowsWithRetry(context.Background(), once, []byte("a"), []byte("b"), 1, "state", func(row BigtableRow) bool {
+		got = append(got, row.Key)
+		return false
+	})
+	require.NoError(t, err)
+	require.Equal(t, 3, attempts)
+	require.Equal(t, []string{"rk"}, got)
+}
+
+func TestReadRowsWithRetryStopsAfterDelivery(t *testing.T) {
+	// Once a row reached the callback, a retry would re-deliver it; the error
+	// must surface instead.
+	attempts := 0
+	once := func(_ context.Context, _, _ []byte, _ int64, _ string, f func(BigtableRow) bool, _ ...string) error {
+		attempts++
+		f(BigtableRow{Key: "rk"})
+		return status.Error(codes.Unavailable, "mid-stream drop")
+	}
+	err := readRowsWithRetry(context.Background(), once, nil, nil, 0, "", func(BigtableRow) bool { return true })
+	require.Error(t, err)
+	require.Equal(t, 1, attempts)
+}
+
+func TestReadRowsWithRetryDoesNotRetryNonRetryable(t *testing.T) {
+	attempts := 0
+	once := func(_ context.Context, _, _ []byte, _ int64, _ string, _ func(BigtableRow) bool, _ ...string) error {
+		attempts++
+		return status.Error(codes.NotFound, "table missing")
+	}
+	err := readRowsWithRetry(context.Background(), once, nil, nil, 0, "", func(BigtableRow) bool { return true })
+	require.Error(t, err)
+	require.Equal(t, 1, attempts)
 }
 
 func TestBigtableLastVersionScansBuckets(t *testing.T) {

@@ -13,8 +13,11 @@ import (
 	"cloud.google.com/go/bigtable/apiv2/bigtablepb"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/oauth"
+	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -34,11 +37,21 @@ const (
 
 	defaultBigtableReadWorkers = 16
 
+	// Transient stream failures (tablet moves, GFE restarts) surface as
+	// UNAVAILABLE; retry reads a bounded number of times with backoff.
+	bigtableReadAttempts     = 3
+	bigtableReadRetryBackoff = 100 * time.Millisecond
+
 	maxUint16Int   = 1<<16 - 1
 	maxUint32Int   = 1<<32 - 1
 	maxInt64Uint64 = 1<<63 - 1
 )
 
+// BigtableClient speaks the Bigtable data protocol directly over gRPC. The
+// official cloud.google.com/go/bigtable client requires a newer
+// google.golang.org/grpc than the repo-wide v1.57 replace pin allows, so this
+// package carries its own thin transport: ReadRows chunk assembly, MutateRows
+// result accounting, bounded read retries, and per-RPC cost metrics.
 type BigtableClient struct {
 	conn       *grpc.ClientConn
 	data       bigtablepb.BigtableClient
@@ -144,6 +157,12 @@ func OpenBigtableClient(ctx context.Context, cfg BigtableConfig) (*BigtableClien
 	conn, err := grpc.DialContext(ctx, bigtableEndpoint,
 		grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(nil, "")),
 		grpc.WithPerRPCCredentials(perRPC),
+		// Detect silently dropped connections instead of hanging reads on the
+		// OS TCP timeout.
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:    30 * time.Second,
+			Timeout: 10 * time.Second,
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("open bigtable connection: %w", err)
@@ -169,7 +188,43 @@ func (c *BigtableClient) Close() error {
 	return c.conn.Close()
 }
 
+// ReadRows retries transient stream failures as long as no row has been
+// delivered to the callback yet, which covers every limit-1 point read and
+// version-bucket scan in this package.
 func (c *BigtableClient) ReadRows(ctx context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool, qualifiers ...string) error {
+	return readRowsWithRetry(ctx, c.readRowsOnce, startKey, endKey, limit, family, f, qualifiers...)
+}
+
+func readRowsWithRetry(ctx context.Context, once BigtableReadRowsFunc, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool, qualifiers ...string) error {
+	backoff := bigtableReadRetryBackoff
+	var delivered bool
+	for attempt := 1; ; attempt++ {
+		err := once(ctx, startKey, endKey, limit, family, func(row BigtableRow) bool {
+			delivered = true
+			return f(row)
+		}, qualifiers...)
+		if err == nil || delivered || attempt >= bigtableReadAttempts || status.Code(err) != codes.Unavailable {
+			return err
+		}
+		if sleepErr := sleepWithContext(ctx, backoff); sleepErr != nil {
+			return err
+		}
+		backoff *= 2
+	}
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *BigtableClient) readRowsOnce(ctx context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool, qualifiers ...string) error {
 	start := time.Now()
 	var rowsRead, bytesRead int64
 	defer func() {
