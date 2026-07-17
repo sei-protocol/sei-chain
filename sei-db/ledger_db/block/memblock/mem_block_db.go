@@ -119,15 +119,26 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); n > ceiling {
 		n = ceiling
 	}
+	// Round the watermark down to the covering QC's First. A QC's cohort of
+	// blocks changes readability atomically, so the watermark must never fall
+	// strictly inside a QC's range (see littblock): otherwise a read would
+	// refuse the cohort's low blocks while still serving its high blocks (which
+	// pruning must retain).
+	for _, e := range s.qcsByLower {
+		if e.lower <= n && n < e.upper {
+			n = e.lower
+			break
+		}
+	}
 	s.watermark = max(s.watermark, n)
 	for num, blk := range s.byNumber {
-		if num < n {
+		if num < s.watermark {
 			delete(s.byNumber, num)
 			delete(s.byHash, blk.Header().Hash())
 		}
 	}
 	for lower, e := range s.qcsByLower {
-		if e.upper <= n {
+		if e.upper <= s.watermark {
 			delete(s.qcsByLower, lower)
 		}
 	}

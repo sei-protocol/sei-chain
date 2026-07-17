@@ -27,14 +27,14 @@ func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *LittB
 }
 
 // writeSyntheticBatches writes numBatches contiguous batches of perQC blocks each
-// (global numbers 0.., QC ranges [0,perQC), [perQC,2*perQC), ...). The QCs carry
-// perQC opaque headers so the store's range accounting (Next = First + len) lines
-// up; littblock does not verify signatures, so no committee is needed.
+// (global numbers 0.., QC ranges [0,perQC), [perQC,2*perQC), ...). Each QC's own
+// GlobalRange matches the range it is written at, so littblock's clamp can trust
+// it; littblock does not verify signatures, so no committee is needed.
 func writeSyntheticBatches(t *testing.T, db types.BlockDB, rng utils.Rng, numBatches int, perQC int) {
 	for i := 0; i < numBatches; i++ {
 		first := types.GlobalBlockNumber(i * perQC) //nolint:gosec // small test indices
 		next := first + types.GlobalBlockNumber(perQC)
-		qc := types.GenFullCommitQCN(rng, perQC)
+		qc := types.GenFullCommitQCRange(rng, first, next)
 		require.NoError(t, db.WriteQC(first, next, qc))
 		for j := 0; j < perQC; j++ {
 			require.NoError(t, db.WriteBlock(first+types.GlobalBlockNumber(j), types.GenBlock(rng))) //nolint:gosec
@@ -199,35 +199,33 @@ func TestLittblockReclaimsAcrossRestart(t *testing.T) {
 	require.False(t, below.IsPresent(), "block 14 below the newest cohort must not be served")
 }
 
-// TestLittblockPartiallyPrunedQCRangeRetained pins the partial-prune rule for a
-// single QC's covered range: when the watermark falls strictly inside a QC's
-// range, pruning some of the range's early blocks (but not all) retains the
-// ENTIRE range on disk. The QC straddles the watermark so it can never be
-// reclaimed, and because a QC is always written before the blocks it covers, its
-// segment sits at or before every block in its range in write order. GC reclaims
-// only a contiguous write-order prefix of segments, so pinning the QC's segment
-// pins every later segment too — every block in the range survives, including the
-// sub-watermark ones. The read gate, not physical reclamation, is what hides
-// those sub-watermark blocks from callers.
+// TestLittblockPruneIntoCohortRoundsDown pins the cohort-atomicity rule: a prune
+// point that lands strictly inside a QC's range rounds the watermark DOWN to the
+// cohort's start, so the whole cohort — every block the QC covers — stays both
+// physically retained and readable. A QC's blocks change readability atomically;
+// the watermark never splits a cohort.
 //
-// The test is written so it would FAIL if the straddle invariant were broken:
+// Because a QC is always written before the blocks it covers, its segment sits
+// at or before every block in its range in write order, and GC reclaims only a
+// contiguous write-order prefix of segments — so pinning the QC's segment pins
+// every later segment too, retaining the whole range on disk.
+//
+// The test is written so it would FAIL if the rule were broken:
 //   - It first asserts the fully-below segment (seg0) IS reclaimed. LittDB never
 //     GCs the live mutable file, so this is what proves GC actually ran with
 //     teeth on this data — without it the retention assertions below would hold
 //     vacuously (nothing ever collected). The write→flush→close→reopen dance
 //     seals the mutable file the data landed in so GC can reach it.
-//   - If the QC were wrongly treated as reclaimable, GC would collect seg1 (it
-//     sits right after seg0 in the reclaimed prefix), deleting QC[5,10). Blocks
-//     7..9 stay served (their own segments are pinned by their at/above-watermark
-//     keys), so ReadQCByBlockNumber(7..9) would then return None — a served block
-//     with no covering QC — and the read-semantics assertions would fail.
+//   - If the watermark did NOT round down (landing at 7 instead of the cohort
+//     start 5), reads of blocks 5 and 6 would be refused — splitting the cohort —
+//     and the read-semantics assertions would fail.
 //
 // Layout (MaxSegmentKeyCount = 8, as in TestLittblockStrandedBlockNotServedAfterRestart):
 // seg0 = {QC[0,5), b0, b1}, seg1 = {b2, b3, b4, QC[5,10)}, seg2 = {b5, b6, b7, b8},
-// seg3 = {b9, ...}. Pruning to 7 makes seg0 fully collectable, but leaves
-// QC[5,10)'s secondary keys 7,8,9 at or above the watermark, so seg1 is pinned
-// and every segment after it with it — blocks 5..9 all survive.
-func TestLittblockPartiallyPrunedQCRangeRetained(t *testing.T) {
+// seg3 = {b9, ...}. Pruning to 7 rounds down to the QC[5,10) cohort start (5):
+// seg0 is fully below the watermark and reclaimed, while QC[5,10)'s key 5 pins
+// seg1 and every segment after it — blocks 5..9 all survive.
+func TestLittblockPruneIntoCohortRoundsDown(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRngFromSeed(3)
 
@@ -238,13 +236,14 @@ func TestLittblockPartiallyPrunedQCRangeRetained(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	// Reopen to seal the mutable file the data landed in, then prune to 7 —
-	// strictly inside QC[5,10).
+	// strictly inside QC[5,10), which must round the watermark down to 5.
 	db2, err := NewBlockDB(strandingConfig(t, dir, 8))
 	require.NoError(t, err)
 	defer func() { _ = db2.Close() }()
 	impl := db2.(*blockDB)
 
 	require.NoError(t, db2.PruneBefore(7))
+	require.Equal(t, uint64(5), impl.watermark.Load(), "prune into QC[5,10) must round the watermark down to 5")
 	require.NoError(t, ForceGC(db2))
 
 	// GC actually had teeth: the fully-below segment (seg0 = {QC[0,5), b0, b1}) is
@@ -254,33 +253,34 @@ func TestLittblockPartiallyPrunedQCRangeRetained(t *testing.T) {
 	require.False(t, physicallyPresent(t, impl, blockKey(1)), "block 1 (fully below watermark) must be reclaimed")
 	require.False(t, physicallyPresent(t, impl, qcKey(0)), "QC[0,5) (entirely below watermark) must be reclaimed")
 
-	// The straddling QC[5,10) is not reclaimed (primary key plus a secondary that
-	// sits above the watermark).
-	require.True(t, physicallyPresent(t, impl, qcKey(5)), "straddling QC[5,10) primary key must survive")
-	require.True(t, physicallyPresent(t, impl, qcKey(9)), "straddling QC[5,10) secondary key must survive")
+	// The cohort's QC[5,10) is not reclaimed: its key 5 is at the watermark, so
+	// its segment is pinned.
+	require.True(t, physicallyPresent(t, impl, qcKey(5)), "cohort QC[5,10) primary key must survive")
+	require.True(t, physicallyPresent(t, impl, qcKey(9)), "cohort QC[5,10) secondary key must survive")
 
-	// Its entire covered range survives on disk — including blocks 5 and 6, which
-	// are below the watermark. Pinning the QC's segment pins the whole range.
+	// The whole covered range survives on disk. Pinning the QC's segment pins the
+	// whole range.
 	for n := types.GlobalBlockNumber(5); n < 10; n++ {
 		require.True(t, physicallyPresent(t, impl, blockKey(n)),
-			"block %d in the partially pruned QC range must be retained on disk", n)
+			"block %d in the cohort must be retained on disk", n)
 	}
 
-	// Read semantics over the straddled range: the sub-watermark blocks are
-	// refused (even though present on disk), the at-or-above blocks are served,
-	// and the covering QC is readable for every served block.
-	for n := types.GlobalBlockNumber(5); n < 7; n++ {
+	// Read semantics: the watermark rounded down to the cohort start (5), so the
+	// whole cohort [5,10) is served — never split at 7 — and every served block
+	// has a readable covering QC.
+	for n := types.GlobalBlockNumber(5); n < 10; n++ {
 		blk, err := db2.ReadBlockByNumber(n)
-		require.ErrorIs(t, err, types.ErrPruned, "sub-watermark block %d must be reported pruned", n)
-		require.False(t, blk.IsPresent(), "sub-watermark block %d must not be served despite surviving on disk", n)
-	}
-	for n := types.GlobalBlockNumber(7); n < 10; n++ {
-		blk, err := db2.ReadBlockByNumber(n)
-		require.NoError(t, err)
-		require.True(t, blk.IsPresent(), "block %d at/above watermark must be served", n)
+		require.NoError(t, err, "block %d in the cohort must be served", n)
+		require.True(t, blk.IsPresent(), "block %d in the cohort must be served", n)
 		qc, err := db2.ReadQCByBlockNumber(n)
 		require.NoError(t, err)
 		require.True(t, qc.IsPresent(), "covering QC for served block %d must be readable", n)
+	}
+	// The fully-below cohort [0,5) is pruned.
+	for n := types.GlobalBlockNumber(0); n < 5; n++ {
+		blk, err := db2.ReadBlockByNumber(n)
+		require.ErrorIs(t, err, types.ErrPruned, "block %d below the cohort must be reported pruned", n)
+		require.False(t, blk.IsPresent(), "block %d below the cohort must not be served", n)
 	}
 }
 

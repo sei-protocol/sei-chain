@@ -23,10 +23,18 @@ var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 
 // ErrPruned is returned by the by-number read methods (ReadBlockByNumber and
 // ReadQCByBlockNumber) when the requested GlobalBlockNumber is strictly below
-// the retention watermark: the record has been pruned (or is being reclaimed)
-// and will never become readable again. It is distinct from a utils.None
-// result, which means "not present" and may still be filled by a future write.
-// Callers use ErrPruned to stop retrying.
+// the current retention watermark: the record is treated as pruned and is not
+// served while below the watermark. It is distinct from a utils.None result,
+// which means "not present at or above the watermark" and may still be filled
+// by a future write.
+//
+// ErrPruned reflects the watermark's current position, not a permanent verdict.
+// The watermark only advances while a store stays open, so within a single
+// session ErrPruned is terminal — retrying the same n keeps returning it. It is
+// not durable across restarts: the watermark is re-derived on open and
+// reclamation is asynchronous, so an n that returned ErrPruned before a restart
+// may afterward read as present (or as utils.None). Callers should treat
+// ErrPruned as "not currently served," not as a guarantee the record is gone.
 var ErrPruned = errors.New("block: below retention watermark")
 
 // BlockDB is the durable backing store for data.State. It persists the two
@@ -126,11 +134,19 @@ type BlockDB interface {
 		qc *FullCommitQC,
 	) error
 
-	// PruneBefore removes:
-	//   - every block with GlobalBlockNumber < n
-	//   - every QC whose GlobalRange().Next ≤ n (the QC's entire
-	//     covered range is strictly below the retention watermark; a
-	//     QC straddling n stays)
+	// PruneBefore advances the retention watermark toward n and removes
+	// everything below it:
+	//   - every block with GlobalBlockNumber < watermark
+	//   - every QC whose GlobalRange().Next ≤ watermark (its entire
+	//     covered range is below the watermark; a QC straddling the
+	//     watermark stays)
+	//
+	// A QC's cohort of blocks changes readability atomically: the watermark
+	// never falls strictly inside a QC's covered range. A requested n that
+	// lands inside a QC's range is rounded DOWN to that QC's GlobalRange().First,
+	// so the whole cohort stays readable until a later prune reaches the QC's
+	// Next. (Rounding down, not up, because blocks at or above n must be
+	// retained.) The watermark is therefore always a QC boundary.
 	//
 	// Idempotent: calling with n ≤ the existing retention watermark is
 	// a no-op; the watermark only advances.
@@ -207,9 +223,10 @@ type BlockDB interface {
 	//
 	// The result is one of:
 	//   - utils.Some with a nil error: the block is present at n.
-	//   - ErrPruned: n is strictly below the retention watermark. The block
-	//     has been pruned and will never become readable again; the caller
-	//     should stop retrying.
+	//   - ErrPruned: n is strictly below the current retention watermark. The
+	//     block is treated as pruned and is not served while below the
+	//     watermark (see ErrPruned for its within-session and cross-restart
+	//     semantics).
 	//   - utils.None with a nil error: n is at or above the watermark but no
 	//     block is present. It was either never written or not yet written —
 	//     the two are indistinguishable — and a future write may fill it.
@@ -236,9 +253,10 @@ type BlockDB interface {
 	//
 	// The result is one of:
 	//   - utils.Some with a nil error: a QC covering n is present.
-	//   - ErrPruned: n is strictly below the retention watermark. The covering
-	//     QC has been pruned and will never become readable again; the caller
-	//     should stop retrying.
+	//   - ErrPruned: n is strictly below the current retention watermark. The
+	//     covering QC is treated as pruned and is not served while below the
+	//     watermark (see ErrPruned for its within-session and cross-restart
+	//     semantics).
 	//   - utils.None with a nil error: n is at or above the watermark but no QC
 	//     covers it. Either no covering QC was written or it is not yet written.
 	//

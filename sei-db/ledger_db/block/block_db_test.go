@@ -311,10 +311,16 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 }
 
 // testPrunedDistinctFromNotFound is the crux of the ErrPruned contract: after a
-// prune, a below-watermark by-number read reports ErrPruned (gone for good — a
-// peer should stop retrying), while a never-written height at or above the
-// watermark reports a plain utils.None with a nil error (absent, but a future
-// write may fill it). Both implementations must agree.
+// prune, a below-watermark by-number read reports ErrPruned (not served while
+// below the watermark), while a never-written height at or above the watermark
+// reports a plain utils.None with a nil error (absent, but a future write may
+// fill it). Both implementations must agree.
+//
+// The prune point is placed strictly *inside* a QC's range. A QC's cohort of
+// blocks must change readability atomically — the watermark may never split a
+// cohort — so the effective watermark rounds down to the cohort boundary: the
+// whole straddled cohort stays readable, and only the fully-below first cohort
+// becomes pruned.
 func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
@@ -322,12 +328,30 @@ func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 	defer func() { _ = db.Close() }()
 	writeAll(t, db, batches)
 
-	watermark := batches[1].first
-	require.NoError(t, db.PruneBefore(watermark))
+	straddled := batches[1]
+	pruneAt := straddled.first + 2
+	require.Greater(t, straddled.next, pruneAt, "prune point must fall strictly inside the cohort")
+	require.LessOrEqual(t, batches[0].next, straddled.first, "first cohort must sit below the straddled one")
+	require.NoError(t, db.PruneBefore(pruneAt))
 
-	// Below the watermark: ErrPruned, for both the block and its covering QC.
+	// Cohort atomicity: every block in the straddled cohort is still served,
+	// including those numerically below the prune point — the cohort does not
+	// split.
+	for i := range straddled.blocks {
+		n := straddled.first + gbn(i)
+		opt, err := db.ReadBlockByNumber(n)
+		require.NoError(t, err, "block %d in the straddled cohort must not report ErrPruned", n)
+		require.True(t, opt.IsPresent(), "block %d in the straddled cohort must remain served", n)
+	}
+	qcOpt, err := db.ReadQCByBlockNumber(straddled.first)
+	require.NoError(t, err, "straddled cohort's QC must not report ErrPruned")
+	got, ok := qcOpt.Get()
+	require.True(t, ok, "straddled cohort's QC must remain served")
+	require.Equal(t, straddled.first, got.QC().GlobalRange().First)
+
+	// The fully-below first cohort is pruned: ErrPruned for both the block and
+	// its covering QC.
 	belowNum := batches[0].first
-	require.Less(t, belowNum, watermark)
 	blk, err := db.ReadBlockByNumber(belowNum)
 	require.ErrorIs(t, err, types.ErrPruned, "below-watermark block must report ErrPruned")
 	require.False(t, blk.IsPresent())
@@ -998,47 +1022,47 @@ func TestMemblockPruneRemovesBelowWatermark(t *testing.T) {
 	require.NoError(t, qcIt.Close())
 }
 
-// TestMemblockPruneStraddlingQC verifies the exact in-memory behavior when the
-// watermark falls inside a QC's range: blocks below it are removed, blocks at or
-// above it stay, and the straddling QC survives and resolves for in-range
-// lookups at or above the watermark. Sub-watermark lookups are refused with
-// ErrPruned even though the straddling QC is physically retained — memblock
-// tracks the watermark and gates by number, matching littblock.
-func TestMemblockPruneStraddlingQC(t *testing.T) {
+// TestMemblockPruneIntoCohortRoundsDown verifies memblock's in-memory behavior
+// when a prune point lands strictly inside a QC's range: the watermark rounds
+// down to that cohort's start, so the cohort's blocks change readability
+// atomically — the whole straddled cohort stays served (never split), the
+// straddling QC is retained, and the fully-below cohort is pruned. Matches
+// littblock.
+func TestMemblockPruneIntoCohortRoundsDown(t *testing.T) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	db := memblock.NewBlockDB()
 	writeAll(t, db, batches)
 
 	straddled := batches[1]
-	watermark := straddled.first + 2
-	require.Greater(t, straddled.next, watermark, "watermark must fall strictly inside the batch range")
-	require.NoError(t, db.PruneBefore(watermark))
+	pruneAt := straddled.first + 2
+	require.Greater(t, straddled.next, pruneAt, "prune point must fall strictly inside the cohort")
+	require.NoError(t, db.PruneBefore(pruneAt))
 
-	// Blocks below the watermark within the straddled batch are refused...
-	for i := 0; gbn(i) < watermark-straddled.first; i++ {
-		opt, err := db.ReadBlockByNumber(straddled.first + gbn(i))
-		require.ErrorIs(t, err, types.ErrPruned, "block %d below watermark must be pruned", straddled.first+gbn(i))
-		require.False(t, opt.IsPresent(), "block %d below watermark must not be served", straddled.first+gbn(i))
-	}
-	// ...while those at or above it remain.
-	for i := int(watermark - straddled.first); i < len(straddled.blocks); i++ {
-		opt, err := db.ReadBlockByNumber(straddled.first + gbn(i))
-		require.NoError(t, err)
-		require.True(t, opt.IsPresent(), "block %d at/above watermark must be retained", straddled.first+gbn(i))
+	// The whole straddled cohort is still served — the watermark rounded down to
+	// its start, so none of its blocks are split off below the gate.
+	for i := range straddled.blocks {
+		n := straddled.first + gbn(i)
+		opt, err := db.ReadBlockByNumber(n)
+		require.NoError(t, err, "block %d in the straddled cohort must be served", n)
+		require.True(t, opt.IsPresent(), "block %d in the straddled cohort must be served", n)
 	}
 
-	// The straddling QC stays (its Next > watermark) and resolves for in-range
-	// lookups at or above the watermark.
-	above, err := db.ReadQCByBlockNumber(watermark)
-	require.NoError(t, err)
-	require.True(t, above.IsPresent(), "straddling QC must be retained for lookups at/above watermark")
+	// The straddling QC is retained and resolves across its whole range.
+	for i := range straddled.blocks {
+		n := straddled.first + gbn(i)
+		qc, err := db.ReadQCByBlockNumber(n)
+		require.NoError(t, err, "cohort QC must resolve at %d", n)
+		require.True(t, qc.IsPresent(), "cohort QC must resolve at %d", n)
+	}
 
-	// A sub-watermark lookup is refused with ErrPruned even though the QC that
-	// covers it is retained: the by-number gate rejects the height first.
-	below, err := db.ReadQCByBlockNumber(straddled.first)
-	require.ErrorIs(t, err, types.ErrPruned, "sub-watermark lookup must be reported pruned")
-	require.False(t, below.IsPresent(), "sub-watermark lookup must not be served")
+	// The fully-below first cohort is pruned.
+	for i := range batches[0].blocks {
+		n := batches[0].first + gbn(i)
+		opt, err := db.ReadBlockByNumber(n)
+		require.ErrorIs(t, err, types.ErrPruned, "block %d in the fully-below cohort must be pruned", n)
+		require.False(t, opt.IsPresent(), "block %d in the fully-below cohort must not be served", n)
+	}
 }
 
 // The durable reclamation path (data pruned past after a restart is physically
