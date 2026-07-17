@@ -2,6 +2,7 @@ package seiwal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -45,6 +46,7 @@ type serPrune struct {
 // serIterator asks the serializer goroutine to create an inner iterator, ordered after every prior append.
 type serIterator struct {
 	startIndex uint64
+	endIndex   uint64
 	reply      chan serIteratorResult
 }
 
@@ -214,11 +216,12 @@ func (s *serializingWAL[T]) PruneBefore(lowestIndexToKeep uint64) error {
 	return nil
 }
 
-// Iterator returns an iterator over the WAL starting at startIndex. Construction is ordered on the serializer
-// goroutine after every prior append, so the iterator observes all previously scheduled appends.
-func (s *serializingWAL[T]) Iterator(startIndex uint64) (Iterator[T], error) {
+// Iterator returns an iterator over the inclusive index range [startIndex, endIndex]. Construction is ordered
+// on the serializer goroutine after every prior append, so the iterator observes all previously scheduled
+// appends.
+func (s *serializingWAL[T]) Iterator(startIndex uint64, endIndex uint64) (Iterator[T], error) {
 	reply := make(chan serIteratorResult, 1)
-	if err := s.submit(serIterator{startIndex: startIndex, reply: reply}); err != nil {
+	if err := s.submit(serIterator{startIndex: startIndex, endIndex: endIndex, reply: reply}); err != nil {
 		return nil, fmt.Errorf("failed to schedule iterator creation: %w", err)
 	}
 	select {
@@ -332,9 +335,11 @@ func (s *serializingWAL[T]) serializerLoop() {
 				return
 			}
 		case serIterator:
-			it, err := s.inner.Iterator(m.startIndex)
+			it, err := s.inner.Iterator(m.startIndex, m.endIndex)
 			m.reply <- serIteratorResult{it: it, err: err}
-			if err != nil {
+			// A rejected range leaves the inner WAL healthy, so mirror that here; only a genuine inner
+			// failure bricks the serializing layer.
+			if err != nil && !errors.Is(err, ErrIteratorRange) {
 				s.fail(fmt.Errorf("failed to create iterator: %w", err))
 				return
 			}

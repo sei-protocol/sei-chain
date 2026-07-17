@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
@@ -50,6 +51,7 @@ type closeRequest struct {
 // serialized with rotation/seal/prune.
 type iteratorStartRequest struct {
 	startIndex uint64
+	endIndex   uint64
 	reply      chan iteratorStartResponse
 }
 
@@ -57,6 +59,11 @@ type iteratorStartRequest struct {
 type iteratorStartResponse struct {
 	iterator *walIterator
 	err      error
+
+	// fatal reports whether err left the WAL in a state that requires bricking the pipeline. A non-fatal err (a
+	// caller range error, or a non-corrupting filesystem failure while building the snapshot) leaves the WAL
+	// usable, so the writer surfaces it to the caller and keeps running.
+	fatal bool
 }
 
 // The index range reported by Bounds.
@@ -104,6 +111,11 @@ type walImpl struct {
 
 	// Closed by Close() to stop the queue-depth sampler goroutine.
 	samplerStop chan struct{}
+
+	// The exclusive advisory lock on the WAL directory, held for this instance's entire lifetime and
+	// released by Close(). It prevents a second WAL instance or an offline utility from mutating the same
+	// directory concurrently.
+	fileLock filelock.TryLockerSafe
 
 	// Guarantees the Close() shutdown sequence runs at most once.
 	closeOnce sync.Once
@@ -174,6 +186,22 @@ func newWAL(config *Config) (WAL[[]byte], error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid WAL config: %w", err)
 	}
+
+	// Take the directory lock before touching any files: recoverDirectory (below) mutates the directory, so
+	// we must own it exclusively first. The lock is released by Close(), or here on any open failure.
+	if err := util.EnsureDirectoryExists(config.Path, true); err != nil {
+		return nil, fmt.Errorf("failed to ensure WAL directory %s: %w", config.Path, err)
+	}
+	fileLock, err := acquireDirLock(config.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock WAL directory %s: %w", config.Path, err)
+	}
+	defer func() {
+		if fileLock != nil {
+			releaseDirLock(fileLock, config.Path)
+		}
+	}()
+
 	if err := recoverDirectory(config.Path); err != nil {
 		return nil, err
 	}
@@ -194,6 +222,7 @@ func newWAL(config *Config) (WAL[[]byte], error) {
 
 	w := &walImpl{
 		config:       config,
+		fileLock:     fileLock,
 		metricAttrs:  walNameAttr(config.Name),
 		writerChan:   make(chan any, config.WriteBufferSize),
 		ctx:          ctx,
@@ -221,6 +250,8 @@ func newWAL(config *Config) (WAL[[]byte], error) {
 		go w.sampleQueueDepth(config.MetricsSampleInterval)
 	}
 
+	// Ownership of the lock has passed to w (released by Close); disarm the open-failure cleanup above.
+	fileLock = nil
 	return w, nil
 }
 
@@ -314,13 +345,14 @@ func (w *walImpl) PruneBefore(lowestIndexToKeep uint64) error {
 	return nil
 }
 
-// Iterator returns an iterator over the WAL starting at startIndex. Construction runs on the writer goroutine
-// (see iteratorStartRequest): the writer captures a hard-link snapshot of the files to read so later rotation
-// and pruning cannot pull them out from under the iterator, and builds the iterator. The snapshot is removed
-// by the iterator's Close.
-func (w *walImpl) Iterator(startIndex uint64) (Iterator[[]byte], error) {
+// Iterator returns an iterator over the inclusive index range [startIndex, endIndex]. Construction runs on
+// the writer goroutine (see iteratorStartRequest): the writer captures a hard-link snapshot of the files to
+// read so later rotation and pruning cannot pull them out from under the iterator, and builds the iterator.
+// The snapshot is removed by the iterator's Close.
+func (w *walImpl) Iterator(startIndex uint64, endIndex uint64) (Iterator[[]byte], error) {
 	reply := make(chan iteratorStartResponse, 1)
-	if err := w.sendToWriter(iteratorStartRequest{startIndex: startIndex, reply: reply}); err != nil {
+	req := iteratorStartRequest{startIndex: startIndex, endIndex: endIndex, reply: reply}
+	if err := w.sendToWriter(req); err != nil {
 		return nil, fmt.Errorf("failed to schedule iterator creation: %w", err)
 	}
 	select {
@@ -352,6 +384,9 @@ func (w *walImpl) Close() error {
 		}
 		w.wg.Wait()
 		w.cancel(nil) // a clean close carries no fatal cause; a prior fail() already recorded one
+		// Release the directory lock only after every goroutine has stopped, so nothing touches the files
+		// after another owner could acquire the directory.
+		releaseDirLock(w.fileLock, w.config.Path)
 	})
 	if err := w.asyncError(); err != nil {
 		return fmt.Errorf("WAL closed with error: %w", err)
@@ -419,9 +454,11 @@ func (w *walImpl) writerLoop() {
 				return
 			}
 		case iteratorStartRequest:
-			resp := w.startIterator(m.startIndex)
+			resp := w.startIterator(m.startIndex, m.endIndex)
 			m.reply <- resp
-			if resp.err != nil {
+			// A rejected range and a non-corrupting snapshot I/O failure both leave the WAL healthy; only a
+			// failed flush of buffered records desyncs in-memory state from disk and bricks the pipeline.
+			if resp.fatal {
 				w.fail(resp.err)
 				return
 			}
@@ -445,12 +482,14 @@ func (w *walImpl) appendRecord(m dataToBeWritten) error {
 	if w.hasWritten {
 		if w.config.PermitGaps {
 			if m.index <= w.lastWrittenIndex {
-				return fmt.Errorf("append out of order: index %d is not greater than last written index %d",
+				return fmt.Errorf(
+					"append out of order: index %d is not greater than last written index %d",
 					m.index, w.lastWrittenIndex)
 			}
 		} else if m.index != w.lastWrittenIndex+1 {
 			return fmt.Errorf(
-				"append out of order: index %d is not contiguous with last written index %d (expected %d)",
+				"append out of order: index %d is not contiguous with last written index "+
+					"%d (expected %d)",
 				m.index, w.lastWrittenIndex, w.lastWrittenIndex+1)
 		}
 	}
@@ -524,25 +563,46 @@ func (w *walImpl) pruneSealedFiles(pruneThrough uint64) error {
 
 // startIterator builds an iterator on the writer goroutine. It captures a point-in-time snapshot by
 // hard-linking every file the iterator will read into a private directory (iterator/<serial>/) and bounding it
-// at the highest index stored now. Running here serializes the snapshot with rotation, seal, and prune. The
-// live WAL may then rotate, seal, and prune freely: the iterator reads only its own hard links, which keep the
-// underlying inodes alive until Close removes them. The mutable file is flushed (not fsynced) so its records
-// are readable through the reader's separate handle — no crash can intervene between creation and use, so
-// durability is irrelevant here.
-func (w *walImpl) startIterator(startIndex uint64) iteratorStartResponse {
+// at endIndex, which must not exceed the highest index stored now. Running here serializes the snapshot with
+// rotation, seal, and prune. The live WAL may then rotate, seal, and prune freely: the iterator reads only its
+// own hard links, which keep the underlying inodes alive until Close removes them. The mutable file is flushed
+// (not fsynced) so its records are readable through the reader's separate handle — no crash can intervene
+// between creation and use, so durability is irrelevant here.
+//
+// Failures split by whether they leave the WAL usable. A range rejection (ErrIteratorRange) is a caller error,
+// and a snapshot failure (MkdirAll/os.Link) touches only the ephemeral iterator/<serial>/ lease directory, so
+// both are returned non-fatally and the WAL keeps running. Only a failed mutable-file flush is fatal: it
+// poisons the file's buffered writer and leaves in-memory bookkeeping ahead of what is durable, so the caller
+// marks the response fatal to brick the pipeline.
+func (w *walImpl) startIterator(startIndex uint64, endIndex uint64) iteratorStartResponse {
+	if endIndex < startIndex {
+		return iteratorStartResponse{
+			err: fmt.Errorf(
+				"%w: end index %d is below start index %d", ErrIteratorRange, endIndex, startIndex),
+		}
+	}
 	r := w.bounds()
 	if !r.ok {
-		// Nothing stored: an empty iterator with no snapshot directory.
-		return iteratorStartResponse{iterator: newWalIterator(w, startIndex, 0, "", nil, w.config.IteratorPrefetchSize)}
+		return iteratorStartResponse{
+			err: fmt.Errorf("%w: end index %d requested but the WAL is empty", ErrIteratorRange, endIndex),
+		}
 	}
-	maxIndex := r.last
+	if endIndex > r.last {
+		return iteratorStartResponse{
+			err: fmt.Errorf(
+				"%w: end index %d is beyond the latest stored index %d",
+				ErrIteratorRange, endIndex, r.last),
+		}
+	}
+	maxIndex := endIndex
 
-	// Gather the files to read: sealed files reaching startIndex, then the mutable file if it holds records at
-	// or above startIndex. Files entirely below startIndex are never opened, so they are not linked. The
-	// mutable snapshot's range is capped at maxIndex; the reader drops anything the writer appends past it.
+	// Gather the files to read: those whose range overlaps [startIndex, endIndex], plus the mutable file if it
+	// holds records in range. Files entirely below startIndex or entirely above endIndex are never opened, so
+	// they are not linked. The mutable snapshot's range is capped at maxIndex; the reader drops anything the
+	// writer appends past it.
 	var sources []iteratorFile
 	for _, info := range w.sealedFiles.Iterator() {
-		if info.lastIndex < startIndex {
+		if info.lastIndex < startIndex || info.firstIndex > endIndex {
 			continue
 		}
 		sources = append(sources, iteratorFile{
@@ -550,9 +610,14 @@ func (w *walImpl) startIterator(startIndex uint64) iteratorStartResponse {
 			firstIndex: info.firstIndex, lastIndex: info.lastIndex, sealed: true,
 		})
 	}
-	if w.mutableFile.hasRecords && w.mutableFile.lastIndex >= startIndex {
+	// Flush the mutable file only when it is actually needed to cover the range. When endIndex is fully served
+	// by sealed files, the mutable file is left untouched.
+	if w.mutableFile.hasRecords && w.mutableFile.lastIndex >= startIndex && w.mutableFile.firstIndex <= endIndex {
 		if err := w.mutableFile.flush(false); err != nil {
-			return iteratorStartResponse{err: fmt.Errorf("failed to flush mutable file for iterator: %w", err)}
+			return iteratorStartResponse{
+				err:   fmt.Errorf("failed to flush mutable file for iterator: %w", err),
+				fatal: true,
+			}
 		}
 		sources = append(sources, iteratorFile{
 			fileSeq: w.mutableFile.fileSeq, name: unsealedFileName(w.mutableFile.fileSeq),
@@ -683,11 +748,13 @@ func rollbackDirectory(directory string, rollbackThrough uint64) error {
 
 	for _, parsed := range sealed {
 		if parsed.lastIndex <= rollbackThrough {
-			// This file lies entirely at or below the rollback point; so does every lower-sequence file. Done.
+			// This file lies entirely at or below the rollback point; so does every lower-sequence
+			// file. Done.
 			break
 		}
 		if parsed.firstIndex > rollbackThrough {
-			// Entirely beyond the rollback point: remove the whole file, durably, before the next-lower one.
+			// Entirely beyond the rollback point: remove the whole file, durably, before the
+			// next-lower one.
 			if err := removeAndSyncDir(directory, names[parsed.fileSeq]); err != nil {
 				return fmt.Errorf("failed to roll back %s: %w", names[parsed.fileSeq], err)
 			}

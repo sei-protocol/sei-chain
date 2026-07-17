@@ -1,6 +1,7 @@
 package statewal
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -124,6 +125,11 @@ func (w *stateWALImpl) Write(blockNumber uint64, cs []*proto.NamedChangeSet) err
 	if w.fatalErr != nil {
 		return fmt.Errorf("state WAL failed: %w", w.fatalErr)
 	}
+	for i, ncs := range cs {
+		if ncs == nil {
+			return fmt.Errorf("write rejected: changeset at index %d is nil", i)
+		}
+	}
 	if err := w.enforceWriteOrdering(blockNumber); err != nil {
 		return fmt.Errorf("write rejected: %w", err)
 	}
@@ -164,18 +170,21 @@ func (w *stateWALImpl) enforceWriteOrdering(blockNumber uint64) error {
 		return nil
 	}
 	if blockNumber < w.currentBlock {
-		return fmt.Errorf("block number %d is less than the current block number %d", blockNumber, w.currentBlock)
+		return fmt.Errorf(
+			"block number %d is less than the current block number %d", blockNumber, w.currentBlock)
 	}
 	if blockNumber == w.currentBlock {
 		if w.currentBlockEnded {
-			return fmt.Errorf("block number %d has already ended; cannot write more changes to it", blockNumber)
+			return fmt.Errorf(
+				"block number %d has already ended; cannot write more changes to it", blockNumber)
 		}
 		return nil
 	}
 	// blockNumber > currentBlock
 	if !w.currentBlockEnded {
 		return fmt.Errorf(
-			"cannot write block %d before calling SignalEndOfBlock for block %d", blockNumber, w.currentBlock)
+			"cannot write block %d before calling SignalEndOfBlock for block %d",
+			blockNumber, w.currentBlock)
 	}
 	if blockNumber != w.currentBlock+1 {
 		return fmt.Errorf("block number %d is not contiguous with the current block number %d (expected %d)",
@@ -230,17 +239,24 @@ func (w *stateWALImpl) Prune(lowestBlockNumberToKeep uint64) error {
 	return nil
 }
 
-// Iterator returns an iterator over the WAL starting at startingBlockNumber. It yields (blockNumber,
-// changesets) directly from the underlying generic WAL.
-func (w *stateWALImpl) Iterator(startingBlockNumber uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
+// Iterator returns an iterator over the inclusive block range [startingBlockNumber, endingBlockNumber]. It
+// yields (blockNumber, changesets) directly from the underlying generic WAL.
+func (w *stateWALImpl) Iterator(
+	startingBlockNumber uint64,
+	endingBlockNumber uint64,
+) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
 	if w.closed {
 		return nil, fmt.Errorf("state WAL is closed")
 	}
 	if w.fatalErr != nil {
 		return nil, fmt.Errorf("state WAL failed: %w", w.fatalErr)
 	}
-	it, err := w.wal.Iterator(startingBlockNumber)
+	it, err := w.wal.Iterator(startingBlockNumber, endingBlockNumber)
 	if err != nil {
+		// A rejected range is the caller's error and leaves the WAL usable; only a genuine WAL failure bricks.
+		if errors.Is(err, seiwal.ErrIteratorRange) {
+			return nil, fmt.Errorf("failed to create WAL iterator: %w", err)
+		}
 		return nil, w.fail(fmt.Errorf("failed to create WAL iterator: %w", err))
 	}
 	return it, nil

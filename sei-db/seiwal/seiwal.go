@@ -1,6 +1,14 @@
 package seiwal
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrIteratorRange is returned by Iterator when the requested [startIndex, endIndex] range is invalid:
+// endIndex below startIndex, or endIndex above the highest index currently stored in the WAL (including when
+// the WAL is empty). It signals a caller error, not a failure of the WAL, so the WAL remains usable.
+var ErrIteratorRange = errors.New("invalid iterator range")
 
 // WAL is a generic, index-keyed, append-only write-ahead log over payloads of type T.
 //
@@ -58,13 +66,20 @@ type WAL[T any] interface {
 	// is fully below it.
 	PruneBefore(lowestIndexToKeep uint64) error
 
-	// Iterator returns an iterator over the WAL starting at the given index.
+	// Iterator returns an iterator over the WAL across the inclusive index range [startIndex, endIndex].
+	//
+	// The iterator yields no record with an index below startIndex or above endIndex. It is an error for
+	// endIndex to be below startIndex, or for endIndex to be above the highest index currently stored in the
+	// WAL (including when the WAL is empty); both are reported as ErrIteratorRange and leave the WAL usable.
+	//
+	// Construction may also fail with an I/O error (for example, the point-in-time snapshot the iterator reads
+	// from could not be created). Such a failure is returned to the caller and leaves the WAL usable.
 	//
 	// The iterator reads a consistent, point-in-time snapshot of the WAL taken at some instant between the
 	// start and the return of this call. Records appended before that instant are included; records
 	// appended after it are not. For records appended concurrently with this call, whether they are
 	// included is unspecified.
-	Iterator(startIndex uint64) (Iterator[T], error)
+	Iterator(startIndex uint64, endIndex uint64) (Iterator[T], error)
 
 	// Close flushes pending appends, seals the current file, and releases resources.
 	Close() error

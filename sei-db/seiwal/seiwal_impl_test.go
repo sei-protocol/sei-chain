@@ -48,11 +48,11 @@ func appendRecord(t *testing.T, w WAL[[]byte], index uint64) {
 	require.NoError(t, w.Append(index, recordPayload(index)))
 }
 
-// collectIndices iterates from start and returns the index of each record, verifying that indices are
-// strictly increasing and never below start.
-func collectIndices(t *testing.T, w WAL[[]byte], start uint64) []uint64 {
+// collectIndices iterates the inclusive range [start, end] and returns the index of each record, verifying
+// that indices are strictly increasing and never below start or above end.
+func collectIndices(t *testing.T, w WAL[[]byte], start uint64, end uint64) []uint64 {
 	t.Helper()
-	it, err := w.Iterator(start)
+	it, err := w.Iterator(start, end)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
@@ -65,6 +65,7 @@ func collectIndices(t *testing.T, w WAL[[]byte], start uint64) []uint64 {
 		}
 		index, _ := it.Entry()
 		require.GreaterOrEqual(t, index, start)
+		require.LessOrEqual(t, index, end)
 		if len(indices) > 0 {
 			require.Greater(t, index, indices[len(indices)-1])
 		}
@@ -127,7 +128,7 @@ func TestAppendFlushReopenBounds(t *testing.T) {
 	require.Equal(t, uint64(1), first)
 	require.Equal(t, uint64(5), last)
 
-	require.Equal(t, []uint64{1, 2, 3, 4, 5}, collectIndices(t, w2, 1))
+	require.Equal(t, []uint64{1, 2, 3, 4, 5}, collectIndices(t, w2, 1, 5))
 }
 
 func TestAppendOrdering(t *testing.T) {
@@ -174,7 +175,7 @@ func TestAppendOrdering(t *testing.T) {
 		require.NoError(t, w.Append(3, recordPayload(3)))
 		require.NoError(t, w.Append(100, recordPayload(100)))
 		require.NoError(t, w.Flush())
-		require.Equal(t, []uint64{1, 3, 100}, collectIndices(t, w, 0))
+		require.Equal(t, []uint64{1, 3, 100}, collectIndices(t, w, 0, 100))
 	})
 
 	t.Run("empty payload is allowed", func(t *testing.T) {
@@ -184,7 +185,7 @@ func TestAppendOrdering(t *testing.T) {
 		require.NoError(t, w.Append(2, []byte{}))
 		require.NoError(t, w.Flush())
 
-		it, err := w.Iterator(1)
+		it, err := w.Iterator(1, 2)
 		require.NoError(t, err)
 		defer func() { require.NoError(t, it.Close()) }()
 		ok, err := it.Next()
@@ -337,7 +338,7 @@ func TestOrphanFileRecovery(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, uint64(1), first)
 	require.Equal(t, uint64(2), last)
-	require.Equal(t, []uint64{1, 2}, collectIndices(t, w, 1))
+	require.Equal(t, []uint64{1, 2}, collectIndices(t, w, 1, 2))
 }
 
 func TestRotationProducesContiguousSealedFiles(t *testing.T) {
@@ -356,7 +357,7 @@ func TestRotationProducesContiguousSealedFiles(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, uint64(1), first)
 	require.Equal(t, uint64(6), last)
-	require.Equal(t, []uint64{1, 2, 3, 4, 5, 6}, collectIndices(t, w, 1))
+	require.Equal(t, []uint64{1, 2, 3, 4, 5, 6}, collectIndices(t, w, 1, 6))
 	require.NoError(t, w.Close())
 
 	// Every record should have produced its own sealed file with a clean [k,k] range.
@@ -394,7 +395,7 @@ func TestRecordNeverSplitAcrossFiles(t *testing.T) {
 	// Each oversized record rotated into its own file, intact — never split across files.
 	require.Equal(t, 2, countSealedFiles(t, dir))
 
-	it, err := w.Iterator(1)
+	it, err := w.Iterator(1, 2)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
@@ -436,7 +437,7 @@ func TestPruneDropsWholeFiles(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, uint64(5), first)
 	require.Equal(t, uint64(10), last)
-	require.Equal(t, []uint64{5, 6, 7, 8, 9, 10}, collectIndices(t, w, 0))
+	require.Equal(t, []uint64{5, 6, 7, 8, 9, 10}, collectIndices(t, w, 0, 10))
 }
 
 func TestPrunePastAllRecordsEmptiesRange(t *testing.T) {
@@ -458,35 +459,38 @@ func TestPrunePastAllRecordsEmptiesRange(t *testing.T) {
 	require.False(t, ok)
 }
 
-// TestIteratorOnEmptyWALDoesNotBlockPruning covers an iterator created over a fresh, empty WAL: its file
-// snapshot is empty (no hard links, no private directory), so it holds nothing on disk. Held open across later
-// appends and a prune, it neither yields anything nor impedes pruning, which proceeds unconditionally.
-func TestIteratorOnEmptyWALDoesNotBlockPruning(t *testing.T) {
+// TestIteratorWithEmptySnapshotDoesNotBlockPruning covers an iterator whose requested range falls entirely in
+// an index gap, so its file snapshot is empty (no hard links, no private directory) and it holds nothing on
+// disk. Held open across a prune, it neither yields anything nor impedes pruning, which proceeds
+// unconditionally.
+func TestIteratorWithEmptySnapshotDoesNotBlockPruning(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)
 	cfg.TargetFileSize = 1 // one record per sealed file, so pruning works file-by-file
+	cfg.PermitGaps = true  // the requested range lands in a gap
 
 	w := openWAL(t, cfg)
 	defer func() { require.NoError(t, w.Close()) }()
 
-	// Create the iterator while the WAL is empty and hold it open (never closed until the end).
-	it, err := w.Iterator(0)
-	require.NoError(t, err)
-	ok, err := it.Next()
-	require.NoError(t, err)
-	require.False(t, ok, "an iterator over an empty WAL yields no records")
-
-	for index := uint64(1); index <= 10; index++ {
+	// Indices 1,2,3 then a legal jump to 10,11,12. No file covers the range [5, 8], so the snapshot is empty.
+	for _, index := range []uint64{1, 2, 3, 10, 11, 12} {
 		appendRecord(t, w, index)
 	}
 	require.NoError(t, w.Flush())
 
-	require.NoError(t, w.PruneBefore(5))
+	// Create the empty-snapshot iterator and hold it open (never closed until the end).
+	it, err := w.Iterator(5, 8)
+	require.NoError(t, err)
+	ok, err := it.Next()
+	require.NoError(t, err)
+	require.False(t, ok, "an iterator whose range falls in a gap yields no records")
+
+	require.NoError(t, w.PruneBefore(11))
 	stored, first, last, err := w.Bounds()
 	require.NoError(t, err)
 	require.True(t, stored)
-	require.Equal(t, uint64(5), first, "the empty-snapshot iterator must not pin index 0 and block pruning")
-	require.Equal(t, uint64(10), last)
+	require.Equal(t, uint64(11), first, "the empty-snapshot iterator must not block pruning")
+	require.Equal(t, uint64(12), last)
 
 	require.NoError(t, it.Close())
 }
@@ -524,7 +528,7 @@ func TestActiveIteratorReadsThroughUnconditionalPruning(t *testing.T) {
 	require.NoError(t, w.Flush())
 
 	// Snapshot indices 1..10 (hard-linked) at creation.
-	it, err := w.Iterator(1)
+	it, err := w.Iterator(1, 10)
 	require.NoError(t, err)
 
 	// Pruning proceeds unconditionally: Bounds advances even though the iterator is live.
@@ -540,7 +544,7 @@ func TestActiveIteratorReadsThroughUnconditionalPruning(t *testing.T) {
 	require.NoError(t, it.Close())
 
 	// A fresh iterator sees only the post-prune range.
-	require.Equal(t, []uint64{5, 6, 7, 8, 9, 10}, collectIndices(t, w, 0))
+	require.Equal(t, []uint64{5, 6, 7, 8, 9, 10}, collectIndices(t, w, 0, 10))
 }
 
 func TestIteratorAnchoredAboveKeepPointDoesNotBlockPruning(t *testing.T) {
@@ -556,7 +560,7 @@ func TestIteratorAnchoredAboveKeepPointDoesNotBlockPruning(t *testing.T) {
 	require.NoError(t, w.Flush())
 
 	// An iterator anchored at index 8 does not need records below 5, so pruning to 5 proceeds.
-	it, err := w.Iterator(8)
+	it, err := w.Iterator(8, 10)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
@@ -586,7 +590,7 @@ func TestIteratorAcrossGapReadsThroughPruning(t *testing.T) {
 
 	// Snapshot links the files reaching index 5 or higher: those for 10, 11, 12. Files 1,2,3 are below the
 	// start and are not linked.
-	it, err := w.Iterator(5)
+	it, err := w.Iterator(5, 12)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
@@ -619,7 +623,7 @@ func TestIteratorReadsThroughPruningPastAnchor(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	it, err := w.Iterator(5)
+	it, err := w.Iterator(5, 10)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
@@ -645,7 +649,7 @@ func TestIteratorDoesNotSealMutableFile(t *testing.T) {
 	require.NoError(t, w.Flush())
 	require.Equal(t, 0, countSealedFiles(t, dir), "records stay in the mutable file; nothing sealed yet")
 
-	it, err := w.Iterator(1)
+	it, err := w.Iterator(1, 3)
 	require.NoError(t, err)
 	require.Equal(t, 0, countSealedFiles(t, dir), "opening an iterator must not seal the mutable file")
 	require.Equal(t, []uint64{1, 2, 3}, drainIndices(t, it))
@@ -654,7 +658,103 @@ func TestIteratorDoesNotSealMutableFile(t *testing.T) {
 	// The mutable file is untouched, so appends continue contiguously.
 	appendRecord(t, w, 4)
 	require.NoError(t, w.Flush())
-	require.Equal(t, []uint64{1, 2, 3, 4}, collectIndices(t, w, 1))
+	require.Equal(t, []uint64{1, 2, 3, 4}, collectIndices(t, w, 1, 4))
+}
+
+// unsealedFilePath returns the path of the single mutable (unsealed) WAL file in dir.
+func unsealedFilePath(t *testing.T, dir string) string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var name string
+	for _, entry := range entries {
+		if parsed, ok := parseFileName(entry.Name()); ok && !parsed.sealed {
+			require.Empty(t, name, "expected exactly one mutable file")
+			name = entry.Name()
+		}
+	}
+	require.NotEmpty(t, name, "no mutable file found")
+	return filepath.Join(dir, name)
+}
+
+// onDiskSize returns the number of bytes currently written to disk for the file at path. Records buffered in
+// the mutable file's writer but not yet flushed do not count.
+func onDiskSize(t *testing.T, path string) int64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	return info.Size()
+}
+
+// TestIteratorDoesNotFlushMutableFileOutsideRange verifies that when the requested range is fully covered by
+// sealed files, the mutable file (which holds only higher indices) is left unflushed — its buffered records
+// stay off disk. As a positive control, a range that reaches into the mutable file does flush it.
+func TestIteratorDoesNotFlushMutableFileOutsideRange(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+	cfg.TargetFileSize = 250 // seals after three ~107-byte records, leaving the rest in the mutable file
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+
+	payload := make([]byte, 100)
+	for index := uint64(1); index <= 5; index++ {
+		require.NoError(t, w.Append(index, payload))
+	}
+	// Bounds is a writer-goroutine round-trip that drains the appends without flushing the mutable buffer.
+	ok, _, last, err := w.Bounds()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(5), last)
+	require.Equal(t, 1, countSealedFiles(t, dir),
+		"records 1..3 sealed into one file; 4,5 buffered in the mutable file")
+
+	mutablePath := unsealedFilePath(t, dir)
+	before := onDiskSize(t, mutablePath)
+
+	// Range [1,3] is fully covered by the sealed file; the mutable file (first index 4) must not be flushed.
+	it, err := w.Iterator(1, 3)
+	require.NoError(t, err)
+	require.Equal(t, before, onDiskSize(t, mutablePath),
+		"the mutable file must not be flushed when outside the range")
+	require.Equal(t, []uint64{1, 2, 3}, drainIndices(t, it))
+	require.NoError(t, it.Close())
+
+	// Positive control: a range reaching into the mutable file flushes it, so its bytes reach disk.
+	it2, err := w.Iterator(1, 5)
+	require.NoError(t, err)
+	require.Greater(t, onDiskSize(t, mutablePath), before, "the mutable file is flushed when the range needs it")
+	require.Equal(t, []uint64{1, 2, 3, 4, 5}, drainIndices(t, it2))
+	require.NoError(t, it2.Close())
+}
+
+// TestIteratorDoesNotLinkFilesOutsideRange verifies that only the sealed files overlapping the requested range
+// are hard-linked into the iterator's snapshot directory; files entirely below the start or above the end are
+// not linked.
+func TestIteratorDoesNotLinkFilesOutsideRange(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+	cfg.TargetFileSize = 1 // one record per sealed file
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+	for index := uint64(1); index <= 6; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Flush())
+
+	// Range [2,4] overlaps only the files for indices 2, 3, and 4.
+	it, err := w.Iterator(2, 4)
+	require.NoError(t, err)
+
+	linkDir := iteratorLinkDir(dir, 0) // first iterator gets serial 0
+	linked := sealedFileNames(t, linkDir)
+	require.Equal(t, []string{
+		sealedFileName(1, 2, 2),
+		sealedFileName(2, 3, 3),
+		sealedFileName(3, 4, 4),
+	}, linked, "only files overlapping [2,4] are linked; those below 2 or above 4 are not")
+
+	require.Equal(t, []uint64{2, 3, 4}, drainIndices(t, it))
+	require.NoError(t, it.Close())
 }
 
 // TestIteratorExcludesRecordsAppendedAfterCreation verifies the point-in-time cap: records appended (and
@@ -669,7 +769,7 @@ func TestIteratorExcludesRecordsAppendedAfterCreation(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	it, err := w.Iterator(1) // snapshot caps at index 3
+	it, err := w.Iterator(1, 3) // snapshot caps at index 3
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
 
@@ -691,7 +791,7 @@ func TestIteratorSnapshotDirLifecycle(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	it, err := w.Iterator(1)
+	it, err := w.Iterator(1, 3)
 	require.NoError(t, err)
 
 	linkDir := iteratorLinkDir(dir, 0) // first iterator gets serial 0
@@ -749,7 +849,8 @@ func TestScanRejectsGapInSealedFiles(t *testing.T) {
 	require.GreaterOrEqual(t, len(sealed), 3)
 	sort.Slice(sealed, func(i int, j int) bool { return sealed[i].fileSeq < sealed[j].fileSeq })
 	victim := sealed[len(sealed)/2]
-	require.NoError(t, os.Remove(filepath.Join(dir, sealedFileName(victim.fileSeq, victim.firstIndex, victim.lastIndex))))
+	victimName := sealedFileName(victim.fileSeq, victim.firstIndex, victim.lastIndex)
+	require.NoError(t, os.Remove(filepath.Join(dir, victimName)))
 
 	_, err = NewWAL(cfg)
 	require.Error(t, err)
@@ -858,6 +959,40 @@ func TestVerifyIntegrityDetectsSequenceGap(t *testing.T) {
 	err := VerifyIntegrity(dir)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "gap")
+}
+
+// TestVerifyIntegrityReportsDuplicateSequence verifies that when an interrupted rollback swap leaves two sealed
+// files sharing a fileSeq (the reduced [1,3] file beside the untouched [1,6] original), VerifyIntegrity
+// checksums each physical file under its own name and reports the duplicate as such. It must not collapse both
+// parsed entries onto one file — which would skip the survivor's CRC entirely, raise a misattributed range
+// mismatch, and report the duplicate as a nonsensical "gap between N and N".
+func TestVerifyIntegrityReportsDuplicateSequence(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir) // large target: all six records land in one file, sequence 0
+
+	w := openWAL(t, cfg)
+	for index := uint64(1); index <= 6; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Close())
+
+	oldName := sealedFileName(0, 1, 6)
+	require.Equal(t, []string{oldName}, sealedFileNames(t, dir))
+
+	// Reproduce the crash state: the reduced file [1,3] beside the untouched original [1,6], both internally
+	// name/content consistent. VerifyIntegrity does not run recovery, so it observes the unreconciled duplicate.
+	reducedName := sealedFileName(0, 1, 3)
+	prefix := recordPrefixBytes(t, filepath.Join(dir, oldName), 3)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, reducedName), prefix, 0o600))
+	require.Equal(t, []string{reducedName, oldName}, sealedFileNames(t, dir))
+
+	err := VerifyIntegrity(dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate")
+	// Each parsed entry resolves to its own file, so neither yields a misattributed range mismatch, and the
+	// duplicate is reported as a duplicate rather than a sequence gap.
+	require.NotContains(t, err.Error(), "content holds")
+	require.NotContains(t, err.Error(), "gap")
 }
 
 // TestVerifyIntegrityReportsAllFaults verifies that a single VerifyIntegrity pass aggregates every problem it
@@ -1001,7 +1136,7 @@ func TestGetRange(t *testing.T) {
 		// A subsequent normal open round-trips cleanly against the sealed range.
 		w := openWAL(t, testConfig(dir))
 		defer func() { require.NoError(t, w.Close()) }()
-		require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w, 1))
+		require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w, 1, 3))
 	})
 }
 
@@ -1026,7 +1161,7 @@ func TestPruneAfter(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, uint64(1), first)
 		require.Equal(t, uint64(3), last)
-		require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w2, 1))
+		require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w2, 1, 3))
 	})
 
 	t.Run("truncates within a file at the rollback point", func(t *testing.T) {
@@ -1048,7 +1183,7 @@ func TestPruneAfter(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, uint64(1), first)
 		require.Equal(t, uint64(3), last)
-		require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w2, 1))
+		require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w2, 1, 3))
 
 		// Appending continues cleanly after the rollback point.
 		appendRecord(t, w2, 4)
@@ -1068,8 +1203,10 @@ func TestPruneAfter(t *testing.T) {
 			name       string
 			targetSize uint
 		}{
-			{"whole-file removal", 1},                // one record per file: rollback removes whole trailing files
-			{"in-file truncation", 64 * 1024 * 1024}, // all records in one file: rollback truncates it in place
+			// one record per file: rollback removes whole trailing files
+			{"whole-file removal", 1},
+			// all records in one file: rollback truncates it in place
+			{"in-file truncation", 64 * 1024 * 1024},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				dir := t.TempDir()
@@ -1084,7 +1221,8 @@ func TestPruneAfter(t *testing.T) {
 
 				require.NoError(t, PruneAfter(cfg.Path, 3))
 
-				// Reopen normally; the rollback must have durably and consistently reduced the range to [1,3].
+				// Reopen normally; the rollback must have durably and consistently reduced the range
+				// to [1,3].
 				w3 := openWAL(t, cfg)
 				defer func() { require.NoError(t, w3.Close()) }()
 
@@ -1093,7 +1231,7 @@ func TestPruneAfter(t *testing.T) {
 				require.True(t, ok)
 				require.Equal(t, uint64(1), first)
 				require.Equal(t, uint64(3), last)
-				require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w3, 1))
+				require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w3, 1, 3))
 			})
 		}
 	})
@@ -1154,7 +1292,7 @@ func TestRollbackCrashAfterSwapReconciledOnReopen(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, uint64(1), first)
 	require.Equal(t, uint64(3), last)
-	require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w2, 1))
+	require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w2, 1, 3))
 }
 
 // TestRollbackCrashDuringSwapWindowRecovers simulates a crash mid-rollback in the earlier window: the
@@ -1202,5 +1340,5 @@ func TestRollbackCrashDuringSwapWindowRecovers(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, uint64(1), first)
 	require.Equal(t, uint64(3), last)
-	require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w4, 1))
+	require.Equal(t, []uint64{1, 2, 3}, collectIndices(t, w4, 1, 3))
 }

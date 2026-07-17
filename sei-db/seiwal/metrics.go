@@ -84,7 +84,8 @@ func walNameAttr(name string) metric.MeasurementOption {
 // queueDepthAttrs tags a queue-depth observation with the WAL instance name and which internal channel
 // ("writer" or "serializer") is being measured.
 func queueDepthAttrs(name string, queue string) metric.MeasurementOption {
-	return metric.WithAttributeSet(attribute.NewSet(attribute.String("wal", name), attribute.String("queue", queue)))
+	return metric.WithAttributeSet(attribute.NewSet(
+		attribute.String("wal", name), attribute.String("queue", queue)))
 }
 
 func must[V any](v V, err error) V {

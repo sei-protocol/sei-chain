@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // GetRange reports the range of record indices stored in the WAL directory at path, without constructing a
@@ -13,10 +15,19 @@ import (
 // which SEALS any unsealed file left behind by a prior session — so this function mutates the directory on
 // disk even though its name suggests a read.
 //
-// NOT SAFE FOR CONCURRENT USE with a live WAL: it seals files that a running WAL instance owns, so it must
-// only be called while no WAL is open on the same directory (e.g. offline, at startup before NewWAL).
-// Callers must serialize it against any other GetRange/PruneAfter on the same directory.
+// It takes the same exclusive directory lock a live WAL holds, so it fails with
+// commonerrors.ErrFileLockUnavailable if a WAL is open on the same directory, and serializes against any
+// other GetRange/PruneAfter/VerifyIntegrity on that directory. The lock is released before it returns.
 func GetRange(path string) (ok bool, first uint64, last uint64, err error) {
+	if err := util.EnsureDirectoryExists(path, true); err != nil {
+		return false, 0, 0, fmt.Errorf("failed to ensure WAL directory %s: %w", path, err)
+	}
+	lock, err := acquireDirLock(path)
+	if err != nil {
+		return false, 0, 0, fmt.Errorf("failed to lock WAL directory %s: %w", path, err)
+	}
+	defer releaseDirLock(lock, path)
+
 	if err := recoverDirectory(path); err != nil {
 		return false, 0, 0, fmt.Errorf("failed to recover WAL directory: %w", err)
 	}
@@ -36,11 +47,19 @@ func GetRange(path string) (ok bool, first uint64, last uint64, err error) {
 // path — the offline rollback operation — without constructing a live WAL instance. It runs the standard
 // recovery/sanity pass first (sealing any orphaned file), applies the rollback, then re-scans the result.
 //
-// NOT SAFE FOR CONCURRENT USE with a live WAL: it seals, rewrites, and removes files that a running WAL
-// instance owns, so it must only be called while no WAL is open on the same directory (e.g. offline, at
-// startup before NewWAL). Callers must serialize it against any other GetRange/PruneAfter on the same
-// directory.
+// It takes the same exclusive directory lock a live WAL holds, so it fails with
+// commonerrors.ErrFileLockUnavailable if a WAL is open on the same directory, and serializes against any
+// other GetRange/PruneAfter/VerifyIntegrity on that directory. The lock is released before it returns.
 func PruneAfter(path string, highestIndexToKeep uint64) error {
+	if err := util.EnsureDirectoryExists(path, true); err != nil {
+		return fmt.Errorf("failed to ensure WAL directory %s: %w", path, err)
+	}
+	lock, err := acquireDirLock(path)
+	if err != nil {
+		return fmt.Errorf("failed to lock WAL directory %s: %w", path, err)
+	}
+	defer releaseDirLock(lock, path)
+
 	if err := recoverDirectory(path); err != nil {
 		return fmt.Errorf("failed to recover WAL directory: %w", err)
 	}
@@ -53,20 +72,26 @@ func PruneAfter(path string, highestIndexToKeep uint64) error {
 	return nil
 }
 
-// VerifyIntegrity reads every sealed file in the WAL directory at path and confirms that each record's CRC is
-// intact and that each file's content exactly covers the index range its name promises. This is the expensive
-// O(total sealed bytes) check that open (and GetRange/PruneAfter) deliberately skips.
-//
-// NOT SAFE FOR CONCURRENT USE with a live WAL on the same directory: it reads files a running WAL owns while
-// they may still be changing.
+// VerifyIntegrity checks every sealed file in the WAL directory at path: each record's CRC is intact, each
+// file's content covers the index range its name promises, and the sealed sequence has no gaps or duplicates.
+// It does not modify the directory. It requires the exclusive directory lock and returns
+// commonerrors.ErrFileLockUnavailable if a WAL is open on the same directory.
 func VerifyIntegrity(path string) error {
+	if err := util.EnsureDirectoryExists(path, true); err != nil {
+		return fmt.Errorf("failed to ensure WAL directory %s: %w", path, err)
+	}
+	lock, err := acquireDirLock(path)
+	if err != nil {
+		return fmt.Errorf("failed to lock WAL directory %s: %w", path, err)
+	}
+	defer releaseDirLock(lock, path)
+
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return fmt.Errorf("failed to read WAL directory %s: %w", path, err)
 	}
 
 	sealed := make([]parsedFileName, 0, len(entries))
-	names := make(map[uint64]string, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -76,24 +101,34 @@ func VerifyIntegrity(path string) error {
 			continue
 		}
 		sealed = append(sealed, parsed)
-		names[parsed.fileSeq] = entry.Name()
 	}
 	sort.Slice(sealed, func(i int, j int) bool { return sealed[i].fileSeq < sealed[j].fileSeq })
 
 	var problems []error
 	for i, parsed := range sealed {
-		if i > 0 && parsed.fileSeq != sealed[i-1].fileSeq+1 {
-			problems = append(problems, fmt.Errorf(
-				"gap in sealed file sequence between %d and %d (a sealed file is missing)",
-				sealed[i-1].fileSeq, parsed.fileSeq))
+		if i > 0 {
+			switch {
+			case parsed.fileSeq == sealed[i-1].fileSeq:
+				problems = append(problems, fmt.Errorf(
+					"duplicate sealed file sequence %d (an interrupted rollback swap left two files)",
+					parsed.fileSeq))
+			case parsed.fileSeq != sealed[i-1].fileSeq+1:
+				problems = append(problems, fmt.Errorf(
+					"gap in sealed file sequence between %d and %d (a sealed file is missing)",
+					sealed[i-1].fileSeq, parsed.fileSeq))
+			}
 		}
-		name := names[parsed.fileSeq]
+		// A sealed file's name is a deterministic function of its parsed fields, so reconstruct it here rather
+		// than tracking the raw directory entry. Two sealed files that share a fileSeq (a crash remnant from an
+		// interrupted rollback swap) then resolve to their own distinct files instead of collapsing to one.
+		name := sealedFileName(parsed.fileSeq, parsed.firstIndex, parsed.lastIndex)
 		contents, err := readWalFile(filepath.Join(path, name))
 		if err != nil {
 			problems = append(problems, fmt.Errorf("failed to read sealed WAL file %s: %w", name, err))
 			continue
 		}
-		if err := verifySealedContents(contents, parsed.fileSeq, parsed.firstIndex, parsed.lastIndex); err != nil {
+		err = verifySealedContents(contents, parsed.fileSeq, parsed.firstIndex, parsed.lastIndex)
+		if err != nil {
 			problems = append(problems, err)
 		}
 	}

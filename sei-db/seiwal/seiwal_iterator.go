@@ -165,8 +165,9 @@ func (it *walIterator) Close() error {
 		close(it.stop)    // tell the reader to stop if it is mid-read
 		<-it.readerExited // wait for it to actually exit before releasing its file handles
 		if it.dir != "" {
-			// Remove this iterator's hard-link snapshot, freeing any inode it was the last link to. Best-effort:
-			// a leftover is reclaimed by the startup blast. The reader has exited, so no handle is open here.
+			// Remove this iterator's hard-link snapshot, freeing any inode it was the last link to.
+			// Best-effort: a leftover is reclaimed by the startup blast. The reader has exited, so no
+			// handle is open here.
 			_ = os.RemoveAll(it.dir)
 		}
 	})
@@ -251,23 +252,46 @@ func (it *walIterator) loadNextFile() (bool, error) {
 			return false, err
 		}
 
-		parsed := parsedFileName{fileSeq: f.fileSeq, firstIndex: f.firstIndex, lastIndex: f.lastIndex, sealed: f.sealed}
+		parsed := parsedFileName{
+			fileSeq:    f.fileSeq,
+			firstIndex: f.firstIndex,
+			lastIndex:  f.lastIndex,
+			sealed:     f.sealed,
+		}
 		contents, err := readWalFileFromHandle(handle, parsed)
 		if err != nil {
-			return false, fmt.Errorf("failed to read WAL file (sequence %d) during iteration: %w", f.fileSeq, err)
+			return false, fmt.Errorf(
+				"failed to read WAL file (sequence %d) during iteration: %w", f.fileSeq, err)
 		}
 
 		if f.sealed {
 			if err := verifySealedContents(contents, f.fileSeq, f.firstIndex, f.lastIndex); err != nil {
 				return false, err
 			}
+		} else {
+			// The unsealed mutable snapshot's records through f.lastIndex (the snapshot bound) were complete
+			// when the snapshot was taken, so a short read is corruption in known-complete data — not a
+			// live-write torn tail, which can only appear past the bound and is dropped by the maxIndex filter.
+			if !contents.hasRecords {
+				return false, fmt.Errorf(
+					"WAL file (sequence %d) is corrupt: no intact records were read, "+
+						"but the snapshot promises indices through %d",
+					f.fileSeq, f.lastIndex)
+			}
+			if contents.lastIndex < f.lastIndex {
+				return false, fmt.Errorf(
+					"WAL file (sequence %d) is corrupt: content covers indices through %d, "+
+						"short of the snapshot bound %d",
+					f.fileSeq, contents.lastIndex, f.lastIndex)
+			}
 		}
 
 		for _, record := range contents.records {
 			if record.index < it.start {
-				// Locating the start index is a linear scan over this file's records (and the whole file was just
-				// read into memory above). It's wasteful when start lands deep in a large file. If this becomes a
-				// hotspot, build a small per-file index (offset by index, like LittDB key files) and seek instead.
+				// Locating the start index is a linear scan over this file's records (and the whole
+				// file was just read into memory above). It's wasteful when start lands deep in a
+				// large file. If this becomes a hotspot, build a small per-file index (offset by
+				// index, like LittDB key files) and seek instead.
 				continue
 			}
 			if record.index > it.maxIndex {

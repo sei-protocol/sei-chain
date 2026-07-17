@@ -52,7 +52,7 @@ func (f *fakeWAL) PruneBefore(lowestIndexToKeep uint64) error {
 	return f.pruneErr
 }
 
-func (f *fakeWAL) Iterator(startIndex uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
+func (f *fakeWAL) Iterator(startIndex uint64, endIndex uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error) {
 	if f.iteratorErr != nil {
 		return nil, f.iteratorErr
 	}
@@ -79,7 +79,7 @@ func requireBricked(t *testing.T, w StateWAL) {
 	_, _, _, err := w.GetStoredRange()
 	require.ErrorIs(t, err, errInjected)
 	require.ErrorIs(t, w.Prune(1), errInjected)
-	_, err = w.Iterator(0)
+	_, err = w.Iterator(0, 0)
 	require.ErrorIs(t, err, errInjected)
 }
 
@@ -124,7 +124,7 @@ func TestFatalErrorsBrickWAL(t *testing.T) {
 		f := &fakeWAL{}
 		w := newFakeStateWAL(t, f)
 		f.iteratorErr = errInjected
-		_, err := w.Iterator(0)
+		_, err := w.Iterator(0, 0)
 		require.ErrorIs(t, err, errInjected)
 		requireBricked(t, w)
 	})

@@ -24,6 +24,9 @@ type StateWAL interface {
 	// cs, and every byte slice reachable through it (changeset keys and values), must not be modified after
 	// this call. Callers that need to modify those buffers must copy them first.
 	//
+	// A nil entry in cs is rejected synchronously with an error and leaves the WAL usable; cs itself may be
+	// nil or empty.
+	//
 	// The StateWAL rejects writes for blocks if provided out of order. To avoid errors, observe
 	// the following rules:
 	//
@@ -40,8 +43,8 @@ type StateWAL interface {
 	// Signal that there will be no more writes for the current block number. Attempting to write additional
 	// changes for the same block number after calling this method may result in an error.
 	//
-	// Similar to Write(), this method is asynchronous. Calling this method does not, by itself, make data immediately
-	// crash durable.
+	// Similar to Write(), this method is asynchronous. Calling this method does not, by itself, make
+	// data immediately crash durable.
 	SignalEndOfBlock() error
 
 	// Flush the WAL to disk. Only completed blocks — those for which SignalEndOfBlock has been called — are
@@ -69,7 +72,12 @@ type StateWAL interface {
 	// called again or for a higher block number.
 	Prune(lowestBlockNumberToKeep uint64) error
 
-	// Create an iterator over the WAL, starting at the given block number.
+	// Create an iterator over the WAL across the inclusive block range [startingBlockNumber, endingBlockNumber].
+	//
+	// The iterator yields no block below startingBlockNumber or above endingBlockNumber. It is an error for
+	// endingBlockNumber to be below startingBlockNumber, or for endingBlockNumber to be above the highest block
+	// number currently stored in the WAL (including when the WAL is empty); both are reported as
+	// seiwal.ErrIteratorRange and leave the WAL usable.
 	//
 	// The iterator reads a consistent, point-in-time snapshot of the WAL taken at some instant between the
 	// start and the return of this call. Data written before that instant is included; data written after it
@@ -79,7 +87,7 @@ type StateWAL interface {
 	// changesets), where changesets are all the changes written for that block (across one or more Write
 	// calls) combined in write order. Blocks that were never ended with SignalEndOfBlock are not yielded.
 	// The returned changesets, and every byte slice reachable through them, must be treated as read-only.
-	Iterator(startingBlockNumber uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error)
+	Iterator(startingBlockNumber uint64, endingBlockNumber uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error)
 
 	// Close the WAL, flushing complete blocks (those ended with SignalEndOfBlock) to disk and releasing
 	// resources. Changes for a block that was not ended with SignalEndOfBlock are discarded.
