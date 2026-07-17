@@ -19,32 +19,32 @@ const (
 	// Cache entries and the per-value cap bound worst-case memory at
 	// entries*cap (256 MiB) even when an external caller crafts distinct
 	// large-value historical queries.
-	defaultHistoricalReadCacheEntries = 32 * 1024
-	maxHistoricalReadCacheValueBytes  = 8 * 1024
+	defaultReadCacheEntries = 32 * 1024
+	maxReadCacheValueBytes  = 8 * 1024
 
-	// historicalReadTimeout bounds one backend point read. types.StateStore has
+	// readTimeout bounds one backend point read. types.StateStore has
 	// no context parameter, so the deadline must be injected here; without it a
 	// silently dropped connection can park an RPC goroutine in a backend read
 	// until the OS TCP timeout.
-	historicalReadTimeout = 10 * time.Second
+	readTimeout = 10 * time.Second
 
-	// historicalMissCacheTTL bounds how long a backend miss is trusted. Hits are
+	// missCacheTTL bounds how long a backend miss is trusted. Hits are
 	// immutable (a version's value never changes once written) but a miss can
 	// flip to a hit once the offload consumer catches up.
-	historicalMissCacheTTL = time.Minute
+	missCacheTTL = time.Minute
 
 	// backendVersionRecheckInterval rate-limits LastVersion refreshes when a
 	// requested version is ahead of the backend's cached ingestion watermark.
 	backendVersionRecheckInterval = 30 * time.Second
 )
 
-type historicalReadCacheKey struct {
+type readCacheKey struct {
 	storeKey string
 	version  int64
 	key      string
 }
 
-type historicalReadCacheValue struct {
+type readCacheValue struct {
 	value      []byte
 	found      bool
 	valueKnown bool
@@ -60,24 +60,13 @@ type PerKeyEarliestVersioner interface {
 	GetEarliestVersionForKey(storeKey string) int64
 }
 
-// FallbackOptions tunes FallbackStateStore behavior.
-type FallbackOptions struct {
-	// EarliestVersion is the operator-declared earliest version (inclusive)
-	// fully ingested into the historical backend. When set (> 0) it becomes the
-	// store's advertised earliest version, so height gates such as the EVM RPC
-	// watermark admit pruned heights that the fallback can serve; reads below
-	// it stay on the primary. When zero, the advertised earliest remains the
-	// local prune horizon and height gates keep rejecting pruned heights.
-	EarliestVersion int64
-}
-
 // FallbackStateStore routes pruned point reads to the historical reader.
 // Iteration and writes stay on the primary state store.
 type FallbackStateStore struct {
 	primary        types.StateStore
 	perKeyEarliest PerKeyEarliestVersioner
 	reader         Reader
-	cache          *lru.Cache[historicalReadCacheKey, historicalReadCacheValue]
+	cache          *lru.Cache[readCacheKey, readCacheValue]
 	metrics        *fallbackMetrics
 	coverageFloor  int64
 
@@ -91,8 +80,13 @@ type FallbackStateStore struct {
 var _ types.StateStore = (*FallbackStateStore)(nil)
 
 // NewFallbackStateStore takes ownership of primary and reader for Close.
-func NewFallbackStateStore(primary types.StateStore, reader Reader, opts FallbackOptions) *FallbackStateStore {
-	cache, err := lru.New[historicalReadCacheKey, historicalReadCacheValue](defaultHistoricalReadCacheEntries)
+// coverageFloor is the operator-declared earliest version (inclusive) fully
+// ingested into the backend: when > 0 it becomes the store's advertised
+// earliest version, so height gates such as the EVM RPC watermark admit
+// pruned heights the fallback can serve, while reads below it stay on the
+// primary. When zero, the advertised earliest remains the local prune horizon.
+func NewFallbackStateStore(primary types.StateStore, reader Reader, coverageFloor int64) *FallbackStateStore {
+	cache, err := lru.New[readCacheKey, readCacheValue](defaultReadCacheEntries)
 	if err != nil {
 		panic(err)
 	}
@@ -103,7 +97,7 @@ func NewFallbackStateStore(primary types.StateStore, reader Reader, opts Fallbac
 		reader:         reader,
 		cache:          cache,
 		metrics:        newFallbackMetrics(),
-		coverageFloor:  opts.EarliestVersion,
+		coverageFloor:  coverageFloor,
 	}
 }
 
@@ -164,14 +158,14 @@ func (s *FallbackStateStore) earliestVersionFor(storeKey string) int64 {
 }
 
 func (s *FallbackStateStore) readContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), historicalReadTimeout)
+	return context.WithTimeout(context.Background(), readTimeout)
 }
 
 func (s *FallbackStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
 	if !s.shouldFallback(storeKey, version) {
 		return s.primary.Get(storeKey, version, key)
 	}
-	cacheKey := historicalReadCacheKey{storeKey: storeKey, version: version, key: string(key)}
+	cacheKey := readCacheKey{storeKey: storeKey, version: version, key: string(key)}
 	if value, found, ok := s.getCachedValue(cacheKey); ok {
 		s.metrics.recordRead("get", fallbackOutcomeCacheHit)
 		if !found {
@@ -200,10 +194,7 @@ func (s *FallbackStateStore) Get(storeKey string, version int64, key []byte) ([]
 	return v.Bytes, nil
 }
 
-func (s *FallbackStateStore) getCachedValue(key historicalReadCacheKey) ([]byte, bool, bool) {
-	if s.cache == nil {
-		return nil, false, false
-	}
+func (s *FallbackStateStore) getCachedValue(key readCacheKey) ([]byte, bool, bool) {
 	value, ok := s.cache.Get(key)
 	if !ok {
 		return nil, false, false
@@ -220,10 +211,7 @@ func (s *FallbackStateStore) getCachedValue(key historicalReadCacheKey) ([]byte,
 	return bytes.Clone(value.value), true, true
 }
 
-func (s *FallbackStateStore) getCachedHas(key historicalReadCacheKey) (bool, bool) {
-	if s.cache == nil {
-		return false, false
-	}
+func (s *FallbackStateStore) getCachedHas(key readCacheKey) (bool, bool) {
 	value, ok := s.cache.Get(key)
 	if !ok {
 		return false, false
@@ -236,7 +224,7 @@ func (s *FallbackStateStore) getCachedHas(key historicalReadCacheKey) (bool, boo
 
 // missExpired evicts and reports miss entries whose TTL has lapsed so a
 // backend that has since ingested the version gets re-queried.
-func (s *FallbackStateStore) missExpired(key historicalReadCacheKey, value historicalReadCacheValue) bool {
+func (s *FallbackStateStore) missExpired(key readCacheKey, value readCacheValue) bool {
 	if value.missExpiresAt.IsZero() || time.Now().Before(value.missExpiresAt) {
 		return false
 	}
@@ -244,32 +232,26 @@ func (s *FallbackStateStore) missExpired(key historicalReadCacheKey, value histo
 	return true
 }
 
-func (s *FallbackStateStore) cacheValue(key historicalReadCacheKey, value []byte) {
-	if s.cache == nil || value == nil || len(value) > maxHistoricalReadCacheValueBytes {
+func (s *FallbackStateStore) cacheValue(key readCacheKey, value []byte) {
+	if value == nil || len(value) > maxReadCacheValueBytes {
 		return
 	}
-	s.cache.Add(key, historicalReadCacheValue{value: bytes.Clone(value), found: true, valueKnown: true})
+	s.cache.Add(key, readCacheValue{value: bytes.Clone(value), found: true, valueKnown: true})
 }
 
-func (s *FallbackStateStore) cacheMiss(key historicalReadCacheKey) {
-	if s.cache == nil {
-		return
-	}
-	s.cache.Add(key, historicalReadCacheValue{valueKnown: true, missExpiresAt: time.Now().Add(historicalMissCacheTTL)})
+func (s *FallbackStateStore) cacheMiss(key readCacheKey) {
+	s.cache.Add(key, readCacheValue{valueKnown: true, missExpiresAt: time.Now().Add(missCacheTTL)})
 }
 
-func (s *FallbackStateStore) cacheHas(key historicalReadCacheKey) {
-	if s.cache == nil {
-		return
-	}
-	s.cache.Add(key, historicalReadCacheValue{found: true})
+func (s *FallbackStateStore) cacheHas(key readCacheKey) {
+	s.cache.Add(key, readCacheValue{found: true})
 }
 
 func (s *FallbackStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {
 	if !s.shouldFallback(storeKey, version) {
 		return s.primary.Has(storeKey, version, key)
 	}
-	cacheKey := historicalReadCacheKey{storeKey: storeKey, version: version, key: string(key)}
+	cacheKey := readCacheKey{storeKey: storeKey, version: version, key: string(key)}
 	if found, ok := s.getCachedHas(cacheKey); ok {
 		s.metrics.recordRead("has", fallbackOutcomeCacheHit)
 		return found, nil

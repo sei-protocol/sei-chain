@@ -43,12 +43,12 @@ func TestBigtableMutationRowKeyOrdersLatestVersionFirst(t *testing.T) {
 	sort.Strings(keys)
 	require.Equal(t, []string{key80, key60, key40}, keys)
 
-	version, ok := BigtableVersionFromRowKey(key60)
+	version, ok := bigtableVersionFromRowKey(key60)
 	require.True(t, ok)
 	require.Equal(t, int64(60), version)
 	require.NotEqual(t,
-		BigtableMutationRowPrefix("bank", []byte("k"), 256),
-		BigtableMutationRowPrefix("bank", []byte("k1"), 256),
+		bigtableMutationRowPrefixBytes("bank", []byte("k"), 256),
+		bigtableMutationRowPrefixBytes("bank", []byte("k1"), 256),
 	)
 }
 
@@ -61,13 +61,13 @@ func TestBigtableValueFromRow(t *testing.T) {
 			{Family: DefaultBigtableFamily, Qualifier: BigtableDeletedColumn, Value: []byte{0}},
 		},
 	}
-	value, err := BigtableValueFromRow(row, DefaultBigtableFamily)
+	value, err := bigtableValueFromRow(row, DefaultBigtableFamily)
 	require.NoError(t, err)
 	require.Equal(t, []byte("value"), value.Bytes)
 	require.Equal(t, int64(7), value.Version)
 
 	row.Cells[1].Value = []byte{1}
-	_, err = BigtableValueFromRow(row, DefaultBigtableFamily)
+	_, err = bigtableValueFromRow(row, DefaultBigtableFamily)
 	require.ErrorIs(t, err, ErrNotFound)
 }
 

@@ -13,11 +13,9 @@ import (
 // consumer throughput and lag sit alongside the backend cost counters.
 const consumerMeterName = "seidb_offload_consumer"
 
-// consumerMetrics answers the two questions a cost benchmark needs beyond the
-// backend's own counters: how fast is the consumer draining Kafka, and is it
-// keeping up. Throughput plus lag tell you whether the backend (not the
-// consumer) is the bottleneck. One consumer runs per process, so no attributes
-// are needed — Prometheus job/instance labels separate backends.
+// consumerMetrics tracks Kafka drain throughput and lag. One consumer runs per
+// process, so no attributes are needed — Prometheus job/instance labels
+// separate backends.
 type consumerMetrics struct {
 	recordsProcessed metric.Int64Counter
 	sinkWriteLatency metric.Float64Histogram

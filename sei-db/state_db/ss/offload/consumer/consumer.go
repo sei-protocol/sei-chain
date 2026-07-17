@@ -19,36 +19,31 @@ type MessageSource interface {
 // Messages are sharded by partition: cross-partition writes parallelize while
 // ordering within a partition is preserved.
 type Consumer struct {
-	reader      MessageSource
-	sink        Sink
-	logf        func(format string, args ...interface{})
-	workers     int
-	shardBuf    int
-	batchSize   int
-	batchWait   time.Duration
-	maxAttempts int
-	baseBackoff time.Duration
-	maxBackoff  time.Duration
-	metrics     *consumerMetrics
+	reader    MessageSource
+	sink      Sink
+	logf      func(format string, args ...interface{})
+	workers   int
+	shardBuf  int
+	batchSize int
+	batchWait time.Duration
+	metrics   *consumerMetrics
 }
 
 const (
-	defaultSinkMaxAttempts = 5
-	defaultSinkBaseBackoff = 1 * time.Second
-	defaultSinkMaxBackoff  = 30 * time.Second
-	defaultWorkers         = 16
-	defaultShardBuffer     = 128
-	defaultBatchSize       = 16
-	defaultBatchMaxWait    = 10 * time.Millisecond
+	sinkMaxAttempts = 5
+	sinkBaseBackoff = 1 * time.Second
+	sinkMaxBackoff  = 30 * time.Second
+
+	defaultWorkers      = 16
+	defaultShardBuffer  = 128
+	defaultBatchSize    = 16
+	defaultBatchMaxWait = 10 * time.Millisecond
 )
 
 // Backpressure: when the sink falls behind, ShardBufferSize fills, the fetcher
 // blocks, and Kafka stops being polled. Zero values pick defaults.
 type Options struct {
 	Logf            func(format string, args ...interface{})
-	SinkMaxAttempts int
-	SinkBaseBackoff time.Duration
-	SinkMaxBackoff  time.Duration
 	Workers         int
 	ShardBufferSize int
 	MaxBatchRecords int
@@ -59,18 +54,6 @@ func New(reader MessageSource, sink Sink, opts Options) *Consumer {
 	logf := opts.Logf
 	if logf == nil {
 		logf = func(string, ...interface{}) {}
-	}
-	maxAttempts := opts.SinkMaxAttempts
-	if maxAttempts <= 0 {
-		maxAttempts = defaultSinkMaxAttempts
-	}
-	base := opts.SinkBaseBackoff
-	if base <= 0 {
-		base = defaultSinkBaseBackoff
-	}
-	maxBackoff := opts.SinkMaxBackoff
-	if maxBackoff <= 0 {
-		maxBackoff = defaultSinkMaxBackoff
 	}
 	workers := opts.Workers
 	if workers <= 0 {
@@ -89,26 +72,19 @@ func New(reader MessageSource, sink Sink, opts Options) *Consumer {
 		batchWait = defaultBatchMaxWait
 	}
 	return &Consumer{
-		reader:      reader,
-		sink:        sink,
-		logf:        logf,
-		workers:     workers,
-		shardBuf:    shardBuf,
-		batchSize:   batchSize,
-		batchWait:   batchWait,
-		maxAttempts: maxAttempts,
-		baseBackoff: base,
-		maxBackoff:  maxBackoff,
-		metrics:     newConsumerMetrics(),
+		reader:    reader,
+		sink:      sink,
+		logf:      logf,
+		workers:   workers,
+		shardBuf:  shardBuf,
+		batchSize: batchSize,
+		batchWait: batchWait,
+		metrics:   newConsumerMetrics(),
 	}
 }
 
 // Run commits offsets only after the sink persists each message.
 func (c *Consumer) Run(ctx context.Context) error {
-	return c.runParallel(ctx)
-}
-
-func (c *Consumer) runParallel(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 	shards := make([]chan kafka.Message, c.workers)
 	for i := range shards {
@@ -261,9 +237,9 @@ func batchLag(msgs []kafka.Message) int64 {
 }
 
 func (c *Consumer) writeBatchWithRetry(ctx context.Context, records []Record) error {
-	backoff := c.baseBackoff
+	backoff := sinkBaseBackoff
 	var lastErr error
-	for attempt := 1; attempt <= c.maxAttempts; attempt++ {
+	for attempt := 1; attempt <= sinkMaxAttempts; attempt++ {
 		err := c.writeRecords(ctx, records)
 		if err == nil {
 			return nil
@@ -272,20 +248,20 @@ func (c *Consumer) writeBatchWithRetry(ctx context.Context, records []Record) er
 		if isCancellation(err) {
 			return err
 		}
-		if attempt == c.maxAttempts {
+		if attempt == sinkMaxAttempts {
 			break
 		}
 		c.logf("sink write attempt %d/%d failed: %v; retrying in %s",
-			attempt, c.maxAttempts, err, backoff)
+			attempt, sinkMaxAttempts, err, backoff)
 		if err := sleepWithContext(ctx, backoff); err != nil {
 			return err
 		}
 		backoff *= 2
-		if backoff > c.maxBackoff {
-			backoff = c.maxBackoff
+		if backoff > sinkMaxBackoff {
+			backoff = sinkMaxBackoff
 		}
 	}
-	return fmt.Errorf("sink write failed after %d attempts: %w", c.maxAttempts, lastErr)
+	return fmt.Errorf("sink write failed after %d attempts: %w", sinkMaxAttempts, lastErr)
 }
 
 func sleepWithContext(ctx context.Context, d time.Duration) error {

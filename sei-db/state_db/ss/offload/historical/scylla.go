@@ -49,6 +49,10 @@ func (c *ScyllaConfig) ApplyDefaults() {
 	}
 }
 
+func (c ScyllaConfig) Configured() bool {
+	return len(c.Hosts) != 0 || strings.TrimSpace(c.Keyspace) != ""
+}
+
 func (c *ScyllaConfig) Validate() error {
 	if len(c.Hosts) == 0 {
 		return fmt.Errorf("scylla/cassandra hosts are required")

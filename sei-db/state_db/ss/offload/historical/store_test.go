@@ -93,7 +93,7 @@ func (f *fakeReader) Close() error { return nil }
 func TestFallbackStateStoreRoutesPrunedPointReads(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{}
-	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
+	store := NewFallbackStateStore(primary, reader, 0)
 
 	value, err := store.Get("bank", 7, []byte("k"))
 	require.NoError(t, err)
@@ -111,7 +111,7 @@ func TestFallbackStateStoreRoutesPrunedPointReads(t *testing.T) {
 func TestFallbackStateStoreKeepsRecentPointReadsOnPrimary(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{}
-	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
+	store := NewFallbackStateStore(primary, reader, 0)
 
 	value, err := store.Get("bank", 10, []byte("k"))
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestFallbackStateStoreKeepsRecentPointReadsOnPrimary(t *testing.T) {
 func TestFallbackStateStoreCachesHistoricalPointReads(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{}
-	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
+	store := NewFallbackStateStore(primary, reader, 0)
 
 	value, err := store.Get("bank", 7, []byte("k"))
 	require.NoError(t, err)
@@ -144,7 +144,7 @@ func TestFallbackStateStoreCachesHistoricalPointReads(t *testing.T) {
 func TestFallbackStateStoreCachesHistoricalMisses(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{getErr: ErrNotFound, hasSet: true}
-	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
+	store := NewFallbackStateStore(primary, reader, 0)
 
 	value, err := store.Get("bank", 7, []byte("missing"))
 	require.NoError(t, err)
@@ -164,7 +164,7 @@ func TestFallbackStateStoreCachesHistoricalMisses(t *testing.T) {
 func TestFallbackStateStoreCachesHistoricalHasResults(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{hasResult: true, hasSet: true}
-	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
+	store := NewFallbackStateStore(primary, reader, 0)
 
 	ok, err := store.Has("bank", 7, []byte("k"))
 	require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestFallbackStateStoreCachesHistoricalHasResults(t *testing.T) {
 func TestFallbackStateStoreDoesNotUseHasOnlyCacheForGet(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{hasResult: true, hasSet: true}
-	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
+	store := NewFallbackStateStore(primary, reader, 0)
 
 	ok, err := store.Has("bank", 7, []byte("k"))
 	require.NoError(t, err)
@@ -209,7 +209,7 @@ func TestFallbackStateStoreUsesPerKeyEarliestVersion(t *testing.T) {
 		perKey:         map[string]int64{"evm": 5},
 	}
 	reader := &fakeReader{}
-	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
+	store := NewFallbackStateStore(primary, reader, 0)
 
 	// The EVM store still holds version 7 locally even though the cosmos store
 	// pruned to 10; the read must stay on the primary.
@@ -235,7 +235,7 @@ func TestFallbackStateStoreUsesPerKeyEarliestVersion(t *testing.T) {
 func TestFallbackStateStoreCoverageFloor(t *testing.T) {
 	primary := &fakeStateStore{earliest: 100}
 	reader := &fakeReader{}
-	store := NewFallbackStateStore(primary, reader, FallbackOptions{EarliestVersion: 50})
+	store := NewFallbackStateStore(primary, reader, 50)
 
 	// The floor becomes the advertised earliest so height gates admit pruned
 	// heights the fallback can serve.
@@ -262,7 +262,7 @@ func TestFallbackStateStoreCoverageFloor(t *testing.T) {
 func TestFallbackStateStoreRejectsReadsBeyondBackendCoverage(t *testing.T) {
 	primary := &fakeStateStore{earliest: 100}
 	reader := &fakeReader{lastVersion: 40}
-	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
+	store := NewFallbackStateStore(primary, reader, 0)
 
 	// The backend has only ingested up to 40; a pruned read at 90 must error
 	// instead of returning silently-empty state.
@@ -288,7 +288,7 @@ func TestFallbackStateStoreRejectsReadsBeyondBackendCoverage(t *testing.T) {
 func TestFallbackStateStoreExpiresCachedMisses(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{getErr: ErrNotFound}
-	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
+	store := NewFallbackStateStore(primary, reader, 0)
 
 	value, err := store.Get("bank", 7, []byte("missing"))
 	require.NoError(t, err)
@@ -297,7 +297,7 @@ func TestFallbackStateStoreExpiresCachedMisses(t *testing.T) {
 
 	// Backdate the cached miss to simulate the TTL lapsing after the offload
 	// consumer catches up.
-	cacheKey := historicalReadCacheKey{storeKey: "bank", version: 7, key: "missing"}
+	cacheKey := readCacheKey{storeKey: "bank", version: 7, key: "missing"}
 	entry, ok := store.cache.Get(cacheKey)
 	require.True(t, ok)
 	entry.missExpiresAt = time.Now().Add(-time.Second)
@@ -313,7 +313,7 @@ func TestFallbackStateStoreExpiresCachedMisses(t *testing.T) {
 func TestFallbackStateStoreDoesNotCacheHistoricalErrors(t *testing.T) {
 	primary := &fakeStateStore{earliest: 10}
 	reader := &fakeReader{getErr: errors.New("boom")}
-	store := NewFallbackStateStore(primary, reader, FallbackOptions{})
+	store := NewFallbackStateStore(primary, reader, 0)
 
 	_, err := store.Get("bank", 7, []byte("k"))
 	require.Error(t, err)

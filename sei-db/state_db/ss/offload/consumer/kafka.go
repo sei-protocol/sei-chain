@@ -68,25 +68,17 @@ func (c *KafkaReaderConfig) Validate() error {
 	default:
 		return fmt.Errorf("unsupported kafka start offset %q", c.StartOffset)
 	}
-	// Mirror the producer-side SASL checks so a misconfigured consumer fails at
-	// load time instead of with an obscure handshake error on first fetch.
-	switch strings.ToLower(c.SASLMechanism) {
-	case "", "none":
-	case "plain":
-		if c.Username == "" || c.Password == "" {
-			return fmt.Errorf("kafka username and password are required for sasl plain")
-		}
-	case "aws-msk-iam":
-		if !c.TLSEnabled {
-			return fmt.Errorf("kafka tls must be enabled for aws-msk-iam")
-		}
-		if c.Region == "" {
-			return fmt.Errorf("kafka region is required for aws-msk-iam")
-		}
-	default:
-		return fmt.Errorf("unsupported kafka sasl mechanism %q", c.SASLMechanism)
+	return offload.ValidateSASL(c.saslConfig())
+}
+
+func (c KafkaReaderConfig) saslConfig() offload.KafkaConfig {
+	return offload.KafkaConfig{
+		Region:        c.Region,
+		TLSEnabled:    c.TLSEnabled,
+		SASLMechanism: c.SASLMechanism,
+		Username:      c.Username,
+		Password:      c.Password,
 	}
-	return nil
 }
 
 func NewKafkaReader(cfg KafkaReaderConfig) (*kafka.Reader, error) {
@@ -102,13 +94,7 @@ func NewKafkaReader(cfg KafkaReaderConfig) (*kafka.Reader, error) {
 	if cfg.TLSEnabled {
 		dialer.TLS = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
-	mech, err := offload.NewSASLMechanism(offload.KafkaConfig{
-		Region:        cfg.Region,
-		TLSEnabled:    cfg.TLSEnabled,
-		SASLMechanism: cfg.SASLMechanism,
-		Username:      cfg.Username,
-		Password:      cfg.Password,
-	})
+	mech, err := offload.NewSASLMechanism(cfg.saslConfig())
 	if err != nil {
 		return nil, err
 	}

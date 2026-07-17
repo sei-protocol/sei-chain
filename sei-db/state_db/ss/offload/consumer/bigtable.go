@@ -82,7 +82,7 @@ func (s *bigtableSink) WriteBatch(ctx context.Context, records []Record) error {
 func (s *bigtableSink) writeRecordRows(ctx context.Context, records []Record) error {
 	rows := make([]historical.BigtableRowMutation, 0, bigtableRowMutationCount(records))
 	for _, rec := range records {
-		rows = s.appendRecordRowMutations(rows, rec.Entry.Version, rec.Entry)
+		rows = s.appendRecordRowMutations(rows, rec.Entry)
 	}
 	if len(rows) == 0 {
 		return nil
@@ -91,9 +91,9 @@ func (s *bigtableSink) writeRecordRows(ctx context.Context, records []Record) er
 }
 
 func (s *bigtableSink) applyRecordRowMutations(ctx context.Context, rows []historical.BigtableRowMutation) error {
-	chunks := bigtableRowMutationChunks(rows, s.effectiveBulkChunkRows())
+	chunks := bigtableRowMutationChunks(rows, s.bulkChunkRows)
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(s.effectiveBulkChunkWorkers())
+	g.SetLimit(s.bulkChunkWorkers)
 	for _, chunk := range chunks {
 		chunk := chunk
 		g.Go(func() error {
@@ -104,27 +104,12 @@ func (s *bigtableSink) applyRecordRowMutations(ctx context.Context, rows []histo
 	return g.Wait()
 }
 
-func (s *bigtableSink) effectiveBulkChunkRows() int {
-	if s.bulkChunkRows <= 0 {
-		return defaultBigtableMutationChunkRows
-	}
-	return s.bulkChunkRows
-}
-
-func (s *bigtableSink) effectiveBulkChunkWorkers() int {
-	if s.bulkChunkWorkers <= 0 {
-		return defaultBigtableMutationChunkConcurrency
-	}
-	return s.bulkChunkWorkers
-}
-
-func (s *bigtableSink) appendRecordRowMutations(rows []historical.BigtableRowMutation, version int64, entry *proto.ChangelogEntry) []historical.BigtableRowMutation {
-	mutations := compactMutations(entry)
-	for _, mutation := range mutations {
-		rows = append(rows, s.mutationRow(version, mutation.storeName, mutation.pair))
+func (s *bigtableSink) appendRecordRowMutations(rows []historical.BigtableRowMutation, entry *proto.ChangelogEntry) []historical.BigtableRowMutation {
+	for _, mutation := range compactMutations(entry) {
+		rows = append(rows, s.mutationRow(entry.Version, mutation.storeName, mutation.pair))
 	}
 	for _, up := range entry.Upgrades {
-		rows = append(rows, s.upgradeRow(version, up))
+		rows = append(rows, s.upgradeRow(entry.Version, up))
 	}
 	return rows
 }
@@ -194,10 +179,7 @@ func (s *bigtableSink) writeVersionMarkers(ctx context.Context, records []Record
 func bigtableRowMutationCount(records []Record) int {
 	total := 0
 	for _, rec := range records {
-		for _, changeset := range rec.Entry.Changesets {
-			total += len(changeset.Changeset.Pairs)
-		}
-		total += len(rec.Entry.Upgrades)
+		total += entryMutationCapacity(rec.Entry) + len(rec.Entry.Upgrades)
 	}
 	return total
 }

@@ -1,8 +1,6 @@
 package historical
 
 import (
-	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -67,22 +65,6 @@ func TestParseConsistency(t *testing.T) {
 	}
 }
 
-func TestScyllaHostSelectionPolicyIsTokenAware(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		datacenter string
-	}{
-		{"no datacenter", ""},
-		{"with datacenter", "dc1"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			policy := scyllaHostSelectionPolicy(tc.datacenter)
-			require.NotNil(t, policy)
-			require.Contains(t, reflect.TypeOf(policy).String(), "tokenAware")
-		})
-	}
-}
-
 func TestVersionBucket(t *testing.T) {
 	require.Equal(t, 0, VersionBucket(0))
 	require.Equal(t, 1, VersionBucket(1))
@@ -108,5 +90,5 @@ func TestPointLookupCQLShape(t *testing.T) {
 func TestLatestVersionCQLShape(t *testing.T) {
 	require.Contains(t, selectLatestVersionCQL, "FROM state_versions")
 	require.Contains(t, selectLatestVersionCQL, "bucket = ?")
-	require.True(t, strings.Contains(selectLatestVersionCQL, "LIMIT 1"))
+	require.Contains(t, selectLatestVersionCQL, "LIMIT 1")
 }

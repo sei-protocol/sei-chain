@@ -20,34 +20,7 @@ func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.Stat
 	if err != nil {
 		return nil, err
 	}
-	scyllaConfigured := scyllaHistoricalOffloadConfigured(ssConfig)
-	bigtableConfigured := bigtableHistoricalOffloadConfigured(ssConfig)
-	if scyllaConfigured && bigtableConfigured {
-		_ = primary.Close()
-		return nil, fmt.Errorf("only one historical offload fallback can be configured")
-	}
-	if !scyllaConfigured && !bigtableConfigured {
-		return primary, nil
-	}
-	fallbackOpts := historical.FallbackOptions{
-		EarliestVersion: ssConfig.HistoricalOffloadEarliestVersion,
-	}
-	if bigtableConfigured {
-		reader, err := historical.NewBigtableReader(historical.BigtableConfig{
-			ProjectID:  ssConfig.HistoricalOffloadBigtableProjectID,
-			InstanceID: ssConfig.HistoricalOffloadBigtableInstance,
-			Table:      ssConfig.HistoricalOffloadBigtableTable,
-			Family:     ssConfig.HistoricalOffloadBigtableFamily,
-			AppProfile: ssConfig.HistoricalOffloadBigtableAppProfile,
-			Shards:     ssConfig.HistoricalOffloadBigtableShards,
-		})
-		if err != nil {
-			_ = primary.Close()
-			return nil, fmt.Errorf("open bigtable historical offload reader: %w", err)
-		}
-		return historical.NewFallbackStateStore(primary, reader, fallbackOpts), nil
-	}
-	reader, err := historical.NewScyllaReader(historical.ScyllaConfig{
+	scyllaCfg := historical.ScyllaConfig{
 		Hosts:       splitCSV(ssConfig.HistoricalOffloadScyllaHosts),
 		Keyspace:    ssConfig.HistoricalOffloadScyllaKeyspace,
 		Username:    ssConfig.HistoricalOffloadScyllaUsername,
@@ -55,23 +28,36 @@ func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.Stat
 		Datacenter:  ssConfig.HistoricalOffloadScyllaDatacenter,
 		Consistency: ssConfig.HistoricalOffloadScyllaConsistency,
 		Timeout:     time.Duration(ssConfig.HistoricalOffloadScyllaTimeoutMS) * time.Millisecond,
-	})
+	}
+	bigtableCfg := historical.BigtableConfig{
+		ProjectID:  ssConfig.HistoricalOffloadBigtableProjectID,
+		InstanceID: ssConfig.HistoricalOffloadBigtableInstance,
+		Table:      ssConfig.HistoricalOffloadBigtableTable,
+		Family:     ssConfig.HistoricalOffloadBigtableFamily,
+		AppProfile: ssConfig.HistoricalOffloadBigtableAppProfile,
+		Shards:     ssConfig.HistoricalOffloadBigtableShards,
+	}
+	if scyllaCfg.Configured() && bigtableCfg.Configured() {
+		_ = primary.Close()
+		return nil, fmt.Errorf("only one historical offload fallback can be configured")
+	}
+	if !scyllaCfg.Configured() && !bigtableCfg.Configured() {
+		return primary, nil
+	}
+	if bigtableCfg.Configured() {
+		reader, err := historical.NewBigtableReader(bigtableCfg)
+		if err != nil {
+			_ = primary.Close()
+			return nil, fmt.Errorf("open bigtable historical offload reader: %w", err)
+		}
+		return historical.NewFallbackStateStore(primary, reader, ssConfig.HistoricalOffloadEarliestVersion), nil
+	}
+	reader, err := historical.NewScyllaReader(scyllaCfg)
 	if err != nil {
 		_ = primary.Close()
 		return nil, fmt.Errorf("open scylla/cassandra historical offload reader: %w", err)
 	}
-	return historical.NewFallbackStateStore(primary, reader, fallbackOpts), nil
-}
-
-func scyllaHistoricalOffloadConfigured(cfg config.StateStoreConfig) bool {
-	return strings.TrimSpace(cfg.HistoricalOffloadScyllaHosts) != "" ||
-		strings.TrimSpace(cfg.HistoricalOffloadScyllaKeyspace) != ""
-}
-
-func bigtableHistoricalOffloadConfigured(cfg config.StateStoreConfig) bool {
-	return strings.TrimSpace(cfg.HistoricalOffloadBigtableProjectID) != "" ||
-		strings.TrimSpace(cfg.HistoricalOffloadBigtableInstance) != "" ||
-		strings.TrimSpace(cfg.HistoricalOffloadBigtableTable) != ""
+	return historical.NewFallbackStateStore(primary, reader, ssConfig.HistoricalOffloadEarliestVersion), nil
 }
 
 func splitCSV(value string) []string {

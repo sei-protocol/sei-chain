@@ -394,7 +394,7 @@ func (r *bigtableReader) Get(ctx context.Context, storeName string, key []byte, 
 	if row.Key == "" {
 		return Value{}, ErrNotFound
 	}
-	return BigtableValueFromRow(row, r.family)
+	return bigtableValueFromRow(row, r.family)
 }
 
 func BigtableLastVersion(ctx context.Context, readRows BigtableReadRowsFunc) (int64, error) {
@@ -407,7 +407,7 @@ func BigtableLastVersion(ctx context.Context, readRows BigtableReadRowsFunc) (in
 			prefix := bigtableVersionRowPrefix(bucket)
 			var bucketVersion int64
 			err := readRows(gctx, prefix, bigtablePrefixEnd(prefix), 1, "", func(row BigtableRow) bool {
-				if version, ok := BigtableVersionFromRowKey(row.Key); ok {
+				if version, ok := bigtableVersionFromRowKey(row.Key); ok {
 					bucketVersion = version
 				}
 				return false
@@ -431,10 +431,10 @@ func BigtableLastVersion(ctx context.Context, readRows BigtableReadRowsFunc) (in
 	return maxVersion, nil
 }
 
-// BigtableValueFromRow interprets a mutation row. The returned Value aliases
+// bigtableValueFromRow interprets a mutation row. The returned Value aliases
 // the row's cell buffer, which the row builder allocates per cell.
-func BigtableValueFromRow(row BigtableRow, family string) (Value, error) {
-	version, ok := BigtableVersionFromRowKey(row.Key)
+func bigtableValueFromRow(row BigtableRow, family string) (Value, error) {
+	version, ok := bigtableVersionFromRowKey(row.Key)
 	if !ok {
 		return Value{}, fmt.Errorf("invalid bigtable mutation row key")
 	}
@@ -458,7 +458,7 @@ func BigtableValueFromRow(row BigtableRow, family string) (Value, error) {
 }
 
 func bigtableDeletedFromRow(row BigtableRow, family string) (bool, error) {
-	if _, ok := BigtableVersionFromRowKey(row.Key); !ok {
+	if _, ok := bigtableVersionFromRowKey(row.Key); !ok {
 		return false, fmt.Errorf("invalid bigtable mutation row key")
 	}
 	for _, cell := range row.Cells {
@@ -467,10 +467,6 @@ func bigtableDeletedFromRow(row BigtableRow, family string) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-func BigtableMutationRowPrefix(storeName string, key []byte, shards int) string {
-	return string(bigtableMutationRowPrefixBytes(storeName, key, shards))
 }
 
 func bigtableMutationRowPrefixBytes(storeName string, key []byte, shards int) []byte {
@@ -521,7 +517,7 @@ func BigtableUpgradeRowKey(version int64, name string) string {
 	return string(key)
 }
 
-func BigtableVersionFromRowKey(rowKey string) (int64, bool) {
+func bigtableVersionFromRowKey(rowKey string) (int64, bool) {
 	key := []byte(rowKey)
 	switch {
 	case len(key) >= 1+2+8 && key[0] == bigtableVersionPrefix:

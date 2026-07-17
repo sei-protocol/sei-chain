@@ -28,9 +28,7 @@ func main() {
 	defer cancel()
 
 	// Install the Prometheus MeterProvider before opening the sink so the
-	// backend cost metrics it registers (e.g. bigtable_rows_mutated_total,
-	// bigtable_bytes_written_total, bigtable_mutate_latency_seconds) bind to a
-	// real exporter and can be scraped at MetricsAddr/metrics.
+	// backend cost metrics it registers bind to a real exporter.
 	if cfg.MetricsAddr != "" {
 		reg, shutdown, err := commonmetrics.SetupOtelPrometheus()
 		if err != nil {

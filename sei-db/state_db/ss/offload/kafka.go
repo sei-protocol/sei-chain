@@ -89,25 +89,29 @@ func (c *KafkaConfig) Validate() error {
 		return fmt.Errorf("unsupported kafka compression %q", c.Compression)
 	}
 
-	switch strings.ToLower(c.SASLMechanism) {
+	return ValidateSASL(*c)
+}
+
+// ValidateSASL checks the SASL mechanism and the credentials it requires.
+// Shared by the producer and the offload consumer configs.
+func ValidateSASL(cfg KafkaConfig) error {
+	switch strings.ToLower(cfg.SASLMechanism) {
 	case "", kafkaOptionNone:
-		return nil
 	case "plain":
-		if c.Username == "" || c.Password == "" {
+		if cfg.Username == "" || cfg.Password == "" {
 			return fmt.Errorf("kafka username and password are required for sasl plain")
 		}
-		return nil
 	case "aws-msk-iam":
-		if !c.TLSEnabled {
+		if !cfg.TLSEnabled {
 			return fmt.Errorf("kafka tls must be enabled for aws-msk-iam")
 		}
-		if c.Region == "" {
+		if cfg.Region == "" {
 			return fmt.Errorf("kafka region is required for aws-msk-iam")
 		}
-		return nil
 	default:
-		return fmt.Errorf("unsupported kafka sasl mechanism %q", c.SASLMechanism)
+		return fmt.Errorf("unsupported kafka sasl mechanism %q", cfg.SASLMechanism)
 	}
+	return nil
 }
 
 type kafkaStream struct {
@@ -222,15 +226,13 @@ func kafkaCompression(name string) compress.Compression {
 	}
 }
 
-// NewSASLMechanism is exported so out-of-package consumers share the producer's auth path.
+// NewSASLMechanism returns the SASL mechanism for cfg, which must already
+// have passed ValidateSASL.
 func NewSASLMechanism(cfg KafkaConfig) (sasl.Mechanism, error) {
 	switch strings.ToLower(cfg.SASLMechanism) {
 	case "", kafkaOptionNone:
 		return nil, nil
 	case "plain":
-		if cfg.Username == "" || cfg.Password == "" {
-			return nil, fmt.Errorf("kafka username and password are required for sasl plain")
-		}
 		return plain.Mechanism{Username: cfg.Username, Password: cfg.Password}, nil
 	case "aws-msk-iam":
 		return newAWSMSKIAMMechanism(cfg)

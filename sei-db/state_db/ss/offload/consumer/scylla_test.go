@@ -214,7 +214,7 @@ func TestScyllaSinkCompactsDuplicateMutations(t *testing.T) {
 		}},
 	}
 
-	require.NoError(t, sink.writeRecordRows(context.Background(), entry.Version, entry))
+	require.NoError(t, sink.writeRecordRows(context.Background(), entry))
 	require.Len(t, writes, 3)
 	require.Equal(t, write{value: []byte("new")}, writes["bank/k"])
 	require.Equal(t, write{deleted: true}, writes["bank/drop"])

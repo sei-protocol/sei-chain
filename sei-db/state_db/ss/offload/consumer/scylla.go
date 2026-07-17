@@ -35,7 +35,7 @@ type ScyllaConfig struct {
 }
 
 func (c ScyllaConfig) Configured() bool {
-	return len(c.Hosts) != 0 || c.Keyspace != ""
+	return c.toHistorical().Configured()
 }
 
 func (c *ScyllaConfig) ApplyDefaults() {
@@ -128,12 +128,7 @@ func (s *scyllaSink) WriteBatch(ctx context.Context, records []Record) error {
 }
 
 func (s *scyllaSink) writeRecord(ctx context.Context, rec Record) error {
-	entry := rec.Entry
-	if entry == nil {
-		return nil
-	}
-	version := entry.Version
-	if err := s.writeRecordRows(ctx, version, entry); err != nil {
+	if err := s.writeRecordRows(ctx, rec.Entry); err != nil {
 		return err
 	}
 	return s.writeVersionMarker(ctx, rec)
@@ -175,7 +170,7 @@ func (s *scyllaSink) writeRecordsPipelined(ctx context.Context, records []Record
 				return rowCtx.Err()
 			}
 			defer func() { <-sem }()
-			err := s.writeRecordRows(rowCtx, rec.Entry.Version, rec.Entry)
+			err := s.writeRecordRows(rowCtx, rec.Entry)
 			if err != nil {
 				err = fmt.Errorf("write scylla/cassandra rows version %d: %w", rec.Entry.Version, err)
 			}
@@ -198,29 +193,22 @@ func (s *scyllaSink) writeRecordsPipelined(ctx context.Context, records []Record
 	return g.Wait()
 }
 
-func (s *scyllaSink) writeRecordRows(ctx context.Context, version int64, entry *proto.ChangelogEntry) error {
+func (s *scyllaSink) writeRecordRows(ctx context.Context, entry *proto.ChangelogEntry) error {
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(s.effectiveMutationWorkers())
+	g.SetLimit(s.mutationWorkers)
 	for _, mutation := range compactMutations(entry) {
 		mutation := mutation
 		g.Go(func() error {
-			return s.writeMutation(gctx, version, mutation.storeName, mutation.pair)
+			return s.writeMutation(gctx, entry.Version, mutation.storeName, mutation.pair)
 		})
 	}
 	for _, up := range entry.Upgrades {
 		up := up
 		g.Go(func() error {
-			return s.writeUpgrade(gctx, version, up)
+			return s.writeUpgrade(gctx, entry.Version, up)
 		})
 	}
 	return g.Wait()
-}
-
-func (s *scyllaSink) effectiveMutationWorkers() int {
-	if s.mutationWorkers <= 0 {
-		return defaultScyllaMutationWorkers
-	}
-	return s.mutationWorkers
 }
 
 func (s *scyllaSink) writeMutation(ctx context.Context, version int64, storeName string, pair *proto.KVPair) error {
