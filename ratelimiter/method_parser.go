@@ -55,6 +55,11 @@ func NewMethodParser(maxProbeBytes int64) *MethodParser {
 // Parse reads a JSON-RPC request body from r and returns the method name(s) it
 // carries. A single request object yields a one-element slice with batch=false;
 // a top-level array yields one method per element in order with batch=true.
+//
+// Fail-closed contract: callers must reject on every returned error except
+// ErrProbeLimit, and must fall back to a full decode (never reject) on
+// ErrProbeLimit. Mapping any error to "admit with a default method" defeats
+// the point of this probe.
 func (p *MethodParser) Parse(r io.Reader) (methods []string, batch bool, err error) {
 	// N is maxProbeBytes+1 so that lr.N reaching 0 unambiguously means the body
 	// exceeded the budget.
