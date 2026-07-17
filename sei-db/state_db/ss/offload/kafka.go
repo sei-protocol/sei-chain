@@ -12,6 +12,7 @@ import (
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/compress"
 	"github.com/segmentio/kafka-go/sasl"
+	"github.com/segmentio/kafka-go/sasl/plain"
 
 	dbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
 )
@@ -19,18 +20,23 @@ import (
 const kafkaOptionNone = "none"
 
 type KafkaConfig struct {
-	Brokers       []string
-	Topic         string
-	ClientID      string
-	Region        string
-	Async         bool
-	RequiredAcks  string
-	Compression   string
-	BatchSize     int
-	BatchTimeout  time.Duration
-	BatchBytes    int
-	TLSEnabled    bool
+	Brokers      []string
+	Topic        string
+	ClientID     string
+	Region       string
+	Async        bool
+	RequiredAcks string
+	Compression  string
+	BatchSize    int
+	BatchTimeout time.Duration
+	BatchBytes   int
+	TLSEnabled   bool
+	// SASLMechanism selects broker auth: "none", "plain" (username/password,
+	// e.g. Google Cloud Managed Kafka service-account credentials), or
+	// "aws-msk-iam".
 	SASLMechanism string
+	Username      string
+	Password      string
 }
 
 func (c *KafkaConfig) ApplyDefaults() {
@@ -85,6 +91,11 @@ func (c *KafkaConfig) Validate() error {
 
 	switch strings.ToLower(c.SASLMechanism) {
 	case "", kafkaOptionNone:
+		return nil
+	case "plain":
+		if c.Username == "" || c.Password == "" {
+			return fmt.Errorf("kafka username and password are required for sasl plain")
+		}
 		return nil
 	case "aws-msk-iam":
 		if !c.TLSEnabled {
@@ -216,6 +227,11 @@ func NewSASLMechanism(cfg KafkaConfig) (sasl.Mechanism, error) {
 	switch strings.ToLower(cfg.SASLMechanism) {
 	case "", kafkaOptionNone:
 		return nil, nil
+	case "plain":
+		if cfg.Username == "" || cfg.Password == "" {
+			return nil, fmt.Errorf("kafka username and password are required for sasl plain")
+		}
+		return plain.Mechanism{Username: cfg.Username, Password: cfg.Password}, nil
 	case "aws-msk-iam":
 		return newAWSMSKIAMMechanism(cfg)
 	default:

@@ -1,10 +1,14 @@
 {
   "Backend": "bigtable",
   "Kafka": {
-    "Brokers": ["localhost:9092"],
+    "Brokers": ["bootstrap.my-cluster.us-east1.managedkafka.my-gcp-project.cloud.goog:9092"],
     "Topic": "historical-offload",
     "GroupID": "historical-bigtable",
-    "StartOffset": "first"
+    "StartOffset": "first",
+    "TLSEnabled": true,
+    "SASLMechanism": "plain",
+    "Username": "kafka-client@my-gcp-project.iam.gserviceaccount.com",
+    "Password": "<base64-encoded service account key JSON>"
   },
   "Bigtable": {
     "ProjectID": "my-gcp-project",

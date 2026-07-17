@@ -17,22 +17,27 @@ import (
 // (kafka-go's zero CommitInterval) so offsets only advance after the sink
 // persists each entry.
 type KafkaReaderConfig struct {
-	Brokers       []string
-	Topic         string
-	GroupID       string
-	ClientID      string
-	Region        string
-	StartOffset   string // "first" or "last"; defaults to "first"
-	MinBytes      int
-	MaxBytes      int
-	MaxWait       time.Duration
-	TLSEnabled    bool
+	Brokers     []string
+	Topic       string
+	GroupID     string
+	ClientID    string
+	Region      string
+	StartOffset string // "first" or "last"; defaults to "first"
+	MinBytes    int
+	MaxBytes    int
+	MaxWait     time.Duration
+	TLSEnabled  bool
+	// SASLMechanism selects broker auth: "none", "plain" (username/password,
+	// e.g. Google Cloud Managed Kafka service-account credentials), or
+	// "aws-msk-iam".
 	SASLMechanism string
+	Username      string
+	Password      string
 }
 
 func (c *KafkaReaderConfig) ApplyDefaults() {
 	if c.ClientID == "" {
-		c.ClientID = "cryptosim-historical-offload-consumer"
+		c.ClientID = "sei-historical-offload-consumer"
 	}
 	if c.StartOffset == "" {
 		c.StartOffset = "first"
@@ -67,6 +72,10 @@ func (c *KafkaReaderConfig) Validate() error {
 	// load time instead of with an obscure handshake error on first fetch.
 	switch strings.ToLower(c.SASLMechanism) {
 	case "", "none":
+	case "plain":
+		if c.Username == "" || c.Password == "" {
+			return fmt.Errorf("kafka username and password are required for sasl plain")
+		}
 	case "aws-msk-iam":
 		if !c.TLSEnabled {
 			return fmt.Errorf("kafka tls must be enabled for aws-msk-iam")
@@ -97,6 +106,8 @@ func NewKafkaReader(cfg KafkaReaderConfig) (*kafka.Reader, error) {
 		Region:        cfg.Region,
 		TLSEnabled:    cfg.TLSEnabled,
 		SASLMechanism: cfg.SASLMechanism,
+		Username:      cfg.Username,
+		Password:      cfg.Password,
 	})
 	if err != nil {
 		return nil, err

@@ -14,7 +14,7 @@ func TestKafkaReaderConfigApplyDefaults(t *testing.T) {
 		GroupID: "scylla",
 	}
 	cfg.ApplyDefaults()
-	require.Equal(t, "cryptosim-historical-offload-consumer", cfg.ClientID)
+	require.Equal(t, "sei-historical-offload-consumer", cfg.ClientID)
 	require.Equal(t, "first", cfg.StartOffset)
 	require.Equal(t, 1, cfg.MinBytes)
 	require.Equal(t, 10<<20, cfg.MaxBytes)
@@ -49,10 +49,20 @@ func TestKafkaReaderConfigValidateSASL(t *testing.T) {
 	cfg.Region = "us-east-1"
 	require.NoError(t, cfg.Validate())
 
+	// SASL/PLAIN (e.g. Google Cloud Managed Kafka) needs credentials.
 	cfg = base
 	cfg.SASLMechanism = "plain"
+	require.ErrorContains(t, cfg.Validate(), "username and password")
+
+	cfg.Username = "svc@project.iam.gserviceaccount.com"
+	cfg.Password = "base64-encoded-key"
+	require.NoError(t, cfg.Validate())
+
+	cfg = base
+	cfg.SASLMechanism = "scram"
 	require.ErrorContains(t, cfg.Validate(), "sasl mechanism")
 
+	cfg = base
 	cfg.SASLMechanism = "none"
 	require.NoError(t, cfg.Validate())
 }

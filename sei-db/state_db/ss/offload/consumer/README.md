@@ -68,6 +68,19 @@ go run ./sei-db/state_db/ss/offload/consumer/cmd/historical-offload-consumer \
 The example configs are local/dev placeholders. Set real Kafka brokers and
 backend credentials/config in your own config.
 
+For Google Cloud Managed Service for Apache Kafka, connect with TLS plus
+SASL/PLAIN using service-account credentials:
+
+```json
+"Kafka": {
+  "Brokers": ["bootstrap.CLUSTER.REGION.managedkafka.PROJECT.cloud.goog:9092"],
+  "TLSEnabled": true,
+  "SASLMechanism": "plain",
+  "Username": "kafka-client@PROJECT.iam.gserviceaccount.com",
+  "Password": "<base64-encoded service account key JSON>"
+}
+```
+
 ## Node Read Fallback
 
 Enable fallback reads in the node config:
@@ -97,11 +110,37 @@ historical-offload-bigtable-shards = 256
 
 Fallback activates only for point reads where the requested version is below the
 local SS earliest version. Missing rows and tombstones return empty state, same
-as local SS.
+as local SS. Reads ahead of the backend's last ingested version (consumer lag)
+return an error rather than empty state.
+
+To open RPC height gates for pruned heights, declare how far back the backend
+has full coverage (the version at which ingestion/backfill started):
+
+```toml
+[state-store]
+historical-offload-earliest-version = 123456789
+```
+
+When set (> 0), the node advertises this as its earliest version so height
+checks admit heights the fallback can serve; point reads below it stay on the
+local store. Leave it 0 until the backend actually covers the target range —
+heights the backend never ingested would otherwise read as empty state.
+
+## Operational preconditions
+
+Before enabling the node read fallback in production:
+
+- The backend table/keyspace exists with the same family/shards (Bigtable) or
+  schema (Scylla) as the consumer wrote with.
+- The consumer has been ingesting continuously; check
+  `consumer_kafka_lag` / `bigtable_rows_mutated_total`.
+- `historical-offload-earliest-version` is set to the true coverage floor.
 
 ## Current Limits
 
-- No offload iterator path.
+- No offload iterator path; range queries between the coverage floor and the
+  local prune horizon see only local data.
 - No cross-row transaction on ingest; mutation rows are written first and the
   version marker is written last, so replay is idempotent after partial failure.
 - No automatic schema creation from the binary.
+- No backfill tooling; coverage starts when ingestion starts.
