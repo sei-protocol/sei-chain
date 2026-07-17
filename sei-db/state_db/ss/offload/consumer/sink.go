@@ -16,11 +16,6 @@ type Record struct {
 }
 
 type Sink interface {
-	Write(ctx context.Context, rec Record) error
-	LastVersion(ctx context.Context) (int64, error)
-	Close() error
-}
-
-type BatchSink interface {
 	WriteBatch(ctx context.Context, records []Record) error
+	Close() error
 }

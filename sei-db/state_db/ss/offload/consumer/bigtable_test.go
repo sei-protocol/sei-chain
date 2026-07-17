@@ -37,7 +37,7 @@ func TestBigtableSinkWritesMutationRowsAndVersionMarker(t *testing.T) {
 		Upgrades: []*proto.TreeNameUpgrade{{Name: "new-store"}},
 	}
 
-	require.NoError(t, sink.Write(context.Background(), Record{Topic: "t", Partition: 1, Offset: 2, Entry: entry}))
+	require.NoError(t, sink.WriteBatch(context.Background(), []Record{{Topic: "t", Partition: 1, Offset: 2, Entry: entry}}))
 	require.Len(t, rows, 4)
 	require.ElementsMatch(t, []string{
 		historical.BigtableMutationRowKey("bank", []byte("k1"), 7, historical.DefaultBigtableShards),

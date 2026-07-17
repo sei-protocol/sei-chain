@@ -22,7 +22,6 @@ const (
 type bigtableSink struct {
 	client           *historical.BigtableClient
 	applyBulk        historical.BigtableApplyBulkFunc
-	readRows         historical.BigtableReadRowsFunc
 	family           string
 	shards           int
 	bulkChunkRows    int
@@ -30,7 +29,6 @@ type bigtableSink struct {
 }
 
 var _ Sink = (*bigtableSink)(nil)
-var _ BatchSink = (*bigtableSink)(nil)
 
 func NewBigtableSink(cfg BigtableConfig) (Sink, error) {
 	cfg.ApplyDefaults()
@@ -45,7 +43,6 @@ func NewBigtableSink(cfg BigtableConfig) (Sink, error) {
 	return &bigtableSink{
 		client:           client,
 		applyBulk:        client.ApplyBulk,
-		readRows:         client.ReadRows,
 		family:           cfg.Family,
 		shards:           cfg.Shards,
 		bulkChunkRows:    defaultBigtableMutationChunkRows,
@@ -58,14 +55,6 @@ func (s *bigtableSink) Close() error {
 		return s.client.Close()
 	}
 	return nil
-}
-
-func (s *bigtableSink) LastVersion(ctx context.Context) (int64, error) {
-	return historical.BigtableLastVersion(ctx, s.readRows)
-}
-
-func (s *bigtableSink) Write(ctx context.Context, rec Record) error {
-	return s.WriteBatch(ctx, []Record{rec})
 }
 
 func (s *bigtableSink) WriteBatch(ctx context.Context, records []Record) error {

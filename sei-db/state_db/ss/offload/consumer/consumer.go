@@ -240,7 +240,7 @@ func (c *Consumer) writeBatchWithRetry(ctx context.Context, records []Record) er
 	backoff := sinkBaseBackoff
 	var lastErr error
 	for attempt := 1; attempt <= sinkMaxAttempts; attempt++ {
-		err := c.writeRecords(ctx, records)
+		err := c.sink.WriteBatch(ctx, records)
 		if err == nil {
 			return nil
 		}
@@ -273,21 +273,6 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-}
-
-func (c *Consumer) writeRecords(ctx context.Context, records []Record) error {
-	if len(records) == 0 {
-		return nil
-	}
-	if sink, ok := c.sink.(BatchSink); ok {
-		return sink.WriteBatch(ctx, records)
-	}
-	for _, rec := range records {
-		if err := c.sink.Write(ctx, rec); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func shardFor(partition, workers int) int {

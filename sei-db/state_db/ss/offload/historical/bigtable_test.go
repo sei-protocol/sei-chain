@@ -204,6 +204,13 @@ func TestReadRowsWithRetryDoesNotRetryNonRetryable(t *testing.T) {
 	require.Equal(t, 1, attempts)
 }
 
+func TestVersionBucket(t *testing.T) {
+	require.Equal(t, 0, VersionBucket(0))
+	require.Equal(t, 1, VersionBucket(1))
+	require.Equal(t, 0, VersionBucket(VersionBucketCount))
+	require.Equal(t, 1, VersionBucket(-1))
+}
+
 func TestBigtableLastVersionScansBuckets(t *testing.T) {
 	versions := map[int]int64{
 		3: 42,
