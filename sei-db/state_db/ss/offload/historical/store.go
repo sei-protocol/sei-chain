@@ -115,6 +115,10 @@ func (s *FallbackStateStore) shouldFallback(storeKey string, version int64) bool
 	return earliest > 0 && version < earliest
 }
 
+// errBackendBehind marks reads refused because the backend has not ingested
+// the requested version yet, distinguishing lag from backend failures.
+var errBackendBehind = errors.New("historical backend behind requested version")
+
 // ensureBackendCoverage refuses fallback reads above the backend's last
 // ingested version so consumer lag surfaces as an error instead of silently
 // empty state (which would also poison the miss cache).
@@ -140,9 +144,16 @@ func (s *FallbackStateStore) ensureBackendCoverage(ctx context.Context, version 
 		}
 	}
 	if version > last {
-		return fmt.Errorf("historical backend has ingested up to version %d, behind requested version %d", last, version)
+		return fmt.Errorf("%w: ingested up to version %d, requested %d", errBackendBehind, last, version)
 	}
 	return nil
+}
+
+func coverageOutcome(err error) string {
+	if errors.Is(err, errBackendBehind) {
+		return fallbackOutcomeBackendBehind
+	}
+	return fallbackOutcomeError
 }
 
 func (s *FallbackStateStore) earliestVersionFor(storeKey string) int64 {
@@ -171,7 +182,7 @@ func (s *FallbackStateStore) Get(storeKey string, version int64, key []byte) ([]
 	ctx, cancel := s.readContext()
 	defer cancel()
 	if err := s.ensureBackendCoverage(ctx, version); err != nil {
-		s.metrics.recordRead("get", fallbackOutcomeBackendBehind)
+		s.metrics.recordRead("get", coverageOutcome(err))
 		return nil, err
 	}
 	v, err := s.reader.Get(ctx, storeKey, key, version)
@@ -266,7 +277,7 @@ func (s *FallbackStateStore) Has(storeKey string, version int64, key []byte) (bo
 	ctx, cancel := s.readContext()
 	defer cancel()
 	if err := s.ensureBackendCoverage(ctx, version); err != nil {
-		s.metrics.recordRead("has", fallbackOutcomeBackendBehind)
+		s.metrics.recordRead("has", coverageOutcome(err))
 		return false, err
 	}
 	found, err := s.reader.Has(ctx, storeKey, key, version)
