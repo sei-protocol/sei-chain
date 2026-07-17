@@ -188,34 +188,12 @@ func readMethodFromObject(dec *json.Decoder) (string, error) {
 }
 
 // skipValue consumes exactly one complete JSON value from dec — the value whose
-// first token dec is positioned at. Scalars cost one token; objects and arrays
-// are drained with a depth counter so their (possibly large) contents are read
-// off the stream but never decoded into Go structures.
+// first token dec is positioned at. It decodes into a json.RawMessage so the
+// value's bytes are validated and drained off the stream without allocating a
+// Go value per scalar the value contains.
 func skipValue(dec *json.Decoder) error {
-	tok, err := dec.Token()
-	if err != nil {
-		return err
-	}
-	delim, ok := tok.(json.Delim)
-	if !ok || delim == '}' || delim == ']' {
-		return nil
-	}
-	depth := 1
-	for depth > 0 {
-		t, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		if d, ok := t.(json.Delim); ok {
-			switch d {
-			case '{', '[':
-				depth++
-			case '}', ']':
-				depth--
-			}
-		}
-	}
-	return nil
+	var raw json.RawMessage
+	return dec.Decode(&raw)
 }
 
 // classifyErr maps a decoder error to ErrProbeLimit when it was caused by the
