@@ -67,20 +67,17 @@ type Pool struct {
 	// Not part of the constructor, use SetEventBus to set it
 	// The eventBus must be started in order for event publishing not to block
 	eventBus *eventbus.EventBus
-
-	Metrics *Metrics
 }
 
 // NewPool creates an evidence pool. If using an existing evidence store,
 // it will add all pending evidence to the concurrent list.
-func NewPool(evidenceDB dbm.DB, stateStore sm.Store, blockStore BlockStore, metrics *Metrics, eventBus *eventbus.EventBus) *Pool {
+func NewPool(evidenceDB dbm.DB, stateStore sm.Store, blockStore BlockStore, eventBus *eventbus.EventBus) *Pool {
 	return &Pool{
 		blockStore:      blockStore,
 		stateDB:         stateStore,
 		evidenceStore:   evidenceDB,
 		evidenceList:    clist.New[types.Evidence](),
 		consensusBuffer: make([]duplicateVoteSet, 0),
-		Metrics:         metrics,
 		eventBus:        eventBus,
 	}
 }
@@ -276,7 +273,7 @@ func (evpool *Pool) Start(state sm.State) error {
 
 	atomic.StoreUint32(&evpool.evidenceSize, uint32(len(evList))) //nolint:gosec // evidence list is bounded by block limits; no overflow risk
 
-	evpool.Metrics.NumEvidenceAt().Set(int64(evpool.evidenceSize))
+	Global.NumEvidenceAt().Set(int64(evpool.evidenceSize))
 
 	for _, ev := range evList {
 		evpool.evidenceList.PushBack(ev)
@@ -340,7 +337,7 @@ func (evpool *Pool) addPendingEvidence(ctx context.Context, ev types.Evidence) e
 	}
 
 	atomic.AddUint32(&evpool.evidenceSize, 1)
-	evpool.Metrics.NumEvidenceAt().Set(int64(evpool.evidenceSize))
+	Global.NumEvidenceAt().Set(int64(evpool.evidenceSize))
 
 	// This should normally never be true
 	if evpool.eventBus == nil {
@@ -403,7 +400,7 @@ func (evpool *Pool) markEvidenceAsCommitted(evidence types.EvidenceList, height 
 
 	// update the evidence size
 	atomic.AddUint32(&evpool.evidenceSize, ^uint32(len(blockEvidenceMap)-1)) //nolint:gosec // len(blockEvidenceMap) is guaranteed > 0 by early return above; atomic subtract idiom
-	evpool.Metrics.NumEvidenceAt().Set(int64(evpool.evidenceSize))
+	Global.NumEvidenceAt().Set(int64(evpool.evidenceSize))
 }
 
 // listEvidence retrieves lists evidence from oldest to newest within maxBytes.

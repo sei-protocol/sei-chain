@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"net/url"
 	"path/filepath"
 	"slices"
@@ -16,6 +15,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -70,19 +70,24 @@ func buildDataState(cfg *GigaRouterCommonConfig) (*data.State, error) {
 	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
 	}
-	committee, err := atypes.NewRoundRobinElection(
-		slices.Collect(maps.Keys(cfg.ValidatorAddrs)),
-		atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight), // nolint:gosec // verified to be positive.
-		cfg.GenDoc.GenesisTime,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
+	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
+	genesisWeights := map[atypes.PublicKey]uint64{}
+	for k := range cfg.ValidatorAddrs {
+		genesisWeights[k] = 1
 	}
-	dataWAL, err := data.NewDataWAL(cfg.PersistentStateDir, committee)
+	genesisCommittee, err := atypes.NewCommittee(genesisWeights)
+	if err != nil {
+		return nil, fmt.Errorf("genesis committee: %w", err)
+	}
+	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime)
+	if err != nil {
+		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
+	}
+	dataWAL, err := data.NewDataWAL(cfg.PersistentStateDir, registry.FirstBlock())
 	if err != nil {
 		return nil, fmt.Errorf("data.NewDataWAL(): %w", err)
 	}
-	dataState, err := data.NewState(&data.Config{Committee: committee}, dataWAL)
+	dataState, err := data.NewState(&data.Config{Registry: registry}, dataWAL)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState(): %w", err)
 	}
@@ -514,6 +519,6 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 // None if the caller should handle it locally. Overridden on
 // *gigaValidatorRouter to short-circuit self-shard sends.
 func (r *gigaRouterCommon) EvmProxy(sender common.Address) utils.Option[*url.URL] {
-	shardValidator := r.data.Committee().EvmShard(sender)
+	shardValidator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
 	return utils.Some(r.cfg.ValidatorAddrs[shardValidator].EVMRPC)
 }

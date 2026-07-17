@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
@@ -77,8 +76,7 @@ func TestPoolRoutine_DoesNotReturnOnValidationFailure(t *testing.T) {
 
 	evictNetwork := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 1})
 	syncer := &syncController{
-		router:  evictNetwork.Node(evictNetwork.NodeIDs()[0]).Router,
-		metrics: consensus.NewMetrics(),
+		router: evictNetwork.Node(evictNetwork.NodeIDs()[0]).Router,
 	}
 
 	results := make(chan error, 1)
@@ -134,8 +132,7 @@ func TestPoolRoutine_RetriesAfterValidationFailure(t *testing.T) {
 	pool.SetPeerRange(badPeer, 1, 2)
 
 	syncer := &syncController{
-		router:  network.Node(network.NodeIDs()[0]).Router,
-		metrics: consensus.NewMetrics(),
+		router: network.Node(network.NodeIDs()[0]).Router,
 	}
 
 	results := make(chan error, 1)

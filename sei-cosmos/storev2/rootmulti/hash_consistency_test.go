@@ -17,6 +17,10 @@ func TestCommitAndHistoricalQueryHashConsistency(t *testing.T) {
 	ssConfig := seidbconfig.StateStoreConfig{}
 
 	store := NewStore(t.TempDir(), scConfig, ssConfig, nil)
+	// Close the store so the hash-logger background goroutine stops writing to
+	// the temp dir before t.TempDir()'s RemoveAll runs; otherwise the leaked
+	// goroutine races the cleanup ("directory not empty" on data/hash.log).
+	defer func() { _ = store.Close() }()
 
 	keys := []string{"acc", "bank", "distribution", "staking", "ibc", "upgrade"}
 	storeKeys := make(map[string]*types.KVStoreKey)
@@ -102,6 +106,10 @@ func TestCommitAndHistoricalQueryWithDoubleFlush(t *testing.T) {
 	ssConfig := seidbconfig.StateStoreConfig{}
 
 	store := NewStore(t.TempDir(), scConfig, ssConfig, nil)
+	// Close the store so the hash-logger background goroutine stops writing to
+	// the temp dir before t.TempDir()'s RemoveAll runs; otherwise the leaked
+	// goroutine races the cleanup ("directory not empty" on data/hash.log).
+	defer func() { _ = store.Close() }()
 
 	keys := []string{"acc", "bank", "distribution", "staking", "ibc", "upgrade"}
 	storeKeys := make(map[string]*types.KVStoreKey)

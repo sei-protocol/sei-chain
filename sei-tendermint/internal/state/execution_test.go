@@ -43,9 +43,9 @@ func TestApplyBlock(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	proxyApp := proxy.New(app, proxy.NewMetrics())
+	proxyApp := proxy.New(app)
 	mp := makeTxMempool(t, proxyApp)
-	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NewMetrics(), types.DefaultConsensusPolicy())
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, types.DefaultConsensusPolicy())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	bps, err := block.MakePartSet(testPartSize)
@@ -88,13 +88,13 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 			evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, 0)
 			evpool.On("Update", ctx, mock.Anything, mock.Anything).Return()
 			evpool.On("CheckEvidence", ctx, mock.Anything).Return(nil)
-			proxyApp := proxy.New(app, proxy.NewMetrics())
+			proxyApp := proxy.New(app)
 			mp := makeTxMempool(t, proxyApp)
 
 			eventBus := eventbus.NewDefault()
 			require.NoError(t, eventBus.Start(ctx))
 
-			blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NewMetrics(), types.DefaultConsensusPolicy())
+			blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, types.DefaultConsensusPolicy())
 			state, _, lastCommit := makeAndCommitGoodBlock(ctx, t, state, 1, new(types.Commit), state.NextValidators.Validators[0].Address, blockExec, privVals, nil)
 
 			for idx, isAbsent := range tc.absentCommitSigs {
@@ -199,7 +199,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 	evpool.On("PendingEvidence", mock.AnythingOfType("int64")).Return(ev, int64(100))
 	evpool.On("Update", ctx, mock.AnythingOfType("state.State"), mock.AnythingOfType("types.EvidenceList")).Return()
 	evpool.On("CheckEvidence", ctx, mock.AnythingOfType("types.EvidenceList")).Return(nil)
-	proxyApp := proxy.New(app, proxy.NewMetrics())
+	proxyApp := proxy.New(app)
 	mp := makeTxMempool(t, proxyApp)
 
 	eventBus := eventbus.NewDefault()
@@ -207,7 +207,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
-	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NewMetrics(), types.DefaultConsensusPolicy())
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, types.DefaultConsensusPolicy())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	block.Evidence = ev
@@ -238,7 +238,7 @@ func TestProcessProposal(t *testing.T) {
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	proxyApp := proxy.New(app, proxy.NewMetrics())
+	proxyApp := proxy.New(app)
 	mp := makeTxMempool(t, proxyApp)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
@@ -247,7 +247,6 @@ func TestProcessProposal(t *testing.T) {
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
-		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -432,7 +431,7 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	proxyApp := proxy.New(app, proxy.NewMetrics())
+	proxyApp := proxy.New(app)
 	mp := makeTxMempool(t, proxyApp)
 
 	eventBus := eventbus.NewDefault()
@@ -445,7 +444,6 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
-		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -501,7 +499,7 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	proxyApp := proxy.New(app, proxy.NewMetrics())
+	proxyApp := proxy.New(app)
 	mp := makeTxMempool(t, proxyApp)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
@@ -510,7 +508,6 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
-		sm.NewMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 

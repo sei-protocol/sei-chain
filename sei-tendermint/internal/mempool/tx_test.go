@@ -16,7 +16,7 @@ import (
 )
 
 func newTxStoreForTest() *txStore {
-	return NewTxStore(TestConfig(), proxy.New(kvstore.NewApplication(), proxy.NewMetrics()), NewMetrics())
+	return NewTxStore(TestConfig(), proxy.New(kvstore.NewApplication()))
 }
 
 func txStoreCacheRemove(txStore *txStore, txHash types.TxHash) {
@@ -294,7 +294,7 @@ func TestTxStore_Size(t *testing.T) {
 func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 	rng := utils.TestRng()
 	app := newEVMNonceApp()
-	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NewMetrics()), NewMetrics())
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
 
 	makeTx := func(address common.Address, nonce uint64) *WrappedTx {
 		requiredBalance := *uint256.NewInt(uint64(rng.Int63n(256)))
@@ -379,7 +379,7 @@ func testTxStoreUpdateExpiresTransactions(t *testing.T, removeExpiredTxsFromQueu
 	cfg.RemoveExpiredTxsFromQueue = removeExpiredTxsFromQueue
 
 	app := newEVMNonceApp()
-	txStore := NewTxStore(cfg, proxy.New(app, proxy.NewMetrics()), NewMetrics())
+	txStore := NewTxStore(cfg, proxy.New(app))
 	baseTime := time.Unix(1_700_000_000, 0)
 
 	makeTx := func(address common.Address, nonce uint64, height int64, timestamp time.Time) *WrappedTx {
@@ -526,7 +526,7 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			cfg.RemoveExpiredTxsFromQueue = tc.removeExpiredFromQueue
 
 			app := newEVMNonceApp()
-			txStore := NewTxStore(cfg, proxy.New(app, proxy.NewMetrics()), NewMetrics())
+			txStore := NewTxStore(cfg, proxy.New(app))
 			env := newTestEnv(rng, txStore, app, 1)
 			address := env.accounts[0].address
 			env.app.setNonce(address, 7)
@@ -588,7 +588,7 @@ func TestTxStore_NoncePrunedTxsRejectedAsOldNonce(t *testing.T) {
 	cfg.CacheSize = 10
 
 	app := newEVMNonceApp()
-	txStore := NewTxStore(cfg, proxy.New(app, proxy.NewMetrics()), NewMetrics())
+	txStore := NewTxStore(cfg, proxy.New(app))
 	env := newTestEnv(rng, txStore, app, 1)
 	address := env.accounts[0].address
 	env.app.setNonce(address, 7)
@@ -619,7 +619,7 @@ func TestTxStore_NoncePrunedTxsRejectedAsOldNonce(t *testing.T) {
 func TestTxStore_ReplacesReadyTxByHigherPriority(t *testing.T) {
 	rng := utils.TestRng()
 	app := newEVMNonceApp()
-	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NewMetrics()), NewMetrics())
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
 	env := newTestEnv(rng, txStore, app, 1)
 	address := env.accounts[0].address
 	env.app.setNonce(address, 7)
@@ -666,7 +666,7 @@ func TestTxStore_ReplacesReadyTxByHigherPriority(t *testing.T) {
 func TestTxStore_RejectsDuplicateEvmHash(t *testing.T) {
 	rng := utils.TestRng()
 	app := newEVMNonceApp()
-	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NewMetrics()), NewMetrics())
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
 	address := genEvmAddress(rng)
 	app.setNonce(address, 7)
 	app.setBalance(address, 100)
@@ -692,7 +692,7 @@ func TestTxStore_RejectsDuplicateEvmHash(t *testing.T) {
 func TestTxStore_ReplacesReadyThenPendingTxByHigherPriority(t *testing.T) {
 	rng := utils.TestRng()
 	app := newEVMNonceApp()
-	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NewMetrics()), NewMetrics())
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
 	env := newTestEnv(rng, txStore, app, 1)
 	address := env.accounts[0].address
 	env.app.setNonce(address, 7)
@@ -729,7 +729,7 @@ func TestTxStore_ReplacesReadyThenPendingTxByHigherPriority(t *testing.T) {
 func TestTxStore_ReplacesPendingTxByHigherPriority(t *testing.T) {
 	rng := utils.TestRng()
 	app := newEVMNonceApp()
-	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NewMetrics()), NewMetrics())
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
 	env := newTestEnv(rng, txStore, app, 1)
 	address := env.accounts[0].address
 	env.app.setNonce(address, 7)
@@ -759,7 +759,7 @@ func TestTxStore_InsertCompactionKeepsReadyListInSync(t *testing.T) {
 	cfg.PendingSize = 0
 
 	app := newEVMNonceApp()
-	txStore := NewTxStore(cfg, proxy.New(app, proxy.NewMetrics()), NewMetrics())
+	txStore := NewTxStore(cfg, proxy.New(app))
 	inserted := map[types.TxHash]*WrappedTx{}
 
 	for range 20 * cfg.Size {

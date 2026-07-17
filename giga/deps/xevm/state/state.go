@@ -113,7 +113,18 @@ func (s *DBImpl) AnySelfDestructed() bool {
 }
 
 func (s *DBImpl) Snapshot() int {
-	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	oldMS := s.ctx.MultiStore()
+	newCtx := s.ctx.WithMultiStore(oldMS.CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	// Freeze the superseded layer so deeper layers can skip it for reads while it
+	// stays empty; this keeps a Cosmos read at call depth N from walking all N
+	// nested cache layers (quadratic). Never freeze the base layer
+	// (snapshottedCtxs[0]) — it is the flush target and is read directly by
+	// GetCommittedState. See x/evm/state/state.go for the full rationale.
+	if len(s.snapshottedCtxs) > 0 {
+		if f, ok := oldMS.(interface{ Freeze() }); ok {
+			f.Freeze()
+		}
+	}
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
 	version := len(s.snapshottedCtxs) - 1
@@ -129,6 +140,13 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 
 	s.ctx = s.snapshottedCtxs[rev]
 	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
+
+	// The re-exposed layer is the writable top again; unfreeze it so reads no
+	// longer skip it (Snapshot froze it when it was superseded). See
+	// x/evm/state/state.go for the rationale.
+	if f, ok := s.ctx.MultiStore().(interface{ Unfreeze() }); ok {
+		f.Unfreeze()
+	}
 
 	// Find the watermark index to truncate the journal
 	watermarkIndex := -1

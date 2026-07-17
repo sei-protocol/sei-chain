@@ -211,7 +211,7 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 		recordPendingWrites(s.ctx, accountDBDir, 0)
 		recordPendingWrites(s.ctx, codeDBDir, 0)
 		recordPendingWrites(s.ctx, storageDBDir, 0)
-		recordPendingWrites(s.ctx, legacyDBDir, 0)
+		recordPendingWrites(s.ctx, miscDBDir, 0)
 		expectedNext = entry.Version + 1
 
 		replayed++

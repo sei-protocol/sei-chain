@@ -49,7 +49,7 @@ func setupMempool(t testing.TB, app *proxy.Proxy, cacheSize int, txConstraintsFe
 
 	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
-	return mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), app, mempool.NewMetrics(), txConstraintsFetcher)
+	return mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), app, txConstraintsFetcher)
 }
 
 func checkTxs(ctx context.Context, t *testing.T, rng utils.Rng, txmp *mempool.TxMempool, numTxs int) []testTx {
@@ -102,7 +102,7 @@ func setupReactorsWithConfig(
 		rts.kvstores[nodeID] = kvstore.NewApplication()
 
 		app := rts.kvstores[nodeID]
-		proxyApp := proxy.New(app, proxy.NewMetrics())
+		proxyApp := proxy.New(app)
 		txmp := setupMempool(t, proxyApp, 0, txConstraintsFetcher)
 		rts.mempools[nodeID] = txmp
 
@@ -139,7 +139,7 @@ func setupReactorForTest(t *testing.T, txConstraintsFetcher mempool.TxConstraint
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 1})
 	node := network.Nodes()[0]
 
-	txmp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), kvstore.NewProxy(), mempool.NewMetrics(), txConstraintsFetcher)
+	txmp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), kvstore.NewProxy(), txConstraintsFetcher)
 	reactor, err := NewReactor(cfg.Mempool, txmp, node.Router)
 	require.NoError(t, err)
 	reactor.MarkReadyToStart()

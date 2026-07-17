@@ -106,7 +106,6 @@ require (
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/component-base v0.35.0
 	pgregory.net/rapid v1.2.0
 )
 
@@ -122,6 +121,8 @@ require (
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/moby/term v0.5.0 // indirect
+	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
