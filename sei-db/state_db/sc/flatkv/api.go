@@ -30,7 +30,7 @@ type Store interface {
 	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
 
 	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
-	// Non-EVM modules are routed into legacy storage under their module prefix.
+	// Non-EVM modules are routed into misc storage under their module prefix.
 	// Call Commit to persist.
 	ApplyChangeSets(cs []*proto.NamedChangeSet) error
 
@@ -53,13 +53,13 @@ type Store interface {
 
 	// Get returns the value for a key within the given module.
 	// For EVM keys (moduleName == "evm"), the key is a memiavl EVM key
-	// routed to account/storage/code/legacy DBs internally.
-	// For non-EVM modules, the key is read from legacy storage with the module prefix.
+	// routed to account/storage/code/misc DBs internally.
+	// For non-EVM modules, the key is read from misc storage with the module prefix.
 	// If not found, returns (nil, false).
 	Get(moduleName string, key []byte) (value []byte, found bool)
 
 	// GetBlockHeightModified returns the block height at which the key was last modified.
-	// Only supported for EVM keys; non-EVM legacy data does not track block height.
+	// Only supported for EVM keys; non-EVM misc data does not track block height.
 	// If not found, returns (-1, false, nil).
 	GetBlockHeightModified(moduleName string, key []byte) (int64, bool, error)
 
