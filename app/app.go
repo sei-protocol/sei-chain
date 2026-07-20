@@ -2016,6 +2016,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 // Fallback-cause labels for the app_giga_fallback_to_v2 metric.
 const (
 	gigaFallbackValidationFailed  = "validation_failed"
+	gigaFallbackExecutionFailed   = "execution_failed"
 	gigaFallbackBalanceMigration  = "balance_migration"
 	gigaFallbackSelfDestruct      = "self_destruct"
 	gigaFallbackInvalidPrecompile = "invalid_precompile"
@@ -2030,6 +2031,8 @@ func gigaFallbackReason(err error) string {
 	switch err.(type) {
 	case *gigautils.ValidationFailedAbortError:
 		return gigaFallbackValidationFailed
+	case *gigautils.ExecutionFailedAbortError:
+		return gigaFallbackExecutionFailed
 	case *gigaprecompiles.BalanceMigrationAbortError:
 		return gigaFallbackBalanceMigration
 	case *gigaprecompiles.SelfDestructAbortError:
@@ -2126,61 +2129,12 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	}
 
 	if execErr != nil {
-		// Match V2 error handling: bump nonce, commit fee deduction, track surplus
-		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
-		surplus, ferr := stateDB.Finalize()
-		if ferr != nil {
-			// stateDB.Finalize is not expected to fail in practice. If it
-			// does, the nonce bump above may not have been persisted, so per
-			// the receipt-iff-nonce-bumped invariant we cannot claim the tx
-			// happened: skip the receipt + deferred-info writes and return.
-			logger.Error("giga: failed to finalize stateDB on consensus error",
-				"tx-hash", ethTx.Hash(),
-				"error", ferr,
-			)
-			return &abci.ExecTxResult{
-				Code:      1,
-				GasWanted: int64(ethTx.Gas()), //nolint:gosec
-				Log:       fmt.Sprintf("giga: failed to finalize stateDB on consensus error: %v", ferr),
-			}, nil
-		}
-
-		// Receipt-iff-nonce-bumped invariant: this tx bumped the sender's
-		// nonce on the line above, so it must produce a receipt. State-
-		// transition errors land here when Execute() bails before any
-		// opcode ran (notably EIP-7623's floor-data-gas check, which
-		// happens inside go-ethereum's Execute() rather than the Sei
-		// antehandler). Without an explicit WriteReceipt the receipt
-		// store stays empty for this tx hash — Giga's
-		// AppendToEvmTxDeferredInfo call below doesn't propagate the
-		// error, so EndBlock's synthetic-receipt path skips it — and
-		// eth_getTransactionReceipt returns null forever, hanging any
-		// client that polls for it.
-		evmMsg := &core.Message{
-			Nonce:     ethTx.Nonce(),
-			GasLimit:  ethTx.Gas(),
-			GasPrice:  effectiveGasPrice, // EIP-1559 effective gas price (not GasFeeCap)
-			GasFeeCap: ethTx.GasFeeCap(),
-			GasTipCap: ethTx.GasTipCap(),
-			To:        ethTx.To(),
-			Value:     ethTx.Value(),
-			Data:      ethTx.Data(),
-			From:      sender,
-		}
-		if _, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), ethTx.Gas(), execErr.Error()); rerr != nil {
-			logger.Error("giga: failed to write failed-tx receipt",
-				"tx-hash", ethTx.Hash(),
-				"error", rerr,
-			)
-		}
-		bloom := ethtypes.Bloom{}
-		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
-
-		return &abci.ExecTxResult{
-			Code:      1,
-			GasWanted: int64(ethTx.Gas()), //nolint:gosec
-			Log:       fmt.Sprintf("giga executor apply message error: %v", execErr),
-		}, nil
+		// EIP-7623's floor-data-gas check is the known natural failure here:
+		// other Execute() failure classes are pre-checked upstream. Canonical
+		// fee, nonce, receipt, and ABCI result behavior lives in v2. The
+		// stateDB has not been finalized, so Cleanup discards its
+		// transaction-local cache before the caller re-runs the tx through v2.
+		return nil, gigautils.ErrExecutionFailed
 	}
 
 	// Check if the execution hit a fail-fast precompile (Cosmos interop detected)
