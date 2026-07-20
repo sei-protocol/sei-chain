@@ -233,6 +233,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 			ModuleLtHashes:   cloneModuleHashes(s.perDBModuleWorkingLtHash[p.dbDir]),
 			ModuleStats:      cloneModuleStats(s.perDBModuleWorkingStats[p.dbDir]),
 		}
+		recordModuleStats(s.ctx, p.dbDir, s.perDBModuleWorkingStats[p.dbDir])
 	}
 	return nil
 }
@@ -403,6 +404,7 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 			ModuleLtHashes:   cloneModuleHashes(moduleHashes),
 			ModuleStats:      cloneModuleStats(moduleStats),
 		}
+		recordModuleStats(s.ctx, ndb.dir, moduleStats)
 	}
 
 	globalHash := lthash.New()
