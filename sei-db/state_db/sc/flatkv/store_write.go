@@ -111,6 +111,7 @@ func (s *CommitStore) Commit() (version int64, err error) {
 
 	s.phaseTimer.SetPhase("commit_done")
 	otelMetrics.CurrentVersion.Record(s.ctx, version)
+	s.recordAllModuleStats()
 	logger.Info("FlatKV Commit complete",
 		"version", version,
 		"totalWriteCount", pendingAccount+pendingCode+pendingStorage+pendingMisc,
@@ -225,7 +226,12 @@ func (s *CommitStore) commitBatches(version int64) error {
 		}
 	}
 
-	// Update in-memory local meta after all commits succeed.
+	// Update in-memory local meta after all commits succeed. Per-module stats gauges are deliberately
+	// NOT recorded here: commitBatches is also called by catchup (WAL replay on open, import, rollback,
+	// and openReadOnly's historical read-only clone), and recording from every replayed entry would
+	// publish stale/historical values into the process-global gauges, clobbering the live store's real
+	// values. Only Commit's success path (an actual new block being committed) records via
+	// recordAllModuleStats.
 	for _, p := range pending {
 		s.localMeta[p.dbDir] = &ktype.LocalMeta{
 			CommittedVersion: version,
@@ -233,9 +239,18 @@ func (s *CommitStore) commitBatches(version int64) error {
 			ModuleLtHashes:   cloneModuleHashes(s.perDBModuleWorkingLtHash[p.dbDir]),
 			ModuleStats:      cloneModuleStats(s.perDBModuleWorkingStats[p.dbDir]),
 		}
-		recordModuleStats(s.ctx, p.dbDir, s.perDBModuleWorkingStats[p.dbDir])
 	}
 	return nil
+}
+
+// recordAllModuleStats records the current per-module key-count / byte totals for every data DB. Called
+// only from Commit's success path — i.e. only for an actual new block being committed, never for open
+// (LoadVersion/catchup), import (FinalizeImport), rollback, or a read-only historical replay — so the
+// process-global gauges always reflect the live store, not a replay.
+func (s *CommitStore) recordAllModuleStats() {
+	for _, dir := range dataDBDirs {
+		recordModuleStats(s.ctx, dir, s.perDBModuleWorkingStats[dir])
+	}
 }
 
 func prepareBatch[T vtype.VType](
@@ -404,7 +419,6 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 			ModuleLtHashes:   cloneModuleHashes(moduleHashes),
 			ModuleStats:      cloneModuleStats(moduleStats),
 		}
-		recordModuleStats(s.ctx, ndb.dir, moduleStats)
 	}
 
 	globalHash := lthash.New()
