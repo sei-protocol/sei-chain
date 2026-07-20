@@ -3,9 +3,6 @@ package giga_test
 import (
 	"bytes"
 	"fmt"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
-
 	"math/big"
 	"testing"
 	"time"
@@ -17,9 +14,12 @@ import (
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
+	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -1892,45 +1892,26 @@ func TestGiga_FeeValidationOrder_WrongNonce_NoNonceBump(t *testing.T) {
 	require.Equal(t, initialNonce, finalNonce, "Nonce should NOT be bumped when tx nonce is wrong")
 }
 
-// TestGiga_FailedExecution_ProducesReceipt locks in the receipt-iff-nonce-bumped
-// invariant for the Giga state-transition-error path: a tx that fails inside
-// go-ethereum's Execute() (notably EIP-7623 floor-data-gas insufficient, which
-// post-Pectra fires in normal operation) bumps the sender's nonce in
-// executeEVMTxWithGigaExecutor's execErr branch and therefore must produce a
-// status=0 receipt. The test asserts both the nonce bump and the receipt write.
-//
-// Without the explicit WriteReceipt in app.go, the receipt was dropped for this
-// case — Giga's AppendToEvmTxDeferredInfo call doesn't propagate the error, so
-// EndBlock's synthetic-receipt fallback (gated on GetNonceBumped) doesn't fire —
-// and eth_getTransactionReceipt returned null forever for a nonce-bumping tx,
-// hanging any client that polls.
-//
-// V2 doesn't need a counterpart fix: BasicDecorator.WithDeliverTxCallback bumps
-// the nonce + calls SetNonceBumped on every DeliverTx, and EndBlock's synthetic-
-// receipt path (x/evm/keeper/abci.go) writes a receipt via GetAllEVMTxDeferredInfo's
-// txRes.Log fallback, gated on GetNonceBumped — together implementing the same
-// invariant on the V2 path.
-func TestGiga_FailedExecution_ProducesReceipt(t *testing.T) {
+// TestGiga_FailedExecutionFallsBackToV2 verifies that state-transition errors
+// are handled identically by v2, sequential Giga, and OCC Giga. EIP-7623's
+// floor-data-gas check happens inside go-ethereum's Execute() after Sei's ante
+// checks, so it exercises the execution-error fallback rather than validation.
+func TestGiga_FailedExecutionFallsBackToV2(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(3)
 	signer := utils.NewSigner()
-
-	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
-	fundAccount(t, gigaCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)))
-	gigaCtx.TestApp.EvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
 
 	// EIP-7623 floor:    21000 + 10 * data-tokens (zero byte = 1 token).
 	// Intrinsic (EIP-2028): 21000 +  4 * data-tokens.
 	// 1000 zero-byte payload → intrinsic=25000, floor=31000.
 	// gasLimit=27500 passes EvmStatelessChecks' intrinsic check (>=25000) but fails
-	// go-ethereum's floor-data-gas check inside Execute() (<31000), which is exactly
-	// the state-transition-error branch the fix targets.
+	// go-ethereum's floor-data-gas check inside Execute() (<31000).
 	const dataLen = 1000
 	const gasLimit uint64 = 27500
 	to := common.HexToAddress("0x0000000000000000000000000000000000001234")
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		ChainID:   big.NewInt(config.DefaultChainID),
-		Nonce:     gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress),
+		Nonce:     0,
 		GasFeeCap: big.NewInt(100000000000),
 		GasTipCap: big.NewInt(100000000000),
 		Gas:       gasLimit,
@@ -1951,32 +1932,68 @@ func TestGiga_FailedExecution_ProducesReceipt(t *testing.T) {
 	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 	require.NoError(t, err)
 
-	nonceBefore := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
-	_, results, err := RunBlock(t, gigaCtx, [][]byte{txBytes})
-	require.NoError(t, err)
-	require.Len(t, results, 1)
+	type balance struct {
+		usei sdk.Int
+		wei  sdk.Int
+	}
+	type outcome struct {
+		ctx          *GigaTestContext
+		results      []*abci.ExecTxResult
+		nonce        uint64
+		receipt      *types.Receipt
+		sender       balance
+		feeCollector balance
+		coinbase     balance
+	}
+	run := func(mode ExecutorMode) outcome {
+		testCtx := NewGigaTestContext(t, accts, blockTime, 1, mode)
+		fundAccount(t, testCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)))
+		testCtx.TestApp.EvmKeeper.SetAddressMapping(testCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
 
-	require.Equal(t, uint32(1), results[0].Code, "tx must fail with code=1: log=%q", results[0].Log)
-	require.Contains(t, results[0].Log, "floor data gas", "expected floor-data-gas error: %s", results[0].Log)
+		_, results, runErr := RunBlock(t, testCtx, [][]byte{txBytes})
+		require.NoError(t, runErr)
+		require.Len(t, results, 1)
+		require.NotEqual(t, uint32(0), results[0].Code)
+		require.Contains(t, results[0].Log, "floor data gas")
 
-	// Receipts are only valid for txs that bumped the sender's nonce. Giga's
-	// executeEVMTxWithGigaExecutor explicitly bumps the nonce in its execErr
-	// branch (app/app.go) before writing the receipt — assert the bump
-	// happened so this invariant is locked in for any future refactor.
-	nonceAfter := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
-	require.Equal(t, nonceBefore+1, nonceAfter, "Giga must bump the nonce on state-transition error, otherwise no receipt should be written")
+		receipt, receiptErr := testCtx.GetTransientReceipt(t, signedTx.Hash(), 0)
+		require.NoError(t, receiptErr)
+		require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
 
-	// The fix: executeEVMTxWithGigaExecutor's execErr != nil branch now writes a
-	// status=0 receipt to the transient store before returning. Verify it landed.
-	txHash := signedTx.Hash()
-	receipt, rerr := gigaCtx.TestApp.GigaEvmKeeper.GetTransientReceipt(gigaCtx.Ctx, txHash, 0)
-	require.Nil(t, rerr, "transient receipt must exist for state-transition-error tx (Giga path)")
-	require.NotNil(t, receipt)
-	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status, "state-transition-error tx must have status=0 receipt")
-	require.Equal(t, gasLimit, receipt.GasUsed, "state-transition-error tx must report gasUsed=gasLimit (matching the failed-tx convention used elsewhere in Sei)")
-	require.Equal(t, txHash.Hex(), receipt.TxHashHex)
-	require.NotEmpty(t, receipt.VmError, "VmError should capture the state-transition error reason")
-	require.Contains(t, receipt.VmError, "floor data gas")
+		getBalance := func(address sdk.AccAddress) balance {
+			return balance{
+				usei: testCtx.TestApp.BankKeeper.GetBalance(testCtx.Ctx, address, "usei").Amount,
+				wei:  testCtx.TestApp.BankKeeper.GetWeiBalance(testCtx.Ctx, address),
+			}
+		}
+		return outcome{
+			ctx:          testCtx,
+			results:      results,
+			nonce:        testCtx.TestApp.EvmKeeper.GetNonce(testCtx.Ctx, signer.EvmAddress),
+			receipt:      receipt,
+			sender:       getBalance(signer.AccountAddress),
+			feeCollector: getBalance(testCtx.TestApp.AccountKeeper.GetModuleAddress(authtypes.FeeCollectorName)),
+			coinbase:     getBalance(evmstate.GetCoinbaseAddress(0)),
+		}
+	}
+
+	assertBalanceEqual := func(name, account string, want, got balance) {
+		require.True(t, want.usei.Equal(got.usei), "%s: %s usei balance", name, account)
+		require.True(t, want.wei.Equal(got.wei), "%s: %s wei balance", name, account)
+	}
+	v2 := run(ModeV2Sequential)
+	require.Equal(t, uint64(1), v2.nonce)
+	for _, mode := range []ExecutorMode{ModeGigaSequential, ModeGigaOCC} {
+		got := run(mode)
+		name := mode.String()
+		CompareDeterministicFields(t, name, v2.results, got.results)
+		CompareLastResultsHash(t, name, v2.results, got.results)
+		assertReceiptsEqual(t, name, 0, v2.ctx.Mode, got.ctx.Mode, v2.receipt, got.receipt)
+		require.Equal(t, v2.nonce, got.nonce, "%s: nonce", name)
+		assertBalanceEqual(name, "sender", v2.sender, got.sender)
+		assertBalanceEqual(name, "fee collector", v2.feeCollector, got.feeCollector)
+		assertBalanceEqual(name, "tx coinbase", v2.coinbase, got.coinbase)
+	}
 }
 
 // TestGigaVsGeth_FeeValidationOrder compares Giga and Geth nonce bump behavior.

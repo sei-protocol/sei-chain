@@ -25,14 +25,20 @@ type blockDB struct {
 	db    littdb.DB
 	table littdb.Table
 
-	// watermark is the highest n passed to PruneBefore (a floor re-derived at
-	// startup, see recoverReadWatermark). It serves two purposes: the GC filters
-	// treat keys strictly below it as eligible for reclamation, and reads and
-	// iterators refuse to serve any block strictly below it. The read gate is what
-	// upholds the "a served block is always covered by a served QC" invariant:
-	// asynchronous GC can strand a below-watermark block on disk (its covering QC
-	// reclaimed while the block's own segment lingers), but such a block is never
-	// served. Read from the GC goroutine, so accessed atomically.
+	// watermark is a retention floor, always a QC boundary (a GlobalRange().First):
+	// PruneBefore rounds a requested prune point down to the start of the cohort
+	// containing it, and startup re-derives it as the lowest surviving QC's First
+	// (see cohortStart and recoverReadWatermark). Keeping it on a cohort boundary
+	// is what makes a QC's blocks change readability atomically — the gate never
+	// splits a cohort.
+	//
+	// It serves two purposes: the GC filters treat keys strictly below it as
+	// eligible for reclamation, and reads and iterators refuse to serve any block
+	// strictly below it. The read gate is what upholds the "a served block is
+	// always covered by a served QC" invariant: asynchronous GC can strand a
+	// below-watermark block on disk (its covering QC reclaimed while the block's
+	// own segment lingers), but such a block is never served. Read from the GC
+	// goroutine, so accessed atomically.
 	watermark atomic.Uint64
 
 	// Write-order cursors (see types.BlockDB contract). Guarded by mu.
@@ -246,7 +252,7 @@ func (s *blockDB) WriteQC(
 	return nil
 }
 
-func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
+func (s *blockDB) PruneBefore(blockHeight types.GlobalBlockNumber) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -256,17 +262,40 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 		return nil
 	}
 
-	if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); n > ceiling {
-		n = ceiling
+	if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); blockHeight > ceiling {
+		blockHeight = ceiling
+	}
+
+	// Round the watermark down to the start of a QC's range, to avoid pruning a QC before its blocks.
+	blockHeight, err := s.clampPruneBoundary(blockHeight)
+	if err != nil {
+		return err
 	}
 
 	// Advance the watermark monotonically. mu serializes writers and PruneBefore
 	// is the only one, so a plain load/store suffices; the field stays atomic
 	// only because the GC filter and readers load it without holding mu.
-	if uint64(n) > s.watermark.Load() {
-		s.watermark.Store(uint64(n))
+	if uint64(blockHeight) > s.watermark.Load() {
+		s.watermark.Store(uint64(blockHeight))
 	}
 	return nil
+}
+
+// clampPruneBoundary returns the start of the QC that covers n, or n if there is no QC covering N
+// (which can happen if you prune the same n twice).
+func (s *blockDB) clampPruneBoundary(blockHeight types.GlobalBlockNumber) (types.GlobalBlockNumber, error) {
+	value, exists, err := s.table.Get(qcKey(blockHeight))
+	if err != nil {
+		return 0, fmt.Errorf("failed to read covering QC for %d: %w", blockHeight, err)
+	}
+	if !exists {
+		return blockHeight, nil
+	}
+	qc, err := decodeQC(value)
+	if err != nil {
+		return 0, fmt.Errorf("failed to decode covering QC for %d: %w", blockHeight, err)
+	}
+	return qc.QC().GlobalRange().First, nil
 }
 
 // gcFilter marks a key in the shared ledger table as reclaimable, dispatching on
@@ -318,7 +347,7 @@ func (s *blockDB) QCs(reverse bool) (types.QCIterator, error) {
 func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {
 	// Refuse below-watermark blocks: they may be stranded (covering QC reclaimed).
 	if uint64(n) < s.watermark.Load() {
-		return utils.None[*types.Block](), nil
+		return utils.None[*types.Block](), types.ErrPruned
 	}
 	result, err := getBlock(s.table, blockKey(n))
 	if err != nil {
@@ -363,7 +392,7 @@ func (s *blockDB) ReadQCByBlockNumber(
 ) (utils.Option[*types.FullCommitQC], error) {
 	// Below-watermark blocks are not served, so neither is their covering QC.
 	if uint64(n) < s.watermark.Load() {
-		return utils.None[*types.FullCommitQC](), nil
+		return utils.None[*types.FullCommitQC](), types.ErrPruned
 	}
 	value, exists, err := s.table.Get(qcKey(n))
 	if err != nil {

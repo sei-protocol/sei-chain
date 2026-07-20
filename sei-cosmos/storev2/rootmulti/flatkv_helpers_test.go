@@ -483,9 +483,9 @@ func addFlatKVNodeToMap(t *testing.T, out map[string][]byte, node *sctypes.Snaps
 		require.NoErrorf(t, err, "deserialize CodeData for key %x", node.Key)
 		out[string(bytes.Clone(innerKey))] = bytes.Clone(cd.GetBytecode())
 
-	case keys.EVMKeyLegacy:
-		ld, err := vtype.DeserializeLegacyData(node.Value)
-		require.NoErrorf(t, err, "deserialize LegacyData for key %x", node.Key)
+	case keys.EVMKeyMisc:
+		ld, err := vtype.DeserializeMiscData(node.Value)
+		require.NoErrorf(t, err, "deserialize MiscData for key %x", node.Key)
 		out[string(bytes.Clone(innerKey))] = bytes.Clone(ld.GetValue())
 
 	default:

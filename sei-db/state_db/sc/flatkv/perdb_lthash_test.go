@@ -72,7 +72,7 @@ func commitMixedState(t *testing.T, s *CommitStore, round byte) {
 	t.Helper()
 	addr := addrN(round)
 	slot := slotN(round)
-	legacyKey := append([]byte{0x09}, addr[:]...)
+	miscKey := append([]byte{0x09}, addr[:]...)
 
 	cs1 := namedCS(
 		noncePair(addr, uint64(round)),
@@ -80,7 +80,7 @@ func commitMixedState(t *testing.T, s *CommitStore, round byte) {
 		codePair(addr, []byte{0x60, 0x80, round}),
 		storagePair(addr, slot, []byte{round, 0xAA}),
 	)
-	cs2 := makeChangeSet(legacyKey, []byte{round, 0xBB}, false)
+	cs2 := makeChangeSet(miscKey, []byte{round, 0xBB}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1, cs2}))
 	_, err := s.Commit()
 	require.NoError(t, err)
@@ -187,13 +187,13 @@ func TestPerDBLtHashIncrementalEqualsFullScan(t *testing.T) {
 	for i := 1; i <= 10; i++ {
 		addr := addrN(byte(i))
 		slot := slotN(byte(i))
-		legacyKey := append([]byte{0x09}, addr[:]...)
+		miscKey := append([]byte{0x09}, addr[:]...)
 
 		cs1 := namedCS(
 			noncePair(addr, uint64(i)),
 			storagePair(addr, slot, []byte{byte(i), 0xAA}),
 		)
-		cs2 := makeChangeSet(legacyKey, []byte{byte(i)}, false)
+		cs2 := makeChangeSet(miscKey, []byte{byte(i)}, false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1, cs2}))
 		commitAndCheck(t, s)
 	}
@@ -240,7 +240,7 @@ func TestPerDBLtHashSumEqualsGlobal(t *testing.T) {
 	}
 
 	sumHash := lthash.New()
-	for _, dbDir := range []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir} {
+	for _, dbDir := range []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir} {
 		sumHash.MixIn(s.perDBWorkingLtHash[dbDir])
 	}
 
@@ -407,7 +407,7 @@ func TestPerDBLtHashPersistedInLocalMeta(t *testing.T) {
 		accountDBDir: s.accountDB,
 		codeDBDir:    s.codeDB,
 		storageDBDir: s.storageDB,
-		legacyDBDir:  s.legacyDB,
+		miscDBDir:    s.miscDB,
 	}
 	for _, dbDirName := range dataDBDirs {
 		db := dbInstances[dbDirName]
@@ -475,8 +475,8 @@ func TestPerDBLtHashPartialKeyTypeOperations(t *testing.T) {
 		"accountDB hash should remain zero")
 	require.Equal(t, zeroChecksum, s.perDBWorkingLtHash[codeDBDir].Checksum(),
 		"codeDB hash should remain zero")
-	require.Equal(t, zeroChecksum, s.perDBWorkingLtHash[legacyDBDir].Checksum(),
-		"legacyDB hash should remain zero")
+	require.Equal(t, zeroChecksum, s.perDBWorkingLtHash[miscDBDir].Checksum(),
+		"miscDB hash should remain zero")
 }
 
 func TestPerDBLtHashDeleteLastKeyZerosHash(t *testing.T) {
