@@ -721,8 +721,7 @@ func (c *controlLoop) handleShutdownRequest(req *controlLoopShutdownRequest) {
 		return
 	}
 
-	// Seal the mutable segment
-	durableKeys, err := c.segments[c.highestSegmentIndex].Seal(c.clock())
+	durableKeys, _, err := c.segments[c.highestSegmentIndex].Seal(c.clock())
 	if err != nil {
 		c.errorMonitor.Panic(fmt.Errorf("failed to seal mutable segment: %w", err))
 		return

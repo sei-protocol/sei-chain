@@ -534,12 +534,14 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 	}
 
 	// Forward the primary key to the key file control loop, which asynchronously writes it to the
-	// key file. Primary always goes first; recovery relies on this ordering.
-	primaryRequest := &types.ScopedKey{
+	// key file. Primary always goes first; recovery relies on this ordering. The primary carries the raw
+	// value bytes it contributes to the unflushed-data cache; secondaries alias it and contribute nothing.
+	primaryKey := &types.ScopedKey{
 		Key:     data.Key,
 		Address: types.NewAddress(s.index, firstByteIndex, shard, uint32(valueLen)), //nolint:gosec // bounded above
 		Kind:    primaryKind,
 	}
+	primaryRequest := &keyFileWriteRequest{key: primaryKey, rawValueBytes: valueLen}
 	err = util.Send(s.errorMonitor, s.keyFileChannel, primaryRequest)
 	if err != nil {
 		return 0, 0,
@@ -551,10 +553,12 @@ func (s *Segment) Write(data *types.PutRequest) (keyCount uint32, keyFileSize ui
 		if i == n-1 {
 			kind = types.KeyKindFinalSecondary
 		}
-		secondaryRequest := &types.ScopedKey{
-			Key:     sk.Key,
-			Address: types.NewAddress(s.index, firstByteIndex+sk.Offset, shard, sk.Length),
-			Kind:    kind,
+		secondaryRequest := &keyFileWriteRequest{
+			key: &types.ScopedKey{
+				Key:     sk.Key,
+				Address: types.NewAddress(s.index, firstByteIndex+sk.Offset, shard, sk.Length),
+				Kind:    kind,
+			},
 		}
 		err = util.Send(s.errorMonitor, s.keyFileChannel, secondaryRequest)
 		if err != nil {
@@ -634,10 +638,15 @@ func (s *Segment) WriteCompressed(
 	// PutBatch caps the raw value at MaxUint32-1, so blobLen <= MaxUint32.
 	blobAddress := types.NewAddress(s.index, firstByteIndex, shard, uint32(blobLen)) //nolint:gosec // see above
 
-	primaryRequest := &types.ScopedKey{
-		Key:     data.Key,
-		Address: blobAddress,
-		Kind:    primaryKind,
+	// The primary carries the raw (pre-compression) value bytes it contributes to the unflushed-data
+	// cache; full-value-alias secondaries share the blob and contribute no additional cache memory.
+	primaryRequest := &keyFileWriteRequest{
+		key: &types.ScopedKey{
+			Key:     data.Key,
+			Address: blobAddress,
+			Kind:    primaryKind,
+		},
+		rawValueBytes: uint64(len(data.Value)),
 	}
 	err = util.Send(s.errorMonitor, s.keyFileChannel, primaryRequest)
 	if err != nil {
@@ -650,10 +659,12 @@ func (s *Segment) WriteCompressed(
 		if i == n-1 {
 			kind = types.KeyKindFinalSecondary
 		}
-		secondaryRequest := &types.ScopedKey{
-			Key:     sk.Key,
-			Address: blobAddress, // full-value alias: shares the primary's compressed blob
-			Kind:    kind,
+		secondaryRequest := &keyFileWriteRequest{
+			key: &types.ScopedKey{
+				Key:     sk.Key,
+				Address: blobAddress, // full-value alias: shares the primary's compressed blob
+				Kind:    kind,
+			},
 		}
 		err = util.Send(s.errorMonitor, s.keyFileChannel, secondaryRequest)
 		if err != nil {
@@ -739,8 +750,9 @@ func (s *Segment) GetKeys() ([]*types.ScopedKey, error) {
 }
 
 // FlushWaitFunction is a function that waits for a flush operation to complete. It returns the addresses of the data
-// that was flushed, or an error if the flush operation failed.
-type FlushWaitFunction func() ([]*types.ScopedKey, error)
+// that was flushed and the total raw (pre-compression) value bytes those keys represent, or an error if the flush
+// operation failed.
+type FlushWaitFunction func() ([]*types.ScopedKey, uint64, error)
 
 // Flush schedules a flush operation. Flush operations are performed serially in the order they are scheduled.
 // This method returns a function that, when called, will block until the flush operation is complete. The function
@@ -776,22 +788,22 @@ func (s *Segment) flush(seal bool) (FlushWaitFunction, error) {
 		return nil, fmt.Errorf("failed to send flush request to key file: %w", err)
 	}
 
-	return func() ([]*types.ScopedKey, error) {
+	return func() ([]*types.ScopedKey, uint64, error) {
 		// Wait for each shard to finish flushing.
 		for i := range s.shardChannels {
 			_, err := util.Await(s.errorMonitor, shardResponseChannels[i])
 			if err != nil {
-				return nil, fmt.Errorf("failed to flush shard %d: %w", i, err)
+				return nil, 0, fmt.Errorf("failed to flush shard %d: %w", i, err)
 			}
 		}
 
 		keyFlushResponse, err := util.Await(s.errorMonitor, keyResponseChannel)
 		if err != nil {
-			return nil, fmt.Errorf("failed to flush key file: %w", err)
+			return nil, 0, fmt.Errorf("failed to flush key file: %w", err)
 		}
 
 		s.unflushedKeyCount.Add(-int64(len(keyFlushResponse.addresses)))
-		return keyFlushResponse.addresses, nil
+		return keyFlushResponse.addresses, keyFlushResponse.rawValueBytes, nil
 	}, nil
 }
 
@@ -835,30 +847,31 @@ func (s *Segment) IsSnapshot() (bool, error) {
 	return fileInfo.Mode()&os.ModeSymlink != 0, nil
 }
 
-// Seal flushes all data to disk and finalizes the metadata. Returns addresses that became durable as a result of
-// this method call. After this method is called, no more data can be written to this segment.
-func (s *Segment) Seal(now time.Time) ([]*types.ScopedKey, error) {
+// Seal flushes all data to disk and finalizes the metadata. Returns the addresses that became durable as a result
+// of this method call and the total raw (pre-compression) value bytes they represent. After this method is called,
+// no more data can be written to this segment.
+func (s *Segment) Seal(now time.Time) ([]*types.ScopedKey, uint64, error) {
 	flushWaitFunction, err := s.flush(true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to flush segment: %w", err)
+		return nil, 0, fmt.Errorf("failed to flush segment: %w", err)
 	}
-	addresses, err := flushWaitFunction()
+	addresses, rawValueBytes, err := flushWaitFunction()
 	if err != nil {
-		return nil, fmt.Errorf("failed to flush segment: %w", err)
+		return nil, 0, fmt.Errorf("failed to flush segment: %w", err)
 	}
 
 	// Seal the metadata file.
 	err = s.metadata.seal(now, s.keyCount)
 	if err != nil {
-		return nil, fmt.Errorf("failed to seal metadata file: %w", err)
+		return nil, 0, fmt.Errorf("failed to seal metadata file: %w", err)
 	}
 
 	unflushedKeyCount := s.unflushedKeyCount.Load()
 	if s.unflushedKeyCount.Load() != 0 {
-		return nil, fmt.Errorf("segment %d has %d unflushedKeyCount keys", s.index, unflushedKeyCount)
+		return nil, 0, fmt.Errorf("segment %d has %d unflushedKeyCount keys", s.index, unflushedKeyCount)
 	}
 
-	return addresses, nil
+	return addresses, rawValueBytes, nil
 }
 
 // IsSealed returns true if the segment is sealed, and false otherwise.
@@ -1003,7 +1016,11 @@ func (s *Segment) handleKeyFileWrite(data *types.ScopedKey) {
 }
 
 // handleKeyFileFlushRequest handles a request to flush the key file to disk.
-func (s *Segment) handleKeyFileFlushRequest(request *keyFileFlushRequest, unflushedKeys []*types.ScopedKey) {
+func (s *Segment) handleKeyFileFlushRequest(
+	request *keyFileFlushRequest,
+	unflushedKeys []*types.ScopedKey,
+	unflushedRawBytes uint64,
+) {
 	if request.seal {
 		err := s.keys.seal()
 		if err != nil {
@@ -1017,7 +1034,8 @@ func (s *Segment) handleKeyFileFlushRequest(request *keyFileFlushRequest, unflus
 	}
 
 	request.completionChannel <- &keyFileFlushResponse{
-		addresses: unflushedKeys,
+		addresses:     unflushedKeys,
+		rawValueBytes: unflushedRawBytes,
 	}
 }
 
@@ -1078,13 +1096,27 @@ type keyFileFlushRequest struct {
 // keyFileFlushResponse is a message sent from the key file control loop to the caller of Flush to indicate that the
 // key file has been flushed.
 type keyFileFlushResponse struct {
+	// The keys that became durable as a result of this flush.
 	addresses []*types.ScopedKey
+
+	// The total raw (pre-compression) value bytes represented by the primary keys in addresses. Used by the keymap
+	// manager to bound the raw memory footprint of the unflushed-data cache.
+	rawValueBytes uint64
+}
+
+// keyFileWriteRequest is a message sent to the key file control loop to append one durable key to the key file. It
+// also carries the raw (pre-compression) value bytes the key contributes to the unflushed-data cache: nonzero only
+// for a write group's primary key, since secondaries alias the primary's value and add no cache memory.
+type keyFileWriteRequest struct {
+	key           *types.ScopedKey
+	rawValueBytes uint64
 }
 
 // keyFileControlLoop is the main loop for performing modifications to the key file. This goroutine is responsible
 // for writing key-address pairs to the key file.
 func (s *Segment) keyFileControlLoop() {
 	unflushedKeys := make([]*types.ScopedKey, 0, unflushedKeysInitialCapacity)
+	var unflushedRawBytes uint64
 
 	for {
 		select {
@@ -1094,17 +1126,19 @@ func (s *Segment) keyFileControlLoop() {
 		case operation := <-s.keyFileChannel:
 
 			if flushRequest, ok := operation.(*keyFileFlushRequest); ok {
-				s.handleKeyFileFlushRequest(flushRequest, unflushedKeys)
+				s.handleKeyFileFlushRequest(flushRequest, unflushedKeys, unflushedRawBytes)
 				unflushedKeys = make([]*types.ScopedKey, 0, unflushedKeysInitialCapacity)
+				unflushedRawBytes = 0
 
 				if flushRequest.seal {
 					// After sealing, we can exit the control loop.
 					return
 				}
 
-			} else if data, ok := operation.(*types.ScopedKey); ok {
-				s.handleKeyFileWrite(data)
-				unflushedKeys = append(unflushedKeys, data)
+			} else if data, ok := operation.(*keyFileWriteRequest); ok {
+				s.handleKeyFileWrite(data.key)
+				unflushedKeys = append(unflushedKeys, data.key)
+				unflushedRawBytes += data.rawValueBytes
 
 			} else {
 				s.errorMonitor.Panic(
