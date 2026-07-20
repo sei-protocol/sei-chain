@@ -169,9 +169,10 @@ func moduleAttr(module string) attribute.KeyValue {
 	return attribute.String("module", module)
 }
 
-// recordModuleStats records the current per-module key-count / byte totals for one data DB, right after
-// they are updated (post-Commit or post-import). stats is keyed by module name, mirroring
-// LocalMeta.ModuleStats; a nil/empty map is a no-op (fresh DB with no modules yet).
+// recordModuleStats records the current per-module key-count / byte totals for one data DB. Only called
+// from CommitStore.recordAllModuleStats, which is itself only reached from Commit's live success path
+// (see its doc comment). stats is keyed by module name, mirroring LocalMeta.ModuleStats; a nil/empty map
+// is a no-op (fresh DB with no modules yet).
 func recordModuleStats(ctx context.Context, db string, stats map[string]lthash.ModuleStats) {
 	for module, s := range stats {
 		attrs := metric.WithAttributes(dbAttr(db), moduleAttr(module))
