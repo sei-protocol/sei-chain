@@ -108,11 +108,14 @@ type Store interface {
 	// CommittedRootHash returns the 32-byte checksum of the last committed LtHash.
 	CommittedRootHash() []byte
 
-	// HashCategories returns the hash logger category names this store reports (the global root plus one
-	// per data DB). The set is fixed. The caller registers these on the logger.
+	// HashCategories returns the hash logger category names this store reports: the global root, one per
+	// data DB, and one per (data DB, module) pair currently tracked for that DB. The per-DB set is fixed,
+	// but the per-module set is dynamic — it grows as new modules first write into a DB — so callers must
+	// recompute this every block to detect changes and keep the logger's registered set in sync.
 	HashCategories() []string
 
-	// RecordHashes reports this store's hashes (root + per-DB) for blockNumber. Call right after Commit.
+	// RecordHashes reports this store's hashes (root + per-DB + per-module) for blockNumber. Call right
+	// after Commit.
 	RecordHashes(hl hashlog.HashLogger, blockNumber uint64) error
 
 	// Version returns the latest committed version.
