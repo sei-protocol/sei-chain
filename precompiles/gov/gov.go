@@ -119,6 +119,12 @@ func (p PrecompileExecutor) IsTransaction(method string) bool {
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (bz []byte, remainingGas uint64, err error) {
+	// Needed to catch gas meter panics
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("execution reverted: %v", r)
+		}
+	}()
 	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, 0, errors.New("cannot delegatecall gov")
 	}

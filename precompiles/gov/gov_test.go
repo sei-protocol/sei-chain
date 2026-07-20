@@ -923,4 +923,16 @@ func TestGovQueryPrecompile(t *testing.T) {
 		_, _, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 1000000, nil, nil, true, false)
 		require.NotNil(t, err)
 	})
+
+	t.Run("out of gas returns revert error instead of panicking", func(t *testing.T) {
+		method := govAbi.Methods[gov.ProposalQueryMethod]
+		inputs, err := method.Inputs.Pack(proposalID)
+		require.Nil(t, err)
+		statedb := state.NewDBImpl(ctx, k, true)
+		evm := vm.EVM{StateDB: statedb}
+		require.NotPanics(t, func() {
+			_, _, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 1, nil, nil, true, false)
+		})
+		require.NotNil(t, err)
+	})
 }
