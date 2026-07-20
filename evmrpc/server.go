@@ -1,6 +1,7 @@
 package evmrpc
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/evmrpc/stats"
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -233,6 +235,17 @@ func NewEVMHTTPServer(
 	httpConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
 	httpConfig.maxRequestBodyBytes = config.MaxRequestBodyBytes
 	httpConfig.maxConcurrentRequestBytes = config.MaxConcurrentRequestBytes
+	rateLimitRegistry, err := ratelimiter.New(config.RateLimiterConfig())
+	if err != nil {
+		return nil, fmt.Errorf("evm rate limiter: %w", err)
+	}
+	httpServer.rateLimitRegistry = rateLimitRegistry
+	httpConfig.rateLimitGate = NewRateLimitGate(
+		rateLimitRegistry,
+		config.RateLimitProbeBytes,
+		config.RateLimitingEnabled,
+		"evm",
+	)
 	if err := httpServer.EnableRPC(apis, httpConfig); err != nil {
 		return nil, err
 	}

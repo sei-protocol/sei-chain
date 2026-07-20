@@ -7,6 +7,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 )
@@ -36,21 +40,21 @@ func mustNew(t *testing.T, c Config) *Registry {
 func TestAllow_ZeroRPSAlwaysPasses(t *testing.T) {
 	r := mustNew(t, zeroCfg)
 	for range 1000 {
-		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm"))
+		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm", "eth_call"))
 	}
 }
 
 func TestAllow_NegativeRPSAlwaysPasses(t *testing.T) {
 	r := mustNew(t, negCfg)
 	for range 1000 {
-		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm"))
+		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm", "eth_call"))
 	}
 }
 
 func TestAllow_ZeroBurstAlwaysPasses(t *testing.T) {
 	r := mustNew(t, zeroBurstCfg)
 	for range 1000 {
-		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm"))
+		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm", "eth_call"))
 	}
 }
 
@@ -58,30 +62,67 @@ func TestAllow_BurstThenReject(t *testing.T) {
 	// burst=3, RPS tiny so no token refill during test
 	r := mustNew(t, cfg(0.001, 3))
 	ip := "10.0.0.1"
-	require.True(t, r.Allow(t.Context(), ip, "evm"), "first request in burst")
-	require.True(t, r.Allow(t.Context(), ip, "evm"), "second request in burst")
-	require.True(t, r.Allow(t.Context(), ip, "evm"), "third request in burst")
-	require.False(t, r.Allow(t.Context(), ip, "evm"), "must be rejected after burst exhausted")
+	require.True(t, r.Allow(t.Context(), ip, "evm", "eth_call"), "first request in burst")
+	require.True(t, r.Allow(t.Context(), ip, "evm", "eth_call"), "second request in burst")
+	require.True(t, r.Allow(t.Context(), ip, "evm", "eth_call"), "third request in burst")
+	require.False(t, r.Allow(t.Context(), ip, "evm", "eth_call"), "must be rejected after burst exhausted")
 }
 
 func TestAllow_PerIPIsolation(t *testing.T) {
 	r := mustNew(t, cfg(0.001, 1))
-	require.True(t, r.Allow(t.Context(), "1.1.1.1", "evm"))
-	require.False(t, r.Allow(t.Context(), "1.1.1.1", "evm"), "1.1.1.1 exhausted")
+	require.True(t, r.Allow(t.Context(), "1.1.1.1", "evm", "eth_call"))
+	require.False(t, r.Allow(t.Context(), "1.1.1.1", "evm", "eth_call"), "1.1.1.1 exhausted")
 	// Different IP has its own independent bucket.
-	require.True(t, r.Allow(t.Context(), "2.2.2.2", "evm"), "2.2.2.2 should still pass")
+	require.True(t, r.Allow(t.Context(), "2.2.2.2", "evm", "eth_call"), "2.2.2.2 should still pass")
+}
+
+func TestAllow_RejectionRecordsMethodMetric(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(provider)
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+
+	// Re-init metrics against the test provider.
+	registryMetrics.rejectedCounter = must(provider.Meter("ratelimiter").Int64Counter(
+		"rpc_rate_limit_rejected_total",
+	))
+
+	r := mustNew(t, cfg(0.001, 1))
+	ip := "10.0.0.42"
+	require.True(t, r.Allow(t.Context(), ip, "evm", "eth_call"))
+	require.False(t, r.Allow(t.Context(), ip, "evm", "eth_getBalance"))
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	require.NotEmpty(t, rm.ScopeMetrics)
+	found := false
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "rpc_rate_limit_rejected_total" {
+				continue
+			}
+			sum := m.Data.(metricdata.Sum[int64])
+			require.Equal(t, int64(1), sum.DataPoints[0].Value)
+			attrs := sum.DataPoints[0].Attributes.ToSlice()
+			require.Contains(t, attrs, attribute.String("plane", "evm"))
+			require.Contains(t, attrs, attribute.String("method", "eth_getBalance"))
+			found = true
+		}
+	}
+	require.True(t, found, "expected rpc_rate_limit_rejected_total metric")
 }
 
 func TestAllow_IPv6_SamePrefixSharesBucket(t *testing.T) {
 	r := mustNew(t, cfg(0.001, 1))
-	require.True(t, r.Allow(t.Context(), "2001:db8::1", "evm"), "first address in /64 passes")
-	require.False(t, r.Allow(t.Context(), "2001:db8::2", "evm"), "different address in same /64 rejected")
+	require.True(t, r.Allow(t.Context(), "2001:db8::1", "evm", "eth_call"), "first address in /64 passes")
+	require.False(t, r.Allow(t.Context(), "2001:db8::2", "evm", "eth_call"), "different address in same /64 rejected")
 }
 
 func TestAllow_IPv6_DifferentPrefixOwnBucket(t *testing.T) {
 	r := mustNew(t, cfg(0.001, 1))
-	require.True(t, r.Allow(t.Context(), "2001:db8:0:1::1", "evm"))
-	require.True(t, r.Allow(t.Context(), "2001:db8:0:2::1", "evm"), "different /64 has its own bucket")
+	require.True(t, r.Allow(t.Context(), "2001:db8:0:1::1", "evm", "eth_call"))
+	require.True(t, r.Allow(t.Context(), "2001:db8:0:2::1", "evm", "eth_call"), "different /64 has its own bucket")
 }
 
 // --- IPFromHTTPRequest ---
