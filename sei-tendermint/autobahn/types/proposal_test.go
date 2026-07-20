@@ -325,26 +325,17 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 
 	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
 
-	// Replace one committee lane with a non-committee lane.
-	// E.g. committee = {A, B, C, D}, proposal = {A, B, C, X}.
+	// Keep the non-empty committee tipcut and add a non-committee lane.
 	// LaneRange.Verify rejects X because it's not a committee lane.
 	extraLane := GenSecretKey(rng).Public()
 	require.False(t, committee.HasLane(extraLane))
-	var victim LaneID
-	for l := range committee.Lanes().All() {
-		victim = l
-		break
-	}
 
 	origProposal := fp.Proposal().Msg()
-	var tamperedRanges []*LaneRange
+	tamperedRanges := make([]*LaneRange, 0, len(origProposal.laneRanges)+1)
 	for _, r := range origProposal.laneRanges {
-		if r.Lane() == victim {
-			tamperedRanges = append(tamperedRanges, NewLaneRange(extraLane, 0, utils.None[*BlockHeader]()))
-		} else {
-			tamperedRanges = append(tamperedRanges, r)
-		}
+		tamperedRanges = append(tamperedRanges, r)
 	}
+	tamperedRanges = append(tamperedRanges, NewLaneRange(extraLane, 0, utils.None[*BlockHeader]()))
 
 	tamperedProposal := newProposal(origProposal.view, origProposal.timestamp, tamperedRanges, origProposal.app, origProposal.GlobalRange().First)
 	maliciousFP := &FullProposal{
