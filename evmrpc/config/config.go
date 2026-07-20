@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/rpc"
@@ -31,7 +32,42 @@ const (
 	// goroutine creation on high-core machines. Tasks are primarily I/O bound
 	// (fetching and processing block logs), so 2x CPU cores can be excessive.
 	MaxWorkerPoolSize = 64
+
+	TraceTracer4Byte    = "4byteTracer"
+	TraceTracerCall     = "callTracer"
+	TraceTracerFlatCall = "flatCallTracer"
+	TraceTracerMux      = "muxTracer"
+	TraceTracerNoop     = "noopTracer"
+	TraceTracerPrestate = "prestateTracer"
 )
+
+var nativeTraceTracers = map[string]struct{}{
+	TraceTracer4Byte:    {},
+	TraceTracerCall:     {},
+	TraceTracerFlatCall: {},
+	TraceTracerMux:      {},
+	TraceTracerNoop:     {},
+	TraceTracerPrestate: {},
+}
+
+// DefaultTraceAllowedTracers returns the native debug tracers allowed by default.
+func DefaultTraceAllowedTracers() []string {
+	return []string{
+		TraceTracerCall,
+		TraceTracerPrestate,
+		TraceTracerFlatCall,
+		TraceTracer4Byte,
+		TraceTracerNoop,
+		TraceTracerMux,
+	}
+}
+
+// IsNativeTraceTracer reports whether name is a registered native geth tracer
+// name that can be safely allowlisted without enabling request-supplied JS.
+func IsNativeTraceTracer(name string) bool {
+	_, ok := nativeTraceTracers[name]
+	return ok
+}
 
 // EVMRPC Config defines configurations for EVM RPC server on this node
 type Config struct {
@@ -147,6 +183,17 @@ type Config struct {
 	// (matches upstream geth behavior).
 	MaxTraceStructLogBytes uint64 `mapstructure:"max_trace_struct_log_bytes"`
 
+	// TraceAllowedTracers lists native debug tracer names that callers may
+	// request with TraceConfig.Tracer. The default struct logger remains
+	// available when Tracer is omitted. Request-supplied JavaScript tracers are
+	// never allowed through this list.
+	TraceAllowedTracers []string `mapstructure:"trace_allowed_tracers"`
+
+	// TraceAllowJSTracers permits callers to supply JavaScript tracer source in
+	// TraceConfig.Tracer. This executes request-supplied code in-process and is
+	// disabled by default.
+	TraceAllowJSTracers bool `mapstructure:"trace_allow_js_tracers"`
+
 	// EnableParallelizedBlockTrace enables the parallelized default debug_traceBlock* path.
 	EnableParallelizedBlockTrace bool `mapstructure:"enable_parallelized_block_trace"`
 
@@ -246,6 +293,8 @@ var DefaultConfig = Config{
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
 	MaxTraceStructLogBytes:       32 * 1024 * 1024, // 32 MiB
+	TraceAllowedTracers:          DefaultTraceAllowedTracers(),
+	TraceAllowJSTracers:          false,
 	EnableParallelizedBlockTrace: false,
 	RPCStatsInterval:             10 * time.Second,
 	WorkerPoolSize:               min(MaxWorkerPoolSize, runtime.NumCPU()*2), // Default: min(64, CPU cores × 2)
@@ -302,6 +351,8 @@ const (
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout                 = "evm.trace_timeout"
 	flagMaxTraceStructLogBytes       = "evm.max_trace_struct_log_bytes"
+	flagTraceAllowedTracers          = "evm.trace_allowed_tracers"
+	flagTraceAllowJSTracers          = "evm.trace_allow_js_tracers"
 	flagEnableParallelizedBlockTrace = "evm.enable_parallelized_block_trace"
 	flagRPCStatsInterval             = "evm.rpc_stats_interval"
 	flagWorkerPoolSize               = "evm.worker_pool_size"
@@ -476,6 +527,19 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagTraceAllowedTracers); v != nil {
+		if cfg.TraceAllowedTracers, err = cast.ToStringSliceE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if cfg.TraceAllowedTracers, err = normalizeNativeTracerNames(flagTraceAllowedTracers, cfg.TraceAllowedTracers); err != nil {
+		return cfg, err
+	}
+	if v := opts.Get(flagTraceAllowJSTracers); v != nil {
+		if cfg.TraceAllowJSTracers, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
 	if v := opts.Get(flagEnableParallelizedBlockTrace); v != nil {
 		if cfg.EnableParallelizedBlockTrace, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
@@ -520,6 +584,12 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 		if cfg.TraceBakeTracers, err = cast.ToStringSliceE(v); err != nil {
 			return cfg, err
 		}
+	}
+	// The baker feeds these names straight into geth tracing, so hold them to
+	// the same native-only rule as request-supplied tracers: a typo'd name must
+	// fail at startup instead of being evaluated as JS source on every block.
+	if cfg.TraceBakeTracers, err = normalizeNativeTracerNames(flagTraceBakeTracers, cfg.TraceBakeTracers); err != nil {
+		return cfg, err
 	}
 	if v := opts.Get(flagTraceBakeWindowBlocks); v != nil {
 		if cfg.TraceBakeWindowBlocks, err = cast.ToInt64E(v); err != nil {
@@ -575,6 +645,26 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+func normalizeNativeTracerNames(flagName string, names []string) ([]string, error) {
+	out := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			return nil, fmt.Errorf("%s entries must not be empty", flagName)
+		}
+		if !IsNativeTraceTracer(trimmed) {
+			return nil, fmt.Errorf("%s contains non-native tracer %q", flagName, trimmed)
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out, nil
 }
 
 // ConfigTemplate defines the TOML configuration template for EVM RPC
@@ -735,6 +825,18 @@ trace_timeout = "{{ .EVM.TraceTimeout }}"
 # upstream geth behavior).
 max_trace_struct_log_bytes = {{ .EVM.MaxTraceStructLogBytes }}
 
+# Native debug tracers that may be requested with TraceConfig.Tracer. The default
+# struct logger remains available when Tracer is omitted. Request-supplied
+# JavaScript tracer source is disabled and cannot be enabled through this list.
+# Set to [] to disable all named tracers.
+trace_allowed_tracers = [{{- range $i, $t := .EVM.TraceAllowedTracers }}{{- if $i }}, {{ end }}"{{ $t }}"{{- end }}]
+
+# Allow request-supplied JavaScript tracer source in TraceConfig.Tracer. This
+# executes untrusted code in-process; keep disabled on public/default RPC nodes.
+# Enabling this does not widen trace_allowed_tracers: native tracer names must
+# still be listed there to be usable.
+trace_allow_js_tracers = {{ .EVM.TraceAllowJSTracers }}
+
 # Enable the parallelized default debug_traceBlock* path.
 enable_parallelized_block_trace = {{ .EVM.EnableParallelizedBlockTrace }}
 
@@ -760,7 +862,7 @@ trace_bake_workers = {{ .EVM.TraceBakeWorkers }}
 # Bounded in-flight height queue. Drops on full so consensus never blocks.
 trace_bake_queue_size = {{ .EVM.TraceBakeQueueSize }}
 
-# Which tracers to bake per block; only standard named tracers are eligible.
+# Which tracers to bake per block; must be native tracer names (validated at startup).
 trace_bake_tracers = [{{- range $i, $t := .EVM.TraceBakeTracers }}{{- if $i }}, {{ end }}"{{ $t }}"{{- end }}]
 
 # Rolling cache window: prune blocks older than (latest - this).
