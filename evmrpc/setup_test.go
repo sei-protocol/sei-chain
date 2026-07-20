@@ -118,7 +118,7 @@ var TxNonEvm sdk.Tx
 var TxNonEvmWithSyntheticLog sdk.Tx
 var UnconfirmedTx sdk.Tx
 
-var SConfig = evmrpc.SimulateConfig{GasCap: 10000000, MaxStateOverrideAccounts: 100, MaxStateOverrideSlots: 1000}
+var SConfig = evmrpc.SimulateConfig{GasCap: 10000000}
 
 var filterTimeoutDuration = 500 * time.Millisecond
 var TotalTxCount int = 11

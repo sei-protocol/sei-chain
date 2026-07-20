@@ -92,9 +92,6 @@ func DefaultBenchmarkConfig() *BenchmarkConfig {
 
 	littConfig := litt.DefaultConfigNoPaths()
 	littConfig.MetricsEnabled = true
-	// The standalone benchmark has no embedding application to configure and serve the global OTel
-	// MeterProvider, so LittDB must stand up its own Prometheus exporter and /metrics server.
-	littConfig.MetricsServeEndpoint = true
 
 	return &BenchmarkConfig{
 		LittConfig:                  littConfig,

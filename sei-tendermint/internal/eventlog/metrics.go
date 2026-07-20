@@ -1,12 +1,8 @@
 package eventlog
 
-import tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+import "github.com/go-kit/kit/metrics"
 
-const (
-	// MetricsNamespace is the namespace shared by all Tendermint Prometheus metrics.
-	MetricsNamespace = "tendermint"
-	MetricsSubsystem = "eventlog"
-)
+const MetricsSubsystem = "eventlog"
 
 //go:generate go run ../../scripts/metricsgen -struct=Metrics
 
@@ -14,5 +10,5 @@ const (
 type Metrics struct {
 
 	// Number of items currently resident in the event log.
-	numItems tmprometheus.GaugeIntVec
+	numItems metrics.Gauge
 }

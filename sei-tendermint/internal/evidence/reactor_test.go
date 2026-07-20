@@ -62,7 +62,7 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 		err := eventBus.Start(ctx)
 		require.NoError(t, err)
 
-		rts.pools[nodeID] = evidence.NewPool(evidenceDB, stateStores[idx], blockStore, eventBus)
+		rts.pools[nodeID] = evidence.NewPool(evidenceDB, stateStores[idx], blockStore, evidence.NopMetrics(), eventBus)
 		startPool(t, rts.pools[nodeID], stateStores[idx])
 		rts.nodes = append(rts.nodes, node)
 

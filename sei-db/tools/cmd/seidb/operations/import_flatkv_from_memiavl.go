@@ -312,7 +312,7 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 			// module to the allow-list, this `continue` is what keeps that
 			// module's pairs out of the importer -- the flatkv store does
 			// not have a routing path for non-EVM physical keys yet, and
-			// silently accepting them would land them in the miscDB
+			// silently accepting them would land them in the legacyDB
 			// bucket. Any allow-list change MUST be paired with a flatkv
 			// routePhysicalKey extension; otherwise leave this skip alone.
 			if !acceptCurrent {

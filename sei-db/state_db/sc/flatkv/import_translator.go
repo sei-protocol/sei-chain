@@ -29,10 +29,10 @@ type PhysicalKVPair struct {
 //
 // It applies the same translation logic that CommitStore.ApplyChangeSets uses
 // (classifyAndPrefix + processStorageChanges + processCodeChanges +
-// processMiscChanges + mergeAccountUpdates), but assumes the import target
+// processLegacyChanges + mergeAccountUpdates), but assumes the import target
 // is empty so it does not merge with prior DB values.
 //
-// Storage / code / misc / non-EVM pairs are emitted directly from each
+// Storage / code / legacy / non-EVM pairs are emitted directly from each
 // Translate call. Account-related entries (nonce, codehash) are buffered
 // across all Translate calls so that each address is written exactly once
 // with its fully-merged AccountData; flush them by calling Finalize.
@@ -56,7 +56,7 @@ func NewImportTranslator(blockHeight int64) *ImportTranslator {
 	}
 }
 
-// Translate returns the storage / code / misc / non-EVM physical pairs
+// Translate returns the storage / code / legacy / non-EVM physical pairs
 // encoded from cs. Account fragments (nonce, codehash) are buffered
 // internally; flush them via Finalize after all changesets have been fed in.
 //
@@ -106,11 +106,11 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 	}
 	out = appendNonDeletes(out, codeChanges)
 
-	miscChanges, err := processMiscChanges(changesByType[keys.EVMKeyMisc], t.blockHeight)
+	legacyChanges, err := processLegacyChanges(changesByType[keys.EVMKeyLegacy], t.blockHeight)
 	if err != nil {
-		return nil, fmt.Errorf("failed to process misc changes: %w", err)
+		return nil, fmt.Errorf("failed to process legacy changes: %w", err)
 	}
-	out = appendNonDeletes(out, miscChanges)
+	out = appendNonDeletes(out, legacyChanges)
 
 	// Accumulate nonce + codeHash entries from this batch into the
 	// translator-level pending account map. Multiple Translate calls
@@ -162,9 +162,9 @@ func (t *ImportTranslator) Finalize() []PhysicalKVPair {
 
 // appendNonDeletes serializes every non-delete entry in m and appends the
 // resulting (physical_key, serialized_value) pair to out. Hoisted out of
-// the three processStorage/Code/Misc branches in Translate (and reused
+// the three processStorage/Code/Legacy branches in Translate (and reused
 // by Finalize) so that the "drop tombstones, serialize to PhysicalKVPair"
-// contract lives in one place; mirrors gatherPairs's generic use
+// contract lives in one place; mirrors gatherLTHashPairs's generic use
 // of vtype.VType in store_apply.go.
 func appendNonDeletes[T vtype.VType](out []PhysicalKVPair, m map[string]T) []PhysicalKVPair {
 	for k, v := range m {

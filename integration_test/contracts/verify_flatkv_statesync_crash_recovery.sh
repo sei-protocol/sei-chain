@@ -179,7 +179,7 @@ dump_flatkv_bucket_summary() {
     contract_hex=\$(tail -1 integration_test/contracts/flatkv_evm_contract_addr.txt 2>/dev/null | sed 's/^0x//' | tr '[:lower:]' '[:upper:]')
     storage_hex=\$(tail -1 integration_test/contracts/flatkv_evm_storage_expected.txt 2>/dev/null | sed 's/^0x//' | tr '[:lower:]' '[:upper:]')
     code_hex=\$(tail -1 integration_test/contracts/flatkv_evm_code_expected.txt 2>/dev/null | sed 's/^0x//' | tr '[:lower:]' '[:upper:]')
-    for b in account code storage misc; do
+    for b in account code storage legacy; do
       f=\"\$out_dir/\$b\"
       if [ -s \"\$f\" ]; then
         n=\$(wc -l < \"\$f\")
@@ -484,7 +484,7 @@ assert_flatkv_dump_contains_fixture() {
     # default-value EVM state (nonce=0, codehash=keccak('')) is never
     # persisted by Sei's EVM keeper, so the recipient never appears in
     # FlatKV's account bucket on any node, including donors -- diagnostics
-    # confirmed donor itself has 0 hits in account/code/storage/misc.
+    # confirmed donor itself has 0 hits in account/code/storage/legacy.
     # The native-transfer balance is held in the bank module, whose
     # changesets are not routed to FlatKV in dual_write mode at all
     # (only EVM-named changesets are). Recipient liveness is instead

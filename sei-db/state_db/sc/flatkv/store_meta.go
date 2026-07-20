@@ -55,93 +55,11 @@ func loadLocalMeta(db types.KeyValueDB) (*ktype.LocalMeta, error) {
 		meta.LtHash = h
 	}
 
-	moduleHashes, err := loadModuleLtHashes(db)
-	if err != nil {
-		return nil, err
-	}
-	meta.ModuleLtHashes = moduleHashes
-
-	moduleStats, err := loadModuleStats(db)
-	if err != nil {
-		return nil, err
-	}
-	meta.ModuleStats = moduleStats
-
 	return meta, nil
 }
 
-// loadModuleLtHashes reads every per-module LtHash key ("_meta/x:<module>/hash")
-// from db and returns them keyed by module name. Returns an empty map when the
-// DB carries none (fresh store or a store written before per-module tracking).
-func loadModuleLtHashes(db types.KeyValueDB) (map[string]*lthash.LtHash, error) {
-	iter, err := db.NewIter(&types.IterOptions{
-		LowerBound: ktype.ModuleLtHashPrefixBytes,
-		UpperBound: ktype.PrefixEnd(ktype.ModuleLtHashPrefixBytes),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("open module lthash iterator: %w", err)
-	}
-	defer func() { _ = iter.Close() }()
-
-	out := make(map[string]*lthash.LtHash)
-	for ; iter.Valid(); iter.Next() {
-		module, ok := ktype.ParseModuleLtHashKey(iter.Key())
-		if !ok {
-			continue
-		}
-		h, err := lthash.Unmarshal(iter.Value())
-		if err != nil {
-			return nil, fmt.Errorf("unmarshal module %q meta hash: %w", module, err)
-		}
-		out[module] = h
-	}
-	if err := iter.Error(); err != nil {
-		return nil, fmt.Errorf("iterate module lthash keys: %w", err)
-	}
-	return out, nil
-}
-
-// loadModuleStats reads every per-module stats key ("_meta/x:<module>/stats")
-// from db and returns them keyed by module name. Returns an empty map when the
-// DB carries none (fresh store or a store written before per-module stats
-// tracking).
-func loadModuleStats(db types.KeyValueDB) (map[string]lthash.ModuleStats, error) {
-	iter, err := db.NewIter(&types.IterOptions{
-		LowerBound: ktype.ModuleLtHashPrefixBytes,
-		UpperBound: ktype.PrefixEnd(ktype.ModuleLtHashPrefixBytes),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("open module stats iterator: %w", err)
-	}
-	defer func() { _ = iter.Close() }()
-
-	out := make(map[string]lthash.ModuleStats)
-	for ; iter.Valid(); iter.Next() {
-		module, ok := ktype.ParseModuleStatsKey(iter.Key())
-		if !ok {
-			continue
-		}
-		st, err := lthash.UnmarshalModuleStats(iter.Value())
-		if err != nil {
-			return nil, fmt.Errorf("unmarshal module %q stats: %w", module, err)
-		}
-		out[module] = st
-	}
-	if err := iter.Error(); err != nil {
-		return nil, fmt.Errorf("iterate module stats keys: %w", err)
-	}
-	return out, nil
-}
-
-// writeLocalMetaToBatch writes per-DB metadata (version + per-DB root LtHash +
-// per-module LtHashes + per-module stats) as separate keys.
-func writeLocalMetaToBatch(
-	batch types.Batch,
-	version int64,
-	ltHash *lthash.LtHash,
-	moduleHashes map[string]*lthash.LtHash,
-	moduleStats map[string]lthash.ModuleStats,
-) error {
+// writeLocalMetaToBatch writes per-DB metadata (version + LtHash) as separate keys.
+func writeLocalMetaToBatch(batch types.Batch, version int64, ltHash *lthash.LtHash) error {
 	if err := batch.Set(ktype.MetaVersionKey, versionToBytes(version)); err != nil {
 		return fmt.Errorf("set meta version: %w", err)
 	}
@@ -150,86 +68,7 @@ func writeLocalMetaToBatch(
 			return fmt.Errorf("set meta hash: %w", err)
 		}
 	}
-	for module, h := range moduleHashes {
-		if h == nil {
-			continue
-		}
-		if err := batch.Set(ktype.ModuleLtHashKey(module), h.Marshal()); err != nil {
-			return fmt.Errorf("set module %q meta hash: %w", module, err)
-		}
-	}
-	for module, st := range moduleStats {
-		if err := batch.Set(ktype.ModuleStatsKey(module), st.Marshal()); err != nil {
-			return fmt.Errorf("set module %q stats: %w", module, err)
-		}
-	}
 	return nil
-}
-
-// validatePerModuleMetadata enforces the load-time invariant that a persisted
-// per-DB root is consistent with its per-module decomposition. FlatKV writes
-// the per-DB root and its per-module hashes in the same atomic batch (see
-// writeLocalMetaToBatch / commitBatches), so a correctly written store always
-// satisfies SumModuleHashes(ModuleLtHashes) == LtHash.
-//
-// Two failure modes are rejected here:
-//  1. Non-identity root with an empty module map — the store predates
-//     per-module hashing; migration is intentionally unsupported.
-//  2. Module map present but its homomorphic sum does not equal the root —
-//     incomplete / drifted bookkeeping (e.g. a subset of module /hash keys
-//     lost while the root survived). On the next write,
-//     HashCalculator.Compute rebuilds the root as SumModuleHashes over that
-//     incomplete map, silently dropping a module's contribution to the
-//     per-DB root and thus the global store hash / AppHash.
-//
-// Fail loudly at load instead of corrupting consensus-critical state.
-func validatePerModuleMetadata(dbDir string, meta *ktype.LocalMeta) error {
-	if meta == nil || meta.LtHash == nil {
-		return nil
-	}
-	if len(meta.ModuleLtHashes) == 0 {
-		if meta.LtHash.IsZero() {
-			return nil
-		}
-		return fmt.Errorf(
-			"flatkv: %s carries a non-identity per-DB LtHash root but no "+
-				"per-module metadata; this store predates per-module hashing "+
-				"and cannot be opened (migration is intentionally unsupported — "+
-				"recreate the store from a snapshot or genesis)",
-			dbDir,
-		)
-	}
-	sum := lthash.SumModuleHashes(meta.ModuleLtHashes)
-	if !meta.LtHash.Equal(sum) {
-		return fmt.Errorf(
-			"flatkv: %s per-module hashes do not sum to per-DB root (root=%x sum=%x)",
-			dbDir, meta.LtHash.Checksum(), sum.Checksum(),
-		)
-	}
-	return nil
-}
-
-// cloneModuleHashes returns a deep copy of a per-module hash map (cloning each
-// LtHash). A nil or empty source yields a fresh empty map.
-func cloneModuleHashes(src map[string]*lthash.LtHash) map[string]*lthash.LtHash {
-	dst := make(map[string]*lthash.LtHash, len(src))
-	for module, h := range src {
-		if h != nil {
-			dst[module] = h.Clone()
-		}
-	}
-	return dst
-}
-
-// cloneModuleStats returns a copy of a per-module stats map. ModuleStats is a
-// value type, so a per-entry copy is a full copy. A nil or empty source yields
-// a fresh empty map.
-func cloneModuleStats(src map[string]lthash.ModuleStats) map[string]lthash.ModuleStats {
-	dst := make(map[string]lthash.ModuleStats, len(src))
-	for module, st := range src {
-		dst[module] = st
-	}
-	return dst
 }
 
 // loadGlobalVersion reads the global committed version from metadata DB.
@@ -312,26 +151,6 @@ func newPerDBLtHashMap() map[string]*lthash.LtHash {
 	return m
 }
 
-// newPerDBModuleLtHashMap returns a map with a fresh empty per-module hash map
-// for each data DB. Modules are added lazily as their keys are first written.
-func newPerDBModuleLtHashMap() map[string]map[string]*lthash.LtHash {
-	m := make(map[string]map[string]*lthash.LtHash, len(dataDBDirs))
-	for _, dbDir := range dataDBDirs {
-		m[dbDir] = make(map[string]*lthash.LtHash)
-	}
-	return m
-}
-
-// newPerDBModuleStatsMap returns a map with a fresh empty per-module stats map
-// for each data DB. Modules are added lazily as their keys are first written.
-func newPerDBModuleStatsMap() map[string]map[string]lthash.ModuleStats {
-	m := make(map[string]map[string]lthash.ModuleStats, len(dataDBDirs))
-	for _, dbDir := range dataDBDirs {
-		m[dbDir] = make(map[string]lthash.ModuleStats)
-	}
-	return m
-}
-
 // SetInitialVersion seeds the store so that the next Commit produces
 // initialVersion. Mirrors memiavl.DB.SetInitialVersion: only valid on a
 // truly fresh store (committedVersion == 0 and no prior commits), rejected
@@ -393,10 +212,8 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 			ltHash = lthash.New()
 			s.perDBWorkingLtHash[ndb.dir] = ltHash
 		}
-		moduleHashes := s.perDBModuleWorkingLtHash[ndb.dir]
-		moduleStats := s.perDBModuleWorkingStats[ndb.dir]
 		batch := ndb.db.NewBatch()
-		if err := writeLocalMetaToBatch(batch, seededVersion, ltHash, moduleHashes, moduleStats); err != nil {
+		if err := writeLocalMetaToBatch(batch, seededVersion, ltHash); err != nil {
 			_ = batch.Close()
 			return fmt.Errorf("flatkv: SetInitialVersion: prepare %s local meta: %w", ndb.dir, err)
 		}
@@ -408,8 +225,6 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 		s.localMeta[ndb.dir] = &ktype.LocalMeta{
 			CommittedVersion: seededVersion,
 			LtHash:           ltHash.Clone(),
-			ModuleLtHashes:   cloneModuleHashes(moduleHashes),
-			ModuleStats:      cloneModuleStats(moduleStats),
 		}
 	}
 

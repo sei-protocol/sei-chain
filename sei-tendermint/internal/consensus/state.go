@@ -94,7 +94,6 @@ type evidencePool interface {
 type State struct {
 	// config details
 	config        *config.ConsensusConfig
-	metrics       utils.Mutex[*latencyMetrics]
 	privValidator utils.Option[types.PrivValidator] // for signing votes
 	// privValidator pubkey, memoized for the duration of one block
 	// to avoid extra requests to HSM
@@ -151,6 +150,9 @@ type State struct {
 	eventVote         func(vote *types.Vote)
 	eventMsg          func(msgInfo)
 
+	// for reporting metrics
+	metrics *Metrics
+
 	tracer            otrace.Tracer
 	heightSpan        otrace.Span
 	heightBeingTraced int64
@@ -168,11 +170,11 @@ func NewState(
 	evpool evidencePool,
 	eventBus *eventbus.EventBus,
 	traceProviderOps []trace.TracerProviderOption,
+	metrics *Metrics,
 ) *State {
 	cs := &State{
 		eventBus:          eventBus,
 		config:            cfg,
-		metrics:           utils.NewMutex(&latencyMetrics{}),
 		roundState:        cstypes.NewSafeRoundState(),
 		blockExec:         blockExec,
 		blockStore:        blockStore,
@@ -183,6 +185,7 @@ func NewState(
 		timeoutTicker:     NewTimeoutTicker(),
 		doWALCatchup:      true,
 		evpool:            evpool,
+		metrics:           metrics,
 		wal:               wal,
 		eventValidBlock:   utils.NewAtomicSend(utils.None[*cstypes.RoundState]()),
 		eventNewRoundStep: func(*cstypes.RoundState) {},
@@ -439,20 +442,18 @@ func (cs *State) SetProposalAndBlock(
 // internal functions for managing the state
 
 func (cs *State) updateHeight(height int64) {
-	Global.HeightAt().Set(height)
-	Global.ClearStepMetrics()
+	cs.metrics.Height.Set(float64(height))
+	cs.metrics.ClearStepMetrics()
 	cs.roundState.SetHeight(height)
 }
 
 func (cs *State) updateRoundStep(round int32, step cstypes.RoundStepType) {
 	if !cs.replayMode {
 		if round != cs.roundState.Round() || round == 0 && step == cstypes.RoundStepNewRound {
-			Global.MarkRound(cs.roundState.Round(), cs.roundState.StartTime())
+			cs.metrics.MarkRound(cs.roundState.Round(), cs.roundState.StartTime())
 		}
 		if cs.roundState.Step() != step {
-			for m := range cs.metrics.Lock() {
-				m.MarkStep(cs.roundState.Step())
-			}
+			cs.metrics.MarkStep(cs.roundState.Step())
 		}
 	}
 	cs.roundState.SetRound(round)
@@ -746,13 +747,13 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 	}
 }
 func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompletion bool, height int64, span otrace.Span, onPropose bool) {
-	Global.ProposalBlockCreatedOnProposeAt(strconv.FormatBool(onPropose)).Add(1)
+	cs.metrics.ProposalBlockCreatedOnPropose.With("success", strconv.FormatBool(onPropose)).Add(1)
 	if fsyncUponCompletion {
 		if err := cs.wal.Sync(); err != nil { // fsync
 			logger.Error("Error flushing wal after receiving all block parts", "error", err)
 		}
 	}
-	Global.MarkCompleteProposalTime(time.Since(cs.roundState.ProposalReceiveTime()))
+	cs.metrics.MarkCompleteProposalTime(time.Since(cs.roundState.ProposalReceiveTime()))
 	cs.handleCompleteProposal(ctx, height, span)
 }
 
@@ -765,9 +766,7 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 		err   error
 	)
 
-	for m := range cs.metrics.Lock() {
-		m.MarkStepLatency(cs.roundState.Step())
-	}
+	cs.metrics.MarkStepLatency(cs.roundState.Step())
 
 	msg, peerID := mi.Msg, mi.PeerID
 
@@ -892,9 +891,7 @@ func (cs *State) handleTimeout(
 	// the timeout will now cause a state transition
 	cs.mtx.Lock()
 	defer cs.mtx.Unlock()
-	for m := range cs.metrics.Lock() {
-		m.MarkStepLatency(rs.Step)
-	}
+	cs.metrics.MarkStepLatency(rs.Step)
 
 	switch ti.Step {
 	case cstypes.RoundStepNewHeight:
@@ -1193,7 +1190,7 @@ func (cs *State) decideProposal(ctx context.Context, height int64, round int32, 
 		} else if block == nil {
 			return
 		}
-		Global.ProposalCreateCountAt().Add(1)
+		cs.metrics.ProposalCreateCount.Add(1)
 		blockParts, err = block.MakePartSet(types.BlockPartSizeBytes)
 		if err != nil {
 			logger.Error("unable to create proposal block part set", "error", err)
@@ -1422,7 +1419,7 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 	if err != nil {
 		panic(fmt.Sprintf("ProcessProposal: %v", err))
 	}
-	Global.MarkProposalProcessed(isAppValid)
+	cs.metrics.MarkProposalProcessed(isAppValid)
 
 	// Vote nil if the Application rejected the block
 	if !isAppValid {
@@ -1663,9 +1660,7 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32, 
 
 	if !cs.roundState.ProposalBlockParts().HasHeader(blockID.PartSetHeader) {
 		cs.roundState.SetProposalBlock(nil)
-		for m := range cs.metrics.Lock() {
-			m.MarkBlockGossipStarted()
-		}
+		cs.metrics.MarkBlockGossipStarted()
 		cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(blockID.PartSetHeader))
 	}
 
@@ -1761,9 +1756,7 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 
 		// We're getting the wrong block.
 		// Set up ProposalBlockParts, clear ProposalBlock and keep waiting for the parts.
-		for m := range cs.metrics.Lock() {
-			m.MarkBlockGossipStarted()
-		}
+		cs.metrics.MarkBlockGossipStarted()
 		cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(blockID.PartSetHeader))
 		cs.roundState.SetProposalBlock(nil)
 
@@ -1856,7 +1849,7 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 		seenCommit := cs.roundState.Votes().Precommits(cs.roundState.CommitRound()).MakeCommit()
 		cs.blockStore.SaveBlock(block, blockParts, seenCommit)
 		// Calculate consensus time
-		Global.MarkConsensusTime(time.Since(cs.roundState.StartTime()))
+		cs.metrics.MarkConsensusTime(time.Since(cs.roundState.StartTime()))
 	} else {
 		// Happens during replay if we already saved the block but didn't commit
 		logger.Debug("calling finalizeCommit on already stored block", "height", block.Height)
@@ -1904,7 +1897,7 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 		block,
 		cs.tracer,
 	)
-	Global.MarkApplyBlockLatency(time.Since(startTime))
+	cs.metrics.MarkApplyBlockLatency(time.Since(startTime))
 	if err != nil {
 		logger.Error("failed to apply block", "err", err)
 		return
@@ -1932,8 +1925,8 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 }
 
 func (cs *State) RecordMetrics(height int64, block *types.Block) {
-	Global.ValidatorsAt().Set(int64(cs.roundState.Validators().Size()))
-	Global.ValidatorsPowerAt().Set(cs.roundState.Validators().TotalVotingPower())
+	cs.metrics.Validators.Set(float64(cs.roundState.Validators().Size()))
+	cs.metrics.ValidatorsPower.Set(float64(cs.roundState.Validators().TotalVotingPower()))
 
 	var (
 		missingValidators      int
@@ -1971,23 +1964,25 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 			if commitSig.BlockIDFlag == types.BlockIDFlagAbsent {
 				missingValidators++
 				missingValidatorsPower += val.VotingPower
-				Global.MissingValidatorsPowerAt(val.Address.String()).Set(val.VotingPower)
+				cs.metrics.MissingValidatorsPower.With("validator_address", val.Address.String()).Set(float64(val.VotingPower))
 			} else {
-				Global.MissingValidatorsPowerAt(val.Address.String()).Set(0)
+				cs.metrics.MissingValidatorsPower.With("validator_address", val.Address.String()).Set(0)
 			}
 
 			if bytes.Equal(val.Address, address) {
-				validatorAddress := val.Address.String()
-				Global.ValidatorPowerAt(validatorAddress).Set(val.VotingPower)
+				label := []string{
+					"validator_address", val.Address.String(),
+				}
+				cs.metrics.ValidatorPower.With(label...).Set(float64(val.VotingPower))
 				if commitSig.BlockIDFlag == types.BlockIDFlagCommit {
-					Global.ValidatorLastSignedHeightAt(validatorAddress).Set(height)
+					cs.metrics.ValidatorLastSignedHeight.With(label...).Set(float64(height))
 				} else {
-					Global.ValidatorMissedBlocksAt(validatorAddress).Add(1)
+					cs.metrics.ValidatorMissedBlocks.With(label...).Add(float64(1))
 				}
 			}
 		}
 	}
-	Global.MissingValidatorsAt().Set(int64(missingValidators))
+	cs.metrics.MissingValidators.Set(float64(missingValidators))
 
 	// NOTE: byzantine validators power and count is only for consensus evidence i.e. duplicate vote
 	var (
@@ -2003,14 +1998,14 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 			}
 		}
 	}
-	Global.ByzantineValidatorsAt().Set(byzantineValidatorsCount)
-	Global.ByzantineValidatorsPowerAt().Set(byzantineValidatorsPower)
+	cs.metrics.ByzantineValidators.Set(float64(byzantineValidatorsCount))
+	cs.metrics.ByzantineValidatorsPower.Set(float64(byzantineValidatorsPower))
 
 	// Block Interval metric
 	if height > 1 {
 		lastBlockMeta := cs.blockStore.LoadBlockMeta(height - 1)
 		if lastBlockMeta != nil {
-			Global.BlockIntervalSecondsAt().Observe(
+			cs.metrics.BlockIntervalSeconds.Observe(
 				block.Time.Sub(lastBlockMeta.Header.Time).Seconds(),
 			)
 		}
@@ -2021,8 +2016,8 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 
 	// Latency metric for prevote delay
 	if proposal != nil {
-		Global.MarkFinalRound(roundState.Round, proposal.ProposerAddress.String())
-		Global.MarkProposeLatency(proposal.ProposerAddress.String(), proposal.Timestamp.Sub(roundState.StartTime))
+		cs.metrics.MarkFinalRound(roundState.Round, proposal.ProposerAddress.String())
+		cs.metrics.MarkProposeLatency(proposal.ProposerAddress.String(), proposal.Timestamp.Sub(roundState.StartTime))
 		for roundID := int32(0); roundID <= roundState.ValidRound; roundID++ { //nolint:gosec // ValidRound is a small consensus round number
 			preVotes := roundState.Votes.Prevotes(roundID)
 			pl := preVotes.List()
@@ -2037,14 +2032,14 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 			for _, vote := range pl {
 				currVoteDelay := vote.Timestamp.Sub(roundState.StartTime)
 				relativeVoteDelay := currVoteDelay - firstVoteDelay
-				Global.MarkPrevoteLatency(vote.ValidatorAddress.String(), relativeVoteDelay)
+				cs.metrics.MarkPrevoteLatency(vote.ValidatorAddress.String(), relativeVoteDelay)
 			}
 		}
 	}
-	Global.NumTxsAt().Set(int64(len(block.Txs)))
-	Global.TotalTxsAt().Add(int64(len(block.Txs)))
-	Global.BlockSizeBytesAt().Observe(float64(block.Size()))
-	Global.CommittedHeightAt().Set(block.Height)
+	cs.metrics.NumTxs.Set(float64(len(block.Txs)))
+	cs.metrics.TotalTxs.Add(float64(len(block.Txs)))
+	cs.metrics.BlockSizeBytes.Observe(float64(block.Size()))
+	cs.metrics.CommittedHeight.Set(float64(block.Height))
 }
 
 //-----------------------------------------------------------------------------
@@ -2104,9 +2099,7 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 			logger.Debug("rejecting proposal with too many parts", "total", proposal.BlockID.PartSetHeader.Total, "max", types.MaxBlockPartsCount)
 			return ErrInvalidProposalPartSetHeader
 		}
-		for m := range cs.metrics.Lock() {
-			m.MarkBlockGossipStarted()
-		}
+		cs.metrics.MarkBlockGossipStarted()
 		cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(proposal.BlockID.PartSetHeader))
 		cs.roundState.SetProposalBlock(nil)
 	}
@@ -2127,13 +2120,13 @@ func (cs *State) addProposalBlockPart(
 	// Blocks might be reused, so round mismatch is OK
 	if cs.roundState.Height() != height {
 		logger.Debug("received block part from wrong height", "height", height, "round", round)
-		Global.BlockGossipPartsReceivedAt("false").Add(1)
+		cs.metrics.BlockGossipPartsReceived.With("matches_current", "false").Add(1)
 		return false, nil
 	}
 
 	// We're not expecting a block part.
 	if cs.roundState.ProposalBlockParts() == nil {
-		Global.BlockGossipPartsReceivedAt("false").Add(1)
+		cs.metrics.BlockGossipPartsReceived.With("matches_current", "false").Add(1)
 		// NOTE: this can happen when we've gone to a higher round and
 		// then receive parts from the previous round - not necessarily a bad peer.
 		logger.Debug(
@@ -2149,12 +2142,12 @@ func (cs *State) addProposalBlockPart(
 	added, err = cs.roundState.ProposalBlockParts().AddPart(part)
 	if err != nil {
 		if errors.Is(err, types.ErrPartSetInvalidProof) || errors.Is(err, types.ErrPartSetUnexpectedIndex) {
-			Global.BlockGossipPartsReceivedAt("false").Add(1)
+			cs.metrics.BlockGossipPartsReceived.With("matches_current", "false").Add(1)
 		}
 		return added, err
 	}
 
-	Global.BlockGossipPartsReceivedAt("true").Add(1)
+	cs.metrics.BlockGossipPartsReceived.With("matches_current", "true").Add(1)
 
 	if cs.roundState.ProposalBlockParts().ByteSize() > cs.state.ConsensusParams.Block.MaxBytes {
 		return added, fmt.Errorf("total size of proposal block parts exceeds maximum block bytes (%d > %d)",
@@ -2162,9 +2155,7 @@ func (cs *State) addProposalBlockPart(
 		)
 	}
 	if added && cs.roundState.ProposalBlockParts().IsComplete() {
-		for m := range cs.metrics.Lock() {
-			m.MarkBlockGossipComplete()
-		}
+		cs.metrics.MarkBlockGossipComplete()
 		block, err := cs.getBlockFromBlockParts()
 		if err != nil {
 			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
@@ -2214,9 +2205,7 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 	defer func() {
 		if cs.roundState.ProposalBlock() != nil {
 			// NOTE: it's possible to receive complete proposal blocks for future rounds without having the proposal
-			for m := range cs.metrics.Lock() {
-				m.MarkBlockGossipComplete()
-			}
+			cs.metrics.MarkBlockGossipComplete()
 		}
 	}()
 
@@ -2290,7 +2279,7 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 func (cs *State) buildProposalBlock(proposal *types.Proposal) *types.Block {
 	txs, missingTxs := cs.blockExec.SafeGetTxsByHashes(proposal.TxHashes)
 	if len(missingTxs) > 0 {
-		Global.ProposalMissingTxsAt().Set(int64(len(missingTxs)))
+		cs.metrics.ProposalMissingTxs.Set(float64(len(missingTxs)))
 		logger.Debug("Missing txs when trying to build block", "missing_txs", missingTxs)
 		return nil
 	}
@@ -2405,7 +2394,7 @@ func (cs *State) addVote(
 		"cs_height", cs.roundState.Height(),
 	)
 	if vote.Height < cs.roundState.Height() || (vote.Height == cs.roundState.Height() && vote.Round < cs.roundState.Round()) {
-		Global.MarkLateVote(vote)
+		cs.metrics.MarkLateVote(vote)
 	}
 
 	// A precommit for the previous height?
@@ -2459,7 +2448,7 @@ func (cs *State) addVote(
 		if !ok {
 			panic(fmt.Errorf("validator index %v out of range", vote.ValidatorIndex))
 		}
-		Global.MarkVoteReceived(vote.Type, val.VotingPower, vals.TotalVotingPower())
+		cs.metrics.MarkVoteReceived(vote.Type, val.VotingPower, vals.TotalVotingPower())
 	}
 
 	if err := cs.eventBus.PublishEventVote(types.EventDataVote{Vote: vote}); err != nil {
@@ -2496,9 +2485,7 @@ func (cs *State) addVote(
 				}
 
 				if !cs.roundState.ProposalBlockParts().HasHeader(blockID.PartSetHeader) {
-					for m := range cs.metrics.Lock() {
-						m.MarkBlockGossipStarted()
-					}
+					cs.metrics.MarkBlockGossipStarted()
 					cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(blockID.PartSetHeader))
 				}
 
@@ -2726,12 +2713,12 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 		}
 		votingPowerSeen += val.VotingPower
 		if votingPowerSeen >= cs.roundState.Validators().TotalVotingPower()*2/3+1 {
-			Global.QuorumPrevoteDelayAt(leaderAddr.String()).Set(v.Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())
+			cs.metrics.QuorumPrevoteDelay.With("proposer_address", leaderAddr.String()).Set(v.Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())
 			break
 		}
 	}
 	if ps.HasAll() {
-		Global.FullPrevoteDelayAt(leaderAddr.String()).Set(pl[len(pl)-1].Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())
+		cs.metrics.FullPrevoteDelay.With("proposer_address", leaderAddr.String()).Set(pl[len(pl)-1].Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())
 	}
 }
 
@@ -2761,7 +2748,7 @@ func (cs *State) calculateProposalTimestampDifferenceMetric() {
 	if cs.roundState.Proposal() != nil && cs.roundState.Proposal().POLRound == -1 {
 		sp := cs.state.ConsensusParams.Synchrony.SynchronyParamsOrDefaults()
 		isTimely := cs.roundState.Proposal().IsTimely(cs.roundState.ProposalReceiveTime(), sp, cs.roundState.Round())
-		Global.ProposalTimestampDifferenceAt(fmt.Sprintf("%t", isTimely)).
+		cs.metrics.ProposalTimestampDifference.With("is_timely", fmt.Sprintf("%t", isTimely)).
 			Observe(cs.roundState.ProposalReceiveTime().Sub(cs.roundState.Proposal().Timestamp).Seconds())
 	}
 }

@@ -382,7 +382,7 @@ func TestParseKey(t *testing.T) {
 		key := []byte{0xff, 0x01, 0x02}
 
 		storeType, keyBytes := commonevm.ParseEVMKey(key)
-		require.Equal(t, StoreMisc, storeType)
+		require.Equal(t, StoreLegacy, storeType)
 		require.Equal(t, key, keyBytes)
 	})
 
@@ -390,7 +390,7 @@ func TestParseKey(t *testing.T) {
 		key := []byte{0x03, 0x01, 0x02}
 
 		storeType, keyBytes := commonevm.ParseEVMKey(key)
-		require.Equal(t, StoreMisc, storeType)
+		require.Equal(t, StoreLegacy, storeType)
 		require.Equal(t, key, keyBytes)
 	})
 
@@ -400,7 +400,7 @@ func TestParseKey(t *testing.T) {
 		key := append([]byte{0x09}, addr...)
 
 		storeType, keyBytes := commonevm.ParseEVMKey(key)
-		require.Equal(t, StoreMisc, storeType)
+		require.Equal(t, StoreLegacy, storeType)
 		require.Equal(t, key, keyBytes)
 	})
 }

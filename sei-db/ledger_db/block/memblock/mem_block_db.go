@@ -19,21 +19,13 @@ type qcEntry struct {
 	upper types.GlobalBlockNumber
 }
 
-// hashEntry pairs a block with its GlobalBlockNumber so ReadBlockByHash can
-// return the number, mirroring the littblock implementation which embeds it in
-// the stored value.
-type hashEntry struct {
-	blk *types.Block
-	n   types.GlobalBlockNumber
-}
-
 // blockDB is an in-memory types.BlockDB. It holds blocks and QCs by pointer (no
 // marshaling) and is intended as a test/benchmark fixture, not a durable
 // implementation.
 type blockDB struct {
 	mu         sync.RWMutex
 	byNumber   map[types.GlobalBlockNumber]*types.Block
-	byHash     map[types.BlockHeaderHash]hashEntry
+	byHash     map[types.BlockHeaderHash]*types.Block
 	qcsByLower map[types.GlobalBlockNumber]qcEntry
 
 	// Write-order cursors (see types.BlockDB contract).
@@ -41,24 +33,13 @@ type blockDB struct {
 	lastBlockNumber types.GlobalBlockNumber
 	hasQC           bool
 	lastQCNext      types.GlobalBlockNumber
-
-	// latestQCStartBlock is the most recently written QC's starting block number —
-	// the lowest block number in the newest cohort. PruneBefore clamps to it (see
-	// littblock).
-	latestQCStartBlock types.GlobalBlockNumber
-
-	// watermark is the (clamped) retention floor set by PruneBefore. Reads
-	// strictly below it are refused with types.ErrPruned; because pruned entries
-	// are deleted eagerly, this is the only record of where the floor sits and
-	// so the only way to tell a pruned block from one never written.
-	watermark types.GlobalBlockNumber
 }
 
 // NewBlockDB returns an in-memory types.BlockDB.
 func NewBlockDB() types.BlockDB {
 	return &blockDB{
 		byNumber:   make(map[types.GlobalBlockNumber]*types.Block),
-		byHash:     make(map[types.BlockHeaderHash]hashEntry),
+		byHash:     make(map[types.BlockHeaderHash]*types.Block),
 		qcsByLower: make(map[types.GlobalBlockNumber]qcEntry),
 	}
 }
@@ -77,7 +58,7 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 			n, s.lastQCNext, types.ErrBlockMissingQC)
 	}
 	s.byNumber[n] = blk
-	s.byHash[blk.Header().Hash()] = hashEntry{blk: blk, n: n}
+	s.byHash[blk.Header().Hash()] = blk
 	s.lastBlockNumber = n
 	s.hasBlocks = true
 	return nil
@@ -98,7 +79,6 @@ func (s *blockDB) WriteQC(
 			lowerBound, s.lastQCNext, types.ErrQCNonContiguous)
 	}
 	s.qcsByLower[lowerBound] = qcEntry{qc: qc, lower: lowerBound, upper: upperBound}
-	s.latestQCStartBlock = lowerBound
 	s.lastQCNext = upperBound
 	s.hasQC = true
 	return nil
@@ -107,38 +87,14 @@ func (s *blockDB) WriteQC(
 func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.hasBlocks {
-		// No blocks yet: nothing to prune, and deleting QCs here would strand a
-		// future block whose coverage check still passes. Mirrors littblock.
-		return nil
-	}
-	// Never let the watermark enter the newest block's cohort: clamp its ceiling
-	// at the cohort's first block (latestQCStartBlock), guarded by lastBlockNumber
-	// for a QC written ahead of its blocks. Keeps the newest cohort whole and
-	// pruning monotonic. See littblock and the BlockDB PruneBefore contract.
-	if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); n > ceiling {
-		n = ceiling
-	}
-	// Round the watermark down to the covering QC's First. A QC's cohort of
-	// blocks changes readability atomically, so the watermark must never fall
-	// strictly inside a QC's range (see littblock): otherwise a read would
-	// refuse the cohort's low blocks while still serving its high blocks (which
-	// pruning must retain).
-	for _, e := range s.qcsByLower {
-		if e.lower <= n && n < e.upper {
-			n = e.lower
-			break
-		}
-	}
-	s.watermark = max(s.watermark, n)
 	for num, blk := range s.byNumber {
-		if num < s.watermark {
+		if num < n {
 			delete(s.byNumber, num)
 			delete(s.byHash, blk.Header().Hash())
 		}
 	}
 	for lower, e := range s.qcsByLower {
-		if e.upper <= s.watermark {
+		if e.upper <= n {
 			delete(s.qcsByLower, lower)
 		}
 	}
@@ -229,9 +185,6 @@ func (s *blockDB) ReadBlockByNumber(
 ) (utils.Option[*types.Block], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if n < s.watermark {
-		return utils.None[*types.Block](), types.ErrPruned
-	}
 	if blk, ok := s.byNumber[n]; ok {
 		return utils.Some(blk), nil
 	}
@@ -240,13 +193,13 @@ func (s *blockDB) ReadBlockByNumber(
 
 func (s *blockDB) ReadBlockByHash(
 	hash types.BlockHeaderHash,
-) (utils.Option[types.BlockWithNumber], error) {
+) (utils.Option[*types.Block], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if e, ok := s.byHash[hash]; ok {
-		return utils.Some(types.BlockWithNumber{Block: e.blk, Number: e.n}), nil
+	if blk, ok := s.byHash[hash]; ok {
+		return utils.Some(blk), nil
 	}
-	return utils.None[types.BlockWithNumber](), nil
+	return utils.None[*types.Block](), nil
 }
 
 func (s *blockDB) ReadQCByBlockNumber(
@@ -254,9 +207,6 @@ func (s *blockDB) ReadQCByBlockNumber(
 ) (utils.Option[*types.FullCommitQC], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if n < s.watermark {
-		return utils.None[*types.FullCommitQC](), types.ErrPruned
-	}
 	for _, e := range s.qcsByLower {
 		if e.lower <= n && n < e.upper {
 			return utils.Some(e.qc), nil

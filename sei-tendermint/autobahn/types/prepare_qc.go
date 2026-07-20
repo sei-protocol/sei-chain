@@ -36,12 +36,9 @@ func (m *PrepareQC) View() View {
 	return m.vote.Msg().Proposal().View()
 }
 
-// Verify verifies the PrepareQC against the epoch.
-func (m *PrepareQC) Verify(ep *Epoch) error {
-	if err := m.Proposal().Verify(ep); err != nil {
-		return err
-	}
-	c := ep.Committee()
+// Verify verifies the PrepareQC against the committee.
+// Currently it doesn't require the previous CommitQC.
+func (m *PrepareQC) Verify(c *Committee) error {
 	return m.vote.verifyQC(c, c.PrepareQuorum(), m.sigs)
 }
 

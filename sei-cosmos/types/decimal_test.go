@@ -718,28 +718,3 @@ func BenchmarkIsInValidRange(b *testing.B) {
 		})
 	}
 }
-
-// maxInt returns the maximum protocol-valid sdk.Int, 2^256 - 1.
-func maxInt() sdk.Int {
-	return sdk.NewIntFromBigInt(new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1)))
-}
-
-// TestIntToDecConversionRange checks the Int -> Dec boundary: an out-of-range
-// conversion is rejected, and an in-range value round-trips unchanged.
-func TestIntToDecConversionRange(t *testing.T) {
-	require.Panics(t, func() { sdk.NewDecFromInt(maxInt()) }, "NewDecFromInt must reject max Int")
-	require.Panics(t, func() { _ = maxInt().ToDec() }, "Int.ToDec must reject max Int")
-	require.Panics(t, func() { sdk.NewDecFromIntWithPrec(maxInt(), 0) }, "NewDecFromIntWithPrec must reject max Int")
-
-	// A whole-coin amount that stays within range converts and round-trips
-	// through Marshal/Unmarshal unchanged.
-	valid := sdk.NewIntFromBigInt(new(big.Int).Lsh(big.NewInt(1), 200))
-	d := valid.ToDec()
-	require.True(t, d.IsInValidRange())
-
-	bz, err := d.Marshal()
-	require.NoError(t, err)
-	var back sdk.Dec
-	require.NoError(t, (&back).Unmarshal(bz))
-	require.True(t, d.Equal(back))
-}

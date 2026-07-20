@@ -69,11 +69,21 @@ type persistedInner struct {
 	TimeoutVote utils.Option[*types.FullTimeoutVote]
 }
 
+// View returns the current view based on CommitQC and TimeoutQC.
+// Delegates to types.ViewSpec.View() for a single source of truth.
+func (p *persistedInner) View() types.View {
+	vs := types.ViewSpec{
+		CommitQC:  p.CommitQC,
+		TimeoutQC: p.TimeoutQC,
+	}
+	return vs.View()
+}
+
 // validate checks internal consistency and cryptographic signatures of persisted state.
 // Returns error on corrupt state.
-func (p *persistedInner) validate(ep *types.Epoch) error {
+func (p *persistedInner) validate(committee *types.Committee) error {
 	if cqc, ok := p.CommitQC.Get(); ok {
-		if err := cqc.Verify(ep); err != nil {
+		if err := cqc.Verify(committee); err != nil {
 			return fmt.Errorf("corrupt persisted state: CommitQC failed verification: %w", err)
 		}
 	}
@@ -86,14 +96,12 @@ func (p *persistedInner) validate(ep *types.Epoch) error {
 		if tqcIndex != expectedIndex {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC has index %d but expected %d", tqcIndex, expectedIndex)
 		}
-		if err := tqc.Verify(ep, p.CommitQC); err != nil {
+		if err := tqc.Verify(committee, p.CommitQC); err != nil {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC failed verification: %w", err)
 		}
 	}
 
-	vs := types.ViewSpec{CommitQC: p.CommitQC, TimeoutQC: p.TimeoutQC, Epoch: ep}
-	currentView := vs.View()
-	committee := ep.Committee()
+	currentView := p.View()
 
 	// checkViewAndSig validates that a persisted field has the current view and a valid signature.
 	// Since inner is persisted atomically, any view mismatch indicates corrupt state.
@@ -109,7 +117,7 @@ func (p *persistedInner) validate(ep *types.Epoch) error {
 
 	// PrepareQC is required when CommitVote is present (CommitVote requires PrepareQC justification).
 	if pqc, ok := p.PrepareQC.Get(); ok {
-		if err := checkViewAndSig("PrepareQC", pqc.Proposal().View(), pqc.Verify(ep)); err != nil {
+		if err := checkViewAndSig("PrepareQC", pqc.Proposal().View(), pqc.Verify(committee)); err != nil {
 			return err
 		}
 	} else if p.CommitVote.IsPresent() {
@@ -126,7 +134,7 @@ func (p *persistedInner) validate(ep *types.Epoch) error {
 		}
 	}
 	if v, ok := p.TimeoutVote.Get(); ok {
-		if err := checkViewAndSig("TimeoutVote", v.View(), v.Verify(ep)); err != nil {
+		if err := checkViewAndSig("TimeoutVote", v.View(), v.Verify(committee)); err != nil {
 			return err
 		}
 	}

@@ -494,7 +494,7 @@ func (k BaseKeeper) createCoins(ctx sdk.Context, moduleName string, amounts sdk.
 		k.SetSupply(ctx, supply)
 	}
 
-	logger.Debug("minted coins from module account", "amount", amounts, "from", moduleName)
+	logger.Info("minted coins from module account", "amount", amounts, "from", moduleName)
 
 	// emit mint event
 	ctx.EventManager().EmitEvent(

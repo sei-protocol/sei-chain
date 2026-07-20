@@ -22,7 +22,7 @@ const (
 func GetTxCmd() *cobra.Command {
 	txCmd := &cobra.Command{
 		Use:                        types.ModuleName,
-		Short:                      "Vesting transaction subcommands (deprecated)",
+		Short:                      "Vesting transaction subcommands",
 		DisableFlagParsing:         true,
 		SuggestionsMinimumDistance: 2,
 		RunE:                       client.ValidateCmd,
@@ -46,8 +46,7 @@ account can either be a delayed or continuous vesting account, which is determin
 by the '--delayed' flag. All vesting accouts created will have their start time
 set by the committed block's time. The end_time must be provided as a UNIX epoch
 timestamp. You can also optionally configure the 'admin' field using the flag '--admin {addr}. This admin will be able to perform some administrative actions on the vesting account if set.`,
-		Deprecated: "the vesting module is deprecated; the chain rejects this message, so new vesting accounts can no longer be created.",
-		Args:       cobra.ExactArgs(3),
+		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {

@@ -7,9 +7,6 @@ before:
     - go mod download
     # build-static.sh self-verifies (libwasmvm archives present + output is static).
     - bash scripts/build-static.sh
-    # Boot the binary before packaging: catches crash-at-first-wasm-use defects that
-    # neither a successful link nor `seid version` can (see scripts/boot-smoke.sh).
-    - bash scripts/boot-smoke.sh build/seid 4
 
 builds:
   # The static seid is built in Alpine (musl-native) by the `before:` hook above

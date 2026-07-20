@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -16,7 +15,6 @@ import (
 // BlockPersister creates lane WALs lazily inside MaybePruneAndPersistLane, but the new
 // member must also appear in inner.blocks before the next persist cycle.
 type inner struct {
-	epoch          *types.Epoch
 	latestAppQC    utils.Option[*types.AppQC]
 	latestCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]]
 	appVotes       *queue[types.GlobalBlockNumber, appVotes]
@@ -57,26 +55,25 @@ type loadedAvailState struct {
 	blocks      map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inner, error) {
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
-	for lane := range epoch.Committee().Lanes().All() {
+	for lane := range c.Lanes().All() {
 		votes[lane] = newQueue[types.BlockNumber, blockVotes]()
 		blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
 	}
 
 	i := &inner{
-		epoch:               epoch,
 		latestAppQC:         utils.None[*types.AppQC](),
 		latestCommitQC:      utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		appVotes:            newQueue[types.GlobalBlockNumber, appVotes](),
 		commitQCs:           newQueue[types.RoadIndex, *types.CommitQC](),
 		blocks:              blocks,
 		votes:               votes,
-		nextBlockToPersist:  make(map[types.LaneID]types.BlockNumber, len(votes)),
-		persistedBlockStart: make(map[types.LaneID]types.BlockNumber, len(votes)),
+		nextBlockToPersist:  make(map[types.LaneID]types.BlockNumber, c.Lanes().Len()),
+		persistedBlockStart: make(map[types.LaneID]types.BlockNumber, c.Lanes().Len()),
 	}
-	i.appVotes.prune(epoch.FirstBlock())
+	i.appVotes.prune(c.FirstBlock())
 
 	l, ok := loaded.Get()
 	if !ok {
@@ -91,8 +88,7 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 			slog.Uint64("roadIndex", uint64(anchor.AppQC.Proposal().RoadIndex())),
 			slog.Uint64("globalNumber", uint64(anchor.AppQC.Proposal().GlobalNumber())),
 		)
-		// TODO: use the committee of the anchor's epoch once epoch transitions are wired up.
-		if _, err := i.prune(epoch.Committee(), anchor.AppQC, anchor.CommitQC); err != nil {
+		if _, err := i.prune(c, anchor.AppQC, anchor.CommitQC); err != nil {
 			return nil, fmt.Errorf("prune: %w", err)
 		}
 		for lane := range i.blocks {
@@ -147,9 +143,7 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 	return i, nil
 }
 
-// TODO: filter votes per-epoch committee once epoch transitions are wired up.
-func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
-	c := i.epoch.Committee()
+func (i *inner) laneQC(c *types.Committee, lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
 	for _, byHash := range i.votes[lane].q[n].byHash {
 		if byHash.weight >= c.LaneQuorum() {
 			return types.NewLaneQC(byHash.votes[:]), true
@@ -169,13 +163,11 @@ func (i *inner) prune(c *types.Committee, appQC *types.AppQC, commitQC *types.Co
 		return false, nil
 	}
 	i.latestAppQC = utils.Some(appQC)
-	metrics.ObserveAppQC(appQC)
 	i.commitQCs.prune(idx)
 	if i.commitQCs.next == idx {
 		i.commitQCs.pushBack(commitQC)
-		metrics.ObserveCommitQC(commitQC)
 	}
-	i.appVotes.prune(commitQC.GlobalRange().First)
+	i.appVotes.prune(commitQC.GlobalRange(c).First)
 	for lane := range i.votes {
 		lr := commitQC.LaneRange(lane)
 		i.votes[lr.Lane()].prune(lr.First())

@@ -70,7 +70,7 @@ func executeStateSize(cmd *cobra.Command, _ []string) {
 
 	// Optionally scan FlatKV at the same requested height. We only bother
 	// when --module is empty or "evm" because FlatKV in production holds
-	// only evm keys (anything else is bucketed into the "misc" DB).
+	// only evm keys (anything else is bucketed into the "legacy" DB).
 	flatkvResult, flatkvActualHeight := maybeCollectFlatKV(flatkvDir, dbDir, module, height)
 
 	if exportDynamoDB {

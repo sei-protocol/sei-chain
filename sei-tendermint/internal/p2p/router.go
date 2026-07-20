@@ -32,7 +32,8 @@ type ConnSet = connSet[*ConnV2]
 type Router struct {
 	*service.BaseService
 
-	lc *metricsLabelCache
+	metrics *Metrics
+	lc      *metricsLabelCache
 
 	options     *RouterOptions
 	privKey     NodeSecretKey
@@ -60,6 +61,7 @@ func (r *Router) getChannelDescs() []*conn.ChannelDescriptor {
 
 // NewRouter creates a new Router.
 func NewRouter(
+	metrics *Metrics,
 	privKey NodeSecretKey,
 	nodeInfoProducer func() *types.NodeInfo,
 	db dbm.DB,
@@ -90,6 +92,7 @@ func NewRouter(
 		return nil, fmt.Errorf("peerManager.PushPex(initialAddrs): %w", err)
 	}
 	router := &Router{
+		metrics:          metrics,
 		lc:               newMetricsLabelCache(),
 		privKey:          privKey,
 		nodeInfoProducer: nodeInfoProducer,
@@ -189,7 +192,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			Global.newConnectionsAt("in", "true").Add(1)
+			r.metrics.NewConnections.With("direction", "in", "success", "true").Add(1)
 			addr := tcpConn.RemoteAddr()
 			// Spawn a goroutine per connection.
 			s.Spawn(func() error {
@@ -354,7 +357,7 @@ func (r *Router) metricsRoutine(ctx context.Context) error {
 		if err := utils.Sleep(ctx, 10*time.Second); err != nil {
 			return err
 		}
-		Global.peersAt().Set(int64(r.peerManager.Conns().Len()))
+		r.metrics.Peers.Set(float64(r.peerManager.Conns().Len()))
 		r.peerManager.LogState()
 	}
 }
@@ -376,7 +379,7 @@ func (r *Router) dial(ctx context.Context, addrs []NodeAddress) (_ tcp.Conn, err
 		if err != nil {
 			success = "false"
 		}
-		Global.newConnectionsAt("out", success).Add(1)
+		r.metrics.NewConnections.With("direction", "out", "success", success).Add(1)
 	}()
 	resolveCtx := ctx
 	if d, ok := r.options.ResolveTimeout.Get(); ok {

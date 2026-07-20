@@ -20,7 +20,7 @@ func newMockProxyApp(
 	return proxy.New(&mockProxyApp{
 		appHash:                appHash,
 		finalizeBlockResponses: finalizeBlockResponses,
-	})
+	}, proxy.NopMetrics())
 }
 
 type mockProxyApp struct {

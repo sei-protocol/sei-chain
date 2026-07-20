@@ -124,11 +124,7 @@ func loadEventSinks(cfg *tmcfg.Config) ([]indexer.EventSink, error) {
 			if conn == "" {
 				return nil, errors.New("the psql connection settings cannot be empty")
 			}
-			genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
-			if err != nil {
-				return nil, fmt.Errorf("failed to load genesis file: %w", err)
-			}
-			es, err := psql.NewEventSink(conn, genDoc.ChainID)
+			es, err := psql.NewEventSink(conn, cfg.ChainID())
 			if err != nil {
 				return nil, err
 			}

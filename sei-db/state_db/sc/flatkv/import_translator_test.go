@@ -80,7 +80,7 @@ func TestImportTranslator_CodeEntry(t *testing.T) {
 	require.Empty(t, tr.Finalize())
 }
 
-func TestImportTranslator_MiscEntryWithinEVMModule(t *testing.T) {
+func TestImportTranslator_LegacyEntryWithinEVMModule(t *testing.T) {
 	addr := addrN(0x42)
 	rawKey := append([]byte{0x09}, addr[:]...)
 	rawValue := []byte{0xAA, 0xBB}
@@ -99,7 +99,7 @@ func TestImportTranslator_MiscEntryWithinEVMModule(t *testing.T) {
 	expectedKey := ktype.ModulePhysicalKey(keys.EVMStoreKey, rawKey)
 	require.Equal(t, expectedKey, pairs[0].Key)
 
-	got, err := vtype.DeserializeMiscData(pairs[0].Value)
+	got, err := vtype.DeserializeLegacyData(pairs[0].Value)
 	require.NoError(t, err)
 	require.Equal(t, importBlockHeight, got.GetBlockHeight())
 	require.Equal(t, rawValue, got.GetValue())
@@ -108,7 +108,7 @@ func TestImportTranslator_MiscEntryWithinEVMModule(t *testing.T) {
 	require.Empty(t, tr.Finalize())
 }
 
-func TestImportTranslator_NonEVMModuleRoutesToMisc(t *testing.T) {
+func TestImportTranslator_NonEVMModuleRoutesToLegacy(t *testing.T) {
 	rawKey := []byte("custom-key")
 	rawValue := []byte("custom-value")
 
@@ -126,7 +126,7 @@ func TestImportTranslator_NonEVMModuleRoutesToMisc(t *testing.T) {
 	expectedKey := ktype.ModulePhysicalKey("bank", rawKey)
 	require.Equal(t, expectedKey, pairs[0].Key)
 
-	got, err := vtype.DeserializeMiscData(pairs[0].Value)
+	got, err := vtype.DeserializeLegacyData(pairs[0].Value)
 	require.NoError(t, err)
 	require.Equal(t, rawValue, got.GetValue())
 

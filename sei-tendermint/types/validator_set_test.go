@@ -1441,14 +1441,13 @@ func TestValidatorSetProtoBuf(t *testing.T) {
 	testCases := []struct {
 		msg      string
 		v1       *ValidatorSet
-		want     *ValidatorSet // expected FromProto result; nil means tc.v1
 		expPass1 bool
 		expPass2 bool
 	}{
-		{"success", valset, nil, true, true},
-		{"fail nil Proposer", valset3, nil, false, false},
-		{"empty valSet canonicalizes to empty", &ValidatorSet{}, NewValidatorSet(nil), true, true},
-		{"nil valSet canonicalizes to empty", nil, NewValidatorSet(nil), true, true},
+		{"success", valset, true, true},
+		{"fail nil Proposer", valset3, false, false},
+		{"fail empty valSet", &ValidatorSet{}, true, false},
+		{"false nil", nil, true, false},
 	}
 	for _, tc := range testCases {
 		protoValSet, err := tc.v1.ToProto()
@@ -1461,31 +1460,11 @@ func TestValidatorSetProtoBuf(t *testing.T) {
 		valSet, err := ValidatorSetFromProto(protoValSet)
 		if tc.expPass2 {
 			require.NoError(t, err, tc.msg)
-			want := tc.want
-			if want == nil {
-				want = tc.v1
-			}
-			require.EqualValues(t, want, valSet, tc.msg)
+			require.EqualValues(t, tc.v1, valSet, tc.msg)
 		} else {
 			require.Error(t, err, tc.msg)
 		}
 	}
-}
-
-// TestValidatorSetProtoRoundTripEmpty pins the empty-set round-trip: a
-// validator-less genesis (validators arrive at InitChain, or via state sync)
-// persists an empty set to the state store, and reloading it must return the
-// canonical empty set rather than a nil-proposer error.
-func TestValidatorSetProtoRoundTripEmpty(t *testing.T) {
-	empty := NewValidatorSet(nil)
-
-	pb, err := empty.ToProto()
-	require.NoError(t, err)
-
-	got, err := ValidatorSetFromProto(pb)
-	require.NoError(t, err)
-	require.True(t, got.IsNilOrEmpty())
-	require.EqualValues(t, empty, got)
 }
 
 // ---------------------

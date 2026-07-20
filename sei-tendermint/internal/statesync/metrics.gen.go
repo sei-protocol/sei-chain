@@ -3,95 +3,70 @@
 package statesync
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	"github.com/go-kit/kit/metrics/discard"
+	prometheus "github.com/go-kit/kit/metrics/prometheus"
+	stdprometheus "github.com/prometheus/client_golang/prometheus"
 )
 
-var Global = NewMetrics()
-
-func init() {
-	prometheus.MustRegister(
-		Global.TotalSnapshots,
-		Global.ChunkProcessAvgTime,
-		Global.SnapshotHeight,
-		Global.SnapshotChunk,
-		Global.SnapshotChunkTotal,
-		Global.BackFilledBlocks,
-		Global.BackFillBlocksTotal,
-	)
-}
-
-func NewMetrics() *Metrics {
+func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
+	labels := []string{}
+	for i := 0; i < len(labelsAndValues); i += 2 {
+		labels = append(labels, labelsAndValues[i])
+	}
 	return &Metrics{
-		TotalSnapshots: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
-			Namespace: MetricsNamespace,
+		TotalSnapshots: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "total_snapshots",
 			Help:      "The total number of snapshots discovered.",
-		}, nil),
-		ChunkProcessAvgTime: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
+		}, labels).With(labelsAndValues...),
+		ChunkProcessAvgTime: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "chunk_process_avg_time",
 			Help:      "The average processing time per chunk.",
-		}, nil),
-		SnapshotHeight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
+		}, labels).With(labelsAndValues...),
+		SnapshotHeight: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "snapshot_height",
 			Help:      "The height of the current snapshot the has been processed.",
-		}, nil),
-		SnapshotChunk: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
-			Namespace: MetricsNamespace,
+		}, labels).With(labelsAndValues...),
+		SnapshotChunk: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "snapshot_chunk",
 			Help:      "The current number of chunks that have been processed.",
-		}, nil),
-		SnapshotChunkTotal: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
+		}, labels).With(labelsAndValues...),
+		SnapshotChunkTotal: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "snapshot_chunk_total",
 			Help:      "The total number of chunks in the current snapshot.",
-		}, nil),
-		BackFilledBlocks: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
-			Namespace: MetricsNamespace,
+		}, labels).With(labelsAndValues...),
+		BackFilledBlocks: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "back_filled_blocks",
 			Help:      "The current number of blocks that have been back-filled.",
-		}, nil),
-		BackFillBlocksTotal: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
+		}, labels).With(labelsAndValues...),
+		BackFillBlocksTotal: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "back_fill_blocks_total",
 			Help:      "The total number of blocks that need to be back-filled.",
-		}, nil),
+		}, labels).With(labelsAndValues...),
 	}
 }
 
-func (m *Metrics) TotalSnapshotsAt() *tmprometheus.CounterInt {
-	return m.TotalSnapshots.WithLabelValues()
-}
-
-func (m *Metrics) ChunkProcessAvgTimeAt() prometheus.Gauge {
-	return m.ChunkProcessAvgTime.WithLabelValues()
-}
-
-func (m *Metrics) SnapshotHeightAt() *tmprometheus.GaugeInt {
-	return m.SnapshotHeight.WithLabelValues()
-}
-
-func (m *Metrics) SnapshotChunkAt() *tmprometheus.CounterInt {
-	return m.SnapshotChunk.WithLabelValues()
-}
-
-func (m *Metrics) SnapshotChunkTotalAt() *tmprometheus.GaugeInt {
-	return m.SnapshotChunkTotal.WithLabelValues()
-}
-
-func (m *Metrics) BackFilledBlocksAt() *tmprometheus.CounterInt {
-	return m.BackFilledBlocks.WithLabelValues()
-}
-
-func (m *Metrics) BackFillBlocksTotalAt() *tmprometheus.GaugeInt {
-	return m.BackFillBlocksTotal.WithLabelValues()
+func NopMetrics() *Metrics {
+	return &Metrics{
+		TotalSnapshots:      discard.NewCounter(),
+		ChunkProcessAvgTime: discard.NewGauge(),
+		SnapshotHeight:      discard.NewGauge(),
+		SnapshotChunk:       discard.NewCounter(),
+		SnapshotChunkTotal:  discard.NewGauge(),
+		BackFilledBlocks:    discard.NewCounter(),
+		BackFillBlocksTotal: discard.NewGauge(),
+	}
 }

@@ -117,13 +117,6 @@ func LightBlockFromProto(pb *tmproto.LightBlock) (*LightBlock, error) {
 	if err != nil {
 		return nil, err
 	}
-	// A light block's validator set comes from an untrusted peer and is never
-	// legitimately empty; reject it at decode even though the generic
-	// round-trip canonicalizes empty sets (for the state store's
-	// pre-InitChain genesis state).
-	if vals.IsNilOrEmpty() {
-		return nil, ErrValidatorSetEmpty
-	}
 
 	return &LightBlock{SignedHeader: sh, ValidatorSet: vals}, nil
 }

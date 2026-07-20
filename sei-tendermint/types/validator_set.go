@@ -868,15 +868,6 @@ func ValidatorSetFromProto(vp *tmproto.ValidatorSet) (*ValidatorSet, error) {
 	if vp == nil {
 		return nil, errors.New("nil validator set") // validator set should never be nil, bigger issues are at play if empty
 	}
-	if len(vp.Validators) == 0 && vp.Proposer == nil {
-		// Mirror ToProto's IsNilOrEmpty short-circuit so the round-trip is
-		// lossless. MakeGenesisState represents a validator-less genesis
-		// (validators arrive at InitChain, or via state sync) as an empty
-		// set, and the state store must be able to reload what it saved.
-		// Callers validating untrusted input still reject empty sets via
-		// ValidateBasic (ErrValidatorSetEmpty).
-		return NewValidatorSet(nil), nil
-	}
 	vals := new(ValidatorSet)
 
 	valsProto := make([]*Validator, len(vp.Validators))

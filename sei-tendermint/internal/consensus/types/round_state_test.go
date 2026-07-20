@@ -59,25 +59,6 @@ func TestRoundStateLeaderChangeDetector(t *testing.T) {
 	}
 }
 
-// TestRoundStateEmptyValidatorSet checks that the event/RPC serializers yield
-// an empty proposer on an empty validator set rather than dividing by the set's
-// zero total voting power in leader election.
-func TestRoundStateEmptyValidatorSet(t *testing.T) {
-	rs := RoundState{
-		Validators: tmtypes.NewValidatorSet(nil),
-	}
-	rs.Height, rs.Round = 1, 0
-	require.Zero(t, rs.Validators.TotalVotingPower())
-
-	// The event/RPC serializers must yield an empty proposer rather than
-	// dividing by zero in leader election.
-	require.NotPanics(t, func() {
-		ev := rs.NewRoundEvent()
-		require.Zero(t, ev.Proposer.Index)
-		require.Empty(t, ev.Proposer.Address)
-	}, "NewRoundEvent must not divide by zero on an empty validator set")
-}
-
 func TestRoundStateLeaderDistribution(t *testing.T) {
 	const samples = 100000
 

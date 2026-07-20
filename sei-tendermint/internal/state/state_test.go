@@ -1147,52 +1147,6 @@ func TestConsensusParamsChangesSaveLoad(t *testing.T) {
 	}
 }
 
-// TestStateProtoEmptyRoundTrip pins that a state with empty validator sets
-// survives the proto round-trip: the state store persists a genesis-derived
-// state before InitChain (or state sync) populates the validators, and must
-// be able to reload it. Empty sets canonicalize to types.NewValidatorSet(nil).
-func TestStateProtoEmptyRoundTrip(t *testing.T) {
-	pbs, err := (&sm.State{}).ToProto()
-	require.NoError(t, err)
-
-	smt, err := sm.FromProto(pbs)
-	require.NoError(t, err)
-	require.True(t, smt.Validators.IsNilOrEmpty())
-	require.True(t, smt.NextValidators.IsNilOrEmpty())
-	require.Zero(t, smt.LastBlockHeight)
-}
-
-// TestStateProtoEmptyRejectedPastGenesis pins the corruption backstop: an
-// empty validator set is legitimate only at LastBlockHeight 0.
-func TestStateProtoEmptyRejectedPastGenesis(t *testing.T) {
-	pbs, err := (&sm.State{}).ToProto()
-	require.NoError(t, err)
-	pbs.LastBlockHeight = 5
-
-	_, err = sm.FromProto(pbs)
-	var errEmpty sm.ErrEmptyValidatorSet
-	require.ErrorAs(t, err, &errEmpty)
-	require.EqualValues(t, 5, errEmpty.Height)
-}
-
-// TestStateProtoEmptyLastValidatorsRejected pins the same backstop for
-// LastValidators: a committed block implies a non-empty signing set.
-func TestStateProtoEmptyLastValidatorsRejected(t *testing.T) {
-	tearDown, _, state := setupTestCase(t)
-	defer tearDown(t)
-	state.LastBlockHeight = 5
-
-	pbs, err := state.ToProto()
-	require.NoError(t, err)
-	pbs.LastValidators, err = types.NewValidatorSet(nil).ToProto()
-	require.NoError(t, err)
-
-	_, err = sm.FromProto(pbs)
-	var errEmpty sm.ErrEmptyValidatorSet
-	require.ErrorAs(t, err, &errEmpty)
-	require.EqualValues(t, 5, errEmpty.Height)
-}
-
 func TestStateProto(t *testing.T) {
 	tearDown, _, state := setupTestCase(t)
 	defer tearDown(t)
@@ -1203,6 +1157,7 @@ func TestStateProto(t *testing.T) {
 		expPass1 bool
 		expPass2 bool
 	}{
+		{"empty state", &sm.State{}, true, false},
 		{"nil failure state", nil, false, false},
 		{"success state", &state, true, true},
 	}

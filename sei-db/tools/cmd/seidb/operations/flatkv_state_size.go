@@ -22,7 +22,7 @@ type FlatKVStateSizeResult struct {
 	// Total holds the aggregate size stats across every physical row.
 	Total FlatKVDBSize
 
-	// Per-DB breakdown (account, code, storage, misc).
+	// Per-DB breakdown (account, code, storage, legacy).
 	DBSizes map[string]*FlatKVDBSize
 
 	// Top EVM contracts by storage size.
@@ -100,12 +100,12 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, 
 // classifyFlatKVPhysicalKey determines which logical DB a physical key
 // belongs to. Physical format: "<module>/" + type_prefix_byte + stripped_key.
 // Non-evm modules and evm keys with an unrecognised type prefix are bucketed
-// into "misc". The kind switch mirrors CommitStore.routePhysicalKey so the
+// into "legacy". The kind switch mirrors CommitStore.routePhysicalKey so the
 // classification stays in sync with FlatKV's actual write routing.
 func classifyFlatKVPhysicalKey(key []byte) string {
 	moduleName, innerKey, err := ktype.StripModulePrefix(key)
 	if err != nil || moduleName != keys.EVMStoreKey {
-		return flatkvBucketMisc
+		return flatkvBucketLegacy
 	}
 	kind, _ := keys.ParseEVMKey(innerKey)
 	switch kind {
@@ -116,7 +116,7 @@ func classifyFlatKVPhysicalKey(key []byte) string {
 	case keys.EVMKeyStorage:
 		return flatkvBucketStorage
 	default:
-		return flatkvBucketMisc
+		return flatkvBucketLegacy
 	}
 }
 
@@ -161,7 +161,7 @@ func printFlatKVResults(r *FlatKVStateSizeResult, height int64) {
 	fmt.Printf("%-12s %15s %15s %15s %15s\n", "DB", "Keys", "Key Size", "Value Size", "Total Size")
 	fmt.Printf("%s\n", strings.Repeat("-", 75))
 
-	dbOrder := []string{flatkvBucketAccount, flatkvBucketCode, flatkvBucketStorage, flatkvBucketMisc}
+	dbOrder := []string{flatkvBucketAccount, flatkvBucketCode, flatkvBucketStorage, flatkvBucketLegacy}
 	for _, name := range dbOrder {
 		db, ok := r.DBSizes[name]
 		if !ok {

@@ -46,6 +46,16 @@ func LaneRangeOpt[T interface {
 	return NewLaneRange(lane, 0, utils.None[*BlockHeader]())
 }
 
+// GlobalRangeOpt defaults to an empty initial range.
+func GlobalRangeOpt[T interface {
+	GlobalRange(c *Committee) GlobalRange
+}](mv utils.Option[T], c *Committee) GlobalRange {
+	if v, ok := mv.Get(); ok {
+		return v.GlobalRange(c)
+	}
+	return GlobalRange{First: c.FirstBlock(), Next: c.FirstBlock()}
+}
+
 // AppOpt defaults to None.
 func AppOpt[T interface {
 	App() utils.Option[*AppProposal]

@@ -59,8 +59,7 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		1,
-		false,
-		32)
+		false)
 
 	require.NoError(t, err)
 
@@ -209,8 +208,7 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardCount,
-		false,
-		32)
+		false)
 
 	require.NoError(t, err)
 
@@ -368,8 +366,7 @@ func TestWriteAndReadColdShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardCount,
-		false,
-		32)
+		false)
 
 	require.NoError(t, err)
 
@@ -478,8 +475,7 @@ func TestGetFilePaths(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardingFactor,
-		false,
-		32)
+		false)
 	require.NoError(t, err)
 
 	files := segment.GetFilePaths()
@@ -546,8 +542,7 @@ func TestRoundRobinShardAssignment(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardingFactor,
-		false,
-		32)
+		false)
 	require.NoError(t, err)
 
 	// Capture the address that the segment assigns to each write, in insertion order.
@@ -618,7 +613,6 @@ func newSingleShardSegment(t *testing.T) (*Segment, *SegmentPath, uint32) {
 		false,
 		1,
 		false,
-		32,
 	)
 	require.NoError(t, err)
 	return seg, segmentPath, index

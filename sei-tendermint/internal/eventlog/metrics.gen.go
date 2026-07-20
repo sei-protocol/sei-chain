@@ -3,29 +3,28 @@
 package eventlog
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	"github.com/go-kit/kit/metrics/discard"
+	prometheus "github.com/go-kit/kit/metrics/prometheus"
+	stdprometheus "github.com/prometheus/client_golang/prometheus"
 )
 
-var Global = NewMetrics()
-
-func init() {
-	prometheus.MustRegister(
-		Global.numItems,
-	)
-}
-
-func NewMetrics() *Metrics {
+func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
+	labels := []string{}
+	for i := 0; i < len(labelsAndValues); i += 2 {
+		labels = append(labels, labelsAndValues[i])
+	}
 	return &Metrics{
-		numItems: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
+		numItems: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "num_items",
 			Help:      "Number of items currently resident in the event log.",
-		}, nil),
+		}, labels).With(labelsAndValues...),
 	}
 }
 
-func (m *Metrics) numItemsAt() *tmprometheus.GaugeInt {
-	return m.numItems.WithLabelValues()
+func NopMetrics() *Metrics {
+	return &Metrics{
+		numItems: discard.NewGauge(),
+	}
 }

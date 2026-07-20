@@ -1,11 +1,8 @@
 package memiavl
 
 const (
-	DefaultSnapshotInterval = 10000
-	// DefaultSnapshotKeepRecent is how many old snapshots (besides the latest) to
-	// keep by default. A configured value of 0 is treated as "unset" and healed
-	// to this default by Options.FillDefaults.
-	DefaultSnapshotKeepRecent        = 1
+	DefaultSnapshotInterval          = 10000
+	DefaultSnapshotKeepRecent        = 0       // set to 0 to only keep one current snapshot
 	DefaultSnapshotMinTimeInterval   = 60 * 60 // 1 hour in seconds
 	DefaultAsyncCommitBuffer         = 100
 	DefaultSnapshotPrefetchThreshold = 0.8 // prefetch if <80% pages in cache
@@ -19,8 +16,8 @@ type Config struct {
 	// defaults to 100
 	AsyncCommitBuffer int `mapstructure:"async-commit-buffer"`
 
-	// SnapshotKeepRecent defines how many old snapshots (excluding the latest one) to keep.
-	// Defaults to 1; a configured value of 0 is overridden to the default by FillDefaults.
+	// SnapshotKeepRecent defines what many old snapshots (excluding the latest one) to keep
+	// defaults to 0 to only keep one current snapshot
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// SnapshotInterval defines the block interval the memiavl snapshot is taken, default to 10000.

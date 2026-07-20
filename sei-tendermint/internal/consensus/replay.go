@@ -139,7 +139,7 @@ func NewHandshaker(
 }
 
 func newReplayTxMempool(app *proxy.Proxy) *mempool.TxMempool {
-	return mempool.NewTxMempool(config.DefaultMempoolConfig().ToMempoolConfig(), app, mempool.NopTxConstraintsFetcher)
+	return mempool.NewTxMempool(config.DefaultMempoolConfig().ToMempoolConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 }
 
 // NBlocks returns the number of blocks applied to the state.
@@ -401,7 +401,7 @@ func (h *Handshaker) replayBlocks(
 		if i == finalBlock && !mutateState {
 			// We emit events for the index services at the final block due to the sync issue when
 			// the node shutdown during the block committing status.
-			blockExec := sm.NewBlockExecutor(h.stateStore, app, newReplayTxMempool(app), sm.EmptyEvidencePool{}, h.store, h.eventBus, h.consensusPolicy)
+			blockExec := sm.NewBlockExecutor(h.stateStore, app, newReplayTxMempool(app), sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics(), h.consensusPolicy)
 			appHash, err = sm.ExecCommitBlock(ctx,
 				blockExec, app, block, h.stateStore, h.genDoc.InitialHeight, state)
 			if err != nil {
@@ -446,7 +446,7 @@ func (h *Handshaker) replayBlock(
 
 	// Use stubs for both mempool and evidence pool since no transactions nor
 	// evidence are needed here - block already exists.
-	blockExec := sm.NewBlockExecutor(h.stateStore, app, newReplayTxMempool(app), sm.EmptyEvidencePool{}, h.store, h.eventBus, h.consensusPolicy)
+	blockExec := sm.NewBlockExecutor(h.stateStore, app, newReplayTxMempool(app), sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics(), h.consensusPolicy)
 
 	var err error
 	state, err = blockExec.ApplyBlock(ctx, state, meta.BlockID, block, nil)

@@ -103,6 +103,7 @@ func StartTendermint(
 		app,
 		nil,
 		[]trace.TracerProviderOption{},
+		node.NoOpMetricsProvider(),
 		types.DefaultConsensusPolicy(),
 	)
 	if err != nil {

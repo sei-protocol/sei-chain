@@ -29,18 +29,10 @@ func (m *TimeoutVote) View() View {
 	return m.view
 }
 
-// EpochIndex returns the epoch this vote belongs to.
-func (m *TimeoutVote) EpochIndex() EpochIndex { return m.view.EpochIndex }
-
-// Verify checks epoch binding and road range validity of the vote.
-func (m *TimeoutVote) Verify(ep *Epoch) error {
-	return m.view.Verify(ep)
-}
-
 // latestPrepareQCView is the highest view number for which a PrepareQC was observed by the node.
 func (m *TimeoutVote) latestPrepareQCView() utils.Option[View] {
 	return utils.MapOpt(m.latestPrepareQC, func(n ViewNumber) View {
-		return View{Index: m.view.Index, Number: n, EpochIndex: m.view.EpochIndex}
+		return View{Index: m.view.Index, Number: n}
 	})
 }
 
@@ -73,12 +65,8 @@ func (m *FullTimeoutVote) View() View {
 	return m.vote.Msg().View()
 }
 
-// Verify verifies the FullTimeoutVote against the epoch.
-func (m *FullTimeoutVote) Verify(ep *Epoch) error {
-	if err := m.vote.Msg().Verify(ep); err != nil {
-		return err
-	}
-	c := ep.Committee()
+// Verify verifies the FullTimeoutVote against the committee.
+func (m *FullTimeoutVote) Verify(c *Committee) error {
 	if err := m.vote.VerifySig(c); err != nil {
 		return err
 	}
@@ -89,7 +77,7 @@ func (m *FullTimeoutVote) Verify(ep *Epoch) error {
 		}
 		// TODO: verifying PrepareQC in all Timeout votes might be too inefficient.
 		// If it is, we can skip duplicated verification.
-		if err := pQC.Verify(ep); err != nil {
+		if err := pQC.Verify(c); err != nil {
 			return fmt.Errorf("latestPrepareQC: %w", err)
 		}
 		if got := pQC.Proposal().View(); got != want {
@@ -144,19 +132,10 @@ func (m *TimeoutQC) LatestPrepareQC() utils.Option[*PrepareQC] {
 	return m.latestPrepareQC
 }
 
-// Verify verifies the TimeoutQC against the epoch and the previous CommitQC.
+// Verify verifies the TimeoutQC against the committee and the previous CommitQC.
 // Verifying TimeoutQC should NOT require previous TimeoutQC,
 // since observing prior TimeoutQCs is not required in the pb.
-func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
-	view := m.View()
-	if err := m.votes[0].Msg().Verify(ep); err != nil {
-		return err
-	}
-	c := ep.Committee()
-	// Check that the TimeoutQC is from the correct consensus instance.
-	if got, want := view.Index, NextIndexOpt(prev); got != want {
-		return fmt.Errorf("timeoutQC.View().Index = %v, want %v", got, want)
-	}
+func (m *TimeoutQC) Verify(c *Committee, prev utils.Option[*CommitQC]) error {
 	// Verify the signatures.
 	weight := uint64(0)
 	done := map[PublicKey]struct{}{}
@@ -174,7 +153,12 @@ func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
 	if got, want := weight, c.TimeoutQuorum(); got < want {
 		return fmt.Errorf("got %v votes weight, want >= %v", got, want)
 	}
+	// Check that the TimeoutQC is from the correct consensus instance.
 	h := utils.None[ViewNumber]()
+	view := m.View()
+	if got, want := view.Index, NextIndexOpt(prev); got != want {
+		return fmt.Errorf("timeoutQC.View().Index = %v, want %v", got, want)
+	}
 	// Check that the votes come from the same view.
 	for _, v := range m.Votes() {
 		if got := v.Msg().View(); got != view {
@@ -190,10 +174,10 @@ func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
 		if !ok {
 			return errors.New("missing latestPrepareQC")
 		}
-		if got, want := pQC.Proposal().View(), (View{Index: view.Index, Number: vn, EpochIndex: view.EpochIndex}); got != want {
+		if got, want := pQC.Proposal().View(), (View{Index: view.Index, Number: vn}); got != want {
 			return fmt.Errorf("latestPrepareQC view number mismatch, got %v, want %v", got, want)
 		}
-		if err := pQC.Verify(ep); err != nil {
+		if err := pQC.Verify(c); err != nil {
 			return fmt.Errorf("higPrepareQC: %w", err)
 		}
 	} else {
@@ -215,7 +199,12 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 	for _, l := range p.laneRanges {
 		laneRanges = append(laneRanges, l)
 	}
-	return newProposal(m.View().Next(), p.Timestamp(), laneRanges, p.App(), p.GlobalRange().First), true
+	return newProposal(
+		m.View().Next(),
+		p.Timestamp(),
+		laneRanges,
+		p.App(),
+	), true
 }
 
 // TimeoutVoteConv is the protobuf converter for TimeoutVote.

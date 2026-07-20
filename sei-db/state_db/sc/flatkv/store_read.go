@@ -13,20 +13,20 @@ import (
 
 // Get returns the value for the given key within the specified module.
 // For EVM keys (moduleName == keys.EVMStoreKey), the key is a prefix-encoded
-// EVM key routed internally to account/storage/code/misc DBs.
-// For non-EVM modules, the key is read from misc storage with the module prefix.
+// EVM key routed internally to account/storage/code/legacy DBs.
+// For non-EVM modules, the key is read from legacy storage with the module prefix.
 // Returns (value, true) if found, (nil, false) if not found.
 // Panics on I/O errors or unsupported key types.
 func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 	// Read lock: the internal getters (getAccountData, getStorageData,
-	// getCodeData, getMiscData) read the pending-writes maps, which
+	// getCodeData, getLegacyData) read the pending-writes maps, which
 	// ApplyChangeSets/Commit mutate under the write lock. Has delegates to Get
 	// and must not take its own lock (RWMutex read locks are not reentrant).
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if moduleName != keys.EVMStoreKey {
-		value, err := s.getMiscValue(moduleName, key)
+		value, err := s.getLegacyValue(moduleName, key)
 		if err != nil {
 			panic(fmt.Sprintf("flatkv: Get module=%s key %x: %v", moduleName, key, err))
 		}
@@ -74,10 +74,10 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 		}
 		return value, value != nil
 
-	case keys.EVMKeyMisc:
-		value, err := s.getMiscValue(keys.EVMStoreKey, keyBytes)
+	case keys.EVMKeyLegacy:
+		value, err := s.getLegacyValue(keys.EVMStoreKey, keyBytes)
 		if err != nil {
-			panic(fmt.Sprintf("flatkv: Get misc key %x: %v", key, err))
+			panic(fmt.Sprintf("flatkv: Get legacy key %x: %v", key, err))
 		}
 		return value, value != nil
 
@@ -87,7 +87,7 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 }
 
 // GetBlockHeightModified returns the block height at which the key was last modified.
-// Only supported for EVM keys; non-EVM misc data does not track block height.
+// Only supported for EVM keys; non-EVM legacy data does not track block height.
 // If not found, returns (-1, false, nil).
 func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (int64, bool, error) {
 	// Read lock: the internal getters (getStorageData, getAccountData,
@@ -213,12 +213,12 @@ func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
 	return cd.GetBytecode(), nil
 }
 
-func (s *CommitStore) getMiscData(moduleName string, keyBytes []byte) (*vtype.MiscData, error) {
-	return readFromDB(ktype.ModulePhysicalKey(moduleName, keyBytes), s.miscWrites, s.miscDB, vtype.DeserializeMiscData, "miscDB")
+func (s *CommitStore) getLegacyData(moduleName string, keyBytes []byte) (*vtype.LegacyData, error) {
+	return readFromDB(ktype.ModulePhysicalKey(moduleName, keyBytes), s.legacyWrites, s.legacyDB, vtype.DeserializeLegacyData, "legacyDB")
 }
 
-func (s *CommitStore) getMiscValue(moduleName string, key []byte) ([]byte, error) {
-	ld, err := s.getMiscData(moduleName, key)
+func (s *CommitStore) getLegacyValue(moduleName string, key []byte) ([]byte, error) {
+	ld, err := s.getLegacyData(moduleName, key)
 	if err != nil {
 		return nil, err
 	}

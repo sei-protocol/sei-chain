@@ -45,13 +45,13 @@ const (
 	flatkvBucketAccount = "account"
 	flatkvBucketCode    = "code"
 	flatkvBucketStorage = "storage"
-	flatkvBucketMisc    = "misc"
+	flatkvBucketLegacy  = "legacy"
 )
 
 // flatkvBucketOrder lists the logical bucket names for dump output files.
 // RawGlobalIterator emits keys in global lex order; this order is used only
 // for CLI validation and per-bucket file allocation.
-var flatkvBucketOrder = []string{flatkvBucketAccount, flatkvBucketCode, flatkvBucketStorage, flatkvBucketMisc}
+var flatkvBucketOrder = []string{flatkvBucketAccount, flatkvBucketCode, flatkvBucketStorage, flatkvBucketLegacy}
 
 // DumpFlatKVCmd dumps every (physical key, value) pair of a FlatKV store into
 // per-bucket files, formatted to match dump-iavl so the same diff tooling works
@@ -73,7 +73,7 @@ var flatkvBucketOrder = []string{flatkvBucketAccount, flatkvBucketCode, flatkvBu
 //	    --height        Target version. 0 (default) selects the latest available
 //	                    version (replays the WAL to the tip).
 //	-b, --bucket        Restrict the on-disk dump to a single bucket
-//	                    (account|code|storage|misc). Default: all buckets.
+//	                    (account|code|storage|legacy). Default: all buckets.
 //	                    NOTE: this only filters which hex files are WRITTEN; the
 //	                    full keyspace is always scanned, and --lthash always
 //	                    covers all four buckets, so the LtHash total stays valid.
@@ -128,7 +128,7 @@ func DumpFlatKVCmd() *cobra.Command {
 	cmd.PersistentFlags().StringP("db-dir", "d", "", "FlatKV database directory")
 	cmd.PersistentFlags().StringP("output-dir", "o", "", "Output directory (one file per bucket)")
 	cmd.PersistentFlags().Int64("height", 0, "FlatKV target version; 0 selects the latest available version")
-	cmd.PersistentFlags().StringP("bucket", "b", "", "Restrict dump to a single bucket (account|code|storage|misc). Default: all buckets")
+	cmd.PersistentFlags().StringP("bucket", "b", "", "Restrict dump to a single bucket (account|code|storage|legacy). Default: all buckets")
 	cmd.PersistentFlags().Bool("lthash", true, "Also compute per-bucket and total LtHash (lattice hash) over the scanned state. Computed for all buckets regardless of --bucket so the total matches the node's committed LtHash")
 	cmd.PersistentFlags().Bool("lthash-only", false, "Only compute and verify LtHash; do not write bucket dump files. Requires --lthash=true and does not require --output-dir")
 	cmd.PersistentFlags().Float64("read-limit-mb", defaultReadLimitMiBps, "Throttle the scan to at most this many MiB/s of (key+value) bytes read, so a dump against a running node does not starve the chain of disk bandwidth. 0 = unlimited")
@@ -151,7 +151,7 @@ func executeDumpFlatKV(cmd *cobra.Command, _ []string) {
 		panic("Must provide --output-dir")
 	}
 	if bucket != "" && !isFlatKVBucket(bucket) {
-		panic(fmt.Sprintf("Unknown --bucket %q. Valid: account, code, storage, misc", bucket))
+		panic(fmt.Sprintf("Unknown --bucket %q. Valid: account, code, storage, legacy", bucket))
 	}
 	if lthashOnly && !withLtHash {
 		panic("--lthash-only requires --lthash=true")

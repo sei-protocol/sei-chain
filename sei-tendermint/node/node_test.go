@@ -47,6 +47,7 @@ func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Servi
 		app,
 		nil,
 		nil,
+		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
 		types.DefaultConsensusPolicy(),
 	)
 }
@@ -114,6 +115,7 @@ func TestNodeRestartEventAllowsRecreate(t *testing.T) {
 			app,
 			nil,
 			nil,
+			DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
 			types.DefaultConsensusPolicy(),
 		)
 		require.NoError(t, err)
@@ -210,7 +212,7 @@ func TestNodeSetPrivValTCP(t *testing.T) {
 
 	signerServer := privval.NewSignerServer(
 		dialerEndpoint,
-		config.TestLoadGenesis(cfg).ChainID,
+		cfg.ChainID(),
 		types.NewMockPV(),
 	)
 
@@ -269,7 +271,7 @@ func TestNodeSetPrivValIPC(t *testing.T) {
 
 	pvsc := privval.NewSignerServer(
 		dialerEndpoint,
-		config.TestLoadGenesis(cfg).ChainID,
+		cfg.ChainID(),
 		types.NewMockPV(),
 	)
 
@@ -310,13 +312,14 @@ func TestCreateProposalBlock(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
 		proxyApp,
+		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
 
 	// Make EvidencePool
 	evidenceDB := dbm.NewMemDB()
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	evidencePool := evidence.NewPool(evidenceDB, stateStore, blockStore, nil)
+	evidencePool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NopMetrics(), nil)
 
 	// fill the evidence pool with more evidence
 	// than can fit in a block
@@ -351,6 +354,7 @@ func TestCreateProposalBlock(t *testing.T) {
 		evidencePool,
 		blockStore,
 		eventBus,
+		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -405,6 +409,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
 		proxyApp,
+		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
 
@@ -424,6 +429,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
+		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -468,6 +474,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
 		proxyApp,
+		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
 
@@ -494,6 +501,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
+		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 
@@ -597,6 +605,7 @@ func TestNodeNewSeedNode(t *testing.T) {
 		config.DefaultDBProvider,
 		nodeKey,
 		defaultGenesisDocProviderFunc(cfg),
+		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
 	)
 	t.Cleanup(ns.Wait)
 	t.Cleanup(leaktest.CheckTimeout(t, time.Second))

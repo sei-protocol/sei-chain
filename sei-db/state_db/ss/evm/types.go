@@ -22,7 +22,7 @@ const (
 	StoreCodeHash = commonevm.EVMKeyCodeHash
 	StoreCode     = commonevm.EVMKeyCode
 	StoreStorage  = commonevm.EVMKeyStorage
-	StoreMisc     = commonevm.EVMKeyMisc // Catch-all: codesize, address mappings, receipts, etc.
+	StoreLegacy   = commonevm.EVMKeyLegacy // Catch-all: codesize, address mappings, receipts, etc.
 	// StoreBalance is reserved for future migration; balances currently use tendermint store
 	StoreBalance EVMStoreType = 100
 )
@@ -35,7 +35,7 @@ func AllEVMStoreTypes() []EVMStoreType {
 		StoreCodeHash,
 		StoreCode,
 		StoreStorage,
-		StoreMisc,
+		StoreLegacy,
 	}
 }
 
@@ -50,7 +50,7 @@ func StoreTypeName(st EVMStoreType) string {
 		return "code"
 	case StoreStorage:
 		return "storage"
-	case StoreMisc:
+	case StoreLegacy:
 		return "legacy"
 	case StoreBalance:
 		return "balance"

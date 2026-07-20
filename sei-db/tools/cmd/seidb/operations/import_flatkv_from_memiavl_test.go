@@ -27,8 +27,8 @@ func TestImportMemiavlModulesToFlatKVEncodesEVMValues(t *testing.T) {
 	storageValue := padLeft32(0x2A)
 	nonceValue := uint64(7)
 	eoaNonceValue := uint64(1)
-	miscKey := append([]byte{0x09}, addr[:]...)
-	miscValue := []byte{0x00, 0x03}
+	legacyKey := append([]byte{0x09}, addr[:]...)
+	legacyValue := []byte{0x00, 0x03}
 
 	memStore := newTestMemiavlStore(t, homeDir)
 	require.NoError(t, memStore.ApplyChangeSets([]*proto.NamedChangeSet{{
@@ -40,7 +40,7 @@ func TestImportMemiavlModulesToFlatKVEncodesEVMValues(t *testing.T) {
 			codeHashPair(addr, codeHash),
 			noncePair(eoaAddr, eoaNonceValue),
 			codeHashPair(contractOnlyAddr, contractOnlyCodeHash),
-			{Key: miscKey, Value: miscValue},
+			{Key: legacyKey, Value: legacyValue},
 		}},
 	}}))
 	version, err := memStore.Commit()
@@ -77,9 +77,9 @@ func TestImportMemiavlModulesToFlatKVEncodesEVMValues(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, contractOnlyCodeHash[:], gotContractOnlyCodeHash)
 
-	gotMisc, found := flatStore.Get(keys.EVMStoreKey, miscKey)
+	gotLegacy, found := flatStore.Get(keys.EVMStoreKey, legacyKey)
 	require.True(t, found)
-	require.Equal(t, miscValue, gotMisc)
+	require.Equal(t, legacyValue, gotLegacy)
 }
 
 func TestImportMemiavlModulesToFlatKVRefusesExistingFlatKVWithoutForce(t *testing.T) {

@@ -30,51 +30,42 @@ type Config struct {
 	Paths []string
 
 	// The type of the keymap. Choices are keymap.MemKeymapType and keymap.PebbleDBKeymapType.
+	// Default is keymap.PebbleDBKeymapType.
 	KeymapType keymap.KeymapType
 
-	// The size of the control channel for the segment manager.
+	// The size of the control channel for the segment manager. The default is 64.
 	ControlChannelSize int
 
-	// The capacity of a table's flush loop channel. The control loop hands each segment flush and seal to
-	// the flush loop over this channel; when it fills, the control loop blocks, which backpressures writes.
-	// Each queued flush corresponds to values still resident in the unflushed-data cache, so this depth is
-	// one component of peak in-flight memory.
-	FlushChannelSize int
-
-	// The capacity of each segment shard's write channel. seg.Write hands a value to the shard's writer
-	// goroutine over this channel, and the segment's key-file channel is sized at this times the sharding
-	// factor. These channels carry the actual value bytes in flight, so their depth bounds how many
-	// written-but-not-yet-durable values may be resident per shard before a write blocks.
-	ShardControlChannelSize int
-
-	// The target size for segments.
+	// The target size for segments. The default is math.MaxUint32.
 	TargetSegmentFileSize uint32
 
-	// The maximum number of keys in a segment. For workloads with moderately large values
+	// The maximum number of keys in a segment. The default is 50,000. For workloads with moderately large values
 	// (i.e. in the kb+ range), this threshold is unlikely to be relevant. For workloads with very small values,
 	// this constant prevents a segment from accumulating too many keys. A segment with too many keys may have
 	// undesirable properties such as a very large key file and very slow garbage collection (since no kv-pair in
 	// a segment can be deleted until the entire segment is deleted).
 	MaxSegmentKeyCount uint32
 
-	// The desired maximum size for a key file. When a key file exceeds this size, the segment
+	// The desired maximum size for a key file. The default is 2 MB. When a key file exceeds this size, the segment
 	// will close the current segment and begin writing to a new one. For workloads with moderately large values,
 	// this threshold is unlikely to be relevant. For workloads with very small values, this constant prevents a key
 	// file from growing too large. A key file with too many keys may have undesirable properties such as very slow
 	// garbage collection (since no kv-pair in a segment can be deleted until the entire segment is deleted).
 	TargetSegmentKeyFileSize uint64
 
-	// The period between garbage collection runs. GC is cheap on the control loop
+	// The period between garbage collection runs. The default is 10 seconds. GC is cheap on the control loop
 	// (keymap deletes happen asynchronously on the keymap manager), so it runs frequently to avoid letting a
 	// backlog of collectable segments build up.
 	GCPeriod time.Duration
 
-	// The size of the keymap deletion batch for garbage collection.
+	// The size of the keymap deletion batch for garbage collection. The default is 10,000.
 	GCBatchSize uint64
 
 	// If true, then flush operations will call fsync on the underlying file to ensure data is flushed out of the
 	// operating system's buffer and onto disk. Setting this to false means that even after flushing data,
 	// there may be data loss in the advent of an OS/hardware crash.
+	//
+	// The default is true.
 	//
 	// Enabling fsync may have performance implications, although this strongly depends on the workload. For large
 	// batches that are flushed infrequently, benchmark data suggests that the impact is minimal. For small batches
@@ -85,24 +76,18 @@ type Config struct {
 	// If enabled, the database will return an error if a key is written but that key is already present in
 	// the database. Updating existing keys is illegal and may result in unexpected behavior, and so this check
 	// acts as a safety mechanism against this sort of illegal operation. Unfortunately, if using a keymap other
-	// than keymap.MemKeymapType, performing this check may be very expensive.
+	// than keymap.MemKeymapType, performing this check may be very expensive. By default, this is false.
 	DoubleWriteProtection bool
 
-	// If enabled, collect DB metrics and record them via the global OTel MeterProvider.
-	// How the metrics are exported depends on MetricsServeEndpoint.
+	// If enabled, collect DB metrics and export them via the global OTel MeterProvider. By default, this is false.
+	// When enabled, the database configures a Prometheus exporter on the global provider and serves /metrics on
+	// MetricsPort.
 	MetricsEnabled bool
 
-	// If true, the database sets up its own Prometheus exporter on the global OTel MeterProvider and serves
-	// /metrics on MetricsPort. If false, the database records into the already-configured global
-	// MeterProvider and leaves exporting to the embedding application (which is responsible for calling
-	// SetupOtelPrometheus and serving the registry). Ignored if MetricsEnabled is false.
-	MetricsServeEndpoint bool
-
-	// The port to use for the metrics server. Ignored unless both MetricsEnabled and MetricsServeEndpoint are
-	// true.
+	// The port to use for the metrics server. Ignored if MetricsEnabled is false. The default is 9101.
 	MetricsPort int
 
-	// The interval at which various DB metrics are updated.
+	// The interval at which various DB metrics are updated. The default is 1 second.
 	MetricsUpdateInterval time.Duration
 
 	// If empty, snapshotting is disabled. If not empty, then this directory is used by the database to publish a
@@ -130,40 +115,28 @@ type Config struct {
 	// performance. If this is set to zero, then no batching is performed and all flushes are executed immediately.
 	MinimumFlushInterval time.Duration
 
-	// When this many value bytes are written through a table's control loop without an intervening flush, a
-	// flush is scheduled automatically. This bounds the in-memory unflushed-data cache (which holds values
-	// until their keys become durable in the keymap) for callers that write large volumes without flushing.
-	// The flush is non-blocking (fire-and-forget), so peak resident bytes are approximately this threshold
-	// plus whatever is written during the asynchronous drain.
-	AutoFlushByteThreshold uint64
-
 	// The capacity of the buffered channel feeding the asynchronous keymap manager. Keymap puts and deletes are
 	// scheduled (not executed) on the Flush() and GC paths; this bounds how many operations may be queued for the
 	// keymap before backpressure is applied, which in turn bounds how far the keymap may lag behind the segments.
+	// The default is 1024.
 	KeymapManagerChannelSize int
 
 	// The maximum number of keys the asynchronous keymap manager coalesces into a single keymap Put or Delete.
 	// Larger values amortize the keymap's per-write fsync across more keys under load; the cap bounds the size
-	// and latency of any single operation.
+	// and latency of any single operation. The default is 10000.
 	KeymapManagerMaxBatchSize int
-
-	// The maximum number of value bytes a coalescing keymap put batch may represent before it is applied,
-	// independent of the key count. A key stays in the unflushed-data cache until its keymap put is applied,
-	// so with large values a put batch can represent gigabytes while holding far fewer than
-	// KeymapManagerMaxBatchSize keys; this byte bound forces the batch out (draining the cache) well before
-	// that. Complements KeymapManagerMaxBatchSize (whichever limit is reached first triggers the batch).
-	KeymapManagerMaxBatchBytes uint64
 
 	// The maximum time the asynchronous keymap manager accumulates scheduled work before applying a partial batch.
 	// The manager prefers to coalesce work into full batches (see KeymapManagerMaxBatchSize), but if a full batch
 	// does not accumulate within this interval it applies whatever it has, bounding how long a key may wait before
-	// it is written into the keymap.
+	// it is written into the keymap. The default is 1 second.
 	KeymapManagerMaxInterval time.Duration
 
 	// The maximum number of garbage-collected keys the keymap manager will buffer awaiting deletion. Deletes are
 	// drained incrementally and always yield to latency-critical puts, so a large garbage-collection burst does
 	// not stall writes; this is the high-water mark at which the manager stops accepting new work (backpressuring
-	// producers via a full channel) until the backlog drains to half. Bounds the manager's peak memory.
+	// producers via a full channel) until the backlog drains to half. Bounds the manager's peak memory. The
+	// default is 1000000.
 	KeymapManagerMaxBufferedDeletes uint64
 
 	// The capacity of the channel on which the keymap manager publishes its deletion watermark to the control
@@ -172,14 +145,14 @@ type Config struct {
 	// file deletion), but a dropped value is only superseded by a subsequent, higher publish — so a single
 	// pass that collects more than this many segments before the control loop drains may defer reclaiming some
 	// files until a later collection. Sizing this at or above the largest expected single-pass collection keeps
-	// reclamation complete in one pass (relevant to explicit RunGC).
+	// reclamation complete in one pass (relevant to explicit RunGC). The default is 1024.
 	KeymapManagerWatermarkChannelSize int
 
 	// The capacity of the channel over which the control loop hands sealed segments to the GC manager (the GC
 	// manager keeps its own local view of sealed segments rather than reading the control loop's segment map).
 	// A segment is sent the moment it is sealed; the GC manager drains the channel between collection passes, so
 	// this only needs to absorb the seals that occur during a single pass. If it fills, the control loop applies
-	// brief backpressure to writes until the GC manager drains it.
+	// brief backpressure to writes until the GC manager drains it. The default is 1024.
 	GCSegmentChannelSize int
 }
 
@@ -203,26 +176,21 @@ func DefaultConfigNoPaths() *Config {
 		GCBatchSize:                       10_000,
 		KeymapType:                        keymap.PebbleDBKeymapType,
 		ControlChannelSize:                64,
-		FlushChannelSize:                  8,
-		ShardControlChannelSize:           32,
 		TargetSegmentFileSize:             math.MaxUint32,
 		MaxSegmentKeyCount:                50_000,
 		TargetSegmentKeyFileSize:          2 * unit.MB,
 		Fsync:                             true,
 		DoubleWriteProtection:             false,
 		MetricsEnabled:                    false,
-		MetricsServeEndpoint:              false,
 		MetricsPort:                       9101,
 		MetricsUpdateInterval:             time.Second,
 		PurgeLocks:                        false,
 		KeymapManagerChannelSize:          1024,
 		KeymapManagerMaxBatchSize:         10_000,
-		KeymapManagerMaxBatchBytes:        64 * unit.MB,
 		KeymapManagerMaxInterval:          time.Second,
 		KeymapManagerMaxBufferedDeletes:   1_000_000,
 		KeymapManagerWatermarkChannelSize: 1024,
 		GCSegmentChannelSize:              1024,
-		AutoFlushByteThreshold:            256 * unit.MB,
 	}
 }
 
@@ -259,12 +227,6 @@ func (c *Config) Validate() error {
 	if c.ControlChannelSize == 0 {
 		return fmt.Errorf("control channel size must be at least 1")
 	}
-	if c.FlushChannelSize < 1 {
-		return fmt.Errorf("flush channel size must be at least 1")
-	}
-	if c.ShardControlChannelSize < 1 {
-		return fmt.Errorf("shard control channel size must be at least 1")
-	}
 	if c.TargetSegmentFileSize == 0 {
 		return fmt.Errorf("target segment file size must be at least 1")
 	}
@@ -286,9 +248,6 @@ func (c *Config) Validate() error {
 	if c.KeymapManagerMaxBatchSize < 1 {
 		return fmt.Errorf("keymap write max batch size must be at least 1")
 	}
-	if c.KeymapManagerMaxBatchBytes < 1 {
-		return fmt.Errorf("keymap write max batch bytes must be at least 1")
-	}
 	if c.KeymapManagerMaxInterval <= 0 {
 		return fmt.Errorf("keymap write max interval must be greater than zero")
 	}
@@ -300,9 +259,6 @@ func (c *Config) Validate() error {
 	}
 	if c.GCSegmentChannelSize < 1 {
 		return fmt.Errorf("gc segment channel size must be at least 1")
-	}
-	if c.AutoFlushByteThreshold == 0 {
-		return fmt.Errorf("auto flush byte threshold must be at least 1")
 	}
 
 	return nil

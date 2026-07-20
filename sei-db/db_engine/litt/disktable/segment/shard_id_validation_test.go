@@ -34,8 +34,7 @@ func TestSegmentReadRejectsOutOfRangeShardID(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardingFactor,
-		false,
-		32)
+		false)
 	require.NoError(t, err)
 
 	badAddr := types.NewAddress(seg.SegmentIndex(), 0, shardingFactor, 0)

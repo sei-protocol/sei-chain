@@ -3,30 +3,30 @@
 package proxy
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
+	"github.com/go-kit/kit/metrics/discard"
+	prometheus "github.com/go-kit/kit/metrics/prometheus"
+	stdprometheus "github.com/prometheus/client_golang/prometheus"
 )
 
-var Global = NewMetrics()
-
-func init() {
-	prometheus.MustRegister(
-		Global.MethodTiming,
-	)
-}
-
-func NewMetrics() *Metrics {
+func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
+	labels := []string{}
+	for i := 0; i < len(labelsAndValues); i += 2 {
+		labels = append(labels, labelsAndValues[i])
+	}
 	return &Metrics{
-		MethodTiming: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: MetricsNamespace,
+		MethodTiming: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "method_timing",
 			Help:      "Timing for each ABCI method.",
-			Buckets:   []float64{.0001, .0004, .002, .009, .02, .1, .65, 2, 6, 25},
-		}, []string{"method", "type"}),
+
+			Buckets: []float64{.0001, .0004, .002, .009, .02, .1, .65, 2, 6, 25},
+		}, append(labels, "method", "type")).With(labelsAndValues...),
 	}
 }
 
-func (m *Metrics) MethodTimingAt(l0_method string, l1_type string) *tmprometheus.Histogram {
-	return m.MethodTiming.WithLabelValues(l0_method, l1_type)
+func NopMetrics() *Metrics {
+	return &Metrics{
+		MethodTiming: discard.NewHistogram(),
+	}
 }

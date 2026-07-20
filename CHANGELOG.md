@@ -29,14 +29,6 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.6
 sei-chain
-* [#3743](https://github.com/sei-protocol/sei-chain/pull/3743) Backport `release/v6.6`: feat(cosmos): range-check Dec conversions and DecCoin validation (CON-369)
-* [#3732](https://github.com/sei-protocol/sei-chain/pull/3732) Bump version in prep to release v6.6-rc2
-* [#3731](https://github.com/sei-protocol/sei-chain/pull/3731) Backport `release/v6.6`: Update v6.6 changelog in prep to cut RC2
-* [#3717](https://github.com/sei-protocol/sei-chain/pull/3717) Backport `release/v6.6`: Accept legacy cosmos_only SC write mode
-* [#3697](https://github.com/sei-protocol/sei-chain/pull/3697) Backport `release/v6.6`: Fix rpc hash race condition
-* [#3694](https://github.com/sei-protocol/sei-chain/pull/3694) Backport `release/v6.6`: Add GoReleaser release pipeline for static seid binaries (#3425)
-* [#3688](https://github.com/sei-protocol/sei-chain/pull/3688) Bump version file to v6.6.0-rc1 in prep for release
-* [#3686](https://github.com/sei-protocol/sei-chain/pull/3686) Backport `release/v6.6`: Update changelog in prep to cut 6.6 RC1
 * [#3679](https://github.com/sei-protocol/sei-chain/pull/3679) Backport `release/v6.6`: State Store: Compact pruned key range after each prune
 * [#3673](https://github.com/sei-protocol/sei-chain/pull/3673) Backport `release/v6.6`: fix(metrics): Prometheus metrics output
 * [#3672](https://github.com/sei-protocol/sei-chain/pull/3672) Backport `release/v6.6`: [codex] Harden multiversion iterator validation

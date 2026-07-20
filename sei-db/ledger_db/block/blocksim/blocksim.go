@@ -6,7 +6,6 @@ import (
 	"os"
 	"time"
 
-	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
@@ -92,10 +91,6 @@ func NewBlockSim(
 		return nil, err
 	}
 
-	// Pre-generate a random buffer once; all block/QC data generation slices into it
-	// (zero-copy) so the generator never runs math/rand on the hot path.
-	cannedRand := crand.NewCannedRandom(int(config.RandomDataBufferSizeBytes), config.Seed) //nolint:gosec // buffer size is bounded by config
-
 	db, err := openBlockDB(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -126,14 +121,14 @@ func NewBlockSim(
 		// last QC's range — the next batch then appends contiguously. Block bytes
 		// are irrelevant here (this is a DB stress test), so the backfill writes
 		// freshly generated blocks under the already-persisted QC.
-		qcRange := prevQC.GlobalRange()
+		qcRange := prevQC.GlobalRange(committee)
 		lastQCNext := uint64(qcRange.Next)
 		firstMissing := uint64(qcRange.First)
 		if h, ok := highestOpt.Get(); ok {
 			firstMissing = h + 1
 		}
 		for n := firstMissing; n < lastQCNext; n++ {
-			blk := backfillBlock(cannedRand, committee, config)
+			blk := types.GenBlock(rng)
 			if err := db.WriteBlock(types.GlobalBlockNumber(n), blk); err != nil { //nolint:gosec // n < lastQCNext
 				cancel()
 				return nil, fmt.Errorf("failed to backfill block %d: %w", n, err)
@@ -143,7 +138,7 @@ func NewBlockSim(
 		fmt.Printf("Resuming from block %d.\n", highest)
 	}
 
-	generator := NewBlockGenerator(ctx, config, cannedRand, committee, keys, prev)
+	generator := NewBlockGenerator(ctx, config, rng, committee, keys, prev)
 
 	consoleUpdatePeriod := time.Duration(config.ConsoleUpdateIntervalSeconds * float64(time.Second))
 
@@ -268,25 +263,11 @@ func buildCommittee(rng tmutils.Rng, size int) (*types.Committee, []types.Secret
 		keys[i] = types.GenSecretKey(rng)
 		replicas[i] = keys[i].Public()
 	}
-	committee, err := types.NewRoundRobinElection(replicas)
+	committee, err := types.NewRoundRobinElection(replicas, 0, genesisTime)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build committee: %w", err)
 	}
 	return committee, keys, nil
-}
-
-// backfillBlock builds a throwaway block for crash-recovery backfill using canned random
-// data. The block's content and internal header are irrelevant — the store keys blocks by
-// the global number passed to WriteBlock — so this avoids real crypto and math/rand.
-func backfillBlock(rand *crand.CannedRandom, committee *types.Committee, config *BlocksimConfig) *types.Block {
-	txs := make([][]byte, config.TransactionsPerBlock)
-	for i := range txs {
-		txs[i] = rand.Bytes(int(config.BytesPerTransaction)) //nolint:gosec // payload sizes are bounded by config validation
-	}
-	payload := tmutils.OrPanic1(types.PayloadBuilder{CreatedAt: time.Now(), Txs: txs}.Build())
-	payloadHash := tmutils.OrPanic1(types.ParsePayloadHash(rand.Bytes(hashSizeBytes)))
-	parentHash := tmutils.OrPanic1(types.ParseBlockHeaderHash(rand.Bytes(hashSizeBytes)))
-	return types.NewBlockForTesting(committee.Lanes().At(0), 0, parentHash, payload, payloadHash)
 }
 
 // The main loop of the benchmark.
@@ -369,7 +350,7 @@ func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 		b.totalBlocksWritten++
 		b.totalBytesWritten += blockBytes
 		b.highestBlockHeight = uint64(n)
-		b.metrics.ReportBlockWritten(blockBytes, int64(len(blk.Payload().Txs())))
+		b.metrics.ReportBlockWritten(blockBytes)
 	}
 	b.metrics.RecordHighestHeight(b.highestBlockHeight)
 
@@ -528,10 +509,6 @@ func openBlockDB(config *BlocksimConfig) (types.BlockDB, error) {
 			return nil, fmt.Errorf("failed to build litt block db config: %w", err)
 		}
 		littConfig.Retention = time.Duration(config.LittRetentionSeconds) * time.Second
-		// Record litt_* metrics into blocksim's already-configured global OTel MeterProvider (set up in
-		// main before the DB is opened). MetricsServeEndpoint stays false so LittDB does not stand up its
-		// own registry/server; the metrics surface on blocksim's single /metrics endpoint.
-		littConfig.Litt.MetricsEnabled = config.LittMetricsEnabled
 		return littblock.NewBlockDB(littConfig)
 	default:
 		return nil, fmt.Errorf("unknown block store backend: %q", config.Backend)

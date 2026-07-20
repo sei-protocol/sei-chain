@@ -150,11 +150,7 @@ func NewDBImpl(ctx context.Context, dbType DBType, dataDir string, dbConfig any)
 	case MemIAVL:
 		return newMemIAVLCommitStore(dataDir)
 	case FlatKV:
-		flatKVConfig, ok := dbConfig.(*flatkvConfig.Config)
-		if dbConfig != nil && !ok {
-			return nil, fmt.Errorf("invalid FlatKV config type %T", dbConfig)
-		}
-		return newFlatKVCommitStore(ctx, dataDir, flatKVConfig)
+		return newFlatKVCommitStore(ctx, dataDir, dbConfig.(*flatkvConfig.Config))
 	case CompositeDual:
 		return newCompositeCommitStore(ctx, dataDir, sctypes.TestOnlyDualWrite)
 	case CompositeSplit:

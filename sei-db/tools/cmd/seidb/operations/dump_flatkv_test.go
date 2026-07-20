@@ -18,7 +18,7 @@ import (
 )
 
 // TestDumpFlatKVFromStoreAllBuckets seeds a mix of account, code, storage and
-// misc rows, runs dumpFlatKVFromStore across all four buckets, and checks
+// legacy rows, runs dumpFlatKVFromStore across all four buckets, and checks
 // that every file gets the right header, the right number of data lines, and
 // the right format. Physical keys are emitted verbatim (no logical
 // stripping), which is the contract dump-flatkv promises.
@@ -61,7 +61,7 @@ func TestDumpFlatKVFromStoreAllBuckets(t *testing.T) {
 		"account": {lines: 2}, // 2 nonces -> 2 account rows
 		"code":    {lines: 1}, // 1 code
 		"storage": {lines: 3}, // 3 storage slots
-		"misc":    {lines: 1}, // 1 bank row
+		"legacy":  {lines: 1}, // 1 bank row
 	}
 
 	for name, w := range want {

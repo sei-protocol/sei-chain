@@ -144,7 +144,7 @@ func NewMigrationManager(
 	}
 	iterator.SetBoundary(boundary)
 
-	logger.Debug("initialized migration manager",
+	logger.Info("initialized migration manager",
 		"startVersion", startVersion,
 		"targetVersion", targetVersion,
 		"boundary", boundary.String())
@@ -386,17 +386,8 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet, f
 	// silently drop those stats. keysMigrated and the metadata pair count stay zero on
 	// non-first calls because the migration-advance branch above is skipped.
 	m.metrics.RecordBatch(batchStats)
-
-	if advanceMigration {
-		if batchStats.keysMigrated > 0 {
-			logger.Info("migration progress advanced",
-				"keysMigrated", batchStats.keysMigrated,
-				"newBoundary", m.boundary.String())
-		}
-		if migrationComplete {
-			m.logMigrationCompleteSummary()
-		}
-
+	if advanceMigration && migrationComplete {
+		m.logMigrationCompleteSummary()
 	}
 
 	return nil

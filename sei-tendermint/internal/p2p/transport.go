@@ -52,7 +52,7 @@ func (r *Router) connSendRoutine(ctx context.Context, conn *ConnV2) error {
 		if err != nil {
 			return err
 		}
-		Global.routerPeerQueueRecvAt().Observe(time.Since(start).Seconds())
+		r.metrics.RouterPeerQueueRecv.Observe(time.Since(start).Seconds())
 		bz, err := gogoproto.Marshal(m.Message)
 		if err != nil {
 			panic(fmt.Sprintf("proto.Marshal(): %v", err))
@@ -92,13 +92,12 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 			}
 			// Priority is not used since all messages in this queue are from the same channel.
 			if _, ok := ch.recvQueue.Send(RecvMsg[gogoproto.Message]{From: conn.ID, Message: msg}, gogoproto.Size(msg), 0).Get(); ok {
-				Global.queueDroppedMsgsAt(fmt.Sprint(chID), "in").Add(1)
+				r.metrics.QueueDroppedMsgs.With("ch_id", fmt.Sprint(chID), "direction", "in").Add(float64(1))
 			}
-			Global.peerReceiveBytesTotalAt(
-				string(conn.ID),
-				fmt.Sprint(chID),
-				r.lc.ValueToMetricLabel(msg),
-			).Add(int64(gogoproto.Size(msg)))
+			r.metrics.PeerReceiveBytesTotal.With(
+				"chID", fmt.Sprint(chID),
+				"peer_id", string(conn.ID),
+				"message_type", r.lc.ValueToMetricLabel(msg)).Add(float64(gogoproto.Size(msg)))
 			logger.Debug("received message", "peer", conn.ID, "message", msg)
 		}
 	}

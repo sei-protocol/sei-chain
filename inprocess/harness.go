@@ -384,7 +384,7 @@ func (net *Network) startNode(ctx context.Context, n *node, enc encoding) error 
 
 	tmNode, err := tmnode.New(
 		ctx, n.tmCfg, func() {}, theApp, genDoc,
-		[]trace.TracerProviderOption{},
+		[]trace.TracerProviderOption{}, tmnode.NoOpMetricsProvider(),
 		tmtypes.DefaultConsensusPolicy(),
 	)
 	if err != nil {

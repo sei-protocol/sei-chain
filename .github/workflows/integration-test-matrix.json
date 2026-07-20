@@ -236,7 +236,7 @@
   },
   {
     "name": "Autobahn RPC .io/.iox (spec fixtures)",
-    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_OCC=false GIGA_STORAGE=true",
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true",
     "scripts": [
       "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
     ]

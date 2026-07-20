@@ -3,28 +3,28 @@
 package commented
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/go-kit/kit/metrics/discard"
+	prometheus "github.com/go-kit/kit/metrics/prometheus"
+	stdprometheus "github.com/prometheus/client_golang/prometheus"
 )
 
-var Global = NewMetrics()
-
-func init() {
-	prometheus.MustRegister(
-		Global.Field,
-	)
-}
-
-func NewMetrics() *Metrics {
+func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
+	labels := []string{}
+	for i := 0; i < len(labelsAndValues); i += 2 {
+		labels = append(labels, labelsAndValues[i])
+	}
 	return &Metrics{
-		Field: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
+		Field: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "field",
 			Help:      "Height of the chain. We expect multi-line comments to parse correctly.",
-		}, nil),
+		}, labels).With(labelsAndValues...),
 	}
 }
 
-func (m *Metrics) FieldAt() prometheus.Gauge {
-	return m.Field.WithLabelValues()
+func NopMetrics() *Metrics {
+	return &Metrics{
+		Field: discard.NewGauge(),
+	}
 }

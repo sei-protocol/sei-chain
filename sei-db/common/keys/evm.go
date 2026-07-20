@@ -40,13 +40,13 @@ const (
 	EVMKeyCodeHash                   // Stripped key: 20-byte address
 	EVMKeyCode                       // Stripped key: 20-byte address
 	EVMKeyStorage                    // Stripped key: addr||slot (20+32 bytes)
-	EVMKeyMisc                       // Full original key preserved (address mappings, codesize, etc.)
+	EVMKeyLegacy                     // Full original key preserved (address mappings, codesize, etc.)
 )
 
 // ParseEVMKey parses an EVM key from the x/evm store keyspace.
 //
 // For optimized keys (nonce, code, codehash, storage), keyBytes is the stripped key.
-// For misc keys (all other EVM data including codesize), keyBytes is the full original key.
+// For legacy keys (all other EVM data including codesize), keyBytes is the full original key.
 // Only returns EVMKeyEmpty for zero-length keys.
 func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 	if len(key) == 0 {
@@ -56,35 +56,35 @@ func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 	switch {
 	case bytes.HasPrefix(key, nonceKeyPrefix):
 		if len(key) != len(nonceKeyPrefix)+AddressLen {
-			return EVMKeyMisc, key // Malformed but still EVM data
+			return EVMKeyLegacy, key // Malformed but still EVM data
 		}
 		return EVMKeyNonce, key[len(nonceKeyPrefix):]
 
 	case bytes.HasPrefix(key, codeHashKeyPrefix):
 		if len(key) != len(codeHashKeyPrefix)+AddressLen {
-			return EVMKeyMisc, key
+			return EVMKeyLegacy, key
 		}
 		return EVMKeyCodeHash, key[len(codeHashKeyPrefix):]
 
 	case bytes.HasPrefix(key, codeKeyPrefix):
 		if len(key) != len(codeKeyPrefix)+AddressLen {
-			return EVMKeyMisc, key
+			return EVMKeyLegacy, key
 		}
 		return EVMKeyCode, key[len(codeKeyPrefix):]
 
 	case bytes.HasPrefix(key, stateKeyPrefix):
 		if len(key) != len(stateKeyPrefix)+AddressLen+slotLen {
-			return EVMKeyMisc, key
+			return EVMKeyLegacy, key
 		}
 		return EVMKeyStorage, key[len(stateKeyPrefix):]
 	}
 
-	// All other EVM keys go to the misc store (address mappings, codesize, etc.)
-	return EVMKeyMisc, key
+	// All other EVM keys go to legacy store (address mappings, codesize, etc.)
+	return EVMKeyLegacy, key
 }
 
 // EVMKeyPrefixByte returns the single-byte on-disk prefix for a given key kind.
-// Returns (0, false) for kinds that have no fixed prefix (e.g. EVMKeyMisc).
+// Returns (0, false) for kinds that have no fixed prefix (e.g. EVMKeyLegacy).
 func EVMKeyPrefixByte(kind EVMKeyKind) (byte, bool) {
 	switch kind {
 	case EVMKeyStorage:

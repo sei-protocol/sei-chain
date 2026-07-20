@@ -10,7 +10,7 @@ import (
 
 const (
 	DefaultSnapshotInterval   uint32 = 10000
-	DefaultSnapshotKeepRecent uint32 = 1
+	DefaultSnapshotKeepRecent uint32 = 2
 )
 
 // Config defines configuration for the FlatKV (EVM) commit store.
@@ -39,7 +39,7 @@ type Config struct {
 
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
-	// Default: 1
+	// Default: 2
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// EnablePebbleMetrics defines if the Pebble metrics should be enabled.
@@ -68,11 +68,11 @@ type Config struct {
 	// StorageCacheConfig defines the cache configuration for the storage database.
 	StorageCacheConfig dbcache.CacheConfig
 
-	// MiscDBConfig defines the PebbleDB configuration for the misc database.
-	MiscDBConfig pebbledb.PebbleDBConfig
+	// LegacyDBConfig defines the PebbleDB configuration for the legacy database.
+	LegacyDBConfig pebbledb.PebbleDBConfig
 
-	// MiscCacheConfig defines the cache configuration for the misc database.
-	MiscCacheConfig dbcache.CacheConfig
+	// LegacyCacheConfig defines the cache configuration for the legacy database.
+	LegacyCacheConfig dbcache.CacheConfig
 
 	// MetadataDBConfig defines the PebbleDB configuration for the metadata database.
 	MetadataDBConfig pebbledb.PebbleDBConfig
@@ -98,12 +98,6 @@ type Config struct {
 	// Controls the number of goroutines pre-allocated in the thread pool for miscellaneous operations.
 	// The number of threads in this pool is equal to MiscThreadsPerCore * runtime.NumCPU() + MiscConstantThreadCount.
 	MiscConstantThreadCount int
-
-	// Controls the number of workers in the dedicated lattice-hash pool used to
-	// compute per-module LtHashes during ApplyChangeSets. The worker count is
-	// LtHashThreadsPerCore * runtime.NumCPU() (clamped to at least 1). LtHash
-	// computation is CPU-bound, so ~1 worker per core is a sensible default.
-	LtHashThreadsPerCore float64
 }
 
 // DefaultConfig returns Config with safe default values.
@@ -120,8 +114,8 @@ func DefaultConfig() *Config {
 		CodeCacheConfig:           dbcache.DefaultCacheConfig(),
 		StorageDBConfig:           pebbledb.DefaultConfig(),
 		StorageCacheConfig:        dbcache.DefaultCacheConfig(),
-		MiscDBConfig:              pebbledb.DefaultConfig(),
-		MiscCacheConfig:           dbcache.DefaultCacheConfig(),
+		LegacyDBConfig:            pebbledb.DefaultConfig(),
+		LegacyCacheConfig:         dbcache.DefaultCacheConfig(),
 		MetadataDBConfig:          pebbledb.DefaultConfig(),
 		MetadataCacheConfig:       dbcache.DefaultCacheConfig(),
 		ReaderThreadsPerCore:      2.0,
@@ -129,7 +123,6 @@ func DefaultConfig() *Config {
 		ReaderPoolQueueSize:       1024,
 		MiscPoolThreadsPerCore:    4.0,
 		MiscConstantThreadCount:   0,
-		LtHashThreadsPerCore:      1.0,
 	}
 
 	cfg.AccountCacheConfig.MaxSize = unit.GB
@@ -156,8 +149,8 @@ func (c *Config) Validate() error {
 	if err := c.StorageCacheConfig.Validate(); err != nil {
 		return fmt.Errorf("storage cache config is invalid: %w", err)
 	}
-	if err := c.MiscCacheConfig.Validate(); err != nil {
-		return fmt.Errorf("misc cache config is invalid: %w", err)
+	if err := c.LegacyCacheConfig.Validate(); err != nil {
+		return fmt.Errorf("legacy cache config is invalid: %w", err)
 	}
 	if err := c.MetadataCacheConfig.Validate(); err != nil {
 		return fmt.Errorf("metadata cache config is invalid: %w", err)
@@ -174,8 +167,8 @@ func (c *Config) Validate() error {
 	if err := c.StorageDBConfig.Validate(); err != nil {
 		return fmt.Errorf("storage db config is invalid: %w", err)
 	}
-	if err := c.MiscDBConfig.Validate(); err != nil {
-		return fmt.Errorf("misc db config is invalid: %w", err)
+	if err := c.LegacyDBConfig.Validate(); err != nil {
+		return fmt.Errorf("legacy db config is invalid: %w", err)
 	}
 	if err := c.MetadataDBConfig.Validate(); err != nil {
 		return fmt.Errorf("metadata db config is invalid: %w", err)
@@ -195,9 +188,6 @@ func (c *Config) Validate() error {
 	}
 	if c.MiscConstantThreadCount < 0 {
 		return fmt.Errorf("misc constant thread count must not be negative")
-	}
-	if c.LtHashThreadsPerCore < 0 {
-		return fmt.Errorf("lthash threads per core must not be negative")
 	}
 
 	return nil

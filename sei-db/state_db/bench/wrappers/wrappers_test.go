@@ -191,16 +191,3 @@ func TestNoOpWrapperTracksVersionWithoutReadsOrWrites(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(9), version)
 }
-
-func TestNewDBImplFlatKVUsesDefaultConfigWhenNil(t *testing.T) {
-	wrapper, err := NewDBImpl(t.Context(), FlatKV, t.TempDir(), nil)
-	require.NoError(t, err)
-	require.NoError(t, wrapper.Close())
-}
-
-func TestNewDBImplFlatKVRejectsInvalidConfigType(t *testing.T) {
-	wrapper, err := NewDBImpl(t.Context(), FlatKV, t.TempDir(), "invalid")
-	require.Error(t, err)
-	require.Nil(t, wrapper)
-	require.ErrorContains(t, err, "invalid FlatKV config type string")
-}

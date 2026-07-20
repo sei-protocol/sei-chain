@@ -1170,11 +1170,11 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 
 	evmLegacyInnerKey := append([]byte{0x01}, addr...)
 	evmLegacyPhysKey := ktype.ModulePhysicalKey("evm", evmLegacyInnerKey)
-	evmLegacyVal := vtype.NewMiscData().SetValue([]byte("sei1abc")).Serialize()
+	evmLegacyVal := vtype.NewLegacyData().SetValue([]byte("sei1abc")).Serialize()
 
 	bankInnerKey := []byte("balances/addr1")
 	bankPhysKey := ktype.ModulePhysicalKey("bank", bankInnerKey)
-	bankLegacyVal := vtype.NewMiscData().SetValue([]byte("1000usei")).Serialize()
+	bankLegacyVal := vtype.NewLegacyData().SetValue([]byte("1000usei")).Serialize()
 
 	for _, mode := range []bool{true, false} {
 		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {

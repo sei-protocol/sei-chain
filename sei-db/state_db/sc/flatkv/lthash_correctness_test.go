@@ -6,9 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"path/filepath"
-	"testing"
-
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -19,6 +16,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
+	"path/filepath"
+	"testing"
 )
 
 // fullScanLtHash computes an LtHash from scratch by iterating every KV pair
@@ -594,23 +593,23 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 }
 
 // =============================================================================
-// fullScanLtHash Includes miscDB (W-P0-11)
+// fullScanLtHash Includes legacyDB (W-P0-11)
 // =============================================================================
 
-func TestFullScanLtHashIncludesMisc(t *testing.T) {
+func TestFullScanLtHashIncludesLegacy(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	addr := ktype.Address{0xAA}
-	miscKey := append([]byte{0x09}, addr[:]...)
+	legacyKey := append([]byte{0x09}, addr[:]...)
 
-	cs := makeChangeSet(miscKey, []byte{0x42}, false)
+	cs := makeChangeSet(legacyKey, []byte{0x42}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	groundTruth := fullScanLtHash(t, s)
 	require.Equal(t, s.workingLtHash.Checksum(), groundTruth.Checksum(),
-		"full scan including miscDB should match incremental LtHash")
+		"full scan including legacyDB should match incremental LtHash")
 }
 
 // =============================================================================
@@ -722,34 +721,34 @@ func TestLtHashCrossApplyCodeOverwrite(t *testing.T) {
 	require.Equal(t, []byte{0x60, 0x40, 0x02, 0x03}, val)
 }
 
-// TestLtHashCrossApplyMiscOverwrite verifies that overwriting the same
-// misc key across two ApplyChangeSets calls in the same block produces
+// TestLtHashCrossApplyLegacyOverwrite verifies that overwriting the same
+// legacy key across two ApplyChangeSets calls in the same block produces
 // a correct LtHash (full-scan verified).
-func TestLtHashCrossApplyMiscOverwrite(t *testing.T) {
+func TestLtHashCrossApplyLegacyOverwrite(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	addr := addrN(0x53)
-	miscKey := append([]byte{0x09}, addr[:]...)
+	legacyKey := append([]byte{0x09}, addr[:]...)
 
-	// Block 1: create misc entry
-	cs0 := makeChangeSet(miscKey, []byte{0x00, 0x10}, false)
+	// Block 1: create legacy entry
+	cs0 := makeChangeSet(legacyKey, []byte{0x00, 0x10}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
 
-	// Block 2: overwrite same misc key in two separate ApplyChangeSets calls
-	cs1 := makeChangeSet(miscKey, []byte{0x00, 0x20}, false)
+	// Block 2: overwrite same legacy key in two separate ApplyChangeSets calls
+	cs1 := makeChangeSet(legacyKey, []byte{0x00, 0x20}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 
-	cs2 := makeChangeSet(miscKey, []byte{0x00, 0x30}, false)
+	cs2 := makeChangeSet(legacyKey, []byte{0x00, 0x30}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 
 	// Verify final value
-	val, found := s.Get(keys.EVMStoreKey, miscKey)
+	val, found := s.Get(keys.EVMStoreKey, legacyKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x30}, val)
 }
@@ -763,7 +762,7 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 
 	addr := addrN(0x54)
 	slot := slotN(0x01)
-	miscKey := append([]byte{0x09}, addr[:]...)
+	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	// Block 1: create initial state for all key types
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -775,7 +774,7 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 		),
 	}))
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		makeChangeSet(miscKey, []byte{0x00, 0x01}, false),
+		makeChangeSet(legacyKey, []byte{0x00, 0x01}, false),
 	}))
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 1)
@@ -789,7 +788,7 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1a}))
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		makeChangeSet(miscKey, []byte{0x00, 0x02}, false),
+		makeChangeSet(legacyKey, []byte{0x00, 0x02}, false),
 	}))
 
 	// Block 2: second Apply — overwrite all key types again
@@ -801,7 +800,7 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2a}))
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		makeChangeSet(miscKey, []byte{0x00, 0x03}, false),
+		makeChangeSet(legacyKey, []byte{0x00, 0x03}, false),
 	}))
 
 	commitAndCheck(t, s)
@@ -829,9 +828,9 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x33), storageVal)
 
-	miscVal, found := s.Get(keys.EVMStoreKey, miscKey)
+	legacyVal, found := s.Get(keys.EVMStoreKey, legacyKey)
 	require.True(t, found)
-	require.Equal(t, []byte{0x00, 0x03}, miscVal)
+	require.Equal(t, []byte{0x00, 0x03}, legacyVal)
 }
 
 // ---------- Account Row GC LtHash tests ----------
@@ -1203,7 +1202,7 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 	// height. The importer commits everything at a single version, so block
 	// heights must match for the LtHash round-trip to be identical.
 	var evmPairs []*proto.KVPair
-	var miscCS []*proto.NamedChangeSet
+	var legacyCS []*proto.NamedChangeSet
 	for i := byte(1); i <= 5; i++ {
 		addr := addrN(i)
 		evmPairs = append(evmPairs,
@@ -1212,10 +1211,10 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 			codePair(addr, []byte{0x60, 0x80, i}),
 			storagePair(addr, slotN(i), []byte{i, 0xBB}),
 		)
-		miscKey := append([]byte{0x09}, addr[:]...)
-		miscCS = append(miscCS, makeChangeSet(miscKey, []byte{i, 0xCC}, false))
+		legacyKey := append([]byte{0x09}, addr[:]...)
+		legacyCS = append(legacyCS, makeChangeSet(legacyKey, []byte{i, 0xCC}, false))
 	}
-	allCS := append([]*proto.NamedChangeSet{namedCS(evmPairs...)}, miscCS...)
+	allCS := append([]*proto.NamedChangeSet{namedCS(evmPairs...)}, legacyCS...)
 	require.NoError(t, s.ApplyChangeSets(allCS))
 	commitAndCheck(t, s)
 
@@ -1356,7 +1355,7 @@ func TestLtHashDeterministicFreshStores(t *testing.T) {
 	applyWorkload := func(s *CommitStore) {
 		for i := byte(1); i <= 10; i++ {
 			addr := addrN(i)
-			miscKey := append([]byte{0x09}, addr[:]...)
+			legacyKey := append([]byte{0x09}, addr[:]...)
 			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
 				namedCS(
 					noncePair(addr, uint64(i)*7),
@@ -1364,7 +1363,7 @@ func TestLtHashDeterministicFreshStores(t *testing.T) {
 					codePair(addr, []byte{0x60, i}),
 					storagePair(addr, slotN(i), []byte{i, 0xDD}),
 				),
-				makeChangeSet(miscKey, []byte{i}, false),
+				makeChangeSet(legacyKey, []byte{i}, false),
 			}))
 			commitAndCheck(t, s)
 		}

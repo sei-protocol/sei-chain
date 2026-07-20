@@ -385,10 +385,10 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 			{StoreKey: evm.EVMStoreKey, Key: innerKey, Value: cd.GetBytecode()},
 		}, nil
 
-	case keys.EVMKeyMisc:
-		ld, err := vtype.DeserializeMiscData(node.Value)
+	case keys.EVMKeyLegacy:
+		ld, err := vtype.DeserializeLegacyData(node.Value)
 		if err != nil {
-			return nil, fmt.Errorf("failed to DeserializeMiscData misc: %w", err)
+			return nil, fmt.Errorf("failed to DeserializeLegacyData legacy: %w", err)
 		}
 		return []types.SnapshotNode{
 			{StoreKey: moduleName, Key: innerKey, Value: ld.GetValue()},

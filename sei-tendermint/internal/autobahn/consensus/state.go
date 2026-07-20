@@ -100,7 +100,7 @@ func newState(
 	pers utils.Option[persist.Persister[*pb.PersistedInner]],
 	persistedData utils.Option[*pb.PersistedInner],
 ) (*State, error) {
-	initialInner, err := newInner(persistedData, data.Registry())
+	initialInner, err := newInner(persistedData, data.Committee())
 	if err != nil {
 		return nil, fmt.Errorf("newInner: %w", err)
 	}
@@ -123,7 +123,7 @@ func newState(
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
 		commitVotes:  utils.NewMutex(newCommitVotes()),
 
-		myView:        utils.NewAtomicSend(types.ViewSpec{Epoch: initialInner.epoch}),
+		myView:        utils.NewAtomicSend(types.ViewSpec{}),
 		myProposal:    utils.NewAtomicSend(utils.None[*types.FullProposal]()),
 		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusReqPrepareVote]()),
 		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusReqCommitVote]()),
@@ -164,41 +164,35 @@ func (s *State) PushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 	return s.pushTimeoutQC(ctx, qc)
 }
 
-// TODO: scope prepareVotes, commitVotes, and timeoutVotes to a single epoch
-// so stale votes from a previous epoch are automatically dropped on transition.
-
 // PushPrepareVote processes an unverified Prepare vote message.
 func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
-	committee := s.myView.Load().Epoch.Committee()
-	if err := vote.VerifySig(committee); err != nil {
+	if err := vote.VerifySig(s.Data().Committee()); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
 	for pv := range s.prepareVotes.Lock() {
-		pv.pushVote(committee, vote)
+		pv.pushVote(s.Data().Committee(), vote)
 	}
 	return nil
 }
 
 // PushCommitVote processes an unverified CommitVote message.
 func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
-	committee := s.myView.Load().Epoch.Committee()
-	if err := vote.VerifySig(committee); err != nil {
+	if err := vote.VerifySig(s.Data().Committee()); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
 	for cv := range s.commitVotes.Lock() {
-		cv.pushVote(committee, vote)
+		cv.pushVote(s.Data().Committee(), vote)
 	}
 	return nil
 }
 
 // PushTimeoutVote processes an unverified FullTimeoutVote message.
 func (s *State) PushTimeoutVote(vote *types.FullTimeoutVote) error {
-	ep := s.myView.Load().Epoch
-	if err := vote.Verify(ep); err != nil {
+	if err := vote.Verify(s.Data().Committee()); err != nil {
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
 	for tv := range s.timeoutVotes.Lock() {
-		tv.pushVote(ep.Committee(), vote)
+		tv.pushVote(s.Data().Committee(), vote)
 	}
 	return nil
 }
@@ -209,8 +203,9 @@ func (s *State) Avail() *avail.State { return s.avail }
 
 // Constructs new proposals.
 func (s *State) runPropose(ctx context.Context) error {
+	committee := s.Data().Committee()
 	return s.myView.Iter(ctx, func(ctx context.Context, vs types.ViewSpec) error {
-		if vs.Epoch.Committee().Leader(vs.View()) != s.cfg.Key.Public() {
+		if committee.Leader(vs.View()) != s.cfg.Key.Public() {
 			return nil // not the leader.
 		}
 		// Try repropose.
@@ -219,13 +214,14 @@ func (s *State) runPropose(ctx context.Context) error {
 			return nil
 		}
 		// Wait for laneQCs.
-		laneQCsMap, err := s.avail.WaitForLaneQCs(ctx, vs.Epoch, vs.CommitQC)
+		laneQCsMap, err := s.avail.WaitForLaneQCs(ctx, vs.CommitQC)
 		if err != nil {
 			return fmt.Errorf("s.avail.WaitForLaneQCs(): %w", err)
 		}
 		// Construct a full proposal.
 		fullProposal, err := types.NewProposal(
 			s.cfg.Key,
+			committee,
 			vs,
 			time.Now(),
 			laneQCsMap,
@@ -253,7 +249,7 @@ func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v 
 // timers, neither of which constitutes a vote.
 func (s *State) runOutputs(ctx context.Context) error {
 	return s.innerRecv.Iter(ctx, func(ctx context.Context, i inner) error {
-		vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, Epoch: i.epoch}
+		vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC}
 		old := s.myView.Load()
 		if old.View().Less(vs.View()) {
 			s.myView.Store(vs)

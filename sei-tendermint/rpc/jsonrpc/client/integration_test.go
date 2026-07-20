@@ -8,6 +8,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net"
 	"regexp"

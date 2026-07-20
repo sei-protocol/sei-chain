@@ -41,7 +41,7 @@ GIGA_EXECUTOR=true GIGA_OCC=true DOCKER_DETACH=true make docker-cluster-start
 ./integration_test/evm_module/scripts/evm_rpc_tests.sh
 ```
 
-Leaving `GIGA_EXECUTOR` unset runs giga (the app's `DefaultConfig` is `Enabled: true`); set `GIGA_EXECUTOR=false` for the legacy (V2) executor. The Makefile passes these through to `docker compose`; the node image uses them in `docker/localnode/scripts/step4_config_override.sh`.
+Without `GIGA_EXECUTOR` and `GIGA_OCC`, the cluster uses the legacy (V2) executor. The Makefile passes these through to `docker compose`; the node image uses them in `docker/localnode/scripts/step4_config_override.sh`.
 
 1. Run the suite against the **legacy** endpoint and record the final report:
    ```bash

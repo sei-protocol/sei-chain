@@ -333,7 +333,7 @@ func freshEVMValue(rng *testutil.TestRandom, key []byte) []byte {
 		return randomCodeValue(rng)
 	case keys.EVMKeyStorage:
 		return randomStorageValue(rng)
-	default: // EVMKeyMisc
+	default: // EVMKeyLegacy
 		return randomLegacyValue(rng)
 	}
 }
@@ -1057,7 +1057,7 @@ func oracleToFlatKVRows(
 				getAcct(string(stripped)).nonce = binary.BigEndian.Uint64(v)
 			case keys.EVMKeyCodeHash:
 				copy(getAcct(string(stripped)).codeHash[:], v)
-			default: // EVMKeyMisc: identity-mapped under the "evm/" prefix
+			default: // EVMKeyLegacy: identity-mapped under the "evm/" prefix
 				rows[string(ktype.ModulePhysicalKey(keys.EVMStoreKey, []byte(k)))] =
 					flatKVExpectedRow{kind: rowLegacy, legacyValue: append([]byte(nil), v...)}
 			}
@@ -1138,7 +1138,7 @@ func assertFlatKVRowMatches(t *testing.T, physKey, rawVal []byte, exp flatKVExpe
 		require.Equal(t, zeroBalance[:], ad.GetBalance()[:],
 			"account balance must be zero (balances are not stored in flatkv yet) for %x", physKey)
 	case rowLegacy:
-		ld, err := vtype.DeserializeMiscData(rawVal)
+		ld, err := vtype.DeserializeLegacyData(rawVal)
 		require.NoError(t, err, "decode legacy row %x", physKey)
 		require.True(t, valuesEqual(exp.legacyValue, ld.GetValue()), "legacy value mismatch for %x", physKey)
 	}

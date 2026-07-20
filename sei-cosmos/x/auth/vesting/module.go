@@ -26,14 +26,6 @@ var (
 // AppModuleBasic defines the basic application module used by the sub-vesting
 // module. The module itself contain no special logic or state other than message
 // handling.
-//
-// The vesting module is deprecated: once the deprecation gate is active (the
-// DeprecationUpgradeName upgrade on chains with pre-deprecation history,
-// genesis everywhere else), its message handlers reject all messages, so new
-// vesting accounts can no longer be created. The module must remain wired into
-// the app so its codec and interface registrations stay in place: they are
-// required to decode existing vesting accounts in the auth store and
-// historical transactions.
 type AppModuleBasic struct{}
 
 // Name returns the module's name.
@@ -91,23 +83,18 @@ func (AppModuleBasic) GetQueryCmd() *cobra.Command {
 
 // AppModule extends the AppModuleBasic implementation by implementing the
 // AppModule interface.
-//
-// The vesting module is deprecated; see AppModuleBasic. Once the deprecation
-// gate is active, all message handlers return types.ErrVestingDeprecated.
 type AppModule struct {
 	AppModuleBasic
 
 	accountKeeper keeper.AccountKeeper
 	bankKeeper    types.BankKeeper
-	upgradeKeeper types.UpgradeKeeper
 }
 
-func NewAppModule(ak keeper.AccountKeeper, bk types.BankKeeper, uk types.UpgradeKeeper) AppModule {
+func NewAppModule(ak keeper.AccountKeeper, bk types.BankKeeper) AppModule {
 	return AppModule{
 		AppModuleBasic: AppModuleBasic{},
 		accountKeeper:  ak,
 		bankKeeper:     bk,
-		upgradeKeeper:  uk,
 	}
 }
 
@@ -116,7 +103,7 @@ func (AppModule) RegisterInvariants(_ sdk.InvariantRegistry) {}
 
 // Route returns the module's message router and handler.
 func (am AppModule) Route() sdk.Route {
-	return sdk.NewRoute(types.RouterKey, NewHandler(am.accountKeeper, am.bankKeeper, am.upgradeKeeper))
+	return sdk.NewRoute(types.RouterKey, NewHandler(am.accountKeeper, am.bankKeeper))
 }
 
 // QuerierRoute returns an empty string as the module contains no query
@@ -125,7 +112,7 @@ func (AppModule) QuerierRoute() string { return "" }
 
 // RegisterServices registers module services.
 func (am AppModule) RegisterServices(cfg module.Configurator) {
-	types.RegisterMsgServer(cfg.MsgServer(), NewMsgServerImpl(am.accountKeeper, am.bankKeeper, am.upgradeKeeper))
+	types.RegisterMsgServer(cfg.MsgServer(), NewMsgServerImpl(am.accountKeeper, am.bankKeeper))
 }
 
 // LegacyQuerierHandler performs a no-op.

@@ -3,76 +3,34 @@ package vesting
 import (
 	"context"
 
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+
+	"github.com/armon/go-metrics"
+
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
-
-// DeprecationUpgradeName is the upgrade plan that activates the vesting
-// module's deprecation on chains with pre-deprecation history. It must match
-// the plan name of the release that ships the deprecation; if this change
-// slips to a later release, bump this constant to that release's name.
-const DeprecationUpgradeName = "v6.7"
-
-// chainsWithVestingHistory are the public chains whose history may contain
-// successful MsgCreateVestingAccount transactions. On these chains the
-// deprecation activates at the height the DeprecationUpgradeName upgrade
-// executes, so replaying historical blocks produces identical state, gas, and
-// app hashes. On every other chain (fresh networks, tests) the deprecation is
-// active from genesis.
-var chainsWithVestingHistory = map[string]struct{}{
-	"pacific-1":  {}, // mainnet
-	"atlantic-2": {}, // testnet
-	"arctic-1":   {}, // devnet
-}
 
 type msgServer struct {
 	keeper.AccountKeeper
 	types.BankKeeper
-	upgradeKeeper types.UpgradeKeeper
 }
 
-// NewMsgServerImpl returns an implementation of the vesting MsgServer
-// interface, wrapping the corresponding AccountKeeper and BankKeeper.
-//
-// The vesting module is deprecated: once the deprecation gate is active (see
-// creationDeprecated), every handler rejects its message with
-// types.ErrVestingDeprecated. Existing vesting accounts in state remain fully
-// supported.
-func NewMsgServerImpl(k keeper.AccountKeeper, bk types.BankKeeper, uk types.UpgradeKeeper) types.MsgServer {
-	return &msgServer{AccountKeeper: k, BankKeeper: bk, upgradeKeeper: uk}
+// NewMsgServerImpl returns an implementation of the vesting MsgServer interface,
+// wrapping the corresponding AccountKeeper and BankKeeper.
+func NewMsgServerImpl(k keeper.AccountKeeper, bk types.BankKeeper) types.MsgServer {
+	return &msgServer{AccountKeeper: k, BankKeeper: bk}
 }
 
 var _ types.MsgServer = msgServer{}
 
-// creationDeprecated reports whether vesting account creation is disabled at
-// the current block. Chains with pre-deprecation history keep the original
-// behavior below the deprecation upgrade height so historical replay is
-// unchanged; all other chains reject immediately.
-func (s msgServer) creationDeprecated(ctx sdk.Context) bool {
-	if _, ok := chainsWithVestingHistory[ctx.ChainID()]; !ok {
-		return true
-	}
-	// The done-height lookup must not consume gas: the pre-deprecation handler
-	// performed no store reads before its first bank check, so charging gas
-	// here would alter gas usage of historical transactions during replay.
-	gasFreeCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
-	return s.upgradeKeeper.IsUpgradeActiveAtHeight(gasFreeCtx, DeprecationUpgradeName, ctx.BlockHeight())
-}
-
-// CreateVestingAccount is deprecated and returns types.ErrVestingDeprecated
-// once the deprecation gate is active; the original behavior is preserved
-// below the gate so chains with pre-deprecation history replay identically.
-// Existing vesting accounts remain in state and continue to vest according to
-// their schedules regardless of the gate.
 func (s msgServer) CreateVestingAccount(goCtx context.Context, msg *types.MsgCreateVestingAccount) (*types.MsgCreateVestingAccountResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	if s.creationDeprecated(ctx) {
-		return nil, types.ErrVestingDeprecated
-	}
-
 	ak := s.AccountKeeper
 	bk := s.BankKeeper
 
@@ -124,6 +82,24 @@ func (s msgServer) CreateVestingAccount(goCtx context.Context, msg *types.MsgCre
 	}
 
 	ak.SetAccount(ctx, acc)
+
+	defer func() {
+		vestingMetrics.newAccount.Add(goCtx, 1)
+		// TODO(PLT-353): remove once vesting_new_account verified
+		telemetry.IncrCounter(1, "new", "account")
+
+		for _, a := range msg.Amount {
+			if a.Amount.IsInt64() {
+				vestingMetrics.accountAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(a.Denom))))
+				// TODO(PLT-353): remove once vesting_account_amount verified
+				telemetry.SetGaugeWithLabels(
+					[]string{"tx", "msg", "create_vesting_account"},
+					float32(a.Amount.Int64()),
+					[]metrics.Label{telemetry.NewLabel("denom", a.Denom)},
+				)
+			}
+		}
+	}()
 
 	err = bk.SendCoins(ctx, from, to, msg.Amount)
 	if err != nil {

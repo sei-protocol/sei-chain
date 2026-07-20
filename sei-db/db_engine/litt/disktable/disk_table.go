@@ -24,6 +24,8 @@ var _ litt.ManagedTable = (*DiskTable)(nil)
 // keymapReloadBatchSize is the size of the batch used for reloading keys from segments into the keymap.
 const keymapReloadBatchSize = 1024
 
+const tableFlushChannelCapacity = 8
+
 // DiskTable manages a table's Segments.
 type DiskTable struct {
 	// The logger for the disk table.
@@ -206,8 +208,7 @@ func NewDiskTable(
 		segmentPaths,
 		snapshottingEnabled,
 		table.getShardingFactor(),
-		config.Fsync,
-		config.ShardControlChannelSize)
+		config.Fsync)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mutable segment: %w", err)
 	}
@@ -331,7 +332,6 @@ func NewDiskTable(
 		name,
 		config.KeymapManagerChannelSize,
 		config.KeymapManagerMaxBatchSize,
-		config.KeymapManagerMaxBatchBytes,
 		config.GCBatchSize,
 		config.KeymapManagerMaxInterval,
 		config.KeymapManagerMaxBufferedDeletes,
@@ -342,7 +342,7 @@ func NewDiskTable(
 		logger:                 runtimeConfig.Logger,
 		keymapManager:          kManager,
 		errorMonitor:           errorMonitor,
-		flushChannel:           make(chan any, config.FlushChannelSize),
+		flushChannel:           make(chan any, tableFlushChannelCapacity),
 		metrics:                metrics,
 		clock:                  runtimeConfig.Clock,
 		name:                   name,
@@ -362,8 +362,6 @@ func NewDiskTable(
 		targetFileSize:          config.TargetSegmentFileSize,
 		targetKeyFileSize:       config.TargetSegmentKeyFileSize,
 		maxKeyCount:             config.MaxSegmentKeyCount,
-		autoFlushByteThreshold:  config.AutoFlushByteThreshold,
-		shardControlChannelSize: config.ShardControlChannelSize,
 		clock:                   runtimeConfig.Clock,
 		segmentPaths:            segmentPaths,
 		snapshottingEnabled:     snapshottingEnabled,
@@ -974,7 +972,7 @@ func (d *DiskTable) PutBatch(batch []*types.PutRequest) error {
 			return fmt.Errorf("key is too large, length must not exceed 2^16 bytes: %d bytes", len(kv.Key))
 		}
 		if len(kv.Value) > math.MaxUint32 {
-			return fmt.Errorf("value is too large, length must not exceed 2^32 - 1 bytes: %d bytes", len(kv.Value))
+			return fmt.Errorf("value is too large, length must not exceed 2^32 bytes: %d bytes", len(kv.Value))
 		}
 
 		// Validate every secondary key in this request, and detect duplicate keys (primary vs

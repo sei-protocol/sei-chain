@@ -1,9 +1,9 @@
 {
   "Comment": "Configuration for local smoke testing and debugging.",
   "Seed": 1337,
-  "DataDir": "~/blocksim/data",
-  "LogDir": "~/blocksim/logs",
-  "Backend": "litt",
+  "DataDir": "data",
+  "Backend": "mem",
+  "LogDir": "logs",
   "CleanDataOnStart": true,
   "CleanLogsOnStart": true,
   "CleanDataOnExit": true,

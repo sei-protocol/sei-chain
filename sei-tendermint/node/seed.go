@@ -51,6 +51,7 @@ func makeSeedNode(
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
+	nodeMetrics *NodeMetrics,
 ) (_ local.NodeService, err error) {
 	closers := []closer{}
 	defer func() {
@@ -78,6 +79,7 @@ func makeSeedNode(
 	}
 
 	router, peerCloser, err := createRouter(
+		nodeMetrics.p2p,
 		func() *types.NodeInfo { return &nodeInfo },
 		nodeKey,
 		utils.None[atypes.SecretKey](),
@@ -119,7 +121,7 @@ func makeSeedNode(
 
 		pexReactor: pexReactor,
 		rpcEnv: &rpccore.Environment{
-			App: proxy.New(abci.BaseApplication{}),
+			App: proxy.New(abci.BaseApplication{}, proxy.NopMetrics()),
 
 			StateStore: stateStore,
 			BlockStore: blockStore,

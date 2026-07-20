@@ -107,7 +107,7 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 	require.NoError(t, err)
 	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	proxyApp := proxy.New(newApp(genDoc.ValidatorUpdates()))
+	proxyApp := proxy.New(newApp(genDoc.ValidatorUpdates()), proxy.NopMetrics())
 	cs := newStateWithConfigAndBlockStore(
 		t,
 		cfg,
@@ -233,7 +233,7 @@ func crashWALandCheckLiveness(
 	require.NoError(t, err)
 	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	proxyApp := proxy.New(newApp(genDoc.ValidatorUpdates()))
+	proxyApp := proxy.New(newApp(genDoc.ValidatorUpdates()), proxy.NopMetrics())
 	cs := newStateWithConfigAndBlockStore(
 		t,
 		cfg,
@@ -291,7 +291,6 @@ var modes = []uint{0, 1, 2, 3}
 func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	t.Helper()
 	cfg := configSetup(t)
-	chainID := config.TestLoadGenesis(cfg).ChainID
 	sim := &simulatorTestSuite{
 		Evpool: sm.EmptyEvidencePool{},
 	}
@@ -361,7 +360,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 			blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
 			proposal := types.NewProposal(proposerVS.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxHashes(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, leaderPubKey.Address())
 			p := proposal.ToProto()
-			if err := proposerVS.SignProposal(ctx, chainID, p); err != nil {
+			if err := proposerVS.SignProposal(ctx, cfg.ChainID(), p); err != nil {
 				t.Fatal("failed to sign proposal", err)
 			}
 			proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
@@ -389,7 +388,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx1)
 	assert.NoError(t, err)
 
-	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, chainID,
+	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 		vss[1:nVals]...)
 
@@ -407,7 +406,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	updateValidatorTx1 := kvstore.MakeValSetChangeTx(updatePubKey1ABCI, 25)
 	_, err = css[0].txMempool.CheckTx(ctx, updateValidatorTx1)
 	assert.NoError(t, err)
-	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, chainID,
+	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 		vss[1:nVals]...)
 	ensureNewRound(t, newRoundCh, height+1, 0)
@@ -432,7 +431,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	newValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, testMinPower)
 	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx3)
 	assert.NoError(t, err)
-	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, chainID,
+	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 		vss[1:nVals]...)
 	ensureNewRound(t, newRoundCh, height+1, 0)
@@ -473,7 +472,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 		if i == selfIndex {
 			continue
 		}
-		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, chainID,
+		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 			types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 			newVss[i])
 	}
@@ -501,7 +500,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 		if i == selfIndex {
 			continue
 		}
-		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, chainID,
+		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 			types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 			newVss[i])
 	}
@@ -522,7 +521,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 		if i == selfIndex {
 			continue
 		}
-		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, chainID,
+		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 			types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 			newVss[i])
 	}
@@ -695,7 +694,7 @@ func testHandshakeReplay(
 	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
-	proxyApp := proxy.New(app)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	err = handshaker.Handshake(ctx, proxyApp)
 	if expectError {
 		require.Error(t, err)
@@ -742,7 +741,7 @@ func applyBlock(
 	eventBus *eventbus.EventBus,
 ) sm.State {
 	testPartSize := types.BlockPartSizeBytes
-	blockExec := sm.NewBlockExecutor(stateStore, appClient, mempool, evpool, blockStore, eventBus, types.DefaultConsensusPolicy())
+	blockExec := sm.NewBlockExecutor(stateStore, appClient, mempool, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
 
 	bps, err := blk.MakePartSet(testPartSize)
 	require.NoError(t, err)
@@ -767,7 +766,7 @@ func buildAppStateFromChain(
 ) {
 	t.Helper()
 	// start a new app without handshake, play nBlocks blocks
-	proxyApp := proxy.New(appClient)
+	proxyApp := proxy.New(appClient, proxy.NopMetrics())
 	mempool := newReplayTxMempool(proxyApp)
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{})
@@ -812,7 +811,7 @@ func buildTMStateFromChain(
 
 	// run the whole chain against this client to build up the tendermint state
 	app := newApp(types.TM2PB.ValidatorUpdates(state.Validators))
-	proxyApp := proxy.New(app)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	_, err := app.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
@@ -881,7 +880,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	{
 		app := &badApp{numBlocks: 3, allHashesAreWrong: true}
 		h := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
-		proxyApp := proxy.New(app)
+		proxyApp := proxy.New(app, proxy.NopMetrics())
 		assert.Error(t, h.Handshake(ctx, proxyApp))
 	}
 
@@ -892,7 +891,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	{
 		app := &badApp{numBlocks: 3, onlyLastHashIsWrong: true}
 		h := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
-		proxyApp := proxy.New(app)
+		proxyApp := proxy.New(app, proxy.NopMetrics())
 		require.Error(t, h.Handshake(ctx, proxyApp))
 	}
 }
@@ -1121,7 +1120,7 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 	genDoc, err = sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
-	proxyApp := proxy.New(app)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	require.NoError(t, handshaker.Handshake(ctx, proxyApp), "error on abci handshake")
 
 	// reload the state, check the validator set was updated

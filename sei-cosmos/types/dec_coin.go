@@ -135,17 +135,13 @@ func (coin DecCoin) String() string {
 	return fmt.Sprintf("%v%v", coin.Amount, coin.Denom)
 }
 
-// Validate returns an error if the DecCoin has a negative amount, an
-// out-of-range amount, or if the denom is invalid.
+// Validate returns an error if the DecCoin has a negative amount or if the denom is invalid.
 func (coin DecCoin) Validate() error {
 	if err := ValidateDenom(coin.Denom); err != nil {
 		return err
 	}
 	if coin.IsNegative() {
 		return fmt.Errorf("decimal coin %s amount cannot be negative", coin)
-	}
-	if !coin.Amount.IsInValidRange() {
-		return fmt.Errorf("decimal coin %s amount is out of range", coin)
 	}
 	return nil
 }
@@ -531,9 +527,6 @@ func (coins DecCoins) Validate() error {
 		if !coins[0].IsPositive() {
 			return fmt.Errorf("coin %s amount is not positive", coins[0])
 		}
-		if !coins[0].Amount.IsInValidRange() {
-			return fmt.Errorf("coin %s amount is out of range", coins[0])
-		}
 		return nil
 	default:
 		// check single coin case
@@ -557,9 +550,6 @@ func (coins DecCoins) Validate() error {
 			}
 			if !coin.IsPositive() {
 				return fmt.Errorf("coin %s amount is not positive", coin.Denom)
-			}
-			if !coin.Amount.IsInValidRange() {
-				return fmt.Errorf("coin %s amount is out of range", coin.Denom)
 			}
 
 			// we compare each coin against the last denom

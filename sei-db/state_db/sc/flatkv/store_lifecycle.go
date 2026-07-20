@@ -14,7 +14,7 @@ import (
 // isClosed reports whether the store's DB handles have been released.
 func (s *CommitStore) isClosed() bool {
 	return s.metadataDB == nil && s.accountDB == nil &&
-		s.codeDB == nil && s.storageDB == nil && s.miscDB == nil
+		s.codeDB == nil && s.storageDB == nil && s.legacyDB == nil
 }
 
 // closeDBsOnly closes all database handles and the WAL but retains the
@@ -55,11 +55,11 @@ func (s *CommitStore) closeDBsOnly() error {
 		s.accountDB = nil
 	}
 
-	if s.miscDB != nil {
-		if err := s.miscDB.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("miscDB close: %w", err))
+	if s.legacyDB != nil {
+		if err := s.legacyDB.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("legacyDB close: %w", err))
 		}
-		s.miscDB = nil
+		s.legacyDB = nil
 	}
 
 	s.localMeta = make(map[string]*ktype.LocalMeta)
@@ -76,20 +76,10 @@ func (s *CommitStore) closeDBsOnly() error {
 func (s *CommitStore) Close() error {
 	if s.readPool != nil {
 		s.readPool.Close()
-		s.readPool = nil
 	}
 	if s.miscPool != nil {
 		s.miscPool.Close()
-		s.miscPool = nil
 	}
-	if s.ltHashPool != nil {
-		s.ltHashPool.Close()
-		s.ltHashPool = nil
-	}
-	// Calculator is bound to ltHashPool; drop it so a post-Close use cannot
-	// submit to a closed pool. resetPools recreates both together.
-	s.ltCalc = nil
-
 	err := s.closeDBsOnly()
 	s.cancel()
 

@@ -29,9 +29,10 @@ func New(
 	app abci.Application,
 	gen *tmtypes.GenesisDoc,
 	tracerProviderOptions []trace.TracerProviderOption,
+	nodeMetrics *NodeMetrics,
 	consensusPolicy tmtypes.ConsensusPolicy,
 ) (local.NodeService, error) {
-	proxyApp := proxy.New(app)
+	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load or gen node key %s: %w", conf.NodeKeyFile(), err)
@@ -62,6 +63,7 @@ func New(
 			genProvider,
 			config.DefaultDBProvider,
 			tracerProviderOptions,
+			nodeMetrics,
 			consensusPolicy,
 		)
 	case config.ModeSeed:
@@ -70,6 +72,7 @@ func New(
 			config.DefaultDBProvider,
 			nodeKey,
 			genProvider,
+			nodeMetrics,
 		)
 	default:
 		return nil, fmt.Errorf("%q is not a valid mode", conf.Mode)

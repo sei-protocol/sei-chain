@@ -25,7 +25,7 @@
 # produces wrong content at H_sync also produces wrong content at every
 # height > H_sync (replay is a pure function of state at H_sync), so
 # comparing at any shared post-sync height is sufficient. This script is
-# intended for GIGA_STORAGE=true jobs; all FlatKV buckets, including misc,
+# intended for GIGA_STORAGE=true jobs; all FlatKV buckets, including legacy,
 # are included in the digest.
 
 set -euo pipefail
@@ -127,7 +127,7 @@ flatkv_dump_digest() {
       --db-dir $FLATKV_DIR \
       --output-dir \"\$out_dir\" \
       --height $version > /dev/null
-    tail -q -n +2 \"\$out_dir/account\" \"\$out_dir/code\" \"\$out_dir/storage\" \"\$out_dir/misc\" \
+    tail -q -n +2 \"\$out_dir/account\" \"\$out_dir/code\" \"\$out_dir/storage\" \"\$out_dir/legacy\" \
       | sha256sum | cut -d' ' -f1
   "
 }

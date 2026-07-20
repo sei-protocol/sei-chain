@@ -92,9 +92,7 @@ func TestRemoveSnapshotDir(t *testing.T) {
 
 func TestRewriteSnapshotBackground(t *testing.T) {
 	db, err := OpenDB(0, Options{
-		// SnapshotKeepRecent 0 is healed to DefaultSnapshotKeepRecent (1) by
-		// FillDefaults, so the latest snapshot plus one older snapshot are kept.
-		Config:          Config{SnapshotKeepRecent: 0},
+		Config:          Config{SnapshotKeepRecent: 0}, // only a single snapshot is kept
 		Dir:             t.TempDir(),
 		CreateIfMissing: true,
 		InitialStores:   []string{"test"},
@@ -154,12 +152,12 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	wg.Wait()
 
 	// Wait for async prune to finish by checking the actual directory state.
-	// keep-recent heals to 1, so after prune completes 5 entries should remain:
-	// latest snapshot, one older snapshot, current link, LOCK, changelog WAL dir
+	// After prune completes, only 4 entries should remain:
+	// snapshot, current link, LOCK, changelog WAL dir
 	require.Eventually(t, func() bool {
 		entries, err := os.ReadDir(db.dir)
-		return err == nil && len(entries) == 5
-	}, 3*time.Second, 50*time.Millisecond, "prune should complete and leave exactly 5 entries")
+		return err == nil && len(entries) == 4
+	}, 3*time.Second, 50*time.Millisecond, "prune should complete and leave exactly 4 entries")
 	// stopCh is closed by defer above
 }
 

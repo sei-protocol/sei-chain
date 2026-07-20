@@ -20,6 +20,7 @@ type Service struct {
 
 	eventSinks []EventSink
 	eventBus   *eventbus.EventBus
+	metrics    *Metrics
 
 	currentBlock struct {
 		header types.EventDataNewBlockHeader
@@ -33,6 +34,10 @@ func NewService(args ServiceArgs) *Service {
 	is := &Service{
 		eventSinks: args.Sinks,
 		eventBus:   args.EventBus,
+		metrics:    args.Metrics,
+	}
+	if is.metrics == nil {
+		is.metrics = NopMetrics()
 	}
 	is.BaseService = *service.NewBaseService("IndexerService", is)
 	return is
@@ -83,8 +88,8 @@ func (is *Service) publish(msg pubsub.Message) error {
 				logger.Error("failed to index block header",
 					"height", is.currentBlock.height, "err", err)
 			} else {
-				Global.BlockEventsSecondsAt().Observe(time.Since(start).Seconds())
-				Global.BlocksIndexedAt().Add(1)
+				is.metrics.BlockEventsSeconds.Observe(time.Since(start).Seconds())
+				is.metrics.BlocksIndexed.Add(1)
 				logger.Debug("indexed block",
 					"height", is.currentBlock.height, "sink", sink.Type())
 			}
@@ -96,8 +101,8 @@ func (is *Service) publish(msg pubsub.Message) error {
 					logger.Error("failed to index block txs",
 						"height", is.currentBlock.height, "err", err)
 				} else {
-					Global.TxEventsSecondsAt().Observe(time.Since(start).Seconds())
-					Global.TransactionsIndexedAt().Add(int64(curr.Size()))
+					is.metrics.TxEventsSeconds.Observe(time.Since(start).Seconds())
+					is.metrics.TransactionsIndexed.Add(float64(curr.Size()))
 					logger.Debug("indexed txs",
 						"height", is.currentBlock.height, "sink", sink.Type())
 				}
@@ -139,6 +144,7 @@ func (is *Service) OnStop() {
 type ServiceArgs struct {
 	Sinks    []EventSink
 	EventBus *eventbus.EventBus
+	Metrics  *Metrics
 }
 
 // KVSinkEnabled returns the given eventSinks is containing KVEventSink.

@@ -60,8 +60,9 @@ type syncer struct {
 	fetchers      int32
 	retryTimeout  time.Duration
 
-	mtx    sync.RWMutex
-	chunks *chunkQueue
+	mtx     sync.RWMutex
+	chunks  *chunkQueue
+	metrics *Metrics
 
 	avgChunkTime             int64
 	lastSyncedSnapshotHeight int64
@@ -99,7 +100,7 @@ func (s *syncer) AddSnapshot(peerID types.NodeID, snapshot *snapshot) (bool, err
 		return false, err
 	}
 	if added {
-		Global.TotalSnapshotsAt().Add(1)
+		s.metrics.TotalSnapshots.Add(1)
 		logger.Info("discovered and added new snapshot", "peer", peerID, "height", snapshot.Height, "format", snapshot.Format, "hash", snapshot.Hash)
 	}
 	return added, nil
@@ -175,13 +176,13 @@ func (s *syncer) SyncAny(
 		}
 
 		s.processingSnapshot = snapshot
-		Global.SnapshotChunkTotalAt().Set(int64(snapshot.Chunks))
+		s.metrics.SnapshotChunkTotal.Set(float64(snapshot.Chunks))
 		logger.Info("starting state sync with picked snapshot", "height", snapshot.Height)
 		newState, commit, err := s.Sync(ctx, snapshot, chunks)
 		switch {
 		case err == nil:
-			Global.SnapshotHeightAt().Set(int64(snapshot.Height)) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
-			s.lastSyncedSnapshotHeight = int64(snapshot.Height)   //nolint:gosec // snapshot.Height is a valid block height in this context
+			s.metrics.SnapshotHeight.Set(float64(snapshot.Height))
+			s.lastSyncedSnapshotHeight = int64(snapshot.Height) //nolint:gosec // snapshot.Height is a valid block height
 			return newState, commit, nil
 
 		case errors.Is(err, errAbort):
@@ -415,9 +416,9 @@ func (s *syncer) applyChunks(ctx context.Context, chunks *chunkQueue, start time
 
 		switch resp.Result {
 		case abci.ResponseApplySnapshotChunk_ACCEPT:
-			Global.SnapshotChunkAt().Add(1)
+			s.metrics.SnapshotChunk.Add(1)
 			s.avgChunkTime = time.Since(start).Nanoseconds() / int64(chunks.numChunksReturned())
-			Global.ChunkProcessAvgTimeAt().Set(float64(s.avgChunkTime))
+			s.metrics.ChunkProcessAvgTime.Set(float64(s.avgChunkTime))
 		case abci.ResponseApplySnapshotChunk_ABORT:
 			return errAbort
 		case abci.ResponseApplySnapshotChunk_RETRY:

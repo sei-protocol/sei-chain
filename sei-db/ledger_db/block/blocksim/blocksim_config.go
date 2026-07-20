@@ -30,13 +30,6 @@ type BlocksimConfig struct {
 	// benchmark. A larger queue allows the block generator to run further ahead of the consumer.
 	StagedBlockQueueSize uint64
 
-	// Size in bytes of the pre-generated random buffer used to synthesize block payloads and fake
-	// signatures. The buffer is filled once at startup and sliced (zero-copy) thereafter, so the
-	// generator never runs math/rand or allocates payload bytes on the hot path. Must be at least
-	// BytesPerTransaction (the largest single request). Larger values give a longer runway before
-	// the byte sequence repeats.
-	RandomDataBufferSizeBytes uint64
-
 	// The number of blocks to keep in the database after pruning.
 	UnprunedBlocks uint64
 
@@ -58,11 +51,6 @@ type BlocksimConfig struct {
 	// any pruned record may be reclaimed (the prune watermark still gates
 	// reclamation on top of this). Must be positive.
 	LittRetentionSeconds int
-
-	// If true, the "litt" backend records its litt_* metrics into blocksim's global OTel MeterProvider,
-	// so they are exported on the same /metrics endpoint as the blocksim_* metrics (see MetricsAddr).
-	// Only meaningful when Backend is "litt" and MetricsAddr is set.
-	LittMetricsEnabled bool
 
 	// If this many seconds go by without a console update, the benchmark will print a report.
 	ConsoleUpdateIntervalSeconds float64
@@ -117,23 +105,21 @@ type BlocksimConfig struct {
 func DefaultBlocksimConfig() *BlocksimConfig {
 	return &BlocksimConfig{
 		BytesPerTransaction:             1024,
-		TransactionsPerBlock:            2000,
+		TransactionsPerBlock:            512,
 		CommitteeSize:                   4,
-		BlocksPerQc:                     1,
+		BlocksPerQc:                     10,
 		StagedBlockQueueSize:            8,
-		RandomDataBufferSizeBytes:       64 * 1024 * 1024, // 64 MiB
-		LittRetentionSeconds:            2 * 60 * 60,      // 2 hours
-		LittMetricsEnabled:              true,
+		LittRetentionSeconds:            86_400,
 		UnprunedBlocks:                  100_000,
 		Seed:                            1337,
 		DataDir:                         "data",
-		Backend:                         "litt",
+		Backend:                         "mem",
 		ConsoleUpdateIntervalSeconds:    1,
 		ConsoleUpdateIntervalBlocks:     10_000,
 		MaxRuntimeSeconds:               0,
 		MetricsAddr:                     ":9090",
 		EnableSuspension:                true,
-		FlushIntervalBlocks:             100,
+		FlushIntervalBlocks:             1024,
 		BackgroundMetricsScrapeInterval: 60,
 		LogDir:                          "logs",
 		LogLevel:                        "info",
@@ -167,15 +153,6 @@ func (c *BlocksimConfig) Validate() error {
 	}
 	if c.StagedBlockQueueSize < 1 {
 		return fmt.Errorf("StagedBlockQueueSize must be at least 1 (got %d)", c.StagedBlockQueueSize)
-	}
-	minBuffer := c.BytesPerTransaction
-	if signatureSizeBytes > minBuffer {
-		minBuffer = signatureSizeBytes
-	}
-	if c.RandomDataBufferSizeBytes < minBuffer {
-		return fmt.Errorf("RandomDataBufferSizeBytes must be at least %d "+
-			"(max of BytesPerTransaction and the fixed signature/hash draws) (got %d)",
-			minBuffer, c.RandomDataBufferSizeBytes)
 	}
 	if c.LittRetentionSeconds < 1 {
 		return fmt.Errorf("LittRetentionSeconds must be positive (got %d)", c.LittRetentionSeconds)

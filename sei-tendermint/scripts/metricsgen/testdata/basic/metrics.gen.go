@@ -3,28 +3,28 @@
 package basic
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/go-kit/kit/metrics/discard"
+	prometheus "github.com/go-kit/kit/metrics/prometheus"
+	stdprometheus "github.com/prometheus/client_golang/prometheus"
 )
 
-var Global = NewMetrics()
-
-func init() {
-	prometheus.MustRegister(
-		Global.Height,
-	)
-}
-
-func NewMetrics() *Metrics {
+func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
+	labels := []string{}
+	for i := 0; i < len(labelsAndValues); i += 2 {
+		labels = append(labels, labelsAndValues[i])
+	}
 	return &Metrics{
-		Height: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
+		Height: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "height",
 			Help:      "simple metric that tracks the height of the chain.",
-		}, nil),
+		}, labels).With(labelsAndValues...),
 	}
 }
 
-func (m *Metrics) HeightAt() prometheus.Gauge {
-	return m.Height.WithLabelValues()
+func NopMetrics() *Metrics {
+	return &Metrics{
+		Height: discard.NewGauge(),
+	}
 }

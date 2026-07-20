@@ -59,7 +59,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
-			proxyApp := proxy.New(app)
+			proxyApp := proxy.New(app, proxy.NopMetrics())
 			// In giga mode the CometBFT handshaker is skipped; the router's
 			// runExecute calls InitChain itself on fresh start.
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
@@ -84,6 +84,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}, cfg.nodeKey)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
 			router, err := NewRouter(
+				NopMetrics(),
 				cfg.nodeKey,
 				func() *types.NodeInfo { return &nodeInfo },
 				dbm.NewMemDB(),
@@ -225,7 +226,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			DialInterval:       time.Second,
 			ValidatorAddrs:     addrs,
 			PersistentStateDir: utils.None[string](),
-			App:                proxy.New(newTestApp()),
+			App:                proxy.New(newTestApp(), proxy.NopMetrics()),
 			GenDoc:             genDoc,
 		},
 		ValidatorKey: validatorKeys[0],
@@ -255,7 +256,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 
 	for range 200 {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.Registry().LatestEpoch().Committee().EvmShard(sender)
+		shardValidator := router.data.Committee().EvmShard(sender)
 
 		proxyURL, ok := router.EvmProxy(sender).Get()
 		expectedURL := urlByValidator[shardValidator]

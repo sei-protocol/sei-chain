@@ -126,62 +126,62 @@ func TestStoreHas(t *testing.T) {
 }
 
 // =============================================================================
-// Misc Key Get Tests
+// Legacy Key Get Tests
 // =============================================================================
 
-func TestStoreGetMiscPendingWrites(t *testing.T) {
+func TestStoreGetLegacyPendingWrites(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	addr := ktype.Address{0xEE}
-	miscKey := append([]byte{0x09}, addr[:]...)
+	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	// Not found initially
-	_, found := s.Get(keys.EVMStoreKey, miscKey)
+	_, found := s.Get(keys.EVMStoreKey, legacyKey)
 	require.False(t, found)
 
 	// Apply changeset
-	cs := makeChangeSet(miscKey, []byte{0x00, 0x40}, false)
+	cs := makeChangeSet(legacyKey, []byte{0x00, 0x40}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
 	// Should be readable from pending writes
-	got, found := s.Get(keys.EVMStoreKey, miscKey)
+	got, found := s.Get(keys.EVMStoreKey, legacyKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x40}, got)
 
 	// Commit and still readable
 	commitAndCheck(t, s)
-	got, found = s.Get(keys.EVMStoreKey, miscKey)
+	got, found = s.Get(keys.EVMStoreKey, legacyKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x40}, got)
 }
 
-func TestStoreGetMiscPendingDelete(t *testing.T) {
+func TestStoreGetLegacyPendingDelete(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	addr := ktype.Address{0xFF}
-	miscKey := append([]byte{0x09}, addr[:]...)
+	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	// Write and commit
-	cs1 := makeChangeSet(miscKey, []byte{0x00, 0x80}, false)
+	cs1 := makeChangeSet(legacyKey, []byte{0x00, 0x80}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
-	_, found := s.Get(keys.EVMStoreKey, miscKey)
+	_, found := s.Get(keys.EVMStoreKey, legacyKey)
 	require.True(t, found)
 
 	// Apply delete (pending)
-	cs2 := makeChangeSet(miscKey, nil, true)
+	cs2 := makeChangeSet(legacyKey, nil, true)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 
 	// Should not be found (pending delete)
-	_, found = s.Get(keys.EVMStoreKey, miscKey)
+	_, found = s.Get(keys.EVMStoreKey, legacyKey)
 	require.False(t, found)
 
 	// Commit delete
 	commitAndCheck(t, s)
-	_, found = s.Get(keys.EVMStoreKey, miscKey)
+	_, found = s.Get(keys.EVMStoreKey, legacyKey)
 	require.False(t, found)
 }
 
@@ -230,8 +230,8 @@ func TestGetAllKeyTypesFromCommittedDB(t *testing.T) {
 	ch := codeHashN(0xBB)
 	bytecode := []byte{0x60, 0x80, 0x60, 0x40}
 	storageVal := []byte{0x42}
-	miscKey := append([]byte{0x09}, addr[:]...)
-	miscVal := []byte{0x99, 0x88}
+	legacyKey := append([]byte{0x09}, addr[:]...)
+	legacyVal := []byte{0x99, 0x88}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS(
@@ -240,7 +240,7 @@ func TestGetAllKeyTypesFromCommittedDB(t *testing.T) {
 			codeHashPair(addr, ch),
 			codePair(addr, bytecode),
 		),
-		makeChangeSet(miscKey, miscVal, false),
+		makeChangeSet(legacyKey, legacyVal, false),
 	}))
 	commitAndCheck(t, s)
 
@@ -264,10 +264,10 @@ func TestGetAllKeyTypesFromCommittedDB(t *testing.T) {
 	require.True(t, found, "code should be found")
 	require.Equal(t, bytecode, got)
 
-	// Misc
-	got, found = s.Get(keys.EVMStoreKey, miscKey)
-	require.True(t, found, "misc should be found")
-	require.Equal(t, miscVal, got)
+	// Legacy
+	got, found = s.Get(keys.EVMStoreKey, legacyKey)
+	require.True(t, found, "legacy should be found")
+	require.Equal(t, legacyVal, got)
 
 	// Has should match
 	found = s.Has(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
@@ -278,7 +278,7 @@ func TestGetAllKeyTypesFromCommittedDB(t *testing.T) {
 	require.True(t, found)
 	found = s.Has(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
 	require.True(t, found)
-	found = s.Has(keys.EVMStoreKey, miscKey)
+	found = s.Has(keys.EVMStoreKey, legacyKey)
 	require.True(t, found)
 }
 
@@ -394,7 +394,7 @@ func TestGetUnknownKeyTypes(t *testing.T) {
 	}
 
 	// Non-empty keys that don't match a known prefix are classified as
-	// EVMKeyMisc, which is a supported type — Get/Has should not panic.
+	// EVMKeyLegacy, which is a supported type — Get/Has should not panic.
 	for _, tc := range []struct {
 		name string
 		key  []byte
@@ -586,7 +586,7 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 	slot := slotN(0x01)
 	ch := codeHashN(0xAA)
 	bytecode := []byte{0x60, 0x80}
-	miscKey := append([]byte{0x09}, addr[:]...)
+	legacyKey := append([]byte{0x09}, addr[:]...)
 
 	// Phase 1: write everything and close
 	cfg := config.DefaultTestConfig(t)
@@ -604,7 +604,7 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 			codePair(addr, bytecode),
 			storagePair(addr, slot, []byte{0x42}),
 		),
-		makeChangeSet(miscKey, []byte{0x77}, false),
+		makeChangeSet(legacyKey, []byte{0x77}, false),
 	}))
 	_, err = s1.Commit()
 	require.NoError(t, err)
@@ -635,8 +635,8 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 	require.True(t, found, "code should survive reopen")
 	require.Equal(t, bytecode, got)
 
-	got, found = s2.Get(keys.EVMStoreKey, miscKey)
-	require.True(t, found, "misc should survive reopen")
+	got, found = s2.Get(keys.EVMStoreKey, legacyKey)
+	require.True(t, found, "legacy should survive reopen")
 	require.Equal(t, []byte{0x77}, got)
 }
 

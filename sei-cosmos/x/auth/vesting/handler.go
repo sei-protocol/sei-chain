@@ -7,11 +7,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 )
 
-// NewHandler returns a handler for x/auth message types. The vesting module is
-// deprecated: once the deprecation gate is active, every message is rejected
-// with types.ErrVestingDeprecated.
-func NewHandler(ak keeper.AccountKeeper, bk types.BankKeeper, uk types.UpgradeKeeper) sdk.Handler {
-	msgServer := NewMsgServerImpl(ak, bk, uk)
+// NewHandler returns a handler for x/auth message types.
+func NewHandler(ak keeper.AccountKeeper, bk types.BankKeeper) sdk.Handler {
+	msgServer := NewMsgServerImpl(ak, bk)
 
 	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())

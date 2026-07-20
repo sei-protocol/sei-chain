@@ -44,7 +44,7 @@ The following features are currently supported by LittDB:
 - [tables](#table) with non-overlapping namespaces
 - multi-drive support (data can be spread across multiple physical volumes)
 - incremental backups (both local and remote)
-- keys up to 64 KiB (2^16 - 1 bytes) and values up to 2^32 - 1 bytes (~4 GiB) in size
+- keys and values up to 2^32 bytes in size
 - incremental snapshots
 - incremental remote backups
 
@@ -133,8 +133,7 @@ type Table interface {
 }
 ```
 
-Both primary keys and secondary keys must not exceed 64 KiB (2^16 - 1 bytes). Values may be up to 2^32 - 1 bytes
-(`math.MaxUint32`, ~4 GiB); larger values are rejected.
+Both primary keys and secondary keys must not exceed 64 KiB (2^16 - 1 bytes). Values may be up to 2^32 bytes.
 
 Source: [put_request.go](types/put_request.go)
 
@@ -380,14 +379,14 @@ time. Segments are only deleted when all data contained within them has [expired
 Segments have a target data size. When a segment is full, that segment is made immutable, and a new segment is created
 and added to the end of the list.
 
-An [address](#address) stores the offset of a value's first byte within its segment value file using 32 bits, so every
-value (and every secondary key, which points at a sub-range of a value) must begin below the 2^32 byte mark. A value is
-always written whole within a single value file: before writing a value whose bytes would cross 2^32, the segment is
-rolled and a fresh one is started, so the value lands entirely within the new file. Consequently a value file never
-exceeds 2^32 bytes and no value is ever split across the boundary.
+Note that the maximum size of a segment file is not a hard limit. As long as the first byte of a [value](#value) is
+written to a segment file before the segment is full, the segment is permitted to hold it. An [address](#address)
+points to that first byte of a value. Since there are 32 bits in an [address](#address) used to store the offset
+within the file, the maximum offset for the first byte of a value is 2^32 bytes (4GB).
 
-This bounds the maximum size of a single [value](#value) to 2^32 - 1 bytes (`math.MaxUint32`, ~4 GiB); larger values are
-rejected. (Before secondary keys were introduced, values could span past this boundary; that is no longer supported.)
+A natural side effect of only requiring the first byte of a [value](#value) to be written before the segment is full is
+that LittDB can support arbitrarily large [values](#value). Doing so may result in a large amount of data in a single
+segment, but this does not violate any correctness invariants.
 
 Each segment may split its data into multiple [shards](#shard). The number of shards in a segment is called the
 [sharding factor](#sharding-factor). The [sharding factor](#sharding-factor) is configurable, and different segments

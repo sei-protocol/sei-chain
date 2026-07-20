@@ -50,7 +50,6 @@ func (s *Stream) open(ctx context.Context, maxMsgSize uint64, window uint64) err
 			ctrl.Updated()
 			return err
 		}
-		inner.metrics.Open()
 	}
 	return nil
 }
@@ -92,7 +91,6 @@ func (s *Stream) Send(ctx context.Context, msg []byte) error {
 			f.Header.PayloadSize = utils.Alloc(uint64(len(msg)))
 			f.Header.MsgEnd = utils.Alloc(true)
 		}
-		inner.metrics.Send(len(msg))
 	}
 	return nil
 }
@@ -102,7 +100,6 @@ func (s *Stream) close(inner *streamStateInner) {
 		return
 	}
 	inner.closed.local = true
-	inner.metrics.Close()
 	for queue, ctrl := range s.queue.Lock() {
 		if len(queue) == 0 {
 			ctrl.Updated()
@@ -153,7 +150,6 @@ func (s *Stream) Recv(ctx context.Context, freeBuffer bool) ([]byte, error) {
 				f.Header.WindowEnd = utils.Alloc(inner.recv.end)
 			}
 		}
-		inner.metrics.Recv(len(msg))
 		return msg, nil
 	}
 	panic("unreachable")

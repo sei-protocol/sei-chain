@@ -2,7 +2,6 @@ package types
 
 import (
 	"cmp"
-	"fmt"
 	"slices"
 	"time"
 
@@ -11,32 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
-
-// BuildCommitQC builds a valid CommitQC from explicit lane QCs and an optional app QC.
-// Use BuildFullCommitQC when you want random blocks generated automatically.
-func BuildCommitQC(
-	epoch *Epoch,
-	keys []SecretKey,
-	prev utils.Option[*CommitQC],
-	laneQCs map[LaneID]*LaneQC,
-	appQC utils.Option[*AppQC],
-) *CommitQC {
-	vs := ViewSpec{CommitQC: prev, Epoch: epoch}
-	leader := epoch.Committee().Leader(vs.View())
-	var leaderKey SecretKey
-	for _, k := range keys {
-		if k.Public() == leader {
-			leaderKey = k
-			break
-		}
-	}
-	proposal := utils.OrPanic1(NewProposal(leaderKey, vs, time.Now(), laneQCs, appQC))
-	votes := make([]*Signed[*CommitVote], 0, len(keys))
-	for _, k := range keys {
-		votes = append(votes, Sign(k, NewCommitVote(proposal.Proposal().Msg())))
-	}
-	return NewCommitQC(votes)
-}
 
 // GenNodeID generates a random NodeID.
 func GenNodeID(rng utils.Rng) NodeID {
@@ -64,7 +37,7 @@ func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
 	slices.SortStableFunc(sks, func(a, b SecretKey) int {
 		return -cmp.Compare(pks[a.Public()], pks[b.Public()])
 	})
-	return utils.OrPanic1(NewCommittee(pks)), sks
+	return utils.OrPanic1(NewCommittee(pks, GenGlobalBlockNumber(rng)%1000000, time.Now())), sks
 }
 
 // TestKeysWithWeight returns a deterministic subset of keys whose committee weight reaches the requested threshold.
@@ -102,67 +75,9 @@ func GenSignature(rng utils.Rng) *Signature {
 	}
 }
 
-// SignatureForTesting builds a Signature from a public key and raw signature bytes
-// WITHOUT performing any real signing. FOR TESTS/BENCHMARKS ONLY: the resulting
-// signature is arbitrary bytes and will NOT verify. sigBytes must be exactly
-// ed25519.SignatureSize (64) bytes.
-func SignatureForTesting(key PublicKey, sigBytes []byte) (*Signature, error) {
-	sig, err := ed25519.SignatureFromBytes(sigBytes)
-	if err != nil {
-		return nil, fmt.Errorf("sig: %w", err)
-	}
-	return &Signature{key: key, sig: sig}, nil
-}
-
-// SignedForTesting attaches a precomputed (typically fake) signature to a message
-// WITHOUT signing. FOR TESTS/BENCHMARKS ONLY: the result will NOT verify. The message is
-// still hashed (cheap), only the expensive signing operation is skipped.
-func SignedForTesting[T Msg](msg T, sig *Signature) *Signed[T] {
-	return newSigned(msg, sig)
-}
-
-// NewBlockForTesting builds a Block with an injected payload hash instead of computing
-// payload.Hash(). FOR TESTS/BENCHMARKS ONLY: the header's payloadHash need not match the
-// payload, so Block.Verify will fail. This skips a full marshal + SHA-256 of the payload.
-func NewBlockForTesting(
-	lane LaneID,
-	blockNumber BlockNumber,
-	parentHash BlockHeaderHash,
-	payload *Payload,
-	payloadHash PayloadHash,
-) *Block {
-	return &Block{
-		header: &BlockHeader{
-			lane:        lane,
-			blockNumber: blockNumber,
-			parentHash:  parentHash,
-			payloadHash: payloadHash,
-		},
-		payload: payload,
-	}
-}
-
 // GenBlockNumber generates a random BlockNumber.
 func GenBlockNumber(rng utils.Rng) BlockNumber {
 	return BlockNumber(rng.Uint64())
-}
-
-// GenLaneRangeFor generates a random LaneRange whose lane ID is drawn from c.
-func GenLaneRangeFor(rng utils.Rng, c *Committee) *LaneRange {
-	lanes := c.Lanes()
-	lane := lanes.At(rng.Intn(lanes.Len()))
-	first := GenBlockNumber(rng)
-	length := rng.Uint64() % (MaxLaneRangeInProposal + 1)
-	if length == 0 {
-		return NewLaneRange(lane, first, utils.None[*BlockHeader]())
-	}
-	header := NewBlock(
-		lane,
-		first+BlockNumber(length-1),
-		GenBlockHeaderHash(rng),
-		GenPayload(rng),
-	).Header()
-	return NewLaneRange(lane, first, utils.Some(header))
 }
 
 // GenLaneRange generates a random LaneRange.
@@ -258,67 +173,19 @@ func GenViewNumber(rng utils.Rng) ViewNumber {
 // GenView generates a random View.
 func GenView(rng utils.Rng) View {
 	return View{
-		Index:      GenRoadIndex(rng),
-		Number:     GenViewNumber(rng),
-		EpochIndex: GenEpochIndex(rng),
+		Index:  GenRoadIndex(rng),
+		Number: GenViewNumber(rng),
 	}
-}
-
-// GenEpochIndex returns a random small EpochIndex for test use.
-func GenEpochIndex(rng utils.Rng) EpochIndex {
-	return EpochIndex(rng.Uint64() % 100)
-}
-
-// GenEpochWithCommittee returns a random Epoch wrapping committee.
-// epochIndex, firstBlock, timestamp, and Roads.First are randomized so that tests
-// exercise epoch-binding checks rather than silently passing on zero values.
-func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
-	first := RoadIndex(rng.Uint64() % 1000)
-	return NewEpoch(
-		GenEpochIndex(rng),
-		RoadRange{First: first, Last: first + RoadIndex(rng.Uint64()%10000) + 10},
-		utils.GenTimestamp(rng),
-		committee,
-		GlobalBlockNumber(rng.Uint64()%1000000)+1,
-	)
-}
-
-// CommitQCAt creates a CommitQC at ep.RoadRange().First, signed by all keys.
-func CommitQCAt(ep *Epoch, keys []SecretKey) *CommitQC {
-	vote := NewCommitVote(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}))
-	votes := make([]*Signed[*CommitVote], len(keys))
-	for i, k := range keys {
-		votes[i] = Sign(k, vote)
-	}
-	return NewCommitQC(votes)
 }
 
 // GenProposal generates a random Proposal.
 func GenProposal(rng utils.Rng) *Proposal {
-	return newProposal(GenView(rng), utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), GlobalBlockNumber(rng.Uint64()))
+	return newProposal(GenView(rng), time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
 }
 
 // GenProposalAt generates a Proposal at a specific view.
 func GenProposalAt(rng utils.Rng, view View) *Proposal {
-	return newProposal(view, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), GlobalBlockNumber(rng.Uint64()))
-}
-
-// ProposalAt returns a minimal Proposal at view, consistent with ep.
-// No lane ranges and no app proposal — only for tests that care about
-// signature weight or epoch binding, not lane/app data.
-func ProposalAt(ep *Epoch, view View) *Proposal {
-	view.EpochIndex = ep.EpochIndex()
-	return newProposal(view, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
-}
-
-// GenProposalForEpoch generates a Proposal at a specific view whose epochIndex,
-// firstBlock, and lane IDs are all consistent with ep. Use in tests that verify
-// QCs against a known Epoch.
-func GenProposalForEpoch(rng utils.Rng, ep *Epoch, view View) *Proposal {
-	view.EpochIndex = ep.EpochIndex()
-	c := ep.Committee()
-	laneRanges := utils.GenSlice(rng, func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
-	return newProposal(view, utils.GenTimestamp(rng), laneRanges, utils.Some(GenAppProposal(rng)), ep.FirstBlock())
+	return newProposal(view, time.Now(), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)))
 }
 
 // GenAppHash generates a random AppHash.
@@ -328,7 +195,7 @@ func GenAppHash(rng utils.Rng) AppHash {
 
 // GenAppProposal generates a random AppProposal.
 func GenAppProposal(rng utils.Rng) *AppProposal {
-	return NewAppProposal(GenGlobalBlockNumber(rng), GenRoadIndex(rng), GenAppHash(rng), GenEpochIndex(rng))
+	return NewAppProposal(GenGlobalBlockNumber(rng), GenRoadIndex(rng), GenAppHash(rng))
 }
 
 // GenAppVote generates a random AppVote.
@@ -394,8 +261,11 @@ func GenCommitVote(rng utils.Rng) *CommitVote {
 
 // GenCommitQC generates a random CommitQC.
 func GenCommitQC(rng utils.Rng) *CommitQC {
-	committee, keys := GenCommittee(rng, int(rng.Uint64()%5)+1) //nolint:gosec
-	return CommitQCAt(GenEpochWithCommittee(rng, committee), keys)
+	vote := GenCommitVote(rng)
+	return NewCommitQC(utils.GenSlice(
+		rng,
+		func(rng utils.Rng) *Signed[*CommitVote] { return GenSigned(rng, vote) },
+	))
 }
 
 // GenFullCommitQC generates a random FullCommitQC.
@@ -404,17 +274,6 @@ func GenFullCommitQC(rng utils.Rng) *FullCommitQC {
 		qc:      GenCommitQC(rng),
 		headers: utils.GenSlice(rng, GenBlockHeader),
 	}
-}
-
-// GenFullCommitQCRange generates a FullCommitQC whose GlobalRange is
-// [first, next) and which is internally consistent (First + len(headers) ==
-// Next), for tests that index a QC by its own range. littblock does not verify
-// signatures, so the QC need not be otherwise well-formed.
-func GenFullCommitQCRange(rng utils.Rng, first GlobalBlockNumber, next GlobalBlockNumber) *FullCommitQC {
-	qc := GenCommitQC(rng)
-	qc.vote.Msg().Proposal().globalRange = GlobalRange{First: first, Next: next}
-	headers := utils.GenSliceN(rng, int(next-first), GenBlockHeader) //nolint:gosec // small test range
-	return NewFullCommitQC(qc, headers)
 }
 
 // GenTimeoutVote generates a random TimeoutVote.

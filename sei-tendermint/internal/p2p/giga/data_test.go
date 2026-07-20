@@ -9,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -24,8 +23,8 @@ type testNode struct {
 
 func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
-func newTestNode(registry *epoch.Registry, cfg *consensus.Config) *testNode {
-	dataState := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+func newTestNode(committee *types.Committee, cfg *consensus.Config) *testNode {
+	dataState := utils.OrPanic1(data.NewState(&data.Config{Committee: committee}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee))))
 	consensusState, err := consensus.NewState(cfg, dataState)
 	if err != nil {
 		panic(fmt.Sprintf("consensus.NewState(): %v", err))
@@ -47,18 +46,17 @@ func (n *testNode) Run(ctx context.Context) error {
 }
 
 type testEnv struct {
-	registry  *epoch.Registry
 	committee *types.Committee
 	nodes     map[types.PublicKey]*testNode
 }
 
-func newTestEnv(registry *epoch.Registry) *testEnv {
-	return &testEnv{registry, registry.LatestEpoch().Committee(), map[types.PublicKey]*testNode{}}
+func newTestEnv(committee *types.Committee) *testEnv {
+	return &testEnv{committee, map[types.PublicKey]*testNode{}}
 }
 
 // Call AddNode BEFORE Run.
 func (e *testEnv) AddNode(key types.SecretKey) *testNode {
-	n := newTestNode(e.registry, &consensus.Config{
+	n := newTestNode(e.committee, &consensus.Config{
 		Key: key,
 		ViewTimeout: func(view types.View) time.Duration {
 			if _, ok := e.nodes[e.committee.Leader(view)]; ok {
@@ -92,11 +90,11 @@ func (e *testEnv) Run(ctx context.Context) error {
 func TestDataClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 2)
-	env := newTestEnv(registry)
+	committee, keys := types.GenCommittee(rng, 2)
+	firstBlock := committee.FirstBlock()
+	env := newTestEnv(committee)
 	server := env.AddNode(keys[0])
 	client := env.AddNode(keys[1])
-	firstBlock := server.data.Registry().FirstBlock()
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return env.Run(ctx) })
 
@@ -104,7 +102,7 @@ func TestDataClientServer(t *testing.T) {
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := data.TestCommitQC(rng, server.data.Registry().LatestEpoch(), keys, prev)
+			qc, blocks := data.TestCommitQC(rng, committee, keys, prev)
 			if err := server.data.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("serverState.PushQC(): %w", err)
 			}
@@ -133,7 +131,7 @@ func TestDataClientServer(t *testing.T) {
 				return fmt.Errorf("clientState.CommitQC(): %w", err)
 			}
 			if err := utils.TestDiff(wantQC, gotQC); err != nil {
-				return fmt.Errorf("QC mismatch at block %d: %w", n, err)
+				return err
 			}
 		}
 		return nil

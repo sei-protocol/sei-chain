@@ -158,6 +158,7 @@ func createEvidenceReactor(
 	store sm.Store,
 	blockStore *store.BlockStore,
 	router *p2p.Router,
+	metrics *evidence.Metrics,
 	eventBus *eventbus.EventBus,
 ) (*evidence.Reactor, *evidence.Pool, closer, error) {
 	evidenceDB, err := dbProvider(&config.DBContext{ID: "evidence", Config: cfg})
@@ -165,7 +166,7 @@ func createEvidenceReactor(
 		return nil, nil, func() error { return nil }, fmt.Errorf("unable to initialize evidence db: %w", err)
 	}
 
-	evidencePool := evidence.NewPool(evidenceDB, store, blockStore, eventBus)
+	evidencePool := evidence.NewPool(evidenceDB, store, blockStore, metrics, eventBus)
 	evidenceReactor, err := evidence.NewReactor(router, evidencePool)
 	if err != nil {
 		return nil, nil, evidenceDB.Close, fmt.Errorf("evidence.NewReactor(): %w", err)
@@ -386,6 +387,7 @@ func buildFullnodeGigaConfig(
 }
 
 func createRouter(
+	p2pMetrics *p2p.Metrics,
 	nodeInfoProducer func() *types.NodeInfo,
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
@@ -495,6 +497,7 @@ func createRouter(
 	}
 	closer = peerDB.Close
 	router, err := p2p.NewRouter(
+		p2pMetrics,
 		p2p.NodeSecretKey(nodeKey),
 		nodeInfoProducer,
 		peerDB,

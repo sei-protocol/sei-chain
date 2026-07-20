@@ -36,13 +36,12 @@ func DefaultTestConfig(t *testing.T) *Config {
 		CodeCacheConfig:        smallTestCacheConfig(),
 		StorageDBConfig:        smallTestPebbleConfig(),
 		StorageCacheConfig:     smallTestCacheConfig(),
-		MiscDBConfig:           smallTestPebbleConfig(),
-		MiscCacheConfig:        smallTestCacheConfig(),
+		LegacyDBConfig:         smallTestPebbleConfig(),
+		LegacyCacheConfig:      smallTestCacheConfig(),
 		MetadataDBConfig:       smallTestPebbleConfig(),
 		MetadataCacheConfig:    smallTestCacheConfig(),
 		ReaderThreadsPerCore:   2.0,
 		ReaderPoolQueueSize:    1024,
 		MiscPoolThreadsPerCore: 4.0,
-		LtHashThreadsPerCore:   1.0,
 	}
 }

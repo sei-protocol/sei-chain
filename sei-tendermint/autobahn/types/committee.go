@@ -8,6 +8,7 @@ import (
 	"iter"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
@@ -26,6 +27,14 @@ type Committee struct {
 	replicas    ImSlice[PublicKey]
 	weights     map[PublicKey]uint64
 	totalWeight uint64
+	// Number of the first block of the chain.
+	// TODO: firstBlock is not really a part of the committee,
+	// but it does belong to a chain spec (or epoch spec/genesis/etc.),
+	// which should be passed around to verify autobahn messages.
+	// Once we introduce the chain spec it should wrap Committee and firstBlock.
+	firstBlock GlobalBlockNumber
+	// timestamp at genesis. All blocks need to have a timestamp later than genesis.
+	genesisTimestamp time.Time
 }
 
 const MaxValidators = 100
@@ -45,6 +54,12 @@ func (c *Committee) Lanes() ImSlice[LaneID] { return c.replicas }
 
 // Replicas is the list of nodes which are eligible to participate in the consensus.
 func (c *Committee) Replicas() ImSlice[PublicKey] { return c.replicas }
+
+// FirstBlock is the index of the first global block finalized by this committee.
+func (c *Committee) FirstBlock() GlobalBlockNumber { return c.firstBlock }
+
+// GenesisTimestamp is the timestamp at genesis.
+func (c *Committee) GenesisTimestamp() time.Time { return c.genesisTimestamp }
 
 // Deterministic random oracle selecting a replica with probability proportional to the weight.
 func (c *Committee) randomReplica(seed []byte) PublicKey {
@@ -116,7 +131,7 @@ func (c *Committee) LaneQuorum() uint64 {
 	return c.Faulty() + 1
 }
 
-func NewCommittee(weights map[PublicKey]uint64) (*Committee, error) {
+func NewCommittee(weights map[PublicKey]uint64, firstBlock GlobalBlockNumber, genesisTimestamp time.Time) (*Committee, error) {
 	weights = maps.Clone(weights)
 	totalWeight := uint64(0)
 	for k, w := range weights {
@@ -136,17 +151,19 @@ func NewCommittee(weights map[PublicKey]uint64) (*Committee, error) {
 	}
 	replicas := slices.SortedFunc(maps.Keys(weights), func(a, b PublicKey) int { return a.Compare(b) })
 	return &Committee{
-		replicas:    ImSlice[PublicKey]{replicas},
-		weights:     weights,
-		totalWeight: totalWeight,
+		replicas:         ImSlice[PublicKey]{replicas},
+		weights:          weights,
+		totalWeight:      totalWeight,
+		firstBlock:       firstBlock,
+		genesisTimestamp: genesisTimestamp,
 	}, nil
 }
 
-// NewRoundRobinElection creates a Committee with equal weights for each replica.
-func NewRoundRobinElection(replicas []PublicKey) (*Committee, error) {
+// NewRoundRobinElection creates a Committee with round robin election starting at firstBlock.
+func NewRoundRobinElection(replicas []PublicKey, firstBlock GlobalBlockNumber, genesisTimestamp time.Time) (*Committee, error) {
 	weights := map[PublicKey]uint64{}
 	for _, k := range replicas {
 		weights[k] = 1
 	}
-	return NewCommittee(weights)
+	return NewCommittee(weights, firstBlock, genesisTimestamp)
 }

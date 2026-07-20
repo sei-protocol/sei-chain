@@ -28,14 +28,6 @@ type BlockNumber uint64
 // GlobalBlockNumber is the number of a block in the global chain.
 type GlobalBlockNumber uint64
 
-// BlockWithNumber pairs a block with its GlobalBlockNumber. It is used as the
-// payload of the utils.Option returned by ReadBlockByHash so that the block
-// number is only present when the block itself is present.
-type BlockWithNumber struct {
-	Block  *Block
-	Number GlobalBlockNumber
-}
-
 // BlockHeaderHash is the hash of a BlockHeader.
 type BlockHeaderHash hashable.Hash[*pb.BlockHeader]
 
@@ -163,12 +155,6 @@ func (h *BlockHeader) Hash() BlockHeaderHash {
 
 // PayloadHash is the hash of a Payload.
 type PayloadHash hashable.Hash[*pb.Payload]
-
-// ParsePayloadHash constructs a PayloadHash from its raw bytes.
-func ParsePayloadHash(bytes []byte) (PayloadHash, error) {
-	h, err := hashable.ParseHash[*pb.Payload](bytes)
-	return PayloadHash(h), err
-}
 
 // PayloadBuilder builds a Payload.
 type PayloadBuilder struct {

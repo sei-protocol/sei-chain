@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 )
 
 // defaultDirPerm is the default permissions used when creating directories.
@@ -617,6 +618,9 @@ prometheus-listen-addr = "{{ .Instrumentation.PrometheusListenAddr }}"
 # 0 - unlimited.
 max-open-connections = {{ .Instrumentation.MaxOpenConnections }}
 
+# Instrumentation namespace
+namespace = "{{ .Instrumentation.Namespace }}"
+
 #######################################################################
 ###       Priv Validator Configuration (Auto-managed)              ###
 #######################################################################
@@ -719,6 +723,7 @@ func ResetTestRootWithChainID(dir, testName string, chainID string) (*Config, er
 
 	config := TestConfig().SetRoot(rootDir)
 	config.P2P.ListenAddress = tcp.TestReserveAddr().String()
+	config.Instrumentation.Namespace = fmt.Sprintf("%s_%s_%s", testName, chainID, tmrand.Str(16))
 	return config, nil
 }
 
