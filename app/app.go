@@ -2043,13 +2043,17 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		}, nil
 	}
 
-	_, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr)
-
-	// Run validation checks (fee/nonce/balance - stateless checks done earlier)
-	validation := app.validateGigaEVMTx(ctx, ethTx, sender, seiAddr, isAssociated)
-
 	// Prepare context for EVM transaction (set infinite gas meter like original flow)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+
+	_, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr)
+
+	// Create state DB before validation so balance checks use DBImpl hooks.
+	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
+	defer stateDB.Cleanup()
+
+	// Run validation checks (fee/nonce/balance - stateless checks done earlier)
+	validation := app.validateGigaEVMTx(ctx, stateDB, ethTx, sender, seiAddr, isAssociated)
 
 	if validation.err != nil {
 		// v2 rejects fee/nonce/balance failures in its ante chain, whose
@@ -2073,10 +2077,6 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	if app.setCodeTxRequiresAuthorityAssociation(ctx, ethTx) {
 		return nil, gigaprecompiles.ErrBalanceMigrationRequired
 	}
-
-	// Create state DB for this transaction (only for valid transactions)
-	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
-	defer stateDB.Cleanup()
 
 	// Pre-charge gas fee (like V2's ante handler), then execute with feeAlreadyCharged=true.
 	// V2 charges fees in the ante handler, then runs the EVM with feeAlreadyCharged=true
@@ -3055,6 +3055,7 @@ type gigaValidationResult struct {
 //  7. Balance check
 func (app *App) validateGigaEVMTx(
 	ctx sdk.Context,
+	stateDB *gigaevmstate.DBImpl,
 	ethTx *ethtypes.Transaction,
 	sender common.Address,
 	seiAddr sdk.AccAddress,
@@ -3205,13 +3206,17 @@ func (app *App) validateGigaEVMTx(
 	balanceCheck := new(big.Int).Mul(new(big.Int).SetUint64(ethTx.Gas()), ethTx.GasFeeCap())
 	balanceCheck.Add(balanceCheck, ethTx.Value())
 
-	senderBalance := app.GigaEvmKeeper.GetBalance(ctx, seiAddr)
+	// Route validation balance reads through DBImpl so mock_balances follows
+	// the same ensureMinimumBalance behavior as V2's StateTransition.BuyGas.
+	senderBalance := stateDB.GetBalance(sender).ToBig()
 
-	// Include cast address balance for unassociated addresses (matches V2 PreprocessDecorator)
+	// Include the derived Sei address balance for unassociated addresses (matches V2 PreprocessDecorator).
 	if !isAssociated {
-		castAddr := sdk.AccAddress(sender[:])
-		castBalance := app.GigaEvmKeeper.GetBalance(ctx, castAddr)
-		senderBalance = new(big.Int).Add(senderBalance, castBalance)
+		seiEVMAddr := common.BytesToAddress(seiAddr)
+		if seiEVMAddr != sender {
+			seiBalance := stateDB.GetBalance(seiEVMAddr).ToBig()
+			senderBalance = new(big.Int).Add(senderBalance, seiBalance)
+		}
 	}
 
 	if senderBalance.Cmp(balanceCheck) < 0 {
