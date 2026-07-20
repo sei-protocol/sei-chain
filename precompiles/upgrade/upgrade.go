@@ -166,7 +166,9 @@ func (p PrecompileExecutor) upgradedConsensusState(ctx sdk.Context, method *abi.
 		return nil, 0, err
 	}
 
-	request := &upgradetypes.QueryUpgradedConsensusStateRequest{
+	// The request type is marked deprecated upstream, but it is still the
+	// wire type of the Query/UpgradedConsensusState rpc this method mirrors.
+	request := &upgradetypes.QueryUpgradedConsensusStateRequest{ //nolint:staticcheck
 		LastHeight: args[0].(int64),
 	}
 	response, err := p.upgradeQuerier.UpgradedConsensusState(sdk.WrapSDKContext(ctx), request)

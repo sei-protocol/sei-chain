@@ -317,6 +317,8 @@ type SlashingQuerier interface {
 type UpgradeQuerier interface {
 	CurrentPlan(c context.Context, req *upgradetypes.QueryCurrentPlanRequest) (*upgradetypes.QueryCurrentPlanResponse, error)
 	AppliedPlan(c context.Context, req *upgradetypes.QueryAppliedPlanRequest) (*upgradetypes.QueryAppliedPlanResponse, error)
-	UpgradedConsensusState(c context.Context, req *upgradetypes.QueryUpgradedConsensusStateRequest) (*upgradetypes.QueryUpgradedConsensusStateResponse, error)
+	// The request type is marked deprecated upstream but is still the wire
+	// type of the Query/UpgradedConsensusState rpc.
+	UpgradedConsensusState(c context.Context, req *upgradetypes.QueryUpgradedConsensusStateRequest) (*upgradetypes.QueryUpgradedConsensusStateResponse, error) //nolint:staticcheck
 	ModuleVersions(c context.Context, req *upgradetypes.QueryModuleVersionsRequest) (*upgradetypes.QueryModuleVersionsResponse, error)
 }
