@@ -1,0 +1,14 @@
+{
+    "require": ["tsx"],
+    "timeout": 600000,
+    "exit": true,
+    "reporter": "mochawesome",
+    "reporter-option": [
+        "reportDir=reports/precompile",
+        "reportFilename=bootstrap",
+        "html=false",
+        "json=true",
+        "overwrite=true"
+    ],
+    "spec": ["_start/*.spec.ts"]
+}
