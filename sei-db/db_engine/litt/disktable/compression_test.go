@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"math/rand"
 	"os"
 	"path"
 	"path/filepath"
@@ -71,6 +72,15 @@ func compressiblePayload() []byte {
 	return bytes.Repeat([]byte("littDB compression makes value files smaller. "), 200)
 }
 
+// incompressiblePayload returns deterministic pseudo-random bytes that S2 cannot shrink, so the
+// store-smaller path keeps them raw (tagged CompressionNone) even on a compressed segment.
+func incompressiblePayload() []byte {
+	payload := make([]byte, 4096)
+	rng := rand.New(rand.NewSource(1)) //nolint:gosec // test fixture, not security-sensitive
+	_, _ = rng.Read(payload)
+	return payload
+}
+
 func TestCompressionEndToEnd(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -96,6 +106,32 @@ func TestCompressionEndToEnd(t *testing.T) {
 
 	// The on-disk value file should be meaningfully smaller than the raw value.
 	require.Less(t, int(table.Size()), len(value), "compressed segment should be smaller than the raw value")
+}
+
+// TestCompressionMixedValues writes a compressible and an incompressible value into the same compressed
+// segment and confirms both survive a flush. The incompressible value exercises the per-value store-raw
+// tag (CompressionNone) alongside the compressible value's S2 tag on one segment.
+func TestCompressionMixedValues(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	table := buildCompressedMemKeyDiskTable(t, time.Now, "mixed", []string{dir}, types.CompressionS2)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	compressible := compressiblePayload()
+	incompressible := incompressiblePayload()
+	require.NoError(t, table.Put([]byte("compressible"), compressible))
+	require.NoError(t, table.Put([]byte("incompressible"), incompressible))
+	require.NoError(t, table.Flush())
+
+	got, ok, err := table.Get([]byte("compressible"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, compressible, got)
+
+	got, ok, err = table.Get([]byte("incompressible"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, incompressible, got)
 }
 
 func TestCompressionFullValueAliasSecondary(t *testing.T) {

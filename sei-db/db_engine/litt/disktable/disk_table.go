@@ -1005,8 +1005,10 @@ func (d *DiskTable) PutBatch(batch []*types.PutRequest) error {
 		if len(kv.Key) > math.MaxUint16 {
 			return fmt.Errorf("key is too large, length must not exceed 2^16 bytes: %d bytes", len(kv.Key))
 		}
-		if len(kv.Value) > math.MaxUint32 {
-			return fmt.Errorf("value is too large, length must not exceed 2^32 - 1 bytes: %d bytes", len(kv.Value))
+		// One byte below 2^32-1: a compressed segment prefixes each value with a one-byte algorithm tag,
+		// and the resulting on-disk blob length must still fit the uint32 value-size field of an Address.
+		if len(kv.Value) >= math.MaxUint32 {
+			return fmt.Errorf("value is too large, length must not exceed 2^32 - 2 bytes: %d bytes", len(kv.Value))
 		}
 
 		// Validate every secondary key in this request, and detect duplicate keys (primary vs

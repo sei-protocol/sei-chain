@@ -74,8 +74,9 @@ func (cl *compressionLoop) run() {
 	}
 }
 
-// compress fills req.compressedValues with the compressed form of each value. It returns false if
-// compression failed (in which case it has already panicked the DB via the error monitor).
+// compress fills req.compressedValues with the on-disk encoded form of each value (a one-byte algorithm
+// tag plus the smaller of the compressed and raw bodies; see types.EncodeValue). It returns false if
+// encoding failed (in which case it has already panicked the DB via the error monitor).
 func (cl *compressionLoop) compress(req *controlLoopWriteRequest) bool {
 	var start time.Time
 	if cl.metrics != nil {
@@ -86,7 +87,7 @@ func (cl *compressionLoop) compress(req *controlLoopWriteRequest) bool {
 	var uncompressedBytes uint64
 	var compressedBytes uint64
 	for i, kv := range req.values {
-		blob, err := types.Compress(cl.algorithm, kv.Value)
+		blob, err := types.EncodeValue(cl.algorithm, kv.Value)
 		if err != nil {
 			cl.errorMonitor.Panic(fmt.Errorf("failed to compress value: %w", err))
 			return false

@@ -628,9 +628,11 @@ func (s *Segment) WriteCompressed(
 			fmt.Errorf("failed to send value to shard control loop: %v", err)
 	}
 
-	// The whole compressed blob is the on-disk representation of the value; the primary and every
-	// (full-value-alias) secondary are addressed to it. Reads decompress the blob to recover the value.
-	blobAddress := types.NewAddress(s.index, firstByteIndex, shard, uint32(blobLen)) //nolint:gosec // bounded above
+	// The whole encoded blob is the on-disk representation of the value; the primary and every
+	// (full-value-alias) secondary are addressed to it. Reads decode the blob to recover the value.
+	// blobLen fits a uint32: the blob is a one-byte tag plus a body no larger than the raw value, and
+	// PutBatch caps the raw value at MaxUint32-1, so blobLen <= MaxUint32.
+	blobAddress := types.NewAddress(s.index, firstByteIndex, shard, uint32(blobLen)) //nolint:gosec // see above
 
 	primaryRequest := &types.ScopedKey{
 		Key:     data.Key,
@@ -701,14 +703,15 @@ func (s *Segment) Read(key []byte, dataAddress types.Address) ([]byte, error) {
 	return s.maybeDecompress(value)
 }
 
-// maybeDecompress decompresses value using the segment's compression algorithm, or returns it unchanged
-// if the segment is not compressed. All value reads (Segment.Read and SegmentReader.Read) pass through
-// here so the on-disk compressed representation is never surfaced to callers.
+// maybeDecompress decodes an on-disk value from a compressed segment (stripping the per-value algorithm
+// tag and decompressing the body; see types.EncodeValue), or returns it unchanged if the segment is not
+// compressed. All value reads (Segment.Read and SegmentReader.Read) pass through here so the on-disk
+// representation is never surfaced to callers.
 func (s *Segment) maybeDecompress(value []byte) ([]byte, error) {
 	if s.metadata.compressionAlgorithm == types.CompressionNone {
 		return value, nil
 	}
-	decompressed, err := types.Decompress(s.metadata.compressionAlgorithm, value)
+	decompressed, err := types.DecodeValue(value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decompress value: %w", err)
 	}
