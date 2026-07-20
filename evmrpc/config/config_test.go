@@ -52,6 +52,8 @@ type opts struct {
 	traceAllowedTracers          interface{}
 	traceAllowJSTracers          interface{}
 	traceBakeTracers             interface{}
+	maxStateOverrideAccounts     interface{}
+	maxStateOverrideSlots        interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -195,6 +197,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.trace_allow_js_tracers" {
 		return o.traceAllowJSTracers
 	}
+	if k == "evm.max_state_override_accounts" {
+		return o.maxStateOverrideAccounts
+	}
+	if k == "evm.max_state_override_slots" {
+		return o.maxStateOverrideSlots
+	}
 	panic("unknown key")
 }
 
@@ -244,6 +252,8 @@ func getDefaultOpts() opts {
 		[]string{"callTracer", "prestateTracer"},
 		false,
 		nil,
+		7,
+		9,
 	}
 }
 
@@ -258,6 +268,11 @@ func TestReadConfig(t *testing.T) {
 	require.False(t, cfg.TraceAllowJSTracers)
 	// The shipped default (used when the operator supplies no value).
 	require.Equal(t, uint64(32*1024*1024), config.DefaultConfig.MaxTraceStructLogBytes)
+	// State override caps: round-trip the supplied values, and assert shipped defaults.
+	require.Equal(t, 7, cfg.MaxStateOverrideAccounts)
+	require.Equal(t, 9, cfg.MaxStateOverrideSlots)
+	require.Equal(t, 100, config.DefaultConfig.MaxStateOverrideAccounts)
+	require.Equal(t, 1000, config.DefaultConfig.MaxStateOverrideSlots)
 	badOpts := goodOpts
 	badOpts.httpEnabled = "bad"
 	_, err = config.ReadConfig(&badOpts)
@@ -371,6 +386,16 @@ func TestReadConfig(t *testing.T) {
 
 	badOpts = goodOpts
 	badOpts.traceAllowJSTracers = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.maxStateOverrideAccounts = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.maxStateOverrideSlots = "bad"
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
