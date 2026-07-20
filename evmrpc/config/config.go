@@ -144,6 +144,12 @@ type Config struct {
 	// max number of calls allowed in an eth_estimateGasAfterCalls request
 	MaxEstimateGasCalls int `mapstructure:"max_estimate_gas_calls"`
 
+	// max number of accounts allowed in a single state override
+	MaxStateOverrideAccounts int `mapstructure:"max_state_override_accounts"`
+
+	// max number of storage slots allowed per account in a state override
+	MaxStateOverrideSlots int `mapstructure:"max_state_override_slots"`
+
 	// max number of concurrent NewHead subscriptions
 	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
 
@@ -277,6 +283,8 @@ var DefaultConfig = Config{
 	MaxLogNoBlock:                10000,
 	MaxBlocksForLog:              2000,
 	MaxEstimateGasCalls:          100,
+	MaxStateOverrideAccounts:     100,
+	MaxStateOverrideSlots:        1000,
 	MaxSubscriptionsNewHead:      10000,
 	MaxSubscriptionsLogs:         1000,
 	EnableTestAPI:                false,
@@ -333,6 +341,8 @@ const (
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
 	flagMaxEstimateGasCalls          = "evm.max_estimate_gas_calls"
+	flagMaxStateOverrideAccounts     = "evm.max_state_override_accounts"
+	flagMaxStateOverrideSlots        = "evm.max_state_override_slots"
 	flagMaxSubscriptionsNewHead      = "evm.max_subscriptions_new_head"
 	flagMaxSubscriptionsLogs         = "evm.max_subscriptions_logs"
 	flagEnableTestAPI                = "evm.enable_test_api"
@@ -464,6 +474,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxEstimateGasCalls); v != nil {
 		if cfg.MaxEstimateGasCalls, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxStateOverrideAccounts); v != nil {
+		if cfg.MaxStateOverrideAccounts, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxStateOverrideSlots); v != nil {
+		if cfg.MaxStateOverrideSlots, err = cast.ToIntE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -773,6 +793,12 @@ max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
 
 # max number of calls allowed in an eth_estimateGasAfterCalls request
 max_estimate_gas_calls = {{ .EVM.MaxEstimateGasCalls }}
+
+# max number of accounts allowed in a single state override
+max_state_override_accounts = {{ .EVM.MaxStateOverrideAccounts }}
+
+# max number of storage slots allowed per account in a state override
+max_state_override_slots = {{ .EVM.MaxStateOverrideSlots }}
 
 # max number of concurrent NewHead subscriptions
 max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}

@@ -629,6 +629,9 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 	if returnErr = validateStateOverrides(config.StateOverrides, api.backend.MaxStateOverrideAccounts(), api.backend.MaxStateOverrideSlots()); returnErr != nil {
 		return nil, returnErr
 	}
+	if returnErr = validateStateOverrides(config.StateOverrides, api.backend.MaxStateOverrideAccounts(), api.backend.MaxStateOverrideSlots()); returnErr != nil {
+		return nil, returnErr
+	}
 	api.clampDefaultStructLogLimit(&config.TraceConfig)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return

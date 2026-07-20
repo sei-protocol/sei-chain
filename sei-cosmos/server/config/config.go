@@ -11,7 +11,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/spf13/viper"
 )
@@ -457,6 +456,12 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	}
 	scWriteMode = config.ApplyWriteModeAuto(scWriteModeEnableAuto, scWriteMode)
 
+	// FlatKV knobs are not rendered in the default app.toml template. GetConfig
+	// is a faithful parse of app.toml/flags: it only reads the explicit
+	// state-commit.flatkv.* keys (if an operator adds them by hand) on top of the
+	// in-code defaults. The FlatKV-follows-memIAVL mirror (and snapshot cadence
+	// normalization) is applied later by composite.alignFlatKVSnapshotWithMemIAVL
+	// at store construction, so we deliberately do not mirror the sc-* keys here.
 	flatKVConfig := config.DefaultStateCommitConfig().FlatKVConfig
 	if v.IsSet("state-commit.flatkv.fsync") {
 		flatKVConfig.Fsync = v.GetBool("state-commit.flatkv.fsync")
@@ -472,6 +477,35 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	}
 	if v.IsSet("state-commit.flatkv.enable-read-write-metrics") {
 		flatKVConfig.EnableReadWriteMetrics = v.GetBool("state-commit.flatkv.enable-read-write-metrics")
+	}
+
+	// Guard every memIAVL read with a presence check so that an absent
+	// state-commit.sc-* key preserves the in-code default from
+	// DefaultStateCommitConfig rather than reading back the zero value
+	// (v.Get*(absent) == 0) and clobbering it. This matters for the keys whose
+	// default is non-zero (async-commit-buffer 100, snapshot-interval 10000,
+	// keep-recent 1, ...): a config that omits a key must not silently downgrade
+	// the node (e.g. to synchronous commits or disabled snapshots). Mirrors the
+	// guarded parse in app/seidb.go's parseSCConfigs. An explicit key (including
+	// an explicit 0) is IsSet == true and is read verbatim.
+	memIAVLConfig := config.DefaultStateCommitConfig().MemIAVLConfig
+	if v.IsSet("state-commit.sc-async-commit-buffer") {
+		memIAVLConfig.AsyncCommitBuffer = v.GetInt("state-commit.sc-async-commit-buffer")
+	}
+	if v.IsSet("state-commit.sc-keep-recent") {
+		memIAVLConfig.SnapshotKeepRecent = v.GetUint32("state-commit.sc-keep-recent")
+	}
+	if v.IsSet("state-commit.sc-snapshot-interval") {
+		memIAVLConfig.SnapshotInterval = v.GetUint32("state-commit.sc-snapshot-interval")
+	}
+	if v.IsSet("state-commit.sc-snapshot-min-time-interval") {
+		memIAVLConfig.SnapshotMinTimeInterval = v.GetUint32("state-commit.sc-snapshot-min-time-interval")
+	}
+	if v.IsSet("state-commit.sc-snapshot-writer-limit") {
+		memIAVLConfig.SnapshotWriterLimit = v.GetInt("state-commit.sc-snapshot-writer-limit")
+	}
+	if v.IsSet("state-commit.sc-snapshot-prefetch-threshold") {
+		memIAVLConfig.SnapshotPrefetchThreshold = v.GetFloat64("state-commit.sc-snapshot-prefetch-threshold")
 	}
 
 	// Apply the in-code default when the key is absent so that nodes upgrading
@@ -588,15 +622,8 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			Directory:           v.GetString("state-commit.sc-directory"),
 			WriteMode:           scWriteMode,
 			WriteModeEnableAuto: scWriteModeEnableAuto,
-			MemIAVLConfig: memiavl.Config{
-				AsyncCommitBuffer:         v.GetInt("state-commit.sc-async-commit-buffer"),
-				SnapshotKeepRecent:        v.GetUint32("state-commit.sc-keep-recent"),
-				SnapshotInterval:          v.GetUint32("state-commit.sc-snapshot-interval"),
-				SnapshotMinTimeInterval:   v.GetUint32("state-commit.sc-snapshot-min-time-interval"),
-				SnapshotWriterLimit:       v.GetInt("state-commit.sc-snapshot-writer-limit"),
-				SnapshotPrefetchThreshold: v.GetFloat64("state-commit.sc-snapshot-prefetch-threshold"),
-			},
-			FlatKVConfig: flatKVConfig,
+			MemIAVLConfig:       memIAVLConfig,
+			FlatKVConfig:        flatKVConfig,
 		},
 		StateStore: config.StateStoreConfig{
 			Enable:               v.GetBool("state-store.ss-enable"),

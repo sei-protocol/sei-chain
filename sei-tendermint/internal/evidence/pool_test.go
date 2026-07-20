@@ -73,7 +73,7 @@ func TestEvidencePoolBasic(t *testing.T) {
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, eventBus)
 	startPool(t, pool, stateStore)
 
 	// evidence not seen yet:
@@ -140,7 +140,7 @@ func TestAddExpiredEvidence(t *testing.T) {
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, eventBus)
 	startPool(t, pool, stateStore)
 
 	testCases := []struct {
@@ -402,7 +402,7 @@ func TestLightClientAttackEvidenceLifecycle(t *testing.T) {
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(dbm.NewMemDB(), stateStore, blockStore, eventBus)
 
 	hash := ev.Hash()
 
@@ -457,7 +457,7 @@ func TestRecoverPendingEvidence(t *testing.T) {
 	require.NoError(t, eventBus.Start(ctx))
 
 	// create previous pool and populate it
-	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, eventBus)
 	startPool(t, pool, stateStore)
 
 	goodEvidence, err := types.NewMockDuplicateVoteEvidenceWithValidator(
@@ -500,7 +500,7 @@ func TestRecoverPendingEvidence(t *testing.T) {
 		},
 	}, nil)
 
-	newPool := evidence.NewPool(evidenceDB, newStateStore, blockStore, evidence.NopMetrics(), nil)
+	newPool := evidence.NewPool(evidenceDB, newStateStore, blockStore, nil)
 	startPool(t, newPool, newStateStore)
 	evList, _ := newPool.PendingEvidence(defaultEvidenceMaxBytes)
 	require.Equal(t, 1, len(evList))
@@ -606,7 +606,7 @@ func defaultTestPool(ctx context.Context, t *testing.T, height int64) (*evidence
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
+	pool := evidence.NewPool(evidenceDB, stateStore, blockStore, eventBus)
 	startPool(t, pool, stateStore)
 	return pool, val, eventBus
 }

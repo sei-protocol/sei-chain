@@ -49,8 +49,15 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "sc-historical-proof-max-inflight = 1", "Missing or incorrect sc-historical-proof-max-inflight")
 	require.Contains(t, output, "sc-historical-proof-rate-limit = 1", "Missing or incorrect sc-historical-proof-rate-limit")
 	require.Contains(t, output, "sc-historical-proof-burst = 1", "Missing or incorrect sc-historical-proof-burst")
+
+	// The FlatKV section header is kept, but no FlatKV configs are exposed yet.
 	require.Contains(t, output, "[state-commit.flatkv]", "Missing FlatKV section")
-	require.Contains(t, output, "enable-read-write-metrics = false", "Missing FlatKV read/write metrics flag")
+	flatKVSection := output[strings.Index(output, "[state-commit.flatkv]"):]
+	require.NotContains(t, flatKVSection, "fsync", "FlatKV fsync should not be exposed in app.toml")
+	require.NotContains(t, flatKVSection, "async-write-buffer", "FlatKV async-write-buffer should not be exposed in app.toml")
+	require.NotContains(t, flatKVSection, "snapshot-interval", "FlatKV snapshot-interval should not be exposed in app.toml")
+	require.NotContains(t, flatKVSection, "snapshot-keep-recent", "FlatKV snapshot-keep-recent should not be exposed in app.toml")
+	require.NotContains(t, flatKVSection, "enable-read-write-metrics", "FlatKV read/write metrics flag should not be exposed in app.toml")
 
 	// sc-snapshot-writer-limit is intentionally removed from template (hardcoded to 4)
 	// but old configs with this field still parse fine via mapstructure

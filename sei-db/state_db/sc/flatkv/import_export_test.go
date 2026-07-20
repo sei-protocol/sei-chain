@@ -708,6 +708,10 @@ func TestImporterDoubleImport(t *testing.T) {
 func TestExporterAtHistoricalVersion(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 1
+	// Keep enough historical snapshots that v1 survives after committing v3
+	// (latest v3 + the two older snapshots v2 and v1); the default keep-recent
+	// of 1 would prune v1 and make the historical export below fail.
+	cfg.SnapshotKeepRecent = 2
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
@@ -865,9 +869,9 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 	}
 }
 
-// TestExporterImporterNonEVMLegacyRoundTrip drives non-EVM module data
+// TestExporterImporterNonEVMMiscRoundTrip drives non-EVM module data
 // (e.g. "bank", "staking") through the full Export → Import pipeline to
-// cover the module-prefixed legacyDB path introduced in PR #3229.
+// cover the module-prefixed miscDB path introduced in PR #3229.
 //
 // The path exercised here is NOT reachable from a rootmulti-level
 // integration test because CompositeCommitStore.ApplyChangeSets filters
@@ -875,11 +879,11 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 // exporting, and re-importing non-EVM data has to be tested at this layer.
 //
 // Invariants verified:
-//  1. ApplyChangeSets routes non-EVM modules to legacyDB under a
+//  1. ApplyChangeSets routes non-EVM modules to miscDB under a
 //     "<module>/" physical-key prefix via classifyAndPrefix.
 //  2. The Exporter emits raw physical keys carrying that prefix.
 //  3. The Importer re-routes via routePhysicalKey, sending non-EVM keys
-//     back to legacyDB with the prefix intact.
+//     back to miscDB with the prefix intact.
 //  4. Get(moduleName, key) reads them back correctly, and cross-module
 //     namespaces stay isolated (same inner bytes under a different module
 //     must miss).
@@ -887,7 +891,7 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 //     resurface in the Exporter output.
 //  6. The imported store's LtHash matches the source bit-for-bit, and
 //     VerifyLtHash passes on the imported store (full-scan ≡ committed).
-func TestExporterImporterNonEVMLegacyRoundTrip(t *testing.T) {
+func TestExporterImporterNonEVMMiscRoundTrip(t *testing.T) {
 	src := setupTestStore(t)
 	defer func() { require.NoError(t, src.Close()) }()
 
@@ -1010,11 +1014,11 @@ func TestExporterImporterNonEVMLegacyRoundTrip(t *testing.T) {
 	require.Equalf(t, srcHash, dst.RootHash(),
 		"RootHash after non-EVM round-trip mismatch")
 
-	// Full-scan verification catches any silent drift between legacyDB's
+	// Full-scan verification catches any silent drift between miscDB's
 	// physical layout and the per-DB LtHash accumulator on the imported
 	// store.
 	require.NoError(t, VerifyLtHash(dst),
-		"VerifyLtHash should pass on imported store with legacy data")
+		"VerifyLtHash should pass on imported store with misc data")
 
 	require.NoError(t, dst.Close())
 }

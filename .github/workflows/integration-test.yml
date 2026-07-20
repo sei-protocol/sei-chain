@@ -77,6 +77,15 @@ jobs:
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      # Reclaim disk and push Docker + Go caches onto /mnt before the
+      # image builds so the runner's small root filesystem does not fill up and
+      # crash the runner mid-job.
+      - name: Reclaim runner disk
+        run: bash .github/scripts/ci-free-disk.sh
+      - name: Relocate Docker data-root to /mnt
+        run: bash .github/scripts/ci-relocate-docker-data-root.sh
+      - name: Relocate Go caches to /mnt
+        run: bash .github/scripts/ci-relocate-go-cache.sh
       - name: Login to Docker Hub
         # See: https://github.com/docker/login-action/releases/tag/v4.2.0
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
@@ -123,6 +132,13 @@ jobs:
           labels: sei-chain.ci-run-id=${{ github.run_id }}
           cache-from: type=registry,ref=${{ env.GHCR_RPCNODE }}:cache
           cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:cache,mode=max', env.GHCR_RPCNODE) || '' }}
+      # rpcnode is independent of the seid build, so push it now: push failures
+      # (retried below) surface before the expensive seid build rather than after.
+      - name: Push rpcnode image to GHCR for test jobs
+        run: |
+          source .github/scripts/docker-registry-retry.sh
+          docker tag sei-chain/rpcnode "${GHCR_RPCNODE}:${{ github.run_id }}"
+          push_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
@@ -130,13 +146,11 @@ jobs:
         env:
           DOCKER_PLATFORM: linux/amd64
         run: make build-seid-in-localnode-ci
-      # Registry pulls are content-addressed and retried per layer by the docker client
-      - name: Push images to GHCR for test jobs
+      - name: Push localnode image to GHCR for test jobs
         run: |
+          source .github/scripts/docker-registry-retry.sh
           docker tag sei-chain/localnode "${GHCR_LOCALNODE}:${{ github.run_id }}"
-          docker tag sei-chain/rpcnode "${GHCR_RPCNODE}:${{ github.run_id }}"
-          docker push "${GHCR_LOCALNODE}:${{ github.run_id }}"
-          docker push "${GHCR_RPCNODE}:${{ github.run_id }}"
+          push_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
       - name: Package CI artifacts
         run: tar -czf integration-build.tar.gz build/seid
       - name: Upload integration CI artifacts
@@ -175,6 +189,12 @@ jobs:
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Reclaim runner disk
+        run: bash .github/scripts/ci-free-disk.sh
+      - name: Relocate Docker data-root to /mnt
+        run: bash .github/scripts/ci-relocate-docker-data-root.sh
+      - name: Relocate Go caches to /mnt
+        run: bash .github/scripts/ci-relocate-go-cache.sh
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -209,19 +229,17 @@ jobs:
       - name: Load prebuilt seid and pull Docker images
         run: |
           tar -xzf integration-build.tar.gz
-          pull_with_retry() {
-            local ref="$1"
-            for attempt in 1 2 3 4 5; do
-              if docker pull "$ref"; then return 0; fi
-              echo "docker pull $ref failed (attempt $attempt), retrying in $((attempt*5))s..."
-              sleep $((attempt*5))
-            done
-            echo "docker pull $ref failed after 5 attempts"; return 1
-          }
+          # The seid binary is now extracted to build/seid; drop the
+          # tarball so its copy does not sit on disk for the rest of the job.
+          rm -f integration-build.tar.gz
+          source .github/scripts/docker-registry-retry.sh
           pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
           pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
           docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
+          # Drop the redundant run-id-tagged references now that the images are
+          # retagged as sei-chain/*; keeps a single tag per image.
+          docker image rm "${GHCR_LOCALNODE}:${{ github.run_id }}" "${GHCR_RPCNODE}:${{ github.run_id }}" || true
       - name: Start 4 node docker cluster
         run: DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start-ci
 
@@ -321,6 +339,12 @@ jobs:
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Reclaim runner disk
+        run: bash .github/scripts/ci-free-disk.sh
+      - name: Relocate Docker data-root to /mnt
+        run: bash .github/scripts/ci-relocate-docker-data-root.sh
+      - name: Relocate Go caches to /mnt
+        run: bash .github/scripts/ci-relocate-go-cache.sh
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
@@ -347,10 +371,17 @@ jobs:
       - name: Load prebuilt seid and pull Docker images
         run: |
           tar -xzf integration-build.tar.gz
-          docker pull "${GHCR_LOCALNODE}:${{ github.run_id }}"
-          docker pull "${GHCR_RPCNODE}:${{ github.run_id }}"
+          # The seid binary is now extracted to build/seid; drop the
+          # tarball so its copy does not sit on disk for the rest of the job.
+          rm -f integration-build.tar.gz
+          source .github/scripts/docker-registry-retry.sh
+          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
           docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
+          # Drop the redundant run-id-tagged references now that the images are
+          # retagged as sei-chain/*; keeps a single tag per image.
+          docker image rm "${GHCR_LOCALNODE}:${{ github.run_id }}" "${GHCR_RPCNODE}:${{ github.run_id }}" || true
       - name: Run autobahn integration tests
         run: make autobahn-integration-test
       - name: Print node logs on failure
