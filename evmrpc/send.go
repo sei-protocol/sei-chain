@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
@@ -40,6 +41,7 @@ type SendAPI struct {
 
 type SendConfig struct {
 	slow bool
+	noop bool
 }
 
 func NewSendAPI(
@@ -83,6 +85,9 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	defer func() {
 		recordMetricsWithError(ctx, "eth_sendRawTransaction", s.connectionType, startTime, err, recover())
 	}()
+	if s.sendConfig.noop {
+		return rawTransactionHash(input), nil
+	}
 	tx := new(ethtypes.Transaction)
 	if err = tx.UnmarshalBinary(input); err != nil {
 		return
@@ -156,6 +161,10 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		}
 	}
 	return
+}
+
+func rawTransactionHash(input []byte) common.Hash {
+	return crypto.Keccak256Hash(input)
 }
 
 func getSender(tx *ethtypes.Transaction, chainID *big.Int) (common.Address, error) {

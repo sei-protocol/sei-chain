@@ -132,6 +132,9 @@ type Config struct {
 	// controls whether to have txns go through one by one
 	Slow bool `mapstructure:"slow"`
 
+	// Makes EVM RPC sendRawTransaction a NOOP (for EVM server throughput testing)
+	NoopEvmSend bool `mapstructure:"noop_evm_send"`
+
 	// Deny list defines list of methods that EVM RPC should fail fast
 	DenyList []string `mapstructure:"deny_list"`
 
@@ -279,6 +282,7 @@ var DefaultConfig = Config{
 	CheckTxTimeout:               5 * time.Second,
 	MaxTxPoolTxs:                 1000,
 	Slow:                         false,
+	NoopEvmSend:                  false,
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
 	MaxBlocksForLog:              2000,
@@ -337,6 +341,7 @@ const (
 	flagMaxTxPoolTxs                 = "evm.max_tx_pool_txs"
 	flagCheckTxTimeout               = "evm.checktx_timeout"
 	flagSlow                         = "evm.slow"
+	flagNoopEvmSend                  = "evm.noop_evm_send"
 	flagDenyList                     = "evm.deny_list"
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
@@ -454,6 +459,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagSlow); v != nil {
 		if cfg.Slow, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagNoopEvmSend); v != nil {
+		if cfg.NoopEvmSend, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -730,6 +740,9 @@ checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
 
 # controls whether to have txns go through one by one
 slow = {{ .EVM.Slow }}
+
+# Makes EVM RPC sendRawTransaction a NOOP (for EVM server throughput testing)
+noop_evm_send = {{ .EVM.NoopEvmSend }}
 
 # Deny list defines list of methods that EVM RPC should fail fast, e.g ["debug_traceBlockByNumber"]
 deny_list = {{ .EVM.DenyList }}
