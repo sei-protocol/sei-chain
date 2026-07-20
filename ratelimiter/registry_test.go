@@ -106,7 +106,7 @@ func TestAllow_RejectionRecordsMethodMetric(t *testing.T) {
 			require.Equal(t, int64(1), sum.DataPoints[0].Value)
 			attrs := sum.DataPoints[0].Attributes.ToSlice()
 			require.Contains(t, attrs, attribute.String("plane", "evm"))
-			require.Contains(t, attrs, attribute.String("method", "eth_getBalance"))
+			require.Contains(t, attrs, attribute.String("method", "eth"))
 			found = true
 		}
 	}

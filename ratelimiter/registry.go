@@ -100,7 +100,7 @@ func (r *Registry) Allow(ctx context.Context, ip, plane, method string) bool {
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method", method),
+			attribute.String("method", bucketRPCMethod(method)),
 		),
 	)
 	return false
