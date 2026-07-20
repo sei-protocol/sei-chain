@@ -303,12 +303,15 @@ func GenProposalAt(rng utils.Rng, view View) *Proposal {
 	return newProposal(view, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), GlobalBlockNumber(rng.Uint64()))
 }
 
-// ProposalAt returns a minimal Proposal at view, consistent with ep.
-// No lane ranges and no app proposal — only for tests that care about
-// signature weight or epoch binding, not lane/app data.
+// ProposalAt returns a minimal non-empty Proposal at view, consistent with ep.
+// Includes a single 1-block lane range so Proposal.Verify accepts it (empty
+// tipcuts are forbidden). For tests that care about signature weight or epoch
+// binding rather than real lane/app data.
 func ProposalAt(ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
-	return newProposal(view, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
+	lane := ep.Committee().Lanes().At(0)
+	header := NewBlock(lane, 0, BlockHeaderHash{}, &Payload{}).Header()
+	return newProposal(view, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))}, utils.None[*AppProposal](), ep.FirstBlock())
 }
 
 // GenProposalForEpoch generates a Proposal at a specific view whose epochIndex,
