@@ -3,6 +3,8 @@ package flatkv
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 )
 
@@ -54,30 +56,44 @@ func (s *CommitStore) RecordHashes(hl hashlog.HashLogger, blockNumber uint64) er
 	for _, dir := range dataDBDirs {
 		meta := s.localMeta[dir]
 
-		var hash []byte
-		if meta != nil && meta.LtHash != nil {
-			checksum := meta.LtHash.Checksum()
-			hash = checksum[:]
+		var dbHash *lthash.LtHash
+		if meta != nil {
+			dbHash = meta.LtHash
 		}
 		category := flatKVDBHashPrefix + dir
-		if err := hl.ReportHash(blockNumber, category, hash); err != nil {
+		if err := hl.ReportHash(blockNumber, category, checksumBytesOrNil(dbHash)); err != nil {
 			return fmt.Errorf("failed to report flatkv db hash %q: %w", category, err)
 		}
 
-		if meta == nil {
-			continue
-		}
-		for module, moduleHash := range meta.ModuleLtHashes {
-			var moduleHashBytes []byte
-			if moduleHash != nil {
-				checksum := moduleHash.Checksum()
-				moduleHashBytes = checksum[:]
-			}
-			modCategory := moduleHashCategory(dir, module)
-			if err := hl.ReportHash(blockNumber, modCategory, moduleHashBytes); err != nil {
-				return fmt.Errorf("failed to report flatkv module hash %q: %w", modCategory, err)
-			}
+		if err := reportModuleHashes(hl, blockNumber, dir, meta); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// reportModuleHashes reports the checksum of every module's per-module LtHash tracked within one data DB
+// (meta.ModuleLtHashes). A nil meta (DB never committed) reports nothing.
+func reportModuleHashes(hl hashlog.HashLogger, blockNumber uint64, dir string, meta *ktype.LocalMeta) error {
+	if meta == nil {
+		return nil
+	}
+	for module, moduleHash := range meta.ModuleLtHashes {
+		category := moduleHashCategory(dir, module)
+		if err := hl.ReportHash(blockNumber, category, checksumBytesOrNil(moduleHash)); err != nil {
+			return fmt.Errorf("failed to report flatkv module hash %q: %w", category, err)
+		}
+	}
+	return nil
+}
+
+// checksumBytesOrNil returns h's checksum as a byte slice, or nil if h is nil (nothing committed yet).
+// Mirrors checksumOrNil (verify.go), which renders the same "nil-tolerant checksum" for error messages
+// instead of a []byte.
+func checksumBytesOrNil(h *lthash.LtHash) []byte {
+	if h == nil {
+		return nil
+	}
+	checksum := h.Checksum()
+	return checksum[:]
 }
