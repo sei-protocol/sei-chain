@@ -430,13 +430,22 @@ func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 
 	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
 
-	// Tamper: change one lane's first to 5 (genesis expects 0).
+	// Tamper the non-empty lane's First (genesis expects 0) while keeping a
+	// non-empty range and a matching LaneQC so Verify reaches the first-mismatch check.
 	origP := fp.Proposal().Msg()
-	lane := keys[0].Public()
+	var target LaneID
+	for _, r := range origP.laneRanges {
+		if r.Len() > 0 {
+			target = r.Lane()
+			break
+		}
+	}
+	require.NotEqual(t, LaneID{}, target)
+	badQC := makeLaneQC(rng, committee, keys, target, 5, GenBlockHeaderHash(rng))
 	var tamperedRanges []*LaneRange
 	for _, r := range origP.laneRanges {
-		if r.Lane() == lane {
-			tamperedRanges = append(tamperedRanges, &LaneRange{lane: lane, first: 5, next: 5})
+		if r.Lane() == target {
+			tamperedRanges = append(tamperedRanges, NewLaneRange(target, 5, utils.Some(badQC.Header())))
 		} else {
 			tamperedRanges = append(tamperedRanges, r)
 		}
@@ -444,6 +453,7 @@ func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 	tamperedProposal := newProposal(origP.view, origP.timestamp, tamperedRanges, origP.app, origP.GlobalRange().First)
 	tamperedFP := &FullProposal{
 		proposal: Sign(proposerKey, tamperedProposal),
+		laneQCs:  map[LaneID]*LaneQC{target: badQC},
 	}
 	err := tamperedFP.Verify(vs)
 	require.Error(t, err)
@@ -636,6 +646,7 @@ func TestProposalVerifyRejectsMissingAppQC(t *testing.T) {
 
 	tamperedFP := &FullProposal{
 		proposal: fp.proposal,
+		laneQCs:  fp.laneQCs,
 	}
 	err := tamperedFP.Verify(vs)
 	require.Error(t, err)
@@ -655,6 +666,7 @@ func TestProposalVerifyRejectsAppQCMismatch(t *testing.T) {
 	differentAppQC := makeAppQCFor(keys, ep.FirstBlock(), 0, GenAppHash(rng), ep.EpochIndex())
 	tamperedFP := &FullProposal{
 		proposal: fp.proposal,
+		laneQCs:  fp.laneQCs,
 		appQC:    utils.Some(differentAppQC),
 	}
 	err := tamperedFP.Verify(vs)
@@ -707,6 +719,7 @@ func TestProposalVerifyRejectsInvalidAppQCSignature(t *testing.T) {
 	badAppQC := makeAppQCFor(otherKeys, ep.FirstBlock(), 0, appHash, ep.EpochIndex())
 	tamperedFP := &FullProposal{
 		proposal: fp.proposal,
+		laneQCs:  fp.laneQCs,
 		appQC:    utils.Some(badAppQC),
 	}
 	err := tamperedFP.Verify(vs)

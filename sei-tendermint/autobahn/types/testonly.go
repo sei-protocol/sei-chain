@@ -13,6 +13,8 @@ import (
 )
 
 // BuildCommitQC builds a valid CommitQC from explicit lane QCs and an optional app QC.
+// If laneQCs is empty, a single 1-block LaneQC is synthesized so the tipcut is
+// non-empty (empty tipcuts are rejected by Proposal.Verify).
 // Use BuildFullCommitQC when you want random blocks generated automatically.
 func BuildCommitQC(
 	epoch *Epoch,
@@ -22,6 +24,9 @@ func BuildCommitQC(
 	appQC utils.Option[*AppQC],
 ) *CommitQC {
 	vs := ViewSpec{CommitQC: prev, Epoch: epoch}
+	if len(laneQCs) == 0 {
+		laneQCs = oneBlockLaneQCMap(vs, keys)
+	}
 	leader := epoch.Committee().Leader(vs.View())
 	var leaderKey SecretKey
 	for _, k := range keys {
@@ -36,6 +41,20 @@ func BuildCommitQC(
 		votes = append(votes, Sign(k, NewCommitVote(proposal.Proposal().Msg())))
 	}
 	return NewCommitQC(votes)
+}
+
+// oneBlockLaneQCMap builds a single LaneQC advancing the first committee lane by one block.
+func oneBlockLaneQCMap(vs ViewSpec, keys []SecretKey) map[LaneID]*LaneQC {
+	c := vs.Epoch.Committee()
+	lane := c.Lanes().At(0)
+	n := LaneRangeOpt(vs.CommitQC, lane).Next()
+	header := NewBlock(lane, n, BlockHeaderHash{}, &Payload{}).Header()
+	vote := NewLaneVote(header)
+	votes := make([]*Signed[*LaneVote], 0, len(keys))
+	for _, k := range TestKeysWithWeight(c, keys, c.LaneQuorum()) {
+		votes = append(votes, Sign(k, vote))
+	}
+	return map[LaneID]*LaneQC{lane: NewLaneQC(votes)}
 }
 
 // GenNodeID generates a random NodeID.
