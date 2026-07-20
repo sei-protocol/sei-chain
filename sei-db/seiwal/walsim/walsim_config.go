@@ -157,6 +157,10 @@ func (c *WalsimConfig) Validate() error {
 		return fmt.Errorf("RandomDataBufferSizeBytes must be at least RecordSizeBytes (%d) (got %d)",
 			c.RecordSizeBytes, c.RandomDataBufferSizeBytes)
 	}
+	// The random buffer is fed to crand.NewCannedRandom, which requires at least 8 bytes.
+	if c.RandomDataBufferSizeBytes < 8 {
+		return fmt.Errorf("RandomDataBufferSizeBytes must be at least 8 (got %d)", c.RandomDataBufferSizeBytes)
+	}
 	if c.StagedRecordQueueSize < 1 {
 		return fmt.Errorf("StagedRecordQueueSize must be at least 1 (got %d)", c.StagedRecordQueueSize)
 	}
