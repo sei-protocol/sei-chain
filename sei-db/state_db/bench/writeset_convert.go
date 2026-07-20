@@ -22,8 +22,14 @@ import (
 //   - code changed                            -> code write + codehash write
 //     (keccak256 of the code) + codesize raw write (0x09||addr, 8-byte length),
 //     mirroring x/evm's deploy path
+//   - account present in pre, absent in post (SELFDESTRUCT) -> deletes for the
+//     account's nonce, code, codehash, and codesize keys, plus the storage
+//     deletes from the rule above. Only slots present in pre can be deleted;
+//     a real account wipe also removes slots the trace never touched, so
+//     self-destruct replays are a lower bound on the true delete volume.
 //   - balance changes are bank-module writes and are NOT converted; they are
 //     counted in SkippedBalanceChanges so callers can see what was dropped
+//     (a removed account's balance zeroing is counted the same way)
 //
 // Known v1 fidelity gap: deploying to a previously-unassociated address also
 // writes the Sei<->EVM address mapping (two raw keys, 0x01||evm and 0x02||sei)
@@ -60,8 +66,10 @@ type prestateDiff struct {
 // ConvertResult carries the converted write set plus conversion statistics.
 type ConvertResult struct {
 	WriteSet *WriteSet
-	// SkippedBalanceChanges counts post-state balance changes that were not
-	// converted because balances live in the bank module (out of v1 scope).
+	// SkippedBalanceChanges counts balance changes that were not converted
+	// because balances live in the bank module (out of v1 scope): accounts
+	// with a post-state balance, plus removed accounts whose pre-state
+	// balance was zeroed.
 	SkippedBalanceChanges int
 }
 
@@ -134,7 +142,7 @@ func ConvertPrestateDiff(data []byte) (*ConvertResult, error) {
 	// are appended after writes, and both engines apply last-write-wins per key.
 	for _, addr := range sortedKeys(diff.Pre) {
 		pre := diff.Pre[addr]
-		post := diff.Post[addr]
+		post, inPost := diff.Post[addr]
 		postSlots := make(map[string]struct{}, len(post.Storage))
 		for slot := range post.Storage {
 			postSlots[padTo32(slot)] = struct{}{}
@@ -147,6 +155,16 @@ func ConvertPrestateDiff(data []byte) (*ConvertResult, error) {
 					Slot:    padTo32(slot),
 					Delete:  true,
 				})
+			}
+		}
+		if !inPost {
+			removalWrites, err := convertAccountRemoval(addr, pre)
+			if err != nil {
+				return nil, err
+			}
+			writes = append(writes, removalWrites...)
+			if pre.Balance != "" {
+				result.SkippedBalanceChanges++
 			}
 		}
 	}
@@ -197,6 +215,30 @@ func convertCode(addr, codeHex string) ([]WriteSetEntry, error) {
 		{Kind: WriteKindCodeHash, Address: addr, Value: hex.EncodeToString(ethcrypto.Keccak256(code))},
 		{Kind: WriteKindRaw, Key: hex.EncodeToString(append(codeSizeKeyPrefix, addrBytes...)), Value: hex.EncodeToString(size)},
 	}, nil
+}
+
+// convertAccountRemoval emits the account-level deletes for an address that is
+// present in pre but absent from post (the diffMode shape a SELFDESTRUCT
+// produces): nonce, and — when the account had code — code, codehash, and
+// codesize. Storage-slot deletes are handled by the caller's delete pass; see
+// the file header for why slots absent from pre cannot be deleted.
+func convertAccountRemoval(addr string, pre prestateAccount) ([]WriteSetEntry, error) {
+	var writes []WriteSetEntry
+	if pre.Nonce != nil {
+		writes = append(writes, WriteSetEntry{Kind: WriteKindNonce, Address: addr, Delete: true})
+	}
+	if pre.Code != "" {
+		addrBytes, err := decodeHexField("address", addr, 20)
+		if err != nil {
+			return nil, err
+		}
+		writes = append(writes,
+			WriteSetEntry{Kind: WriteKindCode, Address: addr, Delete: true},
+			WriteSetEntry{Kind: WriteKindCodeHash, Address: addr, Delete: true},
+			WriteSetEntry{Kind: WriteKindRaw, Key: hex.EncodeToString(append(codeSizeKeyPrefix, addrBytes...)), Delete: true},
+		)
+	}
+	return writes, nil
 }
 
 // padTo32 left-pads a hex slot to 32 bytes, tolerating a 0x prefix. Some

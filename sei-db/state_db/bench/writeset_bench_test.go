@@ -16,10 +16,11 @@ import (
 //
 // Inputs (environment variables):
 //
-//	WRITESET_PATH  path to a write-set JSON file (see writeset.go), or a raw
-//	               prestateTracer diffMode result / JSON-RPC response, which
-//	               is converted on the fly (TRACE_PATH takes precedence).
-//	TRACE_PATH     path to a prestateTracer diffMode JSON file to convert.
+//	TRACE_PATH     path to a prestateTracer diffMode JSON file (the raw
+//	               {"pre","post"} result or a whole JSON-RPC response),
+//	               converted on the fly; takes precedence over WRITESET_PATH.
+//	WRITESET_PATH  path to a write-set JSON file (see writeset.go). Raw
+//	               tracer output is not accepted here; use TRACE_PATH.
 //	SNAPSHOT_PATH  optional state sync snapshot chunks directory imported
 //	               before the timed region (same as the other benchmarks).
 //

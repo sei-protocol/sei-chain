@@ -82,6 +82,56 @@ func TestConvertPrestateDiffEmitsDeletes(t *testing.T) {
 	require.Equal(t, 1, deletes, "slot zeroed in post emits a delete")
 }
 
+func TestConvertPrestateDiffSelfDestruct(t *testing.T) {
+	// An account present in pre but absent from post is the diffMode shape a
+	// SELFDESTRUCT produces: the account-level keys must be deleted too, not
+	// just the storage slots seen in pre.
+	trace := `{
+      "pre":  {"0x3000000000000000000000000000000000000003": {
+        "balance": "0x2a", "nonce": 1, "code": "0x602a60005500",
+        "storage": {"0x01": "0x2a"}}},
+      "post": {}
+    }`
+	converted, err := ConvertPrestateDiff([]byte(trace))
+	require.NoError(t, err)
+	require.Equal(t, 1, converted.SkippedBalanceChanges,
+		"removed account's balance zeroing is counted as skipped")
+
+	deletesByKind := map[string]int{}
+	for _, w := range converted.WriteSet.Blocks[0].Writes {
+		require.True(t, w.Delete, "a removed account produces only deletes")
+		deletesByKind[w.Kind]++
+	}
+	require.Equal(t, map[string]int{
+		WriteKindStorage:  1,
+		WriteKindNonce:    1,
+		WriteKindCode:     1,
+		WriteKindCodeHash: 1,
+		WriteKindRaw:      1, // codesize (0x09||addr)
+	}, deletesByKind)
+
+	// The delete-only write set must build valid changesets.
+	changesets, err := converted.WriteSet.BlockChangesets(0)
+	require.NoError(t, err)
+	for _, pair := range changesets[0].Changeset.Pairs {
+		require.True(t, pair.Delete)
+	}
+
+	// Deleting keys that were never written must replay cleanly on both
+	// backends (a fresh DB has none of the removed account's keys).
+	for _, backend := range []wrappers.DBType{wrappers.MemIAVL, wrappers.FlatKV} {
+		t.Run(string(backend), func(t *testing.T) {
+			wrapper, err := OpenReplayWrapper(t.Context(), backend, t.TempDir())
+			require.NoError(t, err)
+			defer func() {
+				require.NoError(t, wrapper.Close())
+			}()
+			_, err = ReplayWriteSet(wrapper, converted.WriteSet)
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestConvertPrestateDiffNoSpuriousDeleteOnEncodingMismatch(t *testing.T) {
 	// The same slot is unpadded in pre but padded in post. The delete pass must
 	// normalize both before comparing, or it emits a delete that clobbers the

@@ -181,6 +181,12 @@ func buildEntryKey(w WriteSetEntry) ([]byte, error) {
 // Validate rather than only failing later inside ApplyChangeSets on FlatKV
 // (memiavl stores raw bytes and would silently accept it, breaking the
 // same-write-set-across-backends premise of the benchmark).
+//
+// Raw entries are the escape hatch this check cannot cover: their keys are
+// opaque here, so hand-authored raw entries must target key families FlatKV
+// does not width-check (legacy prefixes such as 0x09 codesize). A raw key
+// aliasing an optimized family (e.g. 0x0a nonce) with a wrong-width value
+// passes Validate, replays on memiavl, and hard-fails on FlatKV.
 func valueLenForKind(kind string) int {
 	switch kind {
 	case WriteKindNonce:
@@ -214,10 +220,22 @@ func decodeHexField(name, value string, wantLen int) ([]byte, error) {
 
 // OpenReplayWrapper opens a fresh DBWrapper for a replay run, supplying the
 // explicit default config that the FlatKV wrapper factory requires.
+//
+// memiavl is opened with AsyncCommitBuffer=0 (synchronous WAL write) rather
+// than the shared bench default of 10. With the async buffer, memiavl's
+// Commit() returns once the WAL entry is enqueued, while FlatKV's Commit()
+// waits for its WAL write — the reported commit_ns/key would compare enqueue
+// latency against write latency. Neither backend fsyncs, so with a
+// synchronous WAL write on both sides the durability semantics match.
 func OpenReplayWrapper(ctx context.Context, backend wrappers.DBType, dbDir string) (wrappers.DBWrapper, error) {
 	var dbConfig any
-	if backend == wrappers.FlatKV {
+	switch backend {
+	case wrappers.FlatKV:
 		dbConfig = flatkvConfig.DefaultConfig()
+	case wrappers.MemIAVL:
+		cfg := wrappers.DefaultBenchMemIAVLConfig()
+		cfg.AsyncCommitBuffer = 0
+		dbConfig = &cfg
 	}
 	return wrappers.NewDBImpl(ctx, backend, dbDir, dbConfig)
 }
