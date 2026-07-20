@@ -237,7 +237,11 @@ func (p PrecompileExecutor) nextAccountNumber(ctx sdk.Context, method *abi.Metho
 		return nil, 0, err
 	}
 
-	resp, err := p.authQuerier.NextAccountNumber(sdk.WrapSDKContext(ctx), &authtypes.QueryNextAccountNumberRequest{})
+	// GetNextAccountNumber increments and persists the global counter as a
+	// side effect; query on a branched context and discard the write so this
+	// method stays a read-only view.
+	cacheCtx, _ := ctx.CacheContext()
+	resp, err := p.authQuerier.NextAccountNumber(sdk.WrapSDKContext(cacheCtx), &authtypes.QueryNextAccountNumberRequest{})
 	if err != nil {
 		return nil, 0, err
 	}

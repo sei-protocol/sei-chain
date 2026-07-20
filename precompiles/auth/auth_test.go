@@ -145,13 +145,22 @@ func TestNextAccountNumber(t *testing.T) {
 
 	method, err := p.ABI.MethodById(executor.NextAccountNumberID)
 	require.Nil(t, err)
-	ret, _, err := p.RunAndCalculateGas(&evm, evmAddr, evmAddr, executor.NextAccountNumberID, 1000000, nil, nil, true, false)
-	require.Nil(t, err)
+	queryCount := func() uint64 {
+		ret, _, err := p.RunAndCalculateGas(&evm, evmAddr, evmAddr, executor.NextAccountNumberID, 1000000, nil, nil, true, false)
+		require.Nil(t, err)
+		outputs, err := method.Outputs.Unpack(ret)
+		require.Nil(t, err)
+		require.Len(t, outputs, 1)
+		count, ok := outputs[0].(uint64)
+		require.True(t, ok)
+		return count
+	}
 
-	outputs, err := method.Outputs.Unpack(ret)
-	require.Nil(t, err)
-	require.Len(t, outputs, 1)
-	count, ok := outputs[0].(uint64)
-	require.True(t, ok)
+	count := queryCount()
 	require.True(t, count > 0)
+	// The query is a view: it must not increment the persisted counter, so
+	// repeated calls return the same value.
+	require.Equal(t, count, queryCount())
+	// The keeper hands out exactly the number the query reported.
+	require.Equal(t, count, testApp.AccountKeeper.GetNextAccountNumber(ctx))
 }
