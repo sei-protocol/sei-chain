@@ -83,6 +83,12 @@ func (cl *compressionLoop) compress(req *controlLoopWriteRequest) bool {
 		start = cl.clock()
 	}
 
+	// Future work: if the compression thread ever becomes a bottleneck, consider the following tactics:
+	// - Fan out batches, handle normal work serially. 
+	//   Simple, but only helps with batch workloads.
+	// - Fan out all requests, have this thread only responsible for maintaining ordering. 
+	//   Complex but improves all worloads.
+
 	compressed := make([][]byte, len(req.values))
 	var uncompressedBytes uint64
 	var compressedBytes uint64
