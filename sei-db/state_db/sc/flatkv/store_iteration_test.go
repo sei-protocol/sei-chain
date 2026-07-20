@@ -69,8 +69,8 @@ func TestEvmIterator(t *testing.T) {
 	codeEnd := ktype.PrefixEnd(codeStart)
 	codeHashStart := []byte{0x08}
 	codeHashEnd := ktype.PrefixEnd(codeHashStart)
-	legacyStart := []byte{0x09}
-	legacyEnd := ktype.PrefixEnd(legacyStart)
+	miscStart := []byte{0x09}
+	miscEnd := ktype.PrefixEnd(miscStart)
 	nonceStart := []byte{0x0a}
 	nonceEnd := ktype.PrefixEnd(nonceStart)
 	midAddr := addrN(0x80)
@@ -87,7 +87,7 @@ func TestEvmIterator(t *testing.T) {
 		{name: "full module ascending", ascending: true},
 		{name: "full module descending", ascending: false},
 		{name: "storage prefix range", start: storageStart, end: storageEnd, ascending: true},
-		{name: "legacy sub-range", start: legacyStart, end: legacyEnd, ascending: true},
+		{name: "misc sub-range", start: miscStart, end: miscEnd, ascending: true},
 		{name: "code prefix range", start: codeStart, end: codeEnd, ascending: true},
 		{name: "codehash prefix range ascending", start: codeHashStart, end: codeHashEnd, ascending: true},
 		{name: "codehash prefix range descending", start: codeHashStart, end: codeHashEnd, ascending: false},
@@ -145,7 +145,7 @@ func TestEvmIterator(t *testing.T) {
 	})
 }
 
-func TestLegacyIteratorNonEVM(t *testing.T) {
+func TestMiscIteratorNonEVM(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -595,26 +595,26 @@ func buildEvmIteratorFixture(t *testing.T, seed int64) *evmIteratorFixture {
 	} {
 		gen.addStorage(disp)
 		gen.addCode(disp)
-		gen.addLegacy(disp)
+		gen.addMisc(disp)
 		gen.addAccount(disp)
 	}
 
 	// Nonce-only account (no codehash key in iterator output).
 	gen.addNonceOnlyAccount()
 
-	// Malformed account-prefixed legacy key: lands in the account physical
-	// region (evm/0x0a...) but is routed to legacyDB, exercising the overlap
-	// between the legacy lane and the account-derived lanes.
-	gen.addMalformedAccountLegacyKey()
+	// Malformed account-prefixed misc key: lands in the account physical
+	// region (evm/0x0a...) but is routed to miscDB, exercising the overlap
+	// between the misc lane and the account-derived lanes.
+	gen.addMalformedAccountMiscKey()
 
-	// Malformed storage/code-prefixed legacy keys: correct type byte but wrong
-	// length, so they route to legacyDB and physically live in the storage
-	// (evm/0x03...) and code (evm/0x07...) keyspaces. Confirms the legacy lane
+	// Malformed storage/code-prefixed misc keys: correct type byte but wrong
+	// length, so they route to miscDB and physically live in the storage
+	// (evm/0x03...) and code (evm/0x07...) keyspaces. Confirms the misc lane
 	// interleaves with the storage and code lanes and that the merge does not
-	// falsely dedup a legacy key against an optimized-lane key of a different
+	// falsely dedup a misc key against an optimized-lane key of a different
 	// length.
-	gen.addMalformedStoragePrefixLegacyKey()
-	gen.addMalformedCodePrefixLegacyKey()
+	gen.addMalformedStoragePrefixMiscKey()
+	gen.addMalformedCodePrefixMiscKey()
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(batch1...)}))
 	commitAndCheck(t, s)
@@ -652,32 +652,32 @@ func (g *evmIteratorGenerator) uniqueAddr() ktype.Address {
 	panic("failed to allocate unique test address")
 }
 
-// addMalformedAccountLegacyKey writes a 0x0a-prefixed key whose length does not
-// match a well-formed nonce key, so it routes to legacyDB while physically
+// addMalformedAccountMiscKey writes a 0x0a-prefixed key whose length does not
+// match a well-formed nonce key, so it routes to miscDB while physically
 // living in the account keyspace (evm/0x0a...).
-func (g *evmIteratorGenerator) addMalformedAccountLegacyKey() {
+func (g *evmIteratorGenerator) addMalformedAccountMiscKey() {
 	key := append([]byte{0x0a}, bytes.Repeat([]byte{0x7f}, 19)...)
 	val := []byte{0xab, 0xcd}
 	*g.batch1 = append(*g.batch1, &proto.KVPair{Key: bytes.Clone(key), Value: bytes.Clone(val)})
 	setEvmLatest(g.latest, key, val)
 }
 
-// addMalformedStoragePrefixLegacyKey writes a 0x03-prefixed key whose length
+// addMalformedStoragePrefixMiscKey writes a 0x03-prefixed key whose length
 // does not match a well-formed storage key (1 + 20 + 32), so it routes to
-// legacyDB while physically living in the storage keyspace (evm/0x03...). It is
-// committed (batch1) so the legacy and storage lanes interleave over pebble.
-func (g *evmIteratorGenerator) addMalformedStoragePrefixLegacyKey() {
+// miscDB while physically living in the storage keyspace (evm/0x03...). It is
+// committed (batch1) so the misc and storage lanes interleave over pebble.
+func (g *evmIteratorGenerator) addMalformedStoragePrefixMiscKey() {
 	key := append([]byte{0x03}, bytes.Repeat([]byte{0x7f}, ktype.AddressLen)...)
 	val := []byte{0x12, 0x34}
 	*g.batch1 = append(*g.batch1, &proto.KVPair{Key: bytes.Clone(key), Value: bytes.Clone(val)})
 	setEvmLatest(g.latest, key, val)
 }
 
-// addMalformedCodePrefixLegacyKey writes a 0x07-prefixed key whose length does
-// not match a well-formed code key (1 + 20), so it routes to legacyDB while
+// addMalformedCodePrefixMiscKey writes a 0x07-prefixed key whose length does
+// not match a well-formed code key (1 + 20), so it routes to miscDB while
 // physically living in the code keyspace (evm/0x07...). It is pending-only
-// (batch2) so the legacy and code lanes interleave over pending writes too.
-func (g *evmIteratorGenerator) addMalformedCodePrefixLegacyKey() {
+// (batch2) so the misc and code lanes interleave over pending writes too.
+func (g *evmIteratorGenerator) addMalformedCodePrefixMiscKey() {
 	key := append([]byte{0x07}, bytes.Repeat([]byte{0x5a}, ktype.AddressLen-1)...)
 	val := []byte{0x56, 0x78}
 	*g.batch2 = append(*g.batch2, &proto.KVPair{Key: bytes.Clone(key), Value: bytes.Clone(val)})
@@ -704,7 +704,7 @@ func (g *evmIteratorGenerator) codeVal() []byte {
 	return out
 }
 
-func (g *evmIteratorGenerator) legacyVal() []byte {
+func (g *evmIteratorGenerator) miscVal() []byte {
 	n := 1 + g.rng.Intn(32)
 	out := make([]byte, n)
 	g.rng.Read(out)
@@ -798,31 +798,31 @@ func (g *evmIteratorGenerator) addCode(disp evmIteratorDisposition) {
 	}
 }
 
-func (g *evmIteratorGenerator) addLegacy(disp evmIteratorDisposition) {
+func (g *evmIteratorGenerator) addMisc(disp evmIteratorDisposition) {
 	addr := g.uniqueAddr()
-	v1 := g.legacyVal()
-	v2 := g.legacyVal()
+	v1 := g.miscVal()
+	v2 := g.miscVal()
 	for bytes.Equal(v1, v2) {
-		v2 = g.legacyVal()
+		v2 = g.miscVal()
 	}
 
 	key := append([]byte{0x09}, addr[:]...)
 	switch disp {
 	case dispositionPebbleOnly:
-		*g.batch1 = append(*g.batch1, legacyPair(addr, v1))
-		recordLegacyLatest(g.latest, addr, v1)
+		*g.batch1 = append(*g.batch1, miscPair(addr, v1))
+		recordMiscLatest(g.latest, addr, v1)
 	case dispositionPendingOnly:
-		*g.batch2 = append(*g.batch2, legacyPair(addr, v2))
-		recordLegacyLatest(g.latest, addr, v2)
+		*g.batch2 = append(*g.batch2, miscPair(addr, v2))
+		recordMiscLatest(g.latest, addr, v2)
 	case dispositionOverlap:
-		*g.batch1 = append(*g.batch1, legacyPair(addr, v1))
-		*g.batch2 = append(*g.batch2, legacyPair(addr, v2))
-		recordLegacyLatest(g.latest, addr, v2)
+		*g.batch1 = append(*g.batch1, miscPair(addr, v1))
+		*g.batch2 = append(*g.batch2, miscPair(addr, v2))
+		recordMiscLatest(g.latest, addr, v2)
 		g.recordOverlap(key, bytes.Clone(v2))
 	case dispositionTombstone:
-		*g.batch1 = append(*g.batch1, legacyPair(addr, v1))
-		*g.batch2 = append(*g.batch2, legacyDeletePair(addr))
-		removeLegacyLatest(g.latest, addr)
+		*g.batch1 = append(*g.batch1, miscPair(addr, v1))
+		*g.batch2 = append(*g.batch2, miscDeletePair(addr))
+		removeMiscLatest(g.latest, addr)
 		g.recordTombstone(key)
 	}
 }
@@ -882,14 +882,14 @@ func bankNamedCS(pairs ...*proto.KVPair) *proto.NamedChangeSet {
 	}
 }
 
-func legacyPair(addr ktype.Address, val []byte) *proto.KVPair {
+func miscPair(addr ktype.Address, val []byte) *proto.KVPair {
 	return &proto.KVPair{
 		Key:   append([]byte{0x09}, addr[:]...),
 		Value: val,
 	}
 }
 
-func legacyDeletePair(addr ktype.Address) *proto.KVPair {
+func miscDeletePair(addr ktype.Address) *proto.KVPair {
 	return &proto.KVPair{
 		Key:    append([]byte{0x09}, addr[:]...),
 		Delete: true,
@@ -924,12 +924,12 @@ func removeCodeLatest(latest map[string]evmIteratorEntry, addr ktype.Address) {
 	removeEvmLatest(latest, keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
 }
 
-func recordLegacyLatest(latest map[string]evmIteratorEntry, addr ktype.Address, val []byte) {
+func recordMiscLatest(latest map[string]evmIteratorEntry, addr ktype.Address, val []byte) {
 	key := append([]byte{0x09}, addr[:]...)
 	setEvmLatest(latest, key, bytes.Clone(val))
 }
 
-func removeLegacyLatest(latest map[string]evmIteratorEntry, addr ktype.Address) {
+func removeMiscLatest(latest map[string]evmIteratorEntry, addr ktype.Address) {
 	removeEvmLatest(latest, append([]byte{0x09}, addr[:]...))
 }
 

@@ -8,6 +8,9 @@ Within sei-tendermint subdirectory
     * avoid capturing loop iterators ("tc := tc" is not needed)
     * use slices, maps libraries whenever they do not harm readability
     * use t.Context() in tests instead of context.Background().
+* use sei-tendermint/libs/utils synchronization primitives: utils.Mutex instead of sync.Mutex, utils.RWMutex instead of sync.RWMutex.
+  utils.Mutex/RWMutex are supposed to be parametrized by the data type they protect. Do NOT use utils.Mutex\[struct{}\] as a drop-in replacement
+  of sync.Mutex.
 * use public api of types in tests, never malform internal state of types. For read-only access,
   you can use private fields directly in case it is not accessible via public api.
 * when writing tests, focus on asserting the publically visible properties, especially the API contract. Avoid asserting implementation details.
@@ -15,6 +18,13 @@ Within sei-tendermint subdirectory
 * Avoid checking human readable error messages in tests. If programatic error type check is requested, use errors.Is/As/AsType instead.
 * After introducing changes, you may Use `go test --count=0` to quickly check if tests compile. You may run `go test` to actually run the tests
   afterwards. Prefer running modified tests selectively and run the whole test suite only if requested or looking for failures.
+* Proto fields: use `optional` for all scalar and message fields (required for protobuf3 presence
+  detection and wireguard bounds checking). Annotate semantically required fields with `// required`
+  and truly optional fields with `// optional`. Example:
+    optional uint64 index = 1; // required
+    optional AppProposal app = 4; // optional
+  Required fields must be nil-checked at the boundary (constructor and proto Decode) and trusted
+  everywhere else — do not add defensive nil-checks in internal logic.
 * Avoid removing comments and logs which are not obviously obsolete. Keep the original wording, only fixing mistakes or obsolete parts.
 * TestRng instance should be one per test, constructed directly in the test function. In case of nested/table tests, each nested test should create its own instance. 
   Use TestRng.Split() (before spawning) if you need to pass entropy source to a spawned goroutine

@@ -1,11 +1,11 @@
 package migration
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"sort"
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
@@ -297,7 +297,7 @@ func TestMemiavlIteratorSurvivesSnapshotRewrite(t *testing.T) {
 
 	db, err := memiavl.OpenDB(0, memiavl.Options{
 		Config: memiavl.Config{
-			SnapshotInterval:        1,
+			SnapshotInterval:        0,
 			SnapshotMinTimeInterval: 0,
 		},
 		Dir:             t.TempDir(),
@@ -335,13 +335,10 @@ func TestMemiavlIteratorSurvivesSnapshotRewrite(t *testing.T) {
 		require.True(t, mockBound.Equals(memiavlBound))
 	}
 
-	// Force a background snapshot rewrite and wait for it to complete.
-	// The next Commit call will pick up the result via checkAsyncTasks
-	// and swap in the new MultiTree (which ReplaceWith's each tree).
-	require.NoError(t, db.RewriteSnapshotBackground())
-	time.Sleep(500 * time.Millisecond)
-	_, err = db.Commit()
-	require.NoError(t, err)
+	// Force a snapshot rewrite and reload between batches so the DB swaps in
+	// a new MultiTree (which ReplaceWith's each tree) deterministically.
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	require.NoError(t, db.Reload())
 
 	// Drain to completion in lockstep and assert every batch still matches.
 	for {

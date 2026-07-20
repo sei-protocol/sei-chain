@@ -259,7 +259,6 @@ func TestRouter_PexOnHandshake_ListenerPeersPropagated(t *testing.T) {
 func makeRouterWithOptionsAndKey(opts *RouterOptions, key NodeSecretKey) *Router {
 	info := makeInfo(key)
 	return utils.OrPanic1(NewRouter(
-		NopMetrics(),
 		key,
 		func() *types.NodeInfo { return &info },
 		dbm.NewMemDB(),
@@ -756,7 +755,6 @@ func TestRouter_PeerDB(t *testing.T) {
 		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			t.Logf("start the second node")
 			r2 := utils.OrPanic1(NewRouter(
-				NopMetrics(),
 				key,
 				func() *types.NodeInfo { return &info },
 				db,
@@ -786,7 +784,6 @@ func TestRouter_PeerDB(t *testing.T) {
 
 		t.Logf("restart the second node")
 		r2 := utils.OrPanic1(NewRouter(
-			NopMetrics(),
 			key,
 			func() *types.NodeInfo { return &info },
 			db,

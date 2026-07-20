@@ -98,7 +98,7 @@ func NewApplication() *Application {
 }
 
 func NewProxy() *proxy.Proxy {
-	return proxy.New(NewApplication(), proxy.NopMetrics())
+	return proxy.New(NewApplication())
 }
 
 func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
