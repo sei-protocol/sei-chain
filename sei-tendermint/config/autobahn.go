@@ -42,13 +42,18 @@ type AutobahnFileConfig struct {
 	AllowEmptyBlocks   bool                 `json:"allow_empty_blocks"`
 	BlockInterval      utils.Duration       `json:"block_interval"`
 	ViewTimeout        utils.Duration       `json:"view_timeout"`
-	PersistentStateDir utils.Option[string] `json:"persistent_state_dir"`
+	PersistentStateDir utils.Option[string] `json:"persistent_state_dir,omitzero"`
 	DialInterval       utils.Duration       `json:"dial_interval"`
 	// MaxInboundFullnodePeers caps concurrent inbound block-sync from
 	// non-committee peers, applied on both validators and fullnodes (relay
 	// fullnodes serving downstream block-sync are subject to the same
 	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
-	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers"`
+	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers,omitzero"`
+	EnableEvmProxy          utils.Option[bool]   `json:"enable_evm_proxy,omitzero"`
+}
+
+func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
+	return c.EnableEvmProxy.Or(true)
 }
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when

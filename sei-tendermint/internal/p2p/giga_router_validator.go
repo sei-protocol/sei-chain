@@ -91,6 +91,9 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 // shards, we proxy only while the target validator is currently connected;
 // otherwise we keep the tx local as a best-effort availability heuristic.
 func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*url.URL] {
+	if !r.cfg.EnableEvmProxy {
+		return utils.None[*url.URL]()
+	}
 	shardValidator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
 	if r.validatorKey == shardValidator {
 		return utils.None[*url.URL]()

@@ -47,6 +47,9 @@ type GigaRouterCommonConfig struct {
 	// on by default (false); the GigaRouter builds and owns it (see runExecute). Setting this to true
 	// is an explicit, last-resort operator decision to run WITHOUT equivocation protection.
 	HashVaultDisabledUnsafe bool
+
+	// Whether validator should proxy txs which do not belong to the local node.
+	EnableEvmProxy bool
 }
 
 // GigaValidatorConfig configures a committee-member GigaRouter.

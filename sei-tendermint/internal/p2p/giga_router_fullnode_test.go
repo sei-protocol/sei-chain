@@ -67,6 +67,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		PersistentStateDir: utils.None[string](),
 		App:                proxyApp,
 		GenDoc:             genDoc,
+		EnableEvmProxy:     true,
 	}, makeKey(rng))
 	require.NoError(t, err)
 
