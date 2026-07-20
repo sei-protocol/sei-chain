@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/stretchr/testify/require"
 )
 
@@ -95,9 +96,41 @@ func TestShouldIncludeFlatKVEVMLogicalDigestKey(t *testing.T) {
 	require.True(t, shouldIncludeFlatKVEVMLogicalDigestKey(ktype.EVMPhysicalKey(keys.EVMKeyStorage, storageKeyBytes)))
 	require.True(t, shouldIncludeFlatKVEVMLogicalDigestKey(ktype.ModulePhysicalKey(keys.EVMStoreKey, []byte{0xFF, 0xAA})))
 	require.True(t, shouldIncludeFlatKVEVMLogicalDigestKey(migrationVersionPhysKey))
+	require.True(t, shouldIncludeFlatKVEVMLogicalDigestKey(migrationBoundaryPhysKey))
 
 	require.False(t, shouldIncludeFlatKVEVMLogicalDigestKey(ktype.ModulePhysicalKey("bank", []byte("balance"))))
 	require.False(t, shouldIncludeFlatKVEVMLogicalDigestKey([]byte("malformed-key-without-module-prefix")))
+}
+
+func TestLegacyForCompareOmitsMigrationMarkerRows(t *testing.T) {
+	legacyKey := append([]byte{0x09}, bytesOfLen(keys.AddressLen, 0x33)...)
+	legacyVal := vtype.NewLegacyData().SetBlockHeight(10).SetValue([]byte{0xDE, 0xAD}).Serialize()
+	versionVal := vtype.NewLegacyData().SetBlockHeight(20).SetValue([]byte{0x01}).Serialize()
+	boundaryVal := vtype.NewLegacyData().SetBlockHeight(30).SetValue([]byte{0x02, 0x03}).Serialize()
+
+	clean := evmDigest{}
+	require.NoError(t, clean.consume(legacyKey, legacyVal))
+
+	completed := evmDigest{}
+	require.NoError(t, completed.consume(legacyKey, legacyVal))
+	require.NoError(t, completed.consume(migrationVersionPhysKey, versionVal))
+	require.True(t, completed.migrationVersionFound)
+
+	inProgress := evmDigest{}
+	require.NoError(t, inProgress.consume(legacyKey, legacyVal))
+	require.NoError(t, inProgress.consume(migrationBoundaryPhysKey, boundaryVal))
+	require.True(t, inProgress.migrationBoundaryFound)
+
+	require.NotEqual(t, clean.legacy, completed.legacy)
+	require.NotEqual(t, clean.legacy, inProgress.legacy)
+
+	cleanAcc, cleanCount := clean.legacyForCompare()
+	compAcc, compCount := completed.legacyForCompare()
+	progAcc, progCount := inProgress.legacyForCompare()
+	require.Equal(t, cleanAcc, compAcc, "evm_migrated marker must be omitted for comparison")
+	require.Equal(t, cleanCount, compCount)
+	require.Equal(t, cleanAcc, progAcc, "migrate_evm boundary must be omitted for comparison")
+	require.Equal(t, cleanCount, progCount)
 }
 
 func coreEVMRawPairs() []*proto.KVPair {

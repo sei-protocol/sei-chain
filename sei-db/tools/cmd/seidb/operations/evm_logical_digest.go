@@ -30,6 +30,12 @@ import (
 // compared apples-to-apples against memiavl-only output.
 var migrationVersionPhysKey = []byte(migration.MigrationStore + "/" + migration.MigrationVersionKey)
 
+// migrationBoundaryPhysKey is the FlatKV physical key of the in-progress
+// migration cursor. Like migrationVersionPhysKey, it is a FlatKV-only
+// MigrationStore row that a memiavl-only node never owns; unlike the version
+// marker, it exists only while migration is in flight.
+var migrationBoundaryPhysKey = []byte(migration.MigrationStore + "/" + migration.MigrationBoundaryKey)
+
 // EvmLogicalDigestCmd computes a backend-independent digest of the EVM logical
 // state (account / code / storage canonical buckets) so a memIAVL node and a
 // FlatKV node can be compared at the same chain height.
@@ -56,8 +62,8 @@ var migrationVersionPhysKey = []byte(migration.MigrationStore + "/" + migration.
 // are flushed out of order at Finalize.
 //
 // The primary comparison is account+code+storage. The legacy bucket is printed
-// separately, plus a marker-adjusted comparison line, because FlatKV can contain
-// a FlatKV-only migration-version row that a memiavl-only truth node never owns.
+// separately, plus marker-adjusted comparison lines, because FlatKV can contain
+// FlatKV-only MigrationStore rows that a memiavl-only truth node never owns.
 //
 // Usage:
 //
@@ -167,6 +173,13 @@ type evmDigest struct {
 	// should match memiavl-only output exactly.
 	migrationVersionFound bool
 	migrationVersionHash  [sha256.Size]byte
+
+	// migrationBoundaryFound/Hash capture the FlatKV-only
+	// "migration/migration-boundary" cursor, present only while migration is in
+	// flight. It is folded into the legacy bucket like any other row but must be
+	// XORed back out for cross-phase logical comparisons.
+	migrationBoundaryFound bool
+	migrationBoundaryHash  [sha256.Size]byte
 }
 
 type digestPrintContext struct {
@@ -211,6 +224,10 @@ func (d *evmDigest) addLogical(bucket string, physKey, logical, rawVal []byte) {
 			d.migrationVersionFound = true
 			d.migrationVersionHash = sum
 		}
+		if bytes.Equal(physKey, migrationBoundaryPhysKey) {
+			d.migrationBoundaryFound = true
+			d.migrationBoundaryHash = sum
+		}
 	}
 }
 
@@ -251,19 +268,39 @@ func normalizeEVMFlatKVPair(physKey, val []byte) (string, []byte, error) {
 	}
 }
 
+// legacyForCompare returns the legacy accumulator with FlatKV-only migration
+// marker rows omitted. That keeps memiavl_only, migrate_evm, and evm_migrated
+// comparable when their logical EVM state is identical.
+func (d *evmDigest) legacyForCompare() (acc [sha256.Size]byte, count uint64) {
+	acc = d.legacy.acc
+	count = d.legacy.count
+	if d.migrationVersionFound {
+		for i := 0; i < sha256.Size; i++ {
+			acc[i] ^= d.migrationVersionHash[i]
+		}
+		count--
+	}
+	if d.migrationBoundaryFound {
+		for i := 0; i < sha256.Size; i++ {
+			acc[i] ^= d.migrationBoundaryHash[i]
+		}
+		count--
+	}
+	return acc, count
+}
+
 func (d *evmDigest) print(ctx digestPrintContext) {
 	fmt.Println("EVM logical digest report")
 	printDigestContext(ctx)
 	fmt.Println()
 
-	legacyForCompare := d.legacy.acc
-	legacyCountForCompare := d.legacy.count
+	legacyForCompare, legacyCountForCompare := d.legacyForCompare()
 	if d.migrationVersionFound {
-		for i := 0; i < sha256.Size; i++ {
-			legacyForCompare[i] ^= d.migrationVersionHash[i]
-		}
-		legacyCountForCompare--
 		fmt.Println("flatkv_marker_adjustment: omitted migration/migration-version from legacy bucket in final result")
+		fmt.Println()
+	}
+	if d.migrationBoundaryFound {
+		fmt.Println("flatkv_marker_adjustment: omitted migration/migration-boundary from legacy bucket in final result")
 		fmt.Println()
 	}
 
@@ -386,7 +423,7 @@ func digestFlatKV(dbDir string, height int64, findTarget []byte) error {
 }
 
 func shouldIncludeFlatKVEVMLogicalDigestKey(physKey []byte) bool {
-	if bytes.Equal(physKey, migrationVersionPhysKey) {
+	if bytes.Equal(physKey, migrationVersionPhysKey) || bytes.Equal(physKey, migrationBoundaryPhysKey) {
 		return true
 	}
 	moduleName, _, err := ktype.StripModulePrefix(physKey)
