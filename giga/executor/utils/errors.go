@@ -27,6 +27,21 @@ func (e *ValidationFailedAbortError) IsAbortError() bool {
 
 var ErrValidationFailed error = &ValidationFailedAbortError{}
 
+// ExecutionFailedAbortError signals a state-transition error from geth's
+// Execute path. V2 owns the canonical fee, nonce, receipt, and ABCI result
+// handling for these failures, so the caller should fall back to v2.
+type ExecutionFailedAbortError struct{}
+
+func (e *ExecutionFailedAbortError) Error() string {
+	return "EVM execution failed; v2 produces the canonical failure result"
+}
+
+func (e *ExecutionFailedAbortError) IsAbortError() bool {
+	return true
+}
+
+var ErrExecutionFailed error = &ExecutionFailedAbortError{}
+
 // ShouldExecutionAbort checks if the given error is an AbortError that should
 // cause Giga execution to abort and fall back to standard execution.
 func ShouldExecutionAbort(err error) bool {
