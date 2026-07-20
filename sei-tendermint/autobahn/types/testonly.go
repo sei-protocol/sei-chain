@@ -406,15 +406,15 @@ func GenFullCommitQC(rng utils.Rng) *FullCommitQC {
 	}
 }
 
-// GenFullCommitQCN generates a FullCommitQC carrying exactly n headers. Unlike a
-// QC built via NewFullCommitQC, its header count is not reconciled against the
-// embedded CommitQC's range — it is for tests that only exercise a QC's header
-// count (e.g. a store's range accounting), not its signatures or verification.
-func GenFullCommitQCN(rng utils.Rng, n int) *FullCommitQC {
-	return &FullCommitQC{
-		qc:      GenCommitQC(rng),
-		headers: utils.GenSliceN(rng, n, GenBlockHeader),
-	}
+// GenFullCommitQCRange generates a FullCommitQC whose GlobalRange is
+// [first, next) and which is internally consistent (First + len(headers) ==
+// Next), for tests that index a QC by its own range. littblock does not verify
+// signatures, so the QC need not be otherwise well-formed.
+func GenFullCommitQCRange(rng utils.Rng, first GlobalBlockNumber, next GlobalBlockNumber) *FullCommitQC {
+	qc := GenCommitQC(rng)
+	qc.vote.Msg().Proposal().globalRange = GlobalRange{First: first, Next: next}
+	headers := utils.GenSliceN(rng, int(next-first), GenBlockHeader) //nolint:gosec // small test range
+	return NewFullCommitQC(qc, headers)
 }
 
 // GenTimeoutVote generates a random TimeoutVote.
