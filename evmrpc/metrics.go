@@ -22,6 +22,7 @@ const (
 	rejectReasonOversize    = "oversize"     // body exceeded max_request_body_bytes
 	rejectReasonBusy        = "busy"         // max_concurrent_request_bytes budget exhausted
 	rejectReasonRateLimited = "rate_limited" // per-IP token bucket exhausted
+	rejectReasonUnparseable = "unparseable"  // rate-limit probe could not parse JSON-RPC method(s)
 	// error_class values; empty string ("") means success.
 	errorClassPanic              = "panic"
 	errorClassExecutionReverted  = "execution_reverted"
@@ -169,7 +170,7 @@ func recordHistoricalDebugTraceAttempt(ctx context.Context, endpoint, connection
 
 // recordRequestRejected counts an HTTP JSON-RPC request dropped by pre-decode
 // admission control. reason is one of rejectReasonOversize / rejectReasonBusy /
-// rejectReasonRateLimited.
+// rejectReasonRateLimited / rejectReasonUnparseable.
 // No endpoint dimension is recorded: the rejection happens before the JSON-RPC
 // method is decoded, so it is not yet known.
 func recordRequestRejected(ctx context.Context, reason string) {

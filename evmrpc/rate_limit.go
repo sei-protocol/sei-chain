@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 )
@@ -23,6 +24,9 @@ func NewRateLimitGate(registry *ratelimiter.Registry, probeBytes int64, enabled 
 	if probeBytes <= 0 {
 		probeBytes = ratelimiter.DefaultMaxProbeBytes
 	}
+	if probeBytes == math.MaxInt64 {
+		probeBytes = math.MaxInt64 - 1
+	}
 	return &RateLimitGate{
 		registry:      registry,
 		parser:        ratelimiter.NewMethodParser(probeBytes),
@@ -33,26 +37,30 @@ func NewRateLimitGate(registry *ratelimiter.Registry, probeBytes int64, enabled 
 }
 
 // Check parses body for JSON-RPC method names and applies per-IP rate limits.
-// Returns passthrough=true when the probe budget was exhausted before finding a
-// method (ErrProbeLimit) — callers should admit without a rate-limit decision.
 // rejectMethod is the method that exhausted the bucket when allowed=false.
-func (g *RateLimitGate) Check(ctx context.Context, ip string, body io.Reader) (allowed bool, rejectMethod string, passthrough bool, err error) {
+func (g *RateLimitGate) Check(ctx context.Context, ip string, body io.Reader) (allowed bool, rejectMethod string, err error) {
 	if !g.enabled {
-		return true, "", false, nil
+		return true, "", nil
 	}
 
 	methods, _, parseErr := g.parser.Parse(body)
 	switch {
 	case errors.Is(parseErr, ratelimiter.ErrProbeLimit):
-		return true, "", true, nil
+		// Body exceeded the probe budget without yielding a method (e.g. attacker
+		// padded params ahead of method). Charge a token anyway so large bodies
+		// can't dodge rate limiting by pushing method past the probe window.
+		if !g.registry.Allow(ctx, ip, g.plane, "") {
+			return false, "", nil
+		}
+		return true, "", nil
 	case parseErr != nil:
-		return false, "", false, parseErr
+		return false, "", parseErr
 	}
 
 	for _, method := range methods {
 		if !g.registry.Allow(ctx, ip, g.plane, method) {
-			return false, method, false, nil
+			return false, method, nil
 		}
 	}
-	return true, "", false, nil
+	return true, "", nil
 }
