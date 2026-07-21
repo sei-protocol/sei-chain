@@ -825,6 +825,13 @@ func (s *CommitStore) Version() int64 {
 	return s.committedVersion
 }
 
+// PendingVersion returns s.pendingBlockHeight: the height stamped by the most
+// recent ApplyChangeSets call since the last Commit, or 0 when there are no
+// buffered writes.
+func (s *CommitStore) PendingVersion() int64 {
+	return s.pendingBlockHeight
+}
+
 // RootHash returns the Blake3-256 digest of the working LtHash.
 func (s *CommitStore) RootHash() []byte {
 	checksum := s.workingLtHash.Checksum()

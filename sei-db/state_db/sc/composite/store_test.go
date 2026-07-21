@@ -50,6 +50,7 @@ func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, 
 }
 func (f *failingEVMStore) RootHash() []byte                              { return nil }
 func (f *failingEVMStore) Version() int64                                { return 0 }
+func (f *failingEVMStore) PendingVersion() int64                         { return 0 }
 func (f *failingEVMStore) EarliestVersion() int64                        { return 0 }
 func (f *failingEVMStore) GetLatestVersion() (int64, error)              { return 0, nil }
 func (f *failingEVMStore) WriteSnapshot(string) error                    { return nil }

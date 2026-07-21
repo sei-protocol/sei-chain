@@ -11,12 +11,11 @@ import (
 var _ DBWrapper = (*flatKVWrapper)(nil)
 
 // flatKVWrapper wraps a flatkv commit store to implement the DBWrapper interface.
-// Version() returns the working version (committedVersion+1) when there are pending
-// changes, matching memiavl's WorkingCommitInfo().Version semantics for benchmarks.
+// Version() and Commit() consult the base store's PendingVersion() so that
+// benchmarks may call ApplyChangeSets multiple times (one per block) before a
+// single Commit, e.g. when BlocksPerCommit > 1.
 type flatKVWrapper struct {
-	base           flatkv.Store
-	hasPending     bool
-	pendingVersion int64
+	base flatkv.Store
 }
 
 // NewFlatKVWrapper creates a new flatKVWrapper with a given flatkv store.
@@ -29,27 +28,17 @@ func NewFlatKVWrapper(store flatkv.Store) DBWrapper {
 func (f *flatKVWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
 	version := entry.Version
 	if version <= 0 {
-		version = f.base.Version() + 1
+		version = f.nextVersion()
 	}
-	err := f.base.ApplyChangeSets(version, entry.Changesets)
-	if err == nil {
-		f.hasPending = true
-		f.pendingVersion = version
-	}
-	return err
+	return f.base.ApplyChangeSets(version, entry.Changesets)
 }
 
 func (f *flatKVWrapper) Commit() (int64, error) {
-	version := f.pendingVersion
+	version := f.base.PendingVersion()
 	if version == 0 {
 		version = f.base.Version() + 1
 	}
-	committed, err := f.base.Commit(version)
-	if err == nil {
-		f.hasPending = false
-		f.pendingVersion = 0
-	}
-	return committed, err
+	return f.base.Commit(version)
 }
 
 func (f *flatKVWrapper) LoadVersion(version int64) error {
@@ -57,11 +46,24 @@ func (f *flatKVWrapper) LoadVersion(version int64) error {
 	return err
 }
 
+// Version returns the working version: the height stamped by the most
+// recent pending ApplyChangeSets call, or committedVersion+1's predecessor
+// (committedVersion) when nothing is pending.
 func (f *flatKVWrapper) Version() int64 {
-	if f.hasPending {
-		return f.base.Version() + 1
+	if p := f.base.PendingVersion(); p != 0 {
+		return p
 	}
 	return f.base.Version()
+}
+
+// nextVersion computes the height for the next ApplyChangeSets call: one
+// past the last pending call's height, or one past the committed version
+// when no writes are pending.
+func (f *flatKVWrapper) nextVersion() int64 {
+	if p := f.base.PendingVersion(); p != 0 {
+		return p + 1
+	}
+	return f.base.Version() + 1
 }
 
 func (f *flatKVWrapper) Importer(version int64) (types.Importer, error) {
