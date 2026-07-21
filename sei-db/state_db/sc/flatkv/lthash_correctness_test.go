@@ -571,7 +571,7 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 			storagePair(addr, slotN(byte(i)), []byte{byte(i)}),
 		)
 		require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s1.Commit()
+		_, err := s1.Commit(s1.Version() + 1)
 		require.NoError(t, err)
 	}
 	verifyLtHashAtHeight(t, s1, 10)

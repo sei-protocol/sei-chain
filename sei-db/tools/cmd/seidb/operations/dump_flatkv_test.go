@@ -48,7 +48,7 @@ func TestDumpFlatKVFromStoreAllBuckets(t *testing.T) {
 	}
 
 	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{evmCS, bankCS}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 
 	outDir := t.TempDir()
@@ -112,7 +112,7 @@ func TestDumpFlatKVFromStoreSingleBucket(t *testing.T) {
 		}},
 	}
 	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{evmCS}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 
 	outDir := t.TempDir()
@@ -232,7 +232,7 @@ func TestDumpFlatKVFromStoreSkipsVerifyWhenNotFullState(t *testing.T) {
 			storagePair(addrA, slotN(0x01), 0xAA),
 		}},
 	}}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 
 	outDir := t.TempDir()
@@ -254,7 +254,7 @@ func TestDumpFlatKVFromStoreLtHashOnlyWritesNoBucketFiles(t *testing.T) {
 			storagePair(addrA, slotN(0x01), 0xAA),
 		}},
 	}}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 
 	outDir := filepath.Join(t.TempDir(), "must-not-be-created")

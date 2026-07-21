@@ -155,7 +155,7 @@ func TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir(t *testing.T) {
 			noncePair(addrN(0xA1), 1),
 		}},
 	}}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, store.WriteSnapshot(""))
 	require.NoError(t, store.Close())
@@ -185,7 +185,7 @@ func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
 			noncePair(addrN(0xA1), 1),
 		}},
 	}}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, store.WriteSnapshot(""))
 
@@ -196,7 +196,7 @@ func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
 				noncePair(addrN(i), uint64(i)),
 			}},
 		}}))
-		_, err := store.Commit()
+		_, err := store.Commit(store.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, store.Close())
@@ -237,7 +237,7 @@ func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
 			noncePair(addrA, 1),
 		}},
 	}}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, store.WriteSnapshot(""))
 
@@ -247,7 +247,7 @@ func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
 			noncePair(addrB, 2),
 		}},
 	}}))
-	_, err = store.Commit()
+	_, err = store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, store.WriteSnapshot(""))
 	require.NoError(t, store.Close())
@@ -280,7 +280,7 @@ func TestOpenFlatKVReadOnlyAfterSetInitialVersion(t *testing.T) {
 			noncePair(addr, 7),
 		}},
 	}}))
-	v, err := store.Commit()
+	v, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), v)
 	require.NoError(t, store.Close())

@@ -398,7 +398,7 @@ func SeedMigrationVersionInFlatKV(t *testing.T, flatKV *flatkv.CommitStore, vers
 			{Key: []byte(MigrationVersionKey), Value: encodeVersion(version)},
 		}},
 	}}), "seed migration version")
-	_, err := flatKV.Commit()
+	_, err := flatKV.Commit(flatKV.Version() + 1)
 	require.NoError(t, err, "commit after seeding migration version")
 }
 

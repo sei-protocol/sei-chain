@@ -803,7 +803,7 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 	hashBefore := s.RootHash()
 
 	require.NoError(t, s.ApplyChangeSets(nil))
-	v, err := s.Commit()
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v)
 
@@ -1713,7 +1713,7 @@ func TestCommitWithoutPriorApply(t *testing.T) {
 
 	hashBefore := s.RootHash()
 
-	v, err := s.Commit()
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v)
 	require.Equal(t, hashBefore, s.RootHash(), "hash should be unchanged after empty commit")
@@ -1728,13 +1728,13 @@ func TestDoubleCommitNoApplyBetween(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
-	v1, err := s.Commit()
+	v1, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v1)
 	hashAfterV1 := s.RootHash()
 
 	// Second commit with no new apply.
-	v2, err := s.Commit()
+	v2, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v2)
 	require.Equal(t, hashAfterV1, s.RootHash(), "hash unchanged between commits without apply")
@@ -1753,10 +1753,35 @@ func TestCommitOnReadOnlyStore(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	_, err = ro.Commit()
+	_, err = ro.Commit(ro.Version() + 1)
 	require.Error(t, err)
 	require.ErrorIs(t, err, errReadOnly)
 	require.NoError(t, s.Close())
+}
+
+func TestCommitRejectsVersionNotAhead(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0x01)
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	cs := makeChangeSet(key, padLeft32(0x11), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+
+	_, err := s.Commit(0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "committing bad version")
+	require.Equal(t, int64(0), s.Version(), "rejected commit must not advance version")
+	require.Len(t, s.storageWrites, 1, "rejected commit must leave pending writes intact")
+
+	// Gaps are allowed: version need not be committedVersion+1.
+	v, err := s.Commit(5)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), v)
+
+	_, err = s.Commit(5)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "committing bad version")
 }
 
 func TestCommitVersionMonotonicAfterMultipleEmptyCommits(t *testing.T) {
@@ -1764,7 +1789,7 @@ func TestCommitVersionMonotonicAfterMultipleEmptyCommits(t *testing.T) {
 	defer s.Close()
 
 	for i := int64(1); i <= 5; i++ {
-		v, err := s.Commit()
+		v, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 		require.Equal(t, i, v)
 	}
@@ -1791,7 +1816,7 @@ func TestNonEVMModuleKeyRoundTrip(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = s.Commit()
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	got, found := s.Get("bank", []byte("balance_alice"))

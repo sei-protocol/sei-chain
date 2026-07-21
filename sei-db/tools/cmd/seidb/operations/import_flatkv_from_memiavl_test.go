@@ -105,7 +105,7 @@ func TestImportMemiavlModulesToFlatKVRefusesExistingFlatKVWithoutForce(t *testin
 			noncePair(oldAddr, 9),
 		}},
 	}}))
-	_, err = flatStore.Commit()
+	_, err = flatStore.Commit(flatStore.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, flatStore.Close())
 

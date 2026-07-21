@@ -113,7 +113,7 @@ func commitMultiModuleState(t *testing.T, s *CommitStore, round byte) {
 		&proto.KVPair{Key: []byte{0x01, round}, Value: []byte{round, 0xD1}},
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{evmCS, evmMiscCS, govCS, bankCS}))
-	_, err := s.Commit()
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 }
 

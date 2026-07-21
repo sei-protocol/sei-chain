@@ -252,7 +252,7 @@ func TestEvmIteratorSnapshotConcurrentWithWrites(t *testing.T) {
 				t.Errorf("ApplyChangeSets: %v", applyErr)
 				return
 			}
-			if _, commitErr := s.Commit(); commitErr != nil {
+			if _, commitErr := s.Commit(s.Version() + 1); commitErr != nil {
 				t.Errorf("Commit: %v", commitErr)
 				return
 			}

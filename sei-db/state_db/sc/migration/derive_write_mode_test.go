@@ -28,7 +28,7 @@ func writeMigrationMeta(t *testing.T, s flatkv.Store, version *uint64, boundaryB
 		Name:      MigrationStore,
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}}))
-	_, err := s.Commit()
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 }
 

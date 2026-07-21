@@ -606,7 +606,7 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 		),
 		makeChangeSet(miscKey, []byte{0x77}, false),
 	}))
-	_, err = s1.Commit()
+	_, err = s1.Commit(s1.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, s1.Close())
 

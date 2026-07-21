@@ -34,7 +34,7 @@ func (f *flatKVWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
 }
 
 func (f *flatKVWrapper) Commit() (int64, error) {
-	version, err := f.base.Commit()
+	version, err := f.base.Commit(f.base.Version() + 1)
 	if err == nil {
 		f.hasPending = false
 	}

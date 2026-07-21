@@ -30,7 +30,7 @@ func commitStorageEntry(t *testing.T, s *CommitStore, addr ktype.Address, slot k
 		},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	v, err := s.Commit()
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	return v
 }
@@ -1242,7 +1242,7 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	}
 	cs := &proto.NamedChangeSet{Name: "evm", Changeset: proto.ChangeSet{Pairs: pairs}}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	hash := s.RootHash()
@@ -1293,7 +1293,7 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		require.NoError(t, s.ApplyChangeSets(nil))
-		_, err := s.Commit()
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -1342,7 +1342,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	delCS := &proto.NamedChangeSet{
@@ -1355,7 +1355,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{delCS}))
-	_, err = s.Commit()
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	hashBefore := s.RootHash()
@@ -1731,7 +1731,7 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 	ch := vtype.CodeHash{0xAA}
 	cs1.Changeset.Pairs[1].Value = ch[:]
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-	_, err = s.Commit()
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	cs2 := &proto.NamedChangeSet{
@@ -1742,7 +1742,7 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-	_, err = s.Commit()
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	hashBefore := s.RootHash()
@@ -1782,7 +1782,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-	_, err = s.Commit() // v1
+	_, err = s.Commit(s.Version() + 1) // v1
 	require.NoError(t, err)
 
 	cs2 := &proto.NamedChangeSet{
@@ -1792,7 +1792,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-	_, err = s.Commit() // v2
+	_, err = s.Commit(s.Version() + 1) // v2
 	require.NoError(t, err)
 
 	hashAtV2 := s.RootHash()
@@ -1844,7 +1844,7 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-	_, err = s.Commit() // v1 (snapshot taken)
+	_, err = s.Commit(s.Version() + 1) // v1 (snapshot taken)
 	require.NoError(t, err)
 
 	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
@@ -1858,7 +1858,7 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-	_, err = s.Commit() // v2 (row deleted, snapshot taken)
+	_, err = s.Commit(s.Version() + 1) // v2 (row deleted, snapshot taken)
 	require.NoError(t, err)
 
 	_, found = s.Get(keys.EVMStoreKey, nonceKey)
@@ -1987,7 +1987,7 @@ func TestRollbackThenNewTimeline(t *testing.T) {
 	// Write new data in the alternate timeline.
 	cs3 := makeChangeSet(key, padLeft32(0xFF), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
-	v, err := s.Commit()
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v) // Version 2 in the new timeline.
 
@@ -2012,7 +2012,7 @@ func TestRollbackPreservesWALContinuity(t *testing.T) {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -2023,7 +2023,7 @@ func TestRollbackPreservesWALContinuity(t *testing.T) {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 	hashAfterNewCommits := s.RootHash()

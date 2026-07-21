@@ -82,7 +82,7 @@ func commitMixedState(t *testing.T, s *CommitStore, round byte) {
 	)
 	cs2 := makeChangeSet(miscKey, []byte{round, 0xBB}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1, cs2}))
-	_, err := s.Commit()
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 }
 

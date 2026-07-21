@@ -34,13 +34,19 @@ type Store interface {
 	// Call Commit to persist.
 	ApplyChangeSets(cs []*proto.NamedChangeSet) error
 
-	// Commit persists buffered writes and advances the version.
-	Commit() (int64, error)
+	// Commit persists buffered writes at the given version (block height).
+	Commit(version int64) (int64, error)
 
-	// SetInitialVersion seeds the store so that the next Commit produces
-	// initialVersion. Must be called after LoadVersion, on a truly fresh
-	// store (no prior commits) and before any writes. Returns an error on
-	// a read-only store, on a non-fresh store, or for initialVersion <= 0.
+	// CommitBlock is a Giga only API for commiting all changesets till a given block height.
+	// version is the target version we want to commit till. In batch commit mode,
+	// we should be passing the last block height as well as all changesets in the batch.
+	CommitBlock(version int64, cs []*proto.NamedChangeSet) (int64, error)
+
+	// SetInitialVersion seeds the store so that Commit(initialVersion) is
+	// accepted as the first commit. Must be called after LoadVersion, on a
+	// truly fresh store (no prior commits) and before any writes. Returns an
+	// error on a read-only store, on a non-fresh store, or for
+	// initialVersion <= 0.
 	SetInitialVersion(initialVersion int64) error
 
 	// EarliestVersion returns the version this store's history begins at

@@ -99,21 +99,21 @@ func TestStoreCommitVersionAutoIncrement(t *testing.T) {
 
 	// First commit should return version 1
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	v1, err := s.Commit()
+	v1, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v1)
 	require.Equal(t, int64(1), s.Version())
 
 	// Second commit should return version 2
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	v2, err := s.Commit()
+	v2, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v2)
 	require.Equal(t, int64(2), s.Version())
 
 	// Third commit should return version 3
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	v3, err := s.Commit()
+	v3, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), v3)
 	require.Equal(t, int64(3), s.Version())
@@ -843,7 +843,7 @@ func TestReadOnlyWriteGuards(t *testing.T) {
 	defer ro.Close()
 
 	require.ErrorIs(t, ro.ApplyChangeSets(nil), errReadOnly)
-	_, err = ro.Commit()
+	_, err = ro.Commit(ro.Version() + 1)
 	require.ErrorIs(t, err, errReadOnly)
 	require.ErrorIs(t, ro.WriteSnapshot(""), errReadOnly)
 	require.ErrorIs(t, ro.Rollback(1), errReadOnly)
@@ -940,7 +940,7 @@ func TestReadOnlyFailureDoesNotAffectParent(t *testing.T) {
 	require.Error(t, err)
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(2), false)}))
-	v, err := s.Commit()
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v)
 
@@ -1228,7 +1228,7 @@ func TestCatchupSkipsAlreadyCommittedEntries(t *testing.T) {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 	hashV5 := s.RootHash()
@@ -1263,7 +1263,7 @@ func TestCatchupTargetVersionMiddleOfWAL(t *testing.T) {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 		hashes[i] = s.RootHash()
 	}
@@ -1313,7 +1313,7 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 			}},
 		}
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.Equal(t, int64(6), s.Version())
@@ -1349,7 +1349,7 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s2.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	v, err := s2.Commit()
+	v, err := s2.Commit(s2.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(7), v)
 }
@@ -1370,7 +1370,7 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i*11)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -1418,7 +1418,7 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 	expectedHash := s.RootHash()
@@ -1458,7 +1458,7 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0xAA), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	require.NoError(t, s.WriteSnapshot(""))
@@ -1486,7 +1486,7 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	// Can continue committing after recovery from snapshot-only state.
 	cs2 := makeChangeSet(key, padLeft32(0xBB), false)
 	require.NoError(t, s2.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-	v, err := s2.Commit()
+	v, err := s2.Commit(s2.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, expectedVersion+1, v)
 }
@@ -1503,7 +1503,7 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err := s.Commit()
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	// Corrupt the account value in the DB with invalid-length data.
@@ -1539,7 +1539,7 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	hashAfterV1 := s.RootHash()
 
@@ -1601,7 +1601,7 @@ func TestCrashRecoveryLtHashConsistencyAfterAllPaths(t *testing.T) {
 			Changeset: proto.ChangeSet{Pairs: pairs},
 		}
 		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 	verifyLtHashConsistency(t, s)
@@ -1627,7 +1627,7 @@ func TestCrashRecoveryLtHashConsistencyAfterAllPaths(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s2.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s2.Commit()
+	_, err = s2.Commit(s2.Version() + 1)
 	require.NoError(t, err)
 	verifyLtHashConsistency(t, s2)
 	require.NoError(t, s2.Close())
@@ -1656,7 +1656,7 @@ func TestCrashRecoveryCorruptLtHashBlobInMetadata(t *testing.T) {
 		padLeft32(0x11), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	// Write garbage to the global _meta/hash key in metadataDB.
@@ -1691,7 +1691,7 @@ func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 		padLeft32(0x22), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	// Write garbage to accountDB's _meta/hash key.
@@ -1726,7 +1726,7 @@ func TestCrashRecoveryGlobalVersionOverflow(t *testing.T) {
 		padLeft32(0x33), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	// Write a version value that exceeds math.MaxInt64 to the global metadata.

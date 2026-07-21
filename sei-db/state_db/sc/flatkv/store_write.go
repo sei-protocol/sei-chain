@@ -15,10 +15,20 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// Commit persists buffered writes and advances the version.
+// CommitBlock applies changesets and commits them at version in one call.
+// Giga-only helper for batch commit: version is the target height (the last
+// block in the batch), and changesets are all writes for that batch.
+func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) (int64, error) {
+	if err := s.ApplyChangeSets(changesets); err != nil {
+		return s.committedVersion, err
+	}
+	return s.Commit(version)
+}
+
+// Commit persists buffered writes at the given version (block height).
 // Protocol: WAL → per-DB batch (with LocalMeta) → flush → update metaDB.
 // On crash, catchup replays WAL to recover incomplete commits.
-func (s *CommitStore) Commit() (version int64, err error) {
+func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	start := time.Now()
 
 	// TODO(concurrency): This takes a single coarse write lock for the whole
@@ -52,8 +62,9 @@ func (s *CommitStore) Commit() (version int64, err error) {
 	if s.readOnly {
 		return 0, errReadOnly
 	}
-	// Auto-increment version
-	version = s.committedVersion + 1
+	if version <= s.committedVersion {
+		return 0, fmt.Errorf("flatkv: committing bad version: got %d, current %d", version, s.committedVersion)
+	}
 
 	// Step 1: Write Changelog (WAL) - source of truth (always sync)
 	s.phaseTimer.SetPhase("commit_write_changelog")
