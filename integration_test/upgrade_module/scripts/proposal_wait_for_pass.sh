@@ -1,13 +1,22 @@
 #!/bin/bash
 
 PROPOSAL_ID=$1
-TIMEOUT=300
-seidbin=seid
-chainid=sei
-source integration_test/utils/_tx_helpers.sh
+TIMEOUT=300  # total wait time in seconds
+INTERVAL=1  # time between checks in seconds
+TRIES=$((TIMEOUT / INTERVAL))  # number of tries
 
-if wait_for_proposal_status "$PROPOSAL_ID" "PROPOSAL_STATUS_PASSED" "admin" "$TIMEOUT" >/dev/null; then
-  echo "Proposal $PROPOSAL_ID has passed!"
-else
-  exit 1
-fi
+# Loop until the proposal status is PROPOSAL_STATUS_PASSED or we timeout
+for ((i=1; i<=TRIES; i++)); do
+    STATUS=$(seid query gov proposal $PROPOSAL_ID --output json | jq -r ".status")
+
+    if [ "$STATUS" == "PROPOSAL_STATUS_PASSED" ]; then
+        echo "Proposal $PROPOSAL_ID has passed!"
+        exit 0
+    else
+        echo "Waiting for proposal $PROPOSAL_ID to pass... ($i/$TRIES)"
+        sleep $INTERVAL
+    fi
+done
+
+echo "Timeout reached. Exiting."
+exit 1

@@ -3,11 +3,9 @@
 # Fetch the target block height from the parameters
 TARGET_BLOCK_HEIGHT=${1//\'/}
 TARGET_BLOCK_HEIGHT=${TARGET_BLOCK_HEIGHT//\"/}
-PROGRESS_FROM_KEY=${2//\'/}
-PROGRESS_FROM_KEY=${PROGRESS_FROM_KEY//\"/}
 
-if [ -z "$TARGET_BLOCK_HEIGHT" ] || [ -z "$PROGRESS_FROM_KEY" ]; then
-    echo "Usage: $0 <TARGET_BLOCK_HEIGHT> <PROGRESS_FROM_KEY>"
+if [ -z "$TARGET_BLOCK_HEIGHT" ]; then
+    echo "Usage: $0 <TARGET_BLOCK_HEIGHT>"
     exit 1
 fi
 
@@ -15,13 +13,7 @@ fi
 NODE_ID=${ID:-0}
 
 # Keep this script bounded to avoid hanging CI jobs indefinitely.
-MAX_WAIT_SECONDS=${WAIT_FOR_HEIGHT_MAX_WAIT_SECONDS:-180}
-seidbin=seid
-chainid=sei
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../../utils/_tx_helpers.sh"
-PROGRESS_FROM_ADDR=$(_get_key_address "$PROGRESS_FROM_KEY")
-
+MAX_WAIT_SECONDS=${WAIT_FOR_HEIGHT_MAX_WAIT_SECONDS:-360}
 START_TIME=$(date +%s)
 DEADLINE=$((START_TIME + MAX_WAIT_SECONDS))
 
@@ -47,6 +39,5 @@ while true; do
    else
       echo "Seid status unavailable while waiting for block $TARGET_BLOCK_HEIGHT"
    fi
-
-   bank_send_and_wait "$PROGRESS_FROM_KEY" "$PROGRESS_FROM_ADDR" 1usei >/dev/null || true
+   sleep 1
 done

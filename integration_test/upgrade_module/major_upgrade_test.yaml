@@ -71,11 +71,11 @@
       node: sei-node-0
 
     # Wait for the target height (non-panicked nodes)
-    - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
+    - cmd: wait_for_height.sh $TARGET_HEIGHT
       node: sei-node-1
-    - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
+    - cmd: wait_for_height.sh $TARGET_HEIGHT
       node: sei-node-2
-    - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
+    - cmd: wait_for_height.sh $TARGET_HEIGHT
       node: sei-node-3
 
     # Confirm the node is not running because it upgraded too early
@@ -118,7 +118,7 @@
       env: RUNNING_UPGRADED_NODE_3
 
     # Wait for the target height (on node 0, catching up)
-    - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
+    - cmd: wait_for_height.sh $TARGET_HEIGHT
       node: sei-node-0
 
     # Confirm node 0 has now panicked and logged
