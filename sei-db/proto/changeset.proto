@@ -1,0 +1,14 @@
+syntax = "proto3";
+package iavl;
+
+// KVPair is a single key/value change, optionally a deletion.
+message KVPair {
+  bool  delete = 1;
+  bytes key    = 2;
+  bytes value  = 3;
+}
+
+// ChangeSet is a set of key/value changes for a single tree/version.
+message ChangeSet {
+  repeated KVPair pairs = 1;
+}
