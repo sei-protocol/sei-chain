@@ -1,0 +1,17 @@
+package storagemanager
+
+// A store that is made up of a stream of data (e.g. a WAL).
+type StreamStore interface {
+
+	// Fetch the range of blocks stored within this stream.
+	GetStoredBlocks() (
+		start uint64, // inclusive; meaningful only when hasData is true
+		end uint64, // inclusive; meaningful only when hasData is true
+		hasData bool, // true if the stream contains at least one block
+		err error,
+	)
+
+	// Instruct the store that it may drop data for all blocks below a specified number.
+	// Store may drop data asynchronously.
+	PruneBelow(blockNumber uint64) error
+}
