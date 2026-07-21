@@ -7,9 +7,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/historical"
+	kafkago "github.com/segmentio/kafka-go"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/queue/kafka"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/historical"
 )
 
 type BigtableConfig = historical.BigtableConfig
@@ -28,9 +31,9 @@ type bigtableSink struct {
 	bulkChunkWorkers int
 }
 
-var _ Sink = (*bigtableSink)(nil)
+var _ kafka.Sink = (*bigtableSink)(nil)
 
-func NewBigtableSink(cfg BigtableConfig) (Sink, error) {
+func NewBigtableSink(cfg BigtableConfig) (kafka.Sink, error) {
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -57,7 +60,20 @@ func (s *bigtableSink) Close() error {
 	return nil
 }
 
-func (s *bigtableSink) WriteBatch(ctx context.Context, records []Record) error {
+func (s *bigtableSink) WriteBatch(ctx context.Context, msgs []kafkago.Message) error {
+	records := make([]Record, 0, len(msgs))
+	for _, msg := range msgs {
+		entry, err := DecodeEntry(msg.Value)
+		if err != nil {
+			return fmt.Errorf("decode message at offset %d: %w", msg.Offset, err)
+		}
+		records = append(records, Record{
+			Topic:     msg.Topic,
+			Partition: msg.Partition,
+			Offset:    msg.Offset,
+			Entry:     entry,
+		})
+	}
 	records = compactRecords(records)
 	if len(records) == 0 {
 		return nil

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/queue/kafka"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/consumer"
 )
 
@@ -49,13 +50,13 @@ func main() {
 	}
 	defer func() { _ = sink.Close() }()
 
-	reader, err := consumer.NewKafkaReader(cfg.Kafka)
+	reader, err := kafka.NewReader(cfg.Kafka)
 	if err != nil {
 		log.Fatalf("open kafka reader: %v", err)
 	}
 	defer func() { _ = reader.Close() }()
 
-	c := consumer.New(reader, sink, consumer.Options{
+	c := kafka.New(reader, sink, kafka.Options{
 		Logf:            func(format string, args ...interface{}) { log.Printf(format, args...) },
 		Workers:         cfg.Workers,
 		ShardBufferSize: cfg.ShardBufferSize,

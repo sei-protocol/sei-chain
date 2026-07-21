@@ -1,7 +1,9 @@
 package consumer
 
 import (
-	"context"
+	"fmt"
+
+	gogoproto "github.com/gogo/protobuf/proto"
 
 	dbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
 )
@@ -15,7 +17,10 @@ type Record struct {
 	Entry     *dbproto.ChangelogEntry
 }
 
-type Sink interface {
-	WriteBatch(ctx context.Context, records []Record) error
-	Close() error
+func DecodeEntry(payload []byte) (*dbproto.ChangelogEntry, error) {
+	entry := &dbproto.ChangelogEntry{}
+	if err := gogoproto.Unmarshal(payload, entry); err != nil {
+		return nil, fmt.Errorf("decode changelog entry: %w", err)
+	}
+	return entry, nil
 }

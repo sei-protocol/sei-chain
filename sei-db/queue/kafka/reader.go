@@ -1,4 +1,4 @@
-package consumer
+package kafka
 
 import (
 	"crypto/tls"
@@ -6,17 +6,13 @@ import (
 	"strings"
 	"time"
 
-	gogoproto "github.com/gogo/protobuf/proto"
-	"github.com/segmentio/kafka-go"
-
-	dbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload"
+	kafkago "github.com/segmentio/kafka-go"
 )
 
 // TLS/SASL must match the producer cluster. Commits are synchronous
 // (kafka-go's zero CommitInterval) so offsets only advance after the sink
 // persists each entry.
-type KafkaReaderConfig struct {
+type ReaderConfig struct {
 	Brokers     []string
 	Topic       string
 	GroupID     string
@@ -35,7 +31,7 @@ type KafkaReaderConfig struct {
 	Password      string
 }
 
-func (c *KafkaReaderConfig) ApplyDefaults() {
+func (c *ReaderConfig) ApplyDefaults() {
 	if c.ClientID == "" {
 		c.ClientID = "sei-historical-offload-consumer"
 	}
@@ -53,7 +49,7 @@ func (c *KafkaReaderConfig) ApplyDefaults() {
 	}
 }
 
-func (c *KafkaReaderConfig) Validate() error {
+func (c *ReaderConfig) Validate() error {
 	if len(c.Brokers) == 0 {
 		return fmt.Errorf("kafka brokers are required")
 	}
@@ -68,11 +64,11 @@ func (c *KafkaReaderConfig) Validate() error {
 	default:
 		return fmt.Errorf("unsupported kafka start offset %q", c.StartOffset)
 	}
-	return offload.ValidateSASL(c.saslConfig())
+	return ValidateSASL(c.saslConfig())
 }
 
-func (c KafkaReaderConfig) saslConfig() offload.KafkaConfig {
-	return offload.KafkaConfig{
+func (c ReaderConfig) saslConfig() WriterConfig {
+	return WriterConfig{
 		Region:        c.Region,
 		TLSEnabled:    c.TLSEnabled,
 		SASLMechanism: c.SASLMechanism,
@@ -81,31 +77,33 @@ func (c KafkaReaderConfig) saslConfig() offload.KafkaConfig {
 	}
 }
 
-func NewKafkaReader(cfg KafkaReaderConfig) (*kafka.Reader, error) {
+// NewReader builds a kafka-go Reader from cfg after applying defaults and
+// validating it.
+func NewReader(cfg ReaderConfig) (*kafkago.Reader, error) {
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	dialer := &kafka.Dialer{
+	dialer := &kafkago.Dialer{
 		ClientID: cfg.ClientID,
 		Timeout:  10 * time.Second,
 	}
 	if cfg.TLSEnabled {
 		dialer.TLS = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
-	mech, err := offload.NewSASLMechanism(cfg.saslConfig())
+	mech, err := NewSASLMechanism(cfg.saslConfig())
 	if err != nil {
 		return nil, err
 	}
 	dialer.SASLMechanism = mech
 
-	start := kafka.FirstOffset
+	start := kafkago.FirstOffset
 	if strings.EqualFold(cfg.StartOffset, "last") {
-		start = kafka.LastOffset
+		start = kafkago.LastOffset
 	}
 
-	return kafka.NewReader(kafka.ReaderConfig{
+	return kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:     cfg.Brokers,
 		Topic:       cfg.Topic,
 		GroupID:     cfg.GroupID,
@@ -115,12 +113,4 @@ func NewKafkaReader(cfg KafkaReaderConfig) (*kafka.Reader, error) {
 		MaxWait:     cfg.MaxWait,
 		StartOffset: start,
 	}), nil
-}
-
-func DecodeEntry(payload []byte) (*dbproto.ChangelogEntry, error) {
-	entry := &dbproto.ChangelogEntry{}
-	if err := gogoproto.Unmarshal(payload, entry); err != nil {
-		return nil, fmt.Errorf("decode changelog entry: %w", err)
-	}
-	return entry, nil
 }

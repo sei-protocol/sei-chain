@@ -1,14 +1,13 @@
-package consumer
+package kafka
 
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
 )
 
-func TestKafkaReaderConfigApplyDefaults(t *testing.T) {
-	cfg := KafkaReaderConfig{
+func TestReaderConfigApplyDefaults(t *testing.T) {
+	cfg := ReaderConfig{
 		Brokers: []string{"localhost:9092"},
 		Topic:   "historical-offload",
 		GroupID: "bigtable",
@@ -20,14 +19,14 @@ func TestKafkaReaderConfigApplyDefaults(t *testing.T) {
 	require.Equal(t, 10<<20, cfg.MaxBytes)
 }
 
-func TestKafkaReaderConfigValidate(t *testing.T) {
-	cfg := KafkaReaderConfig{}
+func TestReaderConfigValidate(t *testing.T) {
+	cfg := ReaderConfig{}
 	require.ErrorContains(t, cfg.Validate(), "brokers")
-	cfg = KafkaReaderConfig{Brokers: []string{"x"}}
+	cfg = ReaderConfig{Brokers: []string{"x"}}
 	require.ErrorContains(t, cfg.Validate(), "topic")
-	cfg = KafkaReaderConfig{Brokers: []string{"x"}, Topic: "t"}
+	cfg = ReaderConfig{Brokers: []string{"x"}, Topic: "t"}
 	require.ErrorContains(t, cfg.Validate(), "group id")
-	cfg = KafkaReaderConfig{
+	cfg = ReaderConfig{
 		Brokers:     []string{"x"},
 		Topic:       "t",
 		GroupID:     "g",
@@ -36,8 +35,8 @@ func TestKafkaReaderConfigValidate(t *testing.T) {
 	require.ErrorContains(t, cfg.Validate(), "start offset")
 }
 
-func TestKafkaReaderConfigValidateSASL(t *testing.T) {
-	base := KafkaReaderConfig{Brokers: []string{"x"}, Topic: "t", GroupID: "g"}
+func TestReaderConfigValidateSASL(t *testing.T) {
+	base := ReaderConfig{Brokers: []string{"x"}, Topic: "t", GroupID: "g"}
 
 	cfg := base
 	cfg.SASLMechanism = "aws-msk-iam"
@@ -65,13 +64,4 @@ func TestKafkaReaderConfigValidateSASL(t *testing.T) {
 	cfg = base
 	cfg.SASLMechanism = "none"
 	require.NoError(t, cfg.Validate())
-}
-
-func TestDecodeEntry(t *testing.T) {
-	entry := &proto.ChangelogEntry{Version: 7}
-	payload, err := entry.Marshal()
-	require.NoError(t, err)
-	got, err := DecodeEntry(payload)
-	require.NoError(t, err)
-	require.Equal(t, int64(7), got.Version)
 }

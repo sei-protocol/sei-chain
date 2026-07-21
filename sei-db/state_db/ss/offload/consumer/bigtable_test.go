@@ -6,10 +6,20 @@ import (
 	"testing"
 	"time"
 
+	kafkago "github.com/segmentio/kafka-go"
+	"github.com/stretchr/testify/require"
+
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/historical"
-	"github.com/stretchr/testify/require"
 )
+
+// entryMessage marshals entry into a Kafka message the sink can decode.
+func entryMessage(t *testing.T, entry *proto.ChangelogEntry) kafkago.Message {
+	t.Helper()
+	payload, err := entry.Marshal()
+	require.NoError(t, err)
+	return kafkago.Message{Value: payload}
+}
 
 func TestBigtableSinkWritesMutationRowsAndVersionMarker(t *testing.T) {
 	var rows []string
@@ -37,7 +47,9 @@ func TestBigtableSinkWritesMutationRowsAndVersionMarker(t *testing.T) {
 		Upgrades: []*proto.TreeNameUpgrade{{Name: "new-store"}},
 	}
 
-	require.NoError(t, sink.WriteBatch(context.Background(), []Record{{Topic: "t", Partition: 1, Offset: 2, Entry: entry}}))
+	msg := entryMessage(t, entry)
+	msg.Topic, msg.Partition, msg.Offset = "t", 1, 2
+	require.NoError(t, sink.WriteBatch(context.Background(), []kafkago.Message{msg}))
 	require.Len(t, rows, 4)
 	require.ElementsMatch(t, []string{
 		historical.BigtableMutationRowKey("bank", []byte("k1"), 7, historical.DefaultBigtableShards),
@@ -45,6 +57,23 @@ func TestBigtableSinkWritesMutationRowsAndVersionMarker(t *testing.T) {
 		historical.BigtableUpgradeRowKey(7, "new-store"),
 	}, rows[:3])
 	require.Equal(t, historical.BigtableVersionRowKey(7), rows[3])
+}
+
+func TestBigtableSinkWriteBatchRejectsUndecodableMessage(t *testing.T) {
+	applyBulkCalls := 0
+	sink := &bigtableSink{
+		family:           historical.DefaultBigtableFamily,
+		shards:           historical.DefaultBigtableShards,
+		bulkChunkWorkers: 1,
+		applyBulk: func(_ context.Context, mutations []historical.BigtableRowMutation) ([]error, error) {
+			applyBulkCalls++
+			return make([]error, len(mutations)), nil
+		},
+	}
+
+	err := sink.WriteBatch(context.Background(), []kafkago.Message{{Offset: 42, Value: []byte{0xff, 0xff}}})
+	require.ErrorContains(t, err, "decode message at offset 42")
+	require.Zero(t, applyBulkCalls)
 }
 
 func TestBigtableSinkWriteBatchWritesRowsBeforeMarkers(t *testing.T) {
@@ -63,24 +92,24 @@ func TestBigtableSinkWriteBatchWritesRowsBeforeMarkers(t *testing.T) {
 			return make([]error, len(mutations)), nil
 		},
 	}
-	records := []Record{
-		{Entry: &proto.ChangelogEntry{
+	msgs := []kafkago.Message{
+		entryMessage(t, &proto.ChangelogEntry{
 			Version: 1,
 			Changesets: []*proto.NamedChangeSet{{
 				Name:      "bank",
 				Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("k1"), Value: []byte("v1")}}},
 			}},
-		}},
-		{Entry: &proto.ChangelogEntry{
+		}),
+		entryMessage(t, &proto.ChangelogEntry{
 			Version: 2,
 			Changesets: []*proto.NamedChangeSet{{
 				Name:      "bank",
 				Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("k2"), Value: []byte("v2")}}},
 			}},
-		}},
+		}),
 	}
 
-	require.NoError(t, sink.WriteBatch(context.Background(), records))
+	require.NoError(t, sink.WriteBatch(context.Background(), msgs))
 	require.GreaterOrEqual(t, len(calls), 2)
 	require.ElementsMatch(t, []string{
 		historical.BigtableMutationRowKey("bank", []byte("k1"), 1, historical.DefaultBigtableShards),
@@ -138,8 +167,8 @@ func TestBigtableSinkWriteBatchChunksRecordRowsBeforeMarkers(t *testing.T) {
 			return make([]error, len(mutations)), nil
 		},
 	}
-	records := []Record{
-		{Entry: &proto.ChangelogEntry{
+	msgs := []kafkago.Message{
+		entryMessage(t, &proto.ChangelogEntry{
 			Version: 1,
 			Changesets: []*proto.NamedChangeSet{{
 				Name: "bank",
@@ -149,8 +178,8 @@ func TestBigtableSinkWriteBatchChunksRecordRowsBeforeMarkers(t *testing.T) {
 				}},
 			}},
 			Upgrades: []*proto.TreeNameUpgrade{{Name: "new-store"}},
-		}},
-		{Entry: &proto.ChangelogEntry{
+		}),
+		entryMessage(t, &proto.ChangelogEntry{
 			Version: 2,
 			Changesets: []*proto.NamedChangeSet{{
 				Name: "bank",
@@ -158,10 +187,10 @@ func TestBigtableSinkWriteBatchChunksRecordRowsBeforeMarkers(t *testing.T) {
 					{Key: []byte("k3"), Value: []byte("v3")},
 				}},
 			}},
-		}},
+		}),
 	}
 
-	require.NoError(t, sink.WriteBatch(context.Background(), records))
+	require.NoError(t, sink.WriteBatch(context.Background(), msgs))
 
 	require.Greater(t, len(calls), 2)
 	markerCall := calls[len(calls)-1]

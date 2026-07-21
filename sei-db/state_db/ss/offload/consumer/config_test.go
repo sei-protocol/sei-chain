@@ -6,11 +6,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/queue/kafka"
 )
 
 func TestConfigValidate(t *testing.T) {
 	cfg := Config{
-		Kafka: KafkaReaderConfig{
+		Kafka: kafka.ReaderConfig{
 			Brokers: []string{"localhost:9092"},
 			Topic:   "historical-offload",
 			GroupID: "historical-bigtable",
