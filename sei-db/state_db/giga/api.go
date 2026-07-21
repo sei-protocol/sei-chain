@@ -30,19 +30,22 @@ type GigaStateStore interface {
 
 	// GetCurrentStateSnapshot returns with a read-only StateSnapshot (backed by ephemeral snapshot from SC)
 	// which represents the state for the current block.
-	GetCurrentStateSnapshot() EVMStateSnapshot
+	GetCurrentStateSnapshot() StateSnapshot
 
 	// GetHistoricalStateSnapshot returns a read-only StateSnapshot (backed by SS store)
 	// And a bool whether found or not.
-	GetHistoricalStateSnapshot(blockNum int64) (EVMStateSnapshot, bool)
+	GetHistoricalStateSnapshot(blockNum int64) (StateSnapshot, bool)
 }
 
 // StateSnapshot is a read-only, point-in-time view over the store's raw
-// key/value data. Snapshots are reference-counted via Reserve/Release so
-// that the underlying resources (e.g. an ephemeral SC snapshot or a pinned
-// SS version) stay alive for as long as the snapshot is in use, even
-// concurrently with later writes/commits against the store.
+// key/value data, plus (via the embedded EVMStateSnapshot) EVM-specific
+// accessors for account/storage/code/balance reads. Snapshots
+// are reference-counted via Reserve/Release so that the underlying
+// resources (e.g. an ephemeral SC snapshot or a pinned SS version) stay
+// alive for as long as the snapshot is in use, even concurrently with
+// later writes/commits against the store.
 type StateSnapshot interface {
+	EVMStateSnapshot
 
 	// GetBlockHeight returns the block height of this snapshot.
 	GetBlockHeight() int64
@@ -63,13 +66,12 @@ type StateSnapshot interface {
 	Release()
 }
 
-// EVMStateSnapshot extends StateSnapshot with EVM-specific accessors. Its
-// method set mirrors the read-only subset of evmc.HostContext (see
-// giga/executor/internal/host_context.go), so implementations can be
-// adapted to it by simple type conversion between Address/Hash and
-// evmc.Address/evmc.Hash.
+// EVMStateSnapshot is the EVM-specific read surface embedded by
+// StateSnapshot. Its method set mirrors the read-only subset of
+// evmc.HostContext (see giga/executor/internal/host_context.go), so
+// implementations can be adapted to it by simple type conversion between
+// Address/Hash and evmc.Address/evmc.Hash.
 type EVMStateSnapshot interface {
-	StateSnapshot
 
 	// AccountExists reports whether addr has an account in state,
 	// including accounts that have self-destructed in the current block.
