@@ -16,13 +16,14 @@ import (
 )
 
 // CommitBlock applies changesets and commits them at version in one call.
-// Giga-only helper for batch commit: version is the target height (the last
-// block in the batch), and changesets are all writes for that batch.
-func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) (int64, error) {
+// Giga-only helper for committing all state changes of a block.
+// TODO: make this async and pipelined
+func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
 	if err := s.ApplyChangeSets(version, changesets); err != nil {
-		return s.committedVersion, err
+		return err
 	}
-	return s.Commit(version)
+	_, err := s.Commit(version)
+	return err
 }
 
 // Commit persists buffered writes at the given version (block height).
