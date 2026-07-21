@@ -183,10 +183,15 @@ func (x *Service) serverGetBlock(ctx context.Context, server rpc.Server[API]) er
 			return fmt.Errorf("GetBlockReqConv.Decode(): %w", err)
 		}
 		block, err := x.data.TryBlock(req.GlobalNumber)
-		resp := utils.None[*types.Block]()
-		if err == nil {
-			resp = utils.Some(block)
+		if err != nil {
+			// Absent (not yet / pruned) is a successful empty response so the
+			// peer can retry. Any other error is a store failure — do not
+			// disguise it as "not available".
+			if errors.Is(err, data.ErrPruned) || errors.Is(err, data.ErrNotFound) {
+				return stream.Send(ctx, GetBlockRespConv.Encode(utils.None[*types.Block]()))
+			}
+			return fmt.Errorf("TryBlock(%d): %w", req.GlobalNumber, err)
 		}
-		return stream.Send(ctx, GetBlockRespConv.Encode(resp))
+		return stream.Send(ctx, GetBlockRespConv.Encode(utils.Some(block)))
 	})
 }
