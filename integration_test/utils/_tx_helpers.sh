@@ -124,21 +124,37 @@ wait_for_oracle_penalty_success_rate() {
     local validator_addr="$1"
     local min_total="${2:-15}"
     local max_success_percent="${3:-5}"
-    local timeout_secs="${4:-120}"
-    local interval_secs="${5:-2}"
+    local progress_from_key="$4"
+    local timeout_secs="${5:-120}"
+    local retry_interval_secs="${6:-$TX_WAIT_INTERVAL}"
     local deadline=$(($(date +%s) + timeout_secs))
     local last_height=0
     local last_total=0
     local last_success=0
     local last_success_percent=0
 
+    if [ -z "$validator_addr" ] || [ -z "$progress_from_key" ]; then
+        echo "Usage: wait_for_oracle_penalty_success_rate <validator-addr> [min-total] [max-success-percent] <progress-from-key> [timeout-secs] [retry-interval-secs]" >&2
+        return 1
+    fi
+
+    local progress_from_addr; progress_from_addr=$(_get_key_address "$progress_from_key")
+
     while [ "$(date +%s)" -lt "$deadline" ]; do
         local height
         height=$($seidbin q block | jq -r ".block.header.height")
-        local penalty
-        penalty=$($seidbin q oracle vote-penalty-counter "$validator_addr" --height "$height" --output json | jq -r ".vote_penalty_counter")
+        local raw
+        raw=$($seidbin q oracle vote-penalty-counter "$validator_addr" --height "$height" --output json)
         local stats
-        stats=$(echo "$penalty" | jq -r '[.success_count | tonumber, ((.success_count | tonumber) + (.abstain_count | tonumber) + (.miss_count | tonumber))] | @tsv')
+        stats=$(echo "$raw" | jq -r '
+            [
+                (.vote_penalty_counter.success_count | tonumber),
+                ((.vote_penalty_counter.success_count | tonumber) + (.vote_penalty_counter.abstain_count | tonumber) + (.vote_penalty_counter.miss_count | tonumber))
+            ] | @tsv
+        ') || {
+            sleep "$retry_interval_secs"
+            continue
+        }
         local success total
         read -r success total <<<"$stats"
 
@@ -153,7 +169,7 @@ wait_for_oracle_penalty_success_rate() {
             echo "$height"
             return 0
         fi
-        sleep "$interval_secs"
+        bank_send_and_wait "$progress_from_key" "$progress_from_addr" 1usei >/dev/null || true
     done
 
     echo "timed out waiting for oracle penalty success rate < ${max_success_percent}% with at least $min_total samples (last height=$last_height success=$last_success total=$last_total percent=$last_success_percent)" >&2
@@ -315,11 +331,17 @@ bank_send_and_wait() {
 # Submit progress-only self-sends until the latest height reaches the target.
 # Useful under allow_empty_blocks=false when callers need real blocks instead
 # of idle time passing.
-# Usage: bank_send_until_height <target-height>
+# Usage: bank_send_until_height <target-height> <from-key>
 bank_send_until_height() {
     local target_height="$1"
-    local from_key="${BANK_SEND_UNTIL_HEIGHT_FROM_KEY:-admin}"
+    local from_key="$2"
     local amount_denom="${BANK_SEND_UNTIL_HEIGHT_AMOUNT:-1usei}"
+
+    if [ -z "$target_height" ] || [ -z "$from_key" ]; then
+        echo "Usage: bank_send_until_height <target-height> <from-key>" >&2
+        return 1
+    fi
+
     local deadline=$(($(date +%s) + TX_WAIT_TIMEOUT))
     local from_addr; from_addr=$(_get_key_address "$from_key")
     local height=0

@@ -10,7 +10,7 @@
     - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
       env: ADMIN_VAL_ADDR
     # Wait until the sample has enough oracle vote periods and the success rate has settled.
-    - cmd: seidbin=seid; source integration_test/utils/_tx_helpers.sh && wait_for_oracle_penalty_success_rate $ADMIN_VAL_ADDR 15 5
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && wait_for_oracle_penalty_success_rate $ADMIN_VAL_ADDR 15 5 node_admin
       env: BLOCK_HEIGHT
     # calculate progress in slash window
     - cmd: expr $BLOCK_HEIGHT % $ORACLE_SLASH_WINDOW

@@ -3,9 +3,11 @@
 # Fetch the target block height from the parameters
 TARGET_BLOCK_HEIGHT=${1//\'/}
 TARGET_BLOCK_HEIGHT=${TARGET_BLOCK_HEIGHT//\"/}
+PROGRESS_FROM_KEY=${2//\'/}
+PROGRESS_FROM_KEY=${PROGRESS_FROM_KEY//\"/}
 
-if [ -z "$TARGET_BLOCK_HEIGHT" ]; then
-    echo "Usage: $0 <TARGET_BLOCK_HEIGHT>"
+if [ -z "$TARGET_BLOCK_HEIGHT" ] || [ -z "$PROGRESS_FROM_KEY" ]; then
+    echo "Usage: $0 <TARGET_BLOCK_HEIGHT> <PROGRESS_FROM_KEY>"
     exit 1
 fi
 
@@ -59,7 +61,7 @@ while true; do
    if [[ -n "$LAST_BLOCK_HEIGHT" && "$CURRENT_BLOCK_HEIGHT" -le "$LAST_BLOCK_HEIGHT" ]]; then
        ((NO_PROGRESS_COUNTER++))
        if [[ "$NO_PROGRESS_COUNTER" -ge "$PROGRESS_KICK_SECONDS" ]]; then
-           TX_WAIT_TIMEOUT=$((MAX_WAIT_SECONDS - ELAPSED)) bank_send_until_height "$TARGET_BLOCK_HEIGHT" || true
+           TX_WAIT_TIMEOUT=$((MAX_WAIT_SECONDS - ELAPSED)) bank_send_until_height "$TARGET_BLOCK_HEIGHT" "$PROGRESS_FROM_KEY" || true
        fi
        if [[ "$NO_PROGRESS_COUNTER" -ge "$MAX_NO_PROGRESS_SECONDS" ]]; then
            echo "No block progress for ${NO_PROGRESS_COUNTER}s (current: $CURRENT_BLOCK_HEIGHT, target: $TARGET_BLOCK_HEIGHT)"
