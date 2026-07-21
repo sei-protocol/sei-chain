@@ -1806,9 +1806,8 @@ func TestCommitBlockStampsRowBlockHeight(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 
-	v, err := s.CommitBlock(10, []*proto.NamedChangeSet{cs})
-	require.NoError(t, err)
-	require.Equal(t, int64(10), v)
+	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
+	require.Equal(t, int64(10), s.Version())
 
 	height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)
 	require.NoError(t, err)

@@ -35,8 +35,8 @@ func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error 
 	return nil
 }
 func (f *failingEVMStore) Commit(int64) (int64, error) { return 0, nil }
-func (f *failingEVMStore) CommitBlock(int64, []*proto.NamedChangeSet) (int64, error) {
-	return 0, nil
+func (f *failingEVMStore) CommitBlock(int64, []*proto.NamedChangeSet) error {
+	return nil
 }
 func (f *failingEVMStore) SetInitialVersion(int64) error     { return nil }
 func (f *failingEVMStore) Get(string, []byte) ([]byte, bool) { return nil, false }

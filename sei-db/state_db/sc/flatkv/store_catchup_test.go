@@ -79,8 +79,7 @@ func TestCatchupRecoversGappedCommitBlockAfterMetadataLag(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 
-	_, err = s.CommitBlock(10, []*proto.NamedChangeSet{cs})
-	require.NoError(t, err)
+	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
 	require.Equal(t, int64(10), s.Version())
 	hashAfterCommit := append([]byte(nil), s.RootHash()...)
 
