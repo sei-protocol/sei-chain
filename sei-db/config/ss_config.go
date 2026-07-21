@@ -81,8 +81,13 @@ type StateStoreConfig struct {
 	// preserving the same logical store key and full key encoding inside each DB.
 	SeparateEVMSubDBs bool `mapstructure:"evm-separate-dbs"`
 
-	// HistoricalOffloadBigtableProjectID enables Bigtable fallback reads when
-	// project, instance, and table are set.
+	// HistoricalOffloadBackend selects the historical offload read fallback.
+	// Empty (the default) disables the fallback entirely; "bigtable" enables
+	// the Bigtable reader configured by the connection fields below.
+	HistoricalOffloadBackend string `mapstructure:"historical-offload-backend"`
+
+	// HistoricalOffloadBigtable* are the Bigtable connection parameters used
+	// when HistoricalOffloadBackend is "bigtable".
 	HistoricalOffloadBigtableProjectID  string `mapstructure:"historical-offload-bigtable-project-id"`
 	HistoricalOffloadBigtableInstance   string `mapstructure:"historical-offload-bigtable-instance"`
 	HistoricalOffloadBigtableTable      string `mapstructure:"historical-offload-bigtable-table"`

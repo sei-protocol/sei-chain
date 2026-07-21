@@ -53,6 +53,7 @@ Enable fallback reads in the node config:
 
 ```toml
 [state-store]
+historical-offload-backend = "bigtable"
 historical-offload-bigtable-project-id = "my-gcp-project"
 historical-offload-bigtable-instance = "sei-history"
 historical-offload-bigtable-table = "state_mutations"
@@ -60,6 +61,9 @@ historical-offload-bigtable-family = "state"
 historical-offload-bigtable-app-profile = ""
 historical-offload-bigtable-shards = 256
 ```
+
+These keys are deliberately not part of the generated default config
+(internal/Giga-only for now) and must be added to `app.toml` manually.
 
 Fallback activates only for point reads where the requested version is below the
 local SS earliest version. Missing rows and tombstones return empty state, same

@@ -154,23 +154,6 @@ evm-ss-split = {{ .StateStore.EVMSplit }}
 # When false, all EVM data stays in one DB using the current unified layout.
 # When true, data is routed to separate DBs while preserving the same evm key prefix format.
 evm-ss-separate-dbs = {{ .StateStore.SeparateEVMSubDBs }}
-
-# Optional Bigtable historical-state fallback. When project, instance, and
-# table are set, point reads for versions pruned from local SS fall back to
-# Bigtable. Iterators still use local SS. Use the same family/shards as the
-# Bigtable consumer.
-historical-offload-bigtable-project-id = "{{ .StateStore.HistoricalOffloadBigtableProjectID }}"
-historical-offload-bigtable-instance = "{{ .StateStore.HistoricalOffloadBigtableInstance }}"
-historical-offload-bigtable-table = "{{ .StateStore.HistoricalOffloadBigtableTable }}"
-historical-offload-bigtable-family = "{{ .StateStore.HistoricalOffloadBigtableFamily }}"
-historical-offload-bigtable-app-profile = "{{ .StateStore.HistoricalOffloadBigtableAppProfile }}"
-historical-offload-bigtable-shards = {{ .StateStore.HistoricalOffloadBigtableShards }}
-
-# Earliest version (inclusive) fully ingested into the historical backend.
-# When > 0 it becomes the node's advertised earliest version, so RPC height
-# gates admit pruned heights the fallback can serve; point reads below it stay
-# local. Leave 0 until backfill/ingestion coverage reaches the desired height.
-historical-offload-earliest-version = {{ .StateStore.HistoricalOffloadEarliestVersion }}
 `
 
 // ReceiptStoreConfigTemplate defines the configuration template for receipt-store

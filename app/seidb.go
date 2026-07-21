@@ -55,6 +55,7 @@ const (
 	FlagEVMSSSeparateDBs = "state-store.evm-ss-separate-dbs"
 
 	// Historical SS offload fallback.
+	FlagHistoricalOffloadBackend            = "state-store.historical-offload-backend"
 	FlagHistoricalOffloadBigtableProjectID  = "state-store.historical-offload-bigtable-project-id"
 	FlagHistoricalOffloadBigtableInstance   = "state-store.historical-offload-bigtable-instance"
 	FlagHistoricalOffloadBigtableTable      = "state-store.historical-offload-bigtable-table"
@@ -217,6 +218,7 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
 	ssConfig.SeparateEVMSubDBs = cast.ToBool(appOpts.Get(FlagEVMSSSeparateDBs))
 	ssConfig.EVMSplit = cast.ToBool(appOpts.Get(FlagEVMSSSplit))
+	ssConfig.HistoricalOffloadBackend = cast.ToString(appOpts.Get(FlagHistoricalOffloadBackend))
 	ssConfig.HistoricalOffloadBigtableProjectID = cast.ToString(appOpts.Get(FlagHistoricalOffloadBigtableProjectID))
 	ssConfig.HistoricalOffloadBigtableInstance = cast.ToString(appOpts.Get(FlagHistoricalOffloadBigtableInstance))
 	ssConfig.HistoricalOffloadBigtableTable = cast.ToString(appOpts.Get(FlagHistoricalOffloadBigtableTable))

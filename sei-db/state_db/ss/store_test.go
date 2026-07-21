@@ -50,3 +50,15 @@ func TestNewStateStore(t *testing.T) {
 		require.Equal(t, fmt.Sprintf("value%d", i), string(value))
 	}
 }
+
+func TestNewStateStoreRejectsUnsupportedHistoricalOffloadBackend(t *testing.T) {
+	ssConfig := config.StateStoreConfig{
+		Backend:                  config.PebbleDBBackend,
+		AsyncWriteBuffer:         100,
+		KeepRecent:               500,
+		HistoricalOffloadBackend: "scylla",
+	}
+
+	_, err := NewStateStore(filepath.Join(t.TempDir(), "pebbledb"), ssConfig)
+	require.ErrorContains(t, err, `unsupported historical offload backend "scylla"`)
+}

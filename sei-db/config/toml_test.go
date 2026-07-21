@@ -99,11 +99,10 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, `evm-ss-db-directory = ""`, "Missing evm-ss-db-directory")
 	require.Contains(t, output, `evm-ss-split = false`, "Missing or incorrect evm-ss-split")
 	require.Contains(t, output, "evm-ss-separate-dbs = false", "Missing or incorrect evm-ss-separate-dbs")
-	require.Contains(t, output, `historical-offload-bigtable-project-id = ""`, "Missing historical Bigtable project")
-	require.Contains(t, output, `historical-offload-bigtable-instance = ""`, "Missing historical Bigtable instance")
-	require.Contains(t, output, `historical-offload-bigtable-table = ""`, "Missing historical Bigtable table")
-	require.Contains(t, output, "historical-offload-bigtable-shards = 0", "Missing historical Bigtable shards")
-	require.Contains(t, output, "historical-offload-earliest-version = 0", "Missing historical earliest version")
+	// The historical-offload keys are deliberately absent from the generated
+	// default config (internal/Giga-only for now); they still parse when an
+	// operator adds them to app.toml manually.
+	require.NotContains(t, output, "historical-offload", "historical-offload keys must not be in the default template")
 }
 
 // TestReceiptStoreConfigTemplate verifies that all field paths in the receipt-store TOML template

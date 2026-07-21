@@ -65,6 +65,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.EVMSplit
 	case FlagEVMSSSeparateDBs:
 		return defaultSSConfig.SeparateEVMSubDBs
+	case FlagHistoricalOffloadBackend:
+		return defaultSSConfig.HistoricalOffloadBackend
 	case FlagHistoricalOffloadBigtableProjectID:
 		return defaultSSConfig.HistoricalOffloadBigtableProjectID
 	case FlagHistoricalOffloadBigtableInstance:
@@ -221,6 +223,7 @@ func TestParseSSConfigs_EVMFlags(t *testing.T) {
 func TestParseSSConfigs_HistoricalBigtableFlags(t *testing.T) {
 	appOpts := mapAppOpts{
 		FlagSSEnable:                            true,
+		FlagHistoricalOffloadBackend:            "bigtable",
 		FlagHistoricalOffloadBigtableProjectID:  "sei-project",
 		FlagHistoricalOffloadBigtableInstance:   "sei-history",
 		FlagHistoricalOffloadBigtableTable:      "state_mutations",
@@ -233,6 +236,7 @@ func TestParseSSConfigs_HistoricalBigtableFlags(t *testing.T) {
 
 	ssConfig := parseSSConfigs(appOpts)
 	assert.True(t, ssConfig.Enable)
+	assert.Equal(t, "bigtable", ssConfig.HistoricalOffloadBackend)
 	assert.Equal(t, "sei-project", ssConfig.HistoricalOffloadBigtableProjectID)
 	assert.Equal(t, "sei-history", ssConfig.HistoricalOffloadBigtableInstance)
 	assert.Equal(t, "state_mutations", ssConfig.HistoricalOffloadBigtableTable)
