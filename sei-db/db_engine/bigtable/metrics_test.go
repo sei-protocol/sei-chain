@@ -1,4 +1,4 @@
-package historical
+package bigtable
 
 import (
 	"context"
@@ -6,31 +6,31 @@ import (
 	"time"
 )
 
-func TestBigtableRowSize(t *testing.T) {
-	row := BigtableRow{
+func TestRowSize(t *testing.T) {
+	row := Row{
 		Key: "abc", // 3
-		Cells: []BigtableCell{
+		Cells: []Cell{
 			{Qualifier: "value", Value: []byte("hello")}, // 5 + 5
 			{Qualifier: "deleted", Value: []byte{0x1}},   // 7 + 1
 		},
 	}
-	if got, want := bigtableRowSize(row), int64(3+5+5+7+1); got != want {
-		t.Fatalf("bigtableRowSize() = %d, want %d", got, want)
+	if got, want := rowSize(row), int64(3+5+5+7+1); got != want {
+		t.Fatalf("rowSize() = %d, want %d", got, want)
 	}
-	if got := bigtableRowSize(BigtableRow{}); got != 0 {
-		t.Fatalf("bigtableRowSize(empty) = %d, want 0", got)
+	if got := rowSize(Row{}); got != 0 {
+		t.Fatalf("rowSize(empty) = %d, want 0", got)
 	}
 }
 
-func TestBigtableMutationSize(t *testing.T) {
-	row := BigtableRowMutation{
+func TestMutationSize(t *testing.T) {
+	row := RowMutation{
 		RowKey: "row1", // 4
-		SetCells: []BigtableSetCell{
+		SetCells: []SetCell{
 			{Qualifier: "value", Value: []byte("data")}, // 5 + 4
 		},
 	}
-	if got, want := bigtableMutationSize(row), int64(4+5+4); got != want {
-		t.Fatalf("bigtableMutationSize() = %d, want %d", got, want)
+	if got, want := mutationSize(row), int64(4+5+4); got != want {
+		t.Fatalf("mutationSize() = %d, want %d", got, want)
 	}
 }
 

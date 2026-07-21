@@ -1,4 +1,4 @@
-package historical
+package bigtable
 
 import (
 	"context"
@@ -114,9 +114,9 @@ func (m *bigtableMetrics) recordWrite(ctx context.Context, table string, latency
 	}
 }
 
-// bigtableRowSize estimates the transferred size of a read row: the row key
+// rowSize estimates the transferred size of a read row: the row key
 // plus each returned cell's qualifier and value.
-func bigtableRowSize(row BigtableRow) int64 {
+func rowSize(row Row) int64 {
 	size := int64(len(row.Key))
 	for _, cell := range row.Cells {
 		size += int64(len(cell.Qualifier)) + int64(len(cell.Value))
@@ -124,9 +124,9 @@ func bigtableRowSize(row BigtableRow) int64 {
 	return size
 }
 
-// bigtableMutationSize estimates the written size of a mutation row: the row
+// mutationSize estimates the written size of a mutation row: the row
 // key plus each set cell's qualifier and value.
-func bigtableMutationSize(row BigtableRowMutation) int64 {
+func mutationSize(row RowMutation) int64 {
 	size := int64(len(row.RowKey))
 	for _, cell := range row.SetCells {
 		size += int64(len(cell.Qualifier)) + int64(len(cell.Value))

@@ -9,8 +9,8 @@ import (
 	kafkago "github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/bigtable"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/historical"
 )
 
 // entryMessage marshals entry into a Kafka message the sink can decode.
@@ -24,10 +24,10 @@ func entryMessage(t *testing.T, entry *proto.ChangelogEntry) kafkago.Message {
 func TestBigtableSinkWritesMutationRowsAndVersionMarker(t *testing.T) {
 	var rows []string
 	sink := &bigtableSink{
-		family:           historical.DefaultBigtableFamily,
-		shards:           historical.DefaultBigtableShards,
+		family:           bigtable.DefaultFamily,
+		shards:           bigtable.DefaultShards,
 		bulkChunkWorkers: 1,
-		applyBulk: func(_ context.Context, mutations []historical.BigtableRowMutation) ([]error, error) {
+		applyBulk: func(_ context.Context, mutations []bigtable.RowMutation) ([]error, error) {
 			for _, mutation := range mutations {
 				rows = append(rows, mutation.RowKey)
 			}
@@ -52,20 +52,20 @@ func TestBigtableSinkWritesMutationRowsAndVersionMarker(t *testing.T) {
 	require.NoError(t, sink.WriteBatch(context.Background(), []kafkago.Message{msg}))
 	require.Len(t, rows, 4)
 	require.ElementsMatch(t, []string{
-		historical.BigtableMutationRowKey("bank", []byte("k1"), 7, historical.DefaultBigtableShards),
-		historical.BigtableMutationRowKey("bank", []byte("drop"), 7, historical.DefaultBigtableShards),
-		historical.BigtableUpgradeRowKey(7, "new-store"),
+		bigtable.MutationRowKey("bank", []byte("k1"), 7, bigtable.DefaultShards),
+		bigtable.MutationRowKey("bank", []byte("drop"), 7, bigtable.DefaultShards),
+		bigtable.UpgradeRowKey(7, "new-store"),
 	}, rows[:3])
-	require.Equal(t, historical.BigtableVersionRowKey(7), rows[3])
+	require.Equal(t, bigtable.VersionRowKey(7), rows[3])
 }
 
 func TestBigtableSinkWriteBatchRejectsUndecodableMessage(t *testing.T) {
 	applyBulkCalls := 0
 	sink := &bigtableSink{
-		family:           historical.DefaultBigtableFamily,
-		shards:           historical.DefaultBigtableShards,
+		family:           bigtable.DefaultFamily,
+		shards:           bigtable.DefaultShards,
 		bulkChunkWorkers: 1,
-		applyBulk: func(_ context.Context, mutations []historical.BigtableRowMutation) ([]error, error) {
+		applyBulk: func(_ context.Context, mutations []bigtable.RowMutation) ([]error, error) {
 			applyBulkCalls++
 			return make([]error, len(mutations)), nil
 		},
@@ -80,10 +80,10 @@ func TestBigtableSinkWriteBatchWritesRowsBeforeMarkers(t *testing.T) {
 	var calls [][]string
 
 	sink := &bigtableSink{
-		family:           historical.DefaultBigtableFamily,
-		shards:           historical.DefaultBigtableShards,
+		family:           bigtable.DefaultFamily,
+		shards:           bigtable.DefaultShards,
 		bulkChunkWorkers: 1,
-		applyBulk: func(_ context.Context, mutations []historical.BigtableRowMutation) ([]error, error) {
+		applyBulk: func(_ context.Context, mutations []bigtable.RowMutation) ([]error, error) {
 			call := make([]string, 0, len(mutations))
 			for _, mutation := range mutations {
 				call = append(call, mutation.RowKey)
@@ -112,17 +112,17 @@ func TestBigtableSinkWriteBatchWritesRowsBeforeMarkers(t *testing.T) {
 	require.NoError(t, sink.WriteBatch(context.Background(), msgs))
 	require.GreaterOrEqual(t, len(calls), 2)
 	require.ElementsMatch(t, []string{
-		historical.BigtableMutationRowKey("bank", []byte("k1"), 1, historical.DefaultBigtableShards),
-		historical.BigtableMutationRowKey("bank", []byte("k2"), 2, historical.DefaultBigtableShards),
+		bigtable.MutationRowKey("bank", []byte("k1"), 1, bigtable.DefaultShards),
+		bigtable.MutationRowKey("bank", []byte("k2"), 2, bigtable.DefaultShards),
 	}, flattenCalls(calls[:len(calls)-1]))
 	require.Equal(t, []string{
-		historical.BigtableVersionRowKey(1),
-		historical.BigtableVersionRowKey(2),
+		bigtable.VersionRowKey(1),
+		bigtable.VersionRowKey(2),
 	}, calls[len(calls)-1])
 }
 
 func TestBigtableRowMutationChunksSortsAndGroupsByLocality(t *testing.T) {
-	rows := []historical.BigtableRowMutation{
+	rows := []bigtable.RowMutation{
 		{RowKey: string([]byte{'u', 'z'})},
 		{RowKey: string([]byte{'m', 0, 2, 'b'})},
 		{RowKey: string([]byte{'m', 0, 1, 'c'})},
@@ -154,11 +154,11 @@ func TestBigtableRowMutationChunksSortsAndGroupsByLocality(t *testing.T) {
 func TestBigtableSinkWriteBatchChunksRecordRowsBeforeMarkers(t *testing.T) {
 	var calls [][]string
 	sink := &bigtableSink{
-		family:           historical.DefaultBigtableFamily,
+		family:           bigtable.DefaultFamily,
 		shards:           2,
 		bulkChunkRows:    1,
 		bulkChunkWorkers: 1,
-		applyBulk: func(_ context.Context, mutations []historical.BigtableRowMutation) ([]error, error) {
+		applyBulk: func(_ context.Context, mutations []bigtable.RowMutation) ([]error, error) {
 			call := make([]string, 0, len(mutations))
 			for _, mutation := range mutations {
 				call = append(call, mutation.RowKey)
@@ -195,18 +195,18 @@ func TestBigtableSinkWriteBatchChunksRecordRowsBeforeMarkers(t *testing.T) {
 	require.Greater(t, len(calls), 2)
 	markerCall := calls[len(calls)-1]
 	require.Equal(t, []string{
-		historical.BigtableVersionRowKey(1),
-		historical.BigtableVersionRowKey(2),
+		bigtable.VersionRowKey(1),
+		bigtable.VersionRowKey(2),
 	}, markerCall)
 	for _, call := range calls[:len(calls)-1] {
 		require.Len(t, call, 1)
 		require.NotEqual(t, markerCall, call)
 	}
 	require.ElementsMatch(t, []string{
-		historical.BigtableMutationRowKey("bank", []byte("k1"), 1, 2),
-		historical.BigtableMutationRowKey("bank", []byte("k2"), 1, 2),
-		historical.BigtableUpgradeRowKey(1, "new-store"),
-		historical.BigtableMutationRowKey("bank", []byte("k3"), 2, 2),
+		bigtable.MutationRowKey("bank", []byte("k1"), 1, 2),
+		bigtable.MutationRowKey("bank", []byte("k2"), 1, 2),
+		bigtable.UpgradeRowKey(1, "new-store"),
+		bigtable.MutationRowKey("bank", []byte("k3"), 2, 2),
 	}, flattenCalls(calls[:len(calls)-1]))
 }
 
@@ -216,7 +216,7 @@ func TestBigtableSinkAppliesRecordChunksConcurrently(t *testing.T) {
 	sink := &bigtableSink{
 		bulkChunkRows:    1,
 		bulkChunkWorkers: 2,
-		applyBulk: func(ctx context.Context, rows []historical.BigtableRowMutation) ([]error, error) {
+		applyBulk: func(ctx context.Context, rows []bigtable.RowMutation) ([]error, error) {
 			select {
 			case started <- struct{}{}:
 			case <-ctx.Done():
@@ -230,7 +230,7 @@ func TestBigtableSinkAppliesRecordChunksConcurrently(t *testing.T) {
 			}
 		},
 	}
-	rows := []historical.BigtableRowMutation{
+	rows := []bigtable.RowMutation{
 		{RowKey: string([]byte{'m', 0, 1, 'a'})},
 		{RowKey: string([]byte{'m', 0, 2, 'a'})},
 	}
@@ -253,7 +253,7 @@ func TestBigtableSinkAppliesRecordChunksConcurrently(t *testing.T) {
 }
 
 func TestBigtableBulkErrorValidatesMutationResultCount(t *testing.T) {
-	rows := []historical.BigtableRowMutation{{RowKey: "row-1"}, {RowKey: "row-2"}}
+	rows := []bigtable.RowMutation{{RowKey: "row-1"}, {RowKey: "row-2"}}
 
 	err := bigtableBulkError(rows, []error{nil}, nil)
 
@@ -262,7 +262,7 @@ func TestBigtableBulkErrorValidatesMutationResultCount(t *testing.T) {
 
 func TestBigtableBulkErrorWrapsRowError(t *testing.T) {
 	rowErr := errors.New("failed")
-	rows := []historical.BigtableRowMutation{{RowKey: "row-1"}}
+	rows := []bigtable.RowMutation{{RowKey: "row-1"}}
 
 	err := bigtableBulkError(rows, []error{rowErr}, nil)
 
@@ -270,7 +270,7 @@ func TestBigtableBulkErrorWrapsRowError(t *testing.T) {
 	require.ErrorContains(t, err, "row-1")
 }
 
-func chunkRowKeys(chunks [][]historical.BigtableRowMutation) [][]string {
+func chunkRowKeys(chunks [][]bigtable.RowMutation) [][]string {
 	out := make([][]string, 0, len(chunks))
 	for _, chunk := range chunks {
 		out = append(out, flattenRowMutations(chunk))
@@ -286,7 +286,7 @@ func flattenCalls(calls [][]string) []string {
 	return out
 }
 
-func flattenRowMutations(rows []historical.BigtableRowMutation) []string {
+func flattenRowMutations(rows []bigtable.RowMutation) []string {
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.RowKey)
