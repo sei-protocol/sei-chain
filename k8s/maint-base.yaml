@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: maint-base
+  namespace: eng-yiren
+  labels:
+    app: flatkv-maint
+spec:
+  tolerations:
+  - key: sei.io/workload
+    operator: Equal
+    value: sei-node
+    effect: NoSchedule
+  restartPolicy: Never
+  securityContext:
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+  containers:
+  - name: seid
+    image: 189176372795.dkr.ecr.us-east-2.amazonaws.com/sei/sei-chain:3374665e9
+    command: ["sh", "-c", "sleep infinity"]
+    volumeMounts:
+    - name: data
+      mountPath: /home/nonroot/.sei
+    resources:
+      requests:
+        cpu: "4"
+        memory: 16Gi
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: data-pacific1-flatkv-basebench-0
