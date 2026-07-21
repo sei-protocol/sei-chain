@@ -517,7 +517,7 @@ func randomEVMValue(rng *testutil.TestRandom, key []byte) []byte {
 		return randomTestBytes(rng, 8)
 	case keys.EVMKeyCodeHash, keys.EVMKeyCode, keys.EVMKeyStorage:
 		return randomTestBytes(rng, 32)
-	default: // EVMKeyLegacy or unknown — no fixed constraint
+	default: // EVMKeyMisc or unknown — no fixed constraint
 		return randomTestBytes(rng, 8)
 	}
 }

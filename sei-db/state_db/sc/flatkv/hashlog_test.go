@@ -56,7 +56,7 @@ func TestFlatKVHashReporting(t *testing.T) {
 		"flatKV/db/account",
 		"flatKV/db/code",
 		"flatKV/db/storage",
-		"flatKV/db/legacy",
+		"flatKV/db/misc",
 	}, s.HashCategories())
 
 	logger := newCaptureLogger()
