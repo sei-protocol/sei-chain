@@ -1,4 +1,4 @@
-package storagemanager
+package management
 
 import (
 	"fmt"
@@ -6,11 +6,11 @@ import (
 	"time"
 )
 
-// Configures a StorageManager.
-type StorageManagerConfig struct {
+// Configures a StorageGarbageCollector.
+type StorageGarbageCollectorConfig struct {
 
 	// The maximum number of blocks the system should be able to roll back at any point in time.
-	// Storage manager ensures that enough data is kept on disk such that the system can always
+	// Storage garbage collector ensures that enough data is kept on disk such that the system can always
 	// roll back this many blocks.
 	//
 	// Note that the "always able to rollback" invariant may be broken after a rollback. For example, if we normally
@@ -22,16 +22,16 @@ type StorageManagerConfig struct {
 	PruneIntervalSeconds uint64
 }
 
-// Construct a default storage manager config.
-func DefaultStorageManagerConfig() *StorageManagerConfig {
-	return &StorageManagerConfig{
+// Construct a default storage garbage collector config.
+func DefaultStorageGarbageCollectorConfig() *StorageGarbageCollectorConfig {
+	return &StorageGarbageCollectorConfig{
 		RollbackWindow:       10_000,
 		PruneIntervalSeconds: 60,
 	}
 }
 
-// Validate the storage manager's config.
-func (c *StorageManagerConfig) Validate() error {
+// Validate the storage garbage collector's config.
+func (c *StorageGarbageCollectorConfig) Validate() error {
 	// A zero rollback window is legal: it means the system prunes as aggressively as possible.
 	if c.PruneIntervalSeconds == 0 {
 		return fmt.Errorf("prune interval must be greater than 0 seconds")

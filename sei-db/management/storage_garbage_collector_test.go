@@ -1,4 +1,4 @@
-package storagemanager
+package management
 
 import (
 	"context"
@@ -362,31 +362,31 @@ func TestBlockRange(t *testing.T) {
 	require.Equal(t, "[0, 0]", blockRange(0, 0))
 }
 
-func TestDefaultStorageManagerConfig(t *testing.T) {
-	cfg := DefaultStorageManagerConfig()
+func TestDefaultStorageGarbageCollectorConfig(t *testing.T) {
+	cfg := DefaultStorageGarbageCollectorConfig()
 	require.Equal(t, uint64(10_000), cfg.RollbackWindow)
 	require.Equal(t, uint64(60), cfg.PruneIntervalSeconds)
 }
 
 func TestValidate(t *testing.T) {
-	require.NoError(t, DefaultStorageManagerConfig().Validate())
+	require.NoError(t, DefaultStorageGarbageCollectorConfig().Validate())
 
 	// A zero rollback window is legal.
-	require.NoError(t, (&StorageManagerConfig{RollbackWindow: 0, PruneIntervalSeconds: 60}).Validate())
+	require.NoError(t, (&StorageGarbageCollectorConfig{RollbackWindow: 0, PruneIntervalSeconds: 60}).Validate())
 
-	err := (&StorageManagerConfig{PruneIntervalSeconds: 0}).Validate()
+	err := (&StorageGarbageCollectorConfig{PruneIntervalSeconds: 0}).Validate()
 	require.ErrorContains(t, err, "prune interval")
 
 	// The largest interval that does not overflow time.Duration is accepted; one larger is rejected.
 	maxInterval := uint64(math.MaxInt64) / uint64(time.Second)
-	require.NoError(t, (&StorageManagerConfig{PruneIntervalSeconds: maxInterval}).Validate())
-	require.ErrorContains(t, (&StorageManagerConfig{PruneIntervalSeconds: maxInterval + 1}).Validate(), "at most")
+	require.NoError(t, (&StorageGarbageCollectorConfig{PruneIntervalSeconds: maxInterval}).Validate())
+	require.ErrorContains(t, (&StorageGarbageCollectorConfig{PruneIntervalSeconds: maxInterval + 1}).Validate(), "at most")
 }
 
-func TestNewStorageManagerInvalidConfig(t *testing.T) {
-	sm, err := NewStorageManager(
+func TestNewStorageGarbageCollectorInvalidConfig(t *testing.T) {
+	sm, err := NewStorageGarbageCollector(
 		context.Background(),
-		&StorageManagerConfig{PruneIntervalSeconds: 0},
+		&StorageGarbageCollectorConfig{PruneIntervalSeconds: 0},
 		toStores([]*mockSnapshotStore{{name: "a"}}),
 		&mockStreamStore{name: "stateWAL"},
 	)
@@ -394,12 +394,12 @@ func TestNewStorageManagerInvalidConfig(t *testing.T) {
 	require.Nil(t, sm)
 }
 
-func TestNewStorageManagerConstructAndClose(t *testing.T) {
+func TestNewStorageGarbageCollectorConstructAndClose(t *testing.T) {
 	a := &mockSnapshotStore{name: "a", blocks: []uint64{100}}
 	wal := &mockStreamStore{name: "stateWAL", start: 1, end: 100, hasData: true}
-	sm, err := NewStorageManager(
+	sm, err := NewStorageGarbageCollector(
 		context.Background(),
-		&StorageManagerConfig{RollbackWindow: 10, PruneIntervalSeconds: 60},
+		&StorageGarbageCollectorConfig{RollbackWindow: 10, PruneIntervalSeconds: 60},
 		toStores([]*mockSnapshotStore{a}),
 		wal,
 	)

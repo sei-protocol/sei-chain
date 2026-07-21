@@ -1,4 +1,4 @@
-package storagemanager
+package management
 
 import (
 	"context"
@@ -9,22 +9,22 @@ import (
 	"github.com/sei-protocol/seilog"
 )
 
-var logger = seilog.NewLogger("db", "storagemanager")
+var logger = seilog.NewLogger("db", "management")
 
-// StorageManager manages deletion of stored data across a set of state stores and the StateWAL.
+// StorageGarbageCollector manages deletion of stored data across a set of state stores and the StateWAL.
 //
-// The StorageManager performs state deletion while maintaining the following invariant:
+// The StorageGarbageCollector performs state deletion while maintaining the following invariant:
 // "If it's possible to roll back at least config.RollbackWindow blocks, then any state deletion operation
 // will retain the system's ability to roll back at least config.RollbackWindow blocks." That is to say,
-// while the StorageManager cannot unilaterally guarantee the ability to roll back config.RollbackWindow
+// while the StorageGarbageCollector cannot unilaterally guarantee the ability to roll back config.RollbackWindow
 // blocks by itself, it guarantees that the act of deleting old state does not prevent rollback within this
 // rollback window.
 //
-// StorageManager is not thread safe.
-type StorageManager struct {
+// StorageGarbageCollector is not thread safe.
+type StorageGarbageCollector struct {
 
-	// Configuration for this storage manager.
-	config *StorageManagerConfig
+	// Configuration for this storage garbage collector.
+	config *StorageGarbageCollectorConfig
 
 	// The stores whose data can be rebuilt by replaying the state WAL.
 	stateStores []SnapshotStore
@@ -42,18 +42,18 @@ type StorageManager struct {
 	wg sync.WaitGroup
 }
 
-func NewStorageManager(
+func NewStorageGarbageCollector(
 	ctx context.Context,
-	config *StorageManagerConfig,
+	config *StorageGarbageCollectorConfig,
 	stateStores []SnapshotStore,
 	stateWAL StreamStore,
-) (*StorageManager, error) {
+) (*StorageGarbageCollector, error) {
 
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid storage manager config: %w", err)
+		return nil, fmt.Errorf("invalid storage garbage collector config: %w", err)
 	}
 
-	s := &StorageManager{
+	s := &StorageGarbageCollector{
 		config:      config,
 		stateStores: stateStores,
 		stateWAL:    stateWAL,
@@ -67,8 +67,8 @@ func NewStorageManager(
 	return s, nil
 }
 
-// Close stops the storage manager and waits for its run loop to exit. It must be called exactly once.
-func (s *StorageManager) Close() error {
+// Close stops the storage garbage collector and waits for its run loop to exit. It must be called exactly once.
+func (s *StorageGarbageCollector) Close() error {
 	close(s.stopCh)
 	s.wg.Wait()
 	return nil
@@ -76,7 +76,7 @@ func (s *StorageManager) Close() error {
 
 // run periodically drives prune cycles until the manager is stopped. All decision logic lives in prune so it can
 // be unit tested without threading.
-func (s *StorageManager) run() {
+func (s *StorageGarbageCollector) run() {
 	defer s.wg.Done()
 
 	//nolint:gosec // G115 - Config.Validate rejects PruneIntervalSeconds large enough to overflow this conversion.
