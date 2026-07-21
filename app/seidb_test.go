@@ -65,6 +65,22 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.EVMSplit
 	case FlagEVMSSSeparateDBs:
 		return defaultSSConfig.SeparateEVMSubDBs
+	case FlagHistoricalOffloadBackend:
+		return defaultSSConfig.HistoricalOffloadBackend
+	case FlagHistoricalOffloadBigtableProjectID:
+		return defaultSSConfig.HistoricalOffloadBigtableProjectID
+	case FlagHistoricalOffloadBigtableInstance:
+		return defaultSSConfig.HistoricalOffloadBigtableInstance
+	case FlagHistoricalOffloadBigtableTable:
+		return defaultSSConfig.HistoricalOffloadBigtableTable
+	case FlagHistoricalOffloadBigtableFamily:
+		return defaultSSConfig.HistoricalOffloadBigtableFamily
+	case FlagHistoricalOffloadBigtableAppProfile:
+		return defaultSSConfig.HistoricalOffloadBigtableAppProfile
+	case FlagHistoricalOffloadBigtableShards:
+		return defaultSSConfig.HistoricalOffloadBigtableShards
+	case FlagHistoricalOffloadEarliestVersion:
+		return defaultSSConfig.HistoricalOffloadEarliestVersion
 	}
 	return nil
 }
@@ -202,6 +218,32 @@ func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	assert.Equal(t, "/tmp/evm-ss", ssConfig.EVMDBDirectory)
 	assert.True(t, ssConfig.EVMSplit)
 	assert.True(t, ssConfig.SeparateEVMSubDBs)
+}
+
+func TestParseSSConfigs_HistoricalBigtableFlags(t *testing.T) {
+	appOpts := mapAppOpts{
+		FlagSSEnable:                            true,
+		FlagHistoricalOffloadBackend:            "bigtable",
+		FlagHistoricalOffloadBigtableProjectID:  "sei-project",
+		FlagHistoricalOffloadBigtableInstance:   "sei-history",
+		FlagHistoricalOffloadBigtableTable:      "state_mutations",
+		FlagHistoricalOffloadBigtableFamily:     "state",
+		FlagHistoricalOffloadBigtableAppProfile: "historical",
+		FlagHistoricalOffloadBigtableShards:     512,
+		FlagHistoricalOffloadEarliestVersion:    int64(1234),
+		FlagSSAsyncWriterBuffer:                 0,
+	}
+
+	ssConfig := parseSSConfigs(appOpts)
+	assert.True(t, ssConfig.Enable)
+	assert.Equal(t, "bigtable", ssConfig.HistoricalOffloadBackend)
+	assert.Equal(t, "sei-project", ssConfig.HistoricalOffloadBigtableProjectID)
+	assert.Equal(t, "sei-history", ssConfig.HistoricalOffloadBigtableInstance)
+	assert.Equal(t, "state_mutations", ssConfig.HistoricalOffloadBigtableTable)
+	assert.Equal(t, "state", ssConfig.HistoricalOffloadBigtableFamily)
+	assert.Equal(t, "historical", ssConfig.HistoricalOffloadBigtableAppProfile)
+	assert.Equal(t, 512, ssConfig.HistoricalOffloadBigtableShards)
+	assert.Equal(t, int64(1234), ssConfig.HistoricalOffloadEarliestVersion)
 }
 
 func TestParseSSConfigs_ReadWriteMetrics(t *testing.T) {

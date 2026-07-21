@@ -80,6 +80,26 @@ type StateStoreConfig struct {
 	// When true, data is routed to separate DBs by EVM key family while
 	// preserving the same logical store key and full key encoding inside each DB.
 	SeparateEVMSubDBs bool `mapstructure:"evm-separate-dbs"`
+
+	// HistoricalOffloadBackend selects the historical offload read fallback.
+	// Empty (the default) disables the fallback entirely; "bigtable" enables
+	// the Bigtable reader configured by the connection fields below.
+	HistoricalOffloadBackend string `mapstructure:"historical-offload-backend"`
+
+	// HistoricalOffloadBigtable* are the Bigtable connection parameters used
+	// when HistoricalOffloadBackend is "bigtable".
+	HistoricalOffloadBigtableProjectID  string `mapstructure:"historical-offload-bigtable-project-id"`
+	HistoricalOffloadBigtableInstance   string `mapstructure:"historical-offload-bigtable-instance"`
+	HistoricalOffloadBigtableTable      string `mapstructure:"historical-offload-bigtable-table"`
+	HistoricalOffloadBigtableFamily     string `mapstructure:"historical-offload-bigtable-family"`
+	HistoricalOffloadBigtableAppProfile string `mapstructure:"historical-offload-bigtable-app-profile"`
+	HistoricalOffloadBigtableShards     int    `mapstructure:"historical-offload-bigtable-shards"`
+
+	// HistoricalOffloadEarliestVersion is the operator-declared earliest version
+	// (inclusive) fully ingested into the historical backend. When > 0 it is
+	// advertised as the store's earliest version so height gates admit pruned
+	// reads; reads below it stay on the primary.
+	HistoricalOffloadEarliestVersion int64 `mapstructure:"historical-offload-earliest-version"`
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig

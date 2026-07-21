@@ -219,6 +219,17 @@ func (s *CompositeStateStore) GetEarliestVersion() int64 {
 	return s.cosmosStore.GetEarliestVersion()
 }
 
+// GetEarliestVersionForKey reports the earliest version still held locally by
+// the store that serves storeKey. Cosmos and EVM prune independently (an EVM
+// prune failure is only logged), so pruned-read fallback must consult the
+// horizon of the store that will actually serve the read.
+func (s *CompositeStateStore) GetEarliestVersionForKey(storeKey string) int64 {
+	if s.evmRouted(storeKey) {
+		return s.evmStore.GetEarliestVersion()
+	}
+	return s.cosmosStore.GetEarliestVersion()
+}
+
 func (s *CompositeStateStore) Close() error {
 	s.closeOnce.Do(func() {
 		if s.pruningManager != nil {

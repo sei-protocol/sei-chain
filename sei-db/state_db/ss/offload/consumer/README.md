@@ -47,10 +47,55 @@ SASL/PLAIN using service-account credentials:
 }
 ```
 
+## Node Read Fallback
+
+Enable fallback reads in the node config:
+
+```toml
+[state-store]
+historical-offload-backend = "bigtable"
+historical-offload-bigtable-project-id = "my-gcp-project"
+historical-offload-bigtable-instance = "sei-history"
+historical-offload-bigtable-table = "state_mutations"
+historical-offload-bigtable-family = "state"
+historical-offload-bigtable-app-profile = ""
+historical-offload-bigtable-shards = 256
+```
+
+These keys are deliberately not part of the generated default config
+(internal/Giga-only for now) and must be added to `app.toml` manually.
+
+Fallback activates only for point reads where the requested version is below the
+local SS earliest version. Missing rows and tombstones return empty state, same
+as local SS. Reads ahead of the backend's last ingested version (consumer lag)
+return an error rather than empty state.
+
+To open RPC height gates for pruned heights, declare how far back the backend
+has full coverage (the version at which ingestion/backfill started):
+
+```toml
+[state-store]
+historical-offload-earliest-version = 123456789
+```
+
+When set (> 0), the node advertises this as its earliest version so height
+checks admit heights the fallback can serve; point reads below it stay on the
+local store. Leave it 0 until the backend actually covers the target range —
+heights the backend never ingested would otherwise read as empty state.
+
+## Operational preconditions
+
+Before enabling the node read fallback in production:
+
+- The Bigtable table exists with the same family/shards the consumer wrote with.
+- The consumer has been ingesting continuously; check
+  `consumer_kafka_lag` / `bigtable_rows_mutated_total`.
+- `historical-offload-earliest-version` is set to the true coverage floor.
+
 ## Current Limits
 
-- The node-side read fallback lands in part 2; this part is the client library
-  and the ingestion pipeline.
+- No offload iterator path; range queries between the coverage floor and the
+  local prune horizon see only local data.
 - No cross-row transaction on ingest; mutation rows are written first and the
   version marker is written last, so replay is idempotent after partial failure.
 - No automatic table creation from the binary.
