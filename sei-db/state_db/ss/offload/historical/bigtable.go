@@ -115,9 +115,10 @@ func (c *BigtableConfig) ApplyDefaults() {
 	}
 }
 
+// Configured reports whether all required connection parameters are set.
 func (c BigtableConfig) Configured() bool {
-	return strings.TrimSpace(c.ProjectID) != "" ||
-		strings.TrimSpace(c.InstanceID) != "" ||
+	return strings.TrimSpace(c.ProjectID) != "" &&
+		strings.TrimSpace(c.InstanceID) != "" &&
 		strings.TrimSpace(c.Table) != ""
 }
 

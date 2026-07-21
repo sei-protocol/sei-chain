@@ -35,6 +35,16 @@ func TestBigtableConfigDefaultsAndValidate(t *testing.T) {
 	require.ErrorContains(t, missingShards.Validate(), "shards")
 }
 
+func TestBigtableConfigConfigured(t *testing.T) {
+	full := BigtableConfig{ProjectID: "p", InstanceID: "i", Table: "t"}
+	require.True(t, full.Configured())
+
+	onlyProject := BigtableConfig{ProjectID: "p"}
+	require.False(t, onlyProject.Configured())
+
+	require.False(t, BigtableConfig{}.Configured())
+}
+
 func TestBigtableMutationRowKeyOrdersLatestVersionFirst(t *testing.T) {
 	key40 := BigtableMutationRowKey("bank", []byte("k1"), 40, 256)
 	key60 := BigtableMutationRowKey("bank", []byte("k1"), 60, 256)
