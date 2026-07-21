@@ -495,6 +495,70 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	}
 }
 
+// TestEvictionWaitsForCommitQCApp checks that evictExecuted does not drop
+// AppProposals until a later CommitQC embeds an App (certifying AppQC), and
+// that once that App exists, heights below it are eligible for eviction.
+func TestEvictionWaitsForCommitQCApp(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange()
+	require.False(t, qc1.QC().Proposal().App().IsPresent(), "genesis CommitQC has no App")
+
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	app, ok := qc2.QC().Proposal().App().Get()
+	require.True(t, ok, "second CommitQC embeds App for qc1 tip")
+	appFloor := app.GlobalNumber()
+	require.Equal(t, gr1.Next-1, appFloor)
+	gr2 := qc2.QC().GlobalRange()
+
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		s.SpawnBgNamed("state.Run", func() error {
+			return utils.IgnoreCancel(state.Run(runCtx))
+		})
+
+		require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+		for n := gr1.First; n < gr1.Next; n++ {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+				return err
+			}
+		}
+
+		// No CommitQC.App yet → eviction must not strip AppProposals.
+		for inner := range state.inner.Lock() {
+			require.Equal(t, types.GlobalBlockNumber(0), inner.evictionBound(), "no certified App → bound 0")
+			for n := gr1.First; n < gr1.Next; n++ {
+				_, ok := inner.appProposals[n]
+				require.True(t, ok, "AppProposal %d must survive without CommitQC.App", n)
+			}
+		}
+
+		require.NoError(t, state.PushQC(ctx, qc2, blocks2))
+		for n := gr2.First; n < gr2.Next; n++ {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+				return err
+			}
+		}
+
+		for inner := range state.inner.Lock() {
+			bound := inner.evictionBound()
+			require.Equal(t, appFloor, bound, "retain floor is CommitQC.App.GlobalNumber()")
+			for n := gr1.First; n < bound; n++ {
+				_, ok := inner.appProposals[n]
+				require.False(t, ok, "AppProposal %d should be evicted (< App floor)", n)
+			}
+			_, ok := inner.appProposals[appFloor]
+			require.True(t, ok, "AppProposal at App floor %d must remain", appFloor)
+		}
+		return nil
+	}))
+}
+
 // TestPruningKeepsLastQCRange verifies BlockDB's never-empty prune: asking to
 // prune past the tip still leaves the newest cohort readable. An incomplete
 // BlockDB (QC without a full block prefix) fails NewState; a consistent range
@@ -551,6 +615,10 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 // ranges, and that a restart from a consistent BlockDB recovers from the
 // retained QC start. BlockDB clamps prune requests to QC First (cohort-atomic
 // readability), so a mid-range prune does not refuse heights inside that QC.
+//
+// PruneBefore is BlockDB-only: heights still retained in RAM for AppVotes
+// (at/above CommitQC.App) remain readable via TryBlock even after the store
+// watermark advances past them.
 func TestPruningWithPartialQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -560,6 +628,9 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
+	app, ok := qc2.QC().Proposal().App().Get()
+	require.True(t, ok)
+	appFloor := app.GlobalNumber()
 
 	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
@@ -580,10 +651,15 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 
 	// Prune past qc1 entirely; BlockDB never-empty keeps the newest cohort (qc2).
 	require.NoError(t, state1.PruneBefore(gr2.Next))
-	for n := gr1.First; n < gr2.First; n++ {
+	// Evicted heights (< App floor) fall through to BlockDB → ErrPruned.
+	for n := gr1.First; n < appFloor; n++ {
 		_, err := state1.TryBlock(n)
 		require.ErrorIs(t, err, ErrPruned)
 	}
+	// App floor stays cached for AppVotes despite BlockDB prune.
+	got, err := state1.TryBlock(appFloor)
+	require.NoError(t, err, "App-floor height %d must remain readable from RAM", appFloor)
+	require.NotNil(t, got)
 	for n := gr2.First; n < gr2.Next; n++ {
 		got, err := state1.TryBlock(n)
 		require.NoError(t, err)
@@ -598,7 +674,7 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	require.NoError(t, dbBad.WriteBlock(survivor, blocks2[survivor-gr2.First]))
 	require.NoError(t, dbBad.Flush())
 	require.NoError(t, dbBad.Close())
-	_, err := NewState(&Config{Registry: registry}, newTestBlockDB(t, dirBad))
+	_, err = NewState(&Config{Registry: registry}, newTestBlockDB(t, dirBad))
 	require.Error(t, err)
 
 	// Consistent retained range: full qc2.

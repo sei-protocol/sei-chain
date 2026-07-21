@@ -54,7 +54,8 @@ type inner struct {
 	qcs    map[types.GlobalBlockNumber]*types.FullCommitQC
 	blocks map[types.GlobalBlockNumber]*types.Block
 	// appProposals[n] contains the AppProposal for block n. Entries are
-	// removed by evictExecuted together with their blocks/QCs.
+	// removed by evictExecuted once a later CommitQC embeds an App that
+	// certifies them (see evictionBound).
 	appProposals map[types.GlobalBlockNumber]*types.AppProposal
 
 	// blockHashes is a hash → height index for GlobalBlockByHash. Maintained
@@ -790,17 +791,56 @@ func persistOrEvictReady(
 	if persistedQC < inner.nextQC || persistedBlock < inner.nextBlock {
 		return true
 	}
-	// Need at least two executed heights so we can evict while keeping
-	// nextAppProposal-1 for nextToExecute.
-	return inner.nextAppProposal > evicted+1
+	return inner.evictionBound() > evicted
 }
 
-// evictExecuted drops cached blocks/QCs/AppProposals in [evicted, nextAppProposal-1).
-// Keeps nextAppProposal-1 for nextToExecute. Caller must hold inner's lock.
+// certifiedAppFloor is the GlobalNumber of the AppProposal embedded in the
+// latest cached CommitQC, if any. That App is already covered by an AppQC, so
+// heights below it no longer need to be served for AppVotes.
+func (i *inner) certifiedAppFloor() utils.Option[types.GlobalBlockNumber] {
+	if i.nextQC == 0 {
+		return utils.None[types.GlobalBlockNumber]()
+	}
+	for n := i.nextQC - 1; ; n-- {
+		if qc, ok := i.qcs[n]; ok {
+			if app, ok := qc.QC().Proposal().App().Get(); ok {
+				return utils.Some(app.GlobalNumber())
+			}
+			return utils.None[types.GlobalBlockNumber]()
+		}
+		if n == 0 {
+			return utils.None[types.GlobalBlockNumber]()
+		}
+	}
+}
+
+// evictionBound is the exclusive end of the range that may be dropped from
+// memory. Heights in [evictionBound, nextAppProposal) stay cached.
+//
+// Without a CommitQC-embedded App, nothing is evicted: AppVotes still need
+// AppProposals until an AppQC is certified. With an App at GlobalNumber A,
+// the retain floor is min(nextAppProposal, A) (pompon0): keep [A, ...) for
+// voting, and never drop nextAppProposal-1 (nextToExecute).
+func (i *inner) evictionBound() types.GlobalBlockNumber {
+	floor, ok := i.certifiedAppFloor().Get()
+	if !ok {
+		return 0 // no certified App yet — do not evict
+	}
+	bound := min(i.nextAppProposal, floor)
+	if i.nextAppProposal > 0 {
+		if sentinel := i.nextAppProposal - 1; bound > sentinel {
+			bound = sentinel
+		}
+	}
+	return bound
+}
+
+// evictExecuted drops cached blocks/QCs/AppProposals in [evicted, evictionBound).
+// Caller must hold inner's lock.
 func evictExecuted(inner *inner, evicted types.GlobalBlockNumber) types.GlobalBlockNumber {
-	evictBelow := evicted
-	if inner.nextAppProposal > evicted {
-		evictBelow = inner.nextAppProposal - 1
+	evictBelow := inner.evictionBound()
+	if evictBelow <= evicted {
+		return evicted
 	}
 	for ; evicted < evictBelow; evicted++ {
 		if b, ok := inner.blocks[evicted]; ok {
