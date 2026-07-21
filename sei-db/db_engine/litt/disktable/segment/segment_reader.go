@@ -55,7 +55,11 @@ func (r *SegmentReader) Read(address types.Address) ([]byte, error) {
 		r.readers[shardID] = reader
 	}
 
-	return r.readers[shardID].read(address.Offset(), address.ValueSize())
+	value, err := r.readers[shardID].read(address.Offset(), address.ValueSize())
+	if err != nil {
+		return nil, err
+	}
+	return r.segment.maybeDecompress(value)
 }
 
 // Close releases all file handles held by the reader. It is safe to call more than once.
