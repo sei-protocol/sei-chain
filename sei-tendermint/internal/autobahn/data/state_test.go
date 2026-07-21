@@ -51,15 +51,9 @@ func snapshot(s *State) Snapshot {
 // Errors panic so the helper is safe to call from non-main test goroutines.
 func newTestBlockDB(t *testing.T, dir string) types.BlockDB {
 	t.Helper()
-	cfg, err := littblock.DefaultConfig(dir)
-	if err != nil {
-		panic(fmt.Sprintf("littblock.DefaultConfig: %v", err))
-	}
+	cfg := utils.OrPanic1(littblock.DefaultConfig(dir))
 	cfg.Retention = time.Nanosecond
-	db, err := littblock.NewBlockDB(cfg)
-	if err != nil {
-		panic(fmt.Sprintf("littblock.NewBlockDB: %v", err))
-	}
+	db := utils.OrPanic1(littblock.NewBlockDB(cfg))
 	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
@@ -68,11 +62,7 @@ func newTestBlockDB(t *testing.T, dir string) types.BlockDB {
 // Errors panic so the helper is safe to call from non-main test goroutines.
 func newTestState(t testing.TB, cfg *Config, db types.BlockDB) *State {
 	t.Helper()
-	s, err := NewState(cfg, db)
-	if err != nil {
-		panic(fmt.Sprintf("NewState: %v", err))
-	}
-	return s
+	return utils.OrPanic1(NewState(cfg, db))
 }
 
 // writeToBlockDB writes QC+block pairs sequentially to db and flushes once.
@@ -82,19 +72,13 @@ func writeToBlockDB(t *testing.T, db types.BlockDB, qcs []*types.FullCommitQC, b
 	t.Helper()
 	for i, qc := range qcs {
 		gr := qc.QC().GlobalRange()
-		if err := db.WriteQC(gr.First, gr.Next, qc); err != nil {
-			panic(fmt.Sprintf("WriteQC: %v", err))
-		}
+		utils.OrPanic(db.WriteQC(gr.First, gr.Next, qc))
 		for j, n := 0, gr.First; n < gr.Next; n++ {
-			if err := db.WriteBlock(n, blockss[i][j]); err != nil {
-				panic(fmt.Sprintf("WriteBlock: %v", err))
-			}
+			utils.OrPanic(db.WriteBlock(n, blockss[i][j]))
 			j++
 		}
 	}
-	if err := db.Flush(); err != nil {
-		panic(fmt.Sprintf("Flush: %v", err))
-	}
+	utils.OrPanic(db.Flush())
 }
 
 // pushAppHashesRunning runs state.Run under scope.Run long enough to accept

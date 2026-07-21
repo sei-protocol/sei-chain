@@ -38,8 +38,7 @@ func TestNewStateInMemoryMode(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 
-	state, err := NewState(&Config{Registry: registry}, memblock.NewBlockDB())
-	require.NoError(t, err)
+	state := utils.OrPanic1(NewState(&Config{Registry: registry}, memblock.NewBlockDB()))
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -266,11 +265,9 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	gr2 := qc2.QC().GlobalRange()
 
 	// Write both QCs and all their blocks to the DB.
-	cfg1, err := littblock.DefaultConfig(dir)
-	require.NoError(t, err)
+	cfg1 := utils.OrPanic1(littblock.DefaultConfig(dir))
 	cfg1.Retention = time.Nanosecond
-	db1, err := littblock.NewBlockDB(cfg1)
-	require.NoError(t, err)
+	db1 := utils.OrPanic1(littblock.NewBlockDB(cfg1))
 	writeToBlockDB(t, db1, []*types.FullCommitQC{qc1, qc2}, [][]*types.Block{blocks1, blocks2})
 
 	// Prune qc1's range. GC is NOT called — pruned entries remain on disk.
@@ -278,11 +275,9 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	require.NoError(t, db1.Close())
 
 	// Reopen the same dir without ForceGC — pruned entries may still be present.
-	cfg2, err := littblock.DefaultConfig(dir)
-	require.NoError(t, err)
+	cfg2 := utils.OrPanic1(littblock.DefaultConfig(dir))
 	cfg2.Retention = time.Nanosecond
-	db2, err := littblock.NewBlockDB(cfg2)
-	require.NoError(t, err)
+	db2 := utils.OrPanic1(littblock.NewBlockDB(cfg2))
 	t.Cleanup(func() { _ = db2.Close() })
 
 	// NewState must succeed — below-watermark blocks never outlive their QCs
