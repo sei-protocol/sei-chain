@@ -1798,6 +1798,51 @@ func TestCommitRejectsApplyHeightMismatch(t *testing.T) {
 	require.Equal(t, int64(1), v)
 }
 
+// TestApplyChangeSetsAllowsBatchingMultipleHeightsBeforeCommit is a
+// regression test for a bug where ApplyChangeSets rejected any call whose
+// version did not exactly equal the previous pending call's version. That
+// broke two legitimate patterns: (1) a caller batching several blocks'
+// writes before a single Commit (each call at a strictly higher height),
+// and (2) a caller splitting one block's writes across multiple calls at
+// the same height. Only a version that goes backwards is a bug.
+func TestApplyChangeSetsAllowsBatchingMultipleHeightsBeforeCommit(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0x01)
+	key1 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	key2 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x02)))
+	key3 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x03)))
+
+	// Same-height repeat: splitting one block's writes across two calls.
+	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x11), false)}))
+	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key2, padLeft32(0x22), false)}))
+
+	// Strictly increasing: a second block batched before the commit.
+	require.NoError(t, s.ApplyChangeSets(2, []*proto.NamedChangeSet{makeChangeSet(key3, padLeft32(0x33), false)}))
+	require.Equal(t, int64(2), s.PendingVersion())
+
+	// Going backwards is rejected.
+	err := s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x44), false)})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "pending writes already stamped up to")
+
+	v, err := s.Commit(2)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), v)
+	require.Equal(t, int64(0), s.PendingVersion())
+
+	for _, k := range []struct {
+		key    []byte
+		height int64
+	}{{key1, 1}, {key2, 1}, {key3, 2}} {
+		height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, k.key)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, k.height, height)
+	}
+}
+
 func TestCommitBlockStampsRowBlockHeight(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
