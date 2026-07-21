@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -374,6 +376,11 @@ func TestValidate(t *testing.T) {
 
 	err := (&StorageManagerConfig{PruneIntervalSeconds: 0}).Validate()
 	require.ErrorContains(t, err, "prune interval")
+
+	// The largest interval that does not overflow time.Duration is accepted; one larger is rejected.
+	maxInterval := uint64(math.MaxInt64) / uint64(time.Second)
+	require.NoError(t, (&StorageManagerConfig{PruneIntervalSeconds: maxInterval}).Validate())
+	require.ErrorContains(t, (&StorageManagerConfig{PruneIntervalSeconds: maxInterval + 1}).Validate(), "at most")
 }
 
 func TestNewStorageManagerInvalidConfig(t *testing.T) {

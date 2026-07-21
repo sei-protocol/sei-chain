@@ -79,7 +79,7 @@ func (s *StorageManager) Close() error {
 func (s *StorageManager) run() {
 	defer s.wg.Done()
 
-	//nolint:gosec // G115 - PruneIntervalSeconds is a config value in seconds; overflow requires a >290-year interval.
+	//nolint:gosec // G115 - Config.Validate rejects PruneIntervalSeconds large enough to overflow this conversion.
 	ticker := time.NewTicker(time.Duration(s.config.PruneIntervalSeconds) * time.Second)
 	defer ticker.Stop()
 
