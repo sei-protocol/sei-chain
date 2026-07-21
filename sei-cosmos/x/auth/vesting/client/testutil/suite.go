@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/gogo/protobuf/proto"
@@ -11,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/network"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/client/cli"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 )
 
 type IntegrationTestSuite struct {
@@ -47,7 +49,7 @@ func (s *IntegrationTestSuite) TestNewMsgCreateVestingAccountCmd() {
 		expectedCode uint32
 		respType     proto.Message
 	}{
-		"create a continuous vesting account": {
+		"create a continuous vesting account is rejected as deprecated": {
 			args: []string{
 				sdk.AccAddress("addr2_______________").String(),
 				sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10))).String(),
@@ -55,13 +57,13 @@ func (s *IntegrationTestSuite) TestNewMsgCreateVestingAccountCmd() {
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
-				fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10))).String()),
+				fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(2000))).String()),
 			},
 			expectErr:    false,
-			expectedCode: 0,
+			expectedCode: types.ErrVestingDeprecated.ABCICode(),
 			respType:     &sdk.TxResponse{},
 		},
-		"create a delayed vesting account": {
+		"create a delayed vesting account is rejected as deprecated": {
 			args: []string{
 				sdk.AccAddress("addr3_______________").String(),
 				sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10))).String(),
@@ -70,10 +72,10 @@ func (s *IntegrationTestSuite) TestNewMsgCreateVestingAccountCmd() {
 				fmt.Sprintf("--%s=true", cli.FlagDelayed),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
-				fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10))).String()),
+				fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(2000))).String()),
 			},
 			expectErr:    false,
-			expectedCode: 0,
+			expectedCode: types.ErrVestingDeprecated.ABCICode(),
 			respType:     &sdk.TxResponse{},
 		},
 		"invalid address": {
@@ -112,8 +114,6 @@ func (s *IntegrationTestSuite) TestNewMsgCreateVestingAccountCmd() {
 	}
 
 	for name, tc := range testCases {
-		tc := tc
-
 		s.Run(name, func() {
 			clientCtx := val.ClientCtx
 
@@ -122,7 +122,13 @@ func (s *IntegrationTestSuite) TestNewMsgCreateVestingAccountCmd() {
 				s.Require().Error(err)
 			} else {
 				s.Require().NoError(err)
-				s.Require().NoError(clientCtx.Codec.UnmarshalAsJSON(bw.Bytes(), tc.respType), bw.String())
+				// the mock IO buffer captures cobra's deprecation notice ahead
+				// of the JSON response; skip past it before unmarshalling
+				out := bw.Bytes()
+				if i := bytes.IndexByte(out, '{'); i > 0 {
+					out = out[i:]
+				}
+				s.Require().NoError(clientCtx.Codec.UnmarshalAsJSON(out, tc.respType), bw.String())
 
 				txResp := tc.respType.(*sdk.TxResponse)
 				s.Require().Equal(tc.expectedCode, txResp.Code)
