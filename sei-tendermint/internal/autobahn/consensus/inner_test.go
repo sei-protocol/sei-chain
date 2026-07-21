@@ -3,7 +3,6 @@ package consensus
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -22,24 +21,14 @@ import (
 
 func newTestBlockDB(t *testing.T, dir string) types.BlockDB {
 	t.Helper()
-	cfg, err := littblock.DefaultConfig(dir)
-	if err != nil {
-		panic(fmt.Sprintf("littblock.DefaultConfig: %v", err))
-	}
-	db, err := littblock.NewBlockDB(cfg)
-	if err != nil {
-		panic(fmt.Sprintf("littblock.NewBlockDB: %v", err))
-	}
+	cfg := utils.OrPanic1(littblock.DefaultConfig(dir))
+	db := utils.OrPanic1(littblock.NewBlockDB(cfg))
 	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
 func newTestDataState(registry *epoch.Registry) *data.State {
-	s, err := data.NewState(&data.Config{Registry: registry}, memblock.NewBlockDB())
-	if err != nil {
-		panic(fmt.Sprintf("data.NewState: %v", err))
-	}
-	return s
+	return utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, memblock.NewBlockDB()))
 }
 
 // seedPersistedInner is a test helper that persists a persistedInner using the public API.

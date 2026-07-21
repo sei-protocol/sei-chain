@@ -22,6 +22,7 @@ var ErrNotFound = errors.New("not found")
 var ErrPruned = types.ErrPruned
 
 // ErrBlockGap is returned by NewState when BlockDB blocks are not contiguous.
+// That indicates store corruption (or an incomplete write that left a hole).
 var ErrBlockGap = errors.New("block gap in BlockDB")
 
 // Config is the config for the data State.
@@ -48,8 +49,10 @@ type blockEntry struct {
 }
 
 type inner struct {
-	qcs    map[types.GlobalBlockNumber]*types.FullCommitQC // sparse; may be evicted below nextAppProposal
-	blocks map[types.GlobalBlockNumber]*types.Block        // sparse; may be evicted below nextAppProposal
+	// qcs/blocks may omit heights below nextAppProposal after eviction
+	// (durable copies live in BlockDB). Keys are not a dense prefix.
+	qcs    map[types.GlobalBlockNumber]*types.FullCommitQC
+	blocks map[types.GlobalBlockNumber]*types.Block
 	// appProposals[n] contains the AppProposal for block n. Entries are
 	// removed by evictExecuted together with their blocks/QCs.
 	appProposals map[types.GlobalBlockNumber]*types.AppProposal
@@ -240,30 +243,21 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 		// (set by the QC pass); a mismatch is corruption / incomplete store.
 		// After the QC pass with no AppProposals, nextAppProposal is the recovery
 		// floor (registry.FirstBlock() or first retained QC start).
-		recoveryFloor := in.nextAppProposal
 		err = func() error {
-			it2, err := blockDB.Blocks(false)
+			it, err := blockDB.Blocks(false)
 			if err != nil {
 				return fmt.Errorf("open block iterator: %w", err)
 			}
-			defer func() { _ = it2.Close() }()
-			var nextExpect types.GlobalBlockNumber
+			defer func() { _ = it.Close() }()
+			nextExpect := in.nextAppProposal
 			for {
-				ok, err := it2.Next()
+				ok, err := it.Next()
 				if err != nil || !ok {
 					return err
 				}
-				n := it2.Number()
+				n := it.Number()
 				if n >= in.nextQC {
 					return fmt.Errorf("block %d in BlockDB has no QC coverage (nextQC=%d)", n, in.nextQC)
-				}
-				// No blocks loaded yet (insertBlock does not advance nextBlock
-				// until after this loop).
-				if len(in.blocks) == 0 {
-					if n != recoveryFloor {
-						return fmt.Errorf("BlockDB inconsistent: first block %d != first QC start %d", n, recoveryFloor)
-					}
-					nextExpect = n
 				}
 				// updateNextBlock only advances nextBlock through contiguous present
 				// entries, so runPersist always writes [persistedBlock, nextBlock)
@@ -272,7 +266,7 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 					return fmt.Errorf("%w: expected %d, got %d", ErrBlockGap, nextExpect, n)
 				}
 				nextExpect++
-				blk, err := it2.Block()
+				blk, err := it.Block()
 				if err != nil {
 					return err
 				}
@@ -728,13 +722,14 @@ func (s *State) runPersist(ctx context.Context) error {
 	if n, ok := tips.LastBlockNumber.Get(); ok {
 		persistedBlock = n + 1
 	}
-	// Eviction cursor tracks the lowest height still cached in memory. Seed from
-	// nextAppProposal (recovery floor at Run start; AppProposals are not
-	// recovered): after restart the retain window is fully loaded in RAM and
-	// already durable, so we must walk from that floor once PushAppHash advances.
-	var evictedQC types.GlobalBlockNumber
+	// Eviction cursor for blocks, QCs, and AppProposals: exclusive end of the
+	// range already dropped from memory. Seed from nextAppProposal (recovery
+	// floor at Run start; AppProposals are not recovered): after restart the
+	// retain window is fully loaded in RAM and already durable, so we must walk
+	// from that floor once PushAppHash advances.
+	var evicted types.GlobalBlockNumber
 	for inner := range s.inner.Lock() {
-		evictedQC = inner.nextAppProposal
+		evicted = inner.nextAppProposal
 	}
 	for {
 		// Wait for unpersisted data and/or executable heights to evict, then
@@ -749,7 +744,7 @@ func (s *State) runPersist(ctx context.Context) error {
 		var doWrite bool
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return persistOrEvictReady(inner, persistedQC, persistedBlock, evictedQC)
+				return persistOrEvictReady(inner, persistedQC, persistedBlock, evicted)
 			}); err != nil {
 				return err
 			}
@@ -799,13 +794,13 @@ func (s *State) runPersist(ctx context.Context) error {
 					inner.nextBlockToPersist = newToPersist
 					ctrl.Updated()
 				}
-				evictedQC = evictExecuted(inner, evictedQC)
+				evicted = evictExecuted(inner, evicted)
 			}
 		} else {
 			// Restart / catch-up: nothing new to write, but PushAppHash advanced
 			// nextAppProposal over already-durable recovered heights.
 			for inner := range s.inner.Lock() {
-				evictedQC = evictExecuted(inner, evictedQC)
+				evicted = evictExecuted(inner, evicted)
 			}
 		}
 	}
@@ -815,32 +810,32 @@ func (s *State) runPersist(ctx context.Context) error {
 // durable executed heights that can be dropped from the in-memory maps.
 func persistOrEvictReady(
 	inner *inner,
-	persistedQC, persistedBlock, evictedQC types.GlobalBlockNumber,
+	persistedQC, persistedBlock, evicted types.GlobalBlockNumber,
 ) bool {
 	if persistedQC < inner.nextQC || persistedBlock < inner.nextBlock {
 		return true
 	}
 	// Need at least two executed heights so we can evict while keeping
 	// nextAppProposal-1 for nextToExecute.
-	return inner.nextAppProposal > evictedQC+1
+	return inner.nextAppProposal > evicted+1
 }
 
-// evictExecuted drops cached blocks/QCs/AppProposals in [evictedQC, nextAppProposal-1).
+// evictExecuted drops cached blocks/QCs/AppProposals in [evicted, nextAppProposal-1).
 // Keeps nextAppProposal-1 for nextToExecute. Caller must hold inner's lock.
-func evictExecuted(inner *inner, evictedQC types.GlobalBlockNumber) types.GlobalBlockNumber {
-	evictBelow := evictedQC
-	if inner.nextAppProposal > evictedQC {
+func evictExecuted(inner *inner, evicted types.GlobalBlockNumber) types.GlobalBlockNumber {
+	evictBelow := evicted
+	if inner.nextAppProposal > evicted {
 		evictBelow = inner.nextAppProposal - 1
 	}
-	for ; evictedQC < evictBelow; evictedQC++ {
-		if b, ok := inner.blocks[evictedQC]; ok {
+	for ; evicted < evictBelow; evicted++ {
+		if b, ok := inner.blocks[evicted]; ok {
 			delete(inner.blockHashes, b.Header().Hash())
-			delete(inner.blocks, evictedQC)
+			delete(inner.blocks, evicted)
 		}
-		delete(inner.qcs, evictedQC)
-		delete(inner.appProposals, evictedQC)
+		delete(inner.qcs, evicted)
+		delete(inner.appProposals, evicted)
 	}
-	return evictedQC
+	return evicted
 }
 
 // Run starts the background persistence goroutine.
