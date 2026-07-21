@@ -27,10 +27,10 @@ import (
 //	    account/                             (PebbleDB: addr → AccountValue)
 //	    code/                                (PebbleDB: addr → bytecode)
 //	    storage/                             (PebbleDB: addr||slot → value)
-//	    legacy/                              (PebbleDB: full key → value)
+//	    misc/                              (PebbleDB: full key → value)
 //	    metadata/                            (PebbleDB: version + LtHash)
 //	  working/                               (mutable clone of active snapshot)
-//	    account/, code/, storage/, legacy/, metadata/
+//	    account/, code/, storage/, misc/, metadata/
 //	    SNAPSHOT_BASE                        (records source snapshot name)
 //	  changelog/                             (WAL, shared across snapshots)
 const (
@@ -179,7 +179,7 @@ func updateCurrentSymlink(root, snapshotDir string) error {
 }
 
 // snapshotDBDirs lists the DB subdirectory names included in a snapshot.
-var snapshotDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir, metadataDir}
+var snapshotDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir, metadataDir}
 
 // removeTmpDirs removes any directories ending in "-tmp" or "-removing"
 // left over from interrupted snapshot writes or deletes.
@@ -481,7 +481,7 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		{accountDBDir, s.accountDB},
 		{codeDBDir, s.codeDB},
 		{storageDBDir, s.storageDB},
-		{legacyDBDir, s.legacyDB},
+		{miscDBDir, s.miscDB},
 		{metadataDir, s.metadataDB},
 	}
 	for _, ndb := range dbs {

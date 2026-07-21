@@ -61,7 +61,7 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	addr := ktype.Address{0x12, 0x34}
 	slot := ktype.Slot{0x56, 0x78}
 
-	legacyKey := append([]byte{0x09}, addr[:]...)
+	miscKey := append([]byte{0x09}, addr[:]...)
 
 	pairs := []*proto.KVPair{
 		// Storage key
@@ -79,9 +79,9 @@ func TestStoreWriteAllDBs(t *testing.T) {
 			Key:   keys.BuildEVMKey(keys.EVMKeyCode, addr[:]),
 			Value: []byte{0x60, 0x60, 0x60}, // some bytecode
 		},
-		// Legacy key (codeSize: 0x09 || addr)
+		// Misc key (codeSize: 0x09 || addr)
 		{
-			Key:   legacyKey,
+			Key:   miscKey,
 			Value: []byte{0x00, 0x03},
 		},
 	}
@@ -120,10 +120,10 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	require.True(t, found, "Code should be found")
 	require.Equal(t, []byte{0x60, 0x60, 0x60}, codeValue)
 
-	// Verify legacy data persisted (via Store.Get which deserializes)
-	legacyVal, found := s.Get(keys.EVMStoreKey, legacyKey)
-	require.True(t, found, "Legacy should be found")
-	require.Equal(t, []byte{0x00, 0x03}, legacyVal)
+	// Verify misc data persisted (via Store.Get which deserializes)
+	miscVal, found := s.Get(keys.EVMStoreKey, miscKey)
+	require.True(t, found, "Misc should be found")
+	require.Equal(t, []byte{0x00, 0x03}, miscVal)
 }
 
 func TestStoreWriteEmptyCommit(t *testing.T) {
@@ -352,29 +352,29 @@ func TestAccountValueStorage(t *testing.T) {
 }
 
 // =============================================================================
-// Legacy DB Write Tests
+// Misc DB Write Tests
 // =============================================================================
 
-func TestStoreWriteLegacyKeys(t *testing.T) {
+func TestStoreWriteMiscKeys(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	addr := ktype.Address{0xAA}
 
-	// CodeSize key (0x09 || addr) goes to legacy
+	// CodeSize key (0x09 || addr) goes to misc
 	codeSizeKey := append([]byte{0x09}, addr[:]...)
 	codeSizeValue := []byte{0x00, 0x10}
 
 	cs := makeChangeSet(codeSizeKey, codeSizeValue, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
-	// Should be in legacyWrites pending buffer
-	require.Len(t, s.legacyWrites, 1)
+	// Should be in miscWrites pending buffer
+	require.Len(t, s.miscWrites, 1)
 
 	commitAndCheck(t, s)
 
-	// Verify legacyDB LocalMeta is updated
-	require.Equal(t, int64(1), s.localMeta[legacyDBDir].CommittedVersion)
+	// Verify miscDB LocalMeta is updated
+	require.Equal(t, int64(1), s.localMeta[miscDBDir].CommittedVersion)
 
 	// Verify data persisted (via Store.Get which deserializes)
 	got, found := s.Get(keys.EVMStoreKey, codeSizeKey)
@@ -382,7 +382,7 @@ func TestStoreWriteLegacyKeys(t *testing.T) {
 	require.Equal(t, codeSizeValue, got)
 }
 
-func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
+func TestStoreWriteMiscAndOptimizedKeys(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -405,7 +405,7 @@ func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
 			Key:   keys.BuildEVMKey(keys.EVMKeyCode, addr[:]),
 			Value: []byte{0x60, 0x60, 0x60},
 		},
-		// CodeSize → legacy (0x09 || addr)
+		// CodeSize → misc (0x09 || addr)
 		{
 			Key:   append([]byte{0x09}, addr[:]...),
 			Value: []byte{0x00, 0x03},
@@ -422,56 +422,56 @@ func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
 
 	requireAllLocalMetaAt(t, s, 1)
 
-	// Verify legacy data persisted (via Store.Get which deserializes)
+	// Verify misc data persisted (via Store.Get which deserializes)
 	codeSizeKey := append([]byte{0x09}, addr[:]...)
 	got, found := s.Get(keys.EVMStoreKey, codeSizeKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x03}, got)
 }
 
-func TestStoreWriteDeleteLegacyKey(t *testing.T) {
+func TestStoreWriteDeleteMiscKey(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	addr := ktype.Address{0xCC}
-	legacyKey := append([]byte{0x09}, addr[:]...)
+	miscKey := append([]byte{0x09}, addr[:]...)
 
 	// Write
-	cs1 := makeChangeSet(legacyKey, []byte{0x00, 0x10}, false)
+	cs1 := makeChangeSet(miscKey, []byte{0x00, 0x10}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	// Verify exists
-	got, found := s.Get(keys.EVMStoreKey, legacyKey)
+	got, found := s.Get(keys.EVMStoreKey, miscKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x10}, got)
 
 	// Delete
-	cs2 := makeChangeSet(legacyKey, nil, true)
+	cs2 := makeChangeSet(miscKey, nil, true)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
 	// Should not be found
-	_, found = s.Get(keys.EVMStoreKey, legacyKey)
+	_, found = s.Get(keys.EVMStoreKey, miscKey)
 	require.False(t, found)
 }
 
-func TestStoreLegacyKeyIncludedInLtHash(t *testing.T) {
+func TestStoreMiscKeyIncludedInLtHash(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	// Get initial hash
 	hash1 := s.RootHash()
 
-	// Write a legacy key
+	// Write a misc key
 	addr := ktype.Address{0xDD}
-	legacyKey := append([]byte{0x09}, addr[:]...)
-	cs := makeChangeSet(legacyKey, []byte{0x00, 0x20}, false)
+	miscKey := append([]byte{0x09}, addr[:]...)
+	cs := makeChangeSet(miscKey, []byte{0x00, 0x20}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
-	// LtHash should change after applying legacy key changeset
+	// LtHash should change after applying misc key changeset
 	hash2 := s.RootHash()
-	require.NotEqual(t, hash1, hash2, "LtHash should change when legacy key is written")
+	require.NotEqual(t, hash1, hash2, "LtHash should change when misc key is written")
 
 	commitAndCheck(t, s)
 
@@ -480,11 +480,11 @@ func TestStoreLegacyKeyIncludedInLtHash(t *testing.T) {
 	require.Equal(t, hash2, hash3)
 }
 
-func TestStoreLegacyEmptyCommitLocalMeta(t *testing.T) {
+func TestStoreMiscEmptyCommitLocalMeta(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Commit with no writes — all DBs including legacy should advance LocalMeta
+	// Commit with no writes — all DBs including misc should advance LocalMeta
 	emptyCS := &proto.NamedChangeSet{
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: nil},
@@ -1489,7 +1489,7 @@ func requireAllLocalMetaAt(t *testing.T, s *CommitStore, ver int64) {
 	require.Equal(t, ver, s.localMeta[storageDBDir].CommittedVersion)
 	require.Equal(t, ver, s.localMeta[accountDBDir].CommittedVersion)
 	require.Equal(t, ver, s.localMeta[codeDBDir].CommittedVersion)
-	require.Equal(t, ver, s.localMeta[legacyDBDir].CommittedVersion)
+	require.Equal(t, ver, s.localMeta[miscDBDir].CommittedVersion)
 }
 
 func TestApplyChangeSetsNilInput(t *testing.T) {
@@ -1510,7 +1510,7 @@ func TestApplyChangeSetsEmptySlice(t *testing.T) {
 	require.Equal(t, hashBefore, s.RootHash(), "empty slice should not change hash")
 }
 
-func TestApplyChangeSetsNonEVMModuleRoutesToLegacy(t *testing.T) {
+func TestApplyChangeSetsNonEVMModuleRoutesToMisc(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -1523,21 +1523,21 @@ func TestApplyChangeSetsNonEVMModuleRoutesToLegacy(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	require.NotEqual(t, hashBefore, s.RootHash(), "legacy-routed key changes hash")
-	require.Len(t, s.legacyWrites, 1)
+	require.NotEqual(t, hashBefore, s.RootHash(), "misc-routed key changes hash")
+	require.Len(t, s.miscWrites, 1)
 	require.Len(t, s.storageWrites, 0)
 	require.Len(t, s.pendingChangeSets, 1)
 
-	// Physical key in legacyWrites should be module-prefixed: "bank/some-bank-key"
+	// Physical key in miscWrites should be module-prefixed: "bank/some-bank-key"
 	physKey := string(ktype.ModulePhysicalKey("bank", []byte("some-bank-key")))
-	_, found := s.legacyWrites[physKey]
-	require.True(t, found, "legacyWrites should contain module-prefixed key %q", physKey)
+	_, found := s.miscWrites[physKey]
+	require.True(t, found, "miscWrites should contain module-prefixed key %q", physKey)
 
-	// Persist and verify round-trip via raw legacyDB lookup
+	// Persist and verify round-trip via raw miscDB lookup
 	commitAndCheck(t, s)
-	raw, err := s.legacyDB.Get([]byte(physKey))
+	raw, err := s.miscDB.Get([]byte(physKey))
 	require.NoError(t, err)
-	require.NotNil(t, raw, "legacyDB should persist module-prefixed key")
+	require.NotNil(t, raw, "miscDB should persist module-prefixed key")
 }
 
 func TestApplyChangeSetsMixedEVMAndNonEVM(t *testing.T) {
@@ -1571,11 +1571,11 @@ func TestApplyChangeSetsMixedEVMAndNonEVM(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x42), val)
 
-	// Bank key should be in legacyWrites with module prefix.
+	// Bank key should be in miscWrites with module prefix.
 	bankPhysKey := string(ktype.ModulePhysicalKey("bank", []byte("bank-key")))
-	_, found = s.legacyWrites[bankPhysKey]
-	require.True(t, found, "bank key should be in legacyWrites with module prefix")
-	require.Len(t, s.legacyWrites, 1)
+	_, found = s.miscWrites[bankPhysKey]
+	require.True(t, found, "bank key should be in miscWrites with module prefix")
+	require.Len(t, s.miscWrites, 1)
 }
 
 func TestApplyChangeSetsEmptyPairsVsNilPairs(t *testing.T) {
@@ -1624,7 +1624,7 @@ func TestApplyChangeSetsInvalidAddressLength(t *testing.T) {
 
 	// A well-formed nonce key: prefix(1) + addr(20) = 21 bytes.
 	// Build one manually with correct prefix but wrong addr length.
-	// ParseEVMKey checks len(key) != len(noncePrefix)+20 and falls back to legacy.
+	// ParseEVMKey checks len(key) != len(noncePrefix)+20 and falls back to misc.
 	// To actually trigger "invalid address length" in ApplyChangeSets, we need
 	// ParseEVMKey to return EVMKeyNonce with wrong-length keyBytes.
 	// This only happens for the correct total length. So instead, test via
@@ -1634,7 +1634,7 @@ func TestApplyChangeSetsInvalidAddressLength(t *testing.T) {
 	// Actually, ParseEVMKey always strips the prefix correctly for 21-byte keys.
 	// The address will always be 20 bytes. So this error path is unreachable
 	// through normal key construction. Instead, verify that malformed nonce keys
-	// (wrong total length) are routed to legacy.
+	// (wrong total length) are routed to misc.
 	truncatedNonceKey := append([]byte{0x0a}, make([]byte, 15)...) // 16 bytes total
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
@@ -1642,9 +1642,9 @@ func TestApplyChangeSetsInvalidAddressLength(t *testing.T) {
 			{Key: truncatedNonceKey, Value: nonceBytes(1)},
 		}},
 	}
-	// Routed to EVMKeyLegacy (not Nonce), so no address validation error.
+	// Routed to EVMKeyMisc (not Nonce), so no address validation error.
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	require.Len(t, s.legacyWrites, 1, "malformed nonce key should be treated as legacy")
+	require.Len(t, s.miscWrites, 1, "malformed nonce key should be treated as misc")
 	require.Len(t, s.accountWrites, 0, "should not reach account path")
 }
 
@@ -1689,13 +1689,13 @@ func TestApplyChangeSetsEVMKeyEmptySkipped(t *testing.T) {
 	require.Error(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 }
 
-func TestApplyChangeSetsNonPrefixedKeyGoesToLegacy(t *testing.T) {
+func TestApplyChangeSetsNonPrefixedKeyGoesToMisc(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	hashBefore := s.RootHash()
 
-	// A key with an unrecognized prefix goes to EVMKeyLegacy, not skipped.
+	// A key with an unrecognized prefix goes to EVMKeyMisc, not skipped.
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -1703,8 +1703,8 @@ func TestApplyChangeSetsNonPrefixedKeyGoesToLegacy(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	require.NotEqual(t, hashBefore, s.RootHash(), "legacy key changes hash")
-	require.Len(t, s.legacyWrites, 1)
+	require.NotEqual(t, hashBefore, s.RootHash(), "misc key changes hash")
+	require.Len(t, s.miscWrites, 1)
 }
 
 func TestCommitWithoutPriorApply(t *testing.T) {

@@ -321,6 +321,14 @@ jobs:
           path: integration_test/rpc_tests/reports/merged
           if-no-files-found: ignore
 
+      - name: Upload precompile test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: precompile-report-${{ steps.log_artifact_meta.outputs.artifact_name }}
+          path: integration_test/precompile_tests/reports/merged
+          if-no-files-found: ignore
+
   # Autobahn integration suite (Autobahn Basic) — boots its own cluster via
   # TestMain (docker-cluster-start / -stop), so it runs in a separate job
   # rather than as a matrix entry that would share the integration-tests
