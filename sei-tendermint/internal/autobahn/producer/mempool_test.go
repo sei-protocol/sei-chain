@@ -35,14 +35,6 @@ type txSpec struct {
 	Payload         [32]byte
 }
 
-func newTestDataState(registry *epoch.Registry) *data.State {
-	s, err := data.NewState(&data.Config{Registry: registry}, memblock.NewBlockDB())
-	if err != nil {
-		panic(fmt.Sprintf("data.NewState: %v", err))
-	}
-	return s
-}
-
 func (tx *txSpec) encode() []byte {
 	return utils.OrPanic1(binary.Append(nil, binary.BigEndian, tx))
 }
@@ -240,7 +232,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 
 func newTestEnv(rng utils.Rng, cfg *Config, app *proxy.Proxy) *testEnv {
 	registry, keys := epoch.GenRegistry(rng, 1)
-	dataState := newTestDataState(registry)
+	dataState := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, memblock.NewBlockDB()))
 	consensusState := utils.OrPanic1(consensus.NewState(&consensus.Config{
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },

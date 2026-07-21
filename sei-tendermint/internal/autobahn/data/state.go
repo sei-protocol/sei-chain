@@ -55,10 +55,8 @@ type inner struct {
 	appProposals map[types.GlobalBlockNumber]*types.AppProposal
 
 	// blockHashes is a hash → height index for GlobalBlockByHash. Maintained
-	// in lockstep with blocks via insertBlock / evictExecuted.
-	//
-	// TODO: replace with blockDB.ReadBlockByHash once BlockDB exposes the
-	// primary GlobalBlockNumber alongside the block on a secondary-key lookup.
+	// in lockstep with blocks via insertBlock / evictExecuted. Misses fall
+	// through to blockDB.ReadBlockByHash.
 	blockHashes map[types.BlockHeaderHash]types.GlobalBlockNumber
 
 	// nextAppProposal <= nextBlockToPersist <= nextBlock <= nextQC

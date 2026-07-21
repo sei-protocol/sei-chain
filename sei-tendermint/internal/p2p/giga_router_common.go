@@ -80,11 +80,11 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
-	ds, err := data.NewState(&data.Config{Registry: registry}, blockDB)
+	dataState, err := data.NewState(&data.Config{Registry: registry}, blockDB)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
-	return ds, nil
+	return dataState, nil
 }
 
 func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
@@ -133,11 +133,11 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlo
 // (same translation as BlockByNumber). Matches CometBFT semantics for
 // unknown hashes: returns &ResultBlock{Block: nil} with no error.
 //
-// The lookup delegates to data.State.GlobalBlockByHash, which reads from an
-// in-memory hash index rebuilt from BlockDB at construction time. Hashes not
-// yet seen or below the prune watermark are read as "unknown". Wrong-size inputs are rejected
-// at the call site (env.BlockByHash) so this method can stay strongly typed
-// on atypes.BlockHeaderHash.
+// The lookup delegates to data.State.GlobalBlockByHash: an in-memory hash
+// index first, then BlockDB for heights evicted after persist. Hashes not yet
+// seen or below the prune watermark are read as "unknown". Wrong-size inputs
+// are rejected at the call site (env.BlockByHash) so this method can stay
+// strongly typed on atypes.BlockHeaderHash.
 func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error) {
 	opt, err := r.data.GlobalBlockByHash(hash)
 	if err != nil {
