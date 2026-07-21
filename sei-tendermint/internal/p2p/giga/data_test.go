@@ -97,7 +97,7 @@ func (e *testEnv) Run(ctx context.Context) error {
 func TestDataClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 2)
+	registry, keys, _ := epoch.GenRegistry(rng, 2)
 	env := newTestEnv(registry)
 	server := env.AddNode(keys[0])
 	client := env.AddNode(keys[1])

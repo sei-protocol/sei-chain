@@ -77,7 +77,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 					}
 					next = appQC.Next()
 					for _, to := range states {
-						if err := to.PushAppQC(appQC, commitQC); err != nil {
+						if err := to.PushAppQC(ctx, appQC, commitQC); err != nil {
 							return err
 						}
 					}

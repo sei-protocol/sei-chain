@@ -71,9 +71,16 @@ type persistedInner struct {
 
 // validate checks internal consistency and cryptographic signatures of persisted state.
 // Returns error on corrupt state.
-func (p *persistedInner) validate(ep *types.Epoch) error {
+//
+// Two epochs are needed at an epoch boundary. commitEp is the epoch of the
+// persisted CommitQC (used to verify the CommitQC itself). viewEp is the epoch
+// of the current view — NextIndexOpt(CommitQC) — which stamps currentView and
+// verifies the current-view artifacts (TimeoutQC, PrepareQC, and this node's
+// votes). When the CommitQC sits on the last road of an epoch, commitEp and
+// viewEp differ; away from a boundary they are the same epoch.
+func (p *persistedInner) validate(commitEp, viewEp *types.Epoch) error {
 	if cqc, ok := p.CommitQC.Get(); ok {
-		if err := cqc.Verify(ep); err != nil {
+		if err := cqc.Verify(commitEp); err != nil {
 			return fmt.Errorf("corrupt persisted state: CommitQC failed verification: %w", err)
 		}
 	}
@@ -86,14 +93,14 @@ func (p *persistedInner) validate(ep *types.Epoch) error {
 		if tqcIndex != expectedIndex {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC has index %d but expected %d", tqcIndex, expectedIndex)
 		}
-		if err := tqc.Verify(ep, p.CommitQC); err != nil {
+		if err := tqc.Verify(viewEp, p.CommitQC); err != nil {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC failed verification: %w", err)
 		}
 	}
 
-	vs := types.ViewSpec{CommitQC: p.CommitQC, TimeoutQC: p.TimeoutQC, Epoch: ep}
+	vs := types.ViewSpec{CommitQC: p.CommitQC, TimeoutQC: p.TimeoutQC, Epochs: types.EpochDuo{Current: viewEp}}
 	currentView := vs.View()
-	committee := ep.Committee()
+	committee := viewEp.Committee()
 
 	// checkViewAndSig validates that a persisted field has the current view and a valid signature.
 	// Since inner is persisted atomically, any view mismatch indicates corrupt state.
@@ -109,7 +116,7 @@ func (p *persistedInner) validate(ep *types.Epoch) error {
 
 	// PrepareQC is required when CommitVote is present (CommitVote requires PrepareQC justification).
 	if pqc, ok := p.PrepareQC.Get(); ok {
-		if err := checkViewAndSig("PrepareQC", pqc.Proposal().View(), pqc.Verify(ep)); err != nil {
+		if err := checkViewAndSig("PrepareQC", pqc.Proposal().View(), pqc.Verify(viewEp)); err != nil {
 			return err
 		}
 	} else if p.CommitVote.IsPresent() {
@@ -126,7 +133,7 @@ func (p *persistedInner) validate(ep *types.Epoch) error {
 		}
 	}
 	if v, ok := p.TimeoutVote.Get(); ok {
-		if err := checkViewAndSig("TimeoutVote", v.View(), v.Verify(ep)); err != nil {
+		if err := checkViewAndSig("TimeoutVote", v.View(), v.Verify(viewEp)); err != nil {
 			return err
 		}
 	}

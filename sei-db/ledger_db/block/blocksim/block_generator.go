@@ -168,11 +168,11 @@ func (g *BlockGenerator) buildFullCommitQC() (*types.FullCommitQC, []*types.Bloc
 		}
 	}
 
-	viewSpec := types.ViewSpec{CommitQC: prev, Epoch: types.NewEpoch(0, types.OpenRoadRange(), genesisTime, committee, 0)}
+	viewSpec := types.ViewSpec{CommitQC: prev, Epochs: types.EpochDuo{Current: types.NewEpoch(0, types.OpenRoadRange(), genesisTime, committee, 0)}}
 	leader := committee.Leader(viewSpec.View())
 	appQC := func() utils.Option[*types.AppQC] {
 		if n := viewSpec.NextGlobalBlock(); n > 0 {
-			p := types.NewAppProposal(n-1, viewSpec.View().Index, types.AppHash(g.rand.Bytes(hashSizeBytes)), viewSpec.Epoch.EpochIndex())
+			p := types.NewAppProposal(n-1, viewSpec.View().Index, types.AppHash(g.rand.Bytes(hashSizeBytes)), viewSpec.Epoch().EpochIndex())
 			return utils.Some(g.fakeAppQC(p))
 		}
 		return utils.None[*types.AppQC]()

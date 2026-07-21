@@ -15,6 +15,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
@@ -204,6 +205,12 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}
 			require.Equal(t, gb.Payload.Txs(), rbBytes, "router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.GlobalBlock(%v).Payload.Txs", h, h)
 		}
+		// Short run stays in early epoch 0; AdvanceIfNeeded only seeds N+2 on the
+		// last road, so epoch 2 must still be absent while {0,1} remain from setup.
+		_, err := giga0.data.Registry().EpochAt(epoch.FirstRoad(2))
+		require.Error(t, err, "epoch 2 should not be seeded before last road of epoch 0")
+		_, err = giga0.data.Registry().EpochAt(epoch.FirstRoad(1))
+		require.NoError(t, err, "initial seeding should have registered epoch 1")
 		return nil
 	})
 	require.NoError(t, err)
@@ -343,4 +350,12 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestCheckRestartTips(t *testing.T) {
+	require.NoError(t, checkRestartTips(0, 0))
+	require.NoError(t, checkRestartTips(1, 1))
+	require.NoError(t, checkRestartTips(1, 2), "consensus lead is fine")
+	require.ErrorIs(t, checkRestartTips(2, 1), ErrTipBehindData)
+	require.ErrorIs(t, checkRestartTips(2, 0), ErrTipBehindData)
 }
