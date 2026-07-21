@@ -225,6 +225,20 @@ type CryptoSimConfig struct {
 	//                       (block/tag/tx keys) instead of blooms.
 	ReceiptBackend string
 
+	// ReceiptLittPaths optionally spreads litt-backed receipt bodies (littdb /
+	// littidx) across multiple directories, one per drive. Empty means the
+	// default single path under DataDir/receipts.
+	ReceiptLittPaths []string
+
+	// ReceiptLittKeymapDir optionally roots the litt keymap on its own drive
+	// (litt otherwise puts it under the first litt path, which already absorbs
+	// every segment's key file).
+	ReceiptLittKeymapDir string
+
+	// ReceiptLogIndexDir optionally relocates the littdb/littidx log-filter
+	// index onto its own drive.
+	ReceiptLogIndexDir string
+
 	// Number of concurrent goroutines issuing log filter (eth_getLogs) queries. 0 disables log filter reads.
 	// These goroutines are independent from the receipt reader goroutines.
 	ReceiptLogFilterReadConcurrency int

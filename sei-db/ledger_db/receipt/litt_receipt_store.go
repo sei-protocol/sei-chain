@@ -139,10 +139,15 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey,
 	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create receipt store directory: %w", err)
 	}
-	littConfig, err := litt.DefaultConfig(filepath.Join(cfg.DBDirectory, "littdb"))
+	littPaths := cfg.LittPaths
+	if len(littPaths) == 0 {
+		littPaths = []string{filepath.Join(cfg.DBDirectory, "littdb")}
+	}
+	littConfig, err := litt.DefaultConfig(littPaths...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build littdb config: %w", err)
 	}
+	littConfig.KeymapDirectory = cfg.LittKeymapDirectory
 	// Receipt-workload tuning (benchmark-informed). The receipt store is a
 	// small-value, many-keys workload (every tx hash is a key), the opposite
 	// of litt's few-large-values default. The stock seal triggers fire every
@@ -176,7 +181,10 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey,
 	}
 
 	indexCfg := pebbledb.DefaultConfig()
-	indexCfg.DataDir = filepath.Join(cfg.DBDirectory, "log-index")
+	indexCfg.DataDir = cfg.LogIndexDirectory
+	if indexCfg.DataDir == "" {
+		indexCfg.DataDir = filepath.Join(cfg.DBDirectory, "log-index")
+	}
 	index, err := pebbledb.Open(context.Background(), &indexCfg)
 	if err != nil {
 		_ = values.Close()

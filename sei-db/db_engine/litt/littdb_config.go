@@ -33,6 +33,14 @@ type Config struct {
 	// Default is keymap.PebbleDBKeymapType.
 	KeymapType keymap.KeymapType
 
+	// An optional root directory for the keymap, laid out like a Paths entry
+	// (the keymap lives at <KeymapDirectory>/<table>/keymap). When empty, the
+	// keymap is rooted at Paths[0]. Useful with multiple Paths on separate
+	// drives: Paths[0] already absorbs every segment's key file on top of its
+	// value-shard share, so this moves the keymap's disk footprint (and its
+	// compaction I/O) onto a drive of the caller's choosing.
+	KeymapDirectory string
+
 	// The default TTL for newly created tables (either ones with data on disk or new tables).
 	// The default is 0 (no TTL). TTL can be set individually on each table by calling Table.SetTTL().
 	TTL time.Duration

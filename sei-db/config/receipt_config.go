@@ -50,6 +50,23 @@ type ReceiptStoreConfig struct {
 	// default to empty
 	DBDirectory string `mapstructure:"db-directory"`
 
+	// LittPaths optionally spreads the litt-backed receipt bodies (littdb /
+	// littidx backends) across multiple directories, one per drive; litt
+	// shards segment data across them natively. When empty, bodies live at
+	// DBDirectory/littdb. Note litt roots every segment's key file on the
+	// first path, so give it the roomiest drive.
+	LittPaths []string `mapstructure:"litt-paths"`
+
+	// LittKeymapDirectory optionally roots the litt keymap (a pebble DB
+	// mapping every live tx hash to its segment address) on its own drive.
+	// When empty, the keymap lives under the first litt path.
+	LittKeymapDirectory string `mapstructure:"litt-keymap-directory"`
+
+	// LogIndexDirectory optionally relocates the log-filtering index of the
+	// littdb/littidx backends (per-block blooms or per-tag keys) onto its own
+	// drive. When empty, it lives at DBDirectory/log-index.
+	LogIndexDirectory string `mapstructure:"log-index-directory"`
+
 	// Backend defines the backend database used for receipt-store.
 	// Supported backends:
 	//   pebbledb (aka pebble) - tx-hash-keyed MVCC pebble store (no range queries)

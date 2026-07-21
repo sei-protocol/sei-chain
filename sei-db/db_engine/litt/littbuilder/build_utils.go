@@ -90,7 +90,15 @@ func buildKeymap(
 			fmt.Errorf("unsupported keymap type: %v", config.KeymapType)
 	}
 
-	keymapDirectory, keymapInitialized, keymapTypeFile, err := FindKeymapLocation(config.Paths, tableName)
+	// An explicit KeymapDirectory participates in the search like any other
+	// root, so a DB created with the override is found on reopen (and a DB
+	// created without it keeps its Paths[0] keymap even if the override is
+	// added later — FindKeymapLocation errors if both locations exist).
+	searchRoots := config.Paths
+	if config.KeymapDirectory != "" {
+		searchRoots = append([]string{config.KeymapDirectory}, config.Paths...)
+	}
+	keymapDirectory, keymapInitialized, keymapTypeFile, err := FindKeymapLocation(searchRoots, tableName)
 	if err != nil {
 		return nil, "", nil, false,
 			fmt.Errorf("error finding keymap location: %w", err)
@@ -116,8 +124,13 @@ func buildKeymap(
 		// No previous keymap exists. Either we are starting fresh or the keymap was deleted.
 		newKeymap = true
 
-		// by convention, always select the first path as the keymap directory
-		keymapDirectory = path.Join(config.Paths[0], tableName, keymap.KeymapDirectoryName)
+		// by convention, the keymap lives under the first path unless an
+		// explicit KeymapDirectory overrides it
+		keymapRoot := config.Paths[0]
+		if config.KeymapDirectory != "" {
+			keymapRoot = config.KeymapDirectory
+		}
+		keymapDirectory = path.Join(keymapRoot, tableName, keymap.KeymapDirectoryName)
 		keymapTypeFile = keymap.NewKeymapTypeFile(keymapDirectory, config.KeymapType)
 
 		// create the keymap directory

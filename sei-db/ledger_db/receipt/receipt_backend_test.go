@@ -2,6 +2,8 @@ package receipt_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -468,4 +470,57 @@ func TestBlockBloomNoFalseNegatives(t *testing.T) {
 	}))
 	// Empty criteria always matches (wildcard query).
 	require.True(t, receipt.BloomMatchesCriteriaForTest(bloom, filters.FilterCriteria{}))
+}
+
+// TestReceiptBackendSplitDirectories: the litt backends can spread bodies
+// across multiple paths and root the keymap and log index on their own
+// drives. Data written with the split layout must survive a close/reopen
+// (keymap discovery must find the overridden location).
+func TestReceiptBackendSplitDirectories(t *testing.T) {
+	for _, backend := range []string{"littdb", "littidx"} {
+		t.Run(backend, func(t *testing.T) {
+			storeKey := storetypes.NewKVStoreKey("evm")
+			tkey := storetypes.NewTransientStoreKey("evm_transient")
+			ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
+			cfg := dbconfig.DefaultReceiptStoreConfig()
+			cfg.Backend = backend
+			cfg.DBDirectory = t.TempDir()
+			cfg.LittPaths = []string{t.TempDir(), t.TempDir()}
+			cfg.LittKeymapDirectory = t.TempDir()
+			cfg.LogIndexDirectory = filepath.Join(t.TempDir(), "log-index")
+			cfg.KeepRecent = 0
+
+			store, err := receipt.NewReceiptStore(cfg, storeKey)
+			require.NoError(t, err)
+
+			addr := common.HexToAddress("0xabcd")
+			topic := common.HexToHash("0x1234")
+			for block := uint64(1); block <= 5; block++ {
+				writeBackendBlock(t, store, ctx, block, makeBackendReceipt(block, 0, addr, topic))
+			}
+			require.NoError(t, store.Close())
+
+			// The overridden directories are the ones holding data.
+			keymapDir, err := os.ReadDir(cfg.LittKeymapDirectory)
+			require.NoError(t, err)
+			require.NotEmpty(t, keymapDir)
+			logIdxDir, err := os.ReadDir(cfg.LogIndexDirectory)
+			require.NoError(t, err)
+			require.NotEmpty(t, logIdxDir)
+
+			store, err = receipt.NewReceiptStore(cfg, storeKey)
+			require.NoError(t, err)
+			defer func() { _ = store.Close() }()
+			for block := uint64(1); block <= 5; block++ {
+				rcpt, err := store.GetReceiptFromStore(ctx, backendTxHash(block, 0))
+				require.NoError(t, err)
+				require.Equal(t, block, rcpt.BlockNumber)
+			}
+			logs, err := store.FilterLogs(ctx, 1, 5, filters.FilterCriteria{
+				Addresses: []common.Address{addr},
+			})
+			require.NoError(t, err)
+			require.Len(t, logs, 5)
+		})
+	}
 }
