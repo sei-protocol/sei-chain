@@ -14,6 +14,11 @@ import (
 // keymapWriteRequest carries a batch of newly-durable keys to be written (put) into the keymap.
 type keymapWriteRequest struct {
 	keys []*types.ScopedKey
+
+	// uncompressedPutBytes is the total raw (pre-compression) value bytes represented by the primary keys in
+	// this batch. It feeds pendingPutBytes to bound the raw memory footprint of the unflushed-data cache,
+	// independent of how the values are represented on disk.
+	uncompressedPutBytes uint64
 }
 
 // keymapDeleteRequest carries the keys of a garbage-collected segment to be deleted from the keymap. segment
@@ -93,8 +98,10 @@ type keymapManager struct {
 	// the maximum number of keys coalesced into a single keymap Put or Delete
 	maxBatchSize int
 
-	// the maximum number of value bytes a coalescing put batch may represent before it is applied,
-	// independent of key count. Bounds the unflushed-data cache when values are large (few keys, many bytes).
+	// the maximum number of raw (pre-compression) value bytes a coalescing put batch may represent before it is
+	// applied, independent of key count. Bounds the raw memory footprint of the unflushed-data cache when values
+	// are large (few keys, many bytes). Measured in raw bytes because that is what the cache holds, independent
+	// of the compressed on-disk size.
 	maxBatchBytes uint64
 
 	// the maximum number of keys deleted from the keymap in a single keymap.Delete call
@@ -113,9 +120,10 @@ type keymapManager struct {
 	// sub-batch, so a put and a same-key delete in flight resolve to deleted (the delete wins).
 	puts []*types.ScopedKey
 
-	// pendingPutBytes is the total value bytes represented by the primary keys in puts. Secondary keys are
-	// zero-copy sub-ranges of their primary's value in the unflushed-data cache, so counting primaries alone
-	// tracks the cache memory this batch will free when applied. Reset to zero whenever puts is applied.
+	// pendingPutBytes is the total raw (pre-compression) value bytes represented by the primary keys in puts.
+	// Secondary keys are zero-copy sub-ranges of their primary's value in the unflushed-data cache, so counting
+	// primaries alone tracks the raw cache memory this batch will free when applied. Raw (not on-disk) bytes,
+	// since that is the memory the cache actually holds. Reset to zero whenever puts is applied.
 	pendingPutBytes uint64
 
 	// deleteBacklog holds garbage-collected segments' keys awaiting deletion, in arrival (FIFO) order —
@@ -175,13 +183,15 @@ func newKeymapManager(
 	}
 }
 
-// scheduleWrite enqueues a batch of newly-durable keys to be put into the keymap. Blocks if the manager's
-// channel is full (backpressure); returns an error only if the DB is panicking.
-func (m *keymapManager) scheduleWrite(keys []*types.ScopedKey) error {
+// scheduleWrite enqueues a batch of newly-durable keys to be put into the keymap. uncompressedPutBytes is the
+// total raw (pre-compression) value bytes the batch's primary keys represent, used to bound the unflushed-data
+// cache. Blocks if the manager's channel is full (backpressure); returns an error only if the DB is panicking.
+func (m *keymapManager) scheduleWrite(keys []*types.ScopedKey, uncompressedPutBytes uint64) error {
 	if len(keys) == 0 {
 		return nil
 	}
-	return util.Send(m.errorMonitor, m.requestChan, &keymapWriteRequest{keys: keys})
+	return util.Send(m.errorMonitor, m.requestChan,
+		&keymapWriteRequest{keys: keys, uncompressedPutBytes: uncompressedPutBytes})
 }
 
 // scheduleDelete enqueues a garbage-collected segment's keys to be deleted from the keymap. segment is the
@@ -308,13 +318,7 @@ func (m *keymapManager) routeRequest(msg any) bool {
 	switch req := msg.(type) {
 	case *keymapWriteRequest:
 		m.puts = append(m.puts, req.keys...)
-		for _, k := range req.keys {
-			// Only primaries own value bytes in the unflushed-data cache; secondaries alias a sub-range of
-			// their primary's value, so counting them too would double-count the cache memory.
-			if k.Kind.IsPrimary() {
-				m.pendingPutBytes += uint64(k.Address.ValueSize())
-			}
-		}
+		m.pendingPutBytes += req.uncompressedPutBytes
 	case *keymapDeleteRequest:
 		m.enqueueDelete(req)
 	case *keymapManagerSyncRequest:

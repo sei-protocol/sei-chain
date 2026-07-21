@@ -59,6 +59,7 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		1,
+		types.CompressionNone,
 		false,
 		32)
 
@@ -81,7 +82,7 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 		if rand.BoolWithProbability(0.25) {
 			flushFunction, err := seg.Flush()
 			require.NoError(t, err)
-			flushedKeys, err := flushFunction()
+			flushedKeys, _, err := flushFunction()
 			require.NoError(t, err)
 			for _, flushedKey := range flushedKeys {
 				addressMap[string(flushedKey.Key)] = flushedKey.Address
@@ -95,7 +96,7 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 		if rand.BoolWithProbability(0.1) {
 			flushFunction, err := seg.Flush()
 			require.NoError(t, err)
-			flushedKeys, err := flushFunction()
+			flushedKeys, _, err := flushFunction()
 			require.NoError(t, err)
 			for _, flushedKey := range flushedKeys {
 				addressMap[string(flushedKey.Key)] = flushedKey.Address
@@ -115,7 +116,7 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 	// Seal the segment and read all keys and values.
 	require.False(t, seg.IsSealed())
 	sealTime := rand.Time()
-	flushedKeys, err := seg.Seal(sealTime)
+	flushedKeys, _, err := seg.Seal(sealTime)
 	require.NoError(t, err)
 	require.True(t, seg.IsSealed())
 
@@ -209,6 +210,7 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardCount,
+		types.CompressionNone,
 		false,
 		32)
 
@@ -229,7 +231,7 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 		if rand.BoolWithProbability(0.25) {
 			flushFunction, err := seg.Flush()
 			require.NoError(t, err)
-			flushedKeys, err := flushFunction()
+			flushedKeys, _, err := flushFunction()
 			require.NoError(t, err)
 			for _, flushedKey := range flushedKeys {
 				addressMap[string(flushedKey.Key)] = flushedKey.Address
@@ -243,7 +245,7 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 		if rand.BoolWithProbability(0.1) {
 			flushFunction, err := seg.Flush()
 			require.NoError(t, err)
-			flushedKeys, err := flushFunction()
+			flushedKeys, _, err := flushFunction()
 			require.NoError(t, err)
 			for _, flushedKey := range flushedKeys {
 				addressMap[string(flushedKey.Key)] = flushedKey.Address
@@ -263,7 +265,7 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 	// Seal the segment and read all keys and values.
 	require.False(t, seg.IsSealed())
 	sealTime := rand.Time()
-	flushedKeys, err := seg.Seal(sealTime)
+	flushedKeys, _, err := seg.Seal(sealTime)
 	require.NoError(t, err)
 	require.True(t, seg.IsSealed())
 
@@ -368,6 +370,7 @@ func TestWriteAndReadColdShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardCount,
+		types.CompressionNone,
 		false,
 		32)
 
@@ -388,7 +391,7 @@ func TestWriteAndReadColdShard(t *testing.T) {
 	// Seal the segment and read all keys and values.
 	require.False(t, seg.IsSealed())
 	sealTime := rand.Time()
-	flushedKeys, err := seg.Seal(sealTime)
+	flushedKeys, _, err := seg.Seal(sealTime)
 	require.NoError(t, err)
 	require.True(t, seg.IsSealed())
 
@@ -478,6 +481,7 @@ func TestGetFilePaths(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardingFactor,
+		types.CompressionNone,
 		false,
 		32)
 	require.NoError(t, err)
@@ -546,6 +550,7 @@ func TestRoundRobinShardAssignment(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardingFactor,
+		types.CompressionNone,
 		false,
 		32)
 	require.NoError(t, err)
@@ -561,7 +566,7 @@ func TestRoundRobinShardAssignment(t *testing.T) {
 
 		flushFn, err := seg.Flush()
 		require.NoError(t, err)
-		flushed, err := flushFn()
+		flushed, _, err := flushFn()
 		require.NoError(t, err)
 		// Each iteration above should produce exactly one new flushed key (the one we just wrote).
 		require.Len(t, flushed, 1)
@@ -617,6 +622,7 @@ func newSingleShardSegment(t *testing.T) (*Segment, *SegmentPath, uint32) {
 		[]*SegmentPath{segmentPath},
 		false,
 		1,
+		types.CompressionNone,
 		false,
 		32,
 	)
@@ -661,7 +667,7 @@ func TestSegmentSecondaryKeyAddresses(t *testing.T) {
 	_, _, err = seg.Write(&types.PutRequest{Key: standaloneKey, Value: standaloneValue})
 	require.NoError(t, err)
 
-	flushedKeys, err := seg.Seal(time.Now())
+	flushedKeys, _, err := seg.Seal(time.Now())
 	require.NoError(t, err)
 	require.Len(t, flushedKeys, 5)
 
@@ -730,7 +736,7 @@ func TestKeyFileKindRoundTrip(t *testing.T) {
 		},
 	})
 
-	_, err := seg.Seal(time.Now())
+	_, _, err := seg.Seal(time.Now())
 	require.NoError(t, err)
 
 	// Reload from disk and verify the on-disk record kinds.
@@ -776,8 +782,8 @@ func markSegmentUnsealed(t *testing.T, segmentPath *SegmentPath, index uint32) {
 	metaPath := path.Join(segmentPath.SegmentDirectory(), fmt.Sprintf("%d%s", index, MetadataFileExtension))
 	data, err := os.ReadFile(metaPath)
 	require.NoError(t, err)
-	require.Equal(t, V3MetadataSize, len(data))
-	data[V3MetadataSize-1] = 0
+	require.Equal(t, V4MetadataSize, len(data))
+	data[MetadataSealedByteOffset] = 0
 	require.NoError(t, os.WriteFile(metaPath, data, 0600))
 }
 
@@ -844,7 +850,7 @@ func TestSealLoadedSegmentSingleShardPrefix(t *testing.T) {
 		for i := 0; i < n; i++ {
 			writeNoErr(t, seg, &types.PutRequest{Key: keyFor(i), Value: valueFor(i)})
 		}
-		_, err := seg.Seal(time.Now())
+		_, _, err := seg.Seal(time.Now())
 		require.NoError(t, err)
 		markSegmentUnsealed(t, segmentPath, index)
 		return segmentPath, index
@@ -900,7 +906,7 @@ func TestSealLoadedSegmentGroupAtomicity(t *testing.T) {
 		t.Parallel()
 		seg, segmentPath, index := newSingleShardSegment(t)
 		writeNoErr(t, seg, &types.PutRequest{Key: []byte("k1"), Value: []byte("v1")})
-		_, err := seg.Seal(time.Now())
+		_, _, err := seg.Seal(time.Now())
 		require.NoError(t, err)
 		markSegmentUnsealed(t, segmentPath, index)
 
@@ -921,7 +927,7 @@ func TestSealLoadedSegmentGroupAtomicity(t *testing.T) {
 				{Key: []byte("llo"), Offset: 2, Length: 3},
 			},
 		})
-		_, err := seg.Seal(time.Now())
+		_, _, err := seg.Seal(time.Now())
 		require.NoError(t, err)
 		markSegmentUnsealed(t, segmentPath, index)
 
@@ -946,7 +952,7 @@ func TestSealLoadedSegmentGroupAtomicity(t *testing.T) {
 				{Key: []byte("llo"), Offset: 2, Length: 3},
 			},
 		})
-		_, err := seg.Seal(time.Now())
+		_, _, err := seg.Seal(time.Now())
 		require.NoError(t, err)
 
 		secondaryRecBytes := int(keyRecordSize([]byte("he")) + keyRecordSize([]byte("llo")))
@@ -970,7 +976,7 @@ func TestSealLoadedSegmentGroupAtomicity(t *testing.T) {
 				{Key: []byte("llo"), Offset: 2, Length: 3},
 			},
 		})
-		_, err := seg.Seal(time.Now())
+		_, _, err := seg.Seal(time.Now())
 		require.NoError(t, err)
 
 		truncateKeyFileBy(t, segmentPath, index, int(keyRecordSize([]byte("llo"))))
@@ -996,7 +1002,7 @@ func TestSealLoadedSegmentGroupAtomicity(t *testing.T) {
 				{Key: []byte("torn-secondary"), Offset: 0, Length: 5},
 			},
 		})
-		_, err := seg.Seal(time.Now())
+		_, _, err := seg.Seal(time.Now())
 		require.NoError(t, err)
 
 		truncateKeyFileBy(t, segmentPath, index, 5)
@@ -1025,7 +1031,7 @@ func TestSealLoadedSegmentGroupAtomicity(t *testing.T) {
 				{Key: []byte("oo"), Offset: 7, Length: 2},
 			},
 		})
-		_, err := seg.Seal(time.Now())
+		_, _, err := seg.Seal(time.Now())
 		require.NoError(t, err)
 
 		truncateValueFileBy(t, segmentPath, index, 0, 3)
@@ -1047,7 +1053,7 @@ func TestSealLoadedSegmentGroupAtomicity(t *testing.T) {
 				{Key: []byte("oo"), Offset: 7, Length: 2},
 			},
 		})
-		_, err := seg.Seal(time.Now())
+		_, _, err := seg.Seal(time.Now())
 		require.NoError(t, err)
 		markSegmentUnsealed(t, segmentPath, index)
 
@@ -1073,7 +1079,7 @@ func TestSealLoadedSegmentGroupAtomicity(t *testing.T) {
 				{Key: []byte("third-secondary"), Offset: 0, Length: 2},
 			},
 		})
-		_, err := seg.Seal(time.Now())
+		_, _, err := seg.Seal(time.Now())
 		require.NoError(t, err)
 
 		truncateKeyFileBy(t, segmentPath, index, int(keyRecordSize([]byte("third-secondary"))))

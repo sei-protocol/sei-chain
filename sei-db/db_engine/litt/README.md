@@ -44,7 +44,7 @@ The following features are currently supported by LittDB:
 - [tables](#table) with non-overlapping namespaces
 - multi-drive support (data can be spread across multiple physical volumes)
 - incremental backups (both local and remote)
-- keys up to 64 KiB (2^16 - 1 bytes) and values up to 2^32 - 1 bytes (~4 GiB) in size
+- keys up to 64 KiB (2^16 - 1 bytes) and values up to 2^32 - 2 bytes (~4 GiB) in size
 - incremental snapshots
 - incremental remote backups
 
@@ -133,8 +133,8 @@ type Table interface {
 }
 ```
 
-Both primary keys and secondary keys must not exceed 64 KiB (2^16 - 1 bytes). Values may be up to 2^32 - 1 bytes
-(`math.MaxUint32`, ~4 GiB); larger values are rejected.
+Both primary keys and secondary keys must not exceed 64 KiB (2^16 - 1 bytes). Values may be up to 2^32 - 2 bytes
+(`math.MaxUint32 - 1`, ~4 GiB); larger values are rejected.
 
 Source: [put_request.go](types/put_request.go)
 
@@ -386,8 +386,9 @@ always written whole within a single value file: before writing a value whose by
 rolled and a fresh one is started, so the value lands entirely within the new file. Consequently a value file never
 exceeds 2^32 bytes and no value is ever split across the boundary.
 
-This bounds the maximum size of a single [value](#value) to 2^32 - 1 bytes (`math.MaxUint32`, ~4 GiB); larger values are
-rejected. (Before secondary keys were introduced, values could span past this boundary; that is no longer supported.)
+This bounds the maximum size of a single [value](#value) to 2^32 - 2 bytes (`math.MaxUint32 - 1`, ~4 GiB); larger values
+are rejected. One byte below the addressing boundary is reserved for a per-value header. (Before secondary keys were
+introduced, values could span past this boundary; that is no longer supported.)
 
 Each segment may split its data into multiple [shards](#shard). The number of shards in a segment is called the
 [sharding factor](#sharding-factor). The [sharding factor](#sharding-factor) is configurable, and different segments

@@ -165,6 +165,46 @@ func TestCreateAccountDropsStorageOverride(t *testing.T) {
 	require.Equal(t, val, statedb.GetCommittedState(evmAddr, slot))
 }
 
+func TestSetStorageInstallRevertAfterSnapshot(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, true)
+
+	slot := common.BytesToHash([]byte("slot"))
+	persisted := common.BytesToHash([]byte("persisted"))
+	statedb.SetState(evmAddr, slot, persisted)
+	require.Equal(t, persisted, statedb.GetState(evmAddr, slot))
+
+	rev := statedb.Snapshot()
+	override := common.BytesToHash([]byte("override"))
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{slot: override})
+	require.Equal(t, override, statedb.GetState(evmAddr, slot))
+
+	statedb.RevertToSnapshot(rev)
+	require.Equal(t, persisted, statedb.GetState(evmAddr, slot))
+}
+
+func TestSetStorageInstallRevertReplacesOverlay(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, true)
+
+	slot := common.BytesToHash([]byte("slot"))
+	first := common.BytesToHash([]byte("first"))
+	second := common.BytesToHash([]byte("second"))
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{slot: first})
+
+	rev := statedb.Snapshot()
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{slot: second})
+	require.Equal(t, second, statedb.GetState(evmAddr, slot))
+
+	statedb.RevertToSnapshot(rev)
+	require.Equal(t, first, statedb.GetState(evmAddr, slot))
+	require.Equal(t, first, statedb.GetCommittedState(evmAddr, slot))
+}
+
 func TestCreate(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())

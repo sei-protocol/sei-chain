@@ -30,7 +30,7 @@ type Table interface {
 	// primary keys, and must not collide with the primary key or other secondaries.
 	//
 	// The maximum size of a key (primary or secondary) is 64 KiB (2^16 - 1 bytes). The maximum size of a
-	// value is 2^32 - 1 bytes (math.MaxUint32, ~4 GiB); a larger value is rejected with an error. (This
+	// value is 2^32 - 2 bytes (math.MaxUint32 - 1, ~4 GiB); a larger value is rejected with an error. (This
 	// limit is stricter than it was before secondary keys existed: a value's byte offsets are stored as
 	// uint32, and each value is written whole within a single segment file below the 2^32 boundary.) This
 	// database has been optimized under the assumption that values are generally much larger than keys.
@@ -51,7 +51,7 @@ type Table interface {
 	// Each PutRequest may include zero or more secondary keys (see Put for semantics).
 	//
 	// The maximum size of a key (primary or secondary) is 64 KiB (2^16 - 1 bytes). The maximum size of a
-	// value is 2^32 - 1 bytes (math.MaxUint32, ~4 GiB); a larger value is rejected with an error. This
+	// value is 2^32 - 2 bytes (math.MaxUint32 - 1, ~4 GiB); a larger value is rejected with an error. This
 	// database has been optimized under the assumption that values are generally much larger than keys.
 	// This affects performance, but not correctness.
 	//
@@ -69,8 +69,8 @@ type Table interface {
 	// (returns false if the key does not exist). If an error is returned, the value of the other returned values are
 	// undefined.
 	//
-	// The maximum size of a key is 64 KiB (2^16 - 1 bytes). The maximum size of a value is 2^32 - 1 bytes
-	// (math.MaxUint32, ~4 GiB). This database has been optimized under the assumption that values are
+	// The maximum size of a key is 64 KiB (2^16 - 1 bytes). The maximum size of a value is 2^32 - 2 bytes
+	// (math.MaxUint32 - 1, ~4 GiB). This database has been optimized under the assumption that values are
 	// generally much larger than keys. This affects performance, but not correctness.
 	//
 	// For the sake of performance, the returned data is NOT safe to mutate. If you need to modify the data,
