@@ -77,11 +77,13 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			err = fmt.Errorf("execution reverted: %v", r)
 		}
 	}()
-	// Queries must not mutate state even when the underlying querier has side
-	// effects (e.g. auth's NextAccountNumber increments the global account
-	// number counter, gov's Tally deletes votes), so run every view on a
-	// branched context and discard the writes.
-	ctx, _ = ctx.CacheContext()
+	if !p.IsTransaction(method.Name) {
+		// Queries must not mutate state even when the underlying querier has
+		// side effects (e.g. auth's NextAccountNumber increments the global
+		// account number counter, gov's Tally deletes votes), so run every
+		// view on a branched context and discard the writes.
+		ctx, _ = ctx.CacheContext()
+	}
 	switch method.Name {
 	case GrantsMethod:
 		return p.grants(ctx, method, args, value)
