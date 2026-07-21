@@ -391,18 +391,21 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 
 // PushBlock pushes block to the state.
 // The QC for n must already be present (guaranteed by PushQC ordering), unless
-// it was already executed and evicted from memory by runPersist — in that case
-// the block is dropped silently.
+// the height was already executed (n < nextAppProposal) — in that case the
+// block is dropped silently.
 func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block *types.Block) error {
 	var epochIdx types.EpochIndex
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextQC }); err != nil {
 			return err
 		}
+		// nextAppProposal is the in-memory executed floor: heights below it are
+		// not needed in RAM (durable in BlockDB / already voted).
+		if n < inner.nextAppProposal {
+			return nil
+		}
 		qc := inner.qcs[n]
 		if qc == nil {
-			// QC was evicted after the height was executed, or never loaded
-			// (below the recovery floor). The block is no longer needed in memory.
 			return nil
 		}
 		epochIdx = qc.QC().Proposal().EpochIndex()
@@ -440,12 +443,12 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
 	for inner := range s.inner.Lock() {
 		n, ok := inner.blockHashes[hash]
-		if ok {
-			b, hasB := inner.blocks[n]
-			qc, hasQC := inner.qcs[n]
-			if hasB && hasQC {
-				return utils.Some(assembleGlobalBlock(n, b, qc)), nil
-			}
+		if !ok || n < inner.nextAppProposal {
+			break
+		}
+		// Live window: block implies covering QC (same insert/evict lifetime).
+		if b, ok := inner.blocks[n]; ok {
+			return utils.Some(assembleGlobalBlock(n, b, inner.qcs[n])), nil
 		}
 	}
 	return s.globalBlockByHashFromDB(hash)
