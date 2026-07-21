@@ -448,8 +448,8 @@ func TestGroupAtomicRecoveryEndToEnd(t *testing.T) {
 	metaPath := path.Join(segmentDir, fmt.Sprintf("%d%s", segIdx, segment.MetadataFileExtension))
 	mdBytes, err := os.ReadFile(metaPath)
 	require.NoError(t, err)
-	require.Equal(t, segment.V3MetadataSize, len(mdBytes))
-	mdBytes[segment.V3MetadataSize-1] = 0
+	require.Equal(t, segment.V4MetadataSize, len(mdBytes))
+	mdBytes[segment.MetadataSealedByteOffset] = 0
 	require.NoError(t, os.WriteFile(metaPath, mdBytes, 0600))
 
 	// Reopen.
