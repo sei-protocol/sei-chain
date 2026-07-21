@@ -247,5 +247,12 @@
     "scripts": [
       "./integration_test/rpc_tests/scripts/run-ci.sh"
     ]
+  },
+  {
+    "name": "EVM Precompiles",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
+      "./integration_test/precompile_tests/scripts/run-ci.sh"
+    ]
   }
 ]
