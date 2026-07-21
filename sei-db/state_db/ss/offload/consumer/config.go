@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"github.com/sei-protocol/sei-chain/sei-db/queue/kafka"
 )
 
 const (
@@ -12,7 +14,7 @@ const (
 )
 
 type Config struct {
-	Kafka           KafkaReaderConfig
+	Kafka           kafka.ReaderConfig
 	Bigtable        BigtableConfig
 	Workers         int
 	ShardBufferSize int

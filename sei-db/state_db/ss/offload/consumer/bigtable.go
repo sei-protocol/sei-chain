@@ -7,12 +7,15 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/historical"
+	kafkago "github.com/segmentio/kafka-go"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/bigtable"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/queue/kafka"
 )
 
-type BigtableConfig = historical.BigtableConfig
+type BigtableConfig = bigtable.Config
 
 const (
 	defaultBigtableMutationChunkRows        = 1024
@@ -20,23 +23,23 @@ const (
 )
 
 type bigtableSink struct {
-	client           *historical.BigtableClient
-	applyBulk        historical.BigtableApplyBulkFunc
+	client           *bigtable.Client
+	applyBulk        bigtable.ApplyBulkFunc
 	family           string
 	shards           int
 	bulkChunkRows    int
 	bulkChunkWorkers int
 }
 
-var _ Sink = (*bigtableSink)(nil)
+var _ kafka.Sink = (*bigtableSink)(nil)
 
-func NewBigtableSink(cfg BigtableConfig) (Sink, error) {
+func NewBigtableSink(cfg BigtableConfig) (kafka.Sink, error) {
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	ctx := context.Background()
-	client, err := historical.OpenBigtableClient(ctx, cfg)
+	client, err := bigtable.NewClient(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +60,20 @@ func (s *bigtableSink) Close() error {
 	return nil
 }
 
-func (s *bigtableSink) WriteBatch(ctx context.Context, records []Record) error {
+func (s *bigtableSink) WriteBatch(ctx context.Context, msgs []kafkago.Message) error {
+	records := make([]Record, 0, len(msgs))
+	for _, msg := range msgs {
+		entry, err := DecodeEntry(msg.Value)
+		if err != nil {
+			return fmt.Errorf("decode message at offset %d: %w", msg.Offset, err)
+		}
+		records = append(records, Record{
+			Topic:     msg.Topic,
+			Partition: msg.Partition,
+			Offset:    msg.Offset,
+			Entry:     entry,
+		})
+	}
 	records = compactRecords(records)
 	if len(records) == 0 {
 		return nil
@@ -69,7 +85,7 @@ func (s *bigtableSink) WriteBatch(ctx context.Context, records []Record) error {
 }
 
 func (s *bigtableSink) writeRecordRows(ctx context.Context, records []Record) error {
-	rows := make([]historical.BigtableRowMutation, 0, bigtableRowMutationCount(records))
+	rows := make([]bigtable.RowMutation, 0, bigtableRowMutationCount(records))
 	for _, rec := range records {
 		rows = s.appendRecordRowMutations(rows, rec.Entry)
 	}
@@ -79,7 +95,7 @@ func (s *bigtableSink) writeRecordRows(ctx context.Context, records []Record) er
 	return s.applyRecordRowMutations(ctx, rows)
 }
 
-func (s *bigtableSink) applyRecordRowMutations(ctx context.Context, rows []historical.BigtableRowMutation) error {
+func (s *bigtableSink) applyRecordRowMutations(ctx context.Context, rows []bigtable.RowMutation) error {
 	chunks := bigtableRowMutationChunks(rows, s.bulkChunkRows)
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(s.bulkChunkWorkers)
@@ -93,7 +109,7 @@ func (s *bigtableSink) applyRecordRowMutations(ctx context.Context, rows []histo
 	return g.Wait()
 }
 
-func (s *bigtableSink) appendRecordRowMutations(rows []historical.BigtableRowMutation, entry *proto.ChangelogEntry) []historical.BigtableRowMutation {
+func (s *bigtableSink) appendRecordRowMutations(rows []bigtable.RowMutation, entry *proto.ChangelogEntry) []bigtable.RowMutation {
 	for _, mutation := range compactMutations(entry) {
 		rows = append(rows, s.mutationRow(entry.Version, mutation.storeName, mutation.pair))
 	}
@@ -107,50 +123,50 @@ func (s *bigtableSink) appendRecordRowMutations(rows []historical.BigtableRowMut
 // cell for tombstones, saving a cell per delete. Readers must therefore check
 // the deleted column before trusting any value cell — a replayed live write
 // followed by a tombstone leaves both cells on the row.
-func (s *bigtableSink) mutationRow(version int64, storeName string, pair *proto.KVPair) historical.BigtableRowMutation {
-	ts := historical.BigtableTimestamp(version)
+func (s *bigtableSink) mutationRow(version int64, storeName string, pair *proto.KVPair) bigtable.RowMutation {
+	ts := bigtable.Timestamp(version)
 	deleted := pair.Delete || pair.Value == nil
-	rowKey := historical.BigtableMutationRowKey(storeName, pair.Key, version, s.shards)
+	rowKey := bigtable.MutationRowKey(storeName, pair.Key, version, s.shards)
 	if deleted {
-		return historical.BigtableRowMutation{
+		return bigtable.RowMutation{
 			RowKey: rowKey,
-			SetCells: []historical.BigtableSetCell{{
+			SetCells: []bigtable.SetCell{{
 				Family:          s.family,
-				Qualifier:       historical.BigtableDeletedColumn,
+				Qualifier:       bigtable.DeletedColumn,
 				TimestampMicros: ts,
 				Value:           boolByte(true),
 			}},
 		}
 	}
-	return historical.BigtableRowMutation{
+	return bigtable.RowMutation{
 		RowKey: rowKey,
-		SetCells: []historical.BigtableSetCell{
-			{Family: s.family, Qualifier: historical.BigtableValueColumn, TimestampMicros: ts, Value: pair.Value},
-			{Family: s.family, Qualifier: historical.BigtableDeletedColumn, TimestampMicros: ts, Value: boolByte(false)},
+		SetCells: []bigtable.SetCell{
+			{Family: s.family, Qualifier: bigtable.ValueColumn, TimestampMicros: ts, Value: pair.Value},
+			{Family: s.family, Qualifier: bigtable.DeletedColumn, TimestampMicros: ts, Value: boolByte(false)},
 		},
 	}
 }
 
-func (s *bigtableSink) upgradeRow(version int64, up *proto.TreeNameUpgrade) historical.BigtableRowMutation {
-	ts := historical.BigtableTimestamp(version)
-	return historical.BigtableRowMutation{
-		RowKey: historical.BigtableUpgradeRowKey(version, up.Name),
-		SetCells: []historical.BigtableSetCell{
+func (s *bigtableSink) upgradeRow(version int64, up *proto.TreeNameUpgrade) bigtable.RowMutation {
+	ts := bigtable.Timestamp(version)
+	return bigtable.RowMutation{
+		RowKey: bigtable.UpgradeRowKey(version, up.Name),
+		SetCells: []bigtable.SetCell{
 			{Family: s.family, Qualifier: "rename_from", TimestampMicros: ts, Value: []byte(up.RenameFrom)},
-			{Family: s.family, Qualifier: historical.BigtableDeletedColumn, TimestampMicros: ts, Value: boolByte(up.Delete)},
+			{Family: s.family, Qualifier: bigtable.DeletedColumn, TimestampMicros: ts, Value: boolByte(up.Delete)},
 		},
 	}
 }
 
 func (s *bigtableSink) writeVersionMarkers(ctx context.Context, records []Record) error {
-	rows := make([]historical.BigtableRowMutation, 0, len(records))
+	rows := make([]bigtable.RowMutation, 0, len(records))
 	ingestedAt := []byte(strconv.FormatInt(time.Now().UnixNano(), 10))
 	for _, rec := range records {
 		version := rec.Entry.Version
-		ts := historical.BigtableTimestamp(version)
-		rows = append(rows, historical.BigtableRowMutation{
-			RowKey: historical.BigtableVersionRowKey(version),
-			SetCells: []historical.BigtableSetCell{
+		ts := bigtable.Timestamp(version)
+		rows = append(rows, bigtable.RowMutation{
+			RowKey: bigtable.VersionRowKey(version),
+			SetCells: []bigtable.SetCell{
 				{Family: s.family, Qualifier: "topic", TimestampMicros: ts, Value: []byte(rec.Topic)},
 				{Family: s.family, Qualifier: "partition", TimestampMicros: ts, Value: []byte(strconv.Itoa(rec.Partition))},
 				{Family: s.family, Qualifier: "offset", TimestampMicros: ts, Value: []byte(strconv.FormatInt(rec.Offset, 10))},
@@ -173,7 +189,7 @@ func bigtableRowMutationCount(records []Record) int {
 	return total
 }
 
-func bigtableRowMutationChunks(rows []historical.BigtableRowMutation, maxRows int) [][]historical.BigtableRowMutation {
+func bigtableRowMutationChunks(rows []bigtable.RowMutation, maxRows int) [][]bigtable.RowMutation {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -184,7 +200,7 @@ func bigtableRowMutationChunks(rows []historical.BigtableRowMutation, maxRows in
 		return rows[i].RowKey < rows[j].RowKey
 	})
 
-	chunks := make([][]historical.BigtableRowMutation, 0, (len(rows)+maxRows-1)/maxRows)
+	chunks := make([][]bigtable.RowMutation, 0, (len(rows)+maxRows-1)/maxRows)
 	start := 0
 	startLocality := bigtableRowLocality(rows[0].RowKey)
 	for i := 1; i < len(rows); i++ {
@@ -210,7 +226,7 @@ func bigtableRowLocality(rowKey string) string {
 	return rowKey
 }
 
-func bigtableBulkError(rows []historical.BigtableRowMutation, errs []error, err error) error {
+func bigtableBulkError(rows []bigtable.RowMutation, errs []error, err error) error {
 	if err != nil {
 		return err
 	}

@@ -1,4 +1,4 @@
-package offload
+package kafka
 
 import (
 	"context"
@@ -40,7 +40,7 @@ type awsMSKIAMMechanism struct {
 var _ sasl.Mechanism = (*awsMSKIAMMechanism)(nil)
 var _ sasl.StateMachine = (*awsMSKIAMMechanism)(nil)
 
-func newAWSMSKIAMMechanism(cfg KafkaConfig) (sasl.Mechanism, error) {
+func newAWSMSKIAMMechanism(cfg WriterConfig) (sasl.Mechanism, error) {
 	sess, err := session.NewSessionWithOptions(session.Options{
 		Config: aws.Config{
 			Region: aws.String(cfg.Region),

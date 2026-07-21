@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/bigtable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/historical"
@@ -20,7 +21,7 @@ func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.Stat
 	if err != nil {
 		return nil, err
 	}
-	bigtableCfg := historical.BigtableConfig{
+	bigtableCfg := bigtable.Config{
 		ProjectID:  ssConfig.HistoricalOffloadBigtableProjectID,
 		InstanceID: ssConfig.HistoricalOffloadBigtableInstance,
 		Table:      ssConfig.HistoricalOffloadBigtableTable,

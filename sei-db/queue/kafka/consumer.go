@@ -1,4 +1,4 @@
-package consumer
+package kafka
 
 import (
 	"context"
@@ -6,14 +6,21 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/segmentio/kafka-go"
+	kafkago "github.com/segmentio/kafka-go"
 	"golang.org/x/sync/errgroup"
 )
 
 // MessageSource is the subset of *kafka.Reader used by the loop.
 type MessageSource interface {
-	FetchMessage(ctx context.Context) (kafka.Message, error)
-	CommitMessages(ctx context.Context, msgs ...kafka.Message) error
+	FetchMessage(ctx context.Context) (kafkago.Message, error)
+	CommitMessages(ctx context.Context, msgs ...kafkago.Message) error
+}
+
+// Sink persists batches of raw Kafka messages. Implementations own payload
+// decoding; the consume loop stays payload-agnostic.
+type Sink interface {
+	WriteBatch(ctx context.Context, msgs []kafkago.Message) error
+	Close() error
 }
 
 // Messages are sharded by partition: cross-partition writes parallelize while
@@ -86,9 +93,9 @@ func New(reader MessageSource, sink Sink, opts Options) *Consumer {
 // Run commits offsets only after the sink persists each message.
 func (c *Consumer) Run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
-	shards := make([]chan kafka.Message, c.workers)
+	shards := make([]chan kafkago.Message, c.workers)
 	for i := range shards {
-		shards[i] = make(chan kafka.Message, c.shardBuf)
+		shards[i] = make(chan kafkago.Message, c.shardBuf)
 		ch := shards[i]
 		g.Go(func() error { return c.workerLoop(gctx, ch) })
 	}
@@ -120,7 +127,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 	return nil
 }
 
-func (c *Consumer) workerLoop(ctx context.Context, ch <-chan kafka.Message) error {
+func (c *Consumer) workerLoop(ctx context.Context, ch <-chan kafkago.Message) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -143,8 +150,8 @@ func (c *Consumer) workerLoop(ctx context.Context, ch <-chan kafka.Message) erro
 	}
 }
 
-func (c *Consumer) collectBatch(ctx context.Context, ch <-chan kafka.Message, first kafka.Message) ([]kafka.Message, bool) {
-	msgs := make([]kafka.Message, 1, c.batchSize)
+func (c *Consumer) collectBatch(ctx context.Context, ch <-chan kafkago.Message, first kafkago.Message) ([]kafkago.Message, bool) {
+	msgs := make([]kafkago.Message, 1, c.batchSize)
 	msgs[0] = first
 	if c.batchSize <= 1 {
 		return msgs, true
@@ -186,44 +193,28 @@ drainBuffered:
 	return msgs, true
 }
 
-func (c *Consumer) processBatch(ctx context.Context, msgs []kafka.Message) error {
-	records := make([]Record, 0, len(msgs))
-	var firstVersion, lastVersion int64
-	for i, msg := range msgs {
-		entry, err := DecodeEntry(msg.Value)
-		if err != nil {
-			return fmt.Errorf("decode message at offset %d: %w", msg.Offset, err)
-		}
-		if i == 0 {
-			firstVersion = entry.Version
-		}
-		lastVersion = entry.Version
-		records = append(records, Record{
-			Topic:     msg.Topic,
-			Partition: msg.Partition,
-			Offset:    msg.Offset,
-			Entry:     entry,
-		})
-	}
+func (c *Consumer) processBatch(ctx context.Context, msgs []kafkago.Message) error {
+	firstOffset := msgs[0].Offset
+	lastOffset := msgs[len(msgs)-1].Offset
 	start := time.Now()
-	if err := c.writeBatchWithRetry(ctx, records); err != nil {
-		return fmt.Errorf("sink write batch first_version=%d last_version=%d: %w",
-			firstVersion, lastVersion, err)
+	if err := c.writeBatchWithRetry(ctx, msgs); err != nil {
+		return fmt.Errorf("sink write batch first_offset=%d last_offset=%d: %w",
+			firstOffset, lastOffset, err)
 	}
 	writeLatency := time.Since(start)
-	c.logf("wrote records=%d first_version=%d last_version=%d in %s",
-		len(records), firstVersion, lastVersion, writeLatency)
+	c.logf("wrote messages=%d first_offset=%d last_offset=%d in %s",
+		len(msgs), firstOffset, lastOffset, writeLatency)
 	if err := c.reader.CommitMessages(ctx, msgs...); err != nil {
 		return fmt.Errorf("commit kafka offsets: %w", err)
 	}
-	c.metrics.recordBatch(ctx, int64(len(records)), batchLag(msgs), writeLatency)
+	c.metrics.recordBatch(ctx, int64(len(msgs)), batchLag(msgs), writeLatency)
 	return nil
 }
 
 // batchLag reports how far behind the partition head the batch left the
 // consumer: the max over messages of (high watermark - offset - 1). Returns -1
 // when no message carries a watermark so the gauge is left untouched.
-func batchLag(msgs []kafka.Message) int64 {
+func batchLag(msgs []kafkago.Message) int64 {
 	lag := int64(-1)
 	for _, msg := range msgs {
 		if msg.HighWaterMark <= 0 {
@@ -236,11 +227,11 @@ func batchLag(msgs []kafka.Message) int64 {
 	return lag
 }
 
-func (c *Consumer) writeBatchWithRetry(ctx context.Context, records []Record) error {
+func (c *Consumer) writeBatchWithRetry(ctx context.Context, msgs []kafkago.Message) error {
 	backoff := sinkBaseBackoff
 	var lastErr error
 	for attempt := 1; attempt <= sinkMaxAttempts; attempt++ {
-		err := c.sink.WriteBatch(ctx, records)
+		err := c.sink.WriteBatch(ctx, msgs)
 		if err == nil {
 			return nil
 		}
