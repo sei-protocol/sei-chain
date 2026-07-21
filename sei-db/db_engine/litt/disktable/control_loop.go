@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -24,8 +25,20 @@ type controlLoop struct {
 	// errorMonitor is used to react to fatal errors anywhere in the disk table.
 	errorMonitor *util.ErrorMonitor
 
-	// controllerChannel is the channel for messages sent to the control loop.
+	// controllerChannel is the channel the control loop reads messages from. When compression is
+	// disabled, enqueue sends directly here (inputChannel == controllerChannel). When compression is
+	// enabled, the compression loop reads its input channel and forwards messages here.
 	controllerChannel chan any
+
+	// inputChannel is the entry point of the control loop's message pipeline: the channel enqueue sends
+	// to. It is controllerChannel when compression is disabled, or the compression loop's input channel
+	// when compression is enabled (so every control message, including flush, passes through the
+	// compression stage in order).
+	inputChannel chan any
+
+	// compressionAlgorithm is the algorithm new segments are created with. types.CompressionNone means
+	// segments store values verbatim.
+	compressionAlgorithm types.CompressionAlgorithm
 
 	// The index of the lowest numbered segment. It is advanced only by the control loop, in
 	// deleteEligibleSegments, as collected segments' files are removed. Only the control loop goroutine touches it.
@@ -150,7 +163,7 @@ type controlLoop struct {
 // database being in a panicked state. Only types defined in control_loop_messages.go are permitted to be sent
 // to the control loop.
 func (c *controlLoop) enqueue(request controlLoopMessage) error {
-	return util.Send(c.errorMonitor, c.controllerChannel, request)
+	return util.Send(c.errorMonitor, c.inputChannel, request)
 }
 
 // run runs the control loop for the disk table. It has sole responsibility for scheduling all operations that
@@ -468,14 +481,21 @@ func (c *controlLoop) updateCurrentSize() {
 
 // handleWriteRequest handles a controlLoopWriteRequest control message.
 func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
-	for _, kv := range req.values {
+	for i, kv := range req.values {
 		// Do the write.
 		seg := c.segments[c.highestSegmentIndex]
+
+		// The number of bytes actually written to the value file: the compressed blob when compression is
+		// enabled, otherwise the raw value.
+		onDiskLen := uint64(len(kv.Value))
+		if req.compressedValues != nil {
+			onDiskLen = uint64(len(req.compressedValues[i]))
+		}
 
 		// Roll to a fresh segment before writing if this value's bytes would cross the 2^32 addressable
 		// limit of the segment's value files (offsets are stored as uint32, so a value's first byte must
 		// sit below 2^32).
-		if seg.GetMaxShardSize()+uint64(len(kv.Value)) > math.MaxUint32 {
+		if seg.GetMaxShardSize()+onDiskLen > math.MaxUint32 {
 			if err := c.expandSegments(); err != nil {
 				c.errorMonitor.Panic(fmt.Errorf("failed to expand segments: %w", err))
 				return
@@ -491,7 +511,14 @@ func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
 		}
 		c.newestPrimaryKey = kv.Key
 
-		keyCount, keyFileSize, err := seg.Write(kv)
+		var keyCount uint32
+		var keyFileSize uint64
+		var err error
+		if req.compressedValues != nil {
+			keyCount, keyFileSize, err = seg.WriteCompressed(kv, req.compressedValues[i])
+		} else {
+			keyCount, keyFileSize, err = seg.Write(kv)
+		}
 		shardSize := seg.GetMaxShardSize()
 		if err != nil {
 			c.errorMonitor.Panic(
@@ -564,6 +591,7 @@ func (c *controlLoop) expandSegments() error {
 		c.segmentPaths,
 		c.snapshottingEnabled,
 		c.diskTable.getShardingFactor(),
+		c.compressionAlgorithm,
 		c.fsync,
 		c.shardControlChannelSize)
 	if err != nil {
@@ -693,8 +721,7 @@ func (c *controlLoop) handleShutdownRequest(req *controlLoopShutdownRequest) {
 		return
 	}
 
-	// Seal the mutable segment
-	durableKeys, err := c.segments[c.highestSegmentIndex].Seal(c.clock())
+	durableKeys, _, err := c.segments[c.highestSegmentIndex].Seal(c.clock())
 	if err != nil {
 		c.errorMonitor.Panic(fmt.Errorf("failed to seal mutable segment: %w", err))
 		return

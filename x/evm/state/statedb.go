@@ -286,7 +286,7 @@ type TemporaryState struct {
 	transientAccounts     map[string][]byte
 	transientModuleStates map[string][]byte
 	transientAccessLists  *accessList
-	storageOverrides      map[string]*storageOverride
+	storageOverrides      map[common.Address]*storageOverride
 	surplus               sdk.Int // in wei
 }
 
@@ -297,7 +297,7 @@ func NewTemporaryState() *TemporaryState {
 		transientAccounts:     make(map[string][]byte),
 		transientModuleStates: make(map[string][]byte),
 		transientAccessLists:  &accessList{Addresses: make(map[common.Address]int), Slots: []map[common.Hash]struct{}{}},
-		storageOverrides:      make(map[string]*storageOverride),
+		storageOverrides:      make(map[common.Address]*storageOverride),
 		surplus:               utils.Sdk0,
 	}
 }
@@ -333,7 +333,7 @@ func (ts *TemporaryState) DeepCopy() *TemporaryState {
 			res.transientAccessLists.Slots[i][k2] = v2
 		}
 	}
-	res.storageOverrides = make(map[string]*storageOverride, len(ts.storageOverrides))
+	res.storageOverrides = make(map[common.Address]*storageOverride, len(ts.storageOverrides))
 	for k, v := range ts.storageOverrides {
 		res.storageOverrides[k] = v.deepCopy()
 	}
