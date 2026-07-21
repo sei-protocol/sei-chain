@@ -452,6 +452,8 @@ func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*typ
 }
 
 // Block returns the block with the given global number.
+// Waits until the contiguous prefix reaches n (n < nextBlock), then returns
+// it from memory or BlockDB. Does not expose gaps ahead of nextBlock.
 // This function is used for syncing - GlobalBlock can be derived from Block and FullCommitQC,
 // which have to be fetched upfront anyway.
 func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Block, error) {
@@ -464,24 +466,25 @@ func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Bl
 		if b, ok := inner.blocks[n]; ok {
 			return b, nil
 		}
-		// Evicted from memory after persist; fall through to BlockDB.
+		// Evicted from the contiguous prefix; fall through to BlockDB.
 	}
 	return s.blockFromDB(n)
 }
 
 // TryBlock returns the block with the given global number.
-// Returns ErrPruned if BlockDB no longer has it (below its prune watermark).
-// Returns ErrNotFound if the block is not available yet (n >= nextBlock).
-// Evicted-but-still-durable heights load from BlockDB.
+// Returns ErrNotFound if n is not yet in the contiguous prefix (n >= nextBlock),
+// including gap-fills stored above nextBlock — same no-gap contract as Block.
+// Returns ErrPruned if BlockDB no longer has an evicted height.
+// Evicted-but-still-durable heights (n < nextBlock) load from BlockDB.
 func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 	for inner := range s.inner.Lock() {
-		if b, ok := inner.blocks[n]; ok {
-			return b, nil
-		}
 		if n >= inner.nextBlock {
 			return nil, ErrNotFound
 		}
-		// Evicted from memory after persist; fall through to BlockDB.
+		if b, ok := inner.blocks[n]; ok {
+			return b, nil
+		}
+		// Evicted from the contiguous prefix; fall through to BlockDB.
 	}
 	return s.blockFromDB(n)
 }
@@ -499,7 +502,8 @@ func assembleGlobalBlock(n types.GlobalBlockNumber, b *types.Block, fqc *types.F
 }
 
 // GlobalBlock returns the block with the given global number.
-// Returns ErrPruned if the block has already been pruned.
+// Waits until the contiguous prefix reaches n (same no-gap contract as Block).
+// Returns ErrPruned if the block has already been pruned from BlockDB.
 // Falls back to BlockDB when the entry was evicted from memory after persist.
 func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*types.GlobalBlock, error) {
 	for inner, ctrl := range s.inner.Lock() {
@@ -508,12 +512,10 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		}); err != nil {
 			return nil, err
 		}
-		b, hasB := inner.blocks[n]
-		qc, hasQC := inner.qcs[n]
-		if hasB && hasQC {
-			return assembleGlobalBlock(n, b, qc), nil
+		if b, ok := inner.blocks[n]; ok {
+			return assembleGlobalBlock(n, b, inner.qcs[n]), nil
 		}
-		// Evicted from memory after persist; fall through to BlockDB.
+		// Evicted from the contiguous prefix; fall through to BlockDB.
 	}
 	return s.globalBlockFromDB(n)
 }

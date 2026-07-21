@@ -739,3 +739,39 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 		require.Equal(t, blocks2[0], got)
 	})
 }
+
+// TestTryBlockHidesGapFills verifies the no-gap contract: a block stored above
+// nextBlock (gap-fill) is not visible via TryBlock until the contiguous prefix
+// catches up.
+func TestTryBlockHidesGapFills(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
+	require.GreaterOrEqual(t, gr2.Len(), 2)
+
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+	require.NoError(t, state.PushQC(ctx, qc2, nil))
+	require.Equal(t, gr1.Next, state.NextBlock())
+
+	// Gap-fill the last height of qc2 before earlier qc2 blocks.
+	last := gr2.Next - 1
+	require.NoError(t, state.PushBlock(ctx, last, blocks2[last-gr2.First]))
+	_, err := state.TryBlock(last)
+	require.ErrorIs(t, err, ErrNotFound, "gap-fill above nextBlock must stay hidden")
+
+	// Fill contiguous prefix; last becomes visible with the rest.
+	for i, n := 0, gr2.First; n < gr2.Next; n++ {
+		require.NoError(t, state.PushBlock(ctx, n, blocks2[i]))
+		i++
+	}
+	require.Equal(t, gr2.Next, state.NextBlock())
+	got, err := state.TryBlock(last)
+	require.NoError(t, err)
+	require.Equal(t, blocks2[last-gr2.First], got)
+}
