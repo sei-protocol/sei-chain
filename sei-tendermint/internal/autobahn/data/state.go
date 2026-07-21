@@ -799,7 +799,7 @@ func persistOrEvictReady(
 // latest cached CommitQC, if any. That App is already covered by an AppQC, so
 // heights below it no longer need to be served for AppVotes.
 func (i *inner) certifiedAppFloor() utils.Option[types.GlobalBlockNumber] {
-	if i.nextQC == 0 {
+	if len(i.qcs) == 0 {
 		return utils.None[types.GlobalBlockNumber]()
 	}
 	for n := i.nextQC - 1; ; n-- {

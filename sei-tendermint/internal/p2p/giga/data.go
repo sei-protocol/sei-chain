@@ -120,8 +120,12 @@ func (x *Service) runBlockFetcher(ctx context.Context) error {
 			scope.Spawn(func() error {
 				defer release()
 				for first := true; ; first = false {
-					if _, err := x.data.TryBlock(n); !errors.Is(err, data.ErrNotFound) {
+					_, err := x.data.TryBlock(n)
+					if err == nil {
 						return nil
+					}
+					if !errors.Is(err, data.ErrNotFound) {
+						return fmt.Errorf("TryBlock(%d): %w", n, err)
 					}
 					// Back off between repeated requests for the same block —
 					// avoids hammering a peer that responded with an empty
