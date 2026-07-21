@@ -41,9 +41,8 @@ type Store interface {
 	Commit(version int64) (int64, error)
 
 	// CommitBlock is a Giga-only helper that applies changesets and commits
-	// them at version in one call. version is the target height (last block
-	// in a batch).
-	CommitBlock(version int64, cs []*proto.NamedChangeSet) (int64, error)
+	// them at version in one call.
+	CommitBlock(version int64, cs []*proto.NamedChangeSet) error
 
 	// SetInitialVersion seeds the store so that Commit(initialVersion) is
 	// accepted as the first commit. Must be called after LoadVersion, on a
