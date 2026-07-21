@@ -121,7 +121,8 @@ func (x *Service) runBlockFetcher(ctx context.Context) error {
 				defer release()
 				for first := true; ; first = false {
 					_, err := x.data.TryBlock(n)
-					if err == nil {
+					if err == nil || errors.Is(err, data.ErrPruned) {
+						// Have it, or no longer needed (pruned past catch-up).
 						return nil
 					}
 					if !errors.Is(err, data.ErrNotFound) {
