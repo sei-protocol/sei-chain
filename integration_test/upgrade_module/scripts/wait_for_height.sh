@@ -15,79 +15,38 @@ fi
 NODE_ID=${ID:-0}
 
 # Keep this script bounded to avoid hanging CI jobs indefinitely.
-STATUS_TIMEOUT_SECONDS=${WAIT_FOR_HEIGHT_STATUS_TIMEOUT_SECONDS:-5}
 MAX_WAIT_SECONDS=${WAIT_FOR_HEIGHT_MAX_WAIT_SECONDS:-180}
-MAX_NO_PROGRESS_SECONDS=${WAIT_FOR_HEIGHT_MAX_NO_PROGRESS_SECONDS:-30}
-PROGRESS_KICK_SECONDS=${WAIT_FOR_HEIGHT_PROGRESS_KICK_SECONDS:-5}
 seidbin=seid
 chainid=sei
-TX_WAIT_TIMEOUT=${WAIT_FOR_HEIGHT_TX_WAIT_TIMEOUT:-$STATUS_TIMEOUT_SECONDS}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../../utils/_tx_helpers.sh"
+PROGRESS_FROM_ADDR=$(_get_key_address "$PROGRESS_FROM_KEY")
 
-# if other nodes die, this node can have no peers, and it will stay on block-1
-# if that's the case, we should move forward (others are validating)
-STUCK_COUNTER=0
-NO_PROGRESS_COUNTER=0
-LAST_BLOCK_HEIGHT=""
 START_TIME=$(date +%s)
+DEADLINE=$((START_TIME + MAX_WAIT_SECONDS))
 
-# Loop until the target block height is reached or the service dies, or it gets stuck on target-1 block
+# Loop until this node reaches the target block height.
 while true; do
-   ELAPSED=$(( $(date +%s) - START_TIME ))
-   if [[ "$ELAPSED" -ge "$MAX_WAIT_SECONDS" ]]; then
+   NOW=$(date +%s)
+   ELAPSED=$((NOW - START_TIME))
+   REMAINING_SECONDS=$((DEADLINE - NOW))
+
+   if [[ "$REMAINING_SECONDS" -le 0 ]]; then
       echo "Timed out after ${MAX_WAIT_SECONDS}s waiting for block $TARGET_BLOCK_HEIGHT"
       exit 1
    fi
 
-   # Check if the service is running (it might panic at the height and not let us reach it)
-   if ! pgrep -f "seid start --chain-id sei" > /dev/null; then
-      echo "Seid no longer running (panic)"
-      break
-   fi
+   CURRENT_BLOCK_HEIGHT=$(timeout "$REMAINING_SECONDS" seid status 2>/dev/null | jq '.SyncInfo.latest_block_height' -r 2>/dev/null)
+   if [[ "$CURRENT_BLOCK_HEIGHT" =~ ^[0-9]+$ ]]; then
+      if [[ "$CURRENT_BLOCK_HEIGHT" -ge "$TARGET_BLOCK_HEIGHT" ]]; then
+         echo "Block height reached at $CURRENT_BLOCK_HEIGHT"
+         break
+      fi
 
-   # Query the current block height of the node
-   CURRENT_BLOCK_HEIGHT=$(timeout "$STATUS_TIMEOUT_SECONDS" seid status 2>/dev/null | jq '.SyncInfo.latest_block_height' -r 2>/dev/null)
-   if ! [[ "$CURRENT_BLOCK_HEIGHT" =~ ^[0-9]+$ ]]; then
-       ((NO_PROGRESS_COUNTER++))
-       if [[ "$NO_PROGRESS_COUNTER" -ge "$MAX_NO_PROGRESS_SECONDS" ]]; then
-           echo "Seid status unavailable for ${NO_PROGRESS_COUNTER}s while waiting for block $TARGET_BLOCK_HEIGHT"
-           exit 1
-       fi
-       sleep 1
-       continue
-   fi
-
-   if [[ -n "$LAST_BLOCK_HEIGHT" && "$CURRENT_BLOCK_HEIGHT" -le "$LAST_BLOCK_HEIGHT" ]]; then
-       ((NO_PROGRESS_COUNTER++))
-       if [[ "$NO_PROGRESS_COUNTER" -ge "$PROGRESS_KICK_SECONDS" ]]; then
-           bank_send_until_height "$TARGET_BLOCK_HEIGHT" "$PROGRESS_FROM_KEY" || true
-       fi
-       if [[ "$NO_PROGRESS_COUNTER" -ge "$MAX_NO_PROGRESS_SECONDS" ]]; then
-           echo "No block progress for ${NO_PROGRESS_COUNTER}s (current: $CURRENT_BLOCK_HEIGHT, target: $TARGET_BLOCK_HEIGHT)"
-           exit 1
-       fi
+      echo "Waiting for block $TARGET_BLOCK_HEIGHT (current: $CURRENT_BLOCK_HEIGHT, elapsed: ${ELAPSED}s)"
    else
-       NO_PROGRESS_COUNTER=0
-   fi
-   LAST_BLOCK_HEIGHT="$CURRENT_BLOCK_HEIGHT"
-
-   if [[ "$CURRENT_BLOCK_HEIGHT" -ge "$TARGET_BLOCK_HEIGHT" ]]; then
-       echo "Block height reached at $CURRENT_BLOCK_HEIGHT"
-       break
+      echo "Seid status unavailable while waiting for block $TARGET_BLOCK_HEIGHT"
    fi
 
-   if [[ "$CURRENT_BLOCK_HEIGHT" -eq "$((TARGET_BLOCK_HEIGHT - 1))" ]]; then
-       ((STUCK_COUNTER++))
-       if [[ $STUCK_COUNTER -ge 5 ]]; then
-           echo "Exiting because stuck on block-1 (other peers panicked first)"
-           exit 1
-       fi
-   else
-       STUCK_COUNTER=0
-   fi
-
-   echo "Waiting for block $TARGET_BLOCK_HEIGHT (current: $CURRENT_BLOCK_HEIGHT, elapsed: ${ELAPSED}s)"
-
-   sleep 1
+   bank_send_and_wait "$PROGRESS_FROM_KEY" "$PROGRESS_FROM_ADDR" 1usei >/dev/null || true
 done

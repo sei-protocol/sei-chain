@@ -328,38 +328,6 @@ bank_send_and_wait() {
         "[ \$(_get_account_sequence $from_addr) -gt $seq_before ]" || return 1
 }
 
-# Submit progress-only self-sends until the latest height reaches the target.
-# Useful under allow_empty_blocks=false when callers need real blocks instead
-# of idle time passing.
-# Usage: bank_send_until_height <target-height> <from-key>
-bank_send_until_height() {
-    local target_height="$1"
-    local from_key="$2"
-    local amount_denom="${BANK_SEND_UNTIL_HEIGHT_AMOUNT:-1usei}"
-
-    if [ -z "$target_height" ] || [ -z "$from_key" ]; then
-        echo "Usage: bank_send_until_height <target-height> <from-key>" >&2
-        return 1
-    fi
-
-    local deadline=$(($(date +%s) + TX_WAIT_TIMEOUT))
-    local from_addr; from_addr=$(_get_key_address "$from_key")
-    local height=0
-
-    while [ "$(date +%s)" -lt "$deadline" ]; do
-        height=$(_get_latest_height)
-        if [[ "$height" =~ ^[0-9]+$ ]] && [ "$height" -ge "$target_height" ]; then
-            echo "$height"
-            return 0
-        fi
-
-        bank_send_and_wait "$from_key" "$from_addr" "$amount_denom" >/dev/null || return 1
-    done
-
-    echo "timed out sending progress txs until height $target_height (last height=${height:-unknown})" >&2
-    return 1
-}
-
 # Highest existing gov proposal id (0 if none / on transient query
 # failure). `seid q gov proposals` exits non-zero with "no proposals
 # found" on an empty gov set, in which case the jq pipeline reads

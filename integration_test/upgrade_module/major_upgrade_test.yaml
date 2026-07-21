@@ -70,11 +70,6 @@
     - cmd: seid_upgrade.sh $VERSION
       node: sei-node-0
 
-    # Confirm the node is not running because it upgraded too early
-    - cmd: verify_panic.sh $TARGET_HEIGHT
-      node: sei-node-0
-      env: PANIC_AFTER_EARLY_UPGRADE_NODE_0
-
     # Wait for the target height (non-panicked nodes)
     - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
       node: sei-node-1
@@ -83,11 +78,19 @@
     - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
       node: sei-node-3
 
+    # Confirm the node is not running because it upgraded too early
+    - cmd: verify_panic.sh
+      node: sei-node-0
+      env: PANIC_AFTER_EARLY_UPGRADE_NODE_0
+    
     # Confirm panic and UPGRADE NEEDED log message for non-upgraded node
-    - cmd: verify_panic.sh $TARGET_HEIGHT
+    - cmd: verify_panic.sh
+      node: sei-node-1
+      env: PANIC_AT_BLOCK_HEIGHT_NODE_1  
+    - cmd: verify_panic.sh
       node: sei-node-2
       env: PANIC_AT_BLOCK_HEIGHT_NODE_2
-    - cmd: verify_panic.sh $TARGET_HEIGHT
+    - cmd: verify_panic.sh
       node: sei-node-3
       env: PANIC_AT_BLOCK_HEIGHT_NODE_3
 
@@ -119,7 +122,7 @@
       node: sei-node-0
 
     # Confirm node 0 has now panicked and logged
-    - cmd: verify_panic.sh $TARGET_HEIGHT
+    - cmd: verify_panic.sh
       node: sei-node-0
       env: PANIC_AT_BLOCK_HEIGHT_NODE_0
     - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
@@ -150,8 +153,9 @@
     - type: eval
       expr: PANIC_AFTER_EARLY_UPGRADE_NODE_0 == "PASS"
 
-    # At least one node should panic and print the upgrade-needed log message
-    # The other will possibly hang on block-1 because of missing peers (due to race)
+    # Non-upgraded nodes should panic and print the upgrade-needed log message
+    - type: eval
+      expr: PANIC_AT_BLOCK_HEIGHT_NODE_1 == "PASS"
     - type: eval
       expr: PANIC_AT_BLOCK_HEIGHT_NODE_2 == "PASS"
     - type: eval
