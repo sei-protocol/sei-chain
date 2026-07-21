@@ -13,22 +13,26 @@ fi
 NODE_ID=${ID:-0}
 
 # Keep this script bounded to avoid hanging CI jobs indefinitely.
+STATUS_TIMEOUT_SECONDS=${WAIT_FOR_HEIGHT_STATUS_TIMEOUT_SECONDS:-5}
 MAX_WAIT_SECONDS=${WAIT_FOR_HEIGHT_MAX_WAIT_SECONDS:-360}
 START_TIME=$(date +%s)
-DEADLINE=$((START_TIME + MAX_WAIT_SECONDS))
 
-# Loop until this node reaches the target block height.
+# Loop until the target block height is reached or the service dies.
 while true; do
-   NOW=$(date +%s)
-   ELAPSED=$((NOW - START_TIME))
-   REMAINING_SECONDS=$((DEADLINE - NOW))
-
-   if [[ "$REMAINING_SECONDS" -le 0 ]]; then
+   ELAPSED=$(( $(date +%s) - START_TIME ))
+   if [[ "$ELAPSED" -ge "$MAX_WAIT_SECONDS" ]]; then
       echo "Timed out after ${MAX_WAIT_SECONDS}s waiting for block $TARGET_BLOCK_HEIGHT"
       exit 1
    fi
 
-   CURRENT_BLOCK_HEIGHT=$(timeout "$REMAINING_SECONDS" seid status 2>/dev/null | jq '.SyncInfo.latest_block_height' -r 2>/dev/null)
+   # Check if the service is running (it might panic at the height and not let us reach it)
+   if ! pgrep -f "seid start --chain-id sei" > /dev/null; then
+      echo "Seid no longer running (panic)"
+      break
+   fi
+
+   # Query the current block height of the node
+   CURRENT_BLOCK_HEIGHT=$(timeout "$STATUS_TIMEOUT_SECONDS" seid status 2>/dev/null | jq '.SyncInfo.latest_block_height' -r 2>/dev/null)
    if [[ "$CURRENT_BLOCK_HEIGHT" =~ ^[0-9]+$ ]]; then
       if [[ "$CURRENT_BLOCK_HEIGHT" -ge "$TARGET_BLOCK_HEIGHT" ]]; then
          echo "Block height reached at $CURRENT_BLOCK_HEIGHT"
