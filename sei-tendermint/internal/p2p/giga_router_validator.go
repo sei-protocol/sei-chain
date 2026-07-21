@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -11,10 +12,24 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
+
+// ErrTipBehindData is returned on restart when consensus CommitQC tipcut is
+// strictly behind data's. Combined with consensus's avail≥consensus check,
+// this implies avail≥data (data QCs are exported from avail).
+var ErrTipBehindData = errors.New("CommitQC tip behind data tip")
+
+// checkRestartTips ensures consensus tipcut is not behind data.
+// Call after data + consensus are constructed. Avail vs consensus is checked
+// inside consensus.NewState.
+func checkRestartTips(dataTip, consensusTip atypes.RoadIndex) error {
+	if consensusTip < dataTip {
+		return fmt.Errorf("%w: consensus tipcut %d < data tipcut %d", ErrTipBehindData, consensusTip, dataTip)
+	}
+	return nil
+}
 
 type gigaValidatorRouter struct {
 	*gigaRouterCommon
@@ -38,22 +53,16 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
+	if err := checkRestartTips(dataState.CommitTipCut(), consensusState.CommitTipCut()); err != nil {
+		return nil, err
+	}
 	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
 	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaValidatorRouter{
-		gigaRouterCommon: &gigaRouterCommon{
-			cfg:                &cfg.GigaRouterCommonConfig,
-			key:                key,
-			data:               dataState,
-			service:            giga.NewService(consensusState),
-			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
-			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
-			app:                cfg.App,
-			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
-		},
-		consensus:    consensusState,
-		producer:     producerState,
-		validatorKey: cfg.ValidatorKey.Public(),
+		gigaRouterCommon: newGigaRouterCommon(&cfg.GigaRouterCommonConfig, key, dataState, giga.NewService(consensusState)),
+		consensus:        consensusState,
+		producer:         producerState,
+		validatorKey:     cfg.ValidatorKey.Public(),
 	}, nil
 }
 
@@ -91,7 +100,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 // shards, we proxy only while the target validator is currently connected;
 // otherwise we keep the tx local as a best-effort availability heuristic.
 func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*url.URL] {
-	shardValidator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
+	shardValidator := r.data.EpochDuo().Current.Committee().EvmShard(sender)
 	if r.validatorKey == shardValidator {
 		return utils.None[*url.URL]()
 	}

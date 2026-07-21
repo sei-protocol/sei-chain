@@ -17,7 +17,7 @@ import (
 // TestRecoveryEmpty verifies that NewState is a no-op on a fresh BlockDB.
 func TestRecoveryEmpty(t *testing.T) {
 	rng := utils.TestRng()
-	registry, _ := epoch.GenRegistry(rng, 3)
+	registry, _, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 	fb := registry.FirstBlock()
 
@@ -35,7 +35,7 @@ func TestRecoveryEmpty(t *testing.T) {
 func TestNewStateInMemoryMode(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 
 	state := utils.OrPanic1(NewState(&Config{Registry: registry}, memblock.NewBlockDB()))
@@ -60,7 +60,7 @@ func TestNewStateInMemoryMode(t *testing.T) {
 // from BlockDB on restart.
 func TestRecoveryNormal(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
@@ -104,7 +104,7 @@ func TestRecoveryNormal(t *testing.T) {
 func TestPruningDiscards(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
@@ -139,7 +139,7 @@ func TestPruningDiscards(t *testing.T) {
 // BlockDB only contains data from a later QC range (as left by pruning + GC).
 func TestRecoveryAfterPruning(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	qc1, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
@@ -186,7 +186,7 @@ func TestRecoveryAfterPruning(t *testing.T) {
 func TestRecoveryBlocksBehind(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
@@ -232,7 +232,7 @@ func TestRecoveryBlocksBehind(t *testing.T) {
 // by advancing the recovery floor (skipTo) to the first present block.
 func TestRecoveryPartialQCPrefix(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
@@ -265,7 +265,7 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 // floor set by the QC pass, so the "block predates first QC start" guard never fires.
 func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
@@ -309,7 +309,7 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 // cursor sits at the QC start with nextBlock at that floor and no block data.
 func TestRecoveryQCsNoBlocks(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	qc1, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
@@ -341,7 +341,7 @@ func TestRecoveryQCsNoBlocks(t *testing.T) {
 func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	qc1, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
@@ -390,7 +390,7 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 // QC coverage, not continuity, so a gap can arise from corruption.
 func TestRecoveryBlockGap(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())

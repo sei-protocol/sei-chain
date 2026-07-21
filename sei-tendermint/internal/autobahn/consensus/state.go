@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -39,6 +41,8 @@ type Config struct {
 type State struct {
 	cfg   *Config
 	avail *avail.State
+	// registry resolves epochs for explicit transitions (inner holds no registry).
+	registry *epoch.Registry
 	// metrics *Metrics
 	inner     utils.Mutex[*utils.AtomicSend[inner]]
 	innerRecv utils.AtomicRecv[inner]
@@ -115,6 +119,7 @@ func newState(
 		cfg: cfg,
 		// metrics: NewMetrics(),
 		avail:     availState,
+		registry:  data.Registry(),
 		inner:     utils.NewMutex(innerSend),
 		innerRecv: innerSend.Subscribe(),
 		persister: pers,
@@ -123,14 +128,28 @@ func newState(
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
 		commitVotes:  utils.NewMutex(newCommitVotes()),
 
-		myView:        utils.NewAtomicSend(types.ViewSpec{Epoch: initialInner.epoch}),
+		myView:        utils.NewAtomicSend(types.ViewSpec{CommitQC: initialInner.CommitQC, TimeoutQC: initialInner.TimeoutQC, Epochs: initialInner.epochs}),
 		myProposal:    utils.NewAtomicSend(utils.None[*types.FullProposal]()),
 		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusReqPrepareVote]()),
 		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusReqCommitVote]()),
 		myTimeoutVote: utils.NewAtomicSend(utils.None[*types.FullTimeoutVote]()),
 		myTimeoutQC:   utils.NewAtomicSend(utils.None[*types.TimeoutQC]()),
 	}
+	// Avail admits CommitQCs before consensus tip catches up via LastCommitQC.
+	// Restart: avail tipcut must be >= consensus tipcut.
+	if availTip, consTip := availState.CommitTipCut(), s.CommitTipCut(); availTip < consTip {
+		return nil, fmt.Errorf("%w: avail tipcut %d < consensus tipcut %d", ErrAvailBehindConsensus, availTip, consTip)
+	}
 	return s, nil
+}
+
+// ErrAvailBehindConsensus is returned on restart when avail's CommitQC tipcut is
+// strictly behind consensus's (insane: consensus tip advances from avail).
+var ErrAvailBehindConsensus = errors.New("avail CommitQC tip behind consensus tip")
+
+// CommitTipCut is the consensus view tipcut (NextIndexOpt of persisted CommitQC).
+func (s *State) CommitTipCut() types.RoadIndex {
+	return s.innerRecv.Load().View().Index
 }
 
 func (s *State) timeoutQC() utils.AtomicRecv[utils.Option[*types.TimeoutQC]] {
@@ -169,7 +188,16 @@ func (s *State) PushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 
 // PushPrepareVote processes an unverified Prepare vote message.
 func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
-	committee := s.myView.Load().Epoch.Committee()
+	// Contract: accept only Current-epoch votes (innerRecv). Others drop without
+	// error (avoid wrong-committee verify / peer teardown). No redelivery —
+	// lagging peers recover via view timeout.
+	i := s.innerRecv.Load()
+	if voteEp := vote.Msg().Proposal().View().EpochIndex; voteEp != i.epochs.Current.EpochIndex() {
+		logger.Debug("dropping prepare vote for non-current epoch",
+			"vote_epoch", uint64(voteEp), "current_epoch", uint64(i.epochs.Current.EpochIndex()))
+		return nil
+	}
+	committee := i.epochs.Current.Committee()
 	if err := vote.VerifySig(committee); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
@@ -181,7 +209,14 @@ func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
 
 // PushCommitVote processes an unverified CommitVote message.
 func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
-	committee := s.myView.Load().Epoch.Committee()
+	// Same Current-epoch contract as PushPrepareVote.
+	i := s.innerRecv.Load()
+	if voteEp := vote.Msg().Proposal().View().EpochIndex; voteEp != i.epochs.Current.EpochIndex() {
+		logger.Debug("dropping commit vote for non-current epoch",
+			"vote_epoch", uint64(voteEp), "current_epoch", uint64(i.epochs.Current.EpochIndex()))
+		return nil
+	}
+	committee := i.epochs.Current.Committee()
 	if err := vote.VerifySig(committee); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
@@ -193,7 +228,14 @@ func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
 
 // PushTimeoutVote processes an unverified FullTimeoutVote message.
 func (s *State) PushTimeoutVote(vote *types.FullTimeoutVote) error {
-	ep := s.myView.Load().Epoch
+	// Same Current-epoch contract as PushPrepareVote.
+	i := s.innerRecv.Load()
+	if voteEp := vote.View().EpochIndex; voteEp != i.epochs.Current.EpochIndex() {
+		logger.Debug("dropping timeout vote for non-current epoch",
+			"vote_epoch", uint64(voteEp), "current_epoch", uint64(i.epochs.Current.EpochIndex()))
+		return nil
+	}
+	ep := i.epochs.Current
 	if err := vote.Verify(ep); err != nil {
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
@@ -210,7 +252,7 @@ func (s *State) Avail() *avail.State { return s.avail }
 // Constructs new proposals.
 func (s *State) runPropose(ctx context.Context) error {
 	return s.myView.Iter(ctx, func(ctx context.Context, vs types.ViewSpec) error {
-		if vs.Epoch.Committee().Leader(vs.View()) != s.cfg.Key.Public() {
+		if vs.Epoch().Committee().Leader(vs.View()) != s.cfg.Key.Public() {
 			return nil // not the leader.
 		}
 		// Try repropose.
@@ -219,9 +261,14 @@ func (s *State) runPropose(ctx context.Context) error {
 			return nil
 		}
 		// Wait for laneQCs.
-		laneQCsMap, err := s.avail.WaitForLaneQCs(ctx, vs.Epoch, vs.CommitQC)
+		laneQCsMap, ep, err := s.avail.WaitForLaneQCs(ctx, vs.CommitQC)
 		if err != nil {
 			return fmt.Errorf("s.avail.WaitForLaneQCs(): %w", err)
+		}
+		// The avail window may have advanced past the epoch we intend to
+		// propose in; skip and let the next view catch up.
+		if ep.EpochIndex() != vs.Epoch().EpochIndex() {
+			return nil
 		}
 		// Construct a full proposal.
 		fullProposal, err := types.NewProposal(
@@ -253,7 +300,7 @@ func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v 
 // timers, neither of which constitutes a vote.
 func (s *State) runOutputs(ctx context.Context) error {
 	return s.innerRecv.Iter(ctx, func(ctx context.Context, i inner) error {
-		vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, Epoch: i.epoch}
+		vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, Epochs: i.epochs}
 		old := s.myView.Load()
 		if old.View().Less(vs.View()) {
 			s.myView.Store(vs)
@@ -298,9 +345,9 @@ func (s *State) Run(ctx context.Context) error {
 			})
 		})
 		scope.SpawnNamed("pushCommitQC", func() error {
-			// We pull the CommitQC back from "avail" for dissemination. This ensures
-			// that we only push CommitQCs that have been successfully "logged" and
-			// sequenced by the availability layer.
+			// Pull the CommitQC tip back from avail after it has been logged and
+			// verified at admit. Tip watch may coalesce; pushCommitQC aligns the
+			// epoch duo to the tipcut without re-verifying or replaying roads.
 			return s.avail.LastCommitQC().Iter(ctx, func(ctx context.Context, last utils.Option[*types.CommitQC]) error {
 				if qc, ok := last.Get(); ok {
 					return s.pushCommitQC(qc)

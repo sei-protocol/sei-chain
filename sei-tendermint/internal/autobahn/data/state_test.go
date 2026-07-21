@@ -104,7 +104,7 @@ func pushAppHashesRunning(ctx context.Context, state *State, rng utils.Rng, firs
 func TestState(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run()", func() error {
@@ -176,7 +176,7 @@ func TestState(t *testing.T) {
 func TestPushConflictingBadCommitQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	committee := registry.LatestEpoch().Committee()
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
@@ -221,7 +221,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 			malBlocks = append(malBlocks, b)
 		}
 	}
-	viewSpec := types.ViewSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: registry.LatestEpoch()}
+	viewSpec := types.ViewSpec{CommitQC: utils.None[*types.CommitQC](), Epochs: types.EpochDuo{Current: registry.LatestEpoch()}}
 	leader := committee.Leader(viewSpec.View())
 	var leaderKey types.SecretKey
 	for _, k := range keys {
@@ -284,7 +284,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
 	// Push qc1 with NO blocks — only the QC is stored.
@@ -327,7 +327,7 @@ func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 func TestExecution(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run()", func() error {
@@ -369,7 +369,7 @@ func TestExecution(t *testing.T) {
 func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
@@ -388,7 +388,7 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 func TestGlobalBlockByHash(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
@@ -429,7 +429,7 @@ func TestGlobalBlockByHash(t *testing.T) {
 func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
@@ -481,7 +481,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
@@ -551,7 +551,7 @@ func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 func TestNextToExecuteAfterAppEviction(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
@@ -615,7 +615,7 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 func TestPruningKeepsLastQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
@@ -671,7 +671,7 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 func TestPruningWithPartialQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
@@ -750,7 +750,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
 		rng := utils.TestRng()
-		registry, keys := epoch.GenRegistry(rng, 3)
+		registry, keys, _ := epoch.GenRegistry(rng, 3)
 
 		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
@@ -800,7 +800,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 func TestTryBlockHidesGapFills(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
