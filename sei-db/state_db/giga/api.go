@@ -37,10 +37,9 @@ type GigaStateStore interface {
 	GetHistoricalStateSnapshot(blockNum int64) (StateSnapshot, bool)
 }
 
-// StateSnapshot is a read-only, point-in-time view over the store's raw
-// key/value data, plus (via the embedded EVMStateSnapshot) EVM-specific
-// accessors for account/storage/code/balance reads. Snapshots
-// are reference-counted via Reserve/Release so that the underlying
+// StateSnapshot is a read-only, point-in-time view over the store's raw key/value data,
+// currently support EVM-specific accessors for account/storage/code/balance reads.
+// Snapshots are reference-counted via Reserve/Release so that the underlying
 // resources (e.g. an ephemeral SC snapshot or a pinned SS version) stay
 // alive for as long as the snapshot is in use, even concurrently with
 // later writes/commits against the store.
