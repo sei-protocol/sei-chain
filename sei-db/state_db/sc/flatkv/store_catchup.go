@@ -84,14 +84,14 @@ func (s *CommitStore) walVersionAtOffset(off uint64) (int64, error) {
 // including) targetVersion. If targetVersion <= 0, replay continues to the
 // end of the WAL.
 //
-// Each replayed entry runs through ApplyChangeSets (which updates
-// workingLtHash) and commitBatches (which persists to the per-DB PebbleDBs).
+// Each replayed entry runs through ApplyChangeSets(entry.Version, ...) (so
+// row last-modified heights match the WAL commit version) and commitBatches.
 // After all entries are replayed, global metadata is flushed once.
 //
-// catchup enforces WAL continuity from committedVersion+1: if the WAL has been
-// truncated past committedVersion (e.g. a tooling clone raced with a live
-// snapshot that triggered tryTruncateWAL), it returns an error rather than
-// silently skipping the missing versions and corrupting the LtHash.
+// Version gaps are allowed: Commit/CommitBlock may persist non-sequential
+// heights (batch last-block height, empty commits that jump ahead), so the
+// next WAL entry may be strictly greater than committedVersion+1. Replay
+// still rejects versions that do not advance past the last applied entry.
 func (s *CommitStore) catchup(targetVersion int64) (err error) {
 	var replayed int
 	var startOff, endOff uint64
@@ -132,8 +132,8 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 		return nil
 	}
 
-	// Resolve the WAL boundary versions once so we can both pick the right
-	// start offset AND detect a truncated-past-snapshot gap.
+	// Resolve the WAL boundary versions once so we can pick the right start
+	// offset below.
 	walFirstVer, err := s.walVersionAtOffset(firstOff)
 	if err != nil {
 		return fmt.Errorf("catchup: read first WAL entry: %w", err)
@@ -149,17 +149,16 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 		if walLastVer <= s.committedVersion {
 			return nil
 		}
-		// Gap detection: WAL must cover committedVersion+1, otherwise we
-		// would jump straight to walFirstVer and silently skip the
-		// versions in between. Return loud error rather than corrupt
-		// committedLtHash.
-		if walFirstVer > s.committedVersion+1 {
-			return fmt.Errorf("catchup: WAL gap detected: committedVersion=%d but WAL starts at version %d (need <= %d)",
-				s.committedVersion, walFirstVer, s.committedVersion+1)
-		}
-		if off, err := s.walOffsetForVersion(s.committedVersion + 1); err == nil && off > startOff {
-			if off > lastOff {
-				return nil
+		if walFirstVer <= s.committedVersion {
+			// The WAL is guaranteed to still hold the entry for
+			// committedVersion: every Commit writes it in Step 1 before
+			// advancing committedVersion in Step 4, and truncation never
+			// removes entries at or after committedVersion. Locate it
+			// directly; the replay loop below skips it
+			// (entry.Version <= s.committedVersion) and applies from there.
+			off, err := s.walOffsetForVersion(s.committedVersion)
+			if err != nil {
+				return fmt.Errorf("catchup: resolve WAL offset for committed version %d: %w", s.committedVersion, err)
 			}
 			startOff = off
 		}
@@ -183,7 +182,7 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 		"committedVersion", s.committedVersion,
 		"startOffset", startOff,
 		"endOffset", endOff)
-	expectedNext := s.committedVersion + 1
+	lastApplied := s.committedVersion
 	err = s.changelog.Replay(startOff, endOff, func(_ uint64, entry proto.ChangelogEntry) error {
 		if entry.Version <= s.committedVersion {
 			return nil
@@ -191,11 +190,10 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 		if targetVersion > 0 && entry.Version > targetVersion {
 			return nil
 		}
-		// Defensive continuity check: even with the boundary check
-		// above, a corrupted WAL could have an internal hole. Refuse to
-		// keep applying past such a hole.
-		if entry.Version != expectedNext {
-			return fmt.Errorf("catchup: WAL hole: expected version %d, got %d", expectedNext, entry.Version)
+		// WAL versions must advance. Forward jumps are OK (gapped/batch
+		// commits); going backwards indicates corruption.
+		if entry.Version <= lastApplied {
+			return fmt.Errorf("catchup: WAL version not advancing: lastApplied=%d, got %d", lastApplied, entry.Version)
 		}
 
 		if err := s.ApplyChangeSets(entry.Version, entry.Changesets); err != nil {
@@ -212,7 +210,7 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 		recordPendingWrites(s.ctx, codeDBDir, 0)
 		recordPendingWrites(s.ctx, storageDBDir, 0)
 		recordPendingWrites(s.ctx, miscDBDir, 0)
-		expectedNext = entry.Version + 1
+		lastApplied = entry.Version
 
 		replayed++
 		if replayed%1000 == 0 {
