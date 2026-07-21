@@ -11,7 +11,7 @@ import (
 
 var logger = seilog.NewLogger("db", "storagemanager")
 
-// StorageManager manages deletion of stored data across the SC, SS, and StateWAL stores.
+// StorageManager manages deletion of stored data across a set of state stores and the StateWAL.
 //
 // The StorageManager performs state deletion while maintaining the following invariant:
 // "If it's possible to roll back at least config.RollbackWindow blocks, then any state deletion operation
@@ -26,11 +26,8 @@ type StorageManager struct {
 	// Configuration for this storage manager.
 	config *StorageManagerConfig
 
-	// The store that contains the mutable state.
-	commitStore SnapshotStore
-
-	// The store that contains historical state.
-	stateStore SnapshotStore
+	// The stores whose data can be rebuilt by replaying the state WAL.
+	stateStores []SnapshotStore
 
 	// The WAL containing changesets for each block (i.e. the key-value pairs that change each block).
 	stateWAL StreamStore
@@ -48,8 +45,7 @@ type StorageManager struct {
 func NewStorageManager(
 	ctx context.Context,
 	config *StorageManagerConfig,
-	commitStore SnapshotStore,
-	stateStore SnapshotStore,
+	stateStores []SnapshotStore,
 	stateWAL StreamStore,
 ) (*StorageManager, error) {
 
@@ -59,8 +55,7 @@ func NewStorageManager(
 
 	s := &StorageManager{
 		config:      config,
-		commitStore: commitStore,
-		stateStore:  stateStore,
+		stateStores: stateStores,
 		stateWAL:    stateWAL,
 		ctx:         ctx,
 		stopCh:      make(chan struct{}),
@@ -79,7 +74,7 @@ func (s *StorageManager) Close() error {
 	return nil
 }
 
-// run periodically drives prune cycles until the manager is stopped. All decision logic lives in pruneOnce so it can
+// run periodically drives prune cycles until the manager is stopped. All decision logic lives in prune so it can
 // be unit tested without threading.
 func (s *StorageManager) run() {
 	defer s.wg.Done()
@@ -95,49 +90,47 @@ func (s *StorageManager) run() {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			err := prune(
-				s.config.RollbackWindow,
-				s.commitStore,
-				s.stateStore,
-				s.stateWAL)
-			if err != nil {
+			if err := prune(s.config.RollbackWindow, s.stateStores, s.stateWAL); err != nil {
 				logger.Error("prune cycle failed", "err", err)
 			}
 		}
 	}
 }
 
-// pruneOnce performs a single prune cycle: it observes the blocks retained by each managed store, computes how far
-// each store may prune while preserving the rollback window, and issues the prune commands. It is the testable core of
-// the manager and performs no threading.
+// prune performs a single prune cycle: it observes the blocks retained by each managed store, computes how far each
+// store may prune while preserving the rollback window, and issues the prune commands.
 func prune(
 	rollbackWindow uint64,
-	commitStore SnapshotStore,
-	stateStore SnapshotStore,
+	stateStores []SnapshotStore,
 	stateWAL StreamStore,
 ) error {
 	stateWALStart, stateWALEnd, stateWALHasData, err := stateWAL.GetStoredBlocks()
 	if err != nil {
-		return fmt.Errorf("failed to read stored blocks from state WAL: %w", err)
-	}
-	commitBlocks, err := commitStore.GetStoredBlocks()
-	if err != nil {
-		return fmt.Errorf("failed to read stored blocks from commit store: %w", err)
-	}
-	stateBlocks, err := stateStore.GetStoredBlocks()
-	if err != nil {
-		return fmt.Errorf("failed to read stored blocks from state store: %w", err)
+		return fmt.Errorf("failed to read stored blocks from %s: %w", stateWAL.Name(), err)
 	}
 
-	if !stateWALHasData || len(commitBlocks) == 0 || len(stateBlocks) == 0 {
-		// We only prune if every store has at least some data. Otherwise we risk breaking primary invariant
-		// (i.e. breaking the ability to roll back by act of deletion).
-		logger.Info("skipping pruning, not all stores have data",
-			"commitStore", commitBlocks,
-			"stateStore", stateBlocks,
-			"stateWAL", blockRange(stateWALStart, stateWALEnd),
-		)
+	stateStoreBlocks := make([][]uint64, len(stateStores))
+	anyStoreEmpty := false
+	for i, store := range stateStores {
+		blocks, err := store.GetStoredBlocks()
+		if err != nil {
+			return fmt.Errorf("failed to read stored blocks from %s: %w", store.Name(), err)
+		}
+		stateStoreBlocks[i] = blocks
+		if len(blocks) == 0 {
+			anyStoreEmpty = true
+		}
+	}
 
+	if !stateWALHasData || anyStoreEmpty {
+		// We only prune if the WAL and every provided store has at least some data. An empty store is treated as
+		// unknown rather than empty (a snapshot may be mid-write and take hours), and pruning against it would risk
+		// breaking the primary invariant (i.e. breaking the ability to roll back by the act of deletion).
+		logArgs := []any{"stateWAL", blockRange(stateWALStart, stateWALEnd), "stateWALHasData", stateWALHasData}
+		for i, store := range stateStores {
+			logArgs = append(logArgs, store.Name(), stateStoreBlocks[i])
+		}
+		logger.Info("skipping pruning, not all stores have data", logArgs...)
 		return nil
 	}
 
@@ -150,31 +143,40 @@ func prune(
 		oldestBlockNeeded = latestBlock - rollbackWindow
 	}
 
-	commitFloor := snapshotPruningFloor(commitBlocks, oldestBlockNeeded)
-	stateFloor := snapshotPruningFloor(stateBlocks, oldestBlockNeeded)
-	stateWALFloor := min(commitFloor, stateFloor)
+	floors := make([]uint64, len(stateStores))
+	for i, blocks := range stateStoreBlocks {
+		floors[i] = snapshotPruningFloor(blocks, oldestBlockNeeded)
+	}
 
-	// Record the whole cycle in a single log line: for each store, its current blocks and the blocks we expect it to
-	// hold once pruning has completed.
-	logger.Info("pruning storage",
-		"latestBlock", latestBlock,
-		"oldestBlockNeeded", oldestBlockNeeded,
-		"commitStoreInitial", commitBlocks,
-		"commitStoreFinal", blocksAtOrAbove(commitBlocks, commitFloor),
-		"stateStoreInitial", stateBlocks,
-		"stateStoreFinal", blocksAtOrAbove(stateBlocks, stateFloor),
+	// The WAL retains from the oldest block any state store still needs. With no state stores, nothing depends on the
+	// WAL for rollback, so it retains only the rollback window.
+	stateWALFloor := oldestBlockNeeded
+	for i, floor := range floors {
+		if i == 0 || floor < stateWALFloor {
+			stateWALFloor = floor
+		}
+	}
+
+	logArgs := []any{"latestBlock", latestBlock, "oldestBlockNeeded", oldestBlockNeeded}
+	for i, store := range stateStores {
+		logArgs = append(logArgs,
+			store.Name()+"Initial", stateStoreBlocks[i],
+			store.Name()+"Final", blocksAtOrAbove(stateStoreBlocks[i], floors[i]),
+		)
+	}
+	logArgs = append(logArgs,
 		"stateWALInitial", blockRange(stateWALStart, stateWALEnd),
 		"stateWALFinal", blockRange(stateWALFloor, stateWALEnd),
 	)
+	logger.Info("pruning storage", logArgs...)
 
-	if err := commitStore.PruneBelow(commitFloor); err != nil {
-		return fmt.Errorf("failed to prune commit store below %d: %w", commitFloor, err)
-	}
-	if err := stateStore.PruneBelow(stateFloor); err != nil {
-		return fmt.Errorf("failed to prune state store below %d: %w", stateFloor, err)
+	for i, store := range stateStores {
+		if err := store.PruneBelow(floors[i]); err != nil {
+			return fmt.Errorf("failed to prune %s below %d: %w", store.Name(), floors[i], err)
+		}
 	}
 	if err := stateWAL.PruneBelow(stateWALFloor); err != nil {
-		return fmt.Errorf("failed to prune state WAL below %d: %w", stateWALFloor, err)
+		return fmt.Errorf("failed to prune %s below %d: %w", stateWAL.Name(), stateWALFloor, err)
 	}
 
 	return nil
@@ -184,8 +186,8 @@ func prune(
 // to roll back to the target block number.
 //
 // Returns the highest numbered block from snapshotBlocks that is less than or equal to the rollbackTarget. If every
-// snapshot is greater than rollbackTarget, the lowest snapshot is returned, since none can be safely pruned. ok is
-// false when snapshotBlocks is empty. snapshotBlocks must be sorted in ascending order, per the SnapshotStore contract.
+// snapshot is greater than rollbackTarget, the lowest snapshot is returned, since none can be safely pruned.
+// snapshotBlocks must be non-empty and sorted in ascending order, per the SnapshotStore contract.
 func snapshotPruningFloor(
 	// Blocks we have snapshots for, in ascending order. Must be non-empty.
 	snapshotBlocks []uint64,

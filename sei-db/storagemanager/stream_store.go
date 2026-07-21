@@ -14,4 +14,7 @@ type StreamStore interface {
 	// Instruct the store that it may drop data for all blocks below a specified number.
 	// Store may drop data asynchronously.
 	PruneBelow(blockNumber uint64) error
+
+	// Return the name of the stream store.
+	Name() string
 }
