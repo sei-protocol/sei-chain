@@ -679,33 +679,29 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 // runPersist is a background goroutine that persists blocks and QCs to BlockDB.
 // It waits for in-memory data to advance past the persistence cursors, then
 // writes QCs (first, per the BlockDB contract) and blocks, then flushes once
-// per batch. nextBlockToPersist advances to min(persistedQC, persistedBlock)
+// per batch. nextBlockToPersist advances to min(nextToPersistQC, nextToPersistBlock)
 // to unblock PushAppHash only when both are durable.
 // Errors propagate vertically (kill the component).
 //
-// Persistence cursors are seeded from BlockDB.Status(), not from
-// inner.nextQC/nextBlock. Those inner cursors can advance via PushQC between
-// NewState and Run; the BlockDB tips stay put until this loop Writes, so we do
-// not skip heights that are only in memory.
+// Persistence cursors (nextToPersistQC / nextToPersistBlock) seed from
+// BlockDB.Status() when present so PushQC-before-Run heights are not skipped.
+// When a Status tip is absent, seed from post-load nextBlockToPersist (recovery
+// floor), never bare registry.FirstBlock() — a QC-only store can skipTo past
+// genesis while LastBlockNumber is still missing.
 func (s *State) runPersist(ctx context.Context) error {
-	first := s.cfg.Registry.FirstBlock()
 	tips := s.blockDB.Status()
-	persistedQC := first
-	if n, ok := tips.LastQCNext.Get(); ok {
-		persistedQC = n
-	}
-	persistedBlock := first
-	if n, ok := tips.LastBlockNumber.Get(); ok {
-		persistedBlock = n + 1
-	}
-	// Eviction cursor for blocks, QCs, and AppProposals: exclusive end of the
-	// range already dropped from memory. Seed from nextAppProposal (recovery
-	// floor at Run start; AppProposals are not recovered): after restart the
-	// retain window is fully loaded in RAM and already durable, so we must walk
-	// from that floor once PushAppHash advances.
-	var evicted types.GlobalBlockNumber
+	var nextToPersistQC, nextToPersistBlock, evicted types.GlobalBlockNumber
 	for inner := range s.inner.Lock() {
+		// After loadFromBlockDB, nextBlockToPersist is the durable recovery tip.
+		nextToPersistQC = inner.nextBlockToPersist
+		nextToPersistBlock = inner.nextBlockToPersist
 		evicted = inner.nextAppProposal
+	}
+	if n, ok := tips.LastQCNext.Get(); ok {
+		nextToPersistQC = n
+	}
+	if n, ok := tips.LastBlockNumber.Get(); ok {
+		nextToPersistBlock = n + 1
 	}
 	for {
 		// Wait for unpersisted data and/or executable heights to evict, then
@@ -720,17 +716,17 @@ func (s *State) runPersist(ctx context.Context) error {
 		var doWrite bool
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return persistOrEvictReady(inner, persistedQC, persistedBlock, evicted)
+				return persistOrEvictReady(inner, nextToPersistQC, nextToPersistBlock, evicted)
 			}); err != nil {
 				return err
 			}
-			doWrite = persistedQC < inner.nextQC || persistedBlock < inner.nextBlock
+			doWrite = nextToPersistQC < inner.nextQC || nextToPersistBlock < inner.nextBlock
 			if doWrite {
 				b.qcEnd = inner.nextQC
 				b.blockEnd = inner.nextBlock
-				// Collect deduplicated QCs for [persistedQC, nextQC).
+				// Collect deduplicated QCs for [nextToPersistQC, nextQC).
 				seen := map[types.GlobalBlockNumber]bool{}
-				for n := persistedQC; n < inner.nextQC; n++ {
+				for n := nextToPersistQC; n < inner.nextQC; n++ {
 					qc := inner.qcs[n]
 					qcFirst := qc.QC().GlobalRange().First
 					if !seen[qcFirst] {
@@ -738,8 +734,8 @@ func (s *State) runPersist(ctx context.Context) error {
 						b.qcs = append(b.qcs, qc)
 					}
 				}
-				// Collect blocks for [persistedBlock, nextBlock).
-				for n := persistedBlock; n < inner.nextBlock; n++ {
+				// Collect blocks for [nextToPersistBlock, nextBlock).
+				for n := nextToPersistBlock; n < inner.nextBlock; n++ {
 					b.blocks = append(b.blocks, blockEntry{n: n, block: inner.blocks[n]})
 				}
 			}
@@ -762,9 +758,9 @@ func (s *State) runPersist(ctx context.Context) error {
 			if err := s.blockDB.Flush(); err != nil {
 				return fmt.Errorf("flush BlockDB: %w", err)
 			}
-			persistedQC = b.qcEnd
-			persistedBlock = b.blockEnd
-			newToPersist := min(persistedQC, persistedBlock)
+			nextToPersistQC = b.qcEnd
+			nextToPersistBlock = b.blockEnd
+			newToPersist := min(nextToPersistQC, nextToPersistBlock)
 			for inner, ctrl := range s.inner.Lock() {
 				if newToPersist > inner.nextBlockToPersist {
 					inner.nextBlockToPersist = newToPersist
@@ -786,9 +782,9 @@ func (s *State) runPersist(ctx context.Context) error {
 // durable executed heights that can be dropped from the in-memory maps.
 func persistOrEvictReady(
 	inner *inner,
-	persistedQC, persistedBlock, evicted types.GlobalBlockNumber,
+	nextToPersistQC, nextToPersistBlock, evicted types.GlobalBlockNumber,
 ) bool {
-	if persistedQC < inner.nextQC || persistedBlock < inner.nextBlock {
+	if nextToPersistQC < inner.nextQC || nextToPersistBlock < inner.nextBlock {
 		return true
 	}
 	return inner.evictionBound() > evicted

@@ -330,6 +330,58 @@ func TestRecoveryQCsNoBlocks(t *testing.T) {
 	}
 }
 
+// TestRunPersistSeedsFromRecoveryFloor verifies that runPersist does not walk
+// [genesis, recoveryFloor) when Status lacks LastBlockNumber (QC-only store
+// whose first QC starts past FirstBlock). Seeding from nextBlockToPersist
+// avoids collecting nil block pointers.
+func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	dir := t.TempDir()
+
+	qc1, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	gr2 := qc2.QC().GlobalRange()
+	require.Greater(t, gr2.First, registry.FirstBlock(), "need skipTo past genesis")
+
+	// First WriteQC on an empty DB may start past genesis (crash / partial retain).
+	db1 := newTestBlockDB(t, dir)
+	require.NoError(t, db1.WriteQC(gr2.First, gr2.Next, qc2))
+	require.NoError(t, db1.Flush())
+	require.NoError(t, db1.Close())
+
+	db2 := newTestBlockDB(t, dir)
+	tips := db2.Status()
+	require.False(t, tips.LastBlockNumber.IsPresent())
+	_, ok := tips.LastQCNext.Get()
+	require.True(t, ok)
+
+	state := newTestState(t, &Config{Registry: registry}, db2)
+	require.Equal(t, gr2.First, state.NextBlock())
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		s.SpawnBgNamed("state.Run", func() error {
+			return utils.IgnoreCancel(state.Run(runCtx))
+		})
+		// Filling blocks must not panic inside runPersist's write loop.
+		for i, n := 0, gr2.First; n < gr2.Next; n++ {
+			if err := state.PushBlock(ctx, n, blocks2[i]); err != nil {
+				return err
+			}
+			i++
+		}
+		for n := gr2.First; n < gr2.Next; n++ {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+}
+
 // TestRecoveryBlockGap verifies that NewState returns an error when blocks in
 // BlockDB are not contiguous. WriteBlock only enforces strictly-ascending and
 // QC coverage, not continuity, so a gap can arise from corruption.
