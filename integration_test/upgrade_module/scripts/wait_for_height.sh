@@ -16,6 +16,12 @@ NODE_ID=${ID:-0}
 STATUS_TIMEOUT_SECONDS=${WAIT_FOR_HEIGHT_STATUS_TIMEOUT_SECONDS:-5}
 MAX_WAIT_SECONDS=${WAIT_FOR_HEIGHT_MAX_WAIT_SECONDS:-180}
 MAX_NO_PROGRESS_SECONDS=${WAIT_FOR_HEIGHT_MAX_NO_PROGRESS_SECONDS:-30}
+PROGRESS_KICK_SECONDS=${WAIT_FOR_HEIGHT_PROGRESS_KICK_SECONDS:-5}
+seidbin=seid
+chainid=sei
+TX_WAIT_TIMEOUT=${WAIT_FOR_HEIGHT_TX_WAIT_TIMEOUT:-$STATUS_TIMEOUT_SECONDS}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../../utils/_tx_helpers.sh"
 
 # if other nodes die, this node can have no peers, and it will stay on block-1
 # if that's the case, we should move forward (others are validating)
@@ -52,6 +58,9 @@ while true; do
 
    if [[ -n "$LAST_BLOCK_HEIGHT" && "$CURRENT_BLOCK_HEIGHT" -le "$LAST_BLOCK_HEIGHT" ]]; then
        ((NO_PROGRESS_COUNTER++))
+       if [[ "$NO_PROGRESS_COUNTER" -ge "$PROGRESS_KICK_SECONDS" ]]; then
+           TX_WAIT_TIMEOUT=$((MAX_WAIT_SECONDS - ELAPSED)) bank_send_until_height "$TARGET_BLOCK_HEIGHT" || true
+       fi
        if [[ "$NO_PROGRESS_COUNTER" -ge "$MAX_NO_PROGRESS_SECONDS" ]]; then
            echo "No block progress for ${NO_PROGRESS_COUNTER}s (current: $CURRENT_BLOCK_HEIGHT, target: $TARGET_BLOCK_HEIGHT)"
            exit 1

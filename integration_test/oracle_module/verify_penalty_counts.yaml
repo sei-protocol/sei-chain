@@ -6,8 +6,11 @@
     # Get vote period
     - cmd: seid q oracle params --output json | jq -r ".params.vote_period"
       env: VOTE_PERIOD
-    # Get current height
-    - cmd: seid q block | jq -r ".block.header.height"
+    # Get admin val addr
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
+      env: ADMIN_VAL_ADDR
+    # Wait until the sample has enough oracle vote periods and the success rate has settled.
+    - cmd: seidbin=seid; source integration_test/utils/_tx_helpers.sh && wait_for_oracle_penalty_success_rate $ADMIN_VAL_ADDR 15 5
       env: BLOCK_HEIGHT
     # calculate progress in slash window
     - cmd: expr $BLOCK_HEIGHT % $ORACLE_SLASH_WINDOW
@@ -15,9 +18,6 @@
     # get expected number of penalty counts
     - cmd: expr \( $WINDOW_PROGRESS + 1 \)  / $VOTE_PERIOD
       env: EXPECTED_COUNTS
-    # Get admin val addr
-    - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
-      env: ADMIN_VAL_ADDR
     # get vote penalty counts
     - cmd: seid q oracle vote-penalty-counter $ADMIN_VAL_ADDR --height $BLOCK_HEIGHT --output json | jq -r ".vote_penalty_counter"
       env: PENALTY_JSON
@@ -43,4 +43,3 @@
     # with the price-feeder retired, success rate should remain very low
     - type: eval
       expr: SUCCESS_PERCENT < 5
-

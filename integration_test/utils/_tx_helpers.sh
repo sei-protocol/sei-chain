@@ -116,6 +116,51 @@ wait_until_height_exceeds() {
         "[ \$($seidbin status | jq -r .SyncInfo.latest_block_height) -gt $min_height ]"
 }
 
+_get_latest_height() {
+    $seidbin status 2>/dev/null | jq -r '.SyncInfo.latest_block_height // "0"' 2>/dev/null
+}
+
+wait_for_oracle_penalty_success_rate() {
+    local validator_addr="$1"
+    local min_total="${2:-15}"
+    local max_success_percent="${3:-5}"
+    local timeout_secs="${4:-120}"
+    local interval_secs="${5:-2}"
+    local deadline=$(($(date +%s) + timeout_secs))
+    local last_height=0
+    local last_total=0
+    local last_success=0
+    local last_success_percent=0
+
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        local height
+        height=$($seidbin q block | jq -r ".block.header.height")
+        local penalty
+        penalty=$($seidbin q oracle vote-penalty-counter "$validator_addr" --height "$height" --output json | jq -r ".vote_penalty_counter")
+        local stats
+        stats=$(echo "$penalty" | jq -r '[.success_count | tonumber, ((.success_count | tonumber) + (.abstain_count | tonumber) + (.miss_count | tonumber))] | @tsv')
+        local success total
+        read -r success total <<<"$stats"
+
+        last_height="$height"
+        last_success="$success"
+        last_total="$total"
+        if [ "$total" -gt 0 ]; then
+            last_success_percent=$((success * 100 / total))
+        fi
+
+        if [ "$total" -ge "$min_total" ] && [ "$last_success_percent" -lt "$max_success_percent" ]; then
+            echo "$height"
+            return 0
+        fi
+        sleep "$interval_secs"
+    done
+
+    echo "timed out waiting for oracle penalty success rate < ${max_success_percent}% with at least $min_total samples (last height=$last_height success=$last_success total=$last_total percent=$last_success_percent)" >&2
+    echo "$last_height"
+    return 1
+}
+
 get_proposal_status() {
     $seidbin q gov proposal "$1" --output json 2>/dev/null | jq -r '.status // ""'
 }
@@ -265,6 +310,32 @@ bank_send_and_wait() {
     fi
     _wait_until "$from_addr sequence > $seq_before" \
         "[ \$(_get_account_sequence $from_addr) -gt $seq_before ]" || return 1
+}
+
+# Submit progress-only self-sends until the latest height reaches the target.
+# Useful under allow_empty_blocks=false when callers need real blocks instead
+# of idle time passing.
+# Usage: bank_send_until_height <target-height>
+bank_send_until_height() {
+    local target_height="$1"
+    local from_key="${BANK_SEND_UNTIL_HEIGHT_FROM_KEY:-admin}"
+    local amount_denom="${BANK_SEND_UNTIL_HEIGHT_AMOUNT:-1usei}"
+    local deadline=$(($(date +%s) + TX_WAIT_TIMEOUT))
+    local from_addr; from_addr=$(_get_key_address "$from_key")
+    local height=0
+
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        height=$(_get_latest_height)
+        if [[ "$height" =~ ^[0-9]+$ ]] && [ "$height" -ge "$target_height" ]; then
+            echo "$height"
+            return 0
+        fi
+
+        bank_send_and_wait "$from_key" "$from_addr" "$amount_denom" >/dev/null || return 1
+    done
+
+    echo "timed out sending progress txs until height $target_height (last height=${height:-unknown})" >&2
+    return 1
 }
 
 # Highest existing gov proposal id (0 if none / on transient query
