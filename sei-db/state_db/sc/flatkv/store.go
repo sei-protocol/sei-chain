@@ -177,6 +177,11 @@ type CommitStore struct {
 	// Changes to feed into the WAL at the next commit.
 	pendingChangeSets []*proto.NamedChangeSet
 
+	// pendingBlockHeight is the version stamped by the current buffered
+	// ApplyChangeSets. 0 means no pending apply. Commit requires version to
+	// match when this is non-zero.
+	pendingBlockHeight int64
+
 	lastSnapshotTime time.Time
 
 	// File lock prevents multiple processes from opening the same DB.

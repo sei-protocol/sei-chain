@@ -99,7 +99,7 @@ func TestImportMemiavlModulesToFlatKVRefusesExistingFlatKVWithoutForce(t *testin
 	require.NoError(t, memStore.Close())
 
 	flatStore := newTestFlatKVStoreAtHome(t, homeDir)
-	require.NoError(t, flatStore.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, flatStore.ApplyChangeSets(flatStore.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			noncePair(oldAddr, 9),

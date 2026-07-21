@@ -112,7 +112,7 @@ func commitMultiModuleState(t *testing.T, s *CommitStore, round byte) {
 	bankCS := moduleCS("bank",
 		&proto.KVPair{Key: []byte{0x01, round}, Value: []byte{round, 0xD1}},
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{evmCS, evmMiscCS, govCS, bankCS}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{evmCS, evmMiscCS, govCS, bankCS}))
 	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 }
@@ -222,7 +222,7 @@ func TestPerModuleLtHashDeleteModuleZerosHash(t *testing.T) {
 
 	govKey := []byte{0x01, 0x01}
 	set := moduleCS("gov", &proto.KVPair{Key: govKey, Value: []byte{0xAB}})
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{set}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{set}))
 	commitAndCheck(t, s)
 
 	zero := lthash.New().Checksum()
@@ -230,7 +230,7 @@ func TestPerModuleLtHashDeleteModuleZerosHash(t *testing.T) {
 		"gov module hash should be non-zero after write")
 
 	del := moduleCS("gov", &proto.KVPair{Key: govKey, Delete: true})
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{del}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{del}))
 	commitAndCheck(t, s)
 
 	require.Equal(t, zero, s.perDBModuleWorkingLtHash[miscDBDir]["gov"].Checksum(),

@@ -609,7 +609,9 @@ func buildFlatKVReader(flatKV flatkv.Store) DBReader {
 // Build a function capable of writing data to flatkv.
 func buildFlatKVWriter(flatKV flatkv.Store) DBWriter {
 	return func(changesets []*proto.NamedChangeSet, _ bool) error {
-		err := flatKV.ApplyChangeSets(changesets)
+		// Stamp at the next commit height so Apply/Commit versions match
+		// under the sequential composite commit path.
+		err := flatKV.ApplyChangeSets(flatKV.Version()+1, changesets)
 		if err != nil {
 			return fmt.Errorf("ApplyChangeSets: %w", err)
 		}

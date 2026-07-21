@@ -46,7 +46,7 @@ func TestFlatKVHashReporting(t *testing.T) {
 
 	// Write some EVM storage so the account/storage DBs have non-empty LtHashes.
 	key := evmStorageKey(ktype.Address{0x11}, ktype.Slot{0x22})
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(0x33), false)}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(0x33), false)}))
 	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 

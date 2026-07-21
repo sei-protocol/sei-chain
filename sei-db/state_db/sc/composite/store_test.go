@@ -31,10 +31,15 @@ var _ flatkv.Store = (*failingEVMStore)(nil)
 func (f *failingEVMStore) LoadVersion(int64, bool) (flatkv.Store, error) {
 	return nil, fmt.Errorf("flatkv unavailable")
 }
-func (f *failingEVMStore) ApplyChangeSets([]*proto.NamedChangeSet) error { return nil }
-func (f *failingEVMStore) Commit(int64) (int64, error)                   { return 0, nil }
-func (f *failingEVMStore) SetInitialVersion(int64) error                 { return nil }
-func (f *failingEVMStore) Get(string, []byte) ([]byte, bool)             { return nil, false }
+func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error {
+	return nil
+}
+func (f *failingEVMStore) Commit(int64) (int64, error) { return 0, nil }
+func (f *failingEVMStore) CommitBlock(int64, []*proto.NamedChangeSet) (int64, error) {
+	return 0, nil
+}
+func (f *failingEVMStore) SetInitialVersion(int64) error     { return nil }
+func (f *failingEVMStore) Get(string, []byte) ([]byte, bool) { return nil, false }
 func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
 	return -1, false, nil
 }

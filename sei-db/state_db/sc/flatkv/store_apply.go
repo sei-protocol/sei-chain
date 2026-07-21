@@ -15,7 +15,9 @@ import (
 
 // ApplyChangeSets classifies changesets, buffers pending writes, and folds
 // them into the working LtHash. Non-EVM modules go to miscDB under "<module>/".
-func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err error) {
+// Row last-modified heights are stamped with version; the same version must be
+// passed to the subsequent Commit.
+func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedChangeSet) (err error) {
 	// Hold the write lock for the whole body: it both reads (old values) and
 	// mutates (maps.Copy) the pending-writes maps, which iterator construction
 	// and Get read under a read lock.
@@ -29,13 +31,21 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err e
 	if s.readOnly {
 		return errReadOnly
 	}
+	if version <= s.committedVersion {
+		return fmt.Errorf("flatkv: apply version %d must be ahead of committed version %d",
+			version, s.committedVersion)
+	}
+	if s.pendingBlockHeight != 0 && s.pendingBlockHeight != version {
+		return fmt.Errorf("flatkv: cannot apply at height %d; pending writes already stamped at %d",
+			version, s.pendingBlockHeight)
+	}
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 	changesByType, err := classifyAndPrefix(changeSets)
 	if err != nil {
 		return err
 	}
-	pairSets, counts, err := s.prepareWrites(changesByType, s.committedVersion+1)
+	pairSets, counts, err := s.prepareWrites(changesByType, version)
 	if err != nil {
 		return err
 	}
@@ -51,9 +61,11 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err e
 	s.perDBModuleWorkingStats = res.PerModuleStats
 	s.workingLtHash = res.Global
 	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
+	s.pendingBlockHeight = version
 
 	s.phaseTimer.SetPhase("apply_change_done")
 	logger.Debug("FlatKV ApplyChangeSets complete",
+		"version", version,
 		"changesets", len(changeSets),
 		"writes", counts.accountWrites+counts.storageWrites+counts.codeWrites+counts.miscWrites,
 		"elapsed", obs.elapsed())

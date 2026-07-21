@@ -14,8 +14,9 @@ var _ DBWrapper = (*flatKVWrapper)(nil)
 // Version() returns the working version (committedVersion+1) when there are pending
 // changes, matching memiavl's WorkingCommitInfo().Version semantics for benchmarks.
 type flatKVWrapper struct {
-	base       flatkv.Store
-	hasPending bool
+	base           flatkv.Store
+	hasPending     bool
+	pendingVersion int64
 }
 
 // NewFlatKVWrapper creates a new flatKVWrapper with a given flatkv store.
@@ -26,19 +27,29 @@ func NewFlatKVWrapper(store flatkv.Store) DBWrapper {
 }
 
 func (f *flatKVWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
-	err := f.base.ApplyChangeSets(entry.Changesets)
+	version := entry.Version
+	if version <= 0 {
+		version = f.base.Version() + 1
+	}
+	err := f.base.ApplyChangeSets(version, entry.Changesets)
 	if err == nil {
 		f.hasPending = true
+		f.pendingVersion = version
 	}
 	return err
 }
 
 func (f *flatKVWrapper) Commit() (int64, error) {
-	version, err := f.base.Commit(f.base.Version() + 1)
+	version := f.pendingVersion
+	if version == 0 {
+		version = f.base.Version() + 1
+	}
+	committed, err := f.base.Commit(version)
 	if err == nil {
 		f.hasPending = false
+		f.pendingVersion = 0
 	}
-	return version, err
+	return committed, err
 }
 
 func (f *flatKVWrapper) LoadVersion(version int64) error {

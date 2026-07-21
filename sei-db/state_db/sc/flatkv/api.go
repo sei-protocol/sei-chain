@@ -29,17 +29,20 @@ type Store interface {
 	// the caller must Close it when done.
 	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
 
-	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
-	// Non-EVM modules are routed into misc storage under their module prefix.
-	// Call Commit to persist.
-	ApplyChangeSets(cs []*proto.NamedChangeSet) error
+	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates
+	// LtHash, stamping row last-modified heights with version. Non-EVM modules
+	// are routed into misc storage under their module prefix.
+	// version must match the subsequent Commit(version). Call Commit to persist.
+	ApplyChangeSets(version int64, cs []*proto.NamedChangeSet) error
 
 	// Commit persists buffered writes at the given version (block height).
+	// If ApplyChangeSets has buffered writes, version must equal the height
+	// those rows were stamped with.
 	Commit(version int64) (int64, error)
 
-	// CommitBlock is a Giga only API for commiting all changesets till a given block height.
-	// version is the target version we want to commit till. In batch commit mode,
-	// we should be passing the last block height as well as all changesets in the batch.
+	// CommitBlock is a Giga-only helper that applies changesets and commits
+	// them at version in one call. version is the target height (last block
+	// in a batch).
 	CommitBlock(version int64, cs []*proto.NamedChangeSet) (int64, error)
 
 	// SetInitialVersion seeds the store so that Commit(initialVersion) is

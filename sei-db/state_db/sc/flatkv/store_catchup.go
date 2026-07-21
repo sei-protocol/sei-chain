@@ -198,7 +198,7 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 			return fmt.Errorf("catchup: WAL hole: expected version %d, got %d", expectedNext, entry.Version)
 		}
 
-		if err := s.ApplyChangeSets(entry.Changesets); err != nil {
+		if err := s.ApplyChangeSets(entry.Version, entry.Changesets); err != nil {
 			return fmt.Errorf("catchup apply v%d: %w", entry.Version, err)
 		}
 		if err := s.commitBatches(entry.Version); err != nil {

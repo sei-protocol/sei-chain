@@ -19,7 +19,7 @@ import (
 // Giga-only helper for batch commit: version is the target height (the last
 // block in the batch), and changesets are all writes for that batch.
 func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) (int64, error) {
-	if err := s.ApplyChangeSets(changesets); err != nil {
+	if err := s.ApplyChangeSets(version, changesets); err != nil {
 		return s.committedVersion, err
 	}
 	return s.Commit(version)
@@ -64,6 +64,10 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	}
 	if version <= s.committedVersion {
 		return 0, fmt.Errorf("flatkv: committing bad version: got %d, current %d", version, s.committedVersion)
+	}
+	if s.pendingBlockHeight != 0 && version != s.pendingBlockHeight {
+		return 0, fmt.Errorf("flatkv: commit version %d does not match applied block height %d",
+			version, s.pendingBlockHeight)
 	}
 
 	// Step 1: Write Changelog (WAL) - source of truth (always sync)
@@ -159,6 +163,7 @@ func (s *CommitStore) clearPendingWrites() {
 	s.storageWrites = make(map[string]*vtype.StorageData, len(s.storageWrites))
 	s.miscWrites = make(map[string]*vtype.MiscData, len(s.miscWrites))
 	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0, len(s.pendingChangeSets))
+	s.pendingBlockHeight = 0
 }
 
 // commitBatches commits pending writes to their respective DBs atomically.

@@ -149,7 +149,7 @@ func TestPrepareFlatKVToolingCloneRetriesENOENT(t *testing.T) {
 // dedicated mount point.
 func TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir(t *testing.T) {
 	store, dbDir := newDiskBackedFlatKVStore(t)
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			noncePair(addrN(0xA1), 1),
@@ -179,7 +179,7 @@ func TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir(t *testing.T) {
 func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
 	store, dbDir := newDiskBackedFlatKVStore(t)
 
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			noncePair(addrN(0xA1), 1),
@@ -190,7 +190,7 @@ func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
 	require.NoError(t, store.WriteSnapshot(""))
 
 	for i := byte(2); i <= 5; i++ {
-		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+		require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 			Name: keys.EVMStoreKey,
 			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 				noncePair(addrN(i), uint64(i)),
@@ -231,7 +231,7 @@ func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
 	addrA := addrN(0xA1)
 	addrB := addrN(0xB2)
 
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			noncePair(addrA, 1),
@@ -241,7 +241,7 @@ func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.WriteSnapshot(""))
 
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			noncePair(addrB, 2),
@@ -274,7 +274,7 @@ func TestOpenFlatKVReadOnlyAfterSetInitialVersion(t *testing.T) {
 	addr := addrN(0xC3)
 
 	require.NoError(t, store.SetInitialVersion(100))
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			noncePair(addr, 7),
