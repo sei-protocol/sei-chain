@@ -1438,6 +1438,27 @@ func TestQueryDelegationRewards(t *testing.T) {
 	require.Nil(t, err)
 	executor := p.GetExecutor().(*distribution.PrecompileExecutor)
 
+	// The rewards queriers call IncrementValidatorPeriod internally; the views
+	// must run on a branched context so the period bump is discarded.
+	periodBefore := testApp.DistrKeeper.GetValidatorCurrentRewards(ctx, val).Period
+	rewardsStateDb := state.NewDBImpl(ctx, k, true)
+	rewardsEvm := vm.EVM{StateDB: rewardsStateDb}
+	for _, q := range []struct {
+		methodID []byte
+		args     []interface{}
+	}{
+		{executor.DelegationRewardsID, []interface{}{delegatorEvmAddr, val.String()}},
+		{executor.RewardsID, []interface{}{delegatorEvmAddr}},
+	} {
+		qMethod, err := p.ABI.MethodById(q.methodID)
+		require.Nil(t, err)
+		qInputs, err := qMethod.Inputs.Pack(q.args...)
+		require.Nil(t, err)
+		_, _, err = p.RunAndCalculateGas(&rewardsEvm, common.Address{}, common.Address{}, append(qMethod.ID, qInputs...), uint64(1000000), nil, nil, true, false)
+		require.Nil(t, err)
+	}
+	require.Equal(t, periodBefore, testApp.DistrKeeper.GetValidatorCurrentRewards(rewardsStateDb.Ctx(), val).Period)
+
 	// delegationRewards: (100 - 5% commission) / 2 = 47.5
 	ret, method := runDistrQuery(t, ctx, testApp, p, executor.DelegationRewardsID, delegatorEvmAddr, val.String())
 	expected, err := method.Outputs.Pack([]distribution.Coin{

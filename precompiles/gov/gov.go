@@ -129,6 +129,14 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return nil, 0, errors.New("cannot delegatecall gov")
 	}
 
+	if !p.IsTransaction(method.Name) {
+		// Queries must not mutate state even when the underlying querier has
+		// side effects (gov's TallyResult calls Tally, which deletes votes as
+		// it counts), so run every view on a branched context and discard the
+		// writes.
+		ctx, _ = ctx.CacheContext()
+	}
+
 	switch method.Name {
 	case ProposalQueryMethod:
 		return p.proposalQuery(ctx, method, args, value)

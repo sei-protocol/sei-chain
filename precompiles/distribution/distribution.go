@@ -130,6 +130,12 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, 0, errors.New("cannot delegatecall distr")
 	}
+	if !p.IsTransaction(method.Name) {
+		// Queries must not mutate state even when the underlying querier has
+		// side effects (the rewards queriers call IncrementValidatorPeriod),
+		// so run every view on a branched context and discard the writes.
+		ctx, _ = ctx.CacheContext()
+	}
 	switch method.Name {
 	case SetWithdrawAddressMethod:
 		if readOnly {
@@ -178,6 +184,17 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 
 func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
+}
+
+// IsTransaction returns true for methods that mutate state; all other
+// distribution methods are views.
+func (PrecompileExecutor) IsTransaction(method string) bool {
+	switch method {
+	case SetWithdrawAddressMethod, WithdrawDelegationRewardsMethod, WithdrawMultipleDelegationRewardsMethod, WithdrawValidatorCommissionMethod:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p PrecompileExecutor) setWithdrawAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {

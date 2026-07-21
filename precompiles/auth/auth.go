@@ -84,6 +84,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			err = fmt.Errorf("execution reverted: %v", r)
 		}
 	}()
+	// Queries must not mutate state even when the underlying querier has side
+	// effects (e.g. auth's NextAccountNumber increments the global account
+	// number counter, gov's Tally deletes votes), so run every view on a
+	// branched context and discard the writes.
+	ctx, _ = ctx.CacheContext()
 	switch method.Name {
 	case AccountMethod:
 		return p.account(ctx, method, args, value)
@@ -238,10 +243,9 @@ func (p PrecompileExecutor) nextAccountNumber(ctx sdk.Context, method *abi.Metho
 	}
 
 	// GetNextAccountNumber increments and persists the global counter as a
-	// side effect; query on a branched context and discard the write so this
-	// method stays a read-only view.
-	cacheCtx, _ := ctx.CacheContext()
-	resp, err := p.authQuerier.NextAccountNumber(sdk.WrapSDKContext(cacheCtx), &authtypes.QueryNextAccountNumberRequest{})
+	// side effect; Execute already branched the context, so the write is
+	// discarded and this method stays a read-only view.
+	resp, err := p.authQuerier.NextAccountNumber(sdk.WrapSDKContext(ctx), &authtypes.QueryNextAccountNumberRequest{})
 	if err != nil {
 		return nil, 0, err
 	}

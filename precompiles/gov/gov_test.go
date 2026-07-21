@@ -924,6 +924,20 @@ func TestGovQueryPrecompile(t *testing.T) {
 		require.NotNil(t, err)
 	})
 
+	t.Run("tallyResult does not delete votes", func(t *testing.T) {
+		method := govAbi.Methods[gov.TallyResultQueryMethod]
+		inputs, err := method.Inputs.Pack(proposalID)
+		require.Nil(t, err)
+		statedb := state.NewDBImpl(ctx, k, true)
+		evm := vm.EVM{StateDB: statedb}
+		_, _, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 1000000, nil, nil, true, false)
+		require.Nil(t, err)
+		// Tally deletes votes as it counts; the view must run on a branched
+		// context so the deletion is discarded.
+		_, found := testApp.GovKeeper.GetVote(statedb.Ctx(), proposalID, voterSeiAddr)
+		require.True(t, found)
+	})
+
 	t.Run("out of gas returns revert error instead of panicking", func(t *testing.T) {
 		method := govAbi.Methods[gov.ProposalQueryMethod]
 		inputs, err := method.Inputs.Pack(proposalID)
