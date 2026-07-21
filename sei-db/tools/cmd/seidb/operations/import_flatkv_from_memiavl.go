@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -16,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/spf13/cobra"
 )
@@ -31,17 +33,39 @@ import (
 // different stages of the pipeline.
 const translatorBatchSize = 2048
 
+// importAllModules is the sentinel accepted by --modules that selects every
+// module emitted by the memiavl exporter (a full memiavl -> FlatKV
+// conversion, as a completed bank migration would leave the store).
+const importAllModules = "all"
+
+// markMigratedVersions maps the accepted --mark-as-migrated values to the
+// migration version persisted after a successful import.
+var markMigratedVersions = map[string]uint64{
+	keys.EVMStoreKey: migration.Version1_MigrateEVM,
+	importAllModules: migration.Version3_FlatKVOnly,
+}
+
 // ImportFlatKVFromMemiavlCmd imports selected memiavl modules into FlatKV.
 //
-// Initial production scope is intentionally narrow: only the evm module is
-// accepted. Non-EVM modules remain in memiavl and are not copied into FlatKV.
-// Importing resets FlatKV and replaces it with the selected memiavl data; the
-// CLI refuses to run over existing FlatKV data unless --force is supplied.
+// Two scopes are supported: the evm module alone (the original production
+// scope), or --modules all for a full memiavl -> FlatKV conversion. Arbitrary
+// module subsets are rejected: a partial non-EVM import corresponds to no
+// valid migration stage and would leave the store in a state DeriveWriteMode
+// cannot classify. Importing resets FlatKV and replaces it with the selected
+// memiavl data; the CLI refuses to run over existing FlatKV data unless
+// --force is supplied.
 func ImportFlatKVFromMemiavlCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import-flatkv-from-memiavl",
 		Short: "Import selected memiavl modules into FlatKV",
 		Long: strings.TrimSpace(`Import selected memiavl modules into FlatKV.
+
+Supported scopes: the evm module alone (default), or --modules all to convert
+every memiavl module into FlatKV.
+
+With --mark-as-migrated, a successful import also persists the matching
+migration version into FlatKV's migration store (evm -> version 1, all ->
+version 3) so a subsequent startup derives the corresponding write mode.
 
 WARNING: this restore-style import resets the FlatKV directory before loading
 the imported rows. If FlatKV already has committed data, the command refuses to
@@ -52,12 +76,17 @@ run unless --force is supplied.`),
 			modules, _ := cmd.Flags().GetStringSlice("modules")
 			height, _ := cmd.Flags().GetInt64("height")
 			force, _ := cmd.Flags().GetBool("force")
+			markAsMigrated, _ := cmd.Flags().GetString("mark-as-migrated")
 
 			resolvedHome, err := resolveSeiHome(homeDir, dataDir)
 			if err != nil {
 				return err
 			}
-			modules, err = normalizeImportModules(modules)
+			modules, importAll, err := normalizeImportModules(modules)
+			if err != nil {
+				return err
+			}
+			markVersion, err := resolveMarkAsMigrated(markAsMigrated, importAll)
 			if err != nil {
 				return err
 			}
@@ -65,15 +94,50 @@ run unless --force is supplied.`),
 				return fmt.Errorf("height %d out of range", height)
 			}
 
-			return importMemiavlModulesToFlatKV(cmd.Context(), resolvedHome, modules, height, force)
+			return importMemiavlModulesToFlatKV(cmd.Context(), resolvedHome, importScope{
+				modules:     modules,
+				importAll:   importAll,
+				height:      height,
+				force:       force,
+				markVersion: markVersion,
+			})
 		},
 	}
 	cmd.Flags().String("home", "", "Sei home directory. Defaults to $HOME/.sei")
 	cmd.Flags().String("data-dir", "", "Sei data directory or home directory. If the basename is data, its parent is used as home")
-	cmd.Flags().StringSlice("modules", []string{keys.EVMStoreKey}, "Comma-separated module names to import. Initial production scope supports only evm")
+	cmd.Flags().StringSlice("modules", []string{keys.EVMStoreKey}, "Modules to import: evm (default) or all")
 	cmd.Flags().Int64("height", 0, "memiavl version to import. 0 means latest")
 	cmd.Flags().Bool("force", false, "Overwrite existing committed FlatKV data")
+	cmd.Flags().String("mark-as-migrated", "", "After a successful import, persist the matching migration version into FlatKV: evm (version 1) or all (version 3). Must match the import scope")
 	return cmd
+}
+
+// importScope bundles the resolved CLI inputs for importMemiavlModulesToFlatKV.
+type importScope struct {
+	modules   []string
+	importAll bool
+	height    int64
+	force     bool
+	// markVersion, when non-zero, is the migration version to persist into
+	// FlatKV's migration store as part of the import.
+	markVersion uint64
+}
+
+// resolveMarkAsMigrated validates --mark-as-migrated against the import scope
+// and returns the migration version to persist (0 = none).
+func resolveMarkAsMigrated(value string, importAll bool) (uint64, error) {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return 0, nil
+	}
+	version, ok := markMigratedVersions[value]
+	if !ok {
+		return 0, fmt.Errorf("--mark-as-migrated %q is not supported; expected %q or %q", value, keys.EVMStoreKey, importAllModules)
+	}
+	if importAll != (value == importAllModules) {
+		return 0, fmt.Errorf("--mark-as-migrated %q does not match the import scope; use --mark-as-migrated=evm with --modules evm and --mark-as-migrated=all with --modules all", value)
+	}
+	return version, nil
 }
 
 func resolveSeiHome(homeDir, dataDir string) (string, error) {
@@ -94,7 +158,10 @@ func resolveSeiHome(homeDir, dataDir string) (string, error) {
 	return filepath.Join(home, ".sei"), nil
 }
 
-func normalizeImportModules(modules []string) ([]string, error) {
+// normalizeImportModules parses --modules into either the evm-only scope or
+// the all-modules scope (importAll=true, modules=nil). Arbitrary subsets are
+// rejected: a partial non-EVM import corresponds to no valid migration stage.
+func normalizeImportModules(modules []string) ([]string, bool, error) {
 	if len(modules) == 0 {
 		modules = []string{keys.EVMStoreKey}
 	}
@@ -102,12 +169,14 @@ func normalizeImportModules(modules []string) ([]string, error) {
 	normalized := make([]string, 0, len(modules))
 	for _, module := range modules {
 		for _, part := range strings.Split(module, ",") {
-			name := strings.TrimSpace(part)
+			name := strings.TrimSpace(strings.ToLower(part))
 			if name == "" {
 				continue
 			}
-			if name != keys.EVMStoreKey {
-				return nil, fmt.Errorf("module %q is not supported yet; initial import scope is evm-only", name)
+			if name != keys.EVMStoreKey && name != importAllModules {
+				return nil, false, fmt.Errorf(
+					"module %q is not supported; use %q for the evm module or %q for a full conversion",
+					name, keys.EVMStoreKey, importAllModules)
 			}
 			if _, ok := seen[name]; ok {
 				continue
@@ -117,9 +186,15 @@ func normalizeImportModules(modules []string) ([]string, error) {
 		}
 	}
 	if len(normalized) == 0 {
-		return nil, errors.New("at least one module must be specified")
+		return nil, false, errors.New("at least one module must be specified")
 	}
-	return normalized, nil
+	if len(normalized) > 1 {
+		return nil, false, fmt.Errorf("--modules %v is ambiguous; specify either %q or %q", normalized, keys.EVMStoreKey, importAllModules)
+	}
+	if normalized[0] == importAllModules {
+		return nil, true, nil
+	}
+	return normalized, false, nil
 }
 
 // importerErr surfaces any pipeline error the FlatKV importer's worker
@@ -150,7 +225,8 @@ func emitPairs(importer sctypes.Importer, pairs []flatkv.PhysicalKVPair, height 
 	return int64(len(pairs))
 }
 
-func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules []string, height int64, force bool) (err error) {
+func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, scope importScope) (err error) {
+	modules, height, force := scope.modules, scope.height, scope.force
 	cosmosDir := utils.GetCosmosSCStorePath(homeDir)
 	memiavlLatest, err := memiavl.GetLatestVersion(cosmosDir)
 	if err != nil {
@@ -293,7 +369,11 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 				return err
 			}
 			batch.Name = v
-			_, acceptCurrent = moduleSet[v]
+			if scope.importAll {
+				acceptCurrent = true
+			} else {
+				_, acceptCurrent = moduleSet[v]
+			}
 			if acceptCurrent {
 				// AddModule takes the source module name (here the memiavl
 				// module being read), not the destination store name. On
@@ -306,15 +386,12 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 				}
 			}
 		case *sctypes.SnapshotNode:
-			// EVM-only choke point. normalizeImportModules already rejects
-			// non-EVM module names at the CLI boundary, so today this skip
-			// is defense-in-depth. If a future expansion adds another
-			// module to the allow-list, this `continue` is what keeps that
-			// module's pairs out of the importer -- the flatkv store does
-			// not have a routing path for non-EVM physical keys yet, and
-			// silently accepting them would land them in the miscDB
-			// bucket. Any allow-list change MUST be paired with a flatkv
-			// routePhysicalKey extension; otherwise leave this skip alone.
+			// Scope choke point. In the evm-only scope this skip keeps
+			// non-EVM pairs out of the importer; in the all-modules scope
+			// every module is accepted. Non-EVM pairs are handled by the
+			// same path a live FlatKVOnly commit uses: classifyAndPrefix
+			// (inside ImportTranslator) prefixes them "<module>/" into the
+			// misc bucket and routePhysicalKey routes them to miscDB.
 			if !acceptCurrent {
 				continue
 			}
@@ -347,13 +424,44 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 		return fmt.Errorf("FlatKV import failed: %w", err)
 	}
 
+	// Persist the migration version through the import stream itself (rather
+	// than a post-import ApplyChangeSets+Commit, which would advance the
+	// FlatKV version past the memiavl height). The key rides the same
+	// translator path a live migration-completion block uses — a misc-bucket
+	// pair under the "migration/" module prefix — so it participates in the
+	// imported store's LtHash exactly like it would on a live node.
+	if scope.markVersion != 0 {
+		versionBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(versionBytes, scope.markVersion)
+		metaPairs, err := translator.Translate(&proto.NamedChangeSet{
+			Name: migration.MigrationStore,
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte(migration.MigrationVersionKey), Value: versionBytes},
+			}},
+		})
+		if err != nil {
+			return fmt.Errorf("translate migration metadata: %w", err)
+		}
+		written += emitPairs(importer, metaPairs, height)
+	}
+
 	written += emitPairs(importer, translator.Finalize(), height)
 
 	if err := importer.Close(); err != nil {
 		return fmt.Errorf("failed to finalize FlatKV import: %w", err)
 	}
-	fmt.Printf("Imported %d memiavl key/value pairs into %d FlatKV rows from modules %v at height %d (per-module: %v)\n",
-		imported, written, modules, height, moduleCounts)
+	scopeLabel := fmt.Sprintf("%v", modules)
+	if scope.importAll {
+		scopeLabel = importAllModules
+	}
+	fmt.Printf("Imported %d memiavl key/value pairs into %d FlatKV rows from modules %s at height %d (per-module: %v)\n",
+		imported, written, scopeLabel, height, moduleCounts)
+	if scope.markVersion != 0 {
+		fmt.Printf("Marked FlatKV migration version %d in the %q store\n", scope.markVersion, migration.MigrationStore)
+	}
+	if scope.importAll && scope.markVersion == migration.Version3_FlatKVOnly {
+		fmt.Println("NOTE: for a flatkv_only node the memiavl directory is no longer read; it can be removed to reclaim space")
+	}
 	return nil
 }
 

@@ -12,6 +12,8 @@ import (
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,7 +50,7 @@ func TestImportMemiavlModulesToFlatKVEncodesEVMValues(t *testing.T) {
 	require.Equal(t, int64(1), version)
 	require.NoError(t, memStore.Close())
 
-	require.NoError(t, importMemiavlModulesToFlatKV(context.Background(), homeDir, []string{keys.EVMStoreKey}, 0, false))
+	require.NoError(t, importMemiavlModulesToFlatKV(context.Background(), homeDir, importScope{modules: []string{keys.EVMStoreKey}, height: 0, force: false}))
 
 	flatStore := newTestFlatKVStoreAtHome(t, homeDir)
 	defer func() { require.NoError(t, flatStore.Close()) }()
@@ -109,7 +111,7 @@ func TestImportMemiavlModulesToFlatKVRefusesExistingFlatKVWithoutForce(t *testin
 	require.NoError(t, err)
 	require.NoError(t, flatStore.Close())
 
-	err = importMemiavlModulesToFlatKV(context.Background(), homeDir, []string{keys.EVMStoreKey}, 0, false)
+	err = importMemiavlModulesToFlatKV(context.Background(), homeDir, importScope{modules: []string{keys.EVMStoreKey}, height: 0, force: false})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "already has committed version")
 	require.Contains(t, err.Error(), "--force")
@@ -122,7 +124,7 @@ func TestImportMemiavlModulesToFlatKVRefusesExistingFlatKVWithoutForce(t *testin
 	require.False(t, found)
 	require.NoError(t, flatStore.Close())
 
-	require.NoError(t, importMemiavlModulesToFlatKV(context.Background(), homeDir, []string{keys.EVMStoreKey}, 0, true))
+	require.NoError(t, importMemiavlModulesToFlatKV(context.Background(), homeDir, importScope{modules: []string{keys.EVMStoreKey}, height: 0, force: true}))
 
 	flatStore = newTestFlatKVStoreAtHome(t, homeDir)
 	defer func() { require.NoError(t, flatStore.Close()) }()
@@ -134,7 +136,7 @@ func TestImportMemiavlModulesToFlatKVRefusesExistingFlatKVWithoutForce(t *testin
 }
 
 func TestImportMemiavlModulesToFlatKVRejectsOutOfRangeResolvedHeight(t *testing.T) {
-	err := importMemiavlModulesToFlatKV(context.Background(), t.TempDir(), []string{keys.EVMStoreKey}, math.MaxUint32+1, false)
+	err := importMemiavlModulesToFlatKV(context.Background(), t.TempDir(), importScope{modules: []string{keys.EVMStoreKey}, height: math.MaxUint32 + 1, force: false})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "out of range")
 }
@@ -171,7 +173,7 @@ func TestImportMemiavlModulesToFlatKVRefusesStaleHeight(t *testing.T) {
 	require.Equal(t, int64(2), v2)
 	require.NoError(t, memStore.Close())
 
-	err = importMemiavlModulesToFlatKV(context.Background(), homeDir, []string{keys.EVMStoreKey}, 1, false)
+	err = importMemiavlModulesToFlatKV(context.Background(), homeDir, importScope{modules: []string{keys.EVMStoreKey}, height: 1, force: false})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "refusing to import FlatKV at height 1")
 	require.Contains(t, err.Error(), "memiavl latest is 2")
@@ -202,7 +204,7 @@ func TestImportMemiavlModulesToFlatKVRefusesFutureHeight(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, memStore.Close())
 
-	err = importMemiavlModulesToFlatKV(context.Background(), homeDir, []string{keys.EVMStoreKey}, 5, false)
+	err = importMemiavlModulesToFlatKV(context.Background(), homeDir, importScope{modules: []string{keys.EVMStoreKey}, height: 5, force: false})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ahead of memiavl latest 1")
 }
@@ -296,7 +298,7 @@ func TestImportMemiavlModulesToFlatKVHandlesLargeDataset(t *testing.T) {
 	require.Equal(t, int64(1), version)
 	require.NoError(t, memStore.Close())
 
-	require.NoError(t, importMemiavlModulesToFlatKV(context.Background(), homeDir, []string{keys.EVMStoreKey}, 0, false))
+	require.NoError(t, importMemiavlModulesToFlatKV(context.Background(), homeDir, importScope{modules: []string{keys.EVMStoreKey}, height: 0, force: false}))
 
 	flatStore := newTestFlatKVStoreAtHome(t, homeDir)
 	defer func() { require.NoError(t, flatStore.Close()) }()
@@ -338,6 +340,152 @@ func TestImportMemiavlModulesToFlatKVHandlesLargeDataset(t *testing.T) {
 	missingAddr := makeAddr(numAddrs + 1)
 	_, found := flatStore.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, missingAddr[:]))
 	require.False(t, found, "synthetic-out-of-range address must not exist")
+}
+
+func TestNormalizeImportModulesScopes(t *testing.T) {
+	mods, importAll, err := normalizeImportModules(nil)
+	require.NoError(t, err)
+	require.False(t, importAll)
+	require.Equal(t, []string{keys.EVMStoreKey}, mods)
+
+	mods, importAll, err = normalizeImportModules([]string{"all"})
+	require.NoError(t, err)
+	require.True(t, importAll)
+	require.Nil(t, mods)
+
+	_, _, err = normalizeImportModules([]string{"bank"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not supported")
+
+	_, _, err = normalizeImportModules([]string{"evm", "all"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ambiguous")
+}
+
+func TestResolveMarkAsMigrated(t *testing.T) {
+	v, err := resolveMarkAsMigrated("", false)
+	require.NoError(t, err)
+	require.Zero(t, v)
+
+	v, err = resolveMarkAsMigrated("evm", false)
+	require.NoError(t, err)
+	require.Equal(t, uint64(migration.Version1_MigrateEVM), v)
+
+	v, err = resolveMarkAsMigrated("all", true)
+	require.NoError(t, err)
+	require.Equal(t, uint64(migration.Version3_FlatKVOnly), v)
+
+	_, err = resolveMarkAsMigrated("evm", true)
+	require.Error(t, err)
+	_, err = resolveMarkAsMigrated("all", false)
+	require.Error(t, err)
+	_, err = resolveMarkAsMigrated("bogus", false)
+	require.Error(t, err)
+}
+
+// TestImportMemiavlModulesToFlatKVAllModulesMarksFlatKVOnly covers the full
+// memiavl -> FlatKV conversion path: non-EVM modules land in the misc bucket
+// via the same classifyAndPrefix path a live FlatKVOnly commit uses, EVM data
+// is translated as before, and --mark-as-migrated=all persists migration
+// version 3 so a reopened store derives the FlatKVOnly write mode.
+func TestImportMemiavlModulesToFlatKVAllModulesMarksFlatKVOnly(t *testing.T) {
+	homeDir := t.TempDir()
+	addr := addrN(0x42)
+	slot := slotN(0x07)
+	bankKey := []byte("balances/sei1abc")
+	bankValue := []byte{0x01, 0x02, 0x03}
+	stakingKey := []byte("validators/v1")
+	stakingValue := []byte{0x04}
+	nonceValue := uint64(7)
+
+	cfg := memiavl.DefaultConfig()
+	cfg.AsyncCommitBuffer = 0
+	memStore := memiavl.NewCommitStore(homeDir, cfg)
+	memStore.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey, keys.StakingStoreKey})
+	_, err := memStore.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.NoError(t, memStore.ApplyChangeSets([]*proto.NamedChangeSet{
+		{
+			Name: keys.BankStoreKey,
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: bankKey, Value: bankValue},
+			}},
+		},
+		{
+			Name: keys.EVMStoreKey,
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				storagePair(addr, slot, 0x2A),
+				noncePair(addr, nonceValue),
+			}},
+		},
+		{
+			Name: keys.StakingStoreKey,
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: stakingKey, Value: stakingValue},
+			}},
+		},
+	}))
+	version, err := memStore.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), version)
+	require.NoError(t, memStore.Close())
+
+	require.NoError(t, importMemiavlModulesToFlatKV(context.Background(), homeDir, importScope{
+		importAll:   true,
+		markVersion: migration.Version3_FlatKVOnly,
+	}))
+
+	flatStore := newTestFlatKVStoreAtHome(t, homeDir)
+	defer func() { require.NoError(t, flatStore.Close()) }()
+
+	gotBank, found := flatStore.Get(keys.BankStoreKey, bankKey)
+	require.True(t, found)
+	require.Equal(t, bankValue, gotBank)
+
+	gotStaking, found := flatStore.Get(keys.StakingStoreKey, stakingKey)
+	require.True(t, found)
+	require.Equal(t, stakingValue, gotStaking)
+
+	gotStorage, found := flatStore.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
+	require.True(t, found)
+	require.Equal(t, padLeft32(0x2A), gotStorage)
+
+	gotNonce, found := flatStore.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+	require.True(t, found)
+	require.Equal(t, nonceBytesBE(nonceValue), gotNonce)
+
+	mode, err := migration.DeriveWriteMode(flatStore)
+	require.NoError(t, err)
+	require.Equal(t, sctypes.FlatKVOnly, mode)
+}
+
+// TestImportMemiavlModulesToFlatKVEVMScopeMarksEVMMigrated pins the evm-scope
+// variant of --mark-as-migrated: migration version 1 is persisted and a
+// reopened store derives the EVMMigrated write mode.
+func TestImportMemiavlModulesToFlatKVEVMScopeMarksEVMMigrated(t *testing.T) {
+	homeDir := t.TempDir()
+	addr := addrN(0x42)
+
+	memStore := newTestMemiavlStore(t, homeDir)
+	require.NoError(t, memStore.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name:      keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 1)}},
+	}}))
+	_, err := memStore.Commit()
+	require.NoError(t, err)
+	require.NoError(t, memStore.Close())
+
+	require.NoError(t, importMemiavlModulesToFlatKV(context.Background(), homeDir, importScope{
+		modules:     []string{keys.EVMStoreKey},
+		markVersion: migration.Version1_MigrateEVM,
+	}))
+
+	flatStore := newTestFlatKVStoreAtHome(t, homeDir)
+	defer func() { require.NoError(t, flatStore.Close()) }()
+
+	mode, err := migration.DeriveWriteMode(flatStore)
+	require.NoError(t, err)
+	require.Equal(t, sctypes.EVMMigrated, mode)
 }
 
 func newTestMemiavlStore(t *testing.T, homeDir string) *memiavl.CommitStore {

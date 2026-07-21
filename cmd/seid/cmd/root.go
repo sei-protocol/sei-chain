@@ -147,6 +147,8 @@ func initRootCmd(
 		config.Cmd(),
 		tools.ToolCmd(),
 		SnapshotCmd(),
+		FlatKVArchiveCmd(),
+		ForkLocalnetCmd(app.DefaultNodeHome),
 		LogLevelCmd(),
 	)
 
