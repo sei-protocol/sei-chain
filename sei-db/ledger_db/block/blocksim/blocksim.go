@@ -528,6 +528,9 @@ func openBlockDB(config *BlocksimConfig) (types.BlockDB, error) {
 			return nil, fmt.Errorf("failed to build litt block db config: %w", err)
 		}
 		littConfig.Retention = time.Duration(config.LittRetentionSeconds) * time.Second
+		if len(config.LittPaths) > 0 {
+			littConfig.Litt.Paths = config.LittPaths
+		}
 		// Record litt_* metrics into blocksim's already-configured global OTel MeterProvider (set up in
 		// main before the DB is opened). MetricsServeEndpoint stays false so LittDB does not stand up its
 		// own registry/server; the metrics surface on blocksim's single /metrics endpoint.

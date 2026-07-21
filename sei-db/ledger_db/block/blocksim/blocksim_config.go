@@ -109,6 +109,12 @@ type BlocksimConfig struct {
 	// Useful for testing steady-state performance rather than max-throughput thrashing.
 	MaxBlocksPerSecond float64
 
+	// Optional list of directories for the "litt" backend to spread its data
+	// across, one per drive (litt shards segments across paths natively).
+	// When empty, data lives under DataDir. DataDir is still used for
+	// blocksim's own bookkeeping either way.
+	LittPaths []string
+
 	// This field is ignored, but allows for a comment to be added to the config file.
 	Comment string
 }
