@@ -3,9 +3,11 @@
 # Fetch the target block height from the parameters
 TARGET_BLOCK_HEIGHT=${1//\'/}
 TARGET_BLOCK_HEIGHT=${TARGET_BLOCK_HEIGHT//\"/}
+PROGRESS_ACCOUNT=${2//\'/}
+PROGRESS_ACCOUNT=${PROGRESS_ACCOUNT//\"/}
 
-if [ -z "$TARGET_BLOCK_HEIGHT" ]; then
-    echo "Usage: $0 <TARGET_BLOCK_HEIGHT>"
+if [ -z "$TARGET_BLOCK_HEIGHT" ] || [ -z "$PROGRESS_ACCOUNT" ]; then
+    echo "Usage: $0 <TARGET_BLOCK_HEIGHT> <PROGRESS_ACCOUNT>"
     exit 1
 fi
 
@@ -13,9 +15,15 @@ fi
 NODE_ID=${ID:-0}
 
 # Keep this script bounded to avoid hanging CI jobs indefinitely.
-STATUS_TIMEOUT_SECONDS=${WAIT_FOR_HEIGHT_STATUS_TIMEOUT_SECONDS:-5}
-MAX_WAIT_SECONDS=${WAIT_FOR_HEIGHT_MAX_WAIT_SECONDS:-360}
+STATUS_TIMEOUT_SECONDS=5
+MAX_WAIT_SECONDS=360
 START_TIME=$(date +%s)
+
+PROGRESS_ADDR=$(printf "12345678\n" | seid keys show "$PROGRESS_ACCOUNT" -a 2>/dev/null)
+if [ -z "$PROGRESS_ADDR" ]; then
+   echo "Unable to resolve progress account $PROGRESS_ACCOUNT"
+   exit 1
+fi
 
 # Loop until the target block height is reached or the service dies.
 while true; do
@@ -43,5 +51,7 @@ while true; do
    else
       echo "Seid status unavailable while waiting for block $TARGET_BLOCK_HEIGHT"
    fi
-   sleep 1
+   printf "12345678\n" | seid tx bank send "$PROGRESS_ACCOUNT" "$PROGRESS_ADDR" 1usei \
+      -y --chain-id sei --fees 2000usei --broadcast-mode sync >/dev/null 2>&1 || true
+   sleep 0.5
 done

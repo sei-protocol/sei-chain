@@ -48,7 +48,7 @@
       node: sei-node-3
 
     # Wait for the proposal to pass
-    - cmd: proposal_wait_for_pass.sh $PROPOSAL_ID
+    - cmd: proposal_wait_for_pass.sh $PROPOSAL_ID node_admin
       node: sei-node-0
 
     # EXECUTE UPGRADE SCENARIOS
@@ -86,13 +86,13 @@
     # Hence ALL nodes will eventually reach TARGET_HEIGHT-1 (perhaps panicking afterwards).
     # Since we have 2 upgraded nodes at TARGET_HEIGHT-1 or TARGET_HEIGHT,
     # nodes 2,3 are guaranteed to reach TARGET_HEIGHT and panic.
-    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1))
+    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1)) node_admin
       node: sei-node-0
-    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1))
+    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1)) node_admin
       node: sei-node-1
-    - cmd: wait_for_height.sh $TARGET_HEIGHT
+    - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
       node: sei-node-2
-    - cmd: wait_for_height.sh $TARGET_HEIGHT
+    - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
       node: sei-node-3
 
     # Confirm no panic for upgraded nodes
