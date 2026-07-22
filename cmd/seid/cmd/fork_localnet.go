@@ -509,6 +509,10 @@ func scrubValidatorQueue(store *flatkv.CommitStore, cdc codec.Codec, pairs *[]*s
 
 	dropped := 0
 	for ; iter.Valid(); iter.Next() {
+		keyTime, keyHeight, err := stakingtypes.ParseValidatorQueueKey(iter.Key())
+		if err != nil {
+			return 0, fmt.Errorf("parse validator queue key: %w", err)
+		}
 		var addrs stakingtypes.ValAddresses
 		cdc.MustUnmarshal(iter.Value(), &addrs)
 		kept := make([]string, 0, len(addrs.Addresses))
@@ -523,7 +527,15 @@ func scrubValidatorQueue(store *flatkv.CommitStore, cdc codec.Codec, pairs *[]*s
 				if err := cdc.Unmarshal(valBz, &validator); err != nil {
 					return 0, fmt.Errorf("unmarshal queued validator %q: %w", bech, err)
 				}
-				if validator.IsUnbonding() {
+				// A validator's live queue entry is exactly
+				// (UnbondingTime, UnbondingHeight) — that pair is what
+				// UnbondingToUnbonded and DeleteValidatorQueue key on. Any
+				// other entry naming this validator is a stale duplicate:
+				// processing it after the live one flips the validator to
+				// Unbonded and the duplicate panics EndBlock.
+				if validator.IsUnbonding() &&
+					validator.UnbondingTime.Equal(keyTime) &&
+					validator.UnbondingHeight == keyHeight {
 					kept = append(kept, bech)
 					continue
 				}
