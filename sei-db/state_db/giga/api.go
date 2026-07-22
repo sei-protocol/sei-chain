@@ -87,6 +87,11 @@ type EVMStateSnapshot interface {
 	// Panics on underlying database errors.
 	GetBalance(addr Address) Hash
 
+	// GetNonce returns addr's account nonce. Returns 0 if unset / the
+	// account does not exist.
+	// Panics on underlying database errors.
+	GetNonce(addr Address) uint64
+
 	// GetCodeSize returns the length in bytes of addr's contract code.
 	// Returns 0 for accounts with no code.
 	// Panics on underlying database errors.
