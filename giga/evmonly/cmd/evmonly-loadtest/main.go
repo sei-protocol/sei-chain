@@ -1222,7 +1222,6 @@ type resultSinks struct {
 }
 
 var _ evmonly.ResultSink = (*resultSinks)(nil)
-var _ evmonly.BlockResultSink = (*resultSinks)(nil)
 
 func newResultSinks(cfg config, metrics *loadMetrics) (*resultSinks, error) {
 	switch cfg.resultSink {
@@ -1247,7 +1246,7 @@ func (s *resultSinks) StoreReceipts(ctx context.Context, height uint64, receipts
 }
 
 func (s *resultSinks) StoreBlockResult(ctx context.Context, height uint64, result *evmonly.BlockResult, release func()) error {
-	if sink, ok := s.changeSets.(evmonly.BlockResultSink); ok {
+	if sink, ok := s.changeSets.(evmonly.ResultSink); ok {
 		return sink.StoreBlockResult(ctx, height, result, release)
 	}
 	if err := s.StoreChangeSet(ctx, height, result.ChangeSet); err != nil {
