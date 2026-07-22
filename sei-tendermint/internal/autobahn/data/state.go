@@ -695,12 +695,12 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 // genesis while LastBlockNumber is still missing.
 func (s *State) runPersist(ctx context.Context) error {
 	tips := s.blockDB.Status()
-	var nextToPersistQC, nextToPersistBlock, evicted types.GlobalBlockNumber
+	var nextToPersistQC, nextToPersistBlock, evictedQC types.GlobalBlockNumber
 	for inner := range s.inner.Lock() {
 		// After loadFromBlockDB, nextBlockToPersist is the durable recovery tip.
 		nextToPersistQC = inner.nextBlockToPersist
 		nextToPersistBlock = inner.nextBlockToPersist
-		evicted = inner.nextAppProposal
+		evictedQC = inner.nextAppProposal
 	}
 	if n, ok := tips.LastQCNext.Get(); ok {
 		nextToPersistQC = n
@@ -721,7 +721,7 @@ func (s *State) runPersist(ctx context.Context) error {
 		var doWrite bool
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return persistOrEvictReady(inner, nextToPersistQC, nextToPersistBlock, evicted)
+				return persistOrEvictReady(inner, nextToPersistQC, nextToPersistBlock, evictedQC)
 			}); err != nil {
 				return err
 			}
@@ -771,13 +771,13 @@ func (s *State) runPersist(ctx context.Context) error {
 					inner.nextBlockToPersist = newToPersist
 					ctrl.Updated()
 				}
-				evicted = evictExecuted(inner, evicted)
+				evictedQC = evictExecuted(inner, evictedQC)
 			}
 		} else {
 			// Restart / catch-up: nothing new to write, but PushAppHash advanced
 			// nextAppProposal over already-durable recovered heights.
 			for inner := range s.inner.Lock() {
-				evicted = evictExecuted(inner, evicted)
+				evictedQC = evictExecuted(inner, evictedQC)
 			}
 		}
 	}
@@ -787,12 +787,12 @@ func (s *State) runPersist(ctx context.Context) error {
 // durable executed heights that can be dropped from the in-memory maps.
 func persistOrEvictReady(
 	inner *inner,
-	nextToPersistQC, nextToPersistBlock, evicted types.GlobalBlockNumber,
+	nextToPersistQC, nextToPersistBlock, evictedQC types.GlobalBlockNumber,
 ) bool {
 	if nextToPersistQC < inner.nextQC || nextToPersistBlock < inner.nextBlock {
 		return true
 	}
-	return inner.evictionBound() > evicted
+	return inner.evictionBound() > evictedQC
 }
 
 // certifiedAppFloor is the GlobalNumber of the AppProposal embedded in the
@@ -836,22 +836,22 @@ func (i *inner) evictionBound() types.GlobalBlockNumber {
 	return bound
 }
 
-// evictExecuted drops cached blocks/QCs/AppProposals in [evicted, evictionBound).
+// evictExecuted drops cached blocks/QCs/AppProposals in [evictedQC, evictionBound).
 // Caller must hold inner's lock.
-func evictExecuted(inner *inner, evicted types.GlobalBlockNumber) types.GlobalBlockNumber {
+func evictExecuted(inner *inner, evictedQC types.GlobalBlockNumber) types.GlobalBlockNumber {
 	evictBelow := inner.evictionBound()
-	if evictBelow <= evicted {
-		return evicted
+	if evictBelow <= evictedQC {
+		return evictedQC
 	}
-	for ; evicted < evictBelow; evicted++ {
-		if b, ok := inner.blocks[evicted]; ok {
+	for ; evictedQC < evictBelow; evictedQC++ {
+		if b, ok := inner.blocks[evictedQC]; ok {
 			delete(inner.blockHashes, b.Header().Hash())
-			delete(inner.blocks, evicted)
+			delete(inner.blocks, evictedQC)
 		}
-		delete(inner.qcs, evicted)
-		delete(inner.appProposals, evicted)
+		delete(inner.qcs, evictedQC)
+		delete(inner.appProposals, evictedQC)
 	}
-	return evicted
+	return evictedQC
 }
 
 // Run starts the background persistence goroutine.

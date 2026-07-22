@@ -80,11 +80,11 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
-	dataState, err := data.NewState(&data.Config{Registry: registry}, blockDB)
+	ds, err := data.NewState(&data.Config{Registry: registry}, blockDB)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
-	return dataState, nil
+	return ds, nil
 }
 
 func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
