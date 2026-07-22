@@ -26,7 +26,7 @@ var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
 type WatermarkManager struct {
 	tmClient     client.LocalClient
 	ctxProvider  func(int64) sdk.Context
-	stateStore   types.StateStore
+	stateStore   types.StateStore // nil if SS is disabled.
 	receiptStore receipt.ReceiptStore
 }
 
@@ -46,97 +46,26 @@ func NewWatermarkManager(
 
 // Watermarks returns the earliest block height, earliest state height, and
 // latest height that are safe to serve. Earliest heights are inclusive.
+// It is possible that block latest < block earliest, in case there are no blocks yet.
 func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64, error) {
-	var (
-		latest           int64
-		latestSet        bool
-		blockEarliest    int64
-		blockEarliestSet bool
-		stateEarliest    int64
-		stateEarliestSet bool
-	)
-
-	setLatest := func(candidate int64) {
-		if candidate < 0 {
-			return
-		}
-		if !latestSet || candidate < latest {
-			latest = candidate
-			latestSet = true
-		}
-	}
-
-	setBlockEarliest := func(candidate int64) {
-		if candidate < 0 {
-			return
-		}
-		if !blockEarliestSet || candidate > blockEarliest {
-			blockEarliest = candidate
-			blockEarliestSet = true
-		}
-	}
-
-	setStateEarliest := func(candidate int64) {
-		if candidate < 0 {
-			return
-		}
-		if !stateEarliestSet || candidate > stateEarliest {
-			stateEarliest = candidate
-			stateEarliestSet = true
-		}
-	}
-
 	// Tendermint heights govern both block availability and the latest safe height.
-	if tmLatest, tmEarliest, err := m.fetchTendermintWatermarks(ctx); err == nil {
-		setLatest(tmLatest)
-		setBlockEarliest(tmEarliest)
-	} else if !errors.Is(err, errNoHeightSource) {
+	tmLatest, tmEarliest, err := m.fetchTendermintWatermarks(ctx)
+	if err != nil {
 		return 0, 0, 0, err
 	}
-
-	if m.ctxProvider != nil {
-		if ctxHeight := m.ctxProvider(LatestCtxHeight).BlockHeight(); ctxHeight > 0 {
-			setLatest(ctxHeight)
-		}
-	}
+	blockEarliest := tmEarliest
+	latest := min(
+		tmLatest,
+		m.ctxProvider(LatestCtxHeight).BlockHeight(),
+		m.receiptStore.LatestVersion(),
+	)
 
 	// State store heights (historical state DB) may lag behind block pruning.
-	if ssLatest, ssEarliest, ok := m.fetchStateStoreWatermarks(); ok {
-		if ssLatest > 0 {
-			setLatest(ssLatest)
-		}
-		if ssEarliest > 0 {
-			setStateEarliest(ssEarliest)
-		}
+	stateEarliest := latest // no historical storage => just the current state.
+	if m.stateStore != nil {
+		latest = min(latest, m.stateStore.GetLatestVersion())
+		stateEarliest = m.stateStore.GetEarliestVersion()
 	}
-
-	// Receipt store version participates only in the latest watermark.
-	if m.receiptStore != nil {
-		if latest := m.receiptStore.LatestVersion(); latest > 0 {
-			setLatest(latest)
-		}
-	}
-
-	if !latestSet {
-		return 0, 0, 0, errNoHeightSource
-	}
-
-	if !blockEarliestSet {
-		blockEarliest = 0
-	}
-
-	if !stateEarliestSet {
-		stateEarliest = blockEarliest
-	}
-
-	if blockEarliest > latest {
-		return 0, 0, 0, fmt.Errorf("computed block earliest watermark %d is beyond latest %d", blockEarliest, latest)
-	}
-
-	if stateEarliest > latest {
-		return 0, 0, 0, fmt.Errorf("computed state earliest watermark %d is beyond latest %d", stateEarliest, latest)
-	}
-
 	return blockEarliest, stateEarliest, latest, nil
 }
 
@@ -178,7 +107,7 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 			return 0, err
 		}
 		height := res.Block.Height
-		if err := m.ensureWithinWatermarks(height, stateEarliest, latest); err != nil {
+		if err := ensureWithinWatermarks(height, stateEarliest, latest); err != nil {
 			return 0, err
 		}
 		return height, nil
@@ -203,7 +132,7 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 	if heightPtr == nil {
 		return latest, nil
 	}
-	if err := m.ensureWithinWatermarks(*heightPtr, stateEarliest, latest); err != nil {
+	if err := ensureWithinWatermarks(*heightPtr, stateEarliest, latest); err != nil {
 		return 0, err
 	}
 	return *heightPtr, nil
@@ -216,17 +145,14 @@ func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, heigh
 	if err != nil {
 		return err
 	}
-	return m.ensureWithinWatermarks(height, blockEarliest, latest)
+	return ensureWithinWatermarks(height, blockEarliest, latest)
 }
 
 // EnsureReceiptHeightAvailable verifies that receipts for the given block height
 // have not been pruned from the receipt store. This is a separate check from
 // EnsureBlockHeightAvailable because the receipt store can be configured with a
 // smaller KeepRecent than the block or state stores.
-func (m *WatermarkManager) EnsureReceiptHeightAvailable(_ context.Context, height int64) error {
-	if m.receiptStore == nil {
-		return nil
-	}
+func (m *WatermarkManager) EnsureReceiptHeightAvailable(height int64) error {
 	earliest := m.receiptStore.EarliestVersion()
 	if height < earliest {
 		return fmt.Errorf("requested height %d receipts have been pruned; earliest available is %d", height, earliest)
@@ -234,7 +160,7 @@ func (m *WatermarkManager) EnsureReceiptHeightAvailable(_ context.Context, heigh
 	return nil
 }
 
-func (m *WatermarkManager) ensureWithinWatermarks(height, earliest, latest int64) error {
+func ensureWithinWatermarks(height, earliest, latest int64) error {
 	if height > latest {
 		return fmt.Errorf("requested height %d is not yet available; safe latest is %d: %w", height, latest, ErrBlockHeightNotYetAvailable)
 	}
@@ -330,20 +256,12 @@ func blockByHashOrNullForJSONRPC(
 }
 
 func (m *WatermarkManager) fetchTendermintWatermarks(ctx context.Context) (int64, int64, error) {
-	if m.tmClient == nil {
-		return 0, 0, errNoHeightSource
-	}
 	status, err := m.tmClient.Status(ctx)
 	if err != nil {
 		return 0, 0, err
 	}
 	TraceTendermintIfApplicable(ctx, "Status", []string{}, status)
-	return status.SyncInfo.LatestBlockHeight, status.SyncInfo.EarliestBlockHeight, nil
-}
-
-func (m *WatermarkManager) fetchStateStoreWatermarks() (int64, int64, bool) {
-	if m.stateStore == nil {
-		return 0, 0, false
-	}
-	return m.stateStore.GetLatestVersion(), m.stateStore.GetEarliestVersion(), true
+	latest := status.SyncInfo.LatestBlockHeight
+	earliest := status.SyncInfo.EarliestBlockHeight
+	return latest, earliest, nil
 }

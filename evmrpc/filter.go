@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	gethlog "github.com/ethereum/go-ethereum/log"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
@@ -29,6 +31,11 @@ import (
 )
 
 var logger = seilog.NewLogger("evmrpc")
+
+func init() {
+	handler := logger.Handler().WithAttrs([]slog.Attr{slog.String("logger", "evmrpc/geth")})
+	gethlog.SetDefault(gethlog.NewLogger(handler))
+}
 
 const (
 	// DB Concurrency Read Limit

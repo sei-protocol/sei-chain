@@ -121,6 +121,8 @@ type BaseApp struct {
 	processProposalState    *state
 	processProposalCleanCtx sdk.Context // snapshot before optimistic processing
 	stateToCommit           *state
+	initializedCh           chan struct{}
+	initializedOnce         sync.Once
 
 	// nextResultHash is the result hash (merkle root over the block's deterministic tx results)
 	// computed in FinalizeBlock and handed to the commit store in Commit, mirroring nextBlockHash.
@@ -289,6 +291,7 @@ func NewBaseApp(
 		TracingInfo:      tracing.NewTracingInfo(tr, tracingEnabled),
 		commitLock:       &sync.Mutex{},
 		checkTxStateLock: &sync.RWMutex{},
+		initializedCh:    make(chan struct{}),
 		deliverTxHooks:   []DeliverTxHook{},
 	}
 
@@ -338,6 +341,16 @@ func (app *BaseApp) ConcurrencyWorkers() int {
 // OccEnabled returns whether OCC is enabled for the BaseApp.
 func (app *BaseApp) OccEnabled() bool {
 	return app.occEnabled
+}
+
+func (app *BaseApp) Initialized() <-chan struct{} {
+	return app.initializedCh
+}
+
+func (app *BaseApp) signalInitialized() {
+	app.initializedOnce.Do(func() {
+		close(app.initializedCh)
+	})
 }
 
 // Version returns the application's version string.

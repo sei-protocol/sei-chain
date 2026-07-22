@@ -33,7 +33,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
@@ -170,7 +169,7 @@ var NewHeadsCalled = make(chan struct{}, 1)
 var NotifierForTest = evmrpc.NewBlockHeaderNotifier(16)
 
 type MockClient struct {
-	mock.Client
+	client.Client
 	latestOverride int64
 }
 

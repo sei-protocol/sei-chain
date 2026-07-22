@@ -704,10 +704,7 @@ func testHandshakeReplay(
 	require.NoError(t, err, "Error on abci handshake")
 
 	// get the latest app hash from the app
-	res, err := proxyApp.Info(ctx, &abci.RequestInfo{Version: ""})
-	if err != nil {
-		t.Fatal(err)
-	}
+	res := proxyApp.Info()
 
 	// the app hash should be synced up
 	if !bytes.Equal(latestAppHash, res.LastBlockAppHash) {
@@ -770,7 +767,7 @@ func buildAppStateFromChain(
 	proxyApp := proxy.New(appClient)
 	mempool := newReplayTxMempool(proxyApp)
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{})
+	_, err := appClient.InitChain(&abci.RequestInitChain{})
 	require.NoError(t, err)
 	require.NoError(t, stateStore.Save(state)) // save height 1's validatorsInfo
 
@@ -814,7 +811,7 @@ func buildTMStateFromChain(
 	app := newApp(types.TM2PB.ValidatorUpdates(state.Validators))
 	proxyApp := proxy.New(app)
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	_, err := app.InitChain(ctx, &abci.RequestInitChain{})
+	_, err := app.InitChain(&abci.RequestInitChain{})
 	require.NoError(t, err)
 
 	require.NoError(t, stateStore.Save(state))
@@ -1140,6 +1137,6 @@ type initChainApp struct {
 	vals []abci.ValidatorUpdate
 }
 
-func (ica *initChainApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (ica *initChainApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	return &abci.ResponseInitChain{Validators: ica.vals}, nil
 }

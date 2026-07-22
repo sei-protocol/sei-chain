@@ -161,10 +161,18 @@ func setupTestServer(
 		ctxProvider,
 		func(int64) client.TxConfig { return a.GetTxConfig() },
 		"",
-		nil,
+		a.GetStateStore(),
 	)
 	if err != nil {
 		panic(err)
+	}
+	if stateStore := a.GetStateStore(); stateStore != nil {
+		latest := ctxProvider(evmrpc.LatestCtxHeight).BlockHeight()
+		if stateStore.GetLatestVersion() < latest {
+			if err := stateStore.SetLatestVersion(latest); err != nil {
+				panic(err)
+			}
+		}
 	}
 	if store := a.EvmKeeper.ReceiptStore(); store != nil {
 		latest := int64(math.MaxInt64)

@@ -3,11 +3,11 @@ package cli_test
 import (
 	"bytes"
 	"fmt"
-	"github.com/gogo/protobuf/proto"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	rpcclientmock "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"io"
 	"testing"
+
+	"github.com/gogo/protobuf/proto"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
@@ -39,12 +39,11 @@ func TestCLITestSuite(t *testing.T) {
 func (s *CLITestSuite) SetupSuite() {
 	s.encCfg = testutilmod.MakeTestEncodingConfig(gov.AppModuleBasic{})
 	s.kr = keyring.NewInMemory()
-	mockRPC := rpcclientmock.New()
 	s.baseCtx = client.Context{}.
 		WithKeyring(s.kr).
 		WithTxConfig(s.encCfg.TxConfig).
 		WithCodec(s.encCfg.Codec).
-		WithClient(clitestutil.MockTendermintRPC{Client: mockRPC}).
+		WithClient(clitestutil.MockTendermintRPC{}).
 		WithAccountRetriever(client.MockAccountRetriever{}).
 		WithOutput(io.Discard).
 		WithChainID("test-chain")
@@ -54,7 +53,7 @@ func (s *CLITestSuite) SetupSuite() {
 		bz, _ := s.encCfg.Codec.Marshal(&sdk.TxResponse{})
 		c := clitestutil.NewMockTendermintRPC(abci.ResponseQuery{
 			Value: bz,
-		}, mockRPC)
+		}, nil)
 		return s.baseCtx.WithClient(c)
 	}
 	s.clientCtx = ctxGen().WithOutput(&outBuf)

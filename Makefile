@@ -186,13 +186,18 @@ dblint:
 	go vet ./sei-db/...
 
 build:
+	mkdir -p ./build
 	go build $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
+.PHONY: build
 
 build-verbose:
+	mkdir -p ./build
 	go build -x -v $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
+.PHONY: build-verbose
 
 clean:
 	rm -rf ./build
+.PHONY: clean
 
 build-loadtest:
 	go build -o build/loadtest ./loadtest/

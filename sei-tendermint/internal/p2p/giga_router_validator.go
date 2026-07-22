@@ -87,11 +87,17 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 }
 
 // EvmProxy on the validator returns None when the sender's shard owner is
-// us (handle locally via mempool, no HTTP round-trip to self).
+// us (handle locally via mempool, no HTTP round-trip to self). For remote
+// shards, we proxy only while the target validator is currently connected;
+// otherwise we keep the tx local as a best-effort availability heuristic.
 func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*url.URL] {
 	shardValidator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
 	if r.validatorKey == shardValidator {
 		return utils.None[*url.URL]()
 	}
-	return utils.Some(r.cfg.ValidatorAddrs[shardValidator].EVMRPC)
+	target := r.cfg.ValidatorAddrs[shardValidator]
+	if _, ok := r.poolOut.Get(target.Key); !ok {
+		return utils.None[*url.URL]()
+	}
+	return utils.Some(target.EVMRPC)
 }
