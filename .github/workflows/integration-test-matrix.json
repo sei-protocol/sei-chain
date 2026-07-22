@@ -16,7 +16,6 @@
   },
   {
     "name": "Autobahn Mint & Staking & Bank Module",
-    "merge_only": true,
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
     "scripts": [
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestMintModule|TestStakingModule|TestAutobahnBankModule\""
@@ -30,7 +29,6 @@
   },
   {
     "name": "Autobahn Gov & Oracle & Authz Module",
-    "merge_only": true,
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
     "scripts": [
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule|TestAuthzModule\""
@@ -63,7 +61,6 @@
   },
   {
     "name": "Autobahn Upgrade Module (Major)",
-    "merge_only": true,
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
     "scripts": [
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMajor"
@@ -78,7 +75,6 @@
   },
   {
     "name": "Autobahn Upgrade Module (Minor)",
-    "merge_only": true,
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
     "scripts": [
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMinor"
