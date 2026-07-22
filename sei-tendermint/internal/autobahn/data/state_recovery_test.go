@@ -326,7 +326,7 @@ func TestRecoveryQCsNoBlocks(t *testing.T) {
 }
 
 // TestRunPersistSeedsFromRecoveryFloor verifies that runPersist does not walk
-// [genesis, recoveryFloor) when Status lacks LastBlockNumber (QC-only store
+// [genesis, recoveryFloor) when Status lacks NextBlock (QC-only store
 // whose first QC starts past FirstBlock). Seeding from nextBlockToPersist
 // avoids collecting nil block pointers.
 func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
@@ -348,8 +348,8 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 
 	db2 := newTestBlockDB(t, dir)
 	tips := db2.Status()
-	require.False(t, tips.LastBlockNumber.IsPresent())
-	_, ok := tips.LastQCNext.Get()
+	require.False(t, tips.NextBlock.IsPresent())
+	_, ok := tips.NextQC.Get()
 	require.True(t, ok)
 
 	state := newTestState(t, &Config{Registry: registry}, db2)

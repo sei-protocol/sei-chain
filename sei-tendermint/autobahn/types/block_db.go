@@ -240,11 +240,15 @@ type BlockDB interface {
 }
 
 // DBStatus is the in-memory write tips returned by BlockDB.Status.
+// Both fields are exclusive "next to write" cursors (matching data.State's
+// nextQC / nextBlock), absent until the corresponding write has occurred.
 type DBStatus struct {
-	// LastBlockNumber is the highest GlobalBlockNumber accepted by WriteBlock.
-	LastBlockNumber utils.Option[GlobalBlockNumber]
-	// LastQCNext is the exclusive upper bound of the last WriteQC.
-	LastQCNext utils.Option[GlobalBlockNumber]
+	// NextBlock is one past the highest GlobalBlockNumber accepted by WriteBlock
+	// (the next block number that may be written).
+	NextBlock utils.Option[GlobalBlockNumber]
+	// NextQC is the exclusive upper bound of the last WriteQC (the next QC
+	// range must start here).
+	NextQC utils.Option[GlobalBlockNumber]
 }
 
 // BlockIterator iterates over persisted blocks in GlobalBlockNumber order —

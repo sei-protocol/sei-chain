@@ -441,8 +441,8 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	// Transport-race window: PushQC before data.Run / runPersist starts.
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
 	tips := db.Status()
-	require.False(t, tips.LastBlockNumber.IsPresent(), "PushQC must not write BlockDB before Run")
-	require.False(t, tips.LastQCNext.IsPresent())
+	require.False(t, tips.NextBlock.IsPresent(), "PushQC must not write BlockDB before Run")
+	require.False(t, tips.NextQC.IsPresent())
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		runCtx, cancel := context.WithCancel(ctx)
@@ -461,10 +461,10 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	}))
 
 	tips = db.Status()
-	gotBlock, ok := tips.LastBlockNumber.Get()
+	gotBlock, ok := tips.NextBlock.Get()
 	require.True(t, ok)
-	require.Equal(t, gr1.Next-1, gotBlock)
-	gotQC, ok := tips.LastQCNext.Get()
+	require.Equal(t, gr1.Next, gotBlock)
+	gotQC, ok := tips.NextQC.Get()
 	require.True(t, ok)
 	require.Equal(t, gr1.Next, gotQC)
 

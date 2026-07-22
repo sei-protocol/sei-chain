@@ -133,13 +133,13 @@ func testEmptyDB(t *testing.T, build builder) {
 	require.NoError(t, qcIt.Close())
 
 	tips := db.Status()
-	require.False(t, tips.LastBlockNumber.IsPresent(), "empty db has no block write tip")
-	require.False(t, tips.LastQCNext.IsPresent(), "empty db has no QC write tip")
+	require.False(t, tips.NextBlock.IsPresent(), "empty db has no block write tip")
+	require.False(t, tips.NextQC.IsPresent(), "empty db has no QC write tip")
 }
 
 // testStatus asserts Status matches the highest block/QC still present
 // (via reverse iterators), including after prune and restart, and that a QC
-// written ahead of its blocks advances only LastQCNext.
+// written ahead of its blocks advances only NextQC.
 func testStatus(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
@@ -148,10 +148,10 @@ func testStatus(t *testing.T, build builder) {
 
 	require.NoError(t, db.WriteQC(batches[0].first, batches[0].next, batches[0].qc))
 	tips := db.Status()
-	gotQC, ok := tips.LastQCNext.Get()
+	gotQC, ok := tips.NextQC.Get()
 	require.True(t, ok)
 	require.Equal(t, batches[0].next, gotQC)
-	require.False(t, tips.LastBlockNumber.IsPresent(), "QC-only store has no block tip")
+	require.False(t, tips.NextBlock.IsPresent(), "QC-only store has no block tip")
 	assertTipsMatchPresent(t, db)
 
 	for i, blk := range batches[0].blocks {
@@ -160,10 +160,10 @@ func testStatus(t *testing.T, build builder) {
 	writeAll(t, db, batches[1:])
 	last := batches[len(batches)-1]
 	tips = db.Status()
-	gotBlock, ok := tips.LastBlockNumber.Get()
+	gotBlock, ok := tips.NextBlock.Get()
 	require.True(t, ok)
-	require.Equal(t, last.next-1, gotBlock)
-	gotQC, ok = tips.LastQCNext.Get()
+	require.Equal(t, last.next, gotBlock)
+	gotQC, ok = tips.NextQC.Get()
 	require.True(t, ok)
 	require.Equal(t, last.next, gotQC)
 	assertTipsMatchPresent(t, db)
@@ -174,20 +174,20 @@ func testStatus(t *testing.T, build builder) {
 	require.NoError(t, db.PruneBefore(batches[1].first))
 	assertTipsMatchPresent(t, db)
 	tips = db.Status()
-	gotBlock, ok = tips.LastBlockNumber.Get()
+	gotBlock, ok = tips.NextBlock.Get()
 	require.True(t, ok)
-	require.Equal(t, last.next-1, gotBlock, "prune must not move the block write tip")
-	gotQC, ok = tips.LastQCNext.Get()
+	require.Equal(t, last.next, gotBlock, "prune must not move the block write tip")
+	gotQC, ok = tips.NextQC.Get()
 	require.True(t, ok)
 	require.Equal(t, last.next, gotQC, "prune must not move the QC write tip")
 
 	db = restart(t, o, db)
 	assertTipsMatchPresent(t, db)
 	tips = db.Status()
-	gotBlock, ok = tips.LastBlockNumber.Get()
+	gotBlock, ok = tips.NextBlock.Get()
 	require.True(t, ok)
-	require.Equal(t, last.next-1, gotBlock, "block tip must survive restart")
-	gotQC, ok = tips.LastQCNext.Get()
+	require.Equal(t, last.next, gotBlock, "block tip must survive restart")
+	gotQC, ok = tips.NextQC.Get()
 	require.True(t, ok)
 	require.Equal(t, last.next, gotQC, "QC tip must survive restart")
 }
@@ -199,17 +199,17 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockDB) {
 	tips := db.Status()
 
 	highest, hasBlock := recoverHighestBlock(t, db)
-	if n, ok := tips.LastBlockNumber.Get(); ok {
+	if n, ok := tips.NextBlock.Get(); ok {
 		require.True(t, hasBlock, "Status has a block tip but Blocks is empty")
-		require.Equal(t, highest, n, "LastBlockNumber must be the highest present block")
+		require.Equal(t, highest+1, n, "NextBlock must be one past the highest present block")
 	} else {
 		require.False(t, hasBlock, "Blocks has data but Status has no block tip")
 	}
 
 	lastQC, hasQC := recoverLastQC(t, db)
-	if n, ok := tips.LastQCNext.Get(); ok {
+	if n, ok := tips.NextQC.Get(); ok {
 		require.True(t, hasQC, "Status has a QC tip but QCs is empty")
-		require.Equal(t, lastQC.GlobalRange().Next, n, "LastQCNext must be Next of the highest present QC")
+		require.Equal(t, lastQC.GlobalRange().Next, n, "NextQC must be Next of the highest present QC")
 	} else {
 		require.False(t, hasQC, "QCs has data but Status has no QC tip")
 	}

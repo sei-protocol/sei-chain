@@ -152,10 +152,10 @@ func (s *blockDB) Status() types.DBStatus {
 	defer s.mu.RUnlock()
 	var tips types.DBStatus
 	if s.hasBlocks {
-		tips.LastBlockNumber = utils.Some(s.lastBlockNumber)
+		tips.NextBlock = utils.Some(s.lastBlockNumber + 1)
 	}
 	if s.hasQC {
-		tips.LastQCNext = utils.Some(s.lastQCNext)
+		tips.NextQC = utils.Some(s.lastQCNext)
 	}
 	return tips
 }

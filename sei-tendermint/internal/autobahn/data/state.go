@@ -704,7 +704,7 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 // BlockDB.Status() when present so PushQC-before-Run heights are not skipped.
 // When a Status tip is absent, seed from post-load nextBlockToPersist (recovery
 // floor), never bare registry.FirstBlock() — a QC-only store can skipTo past
-// genesis while LastBlockNumber is still missing.
+// genesis while NextBlock is still missing.
 //
 // In-memory eviction is driven by PushQC / PushAppHash (evictBelowBound), not here.
 func (s *State) runPersist(ctx context.Context) error {
@@ -715,11 +715,11 @@ func (s *State) runPersist(ctx context.Context) error {
 		nextToPersistQC = inner.nextBlockToPersist
 		nextToPersistBlock = inner.nextBlockToPersist
 	}
-	if n, ok := tips.LastQCNext.Get(); ok {
+	if n, ok := tips.NextQC.Get(); ok {
 		nextToPersistQC = n
 	}
-	if n, ok := tips.LastBlockNumber.Get(); ok {
-		nextToPersistBlock = n + 1
+	if n, ok := tips.NextBlock.Get(); ok {
+		nextToPersistBlock = n
 	}
 	for {
 		type batch struct {
