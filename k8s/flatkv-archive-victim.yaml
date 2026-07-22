@@ -1,0 +1,81 @@
+# Victim node for the production-scale flatkv-archive restore timing test.
+#
+# Fresh PVC + empty home. The main container initializes a bare home (keys +
+# injected config from the fork cluster), then blocks until /home/nonroot/.sei/
+# .restored appears; the operator execs `seid flatkv-archive restore` (timed),
+# touches the marker, and the container execs seid start so catch-up can be
+# observed.
+#
+# Prereqs:
+#   kubectl create configmap victim-cfg -n eng-yiren \
+#     --from-file=config.toml --from-file=app.toml --from-file=genesis.json
+#   secret aws-fork-restore with fresh AWS session creds
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-victim
+  namespace: eng-yiren
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: gp3
+  resources:
+    requests:
+      storage: 300Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: victim
+  namespace: eng-yiren
+  labels:
+    app: flatkv-archive-victim
+spec:
+  securityContext:
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+  containers:
+  - name: seid
+    image: 189176372795.dkr.ecr.us-east-2.amazonaws.com/sei/sei-chain:flatkv-fork-81dd4f446
+    command:
+    - sh
+    - -c
+    - |
+      set -e
+      HOME_DIR=/home/nonroot/.sei
+      if [ ! -f "$HOME_DIR/config/priv_validator_key.json" ]; then
+        seid init victim --chain-id pacific-fork-1 --home "$HOME_DIR" >/dev/null 2>&1
+        cp /victim-cfg/config.toml "$HOME_DIR/config/config.toml"
+        cp /victim-cfg/app.toml "$HOME_DIR/config/app.toml"
+        cp /victim-cfg/genesis.json "$HOME_DIR/config/genesis.json"
+        echo "home initialized"
+      fi
+      echo "waiting for restore marker $HOME_DIR/.restored"
+      until [ -f "$HOME_DIR/.restored" ]; do sleep 5; done
+      echo "marker found; starting seid"
+      exec seid start --home "$HOME_DIR"
+    env:
+    - name: AWS_REGION
+      value: eu-central-1
+    envFrom:
+    - secretRef:
+        name: aws-fork-restore
+    ports:
+    - containerPort: 26656
+    - containerPort: 26657
+    volumeMounts:
+    - name: data
+      mountPath: /home/nonroot/.sei
+    - name: victim-cfg
+      mountPath: /victim-cfg
+    resources:
+      requests:
+        cpu: "8"
+        memory: 32Gi
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: data-victim
+  - name: victim-cfg
+    configMap:
+      name: victim-cfg

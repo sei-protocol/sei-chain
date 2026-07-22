@@ -189,3 +189,50 @@ fresh buffers, restoring the stability contract callers assume. Regression
 test `TestIteratorKeyValueStability` reproduces the production pattern
 (retain keys across Next, then delete by the retained keys) — red without the
 wrapper, green with it.
+
+## Production-scale validation on the forked pacific-1 cluster (2026-07-22)
+
+Environment: the 4-validator `pacific-fork-1` FlatKVOnly cluster on harbor EKS
+(real converted pacific-1 state: 39GiB flatkv checkpoint + 38GiB state_store +
+12GiB wasm ≈ 89GiB raw; gp3 PVCs, eu-central-1). Donor: fork-3, held out of
+consensus for the create. Victim: a fresh full-node pod with an empty PVC.
+
+Timed results, single run each:
+
+- **Create + S3 upload: 18m38s** (`seid flatkv-archive create` on fork-3).
+  Archive: height 219130000, 23,847 files, 81.4GiB tar.zst (Pebble SSTs are
+  already compressed, so zstd gains little). Pack ~14m, upload ~4.7m.
+- **Restore + bootstrap: 32m35s** (`seid flatkv-archive restore` on the
+  victim). Breakdown: S3 download + extract + per-file SHA-256 verify ≈ 32.4m
+  (disk-bound: ~170GiB of writes through a 125MiB/s gp3 volume), light-client
+  verification + Tendermint bootstrap ≈ 12s.
+- **Catch-up: ~4m** to block-sync the ~6,600 blocks produced during restore;
+  victim reported `catching_up=false` at donor height. fork-3 rejoined
+  consensus cleanly after being unfrozen.
+
+Comparison with the measured key-stream state sync baselines on comparable
+pacific-1 state (sto558 gsheets): snapshot creation 2.1–2.5h (EVM-migrated) /
+6.3h (memiavl-only) vs **18.6m** here (~7–20x); restore 55m–1h19m on
+128Gi/3k hardware vs **32.6m** — and the archive additionally carries
+state_store and wasm, which the key-stream path does not transfer at all
+(a state-synced RPC node still has to rebuild or resync those). Restore is now
+bandwidth/disk-bound rather than CPU-bound (no per-key import, no LSM
+rebuild, no LtHash recomputation), so provisioned IOPS/throughput translate
+directly into faster restores.
+
+Operational findings from this run:
+
+1. **Create requires a quiesced node.** The first archive was created on a
+   live validator and uploaded fine, but restore failed checksum verification
+   (`sha256 mismatch for state_store/.../037313.log`): the flatkv checkpoint
+   is immutable, but `state_store` is a live Pebble instance whose files
+   mutate between manifest hashing and tar write. A second live attempt
+   failed harder (file deleted mid-archive). Freezing the donor first made
+   create deterministic. Follow-up: take a Pebble checkpoint of state_store
+   inside `create` so live donors work, or document the quiesce requirement.
+2. **Restore must not stage the archive in container ephemeral storage.**
+   The default `os.CreateTemp("")` staged the 81GiB download in the
+   container's ephemeral layer and the kubelet evicted the pod
+   (ephemeral-storage pressure). Workaround: `TMPDIR` on the data volume.
+   Follow-up: stream-extract directly from S3 (as homepack does) or default
+   the staging path to the node home.
