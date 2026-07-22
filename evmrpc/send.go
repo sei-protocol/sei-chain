@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
@@ -40,8 +39,12 @@ type SendAPI struct {
 }
 
 type SendConfig struct {
-	slow bool
-	noop bool
+	slow             bool
+	enableSimulation bool
+}
+
+func NewSendConfig(slow bool, enableSimulation bool) *SendConfig {
+	return &SendConfig{slow: slow, enableSimulation: enableSimulation}
 }
 
 func NewSendAPI(
@@ -85,9 +88,6 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	defer func() {
 		recordMetricsWithError(ctx, "eth_sendRawTransaction", s.connectionType, startTime, err, recover())
 	}()
-	if s.sendConfig.noop {
-		return rawTransactionHash(input), nil
-	}
 	tx := new(ethtypes.Transaction)
 	if err = tx.UnmarshalBinary(input); err != nil {
 		return
@@ -125,8 +125,8 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	if err != nil {
 		return hash, err
 	}
-	gasUsedEstimate := tx.Gas() // if issue simulating, fallback to gas limit
-	if senderErr == nil {       // simulation requires sender.
+	gasUsedEstimate := tx.Gas()                            // if issue simulating, fallback to gas limit
+	if s.sendConfig.enableSimulation && senderErr == nil { // simulation requires sender.
 		if gas, err := s.simulateTx(ctx, sender, tx); err == nil {
 			gasUsedEstimate = gas
 		}
@@ -161,10 +161,6 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		}
 	}
 	return
-}
-
-func rawTransactionHash(input []byte) common.Hash {
-	return crypto.Keccak256Hash(input)
 }
 
 func getSender(tx *ethtypes.Transaction, chainID *big.Int) (common.Address, error) {
