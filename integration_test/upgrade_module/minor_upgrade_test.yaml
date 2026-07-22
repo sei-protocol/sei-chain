@@ -77,14 +77,14 @@
       node: sei-node-1
       env: RUNNING_AFTER_UPGRADE_NODE_1
 
-    # Wait for the target height (or service crash)
-    - cmd: wait_for_height.sh $TARGET_HEIGHT
+    # Wait until just before the target height (or service crash)
+    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1))
       node: sei-node-0
-    - cmd: wait_for_height.sh $TARGET_HEIGHT
+    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1))
       node: sei-node-1
-    - cmd: wait_for_height.sh $TARGET_HEIGHT
+    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1))
       node: sei-node-2
-    - cmd: wait_for_height.sh $TARGET_HEIGHT
+    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1))
       node: sei-node-3
 
     # Confirm no panic at block height for upgraded nodes
