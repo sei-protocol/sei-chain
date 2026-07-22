@@ -107,3 +107,34 @@ func TestAccountStatusChangeRevert_Update(t *testing.T) {
 	change.revert(db)
 	require.Equal(t, prev, db.tempState.transientAccounts[addr.Hex()])
 }
+
+func TestStorageOverrideInstallRevert_Delete(t *testing.T) {
+	db := &DBImpl{tempState: NewTemporaryState()}
+	addr := common.Address{12}
+	slot := common.Hash{13}
+	db.tempState.storageOverrides[addr] = &storageOverride{
+		committed: map[string]common.Hash{slot.Hex(): {14}},
+		current:   map[string]common.Hash{slot.Hex(): {14}},
+	}
+	change := &storageOverrideInstall{account: addr, prev: nil}
+	change.revert(db)
+	_, ok := db.tempState.storageOverrides[addr]
+	require.False(t, ok)
+}
+
+func TestStorageOverrideInstallRevert_Restore(t *testing.T) {
+	db := &DBImpl{tempState: NewTemporaryState()}
+	addr := common.Address{13}
+	slot := common.Hash{14}
+	prev := &storageOverride{
+		committed: map[string]common.Hash{slot.Hex(): {15}},
+		current:   map[string]common.Hash{slot.Hex(): {15}},
+	}
+	db.tempState.storageOverrides[addr] = &storageOverride{
+		committed: map[string]common.Hash{slot.Hex(): {16}},
+		current:   map[string]common.Hash{slot.Hex(): {16}},
+	}
+	change := &storageOverrideInstall{account: addr, prev: prev}
+	change.revert(db)
+	require.Equal(t, common.Hash{15}, db.tempState.storageOverrides[addr].current[slot.Hex()])
+}

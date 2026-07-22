@@ -46,6 +46,12 @@ type blockDB struct {
 	// the lowest block number in the newest cohort. PruneBefore clamps to it (see
 	// littblock).
 	latestQCStartBlock types.GlobalBlockNumber
+
+	// watermark is the (clamped) retention floor set by PruneBefore. Reads
+	// strictly below it are refused with types.ErrPruned; because pruned entries
+	// are deleted eagerly, this is the only record of where the floor sits and
+	// so the only way to tell a pruned block from one never written.
+	watermark types.GlobalBlockNumber
 }
 
 // NewBlockDB returns an in-memory types.BlockDB.
@@ -113,14 +119,26 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); n > ceiling {
 		n = ceiling
 	}
+	// Round the watermark down to the covering QC's First. A QC's cohort of
+	// blocks changes readability atomically, so the watermark must never fall
+	// strictly inside a QC's range (see littblock): otherwise a read would
+	// refuse the cohort's low blocks while still serving its high blocks (which
+	// pruning must retain).
+	for _, e := range s.qcsByLower {
+		if e.lower <= n && n < e.upper {
+			n = e.lower
+			break
+		}
+	}
+	s.watermark = max(s.watermark, n)
 	for num, blk := range s.byNumber {
-		if num < n {
+		if num < s.watermark {
 			delete(s.byNumber, num)
 			delete(s.byHash, blk.Header().Hash())
 		}
 	}
 	for lower, e := range s.qcsByLower {
-		if e.upper <= n {
+		if e.upper <= s.watermark {
 			delete(s.qcsByLower, lower)
 		}
 	}
@@ -211,6 +229,9 @@ func (s *blockDB) ReadBlockByNumber(
 ) (utils.Option[*types.Block], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if n < s.watermark {
+		return utils.None[*types.Block](), types.ErrPruned
+	}
 	if blk, ok := s.byNumber[n]; ok {
 		return utils.Some(blk), nil
 	}
@@ -233,6 +254,9 @@ func (s *blockDB) ReadQCByBlockNumber(
 ) (utils.Option[*types.FullCommitQC], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if n < s.watermark {
+		return utils.None[*types.FullCommitQC](), types.ErrPruned
+	}
 	for _, e := range s.qcsByLower {
 		if e.lower <= n && n < e.upper {
 			return utils.Some(e.qc), nil

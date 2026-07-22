@@ -3,9 +3,6 @@ package giga_test
 import (
 	"bytes"
 	"fmt"
-
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
-
 	"math/big"
 	"testing"
 	"time"
@@ -17,9 +14,12 @@ import (
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
+	evmstate "github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -1892,45 +1892,26 @@ func TestGiga_FeeValidationOrder_WrongNonce_NoNonceBump(t *testing.T) {
 	require.Equal(t, initialNonce, finalNonce, "Nonce should NOT be bumped when tx nonce is wrong")
 }
 
-// TestGiga_FailedExecution_ProducesReceipt locks in the receipt-iff-nonce-bumped
-// invariant for the Giga state-transition-error path: a tx that fails inside
-// go-ethereum's Execute() (notably EIP-7623 floor-data-gas insufficient, which
-// post-Pectra fires in normal operation) bumps the sender's nonce in
-// executeEVMTxWithGigaExecutor's execErr branch and therefore must produce a
-// status=0 receipt. The test asserts both the nonce bump and the receipt write.
-//
-// Without the explicit WriteReceipt in app.go, the receipt was dropped for this
-// case — Giga's AppendToEvmTxDeferredInfo call doesn't propagate the error, so
-// EndBlock's synthetic-receipt fallback (gated on GetNonceBumped) doesn't fire —
-// and eth_getTransactionReceipt returned null forever for a nonce-bumping tx,
-// hanging any client that polls.
-//
-// V2 doesn't need a counterpart fix: BasicDecorator.WithDeliverTxCallback bumps
-// the nonce + calls SetNonceBumped on every DeliverTx, and EndBlock's synthetic-
-// receipt path (x/evm/keeper/abci.go) writes a receipt via GetAllEVMTxDeferredInfo's
-// txRes.Log fallback, gated on GetNonceBumped — together implementing the same
-// invariant on the V2 path.
-func TestGiga_FailedExecution_ProducesReceipt(t *testing.T) {
+// TestGiga_FailedExecutionFallsBackToV2 verifies that state-transition errors
+// are handled identically by v2, sequential Giga, and OCC Giga. EIP-7623's
+// floor-data-gas check happens inside go-ethereum's Execute() after Sei's ante
+// checks, so it exercises the execution-error fallback rather than validation.
+func TestGiga_FailedExecutionFallsBackToV2(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(3)
 	signer := utils.NewSigner()
-
-	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
-	fundAccount(t, gigaCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)))
-	gigaCtx.TestApp.EvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
 
 	// EIP-7623 floor:    21000 + 10 * data-tokens (zero byte = 1 token).
 	// Intrinsic (EIP-2028): 21000 +  4 * data-tokens.
 	// 1000 zero-byte payload → intrinsic=25000, floor=31000.
 	// gasLimit=27500 passes EvmStatelessChecks' intrinsic check (>=25000) but fails
-	// go-ethereum's floor-data-gas check inside Execute() (<31000), which is exactly
-	// the state-transition-error branch the fix targets.
+	// go-ethereum's floor-data-gas check inside Execute() (<31000).
 	const dataLen = 1000
 	const gasLimit uint64 = 27500
 	to := common.HexToAddress("0x0000000000000000000000000000000000001234")
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		ChainID:   big.NewInt(config.DefaultChainID),
-		Nonce:     gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress),
+		Nonce:     0,
 		GasFeeCap: big.NewInt(100000000000),
 		GasTipCap: big.NewInt(100000000000),
 		Gas:       gasLimit,
@@ -1951,32 +1932,68 @@ func TestGiga_FailedExecution_ProducesReceipt(t *testing.T) {
 	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 	require.NoError(t, err)
 
-	nonceBefore := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
-	_, results, err := RunBlock(t, gigaCtx, [][]byte{txBytes})
-	require.NoError(t, err)
-	require.Len(t, results, 1)
+	type balance struct {
+		usei sdk.Int
+		wei  sdk.Int
+	}
+	type outcome struct {
+		ctx          *GigaTestContext
+		results      []*abci.ExecTxResult
+		nonce        uint64
+		receipt      *types.Receipt
+		sender       balance
+		feeCollector balance
+		coinbase     balance
+	}
+	run := func(mode ExecutorMode) outcome {
+		testCtx := NewGigaTestContext(t, accts, blockTime, 1, mode)
+		fundAccount(t, testCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)))
+		testCtx.TestApp.EvmKeeper.SetAddressMapping(testCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
 
-	require.Equal(t, uint32(1), results[0].Code, "tx must fail with code=1: log=%q", results[0].Log)
-	require.Contains(t, results[0].Log, "floor data gas", "expected floor-data-gas error: %s", results[0].Log)
+		_, results, runErr := RunBlock(t, testCtx, [][]byte{txBytes})
+		require.NoError(t, runErr)
+		require.Len(t, results, 1)
+		require.NotEqual(t, uint32(0), results[0].Code)
+		require.Contains(t, results[0].Log, "floor data gas")
 
-	// Receipts are only valid for txs that bumped the sender's nonce. Giga's
-	// executeEVMTxWithGigaExecutor explicitly bumps the nonce in its execErr
-	// branch (app/app.go) before writing the receipt — assert the bump
-	// happened so this invariant is locked in for any future refactor.
-	nonceAfter := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
-	require.Equal(t, nonceBefore+1, nonceAfter, "Giga must bump the nonce on state-transition error, otherwise no receipt should be written")
+		receipt, receiptErr := testCtx.GetTransientReceipt(t, signedTx.Hash(), 0)
+		require.NoError(t, receiptErr)
+		require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
 
-	// The fix: executeEVMTxWithGigaExecutor's execErr != nil branch now writes a
-	// status=0 receipt to the transient store before returning. Verify it landed.
-	txHash := signedTx.Hash()
-	receipt, rerr := gigaCtx.TestApp.GigaEvmKeeper.GetTransientReceipt(gigaCtx.Ctx, txHash, 0)
-	require.Nil(t, rerr, "transient receipt must exist for state-transition-error tx (Giga path)")
-	require.NotNil(t, receipt)
-	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status, "state-transition-error tx must have status=0 receipt")
-	require.Equal(t, gasLimit, receipt.GasUsed, "state-transition-error tx must report gasUsed=gasLimit (matching the failed-tx convention used elsewhere in Sei)")
-	require.Equal(t, txHash.Hex(), receipt.TxHashHex)
-	require.NotEmpty(t, receipt.VmError, "VmError should capture the state-transition error reason")
-	require.Contains(t, receipt.VmError, "floor data gas")
+		getBalance := func(address sdk.AccAddress) balance {
+			return balance{
+				usei: testCtx.TestApp.BankKeeper.GetBalance(testCtx.Ctx, address, "usei").Amount,
+				wei:  testCtx.TestApp.BankKeeper.GetWeiBalance(testCtx.Ctx, address),
+			}
+		}
+		return outcome{
+			ctx:          testCtx,
+			results:      results,
+			nonce:        testCtx.TestApp.EvmKeeper.GetNonce(testCtx.Ctx, signer.EvmAddress),
+			receipt:      receipt,
+			sender:       getBalance(signer.AccountAddress),
+			feeCollector: getBalance(testCtx.TestApp.AccountKeeper.GetModuleAddress(authtypes.FeeCollectorName)),
+			coinbase:     getBalance(evmstate.GetCoinbaseAddress(0)),
+		}
+	}
+
+	assertBalanceEqual := func(name, account string, want, got balance) {
+		require.True(t, want.usei.Equal(got.usei), "%s: %s usei balance", name, account)
+		require.True(t, want.wei.Equal(got.wei), "%s: %s wei balance", name, account)
+	}
+	v2 := run(ModeV2Sequential)
+	require.Equal(t, uint64(1), v2.nonce)
+	for _, mode := range []ExecutorMode{ModeGigaSequential, ModeGigaOCC} {
+		got := run(mode)
+		name := mode.String()
+		CompareDeterministicFields(t, name, v2.results, got.results)
+		CompareLastResultsHash(t, name, v2.results, got.results)
+		assertReceiptsEqual(t, name, 0, v2.ctx.Mode, got.ctx.Mode, v2.receipt, got.receipt)
+		require.Equal(t, v2.nonce, got.nonce, "%s: nonce", name)
+		assertBalanceEqual(name, "sender", v2.sender, got.sender)
+		assertBalanceEqual(name, "fee collector", v2.feeCollector, got.feeCollector)
+		assertBalanceEqual(name, "tx coinbase", v2.coinbase, got.coinbase)
+	}
 }
 
 // TestGigaVsGeth_FeeValidationOrder compares Giga and Geth nonce bump behavior.
@@ -2411,6 +2428,12 @@ func TestGigaValidation_InsufficientBalance(t *testing.T) {
 	gigaNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
 	require.Equal(t, v2Nonce, gigaNonce, "Nonce should match after balance validation failure")
 	require.Equal(t, uint64(1), gigaNonce, "Nonce should be bumped to 1")
+
+	// The failure receipt must be byte-identical across executors: its
+	// Code/Data/GasWanted/GasUsed feed LastResultsHash, and any divergence
+	// splits consensus on a mixed fleet (CON-368).
+	CompareDeterministicFields(t, "InsufficientBalance", v2Results, gigaResults)
+	CompareLastResultsHash(t, "InsufficientBalance", v2Results, gigaResults)
 }
 
 // Note: TestGigaValidation_TipCapGreaterThanFeeCap is not possible because
@@ -2418,11 +2441,12 @@ func TestGigaValidation_InsufficientBalance(t *testing.T) {
 // The check in validateGigaEVMTx exists for defense-in-depth but can't be tested
 // through the normal transaction creation flow.
 
-// TestGigaValidation_GasReportedOnFailure tests that gas is reported on validation failure.
-// Note: V2 and Giga may report different GasUsed values on validation failures due to
-// differences in how the ante handler chain reports gas consumption. The critical parity
-// requirement is that error codes match (for consensus on tx success/failure).
-func TestGigaValidation_GasReportedOnFailure(t *testing.T) {
+// TestGigaValidation_FailureReceiptParity asserts a validation-failed tx
+// produces a byte-identical receipt under both executors. Giga routes
+// validation failures to v2 (per-tx fallback, same doctrine as balance
+// migration), so the ante-abort receipt (including the gas fields that feed
+// LastResultsHash) matches by construction (CON-368).
+func TestGigaValidation_FailureReceiptParity(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(3)
 
@@ -2452,26 +2476,15 @@ func TestGigaValidation_GasReportedOnFailure(t *testing.T) {
 	require.Len(t, v2Results, 1)
 	require.Len(t, gigaResults, 1)
 
-	// Error codes must match (critical for consensus)
-	require.Equal(t, v2Results[0].Code, gigaResults[0].Code,
-		"Error codes should match: V2=%d Giga=%d", v2Results[0].Code, gigaResults[0].Code)
-
-	// Both should report non-zero gas values
-	require.Greater(t, gigaResults[0].GasUsed, int64(0), "Giga should report GasUsed > 0")
-	require.Greater(t, gigaResults[0].GasWanted, int64(0), "Giga should report GasWanted > 0")
-
-	// Log the difference for visibility (not a failure)
-	if v2Results[0].GasUsed != gigaResults[0].GasUsed {
-		t.Logf("Note: GasUsed differs on validation failure - V2=%d, Giga=%d (expected due to ante handler differences)",
-			v2Results[0].GasUsed, gigaResults[0].GasUsed)
-	}
+	require.NotEqual(t, uint32(0), v2Results[0].Code, "tx should fail validation")
+	CompareDeterministicFields(t, "FailureReceiptParity", v2Results, gigaResults)
+	CompareLastResultsHash(t, "FailureReceiptParity", v2Results, gigaResults)
 }
 
-// TestGigaValidation_ErrorCodeParity tests that validation failures produce
-// identical error codes between V2 and Giga (critical for consensus on tx success/failure).
-// Note: GasUsed may differ between V2 and Giga on validation failures due to ante handler
-// differences, but this doesn't affect consensus on whether a tx succeeded or failed.
-func TestGigaValidation_ErrorCodeParity(t *testing.T) {
+// TestGigaValidation_MixedBlockReceiptParity runs a mixed valid/invalid block
+// and asserts the full receipts match between V2 and Giga, since every
+// deterministic receipt field feeds LastResultsHash.
+func TestGigaValidation_MixedBlockReceiptParity(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(5)
 
@@ -2520,22 +2533,207 @@ func TestGigaValidation_ErrorCodeParity(t *testing.T) {
 	require.Len(t, v2Results, 3)
 	require.Len(t, gigaResults, 3)
 
-	// Compare error codes (critical for consensus)
-	for i := range v2Results {
-		require.Equal(t, v2Results[i].Code, gigaResults[i].Code,
-			"tx[%d] Code mismatch: V2=%d Giga=%d", i, v2Results[i].Code, gigaResults[i].Code)
-
-		// Log gas differences for visibility
-		if v2Results[i].GasUsed != gigaResults[i].GasUsed {
-			t.Logf("tx[%d] GasUsed differs: V2=%d Giga=%d (expected for validation failures)",
-				i, v2Results[i].GasUsed, gigaResults[i].GasUsed)
-		}
-	}
+	// Receipts must be byte-identical: Code/Data/GasWanted/GasUsed feed
+	// LastResultsHash (CON-368).
+	CompareDeterministicFields(t, "MixedBlockReceiptParity", v2Results, gigaResults)
+	CompareLastResultsHash(t, "MixedBlockReceiptParity", v2Results, gigaResults)
 
 	// Verify expected outcomes
 	require.Equal(t, uint32(0), v2Results[0].Code, "tx[0] should succeed")
 	require.NotEqual(t, uint32(0), v2Results[1].Code, "tx[1] should fail (insufficient balance)")
 	require.NotEqual(t, uint32(0), v2Results[2].Code, "tx[2] should fail (nonce too high)")
+}
+
+// TestGigaValidation_DrainRace_LastResultsHash reproduces CON-368's block
+// shape: tx0 drains the sender far enough that tx1 (same sender, next nonce)
+// fails its fee check at delivery, a tx that passes admission but fails in
+// the block. Receipts must hash identically across executors; under OCC the
+// giga batch re-runs through the v2 OCC scheduler.
+func TestGigaValidation_DrainRace_LastResultsHash(t *testing.T) {
+	runDrainRace := func(t *testing.T, gigaMode ExecutorMode) {
+		blockTime := time.Now()
+		accts := utils.NewTestAccounts(3)
+		signer := utils.NewSigner()
+		sink := utils.NewSigner()
+		to := sink.EvmAddress
+
+		normalFee := big.NewInt(100000000000) // 21000 gas => 2.1e15 wei max fee
+		fund := big.NewInt(3e15)              // covers tx0's value+fee, not tx1's fee
+		drain := big.NewInt(5e14)
+
+		v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
+		fundAccount(t, v2Ctx, signer.AccountAddress, fund)
+		v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer.AccountAddress, signer.EvmAddress)
+		v2Txs := [][]byte{
+			createCustomEVMTx(t, v2Ctx, signer, &to, drain, 21000, normalFee, normalFee, 0),
+			createCustomEVMTx(t, v2Ctx, signer, &to, big.NewInt(1), 21000, normalFee, normalFee, 1),
+		}
+		_, v2Results, _ := RunBlock(t, v2Ctx, v2Txs)
+
+		gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, gigaMode)
+		fundAccount(t, gigaCtx, signer.AccountAddress, fund)
+		gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+		gigaTxs := [][]byte{
+			createCustomEVMTx(t, gigaCtx, signer, &to, drain, 21000, normalFee, normalFee, 0),
+			createCustomEVMTx(t, gigaCtx, signer, &to, big.NewInt(1), 21000, normalFee, normalFee, 1),
+		}
+		_, gigaResults, _ := RunBlock(t, gigaCtx, gigaTxs)
+
+		require.Len(t, v2Results, 2)
+		require.Len(t, gigaResults, 2)
+		require.Equal(t, uint32(0), v2Results[0].Code, "tx0 (drain) should succeed")
+		require.NotEqual(t, uint32(0), v2Results[1].Code, "tx1 should fail its fee check at delivery")
+		CompareDeterministicFields(t, "DrainRace", v2Results, gigaResults)
+		CompareLastResultsHash(t, "DrainRace", v2Results, gigaResults)
+	}
+	for _, mode := range []ExecutorMode{ModeGigaSequential, ModeGigaOCC} {
+		t.Run(mode.String(), func(t *testing.T) { runDrainRace(t, mode) })
+	}
+}
+
+// TestGigaValidation_ValueExceedsBalance_LastResultsHash covers the balance
+// check's scope mismatch: giga's pre-check rejects fee+value > balance while
+// v2's ante only requires the fee, running the tx to its EVM outcome. The
+// fallback makes giga adopt v2's receipt, keeping the executors code- and
+// hash-identical for this class too.
+func TestGigaValidation_ValueExceedsBalance_LastResultsHash(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+	signer := utils.NewSigner()
+	recipient := utils.NewSigner()
+	to := recipient.EvmAddress
+
+	normalFee := big.NewInt(100000000000)
+	fund := big.NewInt(3e15)  // covers the 2.1e15 max fee...
+	value := big.NewInt(2e15) // ...but not fee+value
+
+	v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
+	fundAccount(t, v2Ctx, signer.AccountAddress, fund)
+	v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer.AccountAddress, signer.EvmAddress)
+	v2Tx := createCustomEVMTx(t, v2Ctx, signer, &to, value, 21000, normalFee, normalFee, 0)
+	_, v2Results, _ := RunBlock(t, v2Ctx, [][]byte{v2Tx})
+
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, fund)
+	gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+	gigaTx := createCustomEVMTx(t, gigaCtx, signer, &to, value, 21000, normalFee, normalFee, 0)
+	_, gigaResults, _ := RunBlock(t, gigaCtx, [][]byte{gigaTx})
+
+	require.Len(t, v2Results, 1)
+	require.Len(t, gigaResults, 1)
+	CompareDeterministicFields(t, "ValueExceedsBalance", v2Results, gigaResults)
+	CompareLastResultsHash(t, "ValueExceedsBalance", v2Results, gigaResults)
+}
+
+// TestGigaValidation_FailureClassParity_AllModes is the forward-looking
+// coverage net for CON-368's class: every delivery-time EVM failure it can
+// construct through the normal signing flow, run under both giga modes,
+// asserting full receipt and LastResultsHash parity against v2. New
+// validation branches in validateGigaEVMTx should gain a case here.
+//
+// Not constructible through this harness (documented, not silently skipped):
+// tip > feeCap (go-ethereum rejects at signing), sender-not-EOA (requires
+// code at a signing address), and fee-cap-below-base-fee when the test
+// chain's base fee is zero.
+func TestGigaValidation_FailureClassParity_AllModes(t *testing.T) {
+	require.False(t, app.MockBalancesEnabled,
+		"parity tests are meaningless under the mock_balances build tag: it tops off the very accounts whose failures are under test")
+
+	type failureCase struct {
+		name string
+		// build returns the tx bytes for a context; called once per context so
+		// signing uses each context's chain setup.
+		build func(t *testing.T, tCtx *GigaTestContext, signer utils.TestAcct, to common.Address) [][]byte
+	}
+
+	normalFee := big.NewInt(100000000000) // 21000 gas => 2.1e15 wei max fee
+
+	cases := []failureCase{
+		{
+			// fee alone exceeds balance: v2's ante-abort receipt (CON-368's tx)
+			name: "FeeExceedsBalance",
+			build: func(t *testing.T, tCtx *GigaTestContext, signer utils.TestAcct, to common.Address) [][]byte {
+				fundAccount(t, tCtx, signer.AccountAddress, big.NewInt(1e12))
+				return [][]byte{createCustomEVMTx(t, tCtx, signer, &to, big.NewInt(1), 21000, normalFee, normalFee, 0)}
+			},
+		},
+		{
+			// fee affordable, fee+value not: giga's pre-check scope differs
+			// from v2's ante (fee-only), so parity relies on the fallback
+			name: "ValueExceedsBalance",
+			build: func(t *testing.T, tCtx *GigaTestContext, signer utils.TestAcct, to common.Address) [][]byte {
+				fundAccount(t, tCtx, signer.AccountAddress, big.NewInt(3e15))
+				return [][]byte{createCustomEVMTx(t, tCtx, signer, &to, big.NewInt(2e15), 21000, normalFee, normalFee, 0)}
+			},
+		},
+		{
+			name: "NonceTooHigh",
+			build: func(t *testing.T, tCtx *GigaTestContext, signer utils.TestAcct, to common.Address) [][]byte {
+				fundAccount(t, tCtx, signer.AccountAddress, big.NewInt(1e18))
+				return [][]byte{createCustomEVMTx(t, tCtx, signer, &to, big.NewInt(1), 21000, normalFee, normalFee, 7)}
+			},
+		},
+		{
+			// nonce 0 succeeds, then a second tx replays nonce 0
+			name: "NonceTooLow",
+			build: func(t *testing.T, tCtx *GigaTestContext, signer utils.TestAcct, to common.Address) [][]byte {
+				fundAccount(t, tCtx, signer.AccountAddress, big.NewInt(1e18))
+				return [][]byte{
+					createCustomEVMTx(t, tCtx, signer, &to, big.NewInt(1), 21000, normalFee, normalFee, 0),
+					createCustomEVMTx(t, tCtx, signer, &to, big.NewInt(2), 21000, normalFee, normalFee, 0),
+				}
+			},
+		},
+		{
+			// CON-368's exact block shape: tx0 drains the fee balance out
+			// from under tx1
+			name: "DrainRace",
+			build: func(t *testing.T, tCtx *GigaTestContext, signer utils.TestAcct, to common.Address) [][]byte {
+				fundAccount(t, tCtx, signer.AccountAddress, big.NewInt(3e15))
+				return [][]byte{
+					createCustomEVMTx(t, tCtx, signer, &to, big.NewInt(5e14), 21000, normalFee, normalFee, 0),
+					createCustomEVMTx(t, tCtx, signer, &to, big.NewInt(1), 21000, normalFee, normalFee, 1),
+				}
+			},
+		},
+	}
+
+	gigaModes := []ExecutorMode{ModeGigaSequential, ModeGigaOCC}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, gm := range gigaModes {
+				t.Run(gm.String(), func(t *testing.T) {
+					blockTime := time.Now()
+					accts := utils.NewTestAccounts(3)
+					signer := utils.NewSigner()
+					recipient := utils.NewSigner()
+					to := recipient.EvmAddress
+
+					v2Ctx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2Sequential)
+					v2Ctx.TestApp.EvmKeeper.SetAddressMapping(v2Ctx.Ctx, signer.AccountAddress, signer.EvmAddress)
+					v2Txs := tc.build(t, v2Ctx, signer, to)
+					_, v2Results, _ := RunBlock(t, v2Ctx, v2Txs)
+
+					gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, gm)
+					gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+					gigaTxs := tc.build(t, gigaCtx, signer, to)
+					_, gigaResults, _ := RunBlock(t, gigaCtx, gigaTxs)
+
+					require.Len(t, gigaResults, len(v2Results))
+					failed := 0
+					for _, r := range v2Results {
+						if r.Code != 0 {
+							failed++
+						}
+					}
+					require.Greater(t, failed, 0, "case must produce at least one failed tx under v2, or it covers nothing")
+					CompareDeterministicFields(t, tc.name+"/"+gm.String(), v2Results, gigaResults)
+					CompareLastResultsHash(t, tc.name+"/"+gm.String(), v2Results, gigaResults)
+				})
+			}
+		})
+	}
 }
 
 // TestGigaValidation_FeeCapBelowMinimumFee tests that fee cap < minimum fee is rejected.

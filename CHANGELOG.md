@@ -29,10 +29,15 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.6
 sei-chain
+* [#3781](https://github.com/sei-protocol/sei-chain/pull/3781) Backport `release/v6.6`: fix(giga): fall back to v2 on execution errors
+* [#3766](https://github.com/sei-protocol/sei-chain/pull/3766) Bump version in prep to release v6.6-rc4
+* [#3757](https://github.com/sei-protocol/sei-chain/pull/3757) Backport `release/v6.6`: fix(giga): route EVM validation failures to v2 fallback (CON-368)
+* [#3748](https://github.com/sei-protocol/sei-chain/pull/3748) Bump version in prep to release v6.6-rc3
+* [#3746](https://github.com/sei-protocol/sei-chain/pull/3746) Backport `release/v6.6`: Update v6.6 changelog in prep to cut rc3
 * [#3759](https://github.com/sei-protocol/sei-chain/pull/3759) feat(evmrpc): bound `eth_getLogs` peak memory with matched-log count and byte budgets. `max_log_no_block` caps log count; `max_log_bytes` caps estimated heap bytes (default 64 MiB). Limits are enforced per matched log at append time; exceeding either returns an error instead of silently truncating.
 * [#3743](https://github.com/sei-protocol/sei-chain/pull/3743) Backport `release/v6.6`: feat(cosmos): range-check Dec conversions and DecCoin validation (CON-369)
 * [#3732](https://github.com/sei-protocol/sei-chain/pull/3732) Bump version in prep to release v6.6-rc2
-* [#3731](https://github.com/sei-protocol/sei-chain/pull/3731) Backport `release/v6.6`: Update v6.6 changelog in prep to cut RC2
+* [#3731](https://github.com/sei-protocol/sei-chain/pull/3731) Backport `release/v6.6`: Update v6.6 changelog in prep to cut rc2
 * [#3717](https://github.com/sei-protocol/sei-chain/pull/3717) Backport `release/v6.6`: Accept legacy cosmos_only SC write mode
 * [#3697](https://github.com/sei-protocol/sei-chain/pull/3697) Backport `release/v6.6`: Fix rpc hash race condition
 * [#3694](https://github.com/sei-protocol/sei-chain/pull/3694) Backport `release/v6.6`: Add GoReleaser release pipeline for static seid binaries (#3425)
