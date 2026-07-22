@@ -403,17 +403,17 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 
 // PushBlock pushes block to the state.
 // The QC for n must already be present (guaranteed by PushQC ordering), unless
-// the height was already executed (n < nextAppProposal) — in that case the
-// block is dropped silently.
+// the height is already in the contiguous block prefix (n < nextBlock) — in
+// that case the block is dropped silently (already stored or executed/evicted).
 func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block *types.Block) error {
 	var epochIdx types.EpochIndex
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextQC }); err != nil {
 			return err
 		}
-		// nextAppProposal is the in-memory executed floor: heights below it are
-		// not needed in RAM (durable in BlockDB / already voted).
-		if n < inner.nextAppProposal {
+		// Already past the contiguous prefix: insertBlock would no-op, and
+		// heights below nextAppProposal may no longer have qcs[n] in RAM.
+		if n < inner.nextBlock {
 			return nil
 		}
 		qc, ok := inner.qcs[n]
