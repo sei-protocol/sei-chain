@@ -99,7 +99,7 @@ func TestDeliverTxBatch(t *testing.T) {
 	}
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 
 	// Create same codec used in txDecoder
 	codec := codec.NewLegacyAmino()
@@ -158,7 +158,7 @@ func TestDeliverTxBatchEmpty(t *testing.T) {
 	}
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
-	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.InitChain(&abci.RequestInitChain{})
 
 	// Create same codec used in txDecoder
 	codec := codec.NewLegacyAmino()

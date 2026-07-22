@@ -105,7 +105,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		tc := tc
 
 		tc.bapp.SetParamStore(&paramStore{db: dbm.NewMemDB()})
-		tc.bapp.InitChain(context.Background(), &abci.RequestInitChain{
+		tc.bapp.InitChain(&abci.RequestInitChain{
 			ConsensusParams: &tmproto.ConsensusParams{
 				Evidence: &tmproto.EvidenceParams{
 					MaxAgeNumBlocks: tc.maxAgeBlocks,
@@ -162,6 +162,32 @@ func TestBaseAppCreateQueryContext(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreateQueryContextUsesCheckStateBeforeFirstCommit(t *testing.T) {
+	t.Parallel()
+
+	capKey := sdk.NewKVStoreKey("genesis")
+	key := []byte("hello")
+	value := []byte("world")
+	initChainerOpt := func(bapp *BaseApp) {
+		bapp.SetInitChainer(func(ctx sdk.Context, _ abci.RequestInitChain) abci.ResponseInitChain {
+			ctx.KVStore(capKey).Set(key, value)
+			return abci.ResponseInitChain{}
+		})
+	}
+	app := newBaseApp(t.Name(), initChainerOpt)
+	app.MountStores(capKey1, capKey2, capKey)
+	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
+	require.NoError(t, app.LoadLatestVersion())
+
+	_, err := app.InitChain(&abci.RequestInitChain{ChainId: "sei"})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), app.LastBlockHeight())
+
+	ctx, err := app.CreateQueryContext(0, false)
+	require.NoError(t, err)
+	require.Equal(t, value, ctx.KVStore(capKey).Get(key))
 }
 
 type paramStore struct {
@@ -256,7 +282,7 @@ func TestProcessProposalCleanContextNotAffectedByHandler(t *testing.T) {
 	err := app.LoadLatestVersion()
 	require.NoError(t, err)
 
-	app.InitChain(context.Background(), &abci.RequestInitChain{
+	app.InitChain(&abci.RequestInitChain{
 		AppStateBytes: []byte("{}"),
 		ChainId:       "test-chain",
 	})

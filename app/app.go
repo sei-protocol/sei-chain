@@ -476,11 +476,6 @@ type App struct {
 
 	forkInitializer func(sdk.Context)
 
-	httpServerStartSignal     chan struct{}
-	wsServerStartSignal       chan struct{}
-	httpServerStartSignalSent bool
-	wsServerStartSignalSent   bool
-
 	// evmHTTPServer/evmWSServer hold the EVM JSON-RPC HTTP and WebSocket listeners
 	// constructed in RegisterLocalServices so an embedding orchestrator (the
 	// in-process harness) can Stop() them at teardown. Nil when the respective
@@ -539,21 +534,19 @@ func New(
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
-		BaseApp:               bApp,
-		cdc:                   cdc,
-		appCodec:              appCodec,
-		interfaceRegistry:     interfaceRegistry,
-		keys:                  keys,
-		tkeys:                 tkeys,
-		memKeys:               memKeys,
-		txDecoder:             encodingConfig.TxConfig.TxDecoder(),
-		versionInfo:           version.NewInfo(),
-		metricCounter:         &map[string]float32{},
-		encodingConfig:        encodingConfig,
-		legacyEncodingConfig:  MakeLegacyEncodingConfig(),
-		stateStore:            stateStore,
-		httpServerStartSignal: make(chan struct{}, 1),
-		wsServerStartSignal:   make(chan struct{}, 1),
+		BaseApp:              bApp,
+		cdc:                  cdc,
+		appCodec:             appCodec,
+		interfaceRegistry:    interfaceRegistry,
+		keys:                 keys,
+		tkeys:                tkeys,
+		memKeys:              memKeys,
+		txDecoder:            encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:          version.NewInfo(),
+		metricCounter:        &map[string]float32{},
+		encodingConfig:       encodingConfig,
+		legacyEncodingConfig: MakeLegacyEncodingConfig(),
+		stateStore:           stateStore,
 	}
 
 	for _, option := range appOptions {
@@ -1946,17 +1939,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 		}
 	}()
 
-	defer func() {
-		if !app.httpServerStartSignalSent {
-			app.httpServerStartSignalSent = true
-			app.httpServerStartSignal <- struct{}{}
-		}
-		if !app.wsServerStartSignalSent {
-			app.wsServerStartSignalSent = true
-			app.wsServerStartSignal <- struct{}{}
-		}
-	}()
-
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
 	blockSpanCtx, blockSpan := app.GetBaseApp().TracingInfo.Start("Block")
@@ -2594,19 +2576,7 @@ func (app *App) LegacyAmino() *codec.LegacyAmino {
 }
 
 func (app *App) GetValidators() []abci.ValidatorUpdate {
-	// AUTOBAHN: After InitChain but before the first Commit, the committed
-	// store is empty — staking params don't exist, so reading from committed
-	// store panics in MaxValidators. Use DeliverContext when available at
-	// height 0, since it has the uncommitted staking state from InitChain.
-	// CometBFT consensus never hits this because its handshaker commits
-	// after InitChain before any block processing begins.
-	if app.LastBlockHeight() == 0 {
-		if dctx := app.DeliverContext(); dctx != nil {
-			return app.StakingKeeper.GetBondedValidators(*dctx)
-		}
-	}
-	ctx := app.NewUncachedContext(false, tmproto.Header{Height: max(app.LastBlockHeight(), 1)})
-	return app.StakingKeeper.GetBondedValidators(ctx)
+	return app.StakingKeeper.GetBondedValidators(app.GetCheckCtx())
 }
 
 // AppCodec returns an app codec.
@@ -2765,7 +2735,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		}
 		app.evmHTTPServer = evmHTTPServer
 		go func() {
-			<-app.httpServerStartSignal
+			<-app.Initialized()
 			if err := evmHTTPServer.Start(); err != nil {
 				panic(err)
 			}
@@ -2780,7 +2750,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		}
 		app.evmWSServer = evmWSServer
 		go func() {
-			<-app.wsServerStartSignal
+			<-app.Initialized()
 			if err := evmWSServer.Start(); err != nil {
 				panic(err)
 			}

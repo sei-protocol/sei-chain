@@ -18,14 +18,14 @@ import (
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	seiutils "github.com/sei-protocol/sei-chain/utils"
 )
 
 type MockClient struct {
-	mock.Client
+	rpcclient.Client
 	blocks           [][][]byte
 	txResults        [][]*abci.ExecTxResult
 	consParamUpdates []*tmproto.ConsensusParams

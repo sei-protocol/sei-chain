@@ -256,7 +256,7 @@ func (p PrecompileExecutor) associateAddresses(ctx sdk.Context, method *abi.Meth
 
 func (PrecompileExecutor) IsTransaction(method string) bool {
 	switch method {
-	case Associate:
+	case Associate, AssociatePubKey:
 		return true
 	default:
 		return false

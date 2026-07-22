@@ -261,7 +261,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		app := kvstore.NewApplication()
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
 		app.SetValidators(vals)
-		_, err = app.InitChain(ctx, &abci.RequestInitChain{})
+		_, err = app.InitChain(&abci.RequestInitChain{})
 		require.NoError(t, err)
 
 		pv := privVals[i]

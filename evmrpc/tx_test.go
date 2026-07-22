@@ -28,7 +28,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -297,7 +296,7 @@ func TestGetTransactionReceiptExcludeTraceFailLateReceipt(t *testing.T) {
 // lowLatestTMClient reports a fixed LatestBlockHeight via Status, regardless
 // of what blocks the receipt store contains.
 type lowLatestTMClient struct {
-	mock.Client
+	client.Client
 	latest int64
 }
 
@@ -335,7 +334,7 @@ func TestGetTransactionReceiptReturnsNullAboveWatermark(t *testing.T) {
 
 	tmClient := &lowLatestTMClient{latest: MockHeight8}
 	ctxProvider := func(int64) sdk.Context { return Ctx.WithBlockHeight(MockHeight8) }
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, nil)
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, EVMKeeper.ReceiptStore())
 	txAPI := evmrpc.NewTransactionAPI(tmClient, EVMKeeper, ctxProvider, nil, t.TempDir(), evmrpc.ConnectionTypeHTTP, utils.None[time.Duration](), watermarks, evmrpc.NewBlockCache(8), &sync.Mutex{})
 
 	result, err := txAPI.GetTransactionReceipt(context.Background(), hash)

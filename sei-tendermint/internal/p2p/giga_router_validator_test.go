@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/url"
 	"testing"
 	"time"
@@ -14,6 +15,8 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -199,8 +202,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
 	urlByValidator := map[atypes.PublicKey]*url.URL{}
 	// NewGigaRouter requires EVMRPC on every committee member in both
-	// validator and fullnode modes; the missing-URL branch of EvmProxy is
-	// unreachable.
+	// validator and fullnode modes.
 	for i, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
@@ -244,34 +246,74 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	localURL, ok := urlByValidator[localValidator]
 	require.True(t, ok)
 
-	expectedRemoteURLs := map[string]struct{}{}
-	for validator, rpcURL := range urlByValidator {
-		if validator == localValidator {
-			continue
+	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		connectedRemote := map[atypes.PublicKey]struct{}{}
+		expectedRemoteURLs := map[string]struct{}{}
+		type noOpAPI = rpc.Client[giga.API]
+		for validator, addr := range addrs {
+			if validator == localValidator {
+				continue
+			}
+			if len(connectedRemote) >= 3 {
+				break
+			}
+			connectedRemote[validator] = struct{}{}
+			expectedRemoteURLs[addr.EVMRPC.String()] = struct{}{}
+			key := addr.Key
+			ready := make(chan struct{})
+			s.SpawnBgNamed(fmt.Sprintf("poolOut[%s]", key), func() error {
+				var client noOpAPI
+				return utils.IgnoreCancel(router.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error {
+					close(ready)
+					<-ctx.Done()
+					return nil
+				}))
+			})
+			if _, _, err := utils.RecvOrClosed(ctx, ready); err != nil {
+				return err
+			}
 		}
-		expectedRemoteURLs[rpcURL.String()] = struct{}{}
-	}
-	returnedRemoteURLs := map[string]struct{}{}
 
-	for range 200 {
-		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.Registry().LatestEpoch().Committee().EvmShard(sender)
+		returnedRemoteURLs := map[string]struct{}{}
+		seenDisconnected := false
+		for range 400 {
+			sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+			shardValidator := router.data.Registry().LatestEpoch().Committee().EvmShard(sender)
 
-		proxyURL, ok := router.EvmProxy(sender).Get()
-		expectedURL := urlByValidator[shardValidator]
+			proxyURL, ok := router.EvmProxy(sender).Get()
+			expectedURL := urlByValidator[shardValidator]
 
-		if shardValidator == localValidator {
-			// Self-shard: validator short-circuits to local mempool.
-			require.False(t, ok)
-			require.Nil(t, proxyURL)
-		} else {
-			require.True(t, ok)
-			require.NotNil(t, proxyURL)
-			require.Equal(t, expectedURL.String(), proxyURL.String())
-			require.NotEqual(t, localURL.String(), proxyURL.String())
-			returnedRemoteURLs[proxyURL.String()] = struct{}{}
+			if shardValidator == localValidator {
+				// Self-shard: validator short-circuits to local mempool.
+				if ok || proxyURL != nil {
+					return fmt.Errorf("expected local shard %s to avoid proxying", shardValidator)
+				}
+			} else if _, connected := connectedRemote[shardValidator]; !connected {
+				if ok || proxyURL != nil {
+					return fmt.Errorf("expected disconnected shard %s to avoid proxying", shardValidator)
+				}
+				seenDisconnected = true
+			} else {
+				if !ok || proxyURL == nil {
+					return fmt.Errorf("expected connected shard %s to proxy", shardValidator)
+				}
+				if got := proxyURL.String(); got != expectedURL.String() {
+					return fmt.Errorf("proxy url = %s, want %s", got, expectedURL.String())
+				}
+				if proxyURL.String() == localURL.String() {
+					return fmt.Errorf("connected remote shard %s unexpectedly proxied to local URL", shardValidator)
+				}
+				returnedRemoteURLs[proxyURL.String()] = struct{}{}
+			}
 		}
-	}
 
-	require.Equal(t, expectedRemoteURLs, returnedRemoteURLs)
+		if !maps.Equal(expectedRemoteURLs, returnedRemoteURLs) {
+			return fmt.Errorf("returned remote urls = %v, want %v", returnedRemoteURLs, expectedRemoteURLs)
+		}
+		if !seenDisconnected {
+			return fmt.Errorf("expected at least one disconnected shard sample")
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }
