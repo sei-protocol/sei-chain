@@ -1,0 +1,147 @@
+# 4-validator cluster bootstrapped from a forked flatkv-only pacific-1 home
+# (seid fork-localnet + homepack, see scripts/homepack). Each pod's init
+# container downloads the forged home from S3 once, installs its own
+# consensus identity from the archive's fork-validators/node<i>/ keys, and
+# rewires config.toml for the isolated 4-node network.
+#
+# Deploy: create the aws-fork-restore secret with temporary credentials first
+#   kubectl -n eng-yiren create secret generic aws-fork-restore \
+#     --from-literal=AWS_ACCESS_KEY_ID=... \
+#     --from-literal=AWS_SECRET_ACCESS_KEY=... \
+#     --from-literal=AWS_SESSION_TOKEN=...
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fork-cluster-init
+  namespace: eng-yiren
+data:
+  init.sh: |
+    #!/bin/sh
+    set -eu
+    HOME_DIR=/home/nonroot/.sei
+    ORD=${HOSTNAME##*-}
+    if [ ! -f "$HOME_DIR/.fork-restored" ]; then
+      echo "restoring forked home from $S3_URI"
+      homepack unpack --home "$HOME_DIR" --from "$S3_URI"
+      touch "$HOME_DIR/.fork-restored"
+    fi
+    cp "$HOME_DIR/fork-validators/node$ORD/priv_validator_key.json" "$HOME_DIR/config/priv_validator_key.json"
+    if [ ! -f "$HOME_DIR/data/priv_validator_state.json" ]; then
+      cp "$HOME_DIR/fork-validators/node$ORD/priv_validator_state.json" "$HOME_DIR/data/priv_validator_state.json"
+    fi
+    cp "/init/node_key_$ORD.json" "$HOME_DIR/config/node_key.json"
+    PEERS=""
+    for i in 0 1 2 3; do
+      [ "$i" = "$ORD" ] && continue
+      case $i in
+        0) id=1f528d87e8fa6e07848b9a515e20eb55896a36d0 ;;
+        1) id=aa2fe12a7124a66256bf22d7b042f558c0eaff76 ;;
+        2) id=a06356957aedcb87e5287703d48f20065537af1f ;;
+        3) id=974b0a7fc0197f29d6b3a938d7f818a5de5edd95 ;;
+      esac
+      PEERS="$PEERS,$id@fork-$i.fork:26656"
+    done
+    PEERS=${PEERS#,}
+    CFG="$HOME_DIR/config/config.toml"
+    sed -i "s|^moniker *=.*|moniker = 'fork-$ORD'|" "$CFG"
+    sed -i "s|^mode *=.*|mode = 'validator'|" "$CFG"
+    sed -i "s|^allow-duplicate-ip *=.*|allow-duplicate-ip = true|" "$CFG"
+    sed -i "s|^addr-book-strict *=.*|addr-book-strict = false|" "$CFG"
+    sed -i "s|^pex *=.*|pex = false|" "$CFG"
+    sed -i "s|^persistent-peers *=.*|persistent-peers = '$PEERS'|" "$CFG"
+    echo "init complete for fork-$ORD (peers: $PEERS)"
+  node_key_0.json: |
+    {"id":"1f528d87e8fa6e07848b9a515e20eb55896a36d0","priv_key":{"type":"tendermint/PrivKeyEd25519","value":"QCVOK5DN8Yc0Vf2WdClo1c1Fkhdy7QSYgBOHdrmmAPLIfUlx52BWA8mer6nSIxELavav/GqO1fY2daykBnRpxQ=="}}
+  node_key_1.json: |
+    {"id":"aa2fe12a7124a66256bf22d7b042f558c0eaff76","priv_key":{"type":"tendermint/PrivKeyEd25519","value":"YQ5PzyxuR85HHwcDkFPlWx0nPHJkCQE3rp/41GtTieOMiScRXwp9cKDI7tQ9u7+03eSLIomShtbzzOnV4PG6WQ=="}}
+  node_key_2.json: |
+    {"id":"a06356957aedcb87e5287703d48f20065537af1f","priv_key":{"type":"tendermint/PrivKeyEd25519","value":"JRBtz2qO7kcQW1ABoOdUubCxYl8fhTeUOMDU8CDmkPb2VE50yT6c6DdbEihEc194f6ERbqKwHXhQ4Pu11UWTmg=="}}
+  node_key_3.json: |
+    {"id":"974b0a7fc0197f29d6b3a938d7f818a5de5edd95","priv_key":{"type":"tendermint/PrivKeyEd25519","value":"17IIBAVnjlPB+AH1x9iGo9u0tUDv8RD9jFGSaroVGQPCVmGzNztRwbrqaxgmxJI2gsA9HJYsaTitEfQ8VfnN5Q=="}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fork
+  namespace: eng-yiren
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: flatkv-fork
+  ports:
+  - name: p2p
+    port: 26656
+  - name: rpc
+    port: 26657
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: fork
+  namespace: eng-yiren
+spec:
+  serviceName: fork
+  replicas: 4
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: flatkv-fork
+  template:
+    metadata:
+      labels:
+        app: flatkv-fork
+    spec:
+      tolerations:
+      - key: sei.io/workload
+        operator: Equal
+        value: sei-node
+        effect: NoSchedule
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      initContainers:
+      - name: restore
+        image: 189176372795.dkr.ecr.us-east-2.amazonaws.com/sei/sei-chain:flatkv-fork-82aadee07
+        command: ["sh", "/init/init.sh"]
+        env:
+        - name: S3_URI
+          value: s3://harbor-validation-results/eng-yiren/flatkv-fork/pacific-fork-1-219060002.tar.zst
+        - name: AWS_REGION
+          value: eu-central-1
+        envFrom:
+        - secretRef:
+            name: aws-fork-restore
+        volumeMounts:
+        - name: data
+          mountPath: /home/nonroot/.sei
+        - name: init
+          mountPath: /init
+      containers:
+      - name: seid
+        image: 189176372795.dkr.ecr.us-east-2.amazonaws.com/sei/sei-chain:flatkv-fork-82aadee07
+        command: ["seid", "start", "--home", "/home/nonroot/.sei"]
+        ports:
+        - containerPort: 26656
+        - containerPort: 26657
+        volumeMounts:
+        - name: data
+          mountPath: /home/nonroot/.sei
+        resources:
+          requests:
+            cpu: "8"
+            memory: 32Gi
+      volumes:
+      - name: init
+        configMap:
+          name: fork-cluster-init
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: gp3
+      resources:
+        requests:
+          storage: 300Gi
