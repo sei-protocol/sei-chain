@@ -100,7 +100,7 @@ func TestRecoveryNormal(t *testing.T) {
 
 // TestPruningDiscards verifies that PruneBefore advances BlockDB's watermark so
 // TryBlock returns ErrPruned for the discarded range, while later blocks stay
-// accessible. Memory is cleared by evictExecuted (via Run during pushAppHashes).
+// accessible. Memory is cleared by evictBelowBound (from PushQC/PushAppHash).
 func TestPruningDiscards(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()

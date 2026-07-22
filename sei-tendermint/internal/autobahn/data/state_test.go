@@ -479,9 +479,9 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	}
 }
 
-// TestEvictionWaitsForCommitQCApp checks that evictExecuted does not drop
+// TestEvictionWaitsForCommitQCApp checks that evictBelowBound does not drop
 // AppProposals until a later CommitQC embeds an App (certifying AppQC), and
-// that once that App exists, heights below it are eligible for eviction.
+// that once that App exists, heights below App.GlobalNumber()+1 are evicted.
 func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -531,13 +531,16 @@ func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 
 		for inner := range state.inner.Lock() {
 			bound := inner.evictionBound()
-			require.Equal(t, appFloor, bound, "retain floor is CommitQC.App.GlobalNumber()")
+			require.Equal(t, appFloor+1, bound, "exclusive floor is CommitQC.App.GlobalNumber()+1")
 			for n := gr1.First; n < bound; n++ {
 				_, ok := inner.appProposals[n]
-				require.False(t, ok, "AppProposal %d should be evicted (< App floor)", n)
+				require.False(t, ok, "AppProposal %d should be evicted (< App floor+1)", n)
 			}
-			_, ok := inner.appProposals[appFloor]
-			require.True(t, ok, "AppProposal at App floor %d must remain", appFloor)
+			// Heights at/above exclusive floor stay until executed further.
+			for n := bound; n < inner.nextAppProposal; n++ {
+				_, ok := inner.appProposals[n]
+				require.True(t, ok, "AppProposal %d must remain (>= exclusive floor)", n)
+			}
 		}
 		return nil
 	}))
@@ -601,8 +604,8 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 // readability), so a mid-range prune does not refuse heights inside that QC.
 //
 // PruneBefore is BlockDB-only: heights still retained in RAM for AppVotes
-// (at/above CommitQC.App) remain readable via TryBlock even after the store
-// watermark advances past them.
+// (at/above CommitQC.App+1 exclusive floor) remain readable via TryBlock even
+// after the store watermark advances past them.
 func TestPruningWithPartialQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -615,6 +618,7 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	app, ok := qc2.QC().Proposal().App().Get()
 	require.True(t, ok)
 	appFloor := app.GlobalNumber()
+	exclusiveFloor := appFloor + 1
 
 	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
@@ -635,18 +639,15 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 
 	// Prune past qc1 entirely; BlockDB never-empty keeps the newest cohort (qc2).
 	require.NoError(t, state1.PruneBefore(gr2.Next))
-	// Evicted heights (< App floor) fall through to BlockDB → ErrPruned.
-	for n := gr1.First; n < appFloor; n++ {
+	// Evicted heights (< exclusive App floor) fall through to BlockDB → ErrPruned.
+	for n := gr1.First; n < exclusiveFloor; n++ {
 		_, err := state1.TryBlock(n)
 		require.ErrorIs(t, err, types.ErrPruned)
 	}
-	// App floor stays cached for AppVotes despite BlockDB prune.
-	got, err := state1.TryBlock(appFloor)
-	require.NoError(t, err, "App-floor height %d must remain readable from RAM", appFloor)
-	require.NotNil(t, got)
-	for n := gr2.First; n < gr2.Next; n++ {
+	// Exclusive floor and above stay cached for AppVotes despite BlockDB prune.
+	for n := exclusiveFloor; n < gr2.Next; n++ {
 		got, err := state1.TryBlock(n)
-		require.NoError(t, err)
+		require.NoError(t, err, "height %d must remain readable from RAM (>= exclusive floor)", n)
 		require.NotNil(t, got)
 	}
 
@@ -658,7 +659,7 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	require.NoError(t, dbBad.WriteBlock(survivor, blocks2[survivor-gr2.First]))
 	require.NoError(t, dbBad.Flush())
 	require.NoError(t, dbBad.Close())
-	_, err = NewState(&Config{Registry: registry}, newTestBlockDB(t, dirBad))
+	_, err := NewState(&Config{Registry: registry}, newTestBlockDB(t, dirBad))
 	require.Error(t, err)
 
 	// Consistent retained range: full qc2.
