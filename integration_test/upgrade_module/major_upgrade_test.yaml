@@ -70,6 +70,9 @@
     # Node 0 should panic soon. 
     - cmd: seid_upgrade.sh $VERSION
       node: sei-node-0    
+    - cmd: verify_panic.sh node_admin
+      node: sei-node-0
+      env: PANIC_NODE_0
 
     # Majority of nodes is guaranteed to reach TARGET_HEIGHT-1.
     # Since node 0 is down, this majority is exactly nodes 1,2,3.
@@ -83,23 +86,14 @@
     - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1)) node_admin
       node: sei-node-3
 
-    # node 0 should have panicked somewhere along the way.
-    # We check this AFTER we forced progress on the chain because:
-    # - panic occurs only once node has to process a block with incompatible version
-    # - chain is not guaranteed to produce ANY blocks when there is no traffic (see autobahn case)
-    # - verify_panic.sh does not generate traffic on its own.
-    - cmd: verify_panic.sh
-      node: sei-node-0
-      env: PANIC_NODE_0
-
     # At least one of 1,2,3 reached TARGET_HEIGHT and panicked.
-    - cmd: verify_panic.sh
+    - cmd: verify_panic.sh node_admin
       node: sei-node-1
       env: PANIC_NODE_1  
-    - cmd: verify_panic.sh
+    - cmd: verify_panic.sh node_admin
       node: sei-node-2
       env: PANIC_NODE_2
-    - cmd: verify_panic.sh
+    - cmd: verify_panic.sh node_admin
       node: sei-node-3
       env: PANIC_NODE_3
     - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
@@ -135,7 +129,7 @@
       node: sei-node-0
     - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
       node: sei-node-0
-    - cmd: verify_panic.sh
+    - cmd: verify_panic.sh node_admin
       node: sei-node-0
       env: PANIC_AT_BLOCK_HEIGHT_NODE_0 
     - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
