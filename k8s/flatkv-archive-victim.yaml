@@ -17,7 +17,10 @@ metadata:
   namespace: eng-yiren
 spec:
   accessModes: ["ReadWriteOnce"]
-  storageClassName: gp3
+  # Round 1 of the restore bench used plain gp3 (3000 IOPS / 125MiB/s) and was
+  # disk-bound at 32m35s; round 2 uses 10k IOPS / 1000MiB/s to show the restore
+  # scales with provisioned throughput.
+  storageClassName: gp3-10k-1000
   resources:
     requests:
       storage: 300Gi

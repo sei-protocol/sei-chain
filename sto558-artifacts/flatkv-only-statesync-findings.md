@@ -236,3 +236,30 @@ Operational findings from this run:
    (ephemeral-storage pressure). Workaround: `TMPDIR` on the data volume.
    Follow-up: stream-extract directly from S3 (as homepack does) or default
    the staging path to the node home.
+
+## Restore scales with provisioned disk throughput (2026-07-22, round 2)
+
+Hardware baseline for both rounds (recorded for reproducibility):
+
+- Node: `m6a.4xlarge` (16 vCPU, 64GiB RAM), eu-central-1a; EBS bandwidth cap
+  for this instance type ≈ 6.6Gbps (~830MiB/s).
+- Round 1 volume: StorageClass `gp3` with no parameters = EBS defaults,
+  3000 IOPS / 125MiB/s throughput, 300Gi.
+- Round 2 volume: new StorageClass `gp3-10k-1000` = 10,000 IOPS / 1000MiB/s
+  throughput, 300Gi. Same pod spec (8 CPU / 32Gi requests), same image, same
+  81.4GiB archive (height 219130000), same region.
+
+Result: identical restore command dropped from **32m35s to 12m02s (2.7x)**
+purely from the volume change; light-client verify + bootstrap stayed ~10s.
+Catch-up remained network/replay-bound as before. Effective volume traffic
+went from ~130MiB/s (at the 125MiB/s cap) to ~350MiB/s sustained — the round-2
+run no longer saturates the volume, so the residual bottleneck is the
+sequential download-then-extract flow (staging write + read-back + extract
+write ≈ 250GiB of volume traffic per restore) and s3manager download
+concurrency, not the disk ceiling. Streaming extraction directly from S3
+(homepack-style, no staging file) removes ~90GiB of that traffic and is the
+next lever: projected under 8 minutes on this hardware.
+
+Confirms the headline claim: the key-stream state sync baseline was CPU-bound
+(55m-1h19m even on 750MiB/s volumes), while archive restore converts
+provisioned IO directly into wall-clock speedup.
