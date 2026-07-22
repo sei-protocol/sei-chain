@@ -68,6 +68,20 @@ func TestDeleteImportedMiscKey(t *testing.T) {
 	}
 	require.NoError(t, iter.Error())
 
+	// --- Crash-recovery: reopen and force WAL replay from the import snapshot ---
+	// The importer wrote snapshot@1; the delete-commit (v2) lives only in the
+	// WAL. A readonly LoadVersion rebuilds state as snapshot + WAL replay —
+	// the exact path a crashed node takes on restart — so the delete must
+	// survive the WAL round-trip too.
+	ro, err := dst.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer ro.Close()
+	require.Equal(t, int64(2), ro.Version(), "replayed store must reach the delete commit")
+	_, found = ro.(*CommitStore).Get("staking", moduleKey)
+	require.False(t, found, "deleted imported key must stay deleted after WAL replay")
+	require.Equal(t, dst.CommittedRootHash(), ro.(*CommitStore).CommittedRootHash(),
+		"WAL-replayed root hash must match the live-committed root hash")
+
 	// --- Control: the same flow on the live-written source store ---
 	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: "staking", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{

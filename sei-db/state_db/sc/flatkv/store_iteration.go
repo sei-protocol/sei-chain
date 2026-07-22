@@ -76,7 +76,19 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 	}
 	// The underlying lane/merge/transform iterators report physical Pebble
 	// bounds from Domain(); present the caller's logical [start, end) instead.
-	return iterators.NewDomainIterator(iter, start, end)
+	domainIter, err := iterators.NewDomainIterator(iter, start, end)
+	if err != nil {
+		return nil, err
+	}
+	// Public-contract stability: the lanes pass Pebble's reused key/value
+	// buffers (or subslices of them) straight through, but callers — cachekv
+	// map keys, staking's delete-while-iterating EndBlock loops, /subspace
+	// queries — retain these slices across Next and assume they stay intact,
+	// as memiavl/IAVL iterators guarantee. Copy each position before handing
+	// it out; without this, retained slices mutate as iteration advances and
+	// e.g. queue deletions are silently dropped from the block's changeset
+	// (see NewCopyingIterator).
+	return iterators.NewCopyingIterator(domainIter)
 }
 
 /* Data flow: buildEvmIterator

@@ -22,19 +22,26 @@ import (
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 func main() {
 	home := flag.String("home", "", "node home")
 	writesAt := flag.Int64("writes-at", 0, "dump every physical key whose stored value was written at this block height")
+	dumpWAL := flag.Bool("dump-wal", false, "dump the flatkv changelog: per entry, every module's pair keys with delete flags")
 	flag.Parse()
 	if *home == "" {
 		fmt.Fprintln(os.Stderr, "--home required")
 		os.Exit(1)
+	}
+	if *dumpWAL {
+		dumpChangelog(*home)
+		return
 	}
 	registry := codectypes.NewInterfaceRegistry()
 	cryptocodec.RegisterInterfaces(registry)
@@ -111,6 +118,58 @@ func main() {
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, "fatal:", err)
 	os.Exit(1)
+}
+
+// dumpChangelog prints every entry in the flatkv changelog WAL: the version,
+// and for each named changeset the module plus every pair's key (hex), delete
+// flag and value length. Lets us see exactly what a block's commit persisted
+// as its source of truth, independent of any replay logic.
+func dumpChangelog(home string) {
+	dir := seidbutils.GetChangelogPath(seidbutils.GetFlatKVPath(home))
+	log, err := wal.NewChangelogWAL(dir, wal.Config{})
+	if err != nil {
+		fatal(fmt.Errorf("open changelog %s: %w", dir, err))
+	}
+	defer func() { _ = log.Close() }()
+	first, err := log.FirstOffset()
+	if err != nil {
+		fatal(err)
+	}
+	last, err := log.LastOffset()
+	if err != nil {
+		fatal(err)
+	}
+	fmt.Printf("changelog offsets %d..%d\n", first, last)
+	if last == 0 {
+		return
+	}
+	err = log.Replay(first, last, func(off uint64, entry proto.ChangelogEntry) error {
+		total := 0
+		for _, cs := range entry.Changesets {
+			total += len(cs.Changeset.Pairs)
+		}
+		fmt.Printf("== offset=%d version=%d changesets=%d totalPairs=%d\n",
+			off, entry.Version, len(entry.Changesets), total)
+		for _, cs := range entry.Changesets {
+			deletes := 0
+			for _, p := range cs.Changeset.Pairs {
+				if p.Delete {
+					deletes++
+				}
+			}
+			fmt.Printf("  module=%s pairs=%d deletes=%d\n", cs.Name, len(cs.Changeset.Pairs), deletes)
+			if cs.Name != "staking" {
+				continue
+			}
+			for _, p := range cs.Changeset.Pairs {
+				fmt.Printf("    key=%x delete=%v valLen=%d\n", p.Key, p.Delete, len(p.Value))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		fatal(err)
+	}
 }
 
 // dumpWritesAtHeight scans every committed physical key across the four data
