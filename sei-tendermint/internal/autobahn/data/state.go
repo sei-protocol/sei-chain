@@ -39,17 +39,19 @@ type blockEntry struct {
 }
 
 type inner struct {
-	// qcs/blocks may omit heights below nextAppProposal after eviction
-	// (durable copies live in BlockDB). Keys are not a dense prefix.
-	qcs    map[types.GlobalBlockNumber]*types.FullCommitQC
+	// qcs: retained in [evictionBound(), nextQC) after eviction (durable copies
+	// below that live in BlockDB). May be sparse in the live window only by
+	// gap — tip prefix through nextQC is filled by insertQC.
+	qcs map[types.GlobalBlockNumber]*types.FullCommitQC
+	// blocks: retained in [evictionBound(), nextBlock) after eviction, plus
+	// optional gap-fills in [nextBlock, nextQC) not yet exposed by NextBlock.
 	blocks map[types.GlobalBlockNumber]*types.Block
-	// appProposals[n] contains the AppProposal for block n. Entries are
-	// removed by evictExecuted once a later CommitQC embeds an App that
-	// certifies them (see evictionBound).
+	// appProposals: [evictionBound(), nextAppProposal). Not persisted; rebuilt
+	// via PushAppHash / re-execution after restart. Removed by evictExecuted
+	// once a later CommitQC embeds a certifying App (see evictionBound).
 	appProposals map[types.GlobalBlockNumber]*types.AppProposal
 
-	// blockHashes is a hash → height index for GlobalBlockByHash. Maintained
-	// in lockstep with blocks via insertBlock / evictExecuted. Misses fall
+	// blockHashes mirrors blocks (insertBlock / evictExecuted). Misses fall
 	// through to blockDB.ReadBlockByHash.
 	blockHashes map[types.BlockHeaderHash]types.GlobalBlockNumber
 
@@ -394,8 +396,8 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		if n < inner.nextAppProposal {
 			return nil
 		}
-		qc := inner.qcs[n]
-		if qc == nil {
+		qc, ok := inner.qcs[n]
+		if !ok {
 			return nil
 		}
 		epochIdx = qc.QC().Proposal().EpochIndex()

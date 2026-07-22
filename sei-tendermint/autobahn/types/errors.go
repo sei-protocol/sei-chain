@@ -27,12 +27,13 @@ var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
 // before that block (see the BlockDB ordering contract).
 var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 
-// ErrPruned is returned by the by-number read methods (ReadBlockByNumber and
-// ReadQCByBlockNumber) when the requested GlobalBlockNumber is strictly below
-// the current retention watermark: the record is treated as pruned and is not
-// served while below the watermark. It is distinct from a utils.None result,
-// which means "not present at or above the watermark" and may still be filled
-// by a future write.
+// ErrPruned is returned when a requested record is below the current retention
+// watermark (or otherwise no longer served from the retain window). BlockDB
+// by-number reads (ReadBlockByNumber, ReadQCByBlockNumber) return it for
+// heights strictly below the store watermark. data.State also uses it for
+// AppProposal (and similar) lookups after in-memory eviction. It is distinct
+// from a utils.None result on BlockDB, which means "not present at or above
+// the watermark" and may still be filled by a future write.
 //
 // ErrPruned reflects the watermark's current position, not a permanent verdict.
 // The watermark only advances while a store stays open, so within a single
