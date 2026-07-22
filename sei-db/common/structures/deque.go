@@ -1,4 +1,4 @@
-package snapshot
+package structures
 
 import (
 	"fmt"
@@ -8,6 +8,9 @@ import (
 
 const minDequeCapacity = 8
 
+// Deque is a generic double-ended queue backed by a growable circular buffer. It supports amortized O(1)
+// push/pop/peek at both ends and O(1) random access by index (including Python-style negative
+// indexing). Not thread safe.
 type Deque[T any] struct {
 	data []T
 	// len(data) - 1; Used to do a cheap modulo since capacity is always a power of 2.
@@ -191,6 +194,12 @@ func (r *Deque[T]) Backward() iter.Seq2[int, T] {
 			}
 		}
 	}
+}
+
+// Iterator is an alias for Forward, yielding (index, value) pairs from front to back. It exists so
+// call sites written against the older RandomAccessDeque API continue to compile against Deque.
+func (r *Deque[T]) Iterator() iter.Seq2[int, T] {
+	return r.Forward()
 }
 
 func (r *Deque[T]) resolveIndex(index int) int {

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/structures"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -22,7 +23,7 @@ type shard struct {
 	lock sync.Mutex
 
 	// Data at various versions. This is for data that has not yet been flushed down into the DB.
-	versionedData map[string] /* key */ *Deque[versionedValue] /* values at various versions */
+	versionedData map[string] /* key */ *structures.Deque[versionedValue] /* values at various versions */
 
 	// For each version, contains the values set in that version.  If a value is set more than once
 	// in a version, only the last value is stored. Although possible to find the value at a specifc
@@ -33,7 +34,7 @@ type shard struct {
 	dbCache map[string]*dbCacheEntry
 
 	// Organizes data in dbCache for LRU eviction.
-	dbCacheGCQueue *lruQueue
+	dbCacheGCQueue *structures.LRUQueue
 
 	// A pool for asynchronous reads.
 	readPool threading.Pool
@@ -138,9 +139,9 @@ func NewShard(
 		readPool:       readPool,
 		lock:           sync.Mutex{},
 		dbCache:        make(map[string]*dbCacheEntry),
-		dbCacheGCQueue: newLRUQueue(),
+		dbCacheGCQueue: structures.NewLRUQueue(),
 		maxSize:        maxSize,
-		versionedData:  make(map[string]*Deque[versionedValue]),
+		versionedData:  make(map[string]*structures.Deque[versionedValue]),
 		versionDiffs:   versionDiffs,
 		currentVersion: 1, // important: versions start at 1, not 0, to allow version-1 without underflow
 		oldestVersion:  1,
@@ -516,7 +517,7 @@ func (s *shard) setLocked(key []byte, value []byte) {
 
 	deque, ok := s.versionedData[keyStr]
 	if !ok {
-		deque = NewDeque[versionedValue]()
+		deque = structures.NewDeque[versionedValue]()
 		s.versionedData[keyStr] = deque
 	}
 	if deque.IsEmpty() || deque.PeekBack().version < s.currentVersion {
