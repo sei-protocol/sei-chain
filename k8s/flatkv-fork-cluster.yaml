@@ -103,7 +103,7 @@ spec:
         fsGroup: 65532
       initContainers:
       - name: restore
-        image: 189176372795.dkr.ecr.us-east-2.amazonaws.com/sei/sei-chain:flatkv-fork-82aadee07
+        image: 189176372795.dkr.ecr.us-east-2.amazonaws.com/sei/sei-chain:flatkv-fork-81dd4f446
         command: ["sh", "/init/init.sh"]
         env:
         - name: S3_URI
@@ -120,7 +120,7 @@ spec:
           mountPath: /init
       containers:
       - name: seid
-        image: 189176372795.dkr.ecr.us-east-2.amazonaws.com/sei/sei-chain:flatkv-fork-82aadee07
+        image: 189176372795.dkr.ecr.us-east-2.amazonaws.com/sei/sei-chain:flatkv-fork-81dd4f446
         command: ["seid", "start", "--home", "/home/nonroot/.sei"]
         ports:
         - containerPort: 26656
