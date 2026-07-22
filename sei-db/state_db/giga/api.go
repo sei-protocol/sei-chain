@@ -14,7 +14,7 @@ const (
 type Address [AddressLen]byte
 
 // Hash is a 256-bit value (32 bytes), used here for storage slots, balances,
-// code hashes, and block hashes. Like Address, it can be freely converted
+// code hashes. Like Address, it can be freely converted
 // to/from common.Hash or evmc.Hash.
 type Hash [HashLen]byte
 
@@ -42,7 +42,7 @@ type Store interface {
 
 // StateSnapshot is a read-only, point-in-time view over the store's raw
 // key/value data, plus (via the embedded EVMStateSnapshot) EVM-specific
-// accessors for account/storage/code/balance/block-hash reads.
+// accessors for account/storage/code/balance reads.
 //
 // Until Close, the underlying resources (e.g. an ephemeral SC snapshot or a pinned SS
 // version) stay alive, even concurrently with later writes/commits.
