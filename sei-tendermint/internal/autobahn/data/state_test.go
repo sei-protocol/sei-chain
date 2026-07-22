@@ -726,7 +726,8 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 
 // TestTryBlockHidesGapFills verifies the no-gap contract: a block stored above
 // nextBlock (gap-fill) is not visible via TryBlock until the contiguous prefix
-// catches up.
+// catches up. GlobalBlockByHash still serves it from RAM (hash index) even
+// though it is not yet durable in BlockDB.
 func TestTryBlockHidesGapFills(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -745,9 +746,18 @@ func TestTryBlockHidesGapFills(t *testing.T) {
 
 	// Gap-fill the last height of qc2 before earlier qc2 blocks.
 	last := gr2.Next - 1
-	require.NoError(t, state.PushBlock(ctx, last, blocks2[last-gr2.First]))
+	gapBlock := blocks2[last-gr2.First]
+	require.NoError(t, state.PushBlock(ctx, last, gapBlock))
 	_, err := state.TryBlock(last)
 	require.ErrorIs(t, err, types.ErrNotFound, "gap-fill above nextBlock must stay hidden")
+
+	// ByHash must not fall through to BlockDB (gap-fills are not persisted yet).
+	gotOpt, err := state.GlobalBlockByHash(gapBlock.Header().Hash())
+	require.NoError(t, err)
+	gotGB, ok := gotOpt.Get()
+	require.True(t, ok, "gap-fill must be served from RAM via GlobalBlockByHash")
+	require.Equal(t, last, gotGB.GlobalNumber)
+	require.Equal(t, gapBlock.Header(), gotGB.Header)
 
 	// Fill contiguous prefix; last becomes visible with the rest.
 	for i, n := 0, gr2.First; n < gr2.Next; n++ {

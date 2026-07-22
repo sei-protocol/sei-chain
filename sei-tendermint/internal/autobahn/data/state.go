@@ -446,17 +446,18 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 
 // GlobalBlockByHash returns the finalized GlobalBlock whose stored header
 // hashes to the given value, or None if no such block is currently retained.
-// Non-blocking. Falls back to BlockDB when the entry was evicted from memory
-// after persist.
+// Non-blocking. Serves from RAM when the hash is indexed and
+// n >= nextAppProposal (unexecuted contiguous prefix and gap-fills ahead of
+// nextBlock). Executed heights fall through to BlockDB. Gap-fills are not
+// written to BlockDB until nextBlock catches up, so they must be served from
+// RAM here — unlike Block/TryBlock, which hide gaps by design.
 func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
 	for inner := range s.inner.Lock() {
 		n, ok := inner.blockHashes[hash]
 		if !ok {
 			break
 		}
-		// Serve from RAM only in the unexecuted contiguous window
-		// [nextAppProposal, nextBlock). Executed heights (and gap-fills) use BlockDB.
-		if n < inner.nextAppProposal || n >= inner.nextBlock {
+		if n < inner.nextAppProposal {
 			break
 		}
 		return utils.Some(assembleGlobalBlock(n, inner.blocks[n], inner.qcs[n])), nil
@@ -504,6 +505,9 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 }
 
 // assembleGlobalBlock builds a GlobalBlock from a block and its covering QC.
+// In-memory callers must have verified n is in [inner.first, inner.nextBlock)
+// (or a sub-window); map lookups outside that range nil-deref. BlockDB
+// fallbacks pass values already loaded from the store.
 func assembleGlobalBlock(n types.GlobalBlockNumber, b *types.Block, fqc *types.FullCommitQC) *types.GlobalBlock {
 	qc := fqc.QC()
 	return &types.GlobalBlock{
