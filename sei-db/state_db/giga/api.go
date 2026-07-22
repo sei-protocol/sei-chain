@@ -66,11 +66,7 @@ type StateSnapshot interface {
 	Close()
 }
 
-// EVMStateSnapshot is the EVM-specific read surface embedded by
-// StateSnapshot. Its method set mirrors the read-only subset of
-// evmc.HostContext (see giga/executor/internal/host_context.go), so
-// implementations can be adapted to it by simple type conversion between
-// Address/Hash and evmc.Address/evmc.Hash.
+// EVMStateSnapshot is the EVM-specific read surface embedded by StateSnapshot.
 //
 // None of these methods return an error: any underlying database failure
 // is expected to panic so the process crashes rather than continuing with
