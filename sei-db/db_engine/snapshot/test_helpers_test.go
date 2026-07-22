@@ -1,0 +1,319 @@
+package snapshot
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	dbm "github.com/tendermint/tm-db"
+
+	"github.com/stretchr/testify/require"
+
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+)
+
+// testDB is a minimal in-memory types.KeyValueDB for unit tests. It is safe for concurrent use.
+//
+// Behavior knobs:
+//   - getErr: if non-nil, Get returns this error instead of consulting the store.
+//   - commitErr: if non-nil, batch Commit returns this error instead of applying.
+//   - commitBlock: if non-nil, every batch Commit blocks until the channel is closed (or receives a
+//     value). Useful for stalling the flusher to exercise lifecycle backpressure/ordering.
+type testDB struct {
+	mu          sync.RWMutex
+	store       map[string][]byte
+	getCalls    atomic.Int64
+	commitCount atomic.Int64
+	getErr      error
+	commitErr   error
+	commitBlock chan struct{}
+	getGate     chan struct{}
+	closed      atomic.Bool
+}
+
+func newTestDB(seed map[string][]byte) *testDB {
+	m := make(map[string][]byte, len(seed))
+	for k, v := range seed {
+		m[k] = append([]byte(nil), v...)
+	}
+	return &testDB{store: m}
+}
+
+func (d *testDB) Get(key []byte) ([]byte, error) {
+	d.getCalls.Add(1)
+	if d.getGate != nil {
+		<-d.getGate
+	}
+	if d.getErr != nil {
+		return nil, d.getErr
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	v, ok := d.store[string(key)]
+	if !ok {
+		return nil, errorutils.ErrNotFound
+	}
+	return append([]byte(nil), v...), nil
+}
+
+func (d *testDB) BatchGet(keys map[string]types.BatchGetResult) error {
+	for k := range keys {
+		v, err := d.Get([]byte(k))
+		switch {
+		case err == nil:
+			keys[k] = types.BatchGetResult{Value: v}
+		case errors.Is(err, errorutils.ErrNotFound):
+			keys[k] = types.BatchGetResult{}
+		default:
+			keys[k] = types.BatchGetResult{Error: err}
+		}
+	}
+	return nil
+}
+
+func (d *testDB) Set(key, value []byte, _ types.WriteOptions) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.store[string(key)] = append([]byte(nil), value...)
+	return nil
+}
+
+func (d *testDB) Delete(key []byte, _ types.WriteOptions) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.store, string(key))
+	return nil
+}
+
+// NewIter returns a snapshot-at-creation ascending iterator: it captures a sorted copy of the store
+// under the read lock, so concurrent mutations after the call do not affect iteration. Honors
+// IterOptions bounds (lower inclusive, upper exclusive).
+func (d *testDB) NewIter(opts *types.IterOptions) (dbm.Iterator, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var lower, upper []byte
+	if opts != nil {
+		lower = opts.LowerBound
+		upper = opts.UpperBound
+	}
+
+	pairs := make([]kvPair, 0, len(d.store))
+	for k, v := range d.store {
+		kb := []byte(k)
+		if lower != nil && bytes.Compare(kb, lower) < 0 {
+			continue
+		}
+		if upper != nil && bytes.Compare(kb, upper) >= 0 {
+			continue
+		}
+		pairs = append(pairs, kvPair{key: kb, value: append([]byte(nil), v...)})
+	}
+	sort.Slice(pairs, func(i, j int) bool { return bytes.Compare(pairs[i].key, pairs[j].key) < 0 })
+	return &fakeDBIter{pairs: pairs, start: lower, end: upper}, nil
+}
+
+func (d *testDB) NewBatch() types.Batch {
+	return &testBatch{db: d}
+}
+
+func (d *testDB) Flush() error { return nil }
+
+func (d *testDB) Close() error {
+	d.closed.Store(true)
+	return nil
+}
+
+func (d *testDB) isClosed() bool { return d.closed.Load() }
+
+func (d *testDB) has(key string) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	_, ok := d.store[key]
+	return ok
+}
+
+func (d *testDB) get(key string) ([]byte, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	v, ok := d.store[key]
+	return v, ok
+}
+
+// fakeDBIter is a forward-only dbm.Iterator over a pre-sorted, pre-copied slice. It is positioned at
+// the first element on construction, matching the tm-db contract the snapshot iterator relies on.
+type fakeDBIter struct {
+	pairs []kvPair
+	idx   int
+	start []byte
+	end   []byte
+}
+
+func (it *fakeDBIter) Domain() (start []byte, end []byte) { return it.start, it.end }
+func (it *fakeDBIter) Valid() bool                        { return it.idx < len(it.pairs) }
+func (it *fakeDBIter) Next()                              { it.idx++ }
+func (it *fakeDBIter) Key() []byte                        { return it.pairs[it.idx].key }
+func (it *fakeDBIter) Value() []byte                      { return it.pairs[it.idx].value }
+func (it *fakeDBIter) Error() error                       { return nil }
+func (it *fakeDBIter) Close() error                       { return nil }
+
+type testBatchOp struct {
+	key    []byte
+	value  []byte
+	delete bool
+}
+
+type testBatch struct {
+	db     *testDB
+	ops    []testBatchOp
+	closed bool
+}
+
+func (b *testBatch) Set(key, value []byte) error {
+	b.ops = append(b.ops, testBatchOp{key: append([]byte(nil), key...), value: append([]byte(nil), value...)})
+	return nil
+}
+
+func (b *testBatch) Delete(key []byte) error {
+	b.ops = append(b.ops, testBatchOp{key: append([]byte(nil), key...), delete: true})
+	return nil
+}
+
+func (b *testBatch) Commit(_ types.WriteOptions) error {
+	if b.db.commitBlock != nil {
+		<-b.db.commitBlock
+	}
+	if b.db.commitErr != nil {
+		return b.db.commitErr
+	}
+	b.db.commitCount.Add(1)
+	b.db.mu.Lock()
+	defer b.db.mu.Unlock()
+	for _, op := range b.ops {
+		if op.delete {
+			delete(b.db.store, string(op.key))
+		} else {
+			b.db.store[string(op.key)] = op.value
+		}
+	}
+	b.ops = nil
+	return nil
+}
+
+func (b *testBatch) Len() int { return len(b.ops) }
+func (b *testBatch) Reset()   { b.ops = nil }
+func (b *testBatch) Close() error {
+	b.closed = true
+	return nil
+}
+
+// --- engine construction helpers ---
+
+// newTestConfig returns a config suitable for unit tests. Metrics are disabled; overhead is set to 1
+// so dbCache size accounting is easy to reason about.
+func newTestConfig(shardCount, maxSize uint64) *SnapshotEngineConfig {
+	c := DefaultTestSnapshotEngineConfig()
+	c.ShardCount = shardCount
+	c.MaxSize = maxSize
+	c.EstimatedOverheadPerEntry = 1
+	c.MetricsName = "test"
+	return c
+}
+
+func newTestEngine(t *testing.T, seed map[string][]byte, shardCount, maxSize uint64) (SnapshotEngine, *testDB) {
+	t.Helper()
+	db := newTestDB(seed)
+	return newTestEngineWithDB(t, db, shardCount, maxSize), db
+}
+
+func newTestEngineWithDB(t *testing.T, db *testDB, shardCount, maxSize uint64) SnapshotEngine {
+	t.Helper()
+	return newTestEngineWithConfig(t, newTestConfig(shardCount, maxSize), db)
+}
+
+// newTestEngineWithConfig builds an engine on a cancelable context and registers cleanup that cancels
+// the context (stopping the lifecycle goroutine) and drains the work pool. Tests that exercise Close()
+// may still call it explicitly; the cleanup is idempotent with respect to that.
+func newTestEngineWithConfig(t *testing.T, config *SnapshotEngineConfig, db *testDB) SnapshotEngine {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	pool := threading.NewAdHocPool()
+	engine, err := NewSnapshotEngine(ctx, config, db, pool, pool)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cancel()
+		pool.Close()
+	})
+	return engine
+}
+
+// --- shard construction helpers ---
+
+func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard {
+	t.Helper()
+	config := DefaultTestSnapshotEngineConfig()
+	config.MetricsName = "test"
+	config.EstimatedOverheadPerEntry = 0
+	s, err := NewShard(context.Background(), config, db, threading.NewAdHocPool(), maxSize)
+	require.NoError(t, err)
+	return s
+}
+
+// --- lifecycle & iterator helpers ---
+
+var testHash = []byte("test-hash")
+
+func hashAndRelease(t *testing.T, snap Snapshot) {
+	t.Helper()
+	require.NoError(t, snap.SetHash(testHash))
+	require.NoError(t, snap.Release())
+}
+
+func snapshotAndHashRelease(t *testing.T, engine SnapshotEngine) {
+	t.Helper()
+	snap, err := engine.Snapshot()
+	require.NoError(t, err)
+	hashAndRelease(t, snap)
+}
+
+func awaitFlushed(t *testing.T, snap Snapshot, timeout time.Duration) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	require.NoError(t, snap.AwaitFlush(ctx))
+}
+
+// collectIterator drains an Iterator into cloned key/value pairs in iteration order.
+func collectIterator(t *testing.T, it Iterator) []kvPair {
+	t.Helper()
+	var out []kvPair
+	for {
+		ok, k, v, err := it.Next()
+		require.NoError(t, err)
+		if !ok {
+			return out
+		}
+		out = append(out, kvPair{key: append([]byte(nil), k...), value: append([]byte(nil), v...)})
+	}
+}
+
+// collectUserData drains an iterator but skips the metadata hash key, returning only user-visible data.
+func collectUserData(t *testing.T, it Iterator, hashKey string) []kvPair {
+	t.Helper()
+	all := collectIterator(t, it)
+	out := all[:0]
+	for _, kv := range all {
+		if string(kv.key) == hashKey {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
