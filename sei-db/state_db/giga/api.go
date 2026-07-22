@@ -92,8 +92,10 @@ type EVMStateSnapshot interface {
 	// Panics on underlying database errors.
 	GetCodeSize(addr Address) int
 
-	// GetCodeHash returns the hash of addr's contract code. Returns the
-	// zero Hash for accounts with no code.
+	// GetCodeHash returns the hash of addr's contract code.
+	// Returns the empty-code hash (keccak256("")) for existing accounts
+	// with no code (e.g. EOAs with balance/nonce), and the zero Hash for
+	// accounts that do not exist. Matches EXTCODEHASH / keeper.GetCodeHash.
 	// Panics on underlying database errors.
 	GetCodeHash(addr Address) Hash
 
