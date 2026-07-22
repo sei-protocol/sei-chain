@@ -14,8 +14,9 @@ const (
 type Address [AddressLen]byte
 
 // Hash is a 256-bit value (32 bytes), used here for storage slots, balances,
-// code hashes. Like Address, it can be freely converted
-// to/from common.Hash or evmc.Hash.
+// and code hashes. Like Address, it can be freely converted to/from
+// common.Hash or evmc.Hash. Block hashes are not part of this store API
+// (they come from chain BlockContext, not SC/SS account state).
 type Hash [HashLen]byte
 
 // Store is the top-level API used by the Giga EVM executor for
@@ -42,10 +43,10 @@ type Store interface {
 
 // StateSnapshot is a read-only, point-in-time view over the store's raw
 // key/value data, plus (via the embedded EVMStateSnapshot) EVM-specific
-// accessors for account/storage/code/balance reads.
+// accessors for account/storage/code/balance/nonce reads.
 //
-// Until Close, the underlying resources (e.g. an ephemeral SC snapshot or a pinned SS
-// version) stay alive, even concurrently with later writes/commits.
+// Until Close, the underlying resources (e.g. an ephemeral SC snapshot or a
+// pinned SS version) stay alive, even concurrently with later writes/commits.
 type StateSnapshot interface {
 	EVMStateSnapshot
 
