@@ -103,9 +103,4 @@ type EVMStateSnapshot interface {
 	// accounts with no code.
 	// Panics on underlying database errors.
 	GetCode(addr Address) []byte
-
-	// GetBlockHash returns the hash of the block at the given height.
-	// Returns the zero Hash if the height is out of the available range.
-	// Panics on underlying database errors.
-	GetBlockHash(number int64) Hash
 }
