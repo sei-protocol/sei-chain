@@ -661,16 +661,12 @@ func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n type
 	panic("unreachable")
 }
 
-// PruneBefore asks BlockDB to drop data before retainFrom. Only executed
-// heights are eligible (capped to nextAppProposal). Memory is not cleared
-// here — that is evictExecuted's job after persist/execution. BlockDB enforces
-// its own never-empty retention and refuses reads below its watermark.
+// PruneBefore asks BlockDB to drop data before retainFrom. This is independent
+// of in-memory retention: RAM is cleared only by evictExecuted (AppQC floor),
+// and AppProposals are not persisted. BlockDB enforces its own never-empty
+// retention and refuses reads below its watermark.
 func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
-	for inner := range s.inner.Lock() {
-		n := min(retainFrom, inner.nextAppProposal)
-		return s.blockDB.PruneBefore(n)
-	}
-	return nil
+	return s.blockDB.PruneBefore(retainFrom)
 }
 
 // runPersist is a background goroutine that persists blocks and QCs to BlockDB.
