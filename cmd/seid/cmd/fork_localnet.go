@@ -251,6 +251,18 @@ func remapValidatorsInFlatKV(cmd *cobra.Command, home string, validators []*fork
 	ctx := cmd.Context()
 	cdc := app.MakeEncodingConfig().Marshaler
 
+	// A leftover memiavl directory is fatal, not just wasteful: when the app
+	// later loads under sc-write-mode auto/memiavl_only it constructs BOTH
+	// backends, and the composite store's crash reconciliation sees memiavl
+	// at the pre-fork height and the fork surgery as flatkv being "one
+	// commit ahead" — and rolls the surgery back. Refuse up front.
+	memiavlDir := seidbutils.GetCosmosSCStorePath(home)
+	if seidbutils.DirExists(memiavlDir) {
+		return 0, fmt.Errorf("memiavl directory %s still exists; a fully converted flatkv_only home "+
+			"must not carry memiavl or startup version reconciliation will roll the fork commit back — "+
+			"delete it and rerun", memiavlDir)
+	}
+
 	cfg := flatkvconfig.DefaultConfig()
 	cfg.DataDir = seidbutils.GetFlatKVPath(home)
 	store, err := flatkv.NewCommitStore(ctx, cfg)
