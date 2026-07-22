@@ -133,13 +133,14 @@ func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error
 // advances nextBlock once).
 func (i *inner) insertBlock(committee *types.Committee, n types.GlobalBlockNumber, block *types.Block) error {
 	// Contiguous prefix is done or evicted; only [nextBlock, nextQC) inserts.
+	// After success, blocks/blockHashes gain n; qcs[n] is already set.
 	if n < i.nextBlock || n >= i.nextQC {
 		return nil
 	}
 	if _, ok := i.blocks[n]; ok {
 		return nil // already have it (gap fill)
 	}
-	// n is in [nextBlock, nextQC); QCs are contiguous and eviction stops below
+	// n is in [nextBlock, nextQC); QCs are contiguous and evictionBound <=
 	// nextAppProposal <= nextBlock, so qcs[n] is always present.
 	qc := i.qcs[n]
 	storedGR := qc.QC().GlobalRange()
@@ -416,11 +417,8 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		if n < inner.nextBlock {
 			return nil
 		}
-		qc, ok := inner.qcs[n]
-		if !ok {
-			return nil
-		}
-		epochIdx = qc.QC().Proposal().EpochIndex()
+		// n in [nextBlock, nextQC): QC is contiguous in that range.
+		epochIdx = inner.qcs[n].QC().Proposal().EpochIndex()
 	}
 	ep, ok := s.cfg.Registry.EpochByIndex(epochIdx)
 	if !ok {
@@ -455,14 +453,15 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
 	for inner := range s.inner.Lock() {
 		n, ok := inner.blockHashes[hash]
-		if !ok || n < inner.nextAppProposal {
+		if !ok {
 			break
 		}
-		// Live window for AppVotes: n >= nextAppProposal. Below that, prefer
-		// BlockDB (height may already be past evictionBound and gone from maps).
-		if b, ok := inner.blocks[n]; ok {
-			return utils.Some(assembleGlobalBlock(n, b, inner.qcs[n])), nil
+		// Serve from RAM only in the unexecuted contiguous window
+		// [nextAppProposal, nextBlock). Executed heights (and gap-fills) use BlockDB.
+		if n < inner.nextAppProposal || n >= inner.nextBlock {
+			break
 		}
+		return utils.Some(assembleGlobalBlock(n, inner.blocks[n], inner.qcs[n])), nil
 	}
 	return s.globalBlockByHashFromDB(hash)
 }
