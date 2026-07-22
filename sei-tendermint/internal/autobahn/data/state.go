@@ -63,6 +63,7 @@ type inner struct {
 
 	// nextAppProposal <= nextBlockToPersist <= nextBlock <= nextQC
 	//
+	// In-memory retain window after eviction is [evictionBound(), next*).
 	// AppProposals require persistence (nextAppProposal <= nextBlockToPersist).
 	// Executed heights are dropped from memory by evictBelowBound; BlockDB prune
 	// status lives only in the store watermark (see PruneBefore).
@@ -457,7 +458,8 @@ func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*typ
 		if !ok || n < inner.nextAppProposal {
 			break
 		}
-		// Live window: block implies covering QC (same insert/evict lifetime).
+		// Live window for AppVotes: n >= nextAppProposal. Below that, prefer
+		// BlockDB (height may already be past evictionBound and gone from maps).
 		if b, ok := inner.blocks[n]; ok {
 			return utils.Some(assembleGlobalBlock(n, b, inner.qcs[n])), nil
 		}
@@ -797,13 +799,14 @@ func (i *inner) certifiedAppFloor() utils.Option[types.GlobalBlockNumber] {
 	return utils.Some(app.GlobalNumber() + 1)
 }
 
-// evictionBound is the exclusive end of the range that may be dropped from
-// memory. Heights in [evictionBound, nextAppProposal) stay cached — proposals
+// evictionBound is the exclusive low end of retained in-memory state after
+// eviction: maps keep [evictionBound, next*) (this replaces the old inner.first
+// watermark). Heights in [evictionBound, nextAppProposal) stay cached — proposals
 // that do not yet have an AppQC.
 //
-// Without a CommitQC-embedded App, nothing is evicted. With an App at
-// GlobalNumber A, the exclusive floor is A+1 (the App height itself is
-// covered and may be dropped), clamped by nextAppProposal.
+// Without a CommitQC-embedded App, nothing is evicted (bound 0). With an App at
+// GlobalNumber A, the exclusive floor is A+1 (the App height itself is covered
+// and may be dropped), clamped by nextAppProposal.
 func (i *inner) evictionBound() types.GlobalBlockNumber {
 	floor, ok := i.certifiedAppFloor().Get()
 	if !ok {

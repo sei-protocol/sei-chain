@@ -155,7 +155,7 @@ func TestRecoveryAfterPruning(t *testing.T) {
 		[][]*types.Block{blocks2, blocks3})
 	require.NoError(t, db1.Close())
 
-	// Recovery: first = gr2.First; qc1's range is before first, so ErrPruned.
+	// Recovery skipTo(gr2.First); qc1 heights are absent from BlockDB → ErrPruned.
 	db2 := newTestBlockDB(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 
@@ -220,7 +220,7 @@ func TestRecoveryBlocksBehind(t *testing.T) {
 
 // TestRecoveryPartialQCPrefix verifies that a QC covering a wider range than
 // the available blocks (block prefix missing) is rejected — we do not normalize
-// by advancing first to the first present block.
+// by advancing the recovery floor (skipTo) to the first present block.
 func TestRecoveryPartialQCPrefix(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
