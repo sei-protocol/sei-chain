@@ -12,6 +12,7 @@ import (
 	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
@@ -449,6 +450,24 @@ func remapValidatorsInFlatKV(cmd *cobra.Command, home string, validators []*fork
 		)
 	}
 
+	// Scrub the unbonding-validator queue. The queue is keyed by
+	// (completionTime, startHeight); the fork jumps wall-clock time from the
+	// snapshot's block time to "now" while barely advancing height, so the
+	// first forked blocks mature every queue entry in that window at once.
+	// On the source chain some of those entries were mutated or deleted by
+	// later transactions (a rebonded validator's entry is removed when it
+	// re-enters the active set); the frozen fork state never sees those
+	// transactions, and UnbondAllMatureValidators panics on any matured
+	// entry whose validator is not in Unbonding status. Dropping exactly
+	// those addresses reproduces what the source chain's later history did.
+	scrubbed, err := scrubValidatorQueue(store, cdc, &stakingPairs)
+	if err != nil {
+		return 0, fmt.Errorf("scrub validator unbonding queue: %w", err)
+	}
+	if scrubbed > 0 {
+		cmd.Printf("Scrubbed %d stale unbonding-queue entries\n", scrubbed)
+	}
+
 	// The first forked block's distribution BeginBlocker resolves the
 	// previous-proposer record against ValidatorByConsAddr; point it at a
 	// remapped validator so the lookup cannot hit a deleted index.
@@ -474,6 +493,62 @@ func remapValidatorsInFlatKV(cmd *cobra.Command, home string, validators []*fork
 	}
 	cmd.Printf("Remapped %d validator consensus identities at flatkv version %d\n", len(validators), newVersion)
 	return newVersion, nil
+}
+
+// scrubValidatorQueue appends changeset pairs that remove, from every
+// unbonding-queue entry, addresses whose validator record is missing or not
+// in Unbonding status (see the call site for why the fork must do this).
+// Entries left empty are deleted. Returns the number of addresses dropped.
+func scrubValidatorQueue(store *flatkv.CommitStore, cdc codec.Codec, pairs *[]*seidbproto.KVPair) (int, error) {
+	iter, err := store.Iterator(keys.StakingStoreKey,
+		stakingtypes.ValidatorQueueKey, sdk.PrefixEndBytes(stakingtypes.ValidatorQueueKey), true)
+	if err != nil {
+		return 0, fmt.Errorf("iterate validator queue: %w", err)
+	}
+	defer func() { _ = iter.Close() }()
+
+	dropped := 0
+	for ; iter.Valid(); iter.Next() {
+		var addrs stakingtypes.ValAddresses
+		cdc.MustUnmarshal(iter.Value(), &addrs)
+		kept := make([]string, 0, len(addrs.Addresses))
+		for _, bech := range addrs.Addresses {
+			valAddr, err := sdk.ValAddressFromBech32(bech)
+			if err != nil {
+				return 0, fmt.Errorf("parse queued validator address %q: %w", bech, err)
+			}
+			valBz, found := store.Get(keys.StakingStoreKey, stakingtypes.GetValidatorKey(valAddr))
+			if found {
+				var validator stakingtypes.Validator
+				if err := cdc.Unmarshal(valBz, &validator); err != nil {
+					return 0, fmt.Errorf("unmarshal queued validator %q: %w", bech, err)
+				}
+				if validator.IsUnbonding() {
+					kept = append(kept, bech)
+					continue
+				}
+			}
+			dropped++
+		}
+		if len(kept) == len(addrs.Addresses) {
+			continue
+		}
+		key := make([]byte, len(iter.Key()))
+		copy(key, iter.Key())
+		if len(kept) == 0 {
+			*pairs = append(*pairs, &seidbproto.KVPair{Key: key, Delete: true})
+			continue
+		}
+		value, err := cdc.Marshal(&stakingtypes.ValAddresses{Addresses: kept})
+		if err != nil {
+			return 0, fmt.Errorf("marshal scrubbed queue entry: %w", err)
+		}
+		*pairs = append(*pairs, &seidbproto.KVPair{Key: key, Value: value})
+	}
+	if err := iter.Error(); err != nil {
+		return 0, fmt.Errorf("iterate validator queue: %w", err)
+	}
+	return dropped, nil
 }
 
 // loadForkedAppHash loads the application over the post-surgery store and
