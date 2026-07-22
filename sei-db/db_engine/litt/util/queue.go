@@ -44,7 +44,7 @@ func (q *Queue[T]) TryPeek() (item T, ok bool) {
 
 // Returns the number of items in the queue.
 func (q *Queue[T]) Size() uint64 {
-	return uint64(q.data.Len())
+	return uint64(q.data.Len()) //nolint:gosec // length is non-negative
 }
 
 // Returns true if the queue is empty.
@@ -61,7 +61,7 @@ func (q *Queue[T]) Clear() {
 func (q *Queue[T]) Iterator() func(yield func(uint64, T) bool) {
 	return func(yield func(uint64, T) bool) {
 		for i, v := range q.data.Forward() {
-			if !yield(uint64(i), v) {
+			if !yield(uint64(i), v) { //nolint:gosec // index is non-negative
 				return
 			}
 		}

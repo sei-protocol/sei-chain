@@ -2,18 +2,9 @@ package snapshot
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
-	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
-
-// Reader reads a single key from the backing store.
-//
-// If the key does not exist, Reader must return (nil, false, nil) rather than an error.
-// Errors are reserved for actual failures (e.g. I/O errors).
-type Reader func(key []byte) (value []byte, found bool, err error)
 
 // SnapshotEngine provides a read-through cache and efficient point-in-time snapshots on top of a basic
 // key-value database. It also coordinates writes to the database, since efficient snapshots require
@@ -56,7 +47,7 @@ type SnapshotEngine interface {
 	// caller holds a reservation on it; see Snapshot for the full lifecycle contract.
 	Snapshot() (Snapshot, error)
 
-	// Close closes the cache and the underlying database. Before tearing down, Close flushes
+	// Close closes the snapshot engine and the underlying database. Before tearing down, Close flushes
 	// whatever snapshots are currently flush-eligible — the contiguous prefix of hashed,
 	// unflushed snapshots starting at the oldest, applying the same eligibility rules as the
 	// background flusher (see Snapshot). It does NOT wait for unhashed snapshots to
@@ -205,18 +196,4 @@ type Mutation struct {
 // IsDelete returns true if the update is a delete operation.
 func (u *Mutation) IsDelete() bool {
 	return u.Value == nil
-}
-
-// ReaderFromDB constructs a Reader that reads from the given KeyValueDB.
-func ReaderFromDB(db types.KeyValueDB) Reader {
-	return func(key []byte) ([]byte, bool, error) {
-		val, err := db.Get(key)
-		if err != nil {
-			if errors.Is(err, errorutils.ErrNotFound) {
-				return nil, false, nil
-			}
-			return nil, false, fmt.Errorf("failed to read value from database: %w", err)
-		}
-		return val, true, nil
-	}
 }

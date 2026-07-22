@@ -171,11 +171,9 @@ func NewSnapshotEngine(
 	}
 	sizePerShard := config.MaxSize / config.ShardCount
 
-	reader := ReaderFromDB(db)
-
 	shards := make([]*shard, config.ShardCount)
 	for i := uint64(0); i < config.ShardCount; i++ {
-		shards[i], err = NewShard(ctx, config, reader, readPool, sizePerShard)
+		shards[i], err = NewShard(ctx, config, db, readPool, sizePerShard)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create shard: %w", err)
 		}
@@ -237,6 +235,7 @@ func (c *snapshotEngine) BatchSet(updates []Mutation) error {
 		shardMap[idx] = append(shardMap[idx], updates[i])
 	}
 
+	// Fan out to shards.
 	var wg sync.WaitGroup
 	for shardIndex, shardEntries := range shardMap {
 		wg.Add(1)
@@ -254,17 +253,18 @@ func (c *snapshotEngine) BatchGet(keys map[string]types.BatchGetResult) error {
 	return c.BatchGetAtVersion(keys, c.currentVersion)
 }
 
-// Similar semantics to BatchGet, but reads from the given version of the engine.
 func (c *snapshotEngine) BatchGetAtVersion(keys map[string]types.BatchGetResult, version uint64) error {
+	// Create map to hold results, sorted by shard.
 	work := make(map[uint64]map[string]types.BatchGetResult)
 	for key := range keys {
-		idx := c.shardManager.Shard([]byte(key))
-		if work[idx] == nil {
-			work[idx] = make(map[string]types.BatchGetResult)
+		shardIndex := c.shardManager.Shard([]byte(key))
+		if work[shardIndex] == nil {
+			work[shardIndex] = make(map[string]types.BatchGetResult)
 		}
-		work[idx][key] = types.BatchGetResult{}
+		work[shardIndex][key] = types.BatchGetResult{}
 	}
 
+	// Fan out to shards.
 	var wg sync.WaitGroup
 	for shardIndex, subMap := range work {
 		wg.Add(1)
@@ -281,6 +281,7 @@ func (c *snapshotEngine) BatchGetAtVersion(keys map[string]types.BatchGetResult,
 	}
 	wg.Wait()
 
+	// Collapse data-by-shard into flat map.
 	for _, subMap := range work {
 		for key, result := range subMap {
 			keys[key] = result
@@ -296,7 +297,6 @@ func (c *snapshotEngine) Delete(key []byte) {
 	shard.Delete(key)
 }
 
-// Similar semantics to Get, but reads from the given version of the engine.
 func (c *snapshotEngine) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 	return c.GetAtVersion(key, c.currentVersion, updateLru)
 }

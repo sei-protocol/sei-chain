@@ -2,22 +2,37 @@ package snapshot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/structures"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
+
+// readFromDB reads a single key from the underlying database, returning (nil, false, nil) if the
+// key is not found and reserving errors for actual failures (e.g. I/O errors).
+func (s *shard) readFromDB(key []byte) (value []byte, found bool, err error) {
+	val, err := s.db.Get(key)
+	if err != nil {
+		if errors.Is(err, errorutils.ErrNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("failed to read value from database: %w", err)
+	}
+	return val, true, nil
+}
 
 // A single shard of a SnapshotEngine.
 type shard struct {
 	ctx    context.Context
 	config *SnapshotEngineConfig
 
-	// A method that can read data from the DB.
-	reader Reader
+	// The underlying key-value database.
+	db types.KeyValueDB
 
 	// A lock to protect the shard's data.
 	lock sync.Mutex
@@ -63,13 +78,13 @@ type valueStatus int
 
 const (
 	// The value is not known and we are not currently attempting to find it.
-	statusUnknown valueStatus = iota
+	statusUnknown valueStatus = 1
 	// We've scheduled a read of the value but haven't yet finished the read.
-	statusScheduled
+	statusScheduled valueStatus = 2
 	// The data is available.
-	statusAvailable
+	statusAvailable valueStatus = 3
 	// We are aware that the value is deleted (special case of data being available).
-	statusDeleted
+	statusDeleted valueStatus = 4
 )
 
 // A single entry in the db cache. Records data for a single key.
@@ -117,8 +132,8 @@ for converting to a RW lock:
 func NewShard(
 	ctx context.Context,
 	config *SnapshotEngineConfig,
-	// A method that can read data from the DB.
-	reader Reader,
+	// The underlying key-value database.
+	db types.KeyValueDB,
 	// A work pool for asynchronous reads.
 	readPool threading.Pool,
 	// The maximum size of this shard, in bytes.
@@ -135,7 +150,7 @@ func NewShard(
 	return &shard{
 		ctx:            ctx,
 		config:         config,
-		reader:         reader,
+		db:             db,
 		readPool:       readPool,
 		lock:           sync.Mutex{},
 		dbCache:        make(map[string]*dbCacheEntry),
@@ -143,7 +158,7 @@ func NewShard(
 		maxSize:        maxSize,
 		versionedData:  make(map[string]*structures.Deque[versionedValue]),
 		versionDiffs:   versionDiffs,
-		currentVersion: 1, // important: versions start at 1, not 0, to allow version-1 without underflow
+		currentVersion: 1, // important: versions start at 1, not 0, to allow (version - 1) without underflow
 		oldestVersion:  1,
 	}, nil
 }
@@ -252,7 +267,7 @@ func (s *shard) getUnknownLocked(entry *dbCacheEntry, key []byte) ([]byte, bool,
 	s.metrics.reportCacheMisses(1)
 	startTime := time.Now()
 	s.readPool.Submit(func() {
-		value, _, readErr := s.reader(key)
+		value, _, readErr := s.readFromDB(key)
 		entry.injectValue(key, readResult{value: value, err: readErr})
 	})
 	result, err := threading.InterruptiblePull(s.ctx, valueChan)
@@ -429,7 +444,7 @@ func (s *shard) BatchGet(
 		if pending[i].needsSchedule {
 			p := &pending[i]
 			s.readPool.Submit(func() {
-				value, _, readErr := s.reader([]byte(p.key))
+				value, _, readErr := s.readFromDB([]byte(p.key))
 				p.entry.valueChan <- readResult{value: value, err: readErr}
 			})
 		}
