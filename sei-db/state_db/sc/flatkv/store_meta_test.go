@@ -184,7 +184,7 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	key := evmStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, padLeft32(0x56), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	v := commitAndCheck(t, s)
 	require.Equal(t, int64(1), v)
 
@@ -287,9 +287,9 @@ func TestSetInitialVersion_HappyPath(t *testing.T) {
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
 	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0xCC), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	v, err := s.Commit()
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), v, "first Commit after SetInitialVersion(100) must produce version 100")
 	require.Equal(t, int64(100), s.Version())
@@ -308,9 +308,9 @@ func TestSetInitialVersion_GenesisSkipsSeededSnapshot(t *testing.T) {
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
 	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0xCC), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	v, err := s.Commit()
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v, "first Commit after SetInitialVersion(1) must produce version 1")
 }
@@ -344,8 +344,8 @@ func TestSetInitialVersion_RejectsAfterCommit(t *testing.T) {
 	addr := ktype.Address{0x01}
 	slot := ktype.Slot{0x02}
 	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0x03), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	err = s.SetInitialVersion(50)
@@ -360,8 +360,8 @@ func TestSetInitialVersion_RejectsReadOnly(t *testing.T) {
 	addr := ktype.Address{0x01}
 	slot := ktype.Slot{0x02}
 	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0x03), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	roStore, err := s.LoadVersion(0, true)
@@ -410,8 +410,8 @@ func TestSetInitialVersion_SurvivesReopen(t *testing.T) {
 	addr := ktype.Address{0xDD}
 	slot := ktype.Slot{0xEE}
 	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0xFF), false)
-	require.NoError(t, s2.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	v, err := s2.Commit()
+	require.NoError(t, s2.ApplyChangeSets(s2.Version()+1, []*proto.NamedChangeSet{cs}))
+	v, err := s2.Commit(s2.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), v,
 		"first Commit after reopen must produce initialVersion")
@@ -426,8 +426,8 @@ func TestSetInitialVersion_RollbackBelowSeededVersionFails(t *testing.T) {
 	addr := ktype.Address{0x77}
 	slot := ktype.Slot{0x88}
 	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0x01), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), s.Version())
 

@@ -1,0 +1,156 @@
+[
+  {
+    "inputs": [],
+    "name": "params",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "int64",
+            "name": "signedBlocksWindow",
+            "type": "int64"
+          },
+          {
+            "internalType": "string",
+            "name": "minSignedPerWindow",
+            "type": "string"
+          },
+          {
+            "internalType": "uint64",
+            "name": "downtimeJailDuration",
+            "type": "uint64"
+          },
+          {
+            "internalType": "string",
+            "name": "slashFractionDoubleSign",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "slashFractionDowntime",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct ISlashing.SlashingParams",
+        "name": "params",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "consAddress",
+        "type": "string"
+      }
+    ],
+    "name": "signingInfo",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "validatorAddress",
+            "type": "string"
+          },
+          {
+            "internalType": "int64",
+            "name": "startHeight",
+            "type": "int64"
+          },
+          {
+            "internalType": "int64",
+            "name": "indexOffset",
+            "type": "int64"
+          },
+          {
+            "internalType": "int64",
+            "name": "jailedUntil",
+            "type": "int64"
+          },
+          {
+            "internalType": "bool",
+            "name": "tombstoned",
+            "type": "bool"
+          },
+          {
+            "internalType": "int64",
+            "name": "missedBlocksCounter",
+            "type": "int64"
+          }
+        ],
+        "internalType": "struct ISlashing.SigningInfo",
+        "name": "signingInfo",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "pageKey",
+        "type": "bytes"
+      }
+    ],
+    "name": "signingInfos",
+    "outputs": [
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "internalType": "string",
+                "name": "validatorAddress",
+                "type": "string"
+              },
+              {
+                "internalType": "int64",
+                "name": "startHeight",
+                "type": "int64"
+              },
+              {
+                "internalType": "int64",
+                "name": "indexOffset",
+                "type": "int64"
+              },
+              {
+                "internalType": "int64",
+                "name": "jailedUntil",
+                "type": "int64"
+              },
+              {
+                "internalType": "bool",
+                "name": "tombstoned",
+                "type": "bool"
+              },
+              {
+                "internalType": "int64",
+                "name": "missedBlocksCounter",
+                "type": "int64"
+              }
+            ],
+            "internalType": "struct ISlashing.SigningInfo[]",
+            "name": "signingInfos",
+            "type": "tuple[]"
+          },
+          {
+            "internalType": "bytes",
+            "name": "nextKey",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct ISlashing.SigningInfosResponse",
+        "name": "response",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

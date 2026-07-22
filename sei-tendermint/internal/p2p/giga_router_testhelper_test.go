@@ -60,23 +60,23 @@ func (a *testApp) GetValidators() []abci.ValidatorUpdate {
 	panic("unreachable")
 }
 
-func (a *testApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseInfo, error) {
+func (a *testApp) Info() *abci.ResponseInfo {
 	for state := range a.state.Lock() {
 		init, ok := state.Init.Get()
 		if !ok {
-			return &abci.ResponseInfo{}, nil
+			return &abci.ResponseInfo{}
 		}
 		if len(state.Blocks) == 0 {
 			// Match the real SDK: InitChain without Commit leaves LastBlockHeight=0.
 			return &abci.ResponseInfo{
 				LastBlockHeight:  0,
 				LastBlockAppHash: slices.Clone(state.AppHash[:]),
-			}, nil
+			}
 		}
 		return &abci.ResponseInfo{
 			LastBlockHeight:  init.InitialHeight + int64(len(state.Blocks)) - 1,
 			LastBlockAppHash: slices.Clone(state.AppHash[:]),
-		}, nil
+		}
 	}
 	panic("unreachable")
 }
@@ -102,7 +102,7 @@ func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) *abci.Respons
 	}
 }
 
-func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (a *testApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	for state, ctrl := range a.state.Lock() {
 		if state.Init.IsPresent() {
 			return nil, fmt.Errorf("chain already initialized")
@@ -217,7 +217,7 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 	appState := testAppStateJSON(rng)
 
 	// InitChain
-	_, err := app.InitChain(ctx, &abci.RequestInitChain{
+	_, err := app.InitChain(&abci.RequestInitChain{
 		InitialHeight: initialHeight,
 		AppStateBytes: appState,
 	})
@@ -227,8 +227,7 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 	// using the deliverState set up by InitChain.
 
 	// Verify app reports correct height after InitChain (no blocks yet)
-	info, err := app.Info(ctx, &abci.RequestInfo{})
-	require.NoError(t, err)
+	info := app.Info()
 	require.Equal(t, int64(0), info.LastBlockHeight,
 		"testApp should report 0 after InitChain with no committed blocks (matches real SDK)")
 
@@ -247,8 +246,7 @@ func TestInitChainCommitThenFinalize(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify height advanced
-	info, err = app.Info(ctx, &abci.RequestInfo{})
-	require.NoError(t, err)
+	info = app.Info()
 	require.Equal(t, initialHeight, info.LastBlockHeight,
 		"testApp should report InitialHeight after 1 block")
 }

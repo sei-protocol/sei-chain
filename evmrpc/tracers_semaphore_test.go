@@ -103,7 +103,7 @@ func TestHashBasedTraceEndpointsAcquireSemaphoreBeforeHashLookup(t *testing.T) {
 	tmClient := &panicHashLookupClient{
 		heightTestClient: newHeightTestClient(8, 1, latestHeight),
 	}
-	watermarks := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, nil)
+	watermarks := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, &fakeReceiptStore{latest: latestHeight})
 	api := &DebugAPI{
 		tmClient:           tmClient,
 		ctxProvider:        func(int64) sdk.Context { return latestCtx },
