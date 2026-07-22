@@ -28,6 +28,7 @@ type opts struct {
 	disableWatermark             interface{}
 	denyList                     interface{}
 	maxLogNoBlock                interface{}
+	maxLogBytes                  interface{}
 	maxBlocksForLog              interface{}
 	maxEstimateGasCalls          interface{}
 	maxSubscriptionsNewHead      interface{}
@@ -110,6 +111,9 @@ func (o *opts) Get(k string) interface{} {
 	}
 	if k == "evm.max_log_no_block" {
 		return o.maxLogNoBlock
+	}
+	if k == "evm.max_log_bytes" {
+		return o.maxLogBytes
 	}
 	if k == "evm.max_blocks_for_log" {
 		return o.maxBlocksForLog
@@ -217,6 +221,7 @@ func getDefaultOpts() opts {
 		false,
 		make([]string, 0),
 		20000,
+		int64(64 << 20),
 		1000,
 		100,
 		10000,

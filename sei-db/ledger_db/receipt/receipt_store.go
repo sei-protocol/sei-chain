@@ -34,10 +34,16 @@ var (
 	// than the caller-supplied limit. It lets callers cap peak memory by
 	// aborting a query instead of materializing an unbounded result set.
 	ErrTooManyLogs = errors.New("query matches too many logs")
+	// ErrTooManyLogBytes is returned when matched logs exceed the byte budget.
+	ErrTooManyLogBytes = errors.New("query matches too many log bytes")
 )
 
 func NewTooManyLogsError(limit int64) error {
 	return fmt.Errorf("%w: result exceeds the maximum of %d logs; narrow the block range or filter criteria", ErrTooManyLogs, limit)
+}
+
+func NewTooManyLogBytesError(maxBytes int64) error {
+	return fmt.Errorf("%w: result exceeds the maximum of %d bytes; narrow the block range or filter criteria", ErrTooManyLogBytes, maxBytes)
 }
 
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.

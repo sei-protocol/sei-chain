@@ -29,7 +29,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.6
 sei-chain
-* [#3759](https://github.com/sei-protocol/sei-chain/pull/3759) feat(evmrpc): bound `eth_getLogs` peak memory with a matched-log cap. `max_log_no_block` now caps both bounded and open-ended block ranges; exceeding it returns an error instead of silently truncating.
+* [#3759](https://github.com/sei-protocol/sei-chain/pull/3759) feat(evmrpc): bound `eth_getLogs` peak memory with matched-log count and byte budgets. `max_log_no_block` caps log count; `max_log_bytes` caps estimated heap bytes (default 64 MiB). Limits are enforced per matched log at append time; exceeding either returns an error instead of silently truncating.
 * [#3743](https://github.com/sei-protocol/sei-chain/pull/3743) Backport `release/v6.6`: feat(cosmos): range-check Dec conversions and DecCoin validation (CON-369)
 * [#3732](https://github.com/sei-protocol/sei-chain/pull/3732) Bump version in prep to release v6.6-rc2
 * [#3731](https://github.com/sei-protocol/sei-chain/pull/3731) Backport `release/v6.6`: Update v6.6 changelog in prep to cut RC2

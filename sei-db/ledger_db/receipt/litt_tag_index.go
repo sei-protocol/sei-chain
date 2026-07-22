@@ -231,14 +231,11 @@ func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filt
 			if egCtx.Err() != nil {
 				return nil // group already cancelled; skip without overwriting the cause
 			}
-			blockLogs, err := s.blockLogs(fromBlock+uint64(i), groups, crit) //nolint:gosec // i < nBlocks
+			blockLogs, err := s.blockLogs(fromBlock+uint64(i), groups, crit, limit, &collected) //nolint:gosec // i < nBlocks
 			if err != nil {
 				return err
 			}
 			results[i] = blockLogs
-			if limit > 0 && atomic.AddInt64(&collected, int64(len(blockLogs))) > limit {
-				return NewTooManyLogsError(limit)
-			}
 			return nil
 		})
 	}
@@ -255,7 +252,7 @@ func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filt
 
 // blockLogs answers the query for one block: intersect the tag candidates, then
 // point-read and match the surviving receipts. Returns nil when nothing matches.
-func (s *littReceiptStore) blockLogs(block uint64, groups [][][]byte, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) blockLogs(block uint64, groups [][][]byte, crit filters.FilterCriteria, limit int64, collected *int64) ([]*ethtypes.Log, error) {
 	candidates, err := s.blockTagCandidates(block, groups)
 	if err != nil {
 		return nil, err
@@ -263,7 +260,7 @@ func (s *littReceiptStore) blockLogs(block uint64, groups [][][]byte, crit filte
 	if len(candidates) == 0 {
 		return nil, nil
 	}
-	return s.candidateBlockLogs(candidates, crit)
+	return s.candidateBlockLogs(candidates, crit, limit, collected)
 }
 
 // blockTagCandidates returns the block's candidate transactions. With no
@@ -335,7 +332,7 @@ func (s *littReceiptStore) scanTagRange(lower, upper []byte, dst map[uint32]litt
 // in transaction-index order, and applies the exact matchLog predicate. A
 // missing receipt is skipped, not an error: litt TTL GC can reclaim a body
 // between the index scan and the read.
-func (s *littReceiptStore) candidateBlockLogs(candidates map[uint32]littTagRef, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) candidateBlockLogs(candidates map[uint32]littTagRef, crit filters.FilterCriteria, limit int64, collected *int64) ([]*ethtypes.Log, error) {
 	txIndexes := make([]uint32, 0, len(candidates))
 	for txIndex := range candidates {
 		txIndexes = append(txIndexes, txIndex)
@@ -344,6 +341,10 @@ func (s *littReceiptStore) candidateBlockLogs(candidates map[uint32]littTagRef, 
 
 	var logs []*ethtypes.Log
 	for _, txIndex := range txIndexes {
+		if limit > 0 && atomic.LoadInt64(collected) > limit {
+			return nil, NewTooManyLogsError(limit)
+		}
+
 		ref := candidates[txIndex]
 		bz, exists, err := s.receipts.Get(ref.txHash[:])
 		if err != nil {
@@ -357,9 +358,15 @@ func (s *littReceiptStore) candidateBlockLogs(candidates map[uint32]littTagRef, 
 			return nil, err
 		}
 		for _, lg := range getLogsForTx(receipt, uint(ref.firstLogIndex)) {
-			if matchLog(lg, crit) {
-				logs = append(logs, lg)
+			if !matchLog(lg, crit) {
+				continue
 			}
+			if limit > 0 {
+				if atomic.AddInt64(collected, 1) > limit {
+					return nil, NewTooManyLogsError(limit)
+				}
+			}
+			logs = append(logs, lg)
 		}
 	}
 	return logs, nil

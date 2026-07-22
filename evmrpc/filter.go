@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -154,16 +153,23 @@ func setCachedReceipt(cacheCreationMutex *sync.Mutex, globalBlockCache BlockCach
 
 // logCollector interface for different collection strategies
 type logCollector interface {
-	Append(*ethtypes.Log)
+	Append(*ethtypes.Log) error
 }
 
 // pooledCollector for reused slice
 type pooledCollector struct {
-	logs *[]*ethtypes.Log
+	logs   *[]*ethtypes.Log
+	budget *receipt.LogBudget
 }
 
-func (c *pooledCollector) Append(log *ethtypes.Log) {
+func (c *pooledCollector) Append(log *ethtypes.Log) error {
+	if c.budget != nil {
+		if err := c.budget.Reserve(log); err != nil {
+			return err
+		}
+	}
 	*c.logs = append(*c.logs, log)
+	return nil
 }
 
 type FilterType byte
@@ -257,9 +263,10 @@ type FilterAPI struct {
 }
 
 type FilterConfig struct {
-	timeout  time.Duration
-	maxLog   int64
-	maxBlock int64
+	timeout     time.Duration
+	maxLog      int64
+	maxLogBytes int64
+	maxBlock    int64
 }
 
 type EventItemDataWrapper struct {
@@ -286,6 +293,9 @@ func NewFilterAPI(
 	}
 	if filterConfig.maxLog <= 0 {
 		filterConfig.maxLog = DefaultMaxLogLimit
+	}
+	if filterConfig.maxLogBytes <= 0 {
+		filterConfig.maxLogBytes = receipt.DefaultMaxLogBytes
 	}
 
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
@@ -779,6 +789,14 @@ func ComputeBlockBounds(latest, earliest, lastToHeight int64, crit filters.Filte
 	return begin, end, nil
 }
 
+func (f *LogFetcher) newLogBudget(limit int64) *receipt.LogBudget {
+	maxLogBytes := f.filterConfig.maxLogBytes
+	if maxLogBytes <= 0 {
+		maxLogBytes = receipt.DefaultMaxLogBytes
+	}
+	return receipt.NewLogBudget(limit, maxLogBytes)
+}
+
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
 	latest, err := f.latestHeight(ctx)
 	if err != nil {
@@ -837,12 +855,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	sortedBatches := make([][]*ethtypes.Log, 0)
 	var wg sync.WaitGroup
 	var submitError error
-	// collected tracks matched logs across workers so the fan-out can stop
-	// queueing batches once the cap is exceeded.
-	var collected int64
-	capExceeded := func() bool {
-		return limit > 0 && atomic.LoadInt64(&collected) > limit
-	}
+	budget := f.newLogBudget(limit)
 
 	processBatch := func(batch []*coretypes.ResultBlock) {
 		defer wg.Done()
@@ -850,14 +863,12 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		localLogs := f.globalLogSlicePool.Get()
 
 		for _, block := range batch {
-			// Cooperative early-abort: once any worker has pushed the matched
-			// count past the cap, stop materializing further blocks.
-			if capExceeded() {
+			if budget.Tripped() {
 				break
 			}
-			before := len(localLogs)
-			f.GetLogsForBlockPooled(block, crit, &localLogs)
-			atomic.AddInt64(&collected, int64(len(localLogs)-before))
+			if err := f.GetLogsForBlockPooled(block, crit, &localLogs, budget); err != nil {
+				break
+			}
 		}
 
 		// Sort the local batch
@@ -877,9 +888,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Batch process with fail-fast
 	blockBatch := make([]*coretypes.ResultBlock, 0, evmrpcconfig.WorkerBatchSize)
 	for block := range blocks {
-		// Stop queueing once the cap is exceeded; in-flight batches finish and
-		// the overflow is reported after wg.Wait.
-		if capExceeded() {
+		if budget.Tripped() {
 			break
 		}
 		blockBatch = append(blockBatch, block)
@@ -902,7 +911,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	// Process remaining blocks, unless the cap is already exceeded
-	if len(blockBatch) > 0 && !capExceeded() {
+	if len(blockBatch) > 0 && !budget.Tripped() {
 		wg.Add(1)
 		if err := runner.SubmitWithMetrics(func() { processBatch(blockBatch) }); err != nil {
 			wg.Done()
@@ -925,8 +934,8 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	for range blocks {
 	}
 
-	if limit > 0 && collected > limit {
-		return nil, 0, receipt.NewTooManyLogsError(limit)
+	if budget.Tripped() {
+		return nil, 0, budget.Err()
 	}
 
 	res = f.mergeSortedLogs(sortedBatches, limit)
@@ -1024,15 +1033,10 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 		return []*ethtypes.Log{}, nil
 	}
 
-	normalized, err := f.normalizeRangeQueryLogs(ctx, logs, crit)
+	budget := f.newLogBudget(limit)
+	normalized, err := f.normalizeRangeQueryLogs(ctx, logs, crit, budget)
 	if err != nil {
 		return nil, err
-	}
-
-	// Re-check the cap against the normalized (EVM-visible) count, which the
-	// store's tag-index count does not match.
-	if limit > 0 && int64(len(normalized)) > limit {
-		return nil, receipt.NewTooManyLogsError(limit)
 	}
 
 	return normalized, nil
@@ -1055,7 +1059,7 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 // caches receipts in globalBlockCache) to build the filtered tx mapping, then
 // reconstructs logs from cached receipts — avoiding the double receipt fetch
 // that a full collectLogs rebuild would require.
-func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs []*ethtypes.Log, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs []*ethtypes.Log, crit filters.FilterCriteria, budget *receipt.LogBudget) ([]*ethtypes.Log, error) {
 	// Collect unique block numbers from range query results
 	blockSet := make(map[uint64]struct{})
 	blockNumbers := make([]uint64, 0, len(candidateLogs))
@@ -1081,7 +1085,7 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 	}
 
 	rebuilt := make([]*ethtypes.Log, 0, len(candidateLogs))
-	collector := &pooledCollector{logs: &rebuilt}
+	collector := &pooledCollector{logs: &rebuilt, budget: budget}
 	for _, blockNumber := range blockNumbers {
 		// #nosec G115 -- block numbers fit within int64
 		height := int64(blockNumber)
@@ -1101,6 +1105,9 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 
 		var logIndex uint
 		for txIdx, txHashEntry := range txHashes {
+			if budget.Tripped() {
+				break
+			}
 			rcpt, found := getOrSetCachedReceipt(f.cacheCreationMutex, f.globalBlockCache, sdkCtx, f.k, block, txHashEntry.hash)
 			if !found {
 				continue
@@ -1132,26 +1139,34 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 				if !MatchesCriteria(ethLog, crit) {
 					continue
 				}
-				collector.Append(ethLog)
+				if err := collector.Append(ethLog); err != nil {
+					return nil, err
+				}
 			}
 		}
+		if budget.Tripped() {
+			break
+		}
+	}
+	if budget.Tripped() {
+		return nil, budget.Err()
 	}
 	return rebuilt, nil
 }
 
 // Pooled version that reuses slice allocation
-func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, result *[]*ethtypes.Log) {
-	collector := &pooledCollector{logs: result}
-	f.collectLogs(block, crit, collector)
+func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, result *[]*ethtypes.Log, budget *receipt.LogBudget) error {
+	collector := &pooledCollector{logs: result, budget: budget}
+	return f.collectLogs(block, crit, collector)
 }
 
 // Unified log collection logic - fallback path that fetches receipts individually
-func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector) {
+func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector) error {
 	ctx := f.ctxProvider(block.Block.Height)
 
 	txHashes := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
 	if len(txHashes) == 0 {
-		return
+		return nil
 	}
 
 	blockHeight := block.Block.Height
@@ -1201,9 +1216,12 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			if !MatchesCriteria(ethLog, crit) {
 				continue
 			}
-			collector.Append(ethLog)
+			if err := collector.Append(ethLog); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 // MatchesCriteria checks if a log matches the filter criteria.
