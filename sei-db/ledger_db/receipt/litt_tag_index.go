@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sort"
-	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -195,7 +194,7 @@ func (s *littReceiptStore) stageTagKeys(batch dbtypes.Batch, blockNumber uint64,
 // This parallelizes both the per-block index scans and the litt body reads,
 // which dominate wide-range latency. Results are exact (matchLog re-verifies
 // after decode) and stay in (block, txIndex) order via the indexed buffer.
-func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filters.FilterCriteria, limit int64) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
 	if latest := s.latestVersion.Load(); latest >= 0 && toBlock > uint64(latest) { //nolint:gosec // latest is non-negative
 		toBlock = uint64(latest) //nolint:gosec // latest is non-negative
 	}
@@ -214,13 +213,13 @@ func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filt
 	// concurrency at the configured limit and hands the next block to whichever
 	// worker frees up, load-balancing across the skewed per-block cost.
 	//
-	// When limit > 0 a running counter aborts the fan-out once the matched logs
-	// exceed the cap: the tripping worker returns ErrTooManyLogs, which cancels
-	// the group so already-scheduled blocks bail before reading, and the loop
-	// stops queueing new blocks. Peak memory is thus bounded to the cap plus at
-	// most one in-flight block per worker, rather than O(total matching logs).
+	// budget.Reserve aborts the fan-out once matched logs exceed its cap: the
+	// tripping worker returns the budget's error, which cancels the group so
+	// already-scheduled blocks bail before reading, and the loop stops queueing
+	// new blocks. On the eth range path the caller passes a byte-only budget
+	// (maxLog=0) so count is not capped on raw tag-index matches that eth
+	// normalization may drop; byte cap still bounds store-side materialization.
 	results := make([][]*ethtypes.Log, nBlocks)
-	var collected int64
 	eg, egCtx := errgroup.WithContext(context.Background())
 	eg.SetLimit(s.logFilterParallelism)
 	for i := 0; i < nBlocks; i++ {
@@ -231,7 +230,7 @@ func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filt
 			if egCtx.Err() != nil {
 				return nil // group already cancelled; skip without overwriting the cause
 			}
-			blockLogs, err := s.blockLogs(fromBlock+uint64(i), groups, crit, limit, &collected) //nolint:gosec // i < nBlocks
+			blockLogs, err := s.blockLogs(fromBlock+uint64(i), groups, crit, budget) //nolint:gosec // i < nBlocks
 			if err != nil {
 				return err
 			}
@@ -243,7 +242,7 @@ func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filt
 		return nil, err
 	}
 
-	logs := make([]*ethtypes.Log, 0, collected)
+	logs := make([]*ethtypes.Log, 0, budget.UsedCount())
 	for _, blockLogs := range results {
 		logs = append(logs, blockLogs...)
 	}
@@ -252,7 +251,7 @@ func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filt
 
 // blockLogs answers the query for one block: intersect the tag candidates, then
 // point-read and match the surviving receipts. Returns nil when nothing matches.
-func (s *littReceiptStore) blockLogs(block uint64, groups [][][]byte, crit filters.FilterCriteria, limit int64, collected *int64) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) blockLogs(block uint64, groups [][][]byte, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
 	candidates, err := s.blockTagCandidates(block, groups)
 	if err != nil {
 		return nil, err
@@ -260,7 +259,7 @@ func (s *littReceiptStore) blockLogs(block uint64, groups [][][]byte, crit filte
 	if len(candidates) == 0 {
 		return nil, nil
 	}
-	return s.candidateBlockLogs(candidates, crit, limit, collected)
+	return s.candidateBlockLogs(candidates, crit, budget)
 }
 
 // blockTagCandidates returns the block's candidate transactions. With no
@@ -332,7 +331,7 @@ func (s *littReceiptStore) scanTagRange(lower, upper []byte, dst map[uint32]litt
 // in transaction-index order, and applies the exact matchLog predicate. A
 // missing receipt is skipped, not an error: litt TTL GC can reclaim a body
 // between the index scan and the read.
-func (s *littReceiptStore) candidateBlockLogs(candidates map[uint32]littTagRef, crit filters.FilterCriteria, limit int64, collected *int64) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) candidateBlockLogs(candidates map[uint32]littTagRef, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
 	txIndexes := make([]uint32, 0, len(candidates))
 	for txIndex := range candidates {
 		txIndexes = append(txIndexes, txIndex)
@@ -341,8 +340,8 @@ func (s *littReceiptStore) candidateBlockLogs(candidates map[uint32]littTagRef, 
 
 	var logs []*ethtypes.Log
 	for _, txIndex := range txIndexes {
-		if limit > 0 && atomic.LoadInt64(collected) > limit {
-			return nil, NewTooManyLogsError(limit)
+		if budget.Tripped() {
+			return nil, budget.Err()
 		}
 
 		ref := candidates[txIndex]
@@ -361,10 +360,8 @@ func (s *littReceiptStore) candidateBlockLogs(candidates map[uint32]littTagRef, 
 			if !matchLog(lg, crit) {
 				continue
 			}
-			if limit > 0 {
-				if atomic.AddInt64(collected, 1) > limit {
-					return nil, NewTooManyLogsError(limit)
-				}
+			if err := budget.Reserve(lg); err != nil {
+				return nil, err
 			}
 			logs = append(logs, lg)
 		}

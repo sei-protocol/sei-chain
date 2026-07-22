@@ -40,6 +40,13 @@ func NewLogBudget(maxLog, maxBytes int64) *LogBudget {
 	return &LogBudget{maxLog: maxLog, maxBytes: maxBytes}
 }
 
+// NewLogBudgetBytesOnly caps estimated heap bytes without a matched-log count
+// ceiling. Used by the litt store on the range-query path for early OOM abort
+// before eth normalization rebuilds canonical logs.
+func NewLogBudgetBytesOnly(maxBytes int64) *LogBudget {
+	return NewLogBudget(0, maxBytes)
+}
+
 // EstimateLogHeapBytes approximates the heap footprint of retaining one log in
 // a result slice.
 func EstimateLogHeapBytes(log *ethtypes.Log) int64 {
@@ -103,4 +110,13 @@ func (b *LogBudget) Err() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.tripErr
+}
+
+func (b *LogBudget) UsedCount() int64 {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.usedCount
 }

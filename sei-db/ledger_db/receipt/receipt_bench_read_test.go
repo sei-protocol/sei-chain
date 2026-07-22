@@ -216,7 +216,7 @@ func execFilterLogs(env *readBenchEnv, fromBlock, toBlock uint64, crit filters.F
 	if env.isPebble {
 		return pebbleFilterLogs(env.store, env.ctx, fromBlock, toBlock, env.idx, crit)
 	}
-	return env.store.FilterLogs(env.ctx, fromBlock, toBlock, crit, 0)
+	return env.store.FilterLogs(env.ctx, fromBlock, toBlock, crit, nil)
 }
 
 // readBenchEnv holds everything produced by the write phase that the read

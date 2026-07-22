@@ -108,35 +108,35 @@ func TestLittIdxFilterLogs(t *testing.T) {
 	writeLitBlock(t, store, ctx, 3, litReceipt(3, 0, addr1, approve, bob))
 
 	// Address OR: either address matches.
-	logs, err := store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Addresses: []common.Address{addr1, addr2}}, 0)
+	logs, err := store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Addresses: []common.Address{addr1, addr2}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 4)
 
 	// AND across topic positions: transfer at 0 AND alice at 1.
-	logs, err = store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Topics: [][]common.Hash{{transfer}, {alice}}}, 0)
+	logs, err = store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Topics: [][]common.Hash{{transfer}, {alice}}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
 	require.Equal(t, uint64(1), logs[0].BlockNumber)
 	require.Equal(t, uint(0), logs[0].TxIndex)
 
 	// OR within a topic position: alice or bob at position 1.
-	logs, err = store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Topics: [][]common.Hash{{transfer}, {alice, bob}}}, 0)
+	logs, err = store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Topics: [][]common.Hash{{transfer}, {alice, bob}}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 2)
 
 	// Wildcard position 0 (empty), bob at position 1.
-	logs, err = store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Topics: [][]common.Hash{{}, {bob}}}, 0)
+	logs, err = store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Topics: [][]common.Hash{{}, {bob}}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 2)
 
 	// Range bound: only block 2.
-	logs, err = store.FilterLogs(ctx, 2, 2, filters.FilterCriteria{}, 0)
+	logs, err = store.FilterLogs(ctx, 2, 2, filters.FilterCriteria{}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
 	require.Equal(t, uint64(2), logs[0].BlockNumber)
 
 	// No match.
-	logs, err = store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Addresses: []common.Address{common.HexToAddress("0x9")}}, 0)
+	logs, err = store.FilterLogs(ctx, 1, 3, filters.FilterCriteria{Addresses: []common.Address{common.HexToAddress("0x9")}}, nil)
 	require.NoError(t, err)
 	require.Empty(t, logs)
 }
@@ -160,16 +160,16 @@ func TestLittIdxFilterLogsLimit(t *testing.T) {
 	crit := filters.FilterCriteria{Addresses: []common.Address{addr}}
 
 	// Exactly at the limit: no error, all logs returned.
-	logs, err := store.FilterLogs(ctx, 1, 3, crit, 6)
+	logs, err := store.FilterLogs(ctx, 1, 3, crit, receipt.NewLogBudget(6, 0))
 	require.NoError(t, err)
 	require.Len(t, logs, 6)
 
 	// Over the limit: ErrTooManyLogs.
-	_, err = store.FilterLogs(ctx, 1, 3, crit, 5)
+	_, err = store.FilterLogs(ctx, 1, 3, crit, receipt.NewLogBudget(5, 0))
 	require.ErrorIs(t, err, receipt.ErrTooManyLogs)
 
-	// limit <= 0 disables the cap.
-	logs, err = store.FilterLogs(ctx, 1, 3, crit, 0)
+	// nil budget disables the cap.
+	logs, err = store.FilterLogs(ctx, 1, 3, crit, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 6)
 }
@@ -195,7 +195,7 @@ func TestLittIdxMultiLogReceipt(t *testing.T) {
 	}
 	writeLitBlock(t, store, ctx, 7, rec)
 
-	logs, err := store.FilterLogs(ctx, 7, 7, filters.FilterCriteria{Addresses: []common.Address{addr}}, 0)
+	logs, err := store.FilterLogs(ctx, 7, 7, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 3)
 	for i, lg := range logs {
@@ -225,7 +225,7 @@ func TestLittIdxBlockWideLogIndex(t *testing.T) {
 	// tx0: 2 logs, tx1: 1 log, tx2: 3 logs -> contiguous block-wide indices 0..5.
 	writeLitBlock(t, store, ctx, 8, mk(0, 2), mk(1, 1), mk(2, 3))
 
-	logs, err := store.FilterLogs(ctx, 8, 8, filters.FilterCriteria{Addresses: []common.Address{addr}}, 0)
+	logs, err := store.FilterLogs(ctx, 8, 8, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 6)
 	for i, lg := range logs {
@@ -257,7 +257,7 @@ func TestLittIdxMultiPart(t *testing.T) {
 		require.Equal(t, txIndex, rcpt.TransactionIndex)
 	}
 
-	logs, err := store.FilterLogs(ctx, 4, 4, filters.FilterCriteria{Addresses: []common.Address{addr}}, 0)
+	logs, err := store.FilterLogs(ctx, 4, 4, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 2)
 }
@@ -310,7 +310,7 @@ func TestLittIdxReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), rcpt.BlockNumber)
 
-	logs, err := store.FilterLogs(ctx, 1, 5, filters.FilterCriteria{Addresses: []common.Address{addr}}, 0)
+	logs, err := store.FilterLogs(ctx, 1, 5, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 5)
 }
@@ -334,7 +334,7 @@ func TestLittIdxPrune(t *testing.T) {
 		_, err := store.GetReceiptFromStore(ctx, litTxHash(block, 0))
 		require.ErrorIs(t, err, receipt.ErrNotFound, "block %d should be pruned", block)
 	}
-	logs, err := store.FilterLogs(ctx, 1, 5, filters.FilterCriteria{Addresses: []common.Address{addr}}, 0)
+	logs, err := store.FilterLogs(ctx, 1, 5, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 	require.NoError(t, err)
 	require.Empty(t, logs)
 
@@ -344,7 +344,7 @@ func TestLittIdxPrune(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, block, rcpt.BlockNumber)
 	}
-	logs, err = store.FilterLogs(ctx, 1, 10, filters.FilterCriteria{Addresses: []common.Address{addr}}, 0)
+	logs, err = store.FilterLogs(ctx, 1, 10, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 5)
 }
@@ -374,7 +374,7 @@ func TestLittIdxFilterLogsParallelOrder(t *testing.T) {
 			writeLitBlock(t, store, ctx, b, recs...)
 		}
 
-		logs, err := store.FilterLogs(ctx, 1, blocks, filters.FilterCriteria{Addresses: []common.Address{addr}}, 0)
+		logs, err := store.FilterLogs(ctx, 1, blocks, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 		require.NoError(t, err)
 		got := make([]string, len(logs))
 		for i, lg := range logs {

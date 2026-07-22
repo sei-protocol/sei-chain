@@ -51,6 +51,31 @@ func TestLogBudgetHugeDataUnderCountCap(t *testing.T) {
 	require.True(t, budget.Tripped())
 }
 
+func TestLogBudgetBytesOnly(t *testing.T) {
+	t.Parallel()
+	huge := make([]byte, 128<<10)
+	log := &ethtypes.Log{
+		Address: common.HexToAddress("0x1"),
+		Data:    huge,
+	}
+	maxBytes := EstimateLogHeapBytes(log) - 1
+	budget := NewLogBudgetBytesOnly(maxBytes)
+
+	require.NoError(t, budget.Reserve(&ethtypes.Log{Address: common.HexToAddress("0x2")}))
+	require.ErrorIs(t, budget.Reserve(log), ErrTooManyLogBytes)
+}
+
+func TestLogBudgetBytesOnlyNoCountCap(t *testing.T) {
+	t.Parallel()
+	budget := NewLogBudgetBytesOnly(1 << 30)
+	log := &ethtypes.Log{Address: common.HexToAddress("0x1")}
+
+	for i := 0; i < 100; i++ {
+		require.NoError(t, budget.Reserve(log))
+	}
+	require.Equal(t, int64(100), budget.UsedCount())
+}
+
 func TestLogBudgetConcurrentSlack(t *testing.T) {
 	t.Parallel()
 	const (

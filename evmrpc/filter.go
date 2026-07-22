@@ -797,6 +797,18 @@ func (f *LogFetcher) newLogBudget(limit int64) *receipt.LogBudget {
 	return receipt.NewLogBudget(limit, maxLogBytes)
 }
 
+// storeCandidateBudget caps estimated heap bytes while the litt store
+// materializes tag-index matches. Count is not capped here because raw store
+// matches can include logs dropped during eth normalization (synthetic /
+// non-EVM-visible receipts); the authoritative count+byte cap runs there.
+func (f *LogFetcher) storeCandidateBudget() *receipt.LogBudget {
+	maxLogBytes := f.filterConfig.maxLogBytes
+	if maxLogBytes <= 0 {
+		maxLogBytes = receipt.DefaultMaxLogBytes
+	}
+	return receipt.NewLogBudgetBytesOnly(maxLogBytes)
+}
+
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
 	latest, err := f.latestHeight(ctx)
 	if err != nil {
@@ -929,8 +941,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		}
 	}()
 
-	// Drain the blocks channel so its producer goroutines are not left blocked
-	// on a full buffer when we broke out of the loop above on overflow.
+	// Drain any blocks still buffered in the channel after an early abort so
+	// they can be GC'd promptly. fetchBlocksByCrit fully buffers the channel and
+	// closes it before returning, so producers are never blocked here.
 	for range blocks {
 	}
 
@@ -1012,8 +1025,9 @@ func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
 
 // tryFilterLogsRange attempts to use the efficient range query if supported by the backend.
 // Returns ErrRangeQueryNotSupported if the backend doesn't support range queries.
-// When limit > 0 the backend aborts with receipt.ErrTooManyLogs once more than
-// limit logs match, bounding peak memory; limit <= 0 means no cap.
+// The litt store applies a byte-only budget to bound candidate materialization;
+// normalizeRangeQueryLogs enforces the authoritative matched-log count and byte
+// cap on EVM-visible logs.
 func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, limit int64) ([]*ethtypes.Log, error) {
 	store := f.k.ReceiptStore()
 	if store == nil {
@@ -1024,7 +1038,7 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 	// #nosec G115 -- toBlock is a block height which fits in int64
 	sdkCtx := f.ctxProvider(int64(toBlock))
 
-	logs, err := store.FilterLogs(sdkCtx, fromBlock, toBlock, crit, limit)
+	logs, err := store.FilterLogs(sdkCtx, fromBlock, toBlock, crit, f.storeCandidateBudget())
 	if err != nil {
 		return nil, err
 	}

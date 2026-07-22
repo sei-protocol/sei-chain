@@ -57,9 +57,11 @@ type ReceiptStore interface {
 	SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error
 	// FilterLogs queries logs across a range of blocks.
 	// For single-block queries, set fromBlock == toBlock.
-	// When limit > 0 the query aborts and returns ErrTooManyLogs once more than
-	// limit logs match, bounding peak memory; limit <= 0 means no cap.
-	FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, limit int64) ([]*ethtypes.Log, error)
+	// budget is charged per matched log via Reserve and aborts once either
+	// configured ceiling is exceeded; nil disables all caps. Callers on the
+	// eth range path typically pass a byte-only budget (maxLog=0) here and
+	// enforce the matched-log count on the normalized result separately.
+	FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error)
 	Close() error
 }
 
@@ -281,7 +283,7 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 // FilterLogs is not efficiently supported by the pebble backend since receipts
 // are indexed by tx hash, not by block number. Returns ErrRangeQueryNotSupported.
 // Callers should fall back to fetching receipts individually via GetReceipt.
-func (s *receiptStore) FilterLogs(_ sdk.Context, _, _ uint64, _ filters.FilterCriteria, _ int64) ([]*ethtypes.Log, error) {
+func (s *receiptStore) FilterLogs(_ sdk.Context, _, _ uint64, _ filters.FilterCriteria, _ *LogBudget) ([]*ethtypes.Log, error) {
 	return nil, ErrRangeQueryNotSupported
 }
 
