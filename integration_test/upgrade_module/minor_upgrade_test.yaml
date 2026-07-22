@@ -63,13 +63,13 @@
       node: sei-node-2
       env: RUNNING_BEFORE_UPGRADE_NODE_2
 
-    # Upgrade to minor release (nodes 0 & 1) (upgrading 2 to have a peer)
+    # Upgrade to minor release (nodes 0 & 1)
     - cmd: seid_upgrade.sh $VERSION
       node: sei-node-0
     - cmd: seid_upgrade.sh $VERSION
       node: sei-node-1
 
-    # Confirm no panic after upgrade for upgraded nodes (minor release is ahead)
+    # Confirm no panic after upgrade for upgraded nodes
     - cmd: verify_running.sh
       node: sei-node-0
       env: RUNNING_AFTER_UPGRADE_NODE_0
@@ -77,25 +77,33 @@
       node: sei-node-1
       env: RUNNING_AFTER_UPGRADE_NODE_1
 
-    # Wait until just before the target height (or service crash)
+    # Majority of nodes is guaranteed to reach TARGET_HEIGHT-1.
+    # At least one of these nodes will be 0 or 1 (lets call it node X).
+    # Node X will either get stuck at TARGET_HEIGHT-1 (in case not-upgraded nodes 2,3
+    # reach TARGET_HEIGHT and panic before delivering their TARGET_HEIGHT precommit votes)
+    # or at TARGET_HEIGHT (in all other cases, because we don't have majority of upgraded nodes).
+    # Node X will NOT panic because it is already upgraded and other nodes can sync from it.
+    # Hence ALL nodes will eventually reach TARGET_HEIGHT-1 (perhaps panicking afterwards).
+    # Since we have 2 upgraded nodes at TARGET_HEIGHT-1 or TARGET_HEIGHT,
+    # nodes 2,3 are guaranteed to reach TARGET_HEIGHT and panic.
     - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1))
       node: sei-node-0
     - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1))
       node: sei-node-1
-    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1))
+    - cmd: wait_for_height.sh $TARGET_HEIGHT
       node: sei-node-2
-    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1))
+    - cmd: wait_for_height.sh $TARGET_HEIGHT
       node: sei-node-3
 
-    # Confirm no panic at block height for upgraded nodes
+    # Confirm no panic for upgraded nodes
     - cmd: verify_running.sh
       node: sei-node-0
       env: RUNNING_AT_BLOCK_HEIGHT_NODE_0
     - cmd: verify_running.sh
       node: sei-node-1
       env: RUNNING_AT_BLOCK_HEIGHT_NODE_1
-
-    # Confirm panic and UPGRADE NEEDED log message for non-upgraded node
+    
+    # Confirm panic and logs at non-upgraded nodes.
     - cmd: verify_panic.sh
       node: sei-node-2
       env: PANIC_AT_BLOCK_HEIGHT_NODE_2
@@ -138,15 +146,21 @@
     - type: eval
       expr: RUNNING_AFTER_UPGRADE_NODE_1 == "PASS"
 
-    # Upgraded node does not panic at block height (already upgraded)
+    # Upgraded node does not panic (already upgraded)
     - type: eval
       expr: RUNNING_AT_BLOCK_HEIGHT_NODE_0 == "PASS"
     - type: eval
       expr: RUNNING_AT_BLOCK_HEIGHT_NODE_1 == "PASS"
 
-    # Non-upgraded node panics at block height with log message
+    # Non-upgraded nodes panic at block height with log message
     - type: eval
-      expr: LOG_AT_BLOCK_HEIGHT_NODE_2 == "PASS" or LOG_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
+      expr: PANIC_AT_BLOCK_HEIGHT_NODE_2 == "PASS"
+    - type: eval
+      expr: PANIC_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
+    - type: eval
+      expr: LOG_AT_BLOCK_HEIGHT_NODE_2 == "PASS"
+    - type: eval
+      expr: LOG_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
 
     # Newly-upgraded nodes are now running
     - type: eval

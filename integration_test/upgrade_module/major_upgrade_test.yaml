@@ -9,8 +9,8 @@
 
 # 3. Target Block Height:
 #    - The network reaches the proposed upgrade block height.
-#    - Non-upgraded nodes (1, 2, and 3) panic, indicating the need for the upgrade.
-#    - An "UPGRADE NEEDED" log message is expected on these nodes.
+#    - At least one non-upgraded node among 1, 2, and 3 panics and logs "UPGRADE NEEDED".
+#    - The remaining non-upgraded nodes may stay at target height - 1 until the panicked peer is upgraded.
 
 # 4. Post-Upgrade Behavior:
 #    - Nodes 1, 2, and 3 are upgraded to the major release and resume normal operation.
@@ -76,7 +76,7 @@
 
     # Majority of nodes is guaranteed to reach TARGET_HEIGHT-1.
     # Since node 0 is down, this majority is exactly nodes 1,2,3.
-    # Afterwards one of them can panic (require upgrade) 
+    # Afterwards one of them can panic (require upgrade)
     # delivering their precommit vote for TARGET_HEIGHT to other nodes,
     # which will make the other nodes stuck at TARGET_HEIGHT-1 until the panicked one is upgraded.
     - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1))
@@ -95,7 +95,16 @@
       env: PANIC_NODE_2
     - cmd: verify_panic.sh
       node: sei-node-3
-      env: PANIC_NODE_3 
+      env: PANIC_NODE_3
+    - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
+      node: sei-node-1
+      env: LOG_AT_BLOCK_HEIGHT_NODE_1
+    - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
+      node: sei-node-2
+      env: LOG_AT_BLOCK_HEIGHT_NODE_2
+    - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
+      node: sei-node-3
+      env: LOG_AT_BLOCK_HEIGHT_NODE_3
 
     # Upgrade all nodes to major release, expect them running
     - cmd: seid_upgrade.sh $VERSION
@@ -143,17 +152,19 @@
     - type: eval
       expr: RUNNING_BEFORE_UPGRADE_NODE_2 == "PASS"
     - type: eval
-      expr: RUNNING_BEFORE_UPGRADE_NODE_3 == "PASS" 
-    
+      expr: RUNNING_BEFORE_UPGRADE_NODE_3 == "PASS"
+
     # Upgrade to major release (node 0)
     # Node 0 should panic soon. 
     - type: eval
       expr: PANIC_NODE_0 == "PASS"
-    
+
     # Majority of nodes is guaranteed to reach TARGET_HEIGHT-1.
-    # At least one of 1,2,3 reached TARGET_HEIGHT and panicked.
+    # At least one of 1,2,3 reached TARGET_HEIGHT, panicked, and logged upgrade needed.
     - type: eval
-      expr: PANIC_NODE_1 == "PASS" || PANIC_NODE_2 == "PASS" || PANIC_NODE_3 == "PASS"
+      expr: PANIC_NODE_1 == "PASS" or PANIC_NODE_2 == "PASS" or PANIC_NODE_3 == "PASS"
+    - type: eval
+      expr: LOG_AT_BLOCK_HEIGHT_NODE_1 == "PASS" or LOG_AT_BLOCK_HEIGHT_NODE_2 == "PASS" or LOG_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
 
     # Upgrade all nodes to major release, expect them running
     - type: eval
