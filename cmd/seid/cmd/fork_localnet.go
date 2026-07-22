@@ -109,6 +109,22 @@ identical on all nodes.`,
 			// computed commit hash.
 			serverCtx.Viper.Set(flags.FlagChainID, newChainID)
 
+			// A forked home is definitionally flatkv-only, but a converted
+			// source usually still carries the pre-conversion app.toml
+			// (sc-write-mode = "memiavl_only" under auto). Under auto the
+			// composite store keeps a memiavl handle open in version
+			// lockstep even when metadata derives FlatKVOnly, and with the
+			// memiavl directory gone that handle is a fresh store at
+			// version 0 — the app would report version 0 and the first
+			// commit would fail the lockstep check. Pin the mode both for
+			// the in-process app load below and, via app.toml, for every
+			// node the home is cloned to.
+			serverCtx.Viper.Set(app.FlagSCWriteMode, string(sctypes.FlatKVOnly))
+			serverCtx.Viper.Set(app.FlagSCWriteModeEnableAuto, false)
+			if err := pinFlatKVOnlyWriteMode(home); err != nil {
+				return err
+			}
+
 			appHash, appVersion, err := loadForkedAppHash(cmd, home, forkHeight)
 			if err != nil {
 				return err
@@ -168,6 +184,34 @@ identical on all nodes.`,
 	cmd.Flags().Int("validator-count", 4, "Number of local validators to control the forked chain")
 	cmd.Flags().String("keys-dir", "", "Directory for generated validator keys (default <home>/fork-validators)")
 	return cmd
+}
+
+// pinFlatKVOnlyWriteMode rewrites config/app.toml so the home is explicitly
+// configured as flatkv_only with auto derivation disabled. See the caller for
+// why a converted home must not run under auto once memiavl is removed.
+func pinFlatKVOnlyWriteMode(home string) error {
+	path := filepath.Join(home, "config", "app.toml")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	updated := raw
+	writeModeRe := regexp.MustCompile(`(?m)^(\s*)sc-write-mode\s*=.*$`)
+	if !writeModeRe.Match(updated) {
+		return fmt.Errorf("%s has no state-commit.sc-write-mode key to pin", path)
+	}
+	updated = writeModeRe.ReplaceAll(updated, []byte(`${1}sc-write-mode = "flatkv_only"`))
+	autoRe := regexp.MustCompile(`(?m)^(\s*)sc-write-mode-enable-auto\s*=.*$`)
+	if autoRe.Match(updated) {
+		updated = autoRe.ReplaceAll(updated, []byte("${1}sc-write-mode-enable-auto = false"))
+	} else {
+		updated = writeModeRe.ReplaceAll(updated,
+			[]byte("${1}sc-write-mode = \"flatkv_only\"\n${1}sc-write-mode-enable-auto = false"))
+	}
+	if err := os.WriteFile(path, updated, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
 }
 
 // rewriteClientChainID points config/client.toml at the new chain ID. A
