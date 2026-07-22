@@ -83,8 +83,8 @@ Output is written to the file specified by --output.`,
 
 			cfg := config.AutobahnFileConfig{
 				Validators:       validators,
-				MaxTxsPerBlock:   5_000,
-				AllowEmptyBlocks: true,
+				MaxTxsPerBlock:   2_000,
+				AllowEmptyBlocks: false,
 				BlockInterval:    utils.Duration(400 * time.Millisecond),
 				ViewTimeout:      utils.Duration(1500 * time.Millisecond),
 				DialInterval:     utils.Duration(10 * time.Second),

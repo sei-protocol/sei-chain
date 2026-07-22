@@ -60,13 +60,15 @@ func (m *mockApplication) Close() error {
 }
 
 // Implement other required methods with no-ops
-func (m *mockApplication) Info(ctx context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
-	return &abci.ResponseInfo{}, nil
+func (m *mockApplication) Info() *abci.ResponseInfo {
+	return &abci.ResponseInfo{}
 }
 
-func (m *mockApplication) InitChain(ctx context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (m *mockApplication) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	return &abci.ResponseInitChain{}, nil
 }
+
+func (m *mockApplication) InitLastHeader(*tmproto.Header) {}
 
 func (m *mockApplication) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
 	return &abci.ResponseQuery{}, nil

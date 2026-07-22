@@ -70,11 +70,10 @@ func TestImportExportQueues(t *testing.T) {
 	db := dbm.NewMemDB()
 	app2 := seiapp.SetupWithDB(t, db, false, false, false)
 
-	app2.InitChain(
-		context.Background(), &abci.RequestInitChain{
-			ConsensusParams: seiapp.DefaultConsensusParams,
-			AppStateBytes:   stateBytes,
-		},
+	app2.InitChain(&abci.RequestInitChain{
+		ConsensusParams: seiapp.DefaultConsensusParams,
+		AppStateBytes:   stateBytes,
+	},
 	)
 
 	app2.Commit(context.Background())

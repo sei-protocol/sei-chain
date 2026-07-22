@@ -20,6 +20,10 @@ _get_account_sequence() {
     $seidbin q account "$1" -o json 2>/dev/null | jq -r '.sequence // 0'
 }
 
+_get_key_address() {
+    printf "12345678\n" | $seidbin keys show "$1" -a 2>/dev/null
+}
+
 # Cosmos account sequence for an address at a historical height. Echoes
 # the sequence number (0 if the account didn't exist yet at <height>),
 # or empty on query failure — distinct from 0 so the caller can retry
@@ -48,7 +52,9 @@ _wait_until() {
 # Submit `bank send` via -b sync and echo the exact block height at
 # which the tx committed. Useful when callers need the inclusion
 # height for state-at-height queries (e.g., historical balance lookups
-# at height-1 vs height to validate per-block granularity).
+# at height-1 vs height to validate per-block granularity). Some
+# callers intentionally self-send a dust amount purely to force the
+# chain to produce a real block under allow_empty_blocks=false.
 # Implementation: after the sender's sequence advances, walk back from
 # the observed height querying historical sequence — the largest H
 # where sequence(H) is still pre-tx is one below the inclusion height.
@@ -57,7 +63,7 @@ bank_send_and_get_height() {
     local from_key="$1"
     local to_addr="$2"
     local amount_denom="$3"
-    local from_addr; from_addr=$(printf "12345678\n" | $seidbin keys show "$from_key" -a 2>/dev/null)
+    local from_addr; from_addr=$(_get_key_address "$from_key")
     local seq_before; seq_before=$(_get_account_sequence "$from_addr")
     local resp; resp=$(printf "12345678\n" | $seidbin tx bank send "$from_key" "$to_addr" "$amount_denom" \
         -y --chain-id="$chainid" --gas=5000000 --fees=1000000usei \
@@ -110,6 +116,113 @@ wait_until_height_exceeds() {
         "[ \$($seidbin status | jq -r .SyncInfo.latest_block_height) -gt $min_height ]"
 }
 
+_get_latest_height() {
+    $seidbin status 2>/dev/null | jq -r '.SyncInfo.latest_block_height // "0"' 2>/dev/null
+}
+
+wait_for_oracle_penalty_success_rate() {
+    local validator_addr="$1"
+    local min_total="${2:-15}"
+    local max_success_percent="${3:-5}"
+    local progress_from_key="$4"
+    local timeout_secs="${5:-120}"
+    local retry_interval_secs="${6:-$TX_WAIT_INTERVAL}"
+    local deadline=$(($(date +%s) + timeout_secs))
+    local last_height=0
+    local last_total=0
+    local last_success=0
+    local last_success_percent=0
+
+    if [ -z "$validator_addr" ] || [ -z "$progress_from_key" ]; then
+        echo "Usage: wait_for_oracle_penalty_success_rate <validator-addr> [min-total] [max-success-percent] <progress-from-key> [timeout-secs] [retry-interval-secs]" >&2
+        return 1
+    fi
+
+    local progress_from_addr; progress_from_addr=$(_get_key_address "$progress_from_key")
+
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        local height
+        height=$($seidbin q block | jq -r ".block.header.height")
+        local raw
+        raw=$($seidbin q oracle vote-penalty-counter "$validator_addr" --height "$height" --output json)
+        local stats
+        stats=$(echo "$raw" | jq -r '
+            [
+                (.vote_penalty_counter.success_count | tonumber),
+                ((.vote_penalty_counter.success_count | tonumber) + (.vote_penalty_counter.abstain_count | tonumber) + (.vote_penalty_counter.miss_count | tonumber))
+            ] | @tsv
+        ') || {
+            sleep "$retry_interval_secs"
+            continue
+        }
+        local success total
+        read -r success total <<<"$stats"
+
+        last_height="$height"
+        last_success="$success"
+        last_total="$total"
+        if [ "$total" -gt 0 ]; then
+            last_success_percent=$((success * 100 / total))
+        fi
+
+        if [ "$total" -ge "$min_total" ] && [ "$last_success_percent" -lt "$max_success_percent" ]; then
+            echo "$height"
+            return 0
+        fi
+        bank_send_and_wait "$progress_from_key" "$progress_from_addr" 1usei >/dev/null || true
+    done
+
+    echo "timed out waiting for oracle penalty success rate < ${max_success_percent}% with at least $min_total samples (last height=$last_height success=$last_success total=$last_total percent=$last_success_percent)" >&2
+    echo "$last_height"
+    return 1
+}
+
+get_proposal_status() {
+    $seidbin q gov proposal "$1" --output json 2>/dev/null | jq -r '.status // ""'
+}
+
+wait_for_proposal_status() {
+    local proposal_id="$1"
+    local target_status="$2"
+    local from_key="${3:-admin}"
+    local timeout_secs="${4:-120}"
+    local from_addr; from_addr=$(_get_key_address "$from_key")
+    local deadline=$(($(date +%s) + timeout_secs))
+    local status=""
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        local raw; raw=$($seidbin q gov proposal "$proposal_id" --output json 2>/dev/null || true)
+        status=$(echo "$raw" | jq -r '.status // ""' 2>/dev/null)
+        if [ "$status" = "$target_status" ]; then
+            echo "$status"
+            return 0
+        fi
+        if [ "$status" = "PROPOSAL_STATUS_REJECTED" ] || [ "$status" = "PROPOSAL_STATUS_FAILED" ]; then
+            echo "proposal $proposal_id reached terminal status $status while waiting for $target_status" >&2
+            return 1
+        fi
+        local voting_end
+        voting_end=$(echo "$raw" | jq -r '.voting_end_time // ""' 2>/dev/null)
+        local voting_end_epoch=""
+        if [ -n "$voting_end" ]; then
+            voting_end_epoch=$(date -d "$voting_end" +%s 2>/dev/null || true)
+        fi
+        if [ -z "$voting_end_epoch" ]; then
+            echo "proposal $proposal_id missing valid voting_end_time while waiting for $target_status" >&2
+            return 1
+        fi
+        if [ "$(date +%s)" -ge $((voting_end_epoch + 1)) ]; then
+            # Progress-only self-send: once the currently observed voting end
+            # time has passed, force one committed block so tallying can
+            # advance. Expedited proposals can convert to regular and extend
+            # voting_end_time, so re-read proposal state after every kick.
+            bank_send_and_wait "$from_key" "$from_addr" "1usei" >/dev/null || return 1
+        fi
+        sleep 1
+    done
+    echo "timed out waiting for proposal $proposal_id to reach $target_status (last status=${status:-unknown})" >&2
+    return 1
+}
+
 # Submit `tx <subcmd> <args...>` via -b sync from <from-key>, wait for
 # that sender's account sequence to advance, and echo the CheckTx code
 # (0 on success). On CheckTx rejection the rejection log is written to
@@ -119,7 +232,7 @@ wait_until_height_exceeds() {
 # Usage: code=$(submit_tx_and_wait <from-key> <subcmd-and-args...>)
 submit_tx_and_wait() {
     local from_key="$1"; shift
-    local from_addr; from_addr=$(printf "12345678\n" | $seidbin keys show "$from_key" -a 2>/dev/null)
+    local from_addr; from_addr=$(_get_key_address "$from_key")
     local seq_before; seq_before=$(_get_account_sequence "$from_addr")
     local resp; resp=$(printf "12345678\n" | $seidbin tx "$@" --from "$from_key" \
         -y --chain-id="$chainid" --broadcast-mode=sync --output=json)
@@ -201,7 +314,7 @@ bank_send_and_wait() {
     local from_key="$1"
     local to_addr="$2"
     local amount_denom="$3"
-    local from_addr; from_addr=$(printf "12345678\n" | $seidbin keys show "$from_key" -a 2>/dev/null)
+    local from_addr; from_addr=$(_get_key_address "$from_key")
     local seq_before; seq_before=$(_get_account_sequence "$from_addr")
     local resp; resp=$(printf "12345678\n" | $seidbin tx bank send "$from_key" "$to_addr" "$amount_denom" \
         -y --chain-id="$chainid" --gas=5000000 --fees=1000000usei \

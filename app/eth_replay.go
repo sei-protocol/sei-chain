@@ -35,7 +35,7 @@ func Replay(a *App) {
 		if err != nil {
 			panic(err)
 		}
-		_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
+		_, err = a.InitChain(&abci.RequestInitChain{
 			Time:          time.Now(),
 			ChainId:       gendoc.ChainID,
 			AppStateBytes: gendoc.AppState,
@@ -119,7 +119,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 	if err != nil {
 		panic(err)
 	}
-	_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
+	_, err = a.InitChain(&abci.RequestInitChain{
 		Time:          time.Now(),
 		ChainId:       gendoc.ChainID,
 		AppStateBytes: gendoc.AppState,
