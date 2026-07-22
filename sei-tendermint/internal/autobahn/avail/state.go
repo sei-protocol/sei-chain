@@ -246,7 +246,7 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 	}
 	for inner := range s.inner.Lock() {
 		if idx < inner.commitQCs.first {
-			return nil, data.ErrPruned
+			return nil, types.ErrPruned
 		}
 		return inner.commitQCs.q[idx], nil
 	}
@@ -398,7 +398,7 @@ func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumbe
 			return nil, err
 		}
 		if n < q.first {
-			return nil, data.ErrPruned
+			return nil, types.ErrPruned
 		}
 		return q.q[n], nil
 	}
@@ -511,7 +511,7 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 			for {
 				// If pruned, then give up.
 				if q.first > lr.First() {
-					return nil, data.ErrPruned
+					return nil, types.ErrPruned
 				}
 				// Check if we have the header.
 				if entry, ok := q.q[n].byHash[want]; ok {
@@ -643,7 +643,7 @@ func (s *State) Run(ctx context.Context) error {
 			for n := types.RoadIndex(0); ; n = max(n+1, s.FirstCommitQC()) {
 				qc, err := s.fullCommitQC(ctx, n)
 				if err != nil {
-					if errors.Is(err, data.ErrPruned) {
+					if errors.Is(err, types.ErrPruned) {
 						continue
 					}
 					return err

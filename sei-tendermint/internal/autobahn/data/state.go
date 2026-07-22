@@ -15,16 +15,6 @@ import (
 
 const blocksCacheSize = 4000
 
-// ErrNotFound is returned when the resource is not found / not yet available.
-var ErrNotFound = errors.New("not found")
-
-// ErrPruned aliases types.ErrPruned (BlockDB below-watermark).
-var ErrPruned = types.ErrPruned
-
-// ErrBlockGap is returned by NewState when BlockDB blocks are not contiguous.
-// That indicates store corruption (or an incomplete write that left a hole).
-var ErrBlockGap = errors.New("block gap in BlockDB")
-
 // Config is the config for the data State.
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
@@ -264,7 +254,7 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 				// entries, so runPersist always writes [persistedBlock, nextBlock)
 				// fully populated. A gap here means BlockDB corruption.
 				if n != nextExpect {
-					return fmt.Errorf("%w: expected %d, got %d", ErrBlockGap, nextExpect, n)
+					return fmt.Errorf("%w: expected %d, got %d", types.ErrBlockGap, nextExpect, n)
 				}
 				nextExpect++
 				blk, err := it.Block()
@@ -482,7 +472,7 @@ func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Bl
 func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 	for inner := range s.inner.Lock() {
 		if n >= inner.nextBlock {
-			return nil, ErrNotFound
+			return nil, types.ErrNotFound
 		}
 		if b, ok := inner.blocks[n]; ok {
 			return b, nil
@@ -532,7 +522,7 @@ func (s *State) blockFromDB(n types.GlobalBlockNumber) (*types.Block, error) {
 	if !ok {
 		// Caller only falls through for heights below nextBlock (already seen).
 		// None here means the store no longer has them (pruned/reclaimed).
-		return nil, ErrPruned
+		return nil, types.ErrPruned
 	}
 	return b, nil
 }
@@ -544,7 +534,7 @@ func (s *State) qcFromDB(n types.GlobalBlockNumber) (*types.FullCommitQC, error)
 	}
 	qc, ok := opt.Get()
 	if !ok {
-		return nil, ErrPruned
+		return nil, types.ErrPruned
 	}
 	return qc, nil
 }
@@ -572,7 +562,7 @@ func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Optio
 	}
 	qc, err := s.qcFromDB(bn.Number)
 	if err != nil {
-		if errors.Is(err, ErrPruned) || errors.Is(err, ErrNotFound) {
+		if errors.Is(err, types.ErrPruned) || errors.Is(err, types.ErrNotFound) {
 			return utils.None[*types.GlobalBlock](), nil
 		}
 		return utils.None[*types.GlobalBlock](), err
@@ -625,7 +615,7 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		}
 		ap, ok := inner.appProposals[n]
 		if !ok {
-			return nil, ErrPruned
+			return nil, types.ErrPruned
 		}
 		return ap, nil
 	}

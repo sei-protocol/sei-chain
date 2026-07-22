@@ -311,7 +311,7 @@ func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	// Verify no fake blocks were inserted.
 	for n := gr.First; n < gr.Next; n++ {
 		_, err := state.TryBlock(n)
-		require.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, types.ErrNotFound)
 	}
 
 	// Push the real blocks (matching qc1's headers) and verify they work.
@@ -638,7 +638,7 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	// Evicted heights (< App floor) fall through to BlockDB → ErrPruned.
 	for n := gr1.First; n < appFloor; n++ {
 		_, err := state1.TryBlock(n)
-		require.ErrorIs(t, err, ErrPruned)
+		require.ErrorIs(t, err, types.ErrPruned)
 	}
 	// App floor stays cached for AppVotes despite BlockDB prune.
 	got, err := state1.TryBlock(appFloor)
@@ -695,7 +695,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 
 		// Block gr2.First should not be in state yet.
 		_, err := state.TryBlock(gr2.First)
-		require.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, types.ErrNotFound)
 
 		// PushBlock for a block in qc2's range. With the off-by-one bug
 		// (n <= inner.nextQC), this would immediately dereference a nil QC
@@ -710,7 +710,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 
 		// Block should still not be in state (PushBlock is blocked).
 		_, err = state.TryBlock(gr2.First)
-		require.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, types.ErrNotFound)
 
 		// Push qc2 to unblock PushBlock.
 		require.NoError(t, state.PushQC(ctx, qc2, nil))
@@ -747,7 +747,7 @@ func TestTryBlockHidesGapFills(t *testing.T) {
 	last := gr2.Next - 1
 	require.NoError(t, state.PushBlock(ctx, last, blocks2[last-gr2.First]))
 	_, err := state.TryBlock(last)
-	require.ErrorIs(t, err, ErrNotFound, "gap-fill above nextBlock must stay hidden")
+	require.ErrorIs(t, err, types.ErrNotFound, "gap-fill above nextBlock must stay hidden")
 
 	// Fill contiguous prefix; last becomes visible with the rest.
 	for i, n := 0, gr2.First; n < gr2.Next; n++ {

@@ -162,16 +162,16 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 				return fmt.Errorf("state.WaitForAppQC(): %w", err)
 			}
 			if prev, ok := prev.Get(); ok {
-				if _, err := state.CommitQC(ctx, prev.Proposal().Index()); !errors.Is(err, data.ErrPruned) {
-					return fmt.Errorf("state.CommitQC(): %w, want %v", err, data.ErrPruned.Error())
+				if _, err := state.CommitQC(ctx, prev.Proposal().Index()); !errors.Is(err, types.ErrPruned) {
+					return fmt.Errorf("state.CommitQC(): %w, want %v", err, types.ErrPruned.Error())
 				}
 			}
 
 			t.Logf("Check that the executed local blocks have been pruned")
 			for lane := range committee.Lanes().All() {
 				if lr := types.LaneRangeOpt(prev, lane); lr.Next() > 0 {
-					if _, err := state.Block(ctx, lane, lr.Next()-1); !errors.Is(err, data.ErrPruned) {
-						return fmt.Errorf("state.Block(): %w, want %v", err, data.ErrPruned.Error())
+					if _, err := state.Block(ctx, lane, lr.Next()-1); !errors.Is(err, types.ErrPruned) {
+						return fmt.Errorf("state.Block(): %w, want %v", err, types.ErrPruned.Error())
 					}
 				}
 			}

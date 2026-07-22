@@ -120,7 +120,7 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlo
 		// already handle on the CometBFT path. base is None because the
 		// active lower bound lives in BlockDB's prune watermark (internal
 		// to the store); both call sites format through the same helper.
-		if errors.Is(err, data.ErrPruned) {
+		if errors.Is(err, atypes.ErrPruned) {
 			return nil, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
 		}
 		return nil, fmt.Errorf("data.GlobalBlock(%v): %w", n, err)

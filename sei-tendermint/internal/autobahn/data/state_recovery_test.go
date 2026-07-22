@@ -126,7 +126,7 @@ func TestPruningDiscards(t *testing.T) {
 
 	for n := gr1.First; n < gr2.First; n++ {
 		_, err := state.TryBlock(n)
-		require.ErrorIs(t, err, ErrPruned)
+		require.ErrorIs(t, err, types.ErrPruned)
 	}
 	for n := gr2.First; n < gr3.Next; n++ {
 		got, err := state.TryBlock(n)
@@ -162,7 +162,7 @@ func TestRecoveryAfterPruning(t *testing.T) {
 	require.Equal(t, gr3.Next, state2.NextBlock())
 	for n := qc1.QC().GlobalRange().First; n < gr2.First; n++ {
 		_, err := state2.TryBlock(n)
-		require.ErrorIs(t, err, ErrPruned)
+		require.ErrorIs(t, err, types.ErrPruned)
 	}
 	for n := gr2.First; n < gr3.Next; n++ {
 		got, err := state2.TryBlock(n)
@@ -207,7 +207,7 @@ func TestRecoveryBlocksBehind(t *testing.T) {
 	}
 	for n := gr2.First; n < gr2.Next; n++ {
 		_, err := state2.TryBlock(n)
-		require.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, types.ErrNotFound)
 	}
 
 	// Re-push qc2's blocks to fill the gap.
@@ -321,7 +321,7 @@ func TestRecoveryQCsNoBlocks(t *testing.T) {
 	}
 	for n := gr1.First; n < gr1.Next; n++ {
 		_, err := state2.TryBlock(n)
-		require.ErrorIs(t, err, ErrNotFound)
+		require.ErrorIs(t, err, types.ErrNotFound)
 	}
 }
 
@@ -405,5 +405,5 @@ func TestRecoveryBlockGap(t *testing.T) {
 
 	db2 := newTestBlockDB(t, dir)
 	_, err := NewState(&Config{Registry: registry}, db2)
-	require.ErrorIs(t, err, ErrBlockGap)
+	require.ErrorIs(t, err, types.ErrBlockGap)
 }
