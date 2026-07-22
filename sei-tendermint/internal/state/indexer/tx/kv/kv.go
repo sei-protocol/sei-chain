@@ -313,6 +313,7 @@ func (txi *TxIndex) collectBounded(ctx context.Context, filteredHashes map[strin
 	sortResults(results, opts.OrderDesc)
 
 	if opts.Limit > 0 && len(results) > opts.Limit {
+		clear(results[opts.Limit:])
 		results = results[:opts.Limit]
 	}
 
