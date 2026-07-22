@@ -513,9 +513,9 @@ func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 			}
 		}
 
-		// No CommitQC.App yet → eviction must not strip AppProposals.
+		// No CommitQC.App yet → eviction must not strip AppProposals; first stays put.
 		for inner := range state.inner.Lock() {
-			require.Equal(t, types.GlobalBlockNumber(0), inner.evictionBound(), "no certified App → bound 0")
+			require.Equal(t, gr1.First, inner.first, "no certified App → first unchanged")
 			for n := gr1.First; n < gr1.Next; n++ {
 				_, ok := inner.appProposals[n]
 				require.True(t, ok, "AppProposal %d must survive without CommitQC.App", n)
@@ -530,16 +530,15 @@ func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 		}
 
 		for inner := range state.inner.Lock() {
-			bound := inner.evictionBound()
-			require.Equal(t, appFloor+1, bound, "exclusive floor is CommitQC.App.GlobalNumber()+1")
-			for n := gr1.First; n < bound; n++ {
+			require.Equal(t, appFloor+1, inner.first, "exclusive floor is CommitQC.App.GlobalNumber()+1")
+			for n := gr1.First; n < inner.first; n++ {
 				_, ok := inner.appProposals[n]
-				require.False(t, ok, "AppProposal %d should be evicted (< App floor+1)", n)
+				require.False(t, ok, "AppProposal %d should be evicted (< first)", n)
 			}
 			// Heights at/above exclusive floor stay until executed further.
-			for n := bound; n < inner.nextAppProposal; n++ {
+			for n := inner.first; n < inner.nextAppProposal; n++ {
 				_, ok := inner.appProposals[n]
-				require.True(t, ok, "AppProposal %d must remain (>= exclusive floor)", n)
+				require.True(t, ok, "AppProposal %d must remain (>= first)", n)
 			}
 		}
 		return nil

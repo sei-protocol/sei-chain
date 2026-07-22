@@ -39,13 +39,13 @@ type blockEntry struct {
 }
 
 type inner struct {
-	// Map key ranges after eviction (implicit first = evictionBound()):
-	//   qcs:          [evictionBound(), nextQC)
-	//   blocks:       [evictionBound(), nextBlock) + gap-fills in [nextBlock, nextQC)
-	//   appProposals: [evictionBound(), nextAppProposal)
+	// Map key ranges (low end = first):
+	//   qcs:          [first, nextQC)
+	//   blocks:       [first, nextBlock) + gap-fills in [nextBlock, nextQC)
+	//   appProposals: [first, nextAppProposal)
 	//   blockHashes:  mirrors blocks (insertBlock / evictBelowBound)
 	//
-	// Durable copies below evictionBound live in BlockDB. AppProposals are not
+	// Durable copies below first live in BlockDB. AppProposals are not
 	// persisted; they are rebuilt via PushAppHash / re-execution after restart.
 	qcs          map[types.GlobalBlockNumber]*types.FullCommitQC
 	blocks       map[types.GlobalBlockNumber]*types.Block
@@ -58,12 +58,15 @@ type inner struct {
 	lastExecutedBlock *types.Block
 	lastExecutedQC    *types.FullCommitQC
 
-	// nextAppProposal <= nextBlockToPersist <= nextBlock <= nextQC
+	// first is the exclusive low end of retained in-memory state: maps keep
+	// [first, next*). Set by newInner / skipTo; advanced by evictBelowBound when
+	// a CommitQC.App certifies a higher floor (min(nextAppProposal, App+1)).
 	//
-	// In-memory retain window after eviction is [evictionBound(), next*).
+	// first <= nextAppProposal <= nextBlockToPersist <= nextBlock <= nextQC
+	//
 	// AppProposals require persistence (nextAppProposal <= nextBlockToPersist).
-	// Executed heights are dropped from memory by evictBelowBound; BlockDB prune
-	// status lives only in the store watermark (see PruneBefore).
+	// BlockDB prune status lives only in the store watermark (see PruneBefore).
+	first              types.GlobalBlockNumber
 	nextAppProposal    types.GlobalBlockNumber
 	nextBlockToPersist types.GlobalBlockNumber
 	nextBlock          types.GlobalBlockNumber
@@ -76,6 +79,7 @@ func newInner(firstBlock types.GlobalBlockNumber) *inner {
 		blocks:             map[types.GlobalBlockNumber]*types.Block{},
 		appProposals:       map[types.GlobalBlockNumber]*types.AppProposal{},
 		blockHashes:        map[types.BlockHeaderHash]types.GlobalBlockNumber{},
+		first:              firstBlock,
 		nextAppProposal:    firstBlock,
 		nextBlockToPersist: firstBlock,
 		nextBlock:          firstBlock,
@@ -87,6 +91,7 @@ func newInner(firstBlock types.GlobalBlockNumber) *inner {
 // Used on recovery when the first loaded QC starts past committee.FirstBlock()
 // (i.e. data before n was pruned in a previous run).
 func (i *inner) skipTo(n types.GlobalBlockNumber) {
+	i.first = n
 	i.nextAppProposal = n
 	i.nextBlockToPersist = n
 	i.nextBlock = n
@@ -137,7 +142,7 @@ func (i *inner) insertBlock(n types.GlobalBlockNumber, block *types.Block) error
 	if _, ok := i.blocks[n]; ok {
 		return nil // already have it (gap fill)
 	}
-	// n is in [nextBlock, nextQC); QCs are contiguous and evictionBound <=
+	// n is in [nextBlock, nextQC); QCs are contiguous and first <=
 	// nextAppProposal <= nextBlock, so qcs[n] is always present.
 	qc := i.qcs[n]
 	storedGR := qc.QC().GlobalRange()
@@ -386,8 +391,8 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 		}); err != nil {
 			return nil, err
 		}
-		// [evictionBound, nextQC) is retained in RAM; below that use BlockDB.
-		if n < inner.evictionBound() {
+		// [first, nextQC) is retained in RAM; below that use BlockDB.
+		if n < inner.first {
 			break
 		}
 		return inner.qcs[n], nil
@@ -471,8 +476,8 @@ func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Bl
 		}); err != nil {
 			return nil, err
 		}
-		// [evictionBound, nextBlock) is retained in RAM; below that use BlockDB.
-		if n < inner.evictionBound() {
+		// [first, nextBlock) is retained in RAM; below that use BlockDB.
+		if n < inner.first {
 			break
 		}
 		return inner.blocks[n], nil
@@ -490,7 +495,7 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 		if n >= inner.nextBlock {
 			return nil, types.ErrNotFound
 		}
-		if n < inner.evictionBound() {
+		if n < inner.first {
 			break
 		}
 		return inner.blocks[n], nil
@@ -521,7 +526,7 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		}); err != nil {
 			return nil, err
 		}
-		if n < inner.evictionBound() {
+		if n < inner.first {
 			break
 		}
 		return assembleGlobalBlock(n, inner.blocks[n], inner.qcs[n]), nil
@@ -633,10 +638,14 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextAppProposal }); err != nil {
 			return nil, err
 		}
-		if n < inner.evictionBound() {
+		if n < inner.first {
 			return nil, types.ErrPruned
 		}
-		return inner.appProposals[n], nil
+		ap := inner.appProposals[n]
+		if ap == nil {
+			return nil, types.ErrPruned
+		}
+		return ap, nil
 	}
 	panic("unreachable")
 }
@@ -791,26 +800,20 @@ func (i *inner) certifiedAppFloor() utils.Option[types.GlobalBlockNumber] {
 	return utils.Some(app.GlobalNumber() + 1)
 }
 
-// evictionBound is the exclusive low end of retained in-memory state after
-// eviction (the implicit "first" / former inner.first watermark): maps keep
-// [evictionBound, next*). Heights in [evictionBound, nextAppProposal) stay
-// cached — proposals that do not yet have an AppQC.
-//
-// Without a CommitQC-embedded App, nothing is evicted (bound 0). With an App at
-// GlobalNumber A, the exclusive floor is A+1 (the App height itself is covered
-// and may be dropped), clamped by nextAppProposal.
-func (i *inner) evictionBound() types.GlobalBlockNumber {
-	floor, ok := i.certifiedAppFloor().Get()
-	if !ok {
-		return 0 // no certified App yet — do not evict
-	}
-	return min(i.nextAppProposal, floor)
-}
-
-// evictBelowBound drops cached blocks/QCs/AppProposals with n < evictionBound().
+// evictBelowBound advances first to min(nextAppProposal, certifiedAppFloor) when
+// a CommitQC.App exists, and drops cached blocks/QCs/AppProposals with n < first.
+// No-op when there is no certified App or the bound would not advance first.
 // Caller must hold inner's lock. Invoked from PushQC / PushAppHash.
 func evictBelowBound(inner *inner) {
-	bound := inner.evictionBound()
+	floor, ok := inner.certifiedAppFloor().Get()
+	if !ok {
+		return
+	}
+	bound := min(inner.nextAppProposal, floor)
+	if bound <= inner.first {
+		return
+	}
+	inner.first = bound
 	for n, b := range inner.blocks {
 		if n < bound {
 			delete(inner.blockHashes, b.Header().Hash())

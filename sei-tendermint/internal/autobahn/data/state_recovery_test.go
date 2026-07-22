@@ -156,12 +156,21 @@ func TestRecoveryAfterPruning(t *testing.T) {
 	require.NoError(t, db1.Close())
 
 	// Recovery skipTo(gr2.First); qc1 heights are absent from BlockDB → ErrPruned.
+	// With no CommitQC.App yet, first stays at the recovery floor (not advanced
+	// to 0), so below-floor reads fall through to BlockDB instead of nil maps.
 	db2 := newTestBlockDB(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 
+	for inner := range state2.inner.Lock() {
+		require.Equal(t, gr2.First, inner.first)
+	}
 	require.Equal(t, gr3.Next, state2.NextBlock())
 	for n := qc1.QC().GlobalRange().First; n < gr2.First; n++ {
 		_, err := state2.TryBlock(n)
+		require.ErrorIs(t, err, types.ErrPruned)
+		_, err = state2.QC(t.Context(), n)
+		require.ErrorIs(t, err, types.ErrPruned)
+		_, err = state2.GlobalBlock(t.Context(), n)
 		require.ErrorIs(t, err, types.ErrPruned)
 	}
 	for n := gr2.First; n < gr3.Next; n++ {
