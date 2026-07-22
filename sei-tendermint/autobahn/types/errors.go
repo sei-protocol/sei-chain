@@ -2,9 +2,10 @@ package types
 
 import "errors"
 
-// ErrNotFound is returned when a requested block/QC/AppProposal is not yet
-// available (e.g. ahead of the contiguous prefix in data.State). It is distinct
-// from ErrPruned, which means the height is below the retention watermark.
+// ErrNotFound is returned when a requested record is not yet available —
+// a block, QC, or AppProposal ahead of what data.State currently has (e.g.
+// ahead of the contiguous block/QC prefix). Distinct from ErrPruned, which
+// means the height is below the retention / eviction floor.
 var ErrNotFound = errors.New("not found")
 
 // ErrBlockGap is returned when BlockDB blocks are not contiguous (e.g. during
@@ -28,12 +29,11 @@ var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
 var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 
 // ErrPruned is returned when a requested record is below the current retention
-// watermark (or otherwise no longer served from the retain window). BlockDB
-// by-number reads (ReadBlockByNumber, ReadQCByBlockNumber) return it for
-// heights strictly below the store watermark. data.State also uses it for
-// AppProposal (and similar) lookups after in-memory eviction. It is distinct
-// from a utils.None result on BlockDB, which means "not present at or above
-// the watermark" and may still be filled by a future write.
+// / eviction floor and is not served. Used for BlockDB by-number reads below
+// the store watermark, and for data.State lookups (blocks, QCs, AppProposals)
+// after in-memory eviction. Distinct from utils.None on BlockDB, which means
+// "not present at or above the watermark" and may still be filled by a future
+// write.
 //
 // ErrPruned reflects the watermark's current position, not a permanent verdict.
 // The watermark only advances while a store stays open, so within a single
@@ -42,4 +42,4 @@ var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 // reclamation is asynchronous, so an n that returned ErrPruned before a restart
 // may afterward read as present (or as utils.None). Callers should treat
 // ErrPruned as "not currently served," not as a guarantee the record is gone.
-var ErrPruned = errors.New("block: below retention watermark")
+var ErrPruned = errors.New("pruned: below retention watermark")

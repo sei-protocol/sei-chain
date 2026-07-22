@@ -39,21 +39,18 @@ type blockEntry struct {
 }
 
 type inner struct {
-	// qcs: retained in [evictionBound(), nextQC) after eviction (durable copies
-	// below that live in BlockDB). May be sparse in the live window only by
-	// gap — tip prefix through nextQC is filled by insertQC.
-	qcs map[types.GlobalBlockNumber]*types.FullCommitQC
-	// blocks: retained in [evictionBound(), nextBlock) after eviction, plus
-	// optional gap-fills in [nextBlock, nextQC) not yet exposed by NextBlock.
-	blocks map[types.GlobalBlockNumber]*types.Block
-	// appProposals: [evictionBound(), nextAppProposal). Not persisted; rebuilt
-	// via PushAppHash / re-execution after restart. Removed by evictBelowBound
-	// once a later CommitQC embeds a certifying App (see evictionBound).
+	// Map key ranges after eviction (implicit first = evictionBound()):
+	//   qcs:          [evictionBound(), nextQC)
+	//   blocks:       [evictionBound(), nextBlock) + gap-fills in [nextBlock, nextQC)
+	//   appProposals: [evictionBound(), nextAppProposal)
+	//   blockHashes:  mirrors blocks (insertBlock / evictBelowBound)
+	//
+	// Durable copies below evictionBound live in BlockDB. AppProposals are not
+	// persisted; they are rebuilt via PushAppHash / re-execution after restart.
+	qcs          map[types.GlobalBlockNumber]*types.FullCommitQC
+	blocks       map[types.GlobalBlockNumber]*types.Block
 	appProposals map[types.GlobalBlockNumber]*types.AppProposal
-
-	// blockHashes mirrors blocks (insertBlock / evictBelowBound). Misses fall
-	// through to blockDB.ReadBlockByHash.
-	blockHashes map[types.BlockHeaderHash]types.GlobalBlockNumber
+	blockHashes  map[types.BlockHeaderHash]types.GlobalBlockNumber
 
 	// lastExecutedBlock/QC pin nextAppProposal-1 for nextToExecute even after
 	// that height is dropped from the maps by evictBelowBound. Nil until the
@@ -125,13 +122,13 @@ func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error
 
 // insertBlock inserts a pre-verified block into the inner state.
 // Requires a QC to already be present for block n. Callers must verify
-// the block signature before calling.
+// the block signature before calling (unlike insertQC, which verifies).
 //
 // insertBlock does NOT advance nextBlock — callers should call
 // updateNextBlock after inserting one or more blocks. This separation
 // allows batch insertion (e.g. PushQC inserts multiple blocks, then
 // advances nextBlock once).
-func (i *inner) insertBlock(committee *types.Committee, n types.GlobalBlockNumber, block *types.Block) error {
+func (i *inner) insertBlock(n types.GlobalBlockNumber, block *types.Block) error {
 	// Contiguous prefix is done or evicted; only [nextBlock, nextQC) inserts.
 	// After success, blocks/blockHashes gain n; qcs[n] is already set.
 	if n < i.nextBlock || n >= i.nextQC {
@@ -181,7 +178,7 @@ type State struct {
 // Use memblock.NewBlockDB() for an in-memory store (testing / no persistent dir).
 // The caller owns blockDB and must close it after State.Run returns (nodeImpl
 // owns this in production); State never closes it.
-// TODO(gprusak): add support for starting execution from non-zero commit QC.
+// Recovery from a non-zero CommitQC tip is handled by loadFromBlockDB (skipTo).
 func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	s := &State{
 		cfg:     cfg,
@@ -278,11 +275,10 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 				if !ok {
 					return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
 				}
-				committee := e.Committee()
-				if err := blk.Verify(committee); err != nil {
+				if err := blk.Verify(e.Committee()); err != nil {
 					return fmt.Errorf("verify block %d from BlockDB: %w", n, err)
 				}
-				if err := in.insertBlock(committee, n, blk); err != nil {
+				if err := in.insertBlock(n, blk); err != nil {
 					return fmt.Errorf("insert block %d from BlockDB: %w", n, err)
 				}
 			}
@@ -311,12 +307,8 @@ func (s *State) insertBlocksByHash(inner *inner, gr types.GlobalRange, byHash ma
 	for n := max(inner.nextBlock, gr.First); n < min(gr.Next, inner.nextQC); n++ {
 		storedQC := inner.qcs[n]
 		storedGR := storedQC.QC().GlobalRange()
-		storedEp, ok := s.cfg.Registry.EpochByIndex(storedQC.QC().Proposal().EpochIndex())
-		if !ok {
-			return fmt.Errorf("unknown epoch_index %d", storedQC.QC().Proposal().EpochIndex())
-		}
 		if b, ok := byHash[storedQC.Headers()[n-storedGR.First].Hash()]; ok {
-			if err := inner.insertBlock(storedEp.Committee(), n, b); err != nil {
+			if err := inner.insertBlock(n, b); err != nil {
 				return err
 			}
 		}
@@ -429,7 +421,7 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if err := inner.insertBlock(ep.Committee(), n, block); err != nil {
+		if err := inner.insertBlock(n, block); err != nil {
 			return err
 		}
 		inner.updateNextBlock(s.metrics)
@@ -799,9 +791,9 @@ func (i *inner) certifiedAppFloor() utils.Option[types.GlobalBlockNumber] {
 }
 
 // evictionBound is the exclusive low end of retained in-memory state after
-// eviction: maps keep [evictionBound, next*) (this replaces the old inner.first
-// watermark). Heights in [evictionBound, nextAppProposal) stay cached — proposals
-// that do not yet have an AppQC.
+// eviction (the implicit "first" / former inner.first watermark): maps keep
+// [evictionBound, next*). Heights in [evictionBound, nextAppProposal) stay
+// cached — proposals that do not yet have an AppQC.
 //
 // Without a CommitQC-embedded App, nothing is evicted (bound 0). With an App at
 // GlobalNumber A, the exclusive floor is A+1 (the App height itself is covered
