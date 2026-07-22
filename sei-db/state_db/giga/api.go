@@ -14,9 +14,7 @@ const (
 type Address [AddressLen]byte
 
 // Hash is a 256-bit value (32 bytes), used here for storage slots, balances,
-// and code hashes. Like Address, it can be freely converted to/from
-// common.Hash or evmc.Hash. Block hashes are not part of this store API
-// (they come from chain BlockContext, not SC/SS account state).
+// and code hashes. Like Address, it can be freely converted to/from common.Hash or evmc.Hash.
 type Hash [HashLen]byte
 
 // Store is the top-level API used by the Giga EVM executor for
