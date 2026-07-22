@@ -21,7 +21,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -125,7 +124,7 @@ func (s *rangeCapReceiptStore) setCandidates(candidates []*ethtypes.Log) {
 }
 
 type rangeCapTMClient struct {
-	mock.Client
+	client.LocalClient
 	block *coretypes.ResultBlock
 }
 
