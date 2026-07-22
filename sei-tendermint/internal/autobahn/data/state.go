@@ -386,10 +386,11 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 		}); err != nil {
 			return nil, err
 		}
-		if qc, ok := inner.qcs[n]; ok {
-			return qc, nil
+		// [evictionBound, nextQC) is retained in RAM; below that use BlockDB.
+		if n < inner.evictionBound() {
+			break
 		}
-		// Evicted from memory after persist; fall through to BlockDB.
+		return inner.qcs[n], nil
 	}
 	return s.qcFromDB(n)
 }
@@ -470,10 +471,11 @@ func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Bl
 		}); err != nil {
 			return nil, err
 		}
-		if b, ok := inner.blocks[n]; ok {
-			return b, nil
+		// [evictionBound, nextBlock) is retained in RAM; below that use BlockDB.
+		if n < inner.evictionBound() {
+			break
 		}
-		// Evicted from the contiguous prefix; fall through to BlockDB.
+		return inner.blocks[n], nil
 	}
 	return s.blockFromDB(n)
 }
@@ -488,10 +490,10 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 		if n >= inner.nextBlock {
 			return nil, types.ErrNotFound
 		}
-		if b, ok := inner.blocks[n]; ok {
-			return b, nil
+		if n < inner.evictionBound() {
+			break
 		}
-		// Evicted from the contiguous prefix; fall through to BlockDB.
+		return inner.blocks[n], nil
 	}
 	return s.blockFromDB(n)
 }
@@ -519,10 +521,10 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		}); err != nil {
 			return nil, err
 		}
-		if b, ok := inner.blocks[n]; ok {
-			return assembleGlobalBlock(n, b, inner.qcs[n]), nil
+		if n < inner.evictionBound() {
+			break
 		}
-		// Evicted from the contiguous prefix; fall through to BlockDB.
+		return assembleGlobalBlock(n, inner.blocks[n], inner.qcs[n]), nil
 	}
 	return s.globalBlockFromDB(n)
 }
@@ -631,11 +633,10 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextAppProposal }); err != nil {
 			return nil, err
 		}
-		ap, ok := inner.appProposals[n]
-		if !ok {
+		if n < inner.evictionBound() {
 			return nil, types.ErrPruned
 		}
-		return ap, nil
+		return inner.appProposals[n], nil
 	}
 	panic("unreachable")
 }
