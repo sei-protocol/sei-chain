@@ -151,8 +151,8 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 		}
 		if walFirstVer <= s.committedVersion {
 			// The WAL is guaranteed to still hold the entry for
-			// committedVersion: every Commit writes it in Step 1 before
-			// advancing committedVersion in Step 4, and truncation never
+			// committedVersion: Commit always writes an entry's WAL record
+			// before it advances committedVersion, and truncation never
 			// removes entries at or after committedVersion. Locate it
 			// directly; the replay loop below skips it
 			// (entry.Version <= s.committedVersion) and applies from there.

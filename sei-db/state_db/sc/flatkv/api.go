@@ -29,15 +29,14 @@ type Store interface {
 	// the caller must Close it when done.
 	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
 
-	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates
-	// LtHash, stamping row last-modified heights with version. Non-EVM modules
-	// are routed into misc storage under their module prefix.
-	// May be called multiple times before a single Commit: either repeatedly
-	// at the same version (e.g. one block's writes split across several
-	// calls) or at strictly increasing versions (e.g. batching several
-	// blocks' writes together); version must never decrease from the
-	// previous pending call (see PendingVersion). The final Commit must be
-	// called with the highest version applied since the last Commit.
+	// ApplyChangeSets buffers changesets at the given version, to be
+	// persisted by the next Commit.
+	// May be called multiple times before a single Commit, either
+	// repeatedly at the same version (e.g. one block's writes split across
+	// several calls) or at increasing versions (e.g. batching several
+	// blocks together). version must never decrease across calls (see
+	// PendingVersion), and Commit must be called with the highest version
+	// applied since the last Commit.
 	ApplyChangeSets(version int64, cs []*proto.NamedChangeSet) error
 
 	// Commit persists buffered writes at the given version (block height).
@@ -47,6 +46,10 @@ type Store interface {
 
 	// CommitBlock is a Giga-only helper that applies changesets and commits
 	// them at version in one call.
+	// Callers must use either ApplyChangeSets+Commit or CommitBlock
+	// exclusively, never mixing the two on the same store.
+	// ApplyChangeSets+Commit is expected to be deprecated once all callers
+	// move to CommitBlock.
 	CommitBlock(version int64, cs []*proto.NamedChangeSet) error
 
 	// SetInitialVersion seeds the store so that Commit(initialVersion) is

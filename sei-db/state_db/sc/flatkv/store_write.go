@@ -22,8 +22,10 @@ func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChange
 	if err := s.ApplyChangeSets(version, changesets); err != nil {
 		return err
 	}
-	_, err := s.Commit(version)
-	return err
+	if _, err := s.Commit(version); err != nil {
+		return fmt.Errorf("CommitBlock: commit version %d: %w", version, err)
+	}
+	return nil
 }
 
 // Commit persists buffered writes at the given version (block height).
