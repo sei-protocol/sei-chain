@@ -64,14 +64,17 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 	stateEarliest := latest // SS disabled: only the tip is servable.
 	if m.stateStore != nil {
 		latest = min(latest, m.stateStore.GetLatestVersion())
-		// GetEarliestVersion() returns 0 on a fresh, never-pruned state store:
-		// the pebble earliest-version key is only written by pruning or
-		// state-sync. A literal 0 sends `earliest` to height 0, which
-		// CreateQueryContext coerces to lastBlockHeight (the tip), so a
-		// historical/`earliest` read returns current state. Floor at
-		// blockEarliest: `earliest` resolves to genesis when nothing has been
-		// pruned, and to the state-pruned floor once it has. See SEI-10383.
-		stateEarliest = max(blockEarliest, m.stateStore.GetEarliestVersion())
+		// GetEarliestVersion() is 0 on a never-pruned store: the earliest-version
+		// key is only written by pruning or state-sync. 0 is not a servable
+		// height (it resolves to the tip), so fall back to blockEarliest. A
+		// nonzero value is the real state-prune floor and is used as-is: it can
+		// sit below blockEarliest when state is retained deeper than blocks
+		// (ss-keep-recent > block keep-recent), and must not be raised to the
+		// block floor or retained state below it reads as pruned. See SEI-10383.
+		stateEarliest = m.stateStore.GetEarliestVersion()
+		if stateEarliest == 0 {
+			stateEarliest = blockEarliest
+		}
 	}
 	return blockEarliest, stateEarliest, latest, nil
 }
