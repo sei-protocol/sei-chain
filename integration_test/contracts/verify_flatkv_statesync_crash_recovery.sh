@@ -252,10 +252,10 @@ dump_victim_restore_diagnostics() {
   docker exec "$node" bash -lc \
     "grep -E 'pendingAccount=[1-9]|pendingCode=[1-9]|pendingStorage=[1-9]' '$logfile' 2>/dev/null | head -40" >&2 \
     || echo "(NONE -- confirms blocksync replay in dual_write does not populate FlatKV EVM buckets)" >&2
-  echo "--- ${node} sample FlatKV Commit lines (first 5, last 5 -- to see per-block telemetry shape) ---" >&2
+  echo "--- ${node} sample FlatKV Commit lines (debug-level; present only when the node runs at --log_level debug) ---" >&2
   docker exec "$node" bash -lc \
     "grep 'FlatKV Commit complete' '$logfile' 2>/dev/null | { head -5; echo '...'; tail -5; }" >&2 \
-    || echo "(no FlatKV Commit lines)" >&2
+    || echo "(no FlatKV Commit lines -- expected at info level; see the bucket summary below and the CommitLatency/CurrentVersion metrics)" >&2
   dump_flatkv_bucket_summary "$node"
   echo "--- ${node} restore/import/FlatKV log lines ---" >&2
   docker exec "$node" bash -lc \

@@ -90,7 +90,7 @@ echo "==> seid PID: $SEID_PID"
 # ---------------------------------------------------------------------------
 # 4. Tail log file, printing only branch-specific messages
 #    - "occ scheduler key conflicts" from sei-cosmos/tasks/scheduler.go
-#    - "execution block time" from x/evm/keeper/abci.go
+#    - "execution block time" from sei-cosmos/baseapp/abci.go (debug-level; shows only at --log_level debug)
 # ---------------------------------------------------------------------------
 (
   tail -F "$LOG_FILE" 2>/dev/null \
