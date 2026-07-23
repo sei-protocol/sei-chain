@@ -57,6 +57,12 @@ func EvmCheckTxAnte(
 	if err := AssociateAddress(ctx, ek, evmAddr, seiAddr, seiPubkey); err != nil {
 		return ctx, err
 	}
+	// Mirror the deliver-tx path and pre-associate EIP-7702 authorization authorities so the
+	// mempool's check state matches how the transaction will execute. CheckTx runs on a
+	// throwaway cache (its writes are never committed) and never applies authorizations, so
+	// this cannot itself cause the direct-cast halt; it is here purely for mempool consistency
+	// with EvmDeliverTxAnte.
+	AssociateAuthorizationAuthorities(ctx, ek, etx)
 	if _, err := EvmCheckAndChargeFees(ctx, evmAddr, ek, upgradeKeeper, txData, etx, msg, version, false); err != nil {
 		return ctx, err
 	}
@@ -240,6 +246,41 @@ func AssociateAddress(ctx sdk.Context, ek *evmkeeper.Keeper, evmAddr common.Addr
 		}
 	}
 	return nil
+}
+
+// AssociateAuthorizationAuthorities pre-associates every EIP-7702 SetCode authorization
+// authority in the transaction with its true (pubkey-derived) Sei address before EVM
+// execution installs delegation code for it. Authorities are distinct accounts from the tx
+// sender, so the sender association performed by the caller does not cover them. Without
+// this, SetCode creates a mutable direct-cast EVM->Sei mapping that a later associatePubKey
+// call can remap, orphaning any staking/distribution state created under the direct-cast
+// identity (which can then halt the chain via the distribution validator-removal hook).
+//
+// This is the legacyabci counterpart of x/evm/ante's EVMPreprocessDecorator so both ante
+// paths associate authorities identically. It is best-effort: only authorities whose
+// authorization the EVM will actually apply are pre-associated — helpers.AuthorityToPreAssociate
+// enforces the same chain-id/nonce/account-code checks go-ethereum uses, which also prevents
+// replaying a publicly-visible authorization a user signed for another chain to force-associate
+// them. Each association runs in its own cache context and is only committed on success, so an
+// already-associated, skipped, or failing authority affects only itself and never rejects the
+// transaction (matching go-ethereum, which would still accept it). Non-SetCode transactions
+// carry no authorizations and are a no-op.
+func AssociateAuthorizationAuthorities(ctx sdk.Context, ek *evmkeeper.Keeper, etx *ethtypes.Transaction) {
+	auths := etx.SetCodeAuthorizations()
+	if len(auths) == 0 {
+		return
+	}
+	associateHelper := helpers.NewAssociationHelper(ek, ek.BankKeeper(), ek.AccountKeeper())
+	for _, auth := range auths {
+		evmAddr, seiAddr, pubkey, ok := helpers.AuthorityToPreAssociate(ctx, ek, auth)
+		if !ok {
+			continue
+		}
+		cacheCtx, write := ctx.CacheContext()
+		if err := associateHelper.AssociateAddresses(cacheCtx, seiAddr, evmAddr, pubkey, false); err == nil {
+			write()
+		}
+	}
 }
 
 func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper, txData ethtx.TxData, etx *ethtypes.Transaction, msg *evmtypes.MsgEVMTransaction, version derived.SignerVersion, statelessChecks bool) (*state.DBImpl, error) {
