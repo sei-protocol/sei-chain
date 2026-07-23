@@ -765,8 +765,13 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 
 	var flatkvVersion int64 = -1
 	if cs.flatKV != nil {
+		targetVersion := cosmosVersion
+		if targetVersion < 0 {
+			// FlatKV-only mode: no cosmos height to follow.
+			targetVersion = cs.flatKV.Version() + 1
+		}
 		var err error
-		flatkvVersion, err = cs.flatKV.Commit()
+		flatkvVersion, err = cs.flatKV.Commit(targetVersion)
 		if err != nil {
 			return 0, fmt.Errorf("failed to commit flatkv: %w", err)
 		}

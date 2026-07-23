@@ -29,8 +29,8 @@ func commitStorageEntry(t *testing.T, s *CommitStore, addr ktype.Address, slot k
 			Pairs: []*proto.KVPair{{Key: key, Value: padded}},
 		},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	v, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	return v
 }
@@ -277,7 +277,7 @@ func TestMigrationFromFlatLayout(t *testing.T) {
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
 
 	// Simulate the old flat layout by creating DB dirs directly
-	for _, sub := range []string{accountDBDir, codeDBDir, storageDBDir, metadataDir, legacyDBDir} {
+	for _, sub := range []string{accountDBDir, codeDBDir, storageDBDir, metadataDir, miscDBDir} {
 		dbPath := filepath.Join(flatkvDir, sub)
 		require.NoError(t, os.MkdirAll(dbPath, 0750))
 		// Create an actual PebbleDB so Open works
@@ -1241,8 +1241,8 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 		{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
 	}
 	cs := &proto.NamedChangeSet{Name: "evm", Changeset: proto.ChangeSet{Pairs: pairs}}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	hash := s.RootHash()
@@ -1292,8 +1292,8 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 0; i < 3; i++ {
-		require.NoError(t, s.ApplyChangeSets(nil))
-		_, err := s.Commit()
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, nil))
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -1341,8 +1341,8 @@ func TestReopenAfterDeletes(t *testing.T) {
 			{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	delCS := &proto.NamedChangeSet{
@@ -1354,8 +1354,8 @@ func TestReopenAfterDeletes(t *testing.T) {
 			{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Delete: true},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{delCS}))
-	_, err = s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{delCS}))
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	hashBefore := s.RootHash()
@@ -1730,8 +1730,8 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 	}
 	ch := vtype.CodeHash{0xAA}
 	cs1.Changeset.Pairs[1].Value = ch[:]
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-	_, err = s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	cs2 := &proto.NamedChangeSet{
@@ -1741,8 +1741,8 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 			{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]), Delete: true},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-	_, err = s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	hashBefore := s.RootHash()
@@ -1781,8 +1781,8 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-	_, err = s.Commit() // v1
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
+	_, err = s.Commit(s.Version() + 1) // v1
 	require.NoError(t, err)
 
 	cs2 := &proto.NamedChangeSet{
@@ -1791,8 +1791,8 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Delete: true},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-	_, err = s.Commit() // v2
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
+	_, err = s.Commit(s.Version() + 1) // v2
 	require.NoError(t, err)
 
 	hashAtV2 := s.RootHash()
@@ -1843,8 +1843,8 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 3}},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-	_, err = s.Commit() // v1 (snapshot taken)
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
+	_, err = s.Commit(s.Version() + 1) // v1 (snapshot taken)
 	require.NoError(t, err)
 
 	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
@@ -1857,8 +1857,8 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Delete: true},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-	_, err = s.Commit() // v2 (row deleted, snapshot taken)
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
+	_, err = s.Commit(s.Version() + 1) // v2 (row deleted, snapshot taken)
 	require.NoError(t, err)
 
 	_, found = s.Get(keys.EVMStoreKey, nonceKey)
@@ -1882,7 +1882,7 @@ func TestRollbackOnReadOnlyStore(t *testing.T) {
 		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
 		padLeft32(0x11), false,
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
@@ -1904,7 +1904,7 @@ func TestRollbackToCurrentVersion(t *testing.T) {
 	addr := addrN(0x02)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x22), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s) // v1 + snapshot
 
 	hashV1 := s.RootHash()
@@ -1929,7 +1929,7 @@ func TestRollbackToFutureVersionFails(t *testing.T) {
 		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x03), slotN(0x01))),
 		padLeft32(0x33), false,
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s) // v1
 
 	err := s.Rollback(99)
@@ -1945,13 +1945,13 @@ func TestRollbackDiscardsUncommittedPendingWrites(t *testing.T) {
 	addr := addrN(0x04)
 	key1 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs1 := makeChangeSet(key1, padLeft32(0x44), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s) // v1
 
 	// Apply but do NOT commit.
 	key2 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x02)))
 	cs2 := makeChangeSet(key2, padLeft32(0x55), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 	require.NoError(t, s.Rollback(1))
 	require.Equal(t, int64(1), s.Version())
@@ -1974,11 +1974,11 @@ func TestRollbackThenNewTimeline(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 
 	cs1 := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s) // v1
 
 	cs2 := makeChangeSet(key, padLeft32(0x22), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s) // v2
 
 	require.NoError(t, s.Rollback(1))
@@ -1986,8 +1986,8 @@ func TestRollbackThenNewTimeline(t *testing.T) {
 
 	// Write new data in the alternate timeline.
 	cs3 := makeChangeSet(key, padLeft32(0xFF), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
-	v, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs3}))
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v) // Version 2 in the new timeline.
 
@@ -2011,8 +2011,8 @@ func TestRollbackPreservesWALContinuity(t *testing.T) {
 	for i := 1; i <= 4; i++ {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -2022,8 +2022,8 @@ func TestRollbackPreservesWALContinuity(t *testing.T) {
 	for i := 5; i <= 6; i++ {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 	hashAfterNewCommits := s.RootHash()
@@ -2047,7 +2047,7 @@ func TestWriteSnapshotOnReadOnlyStore(t *testing.T) {
 		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
 		padLeft32(0x11), false,
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
@@ -2076,7 +2076,7 @@ func TestWriteSnapshotWhileReadOnlyCloneActive(t *testing.T) {
 		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x07), slotN(0x01))),
 		padLeft32(0x77), false,
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
@@ -2101,7 +2101,7 @@ func TestWriteSnapshotDirParameterIgnored(t *testing.T) {
 		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x08), slotN(0x01))),
 		padLeft32(0x88), false,
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// Pass a non-empty dir parameter. The implementation should ignore it.

@@ -46,8 +46,8 @@ func TestFlatKVHashReporting(t *testing.T) {
 
 	// Write some EVM storage so the account/storage DBs have non-empty LtHashes.
 	key := evmStorageKey(ktype.Address{0x11}, ktype.Slot{0x22})
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(0x33), false)}))
-	_, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(0x33), false)}))
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	// Categories: the global root plus one per data DB (metadata DB excluded).
@@ -56,7 +56,7 @@ func TestFlatKVHashReporting(t *testing.T) {
 		"flatKV/db/account",
 		"flatKV/db/code",
 		"flatKV/db/storage",
-		"flatKV/db/legacy",
+		"flatKV/db/misc",
 	}, s.HashCategories())
 
 	logger := newCaptureLogger()

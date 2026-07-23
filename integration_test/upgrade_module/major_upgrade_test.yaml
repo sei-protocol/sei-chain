@@ -9,8 +9,8 @@
 
 # 3. Target Block Height:
 #    - The network reaches the proposed upgrade block height.
-#    - Non-upgraded nodes (1, 2, and 3) panic, indicating the need for the upgrade.
-#    - An "UPGRADE NEEDED" log message is expected on these nodes.
+#    - At least one non-upgraded node among 1, 2, and 3 panics and logs "UPGRADE NEEDED".
+#    - The remaining non-upgraded nodes may stay at target height - 1 until the panicked peer is upgraded.
 
 # 4. Post-Upgrade Behavior:
 #    - Nodes 1, 2, and 3 are upgraded to the major release and resume normal operation.
@@ -48,7 +48,7 @@
       node: sei-node-3
 
     # Wait for the proposal to pass
-    - cmd: proposal_wait_for_pass.sh $PROPOSAL_ID
+    - cmd: proposal_wait_for_pass.sh $PROPOSAL_ID node_admin
       node: sei-node-0
 
     # EXECUTE UPGRADE SCENARIOS
@@ -67,43 +67,52 @@
       env: RUNNING_BEFORE_UPGRADE_NODE_3
 
     # Upgrade to major release (node 0)
+    # Node 0 should panic soon. 
     - cmd: seid_upgrade.sh $VERSION
+      node: sei-node-0    
+    - cmd: verify_panic.sh node_admin
       node: sei-node-0
+      env: PANIC_NODE_0
 
-    # Confirm the node is not running because it upgraded too early
-    - cmd: verify_panic.sh $TARGET_HEIGHT
-      node: sei-node-0
-      env: PANIC_AFTER_EARLY_UPGRADE_NODE_0
-
-    # Wait for the target height (non-panicked nodes)
-    - cmd: wait_for_height.sh $TARGET_HEIGHT
+    # Majority of nodes is guaranteed to reach TARGET_HEIGHT-1.
+    # Since node 0 is down, this majority is exactly nodes 1,2,3.
+    # Afterwards one of them can panic (require upgrade)
+    # delivering their precommit vote for TARGET_HEIGHT to other nodes,
+    # which will make the other nodes stuck at TARGET_HEIGHT-1 until the panicked one is upgraded.
+    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1)) node_admin
       node: sei-node-1
-    - cmd: wait_for_height.sh $TARGET_HEIGHT
+    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1)) node_admin
       node: sei-node-2
-    - cmd: wait_for_height.sh $TARGET_HEIGHT
+    - cmd: wait_for_height.sh $((TARGET_HEIGHT - 1)) node_admin
       node: sei-node-3
 
-    # Confirm panic and UPGRADE NEEDED log message for non-upgraded node
-    - cmd: verify_panic.sh $TARGET_HEIGHT
+    # At least one of 1,2,3 reached TARGET_HEIGHT and panicked.
+    - cmd: verify_panic.sh node_admin
+      node: sei-node-1
+      env: PANIC_NODE_1  
+    - cmd: verify_panic.sh node_admin
       node: sei-node-2
-      env: PANIC_AT_BLOCK_HEIGHT_NODE_2
-    - cmd: verify_panic.sh $TARGET_HEIGHT
+      env: PANIC_NODE_2
+    - cmd: verify_panic.sh node_admin
       node: sei-node-3
-      env: PANIC_AT_BLOCK_HEIGHT_NODE_3
+      env: PANIC_NODE_3
+    - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
+      node: sei-node-1
+      env: LOG_AT_BLOCK_HEIGHT_NODE_1
+    - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
+      node: sei-node-2
+      env: LOG_AT_BLOCK_HEIGHT_NODE_2
+    - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
+      node: sei-node-3
+      env: LOG_AT_BLOCK_HEIGHT_NODE_3
 
-    # Upgrade all nodes to major release
+    # Upgrade all nodes to major release, expect them running
     - cmd: seid_upgrade.sh $VERSION
       node: sei-node-1
     - cmd: seid_upgrade.sh $VERSION
       node: sei-node-2
     - cmd: seid_upgrade.sh $VERSION
       node: sei-node-3
-
-    # Downgrade node 0 so that it can sync the rest of the blocks
-    - cmd: seid_downgrade.sh
-      node: sei-node-0
-
-    # Confirm nodes are running after upgrade
     - cmd: verify_running.sh
       node: sei-node-1
       env: RUNNING_UPGRADED_NODE_1
@@ -114,23 +123,22 @@
       node: sei-node-3
       env: RUNNING_UPGRADED_NODE_3
 
-    # Wait for the target height (on node 0, catching up)
-    - cmd: wait_for_height.sh $TARGET_HEIGHT
+    # Downgrade node 0 so that it can sync the rest of the blocks
+    # It successfully reach TARGET_HEIGHT, panic, and log upgrade needed.
+    - cmd: seid_downgrade.sh
       node: sei-node-0
-
-    # Confirm node 0 has now panicked and logged
-    - cmd: verify_panic.sh $TARGET_HEIGHT
+    - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
       node: sei-node-0
-      env: PANIC_AT_BLOCK_HEIGHT_NODE_0
+    - cmd: verify_panic.sh node_admin
+      node: sei-node-0
+      env: PANIC_AT_BLOCK_HEIGHT_NODE_0 
     - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
       node: sei-node-0
-      env: LOG_AT_BLOCK_HEIGHT_NODE_0
+      env: LOG_AT_BLOCK_HEIGHT_NODE_0 
 
-    # Upgrade node 0 now that it has caught up
+    # Upgrade node 0 now that it has caught up, it should be running
     - cmd: seid_upgrade.sh $VERSION
       node: sei-node-0
-
-    # node 0 should be running now
     - cmd: verify_running.sh
       node: sei-node-0
       env: RUNNING_UPGRADED_NODE_0
@@ -146,18 +154,19 @@
     - type: eval
       expr: RUNNING_BEFORE_UPGRADE_NODE_3 == "PASS"
 
-    # Upgraded nodes panic because they were upgraded too early
+    # Upgrade to major release (node 0)
+    # Node 0 should panic soon. 
     - type: eval
-      expr: PANIC_AFTER_EARLY_UPGRADE_NODE_0 == "PASS"
+      expr: PANIC_NODE_0 == "PASS"
 
-    # At least one node should panic and print the upgrade-needed log message
-    # The other will possibly hang on block-1 because of missing peers (due to race)
+    # Majority of nodes is guaranteed to reach TARGET_HEIGHT-1.
+    # At least one of 1,2,3 reached TARGET_HEIGHT, panicked, and logged upgrade needed.
     - type: eval
-      expr: PANIC_AT_BLOCK_HEIGHT_NODE_2 == "PASS"
+      expr: PANIC_NODE_1 == "PASS" or PANIC_NODE_2 == "PASS" or PANIC_NODE_3 == "PASS"
     - type: eval
-      expr: PANIC_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
+      expr: LOG_AT_BLOCK_HEIGHT_NODE_1 == "PASS" or LOG_AT_BLOCK_HEIGHT_NODE_2 == "PASS" or LOG_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
 
-    # After upgrade, all nodes are running
+    # Upgrade all nodes to major release, expect them running
     - type: eval
       expr: RUNNING_UPGRADED_NODE_1 == "PASS"
     - type: eval
@@ -165,12 +174,13 @@
     - type: eval
       expr: RUNNING_UPGRADED_NODE_3 == "PASS"
 
-    # After downgrade and restart, node 0 panics at height
+    # Downgrade node 0 so that it can sync the rest of the blocks
+    # It successfully reach TARGET_HEIGHT, panic, and log upgrade needed.
     - type: eval
       expr: PANIC_AT_BLOCK_HEIGHT_NODE_0 == "PASS"
     - type: eval
       expr: LOG_AT_BLOCK_HEIGHT_NODE_0 == "PASS"
 
-    # After upgrade, node 0 is running
+    # Upgrade node 0 now that it has caught up, it should be running
     - type: eval
       expr: RUNNING_UPGRADED_NODE_0 == "PASS"

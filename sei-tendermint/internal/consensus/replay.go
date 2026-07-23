@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	"github.com/sei-protocol/seilog"
 )
 
@@ -149,11 +148,7 @@ func (h *Handshaker) NBlocks() int {
 
 // TODO: retry the handshake/replay if it fails ?
 func (h *Handshaker) Handshake(ctx context.Context, app *proxy.Proxy) error {
-	res, err := app.Info(ctx, &version.RequestInfo)
-	if err != nil {
-		return fmt.Errorf("error calling Info: %w", err)
-	}
-
+	res := app.Info()
 	blockHeight := res.LastBlockHeight
 	if blockHeight < 0 {
 		return fmt.Errorf("got a negative last block height (%d) from the app", blockHeight)
@@ -174,7 +169,7 @@ func (h *Handshaker) Handshake(ctx context.Context, app *proxy.Proxy) error {
 	}
 
 	// Replay blocks up to the latest in the blockstore.
-	_, err = h.ReplayBlocks(ctx, h.initialState, appHash, blockHeight, app)
+	_, err := h.ReplayBlocks(ctx, h.initialState, appHash, blockHeight, app)
 	if err != nil {
 		return fmt.Errorf("error on replay: %w", err)
 	}
@@ -204,7 +199,7 @@ func (h *Handshaker) ReplayBlocks(
 
 	// If appBlockHeight == 0 it means that we are at genesis and hence should send InitChain.
 	if appBlockHeight == 0 {
-		res, err := app.InitChain(ctx, h.genDoc.ToRequestInitChain())
+		res, err := app.InitChain(h.genDoc.ToRequestInitChain())
 		if err != nil {
 			return nil, err
 		}

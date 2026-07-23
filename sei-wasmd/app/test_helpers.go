@@ -165,13 +165,11 @@ func SetupWithGenesisValSet(t *testing.T, chainID string, valSet *tmtypes.Valida
 	require.NoError(t, err)
 
 	// init chain will set the validator set and initialize the genesis accounts
-	_, err = app.InitChain(
-		context.Background(),
-		&abci.RequestInitChain{
-			ConsensusParams: DefaultConsensusParams,
-			AppStateBytes:   stateBytes,
-			ChainId:         chainID,
-		},
+	_, err = app.InitChain(&abci.RequestInitChain{
+		ConsensusParams: DefaultConsensusParams,
+		AppStateBytes:   stateBytes,
+		ChainId:         chainID,
+	},
 	)
 	require.NoError(t, err)
 	// This line is necessary due to the capability module which has a map as well as store usages,

@@ -14,7 +14,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -24,7 +23,7 @@ import (
 const highBlockHashHex = "0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed"
 
 type heightTestClient struct {
-	mock.Client
+	client.Client
 	highHash  bytes.HexBytes
 	highBlock *coretypes.ResultBlock
 	earliest  int64
@@ -45,7 +44,6 @@ func (*heightTestClient) EvmProxy(common.Address) utils.Option[*url.URL] {
 
 func newHeightTestClient(highHeight, earliest, latest int64) *heightTestClient {
 	return &heightTestClient{
-		Client:   mock.Client{},
 		highHash: bytes.HexBytes(mustDecodeHex(highBlockHashHex[2:])),
 		highBlock: &coretypes.ResultBlock{
 			Block: &tmtypes.Block{
@@ -87,6 +85,14 @@ func (c *heightTestClient) Status(context.Context) (*coretypes.ResultStatus, err
 	}, nil
 }
 
+func (c *heightTestClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) {
+	return &coretypes.ResultGenesis{
+		Genesis: &tmtypes.GenesisDoc{
+			InitialHeight: c.earliest,
+		},
+	}, nil
+}
+
 // blockNotFoundTestClient returns ResultBlock{Block: nil} for a specific hash to simulate Tendermint "block not found".
 type blockNotFoundTestClient struct {
 	*heightTestClient
@@ -110,7 +116,16 @@ func mustDecodeHex(h string) []byte {
 
 func testTxConfigProvider(int64) client.TxConfig { return nil }
 
-func testCtxProvider(int64) sdk.Context { return sdk.Context{} }
+func testCtxProvider(h int64) sdk.Context {
+	if h == LatestCtxHeight {
+		return sdk.Context{}.WithBlockHeight(1 << 60)
+	}
+	return sdk.Context{}.WithBlockHeight(h)
+}
+
+func newHeightTestWatermarks(client client.LocalClient, latest int64) *WatermarkManager {
+	return NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: latest})
+}
 
 // GetBlockByHash for a block whose height sits above safe latest must return
 // JSON null per the Ethereum JSON-RPC spec (the block doesn't exist from the
@@ -123,7 +138,7 @@ func TestBlockAPIAboveWatermarkReturnsNull(t *testing.T) {
 	latest := int64(100)
 	highHeight := latest + 5
 	client := newHeightTestClient(highHeight, earliest, latest)
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	watermarks := newHeightTestWatermarks(client, latest)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	result, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
@@ -144,7 +159,7 @@ func TestGetBlockByHashNotFoundReturnsNull(t *testing.T) {
 		heightTestClient: base,
 		notFoundHash:     bytes.HexBytes(mustDecodeHex(notFoundHashHex[2:])),
 	}
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	watermarks := newHeightTestWatermarks(client, latest)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 	ctx := context.Background()
 
@@ -172,7 +187,7 @@ func TestGetBlockReceiptsNotFoundReturnsNull(t *testing.T) {
 		heightTestClient: base,
 		notFoundHash:     bytes.HexBytes(mustDecodeHex(notFoundHashHex[2:])),
 	}
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	watermarks := newHeightTestWatermarks(client, latest)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 	ctx := context.Background()
 
@@ -202,7 +217,7 @@ func TestBlockAPILatestTagResolves(t *testing.T) {
 	earliest := int64(1)
 	latest := int64(100)
 	client := newHeightTestClient(latest+5, earliest, latest)
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	watermarks := newHeightTestWatermarks(client, latest)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 	ctx := context.Background()
 
@@ -269,7 +284,8 @@ func TestGetBlockReceiptsGenesisByNumber(t *testing.T) {
 func TestGetBlockByNumberExcludeTraceFailGenesis(t *testing.T) {
 	t.Parallel()
 
-	api := NewSeiBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
+	client := newHeightTestClient(1, 1, 1)
+	api := NewSeiBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
 	block, err := api.GetBlockByNumberExcludeTraceFail(context.Background(), 0, false)
 	require.NoError(t, err)
 	require.NotNil(t, block)
@@ -297,7 +313,7 @@ func TestLogFetcherSkipsUnavailableCachedBlock(t *testing.T) {
 	latest := int64(90)
 	highHeight := latest + 3
 	client := newHeightTestClient(highHeight, earliest, latest)
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	watermarks := newHeightTestWatermarks(client, latest)
 	cache := NewBlockCache(2)
 	cache.Add(highHeight, &BlockCacheEntry{
 		Block:    client.highBlock,
@@ -366,7 +382,7 @@ func TestStateAPIGetProofUnavailableHeight(t *testing.T) {
 	latest := int64(80)
 	highHeight := latest + 4
 	client := newHeightTestClient(highHeight, earliest, latest)
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	watermarks := newHeightTestWatermarks(client, latest)
 	api := NewStateAPI(client, nil, testCtxProvider, ConnectionTypeHTTP, watermarks)
 
 	blockParam := rpc.BlockNumberOrHashWithHash(common.HexToHash(highBlockHashHex), true)

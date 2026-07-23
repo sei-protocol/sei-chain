@@ -56,6 +56,125 @@ func TestLoadLocalMeta(t *testing.T) {
 	})
 }
 
+// TestValidatePerModuleMetadata pins the load-time guard's decision matrix:
+// empty module map with a non-identity root (pre-per-module store) and a
+// non-empty module map that does not sum to the root (incomplete / drifted
+// bookkeeping) are rejected; both would otherwise silently corrupt the
+// per-DB root — and thus the global store hash / AppHash — on the first write.
+func TestValidatePerModuleMetadata(t *testing.T) {
+	nonZero, _ := lthash.ComputeLtHash(nil, []lthash.KVPairWithLastValue{
+		{Key: []byte("k"), Value: []byte("v")},
+	})
+	require.False(t, nonZero.IsZero(), "precondition: crafted root must be non-identity")
+
+	other, _ := lthash.ComputeLtHash(nil, []lthash.KVPairWithLastValue{
+		{Key: []byte("other"), Value: []byte("w")},
+	})
+	require.False(t, other.IsZero())
+	require.False(t, nonZero.Equal(other), "precondition: distinct hashes")
+
+	// Two-module root: sum equals root only when both modules are present.
+	combined := nonZero.Clone()
+	combined.MixIn(other)
+
+	cases := []struct {
+		name       string
+		meta       *ktype.LocalMeta
+		wantErrSub string // empty => expect success
+	}{
+		{"nil meta", nil, ""},
+		{"nil root", &ktype.LocalMeta{}, ""},
+		{"identity root, no modules", &ktype.LocalMeta{LtHash: lthash.New()}, ""},
+		{
+			"non-identity root with matching modules",
+			&ktype.LocalMeta{LtHash: nonZero.Clone(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
+			"",
+		},
+		{
+			"multi-module root with matching modules",
+			&ktype.LocalMeta{
+				LtHash: combined.Clone(),
+				ModuleLtHashes: map[string]*lthash.LtHash{
+					"EVM":  nonZero.Clone(),
+					"bank": other.Clone(),
+				},
+			},
+			"",
+		},
+		{"non-identity root without modules", &ktype.LocalMeta{LtHash: nonZero.Clone()}, "predates per-module hashing"},
+		{
+			"modules do not sum to root",
+			&ktype.LocalMeta{LtHash: combined.Clone(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
+			"do not sum to per-DB root",
+		},
+		{
+			"identity root with non-zero modules",
+			&ktype.LocalMeta{LtHash: lthash.New(), ModuleLtHashes: map[string]*lthash.LtHash{"EVM": nonZero.Clone()}},
+			"do not sum to per-DB root",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validatePerModuleMetadata(storageDBDir, tc.meta)
+			if tc.wantErrSub != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.wantErrSub)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestLoadRejectsStoreMissingPerModuleMetadata drives the guard through the real
+// load path: it commits data, strips the per-module hash keys off disk to
+// imitate a pre-per-module store, and confirms reopening fails loudly instead of
+// discarding the pre-existing root on the next write.
+func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	// A committed EVM storage entry gives storageDB a non-identity per-DB root
+	// plus an "EVM" per-module hash.
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+
+	// Simulate a store written before per-module hashing: strip every
+	// per-module meta key (hashes + stats) while keeping the per-DB root.
+	iter, err := s.storageDB.NewIter(&types.IterOptions{
+		LowerBound: ktype.ModuleLtHashPrefixBytes,
+		UpperBound: ktype.PrefixEnd(ktype.ModuleLtHashPrefixBytes),
+	})
+	require.NoError(t, err)
+	var keys [][]byte
+	for ; iter.Valid(); iter.Next() {
+		keys = append(keys, append([]byte(nil), iter.Key()...))
+	}
+	require.NoError(t, iter.Error())
+	require.NoError(t, iter.Close())
+	require.NotEmpty(t, keys, "precondition: storageDB must carry per-module meta keys")
+	for _, k := range keys {
+		require.NoError(t, s.storageDB.Delete(k, types.WriteOptions{}))
+	}
+	require.NoError(t, s.Close())
+
+	// Reopening must reject the tampered store loudly rather than corrupt it.
+	cfg2 := config.DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	defer s2.Close()
+	_, err = s2.LoadVersion(0, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "predates per-module hashing")
+}
+
 func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
@@ -65,7 +184,7 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	key := evmStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, padLeft32(0x56), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	v := commitAndCheck(t, s)
 	require.Equal(t, int64(1), v)
 
@@ -168,9 +287,9 @@ func TestSetInitialVersion_HappyPath(t *testing.T) {
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
 	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0xCC), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	v, err := s.Commit()
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), v, "first Commit after SetInitialVersion(100) must produce version 100")
 	require.Equal(t, int64(100), s.Version())
@@ -189,9 +308,9 @@ func TestSetInitialVersion_GenesisSkipsSeededSnapshot(t *testing.T) {
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
 	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0xCC), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	v, err := s.Commit()
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v, "first Commit after SetInitialVersion(1) must produce version 1")
 }
@@ -225,8 +344,8 @@ func TestSetInitialVersion_RejectsAfterCommit(t *testing.T) {
 	addr := ktype.Address{0x01}
 	slot := ktype.Slot{0x02}
 	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0x03), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	err = s.SetInitialVersion(50)
@@ -241,8 +360,8 @@ func TestSetInitialVersion_RejectsReadOnly(t *testing.T) {
 	addr := ktype.Address{0x01}
 	slot := ktype.Slot{0x02}
 	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0x03), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	roStore, err := s.LoadVersion(0, true)
@@ -291,8 +410,8 @@ func TestSetInitialVersion_SurvivesReopen(t *testing.T) {
 	addr := ktype.Address{0xDD}
 	slot := ktype.Slot{0xEE}
 	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0xFF), false)
-	require.NoError(t, s2.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	v, err := s2.Commit()
+	require.NoError(t, s2.ApplyChangeSets(s2.Version()+1, []*proto.NamedChangeSet{cs}))
+	v, err := s2.Commit(s2.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), v,
 		"first Commit after reopen must produce initialVersion")
@@ -307,8 +426,8 @@ func TestSetInitialVersion_RollbackBelowSeededVersionFails(t *testing.T) {
 	addr := ktype.Address{0x77}
 	slot := ktype.Slot{0x88}
 	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0x01), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), s.Version())
 

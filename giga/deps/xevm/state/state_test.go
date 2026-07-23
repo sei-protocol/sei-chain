@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
 	testkeeper "github.com/sei-protocol/sei-chain/giga/deps/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
@@ -54,6 +55,140 @@ func TestState(t *testing.T) {
 	// set storage
 	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{{}: {}})
 	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, common.Hash{}))
+}
+
+func TestSetStorageOverlay(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, true)
+
+	slotA := common.BytesToHash([]byte("slotA"))
+	valA := common.BytesToHash([]byte("valA"))
+	slotB := common.BytesToHash([]byte("slotB"))
+	valB := common.BytesToHash([]byte("valB"))
+	statedb.SetState(evmAddr, slotA, valA)
+	statedb.SetState(evmAddr, slotB, valB)
+
+	newA := common.BytesToHash([]byte("newA"))
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{slotA: newA})
+
+	require.Equal(t, newA, statedb.GetState(evmAddr, slotA))
+	require.Equal(t, newA, statedb.GetCommittedState(evmAddr, slotA))
+	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, slotB))
+	require.Equal(t, common.Hash{}, statedb.GetCommittedState(evmAddr, slotB))
+	require.Equal(t, valB, k.GetState(statedb.Ctx(), evmAddr, slotB))
+
+	rev := statedb.Snapshot()
+	updatedA := common.BytesToHash([]byte("updatedA"))
+	statedb.SetState(evmAddr, slotA, updatedA)
+	require.Equal(t, updatedA, statedb.GetState(evmAddr, slotA))
+	require.Equal(t, newA, statedb.GetCommittedState(evmAddr, slotA))
+
+	statedb.RevertToSnapshot(rev)
+	require.Equal(t, newA, statedb.GetState(evmAddr, slotA))
+
+	cp := statedb.Copy()
+	require.Equal(t, newA, cp.GetState(evmAddr, slotA))
+	require.Equal(t, common.Hash{}, cp.GetState(evmAddr, slotB))
+}
+
+func TestSetStoragePreservesCodeAndNonce(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, true)
+
+	code := []byte("some-contract-bytecode")
+	statedb.SetCode(evmAddr, code)
+	statedb.SetNonce(evmAddr, 7, tracing.NonceChangeUnspecified)
+
+	slot := common.BytesToHash([]byte("slot"))
+	val := common.BytesToHash([]byte("val"))
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{slot: val})
+
+	require.Equal(t, val, statedb.GetState(evmAddr, slot))
+	require.Equal(t, code, statedb.GetCode(evmAddr))
+	require.Equal(t, crypto.Keccak256Hash(code), statedb.GetCodeHash(evmAddr))
+	require.Equal(t, uint64(7), statedb.GetNonce(evmAddr))
+}
+
+func TestSetStorageEmptyMasksAll(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, true)
+
+	slot := common.BytesToHash([]byte("slot"))
+	val := common.BytesToHash([]byte("val"))
+	statedb.SetState(evmAddr, slot, val)
+
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{})
+	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, slot))
+	require.Equal(t, common.Hash{}, statedb.GetCommittedState(evmAddr, slot))
+	require.Equal(t, val, k.GetState(statedb.Ctx(), evmAddr, slot))
+}
+
+func TestCreateAccountDropsStorageOverride(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, true)
+
+	slot := common.BytesToHash([]byte("slot"))
+	val := common.BytesToHash([]byte("val"))
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{slot: val})
+	require.Equal(t, val, statedb.GetState(evmAddr, slot))
+	require.Equal(t, val, statedb.GetCommittedState(evmAddr, slot))
+
+	rev := statedb.Snapshot()
+	statedb.CreateAccount(evmAddr)
+	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, slot))
+	require.Equal(t, common.Hash{}, statedb.GetCommittedState(evmAddr, slot))
+
+	statedb.RevertToSnapshot(rev)
+	require.Equal(t, val, statedb.GetState(evmAddr, slot))
+	require.Equal(t, val, statedb.GetCommittedState(evmAddr, slot))
+}
+
+func TestSetStorageInstallRevertAfterSnapshot(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, true)
+
+	slot := common.BytesToHash([]byte("slot"))
+	persisted := common.BytesToHash([]byte("persisted"))
+	statedb.SetState(evmAddr, slot, persisted)
+	require.Equal(t, persisted, statedb.GetState(evmAddr, slot))
+
+	rev := statedb.Snapshot()
+	override := common.BytesToHash([]byte("override"))
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{slot: override})
+	require.Equal(t, override, statedb.GetState(evmAddr, slot))
+
+	statedb.RevertToSnapshot(rev)
+	require.Equal(t, persisted, statedb.GetState(evmAddr, slot))
+}
+
+func TestSetStorageInstallRevertReplacesOverlay(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, true)
+
+	slot := common.BytesToHash([]byte("slot"))
+	first := common.BytesToHash([]byte("first"))
+	second := common.BytesToHash([]byte("second"))
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{slot: first})
+
+	rev := statedb.Snapshot()
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{slot: second})
+	require.Equal(t, second, statedb.GetState(evmAddr, slot))
+
+	statedb.RevertToSnapshot(rev)
+	require.Equal(t, first, statedb.GetState(evmAddr, slot))
+	require.Equal(t, first, statedb.GetCommittedState(evmAddr, slot))
 }
 
 func TestAnySelfDestructed(t *testing.T) {

@@ -3,6 +3,8 @@ package litt
 import (
 	"fmt"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 )
 
 // TableConfig is the per-table configuration supplied at table creation time via DB.BuildTable. With the
@@ -46,6 +48,19 @@ type TableConfig struct {
 	// A function that is called to determine if a key is eligible for garbage collection. Keys are GC eligible once
 	// their TTL has expired, and once this function returns true. If nil, only TTL determines GC eligibility.
 	GCFilter GCFilter
+
+	// The algorithm used to compress values before they are written to disk. The default is
+	// types.CompressionNone (no compression). This setting governs only segments created while it is in
+	// effect; each segment records the algorithm it was written with and is always read back with that
+	// algorithm, so the setting may be changed across restarts without invalidating existing data.
+	//
+	// When compression is enabled, secondary keys may only alias the entire value
+	// (Offset == 0 && Length == len(value)); a secondary key that indexes a strict sub-range of a value
+	// is rejected at write time, because a compressed blob cannot be sliced. This restriction could be
+	// lifted with additional engineering, but we should have a real use case before making the attempt.
+	// Like the other fields here (except Name), this setting is not persisted and must be supplied again
+	// after each restart.
+	Compression types.CompressionAlgorithm
 }
 
 // GCFilter is a function that is called to determine if a key is eligible for garbage collection. Keys are GC
@@ -69,6 +84,7 @@ func DefaultTableConfig(name string) TableConfig {
 		ShardingFactor: 8,
 		WriteCacheSize: 0,
 		ReadCacheSize:  0,
+		Compression:    types.CompressionNone,
 	}
 }
 
@@ -82,6 +98,9 @@ func (c *TableConfig) Validate() error {
 	}
 	if c.ShardingFactor < 1 {
 		return fmt.Errorf("sharding factor must be at least 1")
+	}
+	if err := c.Compression.Validate(); err != nil {
+		return fmt.Errorf("invalid compression algorithm: %w", err)
 	}
 	return nil
 }

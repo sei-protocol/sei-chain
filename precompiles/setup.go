@@ -7,17 +7,25 @@ import (
 	ecommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/addr"
+	"github.com/sei-protocol/sei-chain/precompiles/auth"
+	"github.com/sei-protocol/sei-chain/precompiles/authz"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
+	"github.com/sei-protocol/sei-chain/precompiles/evidence"
+	"github.com/sei-protocol/sei-chain/precompiles/feegrant"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
+	"github.com/sei-protocol/sei-chain/precompiles/mint"
 	"github.com/sei-protocol/sei-chain/precompiles/oracle"
 	"github.com/sei-protocol/sei-chain/precompiles/p256"
+	"github.com/sei-protocol/sei-chain/precompiles/params"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	"github.com/sei-protocol/sei-chain/precompiles/pointerview"
+	"github.com/sei-protocol/sei-chain/precompiles/slashing"
 	"github.com/sei-protocol/sei-chain/precompiles/solo"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
+	"github.com/sei-protocol/sei-chain/precompiles/upgrade"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 )
@@ -58,6 +66,14 @@ func GetCustomPrecompiles(
 		ecommon.HexToAddress(pointerview.PointerViewAddress): pointerview.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(p256.P256VerifyAddress):         p256.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(solo.SoloAddress):               solo.GetVersioned(latestUpgrade, keepers),
+		ecommon.HexToAddress(auth.AuthAddress):               auth.GetVersioned(latestUpgrade, keepers),
+		ecommon.HexToAddress(authz.AuthzAddress):             authz.GetVersioned(latestUpgrade, keepers),
+		ecommon.HexToAddress(evidence.EvidenceAddress):       evidence.GetVersioned(latestUpgrade, keepers),
+		ecommon.HexToAddress(feegrant.FeegrantAddress):       feegrant.GetVersioned(latestUpgrade, keepers),
+		ecommon.HexToAddress(mint.MintAddress):               mint.GetVersioned(latestUpgrade, keepers),
+		ecommon.HexToAddress(params.ParamsAddress):           params.GetVersioned(latestUpgrade, keepers),
+		ecommon.HexToAddress(slashing.SlashingAddress):       slashing.GetVersioned(latestUpgrade, keepers),
+		ecommon.HexToAddress(upgrade.UpgradeAddress):         upgrade.GetVersioned(latestUpgrade, keepers),
 	}
 }
 

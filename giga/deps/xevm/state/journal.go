@@ -39,6 +39,29 @@ type (
 		key, prevalue common.Hash
 	}
 
+	// Change to a masked account's overlay storage (state override)
+	storageOverrideChange struct {
+		account common.Address
+		key     common.Hash
+		prev    common.Hash
+	}
+
+	// Removal of a masked account's overlay (state override) when the account is
+	// (re)created or cleared, so the overlay no longer shadows the now-empty
+	// storage. prev holds the removed overlay for restoration on revert.
+	storageOverrideRemove struct {
+		account common.Address
+		prev    *storageOverride
+	}
+
+	// Installation or replacement of a masked account's overlay (state override).
+	// prev is nil if the account had no overlay; otherwise a deep copy of the
+	// replaced overlay for restoration on revert.
+	storageOverrideInstall struct {
+		account common.Address
+		prev    *storageOverride
+	}
+
 	surplusChange struct {
 		delta sdk.Int
 	}
@@ -109,6 +132,28 @@ func (e *transientStorageChange) revert(s *DBImpl) {
 			s.tempState.transientStates[e.account.Hex()] = states
 		}
 		states[e.key.Hex()] = e.prevalue
+	}
+}
+
+func (e *storageOverrideChange) revert(s *DBImpl) {
+	if ov, ok := s.tempState.storageOverrides[e.account]; ok {
+		ov.current[e.key.Hex()] = e.prev
+	}
+}
+
+func (e *storageOverrideRemove) revert(s *DBImpl) {
+	if e.prev != nil {
+		// Deep-copy so a shallow-copied journal entry shared across StateDB
+		// copies cannot re-install the same mutable overlay into two DBs.
+		s.tempState.storageOverrides[e.account] = e.prev.deepCopy()
+	}
+}
+
+func (e *storageOverrideInstall) revert(s *DBImpl) {
+	if e.prev == nil {
+		delete(s.tempState.storageOverrides, e.account)
+	} else {
+		s.tempState.storageOverrides[e.account] = e.prev.deepCopy()
 	}
 }
 

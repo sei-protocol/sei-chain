@@ -25,7 +25,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 // maxInboundFullnodePeers caps GigaRouterCommonConfig.MaxInboundFullnodePeers.
@@ -351,10 +350,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 
 	app := r.app
 
-	info, err := app.Info(ctx, &version.RequestInfo)
-	if err != nil {
-		return fmt.Errorf("App.Info(): %w", err)
-	}
+	info := app.Info()
 	last, ok := utils.SafeCast[atypes.GlobalBlockNumber](info.LastBlockHeight)
 	if !ok {
 		return fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
@@ -369,7 +365,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		// Re-entering on restart (crashed after InitChain, before first
 		// Commit) is safe — nothing was committed, so it behaves as a
 		// fresh init.
-		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
+		if _, err := app.InitChain(r.cfg.GenDoc.ToRequestInitChain()); err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
 		var ok bool
@@ -378,6 +374,17 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			return fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
 		}
 	} else {
+		b, err := r.data.GlobalBlock(ctx, last)
+		if err != nil {
+			return fmt.Errorf("r.data.GlobalBlock(): %w", err)
+		}
+		app.InitLastHeader((&types.Header{
+			ChainID: r.cfg.GenDoc.ChainID,
+			Height:  int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
+			Time:    b.Timestamp,
+			// TODO: for consistency we should also set proposerAddress here,
+			// but this is a placeholder solution so maybe we don't care.
+		}).ToProto())
 		// Re-commit the last finalized block's app hash to the equivocation guard before re-proposing it
 		// for AppQC voting (PushAppHash below), mirroring executeBlock's commit-before-PushAppHash
 		// ordering. On a normal restart this idempotently matches the hash recorded when `last` was
