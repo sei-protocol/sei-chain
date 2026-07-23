@@ -325,10 +325,7 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 func TestNewState_AvailBehindConsensus(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
-	ds := utils.OrPanic1(data.NewState(
-		&data.Config{Registry: registry},
-		utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock())),
-	))
+	ds := newTestDataState(registry)
 	ep0 := utils.OrPanic1(registry.EpochAt(0))
 	proposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: 0, Number: 0})
 	votes := make([]*types.Signed[*types.CommitVote], len(keys))
@@ -356,7 +353,7 @@ func commitQCAtRoad(ep *types.Epoch, keys []types.SecretKey, idx types.RoadIndex
 	return types.NewCommitQC(votes)
 }
 
-// fullCommitQCAtRoad wraps commitQCAtRoad with matching headers for data WAL PersistQC.
+// fullCommitQCAtRoad wraps commitQCAtRoad with matching headers for BlockDB WriteQC.
 func fullCommitQCAtRoad(ep *types.Epoch, keys []types.SecretKey, idx types.RoadIndex) *types.FullCommitQC {
 	lane := ep.Committee().Lanes().At(0)
 	header := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
@@ -365,7 +362,7 @@ func fullCommitQCAtRoad(ep *types.Epoch, keys []types.SecretKey, idx types.RoadI
 }
 
 // TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1 is the end-to-end restart
-// path for tip interlocking: data CommitQC WAL tip stays in epoch N while
+// path for tip interlocking: data CommitQC BlockDB tip stays in epoch N while
 // avail/consensus tips are already at FirstRoad(N+1). LastExecutedBlock is in
 // the same epoch as the data tip → N-1 is done → SetupInitialDuo seeds N+1.
 func TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1(t *testing.T) {
@@ -381,9 +378,11 @@ func TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1(t *testing.T) {
 	// Data tip in epoch N: last loaded CommitQC at FirstRoad(N); tipcut stays in N.
 	dataRoad := epoch.FirstRoad(n)
 	dataQC := fullCommitQCAtRoad(ep1, keys, dataRoad)
-	dw := utils.OrPanic1(data.NewDataWAL(utils.Some(dataDir), registry.FirstBlock()))
-	require.NoError(t, dw.CommitQCs.PersistQC(dataQC))
-	require.NoError(t, dw.Close())
+	db1 := newTestBlockDB(t, dataDir)
+	grQC := dataQC.QC().GlobalRange()
+	require.NoError(t, db1.WriteQC(grQC.First, grQC.Next, dataQC))
+	require.NoError(t, db1.Flush())
+	require.NoError(t, db1.Close())
 
 	closingRoad := epoch.LastRoad(n) // seal of N → tipcut FirstRoad(N+1)
 	closingQC := commitQCAtRoad(ep1, keys, closingRoad)
@@ -411,11 +410,11 @@ func TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1(t *testing.T) {
 	leadTip := epoch.FirstRoad(nPlus1)
 	// Same epoch as data tip → EnsureAfterExecuted seeds N+1.
 	lastExec := dataQC.QC().GlobalRange().First
-	dw2 := utils.OrPanic1(data.NewDataWAL(utils.Some(dataDir), registry.FirstBlock()))
+	db2 := newTestBlockDB(t, dataDir)
 	ds := utils.OrPanic1(data.NewState(&data.Config{
 		Registry:          registry,
 		LastExecutedBlock: lastExec,
-	}, dw2))
+	}, db2))
 	dataTip := ds.CommitTipCut()
 	require.Equal(t, n, epoch.IndexForRoad(dataTip), "data tipcut must stay in epoch N")
 	_, err = registry.EpochAt(leadTip)
