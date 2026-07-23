@@ -71,6 +71,14 @@ func makeAppQCFor(keys []SecretKey, globalNum GlobalBlockNumber, roadIdx RoadInd
 	return NewAppQC(votes)
 }
 
+func TestGlobalRange_IsLastBlock(t *testing.T) {
+	g := GlobalRange{First: 10, Next: 13} // covers 10, 11, 12
+	require.False(t, g.IsLastBlock(10))
+	require.False(t, g.IsLastBlock(11))
+	require.True(t, g.IsLastBlock(12))
+	require.False(t, g.IsLastBlock(13))
+}
+
 func TestProposalVerifyRejectsEmptyTipcut(t *testing.T) {
 	rng := utils.TestRng()
 	committee, _ := GenCommittee(rng, 4)

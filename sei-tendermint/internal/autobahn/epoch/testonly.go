@@ -27,7 +27,9 @@ func GenRegistry(rng utils.Rng, size int) (*Registry, []types.SecretKey, types.E
 		weights[sk.Public()] = 1000 + uint64(rng.Intn(1000)) //nolint:gosec
 	}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
-	firstBlock := types.GenGlobalBlockNumber(rng) % 1000000
+	// FirstBlock is a global height. Keep 0 so empty-store tipcuts stay on
+	// road indices that only need epochs {0,1} — matching production genesis.
+	const firstBlock types.GlobalBlockNumber = 0
 	// Limit to {0, 1}: GenRegistryAt for either value always includes epoch 0
 	// ([0] or [0,1]), so tests that build CommitQC chains from road index 0
 	// can still look up epoch 0 in the window. Higher values would require all
@@ -47,18 +49,26 @@ func GenRegistryAt(rng utils.Rng, size int, startEpoch types.EpochIndex) (*Regis
 		weights[sk.Public()] = 1000 + uint64(rng.Intn(1000)) //nolint:gosec
 	}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
-	firstBlock := types.GenGlobalBlockNumber(rng) % 1000000
+	const firstBlock types.GlobalBlockNumber = 0
 	return makeRegistryAt(committee, firstBlock, startEpoch), sks
 }
 
 func makeRegistryAt(committee *types.Committee, firstBlock types.GlobalBlockNumber, startEpoch types.EpochIndex) *Registry {
 	registry := utils.OrPanic1(NewRegistry(committee, firstBlock, time.Now()))
+	// Same empty-BlockDB default as data.NewState: None/None (genesis only).
+	registry.SetupInitialDuo(utils.None[types.RoadIndex](), utils.None[types.RoadRange]())
+	// Ensure at least {0,1} so DuoAt(FirstRoad(1)) works in tests.
+	through := startEpoch
+	if through < 1 {
+		through = 1
+	}
 	for s := range registry.state.Lock() {
-		if startEpoch > 0 {
-			utils.OrPanic1(registry.makeEpoch(s, startEpoch-1))
+		for idx := types.EpochIndex(0); idx <= through; idx++ {
+			if _, ok := s.m[idx]; ok {
+				continue
+			}
+			registry.makeEpoch(s, idx)
 		}
-		// Always seed startEpoch itself (no-op when startEpoch==0, genesis already exists).
-		utils.OrPanic1(registry.makeEpoch(s, startEpoch))
 		s.latest = startEpoch
 	}
 	return registry

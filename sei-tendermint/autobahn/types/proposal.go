@@ -77,6 +77,10 @@ func (g GlobalRange) Has(n GlobalBlockNumber) bool {
 	return g.First <= n && n < g.Next
 }
 
+func (g GlobalRange) IsLastBlock(n GlobalBlockNumber) bool {
+	return n+1 == g.Next
+}
+
 // RoadIndex is the index of the consensus instance.
 type RoadIndex uint64
 

@@ -74,12 +74,15 @@ type registryState struct {
 // Restart:
 //
 //   - data/ is the sole restart seeder (SetupInitialDuo from data.NewState).
-//     Avail/consensus tips may lead data (async FullCommitQC→data.PushQC), but
-//     do not seed the registry. Lead into an unseeded epoch → EpochAt/DuoAt
-//     hard-fail (no soft-heal). When lastExecuted is already in the CommitQC
-//     tip's epoch N, EnsureAfterExecuted seeds N+1 (N-1 is done) — that is how
-//     a tipcut in N+1 stays inside the reconstructed window. Leading by more
-//     than one epoch should not happen: sealing N+1 needs registry N+2, which
+//     NewRegistry only installs epoch 0; empty BlockDB passes None commit span
+//     (genesis only). Avail/consensus tips may lead data (async FullCommitQC→
+//     data.PushQC), but do not seed the registry. Lead into an unseeded epoch →
+//     EpochAt/DuoAt hard-fail (no soft-heal). When the execution tipcut is already
+//     in the CommitQC tip's epoch N, EnsureExecTipcut seeds N+1 (N-1 is done) — that
+//     is how a tipcut in N+1 stays inside the reconstructed window. Seeding N+2 still
+//     requires the execution tipcut to be past LastRoad(N) (fully finished that
+//     road → tipcut LastRoad(N)+1); AdvanceIfNeeded owns the LastRoad check.
+//     Leading by more than one epoch should not happen: sealing N+1 needs registry N+2, which
 //     needs execution of LastRoad(N), which needs that CommitQC in data — so if
 //     data tip is still in N, avail/consensus cannot have entered N+2. If it
 //     did, EpochAt/DuoAt hard-fails (corrupt / inconsistent local state; do
@@ -89,7 +92,8 @@ type registryState struct {
 //     (together ⇒ avail >= data). Behind → hard-fail.
 //   - SetupInitialDuo may register genesis-committee placeholders (temporary;
 //     real committees TBD) — that is not inventing roads or repairing
-//     inconsistent tips.
+//     inconsistent tips. data.NewState errors if a positive LastExecutedBlock
+//     has no covering CommitQC. Empty CommitQC ranges are rejected.
 //   - FullCommitQC export: ErrRoadBeforeWindow → data.ErrPruned (caller jumps
 //     ahead). Safe because the boundary AppQC-of-N leash ensures before-window
 //     roads are already pruned; ErrRoadAfterWindow hard-fails (no wait).
@@ -104,106 +108,75 @@ type Registry struct {
 	highestEpoch utils.AtomicSend[types.EpochIndex]
 }
 
-// NewRegistry creates a Registry with the genesis committee.
-// Initial seeding registers epochs {0,1} (both defined by genesis); epoch 2 is
-// registered when the last road of epoch 0 is executed (AdvanceIfNeeded).
+// NewRegistry creates a Registry with the genesis committee (epoch 0 only).
+// Epoch 1+ placeholders are seeded by data.NewState via SetupInitialDuo.
 func NewRegistry(
 	committee *types.Committee,
 	firstBlock types.GlobalBlockNumber,
 	genesisTimestamp time.Time,
 ) (*Registry, error) {
 	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, genesisTimestamp, committee, firstBlock)
-	r := &Registry{
+	return &Registry{
 		state: utils.NewRWMutex(&registryState{
 			m:      map[types.EpochIndex]*types.Epoch{0: ep},
 			latest: 0,
 		}),
 		highestEpoch: utils.NewAtomicSend(types.EpochIndex(0)),
-	}
-	// TODO: in the future this information will be read from disk and verified
-	// (snapshots / state sync); until then seed a genesis placeholder.
-	r.SetupInitialDuo(utils.None[types.RoadIndex](), utils.None[CommitQCSpan]())
-	return r, nil
-}
-
-// CommitQCSpan is the inclusive first/last CommitQC proposal roads loaded from
-// the data WAL. Both ends are always set together (single QC ⇒ First == Last).
-type CommitQCSpan struct {
-	First, Last types.RoadIndex
+	}, nil
 }
 
 // SetupInitialDuo seeds placeholder epochs on restart. Called only from
 // data.NewState (see Registry tip-interlock docs). Avail/consensus do not seed.
 //
-//  1. Seed every epoch from commitQCs.First through commitQCs.Last (the loaded
-//     WAL span). Stand-in for reading committee/epoch info from retained blocks;
-//     today placeholders reuse the genesis committee.
-//  2. EnsureDuoAt(commit tipcut) so data/avail DuoAt(Index+1) works — including
-//     when the tip closes epoch N (tipcut needs N+1 even if execution lags).
-//  3. EnsureAfterExecuted(lastExecuted) restores live AdvanceIfNeeded lookahead.
+//  1. commitQCs — half-open retained CommitQC road range [First, Next). Seeds
+//     every epoch covering [First, Next), then EnsureDuoAt(Next). None = empty
+//     store (genesis epoch 0 only). Empty range (First >= Next) panics.
+//  2. nextRoadToExecute — half-open execution tipcut; EnsureExecTipcut
+//     restores AdvanceIfNeeded lookahead. None = nothing fully executed yet.
+//     Ignored when past commit tipcut (Next). Present without a commit span
+//     panics (inconsistent: execution cannot lead an empty CommitQC store).
 //
-// If execution is past the CommitQC tip, that is a bug — warn and ignore it.
-// None/None (fresh start) seeds {0, 1}. Idempotent for existing entries.
+// Idempotent for existing entries.
 //
-// TODO(autobahn): lastExecutedRoad is derived from app.LastBlockHeight() (Cosmos
+// TODO(autobahn): nextRoadToExecute is derived from app.LastBlockHeight() (Cosmos
 // app state DB). Do not keep depending on the app DB for execution tip / epoch
-// seeding — persist that in Giga storage alongside CommitQC/AppQC WALs.
+// seeding — persist that in Giga storage alongside CommitQC/AppQC.
 // TODO(autobahn): replace genesis placeholders with epoch info carried on blocks.
-func (r *Registry) SetupInitialDuo(lastExecutedRoad utils.Option[types.RoadIndex], commitQCs utils.Option[CommitQCSpan]) {
-	var windowFirst, windowLast types.EpochIndex
-	haveWindow := false
-	executedForAdvance := utils.None[types.RoadIndex]()
-
+func (r *Registry) SetupInitialDuo(
+	nextRoadToExecute utils.Option[types.RoadIndex],
+	commitQCs utils.Option[types.RoadRange],
+) {
 	if span, ok := commitQCs.Get(); ok {
-		windowFirst = IndexForRoad(span.First)
-		windowLast = IndexForRoad(span.Last)
-		if windowFirst > windowLast {
-			logger.Warn("first CommitQC epoch past tip on restart; clamping to tip",
-				slog.Uint64("first_road", uint64(span.First)),
-				slog.Uint64("tip_road", uint64(span.Last)))
-			windowFirst = windowLast
+		if span.First >= span.Next {
+			panic(fmt.Sprintf("SetupInitialDuo: empty CommitQC range [%d, %d)", span.First, span.Next))
 		}
-		haveWindow = true
-	}
+		windowFirst := IndexForRoad(span.First)
+		windowLast := IndexForRoad(span.Next - 1)
 
-	if road, ok := lastExecutedRoad.Get(); ok {
-		if span, cok := commitQCs.Get(); cok && road > span.Last {
-			logger.Warn("execution tip past CommitQC tip on restart; ignoring executed tip for epoch seeding",
-				slog.Uint64("executed_road", uint64(road)),
-				slog.Uint64("commit_qc_road", uint64(span.Last)))
-		} else {
-			tipEpoch := IndexForRoad(road)
-			if !haveWindow {
-				// Execution-only: open Prev|Current around the executed tip.
-				windowFirst = 0
-				if tipEpoch >= 1 {
-					windowFirst = tipEpoch - 1
+		for s := range r.state.Lock() {
+			for idx := windowFirst; idx <= windowLast; idx++ {
+				if _, ok := s.m[idx]; ok {
+					continue
 				}
-				windowLast = tipEpoch
-				haveWindow = true
+				r.makeEpoch(s, idx)
 			}
-			executedForAdvance = utils.Some(road)
 		}
-	}
+		r.EnsureDuoAt(span.Next)
 
-	if !haveWindow {
-		windowFirst, windowLast = 0, 1 // fresh start
-	}
-
-	for s := range r.state.Lock() {
-		for idx := windowFirst; idx <= windowLast; idx++ {
-			if _, ok := s.m[idx]; ok {
-				continue
+		if next, ok := nextRoadToExecute.Get(); ok {
+			if next > span.Next {
+				logger.Warn("execution tipcut past CommitQC tipcut on restart; ignoring for epoch seeding",
+					slog.Uint64("execution_tipcut", uint64(next)),
+					slog.Uint64("commit_qc_tipcut", uint64(span.Next)))
+			} else {
+				r.EnsureExecTipcut(next)
 			}
-			_, _ = r.makeEpoch(s, idx) //nolint:errcheck // genesis always present
 		}
+		return
 	}
 
-	if span, ok := commitQCs.Get(); ok {
-		r.EnsureDuoAt(span.Last + 1) // operating tipcut after last CommitQC
-	}
-	if road, ok := executedForAdvance.Get(); ok {
-		r.EnsureAfterExecuted(road)
+	if nextRoadToExecute.IsPresent() {
+		panic("execution tipcut without CommitQC span on restart")
 	}
 }
 
@@ -233,11 +206,12 @@ func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 // makeEpoch constructs a new epoch at epochIdx using the genesis committee and
 // inserts it into s. Caller must hold the write lock. Overwrites if present;
 // callers that must not clobber should check existence first.
-// Note: does NOT advance s.latest.
-func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) (*types.Epoch, error) {
+// Note: does NOT advance s.latest. Panics if genesis (epoch 0) is missing —
+// NewRegistry always installs it.
+func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) *types.Epoch {
 	genesis, ok := s.m[0]
 	if !ok {
-		return nil, fmt.Errorf("genesis epoch missing from registry")
+		panic("genesis epoch missing from registry")
 	}
 	firstRoad := FirstRoad(epochIdx)
 	epoch := types.NewEpoch(epochIdx, types.RoadRange{First: firstRoad, Next: FirstRoad(epochIdx + 1)}, genesis.FirstTimestamp(), genesis.Committee(), genesis.FirstBlock())
@@ -247,7 +221,7 @@ func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) (*type
 	if epochIdx > r.highestEpoch.Load() {
 		r.highestEpoch.Store(epochIdx)
 	}
-	return epoch, nil
+	return epoch
 }
 
 // EnsureEpoch registers a genesis-committee placeholder for idx if missing.
@@ -259,7 +233,7 @@ func (r *Registry) EnsureEpoch(idx types.EpochIndex) {
 	}
 	for s := range r.state.Lock() {
 		if _, ok := s.m[idx]; !ok {
-			_, _ = r.makeEpoch(s, idx) //nolint:errcheck // genesis always present
+			r.makeEpoch(s, idx)
 		}
 	}
 }
@@ -274,23 +248,25 @@ func (r *Registry) EnsureDuoAt(road types.RoadIndex) {
 	r.EnsureEpoch(center)
 }
 
-// EnsureAfterExecuted restores the registry lookahead live AdvanceIfNeeded
-// would have produced once road was executed. If execution has reached epoch E
-// (same epoch as a CommitQC tip in E), epoch E-1 is done → seed E+1. Closing
-// road of E additionally seeds E+2 (AdvanceIfNeeded: finishing M → M+2).
-func (r *Registry) EnsureAfterExecuted(road types.RoadIndex) {
-	tipEpoch := IndexForRoad(road)
-	r.EnsureEpoch(tipEpoch + 1)
-	if road == LastRoad(tipEpoch) {
-		r.EnsureEpoch(tipEpoch + 2)
+// EnsureExecTipcut restores registry lookahead for a half-open execution tipcut
+// (next road that still needs execution). Roads strictly below next are fully
+// done — same shape as a CommitQC tipcut. next==0 means nothing completed yet.
+// Last completed road is next-1; AdvanceIfNeeded owns whether that road is
+// LastRoad(epoch).
+func (r *Registry) EnsureExecTipcut(next types.RoadIndex) {
+	if next == 0 {
+		return
 	}
+	lastDone := next - 1
+	r.EnsureEpoch(IndexForRoad(lastDone) + 1)
+	r.AdvanceIfNeeded(lastDone)
 }
 
-// AdvanceIfNeeded seeds epoch M+2 when the last road of epoch M is
-// execution-complete (design: finishing N-1 registers N+1, i.e. M=N-1 → M+2=N+1).
-// Call after the last global of that road is executed. Earlier roads in the
-// epoch are a no-op. Restart uses EnsureAfterExecuted / EnsureDuoAt instead of
-// replaying this with synthetic LastRoad tips.
+// AdvanceIfNeeded seeds epoch M+2 when roadIndex is LastRoad(M) (design: finishing
+// N-1 registers N+1, i.e. M=N-1 → M+2=N+1). Call only after the last global of
+// that road has executed (GlobalRange.IsLastBlock) — the live path and data's
+// execution tipcut (road+1 when complete) share that gate; this function owns
+// the LastRoad(epoch) check. Earlier roads in the epoch are a no-op.
 // Committee for M+2 is currently the genesis committee.
 // TODO: pass the real M+2 committee once execution derives it.
 func (r *Registry) AdvanceIfNeeded(roadIndex types.RoadIndex) {

@@ -205,12 +205,13 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}
 			require.Equal(t, gb.Payload.Txs(), rbBytes, "router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.GlobalBlock(%v).Payload.Txs", h, h)
 		}
-		// Short run stays in early epoch 0; AdvanceIfNeeded only seeds N+2 on the
-		// last road, so epoch 2 must still be absent while {0,1} remain from setup.
-		_, err := giga0.data.Registry().EpochAt(epoch.FirstRoad(2))
-		require.Error(t, err, "epoch 2 should not be seeded before last road of epoch 0")
-		_, err = giga0.data.Registry().EpochAt(epoch.FirstRoad(1))
-		require.NoError(t, err, "initial seeding should have registered epoch 1")
+		// Short run stays in early epoch 0. Empty/early CommitQC span only seeds
+		// epochs covering retained QCs + EnsureDuoAt(Next); AdvanceIfNeeded only
+		// seeds N+2 on the last road. Epoch 1+ must still be absent.
+		_, err := giga0.data.Registry().EpochAt(epoch.FirstRoad(1))
+		require.Error(t, err, "epoch 1 should not be seeded before tipcut/execution leaves epoch 0")
+		_, err = giga0.data.Registry().EpochAt(epoch.FirstRoad(0))
+		require.NoError(t, err, "genesis epoch 0 must remain registered")
 		return nil
 	})
 	require.NoError(t, err)

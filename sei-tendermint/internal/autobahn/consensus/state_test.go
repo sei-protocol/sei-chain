@@ -367,7 +367,17 @@ func fullCommitQCAtRoad(ep *types.Epoch, keys []types.SecretKey, idx types.RoadI
 // the same epoch as the data tip → N-1 is done → SetupInitialDuo seeds N+1.
 func TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistryAt(rng, 4, 0) // NewRegistry → {0,1}
+	// FirstBlock must be >0: nextRoadToExecute treats LastExecutedBlock 0 as unset.
+	sks := utils.GenSliceN(rng, 4, types.GenSecretKey)
+	weights := map[types.PublicKey]uint64{}
+	for _, sk := range sks {
+		weights[sk.Public()] = 1000
+	}
+	committee := utils.OrPanic1(types.NewCommittee(weights))
+	registry := utils.OrPanic1(epoch.NewRegistry(committee, 1, time.Time{}))
+	registry.SetupInitialDuo(utils.None[types.RoadIndex](), utils.None[types.RoadRange]())
+	registry.EnsureEpoch(1)
+	keys := sks
 	ep1 := utils.OrPanic1(registry.EpochAt(epoch.FirstRoad(1)))
 	n := types.EpochIndex(1)
 	nPlus1 := types.EpochIndex(2)
@@ -408,8 +418,9 @@ func TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1(t *testing.T) {
 	seedPersistedInner(stateDir, &persistedInner{CommitQC: utils.Some(closingQC)})
 
 	leadTip := epoch.FirstRoad(nPlus1)
-	// Same epoch as data tip → EnsureAfterExecuted seeds N+1.
+	// Same epoch as data tip → EnsureExecTipcut seeds N+1.
 	lastExec := dataQC.QC().GlobalRange().First
+	require.Positive(t, lastExec, "LastExecutedBlock 0 is the unset sentinel")
 	db2 := newTestBlockDB(t, dataDir)
 	ds := utils.OrPanic1(data.NewState(&data.Config{
 		Registry:          registry,
