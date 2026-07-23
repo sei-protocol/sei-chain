@@ -918,7 +918,7 @@ func TestPushTimeoutQCClearsStaleState(t *testing.T) {
 	commitVote := types.Sign(keys[0], types.NewCommitVote(currentProposal))
 	timeoutVote := types.NewFullTimeoutVote(keys[0], types.View{Index: 6, Number: 0}, utils.Some(prepareQC))
 
-	ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+	ds := newTestDataState(registry)
 	cs, err := newState(&Config{
 		Key:         keys[0],
 		ViewTimeout: func(types.View) time.Duration { return time.Hour },

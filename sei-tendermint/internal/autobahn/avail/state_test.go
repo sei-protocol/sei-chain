@@ -435,8 +435,7 @@ func TestPushVote_DropsSignerAfterEpochAdvance(t *testing.T) {
 		ctx := t.Context()
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistryAt(rng, 4, 0)
-		ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry},
-			utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+		ds := newTestDataState(&data.Config{Registry: registry})
 		state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
 
 		ep0 := state.epochDuo.Load().Current
@@ -480,8 +479,7 @@ func TestPushVote_CountsSignerAfterEpochAdvance(t *testing.T) {
 		ctx := t.Context()
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistryAt(rng, 4, 0)
-		ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry},
-			utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+		ds := newTestDataState(&data.Config{Registry: registry})
 		state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
 
 		ep0 := state.epochDuo.Load().Current
