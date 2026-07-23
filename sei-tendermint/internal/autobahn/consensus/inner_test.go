@@ -72,6 +72,37 @@ func TestNewInnerEmpty(t *testing.T) {
 	require.False(t, i.TimeoutVote.IsPresent(), "timeoutVote should be None")
 }
 
+// TestNewInner_ConsensusTipLeadsDataWindow: data CommitQC tip is in epoch 1;
+// LastExecutedBlock in the same epoch means N-1 is done → EnsureAfterExecuted
+// seeds epoch 2. Persisted CommitQC is LastRoad(1) → view tipcut FirstRoad(2).
+func TestNewInner_ConsensusTipLeadsDataWindow(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys, _ := epoch.GenRegistry(rng, 3) // {0,1} only
+	ep1 := utils.OrPanic1(registry.EpochAt(epoch.FirstRoad(1)))
+	closing := epoch.LastRoad(1)
+	tipcut := epoch.FirstRoad(2)
+
+	// data.NewState: LastExecutedBlock in epoch 1 (same as CommitQC tip) → seed 2.
+	registry.EnsureAfterExecuted(epoch.FirstRoad(1))
+
+	vote := types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: closing}))
+	votes := make([]*types.Signed[*types.CommitVote], len(keys))
+	for i, k := range keys {
+		votes[i] = types.Sign(k, vote)
+	}
+	cqc := types.NewCommitQC(votes)
+
+	i, err := newInner(utils.Some(innerProtoConv.Encode(&persistedInner{
+		CommitQC: utils.Some(cqc),
+	})), registry)
+	require.NoError(t, err)
+	require.Equal(t, types.EpochIndex(2), i.epochs.Current.EpochIndex())
+	require.Equal(t, tipcut, i.View().Index)
+	prev, ok := i.epochs.Prev.Get()
+	require.True(t, ok)
+	require.Equal(t, types.EpochIndex(1), prev.EpochIndex())
+}
+
 func TestNewInnerPrepareVote(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()

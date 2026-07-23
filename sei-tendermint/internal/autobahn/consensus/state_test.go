@@ -345,3 +345,94 @@ func TestNewState_AvailBehindConsensus(t *testing.T) {
 	})))
 	require.ErrorIs(t, err, ErrAvailBehindConsensus)
 }
+
+// commitQCAtRoad builds a minimal valid CommitQC at idx under ep (ProposalAt tipcut).
+func commitQCAtRoad(ep *types.Epoch, keys []types.SecretKey, idx types.RoadIndex) *types.CommitQC {
+	vote := types.NewCommitVote(types.ProposalAt(ep, types.View{Index: idx}))
+	votes := make([]*types.Signed[*types.CommitVote], len(keys))
+	for i, k := range keys {
+		votes[i] = types.Sign(k, vote)
+	}
+	return types.NewCommitQC(votes)
+}
+
+// fullCommitQCAtRoad wraps commitQCAtRoad with matching headers for data WAL PersistQC.
+func fullCommitQCAtRoad(ep *types.Epoch, keys []types.SecretKey, idx types.RoadIndex) *types.FullCommitQC {
+	lane := ep.Committee().Lanes().At(0)
+	header := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
+	cqc := commitQCAtRoad(ep, keys, idx)
+	return types.NewFullCommitQC(cqc, []*types.BlockHeader{header})
+}
+
+// TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1 is the end-to-end restart
+// path for tip interlocking: data CommitQC WAL tip stays in epoch N while
+// avail/consensus tips are already at FirstRoad(N+1). LastExecutedBlock is in
+// the same epoch as the data tip → N-1 is done → SetupInitialDuo seeds N+1.
+func TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistryAt(rng, 4, 0) // NewRegistry → {0,1}
+	ep1 := utils.OrPanic1(registry.EpochAt(epoch.FirstRoad(1)))
+	n := types.EpochIndex(1)
+	nPlus1 := types.EpochIndex(2)
+
+	dataDir := t.TempDir()
+	stateDir := t.TempDir() // shared by consensus "inner" + avail "avail_inner"
+
+	// Data tip in epoch N: last loaded CommitQC at FirstRoad(N); tipcut stays in N.
+	dataRoad := epoch.FirstRoad(n)
+	dataQC := fullCommitQCAtRoad(ep1, keys, dataRoad)
+	dw := utils.OrPanic1(data.NewDataWAL(utils.Some(dataDir), registry.FirstBlock()))
+	require.NoError(t, dw.CommitQCs.PersistQC(dataQC))
+	require.NoError(t, dw.Close())
+
+	closingRoad := epoch.LastRoad(n) // seal of N → tipcut FirstRoad(N+1)
+	closingQC := commitQCAtRoad(ep1, keys, closingRoad)
+	gr := closingQC.GlobalRange()
+	appQC := types.NewAppQC(func() []*types.Signed[*types.AppVote] {
+		p := types.NewAppProposal(gr.First, closingRoad, types.GenAppHash(rng), ep1.EpochIndex())
+		votes := make([]*types.Signed[*types.AppVote], len(keys))
+		for i, k := range keys {
+			votes[i] = types.Sign(k, types.NewAppVote(p))
+		}
+		return votes
+	}())
+
+	// Avail tipcut in epoch N+1 via prune-anchor CommitQC at LastRoad(N).
+	prunePers, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(stateDir), "avail_inner")
+	require.NoError(t, err)
+	require.NoError(t, prunePers.Persist(&pb.PersistedAvailPruneAnchor{
+		AppQc:    types.AppQCConv.Encode(appQC),
+		CommitQc: types.CommitQCConv.Encode(closingQC),
+	}))
+
+	// Consensus tipcut in epoch N+1 (view after LastRoad(N)).
+	seedPersistedInner(stateDir, &persistedInner{CommitQC: utils.Some(closingQC)})
+
+	leadTip := epoch.FirstRoad(nPlus1)
+	// Same epoch as data tip → EnsureAfterExecuted seeds N+1.
+	lastExec := dataQC.QC().GlobalRange().First
+	dw2 := utils.OrPanic1(data.NewDataWAL(utils.Some(dataDir), registry.FirstBlock()))
+	ds := utils.OrPanic1(data.NewState(&data.Config{
+		Registry:          registry,
+		LastExecutedBlock: lastExec,
+	}, dw2))
+	dataTip := ds.CommitTipCut()
+	require.Equal(t, n, epoch.IndexForRoad(dataTip), "data tipcut must stay in epoch N")
+	_, err = registry.EpochAt(leadTip)
+	require.NoError(t, err, "executed in data-tip epoch must seed N+1")
+
+	cs, err := NewState(&Config{
+		Key:                keys[0],
+		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
+		PersistentStateDir: utils.Some(stateDir),
+	}, ds)
+	require.NoError(t, err)
+
+	consTip := cs.CommitTipCut()
+	availTip := cs.Avail().CommitTipCut()
+	require.Equal(t, leadTip, consTip)
+	require.Equal(t, leadTip, availTip)
+	require.Equal(t, nPlus1, epoch.IndexForRoad(consTip))
+	require.GreaterOrEqual(t, consTip, dataTip, "consensus may lead data")
+	require.GreaterOrEqual(t, availTip, consTip, "avail may lead consensus")
+}

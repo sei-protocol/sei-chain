@@ -161,6 +161,21 @@ func TestSetupInitialDuo_ExecutionClosingAddsNextNext(t *testing.T) {
 	}
 }
 
+// TestSetupInitialDuo_ExecutedSameEpochAsTipSeedsNext: CommitQC tip in epoch N;
+// LastExecuted also in N ⇒ N-1 done ⇒ EnsureAfterExecuted seeds N+1.
+func TestSetupInitialDuo_ExecutedSameEpochAsTipSeedsNext(t *testing.T) {
+	r, _ := makeRegistry(t) // {0,1}
+	n := types.EpochIndex(1)
+	tip := FirstRoad(n)
+	r.SetupInitialDuo(utils.Some(tip), utils.Some(CommitQCSpan{First: tip, Last: tip}))
+	if _, err := r.EpochAt(FirstRoad(n + 1)); err != nil {
+		t.Fatalf("EpochAt(N+1) when executed in tip epoch N: %v", err)
+	}
+	if _, err := r.EpochAt(FirstRoad(n + 2)); err == nil {
+		t.Fatal("EpochAt(N+2) should not be present from mid-N execution")
+	}
+}
+
 func TestSetupInitialDuo_ExecutionPastCommitQCIgnored(t *testing.T) {
 	r, _ := makeRegistry(t)
 	tip := midRoad(3)

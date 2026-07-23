@@ -121,7 +121,7 @@ func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (
 	}
 
 	// View epoch = tipcut road; CommitQC may still be the prior epoch's last road.
-	// Epoch seeding is owned by data.NewState (SetupInitialDuo); EpochAt hard-fails
+	// Epoch seeding is owned by data.NewState (SetupInitialDuo). EpochAt hard-fails
 	// if this tip needs an unseeded epoch. Tip ordering vs avail is checked in
 	// NewState; vs data in p2p.checkRestartTips.
 	nextViewRoad := types.NextIndexOpt(persisted.CommitQC)

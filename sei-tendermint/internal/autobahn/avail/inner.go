@@ -133,8 +133,7 @@ func newInner(registry *epoch.Registry, startEpochDuo types.EpochDuo, loaded uti
 	// Restore persisted CommitQCs. Tipcut insert above may already hold the
 	// anchor; skip entries below commitQCs.next. Re-verify each QC so the tip
 	// published to consensus is signature-checked (same as live PushCommitQC).
-	// Epoch must already be seeded (data.SetupInitialDuo); missing epoch is a
-	// hard error — avail tip must not lead past an unseeded epoch.
+	// Epoch must already be seeded (data.SetupInitialDuo); missing epoch is a hard error.
 	for _, lqc := range l.commitQCs {
 		if lqc.Index < i.commitQCs.next {
 			continue
