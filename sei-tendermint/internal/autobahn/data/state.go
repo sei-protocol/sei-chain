@@ -38,14 +38,6 @@ type blockEntry struct {
 	block *types.Block
 }
 
-// appHashTip is the block and covering FullCommitQC for the latest PushAppHash
-// height. Kept so nextToExecute works after evictBelowBound drops that height
-// from the maps.
-type appHashTip struct {
-	block *types.Block
-	qc    *types.FullCommitQC
-}
-
 type inner struct {
 	// Map key ranges (low end = first):
 	//   qcs:          [first, nextQC)
@@ -60,13 +52,11 @@ type inner struct {
 	appProposals map[types.GlobalBlockNumber]*types.AppProposal
 	blockHashes  map[types.BlockHeaderHash]types.GlobalBlockNumber
 
-	// lastAppHash pins nextAppProposal-1 for nextToExecute. None until the
-	// first PushAppHash in this process.
-	lastAppHash utils.Option[appHashTip]
-
 	// first is the exclusive low end of retained in-memory state: maps keep
 	// [first, next*). Set by newInner / skipTo; advanced by evictBelowBound when
-	// a CommitQC.App certifies a higher floor (min(nextAppProposal, App+1)).
+	// a CommitQC.App certifies a higher floor. Eviction keeps nextAppProposal-1
+	// so nextToExecute can read maps without a separate tip pin (see
+	// evictBelowBound).
 	//
 	// first <= nextAppProposal <= nextBlockToPersist <= nextBlock <= nextQC
 	//
@@ -102,7 +92,6 @@ func (i *inner) skipTo(n types.GlobalBlockNumber) {
 	i.nextBlockToPersist = n
 	i.nextBlock = n
 	i.nextQC = n
-	i.lastAppHash = utils.None[appHashTip]()
 }
 
 // insertQC verifies and inserts a FullCommitQC into the inner state.
@@ -177,6 +166,14 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 
 // State of the chain.
 // Contains blocks in global order and proofs of their finality.
+//
+// Invariant: a CommitQC's embedded AppProposal (when present) always refers to
+// a global number from a *past* CommitQC — strictly below that tip QC's
+// GlobalRange.First (enforced in Proposal.Verify). Together with BlockDB's
+// never-empty retention and eviction at App.GlobalNumber()+1, in-memory maps
+// therefore always retain at least the certified tip QC after a CommitQC.App
+// appears. Eviction additionally keeps nextAppProposal-1 so nextToExecute can
+// use maps directly (no lastAppHash pin).
 type State struct {
 	cfg     *Config
 	metrics *metrics.Metrics
@@ -631,11 +628,6 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.appProposals[inner.nextAppProposal] = proposal
 			inner.nextAppProposal += 1
 		}
-		// Pin tip before eviction may drop maps[n].
-		inner.lastAppHash = utils.Some(appHashTip{
-			block: inner.blocks[n],
-			qc:    inner.qcs[n],
-		})
 		evictBelowBound(inner)
 		ctrl.Updated()
 	}
@@ -664,13 +656,16 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 
 func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	// TODO(gprusak): decide whether 0 is a good result in this case in general.
-	tip, ok := i.lastAppHash.Get()
-	if !ok {
+	// AppProposals are not restored on restart; empty means no PushAppHash yet
+	// in this process. evictBelowBound retains nextAppProposal-1 so this stays
+	// non-empty after eviction while execution has progressed.
+	if len(i.appProposals) == 0 {
 		return 0
 	}
-	r := tip.qc.QC().LaneRange(lane)
+	n := i.nextAppProposal - 1
+	r := i.qcs[n].QC().LaneRange(lane)
 	// TODO: this header can be actually extracted from FullCommitQC, so consider moving all this logic there.
-	h := tip.block.Header()
+	h := i.blocks[n].Header()
 	x := lane.Compare(h.Lane())
 	// NOTE: here we assume the specific ordering of lane blocks in the CommitQC:
 	// TODO(gprusak): move this logic closer to CommitQC
@@ -813,16 +808,32 @@ func (i *inner) certifiedAppFloor() utils.Option[types.GlobalBlockNumber] {
 	return utils.Some(app.GlobalNumber() + 1)
 }
 
-// evictBelowBound advances first to min(nextAppProposal, certifiedAppFloor) when
-// a CommitQC.App exists, and drops cached blocks/QCs/AppProposals with n < first.
-// No-op when there is no certified App or the bound would not advance first.
-// Caller must hold inner's lock. Invoked from PushQC / PushAppHash.
+// evictBelowBound advances first toward the certified App floor and drops cached
+// blocks/QCs/AppProposals with n < first. No-op when there is no certified App
+// or the bound would not advance first. Caller must hold inner's lock. Invoked
+// from PushQC / PushAppHash.
+//
+// Bound is min(nextAppProposal-1, App.GlobalNumber()+1) when nextAppProposal > 0
+// (else no progress). Cap at nextAppProposal-1 so maps always keep the last
+// executed height for nextToExecute — equivalent to a lastAppHash pin, but
+// without a parallel tip. With the past-CommitQC App invariant (see State),
+// App+1 never exceeds the tip QC start, so at least one CommitQC remains.
+//
+// TODO: At eviction we have both a local AppProposal and a CommitQC.App, so this
+// is the right place to detect local-vs-quorum AppHash inconsistency. Surface
+// any mismatch from data.State.Run() (node-fatal), not from PushQC/PushAppHash —
+// e.g. stash an error on State for a Run monitor, or run eviction as its own
+// Run subtask.
 func evictBelowBound(inner *inner) {
 	floor, ok := inner.certifiedAppFloor().Get()
 	if !ok {
 		return
 	}
-	bound := min(inner.nextAppProposal, floor)
+	if inner.nextAppProposal == 0 {
+		return
+	}
+	// Retain nextAppProposal-1 for nextToExecute / non-empty appProposals.
+	bound := min(inner.nextAppProposal-1, floor)
 	if bound <= inner.first {
 		return
 	}

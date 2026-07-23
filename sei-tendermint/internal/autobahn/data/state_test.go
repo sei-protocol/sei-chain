@@ -481,7 +481,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 
 // TestEvictionWaitsForCommitQCApp checks that evictBelowBound does not drop
 // AppProposals until a later CommitQC embeds an App (certifying AppQC), and
-// that once that App exists, heights below App.GlobalNumber()+1 are evicted.
+// that once that App exists, heights below min(NAP-1, App+1) are evicted.
 func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -530,7 +530,7 @@ func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 		}
 
 		for inner := range state.inner.Lock() {
-			require.Equal(t, appFloor+1, inner.first, "exclusive floor is CommitQC.App.GlobalNumber()+1")
+			require.Equal(t, appFloor+1, inner.first, "after catching up, first reaches App+1 (NAP-1 is past the floor)")
 			for n := gr1.First; n < inner.first; n++ {
 				_, ok := inner.appProposals[n]
 				require.False(t, ok, "AppProposal %d should be evicted (< first)", n)
@@ -540,7 +540,66 @@ func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 				_, ok := inner.appProposals[n]
 				require.True(t, ok, "AppProposal %d must remain (>= first)", n)
 			}
+			// nextAppProposal-1 must remain so nextToExecute can use maps.
+			tip := inner.nextAppProposal - 1
+			require.GreaterOrEqual(t, tip, inner.first)
+			_, ok = inner.blocks[tip]
+			require.True(t, ok, "last executed block %d must stay in maps", tip)
+			_, ok = inner.qcs[tip]
+			require.True(t, ok, "last executed QC %d must stay in maps", tip)
 		}
+		return nil
+	}))
+}
+
+// TestNextToExecuteAfterAppEviction checks WaitUntilExecuted / nextToExecute
+// still work when PushQC embeds an App that would aggressively evict through
+// nextAppProposal (first = App+1). Eviction must retain nextAppProposal-1.
+func TestNextToExecuteAfterAppEviction(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange()
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	app, ok := qc2.QC().Proposal().App().Get()
+	require.True(t, ok)
+	require.Equal(t, gr1.Next-1, app.GlobalNumber())
+
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		s.SpawnBgNamed("state.Run", func() error {
+			return utils.IgnoreCancel(state.Run(runCtx))
+		})
+
+		require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+		for n := gr1.First; n < gr1.Next; n++ {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+				return err
+			}
+		}
+		// Sticky case: App floor == nextAppProposal. Aggressive first=App+1
+		// would drop NAP-1; we must keep it for nextToExecute.
+		require.NoError(t, state.PushQC(ctx, qc2, blocks2))
+
+		var tipBlock *types.Block
+		for inner := range state.inner.Lock() {
+			require.Equal(t, gr1.Next, inner.nextAppProposal)
+			require.Equal(t, app.GlobalNumber(), inner.first,
+				"eviction must stop at NAP-1 when App+1 == NAP")
+			tip := inner.nextAppProposal - 1
+			var ok bool
+			tipBlock, ok = inner.blocks[tip]
+			require.True(t, ok)
+			require.NotZero(t, inner.nextToExecute(tipBlock.Header().Lane()))
+		}
+		lane := tipBlock.Header().Lane()
+		next, err := state.WaitUntilExecuted(ctx, lane, tipBlock.Header().BlockNumber())
+		require.NoError(t, err)
+		require.Greater(t, next, tipBlock.Header().BlockNumber())
 		return nil
 	}))
 }
