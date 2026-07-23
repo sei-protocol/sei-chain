@@ -1,73 +1,116 @@
-// Package configmanager is the selection seam between the legacy config
-// loader and the (forthcoming) sei-config-backed manager, gated by the
-// SEI_CONFIG_MANAGER environment variable.
-//
-// PR1 ships the seam only: LegacyConfigManager re-enters the unchanged
-// legacy handler verbatim (the default), and SeiConfigManager is a
-// not-yet-implemented stub that does not import the sei-config library.
-// The v2 body lands in a follow-up PR. See PLT-775 and the canonical
-// design (bdchatham-designs designs/config-manager/DESIGN.md).
 package configmanager
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"path"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
+	seiconfig "github.com/sei-protocol/sei-config"
+	"github.com/sei-protocol/seilog"
+
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 )
 
-// EnvVar is the experimental gate that selects the configuration manager.
+var logger = seilog.NewLogger("cmd", "seid", "configmanager")
+
+// EnvVar gates which configuration manager seid uses.
 const EnvVar = "SEI_CONFIG_MANAGER"
 
 // ConfigManager resolves a seid node's configuration during PersistentPreRunE.
-//
-// Load-bearing contract: an implementation must leave both channels the app
-// consumes — serverCtx.Config and serverCtx.Viper — populated exactly as the
-// legacy path does, and must be all-or-nothing with respect to on-disk state
-// (no partial config.toml/app.toml materialization on error). A v2 manager
-// that authors the two files from the sei-config library must write BOTH
-// atomically and then re-enter the legacy read tail so the channels are
-// produced identically — it must not feed app.New from an in-memory struct.
-//
-// The Apply signature matches server.InterceptConfigsPreRunHandler so the
-// legacy implementation forwards verbatim. This is an internal,
-// single-consumer contract (only root.go calls it) and is free to grow — an
-// explicit home dir or a Prepare/Apply split — when the v2 write-then-re-enter
-// body lands in a follow-up PR; the node dir is resolvable from cmd, so the
-// signature is sufficient for PR1's seam.
+// An implementation must leave serverCtx.Config and serverCtx.Viper populated
+// exactly as the legacy path does. The Apply signature matches
+// server.InterceptConfigsPreRunHandler so the legacy manager forwards verbatim.
 type ConfigManager interface {
 	Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error
 }
 
-// LegacyConfigManager is the default manager: it re-enters the unchanged
-// legacy handler verbatim, so the legacy path stays byte-for-byte unaffected.
+// LegacyConfigManager is the default manager. It forwards to the legacy handler
+// unchanged, leaving the legacy path byte-for-byte unaffected.
 type LegacyConfigManager struct{}
 
-// Apply delegates to the legacy interception handler unchanged.
+// Apply forwards to the legacy interception handler unchanged.
 func (LegacyConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
 	return server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
 }
 
-// SeiConfigManager will resolve configuration through the sei-config library
-// behind SEI_CONFIG_MANAGER=v2. PR1 ships the seam only; the real body lands
-// in a follow-up PR. It intentionally does not import sei-config.
+// SeiConfigManager validates the config through the sei-config library, then
+// re-enters the legacy handler on the operator's original files. It never
+// writes, migrates, or refuses boot.
 type SeiConfigManager struct{}
 
-// Apply is not yet implemented in PR1. It returns a hard error rather than
-// silently falling back to the legacy path, so a v2 invocation is observable.
-func (SeiConfigManager) Apply(_ *cobra.Command, _ string, _ any) error {
-	return fmt.Errorf("%s=v2 not yet implemented (PR1 seam only)", EnvVar)
+// Apply runs the advisory validation pass, then re-enters the legacy handler on
+// the operator's original files. Nothing in the validation pass refuses boot.
+func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
+	validateAdvisory(cmd)
+	return server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
 }
 
-// Select returns the ConfigManager chosen by the SEI_CONFIG_MANAGER value:
-// unset or "legacy" -> LegacyConfigManager (the default); "v2" ->
-// SeiConfigManager; any other value -> error (never a silent fallback).
-// getenv is injected for testability; production callers pass os.Getenv.
-//
-// The value is matched exactly — no trimming or case-folding. This is
-// deliberate: normalizing would broaden the gate, and the error names the
-// legal tokens so an operator can self-correct.
+// validateAdvisory resolves the home dir, reads the on-disk config, and logs any
+// validation diagnostics via seilog at Warn. Every step is advisory: a failure —
+// or a panic in the sei-config read/validate, whose fidelity is still being
+// hardened — is logged and swallowed so the pass can never change what the node
+// boots on. A missing config file is normal (the legacy handler creates it) and
+// is not surfaced. Keeping this a distinct step from Apply is what lets the
+// generate path add its authoring/render step as a sibling.
+func validateAdvisory(cmd *cobra.Command) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("config validation panicked (advisory; recovered, node will boot)", "panic", r)
+		}
+	}()
+
+	home, err := resolveHomeDir(cmd)
+	if err != nil {
+		logger.Warn("could not resolve home dir for config validation (advisory)", "error", err)
+		return
+	}
+	cfg, err := seiconfig.ReadConfigFromDir(home)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			logger.Warn("could not read config for validation (advisory)", "error", err)
+		}
+		return
+	}
+	if diags := seiconfig.Validate(cfg).Diagnostics; len(diags) > 0 {
+		msgs := make([]string, len(diags))
+		for i, d := range diags {
+			msgs[i] = d.String()
+		}
+		logger.Warn("advisory config validation diagnostics (not enforced; node will boot)",
+			"count", len(diags), "diagnostics", msgs)
+	}
+}
+
+// resolveHomeDir resolves --home the same way the legacy handler does
+// (sei-cosmos/server/util.go), so v2 validates the directory the handler reads.
+func resolveHomeDir(cmd *cobra.Command) (string, error) {
+	v := viper.New()
+	if err := v.BindPFlags(cmd.Flags()); err != nil {
+		return "", err
+	}
+	if err := v.BindPFlags(cmd.PersistentFlags()); err != nil {
+		return "", err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	v.SetEnvPrefix(path.Base(exe))
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	v.AutomaticEnv()
+	return v.GetString(flags.FlagHome), nil
+}
+
+// Select maps SEI_CONFIG_MANAGER to a manager: unset or "legacy" -> Legacy,
+// "v2" -> Sei, anything else -> error. The value is matched exactly (no
+// trimming or case-folding) and never falls back silently. getenv is injected
+// for tests; callers pass os.Getenv.
 func Select(getenv func(string) string) (ConfigManager, error) {
 	switch v := getenv(EnvVar); v {
 	case "", "legacy":
