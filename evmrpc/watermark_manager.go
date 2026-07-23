@@ -127,6 +127,10 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 			// to the earliest retained block (genesis) instead: height 0 is
 			// coerced to the tip by CreateQueryContext. Clamp to latest so the
 			// pre-commit window (no blocks yet) stays at 0 and reads checkState.
+			//
+			// Under Autobahn, blockEarliest stays 0 (Status leaves
+			// EarliestBlockHeight unpopulated), so earliest still resolves to the
+			// tip there; that node class is tracked separately in SEI-10385.
 			return min(blockEarliest, latest), nil
 		}
 		return stateEarliest, nil
