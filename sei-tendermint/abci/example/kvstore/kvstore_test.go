@@ -32,8 +32,7 @@ func testKVStore(ctx context.Context, t *testing.T, app types.Application, tx []
 	_, err = app.Commit(ctx)
 	require.NoError(t, err)
 
-	info, err := app.Info(ctx, &types.RequestInfo{})
-	require.NoError(t, err)
+	info := app.Info()
 	require.NotZero(t, info.LastBlockHeight)
 
 	// make sure query is fine
@@ -95,7 +94,7 @@ func TestValUpdates(t *testing.T) {
 	nInit := 5
 	vals := RandVals(total)
 	// initialize with the first nInit
-	_, err := kvstore.InitChain(ctx, &types.RequestInitChain{})
+	_, err := kvstore.InitChain(&types.RequestInitChain{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -31,10 +31,15 @@ var _ flatkv.Store = (*failingEVMStore)(nil)
 func (f *failingEVMStore) LoadVersion(int64, bool) (flatkv.Store, error) {
 	return nil, fmt.Errorf("flatkv unavailable")
 }
-func (f *failingEVMStore) ApplyChangeSets([]*proto.NamedChangeSet) error { return nil }
-func (f *failingEVMStore) Commit() (int64, error)                        { return 0, nil }
-func (f *failingEVMStore) SetInitialVersion(int64) error                 { return nil }
-func (f *failingEVMStore) Get(string, []byte) ([]byte, bool)             { return nil, false }
+func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error {
+	return nil
+}
+func (f *failingEVMStore) Commit(int64) (int64, error) { return 0, nil }
+func (f *failingEVMStore) CommitBlock(int64, []*proto.NamedChangeSet) error {
+	return nil
+}
+func (f *failingEVMStore) SetInitialVersion(int64) error     { return nil }
+func (f *failingEVMStore) Get(string, []byte) ([]byte, bool) { return nil, false }
 func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
 	return -1, false, nil
 }
@@ -45,6 +50,7 @@ func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, 
 }
 func (f *failingEVMStore) RootHash() []byte                              { return nil }
 func (f *failingEVMStore) Version() int64                                { return 0 }
+func (f *failingEVMStore) PendingVersion() int64                         { return 0 }
 func (f *failingEVMStore) EarliestVersion() int64                        { return 0 }
 func (f *failingEVMStore) GetLatestVersion() (int64, error)              { return 0, nil }
 func (f *failingEVMStore) WriteSnapshot(string) error                    { return nil }

@@ -6,8 +6,10 @@ import (
 	"math/big"
 	"testing"
 
+	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
@@ -19,6 +21,7 @@ import (
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
@@ -759,4 +762,191 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGovQueryPrecompile(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+	baseDenom := k.GetBaseDenom(ctx)
+
+	// Seed a proposal in voting period.
+	content := govtypes.ContentFromProposalType("query title", "query description", govtypes.ProposalTypeText, false)
+	proposal, err := testApp.GovKeeper.SubmitProposal(ctx, content)
+	require.Nil(t, err)
+	testApp.GovKeeper.ActivateVotingPeriod(ctx, proposal)
+	proposalID := proposal.ProposalId
+
+	// Seed a vote.
+	voterSeiAddr, voterEvmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, voterSeiAddr, voterEvmAddr)
+	require.Nil(t, testApp.GovKeeper.AddVote(ctx, proposalID, voterSeiAddr, govtypes.NewNonSplitVoteOption(govtypes.OptionYes)))
+
+	// Seed a deposit.
+	depositorSeiAddr, depositorEvmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, depositorSeiAddr, depositorEvmAddr)
+	depositCoins := sdk.NewCoins(sdk.NewCoin(baseDenom, sdk.NewInt(1000000)))
+	require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, depositCoins))
+	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, depositorSeiAddr, depositCoins))
+	_, err = testApp.GovKeeper.AddDeposit(ctx, proposalID, depositorSeiAddr, depositCoins)
+	require.Nil(t, err)
+
+	storedProposal, found := testApp.GovKeeper.GetProposal(ctx, proposalID)
+	require.True(t, found)
+
+	p, err := gov.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	govAbi := pcommon.MustGetABI(f, "abi.json")
+
+	query := func(t *testing.T, methodName string, args ...interface{}) []interface{} {
+		method, ok := govAbi.Methods[methodName]
+		require.True(t, ok, "method %s not found in abi", methodName)
+		inputs, err := method.Inputs.Pack(args...)
+		require.Nil(t, err)
+		statedb := state.NewDBImpl(ctx, k, true)
+		evm := vm.EVM{StateDB: statedb}
+		ret, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 1000000, nil, nil, true, false)
+		require.Nil(t, err)
+		outputs, err := method.Outputs.Unpack(ret)
+		require.Nil(t, err)
+		return outputs
+	}
+
+	t.Run("proposal", func(t *testing.T) {
+		outputs := query(t, gov.ProposalQueryMethod, proposalID)
+		require.Len(t, outputs, 1)
+		got := *ethabi.ConvertType(outputs[0], new(gov.ProposalData)).(*gov.ProposalData)
+		require.Equal(t, proposalID, got.Id)
+		require.Equal(t, int32(govtypes.StatusVotingPeriod), got.Status)
+		require.Equal(t, storedProposal.SubmitTime.Unix(), got.SubmitTime)
+		require.Equal(t, storedProposal.DepositEndTime.Unix(), got.DepositEndTime)
+		require.Equal(t, storedProposal.VotingStartTime.Unix(), got.VotingStartTime)
+		require.Equal(t, storedProposal.VotingEndTime.Unix(), got.VotingEndTime)
+		require.False(t, got.IsExpedited)
+		require.Equal(t, []gov.Coin{{Amount: big.NewInt(1000000), Denom: baseDenom}}, got.TotalDeposit)
+		require.Contains(t, string(got.Content), "\"@type\"")
+		require.Contains(t, string(got.Content), "TextProposal")
+		require.Contains(t, string(got.Content), "query title")
+	})
+
+	t.Run("proposals filtered by depositor", func(t *testing.T) {
+		outputs := query(t, gov.ProposalsQueryMethod, int32(0), common.Address{}, depositorEvmAddr, []byte{})
+		require.Len(t, outputs, 2)
+		gotProposals := *ethabi.ConvertType(outputs[0], new([]gov.ProposalData)).(*[]gov.ProposalData)
+		require.Len(t, gotProposals, 1)
+		require.Equal(t, proposalID, gotProposals[0].Id)
+		require.Contains(t, string(gotProposals[0].Content), "\"@type\"")
+		require.Empty(t, outputs[1].([]byte))
+	})
+
+	t.Run("proposals filtered by voter and status", func(t *testing.T) {
+		outputs := query(t, gov.ProposalsQueryMethod, int32(govtypes.StatusVotingPeriod), voterEvmAddr, common.Address{}, []byte{})
+		gotProposals := *ethabi.ConvertType(outputs[0], new([]gov.ProposalData)).(*[]gov.ProposalData)
+		require.Len(t, gotProposals, 1)
+		require.Equal(t, proposalID, gotProposals[0].Id)
+	})
+
+	t.Run("vote", func(t *testing.T) {
+		outputs := query(t, gov.VoteQueryMethod, proposalID, voterEvmAddr)
+		require.Len(t, outputs, 1)
+		got := *ethabi.ConvertType(outputs[0], new(gov.VoteData)).(*gov.VoteData)
+		require.Equal(t, proposalID, got.ProposalId)
+		require.Equal(t, voterSeiAddr.String(), got.Voter)
+		require.Equal(t, []gov.WeightedVoteOptionData{{Option: int32(govtypes.OptionYes), Weight: sdk.OneDec().String()}}, got.Options)
+	})
+
+	t.Run("votes", func(t *testing.T) {
+		outputs := query(t, gov.VotesQueryMethod, proposalID, []byte{})
+		require.Len(t, outputs, 2)
+		gotVotes := *ethabi.ConvertType(outputs[0], new([]gov.VoteData)).(*[]gov.VoteData)
+		require.Len(t, gotVotes, 1)
+		require.Equal(t, voterSeiAddr.String(), gotVotes[0].Voter)
+		require.Empty(t, outputs[1].([]byte))
+	})
+
+	t.Run("params", func(t *testing.T) {
+		outputs := query(t, gov.ParamsQueryMethod)
+		require.Len(t, outputs, 1)
+		got := *ethabi.ConvertType(outputs[0], new(gov.GovParams)).(*gov.GovParams)
+		votingParams := testApp.GovKeeper.GetVotingParams(ctx)
+		depositParams := testApp.GovKeeper.GetDepositParams(ctx)
+		tallyParams := testApp.GovKeeper.GetTallyParams(ctx)
+		require.Equal(t, uint64(votingParams.VotingPeriod.Seconds()), got.VotingPeriod)
+		require.Equal(t, uint64(votingParams.ExpeditedVotingPeriod.Seconds()), got.ExpeditedVotingPeriod)
+		require.Equal(t, uint64(depositParams.MaxDepositPeriod.Seconds()), got.MaxDepositPeriod)
+		require.Len(t, got.MinDeposit, len(depositParams.MinDeposit))
+		for i, coin := range depositParams.MinDeposit {
+			require.Equal(t, coin.Denom, got.MinDeposit[i].Denom)
+			require.Equal(t, coin.Amount.BigInt(), got.MinDeposit[i].Amount)
+		}
+		require.Len(t, got.MinExpeditedDeposit, len(depositParams.MinExpeditedDeposit))
+		require.Equal(t, tallyParams.Quorum.String(), got.Quorum)
+		require.Equal(t, tallyParams.Threshold.String(), got.Threshold)
+		require.Equal(t, tallyParams.VetoThreshold.String(), got.VetoThreshold)
+		require.Equal(t, tallyParams.ExpeditedQuorum.String(), got.ExpeditedQuorum)
+		require.Equal(t, tallyParams.ExpeditedThreshold.String(), got.ExpeditedThreshold)
+	})
+
+	t.Run("deposit", func(t *testing.T) {
+		outputs := query(t, gov.DepositQueryMethod, proposalID, depositorEvmAddr)
+		require.Len(t, outputs, 1)
+		got := *ethabi.ConvertType(outputs[0], new(gov.DepositData)).(*gov.DepositData)
+		require.Equal(t, proposalID, got.ProposalId)
+		require.Equal(t, depositorSeiAddr.String(), got.Depositor)
+		require.Equal(t, []gov.Coin{{Amount: big.NewInt(1000000), Denom: baseDenom}}, got.Amount)
+	})
+
+	t.Run("deposits", func(t *testing.T) {
+		outputs := query(t, gov.DepositsQueryMethod, proposalID, []byte{})
+		require.Len(t, outputs, 2)
+		gotDeposits := *ethabi.ConvertType(outputs[0], new([]gov.DepositData)).(*[]gov.DepositData)
+		require.Len(t, gotDeposits, 1)
+		require.Equal(t, depositorSeiAddr.String(), gotDeposits[0].Depositor)
+		require.Equal(t, []gov.Coin{{Amount: big.NewInt(1000000), Denom: baseDenom}}, gotDeposits[0].Amount)
+		require.Empty(t, outputs[1].([]byte))
+	})
+
+	t.Run("tallyResult", func(t *testing.T) {
+		outputs := query(t, gov.TallyResultQueryMethod, proposalID)
+		require.Len(t, outputs, 1)
+		got := *ethabi.ConvertType(outputs[0], new(gov.TallyResultData)).(*gov.TallyResultData)
+		// The voter has no staked tokens, so the live tally is all zeros.
+		require.Equal(t, gov.TallyResultData{Yes: "0", Abstain: "0", No: "0", NoWithVeto: "0"}, got)
+	})
+
+	t.Run("vote query with zero voter address fails", func(t *testing.T) {
+		method := govAbi.Methods[gov.VoteQueryMethod]
+		inputs, err := method.Inputs.Pack(proposalID, common.Address{})
+		require.Nil(t, err)
+		statedb := state.NewDBImpl(ctx, k, true)
+		evm := vm.EVM{StateDB: statedb}
+		_, _, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 1000000, nil, nil, true, false)
+		require.NotNil(t, err)
+	})
+
+	t.Run("tallyResult does not delete votes", func(t *testing.T) {
+		method := govAbi.Methods[gov.TallyResultQueryMethod]
+		inputs, err := method.Inputs.Pack(proposalID)
+		require.Nil(t, err)
+		statedb := state.NewDBImpl(ctx, k, true)
+		evm := vm.EVM{StateDB: statedb}
+		_, _, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 1000000, nil, nil, true, false)
+		require.Nil(t, err)
+		// Tally deletes votes as it counts; the view must run on a branched
+		// context so the deletion is discarded.
+		_, found := testApp.GovKeeper.GetVote(statedb.Ctx(), proposalID, voterSeiAddr)
+		require.True(t, found)
+	})
+
+	t.Run("out of gas returns revert error instead of panicking", func(t *testing.T) {
+		method := govAbi.Methods[gov.ProposalQueryMethod]
+		inputs, err := method.Inputs.Pack(proposalID)
+		require.Nil(t, err)
+		statedb := state.NewDBImpl(ctx, k, true)
+		evm := vm.EVM{StateDB: statedb}
+		require.NotPanics(t, func() {
+			_, _, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 1, nil, nil, true, false)
+		})
+		require.NotNil(t, err)
+	})
 }

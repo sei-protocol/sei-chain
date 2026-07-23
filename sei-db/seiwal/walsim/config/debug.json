@@ -1,0 +1,9 @@
+{
+  "Comment": "Configuration for local smoke testing and debugging.",
+  "DataDir": "~/walsim/data",
+  "LogDir": "~/walsim/logs",
+  "CleanDataOnStart": true,
+  "CleanLogsOnStart": true,
+  "CleanDataOnExit": true,
+  "CleanLogsOnExit": true
+}

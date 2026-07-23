@@ -241,11 +241,6 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 
 func SetGasMeter(ctx sdk.Context, gasLimit uint64, paramsKeeper paramskeeper.Keeper) sdk.Context {
 	cosmosGasParams := paramsKeeper.GetCosmosGasParams(ctx)
-
-	if ctx.BlockHeight() == 0 {
-		return ctx.WithGasMeter(storetypes.NewInfiniteMultiplierGasMeter(cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator))
-	}
-
 	return ctx.WithGasMeter(storetypes.NewMultiplierGasMeter(gasLimit, cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator))
 }
 
@@ -450,15 +445,10 @@ func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, signe
 		}
 
 		// retrieve signer data
-		genesis := ctx.BlockHeight() == 0
 		chainID := ctx.ChainID()
-		var accNum uint64
-		if !genesis {
-			accNum = signerAcc.GetAccountNumber()
-		}
 		signerData := authsigning.SignerData{
 			ChainID:       chainID,
-			AccountNumber: accNum,
+			AccountNumber: signerAcc.GetAccountNumber(),
 			Sequence:      signerAcc.GetSequence(),
 		}
 
@@ -468,9 +458,9 @@ func CheckSignatures(ctx sdk.Context, txConfig client.TxConfig, tx sdk.Tx, signe
 			if authante.OnlyLegacyAminoSigners(sig.Data) {
 				// If all signers are using SIGN_MODE_LEGACY_AMINO, we rely on VerifySignature to check account sequence number,
 				// and therefore communicate sequence number as a potential cause of error.
-				errMsg = fmt.Sprintf("signature verification failed; please verify account number (%d), sequence (%d) and chain-id (%s)", accNum, signerAcc.GetSequence(), chainID)
+				errMsg = fmt.Sprintf("signature verification failed; please verify account number (%d), sequence (%d) and chain-id (%s)", signerAcc.GetAccountNumber(), signerAcc.GetSequence(), chainID)
 			} else {
-				errMsg = fmt.Sprintf("signature verification failed; please verify account number (%d) and chain-id (%s)", accNum, chainID)
+				errMsg = fmt.Sprintf("signature verification failed; please verify account number (%d) and chain-id (%s)", signerAcc.GetAccountNumber(), chainID)
 			}
 			return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, errMsg)
 

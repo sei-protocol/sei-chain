@@ -20,7 +20,11 @@ COMMIT := $(shell git log -1 --format='%H')
 BUILDDIR ?= $(CURDIR)/build
 INVARIANT_CHECK_INTERVAL ?= $(INVARIANT_CHECK_INTERVAL:-0)
 export PROJECT_HOME=$(shell git rev-parse --show-toplevel)
-export GO_PKG_PATH=$(HOME)/go/pkg
+# Parent of the Go module cache. Derived from `go env GOMODCACHE` so that the
+# container/compose mounts (`$(GO_PKG_PATH)/mod`) follow a relocated GOMODCACHE
+# (e.g. CI pointing it at /mnt) the same way the GOCACHE mounts follow
+# `go env GOCACHE`. Defaults to $HOME/go/pkg when GOMODCACHE is unset.
+export GO_PKG_PATH=$(shell dirname $(shell go env GOMODCACHE))
 export GO111MODULE = on
 
 # process build tags
@@ -182,13 +186,18 @@ dblint:
 	go vet ./sei-db/...
 
 build:
+	mkdir -p ./build
 	go build $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
+.PHONY: build
 
 build-verbose:
+	mkdir -p ./build
 	go build -x -v $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
+.PHONY: build-verbose
 
 clean:
 	rm -rf ./build
+.PHONY: clean
 
 build-loadtest:
 	go build -o build/loadtest ./loadtest/
@@ -239,7 +248,7 @@ ensure-integration-ci-images:
 
 # Build seid once inside the localnode image (integration-test prepare job).
 build-seid-in-localnode: build-docker-node
-	@mkdir -p build $(shell go env GOPATH)/pkg/mod $(shell go env GOCACHE)
+	@mkdir -p build $(shell go env GOMODCACHE) $(shell go env GOCACHE)
 	@docker run --rm \
 		--user="$(shell id -u):$(shell id -g)" \
 		-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
@@ -254,7 +263,7 @@ build-seid-in-localnode: build-docker-node
 
 # CI variant: assumes localnode image already built by Buildx in prepare-cluster (skips docker build).
 build-seid-in-localnode-ci: ensure-integration-ci-images
-	@mkdir -p build $(shell go env GOPATH)/pkg/mod $(shell go env GOCACHE)
+	@mkdir -p build $(shell go env GOMODCACHE) $(shell go env GOCACHE)
 	@docker run --rm \
 		--user="$(shell id -u):$(shell id -g)" \
 		-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
@@ -382,7 +391,7 @@ CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROU
 # Run a 4-node docker containers
 docker-cluster-start: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
-	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOMODCACHE)
 	@mkdir -p $(shell go env GOCACHE)
 	@cd docker && \
 		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
@@ -410,7 +419,7 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 docker-cluster-start-ci: docker-cluster-stop ensure-integration-ci-images
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@test -f $(PROJECT_HOME)/build/seid || (echo "build/seid missing; download integration-build.tar.gz from prepare-cluster" && exit 1)
-	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOMODCACHE)
 	@mkdir -p $(shell go env GOCACHE)
 	@cd docker && \
 		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
@@ -429,7 +438,7 @@ docker-cluster-stop:
 # Start 4-node cluster with Prometheus and Grafana monitoring
 docker-cluster-start-monitoring: docker-cluster-stop-monitoring build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
-	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOMODCACHE)
 	@mkdir -p $(shell go env GOCACHE)
 	@cd docker && \
 		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
@@ -491,7 +500,7 @@ autobahn-integration-test:
 # Any determinism divergence between giga and V2 will cause the giga node to halt.
 docker-cluster-start-giga-mixed: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
-	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOMODCACHE)
 	@mkdir -p $(shell go env GOCACHE)
 	@cd docker && \
 		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \

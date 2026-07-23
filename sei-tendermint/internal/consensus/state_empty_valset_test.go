@@ -23,8 +23,6 @@ import (
 // leaving the round state holding an empty validator set.
 func newStateFromEmptyGenesisValidators(t *testing.T) *State {
 	t.Helper()
-	ctx := t.Context()
-
 	cfg := configSetup(t)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), nil, factory.ConsensusParams())
 	state, err := sm.MakeGenesisState(genDoc)
@@ -37,7 +35,7 @@ func newStateFromEmptyGenesisValidators(t *testing.T) *State {
 
 	app := kvstore.NewApplication()
 	t.Cleanup(func() { _ = app.Close() })
-	_, err = app.InitChain(ctx, &abci.RequestInitChain{})
+	_, err = app.InitChain(&abci.RequestInitChain{})
 	require.NoError(t, err)
 
 	pv := loadPrivValidator(thisConfig)

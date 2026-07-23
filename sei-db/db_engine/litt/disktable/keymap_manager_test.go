@@ -113,7 +113,7 @@ func drainWatermark(ch chan int64) int64 {
 func TestKeymapManagerPutThenDeleteResolvesToDeleted(t *testing.T) {
 	m, wmChan := newTestKeymapManager(t, 1024, 1 /* split every delete key */, 1_000_000, 1024)
 
-	require.NoError(t, m.scheduleWrite(scopedKeys("K", "A", "B", "X", "Y")))
+	require.NoError(t, m.scheduleWrite(scopedKeys("K", "A", "B", "X", "Y"), 0))
 	// Delete group for segment 5 contains K, X, Y (enqueued after the put of the same keys).
 	require.NoError(t, m.scheduleDelete(scopedKeys("X", "K", "Y"), 5))
 	require.NoError(t, m.drain())
@@ -128,7 +128,7 @@ func TestKeymapManagerPutThenDeleteResolvesToDeleted(t *testing.T) {
 func TestKeymapManagerDrainsBacklogAndAdvancesWatermark(t *testing.T) {
 	m, wmChan := newTestKeymapManager(t, 1024, 2 /* force splitting */, 1_000_000, 1024)
 
-	require.NoError(t, m.scheduleWrite(scopedKeys("a1", "a2", "a3", "b1", "b2", "c1")))
+	require.NoError(t, m.scheduleWrite(scopedKeys("a1", "a2", "a3", "b1", "b2", "c1"), 0))
 	require.NoError(t, m.scheduleDelete(scopedKeys("a1", "a2", "a3"), 1))
 	require.NoError(t, m.scheduleDelete(scopedKeys("b1", "b2"), 2))
 	require.NoError(t, m.scheduleDelete(scopedKeys("c1"), 3))
@@ -173,7 +173,7 @@ func TestKeymapManagerBackpressureDoesNotDeadlock(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			ks = append(ks, fmt.Sprintf("g%d_k%d", g, i))
 		}
-		require.NoError(t, m.scheduleWrite(scopedKeys(ks...)))
+		require.NoError(t, m.scheduleWrite(scopedKeys(ks...), 0))
 		require.NoError(t, m.scheduleDelete(scopedKeys(ks...), int64(g)))
 		allKeys = append(allKeys, ks...)
 	}
@@ -188,14 +188,32 @@ func TestKeymapManagerBackpressureDoesNotDeadlock(t *testing.T) {
 func TestKeymapManagerSyncAppliesThenContinues(t *testing.T) {
 	m, _ := newTestKeymapManager(t, 1024, 1024, 1_000_000, 1024)
 
-	require.NoError(t, m.scheduleWrite(scopedKeys("k1")))
+	require.NoError(t, m.scheduleWrite(scopedKeys("k1"), 0))
 	require.NoError(t, m.scheduleDelete(scopedKeys("k1"), 1))
 	require.NoError(t, m.sync())
 	assertAbsent(t, m, "k1")
 
-	require.NoError(t, m.scheduleWrite(scopedKeys("k2")))
+	require.NoError(t, m.scheduleWrite(scopedKeys("k2"), 0))
 	require.NoError(t, m.sync())
 	assertPresent(t, m, "k2")
 
 	require.NoError(t, m.drain())
+}
+
+// TestKeymapManagerPendingPutBytesTracksRawSize pins the cache-bound accounting: pendingPutBytes must reflect the
+// raw (pre-compression) value bytes carried on the write request, NOT Address.ValueSize() (which is the compressed
+// on-disk size for a compressed table). This is what keeps maxBatchBytes bounding the raw unflushed-data cache.
+func TestKeymapManagerPendingPutBytesTracksRawSize(t *testing.T) {
+	m, _ := buildTestKeymapManager(t, 1024, 1, 1_000_000, 1024)
+
+	// Address encodes a small (compressed) on-disk size; the request carries a much larger raw size. The
+	// accounting must follow the raw size, proving it is decoupled from Address.ValueSize().
+	keys := []*types.ScopedKey{
+		{Key: []byte("k"), Address: types.NewAddress(0, 0, 0, 10), Kind: types.KeyKindStandalone},
+	}
+	const rawBytes uint64 = 100_000
+
+	require.False(t, m.routeRequest(&keymapWriteRequest{keys: keys, uncompressedPutBytes: rawBytes}))
+	require.Equal(t, rawBytes, m.pendingPutBytes,
+		"pendingPutBytes must track the request's raw value bytes, not Address.ValueSize()")
 }

@@ -1,9 +1,11 @@
 package segment
 
 import (
+	"encoding/binary"
 	"os"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
@@ -51,6 +53,65 @@ func TestUnsealedSerialization(t *testing.T) {
 
 	_, err = os.Stat(filePath)
 	require.True(t, os.IsNotExist(err))
+}
+
+func TestCompressionAlgorithmSerialization(t *testing.T) {
+	t.Parallel()
+	rand := util.NewTestRandom()
+	directory := t.TempDir()
+
+	index := rand.Uint32()
+	segmentPath, err := NewSegmentPath(directory, "", "table")
+	require.NoError(t, err)
+	err = segmentPath.MakeDirectories(false)
+	require.NoError(t, err)
+
+	m, err := createMetadataFile(index, 4, types.CompressionS2, segmentPath, false)
+	require.NoError(t, err)
+	require.Equal(t, types.CompressionS2, m.compressionAlgorithm)
+	require.Equal(t, LatestSegmentVersion, m.segmentVersion)
+
+	// The on-disk file is the v4 size, and the algorithm survives a round trip.
+	stat, err := os.Stat(m.path())
+	require.NoError(t, err)
+	require.Equal(t, int64(V4MetadataSize), stat.Size())
+
+	deserialized, err := loadMetadataFile(index, []*SegmentPath{segmentPath}, false)
+	require.NoError(t, err)
+	require.Equal(t, types.CompressionS2, deserialized.compressionAlgorithm)
+	require.Equal(t, *m, *deserialized)
+}
+
+// TestV3MetadataReadsAsUncompressed verifies that a legacy version-3 metadata file (which has no
+// compression byte) still loads, and is interpreted as CompressionNone.
+func TestV3MetadataReadsAsUncompressed(t *testing.T) {
+	t.Parallel()
+	rand := util.NewTestRandom()
+	directory := t.TempDir()
+
+	index := rand.Uint32()
+	segmentPath, err := NewSegmentPath(directory, "", "table")
+	require.NoError(t, err)
+	err = segmentPath.MakeDirectories(false)
+	require.NoError(t, err)
+
+	// Write a v4 file, then rewrite it in the legacy v3 layout: version 3 and no trailing compression
+	// byte (18 bytes instead of 19).
+	m, err := createMetadataFile(index, 7, types.CompressionNone, segmentPath, false)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(m.path())
+	require.NoError(t, err)
+	require.Equal(t, V4MetadataSize, len(data))
+	v3 := data[:V3MetadataSize]
+	binary.BigEndian.PutUint32(v3[0:4], uint32(ShardedAddressSegmentVersion))
+	require.NoError(t, os.WriteFile(m.path(), v3, 0600))
+
+	deserialized, err := loadMetadataFile(index, []*SegmentPath{segmentPath}, false)
+	require.NoError(t, err)
+	require.Equal(t, ShardedAddressSegmentVersion, deserialized.segmentVersion)
+	require.Equal(t, types.CompressionNone, deserialized.compressionAlgorithm)
+	require.EqualValues(t, 7, deserialized.shardingFactor)
 }
 
 func TestSealedSerialization(t *testing.T) {
@@ -108,7 +169,7 @@ func TestFreshFileSerialization(t *testing.T) {
 	require.NoError(t, err)
 	err = segmentPath.MakeDirectories(false)
 	require.NoError(t, err)
-	m, err := createMetadataFile(index, 123, segmentPath, false)
+	m, err := createMetadataFile(index, 123, types.CompressionNone, segmentPath, false)
 	require.NoError(t, err)
 
 	require.Equal(t, index, m.index)
@@ -148,7 +209,7 @@ func TestSealing(t *testing.T) {
 	require.NoError(t, err)
 	err = segmentPath.MakeDirectories(false)
 	require.NoError(t, err)
-	m, err := createMetadataFile(index, 123, segmentPath, false)
+	m, err := createMetadataFile(index, 123, types.CompressionNone, segmentPath, false)
 	require.NoError(t, err)
 
 	// seal the file

@@ -397,3 +397,229 @@ func TestAddress(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())
 }
+
+func TestSpendableBalancesQuery(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+	err := k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("uspendablequery", sdk.NewInt(5000))))
+	require.Nil(t, err)
+	err = k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, sdk.NewCoins(sdk.NewCoin("uspendablequery", sdk.NewInt(5000))))
+	require.Nil(t, err)
+
+	p, err := bank.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{StateDB: statedb}
+
+	spendableBalances, err := p.ABI.MethodById(p.GetExecutor().(*bank.PrecompileExecutor).SpendableBalancesID)
+	require.Nil(t, err)
+	args, err := spendableBalances.Inputs.Pack(evmAddr, []byte{})
+	require.Nil(t, err)
+	res, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).SpendableBalancesID, args...), 100000, nil, nil, false, false)
+	require.Nil(t, err)
+	outputs, err := spendableBalances.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, 2, len(outputs))
+	balances := outputs[0].([]struct {
+		Amount *big.Int `json:"amount"`
+		Denom  string   `json:"denom"`
+	})
+	require.Equal(t, 1, len(balances))
+	require.Equal(t, bank.CoinBalance{
+		Amount: big.NewInt(5000),
+		Denom:  "uspendablequery",
+	}, bank.CoinBalance(balances[0]))
+	require.Empty(t, outputs[1].([]byte))
+}
+
+func TestTotalSupplyQuery(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	err := k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("utotalsupplyquery", sdk.NewInt(123456))))
+	require.Nil(t, err)
+
+	p, err := bank.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{StateDB: statedb}
+
+	totalSupply, err := p.ABI.MethodById(p.GetExecutor().(*bank.PrecompileExecutor).TotalSupplyID)
+	require.Nil(t, err)
+	args, err := totalSupply.Inputs.Pack([]byte{})
+	require.Nil(t, err)
+	res, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).TotalSupplyID, args...), 100000, nil, nil, false, false)
+	require.Nil(t, err)
+	outputs, err := totalSupply.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, 2, len(outputs))
+	supply := outputs[0].([]struct {
+		Amount *big.Int `json:"amount"`
+		Denom  string   `json:"denom"`
+	})
+	found := false
+	for _, coin := range supply {
+		if coin.Denom == "utotalsupplyquery" {
+			found = true
+			require.Equal(t, big.NewInt(123456), coin.Amount)
+		}
+	}
+	require.True(t, found)
+}
+
+func TestBankParamsQuery(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	p, err := bank.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{StateDB: statedb}
+
+	params, err := p.ABI.MethodById(p.GetExecutor().(*bank.PrecompileExecutor).ParamsID)
+	require.Nil(t, err)
+	res, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, p.GetExecutor().(*bank.PrecompileExecutor).ParamsID, 100000, nil, nil, false, false)
+	require.Nil(t, err)
+	outputs, err := params.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(outputs))
+	parsedParams := outputs[0].(struct {
+		SendEnabled []struct {
+			Denom   string `json:"denom"`
+			Enabled bool   `json:"enabled"`
+		} `json:"sendEnabled"`
+		DefaultSendEnabled bool `json:"defaultSendEnabled"`
+	})
+	expectedParams := k.BankKeeper().GetParams(ctx)
+	require.Equal(t, expectedParams.DefaultSendEnabled, parsedParams.DefaultSendEnabled)
+	require.Equal(t, len(expectedParams.SendEnabled), len(parsedParams.SendEnabled))
+}
+
+func TestDenomMetadataQuery(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	metadata := banktypes.Metadata{
+		Description: "Test denom metadata",
+		DenomUnits: []*banktypes.DenomUnit{
+			{Denom: "udenommetaquery", Exponent: 0, Aliases: []string{"microdenommetaquery"}},
+			{Denom: "denommetaquery", Exponent: 6, Aliases: []string{"DENOMMETAQUERY"}},
+		},
+		Base:    "udenommetaquery",
+		Display: "denommetaquery",
+		Name:    "Denom Meta Query",
+		Symbol:  "DMQ",
+	}
+	k.BankKeeper().SetDenomMetaData(ctx, metadata)
+
+	p, err := bank.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{StateDB: statedb}
+
+	denomMetadata, err := p.ABI.MethodById(p.GetExecutor().(*bank.PrecompileExecutor).DenomMetadataID)
+	require.Nil(t, err)
+	args, err := denomMetadata.Inputs.Pack("udenommetaquery")
+	require.Nil(t, err)
+	res, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).DenomMetadataID, args...), 100000, nil, nil, false, false)
+	require.Nil(t, err)
+	outputs, err := denomMetadata.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(outputs))
+	parsedMetadata := outputs[0].(struct {
+		Description string `json:"description"`
+		DenomUnits  []struct {
+			Denom    string   `json:"denom"`
+			Exponent uint32   `json:"exponent"`
+			Aliases  []string `json:"aliases"`
+		} `json:"denomUnits"`
+		Base    string `json:"base"`
+		Display string `json:"display"`
+		Name    string `json:"name"`
+		Symbol  string `json:"symbol"`
+	})
+	require.Equal(t, metadata.Description, parsedMetadata.Description)
+	require.Equal(t, len(metadata.DenomUnits), len(parsedMetadata.DenomUnits))
+	for i, du := range metadata.DenomUnits {
+		require.Equal(t, du.Denom, parsedMetadata.DenomUnits[i].Denom)
+		require.Equal(t, du.Exponent, parsedMetadata.DenomUnits[i].Exponent)
+		require.Equal(t, du.Aliases, parsedMetadata.DenomUnits[i].Aliases)
+	}
+	require.Equal(t, metadata.Base, parsedMetadata.Base)
+	require.Equal(t, metadata.Display, parsedMetadata.Display)
+	require.Equal(t, metadata.Name, parsedMetadata.Name)
+	require.Equal(t, metadata.Symbol, parsedMetadata.Symbol)
+
+	// querying a denom without metadata should error
+	args, err = denomMetadata.Inputs.Pack("unosuchdenommeta")
+	require.Nil(t, err)
+	_, _, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).DenomMetadataID, args...), 100000, nil, nil, false, false)
+	require.NotNil(t, err)
+}
+
+func TestDenomsMetadataQuery(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	metadata := banktypes.Metadata{
+		Description: "Test denoms metadata",
+		DenomUnits: []*banktypes.DenomUnit{
+			{Denom: "udenomsmetaquery", Exponent: 0, Aliases: []string{"microdenomsmetaquery"}},
+		},
+		Base:    "udenomsmetaquery",
+		Display: "udenomsmetaquery",
+		Name:    "Denoms Meta Query",
+		Symbol:  "DSMQ",
+	}
+	k.BankKeeper().SetDenomMetaData(ctx, metadata)
+
+	p, err := bank.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{StateDB: statedb}
+
+	denomsMetadata, err := p.ABI.MethodById(p.GetExecutor().(*bank.PrecompileExecutor).DenomsMetadataID)
+	require.Nil(t, err)
+	args, err := denomsMetadata.Inputs.Pack([]byte{})
+	require.Nil(t, err)
+	res, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).DenomsMetadataID, args...), 100000, nil, nil, false, false)
+	require.Nil(t, err)
+	outputs, err := denomsMetadata.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, 2, len(outputs))
+	parsedMetadatas := outputs[0].([]struct {
+		Description string `json:"description"`
+		DenomUnits  []struct {
+			Denom    string   `json:"denom"`
+			Exponent uint32   `json:"exponent"`
+			Aliases  []string `json:"aliases"`
+		} `json:"denomUnits"`
+		Base    string `json:"base"`
+		Display string `json:"display"`
+		Name    string `json:"name"`
+		Symbol  string `json:"symbol"`
+	})
+	found := false
+	for _, parsedMetadata := range parsedMetadatas {
+		if parsedMetadata.Base == "udenomsmetaquery" {
+			found = true
+			require.Equal(t, metadata.Description, parsedMetadata.Description)
+			require.Equal(t, metadata.Display, parsedMetadata.Display)
+			require.Equal(t, metadata.Name, parsedMetadata.Name)
+			require.Equal(t, metadata.Symbol, parsedMetadata.Symbol)
+			require.Equal(t, 1, len(parsedMetadata.DenomUnits))
+			require.Equal(t, "udenomsmetaquery", parsedMetadata.DenomUnits[0].Denom)
+		}
+	}
+	require.True(t, found)
+	// all metadata records fit in one page, so the next page key should be empty
+	require.Empty(t, outputs[1].([]byte))
+}
