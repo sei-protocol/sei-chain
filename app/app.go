@@ -1376,7 +1376,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	defer func() {
 		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
-		logger.Info("FinalizeBlock complete", "took-ms", duration/time.Millisecond)
+		logger.Debug("FinalizeBlock complete", "took-ms", duration/time.Millisecond)
 		// End block processing timing (started at ProcessProposal)
 		app.EndBenchmarkBlockProcessing()
 		// Process receipts for benchmark deployment tracking

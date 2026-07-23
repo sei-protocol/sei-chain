@@ -21,7 +21,7 @@ func (k Keeper) BeginBlock(ctx sdk.Context) {
 		telemetry.ModuleMeasureSince(types.ModuleName, start, telemetry.MetricKeyBeginBlocker)
 	}()
 	lastEpoch := k.GetEpoch(ctx)
-	logger.Info(" Block time", "current", ctx.BlockTime(), "last", lastEpoch.CurrentEpochStartTime, "epoch-duration", lastEpoch.EpochDuration)
+	logger.Debug(" Block time", "current", ctx.BlockTime(), "last", lastEpoch.CurrentEpochStartTime, "epoch-duration", lastEpoch.EpochDuration)
 
 	if ctx.BlockTime().Sub(lastEpoch.CurrentEpochStartTime) > lastEpoch.EpochDuration {
 		k.AfterEpochEnd(ctx, lastEpoch)

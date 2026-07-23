@@ -1838,7 +1838,7 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 		panic(fmt.Errorf("+2/3 committed an invalid block: %w", err))
 	}
 
-	logger.Info(
+	logger.Debug(
 		"finalizing commit of block",
 		"hash", block.Hash(),
 		"root", block.AppHash,

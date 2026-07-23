@@ -353,7 +353,7 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 	commitMs := time.Since(commitStart).Milliseconds()
 	ppMs := app.execProcessProposalMs
 	fbMs := app.execFinalizeBlockMs
-	logger.Info("execution block time",
+	logger.Debug("execution block time",
 		"height", header.Height,
 		"block_txs", app.execBlockTxCount,
 		"process_proposal_ms", ppMs,

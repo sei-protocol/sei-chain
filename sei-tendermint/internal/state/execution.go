@@ -232,7 +232,7 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 		return state, ErrProxyAppConn(err)
 	}
 
-	logger.Info(
+	logger.Debug(
 		"finalized block",
 		"height", block.Height,
 		"latency_ms", time.Since(startTime).Milliseconds(),
@@ -466,7 +466,7 @@ func (blockExec *BlockExecutor) Commit(
 	Global.ApplicationCommitTimeAt().Observe(float64(time.Since(start)))
 
 	// ResponseCommit has no error code - just data
-	logger.Info(
+	logger.Debug(
 		"committed state",
 		"height", block.Height,
 		"num_txs", len(block.Txs),
@@ -731,7 +731,7 @@ func ExecCommitBlock(
 		logger.Error("executing block", "err", err)
 		return nil, err
 	}
-	logger.Info("executed block", "height", block.Height)
+	logger.Debug("executed block", "height", block.Height)
 
 	// the BlockExecutor condition is using for the final block replay process.
 	if be != nil {
