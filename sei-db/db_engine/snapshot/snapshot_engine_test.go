@@ -97,8 +97,8 @@ func TestEngineGetNotFound(t *testing.T) {
 
 func TestEngineGetPropagatesDBError(t *testing.T) {
 	db := newTestDB(nil)
-	db.getErr = errors.New("db boom")
 	engine := newTestEngineWithDB(t, db, 1, 1<<20)
+	db.getErr = errors.New("db boom") // inject after open (open itself reads the hash key)
 	_, _, err := engine.Get([]byte("k"), true)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "db boom")
@@ -118,6 +118,35 @@ func TestEngineBatchSetThenBatchGet(t *testing.T) {
 	require.Equal(t, []byte("2"), req["b"].Value)
 	require.False(t, req["c"].IsFound())
 	require.False(t, req["missing"].IsFound())
+}
+
+func TestInitialHashReadFromDBOnOpen(t *testing.T) {
+	hashKey := DefaultTestSnapshotEngineConfig().HashKey
+	engine, _ := newTestEngine(t, map[string][]byte{hashKey: []byte("prior-hash")}, 2, 1<<20)
+	require.Equal(t, []byte("prior-hash"), engine.InitialHash())
+}
+
+func TestInitialHashNilWhenNeverFlushed(t *testing.T) {
+	engine := newTestEngineWithDB(t, newTestDB(nil), 2, 1<<20)
+	require.Nil(t, engine.InitialHash())
+}
+
+func TestFlushSyncTrueStillRoundTrips(t *testing.T) {
+	cfg := newTestConfig(1, 1<<20)
+	cfg.FlushSync = true
+	db := newTestDB(nil)
+	engine := newTestEngineWithConfig(t, cfg, db)
+
+	engine.Set([]byte("k"), []byte("v"))
+	snap, err := engine.Snapshot()
+	require.NoError(t, err)
+	require.NoError(t, snap.SetHash(testHash))
+	awaitFlushed(t, snap, time.Second)
+	require.NoError(t, snap.Release())
+
+	kv, ok := db.get("k")
+	require.True(t, ok)
+	require.Equal(t, []byte("v"), kv)
 }
 
 // TestMetricsEnabledDoesNotBreakEngine is a smoke test: with metrics on and a fast scrape interval,

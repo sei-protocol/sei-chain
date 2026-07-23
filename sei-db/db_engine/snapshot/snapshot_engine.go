@@ -47,6 +47,12 @@ type SnapshotEngine interface {
 	// caller holds a reservation on it; see Snapshot for the full lifecycle contract.
 	Snapshot() (Snapshot, error)
 
+	// InitialHash returns the most recently flushed hash as read from the underlying DB when the
+	// engine was opened, or nil if the DB had never been flushed. It lets a consumer recover the
+	// last persisted hash across restarts. It reflects open-time state and does not change as new
+	// snapshots are hashed and flushed.
+	InitialHash() []byte
+
 	// Close closes the snapshot engine and the underlying database. Before tearing down, Close flushes
 	// whatever snapshots are currently flush-eligible — the contiguous prefix of hashed,
 	// unflushed snapshots starting at the oldest, applying the same eligibility rules as the

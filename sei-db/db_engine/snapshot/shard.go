@@ -730,8 +730,10 @@ func (s *shard) DropVersions(
 		}
 	}
 
-	// These insertions may have caused the DB read-cache to exceed its size budget, do necessary evictions.
-	s.evictLocked() // TODO necessary here??
+	// These insertions may have caused the DB read-cache to exceed its size budget, do necessary
+	// evictions. setInDBCacheLocked does not evict on its own, so this is the enforcement point for
+	// the bulk insert above.
+	s.evictLocked()
 
 	// Update the oldset version.
 	s.oldestVersion = lastVersion

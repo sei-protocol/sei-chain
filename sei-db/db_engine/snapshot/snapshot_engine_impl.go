@@ -8,6 +8,7 @@ import (
 	"sort"
 	"sync"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -34,6 +35,10 @@ type snapshotEngine struct {
 
 	// The underlying key-value database.
 	db types.KeyValueDB
+
+	// The most recently flushed hash, read from the DB (under config.HashKey) at open time. Nil if
+	// the DB had never been flushed. Exposed via InitialHash for restart continuity.
+	initialHash []byte
 
 	// Protects modification to version state.
 	versionLock *sync.Mutex
@@ -168,7 +173,16 @@ func NewSnapshotEngine(
 		return nil, fmt.Errorf("invalid snapshot engine config: %w", err)
 	}
 
-	// TODO check if the DB is empty. If it's not, we should observe the initial hash.
+	// Read the most recently flushed hash (written under config.HashKey by flushSnapshots), so a
+	// restart over an existing DB can observe the on-disk hash. A never-flushed DB has none.
+	var initialHash []byte
+	if h, err := db.Get([]byte(config.HashKey)); err != nil {
+		if !errors.Is(err, errorutils.ErrNotFound) {
+			return nil, fmt.Errorf("failed to read initial hash: %w", err)
+		}
+	} else {
+		initialHash = h
+	}
 
 	shardManager, err := newShardManager(config.ShardCount)
 	if err != nil {
@@ -198,6 +212,7 @@ func NewSnapshotEngine(
 		readPool:                  readPool,
 		miscPool:                  miscPool,
 		db:                        db,
+		initialHash:               initialHash,
 		versionMap:                make(map[uint64]*snapshotReferenceCounter),
 		currentVersion:            1, // important: versions start at 1, not 0, to allow version-1 without underflow
 		oldestVersion:             1,
@@ -892,7 +907,7 @@ func (c *snapshotEngine) flushSnapshots(
 		}
 
 		if batch.Len() >= c.config.TargetKeysPerFlush {
-			if err := batch.Commit(types.WriteOptions{Sync: false}); err != nil { // TODO check sync requirement
+			if err := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync}); err != nil {
 				return fmt.Errorf("flush failed to commit batch: %w", err)
 			}
 			batch = nil
@@ -904,7 +919,7 @@ func (c *snapshotEngine) flushSnapshots(
 		}
 	}
 	if batch != nil {
-		if err := batch.Commit(types.WriteOptions{Sync: false}); err != nil { // TODO check sync requirement
+		if err := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync}); err != nil {
 			return fmt.Errorf("flush failed to commit batch: %w", err)
 		}
 		c.versionLock.Lock()
@@ -968,6 +983,10 @@ func (c *snapshotEngine) retireSnapshots(
 // the SnapshotEngine interface methods.
 func (c *snapshotEngine) UnderlyingDB() types.KeyValueDB {
 	return c.db
+}
+
+func (c *snapshotEngine) InitialHash() []byte {
+	return c.initialHash
 }
 
 // Close is idempotent: teardown runs exactly once and subsequent calls return the same result.

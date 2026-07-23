@@ -36,6 +36,12 @@ type SnapshotEngineConfig struct {
 
 	// A special metadata key where the DB stores its hash.
 	HashKey string
+
+	// Whether to fsync flushed data to the underlying DB on each flush commit. When false, flushes
+	// are not individually fsync'd: on a hard OS/power crash the most recent unsynced flushes may be
+	// lost (but the DB is not corrupted), and crash durability is instead provided by an upstream
+	// fsync'd WAL / block replay. Set true for deployments that want per-flush durability regardless.
+	FlushSync bool
 }
 
 // Default configuration for a production snapshot engine.
@@ -48,6 +54,7 @@ func DefaultSnapshotEngineConfig() *SnapshotEngineConfig {
 		MetricsScrapeIntervalSeconds: 10,
 		MaxUnretiredVersions:         4,
 		TargetKeysPerFlush:           1024 * 10,
+		FlushSync:                    false,
 	}
 }
 
