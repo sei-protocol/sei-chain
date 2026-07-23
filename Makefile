@@ -578,3 +578,7 @@ test-group-%:split-test-packages
 		PARALLEL="-parallel=4"; \
 	fi; \
 	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic -coverpkg=./...
+
+.PHONY: gasbench
+gasbench: ## Run the compute-opcode microbench (pin core via GASBENCH_CORE)
+	./tools/gasbench/run.sh
