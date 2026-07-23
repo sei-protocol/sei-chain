@@ -357,9 +357,8 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 
 	db2 := newTestBlockDB(t, dir)
 	tips := db2.Status()
-	require.False(t, tips.NextBlock.IsPresent())
-	_, ok := tips.NextQC.Get()
-	require.True(t, ok)
+	require.Zero(t, tips.NextBlock)
+	require.NotZero(t, tips.NextQC)
 
 	state := newTestState(t, &Config{Registry: registry}, db2)
 	require.Equal(t, gr2.First, state.NextBlock())

@@ -10,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 const blocksCacheSize = 4000
@@ -212,6 +211,9 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // TODO: Cap how much of BlockDB we replay into RAM (similar to PushQC's
 // blocksCacheSize gate). Deferred to a follow-up PR — today we load the full
 // retained store.
+//
+// TODO: Push gap / first-block / QC-coverage consistency checks down into the
+// BlockDB implementation so loadFromBlockDB can assume a consistent view.
 func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 	for in := range s.inner.Lock() {
 		// Restore QCs from BlockDB. On the first QC, skipTo its GlobalRange.First
@@ -433,6 +435,9 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
+		// insertBlock may no-op if n fell into the contiguous prefix (or was
+		// gap-filled) while we verified outside the lock; Updated is still
+		// signaled so waiters re-check.
 		if err := inner.insertBlock(n, block); err != nil {
 			return err
 		}
@@ -649,8 +654,8 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		if n < inner.first {
 			return nil, types.ErrPruned
 		}
-		ap := inner.appProposals[n]
-		if ap == nil {
+		ap, ok := inner.appProposals[n]
+		if !ok {
 			return nil, types.ErrPruned
 		}
 		return ap, nil
@@ -707,17 +712,22 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 }
 
 // runPersist is a background goroutine that persists blocks and QCs to BlockDB.
-// It waits for in-memory data to advance past the persistence cursors, then
-// writes QCs (first, per the BlockDB contract) and blocks, then flushes once
-// per batch. nextBlockToPersist advances to min(nextToPersistQC, nextToPersistBlock)
-// to unblock PushAppHash only when both are durable.
+// It waits for in-memory blocks to advance past the block persistence cursor,
+// then writes covering QCs (first, per the BlockDB contract) and blocks, then
+// flushes once per batch. nextBlockToPersist advances with the block tip to
+// unblock PushAppHash only when data is durable.
 // Errors propagate vertically (kill the component).
 //
-// Persistence cursors (nextToPersistQC / nextToPersistBlock) seed from
-// BlockDB.Status() when present so PushQC-before-Run heights are not skipped.
-// When a Status tip is absent, seed from post-load nextBlockToPersist (recovery
-// floor), never bare registry.FirstBlock() — a QC-only store can skipTo past
-// genesis while NextBlock is still missing.
+// Cursors seed from BlockDB.Status() when non-zero so PushQC-before-Run heights
+// are not skipped. When a tip is zero, seed from post-load nextBlockToPersist
+// (recovery floor), never bare registry.FirstBlock() — a QC-only store can
+// skipTo past genesis while NextBlock is still zero.
+//
+// Under the BlockDB write contract (QC before covered blocks), NextQC is never
+// behind NextBlock after a successful write. Persistence is driven by the block
+// cursor; a QC is emitted only when n equals GlobalRange.First and that First
+// is still at or past NextQC (enough coverage for each new block, not every
+// in-memory QC, and no rewrite of QCs already on disk).
 //
 // In-memory eviction is driven by PushQC / PushAppHash (evictBelowBound), not here.
 func (s *State) runPersist(ctx context.Context) error {
@@ -725,43 +735,38 @@ func (s *State) runPersist(ctx context.Context) error {
 	var nextToPersistQC, nextToPersistBlock types.GlobalBlockNumber
 	for inner := range s.inner.Lock() {
 		// After loadFromBlockDB, nextBlockToPersist is the durable recovery tip.
-		nextToPersistQC = inner.nextBlockToPersist
-		nextToPersistBlock = inner.nextBlockToPersist
-	}
-	if n, ok := tips.NextQC.Get(); ok {
-		nextToPersistQC = n
-	}
-	if n, ok := tips.NextBlock.Get(); ok {
-		nextToPersistBlock = n
+		nextToPersistQC = tips.NextQC
+		if nextToPersistQC == 0 {
+			nextToPersistQC = inner.nextBlockToPersist
+		}
+		nextToPersistBlock = tips.NextBlock
+		if nextToPersistBlock == 0 {
+			nextToPersistBlock = inner.nextBlockToPersist
+		}
 	}
 	for {
 		type batch struct {
-			qcs      []*types.FullCommitQC
-			blocks   []blockEntry
-			qcEnd    types.GlobalBlockNumber
-			blockEnd types.GlobalBlockNumber
+			qcs       []*types.FullCommitQC
+			blocks    []blockEntry
+			nextBlock types.GlobalBlockNumber
 		}
 		var b batch
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return nextToPersistQC < inner.nextQC || nextToPersistBlock < inner.nextBlock
+				return nextToPersistBlock < inner.nextBlock
 			}); err != nil {
 				return err
 			}
-			b.qcEnd = inner.nextQC
-			b.blockEnd = inner.nextBlock
-			// Collect deduplicated QCs for [nextToPersistQC, nextQC).
-			seen := map[types.GlobalBlockNumber]bool{}
-			for n := nextToPersistQC; n < inner.nextQC; n++ {
+			b.nextBlock = inner.nextBlock
+			// Persist blocks in [nextToPersistBlock, nextBlock). Emit each covering
+			// QC once at GlobalRange.First when it has not already been written
+			// (First >= nextToPersistQC).
+			for n := nextToPersistBlock; n < inner.nextBlock; n++ {
 				qc := inner.qcs[n]
-				qcFirst := qc.QC().GlobalRange().First
-				if !seen[qcFirst] {
-					seen[qcFirst] = true
+				gr := qc.QC().GlobalRange()
+				if n == gr.First && gr.First >= nextToPersistQC {
 					b.qcs = append(b.qcs, qc)
 				}
-			}
-			// Collect blocks for [nextToPersistBlock, nextBlock).
-			for n := nextToPersistBlock; n < inner.nextBlock; n++ {
 				b.blocks = append(b.blocks, blockEntry{n: n, block: inner.blocks[n]})
 			}
 		}
@@ -770,6 +775,9 @@ func (s *State) runPersist(ctx context.Context) error {
 			gr := qc.QC().GlobalRange()
 			if err := s.blockDB.WriteQC(gr.First, gr.Next, qc); err != nil {
 				return fmt.Errorf("write QC [%d,%d): %w", gr.First, gr.Next, err)
+			}
+			if gr.Next > nextToPersistQC {
+				nextToPersistQC = gr.Next
 			}
 		}
 		for _, lb := range b.blocks {
@@ -782,12 +790,10 @@ func (s *State) runPersist(ctx context.Context) error {
 		if err := s.blockDB.Flush(); err != nil {
 			return fmt.Errorf("flush BlockDB: %w", err)
 		}
-		nextToPersistQC = b.qcEnd
-		nextToPersistBlock = b.blockEnd
-		newToPersist := min(nextToPersistQC, nextToPersistBlock)
+		nextToPersistBlock = b.nextBlock
 		for inner, ctrl := range s.inner.Lock() {
-			if newToPersist > inner.nextBlockToPersist {
-				inner.nextBlockToPersist = newToPersist
+			if nextToPersistBlock > inner.nextBlockToPersist {
+				inner.nextBlockToPersist = nextToPersistBlock
 				ctrl.Updated()
 			}
 		}
@@ -796,20 +802,20 @@ func (s *State) runPersist(ctx context.Context) error {
 
 // certifiedAppFloor is the exclusive eviction floor from the tip CommitQC's
 // embedded App, if any: App.GlobalNumber()+1. Only the tip QC is consulted
-// (no backward walk). Absent App → no certified floor yet.
-func (i *inner) certifiedAppFloor() utils.Option[types.GlobalBlockNumber] {
-	if i.nextQC == 0 {
-		return utils.None[types.GlobalBlockNumber]()
+// (no backward walk). Returns 0 when maps are empty or the tip has no App.
+func (i *inner) certifiedAppFloor() types.GlobalBlockNumber {
+	if i.first == i.nextQC {
+		return 0
 	}
 	qc, ok := i.qcs[i.nextQC-1]
 	if !ok {
-		return utils.None[types.GlobalBlockNumber]()
+		return 0
 	}
 	app, ok := qc.QC().Proposal().App().Get()
 	if !ok {
-		return utils.None[types.GlobalBlockNumber]()
+		return 0
 	}
-	return utils.Some(app.GlobalNumber() + 1)
+	return app.GlobalNumber() + 1
 }
 
 // evictBelowBound advances first toward the certified App floor and drops cached
@@ -829,8 +835,8 @@ func (i *inner) certifiedAppFloor() utils.Option[types.GlobalBlockNumber] {
 // e.g. stash an error on State for a Run monitor, or run eviction as its own
 // Run subtask.
 func evictBelowBound(inner *inner) {
-	floor, ok := inner.certifiedAppFloor().Get()
-	if !ok {
+	floor := inner.certifiedAppFloor()
+	if floor == 0 {
 		return
 	}
 	if inner.nextAppProposal == 0 {
@@ -860,12 +866,7 @@ func evictBelowBound(inner *inner) {
 	}
 }
 
-// Run starts the background persistence goroutine.
+// Run starts the background persistence loop.
 func (s *State) Run(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		scope.SpawnNamed("runPersist", func() error {
-			return s.runPersist(ctx)
-		})
-		return nil
-	})
+	return s.runPersist(ctx)
 }

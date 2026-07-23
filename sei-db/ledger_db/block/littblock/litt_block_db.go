@@ -333,10 +333,10 @@ func (s *blockDB) Status() types.DBStatus {
 	defer s.mu.Unlock()
 	var tips types.DBStatus
 	if s.hasBlocks {
-		tips.NextBlock = utils.Some(s.lastBlockNumber + 1)
+		tips.NextBlock = s.lastBlockNumber + 1
 	}
 	if s.hasQC {
-		tips.NextQC = utils.Some(s.lastQCNext)
+		tips.NextQC = s.lastQCNext
 	}
 	return tips
 }
