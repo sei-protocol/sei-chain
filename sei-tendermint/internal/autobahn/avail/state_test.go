@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -424,6 +425,94 @@ func TestWaitPruneLeash(t *testing.T) {
 	timeout2, cancel2 := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel2()
 	require.ErrorIs(t, state.waitPruneLeash(timeout2, 1, utils.None[*types.AppQC]()), context.DeadlineExceeded)
+}
+
+// TestPushVote_DropsSignerAfterEpochAdvance: PushVote verifies off-lock, then
+// WaitUntil releases the lock; advanceEpoch installs a Current that excludes the
+// signer — the vote must be dropped (no re-VerifySig; HasReplica only).
+func TestPushVote_DropsSignerAfterEpochAdvance(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistryAt(rng, 4, 0)
+		ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry},
+			utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+		state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
+
+		ep0 := state.epochDuo.Load().Current
+		lane := keys[0].Public()
+		n := types.BlockNumber(BlocksPerLane) // WaitUntil: n >= persistedBlockStart+BlocksPerLane
+		header := types.NewBlock(lane, n, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
+		vote := types.Sign(keys[0], types.NewLaneVote(header))
+
+		weights := map[types.PublicKey]uint64{}
+		for _, k := range keys[1:] {
+			weights[k.Public()] = 1000
+		}
+		ep1 := types.NewEpoch(1, types.RoadRange{First: epoch.FirstRoad(1), Next: epoch.FirstRoad(2)},
+			ep0.FirstTimestamp(), utils.OrPanic1(types.NewCommittee(weights)), ep0.FirstBlock())
+		duo1 := types.EpochDuo{Prev: utils.Some(ep0), Current: ep1}
+
+		errCh := make(chan error, 1)
+		go func() { errCh <- state.PushVote(ctx, vote) }()
+		synctest.Wait() // blocked in WaitUntil (capacity)
+
+		for inner, ctrl := range state.inner.Lock() {
+			inner.advanceEpoch(duo1)
+			inner.lanes[lane].persistedBlockStart = 1 // unblock: n < 1+BlocksPerLane
+			ctrl.Updated()
+		}
+		synctest.Wait()
+		require.NoError(t, <-errCh)
+
+		for inner := range state.inner.Lock() {
+			require.Equal(t, types.EpochIndex(1), inner.epochDuo.Load().Current.EpochIndex())
+			require.Equal(t, types.BlockNumber(0), inner.lanes[lane].votes.next,
+				"dropped vote must not extend the queue")
+		}
+	})
+}
+
+// TestPushVote_CountsSignerAfterEpochAdvance: same WaitUntil race window, but the
+// new Current still includes the signer — count with live committee weights.
+func TestPushVote_CountsSignerAfterEpochAdvance(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistryAt(rng, 4, 0)
+		ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry},
+			utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock()))))
+		state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
+
+		ep0 := state.epochDuo.Load().Current
+		lane := keys[0].Public()
+		n := types.BlockNumber(BlocksPerLane)
+		header := types.NewBlock(lane, n, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
+		vote := types.Sign(keys[0], types.NewLaneVote(header))
+
+		weights := map[types.PublicKey]uint64{keys[0].Public(): 1000, keys[1].Public(): 1000}
+		ep1 := types.NewEpoch(1, types.RoadRange{First: epoch.FirstRoad(1), Next: epoch.FirstRoad(2)},
+			ep0.FirstTimestamp(), utils.OrPanic1(types.NewCommittee(weights)), ep0.FirstBlock())
+		duo1 := types.EpochDuo{Prev: utils.Some(ep0), Current: ep1}
+
+		errCh := make(chan error, 1)
+		go func() { errCh <- state.PushVote(ctx, vote) }()
+		synctest.Wait()
+
+		for inner, ctrl := range state.inner.Lock() {
+			inner.advanceEpoch(duo1)
+			inner.lanes[lane].persistedBlockStart = 1
+			ctrl.Updated()
+		}
+		synctest.Wait()
+		require.NoError(t, <-errCh)
+
+		for inner := range state.inner.Lock() {
+			ls := inner.lanes[lane]
+			require.Contains(t, ls.votes.q[n].byKey, keys[0].Public())
+			require.Equal(t, uint64(1000), ls.votes.q[n].byHash[header.Hash()].weight)
+		}
+	})
 }
 
 func TestPushBlockRejectsBadParentHash(t *testing.T) {
