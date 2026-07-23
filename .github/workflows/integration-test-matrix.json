@@ -100,7 +100,7 @@
   {
     "_comment": "Umbrella job for all FlatKV-specific docker-level coverage. Future FlatKV scenarios (additional bucket layouts, snapshot rotation, etc.) should be appended here rather than added as new matrix rows, so the CI surface stays one row per concern. The cluster boots with GIGA_STORAGE=true, so FlatKV is enabled from genesis (sc-write-mode = test_only_dual_write) and the FlatKV LtHash is folded into every block's AppHash from block 1. No mid-life migration is exercised here; an offline memiavl -> FlatKV import would change the AppHash trajectory at the import boundary and break tendermint replay. Step ordering: 1-3 deploy an EVM fixture, smoke-check EVM RPC reads, and verify the fixture round-tripped through dual_write into physical FlatKV; 4 SIGKILL one validator, restart, and assert 4-node FlatKV digest equality (WAL recovery on a live FlatKV cluster); 5-7 destructive disaster-recovery scenarios, run last because they wipe or damage one validator's local state.",
     "name": "FlatKV Integration",
-    "env": "GIGA_STORAGE=true",
+    "env": "GIGA_STORAGE=true LOG_LEVEL=debug",
     "scripts": [
       "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV",

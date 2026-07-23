@@ -36,6 +36,16 @@ NODE_IP=$(hostname -i | awk '{print $1}')
 PEERS=$(cat build/generated/persistent_peers.txt |grep -v "$NODE_IP" | paste -sd "," -)
 sed -i'' -e 's/persistent-peers = ""/persistent-peers = "'$PEERS'"/g' ~/.sei/config/config.toml
 
+# Optional log-level override (opt-in via LOG_LEVEL env). Unset leaves the
+# config default. A scenario whose failure diagnostics grep debug-level lines
+# (e.g. the FlatKV suite reading per-block commit telemetry) sets LOG_LEVEL=debug
+# on its matrix row so those lines are present.
+LOG_LEVEL=${LOG_LEVEL:-}
+if [ -n "$LOG_LEVEL" ]; then
+  echo "Overriding log-level to '$LOG_LEVEL' for node $NODE_ID..."
+  sed -i "s/^log-level *=.*/log-level = \"$LOG_LEVEL\"/" ~/.sei/config/config.toml
+fi
+
 # Override snapshot directory
 sed -i.bak -e "s|^snapshot-directory *=.*|snapshot-directory = \"./build/generated/node_$NODE_ID/snapshots\"|" ~/.sei/config/app.toml
 
