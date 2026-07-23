@@ -466,8 +466,7 @@ func (blockExec *BlockExecutor) Commit(
 	Global.ApplicationCommitTimeAt().Observe(float64(time.Since(start)))
 
 	// ResponseCommit has no error code - just data
-	// verify_flatkv_evm_migrate.sh greps this line for a stopped validator's committed height, so keep it at info.
-	logger.Info(
+	logger.Debug(
 		"committed state",
 		"height", block.Height,
 		"num_txs", len(block.Txs),

@@ -27,6 +27,11 @@
 # starting state up front: a typo here would silently produce a
 # successful "migration" that did nothing, masking real bugs. The
 # explicit pre-flip grep below catches the mistake.
+#
+# The cluster must also be booted with LOG_LEVEL=debug: this test recovers
+# each stopped validator's committed height from the "committed state" log
+# line, which is emitted at debug level. capture_stopped_heights fails fast
+# if that line is absent.
 
 set -euo pipefail
 
@@ -148,6 +153,11 @@ capture_stopped_heights() {
       stopped_max=$h
     fi
   done
+  if [ "${stopped_max:-0}" -eq 0 ]; then
+    echo "ERROR: no 'committed state' log line found on any node; cannot recover stopped heights." >&2
+    echo "That line is emitted at debug level. Boot the cluster with LOG_LEVEL=debug, e.g. LOG_LEVEL=debug GIGA_MIGRATE_FROM_MEMIAVL=true make docker-cluster-start." >&2
+    exit 1
+  fi
 }
 
 node_last_sign_height() {
