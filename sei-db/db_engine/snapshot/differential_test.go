@@ -59,7 +59,7 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 
 	db := newTestDB(seedData)
 	cfg := newTestConfig(shardCount, maxSize)
-	cfg.MaxUnretiredVersions = 64 // keep held snapshots from tripping backpressure
+	cfg.MaxUnflushedVersions = 64 // keep held snapshots from tripping backpressure
 	engine := newTestEngineWithConfig(t, cfg, db)
 	model := newModelEngine(seedData)
 	hashKey := cfg.HashKey

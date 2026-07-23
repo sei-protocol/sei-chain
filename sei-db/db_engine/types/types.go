@@ -55,6 +55,10 @@ type OpenOptions struct {
 type KeyValueDB interface {
 
 	// Get returns the value for the given key, returning an error if the key is not found.
+	//
+	// A found zero-length value must be returned as a non-nil empty slice; nil is never a found
+	// value. Callers (e.g. the snapshot engine) rely on this distinction to tell empty values
+	// from absent keys.
 	Get(key []byte) (value []byte, err error)
 
 	// Perform a batch read operation. Given a map of keys to read, performs the reads and updates the

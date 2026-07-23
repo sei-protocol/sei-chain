@@ -16,8 +16,14 @@ import (
 // Warning: it is not safe to mutate byte slices (keys or values) passed to or received from the engine.
 // The engine is not required to make defensive copies, and so these slices must be treated as immutable.
 //
-// SnapshotEngine errors are generally not recoverable, and it should be assumed that an engine that has
-// returned an error is in a corrupted state and should be discarded.
+// There are no recoverable SnapshotEngine errors. Any error returned by the engine is fatal: the
+// engine is in a failed state, will continue to return errors indefinitely, and the caller is
+// expected to halt. In particular, a failed DB read permanently fails the affected key — the
+// engine never retries, since a retry that succeeded after the failure was propagated could fork
+// the chain.
+//
+// The configured metadata hash key is reserved for the engine; it must not be written or read
+// through the engine's key-value methods (see SnapshotEngineConfig.HashKey).
 type SnapshotEngine interface {
 
 	// Get returns the value for the given key at the engine's current (mutable) version, or
@@ -48,6 +54,11 @@ type SnapshotEngine interface {
 	// Snapshot seals the current version as an immutable, point-in-time Snapshot and advances the
 	// engine to a fresh mutable version. The returned Snapshot is safe to read for as long as the
 	// caller holds a reservation on it; see Snapshot for the full lifecycle contract.
+	//
+	// Snapshot may block for backpressure when the underlying DB cannot keep up with flushing
+	// (see SnapshotEngineConfig.MaxUnflushedVersions). The engine imposes no bound on unhashed
+	// or unreleased snapshots, each of which is retained in memory; the caller is responsible
+	// for pausing execution when hashing or release falls behind.
 	Snapshot() (Snapshot, error)
 
 	// InitialHash returns the most recently flushed hash as read from the underlying DB when the
@@ -151,9 +162,10 @@ type Snapshot interface {
 	SetHash(hash []byte) error
 
 	// AwaitHash blocks until SetHash has been called on this snapshot, then returns the hash.
-	// Returns an error if ctx is cancelled before the hash becomes available. Per the hashing-duty
-	// contract on Snapshot, the hash is guaranteed to be set before the snapshot's final
-	// Release, so callers that themselves hold a reservation can safely block on this.
+	// Returns an error if ctx is cancelled or the engine shuts down before the hash becomes
+	// available. Per the hashing-duty contract on Snapshot, the hash is guaranteed to be set
+	// before the snapshot's final Release, so callers that themselves hold a reservation can
+	// safely block on this.
 	AwaitHash(ctx context.Context) ([]byte, error)
 
 	// Returns an iterator over the snapshot's data. Iterator walks data in ascending lexographical order of keys.
@@ -161,9 +173,11 @@ type Snapshot interface {
 	// WARNING: failure to close the iterator may lead to a fatal leak.
 	Iterator() Iterator
 
-	// AwaitFlush blocks until the snapshot's data has been written to disk. Returns nil if the
-	// flush has completed, even if ctx fires concurrently. Returns an error if ctx is cancelled
-	// or the engine is shut down before the flush actually occurs.
+	// AwaitFlush blocks until the snapshot's data has been written to disk, returning nil once
+	// the flush has completed. Returns an error if ctx is cancelled or the engine shuts down
+	// first. Context cancellation is treated as a hard teardown: no attempt is made to report a
+	// concurrently-completing flush as success, and when a completed flush and a cancelled
+	// context are observed simultaneously either outcome may be returned.
 	AwaitFlush(ctx context.Context) error
 }
 

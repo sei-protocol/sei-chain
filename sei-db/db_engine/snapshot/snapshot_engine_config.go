@@ -28,13 +28,24 @@ type SnapshotEngineConfig struct {
 	// How often to scrape cache size for metrics, in seconds.
 	MetricsScrapeIntervalSeconds float64
 
-	// The maximum number of unreleased snapshots that can be pending retirement before Snapshot() blocks.
-	MaxUnretiredVersions uint64
+	// The maximum number of hashed-but-unflushed snapshots (snapshots whose diffs have not yet
+	// been written to the underlying DB) tolerated before Snapshot() blocks. This backpressure
+	// engages only when the underlying DB is the bottleneck. It intentionally does NOT bound
+	// unhashed or unreleased snapshots: the engine only receives hashes from an external
+	// workflow, and the caller is responsible for pausing execution if hashing or release falls
+	// behind (see SnapshotEngine.Snapshot).
+	MaxUnflushedVersions uint64
 
 	// Target number of keys per batch when flushing retired version data to the underlying DB.
 	TargetKeysPerFlush int
 
 	// A special metadata key where the DB stores its hash.
+	//
+	// This key is owned by the engine and is reserved. For performance reasons the write path
+	// does not check for it, so writing it through Set/Delete/BatchSet, or reading it through
+	// Get/BatchGet, is undefined behavior: flushes overwrite user writes to this key, and a
+	// cached read of it can go permanently stale. Iterators DO expose this key (see
+	// Snapshot.Iterator).
 	HashKey string
 
 	// Whether to fsync flushed data to the underlying DB on each flush commit. When false, flushes
@@ -52,7 +63,7 @@ func DefaultSnapshotEngineConfig() *SnapshotEngineConfig {
 		EstimatedOverheadPerEntry:    256,
 		MetricsEnabled:               true,
 		MetricsScrapeIntervalSeconds: 10,
-		MaxUnretiredVersions:         4,
+		MaxUnflushedVersions:         4,
 		TargetKeysPerFlush:           1024 * 10,
 		FlushSync:                    false,
 	}
@@ -90,8 +101,8 @@ func (c *SnapshotEngineConfig) Validate() error {
 	if c.MetricsEnabled && c.MetricsScrapeIntervalSeconds <= 0 {
 		return fmt.Errorf("MetricsScrapeIntervalSeconds must be positive when MetricsEnabled is true")
 	}
-	if c.MaxUnretiredVersions == 0 {
-		return fmt.Errorf("MaxUnretiredVersions must be greater than 0")
+	if c.MaxUnflushedVersions == 0 {
+		return fmt.Errorf("MaxUnflushedVersions must be greater than 0")
 	}
 	if c.TargetKeysPerFlush <= 0 {
 		return fmt.Errorf("TargetKeysPerFlush must be positive")

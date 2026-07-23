@@ -45,10 +45,11 @@ type snapshotEngine struct {
 	versionLock *sync.Mutex
 
 	// The current version number. All modifications to the engine will happen at this version number.
-	// This variable is not protected by locks, since it is illegal to update it (i.e. call Snapshot()) concurrently
-	// with reads/writes to the most recent version.
 	//
-	// Protected by versionLock.
+	// Written only while holding versionLock (by Snapshot()). Read without the lock by the
+	// Get/BatchGet paths; this is sound only because the engine contract forbids calling
+	// Snapshot() concurrently with operations on the current version, so no lockless read can
+	// race the write.
 	currentVersion uint64
 
 	// The version of the oldest snapshot we are currently tracking.
@@ -102,6 +103,14 @@ type snapshotEngine struct {
 
 	// Metrics for recording snapshot engine statistics.
 	metrics *SnapshotEngineMetrics
+
+	// The error that bricked the engine, latched by the lifecycle runner when lifecycle work
+	// (e.g. a flush) fails. Once set it is never cleared: the lifecycle exits, the engine context
+	// is cancelled, and methods that observe the shutdown report this error. Nil if the engine
+	// has not failed.
+	//
+	// Protected by versionLock.
+	fatalErr error
 
 	// Ensures Close runs its teardown exactly once; closeErr memoizes the result so repeat calls
 	// return the same error without re-running teardown.
@@ -168,6 +177,9 @@ func NewSnapshotEngine(
 	// A work pool for reading from the DB.
 	readPool threading.Pool,
 	// A work pool for miscellaneous operations that are neither computationally intensive nor IO bound.
+	// Must not be the same bounded pool as readPool: tasks submitted here block waiting on
+	// readPool results, so sharing one fixed-size pool can deadlock under load. Pass distinct
+	// pools, or an elastic pool.
 	miscPool threading.Pool,
 ) (SnapshotEngine, error) {
 	if err := config.Validate(); err != nil {
@@ -191,18 +203,22 @@ func NewSnapshotEngine(
 	}
 	sizePerShard := config.MaxSize / config.ShardCount
 
+	// Everything owned by the engine (shards, the metrics scrape loop, the lifecycle runner)
+	// lives on childCtx so that Close() tears it all down even if the caller's context outlives
+	// the engine.
+	childCtx, cancel := context.WithCancel(ctx)
+
 	shards := make([]*shard, config.ShardCount)
 	for i := uint64(0); i < config.ShardCount; i++ {
-		shards[i], err = NewShard(ctx, config, db, readPool, sizePerShard)
+		shards[i], err = NewShard(childCtx, config, db, readPool, sizePerShard)
 		if err != nil {
+			cancel()
 			return nil, fmt.Errorf("failed to create shard: %w", err)
 		}
 	}
 
 	versionLock := &sync.Mutex{}
 	lifecycleBackpressureCond := sync.NewCond(versionLock)
-
-	childCtx, cancel := context.WithCancel(ctx)
 
 	c := &snapshotEngine{
 		ctx:          childCtx,
@@ -228,7 +244,7 @@ func NewSnapshotEngine(
 
 	if config.MetricsEnabled {
 		metrics := newSnapshotEngineMetrics(
-			ctx, config.MetricsName, config.MetricsScrapeInterval(), c.getCacheSizeInfo)
+			childCtx, config.MetricsName, config.MetricsScrapeInterval(), c.getCacheSizeInfo)
 		for _, s := range c.shards {
 			s.metrics = metrics
 		}
@@ -393,9 +409,9 @@ func (c *snapshotEngine) Snapshot() (Snapshot, error) {
 // versionLock. When this method returns, it will still hold the versionLock, but it may release and then
 // re-acquire versionLock internally as it awaits for the lifecycle runner to catch up.
 func (c *snapshotEngine) lifecycleBackpressureLocked() error {
-	for c.unflushedCount > c.config.MaxUnretiredVersions {
+	for c.unflushedCount > c.config.MaxUnflushedVersions {
 		if c.ctx.Err() != nil {
-			return fmt.Errorf("context cancelled")
+			return c.shutdownErrorLocked()
 		}
 		c.lifecycleBackpressureCond.Wait()
 	}
@@ -403,9 +419,27 @@ func (c *snapshotEngine) lifecycleBackpressureLocked() error {
 	// below the cap, but if the lifecycle runner has since exited (cancelling the context), there is
 	// no one to flush future work and the caller must not proceed.
 	if c.ctx.Err() != nil {
-		return fmt.Errorf("context cancelled")
+		return c.shutdownErrorLocked()
 	}
 	return nil
+}
+
+// shutdownErrorLocked builds the error reported by methods that observe engine shutdown: the
+// latched fatal error when the lifecycle runner failed, otherwise plain context cancellation.
+//
+// The Locked postfix indicates that the caller must hold the versionLock.
+func (c *snapshotEngine) shutdownErrorLocked() error {
+	if c.fatalErr != nil {
+		return fmt.Errorf("snapshot engine failed: %w", c.fatalErr)
+	}
+	return fmt.Errorf("context cancelled: %w", c.ctx.Err())
+}
+
+// shutdownError is the unlocked variant of shutdownErrorLocked. The caller must NOT hold versionLock.
+func (c *snapshotEngine) shutdownError() error {
+	c.versionLock.Lock()
+	defer c.versionLock.Unlock()
+	return c.shutdownErrorLocked()
 }
 
 // Increment the reference count for the given version.
@@ -593,22 +627,12 @@ func (c *snapshotEngine) AwaitSnapshotHash(ctx context.Context, version uint64) 
 		// hashReady is closed when the hash is set, causing us to get a nil from <-hashReady.
 	case <-ctx.Done():
 		return nil, fmt.Errorf("failed to await hash: %w", ctx.Err())
+	case <-c.ctx.Done():
+		return nil, fmt.Errorf("snapshot engine shut down while awaiting hash for version (%d): %w",
+			version, c.shutdownError())
 	}
 
 	return counter.hash, nil
-}
-
-// isVersionFlushed briefly takes versionLock to check the current flush state of the given version.
-// The caller must NOT hold versionLock. A retired version (counter no longer in versionMap) is treated
-// as flushed, since retirement requires flushedToDisk == true.
-func (c *snapshotEngine) isVersionFlushed(version uint64) bool {
-	c.versionLock.Lock()
-	defer c.versionLock.Unlock()
-	counter, ok := c.versionMap[version]
-	if !ok {
-		return true
-	}
-	return counter.flushedToDisk
 }
 
 // Get the diff at a given version.
@@ -650,12 +674,12 @@ func (c *snapshotEngine) requestIterator(version uint64) (Iterator, error) {
 		return nil, fmt.Errorf(
 			"snapshot engine shut down before iterator request could be dispatched: %w", c.ctx.Err())
 	}
-	select {
-	case resp := <-req.response:
-		return resp.iter, resp.err
-	case <-c.ctx.Done():
-		return nil, fmt.Errorf("snapshot engine shut down before iterator could be built: %w", c.ctx.Err())
-	}
+	// The lifecycle goroutine has accepted the request (the request channel is unbuffered) and
+	// always replies (the response channel is buffered, so its send cannot block). Racing
+	// ctx.Done() here could abandon a successfully built iterator, leaking its DB iterator into
+	// engine shutdown, so wait unconditionally.
+	resp := <-req.response
+	return resp.iter, resp.err
 }
 
 // buildIterator constructs an Iterator over the snapshot at version. Must run
@@ -740,7 +764,14 @@ func (c *snapshotEngine) lifecycleRunner() {
 
 		err := c.doLifecycleWork()
 		if err != nil {
-			panic(err)
+			// Brick the engine: latch the error for callers, then exit. The deferred cancel
+			// and broadcast wake anything blocked so it can observe the failure, and methods
+			// that hit the dead context report fatalErr via shutdownErrorLocked. The outer
+			// context is expected to crash the node on the first error it sees.
+			c.versionLock.Lock()
+			c.fatalErr = err
+			c.versionLock.Unlock()
+			return
 		}
 	}
 }
@@ -1018,11 +1049,13 @@ func (c *snapshotEngine) closeInternal() error {
 		return nil
 	}
 
-	// Request that the lifecycle runner exit.
+	// Request that the lifecycle runner exit. When the engine has already been bricked, both
+	// select cases are ready (lifecycleExit is buffered and the context is dead), so either
+	// branch may be taken; both tear down and report the underlying cause via shutdownError.
 	select {
 	case c.lifecycleExit <- struct{}{}:
 	case <-c.ctx.Done():
-		err := fmt.Errorf("context cancelled: %w", c.ctx.Err())
+		err := fmt.Errorf("close: engine already shut down: %w", c.shutdownError())
 		exitErr := exit()
 		return errors.Join(err, exitErr)
 	}

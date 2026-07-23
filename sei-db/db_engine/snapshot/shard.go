@@ -86,6 +86,11 @@ const (
 	statusAvailable valueStatus = 3
 	// We are aware that the value is deleted (special case of data being available).
 	statusDeleted valueStatus = 4
+	// A read of this value from the DB failed. The failure is permanent: the entry is never
+	// retried and never enters the LRU queue (so it cannot be evicted and re-read), and all
+	// future reads of the key deterministically observe the error. A retry that succeeded after
+	// the original failure was propagated could fork the chain.
+	statusFailed valueStatus = 5
 )
 
 // A single entry in the db cache. Records data for a single key.
@@ -98,6 +103,9 @@ type dbCacheEntry struct {
 
 	// The value, if known.
 	value []byte
+
+	// The error that permanently failed this entry. Non-nil if and only if status is statusFailed.
+	err error
 
 	// If the value is not available when we request it,
 	// it will be written to this channel when it is available.
@@ -202,10 +210,22 @@ func (s *shard) Get(
 		return s.getScheduledLocked(entry)
 	case statusUnknown:
 		return s.getUnknownLocked(entry, key)
+	case statusFailed:
+		return s.getFailedLocked(entry)
 	default:
 		s.lock.Unlock()
 		panic(fmt.Sprintf("unexpected status: %#v", entry.status))
 	}
+}
+
+// Handles Get for a key whose earlier DB read failed. The failure is permanent (see statusFailed).
+// Releases the lock before returning.
+//
+// The Locked postfix indicates that the caller must hold the shard lock.
+func (s *shard) getFailedLocked(entry *dbCacheEntry) ([]byte, bool, error) {
+	err := entry.err
+	s.lock.Unlock()
+	return nil, false, fmt.Errorf("an earlier read of this key failed: %w", err)
 }
 
 // Handles Get for a key whose value is already cached. Releases the lock
@@ -251,7 +271,7 @@ func (s *shard) getScheduledLocked(entry *dbCacheEntry) ([]byte, bool, error) {
 	}
 	valueChan <- result // reload the channel in case there are other listeners
 	if result.err != nil {
-		return nil, false, fmt.Errorf("failed to read value from database: %w", result.err)
+		return nil, false, fmt.Errorf("scheduled read failed: %w", result.err)
 	}
 	return result.value, result.value != nil, nil
 }
@@ -278,7 +298,7 @@ func (s *shard) getUnknownLocked(entry *dbCacheEntry, key []byte) ([]byte, bool,
 	}
 	valueChan <- result // reload the channel in case there are other listeners
 	if result.err != nil {
-		return nil, false, result.err
+		return nil, false, fmt.Errorf("scheduled read failed: %w", result.err)
 	}
 	return result.value, result.value != nil, nil
 }
@@ -289,8 +309,11 @@ func (se *dbCacheEntry) injectValue(key []byte, result readResult) {
 
 	if se.status == statusScheduled {
 		if result.err != nil {
-			// Don't cache errors — reset so the next caller retries.
-			delete(se.shard.dbCache, string(key))
+			// Latch the failure permanently (see statusFailed): the error has been propagated
+			// to a caller, and a later retry that succeeded would be a fork risk. The entry is
+			// deliberately kept out of the LRU queue so it can never be evicted and re-read.
+			se.status = statusFailed
+			se.err = result.err
 		} else if result.value == nil {
 			se.status = statusDeleted
 			se.value = nil
@@ -430,6 +453,10 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 				valueChan:     valueChan,
 				needsSchedule: true,
 			})
+		case statusFailed:
+			err := entry.err
+			s.lock.Unlock()
+			return nil, fmt.Errorf("an earlier read of key failed: %w", err)
 		default:
 			s.lock.Unlock()
 			panic(fmt.Sprintf("unexpected status: %#v", entry.status))
@@ -457,17 +484,27 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 		}
 	}
 
+	// Drain every pending read even if one fails: each scheduled read pushes exactly one token,
+	// so the drain is bounded by reads already in flight, and it leaves every entry in a terminal
+	// state (available/deleted/failed) via bulkInjectValues below. Abandoning the drain on the
+	// first error would strand the remaining entries in statusScheduled with unpopulated results.
+	var firstErr error
 	for i := range pending {
 		result, err := threading.InterruptiblePull(s.ctx, pending[i].valueChan)
 		if err != nil {
+			// Context cancellation is a hard teardown: post-shutdown entry state is
+			// unobservable, and draining could block on reads that never complete while the
+			// pool is being torn down, so bail immediately.
 			return nil, fmt.Errorf("failed to pull value from channel: %w", err)
 		}
 		pending[i].valueChan <- result
 		pending[i].result = result
 
 		if result.err != nil {
-			// DB errors are not recoverable; fail the whole batch.
-			return nil, fmt.Errorf("failed to read key from database: %w", result.err)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("failed to read key from database: %w", result.err)
+			}
+			continue
 		}
 		if result.value != nil {
 			results[pending[i].key] = result.value
@@ -477,6 +514,10 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 	s.metrics.reportCacheMissLatency(time.Since(startTime))
 	go s.bulkInjectValues(pending)
 
+	if firstErr != nil {
+		// DB errors are fatal; fail the whole batch.
+		return nil, firstErr
+	}
 	return results, nil
 }
 
@@ -490,8 +531,11 @@ func (s *shard) bulkInjectValues(reads []pendingRead) {
 		}
 		result := reads[i].result
 		if result.err != nil {
-			// Don't cache errors — reset so the next caller retries.
-			delete(s.dbCache, reads[i].key)
+			// Latch the failure permanently (see statusFailed): the error has been propagated
+			// to a caller, and a later retry that succeeded would be a fork risk. The entry is
+			// deliberately kept out of the LRU queue so it can never be evicted and re-read.
+			entry.status = statusFailed
+			entry.err = result.err
 		} else if result.value == nil {
 			entry.status = statusDeleted
 			entry.value = nil
@@ -560,6 +604,9 @@ func (s *shard) setInDBCacheLocked(key []byte, value []byte) {
 	entry := s.getDBCacheEntryLocked(key, true)
 	entry.status = statusAvailable
 	entry.value = value
+	// Overwriting a failed entry is deliberate: this data comes from the engine's own retired
+	// writes, not from the failed DB read, and the original error has already been propagated.
+	entry.err = nil
 
 	size := uint64(len(key)) + uint64(len(value)) + s.config.EstimatedOverheadPerEntry
 	s.dbCacheGCQueue.Push(key, size)
@@ -595,6 +642,10 @@ func (s *shard) deleteInDBCacheLocked(key []byte) {
 	}
 	entry.status = statusDeleted
 	entry.value = nil
+	// Overwriting a failed entry is deliberate: this tombstone comes from the engine's own
+	// retired writes, not from the failed DB read, and the original error has already been
+	// propagated.
+	entry.err = nil
 
 	size := uint64(len(key)) + s.config.EstimatedOverheadPerEntry
 	s.dbCacheGCQueue.Push(key, size)

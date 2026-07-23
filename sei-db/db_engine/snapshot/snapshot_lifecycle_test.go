@@ -159,15 +159,30 @@ func TestSnapshotAwaitFlushContextCancelled(t *testing.T) {
 	require.NoError(t, snap.Release())
 }
 
+func TestAwaitFlushRetiredVersionWithCancelledCtx(t *testing.T) {
+	engine, _ := newTestEngine(t, nil, 1, 1<<20)
+	engine.Set([]byte("k"), []byte("v"))
+	snap, err := engine.Snapshot()
+	require.NoError(t, err)
+	ver := snap.(*snapshotImpl).version
+	hashAndRelease(t, snap)
+	awaitRetired(t, engine, ver)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.Error(t, snap.AwaitFlush(ctx),
+		"context cancellation is a hard teardown: no courtesy nil even though the flush completed")
+}
+
 func TestBackpressureBlocksAndUnblocksOnFlush(t *testing.T) {
 	db := newTestDB(nil)
 	db.commitBlock = make(chan struct{})
 
 	cfg := newTestConfig(1, 4096)
-	cfg.MaxUnretiredVersions = 2
+	cfg.MaxUnflushedVersions = 2
 	engine := newTestEngineWithConfig(t, cfg, db)
 
-	// Accumulate more unflushed-but-eligible versions than MaxUnretiredVersions (flush is stalled).
+	// Accumulate more unflushed-but-eligible versions than MaxUnflushedVersions (flush is stalled).
 	for i := 0; i < 3; i++ {
 		snapshotAndHashRelease(t, engine)
 	}

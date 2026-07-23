@@ -109,7 +109,7 @@ func TestTargetKeysPerFlushSplitsIntoMultipleCommits(t *testing.T) {
 	db := newTestDB(nil)
 	cfg := newTestConfig(1, 1<<20)
 	cfg.TargetKeysPerFlush = 3
-	cfg.MaxUnretiredVersions = 64
+	cfg.MaxUnflushedVersions = 64
 	engine := newTestEngineWithConfig(t, cfg, db)
 
 	const versions = 5

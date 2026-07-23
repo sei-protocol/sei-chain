@@ -83,18 +83,16 @@ func (s *snapshotImpl) AwaitFlush(ctx context.Context) error {
 	flushCompleted := counter.flushCompleted
 	c.versionLock.Unlock()
 
+	// Context cancellation is a hard teardown: no attempt is made to report a
+	// concurrently-completing flush as success. If a completed flush and a dead context are
+	// observed simultaneously, either outcome may be returned.
 	select {
 	case <-flushCompleted:
 		return nil
 	case <-ctx.Done():
-		if c.isVersionFlushed(version) {
-			return nil
-		}
 		return fmt.Errorf("context cancelled before flush of version (%d): %w", version, ctx.Err())
 	case <-c.ctx.Done():
-		if c.isVersionFlushed(version) {
-			return nil
-		}
-		return fmt.Errorf("snapshot engine shut down before flush of version (%d): %w", version, c.ctx.Err())
+		return fmt.Errorf("snapshot engine shut down before flush of version (%d): %w",
+			version, c.shutdownError())
 	}
 }

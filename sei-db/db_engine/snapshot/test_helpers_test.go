@@ -23,6 +23,7 @@ import (
 //
 // Behavior knobs:
 //   - getErr: if non-nil, Get returns this error instead of consulting the store.
+//   - getErrKeys: per-key variant of getErr; a Get of a listed key returns its error.
 //   - commitErr: if non-nil, batch Commit returns this error instead of applying.
 //   - commitBlock: if non-nil, every batch Commit blocks until the channel is closed (or receives a
 //     value). Useful for stalling the flusher to exercise lifecycle backpressure/ordering.
@@ -32,6 +33,7 @@ type testDB struct {
 	getCalls    atomic.Int64
 	commitCount atomic.Int64
 	getErr      error
+	getErrKeys  map[string]error
 	commitErr   error
 	commitBlock chan struct{}
 	getGate     chan struct{}
@@ -53,6 +55,9 @@ func (d *testDB) Get(key []byte) ([]byte, error) {
 	}
 	if d.getErr != nil {
 		return nil, d.getErr
+	}
+	if err, ok := d.getErrKeys[string(key)]; ok {
+		return nil, err
 	}
 	d.mu.RLock()
 	defer d.mu.RUnlock()

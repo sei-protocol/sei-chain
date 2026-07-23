@@ -80,7 +80,7 @@ func TestConcurrentDifferential(t *testing.T) {
 
 	db := newTestDB(nil)
 	cfg := newTestConfig(8, 1<<20)
-	cfg.MaxUnretiredVersions = 128
+	cfg.MaxUnflushedVersions = 128
 	engine := newTestEngineWithConfig(t, cfg, db)
 	model := newModelEngine(nil)
 	hashKey := cfg.HashKey
