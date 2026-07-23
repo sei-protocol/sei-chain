@@ -78,7 +78,12 @@ type registryState struct {
 //     do not seed the registry. Lead into an unseeded epoch → EpochAt/DuoAt
 //     hard-fail (no soft-heal). When lastExecuted is already in the CommitQC
 //     tip's epoch N, EnsureAfterExecuted seeds N+1 (N-1 is done) — that is how
-//     a tipcut in N+1 stays inside the reconstructed window.
+//     a tipcut in N+1 stays inside the reconstructed window. Leading by more
+//     than one epoch should not happen: sealing N+1 needs registry N+2, which
+//     needs execution of LastRoad(N), which needs that CommitQC in data — so if
+//     data tip is still in N, avail/consensus cannot have entered N+2. If it
+//     did, EpochAt/DuoAt hard-fails (corrupt / inconsistent local state; do
+//     not soft-heal).
 //   - After construction: consensus checks avail tipcut >= consensus tipcut;
 //     the giga validator router checks consensus tipcut >= data.CommitTipCut()
 //     (together ⇒ avail >= data). Behind → hard-fail.
