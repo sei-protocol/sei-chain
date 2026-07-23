@@ -51,6 +51,13 @@ type ReceiptRecord struct {
 	TxHash       common.Hash
 	Receipt      *types.Receipt
 	ReceiptBytes []byte // Optional pre-marshaled receipt (must match Receipt if set)
+	// TxOffset and TxLength locate the raw transaction within its block's stored
+	// value in the block store (the sub-range holding this tx). They are written
+	// into the receipt value's metadata prefix so a receipt lookup can find the
+	// transaction bytes. Only meaningful when block compression is off; zero when
+	// unknown.
+	TxOffset uint32
+	TxLength uint32
 }
 
 // ReceiptReadMetrics records cache hits, misses, and timing for cached receipt
