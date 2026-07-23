@@ -64,13 +64,11 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 	stateEarliest := latest // SS disabled: only the tip is servable.
 	if m.stateStore != nil {
 		latest = min(latest, m.stateStore.GetLatestVersion())
-		// GetEarliestVersion() is 0 on a never-pruned store: the earliest-version
-		// key is only written by pruning or state-sync. 0 is not a servable
-		// height (it resolves to the tip), so fall back to blockEarliest. A
-		// nonzero value is the real state-prune floor and is used as-is: it can
-		// sit below blockEarliest when state is retained deeper than blocks
-		// (ss-keep-recent > block keep-recent), and must not be raised to the
-		// block floor or retained state below it reads as pruned. See SEI-10383.
+		// GetEarliestVersion() is 0 until the store first prunes or state-syncs,
+		// so treat that sentinel as unpruned-from-genesis and floor at
+		// blockEarliest. A nonzero floor is the real state-prune boundary, used
+		// as-is: it can sit below blockEarliest (state retained deeper than
+		// blocks), where raising it to the block floor would hide retained state.
 		stateEarliest = m.stateStore.GetEarliestVersion()
 		if stateEarliest == 0 {
 			stateEarliest = blockEarliest

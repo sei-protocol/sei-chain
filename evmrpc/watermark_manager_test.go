@@ -208,11 +208,10 @@ func TestResolveEarliestFloorsAtBlockEarliestOnFreshNode(t *testing.T) {
 	require.Equal(t, int64(1), resolved, "earliest must resolve to blockEarliest, not 0 (SEI-10383)")
 }
 
-// TestStateEarliestUsesPruneFloorBelowBlockEarliest guards the xreview dissent on
-// #3798: when state is retained deeper than blocks (GetEarliestVersion <
-// blockEarliest, e.g. ss-keep-recent > block keep-recent on a mature full node),
-// stateEarliest must stay at the state-prune floor and not be raised to
-// blockEarliest, or explicit historical reads of retained state read as pruned.
+// TestStateEarliestUsesPruneFloorBelowBlockEarliest verifies that when state is
+// retained deeper than blocks (GetEarliestVersion < blockEarliest), stateEarliest
+// stays at the state-prune floor rather than being raised to blockEarliest, so a
+// historical read of retained state below blockEarliest is not rejected as pruned.
 func TestStateEarliestUsesPruneFloorBelowBlockEarliest(t *testing.T) {
 	tmClient := &fakeTMClient{
 		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 100, EarliestBlockHeight: 40}},
