@@ -73,14 +73,18 @@ type registryState struct {
 //
 // Restart:
 //
-//   - data/ is the anchor (SetupInitialDuo only from data.NewState).
+//   - data/ is the sole restart seeder (SetupInitialDuo from data.NewState).
+//     Avail/consensus tips may lead data (async FullCommitQC→data.PushQC), but
+//     do not seed the registry. Lead into an unseeded epoch → EpochAt/DuoAt
+//     hard-fail (no soft-heal). When lastExecuted is already in the CommitQC
+//     tip's epoch N, EnsureAfterExecuted seeds N+1 (N-1 is done) — that is how
+//     a tipcut in N+1 stays inside the reconstructed window.
 //   - After construction: consensus checks avail tipcut >= consensus tipcut;
 //     the giga validator router checks consensus tipcut >= data.CommitTipCut()
 //     (together ⇒ avail >= data). Behind → hard-fail.
-//   - Lead into an unseeded epoch → EpochAt/DuoAt hard-fail (no soft-heal).
-//   - SetupInitialDuo may register genesis-committee placeholders for epochs
-//     implied by committed history (temporary; real committees TBD) — that is
-//     not inventing roads or repairing inconsistent tips.
+//   - SetupInitialDuo may register genesis-committee placeholders (temporary;
+//     real committees TBD) — that is not inventing roads or repairing
+//     inconsistent tips.
 //   - FullCommitQC export: ErrRoadBeforeWindow → data.ErrPruned (caller jumps
 //     ahead). Safe because the boundary AppQC-of-N leash ensures before-window
 //     roads are already pruned; ErrRoadAfterWindow hard-fails (no wait).
@@ -266,8 +270,9 @@ func (r *Registry) EnsureDuoAt(road types.RoadIndex) {
 }
 
 // EnsureAfterExecuted restores the registry lookahead live AdvanceIfNeeded
-// would have produced once road was executed: epoch E+1 (end of E-1 already
-// ran), and E+2 if road is the closing road of E.
+// would have produced once road was executed. If execution has reached epoch E
+// (same epoch as a CommitQC tip in E), epoch E-1 is done → seed E+1. Closing
+// road of E additionally seeds E+2 (AdvanceIfNeeded: finishing M → M+2).
 func (r *Registry) EnsureAfterExecuted(road types.RoadIndex) {
 	tipEpoch := IndexForRoad(road)
 	r.EnsureEpoch(tipEpoch + 1)

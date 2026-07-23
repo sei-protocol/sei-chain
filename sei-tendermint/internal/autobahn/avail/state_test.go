@@ -1395,18 +1395,24 @@ func TestPushAppQCPreviousEpoch(t *testing.T) {
 	require.True(t, state.LastAppQC().IsPresent())
 }
 
-// TestRestartDuoFromCommitTipNeedsSetup covers restart seeding: DuoAt at the
-// first road of epoch 2 needs epoch 2. CommitQC alone in epoch 1 is not
-// enough; execution on the closing road of epoch 1 extends to epoch 2.
-// Also checks newInner still requires a prune anchor when Current > 0.
+// TestRestartDuoFromCommitTipNeedsSetup: DuoAt at FirstRoad(2) needs epoch 2.
+// CommitQC alone in epoch 1 is not enough for SetupInitialDuo without execution;
+// lead tips do not soft-seed. Also checks newInner still requires a prune
+// anchor when Current > 0 (after SetupInitialDuo with execution).
 func TestRestartDuoFromCommitTipNeedsSetup(t *testing.T) {
 	rng := utils.TestRng()
 	registry, _ := epoch.GenRegistryAt(rng, 3, 0) // {0,1}
 	tip2 := epoch.FirstRoad(2)
 	_, err := registry.DuoAt(tip2)
 	require.Error(t, err, "DuoAt(epoch-2 tip) must fail without epoch 2")
+}
 
-	// CommitQC closing epoch 1 opens {1} then tipcut/execution add 2 and 3.
+// TestRestartDuoFromCommitTipNeedsSetup_ExecutionPath: closing CommitQC in
+// epoch 1 plus execution tip still use SetupInitialDuo (data anchor).
+func TestRestartDuoFromCommitTipNeedsSetup_ExecutionPath(t *testing.T) {
+	rng := utils.TestRng()
+	registry, _ := epoch.GenRegistryAt(rng, 3, 0) // {0,1}
+	tip2 := epoch.FirstRoad(2)
 	tip1 := epoch.LastRoad(1)
 	registry.SetupInitialDuo(
 		utils.Some(tip1),
