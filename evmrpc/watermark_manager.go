@@ -61,7 +61,10 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 	)
 
 	// State store heights (historical state DB) may lag behind block pruning.
-	stateEarliest := latest // no historical storage => just the current state.
+	// With SS disabled the versioned commit store still serves history back to
+	// the earliest retained block, so the earliest queryable state height is
+	// blockEarliest, not the tip (SEI-10383).
+	stateEarliest := blockEarliest
 	if m.stateStore != nil {
 		latest = min(latest, m.stateStore.GetLatestVersion())
 		stateEarliest = m.stateStore.GetEarliestVersion()

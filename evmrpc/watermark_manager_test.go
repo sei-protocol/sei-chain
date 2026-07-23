@@ -55,8 +55,41 @@ func TestWatermarksIncludesCtxProviderHeight(t *testing.T) {
 	blockEarliest, stateEarliest, latest, err := wm.Watermarks(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(5), blockEarliest)
-	require.Equal(t, int64(12), stateEarliest)
+	// SS disabled: earliest queryable state height is the earliest block, not the tip (SEI-10383).
+	require.Equal(t, int64(5), stateEarliest)
 	require.Equal(t, int64(12), latest)
+}
+
+// TestResolveEarliestServesGenesisWhenStateStoreDisabled is the regression test
+// for SEI-10383: on a state-store-disabled node the `earliest` tag (and block 0,
+// which is the same rpc.BlockNumber) must resolve to the earliest available
+// block, not the chain tip. Before the fix stateEarliest defaulted to `latest`,
+// so eth_getCode / eth_getTransactionCount at `earliest` read current state
+// instead of historical.
+func TestResolveEarliestServesGenesisWhenStateStoreDisabled(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 10, EarliestBlockHeight: 1}},
+	}
+	// nil stateStore = SS disabled; history is still served by the versioned commit store.
+	wm := newTestWatermarkManager(tmClient, 10, nil, 10)
+
+	blockEarliest, stateEarliest, latest, err := wm.Watermarks(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), blockEarliest)
+	require.Equal(t, int64(1), stateEarliest, "SS-disabled earliest state height must be the earliest block, not the tip")
+	require.Equal(t, int64(10), latest)
+
+	// `earliest` resolves through the same path eth_getCode/eth_getTransactionCount use.
+	earliest := rpc.EarliestBlockNumber
+	h, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), h, "earliest must resolve to the earliest block so historical reads see historical state")
+
+	// Numeric block 0 is the same rpc.BlockNumber as the earliest tag and must resolve identically.
+	zero := rpc.BlockNumber(0)
+	h0, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &zero})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), h0)
 }
 
 func TestWatermarksPropagatesHeightSourceError(t *testing.T) {
