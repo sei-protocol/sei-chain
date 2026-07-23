@@ -334,8 +334,12 @@ func (s *littReceiptStore) candidateBlockLogs(candidates map[uint32]littTagRef, 
 		if !exists {
 			continue
 		}
+		data, err := decodeReceiptData(bz)
+		if err != nil {
+			return nil, err
+		}
 		receipt := &types.Receipt{}
-		if err := receipt.Unmarshal(bz); err != nil {
+		if err := receipt.Unmarshal(data.Body); err != nil {
 			return nil, err
 		}
 		for _, lg := range getLogsForTx(receipt, uint(ref.firstLogIndex)) {
