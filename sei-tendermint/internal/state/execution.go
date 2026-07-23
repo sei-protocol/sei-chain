@@ -466,7 +466,10 @@ func (blockExec *BlockExecutor) Commit(
 	Global.ApplicationCommitTimeAt().Observe(float64(time.Since(start)))
 
 	// ResponseCommit has no error code - just data
-	logger.Debug(
+	// Kept at Info: integration_test/contracts/verify_flatkv_evm_migrate.sh greps this
+	// line to recover each validator's last committed height after the node is stopped
+	// (RPC unavailable), and its safety check depends on committed (not signed) height.
+	logger.Info(
 		"committed state",
 		"height", block.Height,
 		"num_txs", len(block.Txs),
