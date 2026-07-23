@@ -1,7 +1,6 @@
 package snapshot
 
 import (
-	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -53,7 +52,7 @@ func TestNewSnapshotEngineRejectsInvalidConfig(t *testing.T) {
 	c.MetricsName = "" // invalid
 	pool := threading.NewAdHocPool()
 	defer pool.Close()
-	_, err := NewSnapshotEngine(context.Background(), c, newTestDB(nil), pool, pool)
+	_, err := NewSnapshotEngine(c, newTestDB(nil), pool, pool)
 	require.Error(t, err)
 }
 

@@ -2,9 +2,14 @@ package snapshot
 
 import (
 	"context"
+	"errors"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
+
+// ErrEngineClosed is reported (wrapped) by methods that observe engine shutdown when the engine
+// was closed normally rather than failed. Detect it with errors.Is.
+var ErrEngineClosed = errors.New("snapshot engine closed")
 
 // SnapshotEngine provides a read-through cache and efficient point-in-time snapshots on top of a basic
 // key-value database. It also coordinates writes to the database, since efficient snapshots require
@@ -67,16 +72,14 @@ type SnapshotEngine interface {
 	// snapshots are hashed and flushed.
 	InitialHash() []byte
 
-	// Close closes the snapshot engine and the underlying database. Before tearing down, Close flushes
-	// whatever snapshots are currently flush-eligible — the contiguous prefix of hashed,
-	// unflushed snapshots starting at the oldest, applying the same eligibility rules as the
-	// background flusher (see Snapshot). It does NOT wait for unhashed snapshots to
-	// receive their hash, nor for outstanding reservations to be released. On a successful
-	// return, all flush-eligible snapshot data has been persistently written to disk.
+	// Close shuts the engine down. When it returns, the engine's background goroutines have
+	// exited and every caller blocked in an engine or snapshot method has been released with
+	// either a real result or an error wrapping ErrEngineClosed (or the engine's fatal error).
 	//
-	// It is not safe to call Close() concurrently with any other method on this interface, nor is it safe to call
-	// Close() while any snapshots are still in use. It is legal to call Close() even if all snapshot reference
-	// counts have not yet reached 0, but those snapshots are no longer safe to read when this method is called.
+	// Close does not flush (unflushed snapshot data is recovered upstream via WAL replay) and
+	// does not close the injected database or thread pools; the caller owns those and must tear
+	// them down after the engine, pools before the database. Close is idempotent: repeat calls
+	// return the first result, which is the latched fatal error if the engine failed.
 	Close() error
 }
 

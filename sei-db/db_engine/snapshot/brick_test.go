@@ -57,7 +57,7 @@ func TestFlushFailureBricksEngineCleanly(t *testing.T) {
 	}
 }
 
-func TestCloseAfterBrickReturnsAndClosesDB(t *testing.T) {
+func TestCloseAfterBrickReportsFatalError(t *testing.T) {
 	db := newTestDB(nil)
 	db.commitErr = errors.New("disk full")
 	engine := newTestEngineWithDB(t, db, 1, 4096)
@@ -76,12 +76,10 @@ func TestCloseAfterBrickReturnsAndClosesDB(t *testing.T) {
 	go func() { closeErr <- engine.Close() }()
 	select {
 	case err := <-closeErr:
-		// Close retries the flush of the still-eligible version and must surface its failure.
-		require.ErrorContains(t, err, "disk full")
+		require.ErrorContains(t, err, "disk full", "Close must surface the latched fatal error")
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close hung after the brick")
 	}
-	require.True(t, db.isClosed(), "Close must still close the underlying DB after a brick")
 }
 
 func TestBackpressureWaiterUnblocksOnBrick(t *testing.T) {

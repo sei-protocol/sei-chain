@@ -18,8 +18,12 @@ var _ SnapshotEngine = (*snapshotEngine)(nil)
 
 // The standard implementation of SnapshotEngine.
 type snapshotEngine struct {
+	// Engine-private context. Blocked waits throughout the engine select on it; it is cancelled
+	// (always under versionLock — see closeInternal) when the engine shuts down, via Close or a
+	// fatal lifecycle error.
 	ctx    context.Context
 	cancel context.CancelFunc
+
 	config *SnapshotEngineConfig
 
 	// A utility for assigning keys to shard indices.
@@ -168,9 +172,9 @@ type iteratorResponse struct {
 	err  error
 }
 
-// Creates a new SnapshotEngine.
+// Creates a new SnapshotEngine. The database and pools are injected and remain owned by the
+// caller: the engine never closes them (see SnapshotEngine.Close for teardown ordering).
 func NewSnapshotEngine(
-	ctx context.Context,
 	config *SnapshotEngineConfig,
 	// The underlying key-value database.
 	db types.KeyValueDB,
@@ -203,10 +207,9 @@ func NewSnapshotEngine(
 	}
 	sizePerShard := config.MaxSize / config.ShardCount
 
-	// Everything owned by the engine (shards, the metrics scrape loop, the lifecycle runner)
-	// lives on childCtx so that Close() tears it all down even if the caller's context outlives
-	// the engine.
-	childCtx, cancel := context.WithCancel(ctx)
+	// Everything owned by the engine (shards, the metrics scrape loop, blocked waits) lives on
+	// this engine-private context, cancelled only when the engine shuts down.
+	childCtx, cancel := context.WithCancel(context.Background())
 
 	shards := make([]*shard, config.ShardCount)
 	for i := uint64(0); i < config.ShardCount; i++ {
@@ -371,7 +374,7 @@ func (c *snapshotEngine) Snapshot() (Snapshot, error) {
 
 	err := c.lifecycleBackpressureLocked()
 	if err != nil {
-		return nil, fmt.Errorf("lifecycle runner not keeping up: %w", err)
+		return nil, fmt.Errorf("cannot create snapshot: %w", err)
 	}
 
 	currentVersionRefCounter := &snapshotReferenceCounter{
@@ -425,14 +428,14 @@ func (c *snapshotEngine) lifecycleBackpressureLocked() error {
 }
 
 // shutdownErrorLocked builds the error reported by methods that observe engine shutdown: the
-// latched fatal error when the lifecycle runner failed, otherwise plain context cancellation.
+// latched fatal error when the lifecycle runner failed, otherwise ErrEngineClosed.
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
 func (c *snapshotEngine) shutdownErrorLocked() error {
 	if c.fatalErr != nil {
 		return fmt.Errorf("snapshot engine failed: %w", c.fatalErr)
 	}
-	return fmt.Errorf("context cancelled: %w", c.ctx.Err())
+	return ErrEngineClosed
 }
 
 // shutdownError is the unlocked variant of shutdownErrorLocked. The caller must NOT hold versionLock.
@@ -735,22 +738,14 @@ func (c *snapshotEngine) materializeOverridesAtVersion(version uint64) ([]kvPair
 
 // Retire old versions: flush their data to the underlying DB, then free the in-memory snapshots.
 // The runner sleeps until signaled via lifecycleWake (see wakeLifecycle / scanRetirementEligibility),
-// then processes all available work before sleeping again.
+// then processes all available work before sleeping again. It exits only via its lifecycleExit
+// inbox (sent by Close) or by bricking on a fatal error.
 func (c *snapshotEngine) lifecycleRunner() {
-	// Once the runner exits — whether normally, via context cancellation, or via panic — wake up any
-	// goroutines blocked in lifecycleBackpressureLocked so they can observe the cancelled context and
-	// return errors instead of waiting forever for a lifecycle that is no longer running.
-	defer func() {
-		c.cancel()
-		c.lifecycleBackpressureCond.Broadcast()
-		close(c.lifecycleExited)
-	}()
+	defer close(c.lifecycleExited)
 
 	for {
 		select {
 		case <-c.lifecycleExit:
-			return
-		case <-c.ctx.Done():
 			return
 		case req := <-c.iteratorRequests:
 			// Build the iterator inline. The single-threaded lifecycle goroutine
@@ -764,16 +759,24 @@ func (c *snapshotEngine) lifecycleRunner() {
 
 		err := c.doLifecycleWork()
 		if err != nil {
-			// Brick the engine: latch the error for callers, then exit. The deferred cancel
-			// and broadcast wake anything blocked so it can observe the failure, and methods
-			// that hit the dead context report fatalErr via shutdownErrorLocked. The outer
-			// context is expected to crash the node on the first error it sees.
-			c.versionLock.Lock()
-			c.fatalErr = err
-			c.versionLock.Unlock()
+			// Brick the engine and exit. The caller is expected to halt the node on the
+			// first error it sees.
+			c.brick(err)
 			return
 		}
 	}
+}
+
+// brick latches the error that killed the lifecycle runner and releases everyone blocked on the
+// engine, so callers observe the failure immediately rather than waiting for Close.
+func (c *snapshotEngine) brick(err error) {
+	c.versionLock.Lock()
+	if c.fatalErr == nil {
+		c.fatalErr = err
+	}
+	c.cancel()
+	c.versionLock.Unlock()
+	c.lifecycleBackpressureCond.Broadcast()
 }
 
 // Flushes and retires snapshots. Continues running until there is no more work, then returns.
@@ -1034,58 +1037,29 @@ func (c *snapshotEngine) Close() error {
 }
 
 func (c *snapshotEngine) closeInternal() error {
-	exit := func() error {
-		c.cancel()
-
-		// wake the backpressure thread, just in case it is blocked.
-		// It will exit when it sees that the context is cancelled.
-		c.lifecycleBackpressureCond.Signal()
-
-		err := c.db.Close()
-		if err != nil {
-			return fmt.Errorf("close: failed to close database: %w", err)
-		}
-
-		return nil
-	}
-
-	// Request that the lifecycle runner exit. When the engine has already been bricked, both
-	// select cases are ready (lifecycleExit is buffered and the context is dead), so either
-	// branch may be taken; both tear down and report the underlying cause via shutdownError.
-	select {
-	case c.lifecycleExit <- struct{}{}:
-	case <-c.ctx.Done():
-		err := fmt.Errorf("close: engine already shut down: %w", c.shutdownError())
-		exitErr := exit()
-		return errors.Join(err, exitErr)
-	}
-
-	// Wait for the lifecycle runner to exit. We deliberately do NOT race ctx.Done() here:
-	// lifecycle's defer cancels c.ctx on exit, so a select with ctx.Done() could win over the
-	// lifecycleExited close non-deterministically. Lifecycle is guaranteed to eventually close
-	// lifecycleExited (its defer runs even on panic), so this is a bounded wait.
+	// Tell the lifecycle runner to exit, then wait for it to report offline. The send is
+	// buffered, so it does not block when the runner has already exited (engine failure), and
+	// the runner is guaranteed to close lifecycleExited (its defer runs even on panic).
+	c.lifecycleExit <- struct{}{}
 	<-c.lifecycleExited
 
-	// Flush whatever is immediately flush-eligible by the normal rules. We don't wait on
-	// unhashed snapshots — Close should not block on the hashing subsystem. Retirement is
-	// also skipped: it only frees in-memory state, which the GC will reclaim once the engine
-	// reference is dropped.
+	// Release everyone blocked on the engine's future: AwaitHash, AwaitFlush, backpressured
+	// Snapshot callers, and reads still awaiting results. The cancel happens under versionLock
+	// because backpressure waiters re-check the context under that lock before parking on the
+	// cond; a lockless cancel could slip between a waiter's check and its Wait, losing the
+	// wakeup.
 	c.versionLock.Lock()
-	firstVersion, lastVersion, versionHashes, err := c.determineVersionsToFlushLocked()
+	c.cancel()
 	c.versionLock.Unlock()
-	if err != nil {
-		err = fmt.Errorf("close: failed to determine versions to flush: %w", err)
-		exitErr := exit()
-		return errors.Join(err, exitErr)
-	}
+	c.lifecycleBackpressureCond.Broadcast()
 
-	if firstVersion < lastVersion {
-		if err := c.flushSnapshots(firstVersion, lastVersion, versionHashes); err != nil {
-			err := fmt.Errorf("close: failed to flush versions: %w", err)
-			exitErr := exit()
-			return errors.Join(err, exitErr)
-		}
-	}
+	// Wait for the metrics scrape loop (if any) to observe the cancellation and exit.
+	c.metrics.awaitStopped()
 
-	return exit()
+	c.versionLock.Lock()
+	defer c.versionLock.Unlock()
+	if c.fatalErr != nil {
+		return fmt.Errorf("snapshot engine failed: %w", c.fatalErr)
+	}
+	return nil
 }

@@ -32,6 +32,10 @@ type SnapshotEngineMetrics struct {
 	misses             metric.Int64Counter
 	missLatency        metric.Float64Histogram
 	snapshotPhaseTimer *metrics.PhaseTimer
+
+	// Closed by collectLoop when it exits. awaitStopped blocks on it so engine Close can
+	// guarantee the scrape goroutine is gone before returning.
+	collectDone chan struct{}
 }
 
 // newSnapshotEngineMetrics creates a SnapshotEngineMetrics that records cache statistics via OTel.
@@ -86,6 +90,7 @@ func newSnapshotEngineMetrics(
 		misses:             misses,
 		missLatency:        missLatency,
 		snapshotPhaseTimer: snapshotPhaseTimer,
+		collectDone:        make(chan struct{}),
 	}
 
 	go cm.collectLoop(ctx, scrapeInterval, getSize)
@@ -125,6 +130,7 @@ func (cm *SnapshotEngineMetrics) collectLoop(
 	if cm == nil {
 		return
 	}
+	defer close(cm.collectDone)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -138,6 +144,15 @@ func (cm *SnapshotEngineMetrics) collectLoop(
 			cm.sizeEntries.Record(ctx, int64(entries), cm.attrs) //nolint:gosec
 		}
 	}
+}
+
+// awaitStopped blocks until the collect loop has exited. Nil-safe; returns immediately when
+// metrics are disabled.
+func (cm *SnapshotEngineMetrics) awaitStopped() {
+	if cm == nil {
+		return
+	}
+	<-cm.collectDone
 }
 
 // setSnapshotPhase sets the phase for the snapshot phase timer.

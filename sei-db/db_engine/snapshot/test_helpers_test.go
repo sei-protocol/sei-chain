@@ -32,12 +32,15 @@ type testDB struct {
 	store       map[string][]byte
 	getCalls    atomic.Int64
 	commitCount atomic.Int64
-	getErr      error
-	getErrKeys  map[string]error
-	commitErr   error
-	commitBlock chan struct{}
-	getGate     chan struct{}
-	closed      atomic.Bool
+	// Incremented when a batch Commit is entered, before it blocks on commitBlock. Lets tests
+	// deterministically detect that the flusher is stalled inside a commit.
+	commitEntered atomic.Int64
+	getErr        error
+	getErrKeys    map[string]error
+	commitErr     error
+	commitBlock   chan struct{}
+	getGate       chan struct{}
+	closed        atomic.Bool
 }
 
 func newTestDB(seed map[string][]byte) *testDB {
@@ -192,6 +195,7 @@ func (b *testBatch) Delete(key []byte) error {
 }
 
 func (b *testBatch) Commit(_ types.WriteOptions) error {
+	b.db.commitEntered.Add(1)
 	if b.db.commitBlock != nil {
 		<-b.db.commitBlock
 	}
@@ -243,18 +247,19 @@ func newTestEngineWithDB(t *testing.T, db *testDB, shardCount, maxSize uint64) S
 	return newTestEngineWithConfig(t, newTestConfig(shardCount, maxSize), db)
 }
 
-// newTestEngineWithConfig builds an engine on a cancelable context and registers cleanup that cancels
-// the context (stopping the lifecycle goroutine) and drains the work pool. Tests that exercise Close()
-// may still call it explicitly; the cleanup is idempotent with respect to that.
+// newTestEngineWithConfig builds an engine and registers cleanup that closes it and then drains
+// the work pool, mirroring the production teardown order (engine, then pools, then DB). Close is
+// idempotent, so tests that exercise it explicitly are unaffected; its error is ignored because
+// brick tests intentionally leave the engine failed.
 func newTestEngineWithConfig(t *testing.T, config *SnapshotEngineConfig, db *testDB) SnapshotEngine {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
 	pool := threading.NewAdHocPool()
-	engine, err := NewSnapshotEngine(ctx, config, db, pool, pool)
+	engine, err := NewSnapshotEngine(config, db, pool, pool)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		cancel()
+		_ = engine.Close()
 		pool.Close()
+		_ = db.Close()
 	})
 	return engine
 }
