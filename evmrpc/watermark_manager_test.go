@@ -183,6 +183,74 @@ func TestStateWatermarksCanLagBlocks(t *testing.T) {
 	require.Equal(t, int64(28), latest)
 }
 
+// TestResolveEarliestToGenesisOnUnprunedNode is the SEI-10383 regression guard:
+// an unpruned store reports GetEarliestVersion()==0, and `earliest` must resolve
+// to the earliest retained block (genesis), not 0, which CreateQueryContext
+// coerces to the tip. blockEarliest is used (it equals InitialHeight on an
+// unpruned node), never a literal 1.
+func TestResolveEarliestToGenesisOnUnprunedNode(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 100}},
+	}
+	stateStore := &fakeStateStore{latest: 200, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 200, stateStore, 200)
+
+	earliest := rpc.EarliestBlockNumber
+	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
+	require.NoError(t, err)
+	require.Equal(t, int64(100), resolved, "earliest must resolve to the earliest retained block, not 0 or 1")
+}
+
+// TestResolveEarliestClampedToLatestBeforeFirstCommit guards the no-blocks-yet
+// window: with no committed blocks latest is 0 while blockEarliest is 1, so
+// `earliest` must resolve to 0 (the pre-commit checkState path), not a future
+// height that CreateQueryContext would reject.
+func TestResolveEarliestClampedToLatestBeforeFirstCommit(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 0, EarliestBlockHeight: 1}},
+	}
+	stateStore := &fakeStateStore{latest: 0, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 0, stateStore, 0)
+
+	earliest := rpc.EarliestBlockNumber
+	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), resolved, "earliest must not resolve to a future height before the first commit")
+}
+
+// TestResolveEarliestUsesStatePruneFloorWhenPruned confirms a pruned store's
+// earliest state version is used as-is for `earliest`, unchanged from prior
+// behavior (only the unpruned zero case was changed).
+func TestResolveEarliestUsesStatePruneFloorWhenPruned(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 100, EarliestBlockHeight: 40}},
+	}
+	stateStore := &fakeStateStore{latest: 100, earliest: 20}
+	wm := newTestWatermarkManager(tmClient, 100, stateStore, 100)
+
+	earliest := rpc.EarliestBlockNumber
+	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
+	require.NoError(t, err)
+	require.Equal(t, int64(20), resolved, "earliest must use the state-prune floor")
+}
+
+// TestExplicitHistoricalReadNotFlooredToBlockEarliest confirms the fix does not
+// change explicit-height gating: on an unpruned node (stateEarliest==0) a read
+// below the block-prune floor is still admitted, matching prior behavior, since
+// only the `earliest` tag was changed.
+func TestExplicitHistoricalReadNotFlooredToBlockEarliest(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 100, EarliestBlockHeight: 5}},
+	}
+	stateStore := &fakeStateStore{latest: 100, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 100, stateStore, 100)
+
+	below := rpc.BlockNumber(3)
+	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &below})
+	require.NoError(t, err, "explicit historical read must not be rejected as pruned on an unpruned node")
+	require.Equal(t, int64(3), resolved)
+}
+
 func newTestWatermarkManager(tmClient client.LocalClient, ctxHeight int64, stateStore types.StateStore, receiptLatest int64) *WatermarkManager {
 	return NewWatermarkManager(tmClient, watermarkTestCtxProvider(ctxHeight), stateStore, &fakeReceiptStore{latest: receiptLatest})
 }

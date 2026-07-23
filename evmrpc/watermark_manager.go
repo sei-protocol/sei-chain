@@ -93,7 +93,7 @@ func (m *WatermarkManager) EarliestStateHeight(ctx context.Context) (int64, erro
 // an error explaining whether it is too old (pruned) or too new (not yet
 // available).
 func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
-	_, stateEarliest, latest, err := m.Watermarks(ctx)
+	blockEarliest, stateEarliest, latest, err := m.Watermarks(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -122,6 +122,17 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		return latest, nil
 	case rpc.EarliestBlockNumber:
+		if stateEarliest == 0 {
+			// An unpruned store reports earliest state as 0. Resolve `earliest`
+			// to the earliest retained block (genesis) instead: height 0 is
+			// coerced to the tip by CreateQueryContext. Clamp to latest so the
+			// pre-commit window (no blocks yet) stays at 0 and reads checkState.
+			//
+			// Under Autobahn, blockEarliest stays 0 (Status leaves
+			// EarliestBlockHeight unpopulated), so earliest still resolves to the
+			// tip there; that node class is tracked separately in SEI-10385.
+			return min(blockEarliest, latest), nil
+		}
 		return stateEarliest, nil
 	}
 
