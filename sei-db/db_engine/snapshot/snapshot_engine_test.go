@@ -11,6 +11,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 func TestNewSnapshotEngineValid(t *testing.T) {
@@ -106,10 +107,10 @@ func TestEngineGetPropagatesDBError(t *testing.T) {
 
 func TestEngineBatchSetThenBatchGet(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 4, 1<<20)
-	require.NoError(t, engine.BatchSet([]Mutation{
+	require.NoError(t, engine.BatchSet([]*proto.KVPair{
 		{Key: []byte("a"), Value: []byte("1")},
 		{Key: []byte("b"), Value: []byte("2")},
-		{Key: []byte("c"), Value: nil}, // delete of a non-existent key
+		{Key: []byte("c"), Delete: true}, // delete of a non-existent key
 	}))
 
 	req := map[string]types.BatchGetResult{"a": {}, "b": {}, "c": {}, "missing": {}}

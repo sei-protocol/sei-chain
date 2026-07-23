@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/structures"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // readFromDB reads a single key from the underlying database, returning (nil, false, nil) if the
@@ -556,10 +557,15 @@ func (s *shard) setInDBCacheLocked(key []byte, value []byte) {
 }
 
 // BatchSet sets the values for a batch of keys at the current version.
-func (s *shard) BatchSet(entries []Mutation) {
+func (s *shard) BatchSet(entries []*proto.KVPair) {
 	s.lock.Lock()
 	for i := range entries {
-		s.setLocked(entries[i].Key, entries[i].Value)
+		if entries[i].Delete {
+			// A delete is stored as a nil-valued (tombstone) entry at the current version.
+			s.setLocked(entries[i].Key, nil)
+		} else {
+			s.setLocked(entries[i].Key, entries[i].Value)
+		}
 	}
 	s.lock.Unlock()
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // TestDifferentialAgainstModel drives randomized operation sequences through both the real
@@ -218,15 +219,15 @@ func pick(rng *testutil.TestRandom, keys [][]byte) []byte {
 	return keys[rng.IntRange(0, len(keys))]
 }
 
-func randMuts(rng *testutil.TestRandom, keys [][]byte) []Mutation {
+func randMuts(rng *testutil.TestRandom, keys [][]byte) []*proto.KVPair {
 	n := rng.IntRange(1, 9)
-	muts := make([]Mutation, n)
+	muts := make([]*proto.KVPair, n)
 	for i := range muts {
 		k := pick(rng, keys)
 		if rng.BoolWithProbability(0.25) {
-			muts[i] = Mutation{Key: k, Value: nil} // delete
+			muts[i] = &proto.KVPair{Key: k, Delete: true} // delete
 		} else {
-			muts[i] = Mutation{Key: k, Value: randVal(rng)}
+			muts[i] = &proto.KVPair{Key: k, Value: randVal(rng)}
 		}
 	}
 	return muts

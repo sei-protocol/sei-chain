@@ -11,6 +11,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 var _ SnapshotEngine = (*snapshotEngine)(nil)
@@ -247,9 +248,9 @@ func (c *snapshotEngine) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	return bytes, entries
 }
 
-func (c *snapshotEngine) BatchSet(updates []Mutation) error {
+func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
 	// Sort entries by shard index so each shard is locked only once.
-	shardMap := make(map[uint64][]Mutation)
+	shardMap := make(map[uint64][]*proto.KVPair)
 	for i := range updates {
 		idx := c.shardManager.Shard(updates[i].Key)
 		shardMap[idx] = append(shardMap[idx], updates[i])

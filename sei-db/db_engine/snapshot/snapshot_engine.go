@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // SnapshotEngine provides a read-through cache and efficient point-in-time snapshots on top of a basic
@@ -39,8 +40,10 @@ type SnapshotEngine interface {
 	// Delete removes the given key from the current (mutable) version.
 	Delete(key []byte)
 
-	// BatchSet applies the given key-value mutations to the current (mutable) version.
-	BatchSet(updates []Mutation) error
+	// BatchSet applies the given changeset pairs to the current (mutable) version. A pair with
+	// Delete set removes the key; otherwise its Value is written (an empty, non-nil Value is a
+	// zero-length value, distinct from a delete).
+	BatchSet(updates []*proto.KVPair) error
 
 	// Snapshot seals the current version as an immutable, point-in-time Snapshot and advances the
 	// engine to a fresh mutable version. The returned Snapshot is safe to read for as long as the
@@ -189,17 +192,4 @@ type Iterator interface {
 	//
 	// WARNING: failure to close the iterator may lead to a fatal leak.
 	Close() error
-}
-
-// Mutation describes a single key-value mutation to apply to the snapshot engine.
-type Mutation struct {
-	// The key to update.
-	Key []byte
-	// The value to set. If nil, the key will be deleted.
-	Value []byte
-}
-
-// IsDelete returns true if the update is a delete operation.
-func (u *Mutation) IsDelete() bool {
-	return u.Value == nil
 }

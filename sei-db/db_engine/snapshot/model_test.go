@@ -3,6 +3,8 @@ package snapshot
 import (
 	"bytes"
 	"sort"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // modelEngine is a deliberately naive, obviously-correct reference implementation of the
@@ -11,8 +13,8 @@ import (
 //
 // Conventions (matching the real engine):
 //   - versions start at 1; Snapshot() seals the current version, then advances.
-//   - a nil value passed to Set is a delete (see Mutation.IsDelete); tombstones remove the key from
-//     the materialized state and are recorded as a nil value in that version's diff.
+//   - a nil value passed to Set is a delete; tombstones remove the key from the materialized state
+//     and are recorded as a nil value in that version's diff.
 //   - reads return (value, found); a found key always has a non-nil (possibly empty) value.
 type modelEngine struct {
 	// current is the materialized state of the live (mutable) version: key -> value. Deleted keys are
@@ -58,9 +60,9 @@ func (m *modelEngine) Delete(key []byte) {
 	m.pending[k] = nil
 }
 
-func (m *modelEngine) BatchSet(muts []Mutation) {
+func (m *modelEngine) BatchSet(muts []*proto.KVPair) {
 	for i := range muts {
-		if muts[i].IsDelete() {
+		if muts[i].Delete {
 			m.Delete(muts[i].Key)
 		} else {
 			m.Set(muts[i].Key, muts[i].Value)
