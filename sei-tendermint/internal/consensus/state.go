@@ -1840,12 +1840,12 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 
 	logger.Debug(
 		"finalizing commit of block",
+		"height", block.Height,
 		"hash", block.Hash(),
 		"root", block.AppHash,
 		"num_txs", len(block.Txs),
 		"time", time.Now().UnixMilli(),
 	)
-	logger.Debug("finalizing commit of block", "height", block.Height, "hash", block.Hash())
 
 	// Save to blockStore.
 	if cs.blockStore.Height() < block.Height {
