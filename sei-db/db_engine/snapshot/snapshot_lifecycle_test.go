@@ -171,7 +171,7 @@ func TestAwaitFlushRetiredVersionWithCancelledCtx(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	require.Error(t, snap.AwaitFlush(ctx),
-		"context cancellation is a hard teardown: no courtesy nil even though the flush completed")
+		"a retired (untracked) version reports an error even though its flush completed")
 }
 
 func TestBackpressureBlocksAndUnblocksOnFlush(t *testing.T) {

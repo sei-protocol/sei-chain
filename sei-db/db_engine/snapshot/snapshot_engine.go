@@ -178,9 +178,16 @@ type Snapshot interface {
 
 	// AwaitFlush blocks until the snapshot's data has been written to disk, returning nil once
 	// the flush has completed. Returns an error if ctx is cancelled or the engine shuts down
-	// first. Context cancellation is treated as a hard teardown: no attempt is made to report a
-	// concurrently-completing flush as success, and when a completed flush and a cancelled
-	// context are observed simultaneously either outcome may be returned.
+	// first.
+	//
+	// The caller must hold a reservation across this call. A retired snapshot is no longer
+	// recognized by the engine, so AwaitFlush on it returns an error — not success — even
+	// though retirement implies the flush completed. Holding a reservation prevents
+	// retirement and makes the wait well-defined.
+	//
+	// Cancelling ctx stops the wait; it has no effect on the flush itself, which proceeds
+	// regardless. A ctx error therefore says nothing about flush state: if completion and
+	// cancellation become observable simultaneously, either outcome may be returned.
 	AwaitFlush(ctx context.Context) error
 }
 
