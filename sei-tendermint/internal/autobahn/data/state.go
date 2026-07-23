@@ -415,8 +415,8 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextQC }); err != nil {
 			return err
 		}
-		// Already past the contiguous prefix: insertBlock would no-op, and
-		// heights below nextAppProposal may no longer have qcs[n] in RAM.
+		// Already in/below the contiguous prefix: insertBlock would no-op
+		// (stored, or evicted below first with nextBlock advanced past n).
 		if n < inner.nextBlock {
 			return nil
 		}
