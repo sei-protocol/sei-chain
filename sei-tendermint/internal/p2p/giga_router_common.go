@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"path/filepath"
 	"slices"
@@ -266,7 +267,18 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
+	r.data.PushGasUsed(finalizeBlockGasUsed(resp))
 	return commitResp, nil
+}
+
+func finalizeBlockGasUsed(resp *abci.ResponseFinalizeBlock) int64 {
+	var total int64
+	for _, result := range resp.TxResults {
+		if result != nil {
+			total += max(0, result.GasUsed)
+		}
+	}
+	return total
 }
 
 // buildHashVault constructs the app-hash equivocation guard runExecute owns. By default it

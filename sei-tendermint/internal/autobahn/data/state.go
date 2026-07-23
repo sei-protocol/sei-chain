@@ -37,6 +37,7 @@ type StateAPI interface {
 	// PushAppHash blocks until block n and its QC are durably persisted,
 	// ensuring AppVotes are only issued for data that survives a crash.
 	PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash types.AppHash) error
+	PushGasUsed(gasUsed int64)
 }
 
 var _ StateAPI = (*State)(nil)
@@ -615,6 +616,10 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		ctrl.Updated()
 	}
 	return nil
+}
+
+func (s *State) PushGasUsed(gasUsed int64) {
+	s.metrics.GasUsed.Add(gasUsed)
 }
 
 // AppProposal returns the lowest AppProposal containing the block n.

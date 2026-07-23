@@ -11,6 +11,8 @@ const MetricsSubsystem = "internal_autobahn_data"
 type metrics struct {
 	// latency of resource processing up from production to the given stage
 	latency prometheus.HistogramVec `metrics_labels:"resource,stage" metrics_buckets:"exp(0.001, 1.5, 30)"`
+	// gas used by executed blocks
+	gasUsed prometheus.CounterIntVec
 }
 
 type resourceMetrics struct {
@@ -20,8 +22,9 @@ type resourceMetrics struct {
 }
 
 type Metrics struct {
-	Blocks resourceMetrics
-	Txs    resourceMetrics
+	Blocks  resourceMetrics
+	Txs     resourceMetrics
+	GasUsed *prometheus.CounterInt
 }
 
 func Get() *Metrics {
@@ -33,7 +36,8 @@ func Get() *Metrics {
 		}
 	}
 	return &Metrics{
-		Blocks: get("blocks"),
-		Txs:    get("txs"),
+		Blocks:  get("blocks"),
+		Txs:     get("txs"),
+		GasUsed: Global.gasUsedAt(),
 	}
 }

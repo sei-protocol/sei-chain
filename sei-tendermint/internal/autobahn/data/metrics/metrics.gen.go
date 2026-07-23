@@ -12,6 +12,7 @@ var Global = newMetrics()
 func init() {
 	prometheus.MustRegister(
 		Global.latency,
+		Global.gasUsed,
 	)
 }
 
@@ -24,9 +25,19 @@ func newMetrics() *metrics {
 			Help:      "latency of resource processing up from production to the given stage",
 			Buckets:   prometheus.ExponentialBuckets(0.001, 1.5, 30),
 		}, []string{"resource", "stage"}),
+		gasUsed: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "gas_used",
+			Help:      "gas used by executed blocks",
+		}, nil),
 	}
 }
 
 func (m *metrics) latencyAt(resource string, stage string) *tmprometheus.Histogram {
 	return m.latency.WithLabelValues(resource, stage)
+}
+
+func (m *metrics) gasUsedAt() *tmprometheus.CounterInt {
+	return m.gasUsed.WithLabelValues()
 }

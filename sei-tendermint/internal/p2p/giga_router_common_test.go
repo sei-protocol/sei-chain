@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -55,4 +56,16 @@ func TestCommitHashToVault(t *testing.T) {
 		err := commitAppHashToVault(ctx, vault, height, h2)
 		require.Error(t, err)
 	})
+}
+
+func TestFinalizeBlockGasUsed(t *testing.T) {
+	resp := &abci.ResponseFinalizeBlock{
+		TxResults: []*abci.ExecTxResult{
+			{GasUsed: 10},
+			nil,
+			{GasUsed: -1},
+			{GasUsed: 20},
+		},
+	}
+	require.Equal(t, int64(30), finalizeBlockGasUsed(resp))
 }

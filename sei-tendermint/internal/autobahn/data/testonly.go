@@ -143,3 +143,5 @@ func (s *MockState) PushAppHash(_ context.Context, n types.GlobalBlockNumber, ap
 	}
 	return nil
 }
+
+func (s *MockState) PushGasUsed(gasUsed int64) {}
