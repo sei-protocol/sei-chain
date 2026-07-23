@@ -299,10 +299,11 @@ func (s *State) admitRoadOrDrop(
 	return ep, nil
 }
 
-// waitForAppQCEpoch blocks until latest AppQC is from epochIdx or later.
-// incoming, if present, is the AppQC on this PushAppQC call; it counts before
-// prune updates latestAppQC.
-func (s *State) waitForAppQCEpoch(ctx context.Context, epochIdx types.EpochIndex, incoming utils.Option[*types.AppQC]) error {
+// waitPruneLeash blocks until latest AppQC is from epochIdx or later (prune
+// leash: N-1 must be fully pruned before sealing N drops Prev). incoming, if
+// present, is the AppQC on this PushAppQC call; it counts before prune updates
+// latestAppQC.
+func (s *State) waitPruneLeash(ctx context.Context, epochIdx types.EpochIndex, incoming utils.Option[*types.AppQC]) error {
 	for inner, ctrl := range s.inner.Lock() {
 		ready := func() bool {
 			if c, ok := incoming.Get(); ok && c.Proposal().EpochIndex() >= epochIdx {
@@ -335,7 +336,7 @@ func (s *State) waitForAppQCEpoch(ctx context.Context, epochIdx types.EpochIndex
 // here — committee N is already in the duo. closingEpoch is true when this QC
 // is the last road of its epoch (duo will advance into N+1 and drop Prev).
 // incoming is the AppQC on a PushAppQC call (None for PushCommitQC); it counts
-// toward the seal AppQC wait before prune. Epoch 0 has no prior leash.
+// toward the prune leash. Epoch 0 has no prior leash.
 // See epoch.Registry tip-interlock docs.
 func (s *State) waitCommitEpochLeashes(
 	ctx context.Context,
@@ -347,11 +348,11 @@ func (s *State) waitCommitEpochLeashes(
 		return nil
 	}
 	// Sealing N drops Prev (N-1) and advances Current into N+1.
-	// AppQC in N: N-1 fully pruned before it leaves the duo.
-	if err := s.waitForAppQCEpoch(ctx, epochIdx, incoming); err != nil {
+	// Prune leash: AppQC in N ⇒ N-1 fully pruned before it leaves the duo.
+	if err := s.waitPruneLeash(ctx, epochIdx, incoming); err != nil {
 		return err
 	}
-	// N+1 existing: execution finished N-1 (usually AdvanceIfNeeded).
+	// Execution leash: N+1 existing ⇒ execution finished N-1 (usually AdvanceIfNeeded).
 	_, err := s.data.Registry().WaitForDuo(ctx, epoch.FirstRoad(epochIdx+1))
 	return err
 }

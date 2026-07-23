@@ -421,7 +421,7 @@ func TestStateMismatchedQCs(t *testing.T) {
 	})
 }
 
-func TestWaitForAppQCEpoch(t *testing.T) {
+func TestWaitPruneLeash(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistryAt(rng, 4, 0)
@@ -434,7 +434,7 @@ func TestWaitForAppQCEpoch(t *testing.T) {
 
 	timeout, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
-	require.ErrorIs(t, state.waitForAppQCEpoch(timeout, 0, utils.None[*types.AppQC]()), context.DeadlineExceeded)
+	require.ErrorIs(t, state.waitPruneLeash(timeout, 0, utils.None[*types.AppQC]()), context.DeadlineExceeded)
 
 	lane := keys[0].Public()
 	b, err := state.ProduceLocalBlock(state.NextBlock(lane), types.GenPayload(rng))
@@ -451,14 +451,14 @@ func TestWaitForAppQCEpoch(t *testing.T) {
 		qc0.GlobalRange().Next-1, 0, types.GenAppHash(rng), 0)))
 
 	done := make(chan error, 1)
-	go func() { done <- state.waitForAppQCEpoch(ctx, 0, utils.None[*types.AppQC]()) }()
+	go func() { done <- state.waitPruneLeash(ctx, 0, utils.None[*types.AppQC]()) }()
 	require.NoError(t, state.PushAppQC(ctx, appQC, qc0))
 	require.NoError(t, <-done)
-	require.NoError(t, state.waitForAppQCEpoch(ctx, 0, utils.None[*types.AppQC]()))
+	require.NoError(t, state.waitPruneLeash(ctx, 0, utils.None[*types.AppQC]()))
 
 	timeout2, cancel2 := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel2()
-	require.ErrorIs(t, state.waitForAppQCEpoch(timeout2, 1, utils.None[*types.AppQC]()), context.DeadlineExceeded)
+	require.ErrorIs(t, state.waitPruneLeash(timeout2, 1, utils.None[*types.AppQC]()), context.DeadlineExceeded)
 }
 
 func TestPushBlockRejectsBadParentHash(t *testing.T) {
