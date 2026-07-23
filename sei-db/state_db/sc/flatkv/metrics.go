@@ -8,6 +8,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 var (
@@ -33,6 +35,8 @@ var (
 		ImportKVPairs             metric.Int64Counter
 		ImportWorkerFlushLatency  metric.Float64Histogram
 		FlushLatency              metric.Float64Histogram
+		ModuleKeyCount            metric.Int64Gauge
+		ModuleTotalBytes          metric.Int64Gauge
 	}{
 		OpenLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_open_latency",
@@ -129,6 +133,16 @@ var (
 			metric.WithDescription("Time taken to flush a FlatKV data DB"),
 			metric.WithUnit("s"),
 		)),
+		ModuleKeyCount: must(flatkvMeter.Int64Gauge(
+			"flatkv_module_key_count",
+			metric.WithDescription("Current number of live keys for a (data DB, module) pair"),
+			metric.WithUnit("{count}"),
+		)),
+		ModuleTotalBytes: must(flatkvMeter.Int64Gauge(
+			"flatkv_module_total_bytes",
+			metric.WithDescription("Current total serialized key+value bytes for a (data DB, module) pair"),
+			metric.WithUnit("By"),
+		)),
 	}
 )
 
@@ -149,6 +163,22 @@ func successAttr(err error) attribute.KeyValue {
 
 func dbAttr(db string) attribute.KeyValue {
 	return attribute.String("db", db)
+}
+
+func moduleAttr(module string) attribute.KeyValue {
+	return attribute.String("module", module)
+}
+
+// recordModuleStats records the current per-module key-count / byte totals for one data DB. Only called
+// from CommitStore.recordAllModuleStats, which is itself only reached from Commit's live success path
+// (see its doc comment). stats is keyed by module name, mirroring LocalMeta.ModuleStats; a nil/empty map
+// is a no-op (fresh DB with no modules yet).
+func recordModuleStats(ctx context.Context, db string, stats map[string]lthash.ModuleStats) {
+	for module, s := range stats {
+		attrs := metric.WithAttributes(dbAttr(db), moduleAttr(module))
+		otelMetrics.ModuleKeyCount.Record(ctx, s.KeyCount, attrs)
+		otelMetrics.ModuleTotalBytes.Record(ctx, s.Bytes, attrs)
+	}
 }
 
 func recordPendingWrites(ctx context.Context, db string, count int) {

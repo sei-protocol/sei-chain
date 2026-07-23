@@ -50,20 +50,23 @@ func TestFlatKVHashReporting(t *testing.T) {
 	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	// Categories: the global root plus one per data DB (metadata DB excluded).
-	require.Equal(t, []string{
+	// Categories: the global root, one per data DB (metadata DB excluded), plus one per (DB, module)
+	// pair that actually has an entry. Only the storage write above produced a module hash, and only in
+	// storageDB, so "evm" only shows up there.
+	require.ElementsMatch(t, []string{
 		"flatKV/root",
 		"flatKV/db/account",
 		"flatKV/db/code",
 		"flatKV/db/storage",
 		"flatKV/db/misc",
+		"flatKV/db/storage/mod/evm",
 	}, s.HashCategories())
 
 	logger := newCaptureLogger()
 	for _, category := range s.HashCategories() {
 		require.NoError(t, logger.RegisterHashType(category))
 	}
-	require.Len(t, logger.registered, 5)
+	require.Len(t, logger.registered, 6)
 
 	require.NoError(t, s.RecordHashes(logger, 1))
 
@@ -80,10 +83,25 @@ func TestFlatKVHashReporting(t *testing.T) {
 		require.Equal(t, checksum[:], logger.hashes["flatKV/db/"+dir])
 	}
 
+	// The per-module hash reported for storage/evm is the checksum of that module's committed LtHash,
+	// and it is non-zero (the module actually has data).
+	evmModuleHash := s.localMeta[storageDBDir].ModuleLtHashes["evm"]
+	require.NotNil(t, evmModuleHash)
+	require.False(t, evmModuleHash.IsZero())
+	evmChecksum := evmModuleHash.Checksum()
+	require.Equal(t, evmChecksum[:], logger.hashes["flatKV/db/storage/mod/evm"])
+
 	// Homomorphic invariant: the per-DB LtHashes sum to the committed global LtHash.
 	sum := lthash.New()
 	for _, dir := range dataDBDirs {
 		sum.MixIn(s.localMeta[dir].LtHash)
 	}
 	require.True(t, sum.Equal(s.committedLtHash))
+
+	// Homomorphic invariant: storageDB's per-module hashes sum to its per-DB root.
+	moduleSum := lthash.New()
+	for _, h := range s.localMeta[storageDBDir].ModuleLtHashes {
+		moduleSum.MixIn(h)
+	}
+	require.True(t, moduleSum.Equal(s.localMeta[storageDBDir].LtHash))
 }
