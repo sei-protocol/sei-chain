@@ -31,7 +31,7 @@ var (
 func registerDuoAtEpoch(s *State, n types.EpochIndex) {
 	r := s.data.Registry()
 	tip := epoch.FirstRoad(n)
-	r.SetupInitialDuo(utils.None[types.RoadIndex](), utils.Some(epoch.CommitQCSpan{First: tip, Last: tip}))
+	r.SetupInitialDuo(utils.None[types.RoadIndex](), utils.Some(types.RoadRange{First: tip, Next: tip + 1}))
 	duo := utils.OrPanic1(r.DuoAt(tip))
 	for inner := range s.inner.Lock() {
 		inner.epochDuo.Store(duo)
@@ -1483,9 +1483,9 @@ func TestPushAppQCPreviousEpoch(t *testing.T) {
 }
 
 // TestRestartDuoFromCommitTipNeedsSetup: DuoAt at FirstRoad(2) needs epoch 2.
-// CommitQC alone in epoch 1 is not enough for SetupInitialDuo without execution;
-// lead tips do not soft-seed. Also checks newInner still requires a prune
-// anchor when Current > 0 (after SetupInitialDuo with execution).
+// CommitQC alone in epoch 1 is not enough without an execution tipcut that
+// advances past N-1; lead tips do not soft-seed. Also checks newInner still
+// requires a prune anchor when Current > 0 (after SetupInitialDuo with execution).
 func TestRestartDuoFromCommitTipNeedsSetup(t *testing.T) {
 	rng := utils.TestRng()
 	registry, _ := epoch.GenRegistryAt(rng, 3, 0) // {0,1}
@@ -1501,10 +1501,8 @@ func TestRestartDuoFromCommitTipNeedsSetup_ExecutionPath(t *testing.T) {
 	registry, _ := epoch.GenRegistryAt(rng, 3, 0) // {0,1}
 	tip2 := epoch.FirstRoad(2)
 	tip1 := epoch.LastRoad(1)
-	registry.SetupInitialDuo(
-		utils.Some(tip1),
-		utils.Some(epoch.CommitQCSpan{First: tip1, Last: tip1}),
-	)
+	// Fully executed LastRoad(1) → execution tipcut FirstRoad(2).
+	registry.SetupInitialDuo(utils.Some(tip1+1), utils.Some(types.RoadRange{First: tip1, Next: tip1 + 1}))
 	tipDuo2, err := registry.DuoAt(tip2)
 	require.NoError(t, err)
 	require.Equal(t, types.EpochIndex(2), tipDuo2.Current.EpochIndex())

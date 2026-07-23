@@ -210,11 +210,11 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan CommitQC span: %w", err)
 	}
-	lastExecuted, err := s.lastExecutedRoad(blockDB)
+	nextRoad, err := s.nextRoadToExecute(blockDB)
 	if err != nil {
-		return nil, fmt.Errorf("resolve last executed road: %w", err)
+		return nil, fmt.Errorf("resolve next road to execute: %w", err)
 	}
-	cfg.Registry.SetupInitialDuo(lastExecuted, commitQCs)
+	cfg.Registry.SetupInitialDuo(nextRoad, commitQCs)
 
 	if err := s.loadFromBlockDB(blockDB); err != nil {
 		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
@@ -222,7 +222,7 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 
 	// Center the live operating window on the CommitQC tip (tipcut = Index+1),
 	// matching live PushQC after a boundary store. SetupInitialDuo already
-	// EnsureDuoAt(span.Last+1), so DuoAt succeeds.
+	// EnsureDuoAt(Next) when a span is present, so DuoAt succeeds.
 	for in := range s.inner.Lock() {
 		initRoad := types.RoadIndex(0)
 		if in.nextQC > in.first {
@@ -240,19 +240,21 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	return s, nil
 }
 
-// commitQCSpan reads the first and last retained CommitQC proposal roads from
-// blockDB. None when the store holds no QCs (fresh start). Used to seed
-// SetupInitialDuo before replay.
-func commitQCSpan(blockDB types.BlockDB) (utils.Option[epoch.CommitQCSpan], error) {
+// commitQCSpan returns the half-open [First, Next) of retained CommitQC roads,
+// or None when the store holds no QCs. Used to seed SetupInitialDuo.
+func commitQCSpan(blockDB types.BlockDB) (utils.Option[types.RoadRange], error) {
 	first, ok, err := boundaryQCRoad(blockDB, false)
 	if err != nil || !ok {
-		return utils.None[epoch.CommitQCSpan](), err
+		return utils.None[types.RoadRange](), err
 	}
-	last, _, err := boundaryQCRoad(blockDB, true)
+	last, ok, err := boundaryQCRoad(blockDB, true)
 	if err != nil {
-		return utils.None[epoch.CommitQCSpan](), err
+		return utils.None[types.RoadRange](), err
 	}
-	return utils.Some(epoch.CommitQCSpan{First: first, Last: last}), nil
+	if !ok {
+		return utils.None[types.RoadRange](), fmt.Errorf("CommitQC span: first present but last missing")
+	}
+	return utils.Some(types.RoadRange{First: first, Next: last + 1}), nil
 }
 
 // boundaryQCRoad returns the proposal road of the first (reverse=false) or last
@@ -274,11 +276,16 @@ func boundaryQCRoad(blockDB types.BlockDB, reverse bool) (types.RoadIndex, bool,
 	return qc.QC().Proposal().Index(), true, nil
 }
 
-// lastExecutedRoad maps cfg.LastExecutedBlock to its covering CommitQC road via
-// BlockDB. None when unset (0) or the covering QC was pruned — SetupInitialDuo
-// then skips the AdvanceIfNeeded lookahead (the CommitQC tip still anchors the
-// duo).
-func (s *State) lastExecutedRoad(blockDB types.BlockDB) (utils.Option[types.RoadIndex], error) {
+// nextRoadToExecute returns a half-open execution tipcut: the next RoadIndex
+// that still needs execution. Covering CommitQC road R for LastExecutedBlock:
+// mid-range → R; fully finished (IsLastBlock) → R+1. Same tipcut shape as
+// CommitQC Index+1; registry EnsureExecTipcut maps tipcut → last completed
+// road.
+//
+// LastExecutedBlock 0 means fresh/unknown (Config default; giga only sets it
+// when app.LastBlockHeight() > 0) → None. Missing/pruned covering QC for a
+// positive height is an error (inconsistent app tip vs BlockDB).
+func (s *State) nextRoadToExecute(blockDB types.BlockDB) (utils.Option[types.RoadIndex], error) {
 	n := s.cfg.LastExecutedBlock
 	if n == 0 {
 		return utils.None[types.RoadIndex](), nil
@@ -286,15 +293,19 @@ func (s *State) lastExecutedRoad(blockDB types.BlockDB) (utils.Option[types.Road
 	opt, err := blockDB.ReadQCByBlockNumber(n)
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) || errors.Is(err, types.ErrNotFound) {
-			return utils.None[types.RoadIndex](), nil
+			return utils.None[types.RoadIndex](), fmt.Errorf("covering QC for executed block %d missing or pruned", n)
 		}
 		return utils.None[types.RoadIndex](), fmt.Errorf("read QC for executed block %d: %w", n, err)
 	}
 	qc, ok := opt.Get()
 	if !ok {
-		return utils.None[types.RoadIndex](), nil
+		return utils.None[types.RoadIndex](), fmt.Errorf("covering QC for executed block %d missing or pruned", n)
 	}
-	return utils.Some(qc.QC().Proposal().Index()), nil
+	road := qc.QC().Proposal().Index()
+	if qc.QC().GlobalRange().IsLastBlock(n) {
+		return utils.Some(road + 1), nil
+	}
+	return utils.Some(road), nil
 }
 
 // loadFromBlockDB replays QCs and blocks from blockDB into s.inner.
