@@ -64,16 +64,20 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 	stateEarliest := latest // SS disabled: only the tip is servable.
 	if m.stateStore != nil {
 		latest = min(latest, m.stateStore.GetLatestVersion())
-		// GetEarliestVersion() is 0 until the store first prunes or state-syncs,
-		// so treat that sentinel as unpruned-from-genesis and floor at
-		// blockEarliest. A nonzero floor is the real state-prune boundary, used
-		// as-is: it can sit below blockEarliest (state retained deeper than
-		// blocks), where raising it to the block floor would hide retained state.
+		// GetEarliestVersion() is 0 until the store first prunes or state-syncs.
+		// An unpruned store retains state from genesis, so its earliest servable
+		// state is height 1. A nonzero value is the real state-prune floor, used
+		// as-is: it is a state-availability boundary independent of block pruning
+		// and is not coupled to blockEarliest.
 		stateEarliest = m.stateStore.GetEarliestVersion()
 		if stateEarliest == 0 {
-			stateEarliest = blockEarliest
+			stateEarliest = 1
 		}
 	}
+	// State is never servable above the tip, and before the first commit
+	// blockEarliest can lead latest. Clamp so `earliest` stays on the servable
+	// (pre-commit checkState) path rather than a future height.
+	stateEarliest = min(stateEarliest, latest)
 	return blockEarliest, stateEarliest, latest, nil
 }
 

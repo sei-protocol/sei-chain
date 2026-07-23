@@ -183,29 +183,56 @@ func TestStateWatermarksCanLagBlocks(t *testing.T) {
 	require.Equal(t, int64(28), latest)
 }
 
-// TestResolveEarliestFloorsAtBlockEarliestOnFreshNode is a regression guard for
-// SEI-10383: a fresh SS node reports GetEarliestVersion()==0, and `earliest`
-// must floor at blockEarliest (genesis), not 0.
-func TestResolveEarliestFloorsAtBlockEarliestOnFreshNode(t *testing.T) {
+// TestStateEarliestFloorsAtGenesisWhenUnpruned is a regression guard for
+// SEI-10383. An unpruned store reports GetEarliestVersion()==0; `earliest` must
+// resolve to genesis (height 1), not 0 (which resolves to the tip). The floor is
+// genesis, not blockEarliest, so retained state below a pruned block floor stays
+// queryable.
+func TestStateEarliestFloorsAtGenesisWhenUnpruned(t *testing.T) {
 	tmClient := &fakeTMClient{
-		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 6, EarliestBlockHeight: 1}},
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 100, EarliestBlockHeight: 5}},
 	}
-	// Fresh node: state store enabled, but the earliest version was never
-	// written (nothing pruned, no state-sync), so GetEarliestVersion() == 0.
-	stateStore := &fakeStateStore{latest: 6, earliest: 0}
-	wm := newTestWatermarkManager(tmClient, 6, stateStore, 6)
+	// Unpruned state store (earliest==0) on a node whose blocks are pruned to 5.
+	stateStore := &fakeStateStore{latest: 100, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 100, stateStore, 100)
 
-	blockEarliest, stateEarliest, latest, err := wm.Watermarks(context.Background())
+	blockEarliest, stateEarliest, _, err := wm.Watermarks(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, int64(1), blockEarliest)
-	require.Equal(t, int64(1), stateEarliest, "fresh node: stateEarliest must floor at blockEarliest, not 0")
-	require.Equal(t, int64(6), latest)
+	require.Equal(t, int64(5), blockEarliest)
+	require.Equal(t, int64(1), stateEarliest, "unpruned SS: earliest state is genesis (1), not blockEarliest")
 
-	// The `earliest` tag must resolve to genesis (blockEarliest=1), never 0.
 	earliest := rpc.EarliestBlockNumber
 	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
 	require.NoError(t, err)
-	require.Equal(t, int64(1), resolved, "earliest must resolve to blockEarliest, not 0 (SEI-10383)")
+	require.Equal(t, int64(1), resolved, "earliest must resolve to genesis, not the tip (SEI-10383)")
+
+	// Retained state below the pruned block floor stays queryable.
+	below := rpc.BlockNumber(3)
+	resolved, err = wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &below})
+	require.NoError(t, err, "retained state below blockEarliest must not read as pruned")
+	require.Equal(t, int64(3), resolved)
+}
+
+// TestEarliestClampedToLatestBeforeFirstCommit guards the no-blocks-yet window:
+// with no committed blocks latest is 0 while blockEarliest is 1, so the genesis
+// floor must clamp to latest and keep `earliest` on the pre-commit path (0)
+// rather than returning a future height that CreateQueryContext would reject.
+func TestEarliestClampedToLatestBeforeFirstCommit(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 0, EarliestBlockHeight: 1}},
+	}
+	stateStore := &fakeStateStore{latest: 0, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 0, stateStore, 0)
+
+	_, stateEarliest, latest, err := wm.Watermarks(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(0), latest)
+	require.Equal(t, int64(0), stateEarliest, "pre-commit: stateEarliest must clamp to latest, not exceed it")
+
+	earliest := rpc.EarliestBlockNumber
+	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), resolved, "earliest must not resolve to a future height before the first commit")
 }
 
 // TestStateEarliestUsesPruneFloorBelowBlockEarliest verifies that when state is
