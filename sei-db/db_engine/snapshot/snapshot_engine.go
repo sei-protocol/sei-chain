@@ -60,6 +60,10 @@ type SnapshotEngine interface {
 	// engine to a fresh mutable version. The returned Snapshot is safe to read for as long as the
 	// caller holds a reservation on it; see Snapshot for the full lifecycle contract.
 	//
+	// Snapshot must not be called concurrently with operations on the current (mutable)
+	// version — Get, BatchGet, Set, Delete, or BatchSet. Reads of previously sealed snapshots
+	// may proceed concurrently with it.
+	//
 	// Snapshot may block for backpressure when the underlying DB cannot keep up with flushing
 	// (see SnapshotEngineConfig.MaxUnflushedVersions). The engine imposes no bound on unhashed
 	// or unreleased snapshots, each of which is retained in memory; the caller is responsible

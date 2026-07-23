@@ -37,7 +37,8 @@ func (lru *LRUQueue) Push(
 		entry := elem.Value.(*lruQueueEntry)
 		if lru.totalSize < entry.size {
 			// should be impossible
-			panic(fmt.Errorf("size tracking is corrupted: size %d < entry.size %d", size, entry.size))
+			panic(fmt.Errorf("size tracking is corrupted: totalSize %d < entry.size %d",
+				lru.totalSize, entry.size))
 		}
 		lru.totalSize -= entry.size
 		lru.totalSize += size

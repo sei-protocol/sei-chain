@@ -116,7 +116,7 @@ type dbCacheEntry struct {
 type versionedValue struct {
 	// The value.
 	value []byte
-	// The version number when this value was written to the DB. Note that this is NOT the same
+	// The engine version at which this value was written. Note that this is NOT the same
 	// as block height, this is just a version number that monotonically increases over the lifetime
 	// of a snapshot engine instance.
 	version uint64
@@ -193,6 +193,7 @@ func (s *shard) Get(
 	// First, check to see if we have this value in the versioned data map.
 	if value, found := s.lookupVersionedLocked(string(key), version); found {
 		s.lock.Unlock()
+		s.metrics.reportCacheHits(1)
 		return value, value != nil, nil
 	}
 
@@ -736,7 +737,7 @@ func (s *shard) DropVersions(
 ) error {
 
 	if firstVersion >= lastVersion {
-		return fmt.Errorf("firstVersion (%d) must be less than or equal to lastVersion (%d)",
+		return fmt.Errorf("firstVersion (%d) must be less than lastVersion (%d)",
 			firstVersion, lastVersion)
 	}
 
@@ -748,7 +749,7 @@ func (s *shard) DropVersions(
 			firstVersion, s.oldestVersion)
 	}
 	if lastVersion > s.currentVersion {
-		return fmt.Errorf("lastVersion (%d) must be less than the current version (%d)",
+		return fmt.Errorf("lastVersion (%d) must be less than or equal to the current version (%d)",
 			lastVersion, s.currentVersion)
 	}
 
