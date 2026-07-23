@@ -55,7 +55,12 @@ func NewKeeper(
 
 // SetWithdrawAddr sets a new address that will receive the rewards upon withdrawal
 func (k Keeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, withdrawAddr sdk.AccAddress) error {
-	if k.blockedAddrs[withdrawAddr.String()] {
+	// Reject any address the bank keeper would block from receiving funds, not just
+	// the module-account blocklist: BlockedAddr also covers dynamically-derived
+	// addresses such as the EVM coinbase addresses. Rejecting them here prevents a
+	// delegator from parking an unpayable withdraw address that would later make the
+	// force-withdraw in AfterValidatorRemoved panic during EndBlock.
+	if k.blockedAddrs[withdrawAddr.String()] || k.bankKeeper.BlockedAddr(withdrawAddr) {
 		return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive external funds", withdrawAddr)
 	}
 
@@ -79,7 +84,15 @@ func (k Keeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, w
 }
 
 func (k Keeper) canReceiveWithdrawAddr(ctx sdk.Context, withdrawAddr sdk.AccAddress) bool {
-	return !k.blockedAddrs[withdrawAddr.String()] && k.bankKeeper.CanSendTo(ctx, withdrawAddr)
+	// BlockedAddr mirrors the gate SendCoinsFromModuleToAccount actually enforces:
+	// beyond the module-account blocklist it also rejects dynamically-derived
+	// addresses such as the EVM coinbase addresses (an "evm_coinbase"-prefixed
+	// address), which CanSendTo does not catch. Consulting it here keeps this
+	// predicate in lockstep with the send, so AfterValidatorRemoved never concludes
+	// an address is receivable and then panics on the resulting bank error.
+	return !k.blockedAddrs[withdrawAddr.String()] &&
+		!k.bankKeeper.BlockedAddr(withdrawAddr) &&
+		k.bankKeeper.CanSendTo(ctx, withdrawAddr)
 }
 
 // withdraw rewards from a delegation
