@@ -24,7 +24,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/config"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -69,7 +69,7 @@ var (
 type Database struct {
 	storage      *pebble.DB
 	asyncWriteWG sync.WaitGroup
-	config       config.StateStoreConfig
+	config       seidbconfig.StateStoreConfig
 	// Earliest version for db after pruning
 	earliestVersion atomic.Int64
 	// Latest version for db
@@ -103,8 +103,12 @@ type VersionedChangesets struct {
 	Done       chan struct{} // non-nil for barrier: closed when this entry is processed
 }
 
-func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, error) {
-	cache := pebble.NewCache(1024 * 1024 * 32)
+func OpenDB(dataDir string, config seidbconfig.StateStoreConfig) (types.StateStore, error) {
+	cacheSizeBytes := config.CacheSizeBytes
+	if cacheSizeBytes <= 0 {
+		cacheSizeBytes = seidbconfig.DefaultSSCacheSizeBytes
+	}
+	cache := pebble.NewCache(cacheSizeBytes)
 	defer cache.Unref()
 
 	// Select comparer based on config. Note: UseDefaultComparer is NOT backwards compatible
