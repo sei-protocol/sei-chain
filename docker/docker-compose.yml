@@ -23,6 +23,7 @@ services:
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
       - GIGA_FLATKV_ONLY
+      - LOG_LEVEL
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
@@ -58,6 +59,7 @@ services:
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
       - GIGA_FLATKV_ONLY
+      - LOG_LEVEL
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
@@ -89,6 +91,7 @@ services:
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
       - GIGA_FLATKV_ONLY
+      - LOG_LEVEL
     ports:
       - "26662-26664:26656-26658"
       - "9094-9095:9090-9091"
@@ -124,6 +127,7 @@ services:
       - GIGA_STORAGE
       - GIGA_MIGRATE_FROM_MEMIAVL
       - GIGA_FLATKV_ONLY
+      - LOG_LEVEL
     ports:
       - "26665-26667:26656-26658"
       - "9096-9097:9090-9091"
