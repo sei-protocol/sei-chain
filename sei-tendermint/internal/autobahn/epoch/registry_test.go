@@ -84,14 +84,16 @@ func TestEpochAt_FoundAfterAdvanceIfNeeded(t *testing.T) {
 	}
 }
 
-func TestSetupInitialDuo_EmptyNoneNoneKeepsGenesis(t *testing.T) {
+func TestSetupInitialDuo_EmptyNoneNoneSeedsGenesisNeighbor(t *testing.T) {
 	r, _ := makeRegistry(t)
 	r.SetupInitialDuo(utils.None[types.RoadIndex](), utils.None[types.RoadRange]())
-	if _, err := r.EpochAt(0); err != nil {
-		t.Fatalf("EpochAt(0) after empty seeding: %v", err)
+	for _, idx := range []types.EpochIndex{0, 1} {
+		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
+			t.Fatalf("EpochAt(epoch %d) after empty seeding: %v", idx, err)
+		}
 	}
-	if _, err := r.EpochAt(FirstRoad(1)); err == nil {
-		t.Fatal("EpochAt(epoch 1) should not be present from empty None/None seeding")
+	if _, err := r.EpochAt(FirstRoad(2)); err == nil {
+		t.Fatal("EpochAt(epoch 2) should not be present from empty None/None seeding")
 	}
 }
 

@@ -74,8 +74,9 @@ type registryState struct {
 // Restart:
 //
 //   - data/ is the sole restart seeder (SetupInitialDuo from data.NewState).
-//     NewRegistry only installs epoch 0; empty BlockDB passes None commit span
-//     (genesis only). Avail/consensus tips may lead data (async FullCommitQC→
+//     NewRegistry only installs epoch 0; empty BlockDB seeds genesis neighbor
+//     {0,1} via EnsureDuoAt(FirstRoad(1)) so sealing epoch 0 can WaitForDuo.
+//     Avail/consensus tips may lead data (async FullCommitQC→
 //     data.PushQC), but do not seed the registry. Lead into an unseeded epoch →
 //     EpochAt/DuoAt hard-fail (no soft-heal). When the execution tipcut is already
 //     in the CommitQC tip's epoch N, EnsureExecTipcut seeds N+1 (N-1 is done) — that
@@ -130,7 +131,8 @@ func NewRegistry(
 //
 //  1. commitQCs — half-open retained CommitQC road range [First, Next). Seeds
 //     every epoch covering [First, Next), then EnsureDuoAt(Next). None = empty
-//     store (genesis epoch 0 only). Empty range (First >= Next) panics.
+//     store: seed genesis neighbor {0,1} via EnsureDuoAt(FirstRoad(1)) so sealing
+//     epoch 0 can WaitForDuo(FirstRoad(1)). Empty range (First >= Next) panics.
 //  2. nextRoadToExecute — half-open execution tipcut; EnsureExecTipcut
 //     restores AdvanceIfNeeded lookahead. None = nothing fully executed yet.
 //     Ignored when past commit tipcut (Next). Present without a commit span
@@ -178,6 +180,9 @@ func (r *Registry) SetupInitialDuo(
 	if nextRoadToExecute.IsPresent() {
 		panic("execution tipcut without CommitQC span on restart")
 	}
+	// Fresh chain: AdvanceIfNeeded(LastRoad(0)) only seeds epoch 2; sealing
+	// epoch 0 WaitForDuo(FirstRoad(1)) needs epoch 1 registered first.
+	r.EnsureDuoAt(FirstRoad(1))
 }
 
 // FirstBlock returns the first global block number of the genesis epoch.
