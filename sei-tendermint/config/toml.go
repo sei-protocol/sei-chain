@@ -140,6 +140,9 @@ genesis-file = "{{ js .BaseConfig.Genesis }}"
 # Path to the JSON file containing the private key to use for node authentication in the p2p protocol
 node-key-file = "{{ js .BaseConfig.NodeKey }}"
 
+# FastCheckTx bypasses application CheckTx with a stateless EVM transaction parser.
+fast-check-tx = {{ .BaseConfig.FastCheckTx }}
+
 #######################################################################
 ###                   Autobahn Configuration                        ###
 #######################################################################

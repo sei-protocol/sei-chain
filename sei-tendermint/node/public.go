@@ -31,6 +31,9 @@ func New(
 	tracerProviderOptions []trace.TracerProviderOption,
 	consensusPolicy tmtypes.ConsensusPolicy,
 ) (local.NodeService, error) {
+	if conf.FastCheckTx {
+		app = fastCheckTxApplication{Application: app}
+	}
 	proxyApp := proxy.New(app)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
