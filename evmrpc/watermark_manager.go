@@ -61,29 +61,11 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 	)
 
 	// State store heights (historical state DB) may lag behind block pruning.
-	stateEarliest := latest // SS disabled: only the tip is servable.
+	stateEarliest := latest // no historical storage => just the current state.
 	if m.stateStore != nil {
 		latest = min(latest, m.stateStore.GetLatestVersion())
-		// GetEarliestVersion() is 0 until the store first prunes or state-syncs.
-		// An unpruned store retains state from genesis, so its earliest servable
-		// state is the chain's genesis height. A nonzero value is the real
-		// state-prune floor, used as-is: it is a state-availability boundary
-		// independent of block pruning and is not coupled to blockEarliest.
 		stateEarliest = m.stateStore.GetEarliestVersion()
-		if stateEarliest == 0 {
-			// Source genesis from InitialHeight (as getBlockNumber does), not a
-			// literal 1, so chains started above height 1 resolve correctly.
-			genesisRes, err := m.tmClient.Genesis(ctx)
-			if err != nil {
-				return 0, 0, 0, err
-			}
-			stateEarliest = genesisRes.Genesis.InitialHeight
-		}
 	}
-	// State is never servable above the tip, and before the first commit
-	// blockEarliest can lead latest. Clamp so `earliest` stays on the servable
-	// (pre-commit checkState) path rather than a future height.
-	stateEarliest = min(stateEarliest, latest)
 	return blockEarliest, stateEarliest, latest, nil
 }
 
@@ -111,7 +93,7 @@ func (m *WatermarkManager) EarliestStateHeight(ctx context.Context) (int64, erro
 // an error explaining whether it is too old (pruned) or too new (not yet
 // available).
 func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
-	_, stateEarliest, latest, err := m.Watermarks(ctx)
+	blockEarliest, stateEarliest, latest, err := m.Watermarks(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -140,6 +122,13 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		return latest, nil
 	case rpc.EarliestBlockNumber:
+		if stateEarliest == 0 {
+			// An unpruned store reports earliest state as 0. Resolve `earliest`
+			// to the earliest retained block (genesis) instead: height 0 is
+			// coerced to the tip by CreateQueryContext. Clamp to latest so the
+			// pre-commit window (no blocks yet) stays at 0 and reads checkState.
+			return min(blockEarliest, latest), nil
+		}
 		return stateEarliest, nil
 	}
 

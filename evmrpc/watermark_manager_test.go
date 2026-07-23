@@ -183,51 +183,34 @@ func TestStateWatermarksCanLagBlocks(t *testing.T) {
 	require.Equal(t, int64(28), latest)
 }
 
-// TestStateEarliestFloorsAtGenesisWhenUnpruned is a regression guard for
-// SEI-10383. An unpruned store reports GetEarliestVersion()==0; `earliest` must
-// resolve to genesis (height 1), not 0 (which resolves to the tip). The floor is
-// genesis, not blockEarliest, so retained state below a pruned block floor stays
-// queryable.
-func TestStateEarliestFloorsAtGenesisWhenUnpruned(t *testing.T) {
+// TestResolveEarliestToGenesisOnUnprunedNode is the SEI-10383 regression guard:
+// an unpruned store reports GetEarliestVersion()==0, and `earliest` must resolve
+// to the earliest retained block (genesis), not 0, which CreateQueryContext
+// coerces to the tip. blockEarliest is used (it equals InitialHeight on an
+// unpruned node), never a literal 1.
+func TestResolveEarliestToGenesisOnUnprunedNode(t *testing.T) {
 	tmClient := &fakeTMClient{
-		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 100, EarliestBlockHeight: 5}},
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 100}},
 	}
-	// Unpruned state store (earliest==0) on a node whose blocks are pruned to 5.
-	stateStore := &fakeStateStore{latest: 100, earliest: 0}
-	wm := newTestWatermarkManager(tmClient, 100, stateStore, 100)
-
-	blockEarliest, stateEarliest, _, err := wm.Watermarks(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, int64(5), blockEarliest)
-	require.Equal(t, int64(1), stateEarliest, "unpruned SS: earliest state is genesis (1), not blockEarliest")
+	stateStore := &fakeStateStore{latest: 200, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 200, stateStore, 200)
 
 	earliest := rpc.EarliestBlockNumber
 	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
 	require.NoError(t, err)
-	require.Equal(t, int64(1), resolved, "earliest must resolve to genesis, not the tip (SEI-10383)")
-
-	// Retained state below the pruned block floor stays queryable.
-	below := rpc.BlockNumber(3)
-	resolved, err = wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &below})
-	require.NoError(t, err, "retained state below blockEarliest must not read as pruned")
-	require.Equal(t, int64(3), resolved)
+	require.Equal(t, int64(100), resolved, "earliest must resolve to the earliest retained block, not 0 or 1")
 }
 
-// TestEarliestClampedToLatestBeforeFirstCommit guards the no-blocks-yet window:
-// with no committed blocks latest is 0 while blockEarliest is 1, so the genesis
-// floor must clamp to latest and keep `earliest` on the pre-commit path (0)
-// rather than returning a future height that CreateQueryContext would reject.
-func TestEarliestClampedToLatestBeforeFirstCommit(t *testing.T) {
+// TestResolveEarliestClampedToLatestBeforeFirstCommit guards the no-blocks-yet
+// window: with no committed blocks latest is 0 while blockEarliest is 1, so
+// `earliest` must resolve to 0 (the pre-commit checkState path), not a future
+// height that CreateQueryContext would reject.
+func TestResolveEarliestClampedToLatestBeforeFirstCommit(t *testing.T) {
 	tmClient := &fakeTMClient{
 		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 0, EarliestBlockHeight: 1}},
 	}
 	stateStore := &fakeStateStore{latest: 0, earliest: 0}
 	wm := newTestWatermarkManager(tmClient, 0, stateStore, 0)
-
-	_, stateEarliest, latest, err := wm.Watermarks(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, int64(0), latest)
-	require.Equal(t, int64(0), stateEarliest, "pre-commit: stateEarliest must clamp to latest, not exceed it")
 
 	earliest := rpc.EarliestBlockNumber
 	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
@@ -235,74 +218,37 @@ func TestEarliestClampedToLatestBeforeFirstCommit(t *testing.T) {
 	require.Equal(t, int64(0), resolved, "earliest must not resolve to a future height before the first commit")
 }
 
-// TestStateEarliestUsesPruneFloorBelowBlockEarliest verifies that when state is
-// retained deeper than blocks (GetEarliestVersion < blockEarliest), stateEarliest
-// stays at the state-prune floor rather than being raised to blockEarliest, so a
-// historical read of retained state below blockEarliest is not rejected as pruned.
-func TestStateEarliestUsesPruneFloorBelowBlockEarliest(t *testing.T) {
+// TestResolveEarliestUsesStatePruneFloorWhenPruned confirms a pruned store's
+// earliest state version is used as-is for `earliest`, unchanged from prior
+// behavior (only the unpruned zero case was changed).
+func TestResolveEarliestUsesStatePruneFloorWhenPruned(t *testing.T) {
 	tmClient := &fakeTMClient{
 		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 100, EarliestBlockHeight: 40}},
 	}
-	// State retained from 20, below the block-earliest floor of 40.
 	stateStore := &fakeStateStore{latest: 100, earliest: 20}
 	wm := newTestWatermarkManager(tmClient, 100, stateStore, 100)
-
-	blockEarliest, stateEarliest, _, err := wm.Watermarks(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, int64(40), blockEarliest)
-	require.Equal(t, int64(20), stateEarliest, "state-prune floor must not be raised to blockEarliest")
-
-	// A height below blockEarliest but within retained state must resolve, not
-	// be rejected as pruned.
-	within := rpc.BlockNumber(30)
-	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &within})
-	require.NoError(t, err, "state retained at 30 must not read as pruned")
-	require.Equal(t, int64(30), resolved)
-}
-
-// TestStateEarliestSourcesInitialHeightWhenUnpruned guards the genesis floor
-// against chains initialized above height 1: an unpruned store
-// (GetEarliestVersion()==0) must resolve `earliest` to the chain's InitialHeight,
-// not a literal 1.
-func TestStateEarliestSourcesInitialHeightWhenUnpruned(t *testing.T) {
-	tmClient := &fakeTMClient{
-		status:  &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 100}},
-		genesis: &coretypes.ResultGenesis{Genesis: &tmtypes.GenesisDoc{InitialHeight: 100}},
-	}
-	stateStore := &fakeStateStore{latest: 200, earliest: 0}
-	wm := newTestWatermarkManager(tmClient, 200, stateStore, 200)
-
-	_, stateEarliest, _, err := wm.Watermarks(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, int64(100), stateEarliest, "unpruned SS: earliest state is InitialHeight (100), not 1")
 
 	earliest := rpc.EarliestBlockNumber
 	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
 	require.NoError(t, err)
-	require.Equal(t, int64(100), resolved)
+	require.Equal(t, int64(20), resolved, "earliest must use the state-prune floor")
 }
 
-// TestResolveBlockZeroMatchesEarliest confirms an explicit block-0 request
-// resolves identically to the `earliest` tag: rpc.EarliestBlockNumber is
-// BlockNumber(0), so a "0x0" request hits the same ResolveHeight branch and
-// returns the floored genesis height.
-func TestResolveBlockZeroMatchesEarliest(t *testing.T) {
+// TestExplicitHistoricalReadNotFlooredToBlockEarliest confirms the fix does not
+// change explicit-height gating: on an unpruned node (stateEarliest==0) a read
+// below the block-prune floor is still admitted, matching prior behavior, since
+// only the `earliest` tag was changed.
+func TestExplicitHistoricalReadNotFlooredToBlockEarliest(t *testing.T) {
 	tmClient := &fakeTMClient{
-		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 6, EarliestBlockHeight: 1}},
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 100, EarliestBlockHeight: 5}},
 	}
-	stateStore := &fakeStateStore{latest: 6, earliest: 0}
-	wm := newTestWatermarkManager(tmClient, 6, stateStore, 6)
+	stateStore := &fakeStateStore{latest: 100, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 100, stateStore, 100)
 
-	earliest := rpc.EarliestBlockNumber
-	fromTag, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
-	require.NoError(t, err)
-
-	blockZero := rpc.BlockNumber(0)
-	fromZero, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &blockZero})
-	require.NoError(t, err)
-
-	require.Equal(t, int64(1), fromTag)
-	require.Equal(t, fromTag, fromZero, "block 0 must resolve identically to earliest (both are BlockNumber(0))")
+	below := rpc.BlockNumber(3)
+	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &below})
+	require.NoError(t, err, "explicit historical read must not be rejected as pruned on an unpruned node")
+	require.Equal(t, int64(3), resolved)
 }
 
 func newTestWatermarkManager(tmClient client.LocalClient, ctxHeight int64, stateStore types.StateStore, receiptLatest int64) *WatermarkManager {
