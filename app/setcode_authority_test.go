@@ -9,6 +9,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/app/ante"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils/helpers"
 	"github.com/stretchr/testify/require"
@@ -93,4 +94,82 @@ func TestSetCodeTxRequiresAuthorityAssociation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, a.setCodeTxRequiresAuthorityAssociation(ctx, legacyTx))
+}
+
+// TestAssociateAuthorizationAuthorities verifies the legacyabci ante path (EvmDeliverTxAnte /
+// EvmCheckTxAnte) pre-associates an EIP-7702 authorization authority with its true
+// (pubkey-derived) Sei address before EVM execution, and skips authorities the EVM would not
+// apply — mirroring the EVMPreprocessDecorator root-cause fix so both ante paths behave
+// identically.
+func TestAssociateAuthorizationAuthorities(t *testing.T) {
+	a := Setup(t, false, false, false)
+	ctx := a.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now()})
+	chainID := a.EvmKeeper.ChainID(ctx)
+
+	victimKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	victimEVM := crypto.PubkeyToAddress(victimKey.PublicKey)
+	_, victimTrueSei, _, err := helpers.GetAddressesFromPubkeyBytes(crypto.FromECDSAPub(&victimKey.PublicKey))
+	require.NoError(t, err)
+
+	// Precondition: the authority is not yet associated.
+	_, associated := a.EvmKeeper.GetEVMAddress(ctx, victimTrueSei)
+	require.False(t, associated)
+
+	auth, err := ethtypes.SignSetCode(victimKey, ethtypes.SetCodeAuthorization{
+		ChainID: *uint256.MustFromBig(chainID),
+		Address: common.HexToAddress("0x000000000000000000000000000000000000c0de"),
+		Nonce:   0,
+	})
+	require.NoError(t, err)
+
+	sponsorKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	to := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	setCodeTx, err := ethtypes.SignNewTx(sponsorKey, ethtypes.NewPragueSigner(chainID), &ethtypes.SetCodeTx{
+		ChainID:   uint256.MustFromBig(chainID),
+		Nonce:     0,
+		GasTipCap: uint256.NewInt(1),
+		GasFeeCap: uint256.NewInt(1),
+		Gas:       100000,
+		To:        to,
+		Value:     uint256.NewInt(0),
+		AuthList:  []ethtypes.SetCodeAuthorization{auth},
+	})
+	require.NoError(t, err)
+
+	// A matching-chain authority is associated to its true (pubkey-derived) Sei address, so a
+	// subsequent SetCode cannot create a mutable direct-cast mapping for it.
+	ante.AssociateAuthorizationAuthorities(ctx, &a.EvmKeeper, setCodeTx)
+	gotEVM, associated := a.EvmKeeper.GetEVMAddress(ctx, victimTrueSei)
+	require.True(t, associated)
+	require.Equal(t, victimEVM, gotEVM)
+
+	// An authority signed for a FOREIGN chain must NOT be associated: the EVM skips the
+	// wrong-chain authorization, so no direct-cast mapping is ever created for it and a
+	// public cross-chain authorization cannot be replayed to force-associate the victim.
+	foreignVictimKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	_, foreignVictimTrueSei, _, err := helpers.GetAddressesFromPubkeyBytes(crypto.FromECDSAPub(&foreignVictimKey.PublicKey))
+	require.NoError(t, err)
+	foreignAuth, err := ethtypes.SignSetCode(foreignVictimKey, ethtypes.SetCodeAuthorization{
+		ChainID: *uint256.MustFromBig(new(big.Int).Add(chainID, big.NewInt(1))),
+		Address: common.HexToAddress("0x000000000000000000000000000000000000c0de"),
+		Nonce:   0,
+	})
+	require.NoError(t, err)
+	foreignTx, err := ethtypes.SignNewTx(sponsorKey, ethtypes.NewPragueSigner(chainID), &ethtypes.SetCodeTx{
+		ChainID:   uint256.MustFromBig(chainID),
+		Nonce:     1,
+		GasTipCap: uint256.NewInt(1),
+		GasFeeCap: uint256.NewInt(1),
+		Gas:       100000,
+		To:        to,
+		Value:     uint256.NewInt(0),
+		AuthList:  []ethtypes.SetCodeAuthorization{foreignAuth},
+	})
+	require.NoError(t, err)
+	ante.AssociateAuthorizationAuthorities(ctx, &a.EvmKeeper, foreignTx)
+	_, associated = a.EvmKeeper.GetEVMAddress(ctx, foreignVictimTrueSei)
+	require.False(t, associated)
 }
