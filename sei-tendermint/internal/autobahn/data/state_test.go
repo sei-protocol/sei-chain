@@ -644,10 +644,16 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrPruned)
 	}
 	// Exclusive floor and above stay cached for AppVotes despite BlockDB prune.
+	// ByHash must match TryBlock here — not fall through to a pruned BlockDB.
 	for n := exclusiveFloor; n < gr2.Next; n++ {
 		got, err := state1.TryBlock(n)
 		require.NoError(t, err, "height %d must remain readable from RAM (>= exclusive floor)", n)
 		require.NotNil(t, got)
+		byHash, err := state1.GlobalBlockByHash(got.Header().Hash())
+		require.NoError(t, err)
+		gb, ok := byHash.Get()
+		require.True(t, ok, "GlobalBlockByHash must serve RAM-cached height %d after BlockDB prune", n)
+		require.Equal(t, n, gb.GlobalNumber)
 	}
 
 	// Incomplete qc2 suffix alone must error.

@@ -451,20 +451,21 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 
 // GlobalBlockByHash returns the finalized GlobalBlock whose stored header
 // hashes to the given value, or None if no such block is currently retained.
-// Non-blocking. Serves from RAM when the hash is indexed and
-// n >= nextAppProposal (unexecuted contiguous prefix and gap-fills ahead of
-// nextBlock). Executed heights fall through to BlockDB. Gap-fills are not
-// written to BlockDB until nextBlock catches up, so they must be served from
-// RAM here — unlike Block/TryBlock, which hide gaps by design.
+// Non-blocking. Serves from RAM whenever the hash is still indexed (contiguous
+// prefix, gap-fills, and executed heights not yet dropped by evictBelowBound).
+// Falls back to BlockDB only after eviction removes the hash — matching
+// Block/TryBlock/QC, which also prefer maps before the store. Gap-fills are
+// not written to BlockDB until nextBlock catches up, so they must be served
+// from RAM here; Block/TryBlock continue to hide gaps by number.
 func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
 	for inner := range s.inner.Lock() {
 		n, ok := inner.blockHashes[hash]
 		if !ok {
 			break
 		}
-		if n < inner.nextAppProposal {
-			break
-		}
+		// blockHashes stays in lockstep with blocks; a hit means both block and
+		// covering QC are still cached (including n < nextAppProposal when
+		// AppQC eviction has not advanced first past n yet).
 		return utils.Some(assembleGlobalBlock(n, inner.blocks[n], inner.qcs[n])), nil
 	}
 	return s.globalBlockByHashFromDB(hash)
@@ -510,8 +511,8 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 }
 
 // assembleGlobalBlock builds a GlobalBlock from a block and its covering QC.
-// In-memory callers must have verified n is in [inner.first, inner.nextBlock)
-// (or a sub-window); map lookups outside that range nil-deref. BlockDB
+// Callers must supply non-nil b and fqc for height n. In-memory paths look up
+// maps only for heights still indexed there (including gap-fills); BlockDB
 // fallbacks pass values already loaded from the store.
 func assembleGlobalBlock(n types.GlobalBlockNumber, b *types.Block, fqc *types.FullCommitQC) *types.GlobalBlock {
 	qc := fqc.QC()
