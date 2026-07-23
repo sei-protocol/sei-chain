@@ -208,6 +208,10 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // Inconsistencies (gaps, block without QC, first-block/QC mismatch, etc.) are
 // returned as errors rather than normalized — BlockDB is expected to present a
 // consistent iterator view (see littblock watermark / stranding rules).
+//
+// TODO: Cap how much of BlockDB we replay into RAM (similar to PushQC's
+// blocksCacheSize gate). Deferred to a follow-up PR — today we load the full
+// retained store.
 func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 	for in := range s.inner.Lock() {
 		// Restore QCs from BlockDB. On the first QC, skipTo its GlobalRange.First
@@ -371,16 +375,16 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 			}
 			ctrl.Updated()
 		}
-		if len(byHash) == 0 {
+		if len(byHash) > 0 {
+			if err := s.insertBlocksByHash(inner, gr, byHash); err != nil {
+				return err
+			}
+			ctrl.Updated()
+		}
+		// Only a newly accepted QC can advance CommitQC.App / the eviction floor.
+		if needQC {
 			evictBelowBound(inner)
-			break
 		}
-		if err := s.insertBlocksByHash(inner, gr, byHash); err != nil {
-			return err
-		}
-		ctrl.Updated()
-		// CommitQC.App may advance the certified floor; drop covered RAM.
-		evictBelowBound(inner)
 	}
 	return nil
 }
