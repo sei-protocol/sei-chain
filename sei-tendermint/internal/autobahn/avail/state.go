@@ -662,8 +662,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 // Waits until the lane has enough capacity for the new vote.
 // It does NOT wait for the previous votes.
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
-	// One duo snapshot for verify and count: a boundary advanceEpoch between
-	// those steps must not leave them on different Current committees.
+	// Verify off-lock against a duo snapshot (crypto off the hot lock).
 	duo := s.epochDuo.Load()
 	c := duo.Current.Committee()
 	if err := vote.Msg().Verify(c); err != nil {
@@ -672,6 +671,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	if err := vote.VerifySig(c); err != nil {
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
+	verifiedEpoch := duo.Current.EpochIndex()
 	h := vote.Msg().Header()
 	for inner, ctrl := range s.inner.Lock() {
 		ls, ok := inner.lanes[h.Lane()]
@@ -684,13 +684,22 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		}); err != nil {
 			return err
 		}
+		// WaitUntil may release the lock; a boundary advanceEpoch can reweight
+		// vote sets under a new Current. Count only with the live duo — if
+		// Current advanced, drop signers that left the committee (sig already
+		// checked; no re-VerifySig).
+		live := inner.epochDuo.Load()
+		if live.Current.EpochIndex() != verifiedEpoch &&
+			!live.Current.Committee().HasReplica(vote.Key()) {
+			return nil
+		}
 		if h.BlockNumber() < q.first {
 			return nil
 		}
 		for q.next <= h.BlockNumber() {
 			q.pushBack(newBlockVotes())
 		}
-		if q.q[h.BlockNumber()].pushVote(duo.Current, vote).IsPresent() {
+		if q.q[h.BlockNumber()].pushVote(live.Current, vote).IsPresent() {
 			ctrl.Updated()
 		}
 	}
