@@ -29,9 +29,12 @@ balances, associations, …) over RPC/REST. For every precompile, the spec file 
 
 - **Happy path & state parity.** The method works and its effect/answer matches
   the Cosmos-side truth.
-- **Error handling.** Bad input reverts (and out-of-gas failures trace as
-  `execution reverted`, never as a Go panic — a consensus-relevant guard
-  inherited from the legacy suite).
+- **Error handling.** Bad input reverts, and out-of-gas failures never leak a
+  Go panic — a consensus-relevant guard inherited from the legacy suite. (The
+  precise OOG shape differs per precompile: bank/addr executors convert the
+  gas-meter panic to `execution reverted`, while a starved staking call runs
+  out inside the cosmos store layer and surfaces a location-tagged
+  `out of gas` error instead.)
 - **Dispatch semantics.** Real `CALL` / `STATICCALL` / `DELEGATECALL` from
   deployed contract bytecode (via the `PrecompileCaller` fixture) behave
   correctly: view methods respond under STATICCALL, state-changing methods
@@ -42,18 +45,43 @@ balances, associations, …) over RPC/REST. For every precompile, the spec file 
 ABIs are loaded from the repo's own `precompiles/<name>/abi.json` (the files the
 chain binary embeds), so specs can never drift from the deployed interface.
 
-### Current coverage (phase 1)
+### Current coverage (phases 1–2, wasm-free)
 
 | Precompile | Spec |
 |---|---|
 | bank (0x…1001) | `precompiles/bank.spec.ts` |
+| json (0x…1003) | `precompiles/json.spec.ts` |
 | addr (0x…1004) | `precompiles/addr.spec.ts` |
+| staking (0x…1005) | `precompiles/staking.spec.ts` |
+| gov (0x…1006) | `precompiles/gov.spec.ts` |
+| distribution (0x…1007) | `precompiles/distribution.spec.ts` |
+| oracle (0x…1008) | `precompiles/oracle.spec.ts` (retirement assertion) |
+| pointerview (0x…100A) | `precompiles/pointerview.spec.ts` |
+| pointer (0x…100b) | `precompiles/pointer.spec.ts` (`addNativePointer`; CW methods are wasm-gated) |
+| p256 (0x…1011) | `precompiles/p256.spec.ts` |
 
-Planned next (wasm-free first): staking, gov, distribution, json, p256, oracle
-(retirement assertion), pointer (`addNativePointer`), pointerview. Wasm-gated
-flows (wasmd, pointer `addCW*`, solo CW claims) follow in a separate `wasm/`
-spec dir behind a live `isWasmEnabled()` check, since wasm deployments are
-blocked on production chains. The ibc precompile is out of scope.
+Planned next: wasm-gated flows (wasmd, pointer `addCW*`, solo CW claims) in a
+separate `wasm/` spec dir behind a live `isWasmEnabled()` check, since wasm
+deployments are blocked on production chains. The ibc precompile is out of
+scope.
+
+Hard-won facts encoded in these specs (read before writing a new one):
+
+- **Exact Go error strings never reach `eth_call`** — precompile errors are
+  rewritten to a bare `execution reverted` (the oracle retirement error is the
+  one exception, carrying real `Error(string)` data). To assert an exact
+  string, mine a failing tx with an explicit `gasLimit` and read it back via
+  the `eth_getVMError` RPC (`expectVmError` in `utils/precompileUtils.ts`).
+- **Mining a tx auto-associates its sender**, so "unassociated caller" errors
+  can only be exercised via `eth_call`/`staticCall`, never a real tx.
+- **Guard tables differ per precompile** — e.g. json and pointerview accept
+  DELEGATECALL, staking/gov/distribution/pointer reject it precompile-wide,
+  and `distribution.rewards` accepts value (no non-payable check). Don't
+  generalize dispatch tests; copy the per-method guards from the Go source.
+- **Staking `delegate`/`createValidator` and gov `deposit`/`submitProposal`
+  take whole-usei values**: `msg.value` must be a multiple of 10^12 wei or the
+  call reverts with a wei-remainder error. `bank.sendNative` is the exception —
+  it forwards wei-precision values (the usei/wei split is handled internally).
 
 ## Layout
 
@@ -133,6 +161,11 @@ npx mocha --require tsx precompiles/bank.spec.ts
 ```
 
 …but only after `npm run precompile:bootstrap` has produced `runtime/runtime.json`.
+**Re-run the bootstrap before re-running a state-mutating spec file** (staking,
+distribution, gov, …): the `claimPool` cursor resets per process, so a second
+run hands the same pool accounts — permanently mutated by the first run
+(delegations, validator creation) — to specs whose assertions assume fresh
+accounts.
 
 ## Configuration
 

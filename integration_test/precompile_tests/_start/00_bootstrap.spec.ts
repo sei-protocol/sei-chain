@@ -20,7 +20,7 @@ import { fundAdminOnSei, generateMnemonic, seiAddressFromMnemonic } from '../uti
 import { writeRuntimeState, RuntimeState } from '../utils/testUtils';
 import { ADDRESS } from '../utils/format';
 
-const POOL_SIZE = 32;
+const POOL_SIZE = 48;
 const POOL_FUND_WEI = ethers.parseEther('5');
 
 describe('precompile_tests bootstrap', function () {
