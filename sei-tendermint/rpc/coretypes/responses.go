@@ -34,8 +34,8 @@ var (
 // when the caller has the active lower bound — e.g. CometBFT's
 // BlockStore.Base() in env.getHeight. Pass None when the caller only knows
 // the height was unavailable but not what the bound is — e.g. the Autobahn
-// path where data.GlobalBlock returns data.ErrPruned and the bound
-// (data.State.inner.first) is internal to data.State.
+// path where data.GlobalBlock returns types.ErrPruned and the bound
+// (BlockDB's prune watermark) is internal to the store.
 //
 // Centralizing this format means both paths produce identical error
 // strings for the same case modulo the optional base height, so callers

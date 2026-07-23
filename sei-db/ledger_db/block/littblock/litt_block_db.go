@@ -328,6 +328,19 @@ func (s *blockDB) Flush() error {
 	return nil
 }
 
+func (s *blockDB) Status() types.DBStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var tips types.DBStatus
+	if s.hasBlocks {
+		tips.NextBlock = s.lastBlockNumber + 1
+	}
+	if s.hasQC {
+		tips.NextQC = s.lastQCNext
+	}
+	return tips
+}
+
 func (s *blockDB) Blocks(reverse bool) (types.BlockIterator, error) {
 	it, err := s.table.Iterator(reverse)
 	if err != nil {

@@ -7,27 +7,17 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 const blocksCacheSize = 4000
-
-// ErrNotFound is returned when the resource is not found.
-var ErrNotFound = errors.New("not found")
-
-// ErrPruned is returned when the resource has been is pruned.
-var ErrPruned = errors.New("pruned")
 
 // Config is the config for the data State.
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
 	Registry *epoch.Registry
-	// PruneAfter is the duration after which the state prunes executed blocks.
-	PruneAfter utils.Option[time.Duration]
 }
 
 // StateAPI is the interface of the State for consuming global blocks
@@ -41,131 +31,36 @@ type StateAPI interface {
 
 var _ StateAPI = (*State)(nil)
 
-// DataWAL groups the WALs used by State for crash recovery.
-// Both fields are always non-nil; when stateDir is None they are no-op persisters.
-// This is temporary and will go away once we switch to a proper storage solution.
-type DataWAL struct {
-	Blocks    *persist.GlobalBlockPersister
-	CommitQCs *persist.FullCommitQCPersister
-}
-
-// Close shuts down both WALs.
-func (dw *DataWAL) Close() error {
-	return errors.Join(dw.Blocks.Close(), dw.CommitQCs.Close())
-}
-
-// TruncateBefore removes entries fully before n from both WALs in parallel.
-// A crash between the two calls just leaves stale entries in one WAL,
-// which are harmless on reload.
-func (dw *DataWAL) TruncateBefore(n types.GlobalBlockNumber) error {
-	return scope.Parallel(func(ps scope.ParallelScope) error {
-		ps.Spawn(func() error {
-			if err := dw.Blocks.TruncateBefore(n); err != nil {
-				return fmt.Errorf("truncate global block WAL: %w", err)
-			}
-			return nil
-		})
-		ps.Spawn(func() error {
-			if err := dw.CommitQCs.TruncateBefore(n); err != nil {
-				return fmt.Errorf("truncate full commitqc WAL: %w", err)
-			}
-			return nil
-		})
-		return nil
-	})
-}
-
-// reconcile fixes cursor inconsistencies between the two WALs that can
-// result from crashes during parallel persistence or pruning.
-//
-// The possible WAL states on startup and how they are handled:
-//
-//	Case  Blocks    QCs       Scenario                          Action
-//	1     empty     empty     Fresh start                       no-op
-//	2     [a,b]     empty     QCs lost (corruption)             error (statesync needed)
-//	3     empty     [X,Y)     Blocks lost (crash)               Prefix: fast-forward blocks.next to X
-//	4     [a,b]     [X,Y)     Normal (a=X, b<Y)                 no-op
-//	5     [a,b]     [X,Y)     Prune crash: blocks ahead (a>X)   Prefix: truncate QCs to a
-//	6     [a,b]     [X,Y)     Prune crash: QCs ahead (a<X)      Prefix: truncate blocks to X
-//	7     [a,b]     [X,Y)     Persist crash: blocks past (b>=Y) Tail: truncate blocks to Y
-//	8     [a,b]     [X,Y)     QCs ahead (normal, b<Y)           Tail: no-op (blocks catch up)
-func (dw *DataWAL) reconcile(firstBlock types.GlobalBlockNumber) error {
-	fb := firstBlock
-	// Fix tail: remove blocks past QC range.
-	qcNext := dw.CommitQCs.Next()
-	if qcNext == fb && dw.Blocks.Next() > fb {
-		// Blocks exist but QCs WAL is empty — data is corrupted.
-		return fmt.Errorf("corrupted WAL: blocks exist but QCs WAL is empty; statesync required to recover")
-	}
-	if err := dw.Blocks.TruncateAfter(qcNext); err != nil {
-		return fmt.Errorf("truncate blocks tail: %w", err)
-	}
-	// Fix prefix: align both WALs to the later start.
-	blocksFirst := dw.Blocks.LoadedFirst()
-	qcsFirst := dw.CommitQCs.LoadedFirst()
-	reconciled := max(blocksFirst, qcsFirst)
-	if reconciled > fb {
-		if err := dw.TruncateBefore(reconciled); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// NewDataWAL constructs both global-block and global-commitqc WALs.
-// When stateDir is None, the returned persisters are no-ops.
-func NewDataWAL(stateDir utils.Option[string], firstBlock types.GlobalBlockNumber) (*DataWAL, error) {
-	blocks, err := persist.NewGlobalBlockPersister(stateDir, firstBlock)
-	if err != nil {
-		return nil, fmt.Errorf("global block WAL: %w", err)
-	}
-	commitQCs, err := persist.NewFullCommitQCPersister(stateDir, firstBlock)
-	if err != nil {
-		_ = blocks.Close()
-		return nil, fmt.Errorf("full commitqc WAL: %w", err)
-	}
-	dw := &DataWAL{
-		Blocks:    blocks,
-		CommitQCs: commitQCs,
-	}
-	// Reconcile cursor inconsistency: a crash between the two parallel
-	// TruncateBefore calls can leave one WAL truncated while the other
-	// still has stale entries. Advance both to the max starting point.
-	if err := dw.reconcile(firstBlock); err != nil {
-		_ = dw.Close()
-		return nil, fmt.Errorf("reconcile WALs: %w", err)
-	}
-	return dw, nil
-}
-
-type appProposalWithTimestamp struct {
-	proposal  *types.AppProposal
-	timestamp time.Time
+// blockEntry is a (number, block) pair collected in runPersist batches.
+type blockEntry struct {
+	n     types.GlobalBlockNumber
+	block *types.Block
 }
 
 type inner struct {
-	qcs    map[types.GlobalBlockNumber]*types.FullCommitQC // [first,nextQC)
-	blocks map[types.GlobalBlockNumber]*types.Block        // [first,nextBlock) + subset of [nextBlock,nextQC)
-	// appProposal[n] contains appProposal block >=n.
-	appProposals map[types.GlobalBlockNumber]appProposalWithTimestamp // [first,nextAppProposal)
-
-	// blockHashes is a hash → height index mirroring blocks. Maintained
-	// in lockstep with blocks via insertBlock / pruneFirst, so it covers
-	// exactly the same retain window without a separate prune cursor or
-	// startup warmup. Powers BlockByHash.
+	// Map key ranges (low end = first):
+	//   qcs:          [first, nextQC)
+	//   blocks:       [first, nextBlock) + gap-fills in [nextBlock, nextQC)
+	//   appProposals: [first, nextAppProposal)
+	//   blockHashes:  mirrors blocks (insertBlock / evictBelowBound)
 	//
-	// TODO(autobahn): remove once a writer is wired into block execution
-	// that populates sei-db/ledger_db/block.BlockDB. BlockDB has a built-in
-	// hash index that survives process restart and lives outside Autobahn's
-	// RetainHeight pruning, making this in-memory index obsolete.
-	blockHashes map[types.BlockHeaderHash]types.GlobalBlockNumber
+	// Durable copies below first live in BlockDB. AppProposals are not
+	// persisted; they are rebuilt via PushAppHash / re-execution after restart.
+	qcs          map[types.GlobalBlockNumber]*types.FullCommitQC
+	blocks       map[types.GlobalBlockNumber]*types.Block
+	appProposals map[types.GlobalBlockNumber]*types.AppProposal
+	blockHashes  map[types.BlockHeaderHash]types.GlobalBlockNumber
 
+	// first is the exclusive low end of retained in-memory state: maps keep
+	// [first, next*). Set by newInner / skipTo; advanced by evictBelowBound to
+	// min(nextAppProposal, App.GlobalNumber()+1) when a CommitQC.App exists.
+	// nextToExecute reads the next (or tip) QC from maps — it does not need
+	// nextAppProposal-1 retained after eviction.
+	//
 	// first <= nextAppProposal <= nextBlockToPersist <= nextBlock <= nextQC
 	//
-	// This invariant guarantees no race between pruning and persisting:
-	// blocks are not eligible for pruning until they have an AppProposal
-	// (first <= nextAppProposal), which requires persistence
-	// (nextAppProposal <= nextBlockToPersist).
+	// AppProposals require persistence (nextAppProposal <= nextBlockToPersist).
+	// BlockDB prune status lives only in the store watermark (see PruneBefore).
 	first              types.GlobalBlockNumber
 	nextAppProposal    types.GlobalBlockNumber
 	nextBlockToPersist types.GlobalBlockNumber
@@ -174,17 +69,16 @@ type inner struct {
 }
 
 func newInner(firstBlock types.GlobalBlockNumber) *inner {
-	first := firstBlock
 	return &inner{
 		qcs:                map[types.GlobalBlockNumber]*types.FullCommitQC{},
 		blocks:             map[types.GlobalBlockNumber]*types.Block{},
-		appProposals:       map[types.GlobalBlockNumber]appProposalWithTimestamp{},
+		appProposals:       map[types.GlobalBlockNumber]*types.AppProposal{},
 		blockHashes:        map[types.BlockHeaderHash]types.GlobalBlockNumber{},
-		first:              first,
-		nextAppProposal:    first,
-		nextBlockToPersist: first,
-		nextBlock:          first,
-		nextQC:             first,
+		first:              firstBlock,
+		nextAppProposal:    firstBlock,
+		nextBlockToPersist: firstBlock,
+		nextBlock:          firstBlock,
+		nextQC:             firstBlock,
 	}
 }
 
@@ -226,19 +120,23 @@ func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error
 
 // insertBlock inserts a pre-verified block into the inner state.
 // Requires a QC to already be present for block n. Callers must verify
-// the block signature before calling.
+// the block signature before calling (unlike insertQC, which verifies).
 //
 // insertBlock does NOT advance nextBlock — callers should call
 // updateNextBlock after inserting one or more blocks. This separation
 // allows batch insertion (e.g. PushQC inserts multiple blocks, then
 // advances nextBlock once).
-func (i *inner) insertBlock(committee *types.Committee, n types.GlobalBlockNumber, block *types.Block) error {
-	if n < i.first || n >= i.nextQC {
-		return nil // outside QC range
+func (i *inner) insertBlock(n types.GlobalBlockNumber, block *types.Block) error {
+	// Contiguous prefix is done or evicted; only [nextBlock, nextQC) inserts.
+	// After success, blocks/blockHashes gain n; qcs[n] is already set.
+	if n < i.nextBlock || n >= i.nextQC {
+		return nil
 	}
 	if _, ok := i.blocks[n]; ok {
-		return nil // already have it
+		return nil // already have it (gap fill)
 	}
+	// n is in [nextBlock, nextQC); QCs are contiguous and first <=
+	// nextAppProposal <= nextBlock, so qcs[n] is always present.
 	qc := i.qcs[n]
 	storedGR := qc.QC().GlobalRange()
 	want := qc.Headers()[n-storedGR.First].Hash()
@@ -265,94 +163,172 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 	}
 }
 
-func (i *inner) pruneFirst(now time.Time, m *metrics.Metrics) {
-	b := i.blocks[i.first]
-	latency := now.Sub(b.Payload().CreatedAt()).Seconds()
-	m.Blocks.Prune.Observe(latency)
-	m.Txs.Prune.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
-	delete(i.appProposals, i.first)
-	delete(i.blocks, i.first)
-	delete(i.qcs, i.first)
-	delete(i.blockHashes, b.Header().Hash())
-	i.first += 1
-}
-
 // State of the chain.
 // Contains blocks in global order and proofs of their finality.
+//
+// Invariant: a CommitQC's embedded AppProposal (when present) always refers to
+// a global number from a *past* CommitQC — strictly below that tip QC's
+// GlobalRange.First (enforced in Proposal.Verify). Together with BlockDB's
+// never-empty retention and eviction at min(nextAppProposal, App+1), in-memory
+// maps therefore always retain at least the certified tip QC after a
+// CommitQC.App appears. nextToExecute uses qc[nextAppProposal] (or the tip QC
+// when fully caught up), so it does not require retaining nextAppProposal-1.
 type State struct {
 	cfg     *Config
 	metrics *metrics.Metrics
 	inner   utils.Watch[*inner]
-	dataWAL *DataWAL
+	blockDB types.BlockDB
 }
 
-// NewState constructs a new data State.
-// dataWAL persists blocks and QCs to WALs for crash recovery and provides
-// preloaded data from the previous run. Use NewDataWAL to construct it.
-func NewState(cfg *Config, dataWAL *DataWAL) (*State, error) {
-	inner := newInner(cfg.Registry.FirstBlock())
-	// Fast-forward cursors to where data starts. Use blocks as golden:
-	// per-block pruning may split a QC range, so blocks determine where
-	// useful data starts. QCs before that are kept for verification but
-	// don't set inner.first.
-	blocksFirst := dataWAL.Blocks.LoadedFirst()
-	qcFirst := dataWAL.CommitQCs.LoadedFirst()
-	dataFirst := max(blocksFirst, qcFirst)
-	if dataFirst > cfg.Registry.FirstBlock() {
-		inner.skipTo(dataFirst)
-	}
-	// Restore QCs. insertQC handles partially pruned QCs (range starts
-	// before inner.first) by skipping the pruned prefix.
-	for _, qc := range dataWAL.CommitQCs.ConsumeLoaded() {
-		if err := inner.insertQC(cfg.Registry, qc); err != nil {
-			return nil, fmt.Errorf("load QC from WAL: %w", err)
-		}
-	}
-	// Restore blocks. Verify contiguity as defense in depth.
-	expectedBlock := inner.first
-	for _, lb := range dataWAL.Blocks.ConsumeLoaded() {
-		if lb.Number < inner.first || lb.Number >= inner.nextQC {
-			continue // outside QC range (stale from reconcile)
-		}
-		if lb.Number != expectedBlock {
-			return nil, fmt.Errorf("block gap in WAL: expected %d, got %d", expectedBlock, lb.Number)
-		}
-		expectedBlock = lb.Number + 1
-		qc := inner.qcs[lb.Number]
-		e, ok := cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
-		if !ok {
-			return nil, fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
-		}
-		committee := e.Committee()
-		if err := lb.Block.Verify(committee); err != nil {
-			return nil, fmt.Errorf("load block %d from WAL: %w", lb.Number, err)
-		}
-		if err := inner.insertBlock(committee, lb.Number, lb.Block); err != nil {
-			return nil, fmt.Errorf("load block %d from WAL: %w", lb.Number, err)
-		}
-	}
-	// Advance nextBlock through contiguous blocks. Don't use
-	// updateNextBlock: stale timestamps would skew metrics.
-	for ; inner.blocks[inner.nextBlock] != nil; inner.nextBlock++ {
-	}
-	// Data loaded from WALs was already persisted in the previous run.
-	inner.nextBlockToPersist = inner.nextBlock
-	// WAL cursor consistency was resolved by DataWAL.reconcile at construction.
-	// Verify the blocks persister cursor is not behind inner.nextBlock.
-	if dataWAL.Blocks.Next() < inner.nextBlock {
-		return nil, fmt.Errorf("blocks WAL cursor %d behind inner.nextBlock %d after reconciliation",
-			dataWAL.Blocks.Next(), inner.nextBlock)
-	}
-	return &State{
+// NewState constructs a data State, replaying persisted state from blockDB.
+// Use memblock.NewBlockDB() for an in-memory store (testing / no persistent dir).
+// The caller owns blockDB and must close it after State.Run returns (nodeImpl
+// owns this in production); State never closes it.
+// Recovery from a non-zero CommitQC tip is handled by loadFromBlockDB (skipTo).
+func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
+	s := &State{
 		cfg:     cfg,
 		metrics: metrics.Get(),
-		inner:   utils.NewWatch(inner),
-		dataWAL: dataWAL,
-	}, nil
+		inner:   utils.NewWatch(newInner(cfg.Registry.FirstBlock())),
+		blockDB: blockDB,
+	}
+	if err := s.loadFromBlockDB(blockDB); err != nil {
+		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
+	}
+	return s, nil
+}
+
+// loadFromBlockDB replays QCs and blocks from blockDB into s.inner.
+// Called from NewState before any goroutines are spawned; the lock is acquired
+// only to satisfy the Watch API.
+//
+// The recovery floor is derived from BlockDB: empty store keeps
+// registry.FirstBlock(); otherwise cursors skipTo the first retained QC start.
+// Inconsistencies (gaps, block without QC, first-block/QC mismatch, etc.) are
+// returned as errors rather than normalized — BlockDB is expected to present a
+// consistent iterator view (see littblock watermark / stranding rules).
+//
+// TODO: Cap how much of BlockDB we replay into RAM (similar to PushQC's
+// blocksCacheSize gate). Deferred to a follow-up PR — today we load the full
+// retained store.
+//
+// TODO: Push gap / first-block / QC-coverage consistency checks down into the
+// BlockDB implementation so loadFromBlockDB can assume a consistent view.
+func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
+	for in := range s.inner.Lock() {
+		// Restore QCs from BlockDB. On the first QC, skipTo its GlobalRange.First
+		// to advance past any pruned prefix. Subsequent QCs must be consecutive —
+		// insertQC errors on any gap.
+		err := func() error {
+			it, err := blockDB.QCs(false)
+			if err != nil {
+				return fmt.Errorf("open QC iterator: %w", err)
+			}
+			defer func() { _ = it.Close() }()
+			for {
+				ok, err := it.Next()
+				if err != nil || !ok {
+					return err
+				}
+				qc, err := it.QC()
+				if err != nil {
+					return err
+				}
+				if len(in.qcs) == 0 {
+					gr := qc.QC().GlobalRange()
+					if gr.First < in.nextQC {
+						return fmt.Errorf("QC in BlockDB predates committee genesis %d: got %d", in.nextQC, gr.First)
+					}
+					if gr.First > in.nextQC {
+						in.skipTo(gr.First)
+					}
+				}
+				if err := in.insertQC(s.cfg.Registry, qc); err != nil {
+					return fmt.Errorf("load QC from BlockDB: %w", err)
+				}
+			}
+		}()
+		if err != nil {
+			return err
+		}
+
+		// Restore blocks from BlockDB. First block must align with first QC start
+		// (set by the QC pass); a mismatch is corruption / incomplete store.
+		// After the QC pass with no AppProposals, nextAppProposal is the recovery
+		// floor (registry.FirstBlock() or first retained QC start).
+		err = func() error {
+			it, err := blockDB.Blocks(false)
+			if err != nil {
+				return fmt.Errorf("open block iterator: %w", err)
+			}
+			defer func() { _ = it.Close() }()
+			nextExpect := in.nextAppProposal
+			for {
+				ok, err := it.Next()
+				if err != nil || !ok {
+					return err
+				}
+				n := it.Number()
+				if n >= in.nextQC {
+					return fmt.Errorf("block %d in BlockDB has no QC coverage (nextQC=%d)", n, in.nextQC)
+				}
+				// updateNextBlock only advances nextBlock through contiguous present
+				// entries, so runPersist always writes [persistedBlock, nextBlock)
+				// fully populated. A gap here means BlockDB corruption.
+				if n != nextExpect {
+					return fmt.Errorf("%w: expected %d, got %d", types.ErrBlockGap, nextExpect, n)
+				}
+				nextExpect++
+				blk, err := it.Block()
+				if err != nil {
+					return err
+				}
+				qc := in.qcs[n]
+				e, ok := s.cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
+				if !ok {
+					return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
+				}
+				if err := blk.Verify(e.Committee()); err != nil {
+					return fmt.Errorf("verify block %d from BlockDB: %w", n, err)
+				}
+				if err := in.insertBlock(n, blk); err != nil {
+					return fmt.Errorf("insert block %d from BlockDB: %w", n, err)
+				}
+			}
+		}()
+		if err != nil {
+			return err
+		}
+
+		// Advance nextBlock through contiguous loaded blocks. Don't use
+		// updateNextBlock: stale timestamps would skew metrics.
+		for ; in.blocks[in.nextBlock] != nil; in.nextBlock++ {
+		}
+		// Data loaded from BlockDB was already durably persisted.
+		in.nextBlockToPersist = in.nextBlock
+	}
+	return nil
 }
 
 // Registry returns the epoch registry.
 func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
+
+// insertBlocksByHash matches byHash against stored (already verified) QC
+// headers over gr ∩ [nextBlock, nextQC) and inserts hits. Advances nextBlock
+// when the contiguous prefix grows. Caller must hold inner's lock.
+func (s *State) insertBlocksByHash(inner *inner, gr types.GlobalRange, byHash map[types.BlockHeaderHash]*types.Block) error {
+	for n := max(inner.nextBlock, gr.First); n < min(gr.Next, inner.nextQC); n++ {
+		storedQC := inner.qcs[n]
+		storedGR := storedQC.QC().GlobalRange()
+		if b, ok := byHash[storedQC.Headers()[n-storedGR.First].Hash()]; ok {
+			if err := inner.insertBlock(n, b); err != nil {
+				return err
+			}
+		}
+	}
+	inner.updateNextBlock(s.metrics)
+	return nil
+}
 
 // PushQC pushes FullCommitQC and a subset of blocks that were finalized by it.
 // Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
@@ -401,26 +377,16 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 			}
 			ctrl.Updated()
 		}
-		if len(byHash) == 0 {
-			break
-		}
-		// Match blocks against stored (already verified) QC headers.
-		for n := max(inner.nextBlock, gr.First); n < min(gr.Next, inner.nextQC); n += 1 {
-			storedQC := inner.qcs[n]
-			storedGR := storedQC.QC().GlobalRange()
-			storedEp, ok := s.cfg.Registry.EpochByIndex(storedQC.QC().Proposal().EpochIndex())
-			if !ok {
-				return fmt.Errorf("unknown epoch_index %d", storedQC.QC().Proposal().EpochIndex())
+		if len(byHash) > 0 {
+			if err := s.insertBlocksByHash(inner, gr, byHash); err != nil {
+				return err
 			}
-			storedCommittee := storedEp.Committee()
-			if b, ok := byHash[storedQC.Headers()[n-storedGR.First].Hash()]; ok {
-				if err := inner.insertBlock(storedCommittee, n, b); err != nil {
-					return err
-				}
-			}
+			ctrl.Updated()
 		}
-		ctrl.Updated()
-		inner.updateNextBlock(s.metrics)
+		// Only a newly accepted QC can advance CommitQC.App / the eviction floor.
+		if needQC {
+			evictBelowBound(inner)
+		}
 	}
 	return nil
 }
@@ -433,26 +399,31 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 		}); err != nil {
 			return nil, err
 		}
+		// [first, nextQC) is retained in RAM; below that use BlockDB.
 		if n < inner.first {
-			return nil, ErrPruned
+			break
 		}
 		return inner.qcs[n], nil
 	}
-	panic("unreachable")
+	return s.qcFromDB(n)
 }
 
 // PushBlock pushes block to the state.
-// The QC for n must already be present (guaranteed by PushQC ordering).
+// The QC for n must already be present (guaranteed by PushQC ordering), unless
+// the height is already in the contiguous block prefix (n < nextBlock) — in
+// that case the block is dropped silently (already stored or executed/evicted).
 func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block *types.Block) error {
 	var epochIdx types.EpochIndex
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextQC }); err != nil {
 			return err
 		}
-		if n < inner.first {
-			// Block arrived after pruning; drop silently so the sender keeps delivering future blocks.
+		// Already in/below the contiguous prefix: insertBlock would no-op
+		// (stored, or evicted below first with nextBlock advanced past n).
+		if n < inner.nextBlock {
 			return nil
 		}
+		// n in [nextBlock, nextQC): QC is contiguous in that range.
 		epochIdx = inner.qcs[n].QC().Proposal().EpochIndex()
 	}
 	ep, ok := s.cfg.Registry.EpochByIndex(epochIdx)
@@ -464,10 +435,10 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if n < inner.first {
-			return nil
-		}
-		if err := inner.insertBlock(ep.Committee(), n, block); err != nil {
+		// insertBlock may no-op if n fell into the contiguous prefix (or was
+		// gap-filled) while we verified outside the lock; Updated is still
+		// signaled so waiters re-check.
+		if err := inner.insertBlock(n, block); err != nil {
 			return err
 		}
 		inner.updateNextBlock(s.metrics)
@@ -485,33 +456,30 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 }
 
 // GlobalBlockByHash returns the finalized GlobalBlock whose stored header
-// hashes to the given value, or None if no such block is currently in the
-// retained range. The lookup-and-construct happens under a single lock so
-// the returned block matches the looked-up hash atomically — pruning can't
-// change which height a hash maps to between the index check and the block
-// construction. Tracks the same retain window as Block / GlobalBlock since
-// the hash index is maintained in lockstep by insertBlock / pruneFirst.
-//
-// Returns an error in the signature for forward-compat with the eventual
-// switch to sei-db/ledger_db/block.BlockDB.GetBlockByHash. Today's
-// in-memory implementation never errors.
-//
-// TODO(autobahn): when BlockDB is wired, take a ctx parameter and narrow
-// the error contract — db-internal errors should surface by shutting down
-// the persistence background task (matching how persistence handles errors
-// today), so the query path's error stays bounded to context.Canceled.
+// hashes to the given value, or None if no such block is currently retained.
+// Non-blocking. Serves from RAM whenever the hash is still indexed (contiguous
+// prefix, gap-fills, and executed heights not yet dropped by evictBelowBound).
+// Falls back to BlockDB only after eviction removes the hash — matching
+// Block/TryBlock/QC, which also prefer maps before the store. Gap-fills are
+// not written to BlockDB until nextBlock catches up, so they must be served
+// from RAM here; Block/TryBlock continue to hide gaps by number.
 func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
 	for inner := range s.inner.Lock() {
 		n, ok := inner.blockHashes[hash]
 		if !ok {
-			return utils.None[*types.GlobalBlock](), nil
+			break
 		}
-		return utils.Some(inner.globalBlockAt(n)), nil
+		// blockHashes stays in lockstep with blocks; a hit means both block and
+		// covering QC are still cached (including n < nextAppProposal when
+		// AppQC eviction has not advanced first past n yet).
+		return utils.Some(assembleGlobalBlock(n, inner.blocks[n], inner.qcs[n])), nil
 	}
-	panic("unreachable")
+	return s.globalBlockByHashFromDB(hash)
 }
 
 // Block returns the block with the given global number.
+// Waits until the contiguous prefix reaches n (n < nextBlock), then returns
+// it from memory or BlockDB. Does not expose gaps ahead of nextBlock.
 // This function is used for syncing - GlobalBlock can be derived from Block and FullCommitQC,
 // which have to be fetched upfront anyway.
 func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Block, error) {
@@ -521,37 +489,39 @@ func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Bl
 		}); err != nil {
 			return nil, err
 		}
+		// [first, nextBlock) is retained in RAM; below that use BlockDB.
 		if n < inner.first {
-			return nil, ErrPruned
+			break
 		}
 		return inner.blocks[n], nil
 	}
-	panic("unreachable")
+	return s.blockFromDB(n)
 }
 
 // TryBlock returns the block with the given global number.
-// Returns ErrPruned if the block has already been pruned.
-// Returns ErrNotFound if the block is not available yet.
+// Returns ErrNotFound if n is not yet in the contiguous prefix (n >= nextBlock),
+// including gap-fills stored above nextBlock — same no-gap contract as Block.
+// Returns ErrPruned if BlockDB no longer has an evicted height.
+// Evicted-but-still-durable heights (n < nextBlock) load from BlockDB.
 func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 	for inner := range s.inner.Lock() {
+		if n >= inner.nextBlock {
+			return nil, types.ErrNotFound
+		}
 		if n < inner.first {
-			return nil, ErrPruned
+			break
 		}
-		b, ok := inner.blocks[n]
-		if !ok {
-			return nil, ErrNotFound
-		}
-		return b, nil
+		return inner.blocks[n], nil
 	}
-	panic("unreachable")
+	return s.blockFromDB(n)
 }
 
-// globalBlockAt assembles the GlobalBlock at height n from inner state.
-// Caller must have verified n is in [inner.first, inner.nextBlock); n
-// outside that range nil-derefs on inner.blocks[n] / inner.qcs[n].
-func (i *inner) globalBlockAt(n types.GlobalBlockNumber) *types.GlobalBlock {
-	b := i.blocks[n]
-	qc := i.qcs[n].QC()
+// assembleGlobalBlock builds a GlobalBlock from a block and its covering QC.
+// Callers must supply non-nil b and fqc for height n. In-memory paths look up
+// maps only for heights still indexed there (including gap-fills); BlockDB
+// fallbacks pass values already loaded from the store.
+func assembleGlobalBlock(n types.GlobalBlockNumber, b *types.Block, fqc *types.FullCommitQC) *types.GlobalBlock {
+	qc := fqc.QC()
 	return &types.GlobalBlock{
 		GlobalNumber:  n,
 		Timestamp:     qc.Proposal().BlockTimestamp(n).OrPanic("global block not in QC"),
@@ -562,7 +532,9 @@ func (i *inner) globalBlockAt(n types.GlobalBlockNumber) *types.GlobalBlock {
 }
 
 // GlobalBlock returns the block with the given global number.
-// Returns ErrPruned if the block has already been pruned.
+// Waits until the contiguous prefix reaches n (same no-gap contract as Block).
+// Returns ErrPruned if the block has already been pruned from BlockDB.
+// Falls back to BlockDB when the entry was evicted from memory after persist.
 func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*types.GlobalBlock, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
@@ -571,11 +543,68 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 			return nil, err
 		}
 		if n < inner.first {
-			return nil, ErrPruned
+			break
 		}
-		return inner.globalBlockAt(n), nil
+		return assembleGlobalBlock(n, inner.blocks[n], inner.qcs[n]), nil
 	}
-	panic("unreachable")
+	return s.globalBlockFromDB(n)
+}
+
+func (s *State) blockFromDB(n types.GlobalBlockNumber) (*types.Block, error) {
+	opt, err := s.blockDB.ReadBlockByNumber(n)
+	if err != nil {
+		return nil, fmt.Errorf("blockDB.ReadBlockByNumber(%d): %w", n, err)
+	}
+	b, ok := opt.Get()
+	if !ok {
+		// Caller only falls through for heights below nextBlock (already seen).
+		// None here means the store no longer has them (pruned/reclaimed).
+		return nil, types.ErrPruned
+	}
+	return b, nil
+}
+
+func (s *State) qcFromDB(n types.GlobalBlockNumber) (*types.FullCommitQC, error) {
+	opt, err := s.blockDB.ReadQCByBlockNumber(n)
+	if err != nil {
+		return nil, fmt.Errorf("blockDB.ReadQCByBlockNumber(%d): %w", n, err)
+	}
+	qc, ok := opt.Get()
+	if !ok {
+		return nil, types.ErrPruned
+	}
+	return qc, nil
+}
+
+func (s *State) globalBlockFromDB(n types.GlobalBlockNumber) (*types.GlobalBlock, error) {
+	b, err := s.blockFromDB(n)
+	if err != nil {
+		return nil, err
+	}
+	qc, err := s.qcFromDB(n)
+	if err != nil {
+		return nil, err
+	}
+	return assembleGlobalBlock(n, b, qc), nil
+}
+
+func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
+	opt, err := s.blockDB.ReadBlockByHash(hash)
+	if err != nil {
+		return utils.None[*types.GlobalBlock](), fmt.Errorf("blockDB.ReadBlockByHash: %w", err)
+	}
+	bn, ok := opt.Get()
+	if !ok {
+		return utils.None[*types.GlobalBlock](), nil
+	}
+	qc, err := s.qcFromDB(bn.Number)
+	if err != nil {
+		if errors.Is(err, types.ErrPruned) || errors.Is(err, types.ErrNotFound) {
+			return utils.None[*types.GlobalBlock](), nil
+		}
+		return utils.None[*types.GlobalBlock](), err
+	}
+	return utils.Some(assembleGlobalBlock(bn.Number, bn.Block, qc)), nil
 }
 
 // PushAppHash marks blocks up to n as executed. Hash is the execution result.
@@ -597,10 +626,6 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.qcs[n].QC().Proposal().EpochIndex(),
 		)
 		t := time.Now()
-		apt := appProposalWithTimestamp{
-			proposal:  proposal,
-			timestamp: t,
-		}
 		// TODO(gprusak): this will be problematic on restart,
 		// nextAppProposal should be initiated wrt current application height,
 		// so that we don't iterate over all blocks in storage on startup.
@@ -609,9 +634,10 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
 			s.metrics.Blocks.Execute.Observe(latency)
 			s.metrics.Txs.Execute.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
-			inner.appProposals[inner.nextAppProposal] = apt
+			inner.appProposals[inner.nextAppProposal] = proposal
 			inner.nextAppProposal += 1
 		}
+		evictBelowBound(inner)
 		ctrl.Updated()
 	}
 	return nil
@@ -626,22 +652,35 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 			return nil, err
 		}
 		if n < inner.first {
-			return nil, ErrPruned
+			return nil, types.ErrPruned
 		}
-		return inner.appProposals[n].proposal, nil
+		ap, ok := inner.appProposals[n]
+		if !ok {
+			return nil, types.ErrPruned
+		}
+		return ap, nil
 	}
 	panic("unreachable")
 }
 
 func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	// TODO(gprusak): decide whether 0 is a good result in this case in general.
-	if i.first == i.nextAppProposal {
+	// Empty maps (first == nextQC) only on fresh start / after skipTo with no QC.
+	if i.first == i.nextQC {
 		return 0
 	}
-	n := i.nextAppProposal - 1
-	r := i.qcs[n].QC().LaneRange(lane)
-	// TODO: this header can be actually extracted from FullCommitQC, so consider moving all this logic there.
-	h := i.blocks[n].Header()
+	// Fully executed through the certified tip: next lane block is past the tip QC.
+	if i.nextAppProposal == i.nextQC {
+		return i.qcs[i.nextAppProposal-1].QC().LaneRange(lane).Next()
+	}
+	// nextAppProposal < nextQC: derive from the next global block to execute
+	// (header from FullCommitQC — works even if blocks[n] was never gap-filled).
+	n := i.nextAppProposal
+	fqc := i.qcs[n]
+	qc := fqc.QC()
+	gr := qc.GlobalRange()
+	h := fqc.Headers()[n-gr.First]
+	r := qc.LaneRange(lane)
 	x := lane.Compare(h.Lane())
 	// NOTE: here we assume the specific ordering of lane blocks in the CommitQC:
 	// TODO(gprusak): move this logic closer to CommitQC
@@ -651,7 +690,8 @@ func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	case x > 0:
 		return r.First()
 	default:
-		return h.BlockNumber() + 1
+		// This block is not executed yet.
+		return h.BlockNumber()
 	}
 }
 
@@ -670,168 +710,152 @@ func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n type
 	panic("unreachable")
 }
 
-// PruneBefore removes blocks, QCs, and AppProposals before retainFrom.
-// Blocks at retainFrom and above are kept. Per-block pruning may split
-// a QC range; this is handled on recovery (NewState skips partial QC prefixes).
+// PruneBefore asks BlockDB to drop data before retainFrom. This is independent
+// of in-memory retention: RAM is cleared only by evictBelowBound (AppQC floor),
+// and AppProposals are not persisted. BlockDB enforces its own never-empty
+// retention and refuses reads below its watermark.
 func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
-	pruningTime := time.Now()
-	truncateTo := utils.None[types.GlobalBlockNumber]()
-	for inner, ctrl := range s.inner.Lock() {
-		// Can only prune executed blocks (those with AppProposals).
-		firstToKeep := min(retainFrom, inner.nextAppProposal)
-		if firstToKeep <= inner.first {
-			return nil
-		}
-		// Keep at least one entry so WALs are never empty on restart.
-		for inner.first+1 < firstToKeep {
-			inner.pruneFirst(pruningTime, s.metrics)
-		}
-		ctrl.Updated()
-		truncateTo = utils.Some(inner.first)
-	}
-	// Truncate WALs outside the lock to avoid holding it during disk I/O.
-	if n, ok := truncateTo.Get(); ok {
-		return s.dataWAL.TruncateBefore(n)
-	}
-	return nil
+	return s.blockDB.PruneBefore(retainFrom)
 }
 
-// runPersist is a background goroutine that persists blocks and QCs to WALs.
-// It waits for in-memory data to advance past the persistence cursors, then
-// writes QCs and blocks in parallel. QCs are persisted up to nextQC (eagerly),
-// blocks up to nextBlock. nextBlockToPersist advances to min(persistedQC, persistedBlock)
-// to unblock PushAppHash only when both are durable.
+// runPersist is a background goroutine that persists blocks and QCs to BlockDB.
+// It waits for in-memory blocks to advance past the block persistence cursor,
+// then writes covering QCs (first, per the BlockDB contract) and blocks, then
+// flushes once per batch. nextBlockToPersist advances with the block tip to
+// unblock PushAppHash only when data is durable.
 // Errors propagate vertically (kill the component).
+//
+// Cursors seed from BlockDB.Status() when non-zero so PushQC-before-Run heights
+// are not skipped. When a tip is zero, seed from post-load nextBlockToPersist
+// (recovery floor), never bare registry.FirstBlock() — a QC-only store can
+// skipTo past genesis while NextBlock is still zero.
+//
+// Under the BlockDB write contract (QC before covered blocks), NextQC is never
+// behind NextBlock after a successful write. Persistence is driven by the block
+// cursor; a QC is emitted only when n equals GlobalRange.First and that First
+// is still at or past NextQC (enough coverage for each new block, not every
+// in-memory QC, and no rewrite of QCs already on disk).
+//
+// In-memory eviction is driven by PushQC / PushAppHash (evictBelowBound), not here.
 func (s *State) runPersist(ctx context.Context) error {
-	// Initialize from nextBlockToPersist, not nextQC/nextBlock. PushQC may
-	// have been called before Run() (race between p2p startup and Run),
-	// advancing nextQC/nextBlock beyond what's been persisted. Starting
-	// from nextBlockToPersist ensures we don't skip unpersisted data.
-	var persistedQC, persistedBlock types.GlobalBlockNumber
+	tips := s.blockDB.Status()
+	var nextToPersistQC, nextToPersistBlock types.GlobalBlockNumber
 	for inner := range s.inner.Lock() {
-		persistedQC = inner.nextBlockToPersist
-		persistedBlock = inner.nextBlockToPersist
+		// After loadFromBlockDB, nextBlockToPersist is the durable recovery tip.
+		nextToPersistQC = tips.NextQC
+		if nextToPersistQC == 0 {
+			nextToPersistQC = inner.nextBlockToPersist
+		}
+		nextToPersistBlock = tips.NextBlock
+		if nextToPersistBlock == 0 {
+			nextToPersistBlock = inner.nextBlockToPersist
+		}
 	}
 	for {
-		// Wait for unpersisted data and snapshot what needs writing.
 		type batch struct {
-			qcs      []*types.FullCommitQC
-			blocks   []persist.LoadedGlobalBlock
-			qcEnd    types.GlobalBlockNumber
-			blockEnd types.GlobalBlockNumber
+			qcs       []*types.FullCommitQC
+			blocks    []blockEntry
+			nextBlock types.GlobalBlockNumber
 		}
 		var b batch
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return persistedQC < inner.nextQC || persistedBlock < inner.nextBlock
+				return nextToPersistBlock < inner.nextBlock
 			}); err != nil {
 				return err
 			}
-			b.qcEnd = inner.nextQC
-			b.blockEnd = inner.nextBlock
-			// Collect deduplicated QCs for [persistedQC, nextQC).
-			seen := map[types.GlobalBlockNumber]bool{}
-			for n := persistedQC; n < inner.nextQC; n++ {
+			b.nextBlock = inner.nextBlock
+			// Persist blocks in [nextToPersistBlock, nextBlock). Emit each covering
+			// QC once at GlobalRange.First when it has not already been written
+			// (First >= nextToPersistQC).
+			for n := nextToPersistBlock; n < inner.nextBlock; n++ {
 				qc := inner.qcs[n]
-				first := qc.QC().GlobalRange().First
-				if !seen[first] {
-					seen[first] = true
+				gr := qc.QC().GlobalRange()
+				if n == gr.First && gr.First >= nextToPersistQC {
 					b.qcs = append(b.qcs, qc)
 				}
-			}
-			// Collect blocks for [persistedBlock, nextBlock).
-			for n := persistedBlock; n < inner.nextBlock; n++ {
-				b.blocks = append(b.blocks, persist.LoadedGlobalBlock{
-					Number: n,
-					Block:  inner.blocks[n],
-				})
+				b.blocks = append(b.blocks, blockEntry{n: n, block: inner.blocks[n]})
 			}
 		}
-		// Persist QCs and blocks in parallel.
-		if err := scope.Parallel(func(ps scope.ParallelScope) error {
-			ps.Spawn(func() error {
-				for _, qc := range b.qcs {
-					if err := s.dataWAL.CommitQCs.PersistQC(qc); err != nil {
-						return fmt.Errorf("persist full commitqc: %w", err)
-					}
-				}
-				return nil
-			})
-			ps.Spawn(func() error {
-				for _, lb := range b.blocks {
-					if err := s.dataWAL.Blocks.PersistBlock(lb.Number, lb.Block); err != nil {
-						return fmt.Errorf("persist global block %d: %w", lb.Number, err)
-					}
-				}
-				return nil
-			})
-			return nil
-		}); err != nil {
-			return err
+		// Write QCs first (BlockDB contract: QC must precede covered blocks).
+		for _, qc := range b.qcs {
+			gr := qc.QC().GlobalRange()
+			if err := s.blockDB.WriteQC(gr.First, gr.Next, qc); err != nil {
+				return fmt.Errorf("write QC [%d,%d): %w", gr.First, gr.Next, err)
+			}
+			if gr.Next > nextToPersistQC {
+				nextToPersistQC = gr.Next
+			}
 		}
-		persistedQC = b.qcEnd
-		persistedBlock = b.blockEnd
-		// Advance nextBlockToPersist to where both QCs and blocks are durable.
-		newToPersist := min(persistedQC, persistedBlock)
+		for _, lb := range b.blocks {
+			if err := s.blockDB.WriteBlock(lb.n, lb.block); err != nil {
+				return fmt.Errorf("write block %d: %w", lb.n, err)
+			}
+		}
+		// Flush once per batch before advancing nextBlockToPersist, so that
+		// PushAppHash only unblocks after data is crash-durable.
+		if err := s.blockDB.Flush(); err != nil {
+			return fmt.Errorf("flush BlockDB: %w", err)
+		}
+		nextToPersistBlock = b.nextBlock
 		for inner, ctrl := range s.inner.Lock() {
-			if newToPersist > inner.nextBlockToPersist {
-				inner.nextBlockToPersist = newToPersist
+			if nextToPersistBlock > inner.nextBlockToPersist {
+				inner.nextBlockToPersist = nextToPersistBlock
 				ctrl.Updated()
 			}
 		}
 	}
 }
 
-func (s *State) runPruning(ctx context.Context, after time.Duration) error {
-	pruningTime := time.Now()
-	for {
-		truncateTo := utils.None[types.GlobalBlockNumber]()
-		for inner, ctrl := range s.inner.Lock() {
-			// Prune blocks old enough. Keep at least one entry.
-			// Per-block pruning may split QC ranges; handled on recovery.
-			// TODO: a proper fix would not prune until AppQC exists.
-			pruned := false
-			for inner.first+1 < inner.nextAppProposal && pruningTime.Sub(inner.appProposals[inner.first].timestamp) >= after {
-				inner.pruneFirst(pruningTime, s.metrics)
-				pruned = true
-			}
-			if pruned {
-				ctrl.Updated()
-				truncateTo = utils.Some(inner.first)
-			}
-			// Wait for at least 2 entries before retrying. Without +1,
-			// the loop would spin when only one entry remains (kept by
-			// the +1 guard above).
-			if err := ctrl.WaitUntil(ctx, func() bool { return inner.first+1 < inner.nextAppProposal }); err != nil {
-				return err
-			}
-			pruningTime = inner.appProposals[inner.first].timestamp.Add(after)
-		}
-		// Truncate WALs outside the lock to avoid holding it during disk I/O.
-		if n, ok := truncateTo.Get(); ok {
-			if err := s.dataWAL.TruncateBefore(n); err != nil {
-				return err
-			}
-		}
-		// Wait until the next pruning time.
-		if err := utils.SleepUntil(ctx, pruningTime); err != nil {
-			return err
-		}
+// certifiedAppFloor is the exclusive eviction floor from the tip CommitQC's
+// embedded App, if any: App.GlobalNumber()+1. Only the tip QC is consulted
+// (no backward walk). Returns 0 when maps are empty or the tip has no App.
+func (i *inner) certifiedAppFloor() types.GlobalBlockNumber {
+	if i.first == i.nextQC {
+		return 0
 	}
+	// [first, nextQC) is dense in qcs, so nextQC-1 is present.
+	app, ok := i.qcs[i.nextQC-1].QC().Proposal().App().Get()
+	if !ok {
+		return 0
+	}
+	return app.GlobalNumber() + 1
 }
 
-// Run runs the background tasks of the data State.
-// TODO(gprusak): add support for starting execution from non-zero commit QC.
+// evictBelowBound advances first toward the certified App floor and drops cached
+// blocks/QCs/AppProposals with n < first. No-op when there is no certified App
+// or the bound would not advance first. Caller must hold inner's lock. Invoked
+// from PushQC / PushAppHash.
+//
+// Bound is min(nextAppProposal, App.GlobalNumber()+1). A zero floor (no App /
+// empty maps) yields bound 0 and is a no-op via bound <= first. With the
+// past-CommitQC App invariant (see State), App+1 never exceeds the tip QC
+// start, so at least one CommitQC remains. nextToExecute uses qc[nextAppProposal]
+// (or the tip when caught up), so nextAppProposal-1 need not be retained.
+//
+// TODO: At eviction we have both a local AppProposal and a CommitQC.App, so this
+// is the right place to detect local-vs-quorum AppHash inconsistency. Surface
+// any mismatch from data.State.Run() (node-fatal), not from PushQC/PushAppHash —
+// e.g. stash an error on State for a Run monitor, or run eviction as its own
+// Run subtask.
+func evictBelowBound(inner *inner) {
+	floor := inner.certifiedAppFloor()
+	bound := min(inner.nextAppProposal, floor)
+	if bound <= inner.first {
+		return
+	}
+	for n := inner.first; n < bound; n++ {
+		if b, ok := inner.blocks[n]; ok {
+			delete(inner.blockHashes, b.Header().Hash())
+			delete(inner.blocks, n)
+		}
+		delete(inner.qcs, n)
+		delete(inner.appProposals, n)
+	}
+	inner.first = bound
+}
+
+// Run starts the background persistence loop.
 func (s *State) Run(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		scope.SpawnNamed("runPersist", func() error {
-			return s.runPersist(ctx)
-		})
-		if pruneAfter, ok := s.cfg.PruneAfter.Get(); ok {
-			scope.SpawnNamed("runPruning", func() error {
-				return s.runPruning(ctx, pruneAfter)
-			})
-		}
-		return nil
-	})
+	return s.runPersist(ctx)
 }

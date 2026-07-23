@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"slices"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
@@ -17,11 +18,9 @@ type gigaFullnodeRouter struct {
 	*gigaRouterCommon
 }
 
-func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey) (*gigaFullnodeRouter, error) {
-	dataState, err := buildDataState(cfg)
-	if err != nil {
-		return nil, err
-	}
+// NewGigaFullnodeRouter constructs a fullnode GigaRouter over an already-built
+// data.State. The caller owns the BlockDB that backs dataState (see BuildDataState).
+func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataState *data.State) (*gigaFullnodeRouter, error) {
 	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaFullnodeRouter{
 		gigaRouterCommon: &gigaRouterCommon{

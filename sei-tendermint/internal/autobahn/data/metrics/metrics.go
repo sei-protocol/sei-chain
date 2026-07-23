@@ -16,7 +16,6 @@ type metrics struct {
 type resourceMetrics struct {
 	Receive *prometheus.Histogram
 	Execute *prometheus.Histogram
-	Prune   *prometheus.Histogram
 }
 
 type Metrics struct {
@@ -29,7 +28,6 @@ func Get() *Metrics {
 		return resourceMetrics{
 			Receive: Global.latencyAt(resource, "receive"),
 			Execute: Global.latencyAt(resource, "execute"),
-			Prune:   Global.latencyAt(resource, "prune"),
 		}
 	}
 	return &Metrics{

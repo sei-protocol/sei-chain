@@ -69,6 +69,7 @@ func TestBlockDB(t *testing.T) {
 			t.Run("PruneQCOnlyThenWriteBlock", func(t *testing.T) {
 				testPruneQCOnlyThenWriteBlock(t, impl.build)
 			})
+			t.Run("Status", func(t *testing.T) { testStatus(t, impl.build) })
 			t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, impl.build) })
 			t.Run("WriteOrderRejectedAfterRestart", func(t *testing.T) {
 				testWriteOrderRejectedAfterRestart(t, impl.build)
@@ -130,6 +131,74 @@ func testEmptyDB(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, ok, "empty db should yield no QCs")
 	require.NoError(t, qcIt.Close())
+
+	tips := db.Status()
+	require.Zero(t, tips.NextBlock, "empty db has no block write tip")
+	require.Zero(t, tips.NextQC, "empty db has no QC write tip")
+}
+
+// testStatus asserts Status matches the highest block/QC still present
+// (via reverse iterators), including after prune and restart, and that a QC
+// written ahead of its blocks advances only NextQC.
+func testStatus(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, o := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+
+	require.NoError(t, db.WriteQC(batches[0].first, batches[0].next, batches[0].qc))
+	tips := db.Status()
+	require.Equal(t, batches[0].next, tips.NextQC)
+	require.Zero(t, tips.NextBlock, "QC-only store has no block tip")
+	assertTipsMatchPresent(t, db)
+
+	for i, blk := range batches[0].blocks {
+		require.NoError(t, db.WriteBlock(batches[0].first+gbn(i), blk))
+	}
+	writeAll(t, db, batches[1:])
+	last := batches[len(batches)-1]
+	tips = db.Status()
+	require.Equal(t, last.next, tips.NextBlock)
+	require.Equal(t, last.next, tips.NextQC)
+	assertTipsMatchPresent(t, db)
+
+	// Prune away an early cohort; the write tip must still equal the highest
+	// present records (newest cohort is never removed).
+	require.Greater(t, len(batches), 1)
+	require.NoError(t, db.PruneBefore(batches[1].first))
+	assertTipsMatchPresent(t, db)
+	tips = db.Status()
+	require.Equal(t, last.next, tips.NextBlock, "prune must not move the block write tip")
+	require.Equal(t, last.next, tips.NextQC, "prune must not move the QC write tip")
+
+	db = restart(t, o, db)
+	assertTipsMatchPresent(t, db)
+	tips = db.Status()
+	require.Equal(t, last.next, tips.NextBlock, "block tip must survive restart")
+	require.Equal(t, last.next, tips.NextQC, "QC tip must survive restart")
+}
+
+// assertTipsMatchPresent checks Status against one reverse-iterator
+// step for blocks and QCs (the highest records the public read API still serves).
+func assertTipsMatchPresent(t *testing.T, db types.BlockDB) {
+	t.Helper()
+	tips := db.Status()
+
+	highest, hasBlock := recoverHighestBlock(t, db)
+	if tips.NextBlock != 0 {
+		require.True(t, hasBlock, "Status has a block tip but Blocks is empty")
+		require.Equal(t, highest+1, tips.NextBlock, "NextBlock must be one past the highest present block")
+	} else {
+		require.False(t, hasBlock, "Blocks has data but Status has no block tip")
+	}
+
+	lastQC, hasQC := recoverLastQC(t, db)
+	if tips.NextQC != 0 {
+		require.True(t, hasQC, "Status has a QC tip but QCs is empty")
+		require.Equal(t, lastQC.GlobalRange().Next, tips.NextQC, "NextQC must be Next of the highest present QC")
+	} else {
+		require.False(t, hasQC, "QCs has data but Status has no QC tip")
+	}
 }
 
 func testReadRoundTrip(t *testing.T, build builder) {

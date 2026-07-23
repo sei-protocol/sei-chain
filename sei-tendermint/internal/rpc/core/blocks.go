@@ -139,7 +139,7 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 // env.getHeight. We currently pass env.BlockStore.Base() (always 0 under
 // Autobahn), which means any positive height < chain head passes validation
 // here and is rejected one layer down (data.GlobalBlock returns
-// data.ErrPruned, which BlockByNumber maps to ErrHeightNotAvailable). With
+// types.ErrPruned, which BlockByNumber maps to ErrHeightNotAvailable). With
 // a real lower bound the rejection happens at this layer instead. The
 // natural source becomes available once sei-db/ledger_db/block.BlockDB is
 // wired into block execution: switch this and BlockByNumber to read from

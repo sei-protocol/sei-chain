@@ -147,6 +147,19 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 
 func (s *blockDB) Flush() error { return nil }
 
+func (s *blockDB) Status() types.DBStatus {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var tips types.DBStatus
+	if s.hasBlocks {
+		tips.NextBlock = s.lastBlockNumber + 1
+	}
+	if s.hasQC {
+		tips.NextQC = s.lastQCNext
+	}
+	return tips
+}
+
 func (s *blockDB) Blocks(reverse bool) (types.BlockIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

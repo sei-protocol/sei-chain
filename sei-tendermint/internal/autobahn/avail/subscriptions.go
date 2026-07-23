@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 )
 
 func (s *State) SubscribeLaneProposals(first types.BlockNumber) *LaneProposalsRecv {
@@ -23,7 +22,7 @@ func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.Lane
 	for {
 		b, err := r.state.Block(ctx, r.lane, r.next)
 		if err != nil {
-			if errors.Is(err, data.ErrPruned) {
+			if errors.Is(err, types.ErrPruned) {
 				r.next += 1
 				continue
 			}
@@ -89,7 +88,7 @@ func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote],
 		// Fetch the proposal.
 		p, err := r.state.data.AppProposal(ctx, r.next)
 		if err != nil {
-			if errors.Is(err, data.ErrPruned) {
+			if errors.Is(err, types.ErrPruned) {
 				r.next = r.next + 1
 				continue
 			}

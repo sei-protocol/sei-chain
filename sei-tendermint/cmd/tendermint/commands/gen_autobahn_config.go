@@ -34,6 +34,8 @@ Output is written to the file specified by --output.`,
 				return fmt.Errorf("--output flag is required")
 			}
 			persistentStateDir, _ := cmd.Flags().GetString("persistent-state-dir")
+			blockDBRetention, _ := cmd.Flags().GetString("blockdb-retention")
+			blockDBGCPeriod, _ := cmd.Flags().GetString("blockdb-gc-period")
 
 			var validators []config.AutobahnValidator
 			for _, dir := range args {
@@ -97,6 +99,11 @@ Output is written to the file specified by --output.`,
 			if persistentStateDir != "" {
 				cfg.PersistentStateDir = utils.Some(persistentStateDir)
 			}
+			blockDB, err := buildGenBlockDBConfig(blockDBRetention, blockDBGCPeriod)
+			if err != nil {
+				return err
+			}
+			cfg.BlockDB = blockDB
 
 			data, err := json.MarshalIndent(cfg, "", "  ")
 			if err != nil {
@@ -110,6 +117,35 @@ Output is written to the file specified by --output.`,
 		},
 	}
 	cmd.Flags().StringP("output", "o", "", "output file path for the autobahn config")
-	cmd.Flags().String("persistent-state-dir", "data/autobahn", "directory to persist autobahn consensus and data WALs across restarts; relative paths are resolved against the node's --home dir; pass --persistent-state-dir= (empty) to disable persistence and run in-memory only")
+	cmd.Flags().String("persistent-state-dir", "data/autobahn", "directory to persist autobahn consensus state and BlockDB across restarts; relative paths are resolved against the node's --home dir; pass --persistent-state-dir= (empty) to disable persistence and run in-memory only (memblock)")
+	// Default 30s: this helper is used by docker/local clusters, not production
+	// node bring-up. Pass --blockdb-retention= (empty) to omit block_db and keep
+	// littblock's production default (24h).
+	cmd.Flags().String("blockdb-retention", "30s", "BlockDB retention TTL written into block_db (default 30s for local/docker); pass empty to omit and keep littblock's 24h default")
+	cmd.Flags().String("blockdb-gc-period", "", "optional BlockDB GC period (e.g. 10s); omit to keep littblock default")
 	return cmd
+}
+
+// buildGenBlockDBConfig builds optional block_db overrides from gen-autobahn-config flags.
+// Empty duration strings leave BlockDB as the zero value (omitted from JSON).
+func buildGenBlockDBConfig(retention, gcPeriod string) (config.AutobahnBlockDBConfig, error) {
+	var bdb config.AutobahnBlockDBConfig
+	if retention != "" {
+		d, err := time.ParseDuration(retention)
+		if err != nil {
+			return config.AutobahnBlockDBConfig{}, fmt.Errorf("--blockdb-retention: %w", err)
+		}
+		bdb.Retention = utils.Some(utils.Duration(d))
+	}
+	if gcPeriod != "" {
+		d, err := time.ParseDuration(gcPeriod)
+		if err != nil {
+			return config.AutobahnBlockDBConfig{}, fmt.Errorf("--blockdb-gc-period: %w", err)
+		}
+		bdb.GCPeriod = utils.Some(utils.Duration(d))
+	}
+	if err := bdb.Validate(); err != nil {
+		return config.AutobahnBlockDBConfig{}, fmt.Errorf("block_db: %w", err)
+	}
+	return bdb, nil
 }

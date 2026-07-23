@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -34,6 +35,26 @@ type AutobahnValidator struct {
 	EVMRPC URL `json:"evmrpc"`
 }
 
+// AutobahnBlockDBConfig holds optional overrides for the LittDB-backed BlockDB
+// opened under persistent_state_dir/blockdb. Paths are never taken from here —
+// Autobahn always roots BlockDB at <persistent_state_dir>/blockdb.
+//
+// Each field is independently optional. Absent fields keep whatever
+// littblock.DefaultConfig currently uses (do not duplicate those values here —
+// they live in the littblock / LittDB packages and may change).
+//
+// Disk impact (most → least useful for bounding usage): Retention, then
+// GCPeriod. Segment sizing is intentionally not exposed (engine-internal).
+type AutobahnBlockDBConfig struct {
+	// Retention is the failsafe minimum age before pruned records may be
+	// reclaimed. Primary knob for worst-case disk after PruneBefore advances.
+	// Absent ⇒ littblock.DefaultConfig Retention.
+	Retention utils.Option[utils.Duration] `json:"retention"`
+	// GCPeriod is how often GC runs once data is eligible (reclaim latency).
+	// Absent ⇒ littblock.DefaultConfig / LittDB GCPeriod.
+	GCPeriod utils.Option[utils.Duration] `json:"gc_period"`
+}
+
 // AutobahnFileConfig is the JSON structure of the autobahn config file.
 type AutobahnFileConfig struct {
 	Validators         []AutobahnValidator  `json:"validators"`
@@ -49,6 +70,11 @@ type AutobahnFileConfig struct {
 	// fullnodes serving downstream block-sync are subject to the same
 	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers"`
+	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig
+	// when PersistentStateDir is set. Zero value ⇒ littblock.DefaultConfig unchanged
+	// (see AutobahnBlockDBConfig for field semantics). Ignored when
+	// PersistentStateDir is absent (memblock). Omitted from JSON when empty.
+	BlockDB AutobahnBlockDBConfig `json:"block_db,omitzero"`
 }
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when
@@ -80,5 +106,40 @@ func (fc *AutobahnFileConfig) Validate() error {
 	if fc.DialInterval <= 0 {
 		return errors.New("dial_interval must be > 0")
 	}
+	if err := fc.BlockDB.Validate(); err != nil {
+		return fmt.Errorf("block_db: %w", err)
+	}
 	return nil
+}
+
+// Validate checks optional BlockDB overrides. Absent fields are fine.
+func (c AutobahnBlockDBConfig) Validate() error {
+	if r, ok := c.Retention.Get(); ok && r <= 0 {
+		return errors.New("retention must be > 0 when set")
+	}
+	if p, ok := c.GCPeriod.Get(); ok && p <= 0 {
+		return errors.New("gc_period must be > 0 when set")
+	}
+	return nil
+}
+
+// LittBlockConfig returns littblock.DefaultConfig(dir) with this config's
+// optional overrides applied. Fsync is always forced on.
+func (c AutobahnBlockDBConfig) LittBlockConfig(dir string) (littblock.LittBlockConfig, error) {
+	if err := c.Validate(); err != nil {
+		return littblock.LittBlockConfig{}, err
+	}
+	cfg, err := littblock.DefaultConfig(dir)
+	if err != nil {
+		return littblock.LittBlockConfig{}, fmt.Errorf("littblock.DefaultConfig: %w", err)
+	}
+	if r, ok := c.Retention.Get(); ok {
+		cfg.Retention = r.Duration()
+	}
+	if p, ok := c.GCPeriod.Get(); ok {
+		cfg.Litt.GCPeriod = p.Duration()
+	}
+	// NOT SAFE to set false: crash can lose acknowledged BlockDB writes.
+	cfg.Litt.Fsync = true
+	return *cfg, nil
 }

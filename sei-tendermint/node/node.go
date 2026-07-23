@@ -8,6 +8,7 @@ import (
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -95,11 +96,13 @@ type nodeImpl struct {
 	consensusPolicy types.ConsensusPolicy
 
 	// network
-	router           *p2p.Router
-	giga             utils.Option[p2p.GigaRouter]
-	ServiceRestartCh utils.Option[chan []string]
-	nodeInfo         types.NodeInfo
-	nodeKey          types.NodeKey // our node privkey
+	router               *p2p.Router
+	giga                 utils.Option[p2p.GigaRouter]
+	gigaBlockDB          utils.Option[atypes.BlockDB] // owned here; closed after giga.Run (sync.Once)
+	gigaBlockDBCloseOnce sync.Once
+	ServiceRestartCh     utils.Option[chan []string]
+	nodeInfo             types.NodeInfo
+	nodeKey              types.NodeKey // our node privkey
 
 	// services
 	eventSinks     []indexer.EventSink
@@ -129,11 +132,19 @@ func makeNode(
 	tracerProviderOptions []trace.TracerProviderOption,
 	consensusPolicy types.ConsensusPolicy,
 ) (_ local.NodeService, err error) {
-	var cancel context.CancelFunc
+	var (
+		cancel context.CancelFunc
+		node   *nodeImpl
+	)
 	ctx, cancel = context.WithCancel(ctx)
 	closers := []closer{convertCancelCloser(cancel)}
 	defer func() {
 		if err != nil {
+			// Close BlockDB on construct failure after it was opened. Must not
+			// live in shutdownOps (see OnStart comment on SpawnCritical).
+			if node != nil {
+				_ = node.closeGigaBlockDB()
+			}
 			err = combineCloseError(err, makeCloser(closers))
 		}
 	}()
@@ -199,7 +210,7 @@ func makeNode(
 		eventLogOpt = utils.Some(eventLog)
 	}
 	// TODO construct node here:
-	node := &nodeImpl{
+	node = &nodeImpl{
 		config:          cfg,
 		genesisDoc:      genDoc,
 		privValidator:   privValidator,
@@ -236,7 +247,7 @@ func makeNode(
 	if gigaEnabled {
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
 	}
-	router, peerCloser, err := createRouter(
+	router, peerCloser, gigaBlockDB, err := createRouter(
 		node.NodeInfo,
 		nodeKey,
 		gigaValidatorKey,
@@ -251,6 +262,13 @@ func makeNode(
 	}
 	node.router = router
 	node.giga = router.Giga()
+	node.gigaBlockDB = gigaBlockDB
+	// BlockDB is NOT closed in OnStop: BaseService runs OnStop before
+	// SpawnCritical (giga.Run) finishes, so closing there would race with
+	// still-running persist/execute. Close paths:
+	//   - makeNode defer on construct failure
+	//   - OnStart defer if Start fails before giga is spawned
+	//   - SpawnCritical wrapper after giga.Run returns (happy path / cancel)
 	node.rpcEnv.Router = router
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
@@ -448,16 +466,28 @@ func makeNode(
 }
 
 // OnStart starts the Node. It implements service.Service.
-func (n *nodeImpl) OnStart(ctx context.Context) error {
+func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
+	// If Start fails before giga is spawned, BaseService does not call OnStop
+	// and never cancels SpawnCritical — so BlockDB would otherwise leak.
+	// When giga has already been spawned, its wrapper closes BlockDB after
+	// Run observes the service-context cancel issued once OnStart returns.
+	gigaSpawned := false
+	defer func() {
+		if err == nil || gigaSpawned {
+			return
+		}
+		_ = n.closeGigaBlockDB()
+	}()
+
 	// EventBus and IndexerService must be started before the handshake because
 	// we might need to index the txs of the replayed block as this might not have happened
 	// when the node stopped last time (i.e. the node stopped or crashed after it saved the block
 	// but before it indexed the txs)
-	if err := n.rpcEnv.EventBus.Start(ctx); err != nil {
+	if err = n.rpcEnv.EventBus.Start(ctx); err != nil {
 		return err
 	}
 
-	if err := n.indexerService.Start(ctx); err != nil {
+	if err = n.indexerService.Start(ctx); err != nil {
 		return err
 	}
 
@@ -467,7 +497,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	if n.shouldHandshake {
 		// Create the handshaker, which calls RequestInfo, sets the AppVersion on the state,
 		// and replays any blocks as necessary to sync tendermint with the app.
-		if err := consensus.NewHandshaker(
+		if err = consensus.NewHandshaker(
 			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc, n.consensusPolicy,
 		).Handshake(ctx, n.rpcEnv.App); err != nil {
 			return err
@@ -547,23 +577,29 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		n.prometheusSrv = utils.Some(n.startPrometheusServer(ctx, n.config.Instrumentation.PrometheusListenAddr))
 	}
 
+	// Start giga before the transport so runPersist is active before inbound
+	// giga connections (dispatched via the router) can advance inner cursors
+	// via PushQC. Keep this after the genesis-time wait and EventBus/indexer
+	// init so Autobahn does not InitChain or produce ahead of genesis.
+	if giga, ok := n.giga.Get(); ok {
+		gigaSpawned = true
+		n.SpawnCritical("giga", func(ctx context.Context) error {
+			defer func() { _ = n.closeGigaBlockDB() }()
+			return giga.Run(ctx)
+		})
+	}
+
 	// Start the transport.
-	if err := n.router.Start(ctx); err != nil {
+	if err = n.router.Start(ctx); err != nil {
 		return err
 	}
 	n.rpcEnv.IsListening = true
 	if m, ok := n.mempool.Get(); ok {
 		n.SpawnCritical("mempool", m.Run)
 	}
-	// Run the GigaRouter alongside the transport. n.giga is the canonical
-	// reference; the Router holds a copy only for its own internal use
-	// (dispatching inbound giga connections). Lifecycle is owned here.
-	if giga, ok := n.giga.Get(); ok {
-		n.SpawnCritical("giga", giga.Run)
-	}
 
 	for _, reactor := range n.services {
-		if err := reactor.Start(ctx); err != nil {
+		if err = reactor.Start(ctx); err != nil {
 			return fmt.Errorf("problem starting service '%T': %w ", reactor, err)
 		}
 	}
@@ -572,7 +608,6 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	// Start the RPC server before the P2P server
 	// so we can eg. receive txs for the first block
 	if n.config.RPC.ListenAddress != "" {
-		var err error
 		n.rpcListeners, err = n.rpcEnv.StartService(ctx, n.config)
 		if err != nil {
 			return err
@@ -633,6 +668,21 @@ func (n *nodeImpl) OnStop() {
 			logger.Error("problem closing statestore", "err", err)
 		}
 	}
+}
+
+// closeGigaBlockDB closes the Autobahn BlockDB at most once. Safe to call from
+// makeNode's failure defer, OnStart's pre-giga failure path, and the giga
+// SpawnCritical wrapper.
+func (n *nodeImpl) closeGigaBlockDB() error {
+	var err error
+	n.gigaBlockDBCloseOnce.Do(func() {
+		if db, ok := n.gigaBlockDB.Get(); ok {
+			if err = db.Close(); err != nil {
+				logger.Error("failed to close Autobahn BlockDB", "err", err)
+			}
+		}
+	})
+	return err
 }
 
 // startPrometheusServer starts a Prometheus HTTP server, listening for metrics

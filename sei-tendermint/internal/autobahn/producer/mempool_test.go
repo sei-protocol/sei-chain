@@ -12,6 +12,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -231,10 +232,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 
 func newTestEnv(rng utils.Rng, cfg *Config, app *proxy.Proxy) *testEnv {
 	registry, keys := epoch.GenRegistry(rng, 1)
-	dataState := utils.OrPanic1(data.NewState(
-		&data.Config{Registry: registry},
-		utils.OrPanic1(data.NewDataWAL(utils.None[string](), registry.FirstBlock())),
-	))
+	dataState := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, memblock.NewBlockDB()))
 	consensusState := utils.OrPanic1(consensus.NewState(&consensus.Config{
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
