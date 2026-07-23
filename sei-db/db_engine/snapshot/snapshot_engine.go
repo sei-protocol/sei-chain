@@ -3,7 +3,6 @@ package snapshot
 import (
 	"context"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
@@ -27,12 +26,13 @@ type SnapshotEngine interface {
 	// It is not safe to mutate the key slice after calling this method, nor the returned value slice.
 	Get(key []byte, updateLru bool) ([]byte, bool, error)
 
-	// BatchGet performs a batch read against the current (mutable) version. Given a map of keys to
-	// read, it performs the reads and updates the map with the results.
+	// BatchGet reads the given keys against the current (mutable) version and returns a map, keyed by
+	// string(key), of the keys that were found to their values. Not-found keys are absent from the
+	// map; a present entry is always a found value (an empty value is a non-nil zero-length slice).
 	//
-	// It is not thread safe to read or mutate the map while this method is running, nor is it safe to
-	// mutate the key or value slices in the map after calling this method.
-	BatchGet(keys map[string]types.BatchGetResult) error
+	// If any read fails, BatchGet returns a nil map and that error — reads are not partially
+	// recoverable. It is not safe to mutate the returned key or value slices.
+	BatchGet(keys [][]byte) (map[string][]byte, error)
 
 	// Set writes the value for the given key into the current (mutable) version.
 	Set(key []byte, value []byte)
@@ -107,12 +107,13 @@ type Snapshot interface {
 		updateLru bool,
 	) ([]byte, bool, error)
 
-	// Perform a batch read operation. Given a map of keys to read, performs the reads and updates the
-	// map with the results.
+	// BatchGet reads the given keys from the snapshot and returns a map, keyed by string(key), of the
+	// keys that were found to their values. Not-found keys are absent from the map; a present entry
+	// is always a found value (an empty value is a non-nil zero-length slice).
 	//
-	// It is not thread safe to read or mutate the map while this method is running. It is also not safe to mutate the
-	// key or value slices in the map after calling this method.
-	BatchGet(keys map[string]types.BatchGetResult) error
+	// If any read fails, BatchGet returns a nil map and that error — reads are not partially
+	// recoverable. It is not safe to mutate the returned key or value slices.
+	BatchGet(keys [][]byte) (map[string][]byte, error)
 
 	// GetDiff returns the set of key-value mutations contained in this snapshot, relative to the
 	// previous snapshot. The result reflects only this snapshot's writes (including deletes,

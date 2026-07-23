@@ -3,8 +3,6 @@ package snapshot
 import (
 	"context"
 	"fmt"
-
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 var _ Snapshot = (*snapshotImpl)(nil)
@@ -16,12 +14,12 @@ type snapshotImpl struct {
 	parentEngine *snapshotEngine
 }
 
-func (s *snapshotImpl) BatchGet(keys map[string]types.BatchGetResult) error {
-	err := s.parentEngine.BatchGetAtVersion(keys, s.version)
+func (s *snapshotImpl) BatchGet(keys [][]byte) (map[string][]byte, error) {
+	results, err := s.parentEngine.BatchGetAtVersion(keys, s.version)
 	if err != nil {
-		return fmt.Errorf("failed to batch get: %w", err)
+		return nil, fmt.Errorf("failed to batch get: %w", err)
 	}
-	return nil
+	return results, nil
 }
 
 func (s *snapshotImpl) Get(key []byte, updateLru bool) ([]byte, bool, error) {

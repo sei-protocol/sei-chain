@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
@@ -113,12 +112,14 @@ func TestEngineBatchSetThenBatchGet(t *testing.T) {
 		{Key: []byte("c"), Delete: true}, // delete of a non-existent key
 	}))
 
-	req := map[string]types.BatchGetResult{"a": {}, "b": {}, "c": {}, "missing": {}}
-	require.NoError(t, engine.BatchGet(req))
-	require.Equal(t, []byte("1"), req["a"].Value)
-	require.Equal(t, []byte("2"), req["b"].Value)
-	require.False(t, req["c"].IsFound())
-	require.False(t, req["missing"].IsFound())
+	got, err := engine.BatchGet([][]byte{[]byte("a"), []byte("b"), []byte("c"), []byte("missing")})
+	require.NoError(t, err)
+	require.Equal(t, []byte("1"), got["a"])
+	require.Equal(t, []byte("2"), got["b"])
+	_, cPresent := got["c"]
+	require.False(t, cPresent, "deleted key must be absent")
+	_, missingPresent := got["missing"]
+	require.False(t, missingPresent, "not-found key must be absent")
 }
 
 func TestInitialHashReadFromDBOnOpen(t *testing.T) {

@@ -205,17 +205,18 @@ func NewSnapshotEngine(
 	childCtx, cancel := context.WithCancel(ctx)
 
 	c := &snapshotEngine{
-		ctx:                       childCtx,
-		cancel:                    cancel,
-		config:                    config,
-		shardManager:              shardManager,
-		shards:                    shards,
-		readPool:                  readPool,
-		miscPool:                  miscPool,
-		db:                        db,
-		initialHash:               initialHash,
-		versionMap:                make(map[uint64]*snapshotReferenceCounter),
-		currentVersion:            1, // important: versions start at 1, not 0, to allow version-1 without underflow
+		ctx:          childCtx,
+		cancel:       cancel,
+		config:       config,
+		shardManager: shardManager,
+		shards:       shards,
+		readPool:     readPool,
+		miscPool:     miscPool,
+		db:           db,
+		initialHash:  initialHash,
+		versionMap:   make(map[uint64]*snapshotReferenceCounter),
+		// Versions start at 1 (not 0) so a version-1 lookup never underflows.
+		currentVersion:            1,
 		oldestVersion:             1,
 		versionLock:               versionLock,
 		lifecycleBackpressureCond: lifecycleBackpressureCond,
@@ -270,46 +271,48 @@ func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
 	return nil
 }
 
-func (c *snapshotEngine) BatchGet(keys map[string]types.BatchGetResult) error {
+func (c *snapshotEngine) BatchGet(keys [][]byte) (map[string][]byte, error) {
 	return c.BatchGetAtVersion(keys, c.currentVersion)
 }
 
-func (c *snapshotEngine) BatchGetAtVersion(keys map[string]types.BatchGetResult, version uint64) error {
-	// Create map to hold results, sorted by shard.
-	work := make(map[uint64]map[string]types.BatchGetResult)
-	for key := range keys {
-		shardIndex := c.shardManager.Shard([]byte(key))
-		if work[shardIndex] == nil {
-			work[shardIndex] = make(map[string]types.BatchGetResult)
-		}
-		work[shardIndex][key] = types.BatchGetResult{}
+// Similar semantics to BatchGet, but reads from the given version of the engine.
+func (c *snapshotEngine) BatchGetAtVersion(keys [][]byte, version uint64) (map[string][]byte, error) {
+	// Partition the keys by shard so each shard is queried once.
+	work := make(map[uint64][][]byte)
+	for _, key := range keys {
+		shardIndex := c.shardManager.Shard(key)
+		work[shardIndex] = append(work[shardIndex], key)
 	}
 
-	// Fan out to shards.
-	var wg sync.WaitGroup
-	for shardIndex, subMap := range work {
-		wg.Add(1)
+	// Fan out to shards, collecting each shard's found results (or its error).
+	shardIndices := make([]uint64, 0, len(work))
+	for shardIndex := range work {
+		shardIndices = append(shardIndices, shardIndex)
+	}
+	results := make([]map[string][]byte, len(shardIndices))
+	errs := make([]error, len(shardIndices))
 
+	var wg sync.WaitGroup
+	for i, shardIndex := range shardIndices {
+		wg.Add(1)
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			err := c.shards[shardIndex].BatchGet(subMap, version)
-			if err != nil {
-				for key := range subMap {
-					subMap[key] = types.BatchGetResult{Error: err}
-				}
-			}
+			results[i], errs[i] = c.shards[shardIndex].BatchGet(work[shardIndex], version)
 		})
 	}
 	wg.Wait()
 
-	// Collapse data-by-shard into flat map.
-	for _, subMap := range work {
-		for key, result := range subMap {
-			keys[key] = result
+	// Merge into a single result map. Any shard error fails the whole call.
+	merged := make(map[string][]byte, len(keys))
+	for i := range results {
+		if errs[i] != nil {
+			return nil, fmt.Errorf("failed to batch get from shard: %w", errs[i])
+		}
+		for key, value := range results[i] {
+			merged[key] = value
 		}
 	}
-
-	return nil
+	return merged, nil
 }
 
 func (c *snapshotEngine) Delete(key []byte) {
@@ -874,7 +877,8 @@ func (c *snapshotEngine) flushSnapshots(
 			return fmt.Errorf("failed to get diffs for shard: %w", err)
 		}
 		for diffIndex, diff := range shardDiffs {
-			version := firstVersion + uint64(diffIndex) //nolint:gosec // diffIndex is bounded by version count
+			// diffIndex is bounded by the version count, so this conversion is safe.
+			version := firstVersion + uint64(diffIndex) //nolint:gosec
 			for key, value := range diff {
 				diffsByVersion[version][key] = value
 			}

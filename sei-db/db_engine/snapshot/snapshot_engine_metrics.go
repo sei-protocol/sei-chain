@@ -133,8 +133,9 @@ func (cm *SnapshotEngineMetrics) collectLoop(
 			return
 		case <-ticker.C:
 			bytes, entries := getSize()
-			cm.sizeBytes.Record(ctx, int64(bytes), cm.attrs)     //nolint:gosec // G115: safe, cache size fits int64
-			cm.sizeEntries.Record(ctx, int64(entries), cm.attrs) //nolint:gosec // G115: safe, entry count fits int64
+			// G115: safe — cache size and entry count fit in int64.
+			cm.sizeBytes.Record(ctx, int64(bytes), cm.attrs)     //nolint:gosec
+			cm.sizeEntries.Record(ctx, int64(entries), cm.attrs) //nolint:gosec
 		}
 	}
 }

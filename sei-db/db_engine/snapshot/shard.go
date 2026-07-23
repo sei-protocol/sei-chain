@@ -379,12 +379,11 @@ type pendingRead struct {
 }
 
 // BatchGet reads a batch of keys from the shard. Results are written into the provided map.
-func (s *shard) BatchGet(
-	// A map containing the keys to read. Values are written to this map as they are read.
-	keys map[string]types.BatchGetResult,
-	// The version of the data to get.
-	version uint64,
-) error {
+// BatchGet reads the given keys at the given version, returning a map (keyed by string(key)) of the
+// keys that were found to their values. Not-found and deleted keys are absent from the map. Any read
+// error fails the whole call and returns a nil map.
+func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, error) {
+	results := make(map[string][]byte, len(keys))
 	pending := make([]pendingRead, 0, len(keys))
 	var hits int64
 
@@ -392,25 +391,32 @@ func (s *shard) BatchGet(
 
 	if err := s.validateVersionLocked(version); err != nil {
 		s.lock.Unlock()
-		return err
+		return nil, err
 	}
 
-	for key := range keys {
-		if value, found := s.lookupVersionedLocked(key, version); found {
-			keys[key] = types.BatchGetResult{Value: value}
+	for _, key := range keys {
+		keyStr := string(key)
+		if value, found := s.lookupVersionedLocked(keyStr, version); found {
+			// found includes tombstones (nil value); only non-nil values are real hits to return.
+			if value != nil {
+				results[keyStr] = value
+			}
 			hits++
 			continue
 		}
 
-		entry := s.getDBCacheEntryLocked([]byte(key), true)
+		entry := s.getDBCacheEntryLocked(key, true)
 
 		switch entry.status {
-		case statusAvailable, statusDeleted:
-			keys[key] = types.BatchGetResult{Value: entry.value}
+		case statusAvailable:
+			results[keyStr] = entry.value
+			hits++
+		case statusDeleted:
+			// Known-deleted: resolved from cache, but not a found value.
 			hits++
 		case statusScheduled:
 			pending = append(pending, pendingRead{
-				key:       key,
+				key:       keyStr,
 				entry:     entry,
 				valueChan: entry.valueChan,
 			})
@@ -419,7 +425,7 @@ func (s *shard) BatchGet(
 			valueChan := make(chan readResult, 1)
 			entry.valueChan = valueChan
 			pending = append(pending, pendingRead{
-				key:           key,
+				key:           keyStr,
 				entry:         entry,
 				valueChan:     valueChan,
 				needsSchedule: true,
@@ -435,7 +441,7 @@ func (s *shard) BatchGet(
 		s.metrics.reportCacheHits(hits)
 	}
 	if len(pending) == 0 {
-		return nil
+		return results, nil
 	}
 
 	s.metrics.reportCacheMisses(int64(len(pending)))
@@ -454,22 +460,24 @@ func (s *shard) BatchGet(
 	for i := range pending {
 		result, err := threading.InterruptiblePull(s.ctx, pending[i].valueChan)
 		if err != nil {
-			return fmt.Errorf("failed to pull value from channel: %w", err)
+			return nil, fmt.Errorf("failed to pull value from channel: %w", err)
 		}
 		pending[i].valueChan <- result
 		pending[i].result = result
 
 		if result.err != nil {
-			keys[pending[i].key] = types.BatchGetResult{Error: result.err}
-		} else {
-			keys[pending[i].key] = types.BatchGetResult{Value: result.value}
+			// DB errors are not recoverable; fail the whole batch.
+			return nil, fmt.Errorf("failed to read key from database: %w", result.err)
+		}
+		if result.value != nil {
+			results[pending[i].key] = result.value
 		}
 	}
 
 	s.metrics.reportCacheMissLatency(time.Since(startTime))
 	go s.bulkInjectValues(pending)
 
-	return nil
+	return results, nil
 }
 
 // Applies deferred cache updates for a batch of reads under a single lock acquisition.
@@ -492,7 +500,8 @@ func (s *shard) bulkInjectValues(reads []pendingRead) {
 		} else {
 			entry.status = statusAvailable
 			entry.value = result.value
-			size := uint64(len(reads[i].key)) + uint64(len(result.value)) + s.config.EstimatedOverheadPerEntry
+			size := uint64(len(reads[i].key)) + uint64(len(result.value)) +
+				s.config.EstimatedOverheadPerEntry
 			s.dbCacheGCQueue.Push([]byte(reads[i].key), size)
 		}
 	}

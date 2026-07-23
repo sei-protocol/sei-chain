@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
@@ -156,20 +155,16 @@ func compareReads(t *testing.T, label string, get func(key []byte) ([]byte, bool
 	}
 }
 
-func compareBatchGet(t *testing.T, label string, batchGet func(map[string]types.BatchGetResult) error,
+func compareBatchGet(t *testing.T, label string, batchGet func([][]byte) (map[string][]byte, error),
 	lookup func(key []byte) ([]byte, bool), keys [][]byte) {
-	req := make(map[string]types.BatchGetResult, len(keys))
+	got, err := batchGet(keys)
+	require.NoError(t, err, "%s BatchGet", label)
 	for _, k := range keys {
-		req[string(k)] = types.BatchGetResult{}
-	}
-	require.NoError(t, batchGet(req), "%s BatchGet", label)
-	for _, k := range keys {
-		res := req[string(k)]
-		require.NoError(t, res.Error, "%s BatchGet err key=%x", label, k)
+		gotV, present := got[string(k)]
 		expV, expFound := lookup(k)
-		require.Equal(t, expFound, res.IsFound(), "%s BatchGet found key=%x", label, k)
+		require.Equal(t, expFound, present, "%s BatchGet found key=%x", label, k)
 		if expFound {
-			require.True(t, bytes.Equal(expV, res.Value), "%s BatchGet value key=%x", label, k)
+			require.True(t, bytes.Equal(expV, gotV), "%s BatchGet value key=%x", label, k)
 		}
 	}
 }
