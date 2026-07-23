@@ -286,9 +286,9 @@ func hashAndRelease(t *testing.T, snap Snapshot) {
 	require.NoError(t, snap.Release())
 }
 
-func snapshotAndHashRelease(t *testing.T, engine SnapshotEngine) {
+func commitAndHashRelease(t *testing.T, engine SnapshotEngine) {
 	t.Helper()
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	require.NoError(t, err)
 	hashAndRelease(t, snap)
 }

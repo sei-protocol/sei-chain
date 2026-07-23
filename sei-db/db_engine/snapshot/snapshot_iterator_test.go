@@ -14,7 +14,7 @@ import (
 func iterateUserData(t *testing.T, engine SnapshotEngine) []kvPair {
 	t.Helper()
 	hashKey := engine.(*snapshotEngine).config.HashKey
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap.SetHash(testHash))
 	out := collectUserData(t, snap.Iterator(), hashKey)
@@ -87,14 +87,14 @@ func TestIteratorIncludesHashKeyInRawIteration(t *testing.T) {
 
 	// Flush snap1 so the hash key lands in the DB.
 	engine.Set([]byte("k"), []byte("v"))
-	snap1, err := engine.Snapshot()
+	snap1, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap1.SetHash(testHash))
 	awaitFlushed(t, snap1, time.Second)
 	require.NoError(t, snap1.Release())
 
 	// snap2's raw iteration reads through to the DB and must expose the hash key.
-	snap2, err := engine.Snapshot()
+	snap2, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap2.SetHash(testHash))
 	all := collectIterator(t, snap2.Iterator())
@@ -112,7 +112,7 @@ func TestIteratorIncludesHashKeyInRawIteration(t *testing.T) {
 func TestIteratorCloseIsIdempotent(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 1<<20)
 	engine.Set([]byte("k"), []byte("v"))
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap.SetHash(testHash))
 
@@ -126,7 +126,7 @@ func TestIteratorAfterEngineShutdownSurfacesError(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithDB(t, db, 1, 1<<20)
 	engine.Set([]byte("k"), []byte("v"))
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap.SetHash(testHash)) // held (not released) across Close
 

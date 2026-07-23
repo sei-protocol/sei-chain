@@ -20,7 +20,7 @@ func TestSnapshotIsolationUnderConcurrentMutation(t *testing.T) {
 		engine.Set(keyAt(i), []byte("base"))
 	}
 
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	if err != nil {
 		t.Fatalf("snapshot: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestSnapshotIsolationUnderConcurrentMutation(t *testing.T) {
 	}
 }
 
-// TestConcurrentDifferential runs a single serialized writer (Snapshot() is contractually not
+// TestConcurrentDifferential runs a single serialized writer (Commit() is contractually not
 // concurrent with live writes) that produces snapshots, and a pool of concurrent reader goroutines
 // that each validate a snapshot against the immutable oracle version it was sealed at. Readers touch
 // only their own frozen modelVersion, so there is no shared-state race with the writer.
@@ -122,11 +122,11 @@ func TestConcurrentDifferential(t *testing.T) {
 			}
 			model.BatchSet(muts)
 		case opSnapshot:
-			snap, err := engine.Snapshot()
+			snap, err := engine.Commit()
 			if err != nil {
 				t.Fatalf("snapshot: %v", err)
 			}
-			ver := model.Snapshot()
+			ver := model.Commit()
 			if err := snap.SetHash(testHash); err != nil {
 				t.Fatalf("set hash: %v", err)
 			}

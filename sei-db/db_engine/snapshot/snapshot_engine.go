@@ -56,19 +56,19 @@ type SnapshotEngine interface {
 	// zero-length value, distinct from a delete).
 	BatchSet(updates []*proto.KVPair) error
 
-	// Snapshot seals the current version as an immutable, point-in-time Snapshot and advances the
+	// Commit seals the current version as an immutable, point-in-time Snapshot and advances the
 	// engine to a fresh mutable version. The returned Snapshot is safe to read for as long as the
 	// caller holds a reservation on it; see Snapshot for the full lifecycle contract.
 	//
-	// Snapshot must not be called concurrently with operations on the current (mutable)
+	// Commit must not be called concurrently with operations on the current (mutable)
 	// version — Get, BatchGet, Set, Delete, or BatchSet. Reads of previously sealed snapshots
 	// may proceed concurrently with it.
 	//
-	// Snapshot may block for backpressure when the underlying DB cannot keep up with flushing
+	// Commit may block for backpressure when the underlying DB cannot keep up with flushing
 	// (see SnapshotEngineConfig.MaxUnflushedVersions). The engine imposes no bound on unhashed
 	// or unreleased snapshots, each of which is retained in memory; the caller is responsible
 	// for pausing execution when hashing or release falls behind.
-	Snapshot() (Snapshot, error)
+	Commit() (Snapshot, error)
 
 	// InitialHash returns the most recently flushed hash as read from the underlying DB when the
 	// engine was opened, or nil if the DB had never been flushed. It lets a consumer recover the
@@ -88,13 +88,13 @@ type SnapshotEngine interface {
 }
 
 // Snapshot is an immutable, point-in-time, read-only view of the data in the engine,
-// produced by SnapshotEngine.Snapshot(). It is safe to read for as long as the caller holds a
+// produced by SnapshotEngine.Commit(). It is safe to read for as long as the caller holds a
 // reservation on it.
 //
 // Consumer responsibilities, in order:
 //  1. SetHash must be called exactly once, by a consumer that holds a reservation, to attach
 //     the snapshot's content hash.
-//  2. Every reservation must be released — the implicit one held by the caller of Snapshot(),
+//  2. Every reservation must be released — the implicit one held by the caller of Commit(),
 //     plus any acquired via Reserve. The final Release must happen after SetHash; releasing
 //     the last reservation on an unhashed snapshot is a fatal error.
 //
@@ -147,7 +147,7 @@ type Snapshot interface {
 	Reserve() error
 
 	// Release decrements this snapshot's reservation count. It must be called exactly once for
-	// each reservation, including the one held implicitly by the caller of SnapshotEngine.Snapshot().
+	// each reservation, including the one held implicitly by the caller of SnapshotEngine.Commit().
 	//
 	// When the final reservation is released, the snapshot's hash must already be set (see the
 	// hashing-duty contract on Snapshot); releasing the final reservation on an unhashed

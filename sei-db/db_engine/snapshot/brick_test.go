@@ -20,12 +20,12 @@ func TestFlushFailureBricksEngineCleanly(t *testing.T) {
 	e := engine.(*snapshotEngine)
 
 	engine.Set([]byte("k"), []byte("v"))
-	snap1, err := engine.Snapshot()
+	snap1, err := engine.Commit()
 	require.NoError(t, err)
 
 	// A second snapshot whose hash never arrives; its AwaitHash waiter must be released by the
 	// brick rather than hang.
-	snap2, err := engine.Snapshot()
+	snap2, err := engine.Commit()
 	require.NoError(t, err)
 	awaitHashErr := make(chan error, 1)
 	go func() {
@@ -43,7 +43,7 @@ func TestFlushFailureBricksEngineCleanly(t *testing.T) {
 		t.Fatal("engine context was not cancelled after the flush failure")
 	}
 
-	_, err = engine.Snapshot()
+	_, err = engine.Commit()
 	require.ErrorContains(t, err, "disk full", "Snapshot must report the underlying flush error")
 
 	err = snap1.AwaitFlush(context.Background())
@@ -64,7 +64,7 @@ func TestCloseAfterBrickReportsFatalError(t *testing.T) {
 	e := engine.(*snapshotEngine)
 
 	engine.Set([]byte("k"), []byte("v"))
-	snapshotAndHashRelease(t, engine)
+	commitAndHashRelease(t, engine)
 
 	select {
 	case <-e.ctx.Done():
@@ -91,12 +91,12 @@ func TestBackpressureWaiterUnblocksOnBrick(t *testing.T) {
 	engine := newTestEngineWithConfig(t, cfg, db)
 
 	// First snapshot starts a flush that stalls in Commit; the second accumulates past the cap.
-	snapshotAndHashRelease(t, engine)
-	snapshotAndHashRelease(t, engine)
+	commitAndHashRelease(t, engine)
+	commitAndHashRelease(t, engine)
 
 	blockedErr := make(chan error, 1)
 	go func() {
-		_, err := engine.Snapshot()
+		_, err := engine.Commit()
 		blockedErr <- err
 	}()
 

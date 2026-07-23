@@ -50,9 +50,9 @@ type snapshotEngine struct {
 
 	// The current version number. All modifications to the engine will happen at this version number.
 	//
-	// Written only while holding versionLock (by Snapshot()). Read without the lock by the
+	// Written only while holding versionLock (by Commit()). Read without the lock by the
 	// Get/BatchGet paths; this is sound only because the engine contract forbids calling
-	// Snapshot() concurrently with operations on the current version, so no lockless read can
+	// Commit() concurrently with operations on the current version, so no lockless read can
 	// race the write.
 	currentVersion uint64
 
@@ -84,7 +84,7 @@ type snapshotEngine struct {
 	// Protected by versionLock.
 	highestRetirementEligibleVersion uint64
 
-	// Used to enforce lifecycle backpressure. We want to block Snapshot() if unretiredVersions grows too large.
+	// Used to enforce lifecycle backpressure. We want to block Commit() if unretiredVersions grows too large.
 	lifecycleBackpressureCond *sync.Cond
 
 	// Signaled (non-blocking) by scanRetirementEligibility when new versions become
@@ -364,7 +364,7 @@ func (c *snapshotEngine) Set(key []byte, value []byte) {
 	shard.Set(key, value)
 }
 
-func (c *snapshotEngine) Snapshot() (Snapshot, error) {
+func (c *snapshotEngine) Commit() (Snapshot, error) {
 	c.metrics.setSnapshotPhase("acquire_version_lock")
 
 	c.versionLock.Lock()
@@ -396,7 +396,7 @@ func (c *snapshotEngine) Snapshot() (Snapshot, error) {
 	c.metrics.setSnapshotPhase("shards_snapshot")
 
 	for _, shard := range c.shards {
-		shardVersion := shard.Snapshot()
+		shardVersion := shard.Commit()
 		if shardVersion != c.currentVersion {
 			return nil, fmt.Errorf("shard (%d) has a different version than the engine (%d)",
 				shardVersion, c.currentVersion)

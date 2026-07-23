@@ -9,7 +9,7 @@ import (
 func TestShardVersionedReads(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
 	s.Set([]byte("k"), []byte("v1"))
-	require.Equal(t, uint64(2), s.Snapshot()) // seals v1, live -> v2
+	require.Equal(t, uint64(2), s.Commit()) // seals v1, live -> v2
 	s.Set([]byte("k"), []byte("v2"))
 
 	for _, tc := range []struct {
@@ -26,8 +26,8 @@ func TestShardVersionedReads(t *testing.T) {
 func TestShardGetMostRecentValueAtOrBelowVersion(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
 	s.Set([]byte("k"), []byte("v1"))
-	_ = s.Snapshot() // v2
-	_ = s.Snapshot() // v3; no write at v2
+	_ = s.Commit() // v2
+	_ = s.Commit() // v3; no write at v2
 	s.Set([]byte("k"), []byte("v3"))
 
 	// Reading at v2 (no write there) returns v1 (highest version <= 2).
@@ -52,9 +52,9 @@ func TestShardValidateVersionOverflow(t *testing.T) {
 func TestShardGetDiffsForVersions(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
 	s.Set([]byte("a"), []byte("1"))
-	_ = s.Snapshot() // seals v1, live -> v2
+	_ = s.Commit() // seals v1, live -> v2
 	s.Set([]byte("b"), []byte("2"))
-	_ = s.Snapshot() // seals v2, live -> v3 (GetDiffs only covers sealed versions)
+	_ = s.Commit() // seals v2, live -> v3 (GetDiffs only covers sealed versions)
 
 	diffs, err := s.GetDiffsForVersions(1, 3) // [1, 3) => versions 1 and 2
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestShardGetDiffsForVersions(t *testing.T) {
 
 func TestShardGetDiffsForVersionsRejectsBadRange(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	_ = s.Snapshot() // oldest=1, current=2
+	_ = s.Commit() // oldest=1, current=2
 
 	_, err := s.GetDiffsForVersions(3, 1)
 	require.Error(t, err, "firstVersion > lastVersion")
@@ -89,9 +89,9 @@ func TestShardDeleteWritesTombstone(t *testing.T) {
 func TestShardDropVersionsPushesLatestToDB(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
 	s.Set([]byte("k"), []byte("v1"))
-	_ = s.Snapshot() // v2
+	_ = s.Commit() // v2
 	s.Set([]byte("k"), []byte("v2"))
-	_ = s.Snapshot() // v3
+	_ = s.Commit() // v3
 
 	// Drop versions [1, 3): their data collapses into the dbCache, latest value winning.
 	require.NoError(t, s.DropVersions(1, 3))
@@ -104,7 +104,7 @@ func TestShardDropVersionsPushesLatestToDB(t *testing.T) {
 
 func TestShardDropVersionsRejectsBadRange(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	_ = s.Snapshot()
+	_ = s.Commit()
 	require.Error(t, s.DropVersions(2, 1)) // first >= last
 	require.Error(t, s.DropVersions(2, 3)) // first != oldest
 }

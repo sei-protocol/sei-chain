@@ -29,7 +29,7 @@ type SnapshotEngineConfig struct {
 	MetricsScrapeIntervalSeconds float64
 
 	// The maximum number of hashed-but-unflushed snapshots (snapshots whose diffs have not yet
-	// been written to the underlying DB) tolerated before Snapshot() blocks. This backpressure
+	// been written to the underlying DB) tolerated before Commit() blocks. This backpressure
 	// engages only when the underlying DB is the bottleneck. It intentionally does NOT bound
 	// unhashed or unreleased snapshots: the engine only receives hashes from an external
 	// workflow, and the caller is responsible for pausing execution if hashing or release falls

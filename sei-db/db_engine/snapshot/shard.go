@@ -652,9 +652,9 @@ func (s *shard) deleteInDBCacheLocked(key []byte) {
 	s.dbCacheGCQueue.Push(key, size)
 }
 
-// Take a snapshot of the state at the current version. All future updates will be applied to the next version.
+// Commit seals the current version; all future updates will be applied to the next version.
 // The value returned is the new version number (for sanity checking).
-func (s *shard) Snapshot() uint64 {
+func (s *shard) Commit() uint64 {
 	s.lock.Lock()
 
 	newVersion := s.currentVersion + 1

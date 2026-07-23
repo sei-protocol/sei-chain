@@ -14,7 +14,7 @@ func TestFlushPersistsSetsDeletesAndHashToDB(t *testing.T) {
 
 	engine.Set([]byte("k"), []byte("v"))
 	engine.Delete([]byte("del"))
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap.SetHash([]byte("the-hash")))
 	awaitFlushed(t, snap, time.Second)
@@ -33,13 +33,13 @@ func TestFlushLatestValueWinsAcrossVersions(t *testing.T) {
 	engine, db := newTestEngine(t, nil, 1, 1<<20)
 
 	engine.Set([]byte("k"), []byte("v1"))
-	snap1, err := engine.Snapshot()
+	snap1, err := engine.Commit()
 	require.NoError(t, err)
 	hashAndRelease(t, snap1)
 	awaitFlushed(t, snap1, time.Second)
 
 	engine.Set([]byte("k"), []byte("v2"))
-	snap2, err := engine.Snapshot()
+	snap2, err := engine.Commit()
 	require.NoError(t, err)
 	hashAndRelease(t, snap2)
 	awaitFlushed(t, snap2, time.Second)
@@ -52,7 +52,7 @@ func TestFlushLatestValueWinsAcrossVersions(t *testing.T) {
 func TestFlushRacesAheadOfRelease(t *testing.T) {
 	engine, db := newTestEngine(t, nil, 1, 1<<20)
 	engine.Set([]byte("k"), []byte("v"))
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	require.NoError(t, err)
 
 	// Hash but do NOT release: a hashed oldest snapshot may flush while a reservation is outstanding.
@@ -67,11 +67,11 @@ func TestFlushBlockedByUnhashedEarlierSnapshot(t *testing.T) {
 	engine, db := newTestEngine(t, nil, 1, 1<<20)
 
 	engine.Set([]byte("a"), []byte("1"))
-	snap1, err := engine.Snapshot()
+	snap1, err := engine.Commit()
 	require.NoError(t, err)
 
 	engine.Set([]byte("b"), []byte("2"))
-	snap2, err := engine.Snapshot()
+	snap2, err := engine.Commit()
 	require.NoError(t, err)
 
 	// Hash+release snap2 first: it must NOT flush while snap1 is unhashed.
@@ -88,10 +88,10 @@ func TestOutOfOrderReleaseDoesNotRetireNewer(t *testing.T) {
 	engine, _ := newTestEngine(t, nil, 1, 1<<20)
 
 	engine.Set([]byte("a"), []byte("1"))
-	snap1, err := engine.Snapshot() // version 1
+	snap1, err := engine.Commit() // version 1
 	require.NoError(t, err)
 	engine.Set([]byte("b"), []byte("2"))
-	snap2, err := engine.Snapshot() // version 2
+	snap2, err := engine.Commit() // version 2
 	require.NoError(t, err)
 
 	require.NoError(t, snap1.SetHash(testHash)) // hashed but held
@@ -117,7 +117,7 @@ func TestTargetKeysPerFlushSplitsIntoMultipleCommits(t *testing.T) {
 	for i := 0; i < versions; i++ {
 		engine.Set([]byte{byte('a' + i), '1'}, []byte("v"))
 		engine.Set([]byte{byte('a' + i), '2'}, []byte("v"))
-		s, err := engine.Snapshot()
+		s, err := engine.Commit()
 		require.NoError(t, err)
 		snaps[i] = s
 	}
@@ -139,7 +139,7 @@ func TestTargetKeysPerFlushSplitsIntoMultipleCommits(t *testing.T) {
 func TestReserveAfterRetirementFails(t *testing.T) {
 	engine, _ := newTestEngine(t, nil, 1, 1<<20)
 	engine.Set([]byte("k"), []byte("v"))
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	require.NoError(t, err)
 	ver := snap.(*snapshotImpl).version
 	hashAndRelease(t, snap)
@@ -151,7 +151,7 @@ func TestReserveAfterRetirementFails(t *testing.T) {
 func TestAwaitHashAfterRetirementFails(t *testing.T) {
 	engine, _ := newTestEngine(t, nil, 1, 1<<20)
 	engine.Set([]byte("k"), []byte("v"))
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	require.NoError(t, err)
 	ver := snap.(*snapshotImpl).version
 	hashAndRelease(t, snap)
@@ -164,7 +164,7 @@ func TestAwaitHashAfterRetirementFails(t *testing.T) {
 func TestAwaitFlushAfterRetirementFails(t *testing.T) {
 	engine, _ := newTestEngine(t, nil, 1, 1<<20)
 	engine.Set([]byte("k"), []byte("v"))
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	require.NoError(t, err)
 	ver := snap.(*snapshotImpl).version
 	hashAndRelease(t, snap)

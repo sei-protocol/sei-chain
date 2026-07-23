@@ -95,9 +95,9 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 			if len(opens) >= maxOpen {
 				releaseOldest()
 			}
-			snap, err := engine.Snapshot()
+			snap, err := engine.Commit()
 			require.NoError(t, err)
-			ver := model.Snapshot()
+			ver := model.Commit()
 			// Hash immediately while holding the reservation: this lets the background flusher race
 			// ahead of Release, exercising the flush-then-read (merge in-memory + DB) path.
 			require.NoError(t, snap.SetHash(testHash))

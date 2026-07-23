@@ -22,7 +22,7 @@ func TestCloseWaitsForLifecycleMidCommit(t *testing.T) {
 	engine := newTestEngineWithDB(t, db, 1, 4096)
 
 	engine.Set([]byte("k"), []byte("v"))
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	require.NoError(t, err)
 
 	db.commitBlock = make(chan struct{})
@@ -57,9 +57,9 @@ func TestCloseUnblocksHashAndFlushWaiters(t *testing.T) {
 
 	// v1 is never hashed: its AwaitHash waiter blocks, and the flush frontier stops at v1 so
 	// v2's AwaitFlush waiter blocks too.
-	unhashed, err := engine.Snapshot()
+	unhashed, err := engine.Commit()
 	require.NoError(t, err)
-	hashed, err := engine.Snapshot()
+	hashed, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, hashed.SetHash(testHash))
 
@@ -94,10 +94,10 @@ func TestCloseUnblocksHashAndFlushWaiters(t *testing.T) {
 	}
 }
 
-// A Snapshot() call blocked on lifecycle backpressure must not outlive Close. Depending on how
+// A Commit() call blocked on lifecycle backpressure must not outlive Close. Depending on how
 // the drain races the cancellation it may resolve with a snapshot or with an error; either is
 // acceptable — it just must not deadlock.
-func TestCloseUnblocksBackpressuredSnapshot(t *testing.T) {
+func TestCloseUnblocksBackpressuredCommit(t *testing.T) {
 	db := newTestDB(nil)
 	db.commitBlock = make(chan struct{})
 
@@ -106,13 +106,13 @@ func TestCloseUnblocksBackpressuredSnapshot(t *testing.T) {
 	engine := newTestEngineWithConfig(t, cfg, db)
 
 	// The first snapshot's flush stalls in Commit; the second accumulates past the cap, so the
-	// next Snapshot() blocks on backpressure.
-	snapshotAndHashRelease(t, engine)
-	snapshotAndHashRelease(t, engine)
+	// next Commit() blocks on backpressure.
+	commitAndHashRelease(t, engine)
+	commitAndHashRelease(t, engine)
 
 	blockedDone := make(chan error, 1)
 	go func() {
-		_, err := engine.Snapshot()
+		_, err := engine.Commit()
 		blockedDone <- err
 	}()
 	select {
@@ -173,11 +173,11 @@ func TestBlockedReadResolvesDuringClose(t *testing.T) {
 // Methods called after a clean Close must report ErrEngineClosed.
 func TestMethodsAfterCloseReportEngineClosed(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, engine.Close())
 
-	_, err = engine.Snapshot()
+	_, err = engine.Commit()
 	require.ErrorIs(t, err, ErrEngineClosed)
 
 	_, err = snap.AwaitHash(context.Background())
@@ -204,7 +204,7 @@ func TestCloseLeavesNoEngineGoroutines(t *testing.T) {
 		require.NoError(t, err)
 		_, err = engine.BatchGet([][]byte{[]byte("seeded"), []byte("k")})
 		require.NoError(t, err)
-		snap, err := engine.Snapshot()
+		snap, err := engine.Commit()
 		require.NoError(t, err)
 		hashAndRelease(t, snap)
 

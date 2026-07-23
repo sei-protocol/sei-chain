@@ -9,10 +9,10 @@ import (
 
 // modelEngine is a deliberately naive, obviously-correct reference implementation of the
 // SnapshotEngine's observable read semantics, used as an oracle for differential testing. It makes a
-// full deep copy of the keyspace on every Snapshot(), so there is no clever versioning to get wrong.
+// full deep copy of the keyspace on every Commit(), so there is no clever versioning to get wrong.
 //
 // Conventions (matching the real engine):
-//   - versions start at 1; Snapshot() seals the current version, then advances.
+//   - versions start at 1; Commit() seals the current version, then advances.
 //   - a nil value passed to Set is a delete; tombstones remove the key from the materialized state
 //     and are recorded as a nil value in that version's diff.
 //   - reads return (value, found); a found key always has a non-nil (possibly empty) value.
@@ -20,7 +20,7 @@ type modelEngine struct {
 	// current is the materialized state of the live (mutable) version: key -> value. Deleted keys are
 	// absent. Seeded from the backing DB's initial contents.
 	current map[string][]byte
-	// pending is the set of mutations applied to the live version since the last Snapshot(). A nil
+	// pending is the set of mutations applied to the live version since the last Commit(). A nil
 	// value records a delete.
 	pending map[string][]byte
 	// versions holds sealed snapshots by version number.
@@ -71,7 +71,7 @@ func (m *modelEngine) BatchSet(muts []*proto.KVPair) {
 }
 
 // Snapshot seals the current version and advances, returning the sealed version number.
-func (m *modelEngine) Snapshot() uint64 {
+func (m *modelEngine) Commit() uint64 {
 	v := m.currentVersion
 	m.versions[v] = &modelVersion{
 		full: cloneMap(m.current),

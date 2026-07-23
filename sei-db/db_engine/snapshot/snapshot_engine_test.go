@@ -139,7 +139,7 @@ func TestFlushSyncTrueStillRoundTrips(t *testing.T) {
 	engine := newTestEngineWithConfig(t, cfg, db)
 
 	engine.Set([]byte("k"), []byte("v"))
-	snap, err := engine.Snapshot()
+	snap, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap.SetHash(testHash))
 	awaitFlushed(t, snap, time.Second)
@@ -161,7 +161,7 @@ func TestMetricsEnabledDoesNotBreakEngine(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		engine.Set([]byte{byte(i)}, []byte("v"))
 	}
-	snapshotAndHashRelease(t, engine)
+	commitAndHashRelease(t, engine)
 	time.Sleep(10 * time.Millisecond) // let the metrics scrape loop fire at least once
 
 	val, found, err := engine.Get([]byte{0}, true)
