@@ -260,6 +260,51 @@ func TestStateEarliestUsesPruneFloorBelowBlockEarliest(t *testing.T) {
 	require.Equal(t, int64(30), resolved)
 }
 
+// TestStateEarliestSourcesInitialHeightWhenUnpruned guards the genesis floor
+// against chains initialized above height 1: an unpruned store
+// (GetEarliestVersion()==0) must resolve `earliest` to the chain's InitialHeight,
+// not a literal 1.
+func TestStateEarliestSourcesInitialHeightWhenUnpruned(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status:  &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 100}},
+		genesis: &coretypes.ResultGenesis{Genesis: &tmtypes.GenesisDoc{InitialHeight: 100}},
+	}
+	stateStore := &fakeStateStore{latest: 200, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 200, stateStore, 200)
+
+	_, stateEarliest, _, err := wm.Watermarks(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(100), stateEarliest, "unpruned SS: earliest state is InitialHeight (100), not 1")
+
+	earliest := rpc.EarliestBlockNumber
+	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
+	require.NoError(t, err)
+	require.Equal(t, int64(100), resolved)
+}
+
+// TestResolveBlockZeroMatchesEarliest confirms an explicit block-0 request
+// resolves identically to the `earliest` tag: rpc.EarliestBlockNumber is
+// BlockNumber(0), so a "0x0" request hits the same ResolveHeight branch and
+// returns the floored genesis height.
+func TestResolveBlockZeroMatchesEarliest(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 6, EarliestBlockHeight: 1}},
+	}
+	stateStore := &fakeStateStore{latest: 6, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 6, stateStore, 6)
+
+	earliest := rpc.EarliestBlockNumber
+	fromTag, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
+	require.NoError(t, err)
+
+	blockZero := rpc.BlockNumber(0)
+	fromZero, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &blockZero})
+	require.NoError(t, err)
+
+	require.Equal(t, int64(1), fromTag)
+	require.Equal(t, fromTag, fromZero, "block 0 must resolve identically to earliest (both are BlockNumber(0))")
+}
+
 func newTestWatermarkManager(tmClient client.LocalClient, ctxHeight int64, stateStore types.StateStore, receiptLatest int64) *WatermarkManager {
 	return NewWatermarkManager(tmClient, watermarkTestCtxProvider(ctxHeight), stateStore, &fakeReceiptStore{latest: receiptLatest})
 }

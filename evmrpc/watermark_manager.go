@@ -66,12 +66,18 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 		latest = min(latest, m.stateStore.GetLatestVersion())
 		// GetEarliestVersion() is 0 until the store first prunes or state-syncs.
 		// An unpruned store retains state from genesis, so its earliest servable
-		// state is height 1. A nonzero value is the real state-prune floor, used
-		// as-is: it is a state-availability boundary independent of block pruning
-		// and is not coupled to blockEarliest.
+		// state is the chain's genesis height. A nonzero value is the real
+		// state-prune floor, used as-is: it is a state-availability boundary
+		// independent of block pruning and is not coupled to blockEarliest.
 		stateEarliest = m.stateStore.GetEarliestVersion()
 		if stateEarliest == 0 {
-			stateEarliest = 1
+			// Source genesis from InitialHeight (as getBlockNumber does), not a
+			// literal 1, so chains started above height 1 resolve correctly.
+			genesisRes, err := m.tmClient.Genesis(ctx)
+			if err != nil {
+				return 0, 0, 0, err
+			}
+			stateEarliest = genesisRes.Genesis.InitialHeight
 		}
 	}
 	// State is never servable above the tip, and before the first commit
