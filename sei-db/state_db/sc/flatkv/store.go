@@ -177,6 +177,11 @@ type CommitStore struct {
 	// Changes to feed into the WAL at the next commit.
 	pendingChangeSets []*proto.NamedChangeSet
 
+	// pendingBlockHeight is the version stamped by the current buffered
+	// ApplyChangeSets. 0 means no pending apply. Commit requires version to
+	// match when this is non-zero.
+	pendingBlockHeight int64
+
 	lastSnapshotTime time.Time
 
 	// File lock prevents multiple processes from opening the same DB.
@@ -818,6 +823,13 @@ func (s *CommitStore) clearChangelog() error {
 
 func (s *CommitStore) Version() int64 {
 	return s.committedVersion
+}
+
+// PendingVersion returns s.pendingBlockHeight: the height stamped by the most
+// recent ApplyChangeSets call since the last Commit, or 0 when there are no
+// buffered writes.
+func (s *CommitStore) PendingVersion() int64 {
+	return s.pendingBlockHeight
 }
 
 // RootHash returns the Blake3-256 digest of the working LtHash.

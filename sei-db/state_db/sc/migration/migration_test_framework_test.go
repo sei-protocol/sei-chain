@@ -102,7 +102,7 @@ func (r *TestFlatKVRouter) Read(store string, key []byte) ([]byte, bool, error) 
 }
 
 func (r *TestFlatKVRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, _ bool) error {
-	return r.flatKV.ApplyChangeSets(changesets)
+	return r.flatKV.ApplyChangeSets(r.flatKV.Version()+1, changesets)
 }
 
 func (r *TestFlatKVRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
@@ -392,13 +392,13 @@ func encodeVersion(v uint64) []byte {
 // setup that has not itself written the version key).
 func SeedMigrationVersionInFlatKV(t *testing.T, flatKV *flatkv.CommitStore, version uint64) {
 	t.Helper()
-	require.NoError(t, flatKV.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, flatKV.ApplyChangeSets(flatKV.Version()+1, []*proto.NamedChangeSet{{
 		Name: MigrationStore,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte(MigrationVersionKey), Value: encodeVersion(version)},
 		}},
 	}}), "seed migration version")
-	_, err := flatKV.Commit()
+	_, err := flatKV.Commit(flatKV.Version() + 1)
 	require.NoError(t, err, "commit after seeding migration version")
 }
 

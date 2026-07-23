@@ -34,7 +34,7 @@ func TestStoreGetPendingWrites(t *testing.T) {
 
 	// Apply changeset (adds to pending writes)
 	cs := makeChangeSet(key, value, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// Should be readable from pending writes
 	got, found := s.Get(keys.EVMStoreKey, key)
@@ -60,7 +60,7 @@ func TestStoreGetPendingDelete(t *testing.T) {
 
 	// Write and commit
 	cs1 := makeChangeSet(key, padLeft32(0x66), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	// Verify exists
@@ -69,7 +69,7 @@ func TestStoreGetPendingDelete(t *testing.T) {
 
 	// Apply delete (pending)
 	cs2 := makeChangeSet(key, nil, true)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 	// Should not be found (pending delete)
 	_, found = s.Get(keys.EVMStoreKey, key)
@@ -117,7 +117,7 @@ func TestStoreHas(t *testing.T) {
 
 	// Write and commit
 	cs := makeChangeSet(key, padLeft32(0xAA), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// Now should exist
@@ -142,7 +142,7 @@ func TestStoreGetMiscPendingWrites(t *testing.T) {
 
 	// Apply changeset
 	cs := makeChangeSet(miscKey, []byte{0x00, 0x40}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// Should be readable from pending writes
 	got, found := s.Get(keys.EVMStoreKey, miscKey)
@@ -165,7 +165,7 @@ func TestStoreGetMiscPendingDelete(t *testing.T) {
 
 	// Write and commit
 	cs1 := makeChangeSet(miscKey, []byte{0x00, 0x80}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	_, found := s.Get(keys.EVMStoreKey, miscKey)
@@ -173,7 +173,7 @@ func TestStoreGetMiscPendingDelete(t *testing.T) {
 
 	// Apply delete (pending)
 	cs2 := makeChangeSet(miscKey, nil, true)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 	// Should not be found (pending delete)
 	_, found = s.Get(keys.EVMStoreKey, miscKey)
@@ -199,7 +199,7 @@ func TestStoreDelete(t *testing.T) {
 
 	// Write
 	cs1 := makeChangeSet(key, padLeft32(0x77), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	// Verify exists
@@ -209,7 +209,7 @@ func TestStoreDelete(t *testing.T) {
 
 	// Delete
 	cs2 := makeChangeSet(key, nil, true)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
 	// Should not exist
@@ -233,7 +233,7 @@ func TestGetAllKeyTypesFromCommittedDB(t *testing.T) {
 	miscKey := append([]byte{0x09}, addr[:]...)
 	miscVal := []byte{0x99, 0x88}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(
 			storagePair(addr, slot, storageVal),
 			noncePair(addr, 7),
@@ -290,7 +290,7 @@ func TestGetNonceFromCommittedEOA(t *testing.T) {
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 42)),
 	}))
 	commitAndCheck(t, s)
@@ -317,7 +317,7 @@ func TestGetCodeHashFromCommittedContract(t *testing.T) {
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 1), codeHashPair(addr, ch)),
 	}))
 	commitAndCheck(t, s)
@@ -345,7 +345,7 @@ func TestGetCodeFromCommittedDB(t *testing.T) {
 	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
 
 	// Pending code write is visible before commit
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(codePair(addr, bytecode)),
 	}))
 	got, found := s.Get(keys.EVMStoreKey, codeKey)
@@ -360,7 +360,7 @@ func TestGetCodeFromCommittedDB(t *testing.T) {
 	require.Equal(t, bytecode, got)
 
 	// Pending code delete hides it before commit
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(codeDeletePair(addr)),
 	}))
 	_, found = s.Get(keys.EVMStoreKey, codeKey)
@@ -428,12 +428,12 @@ func TestGetAccountAfterFullDeletePending(t *testing.T) {
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 10), codeHashPair(addr, codeHashN(0xDD))),
 	}))
 	commitAndCheck(t, s)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
 	}))
 
@@ -457,12 +457,12 @@ func TestGetAccountAfterFullDeleteCommitted(t *testing.T) {
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 5), codeHashPair(addr, codeHashN(0xEE))),
 	}))
 	commitAndCheck(t, s)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
 	}))
 	commitAndCheck(t, s)
@@ -489,13 +489,13 @@ func TestGetAccountAfterPartialDelete(t *testing.T) {
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 99), codeHashPair(addr, codeHashN(0xFF))),
 	}))
 	commitAndCheck(t, s)
 
 	// Delete only codehash — nonce should survive
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(codeHashDeletePair(addr)),
 	}))
 	commitAndCheck(t, s)
@@ -526,7 +526,7 @@ func TestGetAfterOverwrite(t *testing.T) {
 	slot := slotN(0x01)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(storagePair(addr, slot, []byte{0x11})),
 	}))
 	commitAndCheck(t, s)
@@ -535,7 +535,7 @@ func TestGetAfterOverwrite(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x11), got)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(storagePair(addr, slot, []byte{0x22, 0x33})),
 	}))
 	commitAndCheck(t, s)
@@ -554,13 +554,13 @@ func TestGetAfterDeleteAndRecreate(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
 	// v1: create
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(storagePair(addr, slot, []byte{0xAA})),
 	}))
 	commitAndCheck(t, s)
 
 	// v2: delete
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(storageDeletePair(addr, slot)),
 	}))
 	commitAndCheck(t, s)
@@ -569,7 +569,7 @@ func TestGetAfterDeleteAndRecreate(t *testing.T) {
 	require.False(t, found, "should not be found after delete")
 
 	// v3: re-create with different value
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(storagePair(addr, slot, []byte{0xBB, 0xCC})),
 	}))
 	commitAndCheck(t, s)
@@ -597,7 +597,7 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 	_, err = s1.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s1.ApplyChangeSets(s1.Version()+1, []*proto.NamedChangeSet{
 		namedCS(
 			noncePair(addr, 100),
 			codeHashPair(addr, ch),
@@ -606,7 +606,7 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 		),
 		makeChangeSet(miscKey, []byte{0x77}, false),
 	}))
-	_, err = s1.Commit()
+	_, err = s1.Commit(s1.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, s1.Close())
 
@@ -650,7 +650,7 @@ func TestRawGlobalIterator_LexOrderAcrossDBs(t *testing.T) {
 
 	addr := addrN(0x42)
 	slot := slotN(0x01)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(
 			storagePair(addr, slot, padLeft32(0x01)),
 			&proto.KVPair{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Value: []byte{0x60}},
@@ -687,7 +687,7 @@ func TestRawGlobalIterator_SkipsMetaKeys(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(storagePair(addrN(0x01), slotN(0x02), padLeft32(0x03))),
 	}))
 	commitAndCheck(t, s)
@@ -711,7 +711,7 @@ func TestIteratorDoesNotSeePendingWrites(t *testing.T) {
 	addr := addrN(0xD1)
 	slot := slotN(0x01)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(storagePair(addr, slot, []byte{0xAA})),
 	}))
 
@@ -736,7 +736,7 @@ func TestIteratorDoesNotSeePendingDeletes(t *testing.T) {
 	addr := addrN(0xD2)
 
 	// Write and commit 3 keys
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(
 			storagePair(addr, slotN(0x01), []byte{0x11}),
 			storagePair(addr, slotN(0x02), []byte{0x22}),
@@ -746,7 +746,7 @@ func TestIteratorDoesNotSeePendingDeletes(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Apply pending delete for middle key
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(storageDeletePair(addr, slotN(0x02))),
 	}))
 
@@ -847,7 +847,7 @@ func TestHasForAllKeyTypes(t *testing.T) {
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	found := s.Has(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
@@ -869,13 +869,13 @@ func TestHasOnPendingDeletes(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
 	cs := makeChangeSet(key, padLeft32(0xAA), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 	found := s.Has(keys.EVMStoreKey, key)
 	require.True(t, found)
 
 	delCS := makeChangeSet(key, nil, true)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{delCS}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{delCS}))
 	found = s.Has(keys.EVMStoreKey, key)
 	require.False(t, found, "Has should return false for pending-deleted key")
 }
@@ -888,7 +888,7 @@ func TestHasOnReadOnlyStore(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
 	cs := makeChangeSet(key, padLeft32(0xBB), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
@@ -914,15 +914,15 @@ func TestGetAfterRollback(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
 	cs1 := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s) // v1
 
 	cs2 := makeChangeSet(key, nil, true)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s) // v2 - snapshot triggers
 
 	cs3 := makeChangeSet(key, padLeft32(0x33), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s) // v3
 
 	val, found := s.Get(keys.EVMStoreKey, key)
