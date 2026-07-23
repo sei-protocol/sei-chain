@@ -137,6 +137,8 @@ require (
 )
 
 require (
+	cloud.google.com/go/bigtable v1.37.0
+	cloud.google.com/go/compute/metadata v0.8.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/DataDog/zstd v1.5.7 // indirect
@@ -265,6 +267,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/image v0.36.0
 	golang.org/x/mod v0.32.0
+	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/term v0.39.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	google.golang.org/genproto v0.0.0-20250603155806-513f23925822 // indirect
