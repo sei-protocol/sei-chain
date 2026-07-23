@@ -30,9 +30,14 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 )
 
+func (app *BaseApp) InitLastHeader(lastHeader *tmproto.Header) {
+	app.setCheckState(*lastHeader)
+	app.signalInitialized()
+}
+
 // InitChain implements the ABCI interface. It runs the initialization logic
 // directly on the CommitMultiStore.
-func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (app *BaseApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	// On a new chain, we consider the init chain block height as 0, even though
 	// req.InitialHeight is 1 by default.
 	initHeader := tmproto.Header{ChainID: req.ChainId, Time: req.Time}
@@ -65,12 +70,17 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 
 	app.SetDeliverStateToCommit()
 
+	defer app.signalInitialized()
 	if app.initChainer == nil {
 		return nil, nil
 	}
 
-	resp := app.initChainer(app.deliverState.ctx, *req)
-	app.initChainer(app.processProposalState.ctx, *req)
+	resp := app.initChainer(app.deliverState.ctx.WithIsGenesis(true), *req)
+	app.initChainer(app.processProposalState.ctx.WithIsGenesis(true), *req)
+	// Genesis initialization needs deliver semantics even when populating the
+	// check state branch. Running it in CheckTx mode enables mempool-only fee
+	// checks and can reject valid genesis txs.
+	app.initChainer(app.checkState.ctx.WithIsGenesis(true).WithIsCheckTx(false), *req)
 
 	// In the case of a new chain, AppHash will be the hash of an empty string.
 	// During an upgrade, it'll be the hash of the last committed block.
@@ -91,7 +101,7 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 }
 
 // Info implements the ABCI interface.
-func (app *BaseApp) Info(ctx context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
+func (app *BaseApp) Info() *abci.ResponseInfo {
 	lastCommitID := app.cms.LastCommitID()
 
 	return &abci.ResponseInfo{
@@ -101,7 +111,7 @@ func (app *BaseApp) Info(ctx context.Context, req *abci.RequestInfo) (*abci.Resp
 		LastBlockHeight:  lastCommitID.Version,
 		LastBlockAppHash: lastCommitID.Hash,
 		MinimumGasPrices: app.minGasPrices.String(),
-	}, nil
+	}
 }
 
 func (app *BaseApp) MidBlock(ctx sdk.Context, height int64) (events []abci.Event) {
@@ -315,6 +325,7 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 
 	// empty/reset the deliver state
 	app.resetStatesExceptCheckState()
+	defer app.signalInitialized()
 
 	var halt bool
 
@@ -689,22 +700,28 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 			)
 	}
 
-	var cacheMS types.CacheMultiStore
-	if height < app.migrationHeight && app.qms != nil {
-		cacheMS, err = app.qms.CacheMultiStoreWithVersion(height)
-	} else {
-		cacheMS, err = app.cms.CacheMultiStoreWithVersion(height)
-	}
-
-	if err != nil {
-		return sdk.Context{},
-			sdkerrors.Wrapf(
-				sdkerrors.ErrInvalidRequest,
-				"failed to load state at height %d; %s (latest height: %d)", height, err, lastBlockHeight,
-			)
-	}
-
 	checkStateCtx := app.checkState.Context()
+	var cacheMS types.CacheMultiStore
+	if lastBlockHeight == 0 && height == 0 {
+		// Height 0 means "latest". Before the first Commit, the latest readable
+		// state lives only on checkState (e.g. InitChain writes). Querying the
+		// committed multistore at version 0 would incorrectly hide that state.
+		cacheMS = app.checkState.MultiStore().CacheMultiStore()
+	} else {
+		if height < app.migrationHeight && app.qms != nil {
+			cacheMS, err = app.qms.CacheMultiStoreWithVersion(height)
+		} else {
+			cacheMS, err = app.cms.CacheMultiStoreWithVersion(height)
+		}
+
+		if err != nil {
+			return sdk.Context{},
+				sdkerrors.Wrapf(
+					sdkerrors.ErrInvalidRequest,
+					"failed to load state at height %d; %s (latest height: %d)", height, err, lastBlockHeight,
+				)
+		}
+	}
 	// branch the commit-multistore for safety
 	ctx := sdk.NewContext(
 		cacheMS, checkStateCtx.BlockHeader(), true,

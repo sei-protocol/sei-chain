@@ -3,6 +3,7 @@ package disktable
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -23,8 +25,20 @@ type controlLoop struct {
 	// errorMonitor is used to react to fatal errors anywhere in the disk table.
 	errorMonitor *util.ErrorMonitor
 
-	// controllerChannel is the channel for messages sent to the control loop.
+	// controllerChannel is the channel the control loop reads messages from. When compression is
+	// disabled, enqueue sends directly here (inputChannel == controllerChannel). When compression is
+	// enabled, the compression loop reads its input channel and forwards messages here.
 	controllerChannel chan any
+
+	// inputChannel is the entry point of the control loop's message pipeline: the channel enqueue sends
+	// to. It is controllerChannel when compression is disabled, or the compression loop's input channel
+	// when compression is enabled (so every control message, including flush, passes through the
+	// compression stage in order).
+	inputChannel chan any
+
+	// compressionAlgorithm is the algorithm new segments are created with. types.CompressionNone means
+	// segments store values verbatim.
+	compressionAlgorithm types.CompressionAlgorithm
 
 	// The index of the lowest numbered segment. It is advanced only by the control loop, in
 	// deleteEligibleSegments, as collected segments' files are removed. Only the control loop goroutine touches it.
@@ -62,6 +76,19 @@ type controlLoop struct {
 
 	// The target size for key files.
 	targetKeyFileSize uint64
+
+	// shardControlChannelSize is the capacity of each new segment's per-shard write channels (and, scaled by
+	// the sharding factor, its key-file channel). Passed to segment.CreateSegment when a segment rolls over.
+	shardControlChannelSize int
+
+	// autoFlushByteThreshold is the number of value bytes written through the control loop (without an
+	// intervening flush) that triggers an automatic fire-and-forget flush, bounding the in-memory
+	// unflushed-data cache. Set once at construction from Config.AutoFlushByteThreshold; never mutated.
+	autoFlushByteThreshold uint64
+
+	// bytesSinceLastFlush accumulates value bytes written since the last flush (explicit or automatic).
+	// Only the control loop goroutine reads or writes it, so it needs no synchronization.
+	bytesSinceLastFlush uint64
 
 	// The size of the disk table is stored here.
 	size *atomic.Uint64
@@ -136,7 +163,7 @@ type controlLoop struct {
 // database being in a panicked state. Only types defined in control_loop_messages.go are permitted to be sent
 // to the control loop.
 func (c *controlLoop) enqueue(request controlLoopMessage) error {
-	return util.Send(c.errorMonitor, c.controllerChannel, request)
+	return util.Send(c.errorMonitor, c.inputChannel, request)
 }
 
 // run runs the control loop for the disk table. It has sole responsibility for scheduling all operations that
@@ -454,9 +481,27 @@ func (c *controlLoop) updateCurrentSize() {
 
 // handleWriteRequest handles a controlLoopWriteRequest control message.
 func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
-	for _, kv := range req.values {
+	for i, kv := range req.values {
 		// Do the write.
 		seg := c.segments[c.highestSegmentIndex]
+
+		// The number of bytes actually written to the value file: the compressed blob when compression is
+		// enabled, otherwise the raw value.
+		onDiskLen := uint64(len(kv.Value))
+		if req.compressedValues != nil {
+			onDiskLen = uint64(len(req.compressedValues[i]))
+		}
+
+		// Roll to a fresh segment before writing if this value's bytes would cross the 2^32 addressable
+		// limit of the segment's value files (offsets are stored as uint32, so a value's first byte must
+		// sit below 2^32).
+		if seg.GetMaxShardSize()+onDiskLen > math.MaxUint32 {
+			if err := c.expandSegments(); err != nil {
+				c.errorMonitor.Panic(fmt.Errorf("failed to expand segments: %w", err))
+				return
+			}
+			seg = c.segments[c.highestSegmentIndex]
+		}
 
 		// Track boundary keys. The newest primary key is simply the most recently written key. The
 		// mutable segment's first primary key is recorded the first time a key is written to a fresh
@@ -466,7 +511,14 @@ func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
 		}
 		c.newestPrimaryKey = kv.Key
 
-		keyCount, keyFileSize, err := seg.Write(kv)
+		var keyCount uint32
+		var keyFileSize uint64
+		var err error
+		if req.compressedValues != nil {
+			keyCount, keyFileSize, err = seg.WriteCompressed(kv, req.compressedValues[i])
+		} else {
+			keyCount, keyFileSize, err = seg.Write(kv)
+		}
 		shardSize := seg.GetMaxShardSize()
 		if err != nil {
 			c.errorMonitor.Panic(
@@ -482,6 +534,13 @@ func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
 				c.errorMonitor.Panic(fmt.Errorf("failed to expand segments: %w", err))
 				return
 			}
+		}
+
+		// Bound the in-memory unflushed-data cache: once enough bytes have been written without an
+		// intervening flush, schedule a fire-and-forget flush so the cache drains as keys become durable.
+		c.bytesSinceLastFlush += uint64(len(kv.Value))
+		if c.bytesSinceLastFlush >= c.autoFlushByteThreshold {
+			c.scheduleAutoFlush()
 		}
 	}
 
@@ -532,7 +591,9 @@ func (c *controlLoop) expandSegments() error {
 		c.segmentPaths,
 		c.snapshottingEnabled,
 		c.diskTable.getShardingFactor(),
-		c.fsync)
+		c.compressionAlgorithm,
+		c.fsync,
+		c.shardControlChannelSize)
 	if err != nil {
 		return err
 	}
@@ -574,6 +635,34 @@ func (c *controlLoop) handleFlushRequest(req *controlLoopFlushRequest) {
 	if err != nil {
 		c.logger.Error("failed to send flush request to flush loop", "error", err)
 	}
+
+	// An explicit flush drains the unflushed-data cache, so restart the auto-flush accounting.
+	c.bytesSinceLastFlush = 0
+}
+
+// scheduleAutoFlush schedules a fire-and-forget flush of the mutable segment to bound the in-memory
+// unflushed-data cache. It is triggered from the write path once autoFlushByteThreshold bytes have been
+// written without an intervening flush. Unlike handleFlushRequest there is no waiting caller, so the
+// request carries a nil responseChan (the flush loop skips the completion signal but still schedules the
+// keymap write that drains the cache). Called only on the control loop goroutine.
+func (c *controlLoop) scheduleAutoFlush() {
+	flushWaitFunction, err := c.segments[c.highestSegmentIndex].Flush()
+	if err != nil {
+		c.errorMonitor.Panic(fmt.Errorf("failed to flush segment %d: %w", c.highestSegmentIndex, err))
+		return
+	}
+
+	request := &flushLoopFlushRequest{
+		flushWaitFunction: flushWaitFunction,
+		responseChan:      nil,
+	}
+	err = c.flushLoop.enqueue(request)
+	if err != nil {
+		c.logger.Error("failed to send auto-flush request to flush loop", "error", err)
+		return
+	}
+
+	c.bytesSinceLastFlush = 0
 }
 
 // handleControlLoopSetShardingFactorRequest updates the sharding factor of the disk table. If the requested
@@ -632,8 +721,7 @@ func (c *controlLoop) handleShutdownRequest(req *controlLoopShutdownRequest) {
 		return
 	}
 
-	// Seal the mutable segment
-	durableKeys, err := c.segments[c.highestSegmentIndex].Seal(c.clock())
+	durableKeys, _, err := c.segments[c.highestSegmentIndex].Seal(c.clock())
 	if err != nil {
 		c.errorMonitor.Panic(fmt.Errorf("failed to seal mutable segment: %w", err))
 		return

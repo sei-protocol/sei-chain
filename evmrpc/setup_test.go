@@ -33,7 +33,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
@@ -118,7 +117,7 @@ var TxNonEvm sdk.Tx
 var TxNonEvmWithSyntheticLog sdk.Tx
 var UnconfirmedTx sdk.Tx
 
-var SConfig = evmrpc.SimulateConfig{GasCap: 10000000}
+var SConfig = evmrpc.SimulateConfig{GasCap: 10000000, MaxStateOverrideAccounts: 100, MaxStateOverrideSlots: 1000}
 
 var filterTimeoutDuration = 500 * time.Millisecond
 var TotalTxCount int = 11
@@ -139,7 +138,7 @@ var NewHeadsCalled = make(chan struct{}, 1)
 var NotifierForTest = evmrpc.NewBlockHeaderNotifier(16)
 
 type MockClient struct {
-	mock.Client
+	client.Client
 	latestOverride int64
 }
 

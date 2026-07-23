@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/gorilla/websocket"
@@ -59,13 +60,14 @@ func TestWebsocketReadRoutineNoLeakOnFullWriteChan(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, dialResp.Body.Close())
 
-	// We deliberately never read any response from c. The first request asks for
-	// a response far larger than any socket buffer; the server's writeRoutine
-	// pulls that response first and blocks on the socket write, so it stops
-	// draining writeChan.
+	// The first request asks for a response far larger than any socket buffer.
+	// Wait until the response starts arriving, then stop reading from c; the
+	// server's writeRoutine is now blocked on the socket write instead of still
+	// preparing the large response.
 	bigReq := rpctypes.NewRequest(1)
 	require.NoError(t, bigReq.SetMethodAndParams("echo", map[string]any{"size": 32 * 1024 * 1024}))
 	require.NoError(t, c.WriteJSON(bigReq))
+	waitForResponseStart(t, c)
 
 	// The follow-up tiny requests produce responses that fill writeChan to
 	// capacity. readRoutine then blocks on the next send with no drainer.
@@ -98,11 +100,13 @@ func TestWebsocketReadRoutineNoLeakOnPanicWithFullWriteChan(t *testing.T) {
 	require.NoError(t, err)
 	dialResp.Body.Close()
 
-	// As in the full-writeChan test, never read responses. The huge first
-	// response makes writeRoutine block on the socket write and stop draining.
+	// As in the full-writeChan test, read only enough of the huge first response
+	// to know writeRoutine is blocked on the socket write and has stopped
+	// draining writeChan.
 	bigReq := rpctypes.NewRequest(1)
 	require.NoError(t, bigReq.SetMethodAndParams("echo", map[string]any{"size": 32 * 1024 * 1024}))
 	require.NoError(t, c.WriteJSON(bigReq))
+	waitForResponseStart(t, c)
 
 	// Exactly fill writeChan with tiny responses. writeRoutine pulls only the
 	// big response (then blocks), so these defaultWSWriteChanCapacity sends all
@@ -123,6 +127,20 @@ func TestWebsocketReadRoutineNoLeakOnPanicWithFullWriteChan(t *testing.T) {
 	// connection context. That must release the recovery send and let any
 	// relaunched readRoutine exit instead of leaking.
 	require.NoError(t, c.Close())
+}
+
+func waitForResponseStart(t *testing.T, c *websocket.Conn) {
+	t.Helper()
+
+	require.NoError(t, c.SetReadDeadline(time.Now().Add(defaultWSWriteWait)))
+	_, r, err := c.NextReader()
+	require.NoError(t, err)
+
+	var b [1]byte
+	n, err := r.Read(b[:])
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	require.NoError(t, c.SetReadDeadline(time.Time{}))
 }
 
 func newEchoWSServer(t *testing.T) *httptest.Server {

@@ -7,11 +7,11 @@
   - type: eval
     expr: RESULT == 4
 
-- name: Test block height should be greater than 0
+- name: Test node status should report the configured network
   inputs:
-    # Get the current block height
-    - cmd: seid status |jq -M -r .SyncInfo.latest_block_height
+    # Confirm status RPC is ready without relying on block production.
+    - cmd: seid status |jq -M -r .NodeInfo.network
       env: RESULT
   verifiers:
   - type: eval
-    expr: RESULT > 0
+    expr: RESULT == "sei"

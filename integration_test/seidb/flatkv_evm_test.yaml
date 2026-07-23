@@ -86,7 +86,7 @@
 
 - name: Test non-EVM module remains queryable
   inputs:
-    - cmd: printf "12345678\n" | seid keys list --output json | jq -r ".[0].address"
+    - cmd: printf "12345678\n" | seid keys show admin -a
       env: SEI_ADDR
     - cmd: seid q bank balances $SEI_ADDR --output json | jq -r ".balances | length"
       env: BANK_BALANCE_COUNT

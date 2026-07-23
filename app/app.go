@@ -142,6 +142,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
@@ -475,11 +476,6 @@ type App struct {
 
 	forkInitializer func(sdk.Context)
 
-	httpServerStartSignal     chan struct{}
-	wsServerStartSignal       chan struct{}
-	httpServerStartSignalSent bool
-	wsServerStartSignalSent   bool
-
 	// evmHTTPServer/evmWSServer hold the EVM JSON-RPC HTTP and WebSocket listeners
 	// constructed in RegisterLocalServices so an embedding orchestrator (the
 	// in-process harness) can Stop() them at teardown. Nil when the respective
@@ -538,21 +534,19 @@ func New(
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
-		BaseApp:               bApp,
-		cdc:                   cdc,
-		appCodec:              appCodec,
-		interfaceRegistry:     interfaceRegistry,
-		keys:                  keys,
-		tkeys:                 tkeys,
-		memKeys:               memKeys,
-		txDecoder:             encodingConfig.TxConfig.TxDecoder(),
-		versionInfo:           version.NewInfo(),
-		metricCounter:         &map[string]float32{},
-		encodingConfig:        encodingConfig,
-		legacyEncodingConfig:  MakeLegacyEncodingConfig(),
-		stateStore:            stateStore,
-		httpServerStartSignal: make(chan struct{}, 1),
-		wsServerStartSignal:   make(chan struct{}, 1),
+		BaseApp:              bApp,
+		cdc:                  cdc,
+		appCodec:             appCodec,
+		interfaceRegistry:    interfaceRegistry,
+		keys:                 keys,
+		tkeys:                tkeys,
+		memKeys:              memKeys,
+		txDecoder:            encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:          version.NewInfo(),
+		metricCounter:        &map[string]float32{},
+		encodingConfig:       encodingConfig,
+		legacyEncodingConfig: MakeLegacyEncodingConfig(),
+		stateStore:           stateStore,
 	}
 
 	for _, option := range appOptions {
@@ -823,6 +817,7 @@ func New(
 		} else {
 			logger.Debug("failed to load evmone VM", "error", err)
 		}
+		// evm_giga_mixed_tests.sh matches these ENABLED/DISABLED strings to guard node roles; keep them in sync.
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
 		} else {
@@ -888,7 +883,7 @@ func New(
 			encodingConfig.TxConfig,
 		),
 		auth.NewAppModule(appCodec, app.AccountKeeper, nil),
-		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper),
+		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper, app.UpgradeKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
 		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
@@ -1609,7 +1604,10 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		// Store-iteration panic: re-run via v2 so the result matches v2 exactly.
 		if fallbackToV2 {
 			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
-			appMetrics.gigaFallback.Add(ctx.Context(), 1)
+			appMetrics.gigaFallback.Add(ctx.Context(), 1,
+				otelmetric.WithAttributes(
+					attribute.String("reason", gigaFallbackStoreIterator),
+					attribute.String("scope", "tx")))
 			res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 			txResults[i] = res
 			ms.Write()
@@ -1617,8 +1615,14 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		}
 
 		if execErr != nil {
-			// Check if this is a fail-fast error (Cosmos precompile interop detected)
+			// Abort errors (validation failure, balance migration, self-destruct,
+			// cosmos-precompile interop) re-run this tx via v2.
 			if gigautils.ShouldExecutionAbort(execErr) {
+				utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
+				appMetrics.gigaFallback.Add(ctx.Context(), 1,
+					otelmetric.WithAttributes(
+						attribute.String("reason", gigaFallbackReason(execErr)),
+						attribute.String("scope", "tx")))
 				res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 				txResults[i] = res
 				ms.Write()
@@ -1836,16 +1840,23 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 			return nil, ctx
 		}
 
+		fallbackReason := gigaFallbackOther
 		for _, r := range evmBatchResult {
 			if r.Code == gigautils.GigaAbortCode && r.Codespace == gigautils.GigaAbortCodespace {
 				fallbackToV2 = true
+				if r.Info != "" {
+					fallbackReason = r.Info
+				}
 				break
 			}
 		}
 
 		if fallbackToV2 {
 			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
-			appMetrics.gigaFallback.Add(ctx.Context(), 1)
+			appMetrics.gigaFallback.Add(ctx.Context(), 1,
+				otelmetric.WithAttributes(
+					attribute.String("reason", fallbackReason),
+					attribute.String("scope", "batch")))
 			// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
 			evmBatchResult = nil
 			v2Entries = make([]*sdk.DeliverTxEntry, len(txs))
@@ -1928,17 +1939,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 		}
 	}()
 
-	defer func() {
-		if !app.httpServerStartSignalSent {
-			app.httpServerStartSignalSent = true
-			app.httpServerStartSignal <- struct{}{}
-		}
-		if !app.wsServerStartSignalSent {
-			app.wsServerStartSignalSent = true
-			app.wsServerStartSignal <- struct{}{}
-		}
-	}()
-
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
 	blockSpanCtx, blockSpan := app.GetBaseApp().TracingInfo.Start("Block")
@@ -1995,6 +1995,37 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 	return events, txResults, endBlockResp, nil
 }
 
+// Fallback-cause labels for the app_giga_fallback_to_v2 metric.
+const (
+	gigaFallbackValidationFailed  = "validation_failed"
+	gigaFallbackExecutionFailed   = "execution_failed"
+	gigaFallbackBalanceMigration  = "balance_migration"
+	gigaFallbackSelfDestruct      = "self_destruct"
+	gigaFallbackInvalidPrecompile = "invalid_precompile"
+	gigaFallbackStoreIterator     = "store_iterator"
+	gigaFallbackOther             = "other"
+)
+
+// gigaFallbackReason labels the app_giga_fallback_to_v2 metric with which
+// abort sentinel routed a tx to v2, so operators can tell a validation-failure
+// wave from balance-migration churn.
+func gigaFallbackReason(err error) string {
+	switch err.(type) {
+	case *gigautils.ValidationFailedAbortError:
+		return gigaFallbackValidationFailed
+	case *gigautils.ExecutionFailedAbortError:
+		return gigaFallbackExecutionFailed
+	case *gigaprecompiles.BalanceMigrationAbortError:
+		return gigaFallbackBalanceMigration
+	case *gigaprecompiles.SelfDestructAbortError:
+		return gigaFallbackSelfDestruct
+	case *gigaprecompiles.InvalidPrecompileCallError:
+		return gigaFallbackInvalidPrecompile
+	default:
+		return gigaFallbackOther
+	}
+}
+
 // executeEVMTxWithGigaExecutor executes a single EVM transaction using the giga executor.
 // The sender address is recovered directly from the transaction signature - no Cosmos SDK ante handlers needed.
 func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgEVMTransaction, cache *gigaBlockCache) (*abci.ExecTxResult, error) {
@@ -2015,28 +2046,24 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		}, nil
 	}
 
-	_, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr)
-
-	// Run validation checks (fee/nonce/balance - stateless checks done earlier)
-	validation := app.validateGigaEVMTx(ctx, ethTx, sender, seiAddr, isAssociated)
-
 	// Prepare context for EVM transaction (set infinite gas meter like original flow)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
+	_, isAssociated := app.GigaEvmKeeper.GetEVMAddress(ctx, seiAddr)
+
+	// Create state DB before validation so balance checks use DBImpl hooks.
+	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
+	defer stateDB.Cleanup()
+
+	// Run validation checks (fee/nonce/balance - stateless checks done earlier)
+	validation := app.validateGigaEVMTx(ctx, stateDB, ethTx, sender, seiAddr, isAssociated)
+
 	if validation.err != nil {
-		// Validation failed - bump nonce via keeper if it was valid (matches V2's DeliverTxCallback
-		// behavior where nonce is incremented even on fee validation failures).
-		// For successful txs, the nonce is bumped by the EVM during execution.
-		if validation.bumpNonce {
-			app.GigaEvmKeeper.SetNonce(ctx, sender, validation.currentNonce+1)
-			app.EvmKeeper.SetNonceBumped(ctx)
-		}
-		// V2 reports intrinsic gas as gasUsed even on validation failure (for metrics),
-		// but no actual balance is deducted
-		intrinsicGas, _ := core.IntrinsicGas(ethTx.Data(), ethTx.AccessList(), ethTx.SetCodeAuthorizations(), ethTx.To() == nil, true, true, true)
-		validation.err.GasUsed = int64(intrinsicGas)  //nolint:gosec
-		validation.err.GasWanted = int64(ethTx.Gas()) //nolint:gosec
-		return validation.err, nil
+		// v2 rejects fee/nonce/balance failures in its ante chain, whose
+		// receipt gas fields giga cannot reconstruct; a giga-side receipt here
+		// diverges LastResultsHash on mixed fleets (CON-368). Fall back to v2,
+		// which also owns the nonce bump.
+		return nil, gigautils.ErrValidationFailed
 	}
 
 	if !isAssociated {
@@ -2045,9 +2072,14 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		return nil, gigaprecompiles.ErrBalanceMigrationRequired
 	}
 
-	// Create state DB for this transaction (only for valid transactions)
-	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
-	defer stateDB.Cleanup()
+	// EIP-7702 authorization authorities must be associated with their true (pubkey-derived)
+	// Sei address before SetCode installs delegation code, otherwise SetCode creates a mutable
+	// direct-cast mapping that a later associatePubKey can remap (orphaning staking/distribution
+	// state). That pre-association is done in the V2 ante handler and requires balance migration,
+	// which giga's cachekv cannot perform, so defer such transactions to V2.
+	if app.setCodeTxRequiresAuthorityAssociation(ctx, ethTx) {
+		return nil, gigaprecompiles.ErrBalanceMigrationRequired
+	}
 
 	// Pre-charge gas fee (like V2's ante handler), then execute with feeAlreadyCharged=true.
 	// V2 charges fees in the ante handler, then runs the EVM with feeAlreadyCharged=true
@@ -2079,61 +2111,12 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	}
 
 	if execErr != nil {
-		// Match V2 error handling: bump nonce, commit fee deduction, track surplus
-		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
-		surplus, ferr := stateDB.Finalize()
-		if ferr != nil {
-			// stateDB.Finalize is not expected to fail in practice. If it
-			// does, the nonce bump above may not have been persisted, so per
-			// the receipt-iff-nonce-bumped invariant we cannot claim the tx
-			// happened: skip the receipt + deferred-info writes and return.
-			logger.Error("giga: failed to finalize stateDB on consensus error",
-				"tx-hash", ethTx.Hash(),
-				"error", ferr,
-			)
-			return &abci.ExecTxResult{
-				Code:      1,
-				GasWanted: int64(ethTx.Gas()), //nolint:gosec
-				Log:       fmt.Sprintf("giga: failed to finalize stateDB on consensus error: %v", ferr),
-			}, nil
-		}
-
-		// Receipt-iff-nonce-bumped invariant: this tx bumped the sender's
-		// nonce on the line above, so it must produce a receipt. State-
-		// transition errors land here when Execute() bails before any
-		// opcode ran (notably EIP-7623's floor-data-gas check, which
-		// happens inside go-ethereum's Execute() rather than the Sei
-		// antehandler). Without an explicit WriteReceipt the receipt
-		// store stays empty for this tx hash — Giga's
-		// AppendToEvmTxDeferredInfo call below doesn't propagate the
-		// error, so EndBlock's synthetic-receipt path skips it — and
-		// eth_getTransactionReceipt returns null forever, hanging any
-		// client that polls for it.
-		evmMsg := &core.Message{
-			Nonce:     ethTx.Nonce(),
-			GasLimit:  ethTx.Gas(),
-			GasPrice:  effectiveGasPrice, // EIP-1559 effective gas price (not GasFeeCap)
-			GasFeeCap: ethTx.GasFeeCap(),
-			GasTipCap: ethTx.GasTipCap(),
-			To:        ethTx.To(),
-			Value:     ethTx.Value(),
-			Data:      ethTx.Data(),
-			From:      sender,
-		}
-		if _, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), ethTx.Gas(), execErr.Error()); rerr != nil {
-			logger.Error("giga: failed to write failed-tx receipt",
-				"tx-hash", ethTx.Hash(),
-				"error", rerr,
-			)
-		}
-		bloom := ethtypes.Bloom{}
-		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
-
-		return &abci.ExecTxResult{
-			Code:      1,
-			GasWanted: int64(ethTx.Gas()), //nolint:gosec
-			Log:       fmt.Sprintf("giga executor apply message error: %v", execErr),
-		}, nil
+		// EIP-7623's floor-data-gas check is the known natural failure here:
+		// other Execute() failure classes are pre-checked upstream. Canonical
+		// fee, nonce, receipt, and ABCI result behavior lives in v2. The
+		// stateDB has not been finalized, so Cleanup discards its
+		// transaction-local cache before the caller re-runs the tx through v2.
+		return nil, gigautils.ErrExecutionFailed
 	}
 
 	// Check if the execution hit a fail-fast precompile (Cosmos interop detected)
@@ -2247,6 +2230,22 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	}, nil
 }
 
+// setCodeTxRequiresAuthorityAssociation reports whether an EIP-7702 transaction has any
+// authorization authority that the EVM will apply and that is not yet associated with its
+// true (pubkey-derived) Sei address. Such an authority must be associated (with balance
+// migration) before SetCode runs, which the V2 ante handler does but the giga executor
+// cannot; callers use this to defer the transaction to V2. Authorizations the EVM would
+// skip (wrong chain id, bad nonce, authority has code) are ignored: no mapping is created
+// for them. It returns false for non-SetCode transactions (which carry no authorizations).
+func (app *App) setCodeTxRequiresAuthorityAssociation(ctx sdk.Context, ethTx *ethtypes.Transaction) bool {
+	for _, auth := range ethTx.SetCodeAuthorizations() {
+		if _, _, _, ok := helpers.AuthorityToPreAssociate(ctx, &app.GigaEvmKeeper, auth); ok {
+			return true
+		}
+	}
+	return false
+}
+
 // gigaDeliverTx is the OCC-compatible deliverTx function for the giga executor.
 // makeGigaDeliverTx returns an OCC-compatible deliverTx callback that captures the given
 // block cache, avoiding mutable state on App for cache lifecycle management.
@@ -2276,7 +2275,7 @@ func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.
 					resp = abci.ResponseDeliverTx{
 						Code:      gigautils.GigaAbortCode,
 						Codespace: gigautils.GigaAbortCodespace,
-						Info:      gigautils.GigaAbortInfo,
+						Info:      gigaFallbackStoreIterator,
 						Log:       "giga executor abort: store iteration unsupported, fall back to v2",
 					}
 					return
@@ -2315,7 +2314,7 @@ func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.
 				return abci.ResponseDeliverTx{
 					Code:      gigautils.GigaAbortCode,
 					Codespace: gigautils.GigaAbortCodespace,
-					Info:      gigautils.GigaAbortInfo,
+					Info:      gigaFallbackReason(err),
 					Log:       "giga executor abort: fall back to v2",
 				}
 			}
@@ -2577,19 +2576,7 @@ func (app *App) LegacyAmino() *codec.LegacyAmino {
 }
 
 func (app *App) GetValidators() []abci.ValidatorUpdate {
-	// AUTOBAHN: After InitChain but before the first Commit, the committed
-	// store is empty — staking params don't exist, so reading from committed
-	// store panics in MaxValidators. Use DeliverContext when available at
-	// height 0, since it has the uncommitted staking state from InitChain.
-	// CometBFT consensus never hits this because its handshaker commits
-	// after InitChain before any block processing begins.
-	if app.LastBlockHeight() == 0 {
-		if dctx := app.DeliverContext(); dctx != nil {
-			return app.StakingKeeper.GetBondedValidators(*dctx)
-		}
-	}
-	ctx := app.NewUncachedContext(false, tmproto.Header{Height: max(app.LastBlockHeight(), 1)})
-	return app.StakingKeeper.GetBondedValidators(ctx)
+	return app.StakingKeeper.GetBondedValidators(app.GetCheckCtx())
 }
 
 // AppCodec returns an app codec.
@@ -2748,7 +2735,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		}
 		app.evmHTTPServer = evmHTTPServer
 		go func() {
-			<-app.httpServerStartSignal
+			<-app.Initialized()
 			if err := evmHTTPServer.Start(); err != nil {
 				panic(err)
 			}
@@ -2763,7 +2750,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		}
 		app.evmWSServer = evmWSServer
 		go func() {
-			<-app.wsServerStartSignal
+			<-app.Initialized()
 			if err := evmWSServer.Start(); err != nil {
 				panic(err)
 			}
@@ -3005,10 +2992,8 @@ func (app *App) inplacetestnetInitializer(pk cryptotypes.PubKey) error {
 
 // gigaValidationResult holds the result of EVM transaction validation.
 type gigaValidationResult struct {
-	err          *abci.ExecTxResult // nil if validation passed
-	bumpNonce    bool               // true if tx nonce matches expected nonce
-	currentNonce uint64             // the expected nonce at time of validation
-	baseFee      *big.Int           // the base fee used for validation
+	err     *abci.ExecTxResult // nil if validation passed
+	baseFee *big.Int           // the base fee used for validation
 }
 
 // validateGigaEVMTx validates an EVM tx for fee, nonce, and stateless checks.
@@ -3024,6 +3009,7 @@ type gigaValidationResult struct {
 //  7. Balance check
 func (app *App) validateGigaEVMTx(
 	ctx sdk.Context,
+	stateDB *gigaevmstate.DBImpl,
 	ethTx *ethtypes.Transaction,
 	sender common.Address,
 	seiAddr sdk.AccAddress,
@@ -3034,10 +3020,8 @@ func (app *App) validateGigaEVMTx(
 		baseFee = new(big.Int)
 	}
 
-	// Check nonce validity - determines if we bump nonce on fee/balance failures
 	currentNonce := app.GigaEvmKeeper.GetNonce(ctx, sender)
 	txNonce := ethTx.Nonce()
-	bumpNonce := txNonce == currentNonce
 
 	// Fee cap below base fee
 	if ethTx.GasFeeCap().Cmp(baseFee) < 0 {
@@ -3046,9 +3030,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrInsufficientFee.ABCICode(),
 				Log:  "max fee per gas less than block base fee",
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
@@ -3060,9 +3042,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrInsufficientFee.ABCICode(),
 				Log:  "max fee per gas less than minimum fee",
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
@@ -3077,9 +3057,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrWrongSequence.ABCICode(),
 				Log:  fmt.Sprintf("nonce too high: address %s, tx: %d state: %d", sender.Hex(), txNonce, currentNonce),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 	if txNonce < currentNonce {
@@ -3088,9 +3066,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrWrongSequence.ABCICode(),
 				Log:  fmt.Sprintf("nonce too low: address %s, tx: %d state: %d", sender.Hex(), txNonce, currentNonce),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 	// Nonce overflow guard (currentNonce + 1 would overflow)
@@ -3100,9 +3076,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrWrongSequence.ABCICode(),
 				Log:  fmt.Sprintf("nonce max: address %s, nonce: %d", sender.Hex(), currentNonce),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
@@ -3116,9 +3090,7 @@ func (app *App) validateGigaEVMTx(
 					Code: sdkerrors.ErrWrongSequence.ABCICode(),
 					Log:  fmt.Sprintf("sender not an eoa: address %s, len(code): %d", sender.Hex(), len(senderCode)),
 				},
-				bumpNonce:    bumpNonce,
-				currentNonce: currentNonce,
-				baseFee:      baseFee,
+				baseFee: baseFee,
 			}
 		}
 	}
@@ -3130,9 +3102,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrWrongSequence.ABCICode(),
 				Log:  fmt.Sprintf("max fee per gas higher than 2^256-1: address %s, maxFeePerGas bit length: %d", sender.Hex(), l),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
@@ -3143,9 +3113,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrWrongSequence.ABCICode(),
 				Log:  fmt.Sprintf("max priority fee per gas higher than 2^256-1: address %s, maxPriorityFeePerGas bit length: %d", sender.Hex(), l),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
@@ -3156,9 +3124,7 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrWrongSequence.ABCICode(),
 				Log:  fmt.Sprintf("max priority fee per gas higher than max fee per gas: address %s, maxPriorityFeePerGas: %s, maxFeePerGas: %s", sender.Hex(), ethTx.GasTipCap(), ethTx.GasFeeCap()),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
@@ -3171,9 +3137,7 @@ func (app *App) validateGigaEVMTx(
 					Code: sdkerrors.ErrWrongSequence.ABCICode(),
 					Log:  fmt.Sprintf("set-code transaction must not be a create transaction: sender %s", sender.Hex()),
 				},
-				bumpNonce:    bumpNonce,
-				currentNonce: currentNonce,
-				baseFee:      baseFee,
+				baseFee: baseFee,
 			}
 		}
 		// Set-code tx auth list must be non-empty
@@ -3183,9 +3147,7 @@ func (app *App) validateGigaEVMTx(
 					Code: sdkerrors.ErrWrongSequence.ABCICode(),
 					Log:  fmt.Sprintf("set-code transaction with empty auth list: sender %s", sender.Hex()),
 				},
-				bumpNonce:    bumpNonce,
-				currentNonce: currentNonce,
-				baseFee:      baseFee,
+				baseFee: baseFee,
 			}
 		}
 	}
@@ -3198,13 +3160,17 @@ func (app *App) validateGigaEVMTx(
 	balanceCheck := new(big.Int).Mul(new(big.Int).SetUint64(ethTx.Gas()), ethTx.GasFeeCap())
 	balanceCheck.Add(balanceCheck, ethTx.Value())
 
-	senderBalance := app.GigaEvmKeeper.GetBalance(ctx, seiAddr)
+	// Route validation balance reads through DBImpl so mock_balances follows
+	// the same ensureMinimumBalance behavior as V2's StateTransition.BuyGas.
+	senderBalance := stateDB.GetBalance(sender).ToBig()
 
-	// Include cast address balance for unassociated addresses (matches V2 PreprocessDecorator)
+	// Include the derived Sei address balance for unassociated addresses (matches V2 PreprocessDecorator).
 	if !isAssociated {
-		castAddr := sdk.AccAddress(sender[:])
-		castBalance := app.GigaEvmKeeper.GetBalance(ctx, castAddr)
-		senderBalance = new(big.Int).Add(senderBalance, castBalance)
+		seiEVMAddr := common.BytesToAddress(seiAddr)
+		if seiEVMAddr != sender {
+			seiBalance := stateDB.GetBalance(seiEVMAddr).ToBig()
+			senderBalance = new(big.Int).Add(senderBalance, seiBalance)
+		}
 	}
 
 	if senderBalance.Cmp(balanceCheck) < 0 {
@@ -3213,18 +3179,14 @@ func (app *App) validateGigaEVMTx(
 				Code: sdkerrors.ErrInsufficientFunds.ABCICode(),
 				Log:  fmt.Sprintf("insufficient funds for gas * price + value: address %s have %v want %v: insufficient funds", sender.Hex(), senderBalance, balanceCheck),
 			},
-			bumpNonce:    bumpNonce,
-			currentNonce: currentNonce,
-			baseFee:      baseFee,
+			baseFee: baseFee,
 		}
 	}
 
 	// All checks passed
 	return gigaValidationResult{
-		err:          nil,
-		bumpNonce:    bumpNonce,
-		currentNonce: currentNonce,
-		baseFee:      baseFee,
+		err:     nil,
+		baseFee: baseFee,
 	}
 }
 

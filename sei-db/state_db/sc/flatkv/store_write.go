@@ -1,12 +1,12 @@
 package flatkv
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -15,10 +15,23 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// Commit persists buffered writes and advances the version.
+// CommitBlock applies changesets and commits them at version in one call.
+// Giga-only helper for committing all state changes of a block.
+// TODO: make this async and pipelined
+func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
+	if err := s.ApplyChangeSets(version, changesets); err != nil {
+		return err
+	}
+	if _, err := s.Commit(version); err != nil {
+		return fmt.Errorf("CommitBlock: commit version %d: %w", version, err)
+	}
+	return nil
+}
+
+// Commit persists buffered writes at the given version (block height).
 // Protocol: WAL → per-DB batch (with LocalMeta) → flush → update metaDB.
 // On crash, catchup replays WAL to recover incomplete commits.
-func (s *CommitStore) Commit() (version int64, err error) {
+func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	start := time.Now()
 
 	// TODO(concurrency): This takes a single coarse write lock for the whole
@@ -33,7 +46,7 @@ func (s *CommitStore) Commit() (version int64, err error) {
 	pendingAccount := len(s.accountWrites)
 	pendingCode := len(s.codeWrites)
 	pendingStorage := len(s.storageWrites)
-	pendingLegacy := len(s.legacyWrites)
+	pendingMisc := len(s.miscWrites)
 	defer func() {
 		otelMetrics.CommitLatency.Record(s.ctx, secondsSince(start),
 			metric.WithAttributes(successAttr(err)))
@@ -43,7 +56,7 @@ func (s *CommitStore) Commit() (version int64, err error) {
 				"pendingAccount", pendingAccount,
 				"pendingCode", pendingCode,
 				"pendingStorage", pendingStorage,
-				"pendingLegacy", pendingLegacy,
+				"pendingMisc", pendingMisc,
 				"elapsed", time.Since(start),
 				"err", err)
 		}
@@ -52,8 +65,13 @@ func (s *CommitStore) Commit() (version int64, err error) {
 	if s.readOnly {
 		return 0, errReadOnly
 	}
-	// Auto-increment version
-	version = s.committedVersion + 1
+	if version <= s.committedVersion {
+		return 0, fmt.Errorf("flatkv: committing bad version: got %d, current %d", version, s.committedVersion)
+	}
+	if s.pendingBlockHeight != 0 && version != s.pendingBlockHeight {
+		return 0, fmt.Errorf("flatkv: commit version %d does not match applied block height %d",
+			version, s.pendingBlockHeight)
+	}
 
 	// Step 1: Write Changelog (WAL) - source of truth (always sync)
 	s.phaseTimer.SetPhase("commit_write_changelog")
@@ -94,7 +112,7 @@ func (s *CommitStore) Commit() (version int64, err error) {
 	recordPendingWrites(s.ctx, accountDBDir, 0)
 	recordPendingWrites(s.ctx, codeDBDir, 0)
 	recordPendingWrites(s.ctx, storageDBDir, 0)
-	recordPendingWrites(s.ctx, legacyDBDir, 0)
+	recordPendingWrites(s.ctx, miscDBDir, 0)
 
 	// Periodic snapshot so WAL stays bounded and restarts are fast.
 	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
@@ -113,10 +131,7 @@ func (s *CommitStore) Commit() (version int64, err error) {
 	otelMetrics.CurrentVersion.Record(s.ctx, version)
 	logger.Info("FlatKV Commit complete",
 		"version", version,
-		"pendingAccount", pendingAccount,
-		"pendingCode", pendingCode,
-		"pendingStorage", pendingStorage,
-		"pendingLegacy", pendingLegacy,
+		"totalWriteCount", pendingAccount+pendingCode+pendingStorage+pendingMisc,
 		"elapsed", time.Since(start))
 	return version, nil
 }
@@ -126,7 +141,7 @@ func (s *CommitStore) flushAllDBs() error {
 	errs := make([]error, 4)
 	var wg sync.WaitGroup
 	wg.Add(4)
-	names := [4]string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
+	names := [4]string{accountDBDir, codeDBDir, storageDBDir, miscDBDir}
 	for i, db := range s.dataDBs() {
 		s.miscPool.Submit(func() {
 			defer wg.Done()
@@ -149,8 +164,9 @@ func (s *CommitStore) clearPendingWrites() {
 	s.accountWrites = make(map[string]*vtype.AccountData, len(s.accountWrites))
 	s.codeWrites = make(map[string]*vtype.CodeData, len(s.codeWrites))
 	s.storageWrites = make(map[string]*vtype.StorageData, len(s.storageWrites))
-	s.legacyWrites = make(map[string]*vtype.LegacyData, len(s.legacyWrites))
+	s.miscWrites = make(map[string]*vtype.MiscData, len(s.miscWrites))
 	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0, len(s.pendingChangeSets))
+	s.pendingBlockHeight = 0
 }
 
 // commitBatches commits pending writes to their respective DBs atomically.
@@ -178,16 +194,16 @@ func (s *CommitStore) commitBatches(version int64) error {
 		prep  func() (types.Batch, error)
 	}{
 		{accountDBDir, "commit_account_db_prepare", func() (types.Batch, error) {
-			return prepareBatch(s.accountDB, s.accountWrites, version, s.localMeta[accountDBDir], s.perDBWorkingLtHash[accountDBDir], "accountDB")
+			return prepareBatch(s.accountDB, s.accountWrites, version, s.localMeta[accountDBDir], s.perDBWorkingLtHash[accountDBDir], s.perDBModuleWorkingLtHash[accountDBDir], s.perDBModuleWorkingStats[accountDBDir], "accountDB")
 		}},
 		{codeDBDir, "commit_code_db_prepare", func() (types.Batch, error) {
-			return prepareBatch(s.codeDB, s.codeWrites, version, s.localMeta[codeDBDir], s.perDBWorkingLtHash[codeDBDir], "codeDB")
+			return prepareBatch(s.codeDB, s.codeWrites, version, s.localMeta[codeDBDir], s.perDBWorkingLtHash[codeDBDir], s.perDBModuleWorkingLtHash[codeDBDir], s.perDBModuleWorkingStats[codeDBDir], "codeDB")
 		}},
 		{storageDBDir, "commit_storage_db_prepare", func() (types.Batch, error) {
-			return prepareBatch(s.storageDB, s.storageWrites, version, s.localMeta[storageDBDir], s.perDBWorkingLtHash[storageDBDir], "storageDB")
+			return prepareBatch(s.storageDB, s.storageWrites, version, s.localMeta[storageDBDir], s.perDBWorkingLtHash[storageDBDir], s.perDBModuleWorkingLtHash[storageDBDir], s.perDBModuleWorkingStats[storageDBDir], "storageDB")
 		}},
-		{legacyDBDir, "commit_legacy_db_prepare", func() (types.Batch, error) {
-			return prepareBatch(s.legacyDB, s.legacyWrites, version, s.localMeta[legacyDBDir], s.perDBWorkingLtHash[legacyDBDir], "legacyDB")
+		{miscDBDir, "commit_misc_db_prepare", func() (types.Batch, error) {
+			return prepareBatch(s.miscDB, s.miscWrites, version, s.localMeta[miscDBDir], s.perDBWorkingLtHash[miscDBDir], s.perDBModuleWorkingLtHash[miscDBDir], s.perDBModuleWorkingStats[miscDBDir], "miscDB")
 		}},
 	}
 
@@ -233,6 +249,8 @@ func (s *CommitStore) commitBatches(version int64) error {
 		s.localMeta[p.dbDir] = &ktype.LocalMeta{
 			CommittedVersion: version,
 			LtHash:           s.perDBWorkingLtHash[p.dbDir].Clone(),
+			ModuleLtHashes:   cloneModuleHashes(s.perDBModuleWorkingLtHash[p.dbDir]),
+			ModuleStats:      cloneModuleStats(s.perDBModuleWorkingStats[p.dbDir]),
 		}
 	}
 	return nil
@@ -244,6 +262,8 @@ func prepareBatch[T vtype.VType](
 	version int64,
 	localMeta *ktype.LocalMeta,
 	ltHash *lthash.LtHash,
+	moduleHashes map[string]*lthash.LtHash,
+	moduleStats map[string]lthash.ModuleStats,
 	dbName string,
 ) (types.Batch, error) {
 	if len(writes) == 0 && version <= localMeta.CommittedVersion {
@@ -266,58 +286,110 @@ func prepareBatch[T vtype.VType](
 		}
 	}
 
-	if err := writeLocalMetaToBatch(batch, version, ltHash); err != nil {
+	if err := writeLocalMetaToBatch(batch, version, ltHash, moduleHashes, moduleStats); err != nil {
 		_ = batch.Close()
 		return nil, fmt.Errorf("%s local meta: %w", dbName, err)
 	}
 	return batch, nil
 }
 
-// collectPendingReads partitions keys from changeMaps into those already
-// buffered in pendingWrites (copied to old) and those needing a DB read
-// (returned as a BatchGetResult map).
-func collectPendingReads[T vtype.VType](
-	pendingWrites map[string]T,
-	old map[string]T,
-	changeMaps ...map[string][]byte,
-) map[string]types.BatchGetResult {
-	totalKeys := 0
-	for _, changes := range changeMaps {
-		totalKeys += len(changes)
+// ReadOldValues implements lthash.OldValueReader. It returns the prior
+// serialized value for each requested physical key of one data DB (dir),
+// resolving pending same-block writes from memory and batch-reading the rest
+// from disk.
+//
+// The returned bytes are the on-disk serialized form (or the serialized pending
+// write). By the round-trip identity of the value serializers, these are the
+// exact bytes that were folded into the LtHash when the key was last written,
+// so unmixing them cancels that contribution precisely. A key that resolves to
+// a pending deletion (or is absent) is mapped to a nil value: "resolved, but no
+// bytes to unmix".
+//
+// Callers must hold s.mu (the commit path does): this reads the pending-write
+// overlay maps concurrently across dirs, but each dir touches a distinct map.
+func (s *CommitStore) ReadOldValues(dir string, physKeys map[string]struct{}) (map[string][]byte, error) {
+	db, err := s.dataDBByDir(dir)
+	if err != nil {
+		return nil, err
 	}
-	batch := make(map[string]types.BatchGetResult, totalKeys)
-	for _, changes := range changeMaps {
-		for key := range changes {
-			if v, ok := pendingWrites[key]; ok {
-				old[key] = v
-			} else {
-				batch[key] = types.BatchGetResult{}
+
+	old := make(map[string][]byte, len(physKeys))
+	batch := make(map[string]types.BatchGetResult, len(physKeys))
+	for key := range physKeys {
+		if v, resolved := s.pendingOldSerialized(dir, key); resolved {
+			old[key] = v
+		} else {
+			batch[key] = types.BatchGetResult{}
+		}
+	}
+
+	if len(batch) > 0 {
+		if err := db.BatchGet(batch); err != nil {
+			return nil, fmt.Errorf("%s batch get: %w", dir, err)
+		}
+		for k, v := range batch {
+			if v.Error != nil {
+				return nil, fmt.Errorf("%s batch read error for key %x: %w", dir, k, v.Error)
+			}
+			if v.IsFound() {
+				// v.Value may alias a pebble buffer reused after this call.
+				old[k] = bytes.Clone(v.Value)
 			}
 		}
 	}
-	return batch
+	return old, nil
 }
 
-// deserializeBatchResults converts raw BatchGetResults into typed values.
-func deserializeBatchResults[T vtype.VType](
-	batch map[string]types.BatchGetResult,
-	old map[string]T,
-	deserialize func([]byte) (T, error),
-	dbName string,
-) error {
-	for k, v := range batch {
-		if v.Error != nil {
-			return fmt.Errorf("%s batch read error for key %x: %w", dbName, k, v.Error)
+// pendingOldSerialized returns the serialized value of a key still buffered in
+// this block's pending writes, to be used as its "old" value for the current
+// apply. The bool reports whether the key was resolved from the pending overlay
+// at all; a pending deletion resolves to (nil, true) since there is nothing to
+// unmix (the prior committed value was already unmixed when the delete was
+// applied earlier in the block).
+func (s *CommitStore) pendingOldSerialized(dir, key string) ([]byte, bool) {
+	switch dir {
+	case accountDBDir:
+		if v, ok := s.accountWrites[key]; ok {
+			return serializedUnlessDelete(v), true
 		}
-		if v.IsFound() {
-			val, err := deserialize(v.Value)
-			if err != nil {
-				return fmt.Errorf("failed to deserialize %s data: %w", dbName, err)
-			}
-			old[k] = val
+	case codeDBDir:
+		if v, ok := s.codeWrites[key]; ok {
+			return serializedUnlessDelete(v), true
+		}
+	case storageDBDir:
+		if v, ok := s.storageWrites[key]; ok {
+			return serializedUnlessDelete(v), true
+		}
+	case miscDBDir:
+		if v, ok := s.miscWrites[key]; ok {
+			return serializedUnlessDelete(v), true
 		}
 	}
-	return nil
+	return nil, false
+}
+
+// serializedUnlessDelete serializes v, or returns nil if v represents a
+// deletion (nothing to unmix).
+func serializedUnlessDelete[T vtype.VType](v T) []byte {
+	if v.IsDelete() {
+		return nil
+	}
+	return v.Serialize()
+}
+
+// dataDBByDir returns the underlying KeyValueDB for a data DB dir.
+func (s *CommitStore) dataDBByDir(dir string) (types.KeyValueDB, error) {
+	switch dir {
+	case accountDBDir:
+		return s.accountDB, nil
+	case codeDBDir:
+		return s.codeDB, nil
+	case storageDBDir:
+		return s.storageDB, nil
+	case miscDBDir:
+		return s.miscDB, nil
+	}
+	return nil, fmt.Errorf("unknown data DB dir %q", dir)
 }
 
 // rawKVPair is a raw physical key/value pair as stored on disk.
@@ -332,8 +404,10 @@ type rawKVPair struct {
 func (s *CommitStore) FinalizeImport(version int64) error {
 	syncOpt := types.WriteOptions{Sync: true}
 	for _, ndb := range s.namedDataDBs() {
+		moduleHashes := s.perDBModuleWorkingLtHash[ndb.dir]
+		moduleStats := s.perDBModuleWorkingStats[ndb.dir]
 		batch := ndb.db.NewBatch()
-		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[ndb.dir]); err != nil {
+		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[ndb.dir], moduleHashes, moduleStats); err != nil {
 			_ = batch.Close()
 			return fmt.Errorf("%s local meta: %w", ndb.dir, err)
 		}
@@ -345,6 +419,8 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 		s.localMeta[ndb.dir] = &ktype.LocalMeta{
 			CommittedVersion: version,
 			LtHash:           s.perDBWorkingLtHash[ndb.dir].Clone(),
+			ModuleLtHashes:   cloneModuleHashes(moduleHashes),
+			ModuleStats:      cloneModuleStats(moduleStats),
 		}
 	}
 
@@ -359,76 +435,4 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 		return fmt.Errorf("import global metadata: %w", err)
 	}
 	return nil
-}
-
-// batchReadOldValues returns the prior value for every key in changesByType.
-// Pending writes are resolved from memory; the rest are batch-read from disk
-// in parallel.
-func (s *CommitStore) batchReadOldValues(changesByType map[keys.EVMKeyKind]map[string][]byte) (
-	storageOld map[string]*vtype.StorageData,
-	accountOld map[string]*vtype.AccountData,
-	codeOld map[string]*vtype.CodeData,
-	legacyOld map[string]*vtype.LegacyData,
-	err error,
-) {
-	start := time.Now()
-	defer func() {
-		otelMetrics.BatchReadOldValuesLatency.Record(s.ctx, secondsSince(start),
-			metric.WithAttributes(successAttr(err)))
-	}()
-
-	storageOld = make(map[string]*vtype.StorageData, len(changesByType[keys.EVMKeyStorage]))
-	accountOld = make(map[string]*vtype.AccountData, len(changesByType[keys.EVMKeyNonce])+len(changesByType[keys.EVMKeyCodeHash]))
-	codeOld = make(map[string]*vtype.CodeData, len(changesByType[keys.EVMKeyCode]))
-	legacyOld = make(map[string]*vtype.LegacyData, len(changesByType[keys.EVMKeyLegacy]))
-
-	storageBatch := collectPendingReads(s.storageWrites, storageOld, changesByType[keys.EVMKeyStorage])
-	// TODO: add balance changeMap when balance key is supported.
-	accountBatch := collectPendingReads(s.accountWrites, accountOld, changesByType[keys.EVMKeyNonce], changesByType[keys.EVMKeyCodeHash])
-	codeBatch := collectPendingReads(s.codeWrites, codeOld, changesByType[keys.EVMKeyCode])
-	legacyBatch := collectPendingReads(s.legacyWrites, legacyOld, changesByType[keys.EVMKeyLegacy])
-
-	type readJob struct {
-		batch map[string]types.BatchGetResult
-		db    types.KeyValueDB
-	}
-	jobs := [4]readJob{
-		{storageBatch, s.storageDB},
-		{accountBatch, s.accountDB},
-		{codeBatch, s.codeDB},
-		{legacyBatch, s.legacyDB},
-	}
-	readErrs := make([]error, 4)
-	var wg sync.WaitGroup
-	for i := range jobs {
-		idx := i
-		job := jobs[i]
-		if len(job.batch) > 0 {
-			wg.Add(1)
-			s.miscPool.Submit(func() {
-				defer wg.Done()
-				readErrs[idx] = job.db.BatchGet(job.batch)
-			})
-		}
-	}
-	wg.Wait()
-
-	if err = errors.Join(readErrs...); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to batch read old values: %w", err)
-	}
-
-	if err = deserializeBatchResults(storageBatch, storageOld, vtype.DeserializeStorageData, "storageDB"); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("deserialize storageDB old values: %w", err)
-	}
-	if err = deserializeBatchResults(accountBatch, accountOld, vtype.DeserializeAccountData, "accountDB"); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("deserialize accountDB old values: %w", err)
-	}
-	if err = deserializeBatchResults(codeBatch, codeOld, vtype.DeserializeCodeData, "codeDB"); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("deserialize codeDB old values: %w", err)
-	}
-	if err = deserializeBatchResults(legacyBatch, legacyOld, vtype.DeserializeLegacyData, "legacyDB"); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("deserialize legacyDB old values: %w", err)
-	}
-
-	return storageOld, accountOld, codeOld, legacyOld, nil
 }

@@ -70,7 +70,7 @@ package consensus
 //			ensureDir(t, path.Dir(thisConfig.Consensus.WalFile()), 0700) // dir for wal
 //			app := kvstore.NewApplication()
 //			vals := types.TM2PB.ValidatorUpdates(state.Validators)
-//			_, err = app.InitChain(ctx, &abci.RequestInitChain{Validators: vals})
+//			_, err = app.InitChain(&abci.RequestInitChain{Validators: vals})
 //			require.NoError(t, err)
 //
 //			blockDB := dbm.NewMemDB()
@@ -95,10 +95,10 @@ package consensus
 //
 //			// Make a full instance of the evidence pool
 //			evidenceDB := dbm.NewMemDB()
-//			evpool := evidence.NewPool(evidenceDB, stateStore, blockStore, evidence.NopMetrics(), eventBus)
+//			evpool := evidence.NewPool(evidenceDB, stateStore, blockStore, eventBus)
 //
 //			// Make State
-//			blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+//			blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus)
 //			cs, err := NewState( thisConfig.Consensus, stateStore, blockExec, blockStore, mempool, evpool, eventBus, []trace.TracerProviderOption{})
 //			require.NoError(t, err)
 //			// set private validator

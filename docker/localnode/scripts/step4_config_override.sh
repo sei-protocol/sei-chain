@@ -1,8 +1,10 @@
 #!/usr/bin/env sh
 
 NODE_ID=${ID:-0}
-GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
-GIGA_OCC=${GIGA_OCC:-false}
+# Defaults mirror the app's DefaultConfig (giga+OCC on): unset runs what an
+# unconfigured seid would; only an explicit false selects V2.
+GIGA_EXECUTOR=${GIGA_EXECUTOR:-true}
+GIGA_OCC=${GIGA_OCC:-true}
 AUTOBAHN=${AUTOBAHN:-false}
 GIGA_STORAGE=${GIGA_STORAGE:-false}
 # GIGA_FLATKV_ONLY=true boots the cluster directly in the terminal v3
@@ -105,28 +107,34 @@ if [ "$GIGA_STORAGE" = "true" ] && [ "$GIGA_MIGRATE_FROM_MEMIAVL" != "true" ] &&
   sed -i 's/^evm-ss-split[[:space:]]*=.*/evm-ss-split = true/' ~/.sei/config/app.toml
 fi
 
-# Enable Giga Executor if requested
+# Write the [giga_executor] section explicitly for every node. The Go config
+# default is Enabled=true and ReadConfig only overrides keys that are present,
+# so a node that never writes the section silently runs giga regardless of its
+# intended role. Emitting enabled/occ_enabled unconditionally keeps each node's
+# executor mode self-describing in app.toml and immune to that default flip.
 if [ "$GIGA_EXECUTOR" = "true" ]; then
+  GIGA_ENABLED_VALUE=true
   echo "Enabling Giga Executor for node $NODE_ID..."
-  if grep -q "\[giga_executor\]" ~/.sei/config/app.toml; then
-    # If the section exists, update enabled to true
-    sed -i 's/enabled = false/enabled = true/' ~/.sei/config/app.toml
-  else
-    # If section doesn't exist, append it
-    echo "" >> ~/.sei/config/app.toml
-    echo "[giga_executor]" >> ~/.sei/config/app.toml
-    echo "enabled = true" >> ~/.sei/config/app.toml
-    echo "occ_enabled = false" >> ~/.sei/config/app.toml
-  fi
+else
+  GIGA_ENABLED_VALUE=false
+  echo "Configuring node $NODE_ID with the V2 executor (Giga disabled)..."
+fi
+if [ "$GIGA_OCC" = "true" ]; then
+  GIGA_OCC_VALUE=true
+else
+  GIGA_OCC_VALUE=false
+fi
 
-  # Set OCC based on GIGA_OCC flag
-  if [ "$GIGA_OCC" = "true" ]; then
-    echo "Enabling OCC for Giga Executor on node $NODE_ID..."
-    sed -i 's/occ_enabled = false/occ_enabled = true/' ~/.sei/config/app.toml
-  else
-    echo "Disabling OCC for Giga Executor (sequential mode) on node $NODE_ID..."
-    sed -i 's/occ_enabled = true/occ_enabled = false/' ~/.sei/config/app.toml
-  fi
+if grep -q "\[giga_executor\]" ~/.sei/config/app.toml; then
+  # Section already present: rewrite its keys in place. The range address scopes
+  # the substitutions to the giga block so an identically-named key in another
+  # section (e.g. [telemetry] enabled) is never rewritten.
+  sed -i "/^\[giga_executor\]/,/^\[/{s/^enabled = .*/enabled = $GIGA_ENABLED_VALUE/;s/^occ_enabled = .*/occ_enabled = $GIGA_OCC_VALUE/;}" ~/.sei/config/app.toml
+else
+  echo "" >> ~/.sei/config/app.toml
+  echo "[giga_executor]" >> ~/.sei/config/app.toml
+  echo "enabled = $GIGA_ENABLED_VALUE" >> ~/.sei/config/app.toml
+  echo "occ_enabled = $GIGA_OCC_VALUE" >> ~/.sei/config/app.toml
 fi
 
 # Override receipt store backend if requested
@@ -157,7 +165,6 @@ if [ "$AUTOBAHN" = "true" ]; then
 
   # Generate autobahn config using seid
   seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
-
   # Inject autobahn config file path into config.toml
   # Must be placed before any [section] header so TOML parser reads it as a top-level key.
   if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then

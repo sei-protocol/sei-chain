@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 const (
@@ -60,9 +59,8 @@ type syncer struct {
 	fetchers      int32
 	retryTimeout  time.Duration
 
-	mtx     sync.RWMutex
-	chunks  *chunkQueue
-	metrics *Metrics
+	mtx    sync.RWMutex
+	chunks *chunkQueue
 
 	avgChunkTime             int64
 	lastSyncedSnapshotHeight int64
@@ -100,7 +98,7 @@ func (s *syncer) AddSnapshot(peerID types.NodeID, snapshot *snapshot) (bool, err
 		return false, err
 	}
 	if added {
-		s.metrics.TotalSnapshots.Add(1)
+		Global.TotalSnapshotsAt().Add(1)
 		logger.Info("discovered and added new snapshot", "peer", peerID, "height", snapshot.Height, "format", snapshot.Format, "hash", snapshot.Hash)
 	}
 	return added, nil
@@ -176,13 +174,13 @@ func (s *syncer) SyncAny(
 		}
 
 		s.processingSnapshot = snapshot
-		s.metrics.SnapshotChunkTotal.Set(float64(snapshot.Chunks))
+		Global.SnapshotChunkTotalAt().Set(int64(snapshot.Chunks))
 		logger.Info("starting state sync with picked snapshot", "height", snapshot.Height)
 		newState, commit, err := s.Sync(ctx, snapshot, chunks)
 		switch {
 		case err == nil:
-			s.metrics.SnapshotHeight.Set(float64(snapshot.Height))
-			s.lastSyncedSnapshotHeight = int64(snapshot.Height) //nolint:gosec // snapshot.Height is a valid block height
+			Global.SnapshotHeightAt().Set(int64(snapshot.Height)) //nolint:gosec // metric precision is not security-sensitive; overflow is acceptable here
+			s.lastSyncedSnapshotHeight = int64(snapshot.Height)   //nolint:gosec // snapshot.Height is a valid block height in this context
 			return newState, commit, nil
 
 		case errors.Is(err, errAbort):
@@ -416,9 +414,9 @@ func (s *syncer) applyChunks(ctx context.Context, chunks *chunkQueue, start time
 
 		switch resp.Result {
 		case abci.ResponseApplySnapshotChunk_ACCEPT:
-			s.metrics.SnapshotChunk.Add(1)
+			Global.SnapshotChunkAt().Add(1)
 			s.avgChunkTime = time.Since(start).Nanoseconds() / int64(chunks.numChunksReturned())
-			s.metrics.ChunkProcessAvgTime.Set(float64(s.avgChunkTime))
+			Global.ChunkProcessAvgTimeAt().Set(float64(s.avgChunkTime))
 		case abci.ResponseApplySnapshotChunk_ABORT:
 			return errAbort
 		case abci.ResponseApplySnapshotChunk_RETRY:
@@ -560,11 +558,7 @@ func (s *syncer) requestChunk(snapshot *snapshot, chunk uint32) {
 
 // verifyApp verifies the sync, checking the app hash, last block height and app version
 func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, appVersion uint64) error {
-	resp, err := s.conn.Info(ctx, &version.RequestInfo)
-	if err != nil {
-		return fmt.Errorf("failed to query ABCI app for appHash: %w", err)
-	}
-
+	resp := s.conn.Info()
 	// sanity check that the app version in the block matches the application's own record
 	// of its version
 	if resp.AppVersion != appVersion {

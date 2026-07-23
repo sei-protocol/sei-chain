@@ -358,16 +358,30 @@ func (coins Coins) safeAdd(coinsB Coins) Coins {
 
 // DenomsSubsetOf returns true if receiver's denom set
 // is subset of coinsB's denoms.
+//
+// Both coin sets — the receiver and coinsB — are assumed to be sorted ascending
+// by denomination and free of zero amounts (the Coins invariant enforced by
+// Validate/IsValid). The receiver must be sorted too: the merge walk only
+// advances forward through coinsB, so an unsorted receiver can produce a false
+// negative. Under the sorted invariant a denom is "present" iff it appears, so
+// this merge walk can run in O(len(coins) + len(coinsB)).
 func (coins Coins) DenomsSubsetOf(coinsB Coins) bool {
-	// more denoms in B than in receiver
+	// more denoms in receiver than in B => cannot be a subset
 	if len(coins) > len(coinsB) {
 		return false
 	}
 
+	indexB := 0
 	for _, coin := range coins {
-		if coinsB.AmountOf(coin.Denom).IsZero() {
+		// advance B until it reaches or passes coin's denom
+		for indexB < len(coinsB) && coinsB[indexB].Denom < coin.Denom {
+			indexB++
+		}
+		if indexB == len(coinsB) || coinsB[indexB].Denom != coin.Denom {
 			return false
 		}
+		// matched; both lists are duplicate-free so B never re-matches this denom
+		indexB++
 	}
 
 	return true

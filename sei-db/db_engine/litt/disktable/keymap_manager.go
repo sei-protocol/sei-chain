@@ -14,6 +14,11 @@ import (
 // keymapWriteRequest carries a batch of newly-durable keys to be written (put) into the keymap.
 type keymapWriteRequest struct {
 	keys []*types.ScopedKey
+
+	// uncompressedPutBytes is the total raw (pre-compression) value bytes represented by the primary keys in
+	// this batch. It feeds pendingPutBytes to bound the raw memory footprint of the unflushed-data cache,
+	// independent of how the values are represented on disk.
+	uncompressedPutBytes uint64
 }
 
 // keymapDeleteRequest carries the keys of a garbage-collected segment to be deleted from the keymap. segment
@@ -93,6 +98,12 @@ type keymapManager struct {
 	// the maximum number of keys coalesced into a single keymap Put or Delete
 	maxBatchSize int
 
+	// the maximum number of raw (pre-compression) value bytes a coalescing put batch may represent before it is
+	// applied, independent of key count. Bounds the raw memory footprint of the unflushed-data cache when values
+	// are large (few keys, many bytes). Measured in raw bytes because that is what the cache holds, independent
+	// of the compressed on-disk size.
+	maxBatchBytes uint64
+
 	// the maximum number of keys deleted from the keymap in a single keymap.Delete call
 	deleteBatchSize uint64
 
@@ -108,6 +119,12 @@ type keymapManager struct {
 	// puts is the put batch currently being accumulated. It is applied (one keymap.Put) before each delete
 	// sub-batch, so a put and a same-key delete in flight resolve to deleted (the delete wins).
 	puts []*types.ScopedKey
+
+	// pendingPutBytes is the total raw (pre-compression) value bytes represented by the primary keys in puts.
+	// Secondary keys are zero-copy sub-ranges of their primary's value in the unflushed-data cache, so counting
+	// primaries alone tracks the raw cache memory this batch will free when applied. Raw (not on-disk) bytes,
+	// since that is the memory the cache actually holds. Reset to zero whenever puts is applied.
+	pendingPutBytes uint64
 
 	// deleteBacklog holds garbage-collected segments' keys awaiting deletion, in arrival (FIFO) order —
 	// oldest segment first. It is drained one sub-batch at a time, interleaved with puts, so a large delete
@@ -144,6 +161,7 @@ func newKeymapManager(
 	name string,
 	channelSize int,
 	maxBatchSize int,
+	maxBatchBytes uint64,
 	deleteBatchSize uint64,
 	maxFlushInterval time.Duration,
 	maxBufferedDeletes uint64,
@@ -158,19 +176,22 @@ func newKeymapManager(
 		name:               name,
 		requestChan:        make(chan any, channelSize),
 		maxBatchSize:       maxBatchSize,
+		maxBatchBytes:      maxBatchBytes,
 		deleteBatchSize:    deleteBatchSize,
 		maxFlushInterval:   maxFlushInterval,
 		maxBufferedDeletes: maxBufferedDeletes,
 	}
 }
 
-// scheduleWrite enqueues a batch of newly-durable keys to be put into the keymap. Blocks if the manager's
-// channel is full (backpressure); returns an error only if the DB is panicking.
-func (m *keymapManager) scheduleWrite(keys []*types.ScopedKey) error {
+// scheduleWrite enqueues a batch of newly-durable keys to be put into the keymap. uncompressedPutBytes is the
+// total raw (pre-compression) value bytes the batch's primary keys represent, used to bound the unflushed-data
+// cache. Blocks if the manager's channel is full (backpressure); returns an error only if the DB is panicking.
+func (m *keymapManager) scheduleWrite(keys []*types.ScopedKey, uncompressedPutBytes uint64) error {
 	if len(keys) == 0 {
 		return nil
 	}
-	return util.Send(m.errorMonitor, m.requestChan, &keymapWriteRequest{keys: keys})
+	return util.Send(m.errorMonitor, m.requestChan,
+		&keymapWriteRequest{keys: keys, uncompressedPutBytes: uncompressedPutBytes})
 }
 
 // scheduleDelete enqueues a garbage-collected segment's keys to be deleted from the keymap. segment is the
@@ -215,16 +236,16 @@ func (m *keymapManager) sync() error {
 // draining all queued work) or when the error monitor signals an immediate shutdown (panic).
 //
 // Each cycle coalesces immediately-available work, then either applies a batch or blocks for more. A batch is
-// applied once the put batch is full or a delete backlog exists: puts are applied first (so a put followed by
-// a delete of the same key resolves to deleted), then a single delete sub-batch, which keeps puts flowing
-// while still making steady progress on a delete backlog.
+// applied once the put batch is full (by key count or by the value bytes it represents) or a delete backlog
+// exists: puts are applied first (so a put followed by a delete of the same key resolves to deleted), then a
+// single delete sub-batch, which keeps puts flowing while still making steady progress on a delete backlog.
 func (m *keymapManager) run() {
 	for {
 		if m.coalesce() {
 			return
 		}
 
-		if len(m.puts) >= m.maxBatchSize || len(m.deleteBacklog) > 0 {
+		if len(m.puts) >= m.maxBatchSize || m.pendingPutBytes >= m.maxBatchBytes || len(m.deleteBacklog) > 0 {
 			// Enough work to apply: puts first (delete wins on a same-key collision), then one delete
 			// sub-batch so the backlog drains without starving puts.
 			if !m.flushPuts() {
@@ -258,10 +279,10 @@ func (m *keymapManager) refreshBackpressure() {
 }
 
 // coalesce drains immediately-available requests into the put batch and delete backlog without blocking,
-// stopping once the put batch is full, the delete backlog reaches its high-water mark (backpressure engages),
-// or no request is ready. Returns true if the manager must stop.
+// stopping once the put batch is full (by key count or represented value bytes), the delete backlog reaches
+// its high-water mark (backpressure engages), or no request is ready. Returns true if the manager must stop.
 func (m *keymapManager) coalesce() bool {
-	for len(m.puts) < m.maxBatchSize && !m.backpressure {
+	for len(m.puts) < m.maxBatchSize && m.pendingPutBytes < m.maxBatchBytes && !m.backpressure {
 		select {
 		case <-m.errorMonitor.ImmediateShutdownRequired():
 			return true
@@ -297,6 +318,7 @@ func (m *keymapManager) routeRequest(msg any) bool {
 	switch req := msg.(type) {
 	case *keymapWriteRequest:
 		m.puts = append(m.puts, req.keys...)
+		m.pendingPutBytes += req.uncompressedPutBytes
 	case *keymapDeleteRequest:
 		m.enqueueDelete(req)
 	case *keymapManagerSyncRequest:
@@ -343,6 +365,7 @@ func (m *keymapManager) flushPuts() bool {
 			return false
 		}
 		m.puts = nil
+		m.pendingPutBytes = 0
 	}
 	m.stopFlushTimer()
 	return true

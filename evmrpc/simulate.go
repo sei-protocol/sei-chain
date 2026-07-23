@@ -117,6 +117,9 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.Transaction
 	defer func() {
 		recordMetricsWithError(ctx, "eth_estimateGas", s.connectionType, startTime, returnErr, recover())
 	}()
+	if returnErr = validateStateOverrides(overrides, s.backend.MaxStateOverrideAccounts(), s.backend.MaxStateOverrideSlots()); returnErr != nil {
+		return
+	}
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
@@ -144,6 +147,9 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 		returnErr = fmt.Errorf("eth_estimateGasAfterCalls: too many calls (%d > %d)", len(calls), maxCalls)
 		return
 	}
+	if returnErr = validateStateOverrides(overrides, s.backend.MaxStateOverrideAccounts(), s.backend.MaxStateOverrideSlots()); returnErr != nil {
+		return
+	}
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
@@ -166,6 +172,9 @@ func (s *SimulationAPI) Call(ctx context.Context, args export.TransactionArgs, b
 	defer func() {
 		recordMetricsWithError(ctx, "eth_call", s.connectionType, startTime, returnErr, recover())
 	}()
+	if returnErr = validateStateOverrides(overrides, s.backend.MaxStateOverrideAccounts(), s.backend.MaxStateOverrideSlots()); returnErr != nil {
+		return
+	}
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
@@ -225,7 +234,7 @@ func (e *RevertError) ErrorCode() int {
 }
 
 // ErrorData returns the hex encoded revert reason.
-func (e *RevertError) ErrorData() interface{} {
+func (e *RevertError) ErrorData() any {
 	return e.reason
 }
 
@@ -234,6 +243,8 @@ type SimulateConfig struct {
 	EVMTimeout                   time.Duration
 	MaxConcurrentSimulationCalls int
 	MaxEstimateGasCalls          int
+	MaxStateOverrideAccounts     int
+	MaxStateOverrideSlots        int
 }
 
 var _ tracers.Backend = (*Backend)(nil)
@@ -302,22 +313,52 @@ func (b *Backend) SetTraceContextProvider(provider TraceContextProvider) {
 	}
 }
 
+func (b *Backend) isLatest(ctx context.Context, x rpc.BlockNumberOrHash) (bool, error) {
+	if x.BlockHash != nil {
+		return false, nil
+	}
+	if x.BlockNumber == nil {
+		return true, nil
+	}
+	resolved, err := getBlockNumber(ctx, b.tmClient, *x.BlockNumber)
+	return resolved == nil, err
+}
+
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
-	tmBlock, isLatestBlock, err := b.getBlockByNumberOrHash(ctx, blockNrOrHash)
+	sdkCtx := b.ctxProvider(LatestCtxHeight)
+	zeroExcessBlobGas := uint64(0)
+	header := &ethtypes.Header{
+		Difficulty:    common.Big0,
+		Number:        big.NewInt(sdkCtx.BlockHeight()),
+		BaseFee:       b.keeper.GetNextBaseFeePerGas(sdkCtx).TruncateInt().BigInt(),
+		GasLimit:      keeper.DefaultBlockGasLimit,
+		Time:          toUint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
+		ExcessBlobGas: &zeroExcessBlobGas,
+	}
+	isLatest, err := b.isLatest(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, nil, err
 	}
-	height := tmBlock.Block.Height
-	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
-	sdkCtx := b.ctxProvider(height).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
-	if !isLatestBlock {
-		// no need to check version for latest block
-		if err := CheckVersion(sdkCtx, b.keeper); err != nil {
+	if !isLatest || sdkCtx.BlockHeight() > 0 {
+		tmBlock, isLatest, err := b.getBlockByNumberOrHash(ctx, blockNrOrHash)
+		if err != nil {
 			return nil, nil, err
 		}
+		header.Number = big.NewInt(tmBlock.Block.Height)
+		header.Time = toUint64(tmBlock.Block.Time.Unix())
+		header.ParentHash = common.BytesToHash(tmBlock.BlockID.Hash)
+		sdkCtx = b.ctxProvider(tmBlock.Block.Height)
+		if !isLatest {
+			if err := CheckVersion(sdkCtx, b.keeper); err != nil {
+				return nil, nil, err
+			}
+		}
 	}
-	header := b.getHeader(ctx, tmBlock)
-	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
+	sdkCtx = sdkCtx.WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
+	if cp := sdkCtx.ConsensusParams(); cp != nil && cp.Block != nil {
+		header.GasLimit = uint64(cp.Block.MaxGas) //nolint:gosec
+	}
 	return state.NewDBImpl(sdkCtx, b.keeper, true), header, nil
 }
 
@@ -439,7 +480,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 			})
 		}
 	}
-	header := b.getHeader(ctx, tmBlock)
+	header := b.getHeader(tmBlock)
 	block := &ethtypes.Block{
 		Header_: header,
 		Txs:     txs,
@@ -462,6 +503,32 @@ func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
 func (b *Backend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
 
 func (b *Backend) MaxEstimateGasCalls() int { return b.config.MaxEstimateGasCalls }
+
+func (b *Backend) MaxStateOverrideAccounts() int { return b.config.MaxStateOverrideAccounts }
+
+func (b *Backend) MaxStateOverrideSlots() int { return b.config.MaxStateOverrideSlots }
+
+// validateStateOverrides bounds the size of a state override to protect against
+// requests that allocate unbounded overlay memory during simulation.
+func validateStateOverrides(overrides *export.StateOverride, maxAccounts, maxSlots int) error {
+	if overrides == nil {
+		return nil
+	}
+	if maxAccounts > 0 && len(*overrides) > maxAccounts {
+		return fmt.Errorf("state override has too many accounts (%d > %d)", len(*overrides), maxAccounts)
+	}
+	if maxSlots > 0 {
+		for addr, account := range *overrides {
+			if len(account.State) > maxSlots {
+				return fmt.Errorf("state override for %s has too many slots (%d > %d)", addr.Hex(), len(account.State), maxSlots)
+			}
+			if len(account.StateDiff) > maxSlots {
+				return fmt.Errorf("stateDiff override for %s has too many slots (%d > %d)", addr.Hex(), len(account.StateDiff), maxSlots)
+			}
+		}
+	}
+	return nil
+}
 
 func (b *Backend) chainConfigForHeight(height int64) *params.ChainConfig {
 	ctx := b.ctxProvider(height)
@@ -490,7 +557,7 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 	if err != nil {
 		return nil, err
 	}
-	return b.getHeader(ctx, tmBlock), nil
+	return b.getHeader(tmBlock), nil
 }
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
@@ -594,7 +661,7 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ctxProvider TraceContextProvider) (sdk.Context, *coretypes.ResultBlock, tracers.StateReleaseFunc, error) {
 	emptyRelease := func() {}
 	// get the parent block using block.parentHash
-	prevBlockHeight := block.Number().Int64() - 1
+	prevBlockHeight := max(block.Number().Int64()-1, 0)
 
 	blockNumber := block.Number().Int64()
 	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNumber, 1)
@@ -639,7 +706,7 @@ func (b *Backend) CurrentHeader() *ethtypes.Header {
 	ctx := context.Background()
 	var header *ethtypes.Header
 	if tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &height, 1); err == nil {
-		header = b.getHeader(ctx, tmBlock)
+		header = b.getHeader(tmBlock)
 	} else {
 		header = b.fallbackToEthHeaderOnly(height)
 	}
@@ -654,37 +721,26 @@ func (b *Backend) SuggestGasTipCap(context.Context) (*big.Int, error) {
 // getBlockByNumberOrHash resolves blockNrOrHash to a Tendermint ResultBlock in one RPC path
 // (by hash or by number, including latest). Callers pass the result to getHeader.
 func (b *Backend) getBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*coretypes.ResultBlock, bool, error) {
-	var (
-		block         *coretypes.ResultBlock
-		err           error
-		isLatestBlock bool
-	)
-
 	if blockNrOrHash.BlockHash != nil {
-		block, err = blockByHashRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNrOrHash.BlockHash[:], 1)
+		block, err := blockByHashRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNrOrHash.BlockHash[:], 1)
 		if err != nil {
 			return nil, false, err
 		}
 		return block, false, nil
 	}
-
 	var blockNumberPtr *int64
 	if blockNrOrHash.BlockNumber != nil {
+		var err error
 		blockNumberPtr, err = getBlockNumber(ctx, b.tmClient, *blockNrOrHash.BlockNumber)
 		if err != nil {
 			return nil, false, err
 		}
-		if blockNumberPtr == nil {
-			isLatestBlock = true
-		}
-	} else {
-		isLatestBlock = true
 	}
-	block, err = blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNumberPtr, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNumberPtr, 1)
 	if err != nil {
 		return nil, false, err
 	}
-	return block, isLatestBlock, nil
+	return block, blockNumberPtr == nil, nil
 }
 
 // fallbackToEthHeaderOnly builds a minimal header when the block cannot be loaded
@@ -700,7 +756,7 @@ func (b *Backend) fallbackToEthHeaderOnly(height int64) *ethtypes.Header {
 	}
 }
 
-func (b *Backend) getHeader(ctx context.Context, tmBlock *coretypes.ResultBlock) *ethtypes.Header {
+func (b *Backend) getHeader(tmBlock *coretypes.ResultBlock) *ethtypes.Header {
 	height := tmBlock.Block.Height
 	zeroExcessBlobGas := uint64(0)
 	baseFee := b.keeper.GetNextBaseFeePerGas(b.ctxProvider(height - 1)).TruncateInt().BigInt()

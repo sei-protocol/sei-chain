@@ -173,6 +173,13 @@ func buildMigrateEVMRouter(
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
+	readonly := memIAVL.GetDB().ReadOnly()
+	if !readonly {
+		logger.Info("created new EVM migration manager",
+			"startVersion", Version0_MemiavlOnly,
+			"targetVersion", Version1_MigrateEVM,
+			"boundary", migrationManager.boundary.String())
+	}
 
 	nonEVMModules, err := keys.AllModulesExcept(keys.EVMStoreKey)
 	if err != nil {
@@ -602,7 +609,14 @@ func buildFlatKVReader(flatKV flatkv.Store) DBReader {
 // Build a function capable of writing data to flatkv.
 func buildFlatKVWriter(flatKV flatkv.Store) DBWriter {
 	return func(changesets []*proto.NamedChangeSet, _ bool) error {
-		err := flatKV.ApplyChangeSets(changesets)
+		// Stamp at the next commit height so Apply/Commit versions match
+		// under the sequential composite commit path. Note this is called
+		// once per registered Route per block (ModuleRouter fans out to
+		// every route on every call, see ModuleRouter.ApplyChangeSets), so
+		// multiple calls may legitimately target the same height within one
+		// block; flatKV.ApplyChangeSets tolerates repeat calls at the same
+		// (non-decreasing) height.
+		err := flatKV.ApplyChangeSets(flatKV.Version()+1, changesets)
 		if err != nil {
 			return fmt.Errorf("ApplyChangeSets: %w", err)
 		}

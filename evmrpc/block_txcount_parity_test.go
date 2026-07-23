@@ -18,7 +18,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	tmmock "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -29,7 +28,7 @@ const parityTestHeight int64 = 771
 
 // Tendermint client stub for Block / BlockByHash / Status (count by number and by hash).
 type parityTxCountTMClient struct {
-	tmmock.Client
+	client.Client
 	block *coretypes.ResultBlock
 }
 
@@ -129,7 +128,7 @@ func TestBlockTransactionCountMatchesGetBlockByNumber(t *testing.T) {
 	list := encoded["transactions"].([]interface{})
 
 	tm := &parityTxCountTMClient{block: block}
-	wm := evmrpc.NewWatermarkManager(tm, ctxProvider, nil, nil)
+	wm := evmrpc.NewWatermarkManager(tm, ctxProvider, nil, k.ReceiptStore())
 	api := evmrpc.NewBlockAPI(tm, k, ctxProvider, txConfigProvider, evmrpc.ConnectionTypeHTTP, wm, cache, mu)
 	rpcCount, err := api.GetBlockTransactionCountByNumber(context.Background(), rpc.BlockNumber(parityTestHeight))
 	require.NoError(t, err)

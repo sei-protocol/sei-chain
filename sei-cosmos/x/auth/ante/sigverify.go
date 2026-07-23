@@ -277,10 +277,10 @@ func (svd SigVerificationDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simul
 		}
 
 		// retrieve signer data
-		genesis := ctx.BlockHeight() == 0
+		// Genesis gentxs are delivered under InitChain before normal account-number semantics apply.
 		chainID := ctx.ChainID()
 		var accNum uint64
-		if !genesis {
+		if !ctx.IsGenesis() {
 			accNum = acc.GetAccountNumber()
 		}
 		signerData := authsigning.SignerData{

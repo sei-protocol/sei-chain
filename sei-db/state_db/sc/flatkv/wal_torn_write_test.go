@@ -77,7 +77,7 @@ func prepareStoreWithManualWALTail(t *testing.T) (*config.Config, []byte, []byte
 	tailStart := walSegmentSize(t, filepath.Join(cfg.DataDir, changelogDir))
 
 	cs := makeChangeSet(key, padLeft32(0x05), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	require.NoError(t, s.changelog.Write(proto.ChangelogEntry{
 		Version:    5,
 		Changesets: s.pendingChangeSets,

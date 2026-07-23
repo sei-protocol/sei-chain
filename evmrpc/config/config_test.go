@@ -49,6 +49,11 @@ type opts struct {
 	maxConcurrentRequestBytes    interface{}
 	maxOpenConnections           interface{}
 	maxTraceStructLogBytes       interface{}
+	traceAllowedTracers          interface{}
+	traceAllowJSTracers          interface{}
+	traceBakeTracers             interface{}
+	maxStateOverrideAccounts     interface{}
+	maxStateOverrideSlots        interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -151,10 +156,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.enabled_legacy_sei_apis" {
 		return nil
 	}
+	if k == "evm.trace_bake_tracers" {
+		return o.traceBakeTracers
+	}
 	if k == "evm.trace_bake_enabled" ||
 		k == "evm.trace_bake_workers" ||
 		k == "evm.trace_bake_queue_size" ||
-		k == "evm.trace_bake_tracers" ||
 		k == "evm.trace_bake_window_blocks" ||
 		k == "evm.trace_bake_use_snapshot" ||
 		k == "evm.trace_bake_snapshot_window" {
@@ -183,6 +190,18 @@ func (o *opts) Get(k string) interface{} {
 	}
 	if k == "evm.max_trace_struct_log_bytes" {
 		return o.maxTraceStructLogBytes
+	}
+	if k == "evm.trace_allowed_tracers" {
+		return o.traceAllowedTracers
+	}
+	if k == "evm.trace_allow_js_tracers" {
+		return o.traceAllowJSTracers
+	}
+	if k == "evm.max_state_override_accounts" {
+		return o.maxStateOverrideAccounts
+	}
+	if k == "evm.max_state_override_slots" {
+		return o.maxStateOverrideSlots
 	}
 	panic("unknown key")
 }
@@ -230,6 +249,11 @@ func getDefaultOpts() opts {
 		int64(128 * 1024 * 1024),
 		2000,
 		uint64(256 * 1024 * 1024),
+		[]string{"callTracer", "prestateTracer"},
+		false,
+		nil,
+		7,
+		9,
 	}
 }
 
@@ -240,8 +264,15 @@ func TestReadConfig(t *testing.T) {
 	require.False(t, cfg.EnableParallelizedBlockTrace)
 	// Round-trip: an explicitly-supplied value overrides the default.
 	require.Equal(t, uint64(256*1024*1024), cfg.MaxTraceStructLogBytes)
+	require.Equal(t, []string{"callTracer", "prestateTracer"}, cfg.TraceAllowedTracers)
+	require.False(t, cfg.TraceAllowJSTracers)
 	// The shipped default (used when the operator supplies no value).
 	require.Equal(t, uint64(32*1024*1024), config.DefaultConfig.MaxTraceStructLogBytes)
+	// State override caps: round-trip the supplied values, and assert shipped defaults.
+	require.Equal(t, 7, cfg.MaxStateOverrideAccounts)
+	require.Equal(t, 9, cfg.MaxStateOverrideSlots)
+	require.Equal(t, 100, config.DefaultConfig.MaxStateOverrideAccounts)
+	require.Equal(t, 1000, config.DefaultConfig.MaxStateOverrideSlots)
 	badOpts := goodOpts
 	badOpts.httpEnabled = "bad"
 	_, err = config.ReadConfig(&badOpts)
@@ -340,6 +371,31 @@ func TestReadConfig(t *testing.T) {
 
 	badOpts = goodOpts
 	badOpts.maxTraceStructLogBytes = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.traceAllowedTracers = map[string]interface{}{}
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.traceAllowedTracers = []string{"callTracer", "function() { return {}; }"}
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.traceAllowJSTracers = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.maxStateOverrideAccounts = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.maxStateOverrideSlots = "bad"
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
@@ -500,6 +556,63 @@ func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {
 	cfg, err := config.ReadConfig(&opts)
 	require.NoError(t, err)
 	require.True(t, cfg.EnableParallelizedBlockTrace)
+}
+
+func TestReadConfigTraceAllowedTracers(t *testing.T) {
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, config.DefaultTraceAllowedTracers(), cfg.TraceAllowedTracers)
+
+	opts := getDefaultOpts()
+	opts.traceAllowedTracers = []string{
+		"callTracer",
+		"callTracer",
+		"  flatCallTracer  ",
+	}
+	cfg, err = config.ReadConfig(&opts)
+	require.NoError(t, err)
+	require.Equal(t, []string{"callTracer", "flatCallTracer"}, cfg.TraceAllowedTracers)
+
+	opts.traceAllowedTracers = []string{"callTracer", ""}
+	_, err = config.ReadConfig(&opts)
+	require.Error(t, err)
+
+	opts.traceAllowedTracers = []string{"callTracer", "badTracer"}
+	_, err = config.ReadConfig(&opts)
+	require.Error(t, err)
+
+	opts.traceAllowedTracers = []string{"callTracer", "function() { return {}; }"}
+	opts.traceAllowJSTracers = true
+	_, err = config.ReadConfig(&opts)
+	require.Error(t, err, "trace_allowed_tracers remains native-only even when JS tracers are allowed")
+
+	opts.traceAllowedTracers = []string{"callTracer"}
+	opts.traceAllowJSTracers = true
+	cfg, err = config.ReadConfig(&opts)
+	require.NoError(t, err)
+	require.True(t, cfg.TraceAllowJSTracers)
+}
+
+func TestReadConfigTraceBakeTracers(t *testing.T) {
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"callTracer"}, cfg.TraceBakeTracers)
+
+	o := getDefaultOpts()
+	o.traceBakeTracers = []string{"prestateTracer", "  callTracer  ", "prestateTracer"}
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Equal(t, []string{"prestateTracer", "callTracer"}, cfg.TraceBakeTracers)
+
+	o.traceBakeTracers = []string{"callTracer", "badTracer"}
+	_, err = config.ReadConfig(&o)
+	require.Error(t, err)
+
+	// A JS-looking name must fail at startup rather than being evaluated as
+	// JS source by the baker on every committed block.
+	o.traceBakeTracers = []string{"function() { return {}; }"}
+	_, err = config.ReadConfig(&o)
+	require.Error(t, err)
 }
 
 func TestReadConfigMaxSubscriptionsLogs(t *testing.T) {

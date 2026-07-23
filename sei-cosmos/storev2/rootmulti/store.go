@@ -531,8 +531,14 @@ func (rs *Store) SetWriteMode(mode sctypes.WriteMode) error {
 	rs.mtx.Lock()
 	defer rs.mtx.Unlock()
 
+	prev, hadPrev := rs.GetWriteMode()
+
 	if err := rs.scStore.SetWriteMode(mode); err != nil {
 		return fmt.Errorf("failed to set SC store write mode: %w", err)
+	}
+
+	if hadPrev && prev != mode {
+		logger.Info("SC store write mode changed", "from", prev, "to", mode)
 	}
 	return nil
 }
@@ -727,7 +733,7 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 		return nil
 	}
 	if configured != sctypes.Auto {
-		logger.Info(
+		logger.Error(
 			"migration requested (batch size > 0) but the SC write mode is pinned to fixed "+
 				"memiavl_only by configuration; skipping migration kick-off. This node opts out of "+
 				"the migration and will intentionally diverge from the network at the activation "+
@@ -738,6 +744,7 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 	if err := rs.SetWriteMode(sctypes.MigrateEVM); err != nil {
 		return fmt.Errorf("failed to start EVM migration (memiavl_only -> migrate_evm): %w", err)
 	}
+
 	return nil
 }
 

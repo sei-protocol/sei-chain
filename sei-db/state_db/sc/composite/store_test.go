@@ -18,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -30,10 +31,15 @@ var _ flatkv.Store = (*failingEVMStore)(nil)
 func (f *failingEVMStore) LoadVersion(int64, bool) (flatkv.Store, error) {
 	return nil, fmt.Errorf("flatkv unavailable")
 }
-func (f *failingEVMStore) ApplyChangeSets([]*proto.NamedChangeSet) error { return nil }
-func (f *failingEVMStore) Commit() (int64, error)                        { return 0, nil }
-func (f *failingEVMStore) SetInitialVersion(int64) error                 { return nil }
-func (f *failingEVMStore) Get(string, []byte) ([]byte, bool)             { return nil, false }
+func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error {
+	return nil
+}
+func (f *failingEVMStore) Commit(int64) (int64, error) { return 0, nil }
+func (f *failingEVMStore) CommitBlock(int64, []*proto.NamedChangeSet) error {
+	return nil
+}
+func (f *failingEVMStore) SetInitialVersion(int64) error     { return nil }
+func (f *failingEVMStore) Get(string, []byte) ([]byte, bool) { return nil, false }
 func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
 	return -1, false, nil
 }
@@ -44,6 +50,7 @@ func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, 
 }
 func (f *failingEVMStore) RootHash() []byte                              { return nil }
 func (f *failingEVMStore) Version() int64                                { return 0 }
+func (f *failingEVMStore) PendingVersion() int64                         { return 0 }
 func (f *failingEVMStore) EarliestVersion() int64                        { return 0 }
 func (f *failingEVMStore) GetLatestVersion() (int64, error)              { return 0, nil }
 func (f *failingEVMStore) WriteSnapshot(string) error                    { return nil }
@@ -1042,6 +1049,13 @@ func evmMigratedConfig() config.StateCommitConfig {
 	cfg.MemIAVLConfig.SnapshotInterval = 1
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	// With SnapshotInterval=1 every commit produces a snapshot, and FlatKV
+	// mirrors this cadence via alignFlatKVSnapshotWithMemIAVL. The default
+	// keep-recent of 1 would prune all but the two newest snapshots, so a
+	// rollback/reconcile to an older version (e.g. v3 after committing v5)
+	// could no longer find a base snapshot at-or-below the target. Retain all
+	// snapshots for the short duration of a test so those paths stay valid.
+	cfg.MemIAVLConfig.SnapshotKeepRecent = 100
 	return cfg
 }
 
@@ -2611,4 +2625,62 @@ func TestLoadVersionReadOnlyDuringMigrateEVMTransition(t *testing.T) {
 	require.NoError(t, err, "evm/ read must not fail with store-not-found on the read-only handle")
 	require.True(t, found, "pre-migration evm/ value must be visible to the read-only handle")
 	require.Equal(t, []byte(evmVal), got)
+}
+
+func TestAlignFlatKVSnapshotWithMemIAVL(t *testing.T) {
+	t.Run("FlatKV derives interval and keep-recent from a non-zero memIAVL", func(t *testing.T) {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotInterval = 5000
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 3
+		// Start FlatKV from divergent values to prove they get overwritten.
+		cfg.FlatKVConfig.SnapshotInterval = 111
+		cfg.FlatKVConfig.SnapshotKeepRecent = 222
+
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(5000), cfg.FlatKVConfig.SnapshotInterval)
+		require.Equal(t, uint32(3), cfg.FlatKVConfig.SnapshotKeepRecent)
+	})
+
+	t.Run("a zero memIAVL keep-recent resolves to the healed default", func(t *testing.T) {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 0
+		// FlatKV must not mirror the raw 0 (which would prune everything but the
+		// latest). Instead it mirrors the value FillDefaults will heal memIAVL to,
+		// keeping the two in lockstep. memIAVL's own 0 is left for FillDefaults.
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(0), cfg.MemIAVLConfig.SnapshotKeepRecent)
+		require.Equal(t, uint32(memiavl.DefaultSnapshotKeepRecent), cfg.FlatKVConfig.SnapshotKeepRecent)
+	})
+
+	t.Run("a zero memIAVL interval resolves to the healed default", func(t *testing.T) {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotInterval = 0
+		// A raw 0 would disable FlatKV auto-snapshots; instead FlatKV mirrors the
+		// value FillDefaults will heal memIAVL's interval to.
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(memiavl.DefaultSnapshotInterval), cfg.FlatKVConfig.SnapshotInterval)
+		require.NotZero(t, cfg.FlatKVConfig.SnapshotInterval)
+	})
+
+	t.Run("an explicit FlatKV override loses to memIAVL's healed default", func(t *testing.T) {
+		// Upgrade scenario: an old app.toml still pins an explicit FlatKV
+		// keep-recent/interval (the previous template rendered flatkv.* keys)
+		// while sc-* is 0. FlatKV must follow memIAVL's effective (healed) cadence
+		// rather than staying pinned to the stale explicit value, otherwise the
+		// two backends diverge (memIAVL heals 0 -> default, FlatKV keeps the old
+		// explicit value).
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 0
+		cfg.MemIAVLConfig.SnapshotInterval = 0
+		cfg.FlatKVConfig.SnapshotKeepRecent = 2
+		cfg.FlatKVConfig.SnapshotInterval = 7777
+
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(memiavl.DefaultSnapshotKeepRecent), cfg.FlatKVConfig.SnapshotKeepRecent)
+		require.Equal(t, uint32(memiavl.DefaultSnapshotInterval), cfg.FlatKVConfig.SnapshotInterval)
+	})
 }

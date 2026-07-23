@@ -27,10 +27,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
-var m = PrometheusMetrics(config.TestConfig().Instrumentation.Namespace)
+var m = Global
 
 type reactorTestSuite struct {
 	network *p2p.TestNetwork
@@ -55,7 +54,7 @@ func setup(
 	if conn == nil {
 		conn = newTestStatesyncApp()
 	}
-	proxyConn := proxy.New(conn, proxy.NopMetrics())
+	proxyConn := proxy.New(conn)
 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
 		NumNodes: 1,
@@ -79,7 +78,6 @@ func setup(
 		stateStore,
 		blockStore,
 		"",
-		m,
 		nil,   // eventbus can be nil
 		nil,   // post-sync-hook
 		false, // run Sync during Start()
@@ -98,7 +96,6 @@ func setup(
 			tempDir:       t.TempDir(),
 			fetchers:      cfg.Fetchers,
 			retryTimeout:  cfg.ChunkRequestTimeout,
-			metrics:       reactor.metrics,
 		}
 	}
 
@@ -167,7 +164,7 @@ func TestReactor_Sync(t *testing.T) {
 		appConn.applySnapshotChunk.Set(func(context.Context, *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) {
 			return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
 		})
-		appConn.info.Push(mkHandler(&version.RequestInfo, &abci.ResponseInfo{
+		appConn.info.Push(mkConst(&abci.ResponseInfo{
 			AppVersion:       testAppVersion,
 			LastBlockHeight:  snapshotHeight,
 			LastBlockAppHash: chain[snapshotHeight+1].AppHash,

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"net/url"
 	"path/filepath"
 	"slices"
@@ -16,6 +15,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -25,7 +25,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 // maxInboundFullnodePeers caps GigaRouterCommonConfig.MaxInboundFullnodePeers.
@@ -70,19 +69,24 @@ func buildDataState(cfg *GigaRouterCommonConfig) (*data.State, error) {
 	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
 	}
-	committee, err := atypes.NewRoundRobinElection(
-		slices.Collect(maps.Keys(cfg.ValidatorAddrs)),
-		atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight), // nolint:gosec // verified to be positive.
-		cfg.GenDoc.GenesisTime,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
+	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
+	genesisWeights := map[atypes.PublicKey]uint64{}
+	for k := range cfg.ValidatorAddrs {
+		genesisWeights[k] = 1
 	}
-	dataWAL, err := data.NewDataWAL(cfg.PersistentStateDir, committee)
+	genesisCommittee, err := atypes.NewCommittee(genesisWeights)
+	if err != nil {
+		return nil, fmt.Errorf("genesis committee: %w", err)
+	}
+	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime)
+	if err != nil {
+		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
+	}
+	dataWAL, err := data.NewDataWAL(cfg.PersistentStateDir, registry.FirstBlock())
 	if err != nil {
 		return nil, fmt.Errorf("data.NewDataWAL(): %w", err)
 	}
-	dataState, err := data.NewState(&data.Config{Committee: committee}, dataWAL)
+	dataState, err := data.NewState(&data.Config{Registry: registry}, dataWAL)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState(): %w", err)
 	}
@@ -346,10 +350,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 
 	app := r.app
 
-	info, err := app.Info(ctx, &version.RequestInfo)
-	if err != nil {
-		return fmt.Errorf("App.Info(): %w", err)
-	}
+	info := app.Info()
 	last, ok := utils.SafeCast[atypes.GlobalBlockNumber](info.LastBlockHeight)
 	if !ok {
 		return fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
@@ -364,7 +365,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		// Re-entering on restart (crashed after InitChain, before first
 		// Commit) is safe — nothing was committed, so it behaves as a
 		// fresh init.
-		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
+		if _, err := app.InitChain(r.cfg.GenDoc.ToRequestInitChain()); err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
 		var ok bool
@@ -373,6 +374,17 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			return fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
 		}
 	} else {
+		b, err := r.data.GlobalBlock(ctx, last)
+		if err != nil {
+			return fmt.Errorf("r.data.GlobalBlock(): %w", err)
+		}
+		app.InitLastHeader((&types.Header{
+			ChainID: r.cfg.GenDoc.ChainID,
+			Height:  int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
+			Time:    b.Timestamp,
+			// TODO: for consistency we should also set proposerAddress here,
+			// but this is a placeholder solution so maybe we don't care.
+		}).ToProto())
 		// Re-commit the last finalized block's app hash to the equivocation guard before re-proposing it
 		// for AppQC voting (PushAppHash below), mirroring executeBlock's commit-before-PushAppHash
 		// ordering. On a normal restart this idempotently matches the hash recorded when `last` was
@@ -460,6 +472,9 @@ func (r *gigaRouterCommon) dialAndRunConn(
 		return r.poolOut.InsertAndRun(ctx, peerKey, client, func(ctx context.Context) error {
 			return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				s.Spawn(func() error { return client.Run(ctx, hConn.conn) })
+				Global.gigaNewConnsAt("out").Add(1)
+				Global.gigaConnsAt("out").Add(1)
+				defer Global.gigaConnsAt("out").Add(-1)
 				return runClient(ctx, client)
 			})
 		})
@@ -496,6 +511,9 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			s.Spawn(func() error { return server.Run(ctx, hConn.conn) })
+			Global.gigaNewConnsAt("in").Add(1)
+			Global.gigaConnsAt("in").Add(1)
+			defer Global.gigaConnsAt("in").Add(-1)
 			if err := r.service.RunInbound(ctx, server, isCommittee); err != nil {
 				return fmt.Errorf("inbound from %v: %w", key, err)
 			}
@@ -508,6 +526,6 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 // None if the caller should handle it locally. Overridden on
 // *gigaValidatorRouter to short-circuit self-shard sends.
 func (r *gigaRouterCommon) EvmProxy(sender common.Address) utils.Option[*url.URL] {
-	shardValidator := r.data.Committee().EvmShard(sender)
+	shardValidator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
 	return utils.Some(r.cfg.ValidatorAddrs[shardValidator].EVMRPC)
 }

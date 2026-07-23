@@ -1314,6 +1314,210 @@ func TestWithdrawValidatorCommission_UnitTest(t *testing.T) {
 	require.True(t, success)
 }
 
+func runDistrQuery(t *testing.T, ctx sdk.Context, testApp *app.App, p *pcommon.DynamicGasPrecompile, methodID []byte, args ...interface{}) ([]byte, *abitypes.Method) {
+	k := &testApp.EvmKeeper
+	stateDb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{
+		StateDB: stateDb,
+	}
+	method, err := p.ABI.MethodById(methodID)
+	require.Nil(t, err)
+	inputs, err := method.Inputs.Pack(args...)
+	require.Nil(t, err)
+	ret, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), uint64(1000000), nil, nil, true, false)
+	require.Nil(t, err)
+	return ret, method
+}
+
+func TestQueryParams(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+
+	distrParams := testApp.DistrKeeper.GetParams(ctx)
+	distrParams.CommunityTax = sdk.NewDecWithPrec(2, 2)
+	distrParams.BaseProposerReward = sdk.NewDecWithPrec(1, 2)
+	distrParams.BonusProposerReward = sdk.NewDecWithPrec(4, 2)
+	distrParams.WithdrawAddrEnabled = true
+	testApp.DistrKeeper.SetParams(ctx, distrParams)
+
+	p, err := distribution.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+
+	ret, method := runDistrQuery(t, ctx, testApp, p, p.GetExecutor().(*distribution.PrecompileExecutor).ParamsID)
+	expected, err := method.Outputs.Pack(distribution.DistributionParams{
+		CommunityTax:        distrParams.CommunityTax.String(),
+		BaseProposerReward:  distrParams.BaseProposerReward.String(),
+		BonusProposerReward: distrParams.BonusProposerReward.String(),
+		WithdrawAddrEnabled: true,
+	})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+}
+
+func TestQueryCommunityPool(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+
+	pool := sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(1000)))
+	feePool := testApp.DistrKeeper.GetFeePool(ctx)
+	feePool.CommunityPool = pool
+	testApp.DistrKeeper.SetFeePool(ctx, feePool)
+
+	p, err := distribution.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+
+	ret, method := runDistrQuery(t, ctx, testApp, p, p.GetExecutor().(*distribution.PrecompileExecutor).CommunityPoolID)
+	expected, err := method.Outputs.Pack([]distribution.Coin{
+		{
+			Amount:   pool[0].Amount.BigInt(),
+			Denom:    "usei",
+			Decimals: big.NewInt(sdk.Precision),
+		},
+	})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+}
+
+func TestQueryDelegatorWithdrawAddress(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	distrParams := testApp.DistrKeeper.GetParams(ctx)
+	distrParams.WithdrawAddrEnabled = true
+	testApp.DistrKeeper.SetParams(ctx, distrParams)
+
+	delegatorSeiAddr, delegatorEvmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, delegatorSeiAddr, delegatorEvmAddr)
+	withdrawSeiAddr, _ := testkeeper.MockAddressPair()
+	require.Nil(t, testApp.DistrKeeper.SetWithdrawAddr(ctx, delegatorSeiAddr, withdrawSeiAddr))
+
+	p, err := distribution.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+
+	ret, method := runDistrQuery(t, ctx, testApp, p, p.GetExecutor().(*distribution.PrecompileExecutor).DelegatorWithdrawAddressID, delegatorEvmAddr)
+	expected, err := method.Outputs.Pack(withdrawSeiAddr.String())
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+}
+
+func TestQueryDelegationRewards(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	valPub := secp256k1.GenPrivKey().PubKey()
+	val := setupValidator(t, ctx, testApp, stakingtypes.Bonded, valPub)
+
+	delegatorSeiAddr, delegatorEvmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, delegatorSeiAddr, delegatorEvmAddr)
+
+	bondDenom := testApp.StakingKeeper.GetParams(ctx).BondDenom
+	delegationAmount := sdk.NewInt(100)
+	coins := sdk.NewCoins(sdk.NewCoin(bondDenom, delegationAmount))
+	require.Nil(t, testApp.BankKeeper.MintCoins(ctx, minttypes.ModuleName, coins))
+	require.Nil(t, testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, delegatorSeiAddr, coins))
+
+	validator, found := testApp.StakingKeeper.GetValidator(ctx, val)
+	require.True(t, found)
+	_, err := testApp.StakingKeeper.Delegate(ctx, delegatorSeiAddr, delegationAmount, stakingtypes.Unbonded, validator, true)
+	require.Nil(t, err)
+
+	// allocate 100 tokens of rewards to the validator; the validator's self bond (100)
+	// and the delegation (100) each own half of the shares, and the validator takes a
+	// 5% commission (teststaking.DefaultCommission)
+	validator, found = testApp.StakingKeeper.GetValidator(ctx, val)
+	require.True(t, found)
+	testApp.DistrKeeper.AllocateTokensToValidator(ctx, validator, sdk.NewDecCoins(sdk.NewDecCoin(bondDenom, sdk.NewInt(100))))
+
+	// advance a block so the delegation is no longer considered to have started at
+	// the current height (delegations accrue no rewards within their starting block)
+	ctx = ctx.WithBlockHeight(ctx.BlockHeight() + 1)
+
+	p, err := distribution.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	executor := p.GetExecutor().(*distribution.PrecompileExecutor)
+
+	// The rewards queriers call IncrementValidatorPeriod internally; the views
+	// must run on a branched context so the period bump is discarded.
+	periodBefore := testApp.DistrKeeper.GetValidatorCurrentRewards(ctx, val).Period
+	rewardsStateDb := state.NewDBImpl(ctx, k, true)
+	rewardsEvm := vm.EVM{StateDB: rewardsStateDb}
+	for _, q := range []struct {
+		methodID []byte
+		args     []interface{}
+	}{
+		{executor.DelegationRewardsID, []interface{}{delegatorEvmAddr, val.String()}},
+		{executor.RewardsID, []interface{}{delegatorEvmAddr}},
+	} {
+		qMethod, err := p.ABI.MethodById(q.methodID)
+		require.Nil(t, err)
+		qInputs, err := qMethod.Inputs.Pack(q.args...)
+		require.Nil(t, err)
+		_, _, err = p.RunAndCalculateGas(&rewardsEvm, common.Address{}, common.Address{}, append(qMethod.ID, qInputs...), uint64(1000000), nil, nil, true, false)
+		require.Nil(t, err)
+	}
+	require.Equal(t, periodBefore, testApp.DistrKeeper.GetValidatorCurrentRewards(rewardsStateDb.Ctx(), val).Period)
+
+	// delegationRewards: (100 - 5% commission) / 2 = 47.5
+	ret, method := runDistrQuery(t, ctx, testApp, p, executor.DelegationRewardsID, delegatorEvmAddr, val.String())
+	expected, err := method.Outputs.Pack([]distribution.Coin{
+		{
+			Amount:   sdk.NewDecWithPrec(475, 1).BigInt(),
+			Denom:    bondDenom,
+			Decimals: big.NewInt(sdk.Precision),
+		},
+	})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+
+	// validatorOutstandingRewards: the full 100 tokens are outstanding
+	ret, method = runDistrQuery(t, ctx, testApp, p, executor.ValidatorOutstandingRewardsID, val.String())
+	expected, err = method.Outputs.Pack([]distribution.Coin{
+		{
+			Amount:   sdk.NewDec(100).BigInt(),
+			Denom:    bondDenom,
+			Decimals: big.NewInt(sdk.Precision),
+		},
+	})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+
+	// validatorCommission: 5% of 100 = 5
+	ret, method = runDistrQuery(t, ctx, testApp, p, executor.ValidatorCommissionID, val.String())
+	expected, err = method.Outputs.Pack([]distribution.Coin{
+		{
+			Amount:   sdk.NewDec(5).BigInt(),
+			Denom:    bondDenom,
+			Decimals: big.NewInt(sdk.Precision),
+		},
+	})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+
+	// delegatorValidators: the delegator only delegates to val
+	ret, method = runDistrQuery(t, ctx, testApp, p, executor.DelegatorValidatorsID, delegatorEvmAddr)
+	expected, err = method.Outputs.Pack([]string{val.String()})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+}
+
+func TestQueryValidatorSlashes(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+
+	valPub := secp256k1.GenPrivKey().PubKey()
+	val := setupValidator(t, ctx, testApp, stakingtypes.Bonded, valPub)
+
+	p, err := distribution.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+
+	ret, method := runDistrQuery(t, ctx, testApp, p, p.GetExecutor().(*distribution.PrecompileExecutor).ValidatorSlashesID, val.String(), uint64(1), uint64(10), []byte{})
+	expected, err := method.Outputs.Pack([]distribution.Slash{}, []byte{})
+	require.Nil(t, err)
+	require.Equal(t, expected, ret)
+}
+
 // TestWithdrawValidatorCommission_InputValidation tests various input validation scenarios
 func TestWithdrawValidatorCommission_InputValidation(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
