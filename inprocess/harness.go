@@ -79,17 +79,20 @@ type Options struct {
 	// ExtraKeys are non-validator genesis accounts to create + fund. Each key is
 	// written into its target node's home `test` keyring (so a host `seid --home
 	// <home> --keyring-backend test` resolves it) and funded at genesis. This is
-	// the bridge the YAML runner's in-process arm needs: the bank suite signs as
-	// `admin` (node 0) and the docker topology also seeds `node_admin` per node.
+	// the bridge the YAML runner's in-process arm needs — e.g. the bank suite signs
+	// as `admin` on node 0. It must NOT seed `node_admin`: that name is the per-node
+	// validator operator the harness provisions (see operatorKeyName), and
+	// provisionExtraKeys rejects it.
 	ExtraKeys []ExtraKey
 }
 
-// ExtraKey is a non-validator genesis account the harness creates and funds. It
-// mirrors the docker localnode topology where `admin` lives on node 0 only and
-// `node_admin` exists per node, so suites that sign as those names run unchanged
-// against the in-process arm.
+// ExtraKey is a non-validator genesis account the harness creates and funds — a
+// suite signing key the docker localnode seeds (e.g. `admin` on node 0), so suites
+// that sign as those names run unchanged against the in-process arm. The validator
+// operator `node_admin` is NOT an ExtraKey: the harness provisions it per node
+// (see operatorKeyName), and provisionExtraKeys rejects it.
 type ExtraKey struct {
-	// Name is the keyring key name (e.g. "admin", "node_admin").
+	// Name is the keyring key name (e.g. "admin"); must not be operatorKeyName.
 	Name string
 	// Node is the 0-based validator index whose home keyring receives the key.
 	Node int
@@ -324,13 +327,20 @@ func (net *Network) provisionNodes(enc encoding, gb *genesisBuilder) error {
 // `test` keyring and funds its genesis account. It runs after provisionNodes (so
 // every node's keyring exists) and before genesis assembly (so the balances fold
 // into the base genesis). This is the keyring/home bridge the YAML runner's
-// in-process arm relies on — `admin` on node 0, `node_admin` per node — matching
-// the docker localnode topology so bank suites sign unchanged.
+// in-process arm relies on — e.g. `admin` on node 0 — matching the docker
+// localnode signing keys so suites sign unchanged. (node_admin is not seeded
+// here; it is the per-node operator provisioned in provisionNodes.)
 func (net *Network) provisionExtraKeys(gb *genesisBuilder) error {
 	algoStr := string(hdSecp256k1())
 	for _, ek := range net.opts.ExtraKeys {
 		if ek.Node < 0 || ek.Node >= len(net.nodes) {
 			return fmt.Errorf("extra key %q targets node %d, out of range [0,%d)", ek.Name, ek.Node, len(net.nodes))
+		}
+		// operatorKeyName is provisioned per node (fundValidator); an ExtraKey reusing
+		// it would overwrite the operator with a plain account — fail-loud rather than
+		// silently corrupt the operator identity.
+		if ek.Name == operatorKeyName {
+			return fmt.Errorf("inprocess: ExtraKey name %q is reserved for the per-node validator operator; use a different name", ek.Name)
 		}
 		kb := net.nodes[ek.Node].clientCx.Keyring
 		algos, _ := kb.SupportedAlgorithms()

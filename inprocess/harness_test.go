@@ -81,7 +81,7 @@ func assertCrossNodeTxRoundTrip(t *testing.T, ctx context.Context, net *Network)
 	if err != nil {
 		t.Fatalf("build tx: %v", err)
 	}
-	if err := tx.Sign(txf, n0.moniker, txb, true); err != nil {
+	if err := tx.Sign(txf, operatorKeyName, txb, true); err != nil {
 		t.Fatalf("sign tx: %v", err)
 	}
 	txBz, err := n0.clientCx.TxConfig.TxEncoder()(txb.GetTx())
@@ -115,6 +115,20 @@ func TestStartRejectsZeroValidators(t *testing.T) {
 		if _, err := Start(context.Background(), Options{Validators: n}); err == nil {
 			t.Fatalf("Start with %d validators: want error, got nil", n)
 		}
+	}
+}
+
+// TestStartRejectsOperatorKeyNameExtraKey guards the operator-key reservation: an
+// ExtraKey reusing operatorKeyName would overwrite the per-node validator operator
+// with a plain account (a silent operator-identity corruption), so Start rejects it
+// before bring-up. The reject path returns before the one-network slot is claimed.
+func TestStartRejectsOperatorKeyNameExtraKey(t *testing.T) {
+	_, err := Start(context.Background(), Options{
+		Validators: 1,
+		ExtraKeys:  []ExtraKey{{Name: operatorKeyName, Node: 0}},
+	})
+	if err == nil {
+		t.Fatalf("Start with an ExtraKey named %q: want error, got nil", operatorKeyName)
 	}
 }
 
