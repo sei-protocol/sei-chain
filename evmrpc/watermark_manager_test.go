@@ -183,6 +183,34 @@ func TestStateWatermarksCanLagBlocks(t *testing.T) {
 	require.Equal(t, int64(28), latest)
 }
 
+// TestResolveEarliestFloorsAtBlockEarliestOnFreshNode reproduces SEI-10383. On a
+// fresh, never-pruned SS-enabled node GetEarliestVersion() returns 0. Without a
+// floor, `earliest` resolves to height 0, which CreateQueryContext coerces to
+// lastBlockHeight (the tip), so eth_getTransactionCount/getCode/... at `earliest`
+// return current state instead of genesis. stateEarliest must floor at
+// blockEarliest so `earliest` resolves to genesis.
+func TestResolveEarliestFloorsAtBlockEarliestOnFreshNode(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 6, EarliestBlockHeight: 1}},
+	}
+	// Fresh node: state store enabled, but the earliest version was never
+	// written (nothing pruned, no state-sync), so GetEarliestVersion() == 0.
+	stateStore := &fakeStateStore{latest: 6, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 6, stateStore, 6)
+
+	blockEarliest, stateEarliest, latest, err := wm.Watermarks(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), blockEarliest)
+	require.Equal(t, int64(1), stateEarliest, "fresh node: stateEarliest must floor at blockEarliest, not 0")
+	require.Equal(t, int64(6), latest)
+
+	// The `earliest` tag must resolve to genesis (blockEarliest=1), never 0.
+	earliest := rpc.EarliestBlockNumber
+	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), resolved, "earliest must resolve to blockEarliest, not 0 (SEI-10383)")
+}
+
 func newTestWatermarkManager(tmClient client.LocalClient, ctxHeight int64, stateStore types.StateStore, receiptLatest int64) *WatermarkManager {
 	return NewWatermarkManager(tmClient, watermarkTestCtxProvider(ctxHeight), stateStore, &fakeReceiptStore{latest: receiptLatest})
 }
