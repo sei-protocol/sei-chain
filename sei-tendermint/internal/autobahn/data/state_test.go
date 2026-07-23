@@ -477,7 +477,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 
 // TestEvictionWaitsForCommitQCApp checks that evictBelowBound does not drop
 // AppProposals until a later CommitQC embeds an App (certifying AppQC), and
-// that once that App exists, heights below min(NAP-1, App+1) are evicted.
+// that once that App exists, heights below min(NAP, App+1) are evicted.
 func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -526,7 +526,7 @@ func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 		}
 
 		for inner := range state.inner.Lock() {
-			require.Equal(t, appFloor+1, inner.first, "after catching up, first reaches App+1 (NAP-1 is past the floor)")
+			require.Equal(t, appFloor+1, inner.first, "after catching up, first reaches App+1")
 			for n := gr1.First; n < inner.first; n++ {
 				_, ok := inner.appProposals[n]
 				require.False(t, ok, "AppProposal %d should be evicted (< first)", n)
@@ -536,21 +536,18 @@ func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 				_, ok := inner.appProposals[n]
 				require.True(t, ok, "AppProposal %d must remain (>= first)", n)
 			}
-			// nextAppProposal-1 must remain so nextToExecute can use maps.
-			tip := inner.nextAppProposal - 1
-			require.GreaterOrEqual(t, tip, inner.first)
-			_, ok = inner.blocks[tip]
-			require.True(t, ok, "last executed block %d must stay in maps", tip)
-			_, ok = inner.qcs[tip]
-			require.True(t, ok, "last executed QC %d must stay in maps", tip)
+			// Tip QC (nextQC-1) stays; nextToExecute uses maps at/above first.
+			require.GreaterOrEqual(t, inner.nextQC-1, inner.first)
+			_, ok = inner.qcs[inner.nextQC-1]
+			require.True(t, ok, "tip QC must stay in maps")
 		}
 		return nil
 	}))
 }
 
 // TestNextToExecuteAfterAppEviction checks WaitUntilExecuted / nextToExecute
-// still work when PushQC embeds an App that would aggressively evict through
-// nextAppProposal (first = App+1). Eviction must retain nextAppProposal-1.
+// still work when PushQC embeds an App that aggressively evicts through
+// nextAppProposal (first = App+1 = NAP). nextToExecute uses qc[NAP], not NAP-1.
 func TestNextToExecuteAfterAppEviction(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -577,25 +574,36 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 				return err
 			}
 		}
-		// Sticky case: App floor == nextAppProposal. Aggressive first=App+1
-		// would drop NAP-1; we must keep it for nextToExecute.
+		// Sticky case: App floor == nextAppProposal. first advances to NAP;
+		// NAP-1 is gone; nextToExecute reads qc[NAP].
 		require.NoError(t, state.PushQC(ctx, qc2, blocks2))
 
-		var tipBlock *types.Block
+		var tipLane types.LaneID
+		var tipBlockNum types.BlockNumber
 		for inner := range state.inner.Lock() {
 			require.Equal(t, gr1.Next, inner.nextAppProposal)
-			require.Equal(t, app.GlobalNumber(), inner.first,
-				"eviction must stop at NAP-1 when App+1 == NAP")
-			tip := inner.nextAppProposal - 1
-			var ok bool
-			tipBlock, ok = inner.blocks[tip]
-			require.True(t, ok)
-			require.NotZero(t, inner.nextToExecute(tipBlock.Header().Lane()))
+			require.Equal(t, app.GlobalNumber()+1, inner.first,
+				"eviction advances to App+1 == NAP")
+			_, ok := inner.blocks[inner.nextAppProposal-1]
+			require.False(t, ok, "NAP-1 must be evicted")
+			require.Less(t, inner.nextAppProposal, inner.nextQC)
+			fqc := inner.qcs[inner.nextAppProposal]
+			require.NotNil(t, fqc)
+			gr := fqc.QC().GlobalRange()
+			h := fqc.Headers()[inner.nextAppProposal-gr.First]
+			tipLane = h.Lane()
+			tipBlockNum = h.BlockNumber()
+			require.Equal(t, tipBlockNum, inner.nextToExecute(tipLane),
+				"nextToExecute should be the next block's lane number")
 		}
-		lane := tipBlock.Header().Lane()
-		next, err := state.WaitUntilExecuted(ctx, lane, tipBlock.Header().BlockNumber())
+		// WaitUntilExecuted(n) returns when nextToExecute > n.
+		waitFrom := tipBlockNum
+		if waitFrom > 0 {
+			waitFrom--
+		}
+		next, err := state.WaitUntilExecuted(ctx, tipLane, waitFrom)
 		require.NoError(t, err)
-		require.Greater(t, next, tipBlock.Header().BlockNumber())
+		require.Equal(t, tipBlockNum, next)
 		return nil
 	}))
 }

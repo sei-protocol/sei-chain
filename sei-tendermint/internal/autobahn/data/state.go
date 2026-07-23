@@ -52,10 +52,10 @@ type inner struct {
 	blockHashes  map[types.BlockHeaderHash]types.GlobalBlockNumber
 
 	// first is the exclusive low end of retained in-memory state: maps keep
-	// [first, next*). Set by newInner / skipTo; advanced by evictBelowBound when
-	// a CommitQC.App certifies a higher floor. Eviction keeps nextAppProposal-1
-	// so nextToExecute can read maps without a separate tip pin (see
-	// evictBelowBound).
+	// [first, next*). Set by newInner / skipTo; advanced by evictBelowBound to
+	// min(nextAppProposal, App.GlobalNumber()+1) when a CommitQC.App exists.
+	// nextToExecute reads the next (or tip) QC from maps — it does not need
+	// nextAppProposal-1 retained after eviction.
 	//
 	// first <= nextAppProposal <= nextBlockToPersist <= nextBlock <= nextQC
 	//
@@ -169,10 +169,10 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 // Invariant: a CommitQC's embedded AppProposal (when present) always refers to
 // a global number from a *past* CommitQC — strictly below that tip QC's
 // GlobalRange.First (enforced in Proposal.Verify). Together with BlockDB's
-// never-empty retention and eviction at App.GlobalNumber()+1, in-memory maps
-// therefore always retain at least the certified tip QC after a CommitQC.App
-// appears. Eviction additionally keeps nextAppProposal-1 so nextToExecute can
-// use maps directly (no lastAppHash pin).
+// never-empty retention and eviction at min(nextAppProposal, App+1), in-memory
+// maps therefore always retain at least the certified tip QC after a
+// CommitQC.App appears. nextToExecute uses qc[nextAppProposal] (or the tip QC
+// when fully caught up), so it does not require retaining nextAppProposal-1.
 type State struct {
 	cfg     *Config
 	metrics *metrics.Metrics
@@ -665,16 +665,22 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 
 func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	// TODO(gprusak): decide whether 0 is a good result in this case in general.
-	// AppProposals are not restored on restart; empty means no PushAppHash yet
-	// in this process. evictBelowBound retains nextAppProposal-1 so this stays
-	// non-empty after eviction while execution has progressed.
-	if len(i.appProposals) == 0 {
+	// Empty maps (first == nextQC) only on fresh start / after skipTo with no QC.
+	if i.first == i.nextQC {
 		return 0
 	}
-	n := i.nextAppProposal - 1
-	r := i.qcs[n].QC().LaneRange(lane)
-	// TODO: this header can be actually extracted from FullCommitQC, so consider moving all this logic there.
-	h := i.blocks[n].Header()
+	// Fully executed through the certified tip: next lane block is past the tip QC.
+	if i.nextAppProposal == i.nextQC {
+		return i.qcs[i.nextAppProposal-1].QC().LaneRange(lane).Next()
+	}
+	// nextAppProposal < nextQC: derive from the next global block to execute
+	// (header from FullCommitQC — works even if blocks[n] was never gap-filled).
+	n := i.nextAppProposal
+	fqc := i.qcs[n]
+	qc := fqc.QC()
+	gr := qc.GlobalRange()
+	h := fqc.Headers()[n-gr.First]
+	r := qc.LaneRange(lane)
 	x := lane.Compare(h.Lane())
 	// NOTE: here we assume the specific ordering of lane blocks in the CommitQC:
 	// TODO(gprusak): move this logic closer to CommitQC
@@ -684,7 +690,8 @@ func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	case x > 0:
 		return r.First()
 	default:
-		return h.BlockNumber() + 1
+		// This block is not executed yet.
+		return h.BlockNumber()
 	}
 }
 
@@ -807,11 +814,8 @@ func (i *inner) certifiedAppFloor() types.GlobalBlockNumber {
 	if i.first == i.nextQC {
 		return 0
 	}
-	qc, ok := i.qcs[i.nextQC-1]
-	if !ok {
-		return 0
-	}
-	app, ok := qc.QC().Proposal().App().Get()
+	// [first, nextQC) is dense in qcs, so nextQC-1 is present.
+	app, ok := i.qcs[i.nextQC-1].QC().Proposal().App().Get()
 	if !ok {
 		return 0
 	}
@@ -823,11 +827,11 @@ func (i *inner) certifiedAppFloor() types.GlobalBlockNumber {
 // or the bound would not advance first. Caller must hold inner's lock. Invoked
 // from PushQC / PushAppHash.
 //
-// Bound is min(nextAppProposal-1, App.GlobalNumber()+1) when nextAppProposal > 0
-// (else no progress). Cap at nextAppProposal-1 so maps always keep the last
-// executed height for nextToExecute — equivalent to a lastAppHash pin, but
-// without a parallel tip. With the past-CommitQC App invariant (see State),
-// App+1 never exceeds the tip QC start, so at least one CommitQC remains.
+// Bound is min(nextAppProposal, App.GlobalNumber()+1). A zero floor (no App /
+// empty maps) yields bound 0 and is a no-op via bound <= first. With the
+// past-CommitQC App invariant (see State), App+1 never exceeds the tip QC
+// start, so at least one CommitQC remains. nextToExecute uses qc[nextAppProposal]
+// (or the tip when caught up), so nextAppProposal-1 need not be retained.
 //
 // TODO: At eviction we have both a local AppProposal and a CommitQC.App, so this
 // is the right place to detect local-vs-quorum AppHash inconsistency. Surface
@@ -836,34 +840,19 @@ func (i *inner) certifiedAppFloor() types.GlobalBlockNumber {
 // Run subtask.
 func evictBelowBound(inner *inner) {
 	floor := inner.certifiedAppFloor()
-	if floor == 0 {
-		return
-	}
-	if inner.nextAppProposal == 0 {
-		return
-	}
-	// Retain nextAppProposal-1 for nextToExecute / non-empty appProposals.
-	bound := min(inner.nextAppProposal-1, floor)
+	bound := min(inner.nextAppProposal, floor)
 	if bound <= inner.first {
 		return
 	}
-	inner.first = bound
-	for n, b := range inner.blocks {
-		if n < bound {
+	for n := inner.first; n < bound; n++ {
+		if b, ok := inner.blocks[n]; ok {
 			delete(inner.blockHashes, b.Header().Hash())
 			delete(inner.blocks, n)
 		}
+		delete(inner.qcs, n)
+		delete(inner.appProposals, n)
 	}
-	for n := range inner.qcs {
-		if n < bound {
-			delete(inner.qcs, n)
-		}
-	}
-	for n := range inner.appProposals {
-		if n < bound {
-			delete(inner.appProposals, n)
-		}
-	}
+	inner.first = bound
 }
 
 // Run starts the background persistence loop.
