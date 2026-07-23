@@ -1,12 +1,17 @@
 package app_test
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app"
 	anteante "github.com/sei-protocol/sei-chain/app/ante"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
+	kmultisig "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/multisig"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
@@ -191,4 +196,78 @@ func TestCheckSignaturesSkipsEventsOnCheckTx(t *testing.T) {
 	events, err = anteante.CheckSignatures(recheckCtx, txConfig, signedTx, signerAccounts, authParams)
 	require.NoError(t, err)
 	require.Empty(t, events, "expected no signature events in ReCheckTx context")
+}
+
+func TestCosmosStatelessChecksRejectsInvalidNestedMultisigKey(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+	signedTx, _ := buildNestedMultisigTx(t, ctx)
+
+	_, err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid multisig public key")
+}
+
+func TestCheckPubKeysRejectsInvalidNestedMultisigKey(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+	signedTx, addr := buildNestedMultisigTx(t, ctx)
+
+	acc := testApp.AccountKeeper.NewAccountWithAddress(ctx, addr)
+	require.NoError(t, acc.SetAccountNumber(0))
+	testApp.AccountKeeper.SetAccount(ctx, acc)
+
+	_, err := anteante.CheckPubKeys(ctx, signedTx, testApp.AccountKeeper, authtypes.DefaultParams())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid multisig public key")
+
+	storedAcc := testApp.AccountKeeper.GetAccount(ctx, addr)
+	require.NotNil(t, storedAcc)
+	require.Nil(t, storedAcc.GetPubKey())
+}
+
+func buildNestedMultisigTx(t *testing.T, ctx sdk.Context) (sdk.Tx, sdk.AccAddress) {
+	t.Helper()
+
+	txConfig := app.MakeEncodingConfig().TxConfig
+	txBuilder := txConfig.NewTxBuilder()
+
+	priv, pubKey, _ := testdata.KeyTestPubAddr()
+	malformedPubKey := &secp256k1.PubKey{Key: bytes.Repeat([]byte{1}, secp256k1.PubKeySize+1)}
+	pubKeys := []cryptotypes.PubKey{pubKey, malformedPubKey}
+	multisigPubKey := kmultisig.NewLegacyAminoPubKey(1, pubKeys)
+	addr := sdk.AccAddress(multisigPubKey.Address())
+
+	require.NoError(t, txBuilder.SetMsgs(testdata.NewTestMsg(addr)))
+	txBuilder.SetFeeAmount(testdata.NewTestFeeAmount())
+	txBuilder.SetGasLimit(testdata.NewTestGasLimit())
+	require.NoError(t, txBuilder.SetSignatures(signing.SignatureV2{
+		PubKey:   multisigPubKey,
+		Data:     multisig.NewMultisig(len(pubKeys)),
+		Sequence: 0,
+	}))
+
+	singleSig, err := tx.SignWithPrivKey(
+		txConfig.SignModeHandler().DefaultMode(),
+		authsigning.SignerData{
+			ChainID:       ctx.ChainID(),
+			AccountNumber: 0,
+			Sequence:      0,
+		},
+		txBuilder,
+		priv,
+		txConfig,
+		0,
+	)
+	require.NoError(t, err)
+
+	multisigSig := multisig.NewMultisig(len(pubKeys))
+	require.NoError(t, multisig.AddSignatureV2(multisigSig, singleSig, pubKeys))
+	require.NoError(t, txBuilder.SetSignatures(signing.SignatureV2{
+		PubKey:   multisigPubKey,
+		Data:     multisigSig,
+		Sequence: 0,
+	}))
+
+	return txBuilder.GetTx(), addr
 }
