@@ -38,6 +38,14 @@ type blockEntry struct {
 	block *types.Block
 }
 
+// appHashTip is the block and covering FullCommitQC for the latest PushAppHash
+// height. Kept so nextToExecute works after evictBelowBound drops that height
+// from the maps.
+type appHashTip struct {
+	block *types.Block
+	qc    *types.FullCommitQC
+}
+
 type inner struct {
 	// Map key ranges (low end = first):
 	//   qcs:          [first, nextQC)
@@ -52,11 +60,9 @@ type inner struct {
 	appProposals map[types.GlobalBlockNumber]*types.AppProposal
 	blockHashes  map[types.BlockHeaderHash]types.GlobalBlockNumber
 
-	// lastExecutedBlock/QC pin nextAppProposal-1 for nextToExecute even after
-	// that height is dropped from the maps by evictBelowBound. Nil until the
+	// lastAppHash pins nextAppProposal-1 for nextToExecute. None until the
 	// first PushAppHash in this process.
-	lastExecutedBlock *types.Block
-	lastExecutedQC    *types.FullCommitQC
+	lastAppHash utils.Option[appHashTip]
 
 	// first is the exclusive low end of retained in-memory state: maps keep
 	// [first, next*). Set by newInner / skipTo; advanced by evictBelowBound when
@@ -96,8 +102,7 @@ func (i *inner) skipTo(n types.GlobalBlockNumber) {
 	i.nextBlockToPersist = n
 	i.nextBlock = n
 	i.nextQC = n
-	i.lastExecutedBlock = nil
-	i.lastExecutedQC = nil
+	i.lastAppHash = utils.None[appHashTip]()
 }
 
 // insertQC verifies and inserts a FullCommitQC into the inner state.
@@ -626,8 +631,10 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.nextAppProposal += 1
 		}
 		// Pin tip before eviction may drop maps[n].
-		inner.lastExecutedBlock = inner.blocks[n]
-		inner.lastExecutedQC = inner.qcs[n]
+		inner.lastAppHash = utils.Some(appHashTip{
+			block: inner.blocks[n],
+			qc:    inner.qcs[n],
+		})
 		evictBelowBound(inner)
 		ctrl.Updated()
 	}
@@ -656,12 +663,13 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 
 func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	// TODO(gprusak): decide whether 0 is a good result in this case in general.
-	if i.lastExecutedBlock == nil || i.lastExecutedQC == nil {
+	tip, ok := i.lastAppHash.Get()
+	if !ok {
 		return 0
 	}
-	r := i.lastExecutedQC.QC().LaneRange(lane)
+	r := tip.qc.QC().LaneRange(lane)
 	// TODO: this header can be actually extracted from FullCommitQC, so consider moving all this logic there.
-	h := i.lastExecutedBlock.Header()
+	h := tip.block.Header()
 	x := lane.Compare(h.Lane())
 	// NOTE: here we assume the specific ordering of lane blocks in the CommitQC:
 	// TODO(gprusak): move this logic closer to CommitQC
