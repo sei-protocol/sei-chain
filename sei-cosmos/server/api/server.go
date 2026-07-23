@@ -116,12 +116,12 @@ func (s *Server) Start(cfg config.Config, apiMetrics *telemetry.Metrics) error {
 	if cfg.API.EnableUnsafeCORS {
 		allowAllCORS := handlers.CORS(handlers.AllowedHeaders([]string{"Content-Type"}))
 		s.mtx.Unlock()
-		return tmrpcserver.Serve(context.Background(), s.listener, allowAllCORS(h), tmCfg)
+		return tmrpcserver.Serve(context.Background(), s.listener, tmrpcserver.NewGzipHandler(allowAllCORS(h)), tmCfg)
 	}
 
 	logger.Info("starting API server...")
 	s.mtx.Unlock()
-	return tmrpcserver.Serve(context.Background(), s.listener, s.Router, tmCfg)
+	return tmrpcserver.Serve(context.Background(), s.listener, tmrpcserver.NewGzipHandler(s.Router), tmCfg)
 }
 
 // Close closes the API server.

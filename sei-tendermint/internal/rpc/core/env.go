@@ -362,6 +362,7 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 			})
 			rootHandler = corsMiddleware.Handler(mux)
 		}
+		rootHandler = rpcserver.NewGzipHandler(rootHandler)
 		if conf.RPC.IsTLSEnabled() {
 			go func() {
 				if err := rpcserver.ServeTLS(

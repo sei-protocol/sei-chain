@@ -74,7 +74,7 @@ func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) http.Handler {
 	if rpcConfig.IsCorsEnabled() {
 		rootHandler = addCORSHandler(rpcConfig, mux)
 	}
-	return rootHandler
+	return server.NewGzipHandler(rootHandler)
 }
 
 func addCORSHandler(rpcConfig *config.RPCConfig, h http.Handler) http.Handler {
