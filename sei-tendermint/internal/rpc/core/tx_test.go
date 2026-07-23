@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -8,6 +9,7 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	indexermocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -25,7 +27,23 @@ func txSearchEnv(t *testing.T, maxResults int, txs []*abci.TxResultV2) *Environm
 	t.Helper()
 	sink := indexermocks.NewEventSink(t)
 	sink.On("Type").Return(indexer.KV)
-	sink.On("SearchTxEvents", mock.Anything, mock.Anything, mock.Anything).Return(txs, nil)
+	sink.On("SearchTxEvents", mock.Anything, mock.Anything, mock.Anything).Return(
+		func(_ context.Context, _ *query.Query, opts indexer.SearchOptions) []*abci.TxResultV2 {
+			ordered := make([]*abci.TxResultV2, len(txs))
+			if opts.OrderDesc {
+				for i, tx := range txs {
+					ordered[len(txs)-1-i] = tx
+				}
+			} else {
+				copy(ordered, txs)
+			}
+			if opts.Limit > 0 && len(ordered) > opts.Limit {
+				ordered = ordered[:opts.Limit]
+			}
+			return ordered
+		},
+		nil,
+	)
 	return &Environment{
 		EventSinks: []indexer.EventSink{sink},
 		Config:     config.RPCConfig{MaxTxSearchResults: maxResults},

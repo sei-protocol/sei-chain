@@ -41,7 +41,10 @@ func EventSinksFromConfig(cfg *config.Config, dbProvider config.DBProvider, chai
 				return nil, err
 			}
 
-			eventSinks = append(eventSinks, kv.NewEventSink(store))
+			// Share one scan budget across the tx and block indexers so the
+			// cap on entries visited by in-flight searches is process-wide.
+			budget := indexer.NewScanBudget(cfg.RPC.MaxSearchScanBudget)
+			eventSinks = append(eventSinks, kv.NewEventSink(store, budget))
 
 		case indexer.PSQL:
 			conn := cfg.TxIndex.PsqlConn
