@@ -47,6 +47,15 @@ func NewPrecompile(a abi.ABI, executor PrecompileExecutor, address common.Addres
 	return &Precompile{ABI: a, executor: executor, address: address, name: name}
 }
 
+// RequiredGas is evaluated by vm.RunPrecompiledContract BEFORE the supplied-gas
+// gate, so it must stay cheap and allocation-free (no calldata walk) — otherwise
+// repeated low-gas calls could make validators perform work they never pay for.
+// It must also be large enough to cover the decode that Run -> Prepare -> Unpack
+// performs afterwards: every current static precompile decodes linearly (a lone
+// string/bytes/scalar arg) and prices it per input byte, which suffices. A
+// future static precompile must therefore not accept an argument type that
+// decodes super-linearly (e.g. an aliasable string[]) without pricing that in
+// its own RequiredGas.
 func (p Precompile) RequiredGas(input []byte) uint64 {
 	methodID, err := ExtractMethodID(input)
 	if err != nil {
