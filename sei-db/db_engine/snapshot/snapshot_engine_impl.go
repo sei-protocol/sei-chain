@@ -96,6 +96,11 @@ type snapshotEngine struct {
 
 	// Metrics for recording snapshot engine statistics.
 	metrics *SnapshotEngineMetrics
+
+	// Ensures Close runs its teardown exactly once; closeErr memoizes the result so repeat calls
+	// return the same error without re-running teardown.
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // Tracks the reference count for a particular snapshot.
@@ -965,9 +970,15 @@ func (c *snapshotEngine) UnderlyingDB() types.KeyValueDB {
 	return c.db
 }
 
+// Close is idempotent: teardown runs exactly once and subsequent calls return the same result.
 func (c *snapshotEngine) Close() error {
-	// TODO make this method idempotent
+	c.closeOnce.Do(func() {
+		c.closeErr = c.closeInternal()
+	})
+	return c.closeErr
+}
 
+func (c *snapshotEngine) closeInternal() error {
 	exit := func() error {
 		c.cancel()
 

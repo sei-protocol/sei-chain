@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -117,6 +118,26 @@ func TestEngineBatchSetThenBatchGet(t *testing.T) {
 	require.Equal(t, []byte("2"), req["b"].Value)
 	require.False(t, req["c"].IsFound())
 	require.False(t, req["missing"].IsFound())
+}
+
+// TestMetricsEnabledDoesNotBreakEngine is a smoke test: with metrics on and a fast scrape interval,
+// the background collect loop and snapshot phase timer run without disturbing normal operation.
+func TestMetricsEnabledDoesNotBreakEngine(t *testing.T) {
+	cfg := newTestConfig(2, 1<<20)
+	cfg.MetricsEnabled = true
+	cfg.MetricsScrapeIntervalSeconds = 0.001
+	engine := newTestEngineWithConfig(t, cfg, newTestDB(nil))
+
+	for i := 0; i < 20; i++ {
+		engine.Set([]byte{byte(i)}, []byte("v"))
+	}
+	snapshotAndHashRelease(t, engine)
+	time.Sleep(10 * time.Millisecond) // let the metrics scrape loop fire at least once
+
+	val, found, err := engine.Get([]byte{0}, true)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, []byte("v"), val)
 }
 
 func TestEngineConcurrentSetGet(t *testing.T) {

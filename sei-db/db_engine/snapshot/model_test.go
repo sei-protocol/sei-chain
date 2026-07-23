@@ -48,8 +48,8 @@ func (m *modelEngine) Set(key, value []byte) {
 		return
 	}
 	k := string(key)
-	m.current[k] = append([]byte(nil), value...)
-	m.pending[k] = append([]byte(nil), value...)
+	m.current[k] = cloneBytes(value)
+	m.pending[k] = cloneBytes(value)
 }
 
 func (m *modelEngine) Delete(key []byte) {
@@ -118,11 +118,16 @@ func sortedEntries(store map[string][]byte) []kvPair {
 func cloneMap(src map[string][]byte) map[string][]byte {
 	dst := make(map[string][]byte, len(src))
 	for k, v := range src {
-		if v == nil {
-			dst[k] = nil
-		} else {
-			dst[k] = append([]byte(nil), v...)
-		}
+		dst[k] = cloneBytes(v)
 	}
 	return dst
+}
+
+// cloneBytes deep-copies b, preserving the nil vs non-nil-empty distinction (nil stays nil; a
+// zero-length non-nil slice stays zero-length non-nil).
+func cloneBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+	return append([]byte{}, b...)
 }

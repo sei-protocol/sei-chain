@@ -217,6 +217,14 @@ func TestCloseFlushesHashedSnapshot(t *testing.T) {
 	require.Equal(t, []byte("v"), val)
 }
 
+func TestCloseIsIdempotent(t *testing.T) {
+	db := newTestDB(nil)
+	engine := newTestEngineWithDB(t, db, 1, 4096)
+	require.NoError(t, engine.Close())
+	require.NoError(t, engine.Close(), "a second Close must be a safe no-op")
+	require.True(t, db.isClosed())
+}
+
 func TestCloseSkipsUnhashedSnapshot(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithDB(t, db, 1, 4096)

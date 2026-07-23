@@ -41,7 +41,7 @@ type testDB struct {
 func newTestDB(seed map[string][]byte) *testDB {
 	m := make(map[string][]byte, len(seed))
 	for k, v := range seed {
-		m[k] = append([]byte(nil), v...)
+		m[k] = cloneBytes(v)
 	}
 	return &testDB{store: m}
 }
@@ -60,7 +60,7 @@ func (d *testDB) Get(key []byte) ([]byte, error) {
 	if !ok {
 		return nil, errorutils.ErrNotFound
 	}
-	return append([]byte(nil), v...), nil
+	return cloneBytes(v), nil
 }
 
 func (d *testDB) BatchGet(keys map[string]types.BatchGetResult) error {
@@ -81,7 +81,7 @@ func (d *testDB) BatchGet(keys map[string]types.BatchGetResult) error {
 func (d *testDB) Set(key, value []byte, _ types.WriteOptions) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.store[string(key)] = append([]byte(nil), value...)
+	d.store[string(key)] = cloneBytes(value)
 	return nil
 }
 
@@ -114,7 +114,7 @@ func (d *testDB) NewIter(opts *types.IterOptions) (dbm.Iterator, error) {
 		if upper != nil && bytes.Compare(kb, upper) >= 0 {
 			continue
 		}
-		pairs = append(pairs, kvPair{key: kb, value: append([]byte(nil), v...)})
+		pairs = append(pairs, kvPair{key: kb, value: cloneBytes(v)})
 	}
 	sort.Slice(pairs, func(i, j int) bool { return bytes.Compare(pairs[i].key, pairs[j].key) < 0 })
 	return &fakeDBIter{pairs: pairs, start: lower, end: upper}, nil
@@ -177,12 +177,12 @@ type testBatch struct {
 }
 
 func (b *testBatch) Set(key, value []byte) error {
-	b.ops = append(b.ops, testBatchOp{key: append([]byte(nil), key...), value: append([]byte(nil), value...)})
+	b.ops = append(b.ops, testBatchOp{key: cloneBytes(key), value: cloneBytes(value)})
 	return nil
 }
 
 func (b *testBatch) Delete(key []byte) error {
-	b.ops = append(b.ops, testBatchOp{key: append([]byte(nil), key...), delete: true})
+	b.ops = append(b.ops, testBatchOp{key: cloneBytes(key), delete: true})
 	return nil
 }
 
@@ -290,18 +290,50 @@ func awaitFlushed(t *testing.T, snap Snapshot, timeout time.Duration) {
 	require.NoError(t, snap.AwaitFlush(ctx))
 }
 
-// collectIterator drains an Iterator into cloned key/value pairs in iteration order.
-func collectIterator(t *testing.T, it Iterator) []kvPair {
+// awaitRetired blocks until the given version has been retired (dropped from the engine's version
+// map), failing the test if it does not happen within a short window.
+func awaitRetired(t *testing.T, engine SnapshotEngine, version uint64) {
 	t.Helper()
+	e := engine.(*snapshotEngine)
+	require.Eventually(t, func() bool {
+		e.versionLock.Lock()
+		defer e.versionLock.Unlock()
+		_, tracked := e.versionMap[version]
+		return !tracked
+	}, 2*time.Second, 2*time.Millisecond, "version %d was not retired in time", version)
+}
+
+// isTracked reports whether the engine still tracks the given snapshot version.
+func isTracked(engine SnapshotEngine, version uint64) bool {
+	e := engine.(*snapshotEngine)
+	e.versionLock.Lock()
+	defer e.versionLock.Unlock()
+	_, ok := e.versionMap[version]
+	return ok
+}
+
+// collectIterator drains an Iterator into cloned key/value pairs in iteration order.
+// drainIterator drains an Iterator into cloned key/value pairs in iteration order. It returns any
+// error instead of asserting, so it is safe to call from non-test goroutines.
+func drainIterator(it Iterator) ([]kvPair, error) {
 	var out []kvPair
 	for {
 		ok, k, v, err := it.Next()
-		require.NoError(t, err)
-		if !ok {
-			return out
+		if err != nil {
+			return nil, err
 		}
-		out = append(out, kvPair{key: append([]byte(nil), k...), value: append([]byte(nil), v...)})
+		if !ok {
+			return out, nil
+		}
+		out = append(out, kvPair{key: cloneBytes(k), value: cloneBytes(v)})
 	}
+}
+
+func collectIterator(t *testing.T, it Iterator) []kvPair {
+	t.Helper()
+	out, err := drainIterator(it)
+	require.NoError(t, err)
+	return out
 }
 
 // collectUserData drains an iterator but skips the metadata hash key, returning only user-visible data.

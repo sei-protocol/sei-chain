@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -149,7 +150,7 @@ func compareReads(t *testing.T, label string, get func(key []byte) ([]byte, bool
 		expV, expFound := lookup(k)
 		require.Equal(t, expFound, gotFound, "%s found mismatch key=%x", label, k)
 		if expFound {
-			require.Equal(t, expV, gotV, "%s value mismatch key=%x", label, k)
+			require.True(t, bytes.Equal(expV, gotV), "%s value mismatch key=%x", label, k)
 		}
 	}
 }
@@ -167,7 +168,7 @@ func compareBatchGet(t *testing.T, label string, batchGet func(map[string]types.
 		expV, expFound := lookup(k)
 		require.Equal(t, expFound, res.IsFound(), "%s BatchGet found key=%x", label, k)
 		if expFound {
-			require.Equal(t, expV, res.Value, "%s BatchGet value key=%x", label, k)
+			require.True(t, bytes.Equal(expV, res.Value), "%s BatchGet value key=%x", label, k)
 		}
 	}
 }
@@ -177,8 +178,8 @@ func compareIterator(t *testing.T, label string, it Iterator, expected []kvPair,
 	require.NoError(t, it.Close(), "%s iterator close", label)
 	require.Equal(t, len(expected), len(got), "%s iterator length", label)
 	for i := range expected {
-		require.Equal(t, expected[i].key, got[i].key, "%s iterator key at %d", label, i)
-		require.Equal(t, expected[i].value, got[i].value, "%s iterator value at %d", label, i)
+		require.True(t, bytes.Equal(expected[i].key, got[i].key), "%s iterator key at %d", label, i)
+		require.True(t, bytes.Equal(expected[i].value, got[i].value), "%s iterator value at %d", label, i)
 	}
 }
 
@@ -199,13 +200,17 @@ func pickOp(rng *testutil.TestRandom) int {
 
 func genKeys(rng *testutil.TestRandom, n int) [][]byte {
 	keys := make([][]byte, n)
-	for i := range keys {
-		keys[i] = rng.VariableBytes(1, 8) // non-empty, possibly non-printable
+	keys[0] = []byte{} // include the empty key as an edge case
+	for i := 1; i < n; i++ {
+		keys[i] = rng.VariableBytes(1, 8) // possibly non-printable
 	}
 	return keys
 }
 
 func randVal(rng *testutil.TestRandom) []byte {
+	if rng.BoolWithProbability(0.1) {
+		return []byte{} // empty (non-nil) value: a set with a zero-length value, distinct from delete
+	}
 	return rng.VariableBytes(1, 64)
 }
 
