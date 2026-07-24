@@ -417,7 +417,7 @@ func TestRecoveryBlockGap(t *testing.T) {
 }
 
 // TestNewState_AppLeadsBlockDBFlush: app Commit can lead BlockDB flush; NewState
-// still boots from the CommitQC span + placeholder N+1 (no LastExecuted lookup).
+// still boots from the CommitQC span + placeholder N+1/N+2 (no LastExecuted lookup).
 func TestNewState_AppLeadsBlockDBFlush(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, _ := epoch.GenRegistry(rng, 3)

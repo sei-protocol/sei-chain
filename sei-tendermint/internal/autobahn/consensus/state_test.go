@@ -364,7 +364,7 @@ func fullCommitQCAtRoad(ep *types.Epoch, keys []types.SecretKey, idx types.RoadI
 // TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1 is the end-to-end restart
 // path for tip interlocking: data CommitQC BlockDB tip stays in epoch N while
 // avail/consensus tips are already at FirstRoad(N+1). SetupInitialDuo always
-// seeds placeholder N+1 past the CommitQC window.
+// seeds placeholder N+1/N+2 past the CommitQC window.
 func TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1(t *testing.T) {
 	rng := utils.TestRng()
 	sks := utils.GenSliceN(rng, 4, types.GenSecretKey)

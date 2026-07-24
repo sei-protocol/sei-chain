@@ -76,12 +76,9 @@ func NewRegistry(
 // data.NewState. Idempotent for existing entries.
 //
 // commitQCs is the half-open retained CommitQC range [First, Next). Seeds every
-// epoch covering [First, Next), EnsureDuoAt(Next), then EnsureEpoch(windowLast+1)
-// (placeholder N+1 lookahead). None = empty store → EnsureDuoAt(FirstRoad(1))
+// epoch covering [First, Next), EnsureDuoAt(Next), then placeholder
+// windowLast+1/+2 (see below). None = empty store → EnsureDuoAt(FirstRoad(1))
 // so {0,1}. Empty range (First >= Next) panics.
-//
-// TODO(autobahn): when committees come from execution results, stop inventing
-// placeholder N+1 — only register epochs whose committees are known.
 func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) {
 	if span, ok := commitQCs.Get(); ok {
 		if span.First >= span.Next {
@@ -99,8 +96,12 @@ func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) {
 			}
 		}
 		r.EnsureDuoAt(span.Next)
-		// Placeholder N+1 past the CommitQC window. Harmless with genesis committees.
+		// Placeholder +1/+2: simplification while committees are genesis stubs
+		// (unchanged by exec). Covers exec tip ahead of persisted CommitQC (N+1)
+		// and tip at LastRoad(N) without re-exec (N+2). Goes away next PR when
+		// committees are linked to execution.
 		r.EnsureEpoch(windowLast + 1)
+		r.EnsureEpoch(windowLast + 2)
 		return
 	}
 
