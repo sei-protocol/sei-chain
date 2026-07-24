@@ -30,22 +30,31 @@ const (
 	receiptDataV1HeaderLen = versionLen + blockNumberLen + txOffsetLen + txLengthLen
 )
 
+// txHeader is the metadata header describing where a transaction's raw bytes
+// live in the block store: the block number, and the (offset, length) sub-range
+// of that block's stored value that holds the transaction. Zero-valued when
+// unknown (e.g. block-store compression is on, or the receipt predates this
+// metadata).
+type txHeader struct {
+	BlockNumber uint64
+	Offset      uint32
+	Length      uint32
+}
+
 // receiptData is the decoded form of a stored receipt value: the block-store
 // location of its transaction plus the marshaled receipt body.
 type receiptData struct {
-	BlockNumber uint64
-	TxOffset    uint32
-	TxLength    uint32
-	Body        []byte
+	Header txHeader
+	Body   []byte
 }
 
 // encodeReceiptData serializes d using the current (v1) encoding.
 func encodeReceiptData(d receiptData) []byte {
 	buf := make([]byte, receiptDataV1HeaderLen+len(d.Body))
 	buf[0] = receiptDataV1
-	binary.BigEndian.PutUint64(buf[versionLen:], d.BlockNumber)
-	binary.BigEndian.PutUint32(buf[versionLen+blockNumberLen:], d.TxOffset)
-	binary.BigEndian.PutUint32(buf[versionLen+blockNumberLen+txOffsetLen:], d.TxLength)
+	binary.BigEndian.PutUint64(buf[versionLen:], d.Header.BlockNumber)
+	binary.BigEndian.PutUint32(buf[versionLen+blockNumberLen:], d.Header.Offset)
+	binary.BigEndian.PutUint32(buf[versionLen+blockNumberLen+txOffsetLen:], d.Header.Length)
 	copy(buf[receiptDataV1HeaderLen:], d.Body)
 	return buf
 }
@@ -63,10 +72,12 @@ func decodeReceiptData(raw []byte) (receiptData, error) {
 			return receiptData{}, fmt.Errorf("receipt value too short for v%d: %d < %d", receiptDataV1, len(raw), receiptDataV1HeaderLen)
 		}
 		return receiptData{
-			BlockNumber: binary.BigEndian.Uint64(raw[versionLen:]),
-			TxOffset:    binary.BigEndian.Uint32(raw[versionLen+blockNumberLen:]),
-			TxLength:    binary.BigEndian.Uint32(raw[versionLen+blockNumberLen+txOffsetLen:]),
-			Body:        raw[receiptDataV1HeaderLen:],
+			Header: txHeader{
+				BlockNumber: binary.BigEndian.Uint64(raw[versionLen:]),
+				Offset:      binary.BigEndian.Uint32(raw[versionLen+blockNumberLen:]),
+				Length:      binary.BigEndian.Uint32(raw[versionLen+blockNumberLen+txOffsetLen:]),
+			},
+			Body: raw[receiptDataV1HeaderLen:],
 		}, nil
 	default:
 		return receiptData{}, fmt.Errorf("unknown receipt value version %d", version)

@@ -14,19 +14,19 @@ func TestReceiptDataRoundTrip(t *testing.T) {
 	}{
 		{
 			name: "typical",
-			data: receiptData{BlockNumber: 1234567, TxOffset: 42, TxLength: 100, Body: []byte("receipt-body")},
+			data: receiptData{Header: txHeader{BlockNumber: 1234567, Offset: 42, Length: 100}, Body: []byte("receipt-body")},
 		},
 		{
 			name: "empty body",
-			data: receiptData{BlockNumber: 1, TxOffset: 0, TxLength: 0, Body: []byte{}},
+			data: receiptData{Header: txHeader{BlockNumber: 1, Offset: 0, Length: 0}, Body: []byte{}},
 		},
 		{
 			name: "max field values",
-			data: receiptData{BlockNumber: ^uint64(0), TxOffset: ^uint32(0), TxLength: ^uint32(0), Body: []byte{0x00, 0xff}},
+			data: receiptData{Header: txHeader{BlockNumber: ^uint64(0), Offset: ^uint32(0), Length: ^uint32(0)}, Body: []byte{0x00, 0xff}},
 		},
 		{
 			name: "zeroed metadata (location unknown)",
-			data: receiptData{BlockNumber: 0, TxOffset: 0, TxLength: 0, Body: []byte("body")},
+			data: receiptData{Header: txHeader{BlockNumber: 0, Offset: 0, Length: 0}, Body: []byte("body")},
 		},
 	}
 
@@ -38,9 +38,7 @@ func TestReceiptDataRoundTrip(t *testing.T) {
 
 			got, err := decodeReceiptData(encoded)
 			require.NoError(t, err)
-			require.Equal(t, tc.data.BlockNumber, got.BlockNumber)
-			require.Equal(t, tc.data.TxOffset, got.TxOffset)
-			require.Equal(t, tc.data.TxLength, got.TxLength)
+			require.Equal(t, tc.data.Header, got.Header)
 			require.Equal(t, tc.data.Body, got.Body)
 		})
 	}
@@ -50,7 +48,7 @@ func TestReceiptDataRoundTrip(t *testing.T) {
 // field reorder or width change is caught rather than silently corrupting
 // stored receipts.
 func TestReceiptDataWireLayout(t *testing.T) {
-	data := receiptData{BlockNumber: 0x0102030405060708, TxOffset: 0x0A0B0C0D, TxLength: 0x11121314, Body: []byte("xyz")}
+	data := receiptData{Location: txLocation{BlockNumber: 0x0102030405060708, Offset: 0x0A0B0C0D, Length: 0x11121314}, Body: []byte("xyz")}
 	encoded := encodeReceiptData(data)
 
 	require.Equal(t, byte(1), encoded[0], "version byte")
@@ -64,7 +62,7 @@ func TestReceiptDataWireLayout(t *testing.T) {
 // input buffer (no copy), matching how callers unmarshal over litt's shared
 // read buffer.
 func TestDecodeReceiptDataBodyAliasesInput(t *testing.T) {
-	encoded := encodeReceiptData(receiptData{BlockNumber: 5, TxOffset: 1, TxLength: 2, Body: []byte("abc")})
+	encoded := encodeReceiptData(receiptData{Location: txLocation{BlockNumber: 5, Offset: 1, Length: 2}, Body: []byte("abc")})
 	got, err := decodeReceiptData(encoded)
 	require.NoError(t, err)
 	require.Same(t, &encoded[receiptDataV1HeaderLen], &got.Body[0])

@@ -310,10 +310,12 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 			return err
 		}
 		bz := encodeReceiptData(receiptData{
-			BlockNumber: blockNumber,
-			TxOffset:    record.TxOffset,
-			TxLength:    record.TxLength,
-			Body:        body,
+			Header: txHeader{
+				BlockNumber: blockNumber,
+				Offset:      record.TxOffset,
+				Length:      record.TxLength,
+			},
+			Body: body,
 		})
 		partOffset := uint32(len(value)) //nolint:gosec // block regions fit within uint32
 		value = append(value, bz...)
