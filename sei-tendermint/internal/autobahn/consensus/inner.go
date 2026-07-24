@@ -121,7 +121,8 @@ func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (
 	}
 
 	// View duo = tipcut; CommitQC may be prior epoch. Seeding is data's;
-	// missing epoch hard-fails. Tip order: NewState / checkRestartTips.
+	// missing epoch hard-fails. Tip order: NewState (avail≥consensus);
+	// checkRestartTips (avail≥data; consensus may lag data and catch up).
 	nextViewRoad := types.NextIndexOpt(persisted.CommitQC)
 	duo, err := registry.DuoAt(nextViewRoad)
 	if err != nil {

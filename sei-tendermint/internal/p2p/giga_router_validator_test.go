@@ -355,7 +355,9 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 func TestCheckRestartTips(t *testing.T) {
 	require.NoError(t, checkRestartTips(0, 0))
 	require.NoError(t, checkRestartTips(1, 1))
-	require.NoError(t, checkRestartTips(1, 2), "consensus lead is fine")
+	require.NoError(t, checkRestartTips(1, 2), "avail lead is fine")
+	require.NoError(t, checkRestartTips(2, 2))
+	// data ahead of avail is corrupt; consensus lagging data is OK (not checked here).
 	require.ErrorIs(t, checkRestartTips(2, 1), ErrTipBehindData)
 	require.ErrorIs(t, checkRestartTips(2, 0), ErrTipBehindData)
 }

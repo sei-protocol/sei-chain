@@ -44,8 +44,8 @@ type registryState struct {
 //     nothing. Finishing LastRoad(N-1) seeds epoch N+1 (AdvanceIfNeeded).
 //   - data/ is the sole restart seeder (SetupInitialDuo). Avail/consensus must
 //     not seed; tip into an unseeded epoch → EpochAt/DuoAt hard-fail.
-//   - Post-construction tipcuts: avail ≥ consensus ≥ data.CommitTipCut();
-//     behind → hard-fail.
+//   - Post-construction tipcuts: avail ≥ consensus and avail ≥ data.
+//     Consensus may lag data (catch-up from avail in Run); avail < data → hard-fail.
 //   - Placeholders use the genesis committee until real committees are wired.
 //
 // TODO(autobahn): replace genesis placeholders with epoch info on blocks.

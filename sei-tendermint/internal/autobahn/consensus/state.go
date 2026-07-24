@@ -136,7 +136,8 @@ func newState(
 		myTimeoutQC:   utils.NewAtomicSend(utils.None[*types.TimeoutQC]()),
 	}
 	// Avail admits CommitQCs before consensus tip catches up via LastCommitQC.
-	// Restart: avail tipcut must be >= consensus tipcut.
+	// Restart: avail tipcut must be >= consensus tipcut. Consensus may still
+	// lag data; Run() catch-up from avail closes that gap.
 	if availTip, consTip := availState.CommitTipCut(), s.CommitTipCut(); availTip < consTip {
 		return nil, fmt.Errorf("%w: avail tipcut %d < consensus tipcut %d", ErrAvailBehindConsensus, availTip, consTip)
 	}
