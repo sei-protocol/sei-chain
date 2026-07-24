@@ -24,6 +24,16 @@ BIN=${1:?usage: boot-smoke.sh <path-to-seid> [boots]}
 BOOTS=${2:-8}
 CHAIN_ID=boot-smoke-1
 
+# Linux-only: this gate runs the linux/amd64 binary natively and uses GNU timeout.
+# Skip cleanly on other hosts so local `goreleaser release --snapshot` on macOS still
+# works (build-static.sh cross-builds in Docker there, but the ELF can't run on the
+# host). The real release path and the CI static-build job both run on Linux and always
+# execute the gate.
+if [ "$(uname -s)" != "Linux" ]; then
+  echo "boot-smoke: host is $(uname -s), not Linux; skipping (cannot run the linux/amd64 binary natively here)"
+  exit 0
+fi
+
 for i in $(seq 1 "$BOOTS"); do
   H=$(mktemp -d)
   "$BIN" init smoke --chain-id "$CHAIN_ID" --home "$H" >/dev/null 2>&1
