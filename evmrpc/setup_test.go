@@ -18,8 +18,6 @@ import (
 	"testing"
 	"time"
 
-	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -146,6 +144,10 @@ type MockClient struct {
 
 func (*MockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
+}
+
+func (*MockClient) GenesisInitialHeight() int64 {
+	return 1
 }
 
 func (*MockClient) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
@@ -646,7 +648,7 @@ func init() {
 	goodConfig.MaxLogNoBlock = 10
 	goodConfig.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, 1)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -658,7 +660,7 @@ func init() {
 	badConfig := evmrpcconfig.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, 1)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -683,7 +685,6 @@ func init() {
 		txConfigProvider,
 		"",
 		nil,
-		genesistypes.DefaultGenesisInitialHeight,
 	)
 	if err != nil {
 		panic(err)
@@ -708,7 +709,6 @@ func init() {
 		txConfigProvider,
 		"",
 		nil,
-		genesistypes.DefaultGenesisInitialHeight,
 	)
 	if err != nil {
 		panic(err)
@@ -718,7 +718,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, genesistypes.DefaultGenesisInitialHeight, nil)
+	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -732,7 +732,7 @@ func init() {
 	notifierConfig := goodConfig
 	notifierConfig.HTTPPort = TestNotifierWSPort - 1
 	notifierConfig.WSPort = TestNotifierWSPort
-	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, genesistypes.DefaultGenesisInitialHeight, NotifierForTest)
+	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, NotifierForTest)
 	if err != nil {
 		panic(err)
 	}

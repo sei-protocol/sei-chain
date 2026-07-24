@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
@@ -138,7 +136,7 @@ func TestChainConfigReflectsSstoreParam(t *testing.T) {
 
 	encodingCfg := app.MakeEncodingConfig()
 	tmClient := &MockClient{}
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend := evmrpc.NewBackend(
 		ctxProvider,
 		&testApp.EvmKeeper,
@@ -221,7 +219,7 @@ func TestEstimateGasAfterCallsMaxCalls(t *testing.T) {
 	}
 
 	testApp := testkeeper.TestApp(t)
-	watermarks := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	watermarks := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
 	simAPI := evmrpc.NewSimulationAPI(
 		ctxProvider,
 		EVMKeeper,
@@ -387,7 +385,7 @@ func TestConvertBlockNumber(t *testing.T) {
 			return sdk.Context{}.WithBlockHeight(1000)
 		}
 		return sdk.Context{}
-	}, nil, nil, genesistypes.DefaultGenesisInitialHeight)
+	}, nil, nil)
 	backend := evmrpc.NewBackend(func(i int64) sdk.Context {
 		if i == evmrpc.LatestCtxHeight {
 			return sdk.Context{}.WithBlockHeight(1000)
@@ -433,7 +431,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 
 	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), 3000)
 	tmClient := NewMockClientWithLatest(3000)
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend := evmrpc.NewBackend(
 		ctxProvider,
 		&testApp.EvmKeeper,
@@ -474,7 +472,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	}
 
 	diffTmClient := NewMockClientWithLatest(3000)
-	diffWatermarks := evmrpc.NewWatermarkManager(diffTmClient, ctxProviderDifferentChain, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	diffWatermarks := evmrpc.NewWatermarkManager(diffTmClient, ctxProviderDifferentChain, nil, testApp.EvmKeeper.ReceiptStore())
 	backendDifferentChain := evmrpc.NewBackend(
 		ctxProviderDifferentChain,
 		&testApp.EvmKeeper,
@@ -513,7 +511,7 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 
 	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), 1)
 	tmClient := &MockClient{}
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
 		legacyabci.BeginBlockKeepers{},
 		func(int64) client.TxConfig { return TxConfig },
@@ -543,7 +541,7 @@ func TestGasLimitFallbackToDefault(t *testing.T) {
 	}
 	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), 1)
 	tmClient1 := &MockClient{}
-	watermarks1 := evmrpc.NewWatermarkManager(tmClient1, ctxProvider1, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	watermarks1 := evmrpc.NewWatermarkManager(tmClient1, ctxProvider1, nil, testApp.EvmKeeper.ReceiptStore())
 	backend1 := evmrpc.NewBackend(ctxProvider1, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, tmClient1, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks1)
 	h1, err := backend1.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
@@ -558,7 +556,7 @@ func TestGasLimitFallbackToDefault(t *testing.T) {
 		return baseCtx.WithBlockHeight(h)
 	}
 	bcClient := &bcAlwaysFailClient{MockClient: &MockClient{}}
-	watermarks2 := evmrpc.NewWatermarkManager(bcClient, ctxProvider2, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	watermarks2 := evmrpc.NewWatermarkManager(bcClient, ctxProvider2, nil, testApp.EvmKeeper.ReceiptStore())
 	backend2 := evmrpc.NewBackend(ctxProvider2, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, bcClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks2)
 	_, err = backend2.HeaderByNumber(context.Background(), 1)
 	require.Error(t, err)
@@ -578,7 +576,7 @@ func TestSimulateBackendBlockResolutionCoverage(t *testing.T) {
 	cfg := &evmrpc.SimulateConfig{GasCap: 10_000_000, EVMTimeout: time.Second}
 	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), 1)
 	tmClient := &MockClient{}
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
 		legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig },
 		tmClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks)
@@ -592,7 +590,7 @@ func TestSimulateBackendBlockResolutionCoverage(t *testing.T) {
 
 	t.Run("CurrentHeader_fallback_gas_limit_when_block_unavailable", func(t *testing.T) {
 		bcClient := &bcAlwaysFailClient{MockClient: &MockClient{}}
-		wm := evmrpc.NewWatermarkManager(bcClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+		wm := evmrpc.NewWatermarkManager(bcClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 		b2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
 			legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig },
 			bcClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, wm)
@@ -637,7 +635,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		// Use the existing test app from the global setup
 		testApp := testkeeper.TestApp(t)
 
-		watermarks := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+		watermarks := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
 
 		// Create simulation API
 		simAPI := evmrpc.NewSimulationAPI(
@@ -1024,6 +1022,10 @@ func (c *fixedBlockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (c *fixedBlockClient) GenesisInitialHeight() int64 {
+	return 1
+}
+
 func (c *fixedBlockClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
@@ -1127,7 +1129,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 				}
 			}
 			tmClient := &fixedBlockClient{block: makeBlock(blockHeight)}
-			watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+			watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 			backend := evmrpc.NewBackend(
 				ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
 				func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
@@ -1143,7 +1145,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 			require.NotNil(t, metadata[0].TraceRunnable)
 
 			strictTmClient := &fixedBlockClient{block: makeBlock(v65Height)}
-			strictWatermarks := evmrpc.NewWatermarkManager(strictTmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+			strictWatermarks := evmrpc.NewWatermarkManager(strictTmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 			strictBackend := evmrpc.NewBackend(
 				ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
 				func(int64) client.TxConfig { return TxConfig }, strictTmClient, &SConfig,
@@ -1206,7 +1208,7 @@ func TestBlockByNumberNonTracedTxPassesTxBytes(t *testing.T) {
 
 	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), blockHeight)
 	tmClient := &fixedBlockClient{block: tmBlock}
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend := evmrpc.NewBackend(
 		ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
 		func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
@@ -1354,7 +1356,7 @@ func TestGetTransactionUsesBlockIDHash(t *testing.T) {
 			tmClient := &fixedBlockClient{block: block}
 
 			ctxProvider := func(int64) sdk.Context { return ctx }
-			watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+			watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 			backend := evmrpc.NewBackend(
 				ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
 				func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,

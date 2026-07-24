@@ -26,7 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmnode "github.com/sei-protocol/sei-chain/sei-tendermint/node"
@@ -406,11 +405,7 @@ func (net *Network) startNode(ctx context.Context, n *node, enc encoding) error 
 	// block on the first-block start signal. (It also registers query/tx services
 	// on the in-process gRPC query router, but the harness starts no standalone
 	// cosmos gRPC listener — TM RPC + EVM are the served surface.)
-	genesisInitialHeight := genesistypes.DefaultGenesisInitialHeight
-	if env := tmNode.RPCEnvironment(); env != nil && env.GenDoc != nil {
-		genesisInitialHeight = env.GenDoc.InitialHeight
-	}
-	theApp.RegisterLocalServices(lc, n.clientCx.TxConfig, genesisInitialHeight)
+	theApp.RegisterLocalServices(lc, n.clientCx.TxConfig)
 	return nil
 }
 

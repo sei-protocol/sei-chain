@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
 	servergrpc "github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc"
 	srvtypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
-	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
@@ -77,11 +76,7 @@ func startInProcess(cfg Config, val *Validator) error {
 		// We'll need a RPC client if the validator exposes a gRPC or REST endpoint.
 		if val.APIAddress != "" || val.AppConfig.GRPC.Enable {
 			val.ClientCtx = val.ClientCtx.WithClient(val.RPCClient)
-			genesisInitialHeight := genesistypes.DefaultGenesisInitialHeight
-			if env := tmNode.RPCEnvironment(); env != nil && env.GenDoc != nil {
-				genesisInitialHeight = env.GenDoc.InitialHeight
-			}
-			app.RegisterLocalServices(localClient, val.ClientCtx.TxConfig, genesisInitialHeight)
+			app.RegisterLocalServices(localClient, val.ClientCtx.TxConfig)
 		}
 	}
 

@@ -2712,7 +2712,7 @@ func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 }
 
 // RegisterTendermintService implements the Application.RegisterLocalServices method.
-func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig, genesisInitialHeight int64) {
+func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
 	authtx.RegisterTxService(app.GRPCQueryRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
 	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), node, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
@@ -2729,7 +2729,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	rpcCtxProvider := app.RPCContextProvider
 	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), genesisInitialHeight, traceCtxProvider)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -2744,7 +2744,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 
 	if app.evmRPCConfig.WSEnabled {
 		headNotifier, _ := app.blockHeaderNotifier.Get()
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), genesisInitialHeight, headNotifier)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), headNotifier)
 		if err != nil {
 			panic(err)
 		}

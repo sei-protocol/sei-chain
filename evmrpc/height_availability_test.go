@@ -6,8 +6,6 @@ import (
 	"net/url"
 	"testing"
 
-	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/eth/filters"
@@ -34,6 +32,10 @@ type heightTestClient struct {
 
 func (*heightTestClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
+}
+
+func (*heightTestClient) GenesisInitialHeight() int64 {
+	return 1
 }
 
 func (*heightTestClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
@@ -126,7 +128,7 @@ func testCtxProvider(h int64) sdk.Context {
 }
 
 func newHeightTestWatermarks(client client.LocalClient, latest int64) *WatermarkManager {
-	return NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: latest}, genesistypes.DefaultGenesisInitialHeight)
+	return NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: latest})
 }
 
 // GetBlockByHash for a block whose height sits above safe latest must return
@@ -356,7 +358,7 @@ func TestGetBlockTransactionCountByNumberReceiptsPruned(t *testing.T) {
 
 	client := newHeightTestClient(100, 1, 200)
 	rs := &fakeReceiptStore{latest: 200, earliest: 150}
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs, genesistypes.DefaultGenesisInitialHeight)
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	_, err := api.GetBlockTransactionCountByNumber(context.Background(), rpc.BlockNumber(100))
@@ -369,7 +371,7 @@ func TestGetBlockTransactionCountByHashReceiptsPruned(t *testing.T) {
 
 	client := newHeightTestClient(100, 1, 200)
 	rs := &fakeReceiptStore{latest: 200, earliest: 150}
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs, genesistypes.DefaultGenesisInitialHeight)
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	_, err := api.GetBlockTransactionCountByHash(context.Background(), common.HexToHash(highBlockHashHex))

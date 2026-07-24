@@ -14,8 +14,6 @@ import (
 	"testing"
 	"time"
 
-	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-
 	"math/big"
 
 	"github.com/cosmos/go-bip39"
@@ -303,6 +301,7 @@ type lowLatestTMClient struct {
 }
 
 func (c *lowLatestTMClient) EvmNextPendingNonce(common.Address) uint64 { return 0 }
+func (c *lowLatestTMClient) GenesisInitialHeight() int64               { return 1 }
 
 func (c *lowLatestTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) { return nil, false }
 
@@ -336,7 +335,7 @@ func TestGetTransactionReceiptReturnsNullAboveWatermark(t *testing.T) {
 
 	tmClient := &lowLatestTMClient{latest: MockHeight8}
 	ctxProvider := func(int64) sdk.Context { return Ctx.WithBlockHeight(MockHeight8) }
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, EVMKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, EVMKeeper.ReceiptStore())
 	txAPI := evmrpc.NewTransactionAPI(tmClient, EVMKeeper, ctxProvider, nil, t.TempDir(), evmrpc.ConnectionTypeHTTP, utils.None[time.Duration](), watermarks, evmrpc.NewBlockCache(8), &sync.Mutex{})
 
 	result, err := txAPI.GetTransactionReceipt(context.Background(), hash)

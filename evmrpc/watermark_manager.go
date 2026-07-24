@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -24,11 +25,10 @@ var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
 // requests only target heights where all backing data sources are fully
 // synchronized.
 type WatermarkManager struct {
-	tmClient             client.LocalClient
-	ctxProvider          func(int64) sdk.Context
-	stateStore           types.StateStore // nil if SS is disabled.
-	receiptStore         receipt.ReceiptStore
-	genesisInitialHeight int64
+	tmClient     client.LocalClient
+	ctxProvider  func(int64) sdk.Context
+	stateStore   types.StateStore // nil if SS is disabled.
+	receiptStore receipt.ReceiptStore
 }
 
 func NewWatermarkManager(
@@ -36,15 +36,23 @@ func NewWatermarkManager(
 	ctxProvider func(int64) sdk.Context,
 	stateStore types.StateStore,
 	receiptStore receipt.ReceiptStore,
-	genesisInitialHeight int64,
 ) *WatermarkManager {
 	return &WatermarkManager{
-		tmClient:             tmClient,
-		ctxProvider:          ctxProvider,
-		stateStore:           stateStore,
-		receiptStore:         receiptStore,
-		genesisInitialHeight: genesisInitialHeight,
+		tmClient:     tmClient,
+		ctxProvider:  ctxProvider,
+		stateStore:   stateStore,
+		receiptStore: receiptStore,
 	}
+}
+
+// genesisInitialHeight returns the chain's genesis InitialHeight, sourced from
+// the local client's in-memory genesis doc, falling back to
+// genesis.DefaultGenesisInitialHeight when the client cannot supply it.
+func (m *WatermarkManager) genesisInitialHeight() int64 {
+	if h := m.tmClient.GenesisInitialHeight(); h > 0 {
+		return h
+	}
+	return genesistypes.DefaultGenesisInitialHeight
 }
 
 // Watermarks returns the earliest block height, earliest state height, and
@@ -80,7 +88,7 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 	// InitialHeight (not a literal 1) keeps this correct for chains started
 	// above height 1, whose version 1 was never committed.
 	if stateEarliest < latest {
-		stateEarliest = max(stateEarliest, min(m.genesisInitialHeight, latest))
+		stateEarliest = max(stateEarliest, min(m.genesisInitialHeight(), latest))
 	}
 	return blockEarliest, stateEarliest, latest, nil
 }

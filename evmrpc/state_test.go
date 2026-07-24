@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app"
@@ -235,7 +233,7 @@ func TestGetProof(t *testing.T) {
 			return ctx.WithBlockHeight(height)
 		}
 	}
-	watermarks := evmrpc.NewWatermarkManager(client, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	watermarks := evmrpc.NewWatermarkManager(client, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	stateAPI := evmrpc.NewStateAPI(client, &testApp.EvmKeeper, ctxProvider, evmrpc.ConnectionTypeHTTP, watermarks)
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000616263", testApp.EvmKeeper.GetState(testApp.GetCheckCtx(), evmAddr, common.BytesToHash(key)).Hex())
 	// hex-encode the storage slot as eth_getProof requires

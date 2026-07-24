@@ -682,7 +682,7 @@ func (app *SimApp) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APICon
 }
 
 // RegisterTxService implements the Application.RegisterLocalServices method.
-func (app *SimApp) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig, _ int64) {
+func (app *SimApp) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
 	authtx.RegisterTxService(app.GRPCQueryRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
 	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), node, app.interfaceRegistry)
 }

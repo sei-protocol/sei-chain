@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -105,7 +103,7 @@ func TestHashBasedTraceEndpointsAcquireSemaphoreBeforeHashLookup(t *testing.T) {
 	tmClient := &panicHashLookupClient{
 		heightTestClient: newHeightTestClient(8, 1, latestHeight),
 	}
-	watermarks := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, &fakeReceiptStore{latest: latestHeight}, genesistypes.DefaultGenesisInitialHeight)
+	watermarks := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, &fakeReceiptStore{latest: latestHeight})
 	api := &DebugAPI{
 		tmClient:           tmClient,
 		ctxProvider:        func(int64) sdk.Context { return latestCtx },

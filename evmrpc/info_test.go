@@ -6,8 +6,6 @@ import (
 	"math/big"
 	"testing"
 
-	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
-
 	"github.com/cosmos/go-bip39"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -28,7 +26,7 @@ func newInfoAPIWithWatermarks(ctxProvider func(int64) sdk.Context) *evmrpc.InfoA
 		}
 		return ctx
 	}
-	wm := evmrpc.NewWatermarkManager(&MockClient{}, wrapped, nil, EVMKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	wm := evmrpc.NewWatermarkManager(&MockClient{}, wrapped, nil, EVMKeeper.ReceiptStore())
 	return evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, wrapped, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, wm)
 }
 
@@ -482,7 +480,7 @@ func TestBlockNumberWatermarkDirect(t *testing.T) {
 		}
 		return Ctx.WithBlockHeight(height)
 	}
-	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
 	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProvider, nil, "", 1024, evmrpc.ConnectionTypeHTTP, nil, wm)
 	require.NotPanics(t, func() {
 		_ = api.BlockNumber(t.Context())
@@ -496,7 +494,7 @@ func TestWatermarkComputation(t *testing.T) {
 		}
 		return Ctx.WithBlockHeight(height)
 	}
-	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
+	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
 	require.NotPanics(t, func() {
 		_, _, _, err := wm.Watermarks(t.Context())
 		assert.NoError(t, err)
