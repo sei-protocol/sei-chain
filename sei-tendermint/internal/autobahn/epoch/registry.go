@@ -199,7 +199,8 @@ func (r *Registry) AdvanceIfNeeded(roadIndex types.RoadIndex) {
 }
 
 // DuoAt returns the EpochDuo centered on the epoch containing roadIndex.
-// Current must already be registered. Prev absent only for epoch 0.
+// Current must already be registered. Prev absent only for epoch 0; missing
+// Prev for center > 0 is a hard error (no soft-degrade to Current-only).
 func (r *Registry) DuoAt(roadIndex types.RoadIndex) (types.EpochDuo, error) {
 	centerIdx := IndexForRoad(roadIndex)
 	current, err := r.EpochAt(FirstRoad(centerIdx))
@@ -208,9 +209,11 @@ func (r *Registry) DuoAt(roadIndex types.RoadIndex) (types.EpochDuo, error) {
 	}
 	prev := utils.None[*types.Epoch]()
 	if centerIdx > 0 {
-		if p, err := r.EpochAt(FirstRoad(centerIdx - 1)); err == nil {
-			prev = utils.Some(p)
+		p, err := r.EpochAt(FirstRoad(centerIdx - 1))
+		if err != nil {
+			return types.EpochDuo{}, fmt.Errorf("epoch %d prev (road %d) not in registry", centerIdx-1, roadIndex)
 		}
+		prev = utils.Some(p)
 	}
 	return types.NewEpochDuo(current, prev), nil
 }
