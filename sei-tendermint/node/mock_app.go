@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"runtime"
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -14,6 +15,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -218,12 +220,26 @@ func (state *mockAppState) checkTransition(want mockAppTransition) error {
 
 func parseMockAppTxs(txs [][]byte) ([]*abci.ResponseCheckTxV2, error) {
 	parsed := make([]*abci.ResponseCheckTxV2, len(txs))
-	for i, tx := range txs {
-		res, err := parseFastCheckTx(tx)
-		if err != nil {
-			return nil, err
+	workers := min(runtime.GOMAXPROCS(0), len(txs))
+	if workers == 0 {
+		return parsed, nil
+	}
+	if err := scope.Parallel(func(s scope.ParallelScope) error {
+		for worker := range workers {
+			s.Spawn(func() error {
+				for i := worker; i < len(txs); i += workers {
+					res, err := parseFastCheckTx(txs[i])
+					if err != nil {
+						return err
+					}
+					parsed[i] = res
+				}
+				return nil
+			})
 		}
-		parsed[i] = res
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return parsed, nil
 }
