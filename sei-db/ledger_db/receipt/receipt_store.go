@@ -30,7 +30,21 @@ var (
 	ErrNotFound               = errors.New("receipt not found")
 	ErrNotConfigured          = errors.New("receipt store not configured")
 	ErrRangeQueryNotSupported = errors.New("range query not supported by this backend")
+	// ErrTooManyLogs is returned by FilterLogs when a query matches more logs
+	// than the caller-supplied limit. It lets callers cap peak memory by
+	// aborting a query instead of materializing an unbounded result set.
+	ErrTooManyLogs = errors.New("query matches too many logs")
+	// ErrTooManyLogBytes is returned when matched logs exceed the byte budget.
+	ErrTooManyLogBytes = errors.New("query matches too many log bytes")
 )
+
+func NewTooManyLogsError(limit int64) error {
+	return fmt.Errorf("%w: result exceeds the maximum of %d logs; narrow the block range or filter criteria", ErrTooManyLogs, limit)
+}
+
+func NewTooManyLogBytesError(maxBytes int64) error {
+	return fmt.Errorf("%w: result exceeds the maximum of %d bytes; narrow the block range or filter criteria", ErrTooManyLogBytes, maxBytes)
+}
 
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.
 type ReceiptStore interface {
@@ -43,7 +57,11 @@ type ReceiptStore interface {
 	SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error
 	// FilterLogs queries logs across a range of blocks.
 	// For single-block queries, set fromBlock == toBlock.
-	FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error)
+	// budget is charged per matched log via Reserve and aborts once either
+	// configured ceiling is exceeded; nil disables all caps. Callers on the
+	// eth range path typically pass a byte-only budget (maxLog=0) here and
+	// enforce the matched-log count on the normalized result separately.
+	FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error)
 	Close() error
 }
 
@@ -265,7 +283,7 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 // FilterLogs is not efficiently supported by the pebble backend since receipts
 // are indexed by tx hash, not by block number. Returns ErrRangeQueryNotSupported.
 // Callers should fall back to fetching receipts individually via GetReceipt.
-func (s *receiptStore) FilterLogs(_ sdk.Context, _, _ uint64, _ filters.FilterCriteria) ([]*ethtypes.Log, error) {
+func (s *receiptStore) FilterLogs(_ sdk.Context, _, _ uint64, _ filters.FilterCriteria, _ *LogBudget) ([]*ethtypes.Log, error) {
 	return nil, ErrRangeQueryNotSupported
 }
 

@@ -1,6 +1,7 @@
 package receipt
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"sort"
@@ -193,7 +194,7 @@ func (s *littReceiptStore) stageTagKeys(batch dbtypes.Batch, blockNumber uint64,
 // This parallelizes both the per-block index scans and the litt body reads,
 // which dominate wide-range latency. Results are exact (matchLog re-verifies
 // after decode) and stay in (block, txIndex) order via the indexed buffer.
-func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) filterLogsByTags(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
 	if latest := s.latestVersion.Load(); latest >= 0 && toBlock > uint64(latest) { //nolint:gosec // latest is non-negative
 		toBlock = uint64(latest) //nolint:gosec // latest is non-negative
 	}
@@ -211,12 +212,25 @@ func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filt
 	// output keeps block order regardless of completion order. errgroup caps
 	// concurrency at the configured limit and hands the next block to whichever
 	// worker frees up, load-balancing across the skewed per-block cost.
+	//
+	// budget.Reserve aborts the fan-out once matched logs exceed its cap: the
+	// tripping worker returns the budget's error, which cancels the group so
+	// already-scheduled blocks bail before reading, and the loop stops queueing
+	// new blocks.
+	// egCtx derives from the caller's request context, so a client disconnect
+	// cancels the group the same way a budget trip does.
 	results := make([][]*ethtypes.Log, nBlocks)
-	var eg errgroup.Group
+	eg, egCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(s.logFilterParallelism)
 	for i := 0; i < nBlocks; i++ {
+		if egCtx.Err() != nil {
+			break
+		}
 		eg.Go(func() error {
-			blockLogs, err := s.blockLogs(fromBlock+uint64(i), groups, crit) //nolint:gosec // i < nBlocks
+			if egCtx.Err() != nil {
+				return nil // group already cancelled; skip without overwriting the cause
+			}
+			blockLogs, err := s.blockLogs(egCtx, fromBlock+uint64(i), groups, crit, budget) //nolint:gosec // i < nBlocks
 			if err != nil {
 				return err
 			}
@@ -228,7 +242,7 @@ func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filt
 		return nil, err
 	}
 
-	var logs []*ethtypes.Log
+	logs := make([]*ethtypes.Log, 0, budget.UsedCount())
 	for _, blockLogs := range results {
 		logs = append(logs, blockLogs...)
 	}
@@ -237,7 +251,10 @@ func (s *littReceiptStore) filterLogsByTags(fromBlock, toBlock uint64, crit filt
 
 // blockLogs answers the query for one block: intersect the tag candidates, then
 // point-read and match the surviving receipts. Returns nil when nothing matches.
-func (s *littReceiptStore) blockLogs(block uint64, groups [][][]byte, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) blockLogs(ctx context.Context, block uint64, groups [][][]byte, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	candidates, err := s.blockTagCandidates(block, groups)
 	if err != nil {
 		return nil, err
@@ -245,7 +262,7 @@ func (s *littReceiptStore) blockLogs(block uint64, groups [][][]byte, crit filte
 	if len(candidates) == 0 {
 		return nil, nil
 	}
-	return s.candidateBlockLogs(candidates, crit)
+	return s.candidateBlockLogs(ctx, candidates, crit, budget)
 }
 
 // blockTagCandidates returns the block's candidate transactions. With no
@@ -317,7 +334,7 @@ func (s *littReceiptStore) scanTagRange(lower, upper []byte, dst map[uint32]litt
 // in transaction-index order, and applies the exact matchLog predicate. A
 // missing receipt is skipped, not an error: litt TTL GC can reclaim a body
 // between the index scan and the read.
-func (s *littReceiptStore) candidateBlockLogs(candidates map[uint32]littTagRef, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) candidateBlockLogs(ctx context.Context, candidates map[uint32]littTagRef, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
 	txIndexes := make([]uint32, 0, len(candidates))
 	for txIndex := range candidates {
 		txIndexes = append(txIndexes, txIndex)
@@ -326,6 +343,13 @@ func (s *littReceiptStore) candidateBlockLogs(candidates map[uint32]littTagRef, 
 
 	var logs []*ethtypes.Log
 	for _, txIndex := range txIndexes {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if budget.Tripped() {
+			return nil, budget.Err()
+		}
+
 		ref := candidates[txIndex]
 		bz, exists, err := s.receipts.Get(ref.txHash[:])
 		if err != nil {
@@ -338,10 +362,21 @@ func (s *littReceiptStore) candidateBlockLogs(candidates map[uint32]littTagRef, 
 		if err := receipt.Unmarshal(bz); err != nil {
 			return nil, err
 		}
-		for _, lg := range getLogsForTx(receipt, uint(ref.firstLogIndex)) {
-			if matchLog(lg, crit) {
-				logs = append(logs, lg)
+		for _, rawLog := range receipt.Logs {
+			if err := ctx.Err(); err != nil {
+				return nil, err
 			}
+			if budget.Tripped() {
+				return nil, budget.Err()
+			}
+			lg := convertLog(rawLog, receipt, uint(ref.firstLogIndex))
+			if !matchLog(lg, crit) {
+				continue
+			}
+			if err := budget.Reserve(lg); err != nil {
+				return nil, err
+			}
+			logs = append(logs, lg)
 		}
 	}
 	return logs, nil
