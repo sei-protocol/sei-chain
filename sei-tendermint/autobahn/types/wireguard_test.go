@@ -197,7 +197,7 @@ func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
 	}
 	proposal, err := NewProposal(
 		secretKeyFor(keys, committee.Leader(View{})),
-		ViewSpec{Epochs: EpochDuo{Current: NewEpoch(0, OpenRoadRange(), time.Time{}, committee, 0)}},
+		ViewSpec{Epochs: NewEpochDuo(NewEpoch(0, OpenRoadRange(), time.Time{}, committee, 0), utils.None[*Epoch]())},
 		time.Unix(1, 2),
 		laneQCs,
 		utils.None[*AppQC](),

@@ -98,7 +98,7 @@ func (p *persistedInner) validate(commitEp, viewEp *types.Epoch) error {
 		}
 	}
 
-	vs := types.ViewSpec{CommitQC: p.CommitQC, TimeoutQC: p.TimeoutQC, Epochs: types.EpochDuo{Current: viewEp}}
+	vs := types.ViewSpec{CommitQC: p.CommitQC, TimeoutQC: p.TimeoutQC, Epochs: types.NewEpochDuo(viewEp, utils.None[*types.Epoch]())}
 	currentView := vs.View()
 	committee := viewEp.Committee()
 

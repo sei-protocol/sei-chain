@@ -221,7 +221,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 			malBlocks = append(malBlocks, b)
 		}
 	}
-	viewSpec := types.ViewSpec{CommitQC: utils.None[*types.CommitQC](), Epochs: types.EpochDuo{Current: registry.LatestEpoch()}}
+	viewSpec := types.ViewSpec{CommitQC: utils.None[*types.CommitQC](), Epochs: types.NewEpochDuo(registry.LatestEpoch(), utils.None[*types.Epoch]())}
 	leader := committee.Leader(viewSpec.View())
 	var leaderKey types.SecretKey
 	for _, k := range keys {

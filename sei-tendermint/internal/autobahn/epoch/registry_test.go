@@ -264,7 +264,7 @@ func TestDuoAt_GenesisEpoch(t *testing.T) {
 	if duo.Prev.IsPresent() {
 		t.Fatalf("DuoAt(0).Prev = %v, want absent for epoch 0", duo.Prev)
 	}
-	if duo.Current == nil || duo.Current.EpochIndex() != 0 {
+	if duo.Current.EpochIndex() != 0 {
 		t.Fatalf("DuoAt(0).Current.EpochIndex() wrong, want 0")
 	}
 }
@@ -281,7 +281,7 @@ func TestDuoAt_MiddleEpoch(t *testing.T) {
 	if !ok || prev.EpochIndex() != 1 {
 		t.Fatalf("DuoAt(epoch 2).Prev.EpochIndex() wrong, want 1")
 	}
-	if duo.Current == nil || duo.Current.EpochIndex() != 2 {
+	if duo.Current.EpochIndex() != 2 {
 		t.Fatalf("DuoAt(epoch 2).Current.EpochIndex() wrong, want 2")
 	}
 }

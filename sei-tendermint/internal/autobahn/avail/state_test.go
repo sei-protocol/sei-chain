@@ -343,7 +343,7 @@ func TestStateMismatchedQCs(t *testing.T) {
 
 	// Helper to create a CommitQC for a specific index
 	makeQC := func(prev utils.Option[*types.CommitQC], laneQCs map[types.LaneID]*types.LaneQC) *types.CommitQC {
-		vs := types.ViewSpec{CommitQC: prev, Epochs: types.EpochDuo{Current: types.NewEpoch(0, types.OpenRoadRange(), time.Time{}, committee, initialBlock)}}
+		vs := types.ViewSpec{CommitQC: prev, Epochs: types.NewEpochDuo(types.NewEpoch(0, types.OpenRoadRange(), time.Time{}, committee, initialBlock), utils.None[*types.Epoch]())}
 		fullProposal := utils.OrPanic1(types.NewProposal(
 			leaderKey(committee, keys, vs.View()),
 			vs,
@@ -450,7 +450,7 @@ func TestPushVote_DropsSignerAfterEpochAdvance(t *testing.T) {
 		}
 		ep1 := types.NewEpoch(1, types.RoadRange{First: epoch.FirstRoad(1), Next: epoch.FirstRoad(2)},
 			ep0.FirstTimestamp(), utils.OrPanic1(types.NewCommittee(weights)), ep0.FirstBlock())
-		duo1 := types.EpochDuo{Prev: utils.Some(ep0), Current: ep1}
+		duo1 := types.NewEpochDuo(ep1, utils.Some(ep0))
 
 		errCh := make(chan error, 1)
 		go func() { errCh <- state.PushVote(ctx, vote) }()
@@ -491,7 +491,7 @@ func TestPushVote_CountsSignerAfterEpochAdvance(t *testing.T) {
 		weights := map[types.PublicKey]uint64{keys[0].Public(): 1000, keys[1].Public(): 1000}
 		ep1 := types.NewEpoch(1, types.RoadRange{First: epoch.FirstRoad(1), Next: epoch.FirstRoad(2)},
 			ep0.FirstTimestamp(), utils.OrPanic1(types.NewCommittee(weights)), ep0.FirstBlock())
-		duo1 := types.EpochDuo{Prev: utils.Some(ep0), Current: ep1}
+		duo1 := types.NewEpochDuo(ep1, utils.Some(ep0))
 
 		errCh := make(chan error, 1)
 		go func() { errCh <- state.PushVote(ctx, vote) }()

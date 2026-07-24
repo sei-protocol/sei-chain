@@ -878,7 +878,7 @@ func TestNewInnerAppVotesFloorFromAnchorNotTipFirstBlock(t *testing.T) {
 	tipFirst := wantAppFirst + 1000
 	c := ep0.Committee()
 	tipCurrent := types.NewEpoch(1, types.RoadRange{First: epoch.FirstRoad(1), Next: epoch.FirstRoad(2)}, ep0.FirstTimestamp(), c, tipFirst)
-	tipDuo := types.EpochDuo{Prev: utils.Some(ep0), Current: tipCurrent}
+	tipDuo := types.NewEpochDuo(tipCurrent, utils.Some(ep0))
 
 	ap := types.NewAppProposal(wantAppFirst, qcs[1].Index(), types.GenAppHash(rng), 0)
 	loaded := &loadedAvailState{
