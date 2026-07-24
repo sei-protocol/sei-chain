@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -136,8 +137,9 @@ func TestBatchGetWithLatchedKeyLeavesNoStrandedEntries(t *testing.T) {
 	require.Equal(t, []byte("v1"), v)
 }
 
-// Two goroutines racing on one failing key: both must observe the error, and the entry must end
-// latched as statusFailed.
+// Two goroutines racing on one failing key: both must observe the error, the key must be read
+// from the DB exactly once (the failure latch is what guarantees a failed read is never retried,
+// on any interleaving), and the entry must end latched as statusFailed.
 func TestConcurrentReadersOfFailingKeyBothError(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithDB(t, db, 1, 1<<20)
@@ -145,8 +147,16 @@ func TestConcurrentReadersOfFailingKeyBothError(t *testing.T) {
 
 	// Set the fault knobs only after construction: NewSnapshotEngine performs an initial-hash
 	// read through the same DB, which must neither block on the gate nor observe the error.
+	// Baseline the read counter past that construction-time read.
+	base := db.getCalls.Load()
 	db.getGate = make(chan struct{})
 	db.getErr = errors.New("io boom")
+
+	// Close the gate exactly once, and unconditionally on test failure: t.Cleanup runs LIFO, so
+	// this releases any gated in-flight read before the engine/pool teardown registered at
+	// construction — a failed assertion must not deadlock the pool drain.
+	releaseGate := sync.OnceFunc(func() { close(db.getGate) })
+	t.Cleanup(releaseGate)
 
 	readErrs := make(chan error, 2)
 	for i := 0; i < 2; i++ {
@@ -156,10 +166,12 @@ func TestConcurrentReadersOfFailingKeyBothError(t *testing.T) {
 		}()
 	}
 
-	// Let both readers converge on the single in-flight read, then release it.
-	require.Eventually(t, func() bool { return db.getCalls.Load() == 1 },
-		2*time.Second, time.Millisecond, "expected the two readers to collapse to one DB read")
-	close(db.getGate)
+	// Hold the gate until the single read is in flight, so the second reader has the chance to
+	// park on it. This wait is monotone convergence, not a race: the counter provably reaches
+	// base+1 and (thanks to the latch) provably never exceeds it.
+	require.Eventually(t, func() bool { return db.getCalls.Load() == base+1 },
+		10*time.Second, time.Millisecond, "the scheduled DB read never started")
+	releaseGate()
 
 	for i := 0; i < 2; i++ {
 		select {
@@ -169,6 +181,11 @@ func TestConcurrentReadersOfFailingKeyBothError(t *testing.T) {
 			t.Fatal("reader did not unblock")
 		}
 	}
+
+	// The coalescing/latch property, asserted where it is deterministic: however the readers
+	// interleaved, the failing key was read exactly once.
+	require.Equal(t, base+1, db.getCalls.Load(),
+		"a failed key must be read from the DB exactly once, on any interleaving")
 
 	require.Eventually(t, func() bool {
 		shard.lock.Lock()
