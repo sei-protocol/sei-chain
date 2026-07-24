@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/gogo/protobuf/proto"
@@ -162,7 +164,7 @@ func setupTestServer(
 		func(int64) client.TxConfig { return a.GetTxConfig() },
 		"",
 		a.GetStateStore(),
-		1,
+		genesistypes.DefaultGenesisInitialHeight,
 	)
 	if err != nil {
 		panic(err)

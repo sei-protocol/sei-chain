@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -681,7 +683,7 @@ func init() {
 		txConfigProvider,
 		"",
 		nil,
-		1,
+		genesistypes.DefaultGenesisInitialHeight,
 	)
 	if err != nil {
 		panic(err)
@@ -706,7 +708,7 @@ func init() {
 		txConfigProvider,
 		"",
 		nil,
-		1,
+		genesistypes.DefaultGenesisInitialHeight,
 	)
 	if err != nil {
 		panic(err)
@@ -716,7 +718,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, 1, nil)
+	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, genesistypes.DefaultGenesisInitialHeight, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -730,7 +732,7 @@ func init() {
 	notifierConfig := goodConfig
 	notifierConfig.HTTPPort = TestNotifierWSPort - 1
 	notifierConfig.WSPort = TestNotifierWSPort
-	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, 1, NotifierForTest)
+	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, genesistypes.DefaultGenesisInitialHeight, NotifierForTest)
 	if err != nil {
 		panic(err)
 	}

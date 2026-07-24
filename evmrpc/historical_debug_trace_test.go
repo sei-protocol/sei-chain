@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
+
 	"github.com/ethereum/go-ethereum/common"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
@@ -103,7 +105,7 @@ func TestGuardHistoricalDebugTraceByHashUsesTendermintHeight(t *testing.T) {
 		connectionType:   ConnectionTypeHTTP,
 		maxBlockLookback: 1,
 		backend: &Backend{
-			watermarks: NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, &fakeReceiptStore{latest: latestHeight}, 1),
+			watermarks: NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, &fakeReceiptStore{latest: latestHeight}, genesistypes.DefaultGenesisInitialHeight),
 		},
 	}
 

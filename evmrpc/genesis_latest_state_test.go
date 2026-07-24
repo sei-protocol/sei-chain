@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app"
@@ -95,7 +97,7 @@ func TestStateAPILatestLikeTagsUseGenesisCommittedStateBeforeFirstCommit(t *test
 		return queryCtx
 	}
 	tmClient := &freshChainClient{}
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), 1)
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
 	api := evmrpc.NewStateAPI(tmClient, &testApp.EvmKeeper, ctxProvider, evmrpc.ConnectionTypeHTTP, watermarks)
 	expectedBalance := evmstate.NewDBImpl(testApp.GetCheckCtx(), &testApp.EvmKeeper, true).GetBalance(address).ToBig().String()
 
@@ -138,7 +140,7 @@ func TestSimulationBackendLatestLikeTagsUseGenesisCommittedStateBeforeFirstCommi
 		require.NoError(t, err)
 		return queryCtx
 	}
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), 1)
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
 	backend := evmrpc.NewBackend(
 		ctxProvider,
 		&testApp.EvmKeeper,

@@ -380,7 +380,7 @@ func startInProcess(
 				return err
 			}
 			clientCtx = clientCtx.WithClient(localClient)
-			var genesisInitialHeight int64
+			genesisInitialHeight := genesistypes.DefaultGenesisInitialHeight
 			if env := tmNode.RPCEnvironment(); env != nil && env.GenDoc != nil {
 				genesisInitialHeight = env.GenDoc.InitialHeight
 			}

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -128,7 +130,7 @@ func TestBlockTransactionCountMatchesGetBlockByNumber(t *testing.T) {
 	list := encoded["transactions"].([]interface{})
 
 	tm := &parityTxCountTMClient{block: block}
-	wm := evmrpc.NewWatermarkManager(tm, ctxProvider, nil, k.ReceiptStore(), 1)
+	wm := evmrpc.NewWatermarkManager(tm, ctxProvider, nil, k.ReceiptStore(), genesistypes.DefaultGenesisInitialHeight)
 	api := evmrpc.NewBlockAPI(tm, k, ctxProvider, txConfigProvider, evmrpc.ConnectionTypeHTTP, wm, cache, mu)
 	rpcCount, err := api.GetBlockTransactionCountByNumber(context.Background(), rpc.BlockNumber(parityTestHeight))
 	require.NoError(t, err)
