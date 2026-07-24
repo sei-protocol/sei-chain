@@ -47,9 +47,11 @@ type kvPair struct {
 //     zero-copy buffers so they remain stable as the dbIter advances.
 //
 // Filtering:
-//   - This iterator emits everything its inputs contain. Callers that need to
-//     suppress specific keys (e.g. the cache's metadata hash key) should wrap
-//     this iterator or filter at the call site.
+//   - The engine's reserved metadata hash key (hashKey) is excluded from
+//     iteration output: the DB-side value under that key is the most recently
+//     flushed hash, generally stale relative to this snapshot. Consumers obtain
+//     the snapshot's hash via Snapshot.AwaitHash, which is guaranteed to match
+//     the iterated data.
 //
 // Concurrency:
 //   - Not thread-safe. A single iterator must not be shared across goroutines;
@@ -64,6 +66,11 @@ type snapshotIterator struct {
 	// arrives already positioned at its first key (tm-db iterators are created
 	// pre-positioned).
 	dbIter dbm.Iterator
+
+	// hashKey is the engine's reserved metadata hash key (see
+	// SnapshotEngineConfig.HashKey); entries with this key are excluded from
+	// iteration output.
+	hashKey []byte
 
 	// nextDBPair caches the dbIter's current tip, cloned out of dbIter's
 	// zero-copy buffers. Populated by the constructor and refreshed by
@@ -93,13 +100,17 @@ type snapshotIterator struct {
 //   - dbIter must be a fresh DB iterator, already positioned at its first key
 //     (tm-db iterators are created pre-positioned). The new iterator takes
 //     ownership and will Close it.
+//   - hashKey is the engine's reserved metadata hash key, which is excluded
+//     from iteration output (see the Filtering section of the type doc).
 func newSnapshotIterator(
 	overrides []kvPair,
 	dbIter dbm.Iterator,
+	hashKey []byte,
 ) (*snapshotIterator, error) {
 	it := &snapshotIterator{
 		overrides: overrides,
 		dbIter:    dbIter,
+		hashKey:   hashKey,
 	}
 	if err := it.refreshDBPair(); err != nil {
 		// We took ownership of dbIter; close it before returning the error
@@ -167,6 +178,10 @@ func (it *snapshotIterator) Next() (bool, []byte, []byte, error) {
 
 		if pick.value == nil {
 			// We've encountered a tombstone for a deleted value. Skip it and continue the loop.
+			continue
+		}
+		if bytes.Equal(pick.key, it.hashKey) {
+			// The engine's reserved metadata hash key is not part of the snapshot's user data.
 			continue
 		}
 		return true, pick.key, pick.value, nil

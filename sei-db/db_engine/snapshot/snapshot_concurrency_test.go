@@ -83,7 +83,6 @@ func TestConcurrentDifferential(t *testing.T) {
 	cfg.MaxUnflushedVersions = 128
 	engine := newTestEngineWithConfig(t, cfg, db)
 	model := newModelEngine(nil)
-	hashKey := cfg.HashKey
 
 	type job struct {
 		snap Snapshot
@@ -97,7 +96,7 @@ func TestConcurrentDifferential(t *testing.T) {
 		go func() {
 			defer readers.Done()
 			for j := range jobs {
-				checkConcurrentSnapshot(t, j.snap, j.ver, keys, hashKey)
+				checkConcurrentSnapshot(t, j.snap, j.ver, keys)
 				if err := j.snap.Release(); err != nil {
 					t.Errorf("reader release: %v", err)
 				}
@@ -147,7 +146,7 @@ func TestConcurrentDifferential(t *testing.T) {
 
 // checkConcurrentSnapshot validates a snapshot's reads and iteration against its immutable oracle
 // version. Goroutine-safe: reports via t.Errorf rather than asserting.
-func checkConcurrentSnapshot(t *testing.T, snap Snapshot, ver *modelVersion, keys [][]byte, hashKey string) {
+func checkConcurrentSnapshot(t *testing.T, snap Snapshot, ver *modelVersion, keys [][]byte) {
 	for _, k := range keys {
 		v, found, err := snap.Get(k, false)
 		if err != nil {
@@ -165,17 +164,10 @@ func checkConcurrentSnapshot(t *testing.T, snap Snapshot, ver *modelVersion, key
 		}
 	}
 
-	pairs, err := drainIterator(snap.Iterator())
+	got, err := drainIterator(snap.Iterator())
 	if err != nil {
 		t.Errorf("concurrent iterate: %v", err)
 		return
-	}
-	// Filter the metadata hash key (whose presence depends on non-deterministic flush timing).
-	got := pairs[:0]
-	for _, kv := range pairs {
-		if string(kv.key) != hashKey {
-			got = append(got, kv)
-		}
 	}
 	exp := sortedEntries(ver.full)
 	if len(got) != len(exp) {

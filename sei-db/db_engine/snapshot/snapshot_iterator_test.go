@@ -9,15 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// iterateUserData snapshots the engine, hashes it, collects user-visible (hash-key-filtered)
-// iteration, and releases. Returns the pairs in iteration order.
+// iterateUserData snapshots the engine, hashes it, collects the full iteration (which the engine
+// guarantees is exactly the user data — the metadata hash key is filtered internally), and
+// releases. Returns the pairs in iteration order.
 func iterateUserData(t *testing.T, engine SnapshotEngine) []kvPair {
 	t.Helper()
-	hashKey := engine.(*snapshotEngine).config.HashKey
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap.SetHash(testHash))
-	out := collectUserData(t, snap.Iterator(), hashKey)
+	out := collectIterator(t, snap.Iterator())
 	require.NoError(t, snap.Release())
 	return out
 }
@@ -80,7 +80,11 @@ func TestIteratorMergesAcrossShards(t *testing.T) {
 	require.Equal(t, want, iterateUserData(t, engine))
 }
 
-func TestIteratorIncludesHashKeyInRawIteration(t *testing.T) {
+// The metadata hash key is engine-internal and must never appear in iteration, even once a flush
+// has written it to the underlying DB. (The DB-side value is the most recently flushed hash,
+// which is generally stale relative to the snapshot; exposing it would pair data-at-V with
+// hash-at-W. Consumers get the snapshot's hash from AwaitHash.)
+func TestIteratorExcludesHashKey(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithDB(t, db, 1, 1<<20)
 	hashKey := engine.(*snapshotEngine).config.HashKey
@@ -92,21 +96,19 @@ func TestIteratorIncludesHashKeyInRawIteration(t *testing.T) {
 	require.NoError(t, snap1.SetHash(testHash))
 	awaitFlushed(t, snap1, time.Second)
 	require.NoError(t, snap1.Release())
+	require.True(t, db.has(hashKey), "the flush must have written the hash key to the DB")
 
-	// snap2's raw iteration reads through to the DB and must expose the hash key.
+	// snap2's iteration reads through to the DB, where the hash key now lives; it must be filtered.
 	snap2, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap2.SetHash(testHash))
 	all := collectIterator(t, snap2.Iterator())
 	require.NoError(t, snap2.Release())
 
-	found := false
 	for _, kv := range all {
-		if string(kv.key) == hashKey {
-			found = true
-		}
+		require.NotEqual(t, hashKey, string(kv.key), "iteration must not expose the metadata hash key")
 	}
-	require.True(t, found, "raw iteration must expose the metadata hash key")
+	require.Equal(t, []kvPair{{key: []byte("k"), value: []byte("v")}}, all)
 }
 
 func TestIteratorCloseIsIdempotent(t *testing.T) {

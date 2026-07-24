@@ -376,17 +376,3 @@ func collectIterator(t *testing.T, it Iterator) []kvPair {
 	require.NoError(t, err)
 	return out
 }
-
-// collectUserData drains an iterator but skips the metadata hash key, returning only user-visible data.
-func collectUserData(t *testing.T, it Iterator, hashKey string) []kvPair {
-	t.Helper()
-	all := collectIterator(t, it)
-	out := all[:0]
-	for _, kv := range all {
-		if string(kv.key) == hashKey {
-			continue
-		}
-		out = append(out, kv)
-	}
-	return out
-}

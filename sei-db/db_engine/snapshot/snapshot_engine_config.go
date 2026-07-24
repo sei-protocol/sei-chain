@@ -48,11 +48,11 @@ type SnapshotEngineConfig struct {
 
 	// A special metadata key where the DB stores its hash.
 	//
-	// This key is owned by the engine and is reserved. For performance reasons the write path
-	// does not check for it, so writing it through Set/Delete/BatchSet, or reading it through
-	// Get/BatchGet, is undefined behavior: flushes overwrite user writes to this key, and a
-	// cached read of it can go permanently stale. Iterators DO expose this key (see
-	// Snapshot.Iterator).
+	// This key is owned by the engine and is reserved; it is never observable through any engine
+	// read path (iterators filter it out — see Snapshot.Iterator). For performance reasons the
+	// write path does not check for it, so writing it through Set/Delete/BatchSet, or reading it
+	// through Get/BatchGet, is undefined behavior: flushes overwrite user writes to this key, and
+	// a cached read of it can go permanently stale.
 	HashKey string
 
 	// Whether to fsync flushed data to the underlying DB on each flush commit. When false, flushes

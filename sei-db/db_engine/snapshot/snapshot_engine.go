@@ -177,6 +177,11 @@ type Snapshot interface {
 
 	// Returns an iterator over the snapshot's data. Iterator walks data in ascending lexographical order of keys.
 	//
+	// The engine's reserved metadata hash key (see SnapshotEngineConfig.HashKey) is excluded
+	// from iteration: iterator output is exactly the user data at this snapshot's version.
+	// Consumers that need the snapshot's hash should use AwaitHash, which is guaranteed to
+	// match the iterated data.
+	//
 	// WARNING: failure to close the iterator may lead to a fatal leak.
 	Iterator() Iterator
 

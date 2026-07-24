@@ -62,7 +62,6 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 	cfg.MaxUnflushedVersions = 64 // keep held snapshots from tripping backpressure
 	engine := newTestEngineWithConfig(t, cfg, db)
 	model := newModelEngine(seedData)
-	hashKey := cfg.HashKey
 
 	type openSnap struct {
 		snap Snapshot
@@ -112,14 +111,14 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 		// Periodically deep-check every held snapshot.
 		if i%10 == 0 {
 			for _, o := range opens {
-				checkSnapshot(t, o.snap, model, o.ver, keys, hashKey)
+				checkSnapshot(t, o.snap, model, o.ver, keys)
 			}
 		}
 	}
 
 	// Final full check, then drain all held snapshots in order.
 	for _, o := range opens {
-		checkSnapshot(t, o.snap, model, o.ver, keys, hashKey)
+		checkSnapshot(t, o.snap, model, o.ver, keys)
 	}
 	for len(opens) > 0 {
 		releaseOldest()
@@ -127,7 +126,7 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 }
 
 // checkSnapshot deep-compares a held snapshot against the oracle across all read surfaces.
-func checkSnapshot(t *testing.T, snap Snapshot, model *modelEngine, ver uint64, keys [][]byte, hashKey string) {
+func checkSnapshot(t *testing.T, snap Snapshot, model *modelEngine, ver uint64, keys [][]byte) {
 	label := fmt.Sprintf("snap@v=%d", ver)
 	lookup := func(k []byte) ([]byte, bool) { return model.GetAt(ver, k) }
 
@@ -139,7 +138,7 @@ func checkSnapshot(t *testing.T, snap Snapshot, model *modelEngine, ver uint64, 
 	require.Equal(t, model.DiffAt(ver), gotDiff, "%s diff mismatch", label)
 
 	it := snap.Iterator()
-	compareIterator(t, label, it, model.IterateAt(ver), hashKey)
+	compareIterator(t, label, it, model.IterateAt(ver))
 }
 
 func compareReads(t *testing.T, label string, get func(key []byte) ([]byte, bool, error),
@@ -169,8 +168,8 @@ func compareBatchGet(t *testing.T, label string, batchGet func([][]byte) (map[st
 	}
 }
 
-func compareIterator(t *testing.T, label string, it Iterator, expected []kvPair, hashKey string) {
-	got := collectUserData(t, it, hashKey)
+func compareIterator(t *testing.T, label string, it Iterator, expected []kvPair) {
+	got := collectIterator(t, it)
 	require.NoError(t, it.Close(), "%s iterator close", label)
 	require.Equal(t, len(expected), len(got), "%s iterator length", label)
 	for i := range expected {

@@ -705,9 +705,12 @@ func (c *snapshotEngine) requestIterator(version uint64) (Iterator, error) {
 // already prevents this race today, but the order is a cheap belt to go with
 // the suspenders.)
 //
-// The returned iterator exposes everything in the snapshot, including the
-// engine's metadata hash key (see flushSnapshots). Callers like state sync
-// rely on observing the hash alongside user data.
+// The returned iterator excludes the engine's metadata hash key (see
+// SnapshotEngineConfig.HashKey). The value stored under that key in the DB is
+// the most recently *flushed* hash, which is generally stale relative to this
+// snapshot and varies with flush timing; exposing it would let a consumer pair
+// data-at-V with hash-at-W. Consumers that need the snapshot's hash should use
+// Snapshot.AwaitHash, which is guaranteed to match the iterated data.
 func (c *snapshotEngine) buildIterator(version uint64) (Iterator, error) {
 	overrides, err := c.materializeOverridesAtVersion(version)
 	if err != nil {
@@ -719,7 +722,7 @@ func (c *snapshotEngine) buildIterator(version uint64) (Iterator, error) {
 		return nil, fmt.Errorf("failed to create db iterator: %w", err)
 	}
 
-	iter, err := newSnapshotIterator(overrides, dbIter)
+	iter, err := newSnapshotIterator(overrides, dbIter, []byte(c.config.HashKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create snapshot iterator: %w", err)
 	}
