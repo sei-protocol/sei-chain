@@ -227,7 +227,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Check that a CommitQC was successfully reconstructed.")
-			got, _, err := state.fullCommitQC(ctx, qc.Proposal().Index())
+			got, err := state.fullCommitQC(ctx, qc.Proposal().Index())
 			if err != nil {
 				return fmt.Errorf("state.fullCommitQC(): %w", err)
 			}
@@ -1147,7 +1147,7 @@ func TestFullCommitQCBeforeWindowIsPruned(t *testing.T) {
 	// Slide duo so road 0 is behind WindowFirst.
 	registerDuoAtEpoch(state, 2)
 
-	_, _, err = state.fullCommitQC(t.Context(), 0)
+	_, err = state.fullCommitQC(t.Context(), 0)
 	require.ErrorIs(t, err, types.ErrPruned)
 }
 
@@ -1181,7 +1181,7 @@ func TestFullCommitQCAfterWindowHardFails(t *testing.T) {
 	}
 	state.markCommitQCsPersisted(qc1)
 
-	_, _, err = state.fullCommitQC(t.Context(), epoch.FirstRoad(1))
+	_, err = state.fullCommitQC(t.Context(), epoch.FirstRoad(1))
 	require.ErrorIs(t, err, types.ErrRoadAfterWindow)
 	require.NotErrorIs(t, err, types.ErrPruned)
 }

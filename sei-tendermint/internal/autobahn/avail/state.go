@@ -741,29 +741,29 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 	return headers, nil
 }
 
-// fullCommitQC returns the FullCommitQC for road n and its signing epoch.
+// fullCommitQC returns the FullCommitQC for road n.
 // ErrRoadBeforeWindow → ErrPruned (export may jump ahead). ErrRoadAfterWindow hard-fails.
-func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.FullCommitQC, *types.Epoch, error) {
+func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.FullCommitQC, error) {
 	qc, err := s.CommitQC(ctx, n)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	ep, err := s.epochDuo.Load().EpochForRoad(qc.Proposal().Index())
 	if err != nil {
 		if errors.Is(err, types.ErrRoadBeforeWindow) {
-			return nil, nil, types.ErrPruned
+			return nil, types.ErrPruned
 		}
-		return nil, nil, err
+		return nil, err
 	}
 	var commitHeaders []*types.BlockHeader
 	for lane := range ep.Committee().Lanes().All() {
 		headers, err := s.headers(ctx, qc.LaneRange(lane))
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		commitHeaders = append(commitHeaders, headers...)
 	}
-	return types.NewFullCommitQC(qc, commitHeaders), ep, nil
+	return types.NewFullCommitQC(qc, commitHeaders), nil
 }
 
 // WaitForLocalCapacity waits until the lane owned by this node has capacity for toProduce block.
@@ -862,7 +862,7 @@ func (s *State) Run(ctx context.Context) error {
 		// Task inserting FullCommitQCs and local blocks to data state.
 		scope.SpawnNamed("s.data.PushQC", func() error {
 			for n := types.RoadIndex(0); ; n = max(n+1, s.FirstCommitQC()) {
-				qc, _, err := s.fullCommitQC(ctx, n)
+				qc, err := s.fullCommitQC(ctx, n)
 				if err != nil {
 					if errors.Is(err, types.ErrPruned) {
 						continue
