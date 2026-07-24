@@ -24,15 +24,10 @@ var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
 // requests only target heights where all backing data sources are fully
 // synchronized.
 type WatermarkManager struct {
-	tmClient     client.LocalClient
-	ctxProvider  func(int64) sdk.Context
-	stateStore   types.StateStore // nil if SS is disabled.
-	receiptStore receipt.ReceiptStore
-	// genesisInitialHeight is the chain's genesis InitialHeight, injected at
-	// construction from the node's parsed GenesisDoc. It floors the earliest
-	// queryable state height so that a never-pruned state store (which reports
-	// its earliest version as 0) resolves `earliest` to genesis rather than the
-	// tip. Zero disables the floor (behavior reverts to the raw state floor).
+	tmClient             client.LocalClient
+	ctxProvider          func(int64) sdk.Context
+	stateStore           types.StateStore // nil if SS is disabled.
+	receiptStore         receipt.ReceiptStore
 	genesisInitialHeight int64
 }
 
