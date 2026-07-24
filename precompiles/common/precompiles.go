@@ -47,15 +47,6 @@ func NewPrecompile(a abi.ABI, executor PrecompileExecutor, address common.Addres
 	return &Precompile{ABI: a, executor: executor, address: address, name: name}
 }
 
-// RequiredGas is evaluated by vm.RunPrecompiledContract BEFORE the supplied-gas
-// gate, so it must stay cheap and allocation-free (no calldata walk) — otherwise
-// repeated low-gas calls could make validators perform work they never pay for.
-// It must also be large enough to cover the decode that Run -> Prepare -> Unpack
-// performs afterwards: every current static precompile decodes linearly (a lone
-// string/bytes/scalar arg) and prices it per input byte, which suffices. A
-// future static precompile must therefore not accept an argument type that
-// decodes super-linearly (e.g. an aliasable string[]) without pricing that in
-// its own RequiredGas.
 func (p Precompile) RequiredGas(input []byte) uint64 {
 	methodID, err := ExtractMethodID(input)
 	if err != nil {
@@ -112,29 +103,22 @@ func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method
 	if ctxer == nil {
 		return sdk.Context{}, nil, nil, errors.New("cannot get context from EVM")
 	}
-	method, err := p.resolveMethod(input)
+	methodID, err := ExtractMethodID(input)
+	if err != nil {
+		return sdk.Context{}, nil, nil, err
+	}
+	method, err := p.MethodById(methodID)
 	if err != nil {
 		return sdk.Context{}, nil, nil, err
 	}
 
-	args, err := method.Inputs.Unpack(input[4:])
+	argsBz := input[4:]
+	args, err := method.Inputs.Unpack(argsBz)
 	if err != nil {
 		return sdk.Context{}, nil, nil, err
 	}
 
 	return ctxer.Ctx(), method, args, nil
-}
-
-// resolveMethod extracts the 4-byte selector from input and resolves the ABI
-// method WITHOUT decoding the (attacker-controlled) argument payload. Decoding
-// is deliberately deferred so callers can perform it under a gas gate — see
-// DynamicGasPrecompile.RunAndCalculateGas.
-func (p Precompile) resolveMethod(input []byte) (*abi.Method, error) {
-	methodID, err := ExtractMethodID(input)
-	if err != nil {
-		return nil, err
-	}
-	return p.MethodById(methodID)
 }
 
 func (p Precompile) GetABI() abi.ABI {
@@ -202,7 +186,11 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	// gas the caller supplied. The static-precompile path charges RequiredGas in
 	// vm.RunPrecompiledContract before running; that step is skipped for
 	// dynamic-gas precompiles, so we apply the equivalent charge here.
-	method, err := d.resolveMethod(input)
+	methodID, err := ExtractMethodID(input)
+	if err != nil {
+		return nil, 0, err
+	}
+	method, err := d.MethodById(methodID)
 	if err != nil {
 		return nil, 0, err
 	}
