@@ -1309,11 +1309,8 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		return res, 0, nil
 	}
 
-	// Open-ended queries (missing fromBlock or toBlock) have their block range
-	// windowed down to the most recent maxBlock blocks rather than erroring; a
-	// bounded query whose range is too large still errors. The matched-log cap
-	// (maxLog) is enforced separately by the caller.
-	applyOpenEndedBlockWindow := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
+	// Block range (including open-ended queries) is enforced by FilterAPI.GetLogs
+	// and GetLogsByFilters before this block-by-block fallback runs.
 	latest, err := f.watermarks.LatestHeight(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -1325,17 +1322,6 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	begin, end, err := ComputeBlockBounds(latest, earliest, lastToHeight, crit)
 	if err != nil {
 		return nil, 0, err
-	}
-
-	blockRange := end - begin + 1
-	if applyOpenEndedBlockWindow && blockRange > f.filterConfig.maxBlock {
-		begin = end - f.filterConfig.maxBlock + 1
-		if begin < earliest {
-			begin = earliest
-		}
-	} else if !applyOpenEndedBlockWindow && f.filterConfig.maxBlock > 0 && blockRange > f.filterConfig.maxBlock {
-		// Use consistent error message format
-		return nil, 0, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
 	}
 
 	if begin > end {
