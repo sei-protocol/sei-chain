@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	kmultisig "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/multisig"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -251,47 +252,51 @@ func validatePubKey(pubKey cryptotypes.PubKey) (err error) {
 		}
 	}()
 
-	return validatePubKeyNoPanic(pubKey)
-}
-
-func validatePubKeyNoPanic(pubKey cryptotypes.PubKey) error {
 	switch pk := pubKey.(type) {
 	case nil:
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "missing public key")
 	case *kmultisig.LegacyAminoPubKey:
-		return validateMultisigPubKey(pk)
+		if pk == nil {
+			return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "missing multisig public key")
+		}
+
+		pubKeys := pk.GetPubKeys()
+		threshold := pk.GetThreshold()
+		if threshold == 0 {
+			return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "multisig threshold must be positive")
+		}
+		if threshold > uint(len(pubKeys)) {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "multisig threshold %d exceeds public key count %d", threshold, len(pubKeys))
+		}
+
+		for i, child := range pubKeys {
+			if err := validatePubKey(child); err != nil {
+				return sdkerrors.Wrapf(err, "invalid multisig public key at index %d", i)
+			}
+		}
+
+		if len(pk.Address()) == 0 {
+			return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "invalid multisig public key")
+		}
+		return nil
+	case *secp256k1.PubKey:
+		if pk == nil {
+			return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "missing secp256k1 public key")
+		}
+		if len(pk.Key) != secp256k1.PubKeySize {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "invalid secp256k1 public key size %d", len(pk.Key))
+		}
+		if _, err := btcec.ParsePubKey(pk.Key); err != nil {
+			return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "invalid secp256k1 public key")
+		}
+		return nil
 	default:
 		if len(pubKey.Address()) == 0 {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "invalid public key type: %T", pubKey)
 		}
+
 		return nil
 	}
-}
-
-func validateMultisigPubKey(pubKey *kmultisig.LegacyAminoPubKey) error {
-	if pubKey == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "missing multisig public key")
-	}
-
-	pubKeys := pubKey.GetPubKeys()
-	threshold := pubKey.GetThreshold()
-	if threshold == 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "multisig threshold must be positive")
-	}
-	if threshold > uint(len(pubKeys)) {
-		return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "multisig threshold %d exceeds public key count %d", threshold, len(pubKeys))
-	}
-
-	for i, pk := range pubKeys {
-		if err := validatePubKey(pk); err != nil {
-			return sdkerrors.Wrapf(err, "invalid multisig public key at index %d", i)
-		}
-	}
-
-	if len(pubKey.Address()) == 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "invalid multisig public key")
-	}
-	return nil
 }
 
 func SetGasMeter(ctx sdk.Context, gasLimit uint64, paramsKeeper paramskeeper.Keeper) sdk.Context {
