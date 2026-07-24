@@ -138,10 +138,6 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		return latest, nil
 	case rpc.EarliestBlockNumber:
-		// stateEarliest is already floored to genesis in Watermarks, so an
-		// unpruned store resolves `earliest` to the genesis InitialHeight rather
-		// than the tip, and the pre-commit window (stateEarliest == latest ==
-		// its pre-genesis value) still reads the checkState genesis.
 		return stateEarliest, nil
 	}
 
