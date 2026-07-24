@@ -9,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -23,16 +22,7 @@ type gigaFullnodeRouter struct {
 func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataState *data.State) (*gigaFullnodeRouter, error) {
 	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaFullnodeRouter{
-		gigaRouterCommon: &gigaRouterCommon{
-			cfg:                cfg,
-			key:                key,
-			data:               dataState,
-			service:            giga.NewBlockSyncService(dataState),
-			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
-			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
-			app:                cfg.App,
-			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
-		},
+		gigaRouterCommon: newGigaRouterCommon(cfg, key, dataState, giga.NewBlockSyncService(dataState)),
 	}, nil
 }
 

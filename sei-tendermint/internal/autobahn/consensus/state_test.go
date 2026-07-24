@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -18,7 +20,7 @@ import (
 // view timeout (so voteTimeout is only triggered explicitly).
 // keys[0] is used as the node's signing key.
 func newTestState(rng utils.Rng) (*State, []types.SecretKey, *epoch.Registry) {
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dataState := newTestDataState(registry)
 	s := utils.OrPanic1(NewState(&Config{
 		Key:                keys[0],
@@ -83,7 +85,7 @@ func TestVoteTimeoutPrepareQC_OnlyCurrentView(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-		pqc := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), types.View{Index: 0, Number: 0}))
+		pqc := makePrepareQC(keys, types.GenProposalForEpoch(rng, utils.OrPanic1(registry.EpochAt(0)), types.View{Index: 0, Number: 0}))
 		if err := s.pushPrepareQC(ctx, pqc); err != nil {
 			return fmt.Errorf("pushPrepareQC: %w", err)
 		}
@@ -113,7 +115,7 @@ func TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC(t *testing.T) {
 
 		// View (0, 0): push PrepareQC for proposal P.
 		view0 := types.View{Index: 0, Number: 0}
-		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view0))
+		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, utils.OrPanic1(registry.EpochAt(0)), view0))
 		if err := s.pushPrepareQC(ctx, pqc0); err != nil {
 			return fmt.Errorf("pushPrepareQC: %w", err)
 		}
@@ -170,7 +172,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 
 		// View (0, 0): PrepareQC for P.
 		view0 := types.View{Index: 0, Number: 0}
-		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view0))
+		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, utils.OrPanic1(registry.EpochAt(0)), view0))
 		if err := s.pushPrepareQC(ctx, pqc0); err != nil {
 			return fmt.Errorf("pushPrepareQC(pqc0): %w", err)
 		}
@@ -183,7 +185,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 
 		// Reproposal at (0, 1) succeeds — new PrepareQC at view (0, 1).
 		view1 := types.View{Index: 0, Number: 1}
-		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view1))
+		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, utils.OrPanic1(registry.EpochAt(0)), view1))
 		if err := s.pushPrepareQC(ctx, pqc1); err != nil {
 			return fmt.Errorf("pushPrepareQC(pqc1): %w", err)
 		}
@@ -227,7 +229,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 
 		// Fresh PrepareQC at (0, 1).
 		view1 := types.View{Index: 0, Number: 1}
-		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view1))
+		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, utils.OrPanic1(registry.EpochAt(0)), view1))
 		if err := s.pushPrepareQC(ctx, pqc1); err != nil {
 			return fmt.Errorf("pushPrepareQC: %w", err)
 		}
@@ -256,7 +258,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 // voteTimeout still inherits the PrepareQC from the persisted TimeoutQC.
 func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
 	makeCfg := func() *Config {
@@ -269,7 +271,7 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	makeDataState := func() *data.State { return newTestDataState(registry) }
 
 	view0 := types.View{Index: 0, Number: 0}
-	pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view0))
+	pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, utils.OrPanic1(registry.EpochAt(0)), view0))
 
 	// Session 1: push PrepareQC + TimeoutQC, let runOutputs persist.
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
@@ -318,4 +320,124 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestNewState_AvailBehindConsensus(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
+	ds := newTestDataState(registry)
+	ep0 := utils.OrPanic1(registry.EpochAt(0))
+	proposal := types.GenProposalForEpoch(rng, ep0, types.View{Index: 0, Number: 0})
+	votes := make([]*types.Signed[*types.CommitVote], len(keys))
+	for i, k := range keys {
+		votes[i] = types.Sign(k, types.NewCommitVote(proposal))
+	}
+	// Consensus tipcut 1, fresh avail tipcut 0 → avail behind consensus.
+	_, err := newState(&Config{
+		Key:                keys[0],
+		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
+		PersistentStateDir: utils.None[string](),
+	}, ds, utils.None[persist.Persister[*pb.PersistedInner]](), utils.Some(innerProtoConv.Encode(&persistedInner{
+		CommitQC: utils.Some(types.NewCommitQC(votes)),
+	})))
+	require.ErrorIs(t, err, ErrAvailBehindConsensus)
+}
+
+// commitQCAtRoad builds a minimal valid CommitQC at idx under ep (ProposalAt tipcut).
+func commitQCAtRoad(ep *types.Epoch, keys []types.SecretKey, idx types.RoadIndex) *types.CommitQC {
+	vote := types.NewCommitVote(types.ProposalAt(ep, types.View{Index: idx}))
+	votes := make([]*types.Signed[*types.CommitVote], len(keys))
+	for i, k := range keys {
+		votes[i] = types.Sign(k, vote)
+	}
+	return types.NewCommitQC(votes)
+}
+
+// fullCommitQCAtRoad wraps commitQCAtRoad with matching headers for BlockDB WriteQC.
+func fullCommitQCAtRoad(ep *types.Epoch, keys []types.SecretKey, idx types.RoadIndex) *types.FullCommitQC {
+	lane := ep.Committee().Lanes().At(0)
+	header := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
+	cqc := commitQCAtRoad(ep, keys, idx)
+	return types.NewFullCommitQC(cqc, []*types.BlockHeader{header})
+}
+
+// TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1 is the end-to-end restart
+// path for tip interlocking: data CommitQC BlockDB tip stays in epoch N while
+// avail/consensus tips are already at FirstRoad(N+1). SetupInitialDuo always
+// seeds placeholder N+1/N+2 past the CommitQC window.
+func TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1(t *testing.T) {
+	rng := utils.TestRng()
+	sks := utils.GenSliceN(rng, 4, types.GenSecretKey)
+	weights := map[types.PublicKey]uint64{}
+	for _, sk := range sks {
+		weights[sk.Public()] = 1000
+	}
+	committee := utils.OrPanic1(types.NewCommittee(weights))
+	registry := utils.OrPanic1(epoch.NewRegistry(committee, 1, time.Time{}))
+	registry.SetupInitialDuo(utils.None[types.RoadRange]())
+	registry.EnsureEpoch(1)
+	keys := sks
+	ep1 := utils.OrPanic1(registry.EpochAt(epoch.FirstRoad(1)))
+	n := types.EpochIndex(1)
+	nPlus1 := types.EpochIndex(2)
+
+	dataDir := t.TempDir()
+	stateDir := t.TempDir() // shared by consensus "inner" + avail "avail_inner"
+
+	// Data tip in epoch N: last loaded CommitQC at FirstRoad(N); tipcut stays in N.
+	dataRoad := epoch.FirstRoad(n)
+	dataQC := fullCommitQCAtRoad(ep1, keys, dataRoad)
+	db1 := newTestBlockDB(t, dataDir)
+	grQC := dataQC.QC().GlobalRange()
+	require.NoError(t, db1.WriteQC(grQC.First, grQC.Next, dataQC))
+	require.NoError(t, db1.Flush())
+	require.NoError(t, db1.Close())
+
+	closingRoad := epoch.LastRoad(n) // seal of N → tipcut FirstRoad(N+1)
+	closingQC := commitQCAtRoad(ep1, keys, closingRoad)
+	gr := closingQC.GlobalRange()
+	appQC := types.NewAppQC(func() []*types.Signed[*types.AppVote] {
+		p := types.NewAppProposal(gr.First, closingRoad, types.GenAppHash(rng), ep1.EpochIndex())
+		votes := make([]*types.Signed[*types.AppVote], len(keys))
+		for i, k := range keys {
+			votes[i] = types.Sign(k, types.NewAppVote(p))
+		}
+		return votes
+	}())
+
+	// Avail tipcut in epoch N+1 via prune-anchor CommitQC at LastRoad(N).
+	prunePers, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(stateDir), "avail_inner")
+	require.NoError(t, err)
+	require.NoError(t, prunePers.Persist(&pb.PersistedAvailPruneAnchor{
+		AppQc:    types.AppQCConv.Encode(appQC),
+		CommitQc: types.CommitQCConv.Encode(closingQC),
+	}))
+
+	// Consensus tipcut in epoch N+1 (view after LastRoad(N)).
+	seedPersistedInner(stateDir, &persistedInner{CommitQC: utils.Some(closingQC)})
+
+	leadTip := epoch.FirstRoad(nPlus1)
+	db2 := newTestBlockDB(t, dataDir)
+	ds := utils.OrPanic1(data.NewState(&data.Config{
+		Registry: registry,
+	}, db2))
+	dataTip := ds.CommitTipCut()
+	require.Equal(t, n, epoch.IndexForRoad(dataTip), "data tipcut must stay in epoch N")
+	_, err = registry.EpochAt(leadTip)
+	require.NoError(t, err, "executed in data-tip epoch must seed N+1")
+
+	cs, err := NewState(&Config{
+		Key:                keys[0],
+		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
+		PersistentStateDir: utils.Some(stateDir),
+	}, ds)
+	require.NoError(t, err)
+
+	consTip := cs.CommitTipCut()
+	availTip := cs.Avail().CommitTipCut()
+	require.Equal(t, leadTip, consTip)
+	require.Equal(t, leadTip, availTip)
+	require.Equal(t, nPlus1, epoch.IndexForRoad(consTip))
+	require.GreaterOrEqual(t, consTip, dataTip, "consensus may lead data")
+	require.GreaterOrEqual(t, availTip, consTip, "avail may lead consensus")
 }

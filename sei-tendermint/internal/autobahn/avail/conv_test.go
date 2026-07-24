@@ -12,7 +12,7 @@ import (
 
 func TestPruneAnchorConv(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 4)
+	registry, keys, _ := epoch.GenRegistry(rng, 4)
 
 	lane := keys[0].Public()
 	block := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))

@@ -231,7 +231,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 }
 
 func newTestEnv(rng utils.Rng, cfg *Config, app *proxy.Proxy) *testEnv {
-	registry, keys := epoch.GenRegistry(rng, 1)
+	registry, keys, _ := epoch.GenRegistry(rng, 1)
 	dataState := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, memblock.NewBlockDB()))
 	consensusState := utils.OrPanic1(consensus.NewState(&consensus.Config{
 		Key:                keys[0],

@@ -2,42 +2,95 @@ package avail
 
 import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// laneVoteSet holds weight toward LaneQC for one header hash under Current.
+type laneVoteSet struct {
+	weight uint64
+	votes  []*types.Signed[*types.LaneVote]
+	qc     *types.LaneQC
+	header *types.BlockHeader
+}
+
+func (s *laneVoteSet) reset() {
+	s.weight = 0
+	s.votes = s.votes[:0]
+	s.qc = nil
+}
+
+func (s *laneVoteSet) add(weight, quorum uint64, vote *types.Signed[*types.LaneVote]) utils.Option[*types.LaneQC] {
+	if s.qc != nil {
+		return utils.None[*types.LaneQC]()
+	}
+	s.weight += weight
+	s.votes = append(s.votes, vote)
+	if s.weight < quorum {
+		return utils.None[*types.LaneQC]()
+	}
+	s.qc = types.NewLaneQC(s.votes)
+	return utils.Some(s.qc)
+}
+
+// blockVotes weights votes under Current; reweight on epoch advance.
 type blockVotes struct {
 	byKey  map[types.PublicKey]*types.Signed[*types.LaneVote]
-	byHash map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]
+	byHash map[types.BlockHeaderHash]*laneVoteSet
 }
 
 func newBlockVotes() blockVotes {
 	return blockVotes{
 		byKey:  map[types.PublicKey]*types.Signed[*types.LaneVote]{},
-		byHash: map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]{},
+		byHash: map[types.BlockHeaderHash]*laneVoteSet{},
 	}
 }
 
-// Returns true iff a new QC has been constructed.
-// TODO: handle epoch transitions — weight must be counted per-epoch committee once multi-epoch is wired up.
-func (bv blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) (*types.LaneQC, bool) {
-	c := ep.Committee()
+// pushVote stores vote under ep; zero-weight signers stay in byKey for reweight.
+func (bv blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) utils.Option[*types.LaneQC] {
 	k := vote.Key()
-	h := vote.Msg().Header().Hash()
 	if _, ok := bv.byKey[k]; ok {
-		return nil, false
+		return utils.None[*types.LaneQC]()
 	}
 	bv.byKey[k] = vote
-	byHash, ok := bv.byHash[h]
+
+	h := vote.Msg().Header().Hash()
+	set, ok := bv.byHash[h]
 	if !ok {
-		byHash = &voteSet[*types.Signed[*types.LaneVote]]{}
-		bv.byHash[h] = byHash
+		set = &laneVoteSet{header: vote.Msg().Header()}
+		bv.byHash[h] = set
 	}
-	if byHash.weight >= c.LaneQuorum() {
-		return nil, false
+	w := ep.Committee().Weight(k)
+	if w == 0 {
+		return utils.None[*types.LaneQC]()
 	}
-	byHash.weight += c.Weight(k)
-	byHash.votes = append(byHash.votes, vote)
-	if byHash.weight >= c.LaneQuorum() {
-		return types.NewLaneQC(byHash.votes), true
+	return set.add(w, ep.Committee().LaneQuorum(), vote)
+}
+
+// reweight recomputes byHash from byKey; returns true if any new quorum.
+func (bv blockVotes) reweight(newEpoch *types.Epoch) bool {
+	c := newEpoch.Committee()
+	for _, set := range bv.byHash {
+		set.reset()
 	}
-	return nil, false
+	quorumReached := false
+	for k, vote := range bv.byKey {
+		w := c.Weight(k)
+		if w == 0 {
+			continue
+		}
+		set := bv.byHash[vote.Msg().Header().Hash()]
+		if set.add(w, c.LaneQuorum(), vote).IsPresent() {
+			quorumReached = true
+		}
+	}
+	return quorumReached
+}
+
+func (bv blockVotes) laneQC() utils.Option[*types.LaneQC] {
+	for _, set := range bv.byHash {
+		if set.qc != nil {
+			return utils.Some(set.qc)
+		}
+	}
+	return utils.None[*types.LaneQC]()
 }

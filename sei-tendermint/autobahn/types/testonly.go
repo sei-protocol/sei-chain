@@ -23,7 +23,7 @@ func BuildCommitQC(
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
 ) *CommitQC {
-	vs := ViewSpec{CommitQC: prev, Epoch: epoch}
+	vs := ViewSpec{CommitQC: prev, Epochs: NewEpochDuo(epoch, utils.None[*Epoch]())}
 	if len(laneQCs) == 0 {
 		laneQCs = oneBlockLaneQCMap(vs, keys)
 	}
@@ -45,7 +45,7 @@ func BuildCommitQC(
 
 // oneBlockLaneQCMap builds a single LaneQC advancing the first committee lane by one block.
 func oneBlockLaneQCMap(vs ViewSpec, keys []SecretKey) map[LaneID]*LaneQC {
-	c := vs.Epoch.Committee()
+	c := vs.Epoch().Committee()
 	lane := c.Lanes().At(0)
 	n := LaneRangeOpt(vs.CommitQC, lane).Next()
 	header := NewBlock(lane, n, BlockHeaderHash{}, &Payload{}).Header()
@@ -295,7 +295,7 @@ func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
 	first := RoadIndex(rng.Uint64() % 1000)
 	return NewEpoch(
 		GenEpochIndex(rng),
-		RoadRange{First: first, Last: first + RoadIndex(rng.Uint64()%10000) + 10},
+		RoadRange{First: first, Next: first + RoadIndex(rng.Uint64()%10000) + 11},
 		utils.GenTimestamp(rng),
 		committee,
 		GlobalBlockNumber(rng.Uint64()%1000000)+1,

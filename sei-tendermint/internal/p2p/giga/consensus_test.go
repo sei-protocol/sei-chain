@@ -14,7 +14,7 @@ import (
 func TestConsensusClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 7)
+	registry, keys, _ := epoch.GenRegistry(rng, 7)
 	committee := registry.LatestEpoch().Committee()
 	env := newTestEnv(registry)
 	// Run only a subset of replicas, to enforce timeouts.
@@ -41,11 +41,12 @@ func TestConsensusClientServer(t *testing.T) {
 				GlobalNumber:  idx,
 				FinalAppState: wantAppProposal,
 			}
+			road := types.RoadIndex(offset)
 			p := types.NewAppProposal(
 				idx,
-				types.RoadIndex(offset),
+				road,
 				types.GenAppHash(rng),
-				registry.LatestEpoch().EpochIndex(),
+				epoch.IndexForRoad(road),
 			)
 			wantAppProposal = utils.Some(p)
 			for _, n := range nodes {

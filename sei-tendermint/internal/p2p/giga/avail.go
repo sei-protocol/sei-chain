@@ -244,7 +244,7 @@ func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) err
 		if err != nil {
 			return fmt.Errorf("StreamAppQCsRespConv.Decode(): %w", err)
 		}
-		if err := x.validatorState().Avail().PushAppQC(msg.AppQC, msg.CommitQC); err != nil {
+		if err := x.validatorState().Avail().PushAppQC(ctx, msg.AppQC, msg.CommitQC); err != nil {
 			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
 		}
 	}

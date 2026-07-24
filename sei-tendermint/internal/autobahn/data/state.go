@@ -51,6 +51,9 @@ type inner struct {
 	appProposals map[types.GlobalBlockNumber]*types.AppProposal
 	blockHashes  map[types.BlockHeaderHash]types.GlobalBlockNumber
 
+	// Store under Watch.Lock; readers use State.epochDuo.
+	epochDuo utils.AtomicSend[types.EpochDuo]
+
 	// first is the exclusive low end of retained in-memory state: maps keep
 	// [first, next*). Set by newInner / skipTo; advanced by evictBelowBound to
 	// min(nextAppProposal, App.GlobalNumber()+1) when a CommitQC.App exists.
@@ -96,12 +99,8 @@ func (i *inner) skipTo(n types.GlobalBlockNumber) {
 // insertQC verifies and inserts a FullCommitQC into the inner state.
 // Accepts QCs whose range starts at or before nextQC (partially pruned
 // prefix is silently skipped). Rejects gaps where gr.First > nextQC.
-func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error {
-	e, ok := registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
-	if !ok {
-		return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
-	}
-	if err := qc.Verify(e); err != nil {
+func (i *inner) insertQC(qc *types.FullCommitQC, ep *types.Epoch) error {
+	if err := qc.Verify(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	gr := qc.QC().GlobalRange()
@@ -118,7 +117,7 @@ func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error
 	return nil
 }
 
-// insertBlock inserts a pre-verified block into the inner state.
+// insertBlock inserts a block into the inner state.
 // Requires a QC to already be present for block n. Callers must verify
 // the block signature before calling (unlike insertQC, which verifies).
 //
@@ -174,10 +173,11 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 // CommitQC.App appears. nextToExecute uses qc[nextAppProposal] (or the tip QC
 // when fully caught up), so it does not require retaining nextAppProposal-1.
 type State struct {
-	cfg     *Config
-	metrics *metrics.Metrics
-	inner   utils.Watch[*inner]
-	blockDB types.BlockDB
+	cfg      *Config
+	metrics  *metrics.Metrics
+	inner    utils.Watch[*inner]
+	epochDuo utils.AtomicRecv[types.EpochDuo] // Load-only view of inner.epochDuo; EpochDuo() reads it
+	blockDB  types.BlockDB
 }
 
 // NewState constructs a data State, replaying persisted state from blockDB.
@@ -192,10 +192,69 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 		inner:   utils.NewWatch(newInner(cfg.Registry.FirstBlock())),
 		blockDB: blockDB,
 	}
+	// Seed epochs before replay (data owns SetupInitialDuo).
+	commitQCs, err := commitQCSpan(blockDB)
+	if err != nil {
+		return nil, fmt.Errorf("scan CommitQC span: %w", err)
+	}
+	cfg.Registry.SetupInitialDuo(commitQCs)
+
 	if err := s.loadFromBlockDB(blockDB); err != nil {
 		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
 	}
+
+	// Center epochDuo on CommitQC tipcut (Index+1).
+	for in := range s.inner.Lock() {
+		initRoad := types.RoadIndex(0)
+		if in.nextQC > in.first {
+			if lastQC := in.qcs[in.nextQC-1]; lastQC != nil {
+				initRoad = lastQC.QC().Proposal().Index() + 1
+			}
+		}
+		initDuo, err := cfg.Registry.DuoAt(initRoad)
+		if err != nil {
+			return nil, fmt.Errorf("init epochDuo: %w", err)
+		}
+		in.epochDuo = utils.NewAtomicSend(initDuo)
+		s.epochDuo = in.epochDuo.Subscribe()
+	}
 	return s, nil
+}
+
+// commitQCSpan returns the half-open [First, Next) of retained CommitQC roads,
+// or None when the store holds no QCs. Used to seed SetupInitialDuo.
+func commitQCSpan(blockDB types.BlockDB) (utils.Option[types.RoadRange], error) {
+	first, ok, err := boundaryQCRoad(blockDB, false)
+	if err != nil || !ok {
+		return utils.None[types.RoadRange](), err
+	}
+	last, ok, err := boundaryQCRoad(blockDB, true)
+	if err != nil {
+		return utils.None[types.RoadRange](), err
+	}
+	if !ok {
+		return utils.None[types.RoadRange](), fmt.Errorf("CommitQC span: first present but last missing")
+	}
+	return utils.Some(types.RoadRange{First: first, Next: last + 1}), nil
+}
+
+// boundaryQCRoad returns the proposal road of the first (reverse=false) or last
+// (reverse=true) retained CommitQC, or ok=false when the store holds no QCs.
+func boundaryQCRoad(blockDB types.BlockDB, reverse bool) (types.RoadIndex, bool, error) {
+	it, err := blockDB.QCs(reverse)
+	if err != nil {
+		return 0, false, fmt.Errorf("open QC iterator: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+	ok, err := it.Next()
+	if err != nil || !ok {
+		return 0, false, err
+	}
+	qc, err := it.QC()
+	if err != nil {
+		return 0, false, err
+	}
+	return qc.QC().Proposal().Index(), true, nil
 }
 
 // loadFromBlockDB replays QCs and blocks from blockDB into s.inner.
@@ -207,6 +266,9 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // Inconsistencies (gaps, block without QC, first-block/QC mismatch, etc.) are
 // returned as errors rather than normalized — BlockDB is expected to present a
 // consistent iterator view (see littblock watermark / stranding rules).
+//
+// Epochs must already be seeded (SetupInitialDuo) so EpochAt resolves QC committees.
+// Live PushQC/PushBlock use epochDuo, not EpochAt.
 //
 // TODO: Cap how much of BlockDB we replay into RAM (similar to PushQC's
 // blocksCacheSize gate). Deferred to a follow-up PR — today we load the full
@@ -243,7 +305,11 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 						in.skipTo(gr.First)
 					}
 				}
-				if err := in.insertQC(s.cfg.Registry, qc); err != nil {
+				ep, err := s.cfg.Registry.EpochAt(qc.QC().Proposal().Index())
+				if err != nil {
+					return fmt.Errorf("load QC from BlockDB: epoch lookup: %w", err)
+				}
+				if err := in.insertQC(qc, ep); err != nil {
 					return fmt.Errorf("load QC from BlockDB: %w", err)
 				}
 			}
@@ -284,9 +350,9 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 					return err
 				}
 				qc := in.qcs[n]
-				e, ok := s.cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
-				if !ok {
-					return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
+				e, err := s.cfg.Registry.EpochAt(qc.QC().Proposal().Index())
+				if err != nil {
+					return fmt.Errorf("load block %d from BlockDB: epoch lookup: %w", n, err)
 				}
 				if err := blk.Verify(e.Committee()); err != nil {
 					return fmt.Errorf("verify block %d from BlockDB: %w", n, err)
@@ -313,6 +379,25 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 // Registry returns the epoch registry.
 func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
 
+// EpochDuo is a point-in-time snapshot; re-call after a boundary advance.
+func (s *State) EpochDuo() types.EpochDuo { return s.epochDuo.Load() }
+
+// CommitTipCut is the road after the last applied CommitQC (Index+1), or 0 if
+// none. Restart anchor for p2p.checkRestartTips (consensus tip vs data).
+func (s *State) CommitTipCut() types.RoadIndex {
+	for inner := range s.inner.Lock() {
+		if inner.nextQC == 0 || inner.nextQC <= inner.first {
+			return 0
+		}
+		qc := inner.qcs[inner.nextQC-1]
+		if qc == nil {
+			return 0
+		}
+		return qc.QC().Proposal().Index() + 1
+	}
+	panic("unreachable")
+}
+
 // insertBlocksByHash matches byHash against stored (already verified) QC
 // headers over gr ∩ [nextBlock, nextQC) and inserts hits. Advances nextBlock
 // when the contiguous prefix grows. Caller must hold inner's lock.
@@ -330,15 +415,13 @@ func (s *State) insertBlocksByHash(inner *inner, gr types.GlobalRange, byHash ma
 	return nil
 }
 
-// PushQC pushes FullCommitQC and a subset of blocks that were finalized by it.
-// Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
-// Even if the qc was already pushed earlier, the blocks are pushed anyway.
+// PushQC atomically admits qc and optional finalized blocks.
+// Tip-order WaitUntil runs before EpochForRoad so a first QC of the next epoch
+// waits for the boundary slide (rather than ErrRoadAfterWindow). Epoch via
+// epochDuo only (not Registry). Before-window on a still-needed QC hard-fails;
+// if needQC is false the QC is already applied and a before-window miss is a
+// no-op (stale peer redelivery after the duo slid — do not soft-admit via Registry).
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
-	// Wait until QC is needed.
-	ep, ok := s.cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
-	if !ok {
-		return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
-	}
 	gr := qc.QC().GlobalRange()
 	needQC, err := func() (bool, error) {
 		for inner, ctrl := range s.inner.Lock() {
@@ -354,12 +437,20 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	if err != nil {
 		return err
 	}
+	ep, err := s.epochDuo.Load().EpochForRoad(qc.QC().Proposal().Index())
+	if err != nil {
+		if !needQC && errors.Is(err, types.ErrRoadBeforeWindow) {
+			return nil
+		}
+		return err
+	}
 	// Verify data.
 	if needQC {
 		if err := qc.Verify(ep); err != nil {
 			return fmt.Errorf("qc.Verify(): %w", err)
 		}
 	}
+	// Blocks share the QC's epoch (unlike PushBlock, which uses the stored QC).
 	byHash := map[types.BlockHeaderHash]*types.Block{}
 	committee := ep.Committee()
 	for _, b := range blocks {
@@ -368,12 +459,27 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 			return fmt.Errorf("b.Verify(): %w", err)
 		}
 	}
-	// Atomically insert QC and blocks.
+	// Closing Current: WaitForDuo(tipcut) before mutating nextQC.
+	idx := qc.QC().Proposal().Index()
+	var nextDuo *types.EpochDuo
+	duo := s.epochDuo.Load()
+	if needQC && idx+1 == duo.Current.RoadRange().Next {
+		nt, err := s.cfg.Registry.WaitForDuo(ctx, idx+1)
+		if err != nil {
+			return err
+		}
+		nextDuo = &nt
+	}
 	for inner, ctrl := range s.inner.Lock() {
 		if needQC {
+			// Only the first inserter may advance epochDuo.
+			applied := inner.nextQC == gr.First
 			for inner.nextQC < gr.Next {
 				inner.qcs[inner.nextQC] = qc
 				inner.nextQC += 1
+			}
+			if applied && nextDuo != nil {
+				inner.epochDuo.Store(*nextDuo)
 			}
 			ctrl.Updated()
 		}
@@ -408,12 +514,10 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 	return s.qcFromDB(n)
 }
 
-// PushBlock pushes block to the state.
-// The QC for n must already be present (guaranteed by PushQC ordering), unless
-// the height is already in the contiguous block prefix (n < nextBlock) — in
-// that case the block is dropped silently (already stored or executed/evicted).
+// PushBlock requires a covering QC (or n < nextBlock → silent drop).
+// Same epochDuo before-window hard-fail as PushQC.
 func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block *types.Block) error {
-	var epochIdx types.EpochIndex
+	var ep *types.Epoch
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextQC }); err != nil {
 			return err
@@ -424,11 +528,11 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 			return nil
 		}
 		// n in [nextBlock, nextQC): QC is contiguous in that range.
-		epochIdx = inner.qcs[n].QC().Proposal().EpochIndex()
-	}
-	ep, ok := s.cfg.Registry.EpochByIndex(epochIdx)
-	if !ok {
-		return fmt.Errorf("unknown epoch_index %d", epochIdx)
+		var err error
+		ep, err = s.epochDuo.Load().EpochForRoad(inner.qcs[n].QC().Proposal().Index())
+		if err != nil {
+			return fmt.Errorf("epoch not in window: %w", err)
+		}
 	}
 	// Verify outside the lock against the known epoch.
 	if err := block.Verify(ep.Committee()); err != nil {

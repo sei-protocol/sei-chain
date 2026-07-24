@@ -49,6 +49,27 @@ type gigaRouterCommon struct {
 	inboundFullnodeCap   int64
 }
 
+// newGigaRouterCommon assembles the shared router state both roles embed. The
+// role-specific service (full RPC vs block-sync) is passed in; the connection
+// pools, app handle, and inbound cap are the same for both.
+func newGigaRouterCommon(
+	cfg *GigaRouterCommonConfig,
+	key NodeSecretKey,
+	dataState *data.State,
+	service *giga.Service,
+) *gigaRouterCommon {
+	return &gigaRouterCommon{
+		cfg:                cfg,
+		key:                key,
+		data:               dataState,
+		service:            service,
+		poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+		poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+		app:                cfg.App,
+		inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
+	}
+}
+
 // BuildDataState validates the common config, constructs the committee, and
 // returns an initialised data.State backed by blockDB.
 //
@@ -79,7 +100,9 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
-	ds, err := data.NewState(&data.Config{Registry: registry}, blockDB)
+	ds, err := data.NewState(&data.Config{
+		Registry: registry,
+	}, blockDB)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
@@ -246,6 +269,17 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	}
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
+	}
+	// Seed N+2 when the last global of an epoch's closing road is executed.
+	// AdvanceIfNeeded owns LastRoad(epoch). Empty tipcuts are rejected by
+	// Proposal.Verify, so every closing road has a last global.
+	// TODO: real N+2 committee once execution derives it.
+	qc, err := r.data.QC(ctx, b.GlobalNumber)
+	if err != nil {
+		return nil, fmt.Errorf("r.data.QC(%v): %w", b.GlobalNumber, err)
+	}
+	if qc.QC().GlobalRange().IsLastBlock(b.GlobalNumber) {
+		r.data.Registry().AdvanceIfNeeded(qc.QC().Proposal().Index())
 	}
 	return commitResp, nil
 }
@@ -507,6 +541,6 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 // None if the caller should handle it locally. Overridden on
 // *gigaValidatorRouter to short-circuit self-shard sends.
 func (r *gigaRouterCommon) EvmProxy(sender common.Address) utils.Option[*url.URL] {
-	shardValidator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
+	shardValidator := r.data.EpochDuo().Current.Committee().EvmShard(sender)
 	return utils.Some(r.cfg.ValidatorAddrs[shardValidator].EVMRPC)
 }
