@@ -73,12 +73,14 @@ type persistedInner struct {
 // Returns error on corrupt state.
 //
 // Two epochs are needed at an epoch boundary. commitEp is the epoch of the
-// persisted CommitQC (used to verify the CommitQC itself). viewEp is the epoch
-// of the current view — NextIndexOpt(CommitQC) — which stamps currentView and
-// verifies the current-view artifacts (TimeoutQC, PrepareQC, and this node's
-// votes). When the CommitQC sits on the last road of an epoch, commitEp and
-// viewEp differ; away from a boundary they are the same epoch.
-func (p *persistedInner) validate(commitEp, viewEp *types.Epoch) error {
+// persisted CommitQC (used to verify the CommitQC itself). viewDuo is the
+// Prev|Current window centered on the tipcut (NextIndexOpt(CommitQC)) — Current
+// stamps currentView and verifies current-view artifacts; Prev is required when
+// Current > 0 so ViewSpec.Epochs matches DuoAt (e.g. AppQC.Verify).
+// When the CommitQC sits on the last road of an epoch, commitEp and
+// viewDuo.Current differ; away from a boundary they are the same epoch.
+func (p *persistedInner) validate(commitEp *types.Epoch, viewDuo types.EpochDuo) error {
+	viewEp := viewDuo.Current
 	if cqc, ok := p.CommitQC.Get(); ok {
 		if err := cqc.Verify(commitEp); err != nil {
 			return fmt.Errorf("corrupt persisted state: CommitQC failed verification: %w", err)
@@ -98,7 +100,7 @@ func (p *persistedInner) validate(commitEp, viewEp *types.Epoch) error {
 		}
 	}
 
-	vs := types.ViewSpec{CommitQC: p.CommitQC, TimeoutQC: p.TimeoutQC, Epochs: types.NewEpochDuo(viewEp, utils.None[*types.Epoch]())}
+	vs := types.ViewSpec{CommitQC: p.CommitQC, TimeoutQC: p.TimeoutQC, Epochs: viewDuo}
 	currentView := vs.View()
 	committee := viewEp.Committee()
 

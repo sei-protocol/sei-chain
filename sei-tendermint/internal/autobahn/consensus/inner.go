@@ -120,30 +120,26 @@ func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (
 		persisted = *decoded
 	}
 
-	// View epoch = tipcut; CommitQC may be prior epoch. Seeding is data's;
+	// View duo = tipcut; CommitQC may be prior epoch. Seeding is data's;
 	// missing epoch hard-fails. Tip order: NewState / checkRestartTips.
 	nextViewRoad := types.NextIndexOpt(persisted.CommitQC)
-	viewEpoch, err := registry.EpochAt(nextViewRoad)
+	duo, err := registry.DuoAt(nextViewRoad)
 	if err != nil {
-		return inner{}, fmt.Errorf("EpochAt(%d): %w", nextViewRoad, err)
+		return inner{}, fmt.Errorf("DuoAt(%d): %w", nextViewRoad, err)
 	}
-	commitEpoch := viewEpoch
+	commitEpoch := duo.Current
 	if cqc, ok := persisted.CommitQC.Get(); ok {
 		commitEpoch, err = registry.EpochAt(cqc.Proposal().Index())
 		if err != nil {
 			return inner{}, fmt.Errorf("EpochAt(%d): %w", cqc.Proposal().Index(), err)
 		}
 	}
-	if err := persisted.validate(commitEpoch, viewEpoch); err != nil {
+	if err := persisted.validate(commitEpoch, duo); err != nil {
 		return inner{}, err
 	}
 
 	logger.Info("restored consensus state", "state", innerProtoConv.Encode(&persisted))
 
-	duo, err := registry.DuoAt(nextViewRoad)
-	if err != nil {
-		return inner{}, fmt.Errorf("DuoAt(%d): %w", nextViewRoad, err)
-	}
 	return inner{persistedInner: persisted, epochs: duo}, nil
 }
 
