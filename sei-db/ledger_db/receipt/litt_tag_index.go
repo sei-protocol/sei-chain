@@ -241,6 +241,9 @@ func (s *littReceiptStore) filterLogsByTags(ctx context.Context, fromBlock, toBl
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	logs := make([]*ethtypes.Log, 0, budget.UsedCount())
 	for _, blockLogs := range results {
