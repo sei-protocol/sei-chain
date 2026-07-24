@@ -139,6 +139,7 @@ jobs:
                 < prompt.txt \
                 > codex.log 2>&1; then
               echo "Codex review failed; publishing fallback review." >&2
+              cat codex.log >&2
             fi
           fi
 
