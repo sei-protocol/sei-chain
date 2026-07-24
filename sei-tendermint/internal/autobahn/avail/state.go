@@ -323,8 +323,16 @@ func (s *State) waitPruneLeash(ctx context.Context, epochIdx types.EpochIndex, i
 }
 
 // waitCommitEpochLeashes enforces tip-interlock before sealing epoch N>0
-// (closingEpoch = last road of N). Mid-N admits are not gated. Epoch 0: no-op.
+// (closingEpoch = last road of N). Mid-N admits are not gated.
 // incoming: AppQC on PushAppQC (None for PushCommitQC). See Registry invariants.
+//
+// Epoch 0 is exempt: sealing 0 does {∅,0}→{0,1} — nothing is dropped from the
+// duo, so the prune leash (AppQC before dropping Prev) does not apply. Applying
+// waitPruneLeash(0) would only block seal on the first AppQC for no Prev-drop
+// reason. Restart with Current≥1 still requires a prune anchor (newInner); that
+// path is unreachable here because lane production without an AppQC/prune is
+// capped at BlocksPerLane ≪ EpochLength, so LastRoad(0) cannot be sealed
+// without an earlier AppQC (and thus an anchor).
 func (s *State) waitCommitEpochLeashes(
 	ctx context.Context,
 	epochIdx types.EpochIndex,
