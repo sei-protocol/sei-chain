@@ -3,15 +3,11 @@ package epoch
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/seilog"
 )
-
-var logger = seilog.NewLogger("tendermint", "internal", "autobahn", "epoch")
 
 // EpochLength is the number of road indices per epoch.
 const EpochLength types.RoadIndex = 108_000
@@ -79,19 +75,14 @@ func NewRegistry(
 // SetupInitialDuo seeds placeholder epochs on restart. Call only from
 // data.NewState. Idempotent for existing entries.
 //
-// Args:
-//   - commitQCs: half-open retained CommitQC range [First, Next). Seeds every
-//     epoch covering [First, Next), then EnsureDuoAt(Next). None = empty store
-//     → EnsureDuoAt(FirstRoad(1)) so {0,1}. Empty range (First >= Next) panics.
-//   - nextRoadToExecute: half-open execution tipcut (next road still needing
-//     execution). None = nothing executed. Past commit tipcut → warn, ignore.
-//     Present without commitQCs panics.
+// commitQCs is the half-open retained CommitQC range [First, Next). Seeds every
+// epoch covering [First, Next), EnsureDuoAt(Next), then EnsureEpoch(windowLast+1)
+// (placeholder N+1 lookahead). None = empty store → EnsureDuoAt(FirstRoad(1))
+// so {0,1}. Empty range (First >= Next) panics.
 //
-// TODO(autobahn): persist execution tip in Giga storage (stop using app DB).
-func (r *Registry) SetupInitialDuo(
-	nextRoadToExecute utils.Option[types.RoadIndex],
-	commitQCs utils.Option[types.RoadRange],
-) {
+// TODO(autobahn): when committees come from execution results, stop inventing
+// placeholder N+1 — only register epochs whose committees are known.
+func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) {
 	if span, ok := commitQCs.Get(); ok {
 		if span.First >= span.Next {
 			panic(fmt.Sprintf("SetupInitialDuo: empty CommitQC range [%d, %d)", span.First, span.Next))
@@ -108,22 +99,11 @@ func (r *Registry) SetupInitialDuo(
 			}
 		}
 		r.EnsureDuoAt(span.Next)
-
-		if next, ok := nextRoadToExecute.Get(); ok {
-			if next > span.Next {
-				logger.Warn("execution tipcut past CommitQC tipcut on restart; ignoring for epoch seeding",
-					slog.Uint64("execution_tipcut", uint64(next)),
-					slog.Uint64("commit_qc_tipcut", uint64(span.Next)))
-			} else {
-				r.EnsureExecTipcut(next)
-			}
-		}
+		// Placeholder N+1 past the CommitQC window. Harmless with genesis committees.
+		r.EnsureEpoch(windowLast + 1)
 		return
 	}
 
-	if nextRoadToExecute.IsPresent() {
-		panic("execution tipcut without CommitQC span on restart")
-	}
 	r.EnsureDuoAt(FirstRoad(1))
 }
 
@@ -190,6 +170,10 @@ func (r *Registry) EnsureDuoAt(road types.RoadIndex) {
 // EnsureExecTipcut seeds registry lookahead for a half-open execution tipcut
 // (next road still needing execution). next==0 is a no-op. Otherwise last
 // completed is next-1; seeds IndexForRoad(lastDone)+1 and AdvanceIfNeeded(lastDone).
+//
+// TODO(autobahn): placeholder N+1 lookahead is OK with genesis committees.
+// When committees come from execution results, only seed epochs whose
+// committees are known from durable execute output.
 func (r *Registry) EnsureExecTipcut(next types.RoadIndex) {
 	if next == 0 {
 		return
@@ -202,7 +186,9 @@ func (r *Registry) EnsureExecTipcut(next types.RoadIndex) {
 // AdvanceIfNeeded seeds epoch M+2 when roadIndex is LastRoad(M); else no-op.
 // Call only after the last global of that road has executed (IsLastBlock).
 //
-// TODO: pass the real M+2 committee once execution derives it.
+// TODO(autobahn): pass the real M+2 committee once execution derives it.
+// Until then placeholder committees may seed ahead of real execute results
+// (including restart when app Commit leads blockDB flush).
 func (r *Registry) AdvanceIfNeeded(roadIndex types.RoadIndex) {
 	tipEpoch := IndexForRoad(roadIndex)
 	if roadIndex != LastRoad(tipEpoch) {

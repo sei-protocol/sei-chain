@@ -593,3 +593,20 @@ func TestRecoveryBlockGap(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, mid, state.NextBlock(), "replay must resume at the first unfilled number")
 }
+
+// TestNewState_AppLeadsBlockDBFlush: app Commit can lead BlockDB flush; NewState
+// still boots from the CommitQC span + placeholder N+1 (no LastExecuted lookup).
+func TestNewState_AppLeadsBlockDBFlush(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange()
+
+	db := memblock.NewBlockDB()
+	writeToBlockDB(t, db, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
+	tips := db.Status()
+	require.Equal(t, gr1.Next, tips.NextBlock, "NextBlock is first height of the next QC")
+
+	_, err := NewState(&Config{Registry: registry}, db)
+	require.NoError(t, err)
+}

@@ -281,7 +281,6 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	// Seed N+2 when the last global of an epoch's closing road is executed.
-	// IsLastBlock matches data.nextRoadToExecute advancing to road+1;
 	// AdvanceIfNeeded owns LastRoad(epoch). Empty tipcuts are rejected by
 	// Proposal.Verify, so every closing road has a last global.
 	// TODO: real N+2 committee once execution derives it.
