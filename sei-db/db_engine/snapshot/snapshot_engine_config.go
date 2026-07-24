@@ -19,7 +19,8 @@ type SnapshotEngineConfig struct {
 	// This value should be derived experimentally, and may differ between different builds and architectures.
 	EstimatedOverheadPerEntry uint64
 
-	// Name used as the "cache" attribute on OTel metrics. Must be non-empty.
+	// Name used as the "cache" attribute on OTel metrics. Must be non-empty when MetricsEnabled
+	// is true; ignored otherwise.
 	MetricsName string
 
 	// Whether to enable OTel metrics collection.
@@ -81,6 +82,7 @@ func DefaultTestSnapshotEngineConfig() *SnapshotEngineConfig {
 	config := DefaultSnapshotEngineConfig()
 	config.MaxSize = unit.MB * 16
 	config.MetricsEnabled = false
+	config.MetricsName = "test"
 	config.HashKey = "_meta/hash"
 	return config
 }
@@ -102,8 +104,8 @@ func (c *SnapshotEngineConfig) Validate() error {
 	if c.EstimatedOverheadPerEntry == 0 {
 		return fmt.Errorf("EstimatedOverheadPerEntry must be greater than 0")
 	}
-	if c.MetricsName == "" {
-		return fmt.Errorf("MetricsName must be non-empty")
+	if c.MetricsEnabled && c.MetricsName == "" {
+		return fmt.Errorf("MetricsName must be non-empty when MetricsEnabled is true")
 	}
 	if c.MetricsEnabled && c.MetricsScrapeIntervalSeconds <= 0 {
 		return fmt.Errorf("MetricsScrapeIntervalSeconds must be positive when MetricsEnabled is true")

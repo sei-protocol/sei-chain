@@ -188,6 +188,11 @@ func newReadCache(
 
 // readFromDB reads a single key from the underlying database, returning (nil, false, nil) if the
 // key is not found and reserving errors for actual failures (e.g. I/O errors).
+//
+// A nil value with found == true is impossible: per the types.KeyValueDB.Get contract, a found
+// zero-length value is a non-nil empty slice. The read-completion paths (injectValue, resolve)
+// depend on this — they treat a nil value as not-found/deleted, so a backend that returned nil
+// for a stored empty value would silently turn that key into a tombstone.
 func (c *readCache) readFromDB(key []byte) (value []byte, found bool, err error) {
 	val, err := c.db.Get(key)
 	if err != nil {

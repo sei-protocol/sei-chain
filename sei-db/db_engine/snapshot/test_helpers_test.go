@@ -263,7 +263,6 @@ func newTestConfig(shardCount, maxSize uint64) *SnapshotEngineConfig {
 	c.ShardCount = shardCount
 	c.MaxSize = maxSize
 	c.EstimatedOverheadPerEntry = 1
-	c.MetricsName = "test"
 	return c
 }
 
@@ -300,7 +299,6 @@ func newTestEngineWithConfig(t *testing.T, config *SnapshotEngineConfig, db *tes
 func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard {
 	t.Helper()
 	config := DefaultTestSnapshotEngineConfig()
-	config.MetricsName = "test"
 	config.EstimatedOverheadPerEntry = 0
 	s, err := NewShard(context.Background(), config, db, threading.NewAdHocPool(), maxSize,
 		func() error { return ErrEngineClosed })

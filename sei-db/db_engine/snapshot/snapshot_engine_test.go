@@ -19,11 +19,15 @@ func TestNewSnapshotEngineValid(t *testing.T) {
 
 func TestConfigValidateRejectsBadFields(t *testing.T) {
 	base := func() *SnapshotEngineConfig {
-		c := DefaultTestSnapshotEngineConfig()
-		c.MetricsName = "test"
-		return c
+		return DefaultTestSnapshotEngineConfig()
 	}
 	require.NoError(t, base().Validate(), "baseline config should be valid")
+
+	{
+		c := base()
+		c.MetricsName = ""
+		require.NoError(t, c.Validate(), "MetricsName is not required while metrics are disabled")
+	}
 
 	cases := []struct {
 		name string
@@ -33,7 +37,14 @@ func TestConfigValidateRejectsBadFields(t *testing.T) {
 		{"shardCountNotPowerOfTwo", func(c *SnapshotEngineConfig) { c.ShardCount = 3 }},
 		{"maxSizeZero", func(c *SnapshotEngineConfig) { c.MaxSize = 0 }},
 		{"overheadZero", func(c *SnapshotEngineConfig) { c.EstimatedOverheadPerEntry = 0 }},
-		{"metricsNameEmpty", func(c *SnapshotEngineConfig) { c.MetricsName = "" }},
+		{"metricsNameEmptyWithMetricsEnabled", func(c *SnapshotEngineConfig) {
+			c.MetricsEnabled = true
+			c.MetricsName = ""
+		}},
+		{"scrapeIntervalZeroWithMetricsEnabled", func(c *SnapshotEngineConfig) {
+			c.MetricsEnabled = true
+			c.MetricsScrapeIntervalSeconds = 0
+		}},
 		{"maxUnflushedZero", func(c *SnapshotEngineConfig) { c.MaxUnflushedVersions = 0 }},
 		{"targetBytesZero", func(c *SnapshotEngineConfig) { c.TargetBytesPerFlush = 0 }},
 		{"hashKeyEmpty", func(c *SnapshotEngineConfig) { c.HashKey = "" }},
@@ -49,7 +60,7 @@ func TestConfigValidateRejectsBadFields(t *testing.T) {
 
 func TestNewSnapshotEngineRejectsInvalidConfig(t *testing.T) {
 	c := DefaultTestSnapshotEngineConfig()
-	c.MetricsName = "" // invalid
+	c.ShardCount = 3 // invalid: not a power of two
 	pool := threading.NewAdHocPool()
 	defer pool.Close()
 	_, err := NewSnapshotEngine(c, newTestDB(nil), pool, pool)
