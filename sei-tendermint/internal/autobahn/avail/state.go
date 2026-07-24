@@ -423,21 +423,21 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 
 	// Boundary: switch to the next epoch on Current's last CommitQC.
 	// Resolve next duo off-lock (WaitForDuo).
-	var nextDuo *types.EpochDuo
+	nextDuo := utils.None[types.EpochDuo]()
 	if closing {
 		nt, err := s.data.Registry().WaitForDuo(ctx, idx+1)
 		if err != nil {
 			return err
 		}
-		nextDuo = &nt
+		nextDuo = utils.Some(nt)
 	}
 
 	for inner, ctrl := range s.inner.Lock() {
 		if idx != inner.commitQCs.next {
 			return nil
 		}
-		if nextDuo != nil {
-			inner.advanceEpoch(*nextDuo)
+		if nd, ok := nextDuo.Get(); ok {
+			inner.advanceEpoch(nd)
 		}
 		inner.commitQCs.pushBack(qc)
 		metrics.ObserveCommitQC(qc)
@@ -543,13 +543,13 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 		return err
 	}
 	// Tipcut insert of a boundary CommitQC must slide Current like PushCommitQC.
-	var nextDuo *types.EpochDuo
+	nextDuo := utils.None[types.EpochDuo]()
 	if closing {
 		nt, err := s.data.Registry().WaitForDuo(ctx, idx+1)
 		if err != nil {
 			return err
 		}
-		nextDuo = &nt
+		nextDuo = utils.Some(nt)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		updated, err := inner.prune(appQC, commitQC)
@@ -563,8 +563,8 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 		if inner.commitQCs.next == idx {
 			// Slide duo before insert when this tipcut closes Current (same
 			// order as PushCommitQC). Skip if Current already moved on.
-			if nextDuo != nil && inner.epochDuo.Load().Current.RoadRange().Has(idx) {
-				inner.advanceEpoch(*nextDuo)
+			if nd, ok := nextDuo.Get(); ok && inner.epochDuo.Load().Current.RoadRange().Has(idx) {
+				inner.advanceEpoch(nd)
 			}
 			inner.commitQCs.pushBack(commitQC)
 			metrics.ObserveCommitQC(commitQC)
@@ -728,7 +728,7 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 				if q.first > lr.First() {
 					return nil, types.ErrPruned
 				}
-				if set, ok := q.q[n].byHash[want]; ok && set.header != nil {
+				if set, ok := q.q[n].byHash[want]; ok {
 					want = set.header.ParentHash()
 					headers[len(headers)-i-1] = set.header
 					break

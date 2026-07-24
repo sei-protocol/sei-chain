@@ -481,13 +481,13 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 		}
 	}
 	// Closing Current: WaitForDuo(tipcut) before mutating nextQC.
-	var nextDuo *types.EpochDuo
+	nextDuo := utils.None[types.EpochDuo]()
 	if needQC && duo.Current.RoadRange().IsLastRoad(idx) {
 		nt, err := s.cfg.Registry.WaitForDuo(ctx, idx+1)
 		if err != nil {
 			return err
 		}
-		nextDuo = &nt
+		nextDuo = utils.Some(nt)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		if needQC {
@@ -497,8 +497,10 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 				inner.qcs[inner.nextQC] = qc
 				inner.nextQC += 1
 			}
-			if applied && nextDuo != nil {
-				inner.epochDuo.Store(*nextDuo)
+			if applied {
+				if nd, ok := nextDuo.Get(); ok {
+					inner.epochDuo.Store(nd)
+				}
 			}
 			ctrl.Updated()
 		}
