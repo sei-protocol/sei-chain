@@ -911,6 +911,9 @@ func (i *stateAccessIndex) conflictsWithAfter(key stateAccessKey, sourcePrefix i
 	if key.kind == stateAccessStorage {
 		return false
 	}
+	if key.kind != stateAccessAccount && key.kind != stateAccessBalance {
+		return false
+	}
 	return i.hasAddressWriteAtOrAfter(i.commutativeBalance, key.address, sourcePrefix)
 }
 

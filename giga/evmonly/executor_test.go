@@ -1633,6 +1633,214 @@ func TestStateDBGetCodeHashTracksCodelessAccountExistenceReads(t *testing.T) {
 	require.Equal(t, occFallbackReasonConflict, validation.fallbackReason)
 }
 
+func TestValidateSTMConflictMatrix(t *testing.T) {
+	addr := testAddress(0xe0)
+	otherAddr := testAddress(0xe1)
+	slot := testHash(0x01)
+	otherSlot := testHash(0x02)
+	accesses := []struct {
+		name string
+		key  stateAccessKey
+	}{
+		{name: "account", key: stateAccessKey{kind: stateAccessAccount, address: addr}},
+		{name: "balance", key: stateAccessKey{kind: stateAccessBalance, address: addr}},
+		{name: "nonce", key: stateAccessKey{kind: stateAccessNonce, address: addr}},
+		{name: "code", key: stateAccessKey{kind: stateAccessCode, address: addr}},
+		{name: "storage_same_slot", key: stateAccessKey{kind: stateAccessStorage, address: addr, slot: slot}},
+		{name: "storage_other_slot", key: stateAccessKey{kind: stateAccessStorage, address: addr, slot: otherSlot}},
+		{name: "account_other_address", key: stateAccessKey{kind: stateAccessAccount, address: otherAddr}},
+		{name: "balance_other_address", key: stateAccessKey{kind: stateAccessBalance, address: otherAddr}},
+		{name: "nonce_other_address", key: stateAccessKey{kind: stateAccessNonce, address: otherAddr}},
+		{name: "code_other_address", key: stateAccessKey{kind: stateAccessCode, address: otherAddr}},
+		{name: "storage_other_address", key: stateAccessKey{kind: stateAccessStorage, address: otherAddr, slot: slot}},
+	}
+	priorWrites := []struct {
+		name          string
+		add           func(*stateAccessIndex)
+		wantConflicts func(stateAccessKey) bool
+	}{
+		{
+			name: "account_write",
+			add: func(writes *stateAccessIndex) {
+				writes.addAllAt(0, map[stateAccessKey]struct{}{
+					{kind: stateAccessAccount, address: addr}: {},
+				})
+			},
+			wantConflicts: func(key stateAccessKey) bool {
+				return key.address == addr
+			},
+		},
+		{
+			name: "balance_write",
+			add: func(writes *stateAccessIndex) {
+				writes.addAllAt(0, map[stateAccessKey]struct{}{
+					{kind: stateAccessBalance, address: addr}: {},
+				})
+			},
+			wantConflicts: func(key stateAccessKey) bool {
+				return key.address == addr && (key.kind == stateAccessAccount || key.kind == stateAccessBalance)
+			},
+		},
+		{
+			name: "nonce_write",
+			add: func(writes *stateAccessIndex) {
+				writes.addAllAt(0, map[stateAccessKey]struct{}{
+					{kind: stateAccessNonce, address: addr}: {},
+				})
+			},
+			wantConflicts: func(key stateAccessKey) bool {
+				return key.address == addr && (key.kind == stateAccessAccount || key.kind == stateAccessNonce)
+			},
+		},
+		{
+			name: "code_write",
+			add: func(writes *stateAccessIndex) {
+				writes.addAllAt(0, map[stateAccessKey]struct{}{
+					{kind: stateAccessCode, address: addr}: {},
+				})
+			},
+			wantConflicts: func(key stateAccessKey) bool {
+				return key.address == addr && (key.kind == stateAccessAccount || key.kind == stateAccessCode)
+			},
+		},
+		{
+			name: "storage_write",
+			add: func(writes *stateAccessIndex) {
+				writes.addAllAt(0, map[stateAccessKey]struct{}{
+					{kind: stateAccessStorage, address: addr, slot: slot}: {},
+				})
+			},
+			wantConflicts: func(key stateAccessKey) bool {
+				return key.address == addr && key.kind == stateAccessStorage && key.slot == slot
+			},
+		},
+		{
+			name: "commutative_balance_delta",
+			add: func(writes *stateAccessIndex) {
+				writes.addCommutativeBalanceDeltasAt(0, map[common.Address]*big.Int{
+					addr: big.NewInt(1),
+				})
+			},
+			wantConflicts: func(key stateAccessKey) bool {
+				return key.address == addr && (key.kind == stateAccessAccount || key.kind == stateAccessBalance)
+			},
+		},
+	}
+	validate := func(t *testing.T, prior func(*stateAccessIndex), access string, key stateAccessKey) (bool, occValidationResult) {
+		t.Helper()
+		writes := newStateAccessIndex()
+		prior(writes)
+		result := occTxExecution{gasLimit: 1, gasUsed: 1}
+		switch access {
+		case "read":
+			result.readSet = map[stateAccessKey]struct{}{key: {}}
+		case "write":
+			result.writeSet = map[stateAccessKey]struct{}{key: {}}
+		default:
+			t.Fatalf("unknown access mode %q", access)
+		}
+		validation := occValidationResult{valid: true}
+		accepted := validateSTMResultAgainstPrefix(&validation, writes, result, 0, 10, 0)
+		return accepted, validation
+	}
+
+	for _, prior := range priorWrites {
+		for _, current := range accesses {
+			for _, access := range []string{"read", "write"} {
+				t.Run(prior.name+"/"+access+"/"+current.name, func(t *testing.T) {
+					accepted, validation := validate(t, prior.add, access, current.key)
+					if !prior.wantConflicts(current.key) {
+						require.True(t, accepted)
+						require.True(t, validation.valid)
+						require.Empty(t, validation.fallbackReason)
+						require.Zero(t, validation.conflictCount)
+						return
+					}
+					require.False(t, accepted)
+					require.False(t, validation.valid)
+					require.Equal(t, occFallbackReasonConflict, validation.fallbackReason)
+					require.Equal(t, uint64(1), validation.conflictCount)
+					require.Equal(t, uint64(1), validation.conflicts[occConflictAggregationKey{
+						access:  access,
+						kind:    current.key.kind,
+						address: current.key.address,
+						slot:    current.key.slot,
+					}])
+				})
+			}
+		}
+	}
+}
+
+func TestValidateSTMConflictSourcePrefix(t *testing.T) {
+	addr := testAddress(0xe2)
+	key := stateAccessKey{kind: stateAccessBalance, address: addr}
+	validate := func(t *testing.T, add func(*stateAccessIndex), sourcePrefix int) (bool, occValidationResult) {
+		t.Helper()
+		writes := newStateAccessIndex()
+		add(writes)
+		validation := occValidationResult{valid: true}
+		accepted := validateSTMResultAgainstPrefix(&validation, writes, occTxExecution{
+			readSet:  map[stateAccessKey]struct{}{key: {}},
+			gasLimit: 1,
+			gasUsed:  1,
+		}, 0, 10, sourcePrefix)
+		return accepted, validation
+	}
+	cases := []struct {
+		name         string
+		add          func(*stateAccessIndex)
+		sourcePrefix int
+		wantConflict bool
+	}{
+		{
+			name: "normal_write_before_source_prefix",
+			add: func(writes *stateAccessIndex) {
+				writes.addAllAt(0, map[stateAccessKey]struct{}{key: {}})
+			},
+			sourcePrefix: 1,
+		},
+		{
+			name: "normal_write_at_source_prefix",
+			add: func(writes *stateAccessIndex) {
+				writes.addAllAt(1, map[stateAccessKey]struct{}{key: {}})
+			},
+			sourcePrefix: 1,
+			wantConflict: true,
+		},
+		{
+			name: "commutative_delta_before_source_prefix",
+			add: func(writes *stateAccessIndex) {
+				writes.addCommutativeBalanceDeltasAt(0, map[common.Address]*big.Int{addr: big.NewInt(1)})
+			},
+			sourcePrefix: 1,
+		},
+		{
+			name: "commutative_delta_at_source_prefix",
+			add: func(writes *stateAccessIndex) {
+				writes.addCommutativeBalanceDeltasAt(1, map[common.Address]*big.Int{addr: big.NewInt(1)})
+			},
+			sourcePrefix: 1,
+			wantConflict: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			accepted, validation := validate(t, tc.add, tc.sourcePrefix)
+			if !tc.wantConflict {
+				require.True(t, accepted)
+				require.True(t, validation.valid)
+				require.Zero(t, validation.conflictCount)
+				return
+			}
+			require.False(t, accepted)
+			require.False(t, validation.valid)
+			require.Equal(t, occFallbackReasonConflict, validation.fallbackReason)
+			require.Equal(t, uint64(1), validation.conflictCount)
+		})
+	}
+}
+
 func TestBlockSTMSchedulerFallsBackAtMaxIncarnation(t *testing.T) {
 	txCount := occMaxTxIncarnations + 1
 	req := PreparedBlock{Txs: make([]PreparedTx, txCount)}
