@@ -48,7 +48,7 @@ func TestReceiptDataRoundTrip(t *testing.T) {
 // field reorder or width change is caught rather than silently corrupting
 // stored receipts.
 func TestReceiptDataWireLayout(t *testing.T) {
-	data := receiptData{Location: txLocation{BlockNumber: 0x0102030405060708, Offset: 0x0A0B0C0D, Length: 0x11121314}, Body: []byte("xyz")}
+	data := receiptData{Header: txHeader{BlockNumber: 0x0102030405060708, Offset: 0x0A0B0C0D, Length: 0x11121314}, Body: []byte("xyz")}
 	encoded := encodeReceiptData(data)
 
 	require.Equal(t, byte(1), encoded[0], "version byte")
@@ -62,7 +62,7 @@ func TestReceiptDataWireLayout(t *testing.T) {
 // input buffer (no copy), matching how callers unmarshal over litt's shared
 // read buffer.
 func TestDecodeReceiptDataBodyAliasesInput(t *testing.T) {
-	encoded := encodeReceiptData(receiptData{Location: txLocation{BlockNumber: 5, Offset: 1, Length: 2}, Body: []byte("abc")})
+	encoded := encodeReceiptData(receiptData{Header: txHeader{BlockNumber: 5, Offset: 1, Length: 2}, Body: []byte("abc")})
 	got, err := decodeReceiptData(encoded)
 	require.NoError(t, err)
 	require.Same(t, &encoded[receiptDataV1HeaderLen], &got.Body[0])
