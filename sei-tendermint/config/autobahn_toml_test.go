@@ -18,15 +18,15 @@ import (
 
 // TestAutobahnKeysParseFromTopLevel guards against the trap where TOML keys
 // authored after a [section] header get silently nested under that section.
-// AutobahnConfigFile is a top-level field on Config
-// (mapstructure:"autobahn-config-file"), so it must appear before any
-// [section] header in the on-disk file.
+// AutobahnConfigFile and HashVaultDisabledUnsafe are top-level fields on
+// Config, so they must appear before any [section] header in the on-disk file.
 func TestAutobahnKeysParseFromTopLevel(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
 	const content = `
 autobahn-config-file = "/etc/sei/autobahn.json"
+hash-vault-disabled-unsafe = true
 
 [rpc]
 laddr = "tcp://127.0.0.1:26657"
@@ -40,6 +40,7 @@ laddr = "tcp://127.0.0.1:26657"
 	cfg, err := commands.ParseConfig(tmconfig.DefaultConfig())
 	require.NoError(t, err)
 	require.Equal(t, "/etc/sei/autobahn.json", cfg.AutobahnConfigFile)
+	require.True(t, cfg.HashVaultDisabledUnsafe)
 }
 
 // TestAutobahnKeysIgnoredUnderSectionHeader documents what breaks if the
@@ -53,6 +54,7 @@ func TestAutobahnKeysIgnoredUnderSectionHeader(t *testing.T) {
 	const content = `
 [self-remediation]
 autobahn-config-file = "/etc/sei/autobahn.json"
+hash-vault-disabled-unsafe = true
 `
 	configPath := filepath.Join(t.TempDir(), "config.toml")
 	require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
@@ -65,10 +67,11 @@ autobahn-config-file = "/etc/sei/autobahn.json"
 	// The field ends up empty — viper saw self-remediation.autobahn-config-file
 	// instead of the top-level key mapstructure was looking for.
 	require.Empty(t, cfg.AutobahnConfigFile)
+	require.False(t, cfg.HashVaultDisabledUnsafe)
 }
 
 // TestRenderedTemplateAutobahnKeysAtTopLevel verifies that the freshly
-// rendered config template puts autobahn-config-file at top level (i.e.
+// rendered config template puts Autobahn keys at top level (i.e.
 // above every [section] header). Pure structural check — guards against
 // future edits accidentally moving it back under a section.
 func TestRenderedTemplateAutobahnKeysAtTopLevel(t *testing.T) {
@@ -80,14 +83,15 @@ func TestRenderedTemplateAutobahnKeysAtTopLevel(t *testing.T) {
 	require.NoError(t, err)
 	rendered := string(data)
 
-	const key = "autobahn-config-file"
-	keyIdx := strings.Index(rendered, key)
-	require.NotEqual(t, -1, keyIdx, "key %q must appear in rendered template", key)
-	// Find the nearest [section] header above keyIdx, if any.
-	preamble := rendered[:keyIdx]
-	if lastSection := strings.LastIndex(preamble, "\n["); lastSection != -1 {
-		// There's a [section] above; reject — TOML would nest the key.
-		t.Fatalf("key %q follows a [section] header (parsed as nested):\n%s",
-			key, preamble[lastSection:])
+	for _, key := range []string{"autobahn-config-file", "hash-vault-disabled-unsafe"} {
+		keyIdx := strings.Index(rendered, key)
+		require.NotEqual(t, -1, keyIdx, "key %q must appear in rendered template", key)
+		// Find the nearest [section] header above keyIdx, if any.
+		preamble := rendered[:keyIdx]
+		if lastSection := strings.LastIndex(preamble, "\n["); lastSection != -1 {
+			// There's a [section] above; reject — TOML would nest the key.
+			t.Fatalf("key %q follows a [section] header (parsed as nested):\n%s",
+				key, preamble[lastSection:])
+		}
 	}
 }

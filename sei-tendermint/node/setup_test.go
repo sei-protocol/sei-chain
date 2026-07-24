@@ -170,6 +170,22 @@ func TestBuildGigaConfig_NonePersistentStateDir(t *testing.T) {
 	assert.False(t, result.PersistentStateDir.IsPresent())
 }
 
+func TestBuildGigaConfig_HashVaultDisabledUnsafeDefault(t *testing.T) {
+	v1 := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
+	cfgFile := writeAutobahnConfig(t, defaultFileConfig([]config.AutobahnValidator{v1}))
+	nodeKey := makeTestNodeKey([]byte("node-seed"))
+	valKey := makeTestValidatorKey([]byte("val-seed"))
+	txMempool, genDoc := makeTestGigaDeps()
+
+	validatorCfg, err := buildValidatorGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
+	require.NoError(t, err)
+	require.False(t, validatorCfg.HashVaultDisabledUnsafe)
+
+	fullnodeCfg, err := buildFullnodeGigaConfig(cfgFile, txMempool, genDoc)
+	require.NoError(t, err)
+	require.False(t, fullnodeCfg.HashVaultDisabledUnsafe)
+}
+
 func TestBuildGigaConfig_InvalidConfigFile(t *testing.T) {
 	nodeKey := makeTestNodeKey([]byte("node-seed"))
 	valKey := makeTestValidatorKey([]byte("val-seed"))
