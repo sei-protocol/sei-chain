@@ -30,6 +30,35 @@ func TestNewEpochDuo_PanicsOnNilCurrent(t *testing.T) {
 	_ = types.NewEpochDuo(nil, utils.None[*types.Epoch]())
 }
 
+func TestNewEpochDuo_PanicsOnNonContiguousIndex(t *testing.T) {
+	prev, _ := testDuoEpochs(t)
+	rng := utils.TestRng()
+	weights := map[types.PublicKey]uint64{types.GenSecretKey(rng).Public(): 1}
+	committee := utils.OrPanic1(types.NewCommittee(weights))
+	// Roads abut, but index jumps 0 → 2.
+	current := types.NewEpoch(2, types.RoadRange{First: 100, Next: 200}, utils.GenTimestamp(rng), committee, 101)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewEpochDuo with non-contiguous indices should panic")
+		}
+	}()
+	_ = types.NewEpochDuo(current, utils.Some(prev))
+}
+
+func TestNewEpochDuo_PanicsOnNonContiguousRoads(t *testing.T) {
+	rng := utils.TestRng()
+	weights := map[types.PublicKey]uint64{types.GenSecretKey(rng).Public(): 1}
+	committee := utils.OrPanic1(types.NewCommittee(weights))
+	prev := types.NewEpoch(0, types.OpenRoadRange(), utils.GenTimestamp(rng), committee, 1)
+	current := types.NewEpoch(1, types.RoadRange{First: 100, Next: 200}, utils.GenTimestamp(rng), committee, 101)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewEpochDuo with non-abutting roads should panic")
+		}
+	}()
+	_ = types.NewEpochDuo(current, utils.Some(prev))
+}
+
 func TestEpochForRoad_HitsCurrentEpoch(t *testing.T) {
 	_, current := testDuoEpochs(t)
 	w := types.NewEpochDuo(current, utils.None[*types.Epoch]())
@@ -67,20 +96,12 @@ func TestEpochForRoad_OutsideWindowReturnsError(t *testing.T) {
 	}
 }
 
-func TestEpochForRoad_OpenRangePrevDoesNotMaskCurrent(t *testing.T) {
-	rng := utils.TestRng()
-	weights := map[types.PublicKey]uint64{types.GenSecretKey(rng).Public(): 1}
-	committee := utils.OrPanic1(types.NewCommittee(weights))
-	openEpoch := types.NewEpoch(0, types.OpenRoadRange(), utils.GenTimestamp(rng), committee, 1)
-	current := types.NewEpoch(1, types.RoadRange{First: 100, Next: 200}, utils.GenTimestamp(rng), committee, 101)
-	w := types.NewEpochDuo(current, utils.Some(openEpoch))
-	ep, err := w.EpochForRoad(150)
-	if err != nil {
-		t.Fatalf("EpochForRoad(150): %v", err)
-	}
-	if ep.EpochIndex() != current.EpochIndex() {
-		t.Fatalf("got epoch %d (Prev with OpenRoadRange masked Current), want current (%d)",
-			ep.EpochIndex(), current.EpochIndex())
+func TestEpochForRoad_PastCurrentNotMaskedByPrev(t *testing.T) {
+	prev, current := testDuoEpochs(t)
+	w := types.NewEpochDuo(current, utils.Some(prev))
+	_, err := w.EpochForRoad(200)
+	if !errors.Is(err, types.ErrRoadAfterWindow) {
+		t.Fatalf("EpochForRoad(200) = %v, want ErrRoadAfterWindow", err)
 	}
 }
 
