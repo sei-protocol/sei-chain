@@ -295,13 +295,13 @@ func (r *Registry) DuoAt(roadIndex types.RoadIndex) (types.EpochDuo, error) {
 	if err != nil {
 		return types.EpochDuo{}, fmt.Errorf("epoch %d (road %d) not in registry", centerIdx, roadIndex)
 	}
-	duo := types.EpochDuo{Current: current}
+	prev := utils.None[*types.Epoch]()
 	if centerIdx > 0 {
-		if prev, err := r.EpochAt(FirstRoad(centerIdx - 1)); err == nil {
-			duo.Prev = utils.Some(prev)
+		if p, err := r.EpochAt(FirstRoad(centerIdx - 1)); err == nil {
+			prev = utils.Some(p)
 		}
 	}
-	return duo, nil
+	return types.NewEpochDuo(current, prev), nil
 }
 
 // WaitForDuo blocks until DuoAt(roadIndex) can succeed (Current registered),

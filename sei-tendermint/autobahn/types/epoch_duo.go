@@ -9,12 +9,21 @@ import (
 
 // EpochDuo is a sliding window of up to two consecutive epochs.
 // Current is always set; Prev is absent only for epoch 0.
+// Construct via NewEpochDuo — a zero EpochDuo (nil Current) is invalid.
 //
 // Next is intentionally not held: new-committee lane traffic is admitted only
 // after CommitQC advances Current into the next epoch.
 type EpochDuo struct {
 	Prev    utils.Option[*Epoch] // absent if Current is epoch 0
 	Current *Epoch
+}
+
+// NewEpochDuo builds a Prev|Current window. current must be non-nil.
+func NewEpochDuo(current *Epoch, prev utils.Option[*Epoch]) EpochDuo {
+	if current == nil {
+		panic("NewEpochDuo: Current must be non-nil")
+	}
+	return EpochDuo{Prev: prev, Current: current}
 }
 
 // ErrRoadBeforeWindow is returned by EpochForRoad when the road is older than
@@ -55,7 +64,7 @@ func (w EpochDuo) EpochOptForRoad(roadIdx RoadIndex) utils.Option[*Epoch] {
 // CurrentForRoad returns Current when roadIdx is in Current's range; else None.
 // Unlike EpochOptForRoad, Prev is never admitted.
 func (w EpochDuo) CurrentForRoad(roadIdx RoadIndex) utils.Option[*Epoch] {
-	if w.Current != nil && w.Current.RoadRange().Has(roadIdx) {
+	if w.Current.RoadRange().Has(roadIdx) {
 		return utils.Some(w.Current)
 	}
 	return utils.None[*Epoch]()
@@ -71,7 +80,7 @@ func (w EpochDuo) WindowFirst() RoadIndex {
 
 // EpochForIndex returns Current or Prev by epoch index.
 func (w EpochDuo) EpochForIndex(idx EpochIndex) (*Epoch, error) {
-	if w.Current != nil && w.Current.EpochIndex() == idx {
+	if w.Current.EpochIndex() == idx {
 		return w.Current, nil
 	}
 	if prev, ok := w.Prev.Get(); ok && prev.EpochIndex() == idx {

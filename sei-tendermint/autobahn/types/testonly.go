@@ -23,7 +23,7 @@ func BuildCommitQC(
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
 ) *CommitQC {
-	vs := ViewSpec{CommitQC: prev, Epochs: EpochDuo{Current: epoch}}
+	vs := ViewSpec{CommitQC: prev, Epochs: NewEpochDuo(epoch, utils.None[*Epoch]())}
 	if len(laneQCs) == 0 {
 		laneQCs = oneBlockLaneQCMap(vs, keys)
 	}

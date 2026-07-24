@@ -21,9 +21,18 @@ func testDuoEpochs(t *testing.T) (prev, current *types.Epoch) {
 	return prev, current
 }
 
+func TestNewEpochDuo_PanicsOnNilCurrent(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewEpochDuo(nil, ...) should panic")
+		}
+	}()
+	_ = types.NewEpochDuo(nil, utils.None[*types.Epoch]())
+}
+
 func TestEpochForRoad_HitsCurrentEpoch(t *testing.T) {
 	_, current := testDuoEpochs(t)
-	w := types.EpochDuo{Current: current}
+	w := types.NewEpochDuo(current, utils.None[*types.Epoch]())
 	ep, err := w.EpochForRoad(150)
 	if err != nil {
 		t.Fatalf("EpochForRoad(150): %v", err)
@@ -35,7 +44,7 @@ func TestEpochForRoad_HitsCurrentEpoch(t *testing.T) {
 
 func TestEpochForRoad_HitsPrevEpoch(t *testing.T) {
 	prev, current := testDuoEpochs(t)
-	w := types.EpochDuo{Prev: utils.Some(prev), Current: current}
+	w := types.NewEpochDuo(current, utils.Some(prev))
 	ep, err := w.EpochForRoad(50)
 	if err != nil {
 		t.Fatalf("EpochForRoad(50): %v", err)
@@ -47,7 +56,7 @@ func TestEpochForRoad_HitsPrevEpoch(t *testing.T) {
 
 func TestEpochForRoad_OutsideWindowReturnsError(t *testing.T) {
 	_, current := testDuoEpochs(t)
-	w := types.EpochDuo{Current: current}
+	w := types.NewEpochDuo(current, utils.None[*types.Epoch]())
 	_, err := w.EpochForRoad(999)
 	if !errors.Is(err, types.ErrRoadAfterWindow) {
 		t.Fatalf("EpochForRoad(999) = %v, want ErrRoadAfterWindow", err)
@@ -64,7 +73,7 @@ func TestEpochForRoad_OpenRangePrevDoesNotMaskCurrent(t *testing.T) {
 	committee := utils.OrPanic1(types.NewCommittee(weights))
 	openEpoch := types.NewEpoch(0, types.OpenRoadRange(), utils.GenTimestamp(rng), committee, 1)
 	current := types.NewEpoch(1, types.RoadRange{First: 100, Next: 200}, utils.GenTimestamp(rng), committee, 101)
-	w := types.EpochDuo{Prev: utils.Some(openEpoch), Current: current}
+	w := types.NewEpochDuo(current, utils.Some(openEpoch))
 	ep, err := w.EpochForRoad(150)
 	if err != nil {
 		t.Fatalf("EpochForRoad(150): %v", err)
@@ -77,7 +86,7 @@ func TestEpochForRoad_OpenRangePrevDoesNotMaskCurrent(t *testing.T) {
 
 func TestEpochForRoad_AbsentPrevSkipped(t *testing.T) {
 	_, current := testDuoEpochs(t)
-	w := types.EpochDuo{Current: current}
+	w := types.NewEpochDuo(current, utils.None[*types.Epoch]())
 	_, err := w.EpochForRoad(50)
 	if !errors.Is(err, types.ErrRoadBeforeWindow) {
 		t.Fatalf("EpochForRoad(50) with absent Prev = %v, want ErrRoadBeforeWindow", err)
@@ -86,7 +95,7 @@ func TestEpochForRoad_AbsentPrevSkipped(t *testing.T) {
 
 func TestEpochForRoad_BeforeAndAfterWithPrev(t *testing.T) {
 	prev, current := testDuoEpochs(t)
-	w := types.EpochDuo{Prev: utils.Some(prev), Current: current}
+	w := types.NewEpochDuo(current, utils.Some(prev))
 	if _, err := w.EpochForRoad(50); err != nil {
 		t.Fatalf("EpochForRoad(50) in prev: %v", err)
 	}
@@ -101,7 +110,7 @@ func TestEpochForRoad_BeforeAndAfterWithPrev(t *testing.T) {
 
 func TestWindowFirst_WithPrev(t *testing.T) {
 	prev, current := testDuoEpochs(t)
-	w := types.EpochDuo{Prev: utils.Some(prev), Current: current}
+	w := types.NewEpochDuo(current, utils.Some(prev))
 	if got, want := w.WindowFirst(), prev.RoadRange().First; got != want {
 		t.Fatalf("WindowFirst() = %d, want %d", got, want)
 	}
@@ -109,7 +118,7 @@ func TestWindowFirst_WithPrev(t *testing.T) {
 
 func TestWindowFirst_CurrentOnly(t *testing.T) {
 	_, current := testDuoEpochs(t)
-	w := types.EpochDuo{Current: current}
+	w := types.NewEpochDuo(current, utils.None[*types.Epoch]())
 	if got, want := w.WindowFirst(), current.RoadRange().First; got != want {
 		t.Fatalf("WindowFirst() = %d, want %d", got, want)
 	}
@@ -117,7 +126,7 @@ func TestWindowFirst_CurrentOnly(t *testing.T) {
 
 func TestEpochOptForRoad(t *testing.T) {
 	prev, current := testDuoEpochs(t)
-	w := types.EpochDuo{Prev: utils.Some(prev), Current: current}
+	w := types.NewEpochDuo(current, utils.Some(prev))
 	if ep, ok := w.EpochOptForRoad(50).Get(); !ok || ep != prev {
 		t.Fatalf("EpochOptForRoad(50) = %v, want prev", ep)
 	}
@@ -128,7 +137,7 @@ func TestEpochOptForRoad(t *testing.T) {
 
 func TestCurrentForRoad(t *testing.T) {
 	prev, current := testDuoEpochs(t)
-	w := types.EpochDuo{Prev: utils.Some(prev), Current: current}
+	w := types.NewEpochDuo(current, utils.Some(prev))
 	if ep, ok := w.CurrentForRoad(150).Get(); !ok || ep != current {
 		t.Fatalf("CurrentForRoad(150) = %v, want current", ep)
 	}
