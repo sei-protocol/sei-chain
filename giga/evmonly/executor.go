@@ -288,6 +288,8 @@ func (e *Executor) executeTx(
 		receipt.ContractAddress = crypto.CreateAddress(p.Sender, tx.Nonce())
 	}
 	if tx.Type() == ethtypes.BlobTxType {
+		// Currently unreachable because blob txs are rejected until block-level
+		// blob gas accounting is wired.
 		receipt.BlobGasUsed = tx.BlobGas()
 		receipt.BlobGasPrice = cloneOptionalBig(block.BlobBaseFee)
 	}
@@ -413,8 +415,14 @@ func validateSupportedTx(tx *ethtypes.Transaction) error {
 }
 
 func validateBlockContext(chainConfig *params.ChainConfig, ctx BlockContext) error {
-	if chainConfig != nil && chainConfig.IsLondon(new(big.Int).SetUint64(ctx.Number)) && ctx.BaseFee == nil {
-		return errMissingBaseFee
+	if chainConfig != nil {
+		blockNumber := new(big.Int).SetUint64(ctx.Number)
+		if chainConfig.IsLondon(blockNumber) && ctx.BaseFee == nil {
+			return errMissingBaseFee
+		}
+		if chainConfig.IsCancun(blockNumber, ctx.Time) && ctx.BlobBaseFee == nil {
+			return errMissingBlobBaseFee
+		}
 	}
 	return nil
 }
@@ -432,5 +440,6 @@ func effectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 var (
 	errInsufficientGasPrice = fmt.Errorf("insufficient gas price")
 	errMissingBaseFee       = fmt.Errorf("missing base fee for post-London block")
+	errMissingBlobBaseFee   = fmt.Errorf("missing blob base fee for post-Cancun block")
 	errUnsupportedBlobTx    = fmt.Errorf("blob transactions require block-level blob gas accounting")
 )
