@@ -28,8 +28,7 @@ func LastRoad(idx types.EpochIndex) types.RoadIndex {
 }
 
 type registryState struct {
-	m      map[types.EpochIndex]*types.Epoch
-	latest types.EpochIndex
+	m map[types.EpochIndex]*types.Epoch
 }
 
 // Registry is the authoritative store of epoch/committee metadata for all
@@ -66,8 +65,7 @@ func NewRegistry(
 	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, genesisTimestamp, committee, firstBlock)
 	return &Registry{
 		state: utils.NewRWMutex(&registryState{
-			m:      map[types.EpochIndex]*types.Epoch{0: ep},
-			latest: 0,
+			m: map[types.EpochIndex]*types.Epoch{0: ep},
 		}),
 		epochGen: utils.NewAtomicSend(uint64(0)),
 	}, nil

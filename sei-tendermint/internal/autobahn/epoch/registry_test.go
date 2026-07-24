@@ -111,6 +111,17 @@ func TestSetupInitialDuo_CommitQCMidSeedsPlaceholderNext(t *testing.T) {
 	if _, err := r.EpochAt(FirstRoad(8)); err == nil {
 		t.Fatal("EpochAt(epoch 8) should not be present from mid-epoch CommitQC")
 	}
+	duo, err := r.DuoAt(FirstRoad(5))
+	if err != nil {
+		t.Fatalf("DuoAt(FirstRoad(5)): %v", err)
+	}
+	prev, ok := duo.Prev.Get()
+	if !ok || prev.EpochIndex() != 4 {
+		t.Fatalf("DuoAt mid-epoch Prev = %v, want epoch 4", duo.Prev)
+	}
+	if duo.Current.EpochIndex() != 5 {
+		t.Fatalf("DuoAt mid-epoch Current = %d, want 5", duo.Current.EpochIndex())
+	}
 }
 
 func TestSetupInitialDuo_CommitQCClosingSeedsNext(t *testing.T) {
@@ -169,25 +180,6 @@ func TestDuoAt_GenesisEpoch(t *testing.T) {
 	}
 }
 
-func TestDuoAt_MiddleEpoch(t *testing.T) {
-	r, _ := makeRegistry(t)
-	tip := midRoad(2)
-	if err := r.SetupInitialDuo(utils.Some(types.RoadRange{First: tip, Next: tip + 1})); err != nil {
-		t.Fatal(err)
-	}
-	duo, err := r.DuoAt(FirstRoad(2))
-	if err != nil {
-		t.Fatalf("DuoAt(epoch 2) error: %v", err)
-	}
-	prev, ok := duo.Prev.Get()
-	if !ok || prev.EpochIndex() != 1 {
-		t.Fatalf("DuoAt(epoch 2).Prev.EpochIndex() wrong, want 1")
-	}
-	if duo.Current.EpochIndex() != 2 {
-		t.Fatalf("DuoAt(epoch 2).Current.EpochIndex() wrong, want 2")
-	}
-}
-
 func TestDuoAt_ErrorWhenCurrentMissing(t *testing.T) {
 	committee := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
 		types.GenSecretKey(utils.TestRng()).Public(): 1,
@@ -195,8 +187,7 @@ func TestDuoAt_ErrorWhenCurrentMissing(t *testing.T) {
 	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, time.Time{}, committee, 0)
 	bare := &Registry{
 		state: utils.NewRWMutex(&registryState{
-			m:      map[types.EpochIndex]*types.Epoch{0: ep},
-			latest: 0,
+			m: map[types.EpochIndex]*types.Epoch{0: ep},
 		}),
 		epochGen: utils.NewAtomicSend(uint64(0)),
 	}
@@ -215,8 +206,7 @@ func TestDuoAt_ErrorWhenPrevMissing(t *testing.T) {
 	// Gap: epoch 2 present without epoch 1.
 	bare := &Registry{
 		state: utils.NewRWMutex(&registryState{
-			m:      map[types.EpochIndex]*types.Epoch{0: ep0, 2: ep2},
-			latest: 2,
+			m: map[types.EpochIndex]*types.Epoch{0: ep0, 2: ep2},
 		}),
 		epochGen: utils.NewAtomicSend(uint64(0)),
 	}

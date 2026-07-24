@@ -7,13 +7,24 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// LatestEpoch returns the most recently activated epoch. For use in tests only.
+// LatestEpoch returns the highest-index registered epoch. For use in tests only.
 // Do not use this to stamp CommitQC views for an arbitrary road — use
 // EpochAtTip (or EpochAt) so View.EpochIndex matches the road's epoch when
 // GenRegistry starts away from genesis.
 func (r *Registry) LatestEpoch() *types.Epoch {
 	for s := range r.state.RLock() {
-		return s.m[s.latest]
+		var best types.EpochIndex
+		var ep *types.Epoch
+		for idx, e := range s.m {
+			if ep == nil || idx > best {
+				best = idx
+				ep = e
+			}
+		}
+		if ep == nil {
+			panic("registry has no epochs")
+		}
+		return ep
 	}
 	panic("unreachable")
 }
@@ -69,8 +80,5 @@ func makeRegistryAt(committee *types.Committee, firstBlock types.GlobalBlockNumb
 	// Duo at startEpoch only; no placeholder +1/+2 (unlike SetupInitialDuo's
 	// CommitQC-span path). Genesis 0 always exists from NewRegistry.
 	registry.EnsureDuoAt(FirstRoad(startEpoch))
-	for s := range registry.state.Lock() {
-		s.latest = startEpoch
-	}
 	return registry
 }

@@ -72,21 +72,32 @@ func testSignedBlock(key types.SecretKey, lane types.LaneID, n types.BlockNumber
 func TestNewInnerFreshStart(t *testing.T) {
 	rng := utils.TestRng()
 	registry, _ := epoch.GenRegistryAt(rng, 4, 0)
+	duo := utils.OrPanic1(registry.DuoAt(0))
 
-	i, err := newInner(registry, utils.OrPanic1(registry.DuoAt(0)), utils.None[*loadedAvailState]())
-	require.NoError(t, err)
+	for _, tc := range []struct {
+		name   string
+		loaded utils.Option[*loadedAvailState]
+	}{
+		{"none", utils.None[*loadedAvailState]()},
+		{"empty_loaded", utils.Some(&loadedAvailState{})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			i, err := newInner(registry, duo, tc.loaded)
+			require.NoError(t, err)
 
-	require.False(t, i.latestAppQC.IsPresent())
-	require.NotNil(t, i.lanes)
-	require.Equal(t, types.RoadIndex(0), i.commitQCs.first)
-	require.Equal(t, types.RoadIndex(0), i.commitQCs.next)
-	require.Equal(t, registry.FirstBlock(), i.appVotes.first)
-	require.Equal(t, registry.FirstBlock(), i.appVotes.next)
-	for lane := range registry.LatestEpoch().Committee().Lanes().All() {
-		require.Equal(t, types.BlockNumber(0), i.lanes[lane].blocks.first)
-		require.Equal(t, types.BlockNumber(0), i.lanes[lane].blocks.next)
-		require.Equal(t, types.BlockNumber(0), i.lanes[lane].votes.first)
-		require.Equal(t, types.BlockNumber(0), i.lanes[lane].votes.next)
+			require.False(t, i.latestAppQC.IsPresent())
+			require.NotNil(t, i.lanes)
+			require.Equal(t, types.RoadIndex(0), i.commitQCs.first)
+			require.Equal(t, types.RoadIndex(0), i.commitQCs.next)
+			require.Equal(t, registry.FirstBlock(), i.appVotes.first)
+			require.Equal(t, registry.FirstBlock(), i.appVotes.next)
+			for lane := range registry.LatestEpoch().Committee().Lanes().All() {
+				require.Equal(t, types.BlockNumber(0), i.lanes[lane].blocks.first)
+				require.Equal(t, types.BlockNumber(0), i.lanes[lane].blocks.next)
+				require.Equal(t, types.BlockNumber(0), i.lanes[lane].votes.first)
+				require.Equal(t, types.BlockNumber(0), i.lanes[lane].votes.next)
+			}
+		})
 	}
 }
 
@@ -102,21 +113,6 @@ func TestDecodePruneAnchorIncomplete(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "incomplete prune anchor")
-}
-
-func TestNewInnerLoadedNoAnchor(t *testing.T) {
-	rng := utils.TestRng()
-	registry, _ := epoch.GenRegistryAt(rng, 4, 0)
-
-	loaded := &loadedAvailState{}
-
-	i, err := newInner(registry, utils.OrPanic1(registry.DuoAt(0)), utils.Some(loaded))
-	require.NoError(t, err)
-
-	// No anchor loaded, app votes should start at the registry's first block.
-	require.False(t, i.latestAppQC.IsPresent())
-	require.Equal(t, types.RoadIndex(0), i.commitQCs.first)
-	require.Equal(t, registry.FirstBlock(), i.appVotes.first)
 }
 
 func TestNewInnerRequiresAnchorWhenEpochNonZero(t *testing.T) {
