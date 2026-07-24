@@ -111,6 +111,22 @@ func TestIteratorExcludesHashKey(t *testing.T) {
 	require.Equal(t, []kvPair{{key: []byte("k"), value: []byte("v")}}, all)
 }
 
+// A DB backend whose iterator returns a nil slice for a stored zero-length value must not have
+// that key mistaken for a tombstone and dropped: the engine normalizes it to a non-nil empty
+// value, matching what a caller expects for a key that exists with an empty value.
+func TestIteratorNormalizesNilDBValueToEmpty(t *testing.T) {
+	// cloneBytes preserves nil, so the seeded nil value flows through the test DB's iterator as a
+	// nil slice — the shape a misbehaving backend would produce.
+	engine, _ := newTestEngine(t, map[string][]byte{"empty": nil, "k": []byte("v")}, 1, 1<<20)
+
+	got := iterateUserData(t, engine)
+	require.Equal(t, []kvPair{
+		{key: []byte("empty"), value: []byte{}},
+		{key: []byte("k"), value: []byte("v")},
+	}, got)
+	require.NotNil(t, got[0].value, "a found empty value must be non-nil")
+}
+
 func TestIteratorCloseIsIdempotent(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 1<<20)
 	engine.Set([]byte("k"), []byte("v"))

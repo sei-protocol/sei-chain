@@ -212,9 +212,16 @@ func (it *snapshotIterator) refreshDBPair() error {
 		it.nextDBPair = nil
 		return nil
 	}
+	value := bytes.Clone(it.dbIter.Value())
+	if value == nil {
+		// A found value is never nil: normalize a backend that returns a nil slice for a stored
+		// zero-length value to a non-nil empty slice. In a kvPair a nil value means a tombstone,
+		// so without this the merge loop would silently drop the key.
+		value = []byte{}
+	}
 	it.nextDBPair = &kvPair{
 		key:   bytes.Clone(it.dbIter.Key()),
-		value: bytes.Clone(it.dbIter.Value()),
+		value: value,
 	}
 	return nil
 }

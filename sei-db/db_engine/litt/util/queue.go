@@ -1,5 +1,7 @@
 package util
 
+import "fmt"
+
 // A standard generic queue.
 //
 // This struct is not thread safe.
@@ -70,13 +72,24 @@ func (q *Queue[T]) Iterator() func(yield func(uint64, T) bool) {
 
 // Get an item at the given index in the queue. Panics if the index is out of bounds.
 func (q *Queue[T]) Get(index uint64) T {
-	return q.data.Get(int(index)) //nolint:gosec // index fits int
+	q.checkBounds(index)
+	return q.data.Get(int(index)) //nolint:gosec // bounds-checked above, fits int
 }
 
 // Set the item at the given index in the queue. Panics if the index is out of bounds.
 func (q *Queue[T]) Set(index uint64, value T) (previousValue T) {
-	i := int(index) //nolint:gosec // index fits int
+	q.checkBounds(index)
+	i := int(index) //nolint:gosec // bounds-checked above, fits int
 	previousValue = q.data.Get(i)
 	q.data.Set(i, value)
 	return previousValue
+}
+
+// checkBounds panics if index is outside the queue. Guarding before converting to int matters: a
+// huge index (e.g. from wrapped uint64 arithmetic) would convert to a negative int and resolve
+// through the deque's Python-style negative indexing to the wrong element instead of failing fast.
+func (q *Queue[T]) checkBounds(index uint64) {
+	if index >= q.Size() {
+		panic(fmt.Sprintf("queue index %d out of range for queue of size %d", index, q.Size()))
+	}
 }
