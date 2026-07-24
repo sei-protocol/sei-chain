@@ -32,7 +32,7 @@ func (s *laneVoteSet) add(weight, quorum uint64, vote *types.Signed[*types.LaneV
 	return s.qc
 }
 
-// blockVotes weights votes under Current; reweight on epoch advance.
+// blockVotes credits lane votes under the Current committee only.
 type blockVotes struct {
 	byKey  map[types.PublicKey]*types.Signed[*types.LaneVote]
 	byHash map[types.BlockHeaderHash]*laneVoteSet
@@ -45,8 +45,8 @@ func newBlockVotes() blockVotes {
 	}
 }
 
-// pushVote credits vote under ep. Zero-weight signers are not retained.
-// Callers should VerifySig first; after a lock release, Weight==0 is a silent drop.
+// pushVote credits vote under ep (Current). Zero-weight → drop (not retained).
+// Callers VerifySig first; after a lock release, Weight==0 is still a silent drop.
 func (bv blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) utils.Option[*types.LaneQC] {
 	k := vote.Key()
 	if _, ok := bv.byKey[k]; ok {
@@ -67,6 +67,7 @@ func (bv blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVot
 	return set.add(w, ep.Committee().LaneQuorum(), vote)
 }
 
+// reweight recomputes already-stored votes under new Current after advanceEpoch.
 func (bv blockVotes) reweight(newEpoch *types.Epoch) bool {
 	c := newEpoch.Committee()
 	for _, set := range bv.byHash {
