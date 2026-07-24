@@ -373,6 +373,8 @@ func (c *snapshotEngine) Set(key []byte, value []byte) {
 
 func (c *snapshotEngine) Commit() (Snapshot, error) {
 	c.metrics.setSnapshotPhase("acquire_version_lock")
+	// Reset the phase on every exit so error returns don't leave the timer stuck on a phase.
+	defer c.metrics.setSnapshotPhase("")
 
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
@@ -405,12 +407,15 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 	for _, shard := range c.shards {
 		shardVersion := shard.Commit()
 		if shardVersion != c.currentVersion {
-			return nil, fmt.Errorf("shard (%d) has a different version than the engine (%d)",
+			// Should be impossible. The engine is now inconsistent (some shards committed, some
+			// not), so brick it: the failure must be latched and every subsequent call must fail,
+			// rather than leaving the engine callable after a fatal error.
+			err := fmt.Errorf("shard (%d) has a different version than the engine (%d)",
 				shardVersion, c.currentVersion)
+			c.brickLocked(err)
+			return nil, err
 		}
 	}
-
-	c.metrics.setSnapshotPhase("")
 
 	return snapshot, nil
 }
@@ -763,6 +768,11 @@ func (c *snapshotEngine) lifecycleRunner() {
 		select {
 		case <-c.lifecycleExit:
 			return
+		case <-c.ctx.Done():
+			// The engine was bricked from outside the runner (see Commit): the version state is
+			// no longer trustworthy, so stop doing lifecycle work. Close cancels the context only
+			// after this goroutine has exited, so this case never fires on a clean shutdown.
+			return
 		case req := <-c.iteratorRequests:
 			// Build the iterator inline. The single-threaded lifecycle goroutine
 			// guarantees no concurrent flush or retire can race with the
@@ -783,15 +793,23 @@ func (c *snapshotEngine) lifecycleRunner() {
 	}
 }
 
-// brick latches the error that killed the lifecycle runner and releases everyone blocked on the
-// engine, so callers observe the failure immediately rather than waiting for Close.
+// brick latches the fatal error and releases everyone blocked on the engine, so callers observe
+// the failure immediately rather than waiting for Close.
 func (c *snapshotEngine) brick(err error) {
 	c.versionLock.Lock()
+	c.brickLocked(err)
+	c.versionLock.Unlock()
+}
+
+// brickLocked latches the fatal error, cancels the engine context, and wakes backpressure
+// waiters, so callers observe the failure immediately rather than waiting for Close.
+//
+// The Locked postfix indicates that the caller must hold the versionLock.
+func (c *snapshotEngine) brickLocked(err error) {
 	if c.fatalErr == nil {
 		c.fatalErr = err
 	}
 	c.cancel()
-	c.versionLock.Unlock()
 	c.lifecycleBackpressureCond.Broadcast()
 }
 
