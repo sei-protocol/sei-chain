@@ -19,9 +19,23 @@ type EpochDuo struct {
 }
 
 // NewEpochDuo builds a Prev|Current window. current must be non-nil.
+// When prev is present it must be the immediately preceding epoch: index
+// Current-1 and road ranges abut (Prev.Next == Current.First).
 func NewEpochDuo(current *Epoch, prev utils.Option[*Epoch]) EpochDuo {
 	if current == nil {
 		panic("NewEpochDuo: Current must be non-nil")
+	}
+	if p, ok := prev.Get(); ok {
+		if p == nil {
+			panic("NewEpochDuo: Prev must be non-nil when present")
+		}
+		if want := current.EpochIndex(); p.EpochIndex()+1 != want {
+			panic(fmt.Sprintf("NewEpochDuo: Prev epoch %d not contiguous with Current %d",
+				p.EpochIndex(), want))
+		}
+		if got, want := p.RoadRange().Next, current.RoadRange().First; got != want {
+			panic(fmt.Sprintf("NewEpochDuo: Prev roads end at %d, Current starts at %d", got, want))
+		}
 	}
 	return EpochDuo{Prev: prev, Current: current}
 }
@@ -39,13 +53,19 @@ func (w EpochDuo) all() [2]utils.Option[*Epoch] {
 }
 
 // EpochForRoad returns the epoch whose road range contains roadIdx.
-// Prefers Current so an open-range Prev cannot shadow later epochs.
-// Returns ErrRoadBeforeWindow or ErrRoadAfterWindow when out of window.
+// The window ends at Current.Next — roads at or past that bound are
+// ErrRoadAfterWindow even if Prev uses an open range. Within the window,
+// Current is checked before Prev so an open-range Prev cannot mask Current.
+// Returns ErrRoadBeforeWindow when older than WindowFirst.
 func (w EpochDuo) EpochForRoad(roadIdx RoadIndex) (*Epoch, error) {
-	for _, oep := range w.all() {
-		if ep, ok := oep.Get(); ok && ep.RoadRange().Has(roadIdx) {
-			return ep, nil
-		}
+	if roadIdx >= w.Current.RoadRange().Next {
+		return nil, fmt.Errorf("road %d after window %v: %w", roadIdx, w, ErrRoadAfterWindow)
+	}
+	if w.Current.RoadRange().Has(roadIdx) {
+		return w.Current, nil
+	}
+	if prev, ok := w.Prev.Get(); ok && prev.RoadRange().Has(roadIdx) {
+		return prev, nil
 	}
 	if roadIdx < w.WindowFirst() {
 		return nil, fmt.Errorf("road %d before window %v: %w", roadIdx, w, ErrRoadBeforeWindow)

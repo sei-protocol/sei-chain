@@ -21,6 +21,16 @@ func genFreshEpoch(rng utils.Rng, committee *Committee) *Epoch {
 	)
 }
 
+// viewSpecContiguousDuo builds Prev|Current with abutting roads [0,1)|[1,Max) and a
+// CommitQC so View.Index is inside Current (for AppQC Prev|Current verify tests).
+func viewSpecContiguousDuo(keys []SecretKey, committee *Committee) ViewSpec {
+	const split RoadIndex = 1
+	prev := NewEpoch(0, RoadRange{First: 0, Next: split}, time.Time{}, committee, 1)
+	current := NewEpoch(1, RoadRange{First: split, Next: utils.Max[RoadIndex]()}, time.Time{}, committee, 1)
+	qc := BuildCommitQC(prev, keys, utils.None[*CommitQC](), nil, utils.None[*AppQC]())
+	return ViewSpec{CommitQC: utils.Some(qc), Epochs: NewEpochDuo(current, utils.Some(prev))}
+}
+
 // leaderKey returns the secret key for the leader of the given view.
 func leaderKey(committee *Committee, keys []SecretKey, view View) SecretKey {
 	leader := committee.Leader(view)
@@ -643,13 +653,12 @@ func TestProposalVerifyRejectsMissingAppQC(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rng := utils.TestRng()
 			committee, keys := GenCommittee(rng, 4)
-			prev := NewEpoch(0, OpenRoadRange(), time.Time{}, committee, 1)
-			current := NewEpoch(1, OpenRoadRange(), time.Time{}, committee, 1)
-			vs := ViewSpec{Epochs: NewEpochDuo(current, utils.Some(prev))}
+			vs := viewSpecContiguousDuo(keys, committee)
 			leader := leaderKey(committee, keys, vs.View())
 
-			// Fresh AppQC: globalNumber 0 < FirstBlock 1.
-			goodAppQC := makeAppQCFor(keys, 0, 0, GenAppHash(rng), tc.appEpoch)
+			// Fresh AppQC: globalNumber 0 < FirstBlock 1. Road must sit in the AppQC epoch.
+			road := RoadIndex(tc.appEpoch) // epoch 0 → road 0; epoch 1 → road 1 (split)
+			goodAppQC := makeAppQCFor(keys, 0, road, GenAppHash(rng), tc.appEpoch)
 			fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(goodAppQC)))
 
 			tamperedFP := &FullProposal{
@@ -672,15 +681,14 @@ func TestProposalVerifyRejectsAppQCMismatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rng := utils.TestRng()
 			committee, keys := GenCommittee(rng, 4)
-			prev := NewEpoch(0, OpenRoadRange(), time.Time{}, committee, 1)
-			current := NewEpoch(1, OpenRoadRange(), time.Time{}, committee, 1)
-			vs := ViewSpec{Epochs: NewEpochDuo(current, utils.Some(prev))}
+			vs := viewSpecContiguousDuo(keys, committee)
 			leader := leaderKey(committee, keys, vs.View())
 
-			goodAppQC := makeAppQCFor(keys, 0, 0, GenAppHash(rng), tc.appEpoch)
+			road := RoadIndex(tc.appEpoch)
+			goodAppQC := makeAppQCFor(keys, 0, road, GenAppHash(rng), tc.appEpoch)
 			fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(goodAppQC)))
 
-			differentAppQC := makeAppQCFor(keys, 0, 0, GenAppHash(rng), tc.appEpoch)
+			differentAppQC := makeAppQCFor(keys, 0, road, GenAppHash(rng), tc.appEpoch)
 			tamperedFP := &FullProposal{
 				proposal: fp.proposal,
 				laneQCs:  fp.laneQCs,
@@ -695,15 +703,15 @@ func TestProposalVerifyRejectsAppProposalWrongEpoch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 
-	// OpenRoadRange so View index 0 is valid for both epochs; this test only
-	// covers AppQC epoch resolution via ViewSpec.Epochs.
-	prev := NewEpoch(0, OpenRoadRange(), time.Time{}, committee, 1)
-	current := NewEpoch(1, OpenRoadRange(), time.Time{}, committee, 1)
-	vs := ViewSpec{Epochs: NewEpochDuo(current, utils.Some(prev))}
+	vs := viewSpecContiguousDuo(keys, committee)
 	leader := leaderKey(committee, keys, vs.View())
 
 	makeAppQCWithEpoch := func(epochIdx EpochIndex) *AppQC {
-		p := NewAppProposal(0, 0, GenAppHash(rng), epochIdx)
+		road := RoadIndex(0)
+		if epochIdx >= 1 {
+			road = 1
+		}
+		p := NewAppProposal(0, road, GenAppHash(rng), epochIdx)
 		v := NewAppVote(p)
 		var votes []*Signed[*AppVote]
 		for _, k := range keys {
@@ -736,13 +744,12 @@ func TestProposalVerifyRejectsInvalidAppQCSignature(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rng := utils.TestRng()
 			committee, keys := GenCommittee(rng, 4)
-			prev := NewEpoch(0, OpenRoadRange(), time.Time{}, committee, 1)
-			current := NewEpoch(1, OpenRoadRange(), time.Time{}, committee, 1)
-			vs := ViewSpec{Epochs: NewEpochDuo(current, utils.Some(prev))}
+			vs := viewSpecContiguousDuo(keys, committee)
 			leader := leaderKey(committee, keys, vs.View())
 
 			appHash := GenAppHash(rng)
-			goodAppQC := makeAppQCFor(keys, 0, 0, appHash, tc.appEpoch)
+			road := RoadIndex(tc.appEpoch)
+			goodAppQC := makeAppQCFor(keys, 0, road, appHash, tc.appEpoch)
 			fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(goodAppQC)))
 
 			// Swap in an AppQC signed by NON-committee keys (same hash).
@@ -750,7 +757,7 @@ func TestProposalVerifyRejectsInvalidAppQCSignature(t *testing.T) {
 			for i := range otherKeys {
 				otherKeys[i] = GenSecretKey(rng)
 			}
-			badAppQC := makeAppQCFor(otherKeys, 0, 0, appHash, tc.appEpoch)
+			badAppQC := makeAppQCFor(otherKeys, 0, road, appHash, tc.appEpoch)
 			tamperedFP := &FullProposal{
 				proposal: fp.proposal,
 				laneQCs:  fp.laneQCs,
