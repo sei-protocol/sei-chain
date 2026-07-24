@@ -456,7 +456,9 @@ func (s *State) insertBlocksByHash(inner *inner, gr types.GlobalRange, byHash ma
 // PushQC atomically admits qc and optional finalized blocks.
 // Tip-order WaitUntil runs before EpochForRoad so a first QC of the next epoch
 // waits for the boundary slide (rather than ErrRoadAfterWindow). Epoch via
-// epochDuo only (not Registry); before-window hard-fails.
+// epochDuo only (not Registry). Before-window on a still-needed QC hard-fails;
+// if needQC is false the QC is already applied and a before-window miss is a
+// no-op (stale peer redelivery after the duo slid — do not soft-admit via Registry).
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
 	gr := qc.QC().GlobalRange()
 	needQC, err := func() (bool, error) {
@@ -475,6 +477,9 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	}
 	ep, err := s.epochDuo.Load().EpochForRoad(qc.QC().Proposal().Index())
 	if err != nil {
+		if !needQC && errors.Is(err, types.ErrRoadBeforeWindow) {
+			return nil
+		}
 		return err
 	}
 	// Verify data.
