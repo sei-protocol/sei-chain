@@ -51,10 +51,8 @@ type registryState struct {
 // TODO(autobahn): replace genesis placeholders with epoch info on blocks.
 type Registry struct {
 	state utils.RWMutex[*registryState]
-	// highestEpoch is the max registered index (informational).
-	highestEpoch utils.AtomicSend[types.EpochIndex]
 	// epochGen bumps on every new registration; WaitForDuo waits on it so
-	// filling a gap below highest still wakes waiters.
+	// filling a gap still wakes waiters.
 	epochGen utils.AtomicSend[uint64]
 }
 
@@ -71,8 +69,7 @@ func NewRegistry(
 			m:      map[types.EpochIndex]*types.Epoch{0: ep},
 			latest: 0,
 		}),
-		highestEpoch: utils.NewAtomicSend(types.EpochIndex(0)),
-		epochGen:     utils.NewAtomicSend(uint64(0)),
+		epochGen: utils.NewAtomicSend(uint64(0)),
 	}, nil
 }
 
@@ -82,11 +79,11 @@ func NewRegistry(
 // commitQCs is the half-open retained CommitQC range [First, Next). Seeds every
 // epoch covering [First, Next), EnsureDuoAt(Next), then placeholder
 // windowLast+1/+2 (see below). None = empty store → EnsureDuoAt(FirstRoad(1))
-// so {0,1}. Empty range (First >= Next) panics.
-func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) {
+// so {0,1}. Empty range (First >= Next) returns an error.
+func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) error {
 	if span, ok := commitQCs.Get(); ok {
 		if span.First >= span.Next {
-			panic(fmt.Sprintf("SetupInitialDuo: empty CommitQC range [%d, %d)", span.First, span.Next))
+			return fmt.Errorf("SetupInitialDuo: empty CommitQC range [%d, %d)", span.First, span.Next)
 		}
 		windowFirst := IndexForRoad(span.First)
 		windowLast := IndexForRoad(span.Next - 1)
@@ -106,10 +103,11 @@ func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) {
 		// committees are linked to execution.
 		r.EnsureEpoch(windowLast + 1)
 		r.EnsureEpoch(windowLast + 2)
-		return
+		return nil
 	}
 
 	r.EnsureDuoAt(FirstRoad(1))
+	return nil
 }
 
 // FirstBlock returns the first global block number of the genesis epoch.
@@ -143,9 +141,6 @@ func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) *types
 	firstRoad := FirstRoad(epochIdx)
 	epoch := types.NewEpoch(epochIdx, types.RoadRange{First: firstRoad, Next: FirstRoad(epochIdx + 1)}, genesis.FirstTimestamp(), genesis.Committee(), genesis.FirstBlock())
 	s.m[epochIdx] = epoch
-	if epochIdx > r.highestEpoch.Load() {
-		r.highestEpoch.Store(epochIdx)
-	}
 	r.epochGen.Store(r.epochGen.Load() + 1)
 	return epoch
 }
@@ -210,9 +205,9 @@ func (r *Registry) DuoAt(roadIndex types.RoadIndex) (types.EpochDuo, error) {
 }
 
 // WaitForDuo blocks until DuoAt(roadIndex) succeeds.
-// Waits on epochGen (any registration), not only highestEpoch, so filling Prev
-// after Current is already present still unblocks. Must not hold the avail/data
-// inner lock (execution may seed via AdvanceIfNeeded).
+// Waits on epochGen (any registration), so filling Prev after Current is
+// already present still unblocks. Must not hold the avail/data inner lock
+// (execution may seed via AdvanceIfNeeded).
 func (r *Registry) WaitForDuo(ctx context.Context, roadIndex types.RoadIndex) (types.EpochDuo, error) {
 	sub := r.epochGen.Subscribe()
 	for {

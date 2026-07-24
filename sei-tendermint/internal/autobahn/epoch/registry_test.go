@@ -86,7 +86,9 @@ func TestEpochAt_FoundAfterAdvanceIfNeeded(t *testing.T) {
 
 func TestSetupInitialDuo_EmptyNoneSeedsGenesisNeighbor(t *testing.T) {
 	r, _ := makeRegistry(t)
-	r.SetupInitialDuo(utils.None[types.RoadRange]())
+	if err := r.SetupInitialDuo(utils.None[types.RoadRange]()); err != nil {
+		t.Fatal(err)
+	}
 	for _, idx := range []types.EpochIndex{0, 1} {
 		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
 			t.Fatalf("EpochAt(epoch %d) after empty seeding: %v", idx, err)
@@ -97,21 +99,21 @@ func TestSetupInitialDuo_EmptyNoneSeedsGenesisNeighbor(t *testing.T) {
 	}
 }
 
-func TestSetupInitialDuo_EmptyRangePanics(t *testing.T) {
+func TestSetupInitialDuo_EmptyRangeErrors(t *testing.T) {
 	r, _ := makeRegistry(t)
-	defer func() {
-		if recover() == nil {
-			t.Fatal("empty CommitQC range must panic")
-		}
-	}()
-	r.SetupInitialDuo(utils.Some(types.RoadRange{First: 5, Next: 5}))
+	err := r.SetupInitialDuo(utils.Some(types.RoadRange{First: 5, Next: 5}))
+	if err == nil {
+		t.Fatal("empty CommitQC range must error")
+	}
 }
 
 func TestSetupInitialDuo_CommitQCMidSeedsPlaceholderNext(t *testing.T) {
 	r, _ := makeRegistry(t)
 	// Mid-5 CommitQC + tipcut EnsureDuoAt → {4,5}; always through windowLast+2 → 6,7.
 	tip := midRoad(5)
-	r.SetupInitialDuo(utils.Some(types.RoadRange{First: tip, Next: tip + 1}))
+	if err := r.SetupInitialDuo(utils.Some(types.RoadRange{First: tip, Next: tip + 1})); err != nil {
+		t.Fatal(err)
+	}
 	for _, idx := range []types.EpochIndex{4, 5, 6, 7} {
 		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
 			t.Fatalf("EpochAt(epoch %d) after CommitQC seeding: %v", idx, err)
@@ -126,7 +128,9 @@ func TestSetupInitialDuo_CommitQCClosingSeedsNext(t *testing.T) {
 	r, _ := makeRegistry(t)
 	// Closing tip: EnsureDuoAt(FirstRoad(6)) → {5,6}; windowLast+2 → 7.
 	tip := LastRoad(5)
-	r.SetupInitialDuo(utils.Some(types.RoadRange{First: tip, Next: tip + 1}))
+	if err := r.SetupInitialDuo(utils.Some(types.RoadRange{First: tip, Next: tip + 1})); err != nil {
+		t.Fatal(err)
+	}
 	for _, idx := range []types.EpochIndex{5, 6, 7} {
 		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
 			t.Fatalf("EpochAt(epoch %d) after closing CommitQC: %v", idx, err)
@@ -143,10 +147,12 @@ func TestSetupInitialDuo_CommitQCClosingSeedsNext(t *testing.T) {
 func TestSetupInitialDuo_CommitSpanFromFirst(t *testing.T) {
 	r, _ := makeRegistry(t)
 	// Span mid-2..mid-5 → seed epochs 2..5, then placeholder through windowLast+2 → 7.
-	r.SetupInitialDuo(utils.Some(types.RoadRange{
+	if err := r.SetupInitialDuo(utils.Some(types.RoadRange{
 		First: midRoad(2),
 		Next:  midRoad(5) + 1,
-	}))
+	})); err != nil {
+		t.Fatal(err)
+	}
 	for _, idx := range []types.EpochIndex{2, 3, 4, 5, 6, 7} {
 		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
 			t.Fatalf("EpochAt(epoch %d) after commit span seeding: %v", idx, err)
@@ -177,7 +183,9 @@ func TestDuoAt_GenesisEpoch(t *testing.T) {
 func TestDuoAt_MiddleEpoch(t *testing.T) {
 	r, _ := makeRegistry(t)
 	tip := midRoad(2)
-	r.SetupInitialDuo(utils.Some(types.RoadRange{First: tip, Next: tip + 1}))
+	if err := r.SetupInitialDuo(utils.Some(types.RoadRange{First: tip, Next: tip + 1})); err != nil {
+		t.Fatal(err)
+	}
 	duo, err := r.DuoAt(FirstRoad(2))
 	if err != nil {
 		t.Fatalf("DuoAt(epoch 2) error: %v", err)
@@ -201,8 +209,7 @@ func TestDuoAt_ErrorWhenCurrentMissing(t *testing.T) {
 			m:      map[types.EpochIndex]*types.Epoch{0: ep},
 			latest: 0,
 		}),
-		highestEpoch: utils.NewAtomicSend(types.EpochIndex(0)),
-		epochGen:     utils.NewAtomicSend(uint64(0)),
+		epochGen: utils.NewAtomicSend(uint64(0)),
 	}
 	_, err := bare.DuoAt(FirstRoad(1))
 	if err == nil {
@@ -222,8 +229,7 @@ func TestDuoAt_ErrorWhenPrevMissing(t *testing.T) {
 			m:      map[types.EpochIndex]*types.Epoch{0: ep0, 2: ep2},
 			latest: 2,
 		}),
-		highestEpoch: utils.NewAtomicSend(types.EpochIndex(2)),
-		epochGen:     utils.NewAtomicSend(uint64(0)),
+		epochGen: utils.NewAtomicSend(uint64(0)),
 	}
 	_, err := bare.DuoAt(FirstRoad(2))
 	if err == nil {

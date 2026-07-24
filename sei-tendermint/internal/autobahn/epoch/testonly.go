@@ -55,7 +55,7 @@ func GenRegistryAt(rng utils.Rng, size int, startEpoch types.EpochIndex) (*Regis
 
 func makeRegistryAt(committee *types.Committee, firstBlock types.GlobalBlockNumber, startEpoch types.EpochIndex) *Registry {
 	registry := utils.OrPanic1(NewRegistry(committee, firstBlock, time.Now()))
-	registry.SetupInitialDuo(utils.None[types.RoadRange]())
+	utils.OrPanic(registry.SetupInitialDuo(utils.None[types.RoadRange]()))
 	// Ensure at least {0,1} so DuoAt(FirstRoad(1)) works in tests.
 	through := startEpoch
 	if through < 1 {

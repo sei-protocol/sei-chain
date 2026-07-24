@@ -374,7 +374,7 @@ func TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1(t *testing.T) {
 	}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
 	registry := utils.OrPanic1(epoch.NewRegistry(committee, 1, time.Time{}))
-	registry.SetupInitialDuo(utils.None[types.RoadRange]())
+	require.NoError(t, registry.SetupInitialDuo(utils.None[types.RoadRange]()))
 	registry.EnsureEpoch(1)
 	keys := sks
 	ep1 := utils.OrPanic1(registry.EpochAt(epoch.FirstRoad(1)))

@@ -200,7 +200,9 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan CommitQC span: %w", err)
 	}
-	cfg.Registry.SetupInitialDuo(commitQCs)
+	if err := cfg.Registry.SetupInitialDuo(commitQCs); err != nil {
+		return nil, fmt.Errorf("SetupInitialDuo: %w", err)
+	}
 
 	if err := s.loadFromBlockDB(blockDB); err != nil {
 		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
@@ -237,6 +239,9 @@ func commitQCSpan(blockDB types.BlockDB) (utils.Option[types.RoadRange], error) 
 	}
 	if !ok {
 		return utils.None[types.RoadRange](), fmt.Errorf("CommitQC span: first present but last missing")
+	}
+	if last < first {
+		return utils.None[types.RoadRange](), fmt.Errorf("CommitQC span: last road %d < first %d", last, first)
 	}
 	return utils.Some(types.RoadRange{First: first, Next: last + 1}), nil
 }

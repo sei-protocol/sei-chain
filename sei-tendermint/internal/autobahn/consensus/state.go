@@ -190,7 +190,8 @@ func (s *State) PushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
 	// Contract: accept only Current-epoch votes (innerRecv). Others drop without
 	// error (avoid wrong-committee verify / peer teardown). No redelivery —
-	// lagging peers recover via view timeout.
+	// around an epoch boundary peers may disagree for a window; recovery is via
+	// view timeout (typically one timeout round per transition).
 	i := s.innerRecv.Load()
 	if voteEp := vote.Msg().Proposal().View().EpochIndex; voteEp != i.epochs.Current.EpochIndex() {
 		logger.Debug("dropping prepare vote for non-current epoch",

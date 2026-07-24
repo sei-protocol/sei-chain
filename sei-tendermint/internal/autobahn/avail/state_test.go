@@ -1536,7 +1536,7 @@ func TestRestartDuoFromClosingCommitQCSeedsNPlus1(t *testing.T) {
 	registry, _ := epoch.GenRegistryAt(rng, 3, 0) // {0,1}
 	tip2 := epoch.FirstRoad(2)
 	tip1 := epoch.LastRoad(1)
-	registry.SetupInitialDuo(utils.Some(types.RoadRange{First: tip1, Next: tip1 + 1}))
+	require.NoError(t, registry.SetupInitialDuo(utils.Some(types.RoadRange{First: tip1, Next: tip1 + 1})))
 	tipDuo2, err := registry.DuoAt(tip2)
 	require.NoError(t, err)
 	require.Equal(t, types.EpochIndex(2), tipDuo2.Current.EpochIndex())

@@ -612,7 +612,9 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	if p.Key() != h.Lane() {
 		return fmt.Errorf("signer %v does not match lane %v", p.Key(), h.Lane())
 	}
-	// Snapshot once so verify cannot race a boundary advanceEpoch (same as PushVote).
+	// Snapshot Current once for off-lock verify. Unlike PushVote, we do not
+	// re-check membership after WaitUntil — lane proposals are not reweighted
+	// across epoch advances (genesis committees are stable today).
 	duo := s.epochDuo.Load()
 	c := duo.Current.Committee()
 	if err := p.Msg().Verify(c); err != nil {
