@@ -28,7 +28,8 @@ The `evmonly` package currently provides:
 - go-ethereum `core.ApplyMessage` execution against an SDK-free `vm.StateDB`
 - key-addressable state reads for balance, nonce, code, and storage
 - deterministic post-block `StateChangeSet` construction
-- optional executor-internal OCC for non-conflicting transaction sets
+- optional executor-internal Block-STM-style execution for optimistic parallel
+  transaction execution with granular validation and reruns
 - Ethereum receipt construction with logs, bloom, gas, tx hash, block metadata,
   contract address, and effective gas price
 - a map-backed `MemoryState` for tests and early integration
@@ -146,10 +147,40 @@ Until that design is implemented, the `evmonly` executor accepts a custom
 precompile registry only as a fail-closed placeholder. Calls to registered
 custom precompile addresses return `ErrCustomPrecompilesOpen`.
 
+## Block-STM execution
+
+When `OCCWorkers > 1`, there is more than one transaction, and custom precompiles
+are not enabled, the executor attempts optimistic parallel execution. Each
+transaction first runs speculatively against the same base state while the native
+state DB records balance, nonce, code, account, and `(address, slot)` storage
+reads and writes. The executor then validates transactions in block order against
+the already-accepted prefix:
+
+- transactions with no dependency on prior writes are accepted from the initial
+  speculative pass
+- transactions whose reads, writes, gas-pool availability, or initial validation
+  errors depend on earlier transactions are rerun individually against an
+  EVM-native overlay containing the accepted prefix
+- rerun outputs replace only that transaction's speculative output
+- the final changeset is generated from the accepted prefix state, not by
+  blindly merging mixed-base speculative writes
+
+This is intentionally conservative. A conflict can cause extra reruns, but it
+should not cause a whole-block sequential fallback. Coinbase fee credits are
+tracked as commutative balance deltas, so independent fee-paying transactions do
+not conflict only because they reward the same coinbase. If a later transaction
+reads or writes that balance, it is rerun against the updated prefix.
+
+`OCCStats` reports whether optimistic execution was attempted, how many reruns
+were needed, and aggregated conflict samples. `Fallback` is reserved for cases
+where the executor gives up on the optimistic path; ordinary conflicts should be
+resolved by per-transaction reruns instead.
+
 ## Current limitations
 
-- OCC is optional and conservative; conflicting or unsupported blocks fall back
-  to sequential execution.
+- Block-STM execution is optional and conservative; conflicts are resolved by
+  granular reruns, but the validator may rerun more transactions than a less
+  conservative implementation would.
 - State input is key-addressable only. The executor lazily reads storage slots
   by `(address, slot)` and does not require or expose range iteration.
 - The map-backed `MemoryState` is for tests and early integration; production

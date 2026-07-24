@@ -95,12 +95,13 @@ type OCCStats struct {
 	Attempted       bool
 	Fallback        bool
 	FallbackReason  string
+	RerunCount      uint64
 	ConflictCount   uint64
 	ConflictSamples []OCCConflictCount
 }
 
-// OCCConflictCount aggregates conflicts by the access key that forced OCC to
-// fall back to sequential execution.
+// OCCConflictCount aggregates conflicts observed while validating optimistic
+// execution.
 type OCCConflictCount struct {
 	Access  string
 	Kind    string
