@@ -641,11 +641,13 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 func assembleGlobalBlock(n types.GlobalBlockNumber, b *types.Block, fqc *types.FullCommitQC) *types.GlobalBlock {
 	qc := fqc.QC()
 	return &types.GlobalBlock{
-		GlobalNumber:  n,
-		Timestamp:     qc.Proposal().BlockTimestamp(n).OrPanic("global block not in QC"),
-		Header:        b.Header(),
-		Payload:       b.Payload(),
-		FinalAppState: qc.Proposal().App(),
+		GlobalNumber:   n,
+		Timestamp:      qc.Proposal().BlockTimestamp(n).OrPanic("global block not in QC"),
+		Header:         b.Header(),
+		Payload:        b.Payload(),
+		FinalAppState:  qc.Proposal().App(),
+		RoadIndex:      qc.Proposal().Index(),
+		LastInCommitQC: qc.GlobalRange().IsLastBlock(n),
 	}
 }
 

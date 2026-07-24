@@ -147,11 +147,13 @@ func TestState(t *testing.T) {
 			}
 
 			wantG := &types.GlobalBlock{
-				GlobalNumber:  n,
-				Timestamp:     want.QCs[n].QC().Proposal().BlockTimestamp(n).OrPanic("global block not in QC"),
-				Header:        wantB.Header(),
-				Payload:       wantB.Payload(),
-				FinalAppState: want.QCs[n].QC().Proposal().App(),
+				GlobalNumber:   n,
+				Timestamp:      want.QCs[n].QC().Proposal().BlockTimestamp(n).OrPanic("global block not in QC"),
+				Header:         wantB.Header(),
+				Payload:        wantB.Payload(),
+				FinalAppState:  want.QCs[n].QC().Proposal().App(),
+				RoadIndex:      want.QCs[n].QC().Proposal().Index(),
+				LastInCommitQC: want.QCs[n].QC().GlobalRange().IsLastBlock(n),
 			}
 			gotG, err := state.GlobalBlock(ctx, n)
 			if err != nil {

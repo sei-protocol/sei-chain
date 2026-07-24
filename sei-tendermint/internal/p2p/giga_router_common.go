@@ -281,15 +281,11 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	// Seed N+2 when the last global of an epoch's closing road is executed.
-	// AdvanceIfNeeded owns LastRoad(epoch). Empty tipcuts are rejected by
-	// Proposal.Verify, so every closing road has a last global.
+	// Road/last flags come from GlobalBlock (assembled with the covering QC)
+	// so we do not re-fetch QC after PushAppHash may have evicted it from RAM.
 	// TODO: real N+2 committee once execution derives it.
-	qc, err := r.data.QC(ctx, b.GlobalNumber)
-	if err != nil {
-		return nil, fmt.Errorf("r.data.QC(%v): %w", b.GlobalNumber, err)
-	}
-	if qc.QC().GlobalRange().IsLastBlock(b.GlobalNumber) {
-		r.data.Registry().AdvanceIfNeeded(qc.QC().Proposal().Index())
+	if b.LastInCommitQC {
+		r.data.Registry().AdvanceIfNeeded(b.RoadIndex)
 	}
 	return commitResp, nil
 }

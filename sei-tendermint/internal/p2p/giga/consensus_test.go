@@ -60,6 +60,8 @@ func TestConsensusClientServer(t *testing.T) {
 					return fmt.Errorf("ds.QC(): %w", err)
 				}
 				want.Timestamp = qc.QC().Proposal().BlockTimestamp(idx).OrPanic("global block not in QC")
+				want.RoadIndex = qc.QC().Proposal().Index()
+				want.LastInCommitQC = qc.QC().GlobalRange().IsLastBlock(idx)
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}

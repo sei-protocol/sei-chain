@@ -119,6 +119,10 @@ type GlobalBlock struct {
 	Payload      *Payload
 	// Highest known finalized state.
 	FinalAppState utils.Option[*AppProposal]
+	// Covering CommitQC road (from assembleGlobalBlock).
+	RoadIndex RoadIndex
+	// True when GlobalNumber is last in that QC's GlobalRange.
+	LastInCommitQC bool
 }
 
 // NewBlock creates a new Block.
