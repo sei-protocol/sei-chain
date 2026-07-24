@@ -18,13 +18,6 @@ const blocksCacheSize = 4000
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
 	Registry *epoch.Registry
-	// LastExecutedBlock is the last app-committed global height
-	// (app.LastBlockHeight). Used only to map → CommitQC road for
-	// SetupInitialDuo. 0 means fresh / unknown.
-	//
-	// TODO(autobahn): This is read from the Cosmos app state DB today. Autobahn
-	// should not depend on the app DB — move executed height into Giga storage.
-	LastExecutedBlock types.GlobalBlockNumber
 }
 
 // StateAPI is the interface of the State for consuming global blocks
@@ -200,16 +193,11 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 		blockDB: blockDB,
 	}
 	// Seed epochs before replay (data owns SetupInitialDuo).
-	// TODO(autobahn): persist execution tip in Giga storage (stop using app DB).
 	commitQCs, err := commitQCSpan(blockDB)
 	if err != nil {
 		return nil, fmt.Errorf("scan CommitQC span: %w", err)
 	}
-	nextRoad, err := s.nextRoadToExecute(blockDB)
-	if err != nil {
-		return nil, fmt.Errorf("resolve next road to execute: %w", err)
-	}
-	cfg.Registry.SetupInitialDuo(nextRoad, commitQCs)
+	cfg.Registry.SetupInitialDuo(commitQCs)
 
 	if err := s.loadFromBlockDB(blockDB); err != nil {
 		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
@@ -267,32 +255,6 @@ func boundaryQCRoad(blockDB types.BlockDB, reverse bool) (types.RoadIndex, bool,
 		return 0, false, err
 	}
 	return qc.QC().Proposal().Index(), true, nil
-}
-
-// nextRoadToExecute is the half-open execution tipcut. Covering QC road R:
-// mid-range → R; IsLastBlock → R+1. LastExecutedBlock 0 → None. Positive height
-// with missing/pruned covering QC → error.
-func (s *State) nextRoadToExecute(blockDB types.BlockDB) (utils.Option[types.RoadIndex], error) {
-	n := s.cfg.LastExecutedBlock
-	if n == 0 {
-		return utils.None[types.RoadIndex](), nil
-	}
-	opt, err := blockDB.ReadQCByBlockNumber(n)
-	if err != nil {
-		if errors.Is(err, types.ErrPruned) || errors.Is(err, types.ErrNotFound) {
-			return utils.None[types.RoadIndex](), fmt.Errorf("covering QC for executed block %d missing or pruned", n)
-		}
-		return utils.None[types.RoadIndex](), fmt.Errorf("read QC for executed block %d: %w", n, err)
-	}
-	qc, ok := opt.Get()
-	if !ok {
-		return utils.None[types.RoadIndex](), fmt.Errorf("covering QC for executed block %d missing or pruned", n)
-	}
-	road := qc.QC().Proposal().Index()
-	if qc.QC().GlobalRange().IsLastBlock(n) {
-		return utils.Some(road + 1), nil
-	}
-	return utils.Some(road), nil
 }
 
 // loadFromBlockDB replays QCs and blocks from blockDB into s.inner.

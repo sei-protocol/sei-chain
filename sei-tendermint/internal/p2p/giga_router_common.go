@@ -100,17 +100,8 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
-	// TODO(autobahn): Reading execution tip from app.LastBlockHeight() (Cosmos
-	// app state DB). Move this into Giga storage; stop depending on the app DB.
-	var lastExecuted atypes.GlobalBlockNumber
-	if cfg.App != nil {
-		if h := cfg.App.LastBlockHeight(); h > 0 {
-			lastExecuted = atypes.GlobalBlockNumber(h) //nolint:gosec // height is non-negative
-		}
-	}
 	ds, err := data.NewState(&data.Config{
-		Registry:          registry,
-		LastExecutedBlock: lastExecuted,
+		Registry: registry,
 	}, blockDB)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
@@ -280,7 +271,6 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	// Seed N+2 when the last global of an epoch's closing road is executed.
-	// IsLastBlock matches data.nextRoadToExecute advancing to road+1;
 	// AdvanceIfNeeded owns LastRoad(epoch). Empty tipcuts are rejected by
 	// Proposal.Verify, so every closing road has a last global.
 	// TODO: real N+2 committee once execution derives it.

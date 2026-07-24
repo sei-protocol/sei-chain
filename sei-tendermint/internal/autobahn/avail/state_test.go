@@ -25,14 +25,15 @@ var (
 	noCommitQCCB = utils.None[func(*types.CommitQC)]()
 )
 
-// registerDuoAtEpoch seeds the registry (CommitQC tip in epoch n → {n-1, n}
-// via tipcut EnsureDuoAt) and installs Prev=n-1|Current=n as the state's
-// operating window.
+// registerDuoAtEpoch installs Prev=n-1|Current=n as the state's operating
+// window. Seeds those registry epochs only (no restart N+1 lookahead).
 func registerDuoAtEpoch(s *State, n types.EpochIndex) {
 	r := s.data.Registry()
-	tip := epoch.FirstRoad(n)
-	r.SetupInitialDuo(utils.None[types.RoadIndex](), utils.Some(types.RoadRange{First: tip, Next: tip + 1}))
-	duo := utils.OrPanic1(r.DuoAt(tip))
+	if n > 0 {
+		r.EnsureEpoch(n - 1)
+	}
+	r.EnsureEpoch(n)
+	duo := utils.OrPanic1(r.DuoAt(epoch.FirstRoad(n)))
 	for inner := range s.inner.Lock() {
 		inner.epochDuo.Store(duo)
 	}
@@ -1483,9 +1484,7 @@ func TestPushAppQCPreviousEpoch(t *testing.T) {
 }
 
 // TestRestartDuoFromCommitTipNeedsSetup: DuoAt at FirstRoad(2) needs epoch 2.
-// CommitQC alone in epoch 1 is not enough without an execution tipcut that
-// advances past N-1; lead tips do not soft-seed. Also checks newInner still
-// requires a prune anchor when Current > 0 (after SetupInitialDuo with execution).
+// GenRegistryAt(…,0) only has {0,1}; lead tips do not soft-seed.
 func TestRestartDuoFromCommitTipNeedsSetup(t *testing.T) {
 	rng := utils.TestRng()
 	registry, _ := epoch.GenRegistryAt(rng, 3, 0) // {0,1}
@@ -1494,15 +1493,15 @@ func TestRestartDuoFromCommitTipNeedsSetup(t *testing.T) {
 	require.Error(t, err, "DuoAt(epoch-2 tip) must fail without epoch 2")
 }
 
-// TestRestartDuoFromCommitTipNeedsSetup_ExecutionPath: closing CommitQC in
-// epoch 1 plus execution tip still use SetupInitialDuo (data anchor).
-func TestRestartDuoFromCommitTipNeedsSetup_ExecutionPath(t *testing.T) {
+// TestRestartDuoFromClosingCommitQCSeedsNPlus1: closing CommitQC in epoch 1
+// seeds DuoAt(FirstRoad(2)) via SetupInitialDuo; newInner still needs a prune
+// anchor when Current > 0.
+func TestRestartDuoFromClosingCommitQCSeedsNPlus1(t *testing.T) {
 	rng := utils.TestRng()
 	registry, _ := epoch.GenRegistryAt(rng, 3, 0) // {0,1}
 	tip2 := epoch.FirstRoad(2)
 	tip1 := epoch.LastRoad(1)
-	// Fully executed LastRoad(1) → execution tipcut FirstRoad(2).
-	registry.SetupInitialDuo(utils.Some(tip1+1), utils.Some(types.RoadRange{First: tip1, Next: tip1 + 1}))
+	registry.SetupInitialDuo(utils.Some(types.RoadRange{First: tip1, Next: tip1 + 1}))
 	tipDuo2, err := registry.DuoAt(tip2)
 	require.NoError(t, err)
 	require.Equal(t, types.EpochIndex(2), tipDuo2.Current.EpochIndex())
