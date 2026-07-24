@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { rawSei } from './chainUtils';
+import { rawSei, waitUntil } from './chainUtils';
+import type { RuntimeState } from './testUtils';
 
 /**
  * Canonical addresses of Sei's custom precompiles, mirroring the constants in
@@ -22,6 +23,7 @@ export const PRECOMPILE_ADDRESSES = {
     pointerview: '0x000000000000000000000000000000000000100A',
     pointer: '0x000000000000000000000000000000000000100b',
     solo: '0x000000000000000000000000000000000000100C',
+    p256: '0x0000000000000000000000000000000000001011',
 } as const;
 
 export type PrecompileName = keyof typeof PRECOMPILE_ADDRESSES;
@@ -78,6 +80,61 @@ export async function expectExecutionReverted(
         return message;
     }
     throw new Error(`${label}: expected the call to revert but it succeeded`);
+}
+
+/** ABI of the PrecompileCaller fixture (contracts/PrecompileCaller.sol). */
+export const PRECOMPILE_CALLER_ABI = [
+    'function callTarget(address target, bytes data) payable returns (bytes)',
+    'function staticcallTarget(address target, bytes data) view returns (bytes)',
+    'function delegatecallTarget(address target, bytes data) returns (bytes)',
+] as const;
+
+/** The deployed PrecompileCaller fixture, bound to `runner`. */
+export function callerContract(
+    runtime: RuntimeState,
+    runner: ethers.ContractRunner,
+): ethers.Contract {
+    return new ethers.Contract(
+        runtime.contracts.precompileCaller,
+        PRECOMPILE_CALLER_ABI as unknown as string[],
+        runner,
+    );
+}
+
+/**
+ * The precompile's Go error for a mined, failed tx via Sei's eth_getVMError
+ * (format "execution reverted|<go error>"). This is the ONLY channel that
+ * carries exact precompile error strings: eth_call rewrites every executor
+ * error to a bare "execution reverted" with no reason data (except the oracle
+ * retirement error, which ships real revert data). Polls briefly — the
+ * persisted receipt can lag tx.wait() by a beat on the 4-node devnet.
+ */
+export async function getVmError(txHash: string): Promise<string> {
+    return waitUntil(
+        async () => {
+            const env = await rawSei<string>('eth_getVMError', [txHash]);
+            return env.result && env.result.length > 0 ? env.result : null;
+        },
+        { timeoutMs: 15_000, label: `eth_getVMError(${txHash})` },
+    );
+}
+
+/**
+ * Assert an already-broadcast tx (send with an explicit gasLimit — estimateGas
+ * on a failing call throws client-side) mines with status 0 and that its
+ * VmError carries `substring` — the exact Go error from the precompile.
+ */
+export async function expectVmError(
+    txPromise: Promise<ethers.TransactionResponse>,
+    substring: string,
+): Promise<void> {
+    const tx = await txPromise;
+    const receipt = await tx.wait().catch((e: any) => e.receipt);
+    expect(receipt, 'the failing tx must still be mined').to.not.equal(undefined);
+    expect(receipt.status, 'tx must fail').to.equal(0);
+    const vmError = await getVmError(receipt.hash);
+    expect(vmError).to.include('execution reverted');
+    expect(vmError, 'precompile error must surface in VmError').to.include(substring);
 }
 
 interface CallTrace {

@@ -47,19 +47,16 @@ type gigaRouterCommon struct {
 	// by one or two under contention but never over-accepts.
 	inboundFullnodeCount atomic.Int64
 	inboundFullnodeCap   int64
-
-	// hashVault is the app-hash equivocation guard. runExecute owns its lifecycle: it builds the
-	// vault on entry (durable under PersistentStateDir, or a no-op when disabled / in-memory) and
-	// closes it on exit.
-	hashVault hashvault.HashVault
 }
 
-// buildDataState validates the common config and constructs the data
-// layer (committee, WAL, State) shared by both giga constructors.
+// BuildDataState validates the common config, constructs the committee, and
+// returns an initialised data.State backed by blockDB.
 //
-// TODO(autobahn): once sei-db/ledger_db/block.BlockDB has a writer wired
-// (see BlockByNumber's TODO), the data WAL is redundant.
-func buildDataState(cfg *GigaRouterCommonConfig) (*data.State, error) {
+// The caller owns blockDB: close it after giga.Run returns, or immediately if
+// construction of the GigaRouter fails. data.State never closes it. nodeImpl
+// opens BlockDB in setup and closes after Run via SpawnCritical; tests that call
+// BuildDataState directly must open and Close blockDB themselves.
+func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
@@ -82,15 +79,11 @@ func buildDataState(cfg *GigaRouterCommonConfig) (*data.State, error) {
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
-	dataWAL, err := data.NewDataWAL(cfg.PersistentStateDir, registry.FirstBlock())
+	ds, err := data.NewState(&data.Config{Registry: registry}, blockDB)
 	if err != nil {
-		return nil, fmt.Errorf("data.NewDataWAL(): %w", err)
+		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
-	dataState, err := data.NewState(&data.Config{Registry: registry}, dataWAL)
-	if err != nil {
-		return nil, fmt.Errorf("data.NewState(): %w", err)
-	}
-	return dataState, nil
+	return ds, nil
 }
 
 func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
@@ -118,23 +111,15 @@ func (r *gigaRouterCommon) MaxGasEstimatedPerBlock() uint64 {
 // evmrpc does not read them on the receipt path. If gb.Header is nil
 // BlockID.Hash also stays empty; if gb.Payload is nil Block.Data.Txs
 // stays empty (see the malformed-block handling below).
-//
-// TODO(autobahn): switch this to read from sei-db/ledger_db/block.BlockDB
-// once a writer is wired (e.g. from app.FinalizeBlocker or executeBlock).
-// Today no production code calls BlockDB.WriteBlock, so Autobahn's in-memory
-// data.State is the only place a full block lives — but it's pruned per
-// Sei's RetainHeight and exposes only a height index (no GetBlockByHash).
-// BlockDB has the right shape (height + hash indexes, async pruning) and
-// is the long-term home for this read path.
 func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error) {
 	gb, err := r.data.GlobalBlock(ctx, n)
 	if err != nil {
 		// Map Autobahn's pruning sentinel to CometBFT's, so callers
 		// (env.Block, evmrpc, ops tooling) get the same error type they
 		// already handle on the CometBFT path. base is None because the
-		// active lower bound (data.State.inner.first) is internal to
-		// data.State; both call sites format through the same helper.
-		if errors.Is(err, data.ErrPruned) {
+		// active lower bound lives in BlockDB's prune watermark (internal
+		// to the store); both call sites format through the same helper.
+		if errors.Is(err, atypes.ErrPruned) {
 			return nil, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
 		}
 		return nil, fmt.Errorf("data.GlobalBlock(%v): %w", n, err)
@@ -147,15 +132,11 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlo
 // (same translation as BlockByNumber). Matches CometBFT semantics for
 // unknown hashes: returns &ResultBlock{Block: nil} with no error.
 //
-// Lookup-and-construct happens under a single data.State lock acquire, so
-// the returned block matches the requested hash atomically. Hashes below
-// the pruning watermark are not indexed and read as "unknown". Wrong-size
-// inputs are rejected at the call site (env.BlockByHash) so this method
-// can stay strongly typed on atypes.BlockHeaderHash.
-//
-// TODO(autobahn): replace this with a direct read from
-// sei-db/ledger_db/block.BlockDB.GetBlockByHash once a writer is wired into
-// block execution. The data.State-side index can also go away at that point.
+// The lookup delegates to data.State.GlobalBlockByHash: an in-memory hash
+// index first, then BlockDB for heights evicted after persist. Hashes not yet
+// seen or below the prune watermark are read as "unknown". Wrong-size inputs
+// are rejected at the call site (env.BlockByHash) so this method can stay
+// strongly typed on atypes.BlockHeaderHash.
 func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error) {
 	opt, err := r.data.GlobalBlockByHash(hash)
 	if err != nil {
@@ -213,7 +194,7 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 	}
 }
 
-func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
+func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
 	app := r.app
 	hash := b.Header.Hash()
 	var proposerAddress types.Address
@@ -255,7 +236,7 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	// before the hash is proposed for AppQC voting via PushAppHash below). On restart the block is
 	// re-executed and the identical hash is re-committed idempotently. A returned error is a benign
 	// shutdown cancellation; genuine faults panic inside the call. See commitAppHashToVault.
-	if err := commitAppHashToVault(ctx, r.hashVault, b.GlobalNumber, resp.AppHash); err != nil {
+	if err := commitAppHashToVault(ctx, hashVault, b.GlobalNumber, resp.AppHash); err != nil {
 		return nil, err
 	}
 
@@ -271,10 +252,8 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 
 // buildHashVault constructs the app-hash equivocation guard runExecute owns. By default it
 // returns a durable Pebble-backed vault rooted at <PersistentStateDir>/hashvault, alongside the
-// other Autobahn on-disk state. It returns a no-op vault (no protection) in two cases: the operator
-// explicitly set HashVaultDisabledUnsafe — logged loudly as unsafe — or there is no persistent
-// state directory (in-memory mode, e.g. tests), where a durable vault would be pointless because
-// the data WAL is itself a no-op (see data.NewDataWAL).
+// other Autobahn on-disk state. It returns a no-op vault (no protection) when PersistentStateDir
+// is unset or when the operator explicitly sets HashVaultDisabledUnsafe — both logged loudly.
 func buildHashVault(ctx context.Context, cfg *GigaRouterCommonConfig) (hashvault.HashVault, error) {
 	if cfg.HashVaultDisabledUnsafe {
 		logger.Error("################################################################")
@@ -287,9 +266,12 @@ func buildHashVault(ctx context.Context, cfg *GigaRouterCommonConfig) (hashvault
 	}
 	dir, ok := cfg.PersistentStateDir.Get()
 	if !ok {
-		logger.Error("HASHVAULT DISABLED: no persistent state dir (in-memory mode); using no-op vault. " +
-			"This node has NO app-hash equivocation protection. This is expected only for in-memory " +
-			"runs such as tests; a production node reaching this path is misconfigured.")
+		logger.Error("################################################################")
+		logger.Error("# HASHVAULT DISABLED (PersistentStateDir not set).             #")
+		logger.Error("# This node has NO app-hash equivocation protection and is     #")
+		logger.Error("# running in an UNSAFE configuration. Set persistent_state_dir #")
+		logger.Error("# in the node config to enable protection.                     #")
+		logger.Error("################################################################")
 		return hashvault.NewNoopHashVault(), nil
 	}
 	hvCfg := hashvault.DefaultHashVaultConfig()
@@ -341,7 +323,6 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("buildHashVault(): %w", err)
 	}
-	r.hashVault = hashVault
 	defer func() {
 		if err := hashVault.Close(context.Background()); err != nil {
 			logger.Error("failed to close hashvault", "err", err)
@@ -391,7 +372,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		// first executed; if the committed app state has diverged from what the vault recorded (e.g. an
 		// out-of-band rollback/restore), this halts the node instead of externalizing a conflicting
 		// hash. A returned error is a benign shutdown cancellation; genuine faults panic inside.
-		if err := commitAppHashToVault(ctx, r.hashVault, last, info.LastBlockAppHash); err != nil {
+		if err := commitAppHashToVault(ctx, hashVault, last, info.LastBlockAppHash); err != nil {
 			return err
 		}
 		// Losing a prefix of appHashes on crash is fine: AppQC is reached
@@ -406,7 +387,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 		}
-		commitResp, err := r.executeBlock(ctx, b)
+		commitResp, err := r.executeBlock(ctx, b, hashVault)
 		if err != nil {
 			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
 		}
@@ -418,7 +399,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
 		}
 		// Align the vault's retention with the data layer's prune boundary.
-		if err := r.hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
+		if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
 			// A canceled context just means we're shutting down between a successful executeBlock
 			// and this prune; that's benign, not a prune failure, so don't alarm operators.
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

@@ -53,7 +53,7 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 	pool := setupDB(t)
 
 	store := dbm.NewMemDB()
-	eventSinks := []indexer.EventSink{kv.NewEventSink(store), pSink}
+	eventSinks := []indexer.EventSink{kv.NewEventSink(store, nil), pSink}
 	assert.True(t, indexer.KVSinkEnabled(eventSinks))
 	assert.True(t, indexer.IndexingEnabled(eventSinks))
 

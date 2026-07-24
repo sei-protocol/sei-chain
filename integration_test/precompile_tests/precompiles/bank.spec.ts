@@ -16,6 +16,7 @@ import {
     PRECOMPILE_ADDRESSES,
     precompileContract,
     precompileInterface,
+    callerContract,
     expectExecutionReverted,
     expectTraceRevertedNotPanicked,
 } from '../utils/precompileUtils';
@@ -37,15 +38,7 @@ describe('bank precompile (0x1001)', function () {
         runtime = readRuntimeState();
         admin = EvmAccount.fromMnemonic(runtime.funded.adminMnemonic, provider);
         bank = precompileContract('bank', admin.wallet);
-        caller = new ethers.Contract(
-            runtime.contracts.precompileCaller,
-            [
-                'function callTarget(address target, bytes data) payable returns (bytes)',
-                'function staticcallTarget(address target, bytes data) view returns (bytes)',
-                'function delegatecallTarget(address target, bytes data) returns (bytes)',
-            ],
-            admin.wallet,
-        );
+        caller = callerContract(runtime, admin.wallet);
     });
 
     describe('happy path & state parity', () => {

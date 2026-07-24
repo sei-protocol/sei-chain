@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -65,17 +67,29 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			proxyApp := proxy.New(app)
 			// In giga mode the CometBFT handshaker is skipped; the router's
 			// runExecute calls InitChain itself on fresh start.
+			dir := t.TempDir()
+			// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
+			// (zero overrides); p2p can't import config (import cycle).
+			littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+			require.NoError(t, err, "littblock.DefaultConfig[%v]", i)
+			littCfg.Litt.Fsync = true
+			blockDB, err := littblock.NewBlockDB(littCfg)
+			require.NoError(t, err, "littblock.NewBlockDB[%v]", i)
+			t.Cleanup(func() { _ = blockDB.Close() })
+			commonCfg := GigaRouterCommonConfig{
+				// Aggressive dialing rate to speed up startup.
+				DialInterval:       100 * time.Millisecond,
+				ValidatorAddrs:     addrs,
+				PersistentStateDir: utils.Some(dir),
+				App:                proxyApp,
+				GenDoc:             genDoc,
+			}
+			dataState, err := BuildDataState(&commonCfg, blockDB)
+			require.NoError(t, err, "BuildDataState[%v]", i)
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
-				GigaRouterCommonConfig: GigaRouterCommonConfig{
-					// Aggressive dialing rate to speed up startup.
-					DialInterval:       100 * time.Millisecond,
-					ValidatorAddrs:     addrs,
-					PersistentStateDir: utils.None[string](),
-					App:                proxyApp,
-					GenDoc:             genDoc,
-				},
-				ValidatorKey: cfg.validatorKey,
-				ViewTimeout:  func(atypes.View) time.Duration { return time.Hour },
+				GigaRouterCommonConfig: commonCfg,
+				ValidatorKey:           cfg.validatorKey,
+				ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
 				Producer: &producer.Config{
 					MaxGasWantedPerBlock:    txGasUsed * maxTxsPerBlock,
 					MaxGasEstimatedPerBlock: txGasUsed * maxTxsPerBlock,
@@ -84,7 +98,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					BlockInterval:           100 * time.Millisecond,
 					AllowEmptyBlocks:        false,
 				},
-			}, cfg.nodeKey)
+			}, cfg.nodeKey, dataState)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
 			router, err := NewRouter(
 				cfg.nodeKey,
@@ -222,16 +236,29 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
+	dir := t.TempDir()
+	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
+	// (zero overrides); p2p can't import config (import cycle).
+	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+	require.NoError(t, err)
+	littCfg.Litt.Fsync = true
+	blockDB, err := littblock.NewBlockDB(littCfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blockDB.Close() })
+	commonCfg := GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     addrs,
+		PersistentStateDir: utils.Some(dir),
+		App:                proxy.New(newTestApp()),
+		GenDoc:             genDoc,
+	}
+	dataState, err := BuildDataState(&commonCfg, blockDB)
+	require.NoError(t, err)
+
 	router, err := NewGigaValidatorRouter(&GigaValidatorConfig{
-		GigaRouterCommonConfig: GigaRouterCommonConfig{
-			DialInterval:       time.Second,
-			ValidatorAddrs:     addrs,
-			PersistentStateDir: utils.None[string](),
-			App:                proxy.New(newTestApp()),
-			GenDoc:             genDoc,
-		},
-		ValidatorKey: validatorKeys[0],
-		ViewTimeout:  func(atypes.View) time.Duration { return time.Second },
+		GigaRouterCommonConfig: commonCfg,
+		ValidatorKey:           validatorKeys[0],
+		ViewTimeout:            func(atypes.View) time.Duration { return time.Second },
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    1,
 			MaxGasEstimatedPerBlock: 1,
@@ -239,7 +266,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
 		},
-	}, nodeKeys[0])
+	}, nodeKeys[0], dataState)
 	require.NoError(t, err)
 
 	localValidator := validatorKeys[0].Public()

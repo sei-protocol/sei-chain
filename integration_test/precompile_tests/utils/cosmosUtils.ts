@@ -3,9 +3,16 @@ import { ethers } from 'ethers';
 import {
     QueryClient,
     setupBankExtension,
+    setupStakingExtension,
+    setupGovExtension,
+    setupDistributionExtension,
     BankExtension,
+    StakingExtension,
+    GovExtension,
+    DistributionExtension,
     SigningStargateClient,
     defaultRegistryTypes,
+    assertIsDeliverTxSuccess,
 } from '@cosmjs/stargate';
 import { Tendermint34Client } from '@cosmjs/tendermint-rpc';
 import { DirectSecp256k1HdWallet, Registry } from '@cosmjs/proto-signing';
@@ -29,16 +36,42 @@ function seiWalletFromMnemonic(mnemonic: string): Promise<DirectSecp256k1HdWalle
     });
 }
 
-let clientPromise: Promise<QueryClient & BankExtension> | undefined;
+export type CosmosQueryClient = QueryClient &
+    BankExtension &
+    StakingExtension &
+    GovExtension &
+    DistributionExtension;
 
-async function bankClient(): Promise<QueryClient & BankExtension> {
+let clientPromise: Promise<CosmosQueryClient> | undefined;
+
+/**
+ * The suite's Cosmos-side parity oracle: one shared query client over the
+ * chain's own modules (bank, staking, gov, distribution). Precompile-reported
+ * values and EVM-side effects are asserted against these reads.
+ */
+export async function cosmosQuery(): Promise<CosmosQueryClient> {
     if (!clientPromise) {
         clientPromise = (async () => {
             const tm = await Tendermint34Client.connect(Endpoints.sei.cosmosRpc);
-            return QueryClient.withExtensions(tm, setupBankExtension);
+            return QueryClient.withExtensions(
+                tm,
+                setupBankExtension,
+                setupStakingExtension,
+                setupGovExtension,
+                setupDistributionExtension,
+            );
         })();
     }
     return clientPromise;
+}
+
+const bankClient = cosmosQuery;
+
+/** Operator addresses (seivaloper1…) of the currently bonded validators. */
+export async function bondedValidators(): Promise<string[]> {
+    const qc = await cosmosQuery();
+    const { validators } = await qc.staking.validators('BOND_STATUS_BONDED');
+    return validators.map(v => v.operatorAddress);
 }
 
 /** A fresh random BIP39 mnemonic (coin type 118) — used to mint an ephemeral admin. */
@@ -83,6 +116,47 @@ export async function bankSupplyOf(denom = 'usei'): Promise<bigint> {
     const qc = await bankClient();
     const coin = await qc.bank.supplyOf(denom);
     return BigInt(coin.amount);
+}
+
+/**
+ * Create a tokenfactory denom from `mnemonic` and wait until its bank metadata
+ * is visible. x/tokenfactory sets denom metadata automatically on creation
+ * (name/symbol = the full `factory/<creator>/<subdenom>` string, exponent 0),
+ * which is exactly the precondition the pointer precompile's addNativePointer
+ * checks. Returns the full denom.
+ */
+export async function createTokenfactoryDenom(
+    mnemonic: string,
+    subdenom: string,
+): Promise<string> {
+    const wallet = await seiWalletFromMnemonic(mnemonic);
+    const [account] = await wallet.getAccounts();
+    const registry = new Registry([...seiProtoRegistry, ...defaultRegistryTypes]);
+    const client = await SigningStargateClient.connectWithSigner(Endpoints.sei.cosmosRpc, wallet, {
+        registry,
+    });
+    try {
+        const msg = {
+            typeUrl: `/${Encoder.tokenfactory.MsgCreateDenom.$type}`,
+            value: Encoder.tokenfactory.MsgCreateDenom.fromPartial({
+                sender: account.address,
+                subdenom,
+            }),
+        };
+        const fee = { amount: coins(40000, 'usei'), gas: '400000' };
+        const res = await client.signAndBroadcast(account.address, [msg], fee, 'create denom');
+        assertIsDeliverTxSuccess(res);
+    } finally {
+        client.disconnect();
+    }
+
+    const denom = `factory/${account.address}/${subdenom}`;
+    const qc = await cosmosQuery();
+    await waitUntil(async () => (await qc.bank.denomMetadata(denom)) ?? null, {
+        timeoutMs: 30_000,
+        label: `bank metadata for ${denom}`,
+    });
+    return denom;
 }
 
 /** True when a local `sei-node-0` docker container is running. */

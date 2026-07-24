@@ -36,6 +36,10 @@ func (suite *MerkleTestSuite) SetupTest() {
 	suite.iavlStore = suite.store.GetCommitKVStore(suite.storeKey)
 }
 
+func (suite *MerkleTestSuite) TearDownTest() {
+	suite.Require().NoError(suite.store.Close())
+}
+
 func TestMerkleTestSuite(t *testing.T) {
 	suite.Run(t, new(MerkleTestSuite))
 }

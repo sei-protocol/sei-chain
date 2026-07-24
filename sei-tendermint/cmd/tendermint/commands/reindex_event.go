@@ -118,7 +118,9 @@ func loadEventSinks(cfg *tmcfg.Config) ([]indexer.EventSink, error) {
 			if err != nil {
 				return nil, err
 			}
-			eventSinks = append(eventSinks, kv.NewEventSink(store))
+			// Reindexing only writes to the sink; it never searches, so the
+			// scan budget is irrelevant here.
+			eventSinks = append(eventSinks, kv.NewEventSink(store, nil))
 		case string(indexer.PSQL):
 			conn := cfg.TxIndex.PsqlConn
 			if conn == "" {

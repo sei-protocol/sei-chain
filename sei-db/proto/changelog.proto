@@ -2,8 +2,8 @@ syntax = "proto3";
 package memiavl;
 
 import "gogoproto/gogo.proto";
-import "iavl/changeset.proto";
-import "memiavl/commit_info.proto";
+import "changeset.proto";
+import "commit_info.proto";
 
 // NamedChangeSet combine a tree name with the changeset
 message NamedChangeSet {
@@ -33,5 +33,3 @@ message ChangelogEntry {
   repeated NamedChangeSet  changesets = 2;
   repeated TreeNameUpgrade upgrades   = 3;
 }
-
-
