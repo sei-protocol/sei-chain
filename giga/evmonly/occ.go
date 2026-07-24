@@ -34,15 +34,32 @@ type occTxRange struct {
 	startUint uint
 }
 
-func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
-	chainConfig := e.chainConfig(req.Context)
-	blockCtx := buildBlockContext(req.Context)
-	baseFee := cloneOptionalBig(req.Context.BaseFee)
+type occSpeculativeRunner struct {
+	executor      *Executor
+	req           PreparedBlock
+	chainConfig   *params.ChainConfig
+	blockCtx      vm.BlockContext
+	baseFee       *big.Int
+	blockGasLimit uint64
+}
+
+func newOCCSpeculativeRunner(e *Executor, req PreparedBlock) occSpeculativeRunner {
 	gasLimit := req.Context.GasLimit
 	if gasLimit == 0 {
 		gasLimit = math.MaxUint64
 	}
+	return occSpeculativeRunner{
+		executor:      e,
+		req:           req,
+		chainConfig:   e.chainConfig(req.Context),
+		blockCtx:      buildBlockContext(req.Context),
+		baseFee:       cloneOptionalBig(req.Context.BaseFee),
+		blockGasLimit: gasLimit,
+	}
+}
 
+func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
+	runner := newOCCSpeculativeRunner(e, req)
 	workers := e.cfg.OCCWorkers
 	txCount := len(req.Txs)
 	if workers > txCount {
@@ -56,23 +73,10 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 		pool = newOCCWorkerPool(workers)
 		defer pool.Close()
 	}
-	if err := pool.Run(ctx, occRanges(txCount, chunkSize), func(workerCtx context.Context, txRange occTxRange) error {
-		for idx, idxUint := txRange.start, txRange.startUint; idx < txRange.end; idx, idxUint = idx+1, idxUint+1 {
-			if err := workerCtx.Err(); err != nil {
-				return err
-			}
-			result, err := e.executeTxSpeculative(workerCtx, speculativeSource, req, idx, idxUint, chainConfig, blockCtx, baseFee, gasLimit)
-			if err != nil {
-				result.err = err
-				result.gasLimit = req.Txs[idx].Tx.Gas()
-			}
-			results[idx] = result
-		}
-		return nil
-	}); err != nil {
+	if err := runner.runRanges(ctx, pool, occRanges(txCount, chunkSize), speculativeSource, runner.blockGasLimit, results); err != nil {
 		return nil, err
 	}
-	results, changeSet, validation, err := e.validateBlockSTM(ctx, req, results, chainConfig, blockCtx, baseFee, gasLimit)
+	results, changeSet, validation, err := e.validateBlockSTM(ctx, runner, pool, results)
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +86,67 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 	}
 	result.OCCStats = validation.stats(false)
 	return result, nil
+}
+
+func (r occSpeculativeRunner) runRanges(
+	ctx context.Context,
+	pool *occWorkerPool,
+	ranges []occTxRange,
+	source StateReader,
+	gasLimit uint64,
+	results []occTxExecution,
+) error {
+	return pool.Run(ctx, ranges, func(workerCtx context.Context, txRange occTxRange) error {
+		for idx, idxUint := txRange.start, txRange.startUint; idx < txRange.end; idx, idxUint = idx+1, idxUint+1 {
+			if err := workerCtx.Err(); err != nil {
+				return err
+			}
+			result, err := r.executeTx(workerCtx, source, idx, idxUint, gasLimit)
+			if err != nil {
+				result.err = err
+				result.gasLimit = r.req.Txs[idx].Tx.Gas()
+			}
+			results[idx] = result
+		}
+		return nil
+	})
+}
+
+func (r occSpeculativeRunner) runOne(
+	ctx context.Context,
+	pool *occWorkerPool,
+	source StateReader,
+	txIndex int,
+	txIndexUint uint,
+	gasLimit uint64,
+) (occTxExecution, error) {
+	var result occTxExecution
+	err := pool.Run(ctx, []occTxRange{{start: txIndex, end: txIndex + 1, startUint: txIndexUint}}, func(workerCtx context.Context, txRange occTxRange) error {
+		var err error
+		result, err = r.executeTx(workerCtx, source, txRange.start, txRange.startUint, gasLimit)
+		return err
+	})
+	return result, err
+}
+
+func (r occSpeculativeRunner) executeTx(
+	ctx context.Context,
+	source StateReader,
+	txIndex int,
+	txIndexUint uint,
+	gasLimit uint64,
+) (occTxExecution, error) {
+	return r.executor.executeTxSpeculative(
+		ctx,
+		source,
+		r.req,
+		txIndex,
+		txIndexUint,
+		r.chainConfig,
+		r.blockCtx,
+		r.baseFee,
+		gasLimit,
+	)
 }
 
 func occRanges(txCount int, chunkSize int) []occTxRange {
@@ -170,12 +235,9 @@ func (e *Executor) executeTxSpeculative(
 
 func (e *Executor) validateBlockSTM(
 	ctx context.Context,
-	req PreparedBlock,
+	runner occSpeculativeRunner,
+	pool *occWorkerPool,
 	initialResults []occTxExecution,
-	chainConfig *params.ChainConfig,
-	blockCtx vm.BlockContext,
-	baseFee *big.Int,
-	gasLimit uint64,
 ) ([]occTxExecution, StateChangeSet, occValidationResult, error) {
 	prefix := newBlockSTMState(e.state)
 	writes := newStateAccessIndex()
@@ -189,20 +251,21 @@ func (e *Executor) validateBlockSTM(
 		}
 		needsRerun := result.err != nil
 		if !needsRerun {
-			needsRerun = !validateSTMResultAgainstPrefix(&validation, writes, result, cumulativeGasUsed, gasLimit)
+			needsRerun = !validateSTMResultAgainstPrefix(&validation, writes, result, cumulativeGasUsed, runner.blockGasLimit)
 		}
 		if needsRerun {
 			validation.rerunCount++
-			availableGas := gasLimit - cumulativeGasUsed
-			rerun, err := e.executeTxSpeculative(
+			availableGas := runner.blockGasLimit - cumulativeGasUsed
+			// A rerun against the accepted prefix must complete before the
+			// prefix can advance. Running multiple reruns truly concurrently
+			// requires a multiversion speculative state scheduler rather than
+			// this accepted-prefix overlay.
+			rerun, err := runner.runOne(
 				ctx,
+				pool,
 				prefix,
-				req,
 				txIndex,
 				txIndexUint,
-				chainConfig,
-				blockCtx,
-				baseFee,
 				availableGas,
 			)
 			if err != nil {
