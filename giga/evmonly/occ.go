@@ -50,6 +50,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 	}
 	results := make([]occTxExecution, txCount)
 	chunkSize := occChunkSize(txCount, workers)
+	speculativeSource := parallelSafeStateReader(e.state)
 	pool := e.occPool
 	if pool == nil {
 		pool = newOCCWorkerPool(workers)
@@ -60,7 +61,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 			if err := workerCtx.Err(); err != nil {
 				return err
 			}
-			result, err := e.executeTxSpeculative(workerCtx, e.state, req, idx, idxUint, chainConfig, blockCtx, baseFee, gasLimit)
+			result, err := e.executeTxSpeculative(workerCtx, speculativeSource, req, idx, idxUint, chainConfig, blockCtx, baseFee, gasLimit)
 			if err != nil {
 				result.err = err
 				result.gasLimit = req.Txs[idx].Tx.Gas()
@@ -133,7 +134,8 @@ func (e *Executor) executeTxSpeculative(
 		return occTxExecution{}, err
 	}
 	p := req.Txs[txIndex]
-	stateDB := newNativeStateDB(source)
+	stateDB := e.acquireStateDB(source)
+	defer e.releaseStateDB(stateDB)
 	stateDB.enableAccessTracking()
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
 	stateDB.SetEVM(evm)

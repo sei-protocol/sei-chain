@@ -7,12 +7,21 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// StateReader supplies EVM-native state to an executor.
+// StateReader supplies EVM-native state to an executor. Implementations may be
+// called concurrently during optimistic execution; if they do not advertise
+// ConcurrentStateReader, the executor serializes parallel reads with a lock.
 type StateReader interface {
 	GetBalance(common.Address) *big.Int
 	GetNonce(common.Address) uint64
 	GetCode(common.Address) []byte
 	GetState(common.Address, common.Hash) common.Hash
+}
+
+// ConcurrentStateReader marks a StateReader implementation as safe for
+// concurrent reads without executor-side locking.
+type ConcurrentStateReader interface {
+	StateReader
+	ConcurrentReads()
 }
 
 // StateWriter persists an executor-produced changeset.
@@ -43,6 +52,8 @@ type StateAccount struct {
 func NewMemoryState() *MemoryState {
 	return &MemoryState{accounts: map[common.Address]*StateAccount{}}
 }
+
+func (s *MemoryState) ConcurrentReads() {}
 
 func (s *MemoryState) GetBalance(addr common.Address) *big.Int {
 	s.mu.RLock()
@@ -179,4 +190,43 @@ func cloneBytes(v []byte) []byte {
 		return nil
 	}
 	return append([]byte(nil), v...)
+}
+
+type lockedStateReader struct {
+	mu     sync.Mutex
+	source StateReader
+}
+
+func parallelSafeStateReader(source StateReader) StateReader {
+	if source == nil {
+		return NewMemoryState()
+	}
+	if _, ok := source.(ConcurrentStateReader); ok {
+		return source
+	}
+	return &lockedStateReader{source: source}
+}
+
+func (s *lockedStateReader) GetBalance(addr common.Address) *big.Int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.source.GetBalance(addr)
+}
+
+func (s *lockedStateReader) GetNonce(addr common.Address) uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.source.GetNonce(addr)
+}
+
+func (s *lockedStateReader) GetCode(addr common.Address) []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.source.GetCode(addr)
+}
+
+func (s *lockedStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.source.GetState(addr, key)
 }

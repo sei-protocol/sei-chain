@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"math/big"
+	"runtime"
 
 	"github.com/ethereum/go-ethereum/params"
 
@@ -19,6 +20,9 @@ type Config struct {
 	ChainConfig       *params.ChainConfig
 	CustomPrecompiles precompiles.Registry
 	OCCWorkers        int
+	// ParseWorkers controls parallel transaction decoding and sender recovery.
+	// Values <= 0 default to GOMAXPROCS.
+	ParseWorkers int
 	// BlockResultPoolSize enables a bounded reusable output pool. Callers that
 	// enable it must call BlockResult.Release when they are done with returned
 	// results. Result sinks receive a retained result and must release it after
@@ -28,7 +32,8 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		MinGasPrice: big.NewInt(1_000_000_000),
+		MinGasPrice:  big.NewInt(1_000_000_000),
+		ParseWorkers: runtime.GOMAXPROCS(0),
 	}
 }
 
@@ -36,6 +41,9 @@ func (c Config) WithDefaults() Config {
 	defaults := DefaultConfig()
 	if c.MinGasPrice == nil {
 		c.MinGasPrice = new(big.Int).Set(defaults.MinGasPrice)
+	}
+	if c.ParseWorkers <= 0 {
+		c.ParseWorkers = defaults.ParseWorkers
 	}
 	return c
 }

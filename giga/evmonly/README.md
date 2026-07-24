@@ -24,7 +24,7 @@ tracking without reintroducing Cosmos keeper dependencies.
 The `evmonly` package currently provides:
 
 - sequential execution of the ordered block transaction list
-- RLP decoding and sender recovery through go-ethereum signers
+- parallel RLP decoding and sender recovery through go-ethereum signers
 - go-ethereum `core.ApplyMessage` execution against an SDK-free `vm.StateDB`
 - key-addressable state reads for balance, nonce, code, and storage
 - deterministic post-block `StateChangeSet` construction
@@ -36,10 +36,10 @@ The `evmonly` package currently provides:
 - fail-closed custom precompile placeholders
 
 The executor accepts config for nonce checks, gas-price checks, minimum gas
-price, chain config, and the custom precompile registry. A nil chain config
-defaults to geth's `params.AllDevChainProtocolChanges`, which is convenient for
-tests and scaffold wiring; production callers should provide the chain's
-explicit EVM config.
+price, chain config, parse workers, OCC workers, result pooling, and the custom
+precompile registry. A nil chain config defaults to geth's
+`params.AllDevChainProtocolChanges`, which is convenient for tests and scaffold
+wiring; production callers should provide the chain's explicit EVM config.
 
 ## Executor interface
 
@@ -57,20 +57,23 @@ PrepareBlock(context.Context, BlockRequest) (PreparedBlock, error)
 ExecutePreparedBlock(context.Context, PreparedBlock) (*BlockResult, error)
 ```
 
-`PrepareBlock` decodes transaction RLP and recovers senders. This work does not
-touch state, so block N+1 can be prepared while block N is still executing.
-`ExecuteBlock` remains the convenience path and performs prepare then execute in
-one call. `PreparedBlock` is trusted executor-produced data: callers should pass
-the result of `PrepareBlock` unchanged, because `ExecutePreparedBlock` does not
-recover senders again.
+`PrepareBlock` decodes transaction RLP and recovers senders using
+`ParseWorkers` goroutines while preserving transaction order and deterministic
+first-error reporting. This work does not touch state, so block N+1 can be
+prepared while block N is still executing. `ExecuteBlock` remains the
+convenience path and performs prepare then execute in one call. `PreparedBlock`
+is trusted executor-produced data: callers should pass the result of
+`PrepareBlock` unchanged, because `ExecutePreparedBlock` does not recover
+senders again.
 
 The executor should be commit-neutral. It executes an ordered EVM block and
 returns the state writes and receipts produced by that block. The caller owns
 durable persistence, state commitment, block indexing, and receipt publication.
 The concrete `Executor` accepts a `StateReader` backend through `WithState(...)`;
 callers can persist the returned `ChangeSet` with a matching `StateWriter`.
-Call `Close()` when an executor is no longer used so OCC worker goroutines are
-stopped promptly.
+When OCC is enabled, `StateReader` may be read concurrently; backends can
+implement `ConcurrentStateReader` to opt out of executor-side read locking.
+Call `Close()` to disable future OCC execution on an executor.
 
 A non-nil `error` means block validation failed and the caller must not commit a
 partial output. EVM call failures inside an otherwise valid transaction are
@@ -169,7 +172,17 @@ This is intentionally conservative. A conflict can cause extra reruns, but it
 should not cause a whole-block sequential fallback. Coinbase fee credits are
 tracked as commutative balance deltas, so independent fee-paying transactions do
 not conflict only because they reward the same coinbase. If a later transaction
-reads or writes that balance, it is rerun against the updated prefix.
+reads or writes that balance, spends funds made available by that fee credit, or
+mixes a normal balance write with a fee credit to the same address, it is rerun
+against the updated prefix.
+
+Speculative execution reuses scratch `nativeStateDB` instances from an executor
+pool. The returned receipts, logs, read/write sets, commutative balance deltas,
+and changesets are detached before the scratch state DB is reset. EVM snapshots
+inside `nativeStateDB` are journaled by mutation kind instead of cloning all side
+state at every snapshot; account contents, access lists, transient storage,
+tx-storage bookkeeping, preimages, finalise markers, and commutative balance
+deltas are restored by undo entries.
 
 `OCCStats` reports whether optimistic execution was attempted, how many reruns
 were needed, and aggregated conflict samples. `Fallback` is reserved for cases

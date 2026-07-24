@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"runtime"
+	"sync"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -19,11 +20,13 @@ import (
 
 // Executor runs raw EVM transactions against an EVM-native state backend.
 type Executor struct {
-	cfg        Config
-	state      StateReader
-	resultSink ResultSink
-	occPool    *occWorkerPool
-	resultPool *blockResultPool
+	cfg         Config
+	state       StateReader
+	resultSink  ResultSink
+	occPool     *occWorkerPool
+	resultPool  *blockResultPool
+	stateDBPool sync.Pool
+	closed      atomic.Bool
 }
 
 type Option func(*Executor)
@@ -42,9 +45,8 @@ func WithResultSink(sink ResultSink) Option {
 	}
 }
 
-// NewExecutor constructs an EVM-only executor. Call Close when the executor is
-// no longer used; with OCCWorkers > 1, the executor owns worker goroutines that
-// otherwise live until the GC finalizer runs.
+// NewExecutor constructs an EVM-only executor. Call Close to disable future OCC
+// execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
 		cfg:        cfg.WithDefaults(),
@@ -53,7 +55,6 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
-		runtime.SetFinalizer(e, (*Executor).Close)
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -62,12 +63,13 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 }
 
 func (e *Executor) Close() {
-	if e == nil || e.occPool == nil {
+	if e == nil {
 		return
 	}
-	runtime.SetFinalizer(e, nil)
-	e.occPool.Close()
-	e.occPool = nil
+	e.closed.Store(true)
+	if e.occPool != nil {
+		e.occPool.Close()
+	}
 }
 
 func (e *Executor) Config() Config {
@@ -88,7 +90,7 @@ func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (Prepared
 		return PreparedBlock{}, err
 	}
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
-	parsed, err := parseBlockTxs(ctx, req.Txs, signer)
+	parsed, err := parseBlockTxs(ctx, req.Txs, signer, e.cfg.ParseWorkers)
 	if err != nil {
 		return PreparedBlock{}, err
 	}
@@ -143,13 +145,33 @@ func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *B
 }
 
 func (e *Executor) useOCC(txCount int) bool {
-	if e.cfg.OCCWorkers <= 1 || txCount <= 1 {
+	if e.closed.Load() || e.cfg.OCCWorkers <= 1 || txCount <= 1 {
 		return false
 	}
 	if e.cfg.CustomPrecompiles == nil {
 		return true
 	}
 	return len(e.cfg.CustomPrecompiles.Addresses()) == 0
+}
+
+func (e *Executor) acquireStateDB(source StateReader) *nativeStateDB {
+	if source == nil {
+		source = NewMemoryState()
+	}
+	if v := e.stateDBPool.Get(); v != nil {
+		stateDB := v.(*nativeStateDB)
+		stateDB.reset(source)
+		return stateDB
+	}
+	return newNativeStateDB(source)
+}
+
+func (e *Executor) releaseStateDB(stateDB *nativeStateDB) {
+	if stateDB == nil {
+		return
+	}
+	stateDB.reset(nil)
+	e.stateDBPool.Put(stateDB)
 }
 
 func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock) (*BlockResult, error) {

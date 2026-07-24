@@ -63,30 +63,36 @@ type storageValue struct {
 }
 
 type nativeSnapshot struct {
-	journalLen               int
-	refund                   uint64
-	logsLen                  int
-	accessList               accessList
-	transientStates          map[common.Address]map[common.Hash]common.Hash
-	finaliseAddrs            map[common.Address]struct{}
-	txStorageWrites          map[common.Address]map[common.Hash]struct{}
-	txStorageClears          map[common.Address]struct{}
-	commutativeBalanceDeltas map[common.Address]*uint256.Int
-	preimages                map[common.Hash][]byte
-	journaledAddrs           map[common.Address]struct{}
-	err                      error
+	journalLen     int
+	refund         uint64
+	logsLen        int
+	journaledAddrs map[common.Address]struct{}
+	err            error
 }
 
 type nativeJournalKind uint8
 
 const (
 	nativeJournalAccount nativeJournalKind = iota
+	nativeJournalAccessAddress
+	nativeJournalAccessSlot
+	nativeJournalTransientState
+	nativeJournalFinaliseAddr
+	nativeJournalTxStorageWrite
+	nativeJournalTxStorageClear
+	nativeJournalCommutativeBalanceDelta
+	nativeJournalPreimage
 )
 
 type nativeJournalEntry struct {
-	kind    nativeJournalKind
-	address common.Address
-	account *nativeAccount
+	kind         nativeJournalKind
+	address      common.Address
+	key          common.Hash
+	hash         common.Hash
+	account      *nativeAccount
+	balanceDelta *uint256.Int
+	preimage     []byte
+	hadValue     bool
 }
 
 type accessList struct {
@@ -114,19 +120,56 @@ func newNativeStateDB(source StateReader) *nativeStateDB {
 	if source == nil {
 		source = NewMemoryState()
 	}
-	return &nativeStateDB{
-		source:                   source,
-		accounts:                 map[common.Address]*nativeAccount{},
-		base:                     map[common.Address]*nativeAccount{},
-		preimages:                map[common.Hash][]byte{},
-		accessList:               newAccessList(),
-		transientStates:          map[common.Address]map[common.Hash]common.Hash{},
-		finaliseAddrs:            map[common.Address]struct{}{},
-		committedStorage:         map[common.Address]map[common.Hash]storageValue{},
-		txStorageWrites:          map[common.Address]map[common.Hash]struct{}{},
-		txStorageClears:          map[common.Address]struct{}{},
-		commutativeBalanceDeltas: map[common.Address]*uint256.Int{},
+	stateDB := &nativeStateDB{}
+	stateDB.reset(source)
+	return stateDB
+}
+
+func (s *nativeStateDB) reset(source StateReader) {
+	s.source = source
+	clearAccountMap(&s.accounts)
+	clearAccountMap(&s.base)
+	s.refund = 0
+	if s.logs != nil {
+		clear(s.logs)
+		s.logs = s.logs[:0]
 	}
+	clearBytesMap(&s.preimages)
+	s.accessList.reset()
+	clearNestedHashMaps(s.transientStates)
+	if s.transientStates == nil {
+		s.transientStates = map[common.Address]map[common.Hash]common.Hash{}
+	}
+	clearAddressSet(&s.finaliseAddrs)
+	clearNestedStorageValueMaps(s.committedStorage)
+	if s.committedStorage == nil {
+		s.committedStorage = map[common.Address]map[common.Hash]storageValue{}
+	}
+	clearNestedStorageWriteSets(s.txStorageWrites)
+	if s.txStorageWrites == nil {
+		s.txStorageWrites = map[common.Address]map[common.Hash]struct{}{}
+	}
+	clearAddressSet(&s.txStorageClears)
+	clearUint256Map(&s.commutativeBalanceDeltas)
+	if s.journal != nil {
+		clear(s.journal)
+		s.journal = s.journal[:0]
+	}
+	if s.snapshots != nil {
+		clear(s.snapshots)
+		s.snapshots = s.snapshots[:0]
+	}
+	if s.readSet != nil {
+		clear(s.readSet)
+	}
+	if s.writeSet != nil {
+		clear(s.writeSet)
+	}
+	s.txHash = common.Hash{}
+	s.txIndex = 0
+	s.txIndexUint = 0
+	s.err = nil
+	s.evm = nil
 }
 
 func (s *nativeStateDB) ChangeSet() StateChangeSet {
@@ -259,6 +302,7 @@ func (s *nativeStateDB) addCommutativeBalance(addr common.Address, amount *uint2
 	if s.commutativeBalanceDeltas == nil {
 		s.commutativeBalanceDeltas = map[common.Address]*uint256.Int{}
 	}
+	s.recordCommutativeBalanceDelta(addr)
 	delta, ok := s.commutativeBalanceDeltas[addr]
 	if !ok {
 		delta = uint256.NewInt(0)
@@ -404,11 +448,18 @@ func (s *nativeStateDB) GetTransientState(addr common.Address, key common.Hash) 
 func (s *nativeStateDB) SetTransientState(addr common.Address, key, value common.Hash) {
 	states, ok := s.transientStates[addr]
 	if !ok {
+		if value == (common.Hash{}) {
+			return
+		}
 		states = map[common.Hash]common.Hash{}
 		s.transientStates[addr] = states
 	}
+	s.recordTransientState(addr, key)
 	if value == (common.Hash{}) {
 		delete(states, key)
+		if len(states) == 0 {
+			delete(s.transientStates, addr)
+		}
 		return
 	}
 	states[key] = value
@@ -468,6 +519,10 @@ func (s *nativeStateDB) SlotInAccessList(addr common.Address, slot common.Hash) 
 }
 
 func (s *nativeStateDB) AddAddressToAccessList(addr common.Address) {
+	if _, ok := s.accessList.addresses[addr]; ok {
+		return
+	}
+	s.recordAccessAddress(addr)
 	s.accessList.addresses[addr] = struct{}{}
 }
 
@@ -478,6 +533,10 @@ func (s *nativeStateDB) AddSlotToAccessList(addr common.Address, slot common.Has
 		slots = map[common.Hash]struct{}{}
 		s.accessList.slots[addr] = slots
 	}
+	if _, ok := slots[slot]; ok {
+		return
+	}
+	s.recordAccessSlot(addr, slot)
 	slots[slot] = struct{}{}
 }
 
@@ -507,18 +566,11 @@ func (s *nativeStateDB) PointCache() *ethutils.PointCache {
 func (s *nativeStateDB) Snapshot() int {
 	id := len(s.snapshots)
 	s.snapshots = append(s.snapshots, nativeSnapshot{
-		journalLen:               len(s.journal),
-		refund:                   s.refund,
-		logsLen:                  len(s.logs),
-		accessList:               cloneAccessList(s.accessList),
-		transientStates:          cloneTransientStates(s.transientStates),
-		finaliseAddrs:            cloneAddressSet(s.finaliseAddrs),
-		txStorageWrites:          cloneStorageWriteSet(s.txStorageWrites),
-		txStorageClears:          cloneAddressSet(s.txStorageClears),
-		commutativeBalanceDeltas: cloneUint256Map(s.commutativeBalanceDeltas),
-		preimages:                clonePreimages(s.preimages),
-		journaledAddrs:           map[common.Address]struct{}{},
-		err:                      s.err,
+		journalLen:     len(s.journal),
+		refund:         s.refund,
+		logsLen:        len(s.logs),
+		journaledAddrs: map[common.Address]struct{}{},
+		err:            s.err,
 	})
 	return id
 }
@@ -534,13 +586,6 @@ func (s *nativeStateDB) RevertToSnapshot(id int) {
 	s.journal = s.journal[:snapshot.journalLen]
 	s.refund = snapshot.refund
 	s.logs = s.logs[:snapshot.logsLen]
-	s.accessList = cloneAccessList(snapshot.accessList)
-	s.transientStates = cloneTransientStates(snapshot.transientStates)
-	s.finaliseAddrs = cloneAddressSet(snapshot.finaliseAddrs)
-	s.txStorageWrites = cloneStorageWriteSet(snapshot.txStorageWrites)
-	s.txStorageClears = cloneAddressSet(snapshot.txStorageClears)
-	s.commutativeBalanceDeltas = cloneUint256Map(snapshot.commutativeBalanceDeltas)
-	s.preimages = clonePreimages(snapshot.preimages)
 	s.err = snapshot.err
 	s.snapshots = s.snapshots[:id]
 }
@@ -553,6 +598,7 @@ func (s *nativeStateDB) AddLog(log *ethtypes.Log) {
 }
 
 func (s *nativeStateDB) AddPreimage(hash common.Hash, preimage []byte) {
+	s.recordPreimage(hash)
 	s.preimages[hash] = cloneBytes(preimage)
 }
 
@@ -706,12 +752,167 @@ func (e nativeJournalEntry) revert(s *nativeStateDB) {
 	switch e.kind {
 	case nativeJournalAccount:
 		s.accounts[e.address] = e.account.clone()
+	case nativeJournalAccessAddress:
+		delete(s.accessList.addresses, e.address)
+	case nativeJournalAccessSlot:
+		if slots, ok := s.accessList.slots[e.address]; ok {
+			delete(slots, e.key)
+			if len(slots) == 0 {
+				delete(s.accessList.slots, e.address)
+			}
+		}
+	case nativeJournalTransientState:
+		if e.hadValue {
+			states, ok := s.transientStates[e.address]
+			if !ok {
+				states = map[common.Hash]common.Hash{}
+				s.transientStates[e.address] = states
+			}
+			states[e.key] = e.hash
+		} else if states, ok := s.transientStates[e.address]; ok {
+			delete(states, e.key)
+			if len(states) == 0 {
+				delete(s.transientStates, e.address)
+			}
+		}
+	case nativeJournalFinaliseAddr:
+		delete(s.finaliseAddrs, e.address)
+	case nativeJournalTxStorageWrite:
+		if slots, ok := s.txStorageWrites[e.address]; ok {
+			delete(slots, e.key)
+			if len(slots) == 0 {
+				delete(s.txStorageWrites, e.address)
+			}
+		}
+	case nativeJournalTxStorageClear:
+		delete(s.txStorageClears, e.address)
+	case nativeJournalCommutativeBalanceDelta:
+		if e.hadValue {
+			if s.commutativeBalanceDeltas == nil {
+				s.commutativeBalanceDeltas = map[common.Address]*uint256.Int{}
+			}
+			if e.balanceDelta == nil {
+				s.commutativeBalanceDeltas[e.address] = uint256.NewInt(0)
+			} else {
+				s.commutativeBalanceDeltas[e.address] = e.balanceDelta.Clone()
+			}
+		} else {
+			delete(s.commutativeBalanceDeltas, e.address)
+		}
+	case nativeJournalPreimage:
+		if e.hadValue {
+			if s.preimages == nil {
+				s.preimages = map[common.Hash][]byte{}
+			}
+			s.preimages[e.hash] = cloneBytes(e.preimage)
+		} else {
+			delete(s.preimages, e.hash)
+		}
 	default:
 		panic("unknown native state journal entry")
 	}
 }
 
+func (s *nativeStateDB) recordAccessAddress(addr common.Address) {
+	if len(s.snapshots) == 0 {
+		return
+	}
+	s.journal = append(s.journal, nativeJournalEntry{
+		kind:    nativeJournalAccessAddress,
+		address: addr,
+	})
+}
+
+func (s *nativeStateDB) recordAccessSlot(addr common.Address, key common.Hash) {
+	if len(s.snapshots) == 0 {
+		return
+	}
+	s.journal = append(s.journal, nativeJournalEntry{
+		kind:    nativeJournalAccessSlot,
+		address: addr,
+		key:     key,
+	})
+}
+
+func (s *nativeStateDB) recordTransientState(addr common.Address, key common.Hash) {
+	if len(s.snapshots) == 0 {
+		return
+	}
+	value, ok := s.transientStates[addr][key]
+	s.journal = append(s.journal, nativeJournalEntry{
+		kind:     nativeJournalTransientState,
+		address:  addr,
+		key:      key,
+		hash:     value,
+		hadValue: ok,
+	})
+}
+
+func (s *nativeStateDB) recordFinaliseAddr(addr common.Address) {
+	if len(s.snapshots) == 0 {
+		return
+	}
+	s.journal = append(s.journal, nativeJournalEntry{
+		kind:    nativeJournalFinaliseAddr,
+		address: addr,
+	})
+}
+
+func (s *nativeStateDB) recordTxStorageWrite(addr common.Address, key common.Hash) {
+	if len(s.snapshots) == 0 {
+		return
+	}
+	s.journal = append(s.journal, nativeJournalEntry{
+		kind:    nativeJournalTxStorageWrite,
+		address: addr,
+		key:     key,
+	})
+}
+
+func (s *nativeStateDB) recordTxStorageClear(addr common.Address) {
+	if len(s.snapshots) == 0 {
+		return
+	}
+	s.journal = append(s.journal, nativeJournalEntry{
+		kind:    nativeJournalTxStorageClear,
+		address: addr,
+	})
+}
+
+func (s *nativeStateDB) recordCommutativeBalanceDelta(addr common.Address) {
+	if len(s.snapshots) == 0 {
+		return
+	}
+	delta, ok := s.commutativeBalanceDeltas[addr]
+	entry := nativeJournalEntry{
+		kind:     nativeJournalCommutativeBalanceDelta,
+		address:  addr,
+		hadValue: ok,
+	}
+	if ok && delta != nil {
+		entry.balanceDelta = delta.Clone()
+	}
+	s.journal = append(s.journal, entry)
+}
+
+func (s *nativeStateDB) recordPreimage(hash common.Hash) {
+	if len(s.snapshots) == 0 {
+		return
+	}
+	preimage, ok := s.preimages[hash]
+	s.journal = append(s.journal, nativeJournalEntry{
+		kind:     nativeJournalPreimage,
+		hash:     hash,
+		preimage: cloneBytes(preimage),
+		hadValue: ok,
+	})
+}
+
 func (s *nativeStateDB) markForFinalise(addr common.Address) {
+	if _, ok := s.finaliseAddrs[addr]; ok {
+		return
+	}
+	s.recordFinaliseAddr(addr)
 	s.finaliseAddrs[addr] = struct{}{}
 }
 
@@ -796,6 +997,10 @@ func (s *nativeStateDB) markTxStorageWrite(addr common.Address, key common.Hash)
 		slots = map[common.Hash]struct{}{}
 		s.txStorageWrites[addr] = slots
 	}
+	if _, ok := slots[key]; ok {
+		return
+	}
+	s.recordTxStorageWrite(addr, key)
 	slots[key] = struct{}{}
 }
 
@@ -803,6 +1008,10 @@ func (s *nativeStateDB) markTxStorageClear(addr common.Address) {
 	if s.txStorageClears == nil {
 		s.txStorageClears = map[common.Address]struct{}{}
 	}
+	if _, ok := s.txStorageClears[addr]; ok {
+		return
+	}
+	s.recordTxStorageClear(addr)
 	s.txStorageClears[addr] = struct{}{}
 }
 
@@ -1002,14 +1211,54 @@ func clearNestedStorageWriteSets(values map[common.Address]map[common.Hash]struc
 	clear(values)
 }
 
+func clearNestedStorageValueMaps(values map[common.Address]map[common.Hash]storageValue) {
+	for _, slots := range values {
+		clear(slots)
+	}
+	clear(values)
+}
+
+func clearAccountMap(values *map[common.Address]*nativeAccount) {
+	if *values == nil {
+		*values = map[common.Address]*nativeAccount{}
+		return
+	}
+	clear(*values)
+}
+
+func clearAddressSet(values *map[common.Address]struct{}) {
+	if *values == nil {
+		*values = map[common.Address]struct{}{}
+		return
+	}
+	clear(*values)
+}
+
+func clearBytesMap(values *map[common.Hash][]byte) {
+	if *values == nil {
+		*values = map[common.Hash][]byte{}
+		return
+	}
+	clear(*values)
+}
+
+func clearUint256Map(values *map[common.Address]*uint256.Int) {
+	if *values == nil {
+		*values = map[common.Address]*uint256.Int{}
+		return
+	}
+	clear(*values)
+}
+
 func cloneJournal(journal []nativeJournalEntry) []nativeJournalEntry {
 	cp := make([]nativeJournalEntry, len(journal))
 	for i, entry := range journal {
-		cp[i] = nativeJournalEntry{
-			kind:    entry.kind,
-			address: entry.address,
-			account: entry.account.clone(),
+		cp[i] = entry
+		cp[i].account = entry.account.clone()
+		if entry.balanceDelta != nil {
+			cp[i].balanceDelta = entry.balanceDelta.Clone()
 		}
+		cp[i].preimage = cloneBytes(entry.preimage)
 	}
 	return cp
 }
@@ -1018,18 +1267,11 @@ func cloneSnapshots(snapshots []nativeSnapshot) []nativeSnapshot {
 	cp := make([]nativeSnapshot, len(snapshots))
 	for i, snapshot := range snapshots {
 		cp[i] = nativeSnapshot{
-			journalLen:               snapshot.journalLen,
-			refund:                   snapshot.refund,
-			logsLen:                  snapshot.logsLen,
-			accessList:               cloneAccessList(snapshot.accessList),
-			transientStates:          cloneTransientStates(snapshot.transientStates),
-			finaliseAddrs:            cloneAddressSet(snapshot.finaliseAddrs),
-			txStorageWrites:          cloneStorageWriteSet(snapshot.txStorageWrites),
-			txStorageClears:          cloneAddressSet(snapshot.txStorageClears),
-			commutativeBalanceDeltas: cloneUint256Map(snapshot.commutativeBalanceDeltas),
-			preimages:                clonePreimages(snapshot.preimages),
-			journaledAddrs:           cloneAddressSet(snapshot.journaledAddrs),
-			err:                      snapshot.err,
+			journalLen:     snapshot.journalLen,
+			refund:         snapshot.refund,
+			logsLen:        snapshot.logsLen,
+			journaledAddrs: cloneAddressSet(snapshot.journaledAddrs),
+			err:            snapshot.err,
 		}
 	}
 	return cp

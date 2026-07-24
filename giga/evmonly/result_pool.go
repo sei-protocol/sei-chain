@@ -71,10 +71,18 @@ func (l *blockResultLease) release() {
 }
 
 func (r *BlockResult) retain() func() {
-	if r == nil || r.lease == nil {
+	if r == nil {
 		return func() {}
 	}
-	return r.lease.retain()
+	r.releaseMu.Lock()
+	lease := r.lease
+	if lease == nil {
+		r.releaseMu.Unlock()
+		return func() {}
+	}
+	release := lease.retain()
+	r.releaseMu.Unlock()
+	return release
 }
 
 func (r *BlockResult) prepareForBlock(txCapacity int) {
@@ -103,6 +111,12 @@ func (r *BlockResult) prepareIndexedResults(txCount int) {
 }
 
 func (r *BlockResult) resetForPool() {
+	r.releaseMu.Lock()
+	defer r.releaseMu.Unlock()
+	r.resetForPoolLocked()
+}
+
+func (r *BlockResult) resetForPoolLocked() {
 	r.ChangeSet.resetForReuse()
 	clear(r.Txs)
 	r.Txs = r.Txs[:0]
