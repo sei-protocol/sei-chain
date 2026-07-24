@@ -156,19 +156,74 @@ func NewDynamicGasPrecompile(a abi.ABI, executor DynamicGasPrecompileExecutor, a
 func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, hooks *tracing.Hooks, readOnly bool, isFromDelegateCall bool) (ret []byte, remainingGas uint64, err error) {
 	operation := fmt.Sprintf("%s_unknown", d.name)
 	defer func() {
+		// The calldata-decode gas charges below can panic with a gas-meter
+		// out-of-gas / overflow; turn only those into a reverted precompile call
+		// (a call that could not afford the decode), keeping the failure from
+		// aborting the enclosing EVM frame. Re-panic anything else so genuine
+		// bugs are not masked as reverts.
+		if r := recover(); r != nil {
+			switch r.(type) {
+			case sdk.ErrorOutOfGas, sdk.ErrorGasOverflow:
+				err = fmt.Errorf("%v", r)
+			default:
+				panic(r)
+			}
+		}
 		HandlePrecompileError(err, evm, operation)
 		if err != nil {
 			fmt.Printf("precompile %s encountered error: %v\n", d.name, err)
 			err = vm.ErrExecutionReverted
 		}
 	}()
-	ctx, method, args, err := d.Prepare(evm, input)
+	ctxer := state.GetDBImpl(evm.StateDB)
+	if ctxer == nil {
+		return nil, 0, errors.New("cannot get context from EVM")
+	}
+	// Resolve the target method from the 4-byte selector only. The argument
+	// payload is intentionally NOT decoded yet: ABI decoding of attacker-
+	// controlled calldata can cost far more than len(input) (a single string can
+	// be referenced by many array/tuple slots), so it must be paid for out of the
+	// gas the caller supplied. The static-precompile path charges RequiredGas in
+	// vm.RunPrecompiledContract before running; that step is skipped for
+	// dynamic-gas precompiles, so we apply the equivalent charge here.
+	methodID, err := ExtractMethodID(input)
 	if err != nil {
 		return nil, 0, err
 	}
+	method, err := d.MethodById(methodID)
+	if err != nil {
+		return nil, 0, err
+	}
+	operation = method.Name
+
+	ctx := ctxer.Ctx()
+	// Install the gas meter derived from the supplied EVM gas, then charge for
+	// decoding the calldata BEFORE decoding it. A call that cannot afford the
+	// decode is rejected here, before the parse/allocation work is performed.
+	// ConsumeGas panics on out-of-gas; the deferred recover above turns that into
+	// a normal reverted precompile call.
 	gasLimit := d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), suppliedGas)
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
-	operation = method.Name
+
+	// Charge a length-proportional amount up front, before the structural scan
+	// inside DecodeGasCost runs, so the scan itself is bounded by the supplied gas
+	// and can never be performed for free even if it later becomes costlier.
+	scanCost := DefaultGasCost(input, false)
+	ctx.GasMeter().ConsumeGas(scanCost, fmt.Sprintf("%s precompile calldata scan", d.name))
+	decodeCost, ok := DecodeGasCost(method.Inputs, input)
+	if !ok {
+		// Calldata is structurally invalid (Unpack would reject it too); reject
+		// now, without attempting the decode.
+		return nil, 0, fmt.Errorf("invalid calldata encoding for %s", d.name)
+	}
+	// DecodeGasCost already includes scanCost; charge only the remaining
+	// (string-copy) portion so the decode is priced exactly once.
+	ctx.GasMeter().ConsumeGas(decodeCost-scanCost, fmt.Sprintf("%s precompile calldata decode", d.name))
+
+	args, err := method.Inputs.Unpack(input[4:])
+	if err != nil {
+		return nil, 0, err
+	}
 	em := ctx.EventManager()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	ctx = ctx.WithEVMPrecompileCalledFromDelegateCall(isFromDelegateCall)

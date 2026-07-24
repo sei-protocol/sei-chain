@@ -94,11 +94,15 @@ func TestPrecompileRun(t *testing.T) {
 
 type MockDynamicGasPrecompileExecutor struct {
 	throw     bool
+	panicWith interface{}
 	evmKeeper utils.EVMKeeper
 }
 
 func (e *MockDynamicGasPrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller ethcommon.Address, callingContract ethcommon.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, _ *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	ctx.EventManager().EmitEvent(sdk.NewEvent("test"))
+	if e.panicWith != nil {
+		panic(e.panicWith)
+	}
 	if e.throw {
 		return nil, 0, errors.New("test")
 	}
@@ -120,15 +124,70 @@ func TestDynamicGasPrecompileRun(t *testing.T) {
 	require.Nil(t, err)
 	precompile := common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{throw: false, evmKeeper: k}, ethcommon.Address{}, "test")
 	stateDB := state.NewDBImpl(ctx, k, false)
-	res, _, err := precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 0, big.NewInt(0), nil, false, false)
+	res, _, err := precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 100000, big.NewInt(0), nil, false, false)
 	require.Equal(t, []byte("success"), res)
 	require.Nil(t, err)
 	require.NotEmpty(t, stateDB.Ctx().EventManager().Events())
 	stateDB.WithCtx(ctx.WithEventManager(sdk.NewEventManager()))
 	precompile = common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{throw: true, evmKeeper: k}, ethcommon.Address{}, "test")
-	res, _, err = precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 0, big.NewInt(0), nil, false, false)
+	res, _, err = precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 100000, big.NewInt(0), nil, false, false)
 	require.Nil(t, res)
 	require.NotNil(t, err)
 	// should not emit any event
 	require.Empty(t, stateDB.Ctx().EventManager().Events())
+}
+
+// TestDynamicGasPrecompileRepanicsNonGas verifies that only gas-meter panics are
+// converted to reverts: a non-gas panic must propagate rather than be masked.
+func TestDynamicGasPrecompileRepanicsNonGas(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	abiBz, err := os.ReadFile("erc20_abi.json")
+	require.Nil(t, err)
+	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
+	require.Nil(t, err)
+	input, err := newAbi.Pack("decimals")
+	require.Nil(t, err)
+
+	precompile := common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{panicWith: "boom", evmKeeper: k}, ethcommon.Address{}, "test")
+	stateDB := state.NewDBImpl(ctx.WithEventManager(sdk.NewEventManager()), k, false)
+	// Ample gas so the decode charges pass and the (panicking) executor runs.
+	require.PanicsWithValue(t, "boom", func() {
+		_, _, _ = precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 100000, big.NewInt(0), nil, false, false)
+	})
+}
+
+// TestDynamicGasPrecompileGasGate is a regression test for a DoS in the dynamic
+// precompile framework: the ABI decode of (attacker-controlled) calldata used to
+// run before the supplied EVM gas was turned into a gas meter, so a call that
+// forwarded ~zero gas could still force every validator to parse and allocate
+// the calldata for free. The decode must now be gated by the supplied gas.
+func TestDynamicGasPrecompileGasGate(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	abiBz, err := os.ReadFile("erc20_abi.json")
+	require.Nil(t, err)
+	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
+	require.Nil(t, err)
+	input, err := newAbi.Pack("decimals")
+	require.Nil(t, err)
+
+	precompile := common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{throw: false, evmKeeper: k}, ethcommon.Address{}, "test")
+
+	// Zero supplied gas (the PoC scenario): the call must be rejected before the
+	// executor runs, so no event is emitted (Execute is what emits it) and no ABI
+	// decode is performed.
+	stateDB := state.NewDBImpl(ctx.WithEventManager(sdk.NewEventManager()), k, false)
+	res, remainingGas, err := precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 0, big.NewInt(0), nil, false, false)
+	require.Nil(t, res)
+	require.Equal(t, uint64(0), remainingGas)
+	require.Equal(t, vm.ErrExecutionReverted, err)
+	require.Empty(t, stateDB.Ctx().EventManager().Events())
+
+	// With enough gas the same call proceeds through decode and execution.
+	stateDB = state.NewDBImpl(ctx.WithEventManager(sdk.NewEventManager()), k, false)
+	res, _, err = precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 100000, big.NewInt(0), nil, false, false)
+	require.Equal(t, []byte("success"), res)
+	require.Nil(t, err)
+	require.NotEmpty(t, stateDB.Ctx().EventManager().Events())
 }
