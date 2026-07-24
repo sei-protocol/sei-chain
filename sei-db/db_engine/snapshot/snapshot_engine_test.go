@@ -35,7 +35,7 @@ func TestConfigValidateRejectsBadFields(t *testing.T) {
 		{"overheadZero", func(c *SnapshotEngineConfig) { c.EstimatedOverheadPerEntry = 0 }},
 		{"metricsNameEmpty", func(c *SnapshotEngineConfig) { c.MetricsName = "" }},
 		{"maxUnflushedZero", func(c *SnapshotEngineConfig) { c.MaxUnflushedVersions = 0 }},
-		{"targetKeysZero", func(c *SnapshotEngineConfig) { c.TargetKeysPerFlush = 0 }},
+		{"targetBytesZero", func(c *SnapshotEngineConfig) { c.TargetBytesPerFlush = 0 }},
 		{"hashKeyEmpty", func(c *SnapshotEngineConfig) { c.HashKey = "" }},
 	}
 	for _, tc := range cases {

@@ -67,7 +67,11 @@ type snapshotEngine struct {
 	// Protected by versionLock.
 	versionMap map[uint64]*snapshotReferenceCounter
 
-	// The number of snapshots that are eligible to be flushed to disk, but which have not yet been flushed.
+	// The number of snapshots that are eligible to be flushed to disk, but which have not yet been
+	// flushed. Versions blocked behind a still-referenced snapshot are not counted until that
+	// snapshot is released (see scanForFlushEligibilityLocked), so this measures work the
+	// underlying DB can actually perform — Commit backpressure driven by it reflects DB lag, not
+	// release lag.
 	//
 	// Protected by versionLock.
 	unflushedCount uint64
@@ -510,6 +514,12 @@ func (c *snapshotEngine) DecrementReferenceCount(version uint64) error {
 func (c *snapshotEngine) scanForFlushEligibilityLocked() bool {
 	oldHighestFlushEligibleVersion := c.highestFlushEligibleVersion
 
+	if counter, ok := c.versionMap[oldHighestFlushEligibleVersion]; ok && counter.referenceCount > 0 {
+		// The version at the watermark is still referenced, so nothing past it can be flushed
+		// until it is released and retired.
+		return false
+	}
+
 	// Clip the start to oldestVersion: prior retirements may have advanced oldestVersion past the
 	// stale oldHighestFlushEligibleVersion, leaving any versions in between absent from versionMap.
 	start := oldHighestFlushEligibleVersion + 1
@@ -927,6 +937,11 @@ func (c *snapshotEngine) flushSnapshots(
 
 	// Write diffs to the DB in batches, oldest version first.
 	var batch types.Batch
+	defer func() {
+		if batch != nil {
+			_ = batch.Close()
+		}
+	}()
 	versionsInBatch := uint64(0)
 	for version := firstVersion; version < lastVersion; version++ {
 		versionsInBatch++
@@ -945,11 +960,17 @@ func (c *snapshotEngine) flushSnapshots(
 			}
 		}
 
-		if batch.Len() >= c.config.TargetKeysPerFlush {
-			if err := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync}); err != nil {
-				return fmt.Errorf("flush failed to commit batch: %w", err)
-			}
+		// Len is non-negative, so the conversion is safe.
+		if uint64(batch.Len()) >= c.config.TargetBytesPerFlush { //nolint:gosec
+			commitErr := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
+			closeErr := batch.Close()
 			batch = nil
+			if commitErr != nil {
+				return fmt.Errorf("flush failed to commit batch: %w", commitErr)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("flush failed to close batch: %w", closeErr)
+			}
 			c.versionLock.Lock()
 			c.unflushedCount -= versionsInBatch
 			c.versionLock.Unlock()
@@ -958,8 +979,14 @@ func (c *snapshotEngine) flushSnapshots(
 		}
 	}
 	if batch != nil {
-		if err := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync}); err != nil {
-			return fmt.Errorf("flush failed to commit batch: %w", err)
+		commitErr := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
+		closeErr := batch.Close()
+		batch = nil
+		if commitErr != nil {
+			return fmt.Errorf("flush failed to commit batch: %w", commitErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("flush failed to close batch: %w", closeErr)
 		}
 		c.versionLock.Lock()
 		c.unflushedCount -= versionsInBatch

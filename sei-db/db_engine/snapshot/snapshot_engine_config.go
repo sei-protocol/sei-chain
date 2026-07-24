@@ -36,8 +36,15 @@ type SnapshotEngineConfig struct {
 	// behind (see SnapshotEngine.Snapshot).
 	MaxUnflushedVersions uint64
 
-	// Target number of keys per batch when flushing retired version data to the underlying DB.
-	TargetKeysPerFlush int
+	// Target size, in bytes, of a write batch when flushing snapshot data to the underlying DB.
+	// A batch is committed once it reaches this size at a version boundary; batches only ever
+	// split between versions (each committed batch must leave the DB at a consistent version with
+	// its hash), so a single version whose diff exceeds this produces one oversized batch.
+	//
+	// Flush throughput plateaus above roughly 1 MB. Keep this well below half the underlying DB's
+	// memtable size: pebble diverts batches larger than that onto its flushable-batch slow path,
+	// which hurts read amplification and compaction shape.
+	TargetBytesPerFlush uint64
 
 	// A special metadata key where the DB stores its hash.
 	//
@@ -64,7 +71,7 @@ func DefaultSnapshotEngineConfig() *SnapshotEngineConfig {
 		MetricsEnabled:               true,
 		MetricsScrapeIntervalSeconds: 10,
 		MaxUnflushedVersions:         4,
-		TargetKeysPerFlush:           1024 * 10,
+		TargetBytesPerFlush:          unit.MB * 4,
 		FlushSync:                    false,
 	}
 }
@@ -104,8 +111,8 @@ func (c *SnapshotEngineConfig) Validate() error {
 	if c.MaxUnflushedVersions == 0 {
 		return fmt.Errorf("MaxUnflushedVersions must be greater than 0")
 	}
-	if c.TargetKeysPerFlush <= 0 {
-		return fmt.Errorf("TargetKeysPerFlush must be positive")
+	if c.TargetBytesPerFlush == 0 {
+		return fmt.Errorf("TargetBytesPerFlush must be greater than 0")
 	}
 	if c.HashKey == "" {
 		return fmt.Errorf("HashKey must be non-empty")

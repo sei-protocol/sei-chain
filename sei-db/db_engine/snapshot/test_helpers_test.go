@@ -41,6 +41,11 @@ type testDB struct {
 	commitBlock   chan struct{}
 	getGate       chan struct{}
 	closed        atomic.Bool
+	// Batch lifecycle counters: batchesCreated increments in NewBatch, batchesClosed on a
+	// batch's first Close. Lets tests assert every created batch is released (types.Batch
+	// requires Close even after a successful Commit).
+	batchesCreated atomic.Int64
+	batchesClosed  atomic.Int64
 }
 
 func newTestDB(seed map[string][]byte) *testDB {
@@ -129,6 +134,7 @@ func (d *testDB) NewIter(opts *types.IterOptions) (dbm.Iterator, error) {
 }
 
 func (d *testDB) NewBatch() types.Batch {
+	d.batchesCreated.Add(1)
 	return &testBatch{db: d}
 }
 
@@ -216,10 +222,35 @@ func (b *testBatch) Commit(_ types.WriteOptions) error {
 	return nil
 }
 
-func (b *testBatch) Len() int { return len(b.ops) }
-func (b *testBatch) Reset()   { b.ops = nil }
+// Len mirrors pebble's wire encoding (12-byte header, then per op: a kind byte, uvarint lengths,
+// and payload bytes) so tests exercise the same bytes-based batch splitting as production. See the
+// byte-unit contract on types.Batch.Len.
+func (b *testBatch) Len() int {
+	size := 12
+	for _, op := range b.ops {
+		size += 1 + uvarintLen(uint64(len(op.key))) + len(op.key)
+		if !op.delete {
+			size += uvarintLen(uint64(len(op.value))) + len(op.value)
+		}
+	}
+	return size
+}
+
+// uvarintLen returns the encoded length of x as a uvarint.
+func uvarintLen(x uint64) int {
+	n := 1
+	for x >= 0x80 {
+		x >>= 7
+		n++
+	}
+	return n
+}
+func (b *testBatch) Reset() { b.ops = nil }
 func (b *testBatch) Close() error {
-	b.closed = true
+	if !b.closed {
+		b.closed = true
+		b.db.batchesClosed.Add(1)
+	}
 	return nil
 }
 

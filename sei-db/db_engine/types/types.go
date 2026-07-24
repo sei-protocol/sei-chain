@@ -93,6 +93,9 @@ type Batch interface {
 	Delete(key []byte) error
 	Commit(opts WriteOptions) error
 
+	// Len returns the current encoded size of the batch in bytes — NOT the number of buffered
+	// operations. Callers (e.g. the snapshot engine's flush batching) size batches by bytes;
+	// implementations must preserve this unit.
 	Len() int
 	Reset()
 	io.Closer

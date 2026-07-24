@@ -211,6 +211,46 @@ func TestBackpressureBlocksAndUnblocksOnFlush(t *testing.T) {
 	}
 }
 
+// A long-held reservation must not convert release-lag into Commit backpressure: versions blocked
+// behind a still-referenced snapshot are not flushable, so they must not count toward
+// MaxUnflushedVersions. Regression test: the flush-eligibility scan used to count them, blocking
+// Commit indefinitely while the underlying DB sat idle.
+func TestHeldReservationDoesNotTriggerCommitBackpressure(t *testing.T) {
+	db := newTestDB(nil)
+	cfg := newTestConfig(1, 4096)
+	cfg.MaxUnflushedVersions = 2
+	engine := newTestEngineWithConfig(t, cfg, db)
+
+	// v1 is hashed and flushed but never released: it cannot retire, so no later version can
+	// flush until it is released.
+	engine.Set([]byte("k1"), []byte("v1"))
+	snap1, err := engine.Commit()
+	require.NoError(t, err)
+	require.NoError(t, snap1.SetHash(testHash))
+	awaitFlushed(t, snap1, 2*time.Second)
+
+	// Accumulate well more than MaxUnflushedVersions hashed-and-released versions behind the
+	// held snapshot. None of them are flushable, so none may count toward backpressure and no
+	// Commit may block.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 5; i++ {
+			commitAndHashRelease(t, engine)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Commit blocked on backpressure while flushing was stalled on a held reservation")
+	}
+
+	// Releasing the blocker unblocks the pipeline: everything behind it flushes and retires.
+	require.NoError(t, snap1.Release())
+	awaitRetired(t, engine, 6)
+	require.True(t, db.has("k1"))
+}
+
 func TestCloseLeavesInjectedResourcesOpen(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithDB(t, db, 1, 4096)

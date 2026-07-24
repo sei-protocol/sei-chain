@@ -105,10 +105,12 @@ func TestOutOfOrderReleaseDoesNotRetireNewer(t *testing.T) {
 	awaitRetired(t, engine, 2)
 }
 
-func TestTargetKeysPerFlushSplitsIntoMultipleCommits(t *testing.T) {
+func TestTargetBytesPerFlushSplitsIntoMultipleCommits(t *testing.T) {
 	db := newTestDB(nil)
 	cfg := newTestConfig(1, 1<<20)
-	cfg.TargetKeysPerFlush = 3
+	// Each version contributes two 2-byte-key/1-byte-value writes plus the hash-key entry,
+	// roughly 34 encoded bytes (see testBatch.Len); 64 forces a split every couple of versions.
+	cfg.TargetBytesPerFlush = 64
 	cfg.MaxUnflushedVersions = 64
 	engine := newTestEngineWithConfig(t, cfg, db)
 
@@ -133,7 +135,29 @@ func TestTargetKeysPerFlushSplitsIntoMultipleCommits(t *testing.T) {
 	awaitRetired(t, engine, versions) // last version retired => everything flushed
 
 	require.Greater(t, db.commitCount.Load(), int64(1),
-		"a multi-version flush should split into multiple commits at the TargetKeysPerFlush boundary")
+		"a multi-version flush should split into multiple commits at the TargetBytesPerFlush boundary")
+}
+
+// Every batch the flusher creates must be closed after commit: the types.Batch contract requires
+// Close even on success (pebble batches leak memory otherwise). Regression test: the flusher used
+// to commit batches without ever closing them.
+func TestFlushClosesEveryBatch(t *testing.T) {
+	db := newTestDB(nil)
+	cfg := newTestConfig(1, 1<<20)
+	cfg.TargetBytesPerFlush = 64 // force multiple batches across the flushed versions
+	cfg.MaxUnflushedVersions = 64
+	engine := newTestEngineWithConfig(t, cfg, db)
+
+	const versions = 5
+	for i := 0; i < versions; i++ {
+		engine.Set([]byte{byte('a' + i)}, []byte("v"))
+		commitAndHashRelease(t, engine)
+	}
+	awaitRetired(t, engine, versions) // last version retired => everything flushed
+
+	require.Greater(t, db.batchesCreated.Load(), int64(1), "expected the flush to span multiple batches")
+	require.Equal(t, db.batchesCreated.Load(), db.batchesClosed.Load(),
+		"every created batch must be closed exactly once")
 }
 
 func TestReserveAfterRetirementFails(t *testing.T) {
