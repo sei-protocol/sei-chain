@@ -68,23 +68,20 @@ func (bv blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVot
 }
 
 // reweight recomputes already-stored votes under new Current after advanceEpoch.
-func (bv blockVotes) reweight(newEpoch *types.Epoch) bool {
+// Callers wake waiters via ctrl.Updated() after advanceEpoch (not via a return flag).
+func (bv blockVotes) reweight(newEpoch *types.Epoch) {
 	c := newEpoch.Committee()
 	for _, set := range bv.byHash {
 		set.reset()
 	}
-	quorumReached := false
 	for k, vote := range bv.byKey {
 		w := c.Weight(k)
 		if w == 0 {
 			continue
 		}
 		set := bv.byHash[vote.Msg().Header().Hash()]
-		if set.add(w, c.LaneQuorum(), vote).IsPresent() {
-			quorumReached = true
-		}
+		set.add(w, c.LaneQuorum(), vote)
 	}
-	return quorumReached
 }
 
 func (bv blockVotes) laneQC() utils.Option[*types.LaneQC] {

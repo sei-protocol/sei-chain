@@ -97,7 +97,8 @@ func TestPushVote_CurrentCommitteeOnly(t *testing.T) {
 	require.Equal(t, qc, gotQC)
 
 	// ep1: Faulty=(5-1)/3=1, LaneQuorum=2; A+B still form quorum under new weights.
-	require.True(t, bv.reweight(ep1))
+	bv.reweight(ep1)
+	require.True(t, bv.byHash[h].qc.IsPresent())
 	require.False(t, bv.pushVote(ep1, types.Sign(keyE, types.NewLaneVote(header))).IsPresent())
 	require.Contains(t, bv.byKey, keyE.Public())
 	require.Equal(t, header, bv.byHash[h].header)
@@ -151,7 +152,7 @@ func TestPushVote_ReweightAfterAdvance(t *testing.T) {
 	require.False(t, bv.pushVote(ep0, types.Sign(keyA, types.NewLaneVote(header))).IsPresent())
 	require.True(t, bv.pushVote(ep0, types.Sign(keyB, types.NewLaneVote(header))).IsPresent())
 
-	require.True(t, bv.reweight(ep1))
+	bv.reweight(ep1)
 	require.Equal(t, uint64(1), bv.byHash[h].weight)
 	require.Len(t, bv.byHash[h].votes, 1)
 	require.Equal(t, keyA.Public(), bv.byHash[h].votes[0].Key())
