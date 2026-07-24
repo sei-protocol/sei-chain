@@ -109,25 +109,25 @@ func TestSetupInitialDuo_EmptyRangePanics(t *testing.T) {
 
 func TestSetupInitialDuo_CommitQCMidSeedsPlaceholderNext(t *testing.T) {
 	r, _ := makeRegistry(t)
-	// Mid-5 CommitQC + tipcut EnsureDuoAt → {4,5}; always EnsureEpoch(windowLast+1) → 6.
+	// Mid-5 CommitQC + tipcut EnsureDuoAt → {4,5}; always through windowLast+2 → 6,7.
 	tip := midRoad(5)
 	r.SetupInitialDuo(utils.Some(types.RoadRange{First: tip, Next: tip + 1}))
-	for _, idx := range []types.EpochIndex{4, 5, 6} {
+	for _, idx := range []types.EpochIndex{4, 5, 6, 7} {
 		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
 			t.Fatalf("EpochAt(epoch %d) after CommitQC seeding: %v", idx, err)
 		}
 	}
-	if _, err := r.EpochAt(FirstRoad(7)); err == nil {
-		t.Fatal("EpochAt(epoch 7) should not be present from mid-epoch CommitQC")
+	if _, err := r.EpochAt(FirstRoad(8)); err == nil {
+		t.Fatal("EpochAt(epoch 8) should not be present from mid-epoch CommitQC")
 	}
 }
 
 func TestSetupInitialDuo_CommitQCClosingSeedsNext(t *testing.T) {
 	r, _ := makeRegistry(t)
-	// Closing tip: EnsureDuoAt(FirstRoad(6)) → {5,6}; EnsureEpoch(6) is redundant.
+	// Closing tip: EnsureDuoAt(FirstRoad(6)) → {5,6}; windowLast+2 → 7.
 	tip := LastRoad(5)
 	r.SetupInitialDuo(utils.Some(types.RoadRange{First: tip, Next: tip + 1}))
-	for _, idx := range []types.EpochIndex{5, 6} {
+	for _, idx := range []types.EpochIndex{5, 6, 7} {
 		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
 			t.Fatalf("EpochAt(epoch %d) after closing CommitQC: %v", idx, err)
 		}
@@ -135,19 +135,19 @@ func TestSetupInitialDuo_CommitQCClosingSeedsNext(t *testing.T) {
 	if _, err := r.DuoAt(FirstRoad(6)); err != nil {
 		t.Fatalf("DuoAt(FirstRoad(6)) after closing CommitQC: %v", err)
 	}
-	if _, err := r.EpochAt(FirstRoad(7)); err == nil {
-		t.Fatal("EpochAt(epoch 7) should not be present from CommitQC closing alone")
+	if _, err := r.EpochAt(FirstRoad(8)); err == nil {
+		t.Fatal("EpochAt(epoch 8) should not be present past windowLast+2")
 	}
 }
 
 func TestSetupInitialDuo_CommitSpanFromFirst(t *testing.T) {
 	r, _ := makeRegistry(t)
-	// Span mid-2..mid-5 → seed epochs 2..5, then placeholder windowLast+1 → 6.
+	// Span mid-2..mid-5 → seed epochs 2..5, then placeholder through windowLast+2 → 7.
 	r.SetupInitialDuo(utils.Some(types.RoadRange{
 		First: midRoad(2),
 		Next:  midRoad(5) + 1,
 	}))
-	for _, idx := range []types.EpochIndex{2, 3, 4, 5, 6} {
+	for _, idx := range []types.EpochIndex{2, 3, 4, 5, 6, 7} {
 		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
 			t.Fatalf("EpochAt(epoch %d) after commit span seeding: %v", idx, err)
 		}
@@ -155,8 +155,8 @@ func TestSetupInitialDuo_CommitSpanFromFirst(t *testing.T) {
 	if _, err := r.EpochAt(FirstRoad(1)); err == nil {
 		t.Fatal("EpochAt(epoch 1) should not be present when span.First is in epoch 2")
 	}
-	if _, err := r.EpochAt(FirstRoad(7)); err == nil {
-		t.Fatal("EpochAt(epoch 7) should not be present past placeholder windowLast+1")
+	if _, err := r.EpochAt(FirstRoad(8)); err == nil {
+		t.Fatal("EpochAt(epoch 8) should not be present past placeholder windowLast+2")
 	}
 }
 
