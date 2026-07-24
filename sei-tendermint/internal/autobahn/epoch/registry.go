@@ -168,22 +168,6 @@ func (r *Registry) EnsureDuoAt(road types.RoadIndex) {
 	r.EnsureEpoch(center)
 }
 
-// EnsureExecTipcut seeds registry lookahead for a half-open execution tipcut
-// (next road still needing execution). next==0 is a no-op. Otherwise last
-// completed is next-1; seeds IndexForRoad(lastDone)+1 and AdvanceIfNeeded(lastDone).
-//
-// TODO(autobahn): placeholder N+1 lookahead is OK with genesis committees.
-// When committees come from execution results, only seed epochs whose
-// committees are known from durable execute output.
-func (r *Registry) EnsureExecTipcut(next types.RoadIndex) {
-	if next == 0 {
-		return
-	}
-	lastDone := next - 1
-	r.EnsureEpoch(IndexForRoad(lastDone) + 1)
-	r.AdvanceIfNeeded(lastDone)
-}
-
 // AdvanceIfNeeded seeds epoch M+2 when roadIndex is LastRoad(M); else no-op.
 // Call only after the last global of that road has executed (IsLastBlock).
 //

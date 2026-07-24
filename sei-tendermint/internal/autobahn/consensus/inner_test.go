@@ -73,7 +73,7 @@ func TestNewInnerEmpty(t *testing.T) {
 }
 
 // TestNewInner_ConsensusTipLeadsDataWindow: data CommitQC tip is in epoch 1;
-// EnsureExecTipcut seeds epoch 2 (live lookahead). Persisted CommitQC is
+// registry has epoch 2 (live AdvanceIfNeeded lookahead). Persisted CommitQC is
 // LastRoad(1) → view tipcut FirstRoad(2).
 func TestNewInner_ConsensusTipLeadsDataWindow(t *testing.T) {
 	rng := utils.TestRng()
@@ -82,8 +82,8 @@ func TestNewInner_ConsensusTipLeadsDataWindow(t *testing.T) {
 	closing := epoch.LastRoad(1)
 	tipcut := epoch.FirstRoad(2)
 
-	// Live path: execution tipcut still on first road of epoch 1 → seed 2.
-	registry.EnsureExecTipcut(epoch.FirstRoad(1))
+	// Live path after finishing LastRoad(0): seed epoch 2.
+	registry.EnsureEpoch(2)
 	vote := types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: closing}))
 	votes := make([]*types.Signed[*types.CommitVote], len(keys))
 	for i, k := range keys {
