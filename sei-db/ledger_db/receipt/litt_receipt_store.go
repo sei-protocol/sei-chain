@@ -310,7 +310,7 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 			return err
 		}
 		bz := encodeReceiptData(receiptData{
-			Header: txHeader{
+			Header: TxHeader{
 				BlockNumber: blockNumber,
 				Offset:      record.TxOffset,
 				Length:      record.TxLength,

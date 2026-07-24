@@ -30,12 +30,10 @@ const (
 	receiptDataV1HeaderLen = versionLen + blockNumberLen + txOffsetLen + txLengthLen
 )
 
-// txHeader is the metadata header describing where a transaction's raw bytes
+// TxHeader is the metadata header describing where a transaction's raw bytes
 // live in the block store: the block number, and the (offset, length) sub-range
-// of that block's stored value that holds the transaction. Zero-valued when
-// unknown (e.g. block-store compression is on, or the receipt predates this
-// metadata).
-type txHeader struct {
+// of that block's stored value that holds the transaction. Zero-valued when unknown.
+type TxHeader struct {
 	BlockNumber uint64
 	Offset      uint32
 	Length      uint32
@@ -44,7 +42,7 @@ type txHeader struct {
 // receiptData is the decoded form of a stored receipt value: the block-store
 // location of its transaction plus the marshaled receipt body.
 type receiptData struct {
-	Header txHeader
+	Header TxHeader
 	Body   []byte
 }
 
@@ -72,7 +70,7 @@ func decodeReceiptData(raw []byte) (receiptData, error) {
 			return receiptData{}, fmt.Errorf("receipt value too short for v%d: %d < %d", receiptDataV1, len(raw), receiptDataV1HeaderLen)
 		}
 		return receiptData{
-			Header: txHeader{
+			Header: TxHeader{
 				BlockNumber: binary.BigEndian.Uint64(raw[versionLen:]),
 				Offset:      binary.BigEndian.Uint32(raw[versionLen+blockNumberLen:]),
 				Length:      binary.BigEndian.Uint32(raw[versionLen+blockNumberLen+txOffsetLen:]),
