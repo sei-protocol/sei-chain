@@ -198,6 +198,11 @@ func (sgcd SigGasConsumeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simula
 // Verify all signatures for a tx and return an error if any are invalid. Note,
 // the SigVerificationDecorator will not check signatures on ReCheck.
 //
+// NOTE: Deprecated for normal Sei App transaction handling. The active CheckTx
+// and DeliverTx ante logic lives under app/ante/; update that path for App tx
+// validation changes. This decorator remains wired for BaseApp-driven flows and
+// should not be treated as the primary App ante implementation.
+//
 // CONTRACT: Pubkeys are set in context for all signers before this decorator runs
 // CONTRACT: Tx must implement SigVerifiableTx interface
 type SigVerificationDecorator struct {
