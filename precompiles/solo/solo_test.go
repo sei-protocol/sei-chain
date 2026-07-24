@@ -13,10 +13,12 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/solo"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	authtx "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -240,39 +242,244 @@ func TestClaimSpecificNative(t *testing.T) {
 	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, claimee, "foo").Amount)
 }
 
+// TestClaimLegacyAminoJSON covers claim txs signed with
+// SIGN_MODE_LEGACY_AMINO_JSON — the only sign mode Ledger devices support. The
+// precompile does not pin a sign mode: verification dispatches on the mode
+// declared in the signature data, so amino-signed claims must verify exactly
+// like direct-signed ones.
+func TestClaimLegacyAminoJSON(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	origCtx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithChainID("sei-test")
+	txConfig := testkeeper.EVMTestApp.GetTxConfig()
+	a := pcommon.MustGetABI(solo.F, "abi.json")
+	method := a.Methods["claim"]
+	p := solo.NewExecutor(a, k, k.BankKeeper(), k.AccountKeeper(), wasmkeeper.NewDefaultPermissionKeeper(testkeeper.EVMTestApp.WasmKeeper), testkeeper.EVMTestApp.WasmKeeper, txConfig)
+	claimeeKey := testkeeper.MockPrivateKey()
+	claimee, _ := testkeeper.PrivateKeyToAddresses(claimeeKey)
+	claimerKey := testkeeper.MockPrivateKey()
+	_, claimer := testkeeper.PrivateKeyToAddresses(claimerKey)
+	acc := authtypes.NewBaseAccount(claimee, claimeeKey.PubKey(), 10, 0)
+	k.AccountKeeper().SetAccount(origCtx, acc)
+	require.NoError(t, k.BankKeeper().AddCoins(origCtx, claimee, sdk.NewCoins(sdk.NewCoin("abc", sdk.NewInt(2)), sdk.NewCoin("def", sdk.NewInt(3))), false))
+	aminoMode := signing.SignMode_SIGN_MODE_LEGACY_AMINO_JSON
+	directMode := signing.SignMode_SIGN_MODE_DIRECT
+	// happy path
+	ctx, _ := origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
+	signedMsg := signClaimMsgWithModes(t, evmtypes.NewMsgClaim(claimee, claimer), acc, claimeeKey, aminoMode, aminoMode, acc.GetSequence())
+	_, remainingGas, err := p.Claim(ctx, claimer, &method, []interface{}{signedMsg}, false)
+	require.NoError(t, err)
+	require.Greater(t, remainingGas, uint64(900000))
+	require.Equal(t, sdk.NewInt(2), k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, claimer), "abc").Amount)
+	require.Equal(t, sdk.NewInt(3), k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, claimer), "def").Amount)
+	// the claim must bump the sequence so the amino tx cannot be replayed
+	require.Equal(t, acc.GetSequence()+1, k.AccountKeeper().GetAccount(ctx, claimee).GetSequence())
+	_, _, err = p.Claim(ctx, claimer, &method, []interface{}{signedMsg}, false)
+	require.ErrorContains(t, err, "account sequence mismatch")
+	// the amino sign doc pins the chain ID: verification on another chain ID must fail
+	ctx, _ = origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1)).WithChainID("bad chain")
+	_, remainingGas, err = p.Claim(ctx, claimer, &method, []interface{}{signClaimMsgWithModes(t, evmtypes.NewMsgClaim(claimee, claimer), acc, claimeeKey, aminoMode, aminoMode, acc.GetSequence())}, false)
+	require.ErrorContains(t, err, "unable to verify single signer signature")
+	require.Equal(t, uint64(0), remainingGas)
+	// the amino sign doc pins the sequence: a signature over sequence+1 must fail
+	// even though the declared sequence matches the account
+	ctx, _ = origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
+	_, _, err = p.Claim(ctx, claimer, &method, []interface{}{signClaimMsgWithModes(t, evmtypes.NewMsgClaim(claimee, claimer), acc, claimeeKey, aminoMode, aminoMode, acc.GetSequence()+1)}, false)
+	require.ErrorContains(t, err, "unable to verify single signer signature")
+	// declared amino but signed over direct-mode bytes must fail
+	ctx, _ = origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
+	_, _, err = p.Claim(ctx, claimer, &method, []interface{}{signClaimMsgWithModes(t, evmtypes.NewMsgClaim(claimee, claimer), acc, claimeeKey, aminoMode, directMode, acc.GetSequence())}, false)
+	require.ErrorContains(t, err, "unable to verify single signer signature")
+	// declared direct but signed over amino bytes must fail
+	ctx, _ = origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
+	_, _, err = p.Claim(ctx, claimer, &method, []interface{}{signClaimMsgWithModes(t, evmtypes.NewMsgClaim(claimee, claimer), acc, claimeeKey, directMode, aminoMode, acc.GetSequence())}, false)
+	require.ErrorContains(t, err, "unable to verify single signer signature")
+	// a declared mode outside DefaultSignModes must be rejected by the handler map
+	ctx, _ = origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
+	_, _, err = p.Claim(ctx, claimer, &method, []interface{}{signClaimMsgWithModes(t, evmtypes.NewMsgClaim(claimee, claimer), acc, claimeeKey, signing.SignMode_SIGN_MODE_TEXTUAL, aminoMode, acc.GetSequence())}, false)
+	require.ErrorContains(t, err, "can't verify sign mode")
+	// txs carrying extension options cannot be verified under amino
+	ctx, _ = origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
+	extTb := txConfig.NewTxBuilder()
+	require.NoError(t, extTb.SetMsgs(evmtypes.NewMsgClaim(claimee, claimer)))
+	extAny, err := codectypes.NewAnyWithValue(evmtypes.NewMsgClaim(claimee, claimer))
+	require.NoError(t, err)
+	extTb.(authtx.ExtensionOptionsTxBuilder).SetExtensionOptions(extAny)
+	require.NoError(t, extTb.SetSignatures(signing.SignatureV2{
+		PubKey:   claimeeKey.PubKey(),
+		Data:     &signing.SingleSignatureData{SignMode: aminoMode, Signature: nil},
+		Sequence: acc.GetSequence(),
+	}))
+	signerData := authsigning.SignerData{ChainID: "sei-test", AccountNumber: acc.GetAccountNumber(), Sequence: acc.GetSequence()}
+	// amino sign bytes cannot even be produced for such a tx
+	_, err = txConfig.SignModeHandler().GetSignBytes(aminoMode, signerData, extTb.GetTx())
+	require.ErrorContains(t, err, "does not support protobuf extension options")
+	// sign over direct-mode bytes just to carry a well-formed signature on the wire
+	extSignBytes, err := txConfig.SignModeHandler().GetSignBytes(directMode, signerData, extTb.GetTx())
+	require.NoError(t, err)
+	extSig, err := claimeeKey.Sign(extSignBytes)
+	require.NoError(t, err)
+	require.NoError(t, extTb.SetSignatures(signing.SignatureV2{
+		PubKey:   claimeeKey.PubKey(),
+		Data:     &signing.SingleSignatureData{SignMode: aminoMode, Signature: extSig},
+		Sequence: acc.GetSequence(),
+	}))
+	extTxBz, err := txConfig.TxEncoder()(extTb.GetTx())
+	require.NoError(t, err)
+	_, _, err = p.Claim(ctx, claimer, &method, []interface{}{extTxBz}, false)
+	require.ErrorContains(t, err, "does not support protobuf extension options")
+}
+
+// TestClaimSpecificLegacyAminoJSON claims CW20, CW721, and native assets with a
+// single amino-signed MsgClaimSpecific. This exercises the amino JSON encoding
+// of the repeated assets field, the asset_type enum, and the optional denom in
+// one sign doc — the parts of the message most likely to drift between client
+// and chain serialization.
+func TestClaimSpecificLegacyAminoJSON(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	origCtx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithChainID("sei-test").WithBlockTime(time.Now())
+	txConfig := testkeeper.EVMTestApp.GetTxConfig()
+	a := pcommon.MustGetABI(solo.F, "abi.json")
+	method := a.Methods["claimSpecific"]
+	wKeeper := wasmkeeper.NewDefaultPermissionKeeper(testkeeper.EVMTestApp.WasmKeeper)
+	p := solo.NewExecutor(a, k, k.BankKeeper(), k.AccountKeeper(), wKeeper, testkeeper.EVMTestApp.WasmKeeper, txConfig)
+	claimeeKey := testkeeper.MockPrivateKey()
+	claimee, _ := testkeeper.PrivateKeyToAddresses(claimeeKey)
+	claimerKey := testkeeper.MockPrivateKey()
+	_, claimer := testkeeper.PrivateKeyToAddresses(claimerKey)
+	acc := authtypes.NewBaseAccount(claimee, claimeeKey.PubKey(), 10, 0)
+	k.AccountKeeper().SetAccount(origCtx, acc)
+	cw20Addr := setupCW20Contract(origCtx, claimeeKey, *wKeeper)
+	cw721Addr := setupCW721Contract(origCtx, claimeeKey, *wKeeper)
+	require.NoError(t, k.BankKeeper().AddCoins(origCtx, claimee, sdk.NewCoins(sdk.NewCoin("foo", sdk.OneInt())), false))
+	aminoMode := signing.SignMode_SIGN_MODE_LEGACY_AMINO_JSON
+	msg := evmtypes.NewMsgClaimSpecific(claimee, claimer,
+		&evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW20, ContractAddress: cw20Addr.String()},
+		&evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW721, ContractAddress: cw721Addr.String(), Denom: "5"},
+		&evmtypes.Asset{AssetType: evmtypes.AssetType_TYPENATIVE, Denom: "foo"},
+	)
+	ctx, _ := origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(5000000, 1, 1))
+	_, _, err := p.ClaimSpecific(ctx, claimer, &method, []interface{}{signClaimMsgWithModes(t, msg, acc, claimeeKey, aminoMode, aminoMode, acc.GetSequence())}, false)
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	require.NoError(t, err)
+	claimerSei := k.GetSeiAddressOrDefault(ctx, claimer)
+	require.Equal(t, sdk.ZeroInt(), queryCW20Balance(ctx, testkeeper.EVMTestApp.WasmKeeper, cw20Addr, claimee))
+	require.Equal(t, sdk.NewInt(1000000000), queryCW20Balance(ctx, testkeeper.EVMTestApp.WasmKeeper, cw20Addr, claimerSei))
+	for i := 0; i < 15; i++ {
+		expectedOwner := claimee.String()
+		if i == 5 {
+			expectedOwner = claimerSei.String()
+		}
+		require.Equal(t, expectedOwner, queryCW721Owner(ctx, testkeeper.EVMTestApp.WasmKeeper, cw721Addr, fmt.Sprintf("%d", i)))
+	}
+	require.Equal(t, sdk.OneInt(), k.BankKeeper().GetBalance(ctx, claimerSei, "foo").Amount)
+	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, claimee, "foo").Amount)
+}
+
+// TestClaimAminoSignDocCanonicalBytes locks the exact SIGN_MODE_LEGACY_AMINO_JSON
+// sign-doc bytes the chain computes for claim txs. Wallet integrations must
+// reproduce these bytes byte-for-byte for signatures to verify, so any diff here
+// is a breaking change for amino signers (e.g. Ledger) even if Go-side tests
+// still pass. Notable encoding facts locked in:
+//   - msgs are wrapped as {"type":"evm/MsgClaim(Specific)","value":{...}}
+//   - asset_type serializes as a JSON number, and zero values (asset_type
+//     TYPEUNKNOWN, empty denom/contract_address) are omitted entirely
+//   - account_number, sequence, and gas serialize as strings; a nil fee amount
+//     normalizes to []; memo is always present
+func TestClaimAminoSignDocCanonicalBytes(t *testing.T) {
+	txConfig := testkeeper.EVMTestApp.GetTxConfig()
+	aminoMode := signing.SignMode_SIGN_MODE_LEGACY_AMINO_JSON
+	claimee := sdk.AccAddress([]byte("claimee_____________"))
+	claimer := common.HexToAddress("0x0102030405060708090A0B0C0D0E0F1011121314")
+	cw20 := sdk.AccAddress([]byte("cw20________________"))
+	cw721 := sdk.AccAddress([]byte("cw721_______________"))
+	signerData := authsigning.SignerData{ChainID: "sei-test", AccountNumber: 7, Sequence: 3}
+
+	tb := txConfig.NewTxBuilder()
+	require.NoError(t, tb.SetMsgs(evmtypes.NewMsgClaim(claimee, claimer)))
+	bz, err := txConfig.SignModeHandler().GetSignBytes(aminoMode, signerData, tb.GetTx())
+	require.NoError(t, err)
+	require.Equal(t,
+		`{"account_number":"7","chain_id":"sei-test","fee":{"amount":[],"gas":"0"},"memo":"","msgs":[{"type":"evm/MsgClaim","value":{"claimer":"0x0102030405060708090a0B0c0d0e0f1011121314","sender":"sei1vdkxz6tdv4j47h6lta047h6lta047h6l9yjahw"}}],"sequence":"3"}`,
+		string(bz))
+
+	tb = txConfig.NewTxBuilder()
+	require.NoError(t, tb.SetMsgs(evmtypes.NewMsgClaimSpecific(claimee, claimer,
+		&evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW20, ContractAddress: cw20.String()},
+		&evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW721, ContractAddress: cw721.String(), Denom: "5"},
+		&evmtypes.Asset{AssetType: evmtypes.AssetType_TYPENATIVE, Denom: "foo"},
+	)))
+	bz, err = txConfig.SignModeHandler().GetSignBytes(aminoMode, signerData, tb.GetTx())
+	require.NoError(t, err)
+	require.Equal(t,
+		`{"account_number":"7","chain_id":"sei-test","fee":{"amount":[],"gas":"0"},"memo":"","msgs":[{"type":"evm/MsgClaimSpecific","value":{"assets":[{"asset_type":1,"contract_address":"sei1vdmnyvzlta047h6lta047h6lta047h6l9kc6zy"},{"asset_type":2,"contract_address":"sei1vdmnwv33ta047h6lta047h6lta047h6l03xmyj","denom":"5"},{"asset_type":3,"denom":"foo"}],"claimer":"0x0102030405060708090a0B0c0d0e0f1011121314","sender":"sei1vdkxz6tdv4j47h6lta047h6lta047h6l9yjahw"}}],"sequence":"3"}`,
+		string(bz))
+
+	// zero-valued enum fields are dropped from the sign doc: clients emitting
+	// "asset_type":0 for TYPEUNKNOWN would produce different bytes and fail
+	// signature verification
+	tb = txConfig.NewTxBuilder()
+	require.NoError(t, tb.SetMsgs(evmtypes.NewMsgClaimSpecific(claimee, claimer,
+		&evmtypes.Asset{AssetType: evmtypes.AssetType_TYPEUNKNOWN, ContractAddress: cw20.String()},
+	)))
+	bz, err = txConfig.SignModeHandler().GetSignBytes(aminoMode, signerData, tb.GetTx())
+	require.NoError(t, err)
+	require.Equal(t,
+		`{"account_number":"7","chain_id":"sei-test","fee":{"amount":[],"gas":"0"},"memo":"","msgs":[{"type":"evm/MsgClaimSpecific","value":{"assets":[{"contract_address":"sei1vdmnyvzlta047h6lta047h6lta047h6l9kc6zy"}],"claimer":"0x0102030405060708090a0B0c0d0e0f1011121314","sender":"sei1vdkxz6tdv4j47h6lta047h6lta047h6l9yjahw"}}],"sequence":"3"}`,
+		string(bz))
+}
+
 func signClaimMsg(t *testing.T, msg sdk.Msg, claimee sdk.AccAddress, claimer common.Address, acc authtypes.AccountI, signingKey cryptotypes.PrivKey) []byte {
-	tb := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
-	tb.SetMsgs(msg)
-	tb.SetSignatures(signing.SignatureV2{
+	defaultMode := testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode()
+	return signClaimMsgWithModes(t, msg, acc, signingKey, defaultMode, defaultMode, acc.GetSequence())
+}
+
+// signClaimMsgWithModes builds and encodes a single-message claim tx. declaredMode
+// is the sign mode carried in the tx's signer info; signedMode is the mode whose
+// sign bytes are actually signed; signDocSequence is the sequence baked into the
+// sign doc. Happy paths pass matching values; negative tests pass divergent values
+// to prove verification binds the signature to the declared mode and sign-doc
+// contents.
+func signClaimMsgWithModes(t *testing.T, msg sdk.Msg, acc authtypes.AccountI, signingKey cryptotypes.PrivKey, declaredMode signing.SignMode, signedMode signing.SignMode, signDocSequence uint64) []byte {
+	txConfig := testkeeper.EVMTestApp.GetTxConfig()
+	tb := txConfig.NewTxBuilder()
+	require.NoError(t, tb.SetMsgs(msg))
+	// set the (unsigned) signature first: direct-mode sign bytes cover the
+	// signer info, so the declared mode must be in place before signing
+	require.NoError(t, tb.SetSignatures(signing.SignatureV2{
 		PubKey: signingKey.PubKey(),
 		Data: &signing.SingleSignatureData{
-			SignMode:  testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
+			SignMode:  declaredMode,
 			Signature: nil,
 		},
 		Sequence: acc.GetSequence(),
-	})
+	}))
 	signerData := authsigning.SignerData{
 		ChainID:       "sei-test",
 		AccountNumber: acc.GetAccountNumber(),
-		Sequence:      acc.GetSequence(),
+		Sequence:      signDocSequence,
 	}
-	signBytes, err := testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().GetSignBytes(testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(), signerData, tb.GetTx())
-	require.Nil(t, err)
+	signBytes, err := txConfig.SignModeHandler().GetSignBytes(signedMode, signerData, tb.GetTx())
+	require.NoError(t, err)
 	sig, err := signingKey.Sign(signBytes)
-	require.Nil(t, err)
-	sigs := make([]signing.SignatureV2, 1)
-	sigs[0] = signing.SignatureV2{
+	require.NoError(t, err)
+	require.NoError(t, tb.SetSignatures(signing.SignatureV2{
 		PubKey: signingKey.PubKey(),
 		Data: &signing.SingleSignatureData{
-			SignMode:  testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
+			SignMode:  declaredMode,
 			Signature: sig,
 		},
 		Sequence: acc.GetSequence(),
-	}
-	require.Nil(t, tb.SetSignatures(sigs...))
-	sdktx := tb.GetTx()
-	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(sdktx)
-	require.Nil(t, err)
+	}))
+	txbz, err := txConfig.TxEncoder()(tb.GetTx())
+	require.NoError(t, err)
 	return txbz
 }
 
