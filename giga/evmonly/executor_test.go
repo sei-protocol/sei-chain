@@ -194,12 +194,15 @@ func TestExecutorCloseDisablesOCC(t *testing.T) {
 func TestOCCWorkerPoolCloseWaitsForInFlightRun(t *testing.T) {
 	pool := newOCCWorkerPool(2)
 	started := make(chan struct{})
+	var startedOnce sync.Once
 	release := make(chan struct{})
 	runDone := make(chan error, 1)
 
 	go func() {
-		runDone <- pool.Run(context.Background(), []occTxRange{{start: 0, end: 1}}, func(context.Context, occTxRange) error {
-			close(started)
+		runDone <- pool.Run(context.Background(), func(context.Context, int) error {
+			startedOnce.Do(func() {
+				close(started)
+			})
 			<-release
 			return nil
 		})
@@ -225,7 +228,7 @@ func TestOCCWorkerPoolCloseWaitsForInFlightRun(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Close did not return after Run completed")
 	}
-	require.ErrorIs(t, pool.Run(context.Background(), []occTxRange{{start: 0, end: 1}}, func(context.Context, occTxRange) error {
+	require.ErrorIs(t, pool.Run(context.Background(), func(context.Context, int) error {
 		return nil
 	}), errOCCWorkerPoolClosed)
 }
@@ -1624,10 +1627,64 @@ func TestStateDBGetCodeHashTracksCodelessAccountExistenceReads(t *testing.T) {
 		{kind: stateAccessBalance, address: eoa}: {},
 	})
 	validation := occValidationResult{valid: true}
-	accepted := validateSTMResultAgainstPrefix(&validation, writes, occTxExecution{gasLimit: 1, readSet: readSet}, 0, 10)
+	accepted := validateSTMResultAgainstPrefix(&validation, writes, occTxExecution{gasLimit: 1, readSet: readSet}, 0, 10, 0)
 	require.False(t, accepted)
 	require.False(t, validation.valid)
 	require.Equal(t, occFallbackReasonConflict, validation.fallbackReason)
+}
+
+func TestBlockSTMSchedulerFallsBackAtMaxIncarnation(t *testing.T) {
+	txCount := occMaxTxIncarnations + 1
+	req := PreparedBlock{Txs: make([]PreparedTx, txCount)}
+	scheduler := newOCCBlockSTMScheduler(
+		NewMemoryState(),
+		occSpeculativeRunner{req: req, blockGasLimit: 1_000_000},
+		newOCCWorkerPool(1),
+		newOCCWorkerPool(1),
+	)
+	lastTxIndex := txCount - 1
+	readSet := make(map[stateAccessKey]struct{}, occMaxTxIncarnations)
+	for txIndex := range occMaxTxIncarnations {
+		readSet[stateAccessKey{kind: stateAccessBalance, address: testAddress(byte(0xce + txIndex))}] = struct{}{}
+	}
+	reader := occValidationTask{
+		execution: occExecutionTask{txIndex: lastTxIndex, txIndexUint: uint(lastTxIndex), sourcePrefix: 0},
+		result: occTxExecution{
+			readSet:  readSet,
+			writeSet: map[stateAccessKey]struct{}{},
+			gasLimit: 1,
+			gasUsed:  1,
+		},
+	}
+	action, err := scheduler.handleValidation(reader)
+	require.NoError(t, err)
+	require.Empty(t, action.executionTasks)
+
+	for txIndex := 0; txIndex < occMaxTxIncarnations; txIndex++ {
+		action, err = scheduler.handleValidation(occValidationTask{
+			execution: occExecutionTask{txIndex: txIndex, txIndexUint: uint(txIndex), sourcePrefix: 0},
+			result: occTxExecution{
+				writeSet: map[stateAccessKey]struct{}{{kind: stateAccessBalance, address: testAddress(byte(0xce + txIndex))}: {}},
+				gasLimit: 1,
+				gasUsed:  1,
+			},
+		})
+		if errors.Is(err, errOCCMaxIncarnation) {
+			break
+		}
+		require.NoError(t, err)
+		require.Len(t, action.executionTasks, 1)
+		rerun := action.executionTasks[0]
+		require.Equal(t, lastTxIndex, rerun.txIndex)
+		reader.execution = rerun
+		action, err = scheduler.handleValidation(reader)
+		require.NoError(t, err)
+		require.Empty(t, action.executionTasks)
+	}
+
+	require.ErrorIs(t, err, errOCCMaxIncarnation)
+	require.Equal(t, occFallbackReasonMaxIncarnation, scheduler.validation.fallbackReason)
+	require.Equal(t, uint64(occMaxTxIncarnations-1), scheduler.validation.rerunCount)
 }
 
 func TestFinaliseClearsRefund(t *testing.T) {
