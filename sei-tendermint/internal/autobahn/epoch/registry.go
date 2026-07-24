@@ -44,7 +44,8 @@ type registryState struct {
 //     traffic; the registry may retain more epochs for restart and leashes.
 //   - Execution cannot pass commit. Sealing epoch N (N>0) requires registry
 //     N+1 (execution leash) and AppQC covering N-1 before Prev is dropped
-//     (prune leash). Finishing LastRoad(N-1) seeds epoch N+1 (AdvanceIfNeeded).
+//     (prune leash). Seal of epoch 0 is not prune-leashed: {∅,0}→{0,1} drops
+//     nothing. Finishing LastRoad(N-1) seeds epoch N+1 (AdvanceIfNeeded).
 //   - data/ is the sole restart seeder (SetupInitialDuo). Avail/consensus must
 //     not seed; tip into an unseeded epoch → EpochAt/DuoAt hard-fail.
 //   - Post-construction tipcuts: avail ≥ consensus ≥ data.CommitTipCut();
