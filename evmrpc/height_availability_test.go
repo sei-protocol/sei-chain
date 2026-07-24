@@ -124,7 +124,7 @@ func testCtxProvider(h int64) sdk.Context {
 }
 
 func newHeightTestWatermarks(client client.LocalClient, latest int64) *WatermarkManager {
-	return NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: latest})
+	return NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: latest}, 1)
 }
 
 // GetBlockByHash for a block whose height sits above safe latest must return
@@ -354,7 +354,7 @@ func TestGetBlockTransactionCountByNumberReceiptsPruned(t *testing.T) {
 
 	client := newHeightTestClient(100, 1, 200)
 	rs := &fakeReceiptStore{latest: 200, earliest: 150}
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs, 1)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	_, err := api.GetBlockTransactionCountByNumber(context.Background(), rpc.BlockNumber(100))
@@ -367,7 +367,7 @@ func TestGetBlockTransactionCountByHashReceiptsPruned(t *testing.T) {
 
 	client := newHeightTestClient(100, 1, 200)
 	rs := &fakeReceiptStore{latest: 200, earliest: 150}
-	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs, 1)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	_, err := api.GetBlockTransactionCountByHash(context.Background(), common.HexToHash(highBlockHashHex))

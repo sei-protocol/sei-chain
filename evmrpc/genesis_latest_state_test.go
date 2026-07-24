@@ -95,7 +95,7 @@ func TestStateAPILatestLikeTagsUseGenesisCommittedStateBeforeFirstCommit(t *test
 		return queryCtx
 	}
 	tmClient := &freshChainClient{}
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), 1)
 	api := evmrpc.NewStateAPI(tmClient, &testApp.EvmKeeper, ctxProvider, evmrpc.ConnectionTypeHTTP, watermarks)
 	expectedBalance := evmstate.NewDBImpl(testApp.GetCheckCtx(), &testApp.EvmKeeper, true).GetBalance(address).ToBig().String()
 
@@ -138,7 +138,7 @@ func TestSimulationBackendLatestLikeTagsUseGenesisCommittedStateBeforeFirstCommi
 		require.NoError(t, err)
 		return queryCtx
 	}
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore(), 1)
 	backend := evmrpc.NewBackend(
 		ctxProvider,
 		&testApp.EvmKeeper,

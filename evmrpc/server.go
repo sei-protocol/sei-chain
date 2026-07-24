@@ -42,6 +42,7 @@ func NewEVMHTTPServer(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	stateStore types.StateStore,
+	genesisInitialHeight int64,
 	traceCtxProviders ...TraceContextProvider,
 ) (EVMServer, error) {
 
@@ -85,7 +86,7 @@ func NewEVMHTTPServer(
 		MaxStateOverrideAccounts:     config.MaxStateOverrideAccounts,
 		MaxStateOverrideSlots:        config.MaxStateOverrideSlots,
 	}
-	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
+	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore(), genesisInitialHeight)
 
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
@@ -251,6 +252,7 @@ func NewEVMWebSocketServer(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	stateStore types.StateStore,
+	genesisInitialHeight int64,
 	blockHeaderNotifier *BlockHeaderNotifier,
 ) (EVMServer, error) {
 	// Initialize global worker pool with configuration (metrics are embedded in pool)
@@ -279,7 +281,7 @@ func NewEVMWebSocketServer(
 		MaxStateOverrideAccounts:     config.MaxStateOverrideAccounts,
 		MaxStateOverrideSlots:        config.MaxStateOverrideSlots,
 	}
-	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
+	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore(), genesisInitialHeight)
 	// DB semaphore aligned with worker count
 	dbReadSemaphore := make(chan struct{}, GetGlobalWorkerPool().WorkerCount())
 	globalBlockCache := NewBlockCache(3000)

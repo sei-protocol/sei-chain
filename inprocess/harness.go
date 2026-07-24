@@ -405,7 +405,11 @@ func (net *Network) startNode(ctx context.Context, n *node, enc encoding) error 
 	// block on the first-block start signal. (It also registers query/tx services
 	// on the in-process gRPC query router, but the harness starts no standalone
 	// cosmos gRPC listener — TM RPC + EVM are the served surface.)
-	theApp.RegisterLocalServices(lc, n.clientCx.TxConfig)
+	var genesisInitialHeight int64
+	if env := tmNode.RPCEnvironment(); env != nil && env.GenDoc != nil {
+		genesisInitialHeight = env.GenDoc.InitialHeight
+	}
+	theApp.RegisterLocalServices(lc, n.clientCx.TxConfig, genesisInitialHeight)
 	return nil
 }
 

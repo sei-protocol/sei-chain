@@ -26,7 +26,7 @@ func newInfoAPIWithWatermarks(ctxProvider func(int64) sdk.Context) *evmrpc.InfoA
 		}
 		return ctx
 	}
-	wm := evmrpc.NewWatermarkManager(&MockClient{}, wrapped, nil, EVMKeeper.ReceiptStore())
+	wm := evmrpc.NewWatermarkManager(&MockClient{}, wrapped, nil, EVMKeeper.ReceiptStore(), 1)
 	return evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, wrapped, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, wm)
 }
 
@@ -480,7 +480,7 @@ func TestBlockNumberWatermarkDirect(t *testing.T) {
 		}
 		return Ctx.WithBlockHeight(height)
 	}
-	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
+	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore(), 1)
 	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProvider, nil, "", 1024, evmrpc.ConnectionTypeHTTP, nil, wm)
 	require.NotPanics(t, func() {
 		_ = api.BlockNumber(t.Context())
@@ -494,7 +494,7 @@ func TestWatermarkComputation(t *testing.T) {
 		}
 		return Ctx.WithBlockHeight(height)
 	}
-	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
+	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore(), 1)
 	require.NotPanics(t, func() {
 		_, _, _, err := wm.Watermarks(t.Context())
 		assert.NoError(t, err)

@@ -28,6 +28,12 @@ type WatermarkManager struct {
 	ctxProvider  func(int64) sdk.Context
 	stateStore   types.StateStore // nil if SS is disabled.
 	receiptStore receipt.ReceiptStore
+	// genesisInitialHeight is the chain's genesis InitialHeight, injected at
+	// construction from the node's parsed GenesisDoc. It floors the earliest
+	// queryable state height so that a never-pruned state store (which reports
+	// its earliest version as 0) resolves `earliest` to genesis rather than the
+	// tip. Zero disables the floor (behavior reverts to the raw state floor).
+	genesisInitialHeight int64
 }
 
 func NewWatermarkManager(
@@ -35,12 +41,14 @@ func NewWatermarkManager(
 	ctxProvider func(int64) sdk.Context,
 	stateStore types.StateStore,
 	receiptStore receipt.ReceiptStore,
+	genesisInitialHeight int64,
 ) *WatermarkManager {
 	return &WatermarkManager{
-		tmClient:     tmClient,
-		ctxProvider:  ctxProvider,
-		stateStore:   stateStore,
-		receiptStore: receiptStore,
+		tmClient:             tmClient,
+		ctxProvider:          ctxProvider,
+		stateStore:           stateStore,
+		receiptStore:         receiptStore,
+		genesisInitialHeight: genesisInitialHeight,
 	}
 }
 
@@ -65,6 +73,19 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 	if m.stateStore != nil {
 		latest = min(latest, m.stateStore.GetLatestVersion())
 		stateEarliest = m.stateStore.GetEarliestVersion()
+	}
+
+	// Floor the earliest state height at genesis. A never-pruned store reports
+	// its earliest version as 0 (the earliest-version key is only written by
+	// pruning or state-sync), which would otherwise resolve `earliest` to the
+	// tip via CreateQueryContext's height-0 coercion. Guarding on
+	// stateEarliest < latest leaves the pre-commit window (no blocks yet, where
+	// stateEarliest == latest) reading the genesis checkState, and the clamp to
+	// latest keeps the floor from ever exceeding the safe latest. Using the real
+	// InitialHeight (not a literal 1) keeps this correct for chains started
+	// above height 1, whose version 1 was never committed.
+	if stateEarliest < latest {
+		stateEarliest = max(stateEarliest, min(m.genesisInitialHeight, latest))
 	}
 	return blockEarliest, stateEarliest, latest, nil
 }
@@ -93,7 +114,7 @@ func (m *WatermarkManager) EarliestStateHeight(ctx context.Context) (int64, erro
 // an error explaining whether it is too old (pruned) or too new (not yet
 // available).
 func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
-	blockEarliest, stateEarliest, latest, err := m.Watermarks(ctx)
+	_, stateEarliest, latest, err := m.Watermarks(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -122,17 +143,10 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		return latest, nil
 	case rpc.EarliestBlockNumber:
-		if stateEarliest == 0 {
-			// An unpruned store reports earliest state as 0. Resolve `earliest`
-			// to the earliest retained block (genesis) instead: height 0 is
-			// coerced to the tip by CreateQueryContext. Clamp to latest so the
-			// pre-commit window (no blocks yet) stays at 0 and reads checkState.
-			//
-			// Under Autobahn, blockEarliest stays 0 (Status leaves
-			// EarliestBlockHeight unpopulated), so earliest still resolves to the
-			// tip there; that node class is tracked separately in SEI-10385.
-			return min(blockEarliest, latest), nil
-		}
+		// stateEarliest is already floored to genesis in Watermarks, so an
+		// unpruned store resolves `earliest` to the genesis InitialHeight rather
+		// than the tip, and the pre-commit window (stateEarliest == latest ==
+		// its pre-genesis value) still reads the checkState genesis.
 		return stateEarliest, nil
 	}
 

@@ -76,7 +76,11 @@ func startInProcess(cfg Config, val *Validator) error {
 		// We'll need a RPC client if the validator exposes a gRPC or REST endpoint.
 		if val.APIAddress != "" || val.AppConfig.GRPC.Enable {
 			val.ClientCtx = val.ClientCtx.WithClient(val.RPCClient)
-			app.RegisterLocalServices(localClient, val.ClientCtx.TxConfig)
+			var genesisInitialHeight int64
+			if env := tmNode.RPCEnvironment(); env != nil && env.GenDoc != nil {
+				genesisInitialHeight = env.GenDoc.InitialHeight
+			}
+			app.RegisterLocalServices(localClient, val.ClientCtx.TxConfig, genesisInitialHeight)
 		}
 	}
 
