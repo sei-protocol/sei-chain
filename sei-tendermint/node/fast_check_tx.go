@@ -14,10 +14,7 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-const (
-	evmTxTypeURL     = "/seiprotocol.seichain.evm.MsgEVMTransaction"
-	maxInt64AsUint64 = uint64(1<<63 - 1)
-)
+const evmTxTypeURL = "/seiprotocol.seichain.evm.MsgEVMTransaction"
 
 type fastCheckTxApplication struct {
 	abci.Application

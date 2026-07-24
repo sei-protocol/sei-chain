@@ -14,6 +14,7 @@ import (
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
@@ -54,6 +55,31 @@ func TestFastCheckTxApplicationOverridesCheckTx(t *testing.T) {
 	require.False(t, app.called)
 	require.Equal(t, int64(123456), res.GasWanted)
 	require.True(t, res.IsEVM)
+}
+
+func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
+	app := abci.BaseApplication{}
+
+	prepared := prepareApplication(&config.Config{
+		BaseConfig: config.BaseConfig{
+			MockApp:     true,
+			FastCheckTx: true,
+		},
+	}, app)
+
+	require.IsType(t, &MockApp{}, prepared)
+}
+
+func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
+	app := abci.BaseApplication{}
+
+	prepared := prepareApplication(&config.Config{
+		BaseConfig: config.BaseConfig{
+			FastCheckTx: true,
+		},
+	}, app)
+
+	require.IsType(t, fastCheckTxApplication{}, prepared)
 }
 
 type checkTxCountingApp struct {

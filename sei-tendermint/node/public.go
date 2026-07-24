@@ -31,9 +31,7 @@ func New(
 	tracerProviderOptions []trace.TracerProviderOption,
 	consensusPolicy tmtypes.ConsensusPolicy,
 ) (local.NodeService, error) {
-	if conf.FastCheckTx {
-		app = fastCheckTxApplication{Application: app}
-	}
+	app = prepareApplication(conf, app)
 	proxyApp := proxy.New(app)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -77,4 +75,14 @@ func New(
 	default:
 		return nil, fmt.Errorf("%q is not a valid mode", conf.Mode)
 	}
+}
+
+func prepareApplication(conf *config.Config, app abci.Application) abci.Application {
+	if conf.MockApp {
+		return NewMockApp(app)
+	}
+	if conf.FastCheckTx {
+		return fastCheckTxApplication{Application: app}
+	}
+	return app
 }

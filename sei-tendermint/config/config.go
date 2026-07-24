@@ -239,6 +239,9 @@ type BaseConfig struct {
 	// FastCheckTx bypasses application CheckTx with a stateless EVM transaction parser.
 	FastCheckTx bool `mapstructure:"fast-check-tx"`
 
+	// MockApp replaces the provided ABCI application with an in-memory EVM nonce app.
+	MockApp bool `mapstructure:"mock-app"`
+
 	// Deprecated: out-of-process ABCI has been removed and this option no longer
 	// has any effect.
 	ABCI string `mapstructure:"abci"`

@@ -143,6 +143,9 @@ node-key-file = "{{ js .BaseConfig.NodeKey }}"
 # FastCheckTx bypasses application CheckTx with a stateless EVM transaction parser.
 fast-check-tx = {{ .BaseConfig.FastCheckTx }}
 
+# MockApp replaces the provided ABCI application with an in-memory EVM nonce app.
+mock-app = {{ .BaseConfig.MockApp }}
+
 #######################################################################
 ###                   Autobahn Configuration                        ###
 #######################################################################
