@@ -5,8 +5,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// laneVoteSet caches Current-epoch weight for one hash.
-// header survives reweight; qc is set at quorum.
+// laneVoteSet holds weight toward LaneQC for one header hash under Current.
 type laneVoteSet struct {
 	weight uint64
 	votes  []*types.Signed[*types.LaneVote]
@@ -33,7 +32,7 @@ func (s *laneVoteSet) add(weight, quorum uint64, vote *types.Signed[*types.LaneV
 	return utils.Some(s.qc)
 }
 
-// blockVotes weights Current only; reweight on epoch advance.
+// blockVotes weights votes under Current; reweight on epoch advance.
 type blockVotes struct {
 	byKey  map[types.PublicKey]*types.Signed[*types.LaneVote]
 	byHash map[types.BlockHeaderHash]*laneVoteSet

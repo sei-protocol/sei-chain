@@ -36,81 +36,30 @@ type registryState struct {
 	latest types.EpochIndex
 }
 
-// Registry is the authoritative source of epoch and committee information.
-// All layers (consensus, data, avail) read from it.
+// Registry is the authoritative store of epoch/committee metadata for all
+// layers (consensus, data, avail).
 //
-// The registry is independent of Availability pruning: Avail keeps a bounded
-// Prev|Current operating window, while the registry may retain older (and
-// forward-seeded) epochs for restart and admission / execution-leash logic.
-// Live admit/export uses each layer's EpochDuo; Registry.EpochAt / WaitForDuo
-// are not a substitute for that window.
+// Invariants:
+//   - Independent of each layer's live EpochDuo (Prev|Current). Duo admits
+//     traffic; the registry may retain more epochs for restart and leashes.
+//   - Execution cannot pass commit. Sealing epoch N (N>0) requires registry
+//     N+1 (execution leash) and AppQC covering N-1 before Prev is dropped
+//     (prune leash). Finishing LastRoad(N-1) seeds epoch N+1 (AdvanceIfNeeded).
+//   - data/ is the sole restart seeder (SetupInitialDuo). Avail/consensus must
+//     not seed; tip into an unseeded epoch → EpochAt/DuoAt hard-fail.
+//   - Post-construction tipcuts: avail ≥ consensus ≥ data.CommitTipCut();
+//     behind → hard-fail.
+//   - Placeholders use the genesis committee until real committees are wired.
 //
-// # Tip interlocking (commit ↔ execution)
-//
-// Commit and execution are independent pipelines but must stay interlocked:
-//
-//   - Forward: execution cannot pass commit.
-//   - Backward (coarse): consensus must not enter epoch N+1 before execution
-//     has finished epoch N-1. Finishing the last road of epoch N-1 registers
-//     epoch N+1 (AdvanceIfNeeded: last road of M seeds M+2, so M=N-1 → N+1).
-//     Avail does not track per-road exec progress — it only gates when sealing
-//     epoch N (last CommitQC of N): N+1 must already exist.
-//   - Do not soft-prune, skip roads, or silently repair tip skew.
-//
-// Avail keeps a two-epoch operating window {E-1, E}. CommitQCs span a suffix of
-// E-1 and a prefix of E; AppQC is the prune floor. The window must not drop
-// E-1 until E-1 is fully pruned — otherwise FullCommitQC export would skip
-// still-queued roads (data/ cannot gap).
-//
-// Leashes on avail CommitQC insert when sealing epoch N > 0 (last road of N) —
-// PushCommitQC and PushAppQC tipcut pushBack (AppQC/CommitQC arrive on separate
-// streams). Mid-N admits need only the Current window / committee N:
-//
-//   - AppQC of N — duo would drop N-1; require N-1 fully pruned first (prune leash).
-//   - Registry has epoch N+1 — wait via WaitForDuo (execution leash). Gate on
-//     epoch existence, not PushAppHash / local-exec cursors. Epoch 0 has no
-//     prior epoch to drop / unlock.
-//
-// Restart:
-//
-//   - data/ is the sole restart seeder (SetupInitialDuo from data.NewState).
-//     NewRegistry only installs epoch 0; empty BlockDB seeds genesis neighbor
-//     {0,1} via EnsureDuoAt(FirstRoad(1)) so sealing epoch 0 can WaitForDuo.
-//     Avail/consensus tips may lead data (async FullCommitQC→
-//     data.PushQC), but do not seed the registry. Lead into an unseeded epoch →
-//     EpochAt/DuoAt hard-fail (no soft-heal). When the execution tipcut is already
-//     in the CommitQC tip's epoch N, EnsureExecTipcut seeds N+1 (N-1 is done) — that
-//     is how a tipcut in N+1 stays inside the reconstructed window. Seeding N+2 still
-//     requires the execution tipcut to be past LastRoad(N) (fully finished that
-//     road → tipcut LastRoad(N)+1); AdvanceIfNeeded owns the LastRoad check.
-//     Leading by more than one epoch should not happen: sealing N+1 needs registry N+2, which
-//     needs execution of LastRoad(N), which needs that CommitQC in data — so if
-//     data tip is still in N, avail/consensus cannot have entered N+2. If it
-//     did, EpochAt/DuoAt hard-fails (corrupt / inconsistent local state; do
-//     not soft-heal).
-//   - After construction: consensus checks avail tipcut >= consensus tipcut;
-//     the giga validator router checks consensus tipcut >= data.CommitTipCut()
-//     (together ⇒ avail >= data). Behind → hard-fail.
-//   - SetupInitialDuo may register genesis-committee placeholders (temporary;
-//     real committees TBD) — that is not inventing roads or repairing
-//     inconsistent tips. data.NewState errors if a positive LastExecutedBlock
-//     has no covering CommitQC. Empty CommitQC ranges are rejected.
-//   - FullCommitQC export: ErrRoadBeforeWindow → data.ErrPruned (caller jumps
-//     ahead). Safe because the boundary AppQC-of-N leash ensures before-window
-//     roads are already pruned; ErrRoadAfterWindow hard-fails (no wait).
-//   - data.PushQC / PushBlock: before-window hard-fails (epochDuo only). Unlike
-//     export, ingest must not soft-map to ErrPruned or Registry.EpochAt — the
-//     WaitForDuo leash keeps Prev available for catch-up fill; a duo already at
-//     {N,N+1} means N-1 is too old to admit (restart soft-heal forbidden).
+// TODO(autobahn): replace genesis placeholders with epoch info on blocks.
 type Registry struct {
 	state utils.RWMutex[*registryState]
-	// highestEpoch is a monotonic high-water mark for WaitForDuo.
-	// Kept off registryState so EpochAt can stay on the RLock fast path.
+	// highestEpoch wakes WaitForDuo; monotonic, off registryState for EpochAt RLock.
 	highestEpoch utils.AtomicSend[types.EpochIndex]
 }
 
-// NewRegistry creates a Registry with the genesis committee (epoch 0 only).
-// Epoch 1+ placeholders are seeded by data.NewState via SetupInitialDuo.
+// NewRegistry creates a Registry with genesis epoch 0 only.
+// Epoch 1+ are seeded by data.NewState via SetupInitialDuo.
 func NewRegistry(
 	committee *types.Committee,
 	firstBlock types.GlobalBlockNumber,
@@ -126,24 +75,18 @@ func NewRegistry(
 	}, nil
 }
 
-// SetupInitialDuo seeds placeholder epochs on restart. Called only from
-// data.NewState (see Registry tip-interlock docs). Avail/consensus do not seed.
+// SetupInitialDuo seeds placeholder epochs on restart. Call only from
+// data.NewState. Idempotent for existing entries.
 //
-//  1. commitQCs — half-open retained CommitQC road range [First, Next). Seeds
-//     every epoch covering [First, Next), then EnsureDuoAt(Next). None = empty
-//     store: seed genesis neighbor {0,1} via EnsureDuoAt(FirstRoad(1)) so sealing
-//     epoch 0 can WaitForDuo(FirstRoad(1)). Empty range (First >= Next) panics.
-//  2. nextRoadToExecute — half-open execution tipcut; EnsureExecTipcut
-//     restores AdvanceIfNeeded lookahead. None = nothing fully executed yet.
-//     Ignored when past commit tipcut (Next). Present without a commit span
-//     panics (inconsistent: execution cannot lead an empty CommitQC store).
+// Args:
+//   - commitQCs: half-open retained CommitQC range [First, Next). Seeds every
+//     epoch covering [First, Next), then EnsureDuoAt(Next). None = empty store
+//     → EnsureDuoAt(FirstRoad(1)) so {0,1}. Empty range (First >= Next) panics.
+//   - nextRoadToExecute: half-open execution tipcut (next road still needing
+//     execution). None = nothing executed. Past commit tipcut → warn, ignore.
+//     Present without commitQCs panics.
 //
-// Idempotent for existing entries.
-//
-// TODO(autobahn): nextRoadToExecute is derived from app.LastBlockHeight() (Cosmos
-// app state DB). Do not keep depending on the app DB for execution tip / epoch
-// seeding — persist that in Giga storage alongside CommitQC/AppQC.
-// TODO(autobahn): replace genesis placeholders with epoch info carried on blocks.
+// TODO(autobahn): persist execution tip in Giga storage (stop using app DB).
 func (r *Registry) SetupInitialDuo(
 	nextRoadToExecute utils.Option[types.RoadIndex],
 	commitQCs utils.Option[types.RoadRange],
@@ -180,13 +123,10 @@ func (r *Registry) SetupInitialDuo(
 	if nextRoadToExecute.IsPresent() {
 		panic("execution tipcut without CommitQC span on restart")
 	}
-	// Fresh chain: AdvanceIfNeeded(LastRoad(0)) only seeds epoch 2; sealing
-	// epoch 0 WaitForDuo(FirstRoad(1)) needs epoch 1 registered first.
 	r.EnsureDuoAt(FirstRoad(1))
 }
 
 // FirstBlock returns the first global block number of the genesis epoch.
-// Used as the cold-start default (no WAL, no snapshot); WAL overrides this on restart.
 func (r *Registry) FirstBlock() types.GlobalBlockNumber {
 	for s := range r.state.RLock() {
 		return s.m[0].FirstBlock()
@@ -194,9 +134,8 @@ func (r *Registry) FirstBlock() types.GlobalBlockNumber {
 	panic("unreachable")
 }
 
-// EpochAt returns the epoch for the given road index.
-// Returns an error if the epoch has not been registered via SetupInitialDuo or
-// AdvanceIfNeeded.
+// EpochAt returns the epoch containing roadIndex.
+// Error if that epoch is not registered.
 func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 	epochIdx := IndexForRoad(roadIndex)
 	for s := range r.state.RLock() {
@@ -208,11 +147,8 @@ func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 	panic("unreachable")
 }
 
-// makeEpoch constructs a new epoch at epochIdx using the genesis committee and
-// inserts it into s. Caller must hold the write lock. Overwrites if present;
-// callers that must not clobber should check existence first.
-// Note: does NOT advance s.latest. Panics if genesis (epoch 0) is missing —
-// NewRegistry always installs it.
+// makeEpoch inserts a genesis-committee placeholder at epochIdx.
+// Caller holds the write lock. Overwrites if present. Panics without epoch 0.
 func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) *types.Epoch {
 	genesis, ok := s.m[0]
 	if !ok {
@@ -221,8 +157,6 @@ func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) *types
 	firstRoad := FirstRoad(epochIdx)
 	epoch := types.NewEpoch(epochIdx, types.RoadRange{First: firstRoad, Next: FirstRoad(epochIdx + 1)}, genesis.FirstTimestamp(), genesis.Committee(), genesis.FirstBlock())
 	s.m[epochIdx] = epoch
-	// Wake WaitForDuo waiters. makeEpoch runs under the write lock, so this
-	// Load/Store is serialized; highestEpoch only advances.
 	if epochIdx > r.highestEpoch.Load() {
 		r.highestEpoch.Store(epochIdx)
 	}
@@ -243,8 +177,7 @@ func (r *Registry) EnsureEpoch(idx types.EpochIndex) {
 	}
 }
 
-// EnsureDuoAt ensures epochs needed for DuoAt(road) (Current, and Prev when
-// center > 0).
+// EnsureDuoAt ensures epochs for DuoAt(road): Current, and Prev when center > 0.
 func (r *Registry) EnsureDuoAt(road types.RoadIndex) {
 	center := IndexForRoad(road)
 	if center > 0 {
@@ -253,11 +186,9 @@ func (r *Registry) EnsureDuoAt(road types.RoadIndex) {
 	r.EnsureEpoch(center)
 }
 
-// EnsureExecTipcut restores registry lookahead for a half-open execution tipcut
-// (next road that still needs execution). Roads strictly below next are fully
-// done — same shape as a CommitQC tipcut. next==0 means nothing completed yet.
-// Last completed road is next-1; AdvanceIfNeeded owns whether that road is
-// LastRoad(epoch).
+// EnsureExecTipcut seeds registry lookahead for a half-open execution tipcut
+// (next road still needing execution). next==0 is a no-op. Otherwise last
+// completed is next-1; seeds IndexForRoad(lastDone)+1 and AdvanceIfNeeded(lastDone).
 func (r *Registry) EnsureExecTipcut(next types.RoadIndex) {
 	if next == 0 {
 		return
@@ -267,12 +198,9 @@ func (r *Registry) EnsureExecTipcut(next types.RoadIndex) {
 	r.AdvanceIfNeeded(lastDone)
 }
 
-// AdvanceIfNeeded seeds epoch M+2 when roadIndex is LastRoad(M) (design: finishing
-// N-1 registers N+1, i.e. M=N-1 → M+2=N+1). Call only after the last global of
-// that road has executed (GlobalRange.IsLastBlock) — the live path and data's
-// execution tipcut (road+1 when complete) share that gate; this function owns
-// the LastRoad(epoch) check. Earlier roads in the epoch are a no-op.
-// Committee for M+2 is currently the genesis committee.
+// AdvanceIfNeeded seeds epoch M+2 when roadIndex is LastRoad(M); else no-op.
+// Call only after the last global of that road has executed (IsLastBlock).
+//
 // TODO: pass the real M+2 committee once execution derives it.
 func (r *Registry) AdvanceIfNeeded(roadIndex types.RoadIndex) {
 	tipEpoch := IndexForRoad(roadIndex)
@@ -283,12 +211,7 @@ func (r *Registry) AdvanceIfNeeded(roadIndex types.RoadIndex) {
 }
 
 // DuoAt returns the EpochDuo centered on the epoch containing roadIndex.
-// Current must already be present; returns an error if missing. Prev is absent
-// only when Current is epoch 0.
-//
-// The registry retains epochs indefinitely (no pruning). If pruning is added,
-// a missing epoch below the retain window should surface as ErrPruned so
-// callers can silently drop rather than Wait forever.
+// Current must already be registered. Prev absent only for epoch 0.
 func (r *Registry) DuoAt(roadIndex types.RoadIndex) (types.EpochDuo, error) {
 	centerIdx := IndexForRoad(roadIndex)
 	current, err := r.EpochAt(FirstRoad(centerIdx))
@@ -304,9 +227,8 @@ func (r *Registry) DuoAt(roadIndex types.RoadIndex) (types.EpochDuo, error) {
 	return types.NewEpochDuo(current, prev), nil
 }
 
-// WaitForDuo blocks until DuoAt(roadIndex) can succeed (Current registered),
-// then returns that duo. Same retention note as DuoAt.
-// Must not hold the avail/data inner lock (execution seeds via AdvanceIfNeeded).
+// WaitForDuo blocks until DuoAt(roadIndex) succeeds, then returns that duo.
+// Must not hold the avail/data inner lock (execution may seed via AdvanceIfNeeded).
 func (r *Registry) WaitForDuo(ctx context.Context, roadIndex types.RoadIndex) (types.EpochDuo, error) {
 	if duo, err := r.DuoAt(roadIndex); err == nil {
 		return duo, nil

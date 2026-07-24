@@ -120,10 +120,8 @@ func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (
 		persisted = *decoded
 	}
 
-	// View epoch = tipcut road; CommitQC may still be the prior epoch's last road.
-	// Epoch seeding is owned by data.NewState (SetupInitialDuo). EpochAt hard-fails
-	// if this tip needs an unseeded epoch. Tip ordering vs avail is checked in
-	// NewState; vs data in p2p.checkRestartTips.
+	// View epoch = tipcut; CommitQC may be prior epoch. Seeding is data's;
+	// missing epoch hard-fails. Tip order: NewState / checkRestartTips.
 	nextViewRoad := types.NextIndexOpt(persisted.CommitQC)
 	viewEpoch, err := registry.EpochAt(nextViewRoad)
 	if err != nil {
@@ -158,8 +156,7 @@ func (s *State) pushCommitQC(qc *types.CommitQC) error {
 	if qc.Proposal().Index() < s.innerRecv.Load().View().Index {
 		return nil
 	}
-	// Re-verify like main (defense in depth on avail's tip). Epoch must already
-	// be seeded; hard-error if missing — do not WaitForDuo.
+	// Re-verify. Epoch must be seeded; missing → hard error (no WaitForDuo).
 	ep, err := s.registry.EpochAt(qc.Proposal().Index())
 	if err != nil {
 		return fmt.Errorf("EpochAt(%d): %w", qc.Proposal().Index(), err)
@@ -175,8 +172,7 @@ func (s *State) pushCommitQC(qc *types.CommitQC) error {
 		nextRoad := qc.Proposal().Index() + 1
 		nextDuo := i.epochs
 		if !i.epochs.Current.RoadRange().Has(nextRoad) {
-			// Boundary or coalesced tip past Current: open duo at tipcut.
-			// Invariant: seeded before this tip (SetupInitialDuo / AdvanceIfNeeded).
+			// Tipcut past Current: DuoAt must already be seeded.
 			duo, err := s.registry.DuoAt(nextRoad)
 			if err != nil {
 				logger.Error("tipcut duo not in registry after avail CommitQC tip",

@@ -199,13 +199,8 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 		inner:   utils.NewWatch(newInner(cfg.Registry.FirstBlock())),
 		blockDB: blockDB,
 	}
-	// Seed epochs before replay: data/ is the restart anchor, so SetupInitialDuo
-	// registers placeholder epochs for the whole retained CommitQC span (see
-	// epoch.Registry tip-interlock). EpochAt then resolves committees during
-	// replay; the live operating window (epochDuo) is centered on the tip below.
-	//
-	// TODO(autobahn): LastExecutedBlock comes from app.LastBlockHeight() (app
-	// state DB). Move execution tip into Giga storage; stop reading the app DB.
+	// Seed epochs before replay (data owns SetupInitialDuo).
+	// TODO(autobahn): persist execution tip in Giga storage (stop using app DB).
 	commitQCs, err := commitQCSpan(blockDB)
 	if err != nil {
 		return nil, fmt.Errorf("scan CommitQC span: %w", err)
@@ -220,9 +215,7 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
 	}
 
-	// Center the live operating window on the CommitQC tip (tipcut = Index+1),
-	// matching live PushQC after a boundary store. SetupInitialDuo already
-	// EnsureDuoAt(Next) when a span is present, so DuoAt succeeds.
+	// Center epochDuo on CommitQC tipcut (Index+1).
 	for in := range s.inner.Lock() {
 		initRoad := types.RoadIndex(0)
 		if in.nextQC > in.first {
@@ -276,15 +269,9 @@ func boundaryQCRoad(blockDB types.BlockDB, reverse bool) (types.RoadIndex, bool,
 	return qc.QC().Proposal().Index(), true, nil
 }
 
-// nextRoadToExecute returns a half-open execution tipcut: the next RoadIndex
-// that still needs execution. Covering CommitQC road R for LastExecutedBlock:
-// mid-range → R; fully finished (IsLastBlock) → R+1. Same tipcut shape as
-// CommitQC Index+1; registry EnsureExecTipcut maps tipcut → last completed
-// road.
-//
-// LastExecutedBlock 0 means fresh/unknown (Config default; giga only sets it
-// when app.LastBlockHeight() > 0) → None. Missing/pruned covering QC for a
-// positive height is an error (inconsistent app tip vs BlockDB).
+// nextRoadToExecute is the half-open execution tipcut. Covering QC road R:
+// mid-range → R; IsLastBlock → R+1. LastExecutedBlock 0 → None. Positive height
+// with missing/pruned covering QC → error.
 func (s *State) nextRoadToExecute(blockDB types.BlockDB) (utils.Option[types.RoadIndex], error) {
 	n := s.cfg.LastExecutedBlock
 	if n == 0 {
@@ -318,9 +305,8 @@ func (s *State) nextRoadToExecute(blockDB types.BlockDB) (utils.Option[types.Roa
 // returned as errors rather than normalized — BlockDB is expected to present a
 // consistent iterator view (see littblock watermark / stranding rules).
 //
-// Epochs are seeded (SetupInitialDuo) by the caller before replay, so EpochAt
-// resolves each retained QC's committee here. This is recovery, not live
-// admission — PushQC/PushBlock use the epochDuo window, never EpochAt.
+// Epochs must already be seeded (SetupInitialDuo) so EpochAt resolves QC committees.
+// Live PushQC/PushBlock use epochDuo, not EpochAt.
 //
 // TODO: Cap how much of BlockDB we replay into RAM (similar to PushQC's
 // blocksCacheSize gate). Deferred to a follow-up PR — today we load the full
@@ -467,16 +453,8 @@ func (s *State) insertBlocksByHash(inner *inner, gr types.GlobalRange, byHash ma
 	return nil
 }
 
-// PushQC pushes FullCommitQC and a subset of blocks that were finalized by it.
-// Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
-// Even if the qc was already pushed earlier, the blocks are pushed anyway.
-//
-// Verify via epochDuo only (not Registry.EpochAt). Before-window is a hard error:
-// the execution leash (WaitForDuo below) keeps Prev until N-1 is done, so catch-up
-// bodies for retained Prev roads still hit EpochForRoad; once the duo is {N,N+1}
-// (live seal or SetupInitialDuo), N-1 is stale — do not soft-admit via the registry.
-// Gaps larger than the duo window should be resolved using snapshot / state
-// sync, not PushQC.
+// PushQC atomically admits qc and optional finalized blocks.
+// EpochForRoad via epochDuo only (not Registry). Before-window hard-fails.
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
 	ep, err := s.epochDuo.Load().EpochForRoad(qc.QC().Proposal().Index())
 	if err != nil {
@@ -512,8 +490,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 			return fmt.Errorf("b.Verify(): %w", err)
 		}
 	}
-	// Boundary: resolve next duo off-lock before mutating nextQC
-	// (WaitForDuo), so a failed wait cannot strand the tip.
+	// Closing Current: WaitForDuo(tipcut) before mutating nextQC.
 	idx := qc.QC().Proposal().Index()
 	var nextDuo *types.EpochDuo
 	duo := s.epochDuo.Load()
@@ -524,11 +501,9 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 		}
 		nextDuo = &nt
 	}
-	// Atomically insert QC and blocks.
 	for inner, ctrl := range s.inner.Lock() {
 		if needQC {
-			// Re-check under lock: only the inserter may store nextDuo
-			// (stale concurrent PushQC must not regress the window).
+			// Only the first inserter may advance epochDuo.
 			applied := inner.nextQC == gr.First
 			for inner.nextQC < gr.Next {
 				inner.qcs[inner.nextQC] = qc
@@ -570,13 +545,8 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 	return s.qcFromDB(n)
 }
 
-// PushBlock pushes block to the state.
-// The QC for n must already be present (guaranteed by PushQC ordering), unless
-// the height is already in the contiguous block prefix (n < nextBlock) — in
-// that case the block is dropped silently (already stored or executed/evicted).
-//
-// Same epochDuo admission as PushQC: before-window hard-fails. Do not fall back
-// to Registry — see PushQC.
+// PushBlock requires a covering QC (or n < nextBlock → silent drop).
+// Same epochDuo before-window hard-fail as PushQC.
 func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block *types.Block) error {
 	var ep *types.Epoch
 	for inner, ctrl := range s.inner.Lock() {

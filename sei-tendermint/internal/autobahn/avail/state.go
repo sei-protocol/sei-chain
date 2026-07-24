@@ -158,11 +158,8 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		return nil, err
 	}
 
-	// Operating duo is the CommitQC tipcut (not the prune-anchor road).
-	// Epoch seeding is owned by data.NewState (SetupInitialDuo); DuoAt hard-fails
-	// if this tip needs an unseeded epoch. Avail vs consensus tip ordering is
-	// checked in consensus.NewState; consensus vs data in p2p.checkRestartTips.
-	// newInner re-verifies loaded CommitQCs so consensus can trust latestCommitQC.
+	// DuoAt(CommitQC tipcut). Seeding is data.SetupInitialDuo; missing epoch hard-fails.
+	// Tip order: consensus.NewState (avail≥consensus), p2p.checkRestartTips (consensus≥data).
 	commitTip := types.RoadIndex(0)
 	if ls, ok := loaded.Get(); ok {
 		commitTip = ls.nextCommitQC()
@@ -256,9 +253,7 @@ func (s *State) waitRoadInWindow(
 	return lookup(duo), nil
 }
 
-// waitEpochForRoad blocks until roadIdx is in Prev|Current, backpressuring
-// callers (e.g. peer streams) until this node catches up (too early).
-// Returns None if the road has fallen behind the window (too late / stale).
+// waitEpochForRoad: too early waits; behind window → None (stale).
 func (s *State) waitEpochForRoad(ctx context.Context, roadIdx types.RoadIndex) (utils.Option[*types.Epoch], error) {
 	return s.waitRoadInWindow(ctx, roadIdx,
 		func(duo types.EpochDuo) utils.Option[*types.Epoch] { return duo.EpochOptForRoad(roadIdx) },
@@ -266,10 +261,8 @@ func (s *State) waitEpochForRoad(ctx context.Context, roadIdx types.RoadIndex) (
 	)
 }
 
-// waitCurrentForRoad blocks until roadIdx is in Current, backpressuring
-// callers until Current catches up (too early). Returns None if the road has
-// fallen behind Current (too late / stale). Unlike waitEpochForRoad, Prev is
-// not admitted — CommitQCs are Current-only.
+// waitCurrentForRoad blocks until roadIdx is in Current (too early);
+// None if behind Current (stale). Prev is not admitted — CommitQCs are Current-only.
 func (s *State) waitCurrentForRoad(ctx context.Context, roadIdx types.RoadIndex) (utils.Option[*types.Epoch], error) {
 	return s.waitRoadInWindow(ctx, roadIdx,
 		func(duo types.EpochDuo) utils.Option[*types.Epoch] { return duo.CurrentForRoad(roadIdx) },
@@ -299,10 +292,8 @@ func (s *State) admitRoadOrDrop(
 	return ep, nil
 }
 
-// waitPruneLeash blocks until latest AppQC is from epochIdx or later (prune
-// leash: N-1 must be fully pruned before sealing N drops Prev). incoming, if
-// present, is the AppQC on this PushAppQC call; it counts before prune updates
-// latestAppQC.
+// waitPruneLeash blocks until latest AppQC is from epochIdx or later.
+// incoming, if present, counts before latestAppQC is updated.
 func (s *State) waitPruneLeash(ctx context.Context, epochIdx types.EpochIndex, incoming utils.Option[*types.AppQC]) error {
 	for inner, ctrl := range s.inner.Lock() {
 		ready := func() bool {
@@ -331,13 +322,9 @@ func (s *State) waitPruneLeash(ctx context.Context, epochIdx types.EpochIndex, i
 	panic("unreachable")
 }
 
-// waitCommitEpochLeashes enforces tip-interlock gates before inserting a
-// CommitQC that seals epoch N > 0 (last road of N). Mid-N admits are not gated
-// here — committee N is already in the duo. closingEpoch is true when this QC
-// is the last road of its epoch (duo will advance into N+1 and drop Prev).
-// incoming is the AppQC on a PushAppQC call (None for PushCommitQC); it counts
-// toward the prune leash. Epoch 0 has no prior leash.
-// See epoch.Registry tip-interlock docs.
+// waitCommitEpochLeashes enforces tip-interlock before sealing epoch N>0
+// (closingEpoch = last road of N). Mid-N admits are not gated. Epoch 0: no-op.
+// incoming: AppQC on PushAppQC (None for PushCommitQC). See Registry invariants.
 func (s *State) waitCommitEpochLeashes(
 	ctx context.Context,
 	epochIdx types.EpochIndex,
@@ -398,10 +385,8 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 	panic("unreachable")
 }
 
-// PushCommitQC pushes a CommitQC to the state.
-// Waits for prior CommitQCs, for Current to cover the road (too early blocks;
-// too late / stale is dropped), and for tip-interlock leashes (see
-// waitCommitEpochLeashes / Registry tip-interlock docs).
+// PushCommitQC admits qc for Current only (too early waits; stale drops),
+// then tip-interlock leashes when sealing (waitCommitEpochLeashes).
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	idx := qc.Proposal().Index()
 	if idx > 0 {
@@ -409,9 +394,6 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	// CommitQCs are admitted for Current only; new-committee traffic starts
-	// after the boundary advances the duo. Too-early roads backpressure the
-	// caller; too-late (behind Current) are dropped.
 	ep, err := s.admitRoadOrDrop(ctx, idx, "CommitQC", s.waitCurrentForRoad)
 	if err != nil || ep == nil {
 		return err
@@ -419,8 +401,6 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	if err := qc.Verify(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
-	// Gate on the verified epoch; don't blindly trust qc.Proposal().EpochIndex().
-	// Wait — do not drop (caller may not retry).
 	closing := idx+1 == ep.RoadRange().Next
 	if err := s.waitCommitEpochLeashes(ctx, ep.EpochIndex(), closing, utils.None[*types.AppQC]()); err != nil {
 		return err
@@ -500,9 +480,8 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	return nil
 }
 
-// PushAppQC pushes an AppQC to the state. It requires a corresponding CommitQC
-// as a justification. Tipcut pushBack of that CommitQC uses the same epoch
-// leashes as PushCommitQC (waitCommitEpochLeashes).
+// PushAppQC requires a justifying CommitQC; tipcut insert uses the same
+// sealing leashes as PushCommitQC.
 func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *types.CommitQC) error {
 	// Check whether it is needed before verifying.
 	for inner := range s.inner.Lock() {
@@ -658,11 +637,10 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	return nil
 }
 
-// PushVote pushes a LaneVote to the state.
-// Waits until the lane has enough capacity for the new vote.
-// It does NOT wait for the previous votes.
+// PushVote verifies off-lock against Current, then under lock credits with the
+// live duo (drop if Current advanced and signer left). Does not wait for prior votes.
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
-	// Verify off-lock against a duo snapshot (crypto off the hot lock).
+	// Verify off-lock against a duo snapshot.
 	duo := s.epochDuo.Load()
 	c := duo.Current.Committee()
 	if err := vote.Msg().Verify(c); err != nil {
@@ -684,10 +662,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		}); err != nil {
 			return err
 		}
-		// WaitUntil may release the lock; a boundary advanceEpoch can reweight
-		// vote sets under a new Current. Count only with the live duo — if
-		// Current advanced, drop signers that left the committee (sig already
-		// checked; no re-VerifySig).
+		// WaitUntil may release the lock; re-check membership under live Current.
 		live := inner.epochDuo.Load()
 		if live.Current.EpochIndex() != verifiedEpoch &&
 			!live.Current.Committee().HasReplica(vote.Key()) {
@@ -742,13 +717,8 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 	return headers, nil
 }
 
-// fullCommitQC returns the FullCommitQC for road n and the signing epoch.
-// Returns types.ErrPruned when the CommitQC/headers were pruned, or when the
-// road is behind the epoch duo (ErrRoadBeforeWindow) so the export loop can
-// jump ahead. Under the two-epoch invariant (boundary CommitQC of E requires
-// AppQC in E), before-window roads are already pruned — same as a pruned
-// CommitQC. A road ahead of the duo is unexpected for an already-admitted
-// CommitQC and hard-fails (no wait).
+// fullCommitQC returns the FullCommitQC for road n and its signing epoch.
+// ErrRoadBeforeWindow → ErrPruned (export may jump ahead). ErrRoadAfterWindow hard-fails.
 func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.FullCommitQC, *types.Epoch, error) {
 	qc, err := s.CommitQC(ctx, n)
 	if err != nil {

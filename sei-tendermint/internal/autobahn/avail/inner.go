@@ -130,10 +130,7 @@ func newInner(registry *epoch.Registry, startEpochDuo types.EpochDuo, loaded uti
 		return nil, fmt.Errorf("prune anchor required for epoch %d", startEpochDuo.Current.EpochIndex())
 	}
 
-	// Restore persisted CommitQCs. Tipcut insert above may already hold the
-	// anchor; skip entries below commitQCs.next. Re-verify each QC so the tip
-	// published to consensus is signature-checked (same as live PushCommitQC).
-	// Epoch must already be seeded (data.SetupInitialDuo); missing epoch is a hard error.
+	// Restore CommitQCs above commitQCs.next. Epoch must already be seeded.
 	for _, lqc := range l.commitQCs {
 		if lqc.Index < i.commitQCs.next {
 			continue
@@ -150,10 +147,8 @@ func newInner(registry *epoch.Registry, startEpochDuo types.EpochDuo, loaded uti
 		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
 	}
 
-	// Restore persisted blocks. Create queues on demand for any WAL lane
-	// (including outside Current). advanceEpoch does not delete old lanes
-	// (TODO(lane-expiry)); NewState only WAL-prunes Current lanes. Leftover
-	// queues stay in memory until lane-expiry lands.
+	// Restore blocks; create queues for any WAL lane (including outside Current).
+	// Old lanes are retained until lane-expiry (TODO).
 	for lane, bs := range l.blocks {
 		if len(bs) == 0 {
 			continue
@@ -201,10 +196,8 @@ func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) utils.Option[*typ
 	return i.lanes[lane].votes.q[n].laneQC()
 }
 
-// advanceEpoch applies nextDuo at an epoch boundary.
-// appVotes are pruned on CommitQC anchor arrival (prune), not here.
-//
-// TODO(lane-expiry): do not delete old lanes here until epoch-scoped lane IDs exist.
+// advanceEpoch installs nextDuo at a boundary. Adds Current lanes; does not
+// delete old lanes (TODO(lane-expiry)).
 func (i *inner) advanceEpoch(nextDuo types.EpochDuo) {
 	current := nextDuo.Current
 	for lane := range current.Committee().Lanes().All() {
