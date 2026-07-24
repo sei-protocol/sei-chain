@@ -477,7 +477,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	idx := qc.QC().Proposal().Index()
 	var nextDuo *types.EpochDuo
 	duo := s.epochDuo.Load()
-	if needQC && idx+1 == duo.Current.RoadRange().Next {
+	if needQC && duo.Current.RoadRange().IsLastRoad(idx) {
 		nt, err := s.cfg.Registry.WaitForDuo(ctx, idx+1)
 		if err != nil {
 			return err

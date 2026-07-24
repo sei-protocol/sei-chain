@@ -140,15 +140,10 @@ func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (
 
 	logger.Info("restored consensus state", "state", innerProtoConv.Encode(&persisted))
 
-	prevOpt := utils.None[*types.Epoch]()
-	if viewEpoch.EpochIndex() > 0 {
-		prev, err := registry.EpochAt(epoch.FirstRoad(viewEpoch.EpochIndex() - 1))
-		if err != nil {
-			return inner{}, fmt.Errorf("EpochAt(prev): %w", err)
-		}
-		prevOpt = utils.Some(prev)
+	duo, err := registry.DuoAt(nextViewRoad)
+	if err != nil {
+		return inner{}, fmt.Errorf("DuoAt(%d): %w", nextViewRoad, err)
 	}
-	duo := types.NewEpochDuo(viewEpoch, prevOpt)
 	return inner{persistedInner: persisted, epochs: duo}, nil
 }
 

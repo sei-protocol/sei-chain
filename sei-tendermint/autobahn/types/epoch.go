@@ -23,6 +23,11 @@ func OpenRoadRange() RoadRange { return RoadRange{First: 0, Next: utils.Max[Road
 // Has reports whether idx falls within this range [First, Next).
 func (r RoadRange) Has(idx RoadIndex) bool { return idx >= r.First && idx < r.Next }
 
+// IsLastRoad reports whether idx is the last road in this half-open range
+// (idx+1 == Next). Tipcut seal / duo slide keys off this — same shape as
+// GlobalRange.IsLastBlock.
+func (r RoadRange) IsLastRoad(idx RoadIndex) bool { return idx+1 == r.Next }
+
 // Epoch holds the complete context for a single epoch.
 // Retrieved from the local Registry; never transmitted on the wire.
 type Epoch struct {

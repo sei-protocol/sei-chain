@@ -409,7 +409,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	if err := qc.Verify(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
-	closing := idx+1 == ep.RoadRange().Next
+	closing := ep.RoadRange().IsLastRoad(idx)
 	if err := s.waitCommitEpochLeashes(ctx, ep.EpochIndex(), closing, utils.None[*types.AppQC]()); err != nil {
 		return err
 	}
@@ -417,7 +417,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	// Boundary: switch to the next epoch on Current's last CommitQC.
 	// Resolve next duo off-lock (WaitForDuo).
 	var nextDuo *types.EpochDuo
-	if idx+1 == ep.RoadRange().Next {
+	if closing {
 		nt, err := s.data.Registry().WaitForDuo(ctx, idx+1)
 		if err != nil {
 			return err
@@ -521,13 +521,13 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 	}
 	// Same leashes as PushCommitQC: tipcut pushBack is a CommitQC insert path.
 	// Pass this AppQC as incoming so a tipcut that first enters epoch N can close N.
-	closing := idx+1 == ep.RoadRange().Next
+	closing := ep.RoadRange().IsLastRoad(idx)
 	if err := s.waitCommitEpochLeashes(ctx, ep.EpochIndex(), closing, utils.Some(appQC)); err != nil {
 		return err
 	}
 	// Tipcut insert of a boundary CommitQC must slide Current like PushCommitQC.
 	var nextDuo *types.EpochDuo
-	if idx+1 == ep.RoadRange().Next {
+	if closing {
 		nt, err := s.data.Registry().WaitForDuo(ctx, idx+1)
 		if err != nil {
 			return err
