@@ -162,6 +162,19 @@ type Table interface {
 	// Iterator.Close).
 	Iterator(reverse bool) (Iterator, error)
 
+	// IteratorAt returns an iterator positioned at key: the first successful Next lands on key, and
+	// iteration then proceeds in insertion order — with reverse == false, key followed by the keys
+	// inserted after it; with reverse == true, key followed by the keys inserted before it. found is
+	// false (and the returned iterator nil) when key is not present in a readable segment. Unlike a
+	// sorted store, LittDB has no key ordering, so there is no "next key after key" to approximate when
+	// key is absent.
+	//
+	// Apart from its start position, the returned iterator behaves exactly like one from Iterator: it
+	// captures a snapshot of the keys present when it is created, has the same forward/reverse
+	// performance characteristics, and — when found is true — MUST be closed when no longer needed (see
+	// Iterator.Close).
+	IteratorAt(key []byte, reverse bool) (it Iterator, found bool, err error)
+
 	// GetOldestKey returns the oldest (earliest inserted) primary key in the table that has not been
 	// deleted. The returned boolean is false if the table contains no keys.
 	//

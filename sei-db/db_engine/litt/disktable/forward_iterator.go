@@ -72,6 +72,26 @@ func newForwardIterator(table *DiskTable, segs []*segment.Segment) *forwardItera
 	}
 }
 
+// newForwardIteratorAt creates a forward iterator over the given snapshot positioned so that the first
+// Next returns keys[keyPos] in segs[segPos]. keys must be the pre-read key list of segs[segPos] (from
+// GetKeys), letting the iterator resume mid-segment without re-reading it. If keys[keyPos] is a secondary
+// key, its value is read directly (the group optimization only kicks in once a primary has been visited).
+func newForwardIteratorAt(
+	table *DiskTable,
+	segs []*segment.Segment,
+	segPos int,
+	keys []*types.ScopedKey,
+	keyPos int,
+) *forwardIterator {
+	return &forwardIterator{
+		table:  table,
+		segs:   segs,
+		segPos: segPos,
+		keys:   keys,
+		keyPos: keyPos,
+	}
+}
+
 // Next advances the iterator to the next key in insertion order.
 func (it *forwardIterator) Next() (bool, error) {
 	if it.closed {

@@ -54,6 +54,26 @@ func newReverseIterator(table *DiskTable, segs []*segment.Segment) *reverseItera
 	}
 }
 
+// newReverseIteratorAt creates a reverse iterator over the given snapshot positioned so that the first
+// Next returns keys[keyPos] in segs[segPos], after which iteration walks backward in insertion order.
+// keys must be the pre-read key list of segs[segPos] (from GetKeys), letting the iterator resume
+// mid-segment without re-reading it.
+func newReverseIteratorAt(
+	table *DiskTable,
+	segs []*segment.Segment,
+	segPos int,
+	keys []*types.ScopedKey,
+	keyPos int,
+) *reverseIterator {
+	return &reverseIterator{
+		table:  table,
+		segs:   segs,
+		segPos: segPos,
+		keys:   keys,
+		keyPos: keyPos,
+	}
+}
+
 // Next advances the iterator to the next key in reverse insertion order.
 func (it *reverseIterator) Next() (bool, error) {
 	if it.closed {

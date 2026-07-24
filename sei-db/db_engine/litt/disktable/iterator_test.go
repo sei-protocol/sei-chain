@@ -858,6 +858,198 @@ func TestReadsAndWritesDuringOpenIterator(t *testing.T) {
 	require.Equal(t, []string{"k0", "k1", "k2", "k3", "k4"}, entryKeys(drainIterator(t, it2)))
 }
 
+// refreshKeymap flushes the table and then synchronizes the keymap manager, so the keymap reflects every
+// write issued so far. IteratorAt locates a key's segment via the keymap (unlike Get, which first checks
+// the unflushed-data cache), and Flush only schedules the keymap write asynchronously — so a test must
+// force the keymap current before positioning at a just-written key. (In production this is satisfied at
+// startup, where the keymap is rebuilt from the segment key files before the table serves reads.)
+func refreshKeymap(t *testing.T, table litt.ManagedTable) {
+	t.Helper()
+	require.NoError(t, table.Flush())
+	dt, ok := table.(*DiskTable)
+	require.True(t, ok, "expected *DiskTable")
+	require.NoError(t, dt.keymapManager.sync())
+}
+
+// openIteratorAt opens an IteratorAt positioned at key, requiring the key to be found.
+func openIteratorAt(t *testing.T, table litt.ManagedTable, key string, reverse bool) litt.Iterator {
+	t.Helper()
+	it, found, err := table.IteratorAt([]byte(key), reverse)
+	require.NoError(t, err)
+	require.True(t, found, "expected key %q to be found", key)
+	return it
+}
+
+// TestIteratorAtForward verifies that a forward IteratorAt begins at the requested key and yields it plus
+// every key inserted after it, in insertion order — including start keys that live in a non-first segment.
+func TestIteratorAtForward(t *testing.T) {
+	t.Parallel()
+
+	for _, sc := range iterShardConfigs {
+		sc := sc
+		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
+			directory := t.TempDir()
+
+			// Seal every 2 keys: seg0[k0,k1], seg1[k2,k3], seg2(mutable)[k4].
+			table := buildIterTable(t, time.Now, "atfwd", directory, 2, sc.shardingFactor)
+			defer func() { require.NoError(t, table.Close()) }()
+
+			keyOrder := []string{"k0", "k1", "k2", "k3", "k4"}
+			for _, k := range keyOrder {
+				require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+			}
+			refreshKeymap(t, table)
+
+			cases := []struct {
+				start    string
+				expected []string
+			}{
+				{"k0", []string{"k0", "k1", "k2", "k3", "k4"}}, // first key
+				{"k2", []string{"k2", "k3", "k4"}},             // start in the middle segment
+				{"k3", []string{"k3", "k4"}},                   // start in the middle of a segment
+				{"k4", []string{"k4"}},                         // last key
+			}
+			for _, tc := range cases {
+				it := openIteratorAt(t, table, tc.start, false)
+				entries := drainIterator(t, it)
+				require.NoError(t, it.Close())
+				require.Equal(t, tc.expected, entryKeys(entries), "start=%s", tc.start)
+				for _, e := range entries {
+					require.Equal(t, "value-"+e.key, e.value)
+				}
+			}
+		})
+	}
+}
+
+// TestIteratorAtReverse verifies that a reverse IteratorAt begins at the requested key and yields it plus
+// every key inserted before it, in reverse insertion order.
+func TestIteratorAtReverse(t *testing.T) {
+	t.Parallel()
+
+	for _, sc := range iterShardConfigs {
+		sc := sc
+		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
+			directory := t.TempDir()
+
+			table := buildIterTable(t, time.Now, "atrev", directory, 2, sc.shardingFactor)
+			defer func() { require.NoError(t, table.Close()) }()
+
+			keyOrder := []string{"k0", "k1", "k2", "k3", "k4"}
+			for _, k := range keyOrder {
+				require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+			}
+			refreshKeymap(t, table)
+
+			cases := []struct {
+				start    string
+				expected []string
+			}{
+				{"k4", []string{"k4", "k3", "k2", "k1", "k0"}}, // last key
+				{"k2", []string{"k2", "k1", "k0"}},             // start in the middle segment
+				{"k0", []string{"k0"}},                         // first key
+			}
+			for _, tc := range cases {
+				it := openIteratorAt(t, table, tc.start, true)
+				entries := drainIterator(t, it)
+				require.NoError(t, it.Close())
+				require.Equal(t, tc.expected, entryKeys(entries), "start=%s", tc.start)
+				for _, e := range entries {
+					require.Equal(t, "value-"+e.key, e.value)
+				}
+			}
+		})
+	}
+}
+
+// TestIteratorAtNotFound verifies that positioning at an absent key reports found=false with a nil
+// iterator, both on a populated table and on an empty one.
+func TestIteratorAtNotFound(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	table := buildIterTable(t, time.Now, "atmiss", directory, 2, 1)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	// Empty table: any key is absent.
+	it, found, err := table.IteratorAt([]byte("k0"), false)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Nil(t, it)
+
+	for _, k := range []string{"k0", "k1", "k2"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+	refreshKeymap(t, table)
+
+	// A key that was never written is absent.
+	it, found, err = table.IteratorAt([]byte("kX"), false)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Nil(t, it)
+}
+
+// TestIteratorAtExcludesConcurrentWrites verifies that IteratorAt captures a snapshot at creation: keys
+// written after it is created are not observed.
+func TestIteratorAtExcludesConcurrentWrites(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	table := buildIterTable(t, time.Now, "atsnapshot", directory, 2, 1)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	for _, k := range []string{"k0", "k1", "k2"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+	refreshKeymap(t, table)
+
+	it := openIteratorAt(t, table, "k1", false)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	// These writes happen after the iterator is created and must not be observed.
+	for _, k := range []string{"k3", "k4"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+
+	require.Equal(t, []string{"k1", "k2"}, entryKeys(drainIterator(t, it)))
+}
+
+// TestIteratorAtSecondaryKey verifies that IteratorAt can position at a secondary key: iteration begins at
+// that secondary and its value is read correctly (the forward group optimization is inactive until a
+// primary has been visited, so the secondary's value is read directly).
+func TestIteratorAtSecondaryKey(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	table := buildIterTable(t, time.Now, "atsec", directory, 64, 1)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	require.NoError(t, table.Put(
+		[]byte("p0"),
+		[]byte("abcdef"),
+		&types.SecondaryKey{Key: []byte("s0a"), Offset: 1, Length: 3}, // "bcd"
+		&types.SecondaryKey{Key: []byte("s0b"), Offset: 0, Length: 6}, // "abcdef"
+	))
+	require.NoError(t, table.Put([]byte("p1"), []byte("xyz")))
+	refreshKeymap(t, table)
+
+	// Insertion order of records is [p0, s0a, s0b, p1]; positioning at s0a yields [s0a, s0b, p1].
+	it := openIteratorAt(t, table, "s0a", false)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	expected := []iterEntry{
+		{key: "s0a", isPrimary: false, value: "bcd"},
+		{key: "s0b", isPrimary: false, value: "abcdef"},
+		{key: "p1", isPrimary: true, value: "xyz"},
+	}
+	require.Equal(t, expected, drainIterator(t, it))
+}
+
 // TestGetNewestKeyAfterPartialGC verifies that after GC deletes some but not all segments, the oldest
 // key advances while the newest key (in the most-recent, not-yet-collected segment) remains correct.
 func TestGetNewestKeyAfterPartialGC(t *testing.T) {

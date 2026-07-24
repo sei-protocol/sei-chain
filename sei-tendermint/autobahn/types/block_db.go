@@ -189,6 +189,35 @@ type BlockDB interface {
 	// Blocks.
 	QCs(reverse bool) (QCIterator, error)
 
+	// BlocksAt behaves like Blocks but positions the iterator at block
+	// number n rather than at the table boundary, so a caller can resume
+	// from a known height without scanning everything below it. The start
+	// is clamped up to the retention watermark (blocks below it are never
+	// served). With reverse == false the iterator yields the block at the
+	// (clamped) start and every higher block, ascending; with reverse ==
+	// true it yields the start block and every lower retained block,
+	// descending.
+	//
+	// If no block exists at the (clamped) start — e.g. n is past the last
+	// written block — the iterator is empty (Next immediately returns
+	// false). Same snapshot, single-goroutine, and must-close semantics as
+	// Blocks.
+	BlocksAt(n GlobalBlockNumber, reverse bool) (BlockIterator, error)
+
+	// QCsAt behaves like QCs but positions the iterator at the QC covering
+	// block number n rather than at the table boundary. The start is clamped
+	// up to the retention watermark. With reverse == false the iterator
+	// yields the QC covering the (clamped) start and every later QC,
+	// ascending by GlobalRange().First; with reverse == true it yields the
+	// covering QC and every earlier retained QC, descending. Because a QC
+	// covers a contiguous range, the covering QC is yielded whole even when n
+	// falls in the middle of its range.
+	//
+	// If no QC covers the (clamped) start — e.g. n is past the last written
+	// QC — the iterator is empty. Same snapshot, single-goroutine, and
+	// must-close semantics as QCs.
+	QCsAt(n GlobalBlockNumber, reverse bool) (QCIterator, error)
+
 	// ReadBlockByNumber returns the block at GlobalBlockNumber n.
 	//
 	// The result is one of:

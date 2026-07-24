@@ -1,6 +1,7 @@
 package disktable
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1223,23 +1224,117 @@ func (d *DiskTable) Iterator(reverse bool) (litt.Iterator, error) {
 		return nil, fmt.Errorf("cannot process Iterator() request, DB is in panicked state due to error: %w", err)
 	}
 
-	request := &controlLoopOpenIteratorRequest{
-		responseChan: make(chan []*segment.Segment, 1),
-	}
-	err := d.controlLoop.enqueue(request)
+	segs, err := d.openSnapshot()
 	if err != nil {
-		return nil, fmt.Errorf("failed to send open iterator request: %w", err)
-	}
-
-	segs, err := util.Await(d.errorMonitor, request.responseChan)
-	if err != nil {
-		return nil, fmt.Errorf("failed to await iterator open: %w", err)
+		return nil, err
 	}
 
 	if reverse {
 		return newReverseIterator(d, segs), nil
 	}
 	return newForwardIterator(d, segs), nil
+}
+
+// IteratorAt returns an iterator positioned at key. See litt.Table.IteratorAt for the contract.
+func (d *DiskTable) IteratorAt(key []byte, reverse bool) (litt.Iterator, bool, error) {
+	if ok, err := d.errorMonitor.IsOk(); !ok {
+		return nil, false, fmt.Errorf(
+			"cannot process IteratorAt() request, DB is in panicked state due to error: %w", err)
+	}
+
+	// Locate the segment that holds key via the keymap, exactly as Get does. The keymap is the index
+	// whose job is this lookup; we trust it to identify the segment and do not cross-check it against
+	// the other segments in the snapshot. A key still present in the keymap has a live entry, so its
+	// segment cannot be garbage collected out from under the snapshot opened below.
+	address, ok, err := d.keymap.Get(key)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to look up key address: %w", err)
+	}
+	if !ok {
+		return nil, false, nil
+	}
+
+	segs, err := d.openSnapshot()
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Find the snapshot position of the keymap-identified segment. segs is ordered by ascending segment
+	// index; a linear scan suffices here. (This could be a binary search if it ever showed up as a
+	// hotspot — it won't; even tens of thousands of segment pointers is negligible next to the key-file
+	// read below.)
+	segPos := -1
+	for i, seg := range segs {
+		if seg.SegmentIndex() == address.Index() {
+			segPos = i
+			break
+		}
+	}
+	if segPos < 0 {
+		// The key's segment is not part of the readable snapshot (e.g. a concurrent prune/GC boundary).
+		// Report not found; surface any error releasing the snapshot.
+		return nil, false, d.abandonSnapshot(segs)
+	}
+
+	// Scan the located segment's keys (insertion order) for the exact key to fix the start position.
+	keys, err := segs[segPos].GetKeys()
+	if err != nil {
+		return nil, false, errors.Join(
+			fmt.Errorf("failed to read keys for segment %d: %w", segs[segPos].SegmentIndex(), err),
+			d.abandonSnapshot(segs))
+	}
+	keyPos := -1
+	for i := range keys {
+		if bytes.Equal(keys[i].Key, key) {
+			keyPos = i
+			break
+		}
+	}
+	if keyPos < 0 {
+		return nil, false, d.abandonSnapshot(segs)
+	}
+
+	if reverse {
+		return newReverseIteratorAt(d, segs, segPos, keys, keyPos), true, nil
+	}
+	return newForwardIteratorAt(d, segs, segPos, keys, keyPos), true, nil
+}
+
+// openSnapshot seals the mutable segment and returns a reserved, index-ordered snapshot of the readable
+// sealed segments. The caller must eventually release the reservations: either by constructing an
+// iterator over the snapshot (whose Close releases them) or, if no iterator is created, via
+// abandonSnapshot.
+func (d *DiskTable) openSnapshot() ([]*segment.Segment, error) {
+	request := &controlLoopOpenIteratorRequest{
+		responseChan: make(chan []*segment.Segment, 1),
+	}
+	if err := d.controlLoop.enqueue(request); err != nil {
+		return nil, fmt.Errorf("failed to send open iterator request: %w", err)
+	}
+	segs, err := util.Await(d.errorMonitor, request.responseChan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to await iterator open: %w", err)
+	}
+	return segs, nil
+}
+
+// abandonSnapshot releases a snapshot acquired via openSnapshot when no iterator will be created over it,
+// releasing each segment reservation and updating the open-iterator metric. It mirrors the release path
+// of Iterator.Close for the case where an iterator was never constructed.
+func (d *DiskTable) abandonSnapshot(segs []*segment.Segment) error {
+	for _, seg := range segs {
+		seg.Release()
+	}
+	request := &controlLoopCloseIteratorRequest{
+		completionChan: make(chan struct{}, 1),
+	}
+	if err := d.controlLoop.enqueue(request); err != nil {
+		return fmt.Errorf("failed to send close iterator request: %w", err)
+	}
+	if _, err := util.Await(d.errorMonitor, request.completionChan); err != nil {
+		return fmt.Errorf("failed to await iterator close: %w", err)
+	}
+	return nil
 }
 
 // GetOldestKey returns the oldest non-deleted primary key in the table.

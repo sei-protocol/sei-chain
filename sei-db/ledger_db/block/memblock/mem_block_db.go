@@ -202,6 +202,72 @@ func (s *blockDB) QCs(reverse bool) (types.QCIterator, error) {
 	return &memQCIterator{qcs: qcs, idx: -1}, nil
 }
 
+func (s *blockDB) BlocksAt(n types.GlobalBlockNumber, reverse bool) (types.BlockIterator, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	start := n
+	if start < s.watermark {
+		start = s.watermark
+	}
+	// Forward yields the start block and every higher one; reverse yields the start block and every
+	// lower retained one. Pruned blocks are already absent from byNumber, so no watermark filter here.
+	nums := make([]types.GlobalBlockNumber, 0, len(s.byNumber))
+	for num := range s.byNumber {
+		if !reverse && num < start {
+			continue
+		}
+		if reverse && num > start {
+			continue
+		}
+		nums = append(nums, num)
+	}
+	sort.Slice(nums, func(i, j int) bool {
+		if reverse {
+			return nums[i] > nums[j]
+		}
+		return nums[i] < nums[j]
+	})
+	blocks := make([]*types.Block, len(nums))
+	for i, num := range nums {
+		blocks[i] = s.byNumber[num]
+	}
+	return &memBlockIterator{nums: nums, blocks: blocks, idx: -1}, nil
+}
+
+func (s *blockDB) QCsAt(n types.GlobalBlockNumber, reverse bool) (types.QCIterator, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	start := n
+	if start < s.watermark {
+		start = s.watermark
+	}
+	// Forward yields the QC covering start (upper > start) and every later QC; reverse yields the
+	// covering QC (lower <= start) and every earlier one. Pruned QCs are already absent from qcsByLower.
+	lowers := make([]types.GlobalBlockNumber, 0, len(s.qcsByLower))
+	for l, e := range s.qcsByLower {
+		if !reverse && e.upper <= start {
+			continue
+		}
+		if reverse && e.lower > start {
+			continue
+		}
+		lowers = append(lowers, l)
+	}
+	sort.Slice(lowers, func(i, j int) bool {
+		if reverse {
+			return lowers[i] > lowers[j]
+		}
+		return lowers[i] < lowers[j]
+	})
+	qcs := make([]*types.FullCommitQC, len(lowers))
+	for i, l := range lowers {
+		qcs[i] = s.qcsByLower[l].qc
+	}
+	return &memQCIterator{qcs: qcs, idx: -1}, nil
+}
+
 var (
 	_ types.BlockIterator = (*memBlockIterator)(nil)
 	_ types.QCIterator    = (*memQCIterator)(nil)

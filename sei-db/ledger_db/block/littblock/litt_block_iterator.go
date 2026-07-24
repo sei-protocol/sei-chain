@@ -17,12 +17,18 @@ var (
 // only primary block-number keys. It also skips blocks strictly below watermark,
 // which may be stranded from their covering QC (see blockDB.watermark); the
 // watermark is captured when the iterator is created.
+//
+// A nil it represents an empty iterator (produced by BlocksAt when the requested
+// start is out of range): Next reports exhaustion immediately and Close is a no-op.
 type blockIterator struct {
 	it        littdb.Iterator
 	watermark uint64
 }
 
 func (b *blockIterator) Next() (bool, error) {
+	if b.it == nil {
+		return false, nil
+	}
 	for {
 		ok, err := b.it.Next()
 		if err != nil {
@@ -60,6 +66,9 @@ func (b *blockIterator) Block() (*types.Block, error) {
 }
 
 func (b *blockIterator) Close() error {
+	if b.it == nil {
+		return nil
+	}
 	if err := b.it.Close(); err != nil {
 		return fmt.Errorf("failed to close blocks iterator: %w", err)
 	}
@@ -72,12 +81,18 @@ func (b *blockIterator) Close() error {
 // is strictly below watermark (Next <= watermark), since none of its blocks are
 // served; a QC straddling the watermark still covers served blocks and is kept.
 // The watermark is captured when the iterator is created.
+//
+// A nil it represents an empty iterator (produced by QCsAt when the requested
+// start is out of range): Next reports exhaustion immediately and Close is a no-op.
 type qcIterator struct {
 	it        littdb.Iterator
 	watermark uint64
 }
 
 func (q *qcIterator) Next() (bool, error) {
+	if q.it == nil {
+		return false, nil
+	}
 	for {
 		ok, err := q.it.Next()
 		if err != nil {
@@ -120,6 +135,9 @@ func (q *qcIterator) QC() (*types.FullCommitQC, error) {
 }
 
 func (q *qcIterator) Close() error {
+	if q.it == nil {
+		return nil
+	}
 	if err := q.it.Close(); err != nil {
 		return fmt.Errorf("failed to close qcs iterator: %w", err)
 	}

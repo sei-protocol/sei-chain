@@ -357,6 +357,56 @@ func (s *blockDB) QCs(reverse bool) (types.QCIterator, error) {
 	return &qcIterator{it: it, watermark: s.watermark.Load()}, nil
 }
 
+func (s *blockDB) BlocksAt(n types.GlobalBlockNumber, reverse bool) (types.BlockIterator, error) {
+	watermark := s.watermark.Load()
+	start := n
+	if uint64(start) < watermark {
+		start = types.GlobalBlockNumber(watermark)
+	}
+
+	// Blocks are contiguous over [watermark, lastBlock], so blockKey(start) is a live primary key unless
+	// start is past the last written block, in which case there is nothing to yield.
+	it, found, err := s.table.IteratorAt(blockKey(start), reverse)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open blocks iterator at %d: %w", start, err)
+	}
+	if !found {
+		return &blockIterator{it: nil, watermark: watermark}, nil
+	}
+	return &blockIterator{it: it, watermark: watermark}, nil
+}
+
+func (s *blockDB) QCsAt(n types.GlobalBlockNumber, reverse bool) (types.QCIterator, error) {
+	watermark := s.watermark.Load()
+	start := n
+	if uint64(start) < watermark {
+		start = types.GlobalBlockNumber(watermark)
+	}
+
+	// A QC is stored under its First as the primary key, with covered-number aliases for the rest of its
+	// range. Positioning at qcKey(start) for a mid-range start would land on an alias and skip past the
+	// covering QC's primary, so resolve the covering QC and position at its First instead. A missing
+	// covering QC means start is past the last written QC — nothing to yield.
+	covering, err := s.ReadQCByBlockNumber(start)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve covering QC at %d: %w", start, err)
+	}
+	qc, ok := covering.Get()
+	if !ok {
+		return &qcIterator{it: nil, watermark: watermark}, nil
+	}
+	first := qc.QC().GlobalRange().First
+
+	it, found, err := s.table.IteratorAt(qcKey(first), reverse)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open qcs iterator at %d: %w", first, err)
+	}
+	if !found {
+		return &qcIterator{it: nil, watermark: watermark}, nil
+	}
+	return &qcIterator{it: it, watermark: watermark}, nil
+}
+
 func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {
 	// Refuse below-watermark blocks: they may be stranded (covering QC reclaimed).
 	if uint64(n) < s.watermark.Load() {
