@@ -51,8 +51,11 @@ type registryState struct {
 // TODO(autobahn): replace genesis placeholders with epoch info on blocks.
 type Registry struct {
 	state utils.RWMutex[*registryState]
-	// highestEpoch wakes WaitForDuo; monotonic, off registryState for EpochAt RLock.
+	// highestEpoch is the max registered index (informational).
 	highestEpoch utils.AtomicSend[types.EpochIndex]
+	// epochGen bumps on every new registration; WaitForDuo waits on it so
+	// filling a gap below highest still wakes waiters.
+	epochGen utils.AtomicSend[uint64]
 }
 
 // NewRegistry creates a Registry with genesis epoch 0 only.
@@ -69,6 +72,7 @@ func NewRegistry(
 			latest: 0,
 		}),
 		highestEpoch: utils.NewAtomicSend(types.EpochIndex(0)),
+		epochGen:     utils.NewAtomicSend(uint64(0)),
 	}, nil
 }
 
@@ -142,6 +146,7 @@ func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) *types
 	if epochIdx > r.highestEpoch.Load() {
 		r.highestEpoch.Store(epochIdx)
 	}
+	r.epochGen.Store(r.epochGen.Load() + 1)
 	return epoch
 }
 
@@ -169,6 +174,7 @@ func (r *Registry) EnsureDuoAt(road types.RoadIndex) {
 }
 
 // AdvanceIfNeeded seeds epoch M+2 when roadIndex is LastRoad(M); else no-op.
+// Also ensures M+1 so WaitForDuo(FirstRoad(M+2)) is not stuck on a Prev gap.
 // Call only after the last global of that road has executed (IsLastBlock).
 //
 // TODO(autobahn): pass the real M+2 committee once execution derives it.
@@ -179,6 +185,7 @@ func (r *Registry) AdvanceIfNeeded(roadIndex types.RoadIndex) {
 	if roadIndex != LastRoad(tipEpoch) {
 		return
 	}
+	r.EnsureEpoch(tipEpoch + 1)
 	r.EnsureEpoch(tipEpoch + 2)
 }
 
@@ -202,17 +209,20 @@ func (r *Registry) DuoAt(roadIndex types.RoadIndex) (types.EpochDuo, error) {
 	return types.NewEpochDuo(current, prev), nil
 }
 
-// WaitForDuo blocks until DuoAt(roadIndex) succeeds, then returns that duo.
-// Must not hold the avail/data inner lock (execution may seed via AdvanceIfNeeded).
+// WaitForDuo blocks until DuoAt(roadIndex) succeeds.
+// Waits on epochGen (any registration), not only highestEpoch, so filling Prev
+// after Current is already present still unblocks. Must not hold the avail/data
+// inner lock (execution may seed via AdvanceIfNeeded).
 func (r *Registry) WaitForDuo(ctx context.Context, roadIndex types.RoadIndex) (types.EpochDuo, error) {
-	if duo, err := r.DuoAt(roadIndex); err == nil {
-		return duo, nil
+	sub := r.epochGen.Subscribe()
+	for {
+		// Capture gen before DuoAt so a registration between check and Wait still wakes.
+		seen := sub.Load()
+		if duo, err := r.DuoAt(roadIndex); err == nil {
+			return duo, nil
+		}
+		if _, err := sub.Wait(ctx, func(gen uint64) bool { return gen > seen }); err != nil {
+			return types.EpochDuo{}, err
+		}
 	}
-	centerIdx := IndexForRoad(roadIndex)
-	if _, err := r.highestEpoch.Subscribe().Wait(ctx, func(highest types.EpochIndex) bool {
-		return highest >= centerIdx
-	}); err != nil {
-		return types.EpochDuo{}, err
-	}
-	return r.DuoAt(roadIndex)
 }

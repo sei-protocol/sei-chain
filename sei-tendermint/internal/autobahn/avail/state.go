@@ -233,14 +233,14 @@ func (s *State) waitForCommitQC(ctx context.Context, idx types.RoadIndex) error 
 }
 
 // waitRoadInWindow blocks while roadIdx is ahead of the admitted window
-// (too early / backpressure). Returns Some(epoch) when lookup admits the road,
+// (too early / backpressure). Returns Some(duo) when lookup admits the road,
 // or None when roadIdx has fallen behind windowFirst (too late / stale).
 func (s *State) waitRoadInWindow(
 	ctx context.Context,
 	roadIdx types.RoadIndex,
 	lookup func(types.EpochDuo) utils.Option[*types.Epoch],
 	windowFirst func(types.EpochDuo) types.RoadIndex,
-) (utils.Option[*types.Epoch], error) {
+) (utils.Option[types.EpochDuo], error) {
 	duo, err := s.epochDuo.Wait(ctx, func(duo types.EpochDuo) bool {
 		if lookup(duo).IsPresent() {
 			return true
@@ -248,13 +248,16 @@ func (s *State) waitRoadInWindow(
 		return roadIdx < windowFirst(duo)
 	})
 	if err != nil {
-		return utils.None[*types.Epoch](), err
+		return utils.None[types.EpochDuo](), err
 	}
-	return lookup(duo), nil
+	if lookup(duo).IsPresent() {
+		return utils.Some(duo), nil
+	}
+	return utils.None[types.EpochDuo](), nil
 }
 
 // waitEpochForRoad: too early waits; behind window → None (stale).
-func (s *State) waitEpochForRoad(ctx context.Context, roadIdx types.RoadIndex) (utils.Option[*types.Epoch], error) {
+func (s *State) waitEpochForRoad(ctx context.Context, roadIdx types.RoadIndex) (utils.Option[types.EpochDuo], error) {
 	return s.waitRoadInWindow(ctx, roadIdx,
 		func(duo types.EpochDuo) utils.Option[*types.Epoch] { return duo.EpochOptForRoad(roadIdx) },
 		types.EpochDuo.WindowFirst,
@@ -263,7 +266,7 @@ func (s *State) waitEpochForRoad(ctx context.Context, roadIdx types.RoadIndex) (
 
 // waitCurrentForRoad blocks until roadIdx is in Current (too early);
 // None if behind Current (stale). Prev is not admitted — CommitQCs are Current-only.
-func (s *State) waitCurrentForRoad(ctx context.Context, roadIdx types.RoadIndex) (utils.Option[*types.Epoch], error) {
+func (s *State) waitCurrentForRoad(ctx context.Context, roadIdx types.RoadIndex) (utils.Option[types.EpochDuo], error) {
 	return s.waitRoadInWindow(ctx, roadIdx,
 		func(duo types.EpochDuo) utils.Option[*types.Epoch] { return duo.CurrentForRoad(roadIdx) },
 		func(duo types.EpochDuo) types.RoadIndex { return duo.Current.RoadRange().First },
@@ -271,25 +274,24 @@ func (s *State) waitCurrentForRoad(ctx context.Context, roadIdx types.RoadIndex)
 }
 
 // admitRoadOrDrop waits for window admission. On stale it logs and returns
-// (nil, nil) so Push* callers can drop without repeating the boilerplate.
+// None so Push* callers can drop without repeating the boilerplate.
 // what is a short label for the log line (e.g. "CommitQC", "AppVote").
 func (s *State) admitRoadOrDrop(
 	ctx context.Context,
 	roadIdx types.RoadIndex,
 	what string,
-	wait func(context.Context, types.RoadIndex) (utils.Option[*types.Epoch], error),
-) (*types.Epoch, error) {
-	epOpt, err := wait(ctx, roadIdx)
+	wait func(context.Context, types.RoadIndex) (utils.Option[types.EpochDuo], error),
+) (utils.Option[types.EpochDuo], error) {
+	duoOpt, err := wait(ctx, roadIdx)
 	if err != nil {
-		return nil, err
+		return utils.None[types.EpochDuo](), err
 	}
-	ep, ok := epOpt.Get()
-	if !ok {
+	if !duoOpt.IsPresent() {
 		logger.Info("dropping stale "+what+": road behind window",
 			slog.Uint64("road", uint64(roadIdx)), "duo", s.epochDuo.Load().String())
-		return nil, nil
+		return utils.None[types.EpochDuo](), nil
 	}
-	return ep, nil
+	return duoOpt, nil
 }
 
 // waitPruneLeash blocks until latest AppQC is from epochIdx or later.
@@ -402,10 +404,15 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	ep, err := s.admitRoadOrDrop(ctx, idx, "CommitQC", s.waitCurrentForRoad)
-	if err != nil || ep == nil {
+	duoOpt, err := s.admitRoadOrDrop(ctx, idx, "CommitQC", s.waitCurrentForRoad)
+	if err != nil {
 		return err
 	}
+	duo, ok := duoOpt.Get()
+	if !ok {
+		return nil
+	}
+	ep := duo.CurrentForRoad(idx).OrPanic("admitRoadOrDrop returned duo without Current road")
 	if err := qc.Verify(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
@@ -449,10 +456,15 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		return err
 	}
 	// Too-early roads (ahead of Prev|Current) backpressure; too-late are dropped.
-	ep, err := s.admitRoadOrDrop(ctx, idx, "AppVote", s.waitEpochForRoad)
-	if err != nil || ep == nil {
+	duoOpt, err := s.admitRoadOrDrop(ctx, idx, "AppVote", s.waitEpochForRoad)
+	if err != nil {
 		return err
 	}
+	duo, ok := duoOpt.Get()
+	if !ok {
+		return nil
+	}
+	ep := duo.EpochOptForRoad(idx).OrPanic("admitRoadOrDrop returned duo without road")
 	committee := ep.Committee()
 	if err := v.VerifySig(committee); err != nil {
 		return fmt.Errorf("v.VerifySig(): %w", err)
@@ -509,11 +521,16 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	idx := commitQC.Proposal().Index()
-	ep, err := s.admitRoadOrDrop(ctx, idx, "AppQC", s.waitEpochForRoad)
-	if err != nil || ep == nil {
+	duoOpt, err := s.admitRoadOrDrop(ctx, idx, "AppQC", s.waitEpochForRoad)
+	if err != nil {
 		return err
 	}
-	if err := appQC.Verify(ep.Committee()); err != nil {
+	duo, ok := duoOpt.Get()
+	if !ok {
+		return nil
+	}
+	ep := duo.EpochOptForRoad(idx).OrPanic("admitRoadOrDrop returned duo without road")
+	if err := appQC.Verify(duo); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
 	if err := commitQC.Verify(ep); err != nil {
@@ -645,10 +662,10 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	return nil
 }
 
-// PushVote verifies off-lock against Current, then under lock credits with the
-// live duo (drop if Current advanced and signer left). Does not wait for prior votes.
+// PushVote verifies against Current, then under lock waits for lane capacity and
+// credits with the live duo (drop if Current advanced and signer left).
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
-	// Verify off-lock against a duo snapshot.
+	h := vote.Msg().Header()
 	duo := s.epochDuo.Load()
 	c := duo.Current.Committee()
 	if err := vote.Msg().Verify(c); err != nil {
@@ -658,7 +675,6 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
 	verifiedEpoch := duo.Current.EpochIndex()
-	h := vote.Msg().Header()
 	for inner, ctrl := range s.inner.Lock() {
 		ls, ok := inner.lanes[h.Lane()]
 		if !ok {
@@ -673,7 +689,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		// WaitUntil may release the lock; re-check membership under live Current.
 		live := inner.epochDuo.Load()
 		if live.Current.EpochIndex() != verifiedEpoch &&
-			!live.Current.Committee().HasReplica(vote.Key()) {
+			live.Current.Committee().Weight(vote.Key()) == 0 {
 			return nil
 		}
 		if h.BlockNumber() < q.first {

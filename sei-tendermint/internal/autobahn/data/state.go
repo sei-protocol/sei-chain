@@ -451,7 +451,9 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	if err != nil {
 		return err
 	}
-	ep, err := s.epochDuo.Load().EpochForRoad(qc.QC().Proposal().Index())
+	idx := qc.QC().Proposal().Index()
+	duo := s.epochDuo.Load()
+	ep, err := duo.EpochForRoad(idx)
 	if err != nil {
 		if !needQC && errors.Is(err, types.ErrRoadBeforeWindow) {
 			return nil
@@ -474,9 +476,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 		}
 	}
 	// Closing Current: WaitForDuo(tipcut) before mutating nextQC.
-	idx := qc.QC().Proposal().Index()
 	var nextDuo *types.EpochDuo
-	duo := s.epochDuo.Load()
 	if needQC && duo.Current.RoadRange().IsLastRoad(idx) {
 		nt, err := s.cfg.Registry.WaitForDuo(ctx, idx+1)
 		if err != nil {

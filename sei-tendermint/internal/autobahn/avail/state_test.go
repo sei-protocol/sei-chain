@@ -465,7 +465,7 @@ func TestWaitPruneLeash(t *testing.T) {
 
 // TestPushVote_DropsSignerAfterEpochAdvance: PushVote verifies off-lock, then
 // WaitUntil releases the lock; advanceEpoch installs a Current that excludes the
-// signer — the vote must be dropped (no re-VerifySig; HasReplica only).
+// signer — the vote must be dropped (Weight==0).
 func TestPushVote_DropsSignerAfterEpochAdvance(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
@@ -1093,13 +1093,13 @@ func TestWaitCurrentForRoadPrevNotAdmitted(t *testing.T) {
 	registerDuoAtEpoch(state, 1) // Prev=0|Current=1
 
 	roadInPrev := types.RoadIndex(0)
-	epWin, err := state.waitEpochForRoad(t.Context(), roadInPrev)
+	duoWin, err := state.waitEpochForRoad(t.Context(), roadInPrev)
 	require.NoError(t, err)
-	require.True(t, epWin.IsPresent(), "Prev|Current window still covers road 0")
+	require.True(t, duoWin.IsPresent(), "Prev|Current window still covers road 0")
 
-	epCur, err := state.waitCurrentForRoad(t.Context(), roadInPrev)
+	duoCur, err := state.waitCurrentForRoad(t.Context(), roadInPrev)
 	require.NoError(t, err)
-	require.False(t, epCur.IsPresent(), "Current-only wait must treat Prev roads as too late")
+	require.False(t, duoCur.IsPresent(), "Current-only wait must treat Prev roads as too late")
 }
 
 func TestPushCommitQCStaleDrops(t *testing.T) {

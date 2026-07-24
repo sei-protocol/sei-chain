@@ -21,15 +21,6 @@ func testDuoEpochs(t *testing.T) (prev, current *types.Epoch) {
 	return prev, current
 }
 
-func TestNewEpochDuo_PanicsOnNilCurrent(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("NewEpochDuo(nil, ...) should panic")
-		}
-	}()
-	_ = types.NewEpochDuo(nil, utils.None[*types.Epoch]())
-}
-
 func TestNewEpochDuo_PanicsOnNonContiguousIndex(t *testing.T) {
 	prev, _ := testDuoEpochs(t)
 	rng := utils.TestRng()

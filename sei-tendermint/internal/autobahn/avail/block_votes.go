@@ -9,18 +9,18 @@ import (
 type laneVoteSet struct {
 	weight uint64
 	votes  []*types.Signed[*types.LaneVote]
-	qc     *types.LaneQC
+	qc     utils.Option[*types.LaneQC]
 	header *types.BlockHeader
 }
 
 func (s *laneVoteSet) reset() {
 	s.weight = 0
 	s.votes = s.votes[:0]
-	s.qc = nil
+	s.qc = utils.None[*types.LaneQC]()
 }
 
 func (s *laneVoteSet) add(weight, quorum uint64, vote *types.Signed[*types.LaneVote]) utils.Option[*types.LaneQC] {
-	if s.qc != nil {
+	if s.qc.IsPresent() {
 		return utils.None[*types.LaneQC]()
 	}
 	s.weight += weight
@@ -28,8 +28,8 @@ func (s *laneVoteSet) add(weight, quorum uint64, vote *types.Signed[*types.LaneV
 	if s.weight < quorum {
 		return utils.None[*types.LaneQC]()
 	}
-	s.qc = types.NewLaneQC(s.votes)
-	return utils.Some(s.qc)
+	s.qc = utils.Some(types.NewLaneQC(s.votes))
+	return s.qc
 }
 
 // blockVotes weights votes under Current; reweight on epoch advance.
@@ -45,10 +45,15 @@ func newBlockVotes() blockVotes {
 	}
 }
 
-// pushVote stores vote under ep; zero-weight signers stay in byKey for reweight.
+// pushVote credits vote under ep. Zero-weight signers are not retained.
+// Callers should VerifySig first; after a lock release, Weight==0 is a silent drop.
 func (bv blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) utils.Option[*types.LaneQC] {
 	k := vote.Key()
 	if _, ok := bv.byKey[k]; ok {
+		return utils.None[*types.LaneQC]()
+	}
+	w := ep.Committee().Weight(k)
+	if w == 0 {
 		return utils.None[*types.LaneQC]()
 	}
 	bv.byKey[k] = vote
@@ -59,14 +64,9 @@ func (bv blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVot
 		set = &laneVoteSet{header: vote.Msg().Header()}
 		bv.byHash[h] = set
 	}
-	w := ep.Committee().Weight(k)
-	if w == 0 {
-		return utils.None[*types.LaneQC]()
-	}
 	return set.add(w, ep.Committee().LaneQuorum(), vote)
 }
 
-// reweight recomputes byHash from byKey; returns true if any new quorum.
 func (bv blockVotes) reweight(newEpoch *types.Epoch) bool {
 	c := newEpoch.Committee()
 	for _, set := range bv.byHash {
@@ -88,8 +88,8 @@ func (bv blockVotes) reweight(newEpoch *types.Epoch) bool {
 
 func (bv blockVotes) laneQC() utils.Option[*types.LaneQC] {
 	for _, set := range bv.byHash {
-		if set.qc != nil {
-			return utils.Some(set.qc)
+		if set.qc.IsPresent() {
+			return set.qc
 		}
 	}
 	return utils.None[*types.LaneQC]()

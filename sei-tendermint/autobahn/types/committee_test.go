@@ -171,18 +171,18 @@ func TestCommitQCVerifyChecksWeight(t *testing.T) {
 func TestAppQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewAppVote(NewAppProposal(0, 0, GenAppHash(rng), ep.EpochIndex()))
+	vote := NewAppVote(NewAppProposal(0, ep.RoadRange().First, GenAppHash(rng), ep.EpochIndex()))
 
 	heavyOnly := NewAppQC([]*Signed[*AppVote]{
 		Sign(keys[0], vote),
 	})
-	require.NoError(t, heavyOnly.Verify(ep.Committee()))
+	require.NoError(t, heavyOnly.Verify(NewEpochDuo(ep, utils.None[*Epoch]())))
 
 	lightMajority := NewAppQC([]*Signed[*AppVote]{
 		Sign(keys[1], vote),
 		Sign(keys[2], vote),
 	})
-	require.Error(t, lightMajority.Verify(ep.Committee()))
+	require.Error(t, lightMajority.Verify(NewEpochDuo(ep, utils.None[*Epoch]())))
 }
 
 func TestTimeoutQCVerifyChecksEpochBinding(t *testing.T) {

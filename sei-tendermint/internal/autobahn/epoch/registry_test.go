@@ -202,6 +202,7 @@ func TestDuoAt_ErrorWhenCurrentMissing(t *testing.T) {
 			latest: 0,
 		}),
 		highestEpoch: utils.NewAtomicSend(types.EpochIndex(0)),
+		epochGen:     utils.NewAtomicSend(uint64(0)),
 	}
 	_, err := bare.DuoAt(FirstRoad(1))
 	if err == nil {
@@ -222,6 +223,7 @@ func TestDuoAt_ErrorWhenPrevMissing(t *testing.T) {
 			latest: 2,
 		}),
 		highestEpoch: utils.NewAtomicSend(types.EpochIndex(2)),
+		epochGen:     utils.NewAtomicSend(uint64(0)),
 	}
 	_, err := bare.DuoAt(FirstRoad(2))
 	if err == nil {
@@ -250,9 +252,35 @@ func TestWaitForDuo_FastPathAndWait(t *testing.T) {
 		duo, err := r.WaitForDuo(t.Context(), tip)
 		done <- result{duo, err}
 	}()
-	r.EnsureEpoch(1)               // Prev for DuoAt(epoch 2)
-	r.AdvanceIfNeeded(LastRoad(0)) // seeds epoch 2
+	r.AdvanceIfNeeded(LastRoad(0)) // seeds 1 and 2
 	got := <-done
 	require.NoError(t, got.err)
 	require.Equal(t, types.EpochIndex(2), got.duo.Current.EpochIndex())
+}
+
+// TestWaitForDuo_WakesWhenPrevFilledAfterCurrent: Current already registered
+// without Prev; EnsureEpoch(Prev) must unblock WaitForDuo (epochGen, not only highest).
+func TestWaitForDuo_WakesWhenPrevFilledAfterCurrent(t *testing.T) {
+	r, _ := makeRegistry(t)
+	r.EnsureEpoch(2) // gap: {0,2}, no 1
+	tip := FirstRoad(2)
+	_, err := r.DuoAt(tip)
+	require.Error(t, err)
+
+	type result struct {
+		duo types.EpochDuo
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		duo, err := r.WaitForDuo(t.Context(), tip)
+		done <- result{duo, err}
+	}()
+	r.EnsureEpoch(1)
+	got := <-done
+	require.NoError(t, got.err)
+	require.Equal(t, types.EpochIndex(2), got.duo.Current.EpochIndex())
+	prev, ok := got.duo.Prev.Get()
+	require.True(t, ok)
+	require.Equal(t, types.EpochIndex(1), prev.EpochIndex())
 }

@@ -23,16 +23,11 @@ type EpochDuo struct {
 
 // NewEpochDuo builds a Prev|Current window.
 //
-// Requirements: current non-nil; when prev is present, non-nil and contiguous
-// with current (index Current-1, Prev.Next == Current.First). Panics otherwise.
+// Requirements: when prev is present, contiguous with current (index
+// Current-1, Prev.Next == Current.First). Panics otherwise. Callers must pass
+// non-nil Current (and non-nil Prev when present).
 func NewEpochDuo(current *Epoch, prev utils.Option[*Epoch]) EpochDuo {
-	if current == nil {
-		panic("NewEpochDuo: Current must be non-nil")
-	}
 	if p, ok := prev.Get(); ok {
-		if p == nil {
-			panic("NewEpochDuo: Prev must be non-nil when present")
-		}
 		if want := current.EpochIndex(); p.EpochIndex()+1 != want {
 			panic(fmt.Sprintf("NewEpochDuo: Prev epoch %d not contiguous with Current %d",
 				p.EpochIndex(), want))

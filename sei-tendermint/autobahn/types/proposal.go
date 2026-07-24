@@ -508,16 +508,6 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			}
 		} else {
 			app, _ := m.proposal.Msg().App().Get()
-			// AppQC may be from Current or Prev (lag by one). Resolve its
-			// committee from vs.Epochs — not from Current alone.
-			appEp, err := vs.Epochs.EpochForIndex(app.EpochIndex())
-			if err != nil {
-				return fmt.Errorf("app epoch_index %d: %w", app.EpochIndex(), err)
-			}
-			if rr := appEp.RoadRange(); !rr.Has(app.RoadIndex()) {
-				return fmt.Errorf("app road_index %v not in epoch %d roads [%v,%v)",
-					app.RoadIndex(), app.EpochIndex(), rr.First, rr.Next)
-			}
 			appQC, ok := m.appQC.Get()
 			if !ok {
 				return errors.New("appQC missing")
@@ -526,7 +516,7 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 				return errors.New("appQC doesn't match the proposal")
 			}
 			s.Spawn(func() error {
-				if err := appQC.Verify(appEp.Committee()); err != nil {
+				if err := appQC.Verify(vs.Epochs); err != nil {
 					return fmt.Errorf("appQC: %w", err)
 				}
 				return nil
