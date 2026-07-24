@@ -44,6 +44,14 @@ type rangeCapReceiptStore struct {
 	candidates []*ethtypes.Log
 	latest     int64
 	earliest   int64
+	// windowCalls records the (fromBlock, toBlock) bounds of every FilterLogs
+	// call, so tests can assert how tryFilterLogsRange split a range into
+	// rangeQueryWindowBlocks-sized windows.
+	windowCalls [][2]uint64
+	// onFilterLogs, if set, runs at the start of each FilterLogs call
+	// (after recording the window), letting a test cancel the caller's
+	// context mid-scan to exercise the between-windows ctx.Err() check.
+	onFilterLogs func(callIndex int)
 }
 
 func newRangeCapReceiptStore() *rangeCapReceiptStore {
@@ -93,7 +101,14 @@ func (s *rangeCapReceiptStore) SetReceipts(_ sdk.Context, records []receipt.Rece
 func (s *rangeCapReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *receipt.LogBudget) ([]*ethtypes.Log, error) {
 	s.mu.Lock()
 	candidates := append([]*ethtypes.Log(nil), s.candidates...)
+	s.windowCalls = append(s.windowCalls, [2]uint64{fromBlock, toBlock})
+	callIndex := len(s.windowCalls) - 1
+	onFilterLogs := s.onFilterLogs
 	s.mu.Unlock()
+
+	if onFilterLogs != nil {
+		onFilterLogs(callIndex)
+	}
 
 	out := make([]*ethtypes.Log, 0, len(candidates))
 	for _, lg := range candidates {
@@ -121,6 +136,12 @@ func (s *rangeCapReceiptStore) setCandidates(candidates []*ethtypes.Log) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.candidates = candidates
+}
+
+func (s *rangeCapReceiptStore) getWindowCalls() [][2]uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([][2]uint64(nil), s.windowCalls...)
 }
 
 type rangeCapTMClient struct {
@@ -163,6 +184,7 @@ func (c *rangeCapTMClient) Status(_ context.Context) (*coretypes.ResultStatus, e
 type rangeCapFixture struct {
 	fetcher  *evmrpc.LogFetcher
 	keeper   *evmkeeper.Keeper
+	store    *rangeCapReceiptStore
 	sdkCtx   sdk.Context
 	ctx      context.Context
 	match    common.Address
@@ -252,6 +274,7 @@ func setupRangeCapFixture(t *testing.T, receiptLogCount int, candidates []*ethty
 	return &rangeCapFixture{
 		fetcher:  fetcher,
 		keeper:   &testApp.EvmKeeper,
+		store:    store,
 		sdkCtx:   sdkCtx,
 		ctx:      context.Background(),
 		match:    matchAddr,
@@ -422,6 +445,79 @@ func TestTryFilterLogsRangeByteCapAtNormalize(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, logs)
 	require.True(t, errors.Is(err, receipt.ErrTooManyLogBytes))
+}
+
+// TestTryFilterLogsRangeWindowsMultiBlockRange verifies tryFilterLogsRange
+// walks a range wider than rangeQueryWindowBlocks (4) in successive
+// 4-block windows.
+func TestTryFilterLogsRangeWindowsMultiBlockRange(t *testing.T) {
+	t.Parallel()
+
+	match := common.HexToAddress(LogCapAddr)
+	topic := common.HexToHash(LogCapBlockHash)
+	// Candidates only exist at rangeCapTestHeight, the last block of the range.
+	candidates := buildRangeCapCandidates(20, uint64(rangeCapTestHeight), match, topic, nil)
+	fixture := setupRangeCapFixture(t, 5, candidates, evmrpc.FilterConfigTest{
+		MaxLog:   10,
+		MaxBlock: evmrpc.DefaultMaxBlockRange,
+	})
+
+	const window = uint64(evmrpc.RangeQueryWindowBlocksForTest)
+	fromBlock := fixture.blockNum - 2*window
+	toBlock := fixture.blockNum
+
+	logs, err := fixture.fetcher.TryFilterLogsRangeForTest(
+		fixture.ctx,
+		fromBlock,
+		toBlock,
+		rangeCapCriteria(fixture.match),
+		10,
+	)
+	require.NoError(t, err)
+	require.Len(t, logs, 5)
+
+	require.Equal(t, [][2]uint64{
+		{fromBlock, fromBlock + window - 1},
+		{fromBlock + window, fromBlock + 2*window - 1},
+		{fromBlock + 2*window, toBlock},
+	}, fixture.store.getWindowCalls())
+}
+
+// TestTryFilterLogsRangeCancelsBetweenWindows verifies tryFilterLogsRange
+// checks ctx.Err() before requesting the next window: canceling the context
+// from inside the first window's store.FilterLogs call must stop the walk
+// before a second window is ever requested.
+func TestTryFilterLogsRangeCancelsBetweenWindows(t *testing.T) {
+	t.Parallel()
+
+	match := common.HexToAddress(LogCapAddr)
+	topic := common.HexToHash(LogCapBlockHash)
+	candidates := buildRangeCapCandidates(20, uint64(rangeCapTestHeight), match, topic, nil)
+	fixture := setupRangeCapFixture(t, 5, candidates, evmrpc.FilterConfigTest{
+		MaxLog:   10,
+		MaxBlock: evmrpc.DefaultMaxBlockRange,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	fixture.store.onFilterLogs = func(callIndex int) {
+		if callIndex == 0 {
+			cancel()
+		}
+	}
+
+	fromBlock := fixture.blockNum - 8
+	toBlock := fixture.blockNum
+
+	logs, err := fixture.fetcher.TryFilterLogsRangeForTest(
+		ctx,
+		fromBlock,
+		toBlock,
+		rangeCapCriteria(fixture.match),
+		10,
+	)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, logs)
+	require.Len(t, fixture.store.getWindowCalls(), 1, "only the first window should have been requested before cancellation stopped the walk")
 }
 
 func TestGetLogsByFiltersRangePathUsesNormalizeBudget(t *testing.T) {

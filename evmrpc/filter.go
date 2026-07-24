@@ -48,6 +48,11 @@ const (
 	// global request rate limit, only applies to queries > RPSLimitThreshold
 	GlobalRPSLimit    = 30
 	RPSLimitThreshold = 100 // block range queries below this threshold bypass rate limiting
+
+	// rangeQueryWindowBlocks bounds how many blocks tryFilterLogsRange asks the
+	// litt store to materialize per call, so raw candidates are discarded
+	// between windows instead of accumulating over the whole query range.
+	rangeQueryWindowBlocks = 4
 )
 
 // BlockCacheEntry for sotring block, bloom, and receipts cache
@@ -1032,35 +1037,54 @@ func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
 
 // tryFilterLogsRange attempts to use the efficient range query if supported by the backend.
 // Returns ErrRangeQueryNotSupported if the backend doesn't support range queries.
-// The litt store applies a byte-only budget to bound candidate materialization;
-// normalizeRangeQueryLogs enforces the authoritative matched-log count and byte
-// cap on EVM-visible logs.
+//
+// The range is walked in rangeQueryWindowBlocks-sized windows: each window's
+// raw candidates are requested from the litt store, then
+// immediately normalized against the query-wide authoritative budget and
+// discarded before the next window is requested.
 func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, limit int64) ([]*ethtypes.Log, error) {
 	store := f.k.ReceiptStore()
 	if store == nil {
 		return nil, receipt.ErrRangeQueryNotSupported
 	}
 
-	// Use a context at the toBlock height for the query
-	// #nosec G115 -- toBlock is a block height which fits in int64
-	sdkCtx := f.ctxProvider(int64(toBlock))
-
-	logs, err := store.FilterLogs(sdkCtx, fromBlock, toBlock, crit, f.storeCandidateBudget())
-	if err != nil {
-		return nil, err
-	}
-
-	if len(logs) == 0 {
-		return []*ethtypes.Log{}, nil
-	}
-
 	budget := f.newLogBudget(limit)
-	normalized, err := f.normalizeRangeQueryLogs(ctx, logs, crit, budget)
-	if err != nil {
-		return nil, err
+	var result []*ethtypes.Log
+
+	for windowFrom := fromBlock; windowFrom <= toBlock; windowFrom += rangeQueryWindowBlocks {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		windowTo := windowFrom + rangeQueryWindowBlocks - 1
+		if windowTo > toBlock {
+			windowTo = toBlock
+		}
+
+		// Use a context at the window's toBlock height for the query
+		// #nosec G115 -- windowTo is a block height which fits in int64
+		sdkCtx := f.ctxProvider(int64(windowTo)).WithContext(ctx)
+
+		candidates, err := store.FilterLogs(sdkCtx, windowFrom, windowTo, crit, f.storeCandidateBudget())
+		if err != nil {
+			return nil, err
+		}
+		if len(candidates) == 0 {
+			continue
+		}
+
+		normalized, err := f.normalizeRangeQueryLogs(ctx, candidates, crit, budget)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, normalized...)
 	}
 
-	return normalized, nil
+	if result == nil {
+		result = []*ethtypes.Log{}
+	}
+
+	return result, nil
 }
 
 // normalizeRangeQueryLogs corrects BlockHash, TxIndex, and LogIndex on logs
@@ -1108,6 +1132,10 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 	rebuilt := make([]*ethtypes.Log, 0, len(candidateLogs))
 	collector := &pooledCollector{logs: &rebuilt, budget: budget}
 	for _, blockNumber := range blockNumbers {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		// #nosec G115 -- block numbers fit within int64
 		height := int64(blockNumber)
 		block, err := blockByNumberRespectingWatermarks(ctx, f.tmClient, f.watermarks, &height, 1)
@@ -1126,6 +1154,9 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 
 		var logIndex uint
 		for txIdx, txHashEntry := range txHashes {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			if budget.Tripped() {
 				break
 			}
@@ -1168,6 +1199,9 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 		if budget.Tripped() {
 			break
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if budget.Tripped() {
 		return nil, budget.Err()

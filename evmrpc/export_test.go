@@ -12,6 +12,11 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
+// RangeQueryWindowBlocksForTest exposes rangeQueryWindowBlocks so integration
+// tests can assert tryFilterLogsRange's window boundaries without hardcoding
+// the constant.
+const RangeQueryWindowBlocksForTest = rangeQueryWindowBlocks
+
 // FilterConfigTest exposes filter limits for integration tests in evmrpc_test.
 type FilterConfigTest struct {
 	MaxLog      int64
