@@ -314,8 +314,9 @@ func TestExecutorOCCConflictingTransfersMatchSequential(t *testing.T) {
 	occState.ApplyChangeSet(occResult.ChangeSet)
 	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
 	require.True(t, occResult.OCCStats.Attempted)
-	require.True(t, occResult.OCCStats.Fallback)
+	require.False(t, occResult.OCCStats.Fallback)
 	require.Equal(t, "conflict", occResult.OCCStats.FallbackReason)
+	require.Greater(t, occResult.OCCStats.RerunCount, uint64(0))
 	require.Greater(t, occResult.OCCStats.ConflictCount, uint64(0))
 	require.NotEmpty(t, occResult.OCCStats.ConflictSamples)
 	foundRecipientBalanceConflict := false
@@ -371,7 +372,7 @@ func TestExecutorOCCFeePayingTransfersDoNotConflictOnCoinbase(t *testing.T) {
 	}
 }
 
-func TestExecutorOCCFallsBackWhenLaterTxReadsFeeCreditedCoinbase(t *testing.T) {
+func TestExecutorOCCRerunsWhenLaterTxReadsFeeCreditedCoinbase(t *testing.T) {
 	chainID := big.NewInt(713715)
 	feePayerKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -400,8 +401,9 @@ func TestExecutorOCCFallsBackWhenLaterTxReadsFeeCreditedCoinbase(t *testing.T) {
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
-	require.True(t, occResult.OCCStats.Fallback)
+	require.False(t, occResult.OCCStats.Fallback)
 	require.Equal(t, occFallbackReasonConflict, occResult.OCCStats.FallbackReason)
+	require.Equal(t, uint64(1), occResult.OCCStats.RerunCount)
 	foundCoinbaseBalanceRead := false
 	for _, conflict := range occResult.OCCStats.ConflictSamples {
 		if conflict.Access == "read" && conflict.Kind == "balance" && conflict.Address == req.Context.Coinbase {
@@ -454,7 +456,7 @@ func TestExecutorOCCMergesCoinbaseSenderFeeWithoutDoubleCount(t *testing.T) {
 	require.Equal(t, new(big.Int).Add(initialCoinbaseBalance, big.NewInt(21_000)), occState.GetBalance(coinbase))
 }
 
-func TestExecutorOCCSpeculativeErrorFallsBackToSequential(t *testing.T) {
+func TestExecutorOCCRerunsSameSenderNonceChain(t *testing.T) {
 	chainID := big.NewInt(713715)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -475,8 +477,8 @@ func TestExecutorOCCSpeculativeErrorFallsBackToSequential(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, result.OCCStats.Attempted)
-	require.True(t, result.OCCStats.Fallback)
-	require.Equal(t, occFallbackReasonSpeculativeError, result.OCCStats.FallbackReason)
+	require.False(t, result.OCCStats.Fallback)
+	require.Equal(t, uint64(1), result.OCCStats.RerunCount)
 
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, uint64(2), state.GetNonce(sender))
@@ -510,6 +512,72 @@ func TestExecutorOCCFallsBackWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, core.ErrGasLimitReached))
 	require.Nil(t, result)
+}
+
+func TestExecutorOCCAllowsDeclaredGasSumAboveBlockLimitWhenUsedGasFits(t *testing.T) {
+	chainID := big.NewInt(713715)
+	rawTxs := make([][]byte, 0, 2)
+	state := NewMemoryState()
+
+	for i := 0; i < 2; i++ {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+		recipient := common.BigToAddress(big.NewInt(int64(21_000 + i)))
+		state.SetBalance(sender, big.NewInt(1_000_000))
+		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 60_000, big.NewInt(0)))
+	}
+
+	ctx := blockContext(chainID)
+	ctx.GasLimit = 100_000
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(state))
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: ctx,
+		Txs:     rawTxs,
+	})
+
+	require.NoError(t, err)
+	require.True(t, result.OCCStats.Attempted)
+	require.False(t, result.OCCStats.Fallback)
+	require.Equal(t, uint64(42_000), result.GasUsed)
+}
+
+func TestExecutorOCCCreateThenCallRerunsDependentTx(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	storageKey := testHash(0x31)
+	storageValue := testHash(0x32)
+	runtime := storeCode(storageKey, storageValue)
+	contractAddr := crypto.CreateAddress(sender, 0)
+
+	seqState := NewMemoryState()
+	occState := NewMemoryState()
+	for _, state := range []*MemoryState{seqState, occState} {
+		state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
+	}
+
+	createContract := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
+	callContract := signLegacyTx(t, key, chainID, 1, &contractAddr, big.NewInt(0), nil)
+	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{createContract, callContract}}
+
+	seqResult, err := NewExecutor(Config{}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	occResult, err := NewExecutor(Config{OCCWorkers: 2}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+
+	require.True(t, occResult.OCCStats.Attempted)
+	require.False(t, occResult.OCCStats.Fallback)
+	require.GreaterOrEqual(t, occResult.OCCStats.RerunCount, uint64(1))
+	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
+
+	seqState.ApplyChangeSet(seqResult.ChangeSet)
+	occState.ApplyChangeSet(occResult.ChangeSet)
+	require.Equal(t, seqState.GetCode(contractAddr), occState.GetCode(contractAddr))
+	require.Equal(t, storageValue, occState.GetState(contractAddr, storageKey))
+	require.Equal(t, seqState.GetNonce(sender), occState.GetNonce(sender))
 }
 
 func TestExecutorReceiptAndLogMetadata(t *testing.T) {
@@ -1217,18 +1285,13 @@ func TestStateDBGetCodeHashTracksCodelessAccountExistenceReads(t *testing.T) {
 	require.Contains(t, readSet, stateAccessKey{kind: stateAccessBalance, address: eoa})
 	require.Contains(t, readSet, stateAccessKey{kind: stateAccessNonce, address: eoa})
 
-	validation := validateOCCResults([]occTxExecution{
-		{
-			gasLimit: 1,
-			writeSet: map[stateAccessKey]struct{}{
-				{kind: stateAccessBalance, address: eoa}: {},
-			},
-		},
-		{
-			gasLimit: 1,
-			readSet:  readSet,
-		},
-	}, 10)
+	writes := newStateAccessIndex()
+	writes.addAll(map[stateAccessKey]struct{}{
+		{kind: stateAccessBalance, address: eoa}: {},
+	})
+	validation := occValidationResult{valid: true}
+	accepted := validateSTMResultAgainstPrefix(&validation, writes, occTxExecution{gasLimit: 1, readSet: readSet}, 0, 10)
+	require.False(t, accepted)
 	require.False(t, validation.valid)
 	require.Equal(t, occFallbackReasonConflict, validation.fallbackReason)
 }
