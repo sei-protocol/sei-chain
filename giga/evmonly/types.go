@@ -3,6 +3,7 @@ package evmonly
 import (
 	"context"
 	"math/big"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -76,17 +77,25 @@ type BlockResult struct {
 	GasUsed   uint64
 	OCCStats  OCCStats
 
-	lease *blockResultLease
+	releaseMu sync.Mutex
+	lease     *blockResultLease
 }
 
 // Release returns a pooled BlockResult to its executor-owned pool. It is a
-// no-op for results that were not allocated from a pool.
+// no-op for results that were not allocated from a pool. Release is idempotent
+// and safe for concurrent callers.
 func (r *BlockResult) Release() {
-	if r == nil || r.lease == nil {
+	if r == nil {
 		return
 	}
+	r.releaseMu.Lock()
 	lease := r.lease
+	if lease == nil {
+		r.releaseMu.Unlock()
+		return
+	}
 	r.lease = nil
+	r.releaseMu.Unlock()
 	lease.release()
 }
 
