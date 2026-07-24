@@ -144,7 +144,24 @@ func TestOpTypeSweep(t *testing.T) {
 			ws, warmup, err := GenerateOpWriteSet(spec)
 			require.NoError(t, err)
 
-			wrapper, err := OpenReplayWrapper(t.Context(), backend, t.TempDir())
+			// Real-dir opening: memiavl wants the node HOME (it resolves the
+			// SC path internally), FlatKV wants the flatkv directory itself.
+			// Point these at a COPY of a real data dir for mainnet-sized
+			// absolute cost; unset falls back to an empty temp DB (relative
+			// asymmetry only).
+			dir := t.TempDir()
+			switch backend {
+			case wrappers.MemIAVL:
+				if h := os.Getenv("OP_SWEEP_MEMIAVL_HOME"); h != "" {
+					dir = h
+				}
+			case wrappers.FlatKV:
+				if d := os.Getenv("OP_SWEEP_FLATKV_DIR"); d != "" {
+					dir = d
+				}
+			}
+
+			wrapper, err := OpenReplayWrapper(t.Context(), backend, dir)
 			require.NoError(t, err)
 			samples, err := ReplayWriteSetSampled(wrapper, ws, warmup)
 			require.NoError(t, wrapper.Close())
