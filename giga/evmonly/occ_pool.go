@@ -23,7 +23,7 @@ func newOCCWorkerPool(workers int) *occWorkerPool {
 	return &occWorkerPool{workers: workers}
 }
 
-func (p *occWorkerPool) Run(ctx context.Context, ranges []occTxRange, run func(context.Context, occTxRange) error) error {
+func (p *occWorkerPool) Run(ctx context.Context, run func(context.Context, int) error) error {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
@@ -32,20 +32,16 @@ func (p *occWorkerPool) Run(ctx context.Context, ranges []occTxRange, run func(c
 	defer p.mu.Unlock()
 
 	g, groupCtx := errgroup.WithContext(ctx)
-	g.SetLimit(p.workers)
-	for _, txRange := range ranges {
-		txRange := txRange
+	for workerID := 0; workerID < p.workers; workerID++ {
+		workerID := workerID
 		g.Go(func() error {
 			if err := groupCtx.Err(); err != nil {
 				return err
 			}
-			return run(groupCtx, txRange)
+			return run(groupCtx, workerID)
 		})
 	}
-	if err := g.Wait(); err != nil {
-		return err
-	}
-	return ctx.Err()
+	return g.Wait()
 }
 
 func (p *occWorkerPool) Close() {

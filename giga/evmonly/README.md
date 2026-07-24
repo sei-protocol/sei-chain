@@ -153,23 +153,29 @@ custom precompile addresses return `ErrCustomPrecompilesOpen`.
 ## Block-STM execution
 
 When `OCCWorkers > 1`, there is more than one transaction, and custom precompiles
-are not enabled, the executor attempts optimistic parallel execution. Each
-transaction first runs speculatively against the same base state while the native
-state DB records balance, nonce, code, account, and `(address, slot)` storage
-reads and writes. The executor then validates transactions in block order against
-the already-accepted prefix:
+are not enabled, the executor attempts optimistic parallel execution. The
+Block-STM scheduler runs two pools: an execution pool and a validation pool.
+Initial incarnations for all transactions are queued into the execution pool
+against the base state. Every completed incarnation is queued into the validation
+pool, where validation compares its recorded balance, nonce, code, account, and
+`(address, slot)` storage reads/writes against writes accepted after that
+incarnation's source prefix.
 
-- transactions with no dependency on prior writes are accepted from the initial
-  speculative pass
-- transactions whose reads, writes, gas-pool availability, or initial validation
-  errors depend on earlier transactions are rerun individually against an
-  EVM-native overlay containing the accepted prefix
-- rerun outputs replace only that transaction's speculative output
+- transactions with no dependency on newly accepted prior writes are retained
+  until they can be accepted in block order
+- transactions whose reads, writes, gas-pool availability, or execution errors
+  are invalidated by the accepted prefix are queued back into the execution pool
+  as a new incarnation against an immutable snapshot of that prefix
+- reruns can execute while earlier transaction validations are still progressing,
+  but final acceptance still happens in block order
+- rerun outputs replace only that transaction's prior incarnation
 - the final changeset is generated from the accepted prefix state, not by
   blindly merging mixed-base speculative writes
 
 This is intentionally conservative. A conflict can cause extra reruns, but it
-should not cause a whole-block sequential fallback. Coinbase fee credits are
+should not cause a whole-block sequential fallback. The current incarnation cap
+is 10; if a transaction still cannot validate by then, the executor falls back to
+the sequential path and marks `OCCStats.Fallback`. Coinbase fee credits are
 tracked as commutative balance deltas, so independent fee-paying transactions do
 not conflict only because they reward the same coinbase. If a later transaction
 reads or writes that balance, spends funds made available by that fee credit, or
@@ -186,8 +192,9 @@ deltas are restored by undo entries.
 
 `OCCStats` reports whether optimistic execution was attempted, how many reruns
 were needed, and aggregated conflict samples. `Fallback` is reserved for cases
-where the executor gives up on the optimistic path; ordinary conflicts should be
-resolved by per-transaction reruns instead.
+where the executor gives up on the optimistic path, currently because the
+incarnation cap was reached; ordinary conflicts should be resolved by
+per-transaction reruns instead.
 
 ## Current limitations
 
