@@ -131,7 +131,7 @@ func TestCloseCancelsShardContexts(t *testing.T) {
 
 	require.NoError(t, engine.Close())
 	for i, s := range e.shards {
-		require.Error(t, s.ctx.Err(), "shard %d context must be cancelled by Close", i)
+		require.Error(t, s.cache.ctx.Err(), "shard %d context must be cancelled by Close", i)
 	}
 }
 

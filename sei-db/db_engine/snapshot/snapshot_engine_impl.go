@@ -257,6 +257,7 @@ func NewSnapshotEngine(
 			childCtx, config.MetricsName, config.MetricsScrapeInterval(), c.getCacheSizeInfo)
 		for _, s := range c.shards {
 			s.metrics = metrics
+			s.cache.metrics = metrics
 		}
 		c.metrics = metrics
 	}

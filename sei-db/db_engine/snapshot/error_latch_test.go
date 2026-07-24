@@ -67,7 +67,7 @@ func TestBatchGetPartialFailureLeavesCoherentState(t *testing.T) {
 			"k3": statusAvailable,
 		}
 		for key, wantStatus := range expected {
-			entry, ok := shard.dbCache[key]
+			entry, ok := shard.cache.entries[key]
 			if !ok || entry.status != wantStatus {
 				return false
 			}
@@ -114,7 +114,7 @@ func TestBatchGetWithLatchedKeyLeavesNoStrandedEntries(t *testing.T) {
 	require.Eventually(t, func() bool {
 		shard.lock.Lock()
 		defer shard.lock.Unlock()
-		entry, ok := shard.dbCache["k1"]
+		entry, ok := shard.cache.entries["k1"]
 		return ok && entry.status == statusAvailable
 	}, 2*time.Second, time.Millisecond, "k1 was left stranded in a non-terminal state")
 
@@ -190,7 +190,7 @@ func TestConcurrentReadersOfFailingKeyBothError(t *testing.T) {
 	require.Eventually(t, func() bool {
 		shard.lock.Lock()
 		defer shard.lock.Unlock()
-		entry, ok := shard.dbCache["k"]
+		entry, ok := shard.cache.entries["k"]
 		return ok && entry.status == statusFailed
 	}, 2*time.Second, time.Millisecond, "entry was not latched as failed")
 }
