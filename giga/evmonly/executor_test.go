@@ -366,6 +366,29 @@ func TestExecutorRequiresBaseFeeAfterLondon(t *testing.T) {
 	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 }
 
+func TestExecutorRequiresBlobBaseFeeAfterCancun(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xb6)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
+	ctx := blockContext(chainID)
+	ctx.BlobBaseFee = nil
+
+	result, err := NewExecutor(Config{}, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+		Context: ctx,
+		Txs:     [][]byte{rawTx},
+	})
+
+	require.ErrorIs(t, err, errMissingBlobBaseFee)
+	require.Nil(t, result)
+	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
+}
+
 func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
 	chainID := big.NewInt(713715)
 	txCount := 12
@@ -1766,12 +1789,13 @@ func signBlobTxWithFees(
 
 func blockContext(chainID *big.Int) BlockContext {
 	return BlockContext{
-		Number:   1,
-		Time:     1,
-		GasLimit: 30_000_000,
-		ChainID:  chainID,
-		BaseFee:  big.NewInt(0),
-		Coinbase: common.HexToAddress("0x00000000000000000000000000000000000000cb"),
+		Number:      1,
+		Time:        1,
+		GasLimit:    30_000_000,
+		ChainID:     chainID,
+		BaseFee:     big.NewInt(0),
+		BlobBaseFee: big.NewInt(0),
+		Coinbase:    common.HexToAddress("0x00000000000000000000000000000000000000cb"),
 	}
 }
 
