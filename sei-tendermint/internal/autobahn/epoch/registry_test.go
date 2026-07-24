@@ -69,7 +69,7 @@ func TestEpochAt_ErrorIfNotRegistered(t *testing.T) {
 
 func TestEpochAt_FoundAfterAdvanceIfNeeded(t *testing.T) {
 	r, _ := makeRegistry(t)
-	// NewRegistry already seeds {0,1}. Only the last road of epoch 0 seeds epoch 2.
+	// NewRegistry seeds {0}. Only the last road of epoch 0 seeds epoch 2.
 	r.AdvanceIfNeeded(0)
 	if _, err := r.EpochAt(FirstRoad(2)); err == nil {
 		t.Fatal("AdvanceIfNeeded(0) must not seed epoch 2")
@@ -209,14 +209,34 @@ func TestDuoAt_ErrorWhenCurrentMissing(t *testing.T) {
 	}
 }
 
+func TestDuoAt_ErrorWhenPrevMissing(t *testing.T) {
+	committee := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
+		types.GenSecretKey(utils.TestRng()).Public(): 1,
+	}))
+	ep0 := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, time.Time{}, committee, 0)
+	ep2 := types.NewEpoch(2, types.RoadRange{First: FirstRoad(2), Next: FirstRoad(3)}, time.Time{}, committee, 0)
+	// Gap: epoch 2 present without epoch 1.
+	bare := &Registry{
+		state: utils.NewRWMutex(&registryState{
+			m:      map[types.EpochIndex]*types.Epoch{0: ep0, 2: ep2},
+			latest: 2,
+		}),
+		highestEpoch: utils.NewAtomicSend(types.EpochIndex(2)),
+	}
+	_, err := bare.DuoAt(FirstRoad(2))
+	if err == nil {
+		t.Fatal("DuoAt(FirstRoad(2)) expected error when Prev epoch not registered, got nil")
+	}
+}
+
 func TestWaitForDuo_FastPathAndWait(t *testing.T) {
 	r, _ := makeRegistry(t)
-	// NewRegistry seeds {0,1}; DuoAt(0) is immediate.
+	// NewRegistry seeds {0}; DuoAt(0) is immediate.
 	duo, err := r.WaitForDuo(t.Context(), 0)
 	require.NoError(t, err)
 	require.Equal(t, types.EpochIndex(0), duo.Current.EpochIndex())
 
-	// Tipcut into epoch 2 needs epoch 2 registered (seeded by executing epoch 0).
+	// Tipcut into epoch 2 needs {1,2} registered.
 	tip := FirstRoad(2)
 	_, err = r.DuoAt(tip)
 	require.Error(t, err)
@@ -230,7 +250,8 @@ func TestWaitForDuo_FastPathAndWait(t *testing.T) {
 		duo, err := r.WaitForDuo(t.Context(), tip)
 		done <- result{duo, err}
 	}()
-	r.AdvanceIfNeeded(LastRoad(0)) // last road of epoch 0 seeds epoch 2
+	r.EnsureEpoch(1)               // Prev for DuoAt(epoch 2)
+	r.AdvanceIfNeeded(LastRoad(0)) // seeds epoch 2
 	got := <-done
 	require.NoError(t, got.err)
 	require.Equal(t, types.EpochIndex(2), got.duo.Current.EpochIndex())
