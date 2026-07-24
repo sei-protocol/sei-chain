@@ -25,13 +25,28 @@ var (
 	baseBalance               = *uint256.MustFromBig(new(big.Int).Mul(big.NewInt(100), big.NewInt(1_000_000_000_000_000_000)))
 )
 
-type mockAppTransition string
+type mockAppTransition int
 
 const (
-	mockAppTransitionInitialize mockAppTransition = "initialize"
-	mockAppTransitionFinalize   mockAppTransition = "finalize"
-	mockAppTransitionCommit     mockAppTransition = "commit"
+	blocksToRetain = 10_000
+
+	mockAppTransitionInitialize mockAppTransition = iota
+	mockAppTransitionFinalize
+	mockAppTransitionCommit
 )
+
+func (t mockAppTransition) String() string {
+	switch t {
+	case mockAppTransitionInitialize:
+		return "initialize"
+	case mockAppTransitionFinalize:
+		return "finalize"
+	case mockAppTransitionCommit:
+		return "commit"
+	default:
+		return fmt.Sprintf("unknown(%d)", t)
+	}
+}
 
 type mockAppState struct {
 	nextNonce        map[common.Address]uint64
@@ -153,7 +168,7 @@ func (app *MockApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 			return nil, err
 		}
 		state.nextTransition = mockAppTransitionFinalize
-		return &abci.ResponseCommit{}, nil
+		return &abci.ResponseCommit{RetainHeight: max(state.lastBlockHeight-blocksToRetain, 0)}, nil
 	}
 	panic("unreachable")
 }

@@ -141,6 +141,29 @@ func TestMockAppChecksTransitions(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestMockAppCommitSetsRetainHeight(t *testing.T) {
+	app := NewMockApp(abci.BaseApplication{})
+	_, err := app.InitChain(&abci.RequestInitChain{InitialHeight: 10_005})
+	require.NoError(t, err)
+
+	res, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Header: &tmproto.Header{Height: 10_005},
+	})
+	require.NoError(t, err)
+	require.Empty(t, res.TxResults)
+	commit, err := app.Commit(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, int64(5), commit.RetainHeight)
+
+	_, err = app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Header: &tmproto.Header{Height: 10_006},
+	})
+	require.NoError(t, err)
+	commit, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, int64(6), commit.RetainHeight)
+}
+
 func TestMockAppForwardsInitChainAndIgnoresInitLastHeader(t *testing.T) {
 	inner := &mockAppForwardTarget{}
 	app := NewMockApp(inner)
