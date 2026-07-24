@@ -41,11 +41,12 @@ func TestConsensusClientServer(t *testing.T) {
 				GlobalNumber:  idx,
 				FinalAppState: wantAppProposal,
 			}
+			road := types.RoadIndex(offset)
 			p := types.NewAppProposal(
 				idx,
-				types.RoadIndex(offset),
+				road,
 				types.GenAppHash(rng),
-				registry.LatestEpoch().EpochIndex(),
+				epoch.IndexForRoad(road),
 			)
 			wantAppProposal = utils.Some(p)
 			for _, n := range nodes {
