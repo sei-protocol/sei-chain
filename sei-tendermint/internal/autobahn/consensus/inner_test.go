@@ -72,19 +72,18 @@ func TestNewInnerEmpty(t *testing.T) {
 	require.False(t, i.TimeoutVote.IsPresent(), "timeoutVote should be None")
 }
 
-// TestNewInner_ConsensusTipLeadsDataWindow: data CommitQC tip is in epoch 1;
-// registry has epoch 2 (live AdvanceIfNeeded lookahead). Persisted CommitQC is
-// LastRoad(1) → view tipcut FirstRoad(2).
+// TestNewInner_ConsensusTipLeadsDataWindow: data CommitQC tip is in epoch M;
+// registry has M+1 (live AdvanceIfNeeded lookahead). Persisted CommitQC is
+// LastRoad(M) → view tipcut FirstRoad(M+1).
 func TestNewInner_ConsensusTipLeadsDataWindow(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys, _ := epoch.GenRegistry(rng, 3) // {0,1} only
-	ep1 := utils.OrPanic1(registry.EpochAt(epoch.FirstRoad(1)))
-	closing := epoch.LastRoad(1)
-	tipcut := epoch.FirstRoad(2)
+	registry, keys, m := epoch.GenRegistryTip(rng, 3)
+	registry.EnsureEpoch(m + 1)
+	epM := utils.OrPanic1(registry.EpochAt(epoch.FirstRoad(m)))
+	closing := epoch.LastRoad(m)
+	tipcut := epoch.FirstRoad(m + 1)
 
-	// Live path after finishing LastRoad(0): seed epoch 2.
-	registry.EnsureEpoch(2)
-	vote := types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: closing}))
+	vote := types.NewCommitVote(types.ProposalAt(epM, types.View{Index: closing}))
 	votes := make([]*types.Signed[*types.CommitVote], len(keys))
 	for i, k := range keys {
 		votes[i] = types.Sign(k, vote)
@@ -95,11 +94,11 @@ func TestNewInner_ConsensusTipLeadsDataWindow(t *testing.T) {
 		CommitQC: utils.Some(cqc),
 	})), registry)
 	require.NoError(t, err)
-	require.Equal(t, types.EpochIndex(2), i.epochs.Current.EpochIndex())
+	require.Equal(t, m+1, i.epochs.Current.EpochIndex())
 	require.Equal(t, tipcut, i.View().Index)
 	prev, ok := i.epochs.Prev.Get()
 	require.True(t, ok)
-	require.Equal(t, types.EpochIndex(1), prev.EpochIndex())
+	require.Equal(t, m, prev.EpochIndex())
 }
 
 func TestNewInnerPrepareVote(t *testing.T) {

@@ -8,6 +8,9 @@ import (
 )
 
 // LatestEpoch returns the most recently activated epoch. For use in tests only.
+// Do not use this to stamp CommitQC views for an arbitrary road — use
+// EpochAtTip (or EpochAt) so View.EpochIndex matches the road's epoch when
+// GenRegistry starts away from genesis.
 func (r *Registry) LatestEpoch() *types.Epoch {
 	for s := range r.state.RLock() {
 		return s.m[s.latest]
@@ -15,32 +18,31 @@ func (r *Registry) LatestEpoch() *types.Epoch {
 	panic("unreachable")
 }
 
-// GenRegistry generates a random Registry of the given committee size,
-// starting at a random epoch index (0–1). Seeds the neighboring epochs
-// so the window covers [startEpoch-1, startEpoch].
-// Returns the registry, secret keys, and the starting epoch index.
+// EpochAtTip is the epoch for the next CommitQC after prev (road 0 if none).
+// Intended for test CommitQC chains when GenRegistry's start epoch may be ≫ 0.
+func (r *Registry) EpochAtTip(prev utils.Option[*types.CommitQC]) *types.Epoch {
+	return utils.OrPanic1(r.EpochAt(types.NextIndexOpt(prev)))
+}
+
+// GenRegistry generates a random Registry of the given committee size, starting
+// at a random epoch N ∈ [0, 100]. Seeds only the duo at N ({N−1 if N>0, N}),
+// plus genesis 0 from NewRegistry — not M+1/M+2 placeholders and not a dense
+// 0..N fill. startEpoch is drawn from rng.Split() so it does not depend on how
+// many draws committee construction consumes.
+// Callers building CommitQC chains must use EpochAtTip / EpochAt(road), not
+// LatestEpoch(), for View.EpochIndex. Tests that need N+1/N+2 must EnsureEpoch
+// (or AdvanceIfNeeded) themselves.
+// Returns the registry, secret keys, and N.
 // Intended for use in tests only.
 func GenRegistry(rng utils.Rng, size int) (*Registry, []types.SecretKey, types.EpochIndex) {
-	sks := utils.GenSliceN(rng, size, types.GenSecretKey)
-	weights := map[types.PublicKey]uint64{}
-	for _, sk := range sks {
-		weights[sk.Public()] = 1000 + uint64(rng.Intn(1000)) //nolint:gosec
-	}
-	committee := utils.OrPanic1(types.NewCommittee(weights))
-	// FirstBlock is a global height. Keep 0 so empty-store tipcuts stay on
-	// road indices that only need epochs {0,1} — matching production genesis.
-	const firstBlock types.GlobalBlockNumber = 0
-	// Limit to {0, 1}: GenRegistryAt for either value always includes epoch 0
-	// ([0] or [0,1]), so tests that build CommitQC chains from road index 0
-	// can still look up epoch 0 in the window. Higher values would require all
-	// such tests to anchor their chains at FirstRoad(startEpoch).
-	startEpoch := types.EpochIndex(rng.Intn(2)) //nolint:gosec
-	r := makeRegistryAt(committee, firstBlock, startEpoch)
+	startEpoch := types.EpochIndex(rng.Split().Intn(101)) //nolint:gosec
+	r, sks := GenRegistryAt(rng, size, startEpoch)
 	return r, sks, startEpoch
 }
 
-// GenRegistryAt generates a Registry of the given committee size centered on startEpoch.
-// Seeds [startEpoch-1, startEpoch] so DuoAt(FirstRoad(startEpoch)) works.
+// GenRegistryAt generates a Registry of the given committee size centered on
+// startEpoch. Seeds only {startEpoch−1 (if >0), startEpoch} via EnsureDuoAt —
+// not startEpoch+1/+2 (callers add those when needed).
 // Intended for use in tests only.
 func GenRegistryAt(rng utils.Rng, size int, startEpoch types.EpochIndex) (*Registry, []types.SecretKey) {
 	sks := utils.GenSliceN(rng, size, types.GenSecretKey)
@@ -53,21 +55,21 @@ func GenRegistryAt(rng utils.Rng, size int, startEpoch types.EpochIndex) (*Regis
 	return makeRegistryAt(committee, firstBlock, startEpoch), sks
 }
 
+// GenRegistryTip is GenRegistryAt on a random M ∈ [1, 100] so Prev is always
+// present ({M−1, M} only). Prefer this over GenRegistryAt(..., 0) for tests that
+// need a non-genesis Current.
+func GenRegistryTip(rng utils.Rng, size int) (*Registry, []types.SecretKey, types.EpochIndex) {
+	m := types.EpochIndex(1 + rng.Split().Intn(100)) //nolint:gosec
+	r, sks := GenRegistryAt(rng, size, m)
+	return r, sks, m
+}
+
 func makeRegistryAt(committee *types.Committee, firstBlock types.GlobalBlockNumber, startEpoch types.EpochIndex) *Registry {
 	registry := utils.OrPanic1(NewRegistry(committee, firstBlock, time.Now()))
-	utils.OrPanic(registry.SetupInitialDuo(utils.None[types.RoadRange]()))
-	// Ensure at least {0,1} so DuoAt(FirstRoad(1)) works in tests.
-	through := startEpoch
-	if through < 1 {
-		through = 1
-	}
+	// Duo at startEpoch only; no placeholder +1/+2 (unlike SetupInitialDuo's
+	// CommitQC-span path). Genesis 0 always exists from NewRegistry.
+	registry.EnsureDuoAt(FirstRoad(startEpoch))
 	for s := range registry.state.Lock() {
-		for idx := types.EpochIndex(0); idx <= through; idx++ {
-			if _, ok := s.m[idx]; ok {
-				continue
-			}
-			registry.makeEpoch(s, idx)
-		}
 		s.latest = startEpoch
 	}
 	return registry

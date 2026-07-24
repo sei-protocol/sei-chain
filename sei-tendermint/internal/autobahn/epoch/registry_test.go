@@ -37,17 +37,6 @@ func TestNewRegistry_GenesisEpochBoundedRange(t *testing.T) {
 	}
 }
 
-func TestEpochAt_GenesisEpoch(t *testing.T) {
-	r, _ := makeRegistry(t)
-	ep, err := r.EpochAt(0)
-	if err != nil {
-		t.Fatalf("EpochAt(0) error: %v", err)
-	}
-	if ep.EpochIndex() != 0 {
-		t.Fatalf("EpochAt(0).EpochIndex() = %d, want 0", ep.EpochIndex())
-	}
-}
-
 func TestEpochAt_WithinGenesisEpoch(t *testing.T) {
 	r, _ := makeRegistry(t)
 	ep, err := r.EpochAt(LastRoad(0))

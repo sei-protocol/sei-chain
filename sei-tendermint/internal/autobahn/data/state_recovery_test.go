@@ -46,7 +46,7 @@ func TestNewStateInMemoryMode(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 
 	state := utils.OrPanic1(NewState(&Config{Registry: registry}, memblock.NewBlockDB()))
 
@@ -73,8 +73,8 @@ func TestRecoveryNormal(t *testing.T) {
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 
@@ -250,9 +250,9 @@ func TestPruningDiscards(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
-	qc3, blocks3 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc2.QC()))
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
+	qc3, blocks3 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc2.QC())), keys, utils.Some(qc2.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 	gr3 := qc3.QC().GlobalRange()
@@ -286,9 +286,9 @@ func TestRecoveryAfterPruning(t *testing.T) {
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
-	qc3, blocks3 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc2.QC()))
+	qc1, _ := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
+	qc3, blocks3 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc2.QC())), keys, utils.Some(qc2.QC()))
 	gr2 := qc2.QC().GlobalRange()
 	gr3 := qc3.QC().GlobalRange()
 
@@ -333,8 +333,8 @@ func TestRecoveryBlocksBehind(t *testing.T) {
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 
@@ -381,7 +381,7 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 	if gr1.Next-gr1.First < 3 {
 		t.Skip("need at least 3 blocks in QC range to test split")
@@ -433,8 +433,8 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 
@@ -477,7 +477,7 @@ func TestRecoveryQCsNoBlocks(t *testing.T) {
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, _ := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 
 	db1 := newTestBlockDB(t, dir)
@@ -509,8 +509,8 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc1, _ := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	gr2 := qc2.QC().GlobalRange()
 	require.Greater(t, gr2.First, registry.FirstBlock(), "need skipTo past genesis")
 
@@ -561,7 +561,7 @@ func TestRecoveryBlockGap(t *testing.T) {
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 
 	// TestCommitQC generates 10 global blocks, so the range is always wide
@@ -599,7 +599,7 @@ func TestRecoveryBlockGap(t *testing.T) {
 func TestNewState_AppLeadsBlockDBFlush(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 
 	db := memblock.NewBlockDB()

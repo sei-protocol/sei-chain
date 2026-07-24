@@ -115,7 +115,7 @@ func TestState(t *testing.T) {
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, prev)
+			qc, blocks := TestCommitQC(rng, registry.EpochAtTip(prev), keys, prev)
 			prev = utils.Some(qc.QC())
 			if err := state.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("state.PushQC(): %w", err)
@@ -183,7 +183,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
 	// Push a valid QC to advance inner.nextQC.
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
 	gr1 := qc1.QC().GlobalRange()
 
@@ -223,7 +223,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 			malBlocks = append(malBlocks, b)
 		}
 	}
-	viewSpec := types.ViewSpec{CommitQC: utils.None[*types.CommitQC](), Epochs: types.NewEpochDuo(registry.LatestEpoch(), utils.None[*types.Epoch]())}
+	viewSpec := types.ViewSpec{CommitQC: utils.None[*types.CommitQC](), Epochs: types.NewEpochDuo(registry.EpochAtTip(utils.None[*types.CommitQC]()), utils.None[*types.Epoch]())}
 	leader := committee.Leader(viewSpec.View())
 	var leaderKey types.SecretKey
 	for _, k := range keys {
@@ -273,7 +273,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	}
 
 	// Verify state is still functional: the next valid QC is accepted and visible.
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	require.NoError(t, state.PushQC(ctx, qc2, blocks2))
 	gr2 := qc2.QC().GlobalRange()
 	for n := gr2.First; n < gr2.Next; n++ {
@@ -290,7 +290,7 @@ func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
 	// Push qc1 with NO blocks — only the QC is stored.
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushQC(ctx, qc1, nil))
 	gr := qc1.QC().GlobalRange()
 
@@ -339,7 +339,7 @@ func TestExecution(t *testing.T) {
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, prev)
+			qc, blocks := TestCommitQC(rng, registry.EpochAtTip(prev), keys, prev)
 			if err := state.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("state.PushQC(): %w", err)
 			}
@@ -376,7 +376,7 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
 	// Push QC without blocks.
-	qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc, blocks := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushQC(ctx, qc, nil))
 	gr := qc.QC().GlobalRange()
 
@@ -394,7 +394,7 @@ func TestGlobalBlockByHash(t *testing.T) {
 
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
-	qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc, blocks := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushQC(ctx, qc, blocks))
 	gr := qc.QC().GlobalRange()
 	n := gr.First
@@ -434,7 +434,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 
 	db := newTestBlockDB(t, dir)
@@ -485,11 +485,11 @@ func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 	require.False(t, qc1.QC().Proposal().App().IsPresent(), "genesis CommitQC has no App")
 
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	app, ok := qc2.QC().Proposal().App().Get()
 	require.True(t, ok, "second CommitQC embeds App for qc1 tip")
 	appFloor := app.GlobalNumber()
@@ -555,9 +555,9 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	app, ok := qc2.QC().Proposal().App().Get()
 	require.True(t, ok)
 	require.Equal(t, gr1.Next-1, app.GlobalNumber())
@@ -619,7 +619,7 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 
 	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
@@ -678,8 +678,8 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 	app, ok := qc2.QC().Proposal().App().Get()
@@ -763,11 +763,11 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 
 		// Push first QC covering [0, N).
-		qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+		qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 		require.NoError(t, state.PushQC(ctx, qc1, blocks1))
 
 		// Prepare second QC covering [N, M) but don't push it yet.
-		qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+		qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 		gr2 := qc2.QC().GlobalRange()
 
 		// Block gr2.First should not be in state yet.
@@ -810,8 +810,8 @@ func TestTryBlockHidesGapFills(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 	require.GreaterOrEqual(t, gr2.Len(), 2)
