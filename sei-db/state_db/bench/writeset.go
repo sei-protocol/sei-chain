@@ -278,3 +278,65 @@ func ReplayWriteSet(wrapper wrappers.DBWrapper, ws *WriteSet) (ReplayResult, err
 	}
 	return result, nil
 }
+
+// ReplaySamples holds per-block apply/commit latencies from a sampled replay,
+// so callers can compute distributions (p50/p95/p99) rather than a single mean.
+// Warm-up blocks are applied and committed to build state but are not sampled.
+type ReplaySamples struct {
+	// KeysPerBlock is the number of writes in each sampled block. Percentile
+	// helpers divide the per-block latency by this to get per-key figures.
+	KeysPerBlock int
+	// ApplyNs and CommitNs hold one sample per timed (non-warmup) block.
+	ApplyNs  []float64
+	CommitNs []float64
+}
+
+// ReplayWriteSetSampled replays the write set one block per version, applying
+// and committing every block but recording apply/commit latency only for
+// blocks at index >= warmupBlocks. Warm-up blocks let insert/update/delete
+// scenarios establish the pre-state (e.g. write keys before overwriting or
+// deleting them) without polluting the measured samples. Replay starts at
+// wrapper.Version()+1, so it composes with an existing (snapshot- or
+// real-dir-backed) base version.
+func ReplayWriteSetSampled(wrapper wrappers.DBWrapper, ws *WriteSet, warmupBlocks int) (ReplaySamples, error) {
+	samples := ReplaySamples{}
+	timed := len(ws.Blocks) - warmupBlocks
+	if timed > 0 {
+		samples.ApplyNs = make([]float64, 0, timed)
+		samples.CommitNs = make([]float64, 0, timed)
+	}
+	baseVersion := wrapper.Version()
+	for i := range ws.Blocks {
+		changesets, err := ws.BlockChangesets(i)
+		if err != nil {
+			return samples, err
+		}
+		entry := &proto.ChangelogEntry{
+			Version:    baseVersion + int64(i) + 1,
+			Changesets: changesets,
+		}
+
+		applyStart := time.Now()
+		if err := wrapper.ApplyChangeSets(entry); err != nil {
+			return samples, fmt.Errorf("apply block %d: %w", i, err)
+		}
+		applyNs := float64(time.Since(applyStart).Nanoseconds())
+
+		commitStart := time.Now()
+		if _, err := wrapper.Commit(); err != nil {
+			return samples, fmt.Errorf("commit block %d: %w", i, err)
+		}
+		commitNs := float64(time.Since(commitStart).Nanoseconds())
+
+		if i >= warmupBlocks {
+			// Timed blocks are uniform in the sweep generator, so record the
+			// per-block key count once from the first sampled block.
+			if len(samples.ApplyNs) == 0 {
+				samples.KeysPerBlock = len(ws.Blocks[i].Writes)
+			}
+			samples.ApplyNs = append(samples.ApplyNs, applyNs)
+			samples.CommitNs = append(samples.CommitNs, commitNs)
+		}
+	}
+	return samples, nil
+}
