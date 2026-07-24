@@ -410,6 +410,7 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 	results := make(map[string][]byte, len(keys))
 	pending := make([]pendingRead, 0, len(keys))
 	var hits int64
+	var firstErr error
 
 	s.lock.Lock()
 
@@ -455,9 +456,14 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 				needsSchedule: true,
 			})
 		case statusFailed:
-			err := entry.err
-			s.lock.Unlock()
-			return nil, fmt.Errorf("an earlier read of key failed: %w", err)
+			if firstErr == nil {
+				// Latch the error but keep classifying: earlier keys in this batch may already
+				// have been flipped to statusScheduled, and their reads must still be scheduled
+				// and drained below so every touched entry reaches a terminal state. Returning
+				// here would strand those entries in statusScheduled with no producer, hanging
+				// all future readers of those keys.
+				firstErr = fmt.Errorf("an earlier read of key failed: %w", entry.err)
+			}
 		default:
 			s.lock.Unlock()
 			panic(fmt.Sprintf("unexpected status: %#v", entry.status))
@@ -469,6 +475,9 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 		s.metrics.reportCacheHits(hits)
 	}
 	if len(pending) == 0 {
+		if firstErr != nil {
+			return nil, firstErr
+		}
 		return results, nil
 	}
 
@@ -489,7 +498,6 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 	// so the drain is bounded by reads already in flight, and it leaves every entry in a terminal
 	// state (available/deleted/failed) via bulkInjectValues below. Abandoning the drain on the
 	// first error would strand the remaining entries in statusScheduled with unpopulated results.
-	var firstErr error
 	for i := range pending {
 		result, err := threading.InterruptiblePull(s.ctx, pending[i].valueChan)
 		if err != nil {

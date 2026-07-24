@@ -89,6 +89,53 @@ func TestBatchGetPartialFailureLeavesCoherentState(t *testing.T) {
 	require.ErrorContains(t, err, "io boom")
 }
 
+// A key already latched as statusFailed must not abort BatchGet classification early: keys earlier
+// in the batch that were flipped to statusScheduled must still be scheduled, drained, and cached.
+// Regression test: returning early stranded those entries with no producer, hanging every future
+// reader of those keys.
+func TestBatchGetWithLatchedKeyLeavesNoStrandedEntries(t *testing.T) {
+	db := newTestDB(map[string][]byte{"k1": []byte("v1")})
+	engine := newTestEngineWithDB(t, db, 1, 1<<20)
+	shard := engine.(*snapshotEngine).shards[0]
+
+	// Latch k2 as permanently failed.
+	db.getErrKeys = map[string]error{"k2": errors.New("io boom")}
+	_, _, err := engine.Get([]byte("k2"), true)
+	require.ErrorContains(t, err, "io boom")
+	db.getErrKeys = nil
+
+	// k1 is uncached and precedes the latched key, so classification flips it to statusScheduled
+	// before the batch observes k2's latched failure. The batch must still fail with k2's error.
+	_, err = engine.BatchGet([][]byte{[]byte("k1"), []byte("k2")})
+	require.ErrorContains(t, err, "io boom")
+
+	// bulkInjectValues runs asynchronously; k1 must reach a terminal state, not stay scheduled.
+	require.Eventually(t, func() bool {
+		shard.lock.Lock()
+		defer shard.lock.Unlock()
+		entry, ok := shard.dbCache["k1"]
+		return ok && entry.status == statusAvailable
+	}, 2*time.Second, time.Millisecond, "k1 was left stranded in a non-terminal state")
+
+	// k1 must read back promptly (this blocked forever before the fix).
+	var v []byte
+	var found bool
+	var getErr error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		v, found, getErr = engine.Get([]byte("k1"), true)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Get(k1) hung on a stranded statusScheduled entry")
+	}
+	require.NoError(t, getErr)
+	require.True(t, found)
+	require.Equal(t, []byte("v1"), v)
+}
+
 // Two goroutines racing on one failing key: both must observe the error, and the entry must end
 // latched as statusFailed.
 func TestConcurrentReadersOfFailingKeyBothError(t *testing.T) {
