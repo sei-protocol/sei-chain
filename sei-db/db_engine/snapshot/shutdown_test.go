@@ -3,6 +3,7 @@ package snapshot
 import (
 	"context"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -148,26 +149,35 @@ func TestBlockedReadResolvesDuringClose(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k": []byte("v")})
 	engine := newTestEngineWithDB(t, db, 1, 4096)
 
+	// Baseline past the construction-time initial-hash read, then gate all further DB reads.
+	base := db.getCalls.Load()
 	db.getGate = make(chan struct{})
+
+	// Release the gated read task exactly once, and unconditionally on test failure, before the
+	// pool-draining cleanup registered at construction (t.Cleanup runs LIFO).
+	releaseGate := sync.OnceFunc(func() { close(db.getGate) })
+	t.Cleanup(releaseGate)
+
 	getDone := make(chan error, 1)
 	go func() {
 		_, _, err := engine.Get([]byte("k"), true)
 		getDone <- err
 	}()
-	require.Eventually(t, func() bool { return db.getCalls.Load() > 0 },
+	require.Eventually(t, func() bool { return db.getCalls.Load() > base },
 		2*time.Second, time.Millisecond, "read task never reached the DB")
 
 	require.NoError(t, engine.Close())
 
 	select {
-	case <-getDone:
-		// The gate is still held, so this resolves as an error; a value would also be legal.
+	case err := <-getDone:
+		// The gate is still held, so the read cannot have produced a value: Close must have
+		// released the waiter with an error wrapping ErrEngineClosed, per the Close contract.
+		require.ErrorIs(t, err, ErrEngineClosed)
 	case <-time.After(2 * time.Second):
 		t.Fatal("blocked Get did not resolve after Close")
 	}
 
-	// Release the gated read task before cleanup drains the pool.
-	close(db.getGate)
+	releaseGate()
 }
 
 // Methods called after a clean Close must report ErrEngineClosed.

@@ -136,6 +136,7 @@ func TestIteratorAfterEngineShutdownSurfacesError(t *testing.T) {
 
 	it := snap.Iterator()
 	_, _, _, err = it.Next()
-	require.Error(t, err, "iterator built after engine shutdown must surface an error")
+	require.ErrorIs(t, err, ErrEngineClosed,
+		"an iterator requested after a clean shutdown must report ErrEngineClosed, per the Close contract")
 	require.NoError(t, it.Close())
 }

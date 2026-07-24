@@ -55,6 +55,12 @@ type shard struct {
 	// A pool for asynchronous reads.
 	readPool threading.Pool
 
+	// Maps the context cancellation observed by a blocked read to the engine's shutdown error:
+	// the latched fatal error, or ErrEngineClosed on a clean close. Blocked reads select on ctx,
+	// which is cancelled only when the engine shuts down, and the Close contract requires the
+	// error released to such callers to wrap ErrEngineClosed or the fatal error.
+	shutdownError func() error
+
 	// The maximum size of the db cache, in bytes.
 	maxSize uint64
 
@@ -147,10 +153,17 @@ func NewShard(
 	readPool threading.Pool,
 	// The maximum size of this shard, in bytes.
 	maxSize uint64,
+	// Maps the context cancellation observed by a blocked read to the engine's shutdown error
+	// (the latched fatal error, or ErrEngineClosed on a clean close). Called only after ctx has
+	// been cancelled.
+	shutdownError func() error,
 ) (*shard, error) {
 
 	if maxSize == 0 {
 		return nil, fmt.Errorf("maxSize must be greater than 0")
+	}
+	if shutdownError == nil {
+		return nil, fmt.Errorf("shutdownError must be non-nil")
 	}
 
 	versionDiffs := make(map[uint64]map[string][]byte)
@@ -161,6 +174,7 @@ func NewShard(
 		config:         config,
 		db:             db,
 		readPool:       readPool,
+		shutdownError:  shutdownError,
 		lock:           sync.Mutex{},
 		dbCache:        make(map[string]*dbCacheEntry),
 		dbCacheGCQueue: structures.NewLRUQueue(),
@@ -268,7 +282,9 @@ func (s *shard) getScheduledLocked(entry *dbCacheEntry) ([]byte, bool, error) {
 	result, err := threading.InterruptiblePull(s.ctx, valueChan)
 	s.metrics.reportCacheMissLatency(time.Since(startTime))
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
+		// The pull is interrupted only by ctx cancellation, which means the engine is shutting
+		// down; report the engine's shutdown error per the Close contract.
+		return nil, false, fmt.Errorf("engine shut down while awaiting read: %w", s.shutdownError())
 	}
 	valueChan <- result // reload the channel in case there are other listeners
 	if result.err != nil {
@@ -295,7 +311,9 @@ func (s *shard) getUnknownLocked(entry *dbCacheEntry, key []byte) ([]byte, bool,
 	result, err := threading.InterruptiblePull(s.ctx, valueChan)
 	s.metrics.reportCacheMissLatency(time.Since(startTime))
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to pull value from channel: %w", err)
+		// The pull is interrupted only by ctx cancellation, which means the engine is shutting
+		// down; report the engine's shutdown error per the Close contract.
+		return nil, false, fmt.Errorf("engine shut down while awaiting read: %w", s.shutdownError())
 	}
 	valueChan <- result // reload the channel in case there are other listeners
 	if result.err != nil {
@@ -503,8 +521,9 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 		if err != nil {
 			// Context cancellation is a hard teardown: post-shutdown entry state is
 			// unobservable, and draining could block on reads that never complete while the
-			// pool is being torn down, so bail immediately.
-			return nil, fmt.Errorf("failed to pull value from channel: %w", err)
+			// pool is being torn down, so bail immediately with the engine's shutdown error
+			// per the Close contract.
+			return nil, fmt.Errorf("engine shut down while awaiting batch read: %w", s.shutdownError())
 		}
 		pending[i].valueChan <- result
 		pending[i].result = result

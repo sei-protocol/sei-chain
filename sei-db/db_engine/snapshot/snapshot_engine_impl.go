@@ -215,15 +215,6 @@ func NewSnapshotEngine(
 	// this engine-private context, cancelled only when the engine shuts down.
 	childCtx, cancel := context.WithCancel(context.Background())
 
-	shards := make([]*shard, config.ShardCount)
-	for i := uint64(0); i < config.ShardCount; i++ {
-		shards[i], err = NewShard(childCtx, config, db, readPool, sizePerShard)
-		if err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to create shard: %w", err)
-		}
-	}
-
 	versionLock := &sync.Mutex{}
 	lifecycleBackpressureCond := sync.NewCond(versionLock)
 
@@ -232,7 +223,6 @@ func NewSnapshotEngine(
 		cancel:       cancel,
 		config:       config,
 		shardManager: shardManager,
-		shards:       shards,
 		readPool:     readPool,
 		miscPool:     miscPool,
 		db:           db,
@@ -248,6 +238,19 @@ func NewSnapshotEngine(
 		lifecycleExit:             make(chan struct{}, 1),
 		lifecycleExited:           make(chan struct{}),
 	}
+
+	// Shards are created after the engine struct so they can report the engine's shutdown error
+	// (the latched fatal error, or ErrEngineClosed) when a blocked read is released by context
+	// cancellation — see the Close contract on SnapshotEngine.
+	shards := make([]*shard, config.ShardCount)
+	for i := uint64(0); i < config.ShardCount; i++ {
+		shards[i], err = NewShard(childCtx, config, db, readPool, sizePerShard, c.shutdownError)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to create shard: %w", err)
+		}
+	}
+	c.shards = shards
 
 	if config.MetricsEnabled {
 		metrics := newSnapshotEngineMetrics(
@@ -685,7 +688,7 @@ func (c *snapshotEngine) requestIterator(version uint64) (Iterator, error) {
 	case c.iteratorRequests <- req:
 	case <-c.ctx.Done():
 		return nil, fmt.Errorf(
-			"snapshot engine shut down before iterator request could be dispatched: %w", c.ctx.Err())
+			"snapshot engine shut down before iterator request could be dispatched: %w", c.shutdownError())
 	}
 	// The lifecycle goroutine has accepted the request (the request channel is unbuffered) and
 	// always replies (the response channel is buffered, so its send cannot block). Racing

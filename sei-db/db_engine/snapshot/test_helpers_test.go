@@ -302,7 +302,8 @@ func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard {
 	config := DefaultTestSnapshotEngineConfig()
 	config.MetricsName = "test"
 	config.EstimatedOverheadPerEntry = 0
-	s, err := NewShard(context.Background(), config, db, threading.NewAdHocPool(), maxSize)
+	s, err := NewShard(context.Background(), config, db, threading.NewAdHocPool(), maxSize,
+		func() error { return ErrEngineClosed })
 	require.NoError(t, err)
 	return s
 }
