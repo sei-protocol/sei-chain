@@ -7,20 +7,24 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// EpochDuo is a sliding window of up to two consecutive epochs.
-// Current is always set; Prev is absent only for epoch 0.
-// Construct via NewEpochDuo — a zero EpochDuo (nil Current) is invalid.
+// EpochDuo is a sliding Prev|Current epoch window.
 //
-// Next is intentionally not held: new-committee lane traffic is admitted only
-// after CommitQC advances Current into the next epoch.
+// Invariants:
+//   - Current is always set (construct via NewEpochDuo).
+//   - Prev is absent iff Current is epoch 0.
+//   - When Prev is present, Prev and Current are contiguous: consecutive
+//     epoch indices and Prev.RoadRange().Next == Current.RoadRange().First.
+//
+// New-committee lane traffic is admitted only after Current advances.
 type EpochDuo struct {
-	Prev    utils.Option[*Epoch] // absent if Current is epoch 0
+	Prev    utils.Option[*Epoch] // absent iff Current is epoch 0; else contiguous with Current
 	Current *Epoch
 }
 
-// NewEpochDuo builds a Prev|Current window. current must be non-nil.
-// When prev is present it must be the immediately preceding epoch: index
-// Current-1 and road ranges abut (Prev.Next == Current.First).
+// NewEpochDuo builds a Prev|Current window.
+//
+// Requirements: current non-nil; when prev is present, non-nil and contiguous
+// with current (index Current-1, Prev.Next == Current.First). Panics otherwise.
 func NewEpochDuo(current *Epoch, prev utils.Option[*Epoch]) EpochDuo {
 	if current == nil {
 		panic("NewEpochDuo: Current must be non-nil")
@@ -40,23 +44,19 @@ func NewEpochDuo(current *Epoch, prev utils.Option[*Epoch]) EpochDuo {
 	return EpochDuo{Prev: prev, Current: current}
 }
 
-// ErrRoadBeforeWindow is returned by EpochForRoad when the road is older than
-// WindowFirst (behind the duo).
+// ErrRoadBeforeWindow is returned when roadIdx is older than WindowFirst.
 var ErrRoadBeforeWindow = errors.New("road before epoch duo window")
 
-// ErrRoadAfterWindow is returned by EpochForRoad when the road is newer than
-// Current (at or past Current.Next).
+// ErrRoadAfterWindow is returned when roadIdx is at or past Current.Next.
 var ErrRoadAfterWindow = errors.New("road after epoch duo window")
 
 func (w EpochDuo) all() [2]utils.Option[*Epoch] {
 	return [2]utils.Option[*Epoch]{utils.Some(w.Current), w.Prev}
 }
 
-// EpochForRoad returns the epoch whose road range contains roadIdx.
-// The window ends at Current.Next — roads at or past that bound are
-// ErrRoadAfterWindow even if Prev uses an open range. Within the window,
-// Current is checked before Prev so an open-range Prev cannot mask Current.
-// Returns ErrRoadBeforeWindow when older than WindowFirst.
+// EpochForRoad returns the epoch containing roadIdx.
+// Window is [WindowFirst, Current.Next). Outside → ErrRoadBeforeWindow /
+// ErrRoadAfterWindow. Current is preferred when both ranges could match.
 func (w EpochDuo) EpochForRoad(roadIdx RoadIndex) (*Epoch, error) {
 	if roadIdx >= w.Current.RoadRange().Next {
 		return nil, fmt.Errorf("road %d after window %v: %w", roadIdx, w, ErrRoadAfterWindow)
@@ -81,8 +81,8 @@ func (w EpochDuo) EpochOptForRoad(roadIdx RoadIndex) utils.Option[*Epoch] {
 	return utils.None[*Epoch]()
 }
 
-// CurrentForRoad returns Current when roadIdx is in Current's range; else None.
-// Unlike EpochOptForRoad, Prev is never admitted.
+// CurrentForRoad returns Current if roadIdx is in Current's range; else None.
+// Prev is never admitted.
 func (w EpochDuo) CurrentForRoad(roadIdx RoadIndex) utils.Option[*Epoch] {
 	if w.Current.RoadRange().Has(roadIdx) {
 		return utils.Some(w.Current)
@@ -90,7 +90,7 @@ func (w EpochDuo) CurrentForRoad(roadIdx RoadIndex) utils.Option[*Epoch] {
 	return utils.None[*Epoch]()
 }
 
-// WindowFirst is the earliest road still in Prev|Current.
+// WindowFirst is the earliest road in Prev|Current.
 func (w EpochDuo) WindowFirst() RoadIndex {
 	if prev, ok := w.Prev.Get(); ok {
 		return prev.RoadRange().First
@@ -109,7 +109,7 @@ func (w EpochDuo) EpochForIndex(idx EpochIndex) (*Epoch, error) {
 	return nil, fmt.Errorf("epoch %d not in window %v", idx, w)
 }
 
-// String returns a compact description of the epoch indices in the window.
+// String returns the epoch indices in the window.
 func (w EpochDuo) String() string {
 	s := "epochs ["
 	sep := ""
