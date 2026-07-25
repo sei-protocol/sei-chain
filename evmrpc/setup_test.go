@@ -177,6 +177,10 @@ func (*MockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (*MockClient) GenesisInitialHeight() int64 {
+	return 1
+}
+
 func (*MockClient) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
 	tx, err := Encoder(UnconfirmedTx)
 	if err != nil {

@@ -17,6 +17,12 @@ type GenesisImportConfig struct {
 
 const bufferSize = 100000
 
+// DefaultGenesisInitialHeight is the InitialHeight of a chain that starts at
+// block height 1 — the Cosmos/Tendermint default applied when a genesis doc
+// leaves InitialHeight unset. Read-side watermark logic uses it as the fallback
+// genesis height when a parsed GenesisDoc is unavailable.
+const DefaultGenesisInitialHeight int64 = 1
+
 func IngestGenesisFileLineByLine(filename string) <-chan string {
 	lines := make(chan string)
 

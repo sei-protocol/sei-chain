@@ -301,6 +301,7 @@ type lowLatestTMClient struct {
 }
 
 func (c *lowLatestTMClient) EvmNextPendingNonce(common.Address) uint64 { return 0 }
+func (c *lowLatestTMClient) GenesisInitialHeight() int64               { return 1 }
 
 func (c *lowLatestTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) { return nil, false }
 

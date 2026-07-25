@@ -34,6 +34,10 @@ func (*heightTestClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (*heightTestClient) GenesisInitialHeight() int64 {
+	return 1
+}
+
 func (*heightTestClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
