@@ -560,6 +560,52 @@ func TestGetLogsByFiltersWithBackoffAdvancesOnOverflow(t *testing.T) {
 	require.Empty(t, logs)
 	require.Greater(t, end, int64(0), "cursor must advance so the next poll doesn't re-scan the same wedged window")
 	require.Less(t, end, rangeCapTestHeight, "the narrowed window must stop short of the overflowing block")
+
+	calls := fixture.store.getWindowCalls()
+	var narrowedFrom uint64
+	for _, call := range calls {
+		if call[1] < uint64(rangeCapTestHeight) {
+			narrowedFrom = call[0]
+			break
+		}
+	}
+	require.Equal(t, uint64(1), narrowedFrom, "narrowed scan must start at the overflow window begin, not collapse to mid")
+}
+
+// Halving must pin FromBlock to the effective window start (here the poll
+// cursor), not collapse to [mid, mid] when only ToBlock is narrowed.
+func TestGetLogsByFiltersWithBackoffPinsFromBlockAtCursor(t *testing.T) {
+	t.Parallel()
+
+	match := common.HexToAddress(LogCapAddr)
+	topic := common.HexToHash(LogCapBlockHash)
+	candidates := buildRangeCapCandidates(5, uint64(rangeCapTestHeight), match, topic, nil)
+	fixture := setupRangeCapFixture(t, 5, candidates, evmrpc.FilterConfigTest{
+		MaxLog:   1,
+		MaxBlock: evmrpc.DefaultMaxBlockRange,
+	})
+
+	crit := filters.FilterCriteria{
+		FromBlock: big.NewInt(1),
+		Addresses: []common.Address{match},
+	}
+	// Simulate an open-ended poll cursor: the effective window is [10, 42].
+	lastToHeight := int64(10)
+
+	logs, end, err := fixture.fetcher.GetLogsByFiltersWithBackoffForTest(fixture.ctx, crit, lastToHeight)
+	require.NoError(t, err)
+	require.Empty(t, logs)
+	require.Less(t, end, rangeCapTestHeight)
+
+	calls := fixture.store.getWindowCalls()
+	var narrowedFrom uint64
+	for _, call := range calls {
+		if call[1] < uint64(rangeCapTestHeight) {
+			narrowedFrom = call[0]
+			break
+		}
+	}
+	require.Equal(t, uint64(lastToHeight), narrowedFrom, "narrowed scan must start at the cursor, not collapse to mid")
 }
 
 // TestGetLogsByFiltersWithBackoffPropagatesSingleBlockOverflow proves the
@@ -586,4 +632,36 @@ func TestGetLogsByFiltersWithBackoffPropagatesSingleBlockOverflow(t *testing.T) 
 	require.Error(t, err)
 	require.Nil(t, logs)
 	require.True(t, errors.Is(err, receipt.ErrTooManyLogs))
+}
+
+// When only the tip block overflows and halving would re-scan an already
+// delivered block, backoff must surface the cap error instead of looping.
+func TestGetLogsByFiltersWithBackoffTipOverflowCannotNarrow(t *testing.T) {
+	t.Parallel()
+
+	match := common.HexToAddress(LogCapAddr)
+	topic := common.HexToHash(LogCapBlockHash)
+	candidates := buildRangeCapCandidates(5, uint64(rangeCapTestHeight), match, topic, nil)
+	fixture := setupRangeCapFixture(t, 5, candidates, evmrpc.FilterConfigTest{
+		MaxLog:   1,
+		MaxBlock: evmrpc.DefaultMaxBlockRange,
+	})
+
+	crit := filters.FilterCriteria{
+		FromBlock: big.NewInt(1),
+		Addresses: []common.Address{match},
+	}
+	lastToHeight := rangeCapTestHeight - 1
+
+	logs, end, err := fixture.fetcher.GetLogsByFiltersWithBackoffForTest(fixture.ctx, crit, lastToHeight)
+	require.Error(t, err)
+	require.Nil(t, logs)
+	require.Zero(t, end)
+	require.True(t, errors.Is(err, receipt.ErrTooManyLogs))
+
+	// A second call at the same cursor must not succeed by re-delivering block L.
+	logs, end, err = fixture.fetcher.GetLogsByFiltersWithBackoffForTest(fixture.ctx, crit, lastToHeight)
+	require.Error(t, err)
+	require.Nil(t, logs)
+	require.Zero(t, end)
 }

@@ -990,27 +990,28 @@ func (f *LogFetcher) getLogsByFiltersWithBackoff(ctx context.Context, crit filte
 
 		latest, hErr := f.latestHeight(ctx)
 		if hErr != nil {
-			return nil, 0, err
+			return nil, 0, hErr
 		}
-		begin := lastToHeight
-		if narrowed.FromBlock != nil {
-			if fromBlock := getHeightFromBigIntBlockNumber(latest, narrowed.FromBlock); fromBlock > begin {
-				begin = fromBlock
-			}
+		earliest, eErr := f.earliestHeight(ctx)
+		if eErr != nil {
+			earliest = 0
 		}
-		curEnd := latest
-		if narrowed.ToBlock != nil {
-			curEnd = getHeightFromBigIntBlockNumber(latest, narrowed.ToBlock)
+		begin, curEnd, boundsErr := ComputeBlockBounds(latest, earliest, lastToHeight, narrowed)
+		if boundsErr != nil {
+			return nil, 0, boundsErr
 		}
 		if curEnd <= begin {
 			// Even a single block overflows the cap; nothing left to narrow.
 			return nil, 0, err
 		}
 		mid := begin + (curEnd-begin)/2
+		if mid <= lastToHeight {
+			// Halving cannot exclude any block the cursor has not already passed.
+			return nil, 0, err
+		}
 
-		bounded := narrowed
-		bounded.ToBlock = big.NewInt(mid)
-		narrowed = bounded
+		narrowed.FromBlock = big.NewInt(begin)
+		narrowed.ToBlock = big.NewInt(mid)
 	}
 }
 
