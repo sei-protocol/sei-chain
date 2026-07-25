@@ -66,7 +66,7 @@ type Keeper struct {
 	hashToNonce                  map[tmtypes.TxHash]*AddressNoncePair
 
 	// blockHashCache caches BLOCKHASH results; pruned in PruneBlockHashCache.
-	blockHashCache sync.Map
+	blockHashCache *sync.Map
 
 	// used for both ETH replay and block tests. Not used in chain critical path.
 	Trie        ethstate.Trie
@@ -145,6 +145,7 @@ func NewKeeper(
 		pendingTxs:                   make(map[string][]*PendingTx),
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
+		blockHashCache:               &sync.Map{},
 		hashToNonce:                  make(map[tmtypes.TxHash]*AddressNoncePair),
 		receiptStore:                 receiptStateStore,
 	}

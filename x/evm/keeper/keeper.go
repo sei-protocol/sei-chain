@@ -68,7 +68,7 @@ type Keeper struct {
 	cachedFeeCollectorAddress    *common.Address
 
 	// blockHashCache caches BLOCKHASH results; pruned in TrackBlockHash.
-	blockHashCache sync.Map
+	blockHashCache *sync.Map
 
 	QueryConfig *querier.Config
 
@@ -147,6 +147,7 @@ func NewKeeper(
 		wasmViewKeeper:               wasmViewKeeper,
 		upgradeKeeper:                upgradeKeeper,
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
+		blockHashCache:               &sync.Map{},
 		receiptStore:                 receiptStore,
 	}
 	return k
