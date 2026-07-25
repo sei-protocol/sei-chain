@@ -59,10 +59,10 @@ func (m *LegacyAminoPubKey) VerifyMultisignature(getSignBytes multisigtypes.GetS
 	if len(pubKeys) != size {
 		return fmt.Errorf("bit array size is incorrect, expecting: %d", len(pubKeys))
 	}
-	nTrue := len(sigs)
+	nSigs := len(sigs)
 	// ensure at least k signatures are set
-	if nTrue < int(m.Threshold) {
-		return fmt.Errorf("not enough signatures set, have %d, expected %d", nTrue, int(m.Threshold))
+	if nSigs < int(m.Threshold) {
+		return fmt.Errorf("not enough signatures set, have %d, expected %d", nSigs, int(m.Threshold))
 	}
 	// index in the list of signatures which we are concerned with.
 	sigIndex := 0
