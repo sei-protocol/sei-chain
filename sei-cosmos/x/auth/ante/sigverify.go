@@ -422,7 +422,8 @@ func DefaultSigVerificationGasConsumer(
 	}
 }
 
-// ConsumeMultisignatureVerificationGas consumes gas from a GasMeter for verifying a multisig pubkey signature
+// ConsumeMultisignatureVerificationGas consumes gas from a GasMeter for verifying a multisig pubkey signature.
+// Structure is validated once for the whole tree here; nested multisig recursion skips re-validation.
 func ConsumeMultisignatureVerificationGas(
 	meter sdk.GasMeter, sig *signing.MultiSignatureData, pubkey multisig.PubKey,
 	params types.Params, accSeq uint64,
@@ -430,7 +431,15 @@ func ConsumeMultisignatureVerificationGas(
 	if err := multisig.ValidateSignatureDataStructure(sig); err != nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidType, err.Error())
 	}
+	return consumeMultisignatureVerificationGas(meter, sig, pubkey, params, accSeq)
+}
 
+// consumeMultisignatureVerificationGas walks true bits and charges gas. Assumes sig already
+// passed ValidateSignatureDataStructure (including nested children).
+func consumeMultisignatureVerificationGas(
+	meter sdk.GasMeter, sig *signing.MultiSignatureData, pubkey multisig.PubKey,
+	params types.Params, accSeq uint64,
+) error {
 	size := sig.BitArray.Count()
 	pubKeys := pubkey.GetPubKeys()
 	// This runs before VerifyMultisignature; require bit-array size to match the key set.
@@ -447,6 +456,18 @@ func ConsumeMultisignatureVerificationGas(
 		// NumTrueBits); kept as defense-in-depth.
 		if sigIndex >= len(sig.Signatures) {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidType, "signature size is incorrect %d", len(sig.Signatures))
+		}
+		// Nested multisig: recurse without re-running ValidateSignatureDataStructure.
+		if nestedPk, ok := pubKeys[i].(multisig.PubKey); ok {
+			nestedSig, ok := sig.Signatures[sigIndex].(*signing.MultiSignatureData)
+			if !ok {
+				return fmt.Errorf("expected %T, got, %T", &signing.MultiSignatureData{}, sig.Signatures[sigIndex])
+			}
+			if err := consumeMultisignatureVerificationGas(meter, nestedSig, nestedPk, params, accSeq); err != nil {
+				return err
+			}
+			sigIndex++
+			continue
 		}
 		sigV2 := signing.SignatureV2{
 			PubKey:   pubKeys[i],

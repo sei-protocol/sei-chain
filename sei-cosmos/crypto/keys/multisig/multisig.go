@@ -47,10 +47,17 @@ func (m *LegacyAminoPubKey) Bytes() []byte {
 // LegacyAminoPubKey. It's OK to have multiple same keys in the multisig - it will increase
 // the power of the owner of that key - in that case the signer will still need to append
 // multiple same signatures in the right order.
+//
+// Structure is validated once for the whole tree; nested LegacyAminoPubKey recursion skips
+// re-validation.
 func (m *LegacyAminoPubKey) VerifyMultisignature(getSignBytes multisigtypes.GetSignBytesFunc, sig *signing.MultiSignatureData) error {
 	if err := multisigtypes.ValidateSignatureDataStructure(sig); err != nil {
 		return err
 	}
+	return m.verifyMultisignature(getSignBytes, sig)
+}
+
+func (m *LegacyAminoPubKey) verifyMultisignature(getSignBytes multisigtypes.GetSignBytesFunc, sig *signing.MultiSignatureData) error {
 	bitarray := sig.BitArray
 	sigs := sig.Signatures
 	size := bitarray.Count()
@@ -88,7 +95,12 @@ func (m *LegacyAminoPubKey) VerifyMultisignature(getSignBytes multisigtypes.GetS
 				if !ok {
 					return fmt.Errorf("unable to parse pubkey of index %d", i)
 				}
-				if err := nestedMultisigPk.VerifyMultisignature(getSignBytes, si); err != nil {
+				// Prefer same-type recursion without re-validating structure.
+				if nested, ok := nestedMultisigPk.(*LegacyAminoPubKey); ok {
+					if err := nested.verifyMultisignature(getSignBytes, si); err != nil {
+						return err
+					}
+				} else if err := nestedMultisigPk.VerifyMultisignature(getSignBytes, si); err != nil {
 					return err
 				}
 			default:
