@@ -161,9 +161,9 @@ func TestCandidateBlockLogsTripsBudgetMidLoopOverLogs(t *testing.T) {
 // TestFilterLogsByTagsPreCanceledContextReturnsEmptyFast documents that a
 // context already canceled before the fan-out starts short-circuits the
 // whole scan: errgroup.WithContext observes the parent as already done, so
-// no per-block worker is scheduled and the call returns immediately with no
-// logs and no error (mirroring the empty-range early return, not a budget
-// trip).
+// no per-block worker is scheduled, and the parent-context check after
+// eg.Wait() surfaces the cancellation rather than returning an empty result
+// indistinguishable from "no matches".
 func TestFilterLogsByTagsPreCanceledContextReturnsEmptyFast(t *testing.T) {
 	s, closeFn := setupLittCtxStore(t)
 	defer closeFn()
@@ -179,7 +179,7 @@ func TestFilterLogsByTagsPreCanceledContextReturnsEmptyFast(t *testing.T) {
 	cancel()
 
 	logs, err := s.filterLogsByTags(ctx, 1, 5, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, context.Canceled)
 	require.Empty(t, logs)
 }
 
@@ -205,10 +205,11 @@ func TestFilterLogsThreadsSDKContext(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
 
-	// A canceled wrapped context.Context must short-circuit the scan.
+	// A canceled wrapped context.Context must short-circuit the scan and
+	// surface the cancellation error.
 	canceledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 	logs, err = s.FilterLogs(newTestCtxAtHeight(6).WithContext(canceledCtx), 6, 6, crit, nil)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, context.Canceled)
 	require.Empty(t, logs)
 }

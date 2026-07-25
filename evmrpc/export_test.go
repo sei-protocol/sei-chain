@@ -85,6 +85,16 @@ func NewLogFetcherForTest(deps LogFetcherTestDeps) *LogFetcher {
 	}
 }
 
+// GetLogsByFiltersWithBackoffForTest exposes the polling-path overflow-backoff
+// wrapper for integration tests.
+func (f *LogFetcher) GetLogsByFiltersWithBackoffForTest(
+	ctx context.Context,
+	crit filters.FilterCriteria,
+	lastToHeight int64,
+) ([]*ethtypes.Log, int64, error) {
+	return f.getLogsByFiltersWithBackoff(ctx, crit, lastToHeight)
+}
+
 // TryFilterLogsRangeForTest exposes the litt range-query path for integration tests.
 func (f *LogFetcher) TryFilterLogsRangeForTest(
 	ctx context.Context,

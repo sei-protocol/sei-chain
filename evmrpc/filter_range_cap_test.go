@@ -535,3 +535,55 @@ func TestGetLogsByFiltersRangePathUsesNormalizeBudget(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, logs, 5)
 }
+
+// Cap overflow must narrow the window and advance the cursor, not wedge polling filters forever.
+func TestGetLogsByFiltersWithBackoffAdvancesOnOverflow(t *testing.T) {
+	t.Parallel()
+
+	match := common.HexToAddress(LogCapAddr)
+	topic := common.HexToHash(LogCapBlockHash)
+	// All matching candidates sit at the last block of the range; every
+	// earlier window is empty and skipped without needing real per-block data.
+	candidates := buildRangeCapCandidates(5, uint64(rangeCapTestHeight), match, topic, nil)
+	fixture := setupRangeCapFixture(t, 5, candidates, evmrpc.FilterConfigTest{
+		MaxLog:   1,
+		MaxBlock: evmrpc.DefaultMaxBlockRange,
+	})
+
+	crit := filters.FilterCriteria{
+		FromBlock: big.NewInt(1),
+		Addresses: []common.Address{match},
+	}
+
+	logs, end, err := fixture.fetcher.GetLogsByFiltersWithBackoffForTest(fixture.ctx, crit, 0)
+	require.NoError(t, err, "backoff must narrow past the overflowing tail instead of erroring")
+	require.Empty(t, logs)
+	require.Greater(t, end, int64(0), "cursor must advance so the next poll doesn't re-scan the same wedged window")
+	require.Less(t, end, rangeCapTestHeight, "the narrowed window must stop short of the overflowing block")
+}
+
+// TestGetLogsByFiltersWithBackoffPropagatesSingleBlockOverflow proves the
+// backoff wrapper does not mask a genuine overflow: when even a single block
+// exceeds the cap there is nothing left to narrow, and the real error must
+// reach the caller.
+func TestGetLogsByFiltersWithBackoffPropagatesSingleBlockOverflow(t *testing.T) {
+	t.Parallel()
+
+	match := common.HexToAddress(LogCapAddr)
+	topic := common.HexToHash(LogCapBlockHash)
+	candidates := buildRangeCapCandidates(5, uint64(rangeCapTestHeight), match, topic, nil)
+	fixture := setupRangeCapFixture(t, 5, candidates, evmrpc.FilterConfigTest{
+		MaxLog:   1,
+		MaxBlock: evmrpc.DefaultMaxBlockRange,
+	})
+
+	crit := filters.FilterCriteria{
+		FromBlock: big.NewInt(rangeCapTestHeight),
+		Addresses: []common.Address{match},
+	}
+
+	logs, _, err := fixture.fetcher.GetLogsByFiltersWithBackoffForTest(fixture.ctx, crit, rangeCapTestHeight-1)
+	require.Error(t, err)
+	require.Nil(t, logs)
+	require.True(t, errors.Is(err, receipt.ErrTooManyLogs))
+}

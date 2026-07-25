@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"sort"
 	"sync"
 	"time"
@@ -525,7 +526,7 @@ func (a *FilterAPI) GetFilterChanges(
 		if filter.fc.ToBlock != nil && filter.lastToHeight >= filter.fc.ToBlock.Int64() {
 			return result, nil
 		}
-		logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, filter.lastToHeight)
+		logs, lastToHeight, err := a.logFetcher.getLogsByFiltersWithBackoff(ctx, filter.fc, filter.lastToHeight)
 		if err != nil {
 			return nil, err
 		}
@@ -971,6 +972,46 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	return res, end, err
+}
+
+// getLogsByFiltersWithBackoff wraps GetLogsByFilters for polling callers
+// (GetFilterChanges, the WS backfill loop): on cap overflow it halves the
+// window and retries so the cursor still advances instead of wedging forever.
+func (f *LogFetcher) getLogsByFiltersWithBackoff(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
+	narrowed := crit
+	for {
+		logs, end, err := f.GetLogsByFilters(ctx, narrowed, lastToHeight)
+		if err == nil {
+			return logs, end, nil
+		}
+		if !errors.Is(err, receipt.ErrTooManyLogs) && !errors.Is(err, receipt.ErrTooManyLogBytes) {
+			return nil, 0, err
+		}
+
+		latest, hErr := f.latestHeight(ctx)
+		if hErr != nil {
+			return nil, 0, err
+		}
+		begin := lastToHeight
+		if narrowed.FromBlock != nil {
+			if fromBlock := getHeightFromBigIntBlockNumber(latest, narrowed.FromBlock); fromBlock > begin {
+				begin = fromBlock
+			}
+		}
+		curEnd := latest
+		if narrowed.ToBlock != nil {
+			curEnd = getHeightFromBigIntBlockNumber(latest, narrowed.ToBlock)
+		}
+		if curEnd <= begin {
+			// Even a single block overflows the cap; nothing left to narrow.
+			return nil, 0, err
+		}
+		mid := begin + (curEnd-begin)/2
+
+		bounded := narrowed
+		bounded.ToBlock = big.NewInt(mid)
+		narrowed = bounded
+	}
 }
 
 // mergeSortedLogs k-way merges the per-batch sorted slices into a single sorted

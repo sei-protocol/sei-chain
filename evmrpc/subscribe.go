@@ -274,7 +274,7 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 		for {
 			var logs []*ethtypes.Log
 			var lastToHeight int64
-			logs, lastToHeight, err = a.logFetcher.GetLogsByFilters(ctx, *filter, begin)
+			logs, lastToHeight, err = a.logFetcher.getLogsByFiltersWithBackoff(ctx, *filter, begin)
 			if err != nil {
 				wpMetrics.RecordSubscriptionError()
 				_ = notifier.Notify(rpcSub.ID, err)
