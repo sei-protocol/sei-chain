@@ -33,6 +33,9 @@ func validateMultiSignatureDataStructure(sig *signing.MultiSignatureData) error 
 		return fmt.Errorf("bit array is required")
 	}
 	size := sig.BitArray.Count()
+	if size == 0 {
+		return fmt.Errorf("bit array size is incorrect %d", size)
+	}
 	nTrue := sig.BitArray.NumTrueBitsBefore(size)
 	if len(sig.Signatures) != nTrue {
 		return fmt.Errorf("signature size is incorrect %d", len(sig.Signatures))

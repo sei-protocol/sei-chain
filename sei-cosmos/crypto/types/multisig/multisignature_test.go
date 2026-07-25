@@ -58,6 +58,20 @@ func TestValidateSignatureDataStructure(t *testing.T) {
 			Signatures: []signing.SignatureData{single},
 		}))
 	})
+
+	t.Run("empty bit array", func(t *testing.T) {
+		require.Error(t, multisig.ValidateSignatureDataStructure(&signing.MultiSignatureData{
+			BitArray:   &cryptotypes.CompactBitArray{},
+			Signatures: nil,
+		}))
+	})
+
+	t.Run("size multiple of 8", func(t *testing.T) {
+		msig := multisig.NewMultisig(8)
+		multisig.AddSignature(msig, single, 0)
+		multisig.AddSignature(msig, single, 7)
+		require.NoError(t, multisig.ValidateSignatureDataStructure(msig))
+	})
 }
 
 func TestValidateSignatureDataStructure_MoreTrueBitsThanSigs(t *testing.T) {

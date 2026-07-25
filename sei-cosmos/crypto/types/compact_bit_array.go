@@ -86,19 +86,26 @@ func (bA *CompactBitArray) SetIndex(i int, v bool) bool {
 // given index. e.g. if bA = _XX__XX, NumOfTrueBitsBefore(4) = 2, since
 // there are two bits set to true before index 4.
 func (bA *CompactBitArray) NumTrueBitsBefore(index int) int {
-	onesCount := 0
+	if bA == nil || index <= 0 || len(bA.Elems) == 0 {
+		return 0
+	}
 	max := bA.Count()
 	if index > max {
 		index = max
 	}
-	// below we iterate over the bytes then over bits (in low endian) and count bits set to 1
-	for elem := 0; ; elem++ {
-		if elem*8+7 >= index {
-			onesCount += bits.OnesCount8(bA.Elems[elem] >> (7 - (index % 8) + 1))
-			return onesCount
-		}
+
+	onesCount := 0
+	fullBytes := index / 8
+	for elem := 0; elem < fullBytes; elem++ {
 		onesCount += bits.OnesCount8(bA.Elems[elem])
 	}
+	remaining := index % 8
+	if remaining == 0 {
+		return onesCount
+	}
+	// Bits are stored MSB-first within each byte (see GetIndex/SetIndex).
+	onesCount += bits.OnesCount8(bA.Elems[fullBytes] >> (8 - remaining))
+	return onesCount
 }
 
 // Copy returns a copy of the provided bit array.

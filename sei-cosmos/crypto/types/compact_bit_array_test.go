@@ -224,6 +224,24 @@ func TestCompactBitArrayNumOfTrueBitsBefore(t *testing.T) {
 	}
 }
 
+func TestNumTrueBitsBeforeAtCountMultiplesOf8(t *testing.T) {
+	require.Equal(t, 0, (*CompactBitArray)(nil).NumTrueBitsBefore(0))
+	require.Equal(t, 0, (&CompactBitArray{}).NumTrueBitsBefore(0))
+
+	for _, size := range []int{8, 16, 24} {
+		ba := NewCompactBitArray(size)
+		require.NotNil(t, ba)
+		require.Equal(t, size, ba.Count())
+		require.Equal(t, 0, ba.NumTrueBitsBefore(size))
+
+		ba.SetIndex(0, true)
+		ba.SetIndex(size-1, true)
+		require.Equal(t, 2, ba.NumTrueBitsBefore(size))
+		require.Equal(t, 1, ba.NumTrueBitsBefore(1))
+		require.Equal(t, 1, ba.NumTrueBitsBefore(size-1))
+	}
+}
+
 func TestCompactBitArrayGetSetIndex(t *testing.T) {
 	r := rand.New(rand.NewSource(100))
 	numTests := 10

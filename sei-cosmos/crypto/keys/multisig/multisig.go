@@ -48,6 +48,9 @@ func (m *LegacyAminoPubKey) Bytes() []byte {
 // the power of the owner of that key - in that case the signer will still need to append
 // multiple same signatures in the right order.
 func (m *LegacyAminoPubKey) VerifyMultisignature(getSignBytes multisigtypes.GetSignBytesFunc, sig *signing.MultiSignatureData) error {
+	if err := multisigtypes.ValidateSignatureDataStructure(sig); err != nil {
+		return err
+	}
 	bitarray := sig.BitArray
 	sigs := sig.Signatures
 	size := bitarray.Count()
@@ -56,11 +59,7 @@ func (m *LegacyAminoPubKey) VerifyMultisignature(getSignBytes multisigtypes.GetS
 	if len(pubKeys) != size {
 		return fmt.Errorf("bit array size is incorrect, expecting: %d", len(pubKeys))
 	}
-	// Signatures must match true bits exactly.
-	nTrue := bitarray.NumTrueBitsBefore(size)
-	if len(sigs) != nTrue {
-		return fmt.Errorf("signature size is incorrect %d", len(sigs))
-	}
+	nTrue := len(sigs)
 	// ensure at least k signatures are set
 	if nTrue < int(m.Threshold) {
 		return fmt.Errorf("not enough signatures set, have %d, expected %d", nTrue, int(m.Threshold))
