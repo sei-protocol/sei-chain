@@ -67,6 +67,9 @@ type Keeper struct {
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
 
+	// blockHashCache caches BLOCKHASH results; pruned in TrackBlockHash.
+	blockHashCache sync.Map
+
 	QueryConfig *querier.Config
 
 	// only used during ETH replay. Not used in chain critical path.
@@ -327,6 +330,14 @@ func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 }
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
+	height := uint64(h) //nolint:gosec
+	if cached, ok := k.blockHashCache.Load(height); ok {
+		return cached.(common.Hash)
+	}
+	if hash, found := k.GetBlockHash(ctx, h); found {
+		k.blockHashCache.Store(height, hash)
+		return hash
+	}
 	histInfo, found := k.stakingKeeper.GetHistoricalInfo(ctx, h)
 	if !found {
 		// too old, already pruned
@@ -334,7 +345,11 @@ func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
 	}
 	header, _ := tmtypes.HeaderFromProto(&histInfo.Header)
 
-	return common.BytesToHash(header.Hash())
+	hash := common.BytesToHash(header.Hash())
+	if hash != (common.Hash{}) {
+		k.blockHashCache.Store(height, hash)
+	}
+	return hash
 }
 
 func (k *Keeper) SetTxResults(txResults []*abci.ExecTxResult) {

@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"math"
@@ -20,9 +21,12 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types/ethtx"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	"github.com/stretchr/testify/require"
 )
 
@@ -61,12 +65,38 @@ func TestGetVMBlockContext(t *testing.T) {
 }
 
 func TestGetHashFn(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper(t)
+	testApp, ctx := keeper.MockApp(t)
+	ctx = ctx.WithBlockHeight(8)
+	k := &testApp.GigaEvmKeeper
+
+	// HistoricalInfo path (ValidatorsHash required for a non-empty header hash).
+	histHeight := int64(6)
+	tmHeader := tmtypes.Header{
+		Version:        version.Consensus{Block: version.BlockProtocol},
+		Height:         histHeight,
+		ChainID:        "test-chain",
+		ValidatorsHash: bytes.Repeat([]byte{0x01}, tmhash.Size),
+	}
+	fallbackHash := common.BytesToHash(tmHeader.Hash())
+	require.NotEqual(t, common.Hash{}, fallbackHash)
+	hi := stakingtypes.NewHistoricalInfo(*tmHeader.ToProto(), stakingtypes.Validators{}, sdk.DefaultPowerReduction)
+	testApp.StakingKeeper.SetHistoricalInfo(ctx, histHeight, &hi)
+
+	kvHeight := int64(7)
+	kvHash := common.HexToHash("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
+	k.SetBlockHash(ctx, kvHeight, kvHash)
+
 	f := k.GetHashFn(ctx)
 	require.Equal(t, common.Hash{}, f(math.MaxInt64+1))
 	require.Equal(t, common.BytesToHash(ctx.HeaderHash()), f(uint64(ctx.BlockHeight())))
 	require.Equal(t, common.Hash{}, f(uint64(ctx.BlockHeight())+1))
-	require.Equal(t, common.Hash{}, f(uint64(ctx.BlockHeight())-1))
+
+	require.Equal(t, kvHash, f(uint64(kvHeight)))
+	require.Equal(t, fallbackHash, f(uint64(histHeight)))
+	_, found := k.GetBlockHash(ctx, histHeight)
+	require.False(t, found)
+	require.Equal(t, fallbackHash, k.GetHashFn(ctx)(uint64(histHeight)))
+	require.Equal(t, common.Hash{}, f(uint64(ctx.BlockHeight())-3))
 }
 
 func TestKeeper_CalculateNextNonce(t *testing.T) {

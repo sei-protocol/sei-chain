@@ -364,6 +364,9 @@ type gigaBlockCache struct {
 }
 
 func newGigaBlockCache(ctx sdk.Context, keeper *gigaevmkeeper.Keeper) (*gigaBlockCache, error) {
+	if !ctx.IsTracing() {
+		keeper.PruneBlockHashCache(ctx)
+	}
 	chainID := keeper.ChainID(ctx)
 	gp := keeper.GetGasPool()
 	blockCtx, err := keeper.GetVMBlockContext(ctx, gp)

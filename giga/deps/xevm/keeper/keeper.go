@@ -65,6 +65,9 @@ type Keeper struct {
 	pendingTxs                   map[string][]*PendingTx
 	hashToNonce                  map[tmtypes.TxHash]*AddressNoncePair
 
+	// blockHashCache caches BLOCKHASH results; pruned in PruneBlockHashCache.
+	blockHashCache sync.Map
+
 	// used for both ETH replay and block tests. Not used in chain critical path.
 	Trie        ethstate.Trie
 	DB          ethstate.Database
@@ -320,6 +323,14 @@ func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 }
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
+	height := uint64(h) //nolint:gosec
+	if cached, ok := k.blockHashCache.Load(height); ok {
+		return cached.(common.Hash)
+	}
+	if hash, found := k.GetBlockHash(ctx, h); found {
+		k.blockHashCache.Store(height, hash)
+		return hash
+	}
 	histInfo, found := k.stakingKeeper.GetHistoricalInfo(ctx, h)
 	if !found {
 		// too old, already pruned
@@ -327,7 +338,11 @@ func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
 	}
 	header, _ := tmtypes.HeaderFromProto(&histInfo.Header)
 
-	return common.BytesToHash(header.Hash())
+	hash := common.BytesToHash(header.Hash())
+	if hash != (common.Hash{}) {
+		k.blockHashCache.Store(height, hash)
+	}
+	return hash
 }
 
 // CalculateNextNonce calculates the next nonce for an address

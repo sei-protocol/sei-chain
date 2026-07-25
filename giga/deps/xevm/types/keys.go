@@ -62,6 +62,7 @@ var (
 	NextBaseFeePerGasPrefix         = []byte{0x1c}
 	EvmOnlyBlockBloomPrefix         = []byte{0x1d}
 	ZeroStorageCleanupCheckpointKey = []byte{0x1e}
+	BlockHashPrefix                 = []byte{0x20}
 )
 
 var (
@@ -107,6 +108,12 @@ func BlockBloomKey(height int64) []byte {
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, uint64(height)) //nolint:gosec
 	return append(BlockBloomPrefix, bz...)
+}
+
+func BlockHashKey(height int64) []byte {
+	bz := make([]byte, 8)
+	binary.BigEndian.PutUint64(bz, uint64(height)) //nolint:gosec
+	return append(BlockHashPrefix, bz...)
 }
 
 func TxHashesKey(height int64) []byte {
