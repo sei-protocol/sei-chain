@@ -427,16 +427,27 @@ func ConsumeMultisignatureVerificationGas(
 	meter sdk.GasMeter, sig *signing.MultiSignatureData, pubkey multisig.PubKey,
 	params types.Params, accSeq uint64,
 ) error {
+	if err := multisig.ValidateSignatureDataStructure(sig); err != nil {
+		return err
+	}
 
 	size := sig.BitArray.Count()
-	sigIndex := 0
+	pubKeys := pubkey.GetPubKeys()
+	// This runs before VerifyMultisignature; require bit-array size to match the key set.
+	if len(pubKeys) != size {
+		return fmt.Errorf("bit array size is incorrect, expecting: %d", len(pubKeys))
+	}
 
+	sigIndex := 0
 	for i := 0; i < size; i++ {
 		if !sig.BitArray.GetIndex(i) {
 			continue
 		}
+		if sigIndex >= len(sig.Signatures) {
+			return fmt.Errorf("signature size is incorrect %d", len(sig.Signatures))
+		}
 		sigV2 := signing.SignatureV2{
-			PubKey:   pubkey.GetPubKeys()[i],
+			PubKey:   pubKeys[i],
 			Data:     sig.Signatures[sigIndex],
 			Sequence: accSeq,
 		}
@@ -475,40 +486,78 @@ func CountSubKeys(pub cryptotypes.PubKey) int {
 	return numKeys
 }
 
-// SignatureDataToBz converts a SignatureData into raw bytes signature.
+// SignatureDataToBz converts a SignatureData into raw bytes for tx.signature events.
 // For SingleSignatureData, it returns the signature raw bytes.
-// For MultiSignatureData, it returns an array of all individual signatures,
-// as well as the aggregated signature.
+// For MultiSignatureData, it returns all leaf signature bytes plus one wire-compatible
+// root aggregate (same encoding as Tx.signatures / SignatureDataToModeInfoAndSig).
+// Nested MultiSignatureData nodes contribute leaves only; they do not emit their own aggregates.
 func SignatureDataToBz(data signing.SignatureData) ([][]byte, error) {
-	if data == nil {
-		return nil, fmt.Errorf("got empty SignatureData")
+	if err := multisig.ValidateSignatureDataStructure(data); err != nil {
+		return nil, err
 	}
 
 	switch data := data.(type) {
 	case *signing.SingleSignatureData:
 		return [][]byte{data.Signature}, nil
 	case *signing.MultiSignatureData:
-		sigs := [][]byte{}
-		var err error
-
-		for _, d := range data.Signatures {
-			nestedSigs, err := SignatureDataToBz(d)
-			if err != nil {
-				return nil, err
-			}
-			sigs = append(sigs, nestedSigs...)
-		}
-
-		multisig := cryptotypes.MultiSignature{
-			Signatures: sigs,
-		}
-		aggregatedSig, err := multisig.Marshal()
+		leaves, err := collectMultisigSignatureLeaves(data)
 		if err != nil {
 			return nil, err
 		}
-		sigs = append(sigs, aggregatedSig)
+		agg, err := wireCompatibleMultisigAggregate(data)
+		if err != nil {
+			return nil, err
+		}
+		return append(leaves, agg), nil
+	default:
+		return nil, sdkerrors.ErrInvalidType.Wrapf("unexpected signature data type %T", data)
+	}
+}
 
-		return sigs, nil
+// collectMultisigSignatureLeaves returns SingleSignatureData.Signature bytes under multi,
+// recursively; nested multis do not contribute aggregates.
+func collectMultisigSignatureLeaves(multi *signing.MultiSignatureData) ([][]byte, error) {
+	var leaves [][]byte
+	for _, child := range multi.Signatures {
+		switch child := child.(type) {
+		case *signing.SingleSignatureData:
+			leaves = append(leaves, child.Signature)
+		case *signing.MultiSignatureData:
+			chunk, err := collectMultisigSignatureLeaves(child)
+			if err != nil {
+				return nil, err
+			}
+			leaves = append(leaves, chunk...)
+		default:
+			return nil, sdkerrors.ErrInvalidType.Wrapf("unexpected signature data type %T", child)
+		}
+	}
+	return leaves, nil
+}
+
+// wireCompatibleMultisigAggregate marshals direct child signature bytes the same way
+// SignatureDataToModeInfoAndSig encodes MultiSignatureData onto Tx.signatures.
+func wireCompatibleMultisigAggregate(data *signing.MultiSignatureData) ([]byte, error) {
+	childRaw := make([][]byte, len(data.Signatures))
+	for i, child := range data.Signatures {
+		raw, err := signatureDataWireBytes(child)
+		if err != nil {
+			return nil, err
+		}
+		childRaw[i] = raw
+	}
+	agg := cryptotypes.MultiSignature{Signatures: childRaw}
+	return agg.Marshal()
+}
+
+// signatureDataWireBytes returns the raw signature bytes stored on the wire for one
+// SignatureData node (single leaf bytes, or nested MultiSignature marshal).
+func signatureDataWireBytes(data signing.SignatureData) ([]byte, error) {
+	switch data := data.(type) {
+	case *signing.SingleSignatureData:
+		return data.Signature, nil
+	case *signing.MultiSignatureData:
+		return wireCompatibleMultisigAggregate(data)
 	default:
 		return nil, sdkerrors.ErrInvalidType.Wrapf("unexpected signature data type %T", data)
 	}

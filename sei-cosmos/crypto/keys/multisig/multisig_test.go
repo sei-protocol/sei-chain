@@ -212,6 +212,30 @@ func TestVerifyMultisignature(t *testing.T) {
 				multisig.AddSignatureFromPubKey(sig, sigs[1], pubKeys[1], pubKeys)
 			},
 			false,
+		}, {
+			"trailing signatures past true bits",
+			func(require *require.Assertions) {
+				pubKeys, sigs := generatePubKeysAndSignatures(3, msg)
+				pk = kmultisig.NewLegacyAminoPubKey(2, pubKeys)
+				sig = multisig.NewMultisig(len(pubKeys))
+				require.NoError(multisig.AddSignatureFromPubKey(sig, sigs[0], pubKeys[0], pubKeys))
+				require.NoError(multisig.AddSignatureFromPubKey(sig, sigs[1], pubKeys[1], pubKeys))
+				// More Signatures than true bits.
+				sig.Signatures = append(sig.Signatures, sigs[2])
+			},
+			false,
+		}, {
+			"more true bits than signatures",
+			func(require *require.Assertions) {
+				pubKeys, sigs := generatePubKeysAndSignatures(3, msg)
+				pk = kmultisig.NewLegacyAminoPubKey(2, pubKeys)
+				sig = multisig.NewMultisig(len(pubKeys))
+				require.NoError(multisig.AddSignatureFromPubKey(sig, sigs[0], pubKeys[0], pubKeys))
+				require.NoError(multisig.AddSignatureFromPubKey(sig, sigs[1], pubKeys[1], pubKeys))
+				// Extra set bit without a corresponding signature entry.
+				sig.BitArray.SetIndex(2, true)
+			},
+			false,
 		},
 	}
 
