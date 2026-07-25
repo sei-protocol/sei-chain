@@ -75,8 +75,7 @@ func (m *LegacyAminoPubKey) verifyMultisignature(getSignBytes multisigtypes.GetS
 	sigIndex := 0
 	for i := 0; i < size; i++ {
 		if bitarray.GetIndex(i) {
-			// Unreachable if ValidateSignatureDataStructure succeeded (len(sigs) ==
-			// NumTrueBits); kept as defense-in-depth.
+			// Redundant with ValidateSignatureDataStructure (len(sigs) == NumTrueBits).
 			if sigIndex >= len(sigs) {
 				return fmt.Errorf("signature size is incorrect %d", len(sigs))
 			}

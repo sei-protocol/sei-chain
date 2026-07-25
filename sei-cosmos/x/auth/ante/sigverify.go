@@ -452,8 +452,7 @@ func consumeMultisignatureVerificationGas(
 		if !sig.BitArray.GetIndex(i) {
 			continue
 		}
-		// Unreachable if ValidateSignatureDataStructure succeeded (len(sigs) ==
-		// NumTrueBits); kept as defense-in-depth.
+		// Redundant with ValidateSignatureDataStructure (len(sigs) == NumTrueBits).
 		if sigIndex >= len(sig.Signatures) {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidType, "signature size is incorrect %d", len(sig.Signatures))
 		}

@@ -237,7 +237,7 @@ func TestVerifyMultisignature(t *testing.T) {
 			},
 			false,
 		}, {
-			// Regression: NumTrueBitsBefore(Count()) used to panic when Count()%8==0.
+			// Size multiple of 8: NumTrueBitsBefore(Count()) must succeed.
 			"size multiple of 8 passes",
 			func(require *require.Assertions) {
 				pubKeys, sigs := generatePubKeysAndSignatures(8, msg)

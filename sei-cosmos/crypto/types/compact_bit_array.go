@@ -87,9 +87,8 @@ func (bA *CompactBitArray) SetIndex(i int, v bool) bool {
 }
 
 // ValidateBasic checks that ExtraBitsStored is consistent with Elems.
-// ExtraBitsStored is attacker-controlled on protobuf decode; values above
-// MaxExtraBitsStored make Count() exceed the bits backed by Elems (and can go
-// negative when Elems is empty).
+// Values above MaxExtraBitsStored make Count() exceed the bits backed by Elems
+// (and Count can go negative when Elems is empty).
 func (bA *CompactBitArray) ValidateBasic() error {
 	if bA == nil {
 		return fmt.Errorf("compact bit array is nil")
