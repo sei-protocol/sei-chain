@@ -16,6 +16,10 @@ import (
 // space after amino encoding.
 // This is not thread safe, and is not intended for concurrent usage.
 
+// MaxExtraBitsStored is the largest valid CompactBitArray.ExtraBitsStored.
+// Honest construction sets ExtraBitsStored = bits % 8, so it is always in [0, 7].
+const MaxExtraBitsStored = 7
+
 // NewCompactBitArray returns a new compact bit array.
 // It returns nil if the number of bits is zero, or if there is any overflow
 // in the arithmetic to encounter for the number of its elements: (bits+7)/8,
@@ -33,7 +37,7 @@ func NewCompactBitArray(bits int) *CompactBitArray {
 		return nil
 	}
 	return &CompactBitArray{
-		ExtraBitsStored: uint32(bits % 8), //nolint:gosec // bits is validated positive above, bits%8 is always 0-7
+		ExtraBitsStored: uint32(bits % 8), //nolint:gosec // bits is validated positive above, bits%8 is always 0..MaxExtraBitsStored
 		Elems:           make([]byte, nElems),
 	}
 }
@@ -80,6 +84,23 @@ func (bA *CompactBitArray) SetIndex(i int, v bool) bool {
 	}
 
 	return true
+}
+
+// ValidateBasic checks that ExtraBitsStored is consistent with Elems.
+// ExtraBitsStored is attacker-controlled on protobuf decode; values above
+// MaxExtraBitsStored make Count() exceed the bits backed by Elems (and can go
+// negative when Elems is empty).
+func (bA *CompactBitArray) ValidateBasic() error {
+	if bA == nil {
+		return fmt.Errorf("compact bit array is nil")
+	}
+	if bA.ExtraBitsStored > MaxExtraBitsStored {
+		return fmt.Errorf("compact bit array extra bits stored is incorrect %d", bA.ExtraBitsStored)
+	}
+	if bA.ExtraBitsStored != 0 && len(bA.Elems) == 0 {
+		return fmt.Errorf("compact bit array elems is empty")
+	}
+	return nil
 }
 
 // NumTrueBitsBefore returns the number of bits set to true before the

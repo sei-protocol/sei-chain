@@ -242,6 +242,15 @@ func TestNumTrueBitsBeforeAtCountMultiplesOf8(t *testing.T) {
 	}
 }
 
+func TestCompactBitArrayValidateBasic(t *testing.T) {
+	require.Error(t, (*CompactBitArray)(nil).ValidateBasic())
+	require.NoError(t, NewCompactBitArray(3).ValidateBasic())
+	require.NoError(t, NewCompactBitArray(8).ValidateBasic())
+	require.NoError(t, (&CompactBitArray{}).ValidateBasic())
+	require.Error(t, (&CompactBitArray{ExtraBitsStored: MaxExtraBitsStored + 1, Elems: []byte{0xFF}}).ValidateBasic())
+	require.Error(t, (&CompactBitArray{ExtraBitsStored: 5}).ValidateBasic())
+}
+
 func TestCompactBitArrayGetSetIndex(t *testing.T) {
 	r := rand.New(rand.NewSource(100))
 	numTests := 10

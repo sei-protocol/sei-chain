@@ -12,11 +12,13 @@ import (
 // For MultiSignatureData, len(Signatures) must equal the number of true bits in
 // BitArray at every nesting level (the same invariant AddSignature maintains).
 func ValidateSignatureDataStructure(data signing.SignatureData) error {
-	if data == nil {
-		return fmt.Errorf("signature data is required")
-	}
 	switch data := data.(type) {
+	case nil:
+		return fmt.Errorf("signature data is required")
 	case *signing.SingleSignatureData:
+		if data == nil {
+			return fmt.Errorf("single signature data is required")
+		}
 		return nil
 	case *signing.MultiSignatureData:
 		return validateMultiSignatureDataStructure(data)
@@ -32,6 +34,9 @@ func validateMultiSignatureDataStructure(sig *signing.MultiSignatureData) error 
 	if sig.BitArray == nil {
 		return fmt.Errorf("bit array is required")
 	}
+	if err := sig.BitArray.ValidateBasic(); err != nil {
+		return err
+	}
 	size := sig.BitArray.Count()
 	if size == 0 {
 		return fmt.Errorf("bit array size is incorrect %d", size)
@@ -41,11 +46,8 @@ func validateMultiSignatureDataStructure(sig *signing.MultiSignatureData) error 
 		return fmt.Errorf("signature size is incorrect %d", len(sig.Signatures))
 	}
 	for i, child := range sig.Signatures {
-		if child == nil {
-			return fmt.Errorf("signature data at index %d is nil", i)
-		}
 		if err := ValidateSignatureDataStructure(child); err != nil {
-			return err
+			return fmt.Errorf("signature data at index %d: %w", i, err)
 		}
 	}
 	return nil

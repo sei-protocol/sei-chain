@@ -26,6 +26,26 @@ func TestValidateSignatureDataStructure(t *testing.T) {
 		require.Error(t, multisig.ValidateSignatureDataStructure(nil))
 	})
 
+	t.Run("typed nil single", func(t *testing.T) {
+		var typedNil *signing.SingleSignatureData
+		require.Error(t, multisig.ValidateSignatureDataStructure(typedNil))
+	})
+
+	t.Run("typed nil multi", func(t *testing.T) {
+		var typedNil *signing.MultiSignatureData
+		require.Error(t, multisig.ValidateSignatureDataStructure(typedNil))
+	})
+
+	t.Run("typed nil child", func(t *testing.T) {
+		var typedNil *signing.SingleSignatureData
+		ba := cryptotypes.NewCompactBitArray(1)
+		ba.SetIndex(0, true)
+		require.Error(t, multisig.ValidateSignatureDataStructure(&signing.MultiSignatureData{
+			BitArray:   ba,
+			Signatures: []signing.SignatureData{typedNil},
+		}))
+	})
+
 	t.Run("honest multisig", func(t *testing.T) {
 		msig := multisig.NewMultisig(3)
 		multisig.AddSignature(msig, single, 0)
@@ -71,6 +91,26 @@ func TestValidateSignatureDataStructure(t *testing.T) {
 		multisig.AddSignature(msig, single, 0)
 		multisig.AddSignature(msig, single, 7)
 		require.NoError(t, multisig.ValidateSignatureDataStructure(msig))
+	})
+
+	t.Run("extra bits stored too large", func(t *testing.T) {
+		require.Error(t, multisig.ValidateSignatureDataStructure(&signing.MultiSignatureData{
+			BitArray: &cryptotypes.CompactBitArray{
+				ExtraBitsStored: cryptotypes.MaxExtraBitsStored + 1,
+				Elems:           []byte{0xFF},
+			},
+			Signatures: []signing.SignatureData{single},
+		}))
+	})
+
+	t.Run("extra bits without elems", func(t *testing.T) {
+		require.Error(t, multisig.ValidateSignatureDataStructure(&signing.MultiSignatureData{
+			BitArray: &cryptotypes.CompactBitArray{
+				ExtraBitsStored: 5,
+				Elems:           nil,
+			},
+			Signatures: nil,
+		}))
 	})
 }
 

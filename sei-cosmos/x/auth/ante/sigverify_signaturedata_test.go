@@ -11,6 +11,7 @@ import (
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/tx"
@@ -94,6 +95,7 @@ func TestSignatureDataToBz_RejectsTrailingSignatures(t *testing.T) {
 
 	_, err = ante.SignatureDataToBz(msig)
 	require.Error(t, err)
+	require.True(t, sdkerrors.ErrInvalidType.Is(err))
 }
 
 func TestConsumeMultisignatureVerificationGas_BitArrayExceedsKeySet(t *testing.T) {
@@ -112,6 +114,7 @@ func TestConsumeMultisignatureVerificationGas_BitArrayExceedsKeySet(t *testing.T
 	meter := sdk.NewInfiniteGasMeter(1, 1)
 	err := ante.ConsumeMultisignatureVerificationGas(meter, sig, pubkey, params, 0)
 	require.Error(t, err)
+	require.True(t, sdkerrors.ErrInvalidType.Is(err))
 }
 
 func TestConsumeMultisignatureVerificationGas_TrailingSignatures(t *testing.T) {
@@ -131,4 +134,5 @@ func TestConsumeMultisignatureVerificationGas_TrailingSignatures(t *testing.T) {
 	meter := sdk.NewInfiniteGasMeter(1, 1)
 	err := ante.ConsumeMultisignatureVerificationGas(meter, sig, pubkey, params, 0)
 	require.Error(t, err)
+	require.True(t, sdkerrors.ErrInvalidType.Is(err))
 }

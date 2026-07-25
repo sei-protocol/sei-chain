@@ -428,14 +428,14 @@ func ConsumeMultisignatureVerificationGas(
 	params types.Params, accSeq uint64,
 ) error {
 	if err := multisig.ValidateSignatureDataStructure(sig); err != nil {
-		return err
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidType, err.Error())
 	}
 
 	size := sig.BitArray.Count()
 	pubKeys := pubkey.GetPubKeys()
 	// This runs before VerifyMultisignature; require bit-array size to match the key set.
 	if len(pubKeys) != size {
-		return fmt.Errorf("bit array size is incorrect, expecting: %d", len(pubKeys))
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidType, "bit array size is incorrect, expecting: %d", len(pubKeys))
 	}
 
 	sigIndex := 0
@@ -443,8 +443,10 @@ func ConsumeMultisignatureVerificationGas(
 		if !sig.BitArray.GetIndex(i) {
 			continue
 		}
+		// Unreachable if ValidateSignatureDataStructure succeeded (len(sigs) ==
+		// NumTrueBits); kept as defense-in-depth.
 		if sigIndex >= len(sig.Signatures) {
-			return fmt.Errorf("signature size is incorrect %d", len(sig.Signatures))
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidType, "signature size is incorrect %d", len(sig.Signatures))
 		}
 		sigV2 := signing.SignatureV2{
 			PubKey:   pubKeys[i],
@@ -493,7 +495,7 @@ func CountSubKeys(pub cryptotypes.PubKey) int {
 // Nested MultiSignatureData nodes contribute leaves only; they do not emit their own aggregates.
 func SignatureDataToBz(data signing.SignatureData) ([][]byte, error) {
 	if err := multisig.ValidateSignatureDataStructure(data); err != nil {
-		return nil, err
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidType, err.Error())
 	}
 
 	switch data := data.(type) {
