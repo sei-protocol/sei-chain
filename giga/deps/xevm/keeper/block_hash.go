@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"github.com/ethereum/go-ethereum/common"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
@@ -10,6 +11,19 @@ import (
 // (Yellow Paper / EVM: only the previous 256 blocks are available).
 const MaxBlockHashHistory = 256
 
+// blockHashCacheSize bounds the process-local BLOCKHASH cache (tip window plus headroom).
+const blockHashCacheSize = MaxBlockHashHistory * 2
+
+func newBlockHashCache() *lru.Cache[uint64, common.Hash] {
+	c, err := lru.New[uint64, common.Hash](blockHashCacheSize)
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
+
+// Block-hash ring accessors use ctx.KVStore (not GetKVStore / GigaKVStore) so
+// they read the same store EvmKeeper.TrackBlockHash writes on BeginBlock.
 func (k *Keeper) GetBlockHash(ctx sdk.Context, height int64) (common.Hash, bool) {
 	store := ctx.KVStore(k.GetStoreKey())
 	bz := store.Get(types.BlockHashKey(height))
@@ -29,10 +43,14 @@ func (k *Keeper) DeleteBlockHash(ctx sdk.Context, height int64) {
 	store.Delete(types.BlockHashKey(height))
 }
 
-// PruneBlockHashCache drops the in-memory entry that fell out of MaxBlockHashHistory.
-// The KV ring is maintained by EvmKeeper.TrackBlockHash (shared store).
-func (k *Keeper) PruneBlockHashCache(ctx sdk.Context) {
-	if prune := ctx.BlockHeight() - 1 - MaxBlockHashHistory; prune >= 0 {
-		k.blockHashCache.Delete(uint64(prune)) //nolint:gosec
+// cacheBlockHash stores a BLOCKHASH result for DeliverTx execution only.
+// CheckTx/recheck and RPC/trace contexts may read the cache but do not insert.
+func (k *Keeper) cacheBlockHash(ctx sdk.Context, height uint64, hash common.Hash) {
+	if hash == (common.Hash{}) {
+		return
 	}
+	if ctx.IsCheckTx() || ctx.IsReCheckTx() || ctx.IsTracing() {
+		return
+	}
+	k.blockHashCache.Add(height, hash)
 }

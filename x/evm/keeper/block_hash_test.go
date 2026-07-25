@@ -24,10 +24,8 @@ func TestTrackBlockHash(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, parentHash, got)
 
-	// At height 257, prune height 0 out of the window.
 	stale := common.HexToHash("0x0101010101010101010101010101010101010101010101010101010101010101")
 	k.SetBlockHash(ctx, 0, stale)
-	require.Equal(t, stale, k.GetHashFn(ctx)(0))
 
 	nextParent := common.HexToHash("0x0202020202020202020202020202020202020202020202020202020202020202")
 	header.Height = 257
@@ -40,5 +38,25 @@ func TestTrackBlockHash(t *testing.T) {
 	parent, found := k.GetBlockHash(ctx, 256)
 	require.True(t, found)
 	require.Equal(t, nextParent, parent)
-	require.Equal(t, common.Hash{}, k.GetHashFn(ctx)(0))
+}
+
+func TestBlockHashCacheDeliverOnly(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	k := &testApp.EvmKeeper
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
+
+	hash := common.HexToHash("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
+	k.SetBlockHash(ctx, 7, hash)
+
+	// RPC/trace may read store but must not insert into the process cache.
+	traceCtx := ctx.WithTraceMode(true)
+	require.Equal(t, hash, k.GetHashFn(traceCtx)(7))
+	k.DeleteBlockHash(ctx, 7)
+	require.Equal(t, common.Hash{}, k.GetHashFn(traceCtx)(7))
+
+	// DeliverTx populates the cache.
+	k.SetBlockHash(ctx, 7, hash)
+	require.Equal(t, hash, k.GetHashFn(ctx)(7))
+	k.DeleteBlockHash(ctx, 7)
+	require.Equal(t, hash, k.GetHashFn(ctx)(7))
 }

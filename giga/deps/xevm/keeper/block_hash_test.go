@@ -8,17 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPruneBlockHashCache(t *testing.T) {
+func TestBlockHashCacheDeliverOnly(t *testing.T) {
 	testApp, ctx := keeper.MockApp(t)
 	k := &testApp.GigaEvmKeeper
 
-	stale := common.HexToHash("0x0101010101010101010101010101010101010101010101010101010101010101")
-	k.SetBlockHash(ctx, 0, stale)
-	require.Equal(t, stale, k.GetHashFn(ctx)(0))
-	k.DeleteBlockHash(ctx, 0)
-	require.Equal(t, stale, k.GetHashFn(ctx)(0))
+	hash := common.HexToHash("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
+	k.SetBlockHash(ctx, 7, hash)
 
-	ctx = ctx.WithBlockHeight(257)
-	k.PruneBlockHashCache(ctx)
-	require.Equal(t, common.Hash{}, k.GetHashFn(ctx)(0))
+	traceCtx := ctx.WithTraceMode(true)
+	require.Equal(t, hash, k.GetHashFn(traceCtx)(7))
+	k.DeleteBlockHash(ctx, 7)
+	require.Equal(t, common.Hash{}, k.GetHashFn(traceCtx)(7))
+
+	k.SetBlockHash(ctx, 7, hash)
+	require.Equal(t, hash, k.GetHashFn(ctx)(7))
+	k.DeleteBlockHash(ctx, 7)
+	require.Equal(t, hash, k.GetHashFn(ctx)(7))
 }

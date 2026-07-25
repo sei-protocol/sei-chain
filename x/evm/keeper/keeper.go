@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/tests"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -67,8 +68,9 @@ type Keeper struct {
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
 
-	// blockHashCache caches BLOCKHASH results; pruned in TrackBlockHash.
-	blockHashCache *sync.Map
+	// blockHashCache is a bounded process-local cache of BLOCKHASH results for
+	// DeliverTx. RPC/trace and CheckTx may read it but do not insert.
+	blockHashCache *lru.Cache[uint64, common.Hash]
 
 	QueryConfig *querier.Config
 
@@ -147,7 +149,7 @@ func NewKeeper(
 		wasmViewKeeper:               wasmViewKeeper,
 		upgradeKeeper:                upgradeKeeper,
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
-		blockHashCache:               &sync.Map{},
+		blockHashCache:               newBlockHashCache(),
 		receiptStore:                 receiptStore,
 	}
 	return k
@@ -332,11 +334,12 @@ func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
 	height := uint64(h) //nolint:gosec
-	if cached, ok := k.blockHashCache.Load(height); ok {
-		return cached.(common.Hash)
+	// Peek keeps LRU order driven by DeliverTx inserts only.
+	if cached, ok := k.blockHashCache.Peek(height); ok {
+		return cached
 	}
 	if hash, found := k.GetBlockHash(ctx, h); found {
-		k.blockHashCache.Store(height, hash)
+		k.cacheBlockHash(ctx, height, hash)
 		return hash
 	}
 	histInfo, found := k.stakingKeeper.GetHistoricalInfo(ctx, h)
@@ -347,9 +350,7 @@ func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
 	header, _ := tmtypes.HeaderFromProto(&histInfo.Header)
 
 	hash := common.BytesToHash(header.Hash())
-	if hash != (common.Hash{}) {
-		k.blockHashCache.Store(height, hash)
-	}
+	k.cacheBlockHash(ctx, height, hash)
 	return hash
 }
 

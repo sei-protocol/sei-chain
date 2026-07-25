@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/holiman/uint256"
 	bankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
@@ -65,8 +66,9 @@ type Keeper struct {
 	pendingTxs                   map[string][]*PendingTx
 	hashToNonce                  map[tmtypes.TxHash]*AddressNoncePair
 
-	// blockHashCache caches BLOCKHASH results; pruned in PruneBlockHashCache.
-	blockHashCache *sync.Map
+	// blockHashCache is a bounded process-local cache of BLOCKHASH results for
+	// DeliverTx. RPC/trace and CheckTx may read it but do not insert.
+	blockHashCache *lru.Cache[uint64, common.Hash]
 
 	// used for both ETH replay and block tests. Not used in chain critical path.
 	Trie        ethstate.Trie
@@ -145,7 +147,7 @@ func NewKeeper(
 		pendingTxs:                   make(map[string][]*PendingTx),
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
-		blockHashCache:               &sync.Map{},
+		blockHashCache:               newBlockHashCache(),
 		hashToNonce:                  make(map[tmtypes.TxHash]*AddressNoncePair),
 		receiptStore:                 receiptStateStore,
 	}
@@ -325,11 +327,12 @@ func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
 	height := uint64(h) //nolint:gosec
-	if cached, ok := k.blockHashCache.Load(height); ok {
-		return cached.(common.Hash)
+	// Peek keeps LRU order driven by DeliverTx inserts only.
+	if cached, ok := k.blockHashCache.Peek(height); ok {
+		return cached
 	}
 	if hash, found := k.GetBlockHash(ctx, h); found {
-		k.blockHashCache.Store(height, hash)
+		k.cacheBlockHash(ctx, height, hash)
 		return hash
 	}
 	histInfo, found := k.stakingKeeper.GetHistoricalInfo(ctx, h)
@@ -340,9 +343,7 @@ func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
 	header, _ := tmtypes.HeaderFromProto(&histInfo.Header)
 
 	hash := common.BytesToHash(header.Hash())
-	if hash != (common.Hash{}) {
-		k.blockHashCache.Store(height, hash)
-	}
+	k.cacheBlockHash(ctx, height, hash)
 	return hash
 }
 
