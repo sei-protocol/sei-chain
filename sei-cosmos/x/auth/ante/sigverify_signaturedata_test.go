@@ -136,3 +136,28 @@ func TestConsumeMultisignatureVerificationGas_TrailingSignatures(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, sdkerrors.ErrInvalidType.Is(err))
 }
+
+func TestConsumeMultisignatureVerificationGas_NestedExactGas(t *testing.T) {
+	params := types.DefaultParams()
+	secpCost := params.GetSigVerifyCostSecp256k1()
+
+	alice := secp256k1.GenPrivKey()
+	bob := secp256k1.GenPrivKey()
+	carol := secp256k1.GenPrivKey()
+
+	innerPk := kmultisig.NewLegacyAminoPubKey(2, []cryptotypes.PubKey{bob.PubKey(), carol.PubKey()})
+	outerPk := kmultisig.NewLegacyAminoPubKey(2, []cryptotypes.PubKey{alice.PubKey(), innerPk})
+
+	// outer: alice + nested(bob, carol) — three secp256k1 leaf verifications.
+	innerSig := multisig.NewMultisig(2)
+	multisig.AddSignature(innerSig, &signing.SingleSignatureData{Signature: []byte{1}}, 0)
+	multisig.AddSignature(innerSig, &signing.SingleSignatureData{Signature: []byte{2}}, 1)
+
+	outerSig := multisig.NewMultisig(2)
+	multisig.AddSignature(outerSig, &signing.SingleSignatureData{Signature: []byte{3}}, 0)
+	multisig.AddSignature(outerSig, innerSig, 1)
+
+	meter := sdk.NewInfiniteGasMeter(1, 1)
+	require.NoError(t, ante.ConsumeMultisignatureVerificationGas(meter, outerSig, outerPk, params, 0))
+	require.Equal(t, 3*secpCost, meter.GasConsumed())
+}

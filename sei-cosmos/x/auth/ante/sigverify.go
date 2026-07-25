@@ -461,7 +461,7 @@ func consumeMultisignatureVerificationGas(
 		if nestedPk, ok := pubKeys[i].(multisig.PubKey); ok {
 			nestedSig, ok := sig.Signatures[sigIndex].(*signing.MultiSignatureData)
 			if !ok {
-				return fmt.Errorf("expected %T, got, %T", &signing.MultiSignatureData{}, sig.Signatures[sigIndex])
+				return sdkerrors.Wrapf(sdkerrors.ErrInvalidType, "expected %T, got %T", &signing.MultiSignatureData{}, sig.Signatures[sigIndex])
 			}
 			if err := consumeMultisignatureVerificationGas(meter, nestedSig, nestedPk, params, accSeq); err != nil {
 				return err

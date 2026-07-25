@@ -236,6 +236,17 @@ func TestVerifyMultisignature(t *testing.T) {
 				sig.BitArray.SetIndex(2, true)
 			},
 			false,
+		}, {
+			// Regression: NumTrueBitsBefore(Count()) used to panic when Count()%8==0.
+			"size multiple of 8 passes",
+			func(require *require.Assertions) {
+				pubKeys, sigs := generatePubKeysAndSignatures(8, msg)
+				pk = kmultisig.NewLegacyAminoPubKey(2, pubKeys)
+				sig = multisig.NewMultisig(len(pubKeys))
+				require.NoError(multisig.AddSignatureFromPubKey(sig, sigs[0], pubKeys[0], pubKeys))
+				require.NoError(multisig.AddSignatureFromPubKey(sig, sigs[7], pubKeys[7], pubKeys))
+			},
+			true,
 		},
 	}
 

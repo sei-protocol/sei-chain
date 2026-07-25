@@ -43,7 +43,7 @@ func validateMultiSignatureDataStructure(sig *signing.MultiSignatureData) error 
 	}
 	nTrue := sig.BitArray.NumTrueBitsBefore(size)
 	if len(sig.Signatures) != nTrue {
-		return fmt.Errorf("signature size is incorrect %d", len(sig.Signatures))
+		return fmt.Errorf("signature size is incorrect: have %d, expected %d", len(sig.Signatures), nTrue)
 	}
 	for i, child := range sig.Signatures {
 		if err := ValidateSignatureDataStructure(child); err != nil {
