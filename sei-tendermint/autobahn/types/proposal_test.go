@@ -21,14 +21,16 @@ func genFreshEpoch(rng utils.Rng, committee *Committee) *Epoch {
 	)
 }
 
-// viewSpecContiguousDuo builds Prev|Current with abutting roads [0,1)|[1,Max) and a
-// CommitQC so View.Index is inside Current (for AppQC verify tests).
+// viewSpecContiguousDuo builds Prev|Current with abutting roads [0,1)|[1,Max) and
+// CommitQCs advanced into Current so View.Index == 2. That leaves room for a
+// Current-epoch AppQC at road 1 (strictly before the tipcut view).
 func viewSpecContiguousDuo(keys []SecretKey, committee *Committee) ViewSpec {
 	const split RoadIndex = 1
 	prev := NewEpoch(0, RoadRange{First: 0, Next: split}, time.Time{}, committee, 1)
 	current := NewEpoch(1, RoadRange{First: split, Next: utils.Max[RoadIndex]()}, time.Time{}, committee, 1)
-	qc := BuildCommitQC(prev, keys, utils.None[*CommitQC](), nil, utils.None[*AppQC]())
-	return ViewSpec{CommitQC: utils.Some(qc), Epochs: NewEpochDuo(current, utils.Some(prev))}
+	qc0 := BuildCommitQC(prev, keys, utils.None[*CommitQC](), nil, utils.None[*AppQC]())
+	qc1 := BuildCommitQC(current, keys, utils.Some(qc0), nil, utils.None[*AppQC]())
+	return ViewSpec{CommitQC: utils.Some(qc1), Epochs: NewEpochDuo(current, utils.Some(prev))}
 }
 
 // leaderKey returns the secret key for the leader of the given view.
@@ -701,13 +703,55 @@ func TestProposalVerifyRejectsAppProposalWrongEpoch(t *testing.T) {
 	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(1))))
 	require.NoError(t, fp.Verify(vs))
 
-	// AppQC from Prev — rejected (tipcut AppQC matches proposal epoch, as on main).
+	// AppQC from Prev (Current-1 lag) — accepted.
 	fpPrev := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(0))))
-	require.Error(t, fpPrev.Verify(vs))
+	require.NoError(t, fpPrev.Verify(vs))
+	appPrev, ok := fpPrev.Proposal().Msg().App().Get()
+	require.True(t, ok)
+	require.Equal(t, EpochIndex(0), appPrev.EpochIndex())
 
-	// AppQC outside the duo — rejected.
+	// AppQC outside {Current, Current-1} — cleared by buildProposal.
 	fpWrong := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(2))))
-	require.Error(t, fpWrong.Verify(vs))
+	require.False(t, fpWrong.appQC.IsPresent())
+	require.NoError(t, fpWrong.Verify(vs))
+}
+
+func TestProposalClearsAppQCRoadNotBeforeView(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	vs := viewSpecContiguousDuo(keys, committee)
+	leader := leaderKey(committee, keys, vs.View())
+	view := vs.View().Index
+	lanes := oneLaneQCMap(rng, committee, keys, vs)
+
+	// buildProposal clears AppQC at road == view (and ahead) so the tipcut stays valid.
+	fpSame := utils.OrPanic1(NewProposal(leader, vs, time.Now(), lanes, utils.Some(makeAppQCFor(keys, 0, view, GenAppHash(rng), 1))))
+	require.False(t, fpSame.appQC.IsPresent())
+	require.NoError(t, fpSame.Verify(vs))
+
+	fpAhead := utils.OrPanic1(NewProposal(leader, vs, time.Now(), lanes, utils.Some(makeAppQCFor(keys, 0, view+1, GenAppHash(rng), 1))))
+	require.False(t, fpAhead.appQC.IsPresent())
+	require.NoError(t, fpAhead.Verify(vs))
+
+	// AppQC for the justifying CommitQC road (view-1) — kept and accepted.
+	fpOk := utils.OrPanic1(NewProposal(leader, vs, time.Now(), lanes, utils.Some(makeAppQCFor(keys, 0, view-1, GenAppHash(rng), 1))))
+	require.True(t, fpOk.appQC.IsPresent())
+	require.NoError(t, fpOk.Verify(vs))
+
+	// Verify still rejects a tipcut that bypasses buildProposal with same-road AppQC.
+	bad := makeAppQCFor(keys, 0, view, GenAppHash(rng), 1)
+	base := utils.OrPanic1(NewProposal(leader, vs, time.Now(), lanes, utils.None[*AppQC]()))
+	baseMsg := base.proposal.Msg()
+	ranges := make([]*LaneRange, 0, len(baseMsg.laneRanges))
+	for _, r := range baseMsg.laneRanges {
+		ranges = append(ranges, r)
+	}
+	tampered := &FullProposal{
+		proposal: Sign(leader, newProposal(vs.View(), baseMsg.Timestamp(), ranges, utils.Some(bad.Proposal()), vs.NextGlobalBlock())),
+		laneQCs:  base.laneQCs,
+		appQC:    utils.Some(bad),
+	}
+	require.Error(t, tampered.Verify(vs))
 }
 
 func TestProposalVerifyRejectsInvalidAppQCSignature(t *testing.T) {
