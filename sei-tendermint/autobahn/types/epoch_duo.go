@@ -35,8 +35,8 @@ var ErrRoadAfterWindow = errors.New("road after epoch duo window")
 
 // EpochForRoad returns the epoch containing roadIdx.
 // Window is [Prev.First or Current.First, Current.Next). Outside →
-// ErrRoadBeforeWindow / ErrRoadAfterWindow. Current is preferred when both
-// ranges could match.
+// ErrRoadBeforeWindow / ErrRoadAfterWindow. Under contiguous Prev|Current there
+// is no gap, so a miss after the after-window check is always before-window.
 func (w EpochDuo) EpochForRoad(roadIdx RoadIndex) (*Epoch, error) {
 	if roadIdx >= w.Current.RoadRange().Next {
 		return nil, fmt.Errorf("road %d after window %v: %w", roadIdx, w, ErrRoadAfterWindow)
@@ -47,14 +47,7 @@ func (w EpochDuo) EpochForRoad(roadIdx RoadIndex) (*Epoch, error) {
 	if prev, ok := w.Prev.Get(); ok && prev.RoadRange().Has(roadIdx) {
 		return prev, nil
 	}
-	first := w.Current.RoadRange().First
-	if prev, ok := w.Prev.Get(); ok {
-		first = prev.RoadRange().First
-	}
-	if roadIdx < first {
-		return nil, fmt.Errorf("road %d before window %v: %w", roadIdx, w, ErrRoadBeforeWindow)
-	}
-	return nil, fmt.Errorf("road %d after window %v: %w", roadIdx, w, ErrRoadAfterWindow)
+	return nil, fmt.Errorf("road %d before window %v: %w", roadIdx, w, ErrRoadBeforeWindow)
 }
 
 func (w EpochDuo) String() string {

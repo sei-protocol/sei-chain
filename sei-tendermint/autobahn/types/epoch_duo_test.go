@@ -50,72 +50,40 @@ func TestNewEpochDuo_PanicsOnNonContiguousRoads(t *testing.T) {
 	_ = types.NewEpochDuo(current, utils.Some(prev))
 }
 
-func TestEpochForRoad_HitsCurrentEpoch(t *testing.T) {
-	_, current := testDuoEpochs(t)
-	w := types.NewEpochDuo(current, utils.None[*types.Epoch]())
-	ep, err := w.EpochForRoad(150)
-	if err != nil {
-		t.Fatalf("EpochForRoad(150): %v", err)
-	}
-	if ep != current {
-		t.Fatalf("got %v, want current", ep)
-	}
-}
-
-func TestEpochForRoad_HitsPrevEpoch(t *testing.T) {
+func TestEpochForRoad(t *testing.T) {
 	prev, current := testDuoEpochs(t)
-	w := types.NewEpochDuo(current, utils.Some(prev))
-	ep, err := w.EpochForRoad(50)
-	if err != nil {
-		t.Fatalf("EpochForRoad(50): %v", err)
-	}
-	if ep != prev {
-		t.Fatalf("got %v, want prev", ep)
-	}
-}
 
-func TestEpochForRoad_OutsideWindowReturnsError(t *testing.T) {
-	_, current := testDuoEpochs(t)
-	w := types.NewEpochDuo(current, utils.None[*types.Epoch]())
-	_, err := w.EpochForRoad(999)
-	if !errors.Is(err, types.ErrRoadAfterWindow) {
-		t.Fatalf("EpochForRoad(999) = %v, want ErrRoadAfterWindow", err)
-	}
-	_, err = w.EpochForRoad(50)
-	if !errors.Is(err, types.ErrRoadBeforeWindow) {
-		t.Fatalf("EpochForRoad(50) current-only = %v, want ErrRoadBeforeWindow", err)
-	}
-}
+	currentOnly := types.NewEpochDuo(current, utils.None[*types.Epoch]())
+	withPrev := types.NewEpochDuo(current, utils.Some(prev))
 
-func TestEpochForRoad_PastCurrentNotMaskedByPrev(t *testing.T) {
-	prev, current := testDuoEpochs(t)
-	w := types.NewEpochDuo(current, utils.Some(prev))
-	_, err := w.EpochForRoad(200)
-	if !errors.Is(err, types.ErrRoadAfterWindow) {
-		t.Fatalf("EpochForRoad(200) = %v, want ErrRoadAfterWindow", err)
-	}
-}
-
-func TestEpochForRoad_AbsentPrevSkipped(t *testing.T) {
-	_, current := testDuoEpochs(t)
-	w := types.NewEpochDuo(current, utils.None[*types.Epoch]())
-	_, err := w.EpochForRoad(50)
-	if !errors.Is(err, types.ErrRoadBeforeWindow) {
-		t.Fatalf("EpochForRoad(50) with absent Prev = %v, want ErrRoadBeforeWindow", err)
-	}
-}
-
-func TestEpochForRoad_BeforeAndAfterWithPrev(t *testing.T) {
-	prev, current := testDuoEpochs(t)
-	w := types.NewEpochDuo(current, utils.Some(prev))
-	if _, err := w.EpochForRoad(50); err != nil {
-		t.Fatalf("EpochForRoad(50) in prev: %v", err)
-	}
-	if _, err := w.EpochForRoad(150); err != nil {
-		t.Fatalf("EpochForRoad(150) in current: %v", err)
-	}
-	_, err := w.EpochForRoad(200)
-	if !errors.Is(err, types.ErrRoadAfterWindow) {
-		t.Fatalf("EpochForRoad(200) = %v, want ErrRoadAfterWindow", err)
+	for _, tc := range []struct {
+		name string
+		w    types.EpochDuo
+		road types.RoadIndex
+		want *types.Epoch
+		err  error
+	}{
+		{"current_hit", currentOnly, 150, current, nil},
+		{"current_before", currentOnly, 50, nil, types.ErrRoadBeforeWindow},
+		{"current_after", currentOnly, 999, nil, types.ErrRoadAfterWindow},
+		{"prev_hit", withPrev, 50, prev, nil},
+		{"duo_current_hit", withPrev, 150, current, nil},
+		{"duo_after", withPrev, 200, nil, types.ErrRoadAfterWindow},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ep, err := tc.w.EpochForRoad(tc.road)
+			if tc.err != nil {
+				if !errors.Is(err, tc.err) {
+					t.Fatalf("EpochForRoad(%d) = %v, want %v", tc.road, err, tc.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("EpochForRoad(%d): %v", tc.road, err)
+			}
+			if ep != tc.want {
+				t.Fatalf("EpochForRoad(%d) = %v, want %v", tc.road, ep, tc.want)
+			}
+		})
 	}
 }
