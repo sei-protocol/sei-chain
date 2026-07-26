@@ -144,8 +144,8 @@ func newState(
 	return s, nil
 }
 
-// ErrAvailBehindConsensus is returned on restart when avail's CommitQC tipcut is
-// strictly behind consensus's (insane: consensus tip advances from avail).
+// ErrAvailBehindConsensus: avail CommitQC tipcut < consensus tipcut on restart
+// (consensus tip only advances from avail).
 var ErrAvailBehindConsensus = errors.New("avail CommitQC tip behind consensus tip")
 
 // CommitTipCut is the consensus view tipcut (NextIndexOpt of persisted CommitQC).

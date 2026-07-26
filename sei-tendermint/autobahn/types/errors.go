@@ -2,10 +2,8 @@ package types
 
 import "errors"
 
-// ErrNotFound is returned when a requested record is not yet available —
-// a block, QC, or AppProposal ahead of what data.State currently has (e.g.
-// ahead of the contiguous block/QC prefix). Distinct from ErrPruned, which
-// means the height is below the retention / eviction floor.
+// ErrNotFound means the record is at/above the tip but not present yet
+// (ahead of the contiguous prefix). Distinct from ErrPruned.
 var ErrNotFound = errors.New("not found")
 
 // ErrBlockGap is returned when the persisted blocks are not contiguous,
@@ -17,15 +15,7 @@ var ErrBlockGap = errors.New("block gap in BlockDB")
 // GlobalBlockNumber is not exactly one greater than the previously written
 // block number. Blocks must be written densely ascending.
 var ErrBlockOutOfOrder = errors.New("block: WriteBlock out of order")
-
-// ErrQCNonContiguous is returned by WriteQC when the QC's GlobalRange().First
-// does not equal the previous QC's GlobalRange().Next. QCs must be written as
-// a contiguous, ascending sequence.
 var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
-
-// ErrBlockMissingQC is returned by WriteBlock when no previously written QC
-// covers the block's GlobalBlockNumber. A QC covering a block must be written
-// before that block (see the BlockDB ordering contract).
 var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 
 // ErrPruned is returned when a requested record is below the current retention

@@ -17,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-// ErrBadLane .
 var ErrBadLane = errors.New("bad lane")
 
 const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
@@ -259,16 +258,30 @@ func (s *State) waitRoadInWindow(
 // waitEpochForRoad: too early waits; behind window → None (stale).
 func (s *State) waitEpochForRoad(ctx context.Context, roadIdx types.RoadIndex) (utils.Option[types.EpochDuo], error) {
 	return s.waitRoadInWindow(ctx, roadIdx,
-		func(duo types.EpochDuo) utils.Option[*types.Epoch] { return duo.EpochOptForRoad(roadIdx) },
-		types.EpochDuo.WindowFirst,
+		func(duo types.EpochDuo) utils.Option[*types.Epoch] {
+			if ep, err := duo.EpochForRoad(roadIdx); err == nil {
+				return utils.Some(ep)
+			}
+			return utils.None[*types.Epoch]()
+		},
+		func(duo types.EpochDuo) types.RoadIndex {
+			if prev, ok := duo.Prev.Get(); ok {
+				return prev.RoadRange().First
+			}
+			return duo.Current.RoadRange().First
+		},
 	)
 }
 
-// waitCurrentForRoad blocks until roadIdx is in Current (too early);
-// None if behind Current (stale). Prev is not admitted — CommitQCs are Current-only.
+// waitCurrentForRoad: too early waits on Current; behind Current → None (stale).
 func (s *State) waitCurrentForRoad(ctx context.Context, roadIdx types.RoadIndex) (utils.Option[types.EpochDuo], error) {
 	return s.waitRoadInWindow(ctx, roadIdx,
-		func(duo types.EpochDuo) utils.Option[*types.Epoch] { return duo.CurrentForRoad(roadIdx) },
+		func(duo types.EpochDuo) utils.Option[*types.Epoch] {
+			if duo.Current.RoadRange().Has(roadIdx) {
+				return utils.Some(duo.Current)
+			}
+			return utils.None[*types.Epoch]()
+		},
 		func(duo types.EpochDuo) types.RoadIndex { return duo.Current.RoadRange().First },
 	)
 }
@@ -324,17 +337,9 @@ func (s *State) waitPruneLeash(ctx context.Context, epochIdx types.EpochIndex, i
 	panic("unreachable")
 }
 
-// waitCommitEpochLeashes enforces tip-interlock before sealing epoch N>0
-// (closingEpoch = last road of N). Mid-N admits are not gated.
-// incoming: AppQC on PushAppQC (None for PushCommitQC). See Registry invariants.
-//
-// Epoch 0 is exempt: sealing 0 does {∅,0}→{0,1} — nothing is dropped from the
-// duo, so the prune leash (AppQC before dropping Prev) does not apply. Applying
-// waitPruneLeash(0) would only block seal on the first AppQC for no Prev-drop
-// reason. Restart with Current≥1 still requires a prune anchor (newInner); that
-// path is unreachable here because lane production without an AppQC/prune is
-// capped at BlocksPerLane ≪ EpochLength, so LastRoad(0) cannot be sealed
-// without an earlier AppQC (and thus an anchor).
+// waitCommitEpochLeashes gates seal of epoch N>0 (last road only). Epoch 0 and
+// mid-epoch admits are exempt — see Registry invariants (prune/execution leash).
+// incoming: AppQC on PushAppQC (None for PushCommitQC).
 func (s *State) waitCommitEpochLeashes(
 	ctx context.Context,
 	epochIdx types.EpochIndex,
@@ -344,12 +349,9 @@ func (s *State) waitCommitEpochLeashes(
 	if epochIdx == 0 || !closingEpoch {
 		return nil
 	}
-	// Sealing N drops Prev (N-1) and advances Current into N+1.
-	// Prune leash: AppQC in N ⇒ N-1 fully pruned before it leaves the duo.
 	if err := s.waitPruneLeash(ctx, epochIdx, incoming); err != nil {
 		return err
 	}
-	// Execution leash: N+1 existing ⇒ execution finished N-1 (usually AdvanceIfNeeded).
 	_, err := s.data.Registry().WaitForDuo(ctx, epoch.FirstRoad(epochIdx+1))
 	return err
 }
@@ -412,7 +414,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	if !ok {
 		return nil
 	}
-	ep := duo.CurrentForRoad(idx).OrPanic("admitRoadOrDrop returned duo without Current road")
+	ep := duo.Current
 	if err := qc.Verify(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
@@ -464,7 +466,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	if !ok {
 		return nil
 	}
-	ep := duo.EpochOptForRoad(idx).OrPanic("admitRoadOrDrop returned duo without road")
+	ep := utils.OrPanic1(duo.EpochForRoad(idx))
 	committee := ep.Committee()
 	if err := v.VerifySig(committee); err != nil {
 		return fmt.Errorf("v.VerifySig(): %w", err)
@@ -529,7 +531,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 	if !ok {
 		return nil
 	}
-	ep := duo.EpochOptForRoad(idx).OrPanic("admitRoadOrDrop returned duo without road")
+	ep := utils.OrPanic1(duo.EpochForRoad(idx))
 	if err := appQC.Verify(duo); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}

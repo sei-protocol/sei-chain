@@ -125,10 +125,8 @@ func (v View) Next() View {
 	return v
 }
 
-// ViewSpec is the full local context for starting a view: justification QCs plus
-// the Prev|Current epoch window. Epochs.Current is required; View(),
-// NextGlobalBlock(), and NextTimestamp() panic if it is nil. Prev is used to
-// verify an AppQC that lags the proposing epoch by one.
+// ViewSpec is the local context for starting a view: justification QCs plus a
+// Prev|Current EpochDuo (Prev covers AppQC that lags the proposing epoch by one).
 type ViewSpec struct {
 	// WARNING: currently we have implicit assumption that
 	// TimeoutQC.View().Index == CommitQC.Index.Next(),
@@ -419,8 +417,7 @@ func (m *FullProposal) TimeoutQC() utils.Option[*TimeoutQC] {
 }
 
 // Verify verifies the FullProposal against the current view.
-// AppQC may lag the proposing epoch by one; its committee is resolved from
-// vs.Epochs (Prev|Current).
+// AppQC committee is resolved from vs.Epochs (may be Prev).
 func (m *FullProposal) Verify(vs ViewSpec) error {
 	c := vs.Epoch().Committee()
 	return scope.Parallel(func(s scope.ParallelScope) error {

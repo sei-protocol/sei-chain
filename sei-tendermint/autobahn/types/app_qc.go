@@ -37,9 +37,16 @@ func (m *AppQC) Next() RoadIndex {
 
 func (m *AppQC) Verify(duo EpochDuo) error {
 	p := m.Proposal()
-	ep, err := duo.EpochForIndex(p.EpochIndex())
-	if err != nil {
-		return err
+	var ep *Epoch
+	switch {
+	case duo.Current.EpochIndex() == p.EpochIndex():
+		ep = duo.Current
+	default:
+		prev, ok := duo.Prev.Get()
+		if !ok || prev.EpochIndex() != p.EpochIndex() {
+			return fmt.Errorf("epoch %d not in window %v", p.EpochIndex(), duo)
+		}
+		ep = prev
 	}
 	if rr := ep.RoadRange(); !rr.Has(p.RoadIndex()) {
 		return fmt.Errorf("app road_index %v not in epoch %d roads [%v,%v)",

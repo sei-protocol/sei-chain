@@ -16,16 +16,12 @@ type RoadRange struct {
 	Next  RoadIndex
 }
 
-// OpenRoadRange returns a RoadRange covering road indices [0, Max).
-// Use in tests and genesis epochs where no upper bound is known yet.
+// OpenRoadRange returns [0, Max) for tests/genesis when no upper bound is known yet.
 func OpenRoadRange() RoadRange { return RoadRange{First: 0, Next: utils.Max[RoadIndex]()} }
 
-// Has reports whether idx falls within this range [First, Next).
 func (r RoadRange) Has(idx RoadIndex) bool { return idx >= r.First && idx < r.Next }
 
-// IsLastRoad reports whether idx is the last road in this half-open range
-// (idx+1 == Next). Tipcut seal / duo slide keys off this — same shape as
-// GlobalRange.IsLastBlock.
+// IsLastRoad is true when idx+1 == Next (same shape as GlobalRange.IsLastBlock).
 func (r RoadRange) IsLastRoad(idx RoadIndex) bool { return idx+1 == r.Next }
 
 // Epoch holds the complete context for a single epoch.
@@ -39,7 +35,6 @@ type Epoch struct {
 	firstBlock     GlobalBlockNumber
 }
 
-// NewEpoch constructs an Epoch.
 func NewEpoch(index EpochIndex, roads RoadRange, firstTimestamp time.Time, committee *Committee, firstBlock GlobalBlockNumber) *Epoch {
 	return &Epoch{
 		epochIndex:     index,
