@@ -2,11 +2,18 @@
 
 ## Summary
 
-This document proposes a FlatKV-only state sync path that distributes an
-immutable FlatKV checkpoint archive out-of-band, for example through S3 or GCS,
-and then uses Tendermint light-client verification to authenticate the restored
-state before the node resumes normal block sync. The approach replaces the
-current key-stream restore path:
+This document proposes a FlatKV-only state sync path based on out-of-band
+checkpoint distribution. Instead of restoring application state by replaying a
+logical key/value stream into a fresh database, a node restores an immutable
+FlatKV checkpoint archive, verifies that checkpoint against Tendermint light
+client trust, and then resumes normal block sync from the archived height.
+
+The design relies on a FlatKV-only invariant: once all modules have migrated to
+FlatKV, the FlatKV checkpoint is the complete consensus commit-store state for
+one application version. That lets state sync move the already-built Pebble
+database shape instead of reconstructing it on the receiver.
+
+At a high level, the design replaces the current restore path:
 
 ```text
 download snapshot chunks -> protobuf decode -> per-key FlatKV import -> Pebble LSM rebuild -> LtHash recomputation
@@ -18,12 +25,8 @@ with:
 download archive -> verify file hashes -> install Pebble checkpoint files -> verify AppHash with light client -> block sync
 ```
 
-On the production-scale forked pacific-1 validation cluster, the archive path
-created and uploaded an 81.4 GiB archive in 18m38s, restored it on a default
-gp3 volume in 32m35s, and restored the same archive on a 10k IOPS / 1000 MiB/s
-gp3 volume in 12m02s. The light-client verification and Tendermint bootstrap
-portion was approximately 10-12 seconds; the remaining restore time was
-dominated by object-store download and disk IO.
+The rest of this document covers the archive format, create and restore flows,
+trust model, validation methodology, measured performance, and rollout risks.
 
 ## Goals
 
