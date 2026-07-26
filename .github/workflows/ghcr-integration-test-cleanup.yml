@@ -3,6 +3,9 @@
 # integration-test.yml pushes ghcr.io/sei-protocol/sei-chain-integration-test-{localnode,rpcnode}:<run_id>
 # on every workflow run. The shared buildx cache lives on the :cache tag and is never deleted here.
 #
+# Candidates are fully listed before any DELETE. Deleting while paginating shifts GHCR page
+# offsets and could skip versions.
+#
 # Packages:
 #   https://github.com/orgs/sei-protocol/packages/container/sei-chain-integration-test-localnode
 #   https://github.com/orgs/sei-protocol/packages/container/sei-chain-integration-test-rpcnode
@@ -41,19 +44,42 @@ jobs:
           OLDER_THAN_DAYS: ${{ inputs.older_than_days || 14 }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
         run: |
-          # For each integration test package, delete versions whose tags are all numeric run-IDs and are older than OLDER_THAN_DAYS.
-          # Numeric-only tag filter naturally preserves the :cache tag and any other non-run-ID tags.
+          set -euo pipefail
+          # For each integration test package, delete versions whose tags are all numeric run-IDs
+          # and are older than OLDER_THAN_DAYS. Numeric-only tag filter preserves :cache and any
+          # other non-run-ID tags.
           cutoff=$(date -u -d "${OLDER_THAN_DAYS} days ago" +%s)
+          deleted=0
+          failed=0
           for pkg in sei-chain-integration-test-localnode sei-chain-integration-test-rpcnode; do
+            candidates=$(mktemp)
+            # Materialize the full paginated list before any DELETE so page-offset shifts
+            # cannot skip versions mid-cleanup.
             gh api --paginate "orgs/sei-protocol/packages/container/${pkg}/versions" \
-              --jq '.[] | select(.metadata.container.tags | length > 0 and all(test("^[0-9]+$"))) | [.id, .created_at] | @tsv' |
-            while IFS=$'\t' read -r version_id created_at; do
-              created_ts=$(date -u -d "$created_at" +%s)
+              --jq '.[] | select(.metadata.container.tags | length > 0 and all(test("^[0-9]+$"))) | [.id, .created_at] | @tsv' \
+              > "${candidates}"
+
+            while IFS=$'\t' read -r version_id created_at || [[ -n "${version_id:-}" ]]; do
+              [[ -n "${version_id:-}" ]] || continue
+              created_ts=$(date -u -d "${created_at}" +%s)
               if (( created_ts < cutoff )); then
                 echo "Deleting version ${version_id} of ${pkg} (created: ${created_at})"
-                if [[ "$DRY_RUN" != "true" ]]; then
-                  gh api --method DELETE "orgs/sei-protocol/packages/container/${pkg}/versions/${version_id}"
+                if [[ "${DRY_RUN}" != "true" ]]; then
+                  if gh api --method DELETE "orgs/sei-protocol/packages/container/${pkg}/versions/${version_id}"; then
+                    deleted=$((deleted + 1))
+                  else
+                    echo "::error::Failed to delete version ${version_id} of ${pkg}"
+                    failed=$((failed + 1))
+                  fi
+                else
+                  deleted=$((deleted + 1))
                 fi
               fi
-            done
+            done < "${candidates}"
+            rm -f "${candidates}"
           done
+
+          echo "Deleted (or would delete): ${deleted}; failures: ${failed}"
+          if (( failed > 0 )); then
+            exit 1
+          fi
