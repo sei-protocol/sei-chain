@@ -466,8 +466,11 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	idx := v.Msg().Proposal().RoadIndex()
 	// Authenticate before waitForCommitQC — a far-future RoadIndex on an
 	// unverified vote would otherwise park this goroutine until ctx cancel.
-	// PushCommitQC/PushAppQC intentionally wait via admitRoadOrDrop instead;
-	// votes use Registry.EpochAt because they are not duo-gated the same way.
+	// EpochAt only rejects roads outside the registry; placeholder epochs
+	// (SetupInitialDuo / AdvanceIfNeeded lookahead) still admit a signed vote
+	// that then waits. PushCommitQC/PushAppQC intentionally wait via
+	// admitRoadOrDrop instead; votes use Registry.EpochAt because they are not
+	// duo-gated the same way.
 	ep, err := s.data.Registry().EpochAt(idx)
 	if err != nil {
 		return fmt.Errorf("EpochAt(%d): %w", idx, err)

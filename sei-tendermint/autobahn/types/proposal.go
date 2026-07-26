@@ -356,10 +356,11 @@ func buildProposal(
 		app = old
 		appQC = utils.None[*AppQC]()
 	}
-	// If the new appProposal is from the future (which may happen if this node is behind), then clear appQC.
-	// The proposal will be useless in this case, but at least it will be valid.
+	// If the new appProposal is from the future (which may happen if this node is
+	// behind), drop it and fall back to the previous CommitQC's app — same as the
+	// road/epoch guards below — so Verify never sees App < previous CommitQC.
 	if a, ok := app.Get(); ok && a.GlobalNumber() >= viewSpec.NextGlobalBlock() {
-		app = utils.None[*AppProposal]()
+		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
 		appQC = utils.None[*AppQC]()
 	}
 	// AppQC must be for a prior tipcut (road < view). Same-road or ahead can show up
@@ -368,11 +369,13 @@ func buildProposal(
 		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
 		appQC = utils.None[*AppQC]()
 	}
-	// Tipcut AppQC may lag one epoch (Current or Current-1). Outside that window,
-	// fall back to the previous CommitQC's app so the tipcut stays valid.
+	// Tipcut AppQC may lag one epoch (Current or Current-1 with Prev present).
+	// Outside that window, fall back to the previous CommitQC's app.
 	if a, ok := app.Get(); ok {
 		appEp, cur := a.EpochIndex(), viewSpec.Epoch().EpochIndex()
-		if appEp != cur && (cur == 0 || appEp != cur-1) {
+		keep := appEp == cur ||
+			(cur > 0 && appEp == cur-1 && viewSpec.Epochs.Prev.IsPresent())
+		if !keep {
 			app = AppOpt(ProposalOpt(viewSpec.CommitQC))
 			appQC = utils.None[*AppQC]()
 		}

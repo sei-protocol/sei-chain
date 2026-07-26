@@ -716,6 +716,49 @@ func TestProposalVerifyRejectsAppProposalWrongEpoch(t *testing.T) {
 	require.NoError(t, fpWrong.Verify(vs))
 }
 
+func TestProposalFallsBackWhenAppQCFromFuture(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	const split RoadIndex = 1
+	prev := NewEpoch(0, RoadRange{First: 0, Next: split}, time.Time{}, committee, 1)
+	current := NewEpoch(1, RoadRange{First: split, Next: utils.Max[RoadIndex]()}, time.Time{}, committee, 1)
+	qc0 := BuildCommitQC(prev, keys, utils.None[*CommitQC](), nil, utils.None[*AppQC]())
+	// Same-epoch App on the justifying tipcut so BuildCommitQC keeps it (Prev absent there).
+	priorApp := makeAppQCFor(keys, qc0.GlobalRange().Next-1, qc0.Proposal().Index(), GenAppHash(rng), 1)
+	qc1 := BuildCommitQC(current, keys, utils.Some(qc0), nil, utils.Some(priorApp))
+	require.True(t, qc1.Proposal().App().IsPresent(), "fixture CommitQC must carry App")
+	vs := ViewSpec{CommitQC: utils.Some(qc1), Epochs: NewEpochDuo(current, utils.Some(prev))}
+	leader := leaderKey(committee, keys, vs.View())
+	lanes := oneLaneQCMap(rng, committee, keys, vs)
+
+	future := makeAppQCFor(keys, vs.NextGlobalBlock(), vs.View().Index-1, GenAppHash(rng), 1)
+	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), lanes, utils.Some(future)))
+	require.False(t, fp.appQC.IsPresent())
+	app, ok := fp.Proposal().Msg().App().Get()
+	require.True(t, ok, "must fall back to CommitQC App, not clear to None")
+	want, _ := qc1.Proposal().App().Get()
+	require.Equal(t, want.AppHash(), app.AppHash())
+	require.NoError(t, fp.Verify(vs))
+}
+
+func TestProposalClearsCurrentMinus1AppQCWithoutPrev(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	// Current > 0 but Prev absent (test helper shape). Current-1 AppQC must clear.
+	current := NewEpoch(1, RoadRange{First: 1, Next: utils.Max[RoadIndex]()}, time.Time{}, committee, 1)
+	qc0 := BuildCommitQC(NewEpoch(0, RoadRange{First: 0, Next: 1}, time.Time{}, committee, 1),
+		keys, utils.None[*CommitQC](), nil, utils.None[*AppQC]())
+	qc1 := BuildCommitQC(current, keys, utils.Some(qc0), nil, utils.None[*AppQC]())
+	vs := ViewSpec{CommitQC: utils.Some(qc1), Epochs: NewEpochDuo(current, utils.None[*Epoch]())}
+	leader := leaderKey(committee, keys, vs.View())
+	lanes := oneLaneQCMap(rng, committee, keys, vs)
+
+	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), lanes,
+		utils.Some(makeAppQCFor(keys, 0, 0, GenAppHash(rng), 0))))
+	require.False(t, fp.appQC.IsPresent())
+	require.NoError(t, fp.Verify(vs))
+}
+
 func TestProposalClearsAppQCRoadNotBeforeView(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
