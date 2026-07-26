@@ -60,8 +60,14 @@ func TestCommitQC(
 	}
 	var appQC utils.Option[*types.AppQC]
 	if cqc, ok := prev.Get(); ok {
-		vs := types.ViewSpec{CommitQC: prev, Epochs: types.NewEpochDuo(ep, utils.None[*types.Epoch]())}
-		p := types.NewAppProposal(cqc.GlobalRange().Next-1, vs.View().Index, types.GenAppHash(rng), ep.EpochIndex())
+		// AppQC certifies the prior tipcut (road == prev.Index), not the tipcut
+		// being built (View.Index). buildProposal clears road >= view.
+		p := types.NewAppProposal(
+			cqc.GlobalRange().Next-1,
+			cqc.Proposal().Index(),
+			types.GenAppHash(rng),
+			cqc.Proposal().EpochIndex(),
+		)
 		appQC = utils.Some(TestAppQC(keys, p))
 	}
 	cqc := types.BuildCommitQC(ep, keys, prev, laneQCs, appQC)
