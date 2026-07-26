@@ -532,7 +532,16 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 		return nil
 	}
 	ep := utils.OrPanic1(duo.EpochForRoad(idx))
-	if err := appQC.Verify(duo); err != nil {
+	appEpoch := appQC.Proposal().EpochIndex()
+	cur := duo.Current.EpochIndex()
+	// AppQC may lag the tipcut by at most one epoch.
+	if appEpoch != cur && (cur == 0 || appEpoch != cur-1) {
+		if cur == 0 {
+			return fmt.Errorf("appQC epoch %d, want %d", appEpoch, cur)
+		}
+		return fmt.Errorf("appQC epoch %d, want %d or %d", appEpoch, cur, cur-1)
+	}
+	if err := appQC.Verify(ep); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
 	if err := commitQC.Verify(ep); err != nil {

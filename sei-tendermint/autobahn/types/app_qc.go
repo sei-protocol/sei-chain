@@ -35,18 +35,11 @@ func (m *AppQC) Next() RoadIndex {
 	return m.Proposal().Next()
 }
 
-func (m *AppQC) Verify(duo EpochDuo) error {
+// Verify checks epoch_index / road against ep, then quorum under ep's committee.
+func (m *AppQC) Verify(ep *Epoch) error {
 	p := m.Proposal()
-	var ep *Epoch
-	switch {
-	case duo.Current.EpochIndex() == p.EpochIndex():
-		ep = duo.Current
-	default:
-		prev, ok := duo.Prev.Get()
-		if !ok || prev.EpochIndex() != p.EpochIndex() {
-			return fmt.Errorf("epoch %d not in window %v", p.EpochIndex(), duo)
-		}
-		ep = prev
+	if got, want := p.EpochIndex(), ep.EpochIndex(); got != want {
+		return fmt.Errorf("appQC epoch %d, want %d", got, want)
 	}
 	if rr := ep.RoadRange(); !rr.Has(p.RoadIndex()) {
 		return fmt.Errorf("app road_index %v not in epoch %d roads [%v,%v)",

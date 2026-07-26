@@ -176,13 +176,13 @@ func TestAppQCVerifyChecksWeight(t *testing.T) {
 	heavyOnly := NewAppQC([]*Signed[*AppVote]{
 		Sign(keys[0], vote),
 	})
-	require.NoError(t, heavyOnly.Verify(NewEpochDuo(ep, utils.None[*Epoch]())))
+	require.NoError(t, heavyOnly.Verify(ep))
 
 	lightMajority := NewAppQC([]*Signed[*AppVote]{
 		Sign(keys[1], vote),
 		Sign(keys[2], vote),
 	})
-	require.Error(t, lightMajority.Verify(NewEpochDuo(ep, utils.None[*Epoch]())))
+	require.Error(t, lightMajority.Verify(ep))
 }
 
 func TestTimeoutQCVerifyChecksEpochBinding(t *testing.T) {

@@ -733,6 +733,35 @@ func TestProposalVerifyRejectsAppProposalWrongEpoch(t *testing.T) {
 	require.Error(t, fpWrong.Verify(vs))
 }
 
+func TestProposalVerifyRejectsPrevAppQCCurrentGlobal(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	vs := viewSpecContiguousDuo(keys, committee)
+	leader := leaderKey(committee, keys, vs.View())
+
+	// Prev-epoch AppQC whose GlobalNumber is already in Current's range.
+	app := NewAppProposal(vs.Epoch().FirstBlock(), 0, GenAppHash(rng), 0)
+	var votes []*Signed[*AppVote]
+	for _, k := range keys {
+		votes = append(votes, Sign(k, NewAppVote(app)))
+	}
+	appQC := NewAppQC(votes)
+	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(appQC)))
+	require.Error(t, fp.Verify(vs))
+}
+
+func TestProposalVerifyRejectsAppQCRoadAheadOfView(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	vs := viewSpecContiguousDuo(keys, committee)
+	leader := leaderKey(committee, keys, vs.View())
+
+	ahead := vs.View().Index + 1
+	appQC := makeAppQCFor(keys, 0, ahead, GenAppHash(rng), 1)
+	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(appQC)))
+	require.Error(t, fp.Verify(vs))
+}
+
 func TestProposalVerifyRejectsInvalidAppQCSignature(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

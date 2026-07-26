@@ -126,7 +126,7 @@ func (v View) Next() View {
 }
 
 // ViewSpec is the local context for starting a view: justification QCs plus a
-// Prev|Current EpochDuo (Prev covers AppQC that lags the proposing epoch by one).
+// Prev|Current EpochDuo (AppQC epoch_index must be Current or Current-1).
 type ViewSpec struct {
 	// WARNING: currently we have implicit assumption that
 	// TimeoutQC.View().Index == CommitQC.Index.Next(),
@@ -417,7 +417,8 @@ func (m *FullProposal) TimeoutQC() utils.Option[*TimeoutQC] {
 }
 
 // Verify verifies the FullProposal against the current view.
-// AppQC committee is resolved from vs.Epochs (may be Prev).
+// AppQC epoch_index must be Current or Current-1; Prev AppQCs cannot attest
+// Current-era globals.
 func (m *FullProposal) Verify(vs ViewSpec) error {
 	c := vs.Epoch().Committee()
 	return scope.Parallel(func(s scope.ParallelScope) error {
@@ -513,11 +514,38 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 				return errors.New("appQC doesn't match the proposal")
 			}
 			s.Spawn(func() error {
-				if err := appQC.Verify(vs.Epochs); err != nil {
+				appEpoch := appQC.Proposal().EpochIndex()
+				cur := vs.Epoch().EpochIndex()
+				// AppQC may lag the tipcut by at most one epoch.
+				if appEpoch != cur && (cur == 0 || appEpoch != cur-1) {
+					if cur == 0 {
+						return fmt.Errorf("appQC epoch %d, want %d", appEpoch, cur)
+					}
+					return fmt.Errorf("appQC epoch %d, want %d or %d", appEpoch, cur, cur-1)
+				}
+				ep := vs.Epochs.Current
+				if appEpoch != cur {
+					prev, ok := vs.Epochs.Prev.Get()
+					if !ok {
+						return fmt.Errorf("appQC epoch %d but Prev missing from duo %v", appEpoch, vs.Epochs)
+					}
+					ep = prev
+				}
+				if err := appQC.Verify(ep); err != nil {
 					return fmt.Errorf("appQC: %w", err)
 				}
 				return nil
 			})
+			if got, want := appQC.Proposal().RoadIndex(), vs.View().Index; got > want {
+				return fmt.Errorf("appQC road %d ahead of proposal view %d", got, want)
+			}
+			// Prev-epoch AppQC may lag the tipcut, but must not attest Current-era
+			// globals (old committee attesting new-epoch blocks).
+			if appQC.Proposal().EpochIndex() < vs.Epoch().EpochIndex() {
+				if got, want := appQC.Proposal().GlobalNumber(), vs.Epoch().FirstBlock(); got >= want {
+					return fmt.Errorf("prev-epoch appQC global %d, want < current first block %d", got, want)
+				}
+			}
 			if got, want := appQC.Proposal().GlobalNumber(), vs.NextGlobalBlock(); got >= want {
 				return fmt.Errorf("appQC for block %v, while only %v blocks were finalized", got, want)
 			}
