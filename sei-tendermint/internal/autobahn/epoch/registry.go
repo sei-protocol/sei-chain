@@ -37,10 +37,14 @@ type registryState struct {
 // Invariants:
 //   - Independent of each layer's live EpochDuo (Prev|Current). Duo admits
 //     traffic; the registry may retain more epochs for restart and leashes.
-//   - Execution cannot pass commit. Sealing epoch N (N>0) requires registry
-//     N+1 (execution leash) and AppQC covering N-1 before Prev is dropped
-//     (prune leash). Seal of epoch 0 is not prune-leashed: {∅,0}→{0,1} drops
-//     nothing. Finishing LastRoad(N-1) seeds epoch N+1 (AdvanceIfNeeded).
+//   - Execution cannot pass commit. Sealing epoch N (including 0) requires
+//     registry N+1 (execution leash) and AppQC in epoch N before the window
+//     slides (prune leash). Epoch 0 is intentionally not exempt: even though
+//     {∅,0}→{0,1} drops no Prev, the leash is what guarantees an AppQC anchor
+//     before Current leaves 0 (newInner hard-fails without one). Peer
+//     PushCommitQC can seal LastRoad(0) without local BlocksPerLane pressure,
+//     so "unreachable under BlocksPerLane" is not a valid exemption. Finishing
+//     LastRoad(N-1) seeds epoch N+1 (AdvanceIfNeeded).
 //   - data/ is the sole restart seeder (SetupInitialDuo). Avail/consensus must
 //     not seed; tip into an unseeded epoch → EpochAt/DuoAt hard-fail.
 //   - Post-construction tipcuts: avail ≥ consensus. Consensus and avail may

@@ -340,8 +340,16 @@ func (s *State) waitPruneLeash(ctx context.Context, epochIdx types.EpochIndex, i
 	panic("unreachable")
 }
 
-// waitCommitEpochLeashes gates seal of epoch N>0 (last road only). Epoch 0 and
-// mid-epoch admits are exempt — see Registry invariants (prune/execution leash).
+// waitCommitEpochLeashes gates seal of epoch N (last road only). Mid-epoch
+// admits are exempt — see Registry invariants.
+//
+// Epoch 0 is not special-cased. Seal is {∅,0}→{0,1} (no Prev drop), but the
+// prune leash still runs so leaving 0 always writes an AppQC anchor for
+// newInner (Current>0 requires one). Do not reintroduce an epochIdx==0 skip:
+// BlocksPerLane only caps local production; peers can PushCommitQC LastRoad(0)
+// (then mid-epoch-1 QCs) with no local AppQC, which would otherwise restart
+// without an anchor.
+//
 // incoming: AppQC on PushAppQC (None for PushCommitQC).
 func (s *State) waitCommitEpochLeashes(
 	ctx context.Context,
@@ -349,7 +357,7 @@ func (s *State) waitCommitEpochLeashes(
 	closingEpoch bool,
 	incoming utils.Option[*types.AppQC],
 ) error {
-	if epochIdx == 0 || !closingEpoch {
+	if !closingEpoch {
 		return nil
 	}
 	if err := s.waitPruneLeash(ctx, epochIdx, incoming); err != nil {
@@ -457,8 +465,9 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
 	idx := v.Msg().Proposal().RoadIndex()
 	// Authenticate before waitForCommitQC — a far-future RoadIndex on an
-	// unverified vote would otherwise park this goroutine until ctx cancel
-	// (same stall shape PushAppQC rejects before admitRoadOrDrop).
+	// unverified vote would otherwise park this goroutine until ctx cancel.
+	// PushCommitQC/PushAppQC intentionally wait via admitRoadOrDrop instead;
+	// votes use Registry.EpochAt because they are not duo-gated the same way.
 	ep, err := s.data.Registry().EpochAt(idx)
 	if err != nil {
 		return fmt.Errorf("EpochAt(%d): %w", idx, err)
@@ -525,8 +534,9 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 			return nil
 		}
 	}
-	// Reject mismatched pairs before waiting on the commitQC road — a far-future
-	// Index() would otherwise stall admitRoadOrDrop indefinitely.
+	// Reject mismatched pairs before waiting. Ahead-of-window roads still wait
+	// in admitRoadOrDrop (intentional backpressure); these checks only catch
+	// inconsistent pairs.
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}

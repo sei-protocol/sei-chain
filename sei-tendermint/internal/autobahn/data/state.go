@@ -212,9 +212,13 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	for in := range s.inner.Lock() {
 		initRoad := types.RoadIndex(0)
 		if in.nextQC > in.first {
-			if lastQC := in.qcs[in.nextQC-1]; lastQC != nil {
-				initRoad = lastQC.QC().Proposal().Index() + 1
+			n := in.nextQC - 1
+			lastQC := in.qcs[n]
+			if lastQC == nil {
+				// Same invariant as CommitTipCut: nextQC claims a retained QC.
+				return nil, fmt.Errorf("init epochDuo: missing QC at global %d (first=%d nextQC=%d)", n, in.first, in.nextQC)
 			}
+			initRoad = lastQC.QC().Proposal().Index() + 1
 		}
 		initDuo, err := cfg.Registry.DuoAt(initRoad)
 		if err != nil {

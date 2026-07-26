@@ -846,3 +846,18 @@ func TestTryBlockHidesGapFills(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, blocks2[last-gr2.First], got)
 }
+
+// TestCommitTipCutRejectsMissingTipQC: nextQC > first with a nil tip slot is an
+// invariant break (same check NewState uses when centering epochDuo).
+func TestCommitTipCutRejectsMissingTipQC(t *testing.T) {
+	rng := utils.TestRng()
+	registry, _, _ := epoch.GenRegistry(rng, 3)
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	for inner := range state.inner.Lock() {
+		inner.nextQC = inner.first + 1
+		delete(inner.qcs, inner.nextQC-1)
+	}
+	_, err := state.CommitTipCut()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing QC")
+}

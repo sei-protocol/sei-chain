@@ -121,10 +121,14 @@ func TestNewInnerRequiresAnchorWhenEpochNonZero(t *testing.T) {
 	duo := utils.OrPanic1(registry.DuoAt(epoch.FirstRoad(m)))
 	require.Equal(t, m, duo.Current.EpochIndex())
 
+	// Prune-leashing seal of 0 means Current > 0 always has an AppQC anchor;
+	// missing one on restart is a hard fail (do not weaken that contract).
 	_, err := newInner(registry, duo, utils.Some(&loadedAvailState{}))
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "prune anchor required")
 	_, err = newInner(registry, duo, utils.None[*loadedAvailState]())
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "prune anchor required")
 }
 
 func TestNewInnerLoadedBlocksContiguous(t *testing.T) {

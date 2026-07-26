@@ -138,14 +138,22 @@ func newState(
 	// Avail admits CommitQCs before consensus tip catches up via LastCommitQC.
 	// Restart: avail tipcut must be >= consensus tipcut. Consensus may still
 	// lag data; Run() catch-up from avail closes that gap.
+	//
+	// avail < cons is not auto-repaired (see ErrAvailBehindConsensus).
 	if availTip, consTip := availState.CommitTipCut(), s.CommitTipCut(); availTip < consTip {
 		return nil, fmt.Errorf("%w: avail tipcut %d < consensus tipcut %d", ErrAvailBehindConsensus, availTip, consTip)
 	}
 	return s, nil
 }
 
-// ErrAvailBehindConsensus: avail CommitQC tipcut < consensus tipcut on restart
-// (consensus tip only advances from avail).
+// ErrAvailBehindConsensus: avail CommitQC tipcut < consensus tipcut on restart.
+// Consensus tip only advances from avail, so this should not occur after a clean
+// crash (avail WAL is written before consensus runOutputs persist).
+//
+// A torn avail CommitQC WAL tail can leave avail one road behind a still-intact
+// consensus inner file. There is no clamp: treat it as corrupt local state.
+// Recovery: restore both layers from a consistent backup, or wipe
+// PersistentStateDir (avail + consensus) and resync — do not delete only one side.
 var ErrAvailBehindConsensus = errors.New("avail CommitQC tip behind consensus tip")
 
 // CommitTipCut is the consensus view tipcut (NextIndexOpt of persisted CommitQC).

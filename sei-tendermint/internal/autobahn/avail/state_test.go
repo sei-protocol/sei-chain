@@ -1373,6 +1373,52 @@ func TestPushCommitQCBoundaryWaitsForAppQCInEpoch(t *testing.T) {
 	}
 }
 
+// TestPushCommitQCEpoch0SealWaitsForAppQC: no epoch-0 exemption — seal waits
+// for AppQC even though {∅,0}→{0,1} drops no Prev (anchor before Current>0).
+func TestPushCommitQCEpoch0SealWaitsForAppQC(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistryAt(rng, 4, 0)
+	registry.EnsureEpoch(1) // exec leash for sealing 0
+	ep0 := utils.OrPanic1(registry.EpochAt(0))
+
+	ds := newTestDataState(&data.Config{Registry: registry})
+	state, err := NewState(keys[0], ds, utils.None[string]())
+	require.NoError(t, err)
+
+	prevOnLast := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
+		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{
+			EpochIndex: 0,
+			Index:      epoch.LastRoad(0) - 1,
+		}))),
+	})
+	qcLast := makeCommitQC(ep0, keys, utils.Some(prevOnLast), nil, utils.None[*types.AppQC]())
+	require.Equal(t, epoch.LastRoad(0), qcLast.Proposal().Index())
+
+	for inner := range state.inner.Lock() {
+		inner.commitQCs.first = epoch.LastRoad(0)
+		inner.commitQCs.next = epoch.LastRoad(0)
+	}
+	state.markCommitQCsPersisted(prevOnLast)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, state.PushCommitQC(ctx, qcLast), context.Canceled)
+
+	appQC0 := types.NewAppQC(makeAppVotes(keys, types.NewAppProposal(
+		0, 0, types.GenAppHash(rng), 0)))
+	for inner := range state.inner.Lock() {
+		inner.latestAppQC = utils.Some(appQC0)
+		inner.commitQCs.first = epoch.LastRoad(0)
+		inner.commitQCs.next = epoch.LastRoad(0)
+	}
+
+	require.NoError(t, state.PushCommitQC(t.Context(), qcLast))
+	for inner := range state.inner.Lock() {
+		require.Equal(t, epoch.LastRoad(0)+1, inner.commitQCs.next)
+		require.Equal(t, types.EpochIndex(1), inner.epochDuo.Load().Current.EpochIndex())
+	}
+}
+
 // TestPushAppQCBoundaryIncomingAppQC: tipcut closing M may carry the first
 // AppQC in M; count it as incoming before prune so catch-up does not deadlock.
 func TestPushAppQCBoundaryIncomingAppQC(t *testing.T) {
