@@ -34,6 +34,7 @@ type CompositeStateStore struct {
 	cosmosStore    types.StateStore // CosmosStateStore wrapping MVCC DB
 	evmStore       types.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
 	pruningManager *pruning.Manager
+	checkpointMgr  *checkpointManager // online checkpoints (nil if disabled)
 	config         config.StateStoreConfig
 	closeOnce      sync.Once
 	closeErr       error
@@ -104,6 +105,10 @@ func NewCompositeStateStore(
 	}
 
 	cs.StartPruning()
+
+	if ssConfig.CheckpointInterval > 0 {
+		cs.startCheckpointManager(utils.GetStateStoreCheckpointsPath(homeDir))
+	}
 
 	return cs, nil
 }
@@ -221,6 +226,9 @@ func (s *CompositeStateStore) GetEarliestVersion() int64 {
 
 func (s *CompositeStateStore) Close() error {
 	s.closeOnce.Do(func() {
+		if s.checkpointMgr != nil {
+			s.checkpointMgr.stop()
+		}
 		if s.pruningManager != nil {
 			s.pruningManager.Stop()
 		}

@@ -40,14 +40,16 @@ const (
 	FlagSCHashLoggerMaxDiskSize    = "state-commit.sc-hash-logger-max-disk-size"
 
 	// SS Store configs
-	FlagSSEnable            = "state-store.ss-enable"
-	FlagSSDirectory         = "state-store.ss-db-directory"
-	FlagSSBackend           = "state-store.ss-backend"
-	FlagSSAsyncWriterBuffer = "state-store.ss-async-write-buffer"
-	FlagSSKeepRecent        = "state-store.ss-keep-recent"
-	FlagSSPruneInterval     = "state-store.ss-prune-interval"
-	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
-	FlagSSReadWriteMetrics  = "state-store.ss-enable-read-write-metrics"
+	FlagSSEnable               = "state-store.ss-enable"
+	FlagSSDirectory            = "state-store.ss-db-directory"
+	FlagSSBackend              = "state-store.ss-backend"
+	FlagSSAsyncWriterBuffer    = "state-store.ss-async-write-buffer"
+	FlagSSKeepRecent           = "state-store.ss-keep-recent"
+	FlagSSPruneInterval        = "state-store.ss-prune-interval"
+	FlagSSImportNumWorkers     = "state-store.ss-import-num-workers"
+	FlagSSReadWriteMetrics     = "state-store.ss-enable-read-write-metrics"
+	FlagSSCheckpointInterval   = "state-store.ss-checkpoint-interval"
+	FlagSSCheckpointKeepRecent = "state-store.ss-checkpoint-keep-recent"
 
 	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
 	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
@@ -203,6 +205,13 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
 	ssConfig.EnableReadWriteMetrics = cast.ToBool(appOpts.Get(FlagSSReadWriteMetrics))
+	ssConfig.CheckpointInterval = cast.ToInt64(appOpts.Get(FlagSSCheckpointInterval))
+	// Guarded read: an absent key must keep the non-zero default rather than
+	// clobbering it with cast.ToInt(nil) == 0 (which would disable pruning of
+	// old checkpoints entirely differently than intended).
+	if v := appOpts.Get(FlagSSCheckpointKeepRecent); v != nil {
+		ssConfig.CheckpointKeepRecent = cast.ToInt(v)
+	}
 
 	// EVM optimization fields (embedded in SS config)
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))

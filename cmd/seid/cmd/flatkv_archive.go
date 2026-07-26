@@ -24,6 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	tmstatesync "github.com/sei-protocol/sei-chain/sei-tendermint/statesync"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -36,13 +37,17 @@ const (
 )
 
 type flatKVArchiveManifest struct {
-	FormatVersion int                      `json:"format_version"`
-	ChainID       string                   `json:"chain_id"`
-	Height        int64                    `json:"height"`
-	AppHash       string                   `json:"app_hash"`
-	CreatedAt     string                   `json:"created_at"`
-	SnapshotName  string                   `json:"snapshot_name"`
-	Files         []flatKVArchiveFileEntry `json:"files"`
+	FormatVersion int    `json:"format_version"`
+	ChainID       string `json:"chain_id"`
+	Height        int64  `json:"height"`
+	AppHash       string `json:"app_hash"`
+	CreatedAt     string `json:"created_at"`
+	SnapshotName  string `json:"snapshot_name"`
+	// StateStoreSnapshot records which online state-store checkpoint the
+	// archive was packed from (empty when packed from the live directory,
+	// which requires a quiesced donor).
+	StateStoreSnapshot string                   `json:"state_store_snapshot,omitempty"`
+	Files              []flatKVArchiveFileEntry `json:"files"`
 }
 
 type flatKVArchiveFileEntry struct {
@@ -131,9 +136,36 @@ func flatKVArchiveCreateCmd() *cobra.Command {
 				stateStoreDir = filepath.Join(homeDir, "data", "state_store")
 			}
 
-			snapshotDir, snapshotName, height, err := selectFlatKVSnapshot(flatKVRoot)
+			// Pair an immutable FlatKV snapshot with an immutable state-store
+			// checkpoint. The state-store checkpoint must be labeled >= the
+			// FlatKV height H so the restored node has every version <= H;
+			// holes above H are refilled by block replay from H+1. Only when
+			// no online checkpoint exists do we fall back to packing the live
+			// state_store directory, which is racy unless the donor process
+			// is stopped.
+			ssSource, ssSnapshotName, ssVersion, err := selectStateStoreSource(stateStoreDir)
 			if err != nil {
 				return err
+			}
+			var snapshotDir, snapshotName string
+			var height int64
+			if ssSnapshotName != "" {
+				snapshotDir, snapshotName, height, err = selectFlatKVSnapshotAtMost(flatKVRoot, ssVersion)
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Using state-store checkpoint %s (version %d) with FlatKV snapshot %s\n",
+					ssSnapshotName, ssVersion, snapshotName)
+			} else {
+				snapshotDir, snapshotName, height, err = selectFlatKVSnapshot(flatKVRoot)
+				if err != nil {
+					return err
+				}
+				if info, statErr := os.Stat(ssSource); statErr == nil && info.IsDir() {
+					fmt.Println("WARNING: no online state-store checkpoint found; packing the live " +
+						"state_store directory. This is only safe when the donor process is stopped. " +
+						"Enable state-store.ss-checkpoint-interval to archive from a live node.")
+				}
 			}
 			chainID, appHash, err := queryArchivedAppHash(cmd.Context(), rpc, height)
 			if err != nil {
@@ -143,10 +175,11 @@ func flatKVArchiveCreateCmd() *cobra.Command {
 				return fmt.Errorf("RPC chain ID %q does not match configured chain ID %q", chainID, flagChainID)
 			}
 
-			manifest, fileSources, err := buildFlatKVArchiveManifest(chainID, height, appHash, snapshotName, snapshotDir, wasmDir, stateStoreDir)
+			manifest, fileSources, err := buildFlatKVArchiveManifest(chainID, height, appHash, snapshotName, snapshotDir, wasmDir, ssSource)
 			if err != nil {
 				return err
 			}
+			manifest.StateStoreSnapshot = ssSnapshotName
 			if out == "" {
 				out = filepath.Join(".", fmt.Sprintf("flatkv-archive-%s-%d.tar.zst", chainID, height))
 			}
@@ -309,6 +342,56 @@ func requireFlatKVOnly(writeMode, autoMode interface{}) error {
 	return nil
 }
 
+// selectStateStoreSource picks the newest online state-store checkpoint under
+// <stateStoreDir>/snapshots. When no checkpoint exists (including when the
+// state-store directory itself is absent) it returns the live directory with
+// an empty snapshot name, which is only safe to pack from a stopped donor.
+func selectStateStoreSource(stateStoreDir string) (string, string, int64, error) {
+	root := filepath.Join(stateStoreDir, sscomposite.CheckpointsDirName)
+	versions, err := sscomposite.ListCheckpointVersions(root)
+	if err != nil {
+		return "", "", 0, err
+	}
+	if len(versions) == 0 {
+		return stateStoreDir, "", 0, nil
+	}
+	newest := versions[len(versions)-1]
+	name := sscomposite.CheckpointDirName(newest)
+	return filepath.Join(root, name), name, newest, nil
+}
+
+// selectFlatKVSnapshotAtMost picks the newest FlatKV snapshot with height <=
+// maxHeight. Pairing the archive's FlatKV height H with a state-store
+// checkpoint labeled >= H guarantees the restored query store has every
+// version <= H; anything above H is refilled by block replay.
+func selectFlatKVSnapshotAtMost(flatKVRoot string, maxHeight int64) (string, string, int64, error) {
+	entries, err := os.ReadDir(flatKVRoot)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("read FlatKV root %q: %w", flatKVRoot, err)
+	}
+	best := int64(-1)
+	bestName := ""
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), flatKVArchiveSnapshotPref) {
+			continue
+		}
+		h, err := strconv.ParseInt(strings.TrimPrefix(entry.Name(), flatKVArchiveSnapshotPref), 10, 64)
+		if err != nil {
+			continue
+		}
+		if h <= maxHeight && h > best {
+			best = h
+			bestName = entry.Name()
+		}
+	}
+	if best < 0 {
+		return "", "", 0, fmt.Errorf(
+			"no FlatKV snapshot at height <= state-store checkpoint version %d in %q; wait for the next state-store checkpoint",
+			maxHeight, flatKVRoot)
+	}
+	return filepath.Join(flatKVRoot, bestName), bestName, best, nil
+}
+
 func selectFlatKVSnapshot(flatKVRoot string) (string, string, int64, error) {
 	target, err := os.Readlink(filepath.Join(flatKVRoot, "current"))
 	if err != nil {
@@ -450,7 +533,11 @@ func collectArchiveSources(root string, archivePrefix string, sources *[]flatKVA
 		if err != nil {
 			return err
 		}
-		if info.IsDir() && info.Name() == "changelog" && strings.Contains(filepath.ToSlash(archivePrefix), "state_store") {
+		if info.IsDir() && strings.Contains(filepath.ToSlash(archivePrefix), "state_store") &&
+			(info.Name() == "changelog" || info.Name() == sscomposite.CheckpointsDirName) {
+			// Live WAL segments rotate underfoot and online checkpoints are
+			// packed explicitly (or not at all); neither belongs in the
+			// state_store payload.
 			return filepath.SkipDir
 		}
 		if info.IsDir() {

@@ -636,9 +636,11 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			EnableReadWriteMetrics: v.GetBool(
 				"state-store.ss-enable-read-write-metrics",
 			),
-			EVMSplit:          v.GetBool("state-store.evm-ss-split"),
-			EVMDBDirectory:    v.GetString("state-store.evm-ss-db-directory"),
-			SeparateEVMSubDBs: v.GetBool("state-store.evm-ss-separate-dbs"),
+			CheckpointInterval:   v.GetInt64("state-store.ss-checkpoint-interval"),
+			CheckpointKeepRecent: v.GetInt("state-store.ss-checkpoint-keep-recent"),
+			EVMSplit:             v.GetBool("state-store.evm-ss-split"),
+			EVMDBDirectory:       v.GetString("state-store.evm-ss-db-directory"),
+			SeparateEVMSubDBs:    v.GetBool("state-store.evm-ss-separate-dbs"),
 		},
 		Genesis: GenesisConfig{
 			StreamImport:      v.GetBool("genesis.stream-import"),

@@ -278,6 +278,18 @@ func (db *Database) PebbleMetrics() *pebble.Metrics {
 	return db.storage.Metrics()
 }
 
+// Checkpoint writes a point-in-time snapshot of the database into destDir
+// (which must not exist yet) without blocking concurrent reads or writes.
+// Pebble implements this with hardlinks to already-fsynced SSTs plus a
+// flushed WAL, so the cost is independent of database size and the result
+// is a complete, crash-safe Pebble database. Satisfies types.Checkpointable.
+func (db *Database) Checkpoint(destDir string) error {
+	if err := db.storage.Checkpoint(destDir, pebble.WithFlushedWAL()); err != nil {
+		return fmt.Errorf("pebble checkpoint to %q: %w", destDir, err)
+	}
+	return nil
+}
+
 func (db *Database) SetLatestVersion(version int64) error {
 	if version < 0 {
 		return fmt.Errorf("version must be non-negative")

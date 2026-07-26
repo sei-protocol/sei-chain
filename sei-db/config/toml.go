@@ -140,6 +140,17 @@ ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 # Applies when ss-backend = "pebbledb". Default: false.
 ss-enable-read-write-metrics = {{ .StateStore.EnableReadWriteMetrics }}
 
+# CheckpointInterval defines how often (in blocks) to take an online hardlink
+# checkpoint of the state store into data/state_store/snapshots. Checkpoints
+# do not block the write path and give flatkv-archive an immutable image to
+# pack while the node keeps producing blocks. Set to 0 to disable.
+# Recommended to match state-commit.sc-snapshot-interval on archive donors.
+ss-checkpoint-interval = {{ .StateStore.CheckpointInterval }}
+
+# CheckpointKeepRecent defines how many state-store checkpoints to keep in
+# addition to the newest one. defaults to 1
+ss-checkpoint-keep-recent = {{ .StateStore.CheckpointKeepRecent }}
+
 # EVMDBDirectory defines the directory for the optional EVM state-store DB(s).
 # If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
 evm-ss-db-directory = "{{ .StateStore.EVMDBDirectory }}"

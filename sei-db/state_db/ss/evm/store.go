@@ -2,6 +2,7 @@ package evm
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -368,6 +369,48 @@ func (s *EVMStateStore) Close() error {
 		}
 	}
 	return lastErr
+}
+
+// Checkpoint writes a point-in-time snapshot of the EVM store into destDir,
+// mirroring the live on-disk layout: the unified DB checkpoints straight into
+// destDir; per-type sub-DBs checkpoint into destDir/<type> just as they live
+// under the EVM dir. Satisfies types.Checkpointable.
+func (s *EVMStateStore) Checkpoint(destDir string) error {
+	checkpointDB := func(db types.StateStore, dest string) error {
+		cp, ok := db.(types.Checkpointable)
+		if !ok {
+			return fmt.Errorf("EVM state store backend %T does not support checkpoints", db)
+		}
+		return cp.Checkpoint(dest)
+	}
+
+	if !s.separateDBs {
+		db := s.primaryDB()
+		if db == nil {
+			return nil
+		}
+		return checkpointDB(db, destDir)
+	}
+
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("create EVM checkpoint dir %q: %w", destDir, err)
+	}
+	for _, storeType := range AllEVMStoreTypes() {
+		if err := checkpointDB(s.subDBs[storeType], filepath.Join(destDir, StoreTypeName(storeType))); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WaitForPendingWrites drains every managed DB's async apply queue when the
+// backend exposes a barrier; no-op otherwise.
+func (s *EVMStateStore) WaitForPendingWrites() {
+	for _, db := range s.managedDBs {
+		if w, ok := db.(interface{ WaitForPendingWrites() }); ok {
+			w.WaitForPendingWrites()
+		}
+	}
 }
 
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {

@@ -78,6 +78,13 @@ func GetChangelogPath(dbPath string) string {
 	return filepath.Join(dbPath, "changelog")
 }
 
+// GetStateStoreCheckpointsPath returns the root directory that holds online
+// state-store checkpoints (immutable snapshot-<version> trees mirroring the
+// live data/state_store layout).
+func GetStateStoreCheckpointsPath(homePath string) string {
+	return filepath.Join(homePath, "data", "state_store", "snapshots")
+}
+
 // ResolveAndCreateDir expands ~ to the home directory, resolves the path to
 // an absolute path, and creates the directory if it doesn't exist.
 func ResolveAndCreateDir(dir string) (string, error) {

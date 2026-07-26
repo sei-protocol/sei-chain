@@ -4,13 +4,15 @@ package config
 type DBBackend string
 
 const (
-	DefaultSSKeepRecent    = 100000
-	DefaultSSPruneInterval = 600
-	DefaultSSImportWorkers = 1
-	DefaultSSAsyncBuffer   = 100
-	PebbleDBBackend        = "pebbledb"
-	RocksDBBackend         = "rocksdb"
-	DefaultSSBackend       = PebbleDBBackend
+	DefaultSSKeepRecent           = 100000
+	DefaultSSPruneInterval        = 600
+	DefaultSSImportWorkers        = 1
+	DefaultSSAsyncBuffer          = 100
+	DefaultSSCheckpointInterval   = 0
+	DefaultSSCheckpointKeepRecent = 1
+	PebbleDBBackend               = "pebbledb"
+	RocksDBBackend                = "rocksdb"
+	DefaultSSBackend              = PebbleDBBackend
 )
 
 // StateStoreConfig defines configuration for the state store (SS) layer.
@@ -63,6 +65,19 @@ type StateStoreConfig struct {
 	// defaults to false (use MVCCComparer for backwards compatibility)
 	UseDefaultComparer bool `mapstructure:"use-default-comparer"`
 
+	// CheckpointInterval defines how often (in blocks) to take an online
+	// hardlink checkpoint of the state store into
+	// data/state_store/snapshots/snapshot-<version>. Checkpoints do not block
+	// the write path; they give flatkv-archive an immutable image to pack
+	// while the node keeps producing blocks. Set to 0 to disable.
+	// Recommended to match state-commit.sc-snapshot-interval on archive donors.
+	// defaults to 0 (disabled)
+	CheckpointInterval int64 `mapstructure:"checkpoint-interval"`
+
+	// CheckpointKeepRecent defines how many checkpoints to keep in addition
+	// to the newest one. defaults to 1
+	CheckpointKeepRecent int `mapstructure:"checkpoint-keep-recent"`
+
 	// --- EVM optimization fields ---
 
 	// EVMSplit controls whether EVM data is routed to a dedicated SS backend.
@@ -93,6 +108,8 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		ImportNumWorkers:     DefaultSSImportWorkers,
 		KeepLastVersion:      true,
 		UseDefaultComparer:   false,
+		CheckpointInterval:   DefaultSSCheckpointInterval,
+		CheckpointKeepRecent: DefaultSSCheckpointKeepRecent,
 		EVMSplit:             false,
 		SeparateEVMSubDBs:    false,
 	}

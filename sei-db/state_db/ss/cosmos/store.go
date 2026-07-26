@@ -1,6 +1,8 @@
 package cosmos
 
 import (
+	"fmt"
+
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -75,4 +77,22 @@ func (s *CosmosStateStore) Import(version int64, ch <-chan types.SnapshotNode) e
 
 func (s *CosmosStateStore) Close() error {
 	return s.db.Close()
+}
+
+// Checkpoint delegates to the wrapped MVCC DB when its engine supports
+// hardlink checkpoints (PebbleDB does). Satisfies types.Checkpointable.
+func (s *CosmosStateStore) Checkpoint(destDir string) error {
+	cp, ok := s.db.(types.Checkpointable)
+	if !ok {
+		return fmt.Errorf("state store backend %T does not support checkpoints", s.db)
+	}
+	return cp.Checkpoint(destDir)
+}
+
+// WaitForPendingWrites drains the wrapped MVCC DB's async apply queue when
+// the backend exposes a barrier; no-op otherwise.
+func (s *CosmosStateStore) WaitForPendingWrites() {
+	if w, ok := s.db.(interface{ WaitForPendingWrites() }); ok {
+		w.WaitForPendingWrites()
+	}
 }
