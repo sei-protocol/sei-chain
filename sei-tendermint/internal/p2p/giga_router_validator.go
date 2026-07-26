@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 
@@ -15,24 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
-
-// ErrTipBehindData is returned on restart when avail's CommitQC tipcut is
-// strictly behind data's (data QCs are exported from avail — reverse is corrupt).
-var ErrTipBehindData = errors.New("CommitQC tip behind data tip")
-
-// checkRestartTips ensures avail tipcut is not behind data.
-// Call after data + consensus are constructed. Avail vs consensus is checked
-// inside consensus.NewState (avail ≥ consensus).
-//
-// Consensus may lag data: FullCommitQC can reach BlockDB before consensus's
-// LastCommitQC catch-up persists. That is fine — Run()'s pushCommitQC advances
-// consensus from avail. Only avail < data is insane.
-func checkRestartTips(dataTip, availTip atypes.RoadIndex) error {
-	if availTip < dataTip {
-		return fmt.Errorf("%w: avail tipcut %d < data tipcut %d", ErrTipBehindData, availTip, dataTip)
-	}
-	return nil
-}
 
 type gigaValidatorRouter struct {
 	*gigaRouterCommon
@@ -55,13 +36,6 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	}, dataState)
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
-	}
-	dataTip, err := dataState.CommitTipCut()
-	if err != nil {
-		return nil, fmt.Errorf("data.CommitTipCut(): %w", err)
-	}
-	if err := checkRestartTips(dataTip, consensusState.Avail().CommitTipCut()); err != nil {
-		return nil, err
 	}
 	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)
 	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)

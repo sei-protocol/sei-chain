@@ -402,7 +402,7 @@ func (s *State) FirstAppProposal() types.GlobalBlockNumber {
 func (s *State) EpochDuo() types.EpochDuo { return s.epochDuo.Load() }
 
 // CommitTipCut is the road after the last applied CommitQC (Index+1), or 0 if
-// none. Restart anchor for p2p.checkRestartTips (avail tip vs data).
+// none.
 // Returns an error if nextQC claims a retained QC that is missing from the map
 // (invariant break) — not the same as an empty tip.
 func (s *State) CommitTipCut() (types.RoadIndex, error) {

@@ -158,7 +158,8 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	}
 
 	// DuoAt(CommitQC tipcut). Seeding is data.SetupInitialDuo; missing epoch hard-fails.
-	// Tip order: consensus.NewState (avail≥consensus), p2p.checkRestartTips (avail≥data).
+	// Tip order: consensus.NewState requires avail ≥ consensus; avail/consensus
+	// may lag data and catch up in Run.
 	commitTip := types.RoadIndex(0)
 	if ls, ok := loaded.Get(); ok {
 		commitTip = ls.nextCommitQC()
