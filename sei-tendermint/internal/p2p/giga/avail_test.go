@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
@@ -37,21 +38,49 @@ func TestAvailClientServer(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		t.Log("Spawn network.")
 		s.SpawnBg(func() error { return env.Run(ctx) })
-		t.Log("Spawn a fake unconnected node0 to generate some conflicting blocks and push them to node2.")
-		fakeNode0, err := consensus.NewState(&consensus.Config{
-			Key:                keys[0],
-			ViewTimeout:        defaultViewTimeout,
-			PersistentStateDir: utils.Some(t.TempDir()),
-		}, nodes[0].data)
-		if err != nil {
-			return fmt.Errorf("consensus.NewState(): %w", err)
-		}
-		s.SpawnBgNamed("fakeNode0", func() error { return utils.IgnoreCancel(fakeNode0.Run(ctx)) })
-		for range min(avail.BlocksPerLane, 4) {
-			a := fakeNode0.Avail()
-			b := utils.OrPanic1(a.ProduceLocalBlock(a.NextBlock(a.PublicKey()), types.GenPayload(rng)))
-			utils.OrPanic(nodes[2].consensus.Avail().PushBlock(ctx, b))
-		}
+
+		// Equivocating peer: same key as node0, its own data/avail (not shared with
+		// nodes[0]). Not joined to env.Run's mesh (testEnv keys nodes by PublicKey, so
+		// a second node0 cannot be AddNode'd). Instead the test calls PushBlock on
+		// node2 directly — same admission API gossip would use, without a real peer
+		// connection. Do not Run a second consensus.State on nodes[0].data (that raced
+		// and hung under -race).
+		//
+		// Wait until node2 already has an honest tip before pushing: under parent-hash
+		// checks a corrupt genesis tip strands the lane (PushBlock drops forever).
+		// After an honest tip, corrupt PushBlocks are stale or parent-mismatch drops.
+		t.Log("Spawn task sending corrupted data of node 0 to node 2.")
+		corrupt := newTestNode(registry, &consensus.Config{
+			Key:         activeKeys[0],
+			ViewTimeout: defaultViewTimeout,
+		})
+		corruptAvail := corrupt.consensus.Avail()
+		a2 := nodes[2].consensus.Avail()
+		lane0 := activeKeys[0].Public()
+		corruptRng := rng.Split()
+		s.SpawnBg(func() error {
+			for a2.NextBlock(lane0) == 0 {
+				if err := utils.Sleep(ctx, time.Millisecond); err != nil {
+					return utils.IgnoreCancel(err)
+				}
+			}
+			for range totalBlocks {
+				n := corruptAvail.NextBlock(lane0)
+				if err := corruptAvail.WaitForLocalCapacity(ctx, n); err != nil {
+					return utils.IgnoreCancel(err)
+				}
+				b, err := corruptAvail.ProduceLocalBlock(n, types.GenPayload(corruptRng))
+				if err != nil {
+					return utils.IgnoreCancel(err)
+				}
+				// PushBlock may drop (stale / parent-hash mismatch); that is fine.
+				if err := a2.PushBlock(ctx, b); err != nil {
+					return utils.IgnoreCancel(err)
+				}
+			}
+			return nil
+		})
+
 		t.Logf("Run block production")
 		for _, node := range nodes {
 			rng := rng.Split()
