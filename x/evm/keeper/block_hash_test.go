@@ -35,6 +35,8 @@ func TestTrackBlockHash(t *testing.T) {
 
 	_, found = k.GetBlockHash(ctx, 0)
 	require.False(t, found)
+	_, found = k.GetBlockHash(ctx, 9)
+	require.True(t, found)
 	parent, found := k.GetBlockHash(ctx, 256)
 	require.True(t, found)
 	require.Equal(t, nextParent, parent)

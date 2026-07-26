@@ -95,6 +95,8 @@ func TestGetHashFn(t *testing.T) {
 	require.Equal(t, fallbackHash, f(uint64(histHeight)))
 	_, found := k.GetBlockHash(ctx, histHeight)
 	require.False(t, found)
+	// Remove HistoricalInfo so a second lookup can only succeed via the mem-cache.
+	testApp.StakingKeeper.DeleteHistoricalInfo(ctx, histHeight)
 	require.Equal(t, fallbackHash, k.GetHashFn(ctx)(uint64(histHeight)))
 	require.Equal(t, common.Hash{}, f(uint64(ctx.BlockHeight())-3))
 }
