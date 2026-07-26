@@ -303,7 +303,8 @@ func (s *State) admitRoadOrDrop(
 		return utils.None[types.EpochDuo](), err
 	}
 	if !duoOpt.IsPresent() {
-		logger.Info("dropping stale "+what+": road behind window",
+		// Debug: Info is too chatty at epoch boundaries (many peers a road behind).
+		logger.Debug("dropping stale "+what+": road behind window",
 			slog.Uint64("road", uint64(roadIdx)), "duo", s.epochDuo.Load().String())
 		return utils.None[types.EpochDuo](), nil
 	}
@@ -410,6 +411,9 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 
 // PushCommitQC admits qc for Current only (too early waits; stale drops),
 // then tip-interlock leashes when sealing (waitCommitEpochLeashes).
+//
+// Admit-then-verify is intentional backpressure for ahead-of-window QCs.
+// Do not add EpochAt-before-wait — that is PushAppVote's path only.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	idx := qc.Proposal().Index()
 	if idx > 0 {
@@ -530,6 +534,9 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 
 // PushAppQC requires a justifying CommitQC; tipcut insert uses the same
 // sealing leashes as PushCommitQC.
+//
+// Same admit-then-verify as PushCommitQC. Do not mirror PushAppVote's
+// EpochAt-before-wait — pair checks below do not bound how far ahead idx may be.
 func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *types.CommitQC) error {
 	// Check whether it is needed before verifying.
 	for inner := range s.inner.Lock() {
@@ -537,9 +544,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 			return nil
 		}
 	}
-	// Reject mismatched pairs before waiting. Ahead-of-window roads still wait
-	// in admitRoadOrDrop (intentional backpressure); these checks only catch
-	// inconsistent pairs.
+	// Pair consistency only; ahead-of-window still waits in admitRoadOrDrop.
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
