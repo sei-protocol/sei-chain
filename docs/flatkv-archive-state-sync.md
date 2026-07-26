@@ -213,6 +213,35 @@ AppHash does not match the archive manifest, restore fails. If verification
 succeeds, restore bootstraps Tendermint state, block metadata, and finalize
 block response data sufficient for the node to start from the archived height.
 
+### Online Chain Compatibility
+
+The archive path is intended to work while the chain continues producing
+blocks. It does not require stopping the network or taking a global maintenance
+window.
+
+There are three separate online/offline concerns:
+
+- The **chain** remains live. Peers continue producing blocks while an archive
+  is created, uploaded, downloaded, restored, and later block-synced by the
+  target node. The restored node starts from the archived height and catches up
+  to the live head through normal block sync.
+- The **target node** must be offline during restore. Restore replaces
+  archive-managed local state directories (`flatkv`, `state_store`, and `wasm`)
+  and bootstraps Tendermint state. The target process should start only after
+  restore and light-client verification succeed.
+- The **archive donor** currently needs a locally consistent view of both the
+  immutable FlatKV checkpoint and the query `state_store`. The FlatKV
+  checkpoint itself is safe to archive while the chain is live, but
+  `state_store` is a live Pebble database in the current prototype. Until
+  `flatkv-archive create` takes an internal checkpoint of `state_store`, the
+  operator should quiesce the donor process or use a dedicated archive producer.
+  This is a donor-local constraint, not a chain-wide offline requirement.
+
+In validation, the four-validator forked cluster stayed live while one donor
+was held out of consensus for archive creation. The remaining validators kept
+producing blocks; after the archive was created, the donor rejoined cleanly, and
+the restored victim node block-synced to the live head.
+
 ## Trust Model
 
 The object store is not trusted. It can be unavailable, stale, or malicious.
