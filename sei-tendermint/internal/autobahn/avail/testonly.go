@@ -61,10 +61,16 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 							}
 							return err
 						}
-						next = qc.Index() + 1
 						if err := to.PushCommitQC(ctx, qc); err != nil {
 							return err
 						}
+						// PushCommitQC may no-op (stale / not yet Current) and still
+						// return nil. Only advance once to's tip covers this road so
+						// we do not skip an index that was never admitted.
+						if err := to.waitForCommitQC(ctx, qc.Index()); err != nil {
+							return err
+						}
+						next = qc.Index() + 1
 					}
 				})
 			}

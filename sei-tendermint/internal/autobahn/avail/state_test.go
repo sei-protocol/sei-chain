@@ -1018,7 +1018,7 @@ func TestPushAppVoteFutureWaitsForCommitQC(t *testing.T) {
 	require.NoError(t, err)
 
 	// AppVote for Current's first road while CommitQC tip is still behind:
-	// PushAppVote blocks in waitForCommitQC (not on the epoch window).
+	// after VerifySig, PushAppVote blocks in waitForCommitQC (not on the epoch window).
 	epM := utils.OrPanic1(registry.EpochAt(epoch.FirstRoad(m)))
 	proposal := types.NewAppProposal(
 		epM.FirstBlock(), epM.RoadRange().First, types.GenAppHash(rng), epM.EpochIndex())
@@ -1027,6 +1027,27 @@ func TestPushAppVoteFutureWaitsForCommitQC(t *testing.T) {
 	cancel()
 
 	require.ErrorIs(t, state.PushAppVote(ctx, vote), context.Canceled)
+}
+
+// TestPushAppVoteUnregisteredRoadRejectsBeforeWait: a far-future RoadIndex whose
+// epoch is not seeded must fail EpochAt immediately — not park in waitForCommitQC.
+func TestPushAppVoteUnregisteredRoadRejectsBeforeWait(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys, m := epoch.GenRegistryTip(rng, 4)
+	ds := newTestDataState(&data.Config{Registry: registry})
+	state, err := NewState(keys[0], ds, utils.None[string]())
+	require.NoError(t, err)
+
+	far := epoch.FirstRoad(m + 10)
+	proposal := types.NewAppProposal(0, far, types.GenAppHash(rng), m+10)
+	vote := types.Sign(keys[0], types.NewAppVote(proposal))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // would surface as Canceled if we waited first
+
+	err = state.PushAppVote(ctx, vote)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, context.Canceled)
+	require.Contains(t, err.Error(), "EpochAt")
 }
 
 // TestWaitCurrentForRoadPrevNotAdmitted: a road in Prev is too late for

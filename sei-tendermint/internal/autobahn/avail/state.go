@@ -174,6 +174,8 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 
 	// Truncate WAL entries below the prune anchor that were filtered out by
 	// loadPersistedState. Lanes come from the operating (tip) duo.
+	// TODO(lane-id): also prune Prev committee lanes on restart (same as
+	// newInner Prev-lane seeding). Next Lane ID PR.
 	if ls, ok := loaded.Get(); ok {
 		if anchor, ok := ls.pruneAnchor.Get(); ok {
 			for lane := range startDuo.Current.Committee().Lanes().All() {
@@ -453,6 +455,20 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 // PushAppVote pushes an AppVote to the state.
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
 	idx := v.Msg().Proposal().RoadIndex()
+	// Authenticate before waitForCommitQC — a far-future RoadIndex on an
+	// unverified vote would otherwise park this goroutine until ctx cancel
+	// (same stall shape PushAppQC rejects before admitRoadOrDrop).
+	ep, err := s.data.Registry().EpochAt(idx)
+	if err != nil {
+		return fmt.Errorf("EpochAt(%d): %w", idx, err)
+	}
+	if got, want := v.Msg().Proposal().EpochIndex(), ep.EpochIndex(); got != want {
+		return fmt.Errorf("appVote epoch_index %d, want %d", got, want)
+	}
+	committee := ep.Committee()
+	if err := v.VerifySig(committee); err != nil {
+		return fmt.Errorf("v.VerifySig(): %w", err)
+	}
 	// A vote may arrive before its CommitQC advances the tip.
 	if err := s.waitForCommitQC(ctx, idx); err != nil {
 		return err
@@ -466,11 +482,8 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	if !ok {
 		return nil
 	}
-	ep := utils.OrPanic1(duo.EpochForRoad(idx))
-	committee := ep.Committee()
-	if err := v.VerifySig(committee); err != nil {
-		return fmt.Errorf("v.VerifySig(): %w", err)
-	}
+	ep = utils.OrPanic1(duo.EpochForRoad(idx))
+	committee = ep.Committee()
 	for inner, ctrl := range s.inner.Lock() {
 		// Early exit if not useful (we collect <=1 AppQC per road index).
 		if idx < types.NextOpt(inner.latestAppQC) {
@@ -532,15 +545,6 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 		return nil
 	}
 	ep := utils.OrPanic1(duo.EpochForRoad(idx))
-	appEpoch := appQC.Proposal().EpochIndex()
-	cur := duo.Current.EpochIndex()
-	// AppQC may lag the tipcut by at most one epoch.
-	if appEpoch != cur && (cur == 0 || appEpoch != cur-1) {
-		if cur == 0 {
-			return fmt.Errorf("appQC epoch %d, want %d", appEpoch, cur)
-		}
-		return fmt.Errorf("appQC epoch %d, want %d or %d", appEpoch, cur, cur-1)
-	}
 	if err := appQC.Verify(ep); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
@@ -873,6 +877,8 @@ func (s *State) Run(ctx context.Context) error {
 			return s.runPersist(ctx, s.persisters)
 		})
 		// Task inserting FullCommitQCs and local blocks to data state.
+		// ErrPruned jumps n forward (AppQC/window prune during catch-up): skipped
+		// roads need not be exported locally — peers can PushQC into data.
 		scope.SpawnNamed("s.data.PushQC", func() error {
 			for n := types.RoadIndex(0); ; n = max(n+1, s.FirstCommitQC()) {
 				qc, err := s.fullCommitQC(ctx, n)

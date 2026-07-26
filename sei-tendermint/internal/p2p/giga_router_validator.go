@@ -56,7 +56,11 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
-	if err := checkRestartTips(dataState.CommitTipCut(), consensusState.Avail().CommitTipCut()); err != nil {
+	dataTip, err := dataState.CommitTipCut()
+	if err != nil {
+		return nil, fmt.Errorf("data.CommitTipCut(): %w", err)
+	}
+	if err := checkRestartTips(dataTip, consensusState.Avail().CommitTipCut()); err != nil {
 		return nil, err
 	}
 	producerState := producer.NewState(cfg.Producer, consensusState, cfg.App)

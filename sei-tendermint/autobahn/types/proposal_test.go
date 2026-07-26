@@ -22,7 +22,7 @@ func genFreshEpoch(rng utils.Rng, committee *Committee) *Epoch {
 }
 
 // viewSpecContiguousDuo builds Prev|Current with abutting roads [0,1)|[1,Max) and a
-// CommitQC so View.Index is inside Current (for AppQC Prev|Current verify tests).
+// CommitQC so View.Index is inside Current (for AppQC verify tests).
 func viewSpecContiguousDuo(keys []SecretKey, committee *Committee) ViewSpec {
 	const split RoadIndex = 1
 	prev := NewEpoch(0, RoadRange{First: 0, Next: split}, time.Time{}, committee, 1)
@@ -643,60 +643,37 @@ func TestProposalVerifyRejectsUnnecessaryAppQC(t *testing.T) {
 }
 
 func TestProposalVerifyRejectsMissingAppQC(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		appEpoch EpochIndex
-	}{
-		{"current", 1},
-		{"prev", 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			rng := utils.TestRng()
-			committee, keys := GenCommittee(rng, 4)
-			vs := viewSpecContiguousDuo(keys, committee)
-			leader := leaderKey(committee, keys, vs.View())
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	vs := viewSpecContiguousDuo(keys, committee)
+	leader := leaderKey(committee, keys, vs.View())
 
-			// Fresh AppQC: globalNumber 0 < FirstBlock 1. Road must sit in the AppQC epoch.
-			road := RoadIndex(tc.appEpoch) // epoch 0 → road 0; epoch 1 → road 1 (split)
-			goodAppQC := makeAppQCFor(keys, 0, road, GenAppHash(rng), tc.appEpoch)
-			fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(goodAppQC)))
+	goodAppQC := makeAppQCFor(keys, 0, 1, GenAppHash(rng), 1)
+	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(goodAppQC)))
 
-			tamperedFP := &FullProposal{
-				proposal: fp.proposal,
-				laneQCs:  fp.laneQCs,
-			}
-			require.Error(t, tamperedFP.Verify(vs))
-		})
+	tamperedFP := &FullProposal{
+		proposal: fp.proposal,
+		laneQCs:  fp.laneQCs,
 	}
+	require.Error(t, tamperedFP.Verify(vs))
 }
 
 func TestProposalVerifyRejectsAppQCMismatch(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		appEpoch EpochIndex
-	}{
-		{"current", 1},
-		{"prev", 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			rng := utils.TestRng()
-			committee, keys := GenCommittee(rng, 4)
-			vs := viewSpecContiguousDuo(keys, committee)
-			leader := leaderKey(committee, keys, vs.View())
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	vs := viewSpecContiguousDuo(keys, committee)
+	leader := leaderKey(committee, keys, vs.View())
 
-			road := RoadIndex(tc.appEpoch)
-			goodAppQC := makeAppQCFor(keys, 0, road, GenAppHash(rng), tc.appEpoch)
-			fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(goodAppQC)))
+	goodAppQC := makeAppQCFor(keys, 0, 1, GenAppHash(rng), 1)
+	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(goodAppQC)))
 
-			differentAppQC := makeAppQCFor(keys, 0, road, GenAppHash(rng), tc.appEpoch)
-			tamperedFP := &FullProposal{
-				proposal: fp.proposal,
-				laneQCs:  fp.laneQCs,
-				appQC:    utils.Some(differentAppQC),
-			}
-			require.Error(t, tamperedFP.Verify(vs))
-		})
+	differentAppQC := makeAppQCFor(keys, 0, 1, GenAppHash(rng), 1)
+	tamperedFP := &FullProposal{
+		proposal: fp.proposal,
+		laneQCs:  fp.laneQCs,
+		appQC:    utils.Some(differentAppQC),
 	}
+	require.Error(t, tamperedFP.Verify(vs))
 }
 
 func TestProposalVerifyRejectsAppProposalWrongEpoch(t *testing.T) {
@@ -724,77 +701,36 @@ func TestProposalVerifyRejectsAppProposalWrongEpoch(t *testing.T) {
 	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(1))))
 	require.NoError(t, fp.Verify(vs))
 
-	// AppQC from Prev (N-1) — accepted.
+	// AppQC from Prev — rejected (tipcut AppQC matches proposal epoch, as on main).
 	fpPrev := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(0))))
-	require.NoError(t, fpPrev.Verify(vs))
+	require.Error(t, fpPrev.Verify(vs))
 
 	// AppQC outside the duo — rejected.
 	fpWrong := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(2))))
 	require.Error(t, fpWrong.Verify(vs))
 }
 
-func TestProposalVerifyRejectsPrevAppQCCurrentGlobal(t *testing.T) {
-	rng := utils.TestRng()
-	committee, keys := GenCommittee(rng, 4)
-	vs := viewSpecContiguousDuo(keys, committee)
-	leader := leaderKey(committee, keys, vs.View())
-
-	// Prev-epoch AppQC whose GlobalNumber is already in Current's range.
-	app := NewAppProposal(vs.Epoch().FirstBlock(), 0, GenAppHash(rng), 0)
-	var votes []*Signed[*AppVote]
-	for _, k := range keys {
-		votes = append(votes, Sign(k, NewAppVote(app)))
-	}
-	appQC := NewAppQC(votes)
-	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(appQC)))
-	require.Error(t, fp.Verify(vs))
-}
-
-func TestProposalVerifyRejectsAppQCRoadAheadOfView(t *testing.T) {
-	rng := utils.TestRng()
-	committee, keys := GenCommittee(rng, 4)
-	vs := viewSpecContiguousDuo(keys, committee)
-	leader := leaderKey(committee, keys, vs.View())
-
-	ahead := vs.View().Index + 1
-	appQC := makeAppQCFor(keys, 0, ahead, GenAppHash(rng), 1)
-	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(appQC)))
-	require.Error(t, fp.Verify(vs))
-}
-
 func TestProposalVerifyRejectsInvalidAppQCSignature(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		appEpoch EpochIndex
-	}{
-		{"current", 1},
-		{"prev", 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			rng := utils.TestRng()
-			committee, keys := GenCommittee(rng, 4)
-			vs := viewSpecContiguousDuo(keys, committee)
-			leader := leaderKey(committee, keys, vs.View())
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	vs := viewSpecContiguousDuo(keys, committee)
+	leader := leaderKey(committee, keys, vs.View())
 
-			appHash := GenAppHash(rng)
-			road := RoadIndex(tc.appEpoch)
-			goodAppQC := makeAppQCFor(keys, 0, road, appHash, tc.appEpoch)
-			fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(goodAppQC)))
+	appHash := GenAppHash(rng)
+	goodAppQC := makeAppQCFor(keys, 0, 1, appHash, 1)
+	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(goodAppQC)))
 
-			// Swap in an AppQC signed by NON-committee keys (same hash).
-			otherKeys := make([]SecretKey, len(keys))
-			for i := range otherKeys {
-				otherKeys[i] = GenSecretKey(rng)
-			}
-			badAppQC := makeAppQCFor(otherKeys, 0, road, appHash, tc.appEpoch)
-			tamperedFP := &FullProposal{
-				proposal: fp.proposal,
-				laneQCs:  fp.laneQCs,
-				appQC:    utils.Some(badAppQC),
-			}
-			require.Error(t, tamperedFP.Verify(vs))
-		})
+	otherKeys := make([]SecretKey, len(keys))
+	for i := range otherKeys {
+		otherKeys[i] = GenSecretKey(rng)
 	}
+	badAppQC := makeAppQCFor(otherKeys, 0, 1, appHash, 1)
+	tamperedFP := &FullProposal{
+		proposal: fp.proposal,
+		laneQCs:  fp.laneQCs,
+		appQC:    utils.Some(badAppQC),
+	}
+	require.Error(t, tamperedFP.Verify(vs))
 }
 
 func TestProposalVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {

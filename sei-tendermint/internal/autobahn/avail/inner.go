@@ -78,6 +78,9 @@ func (ls *loadedAvailState) nextCommitQC() types.RoadIndex {
 
 func newInner(registry *epoch.Registry, startEpochDuo types.EpochDuo, loaded utils.Option[*loadedAvailState]) (*inner, error) {
 	lanes := map[types.LaneID]*laneState{}
+	// TODO(lane-id): also seed Prev lanes before prune so restart applies the
+	// anchor watermark to them (today only Current is pre-created; Prev lanes
+	// appear later via WAL getOrInsertLane and miss prune). Next Lane ID PR.
 	for lane := range startEpochDuo.Current.Committee().Lanes().All() {
 		lanes[lane] = newLaneState()
 	}

@@ -403,16 +403,19 @@ func (s *State) EpochDuo() types.EpochDuo { return s.epochDuo.Load() }
 
 // CommitTipCut is the road after the last applied CommitQC (Index+1), or 0 if
 // none. Restart anchor for p2p.checkRestartTips (avail tip vs data).
-func (s *State) CommitTipCut() types.RoadIndex {
+// Returns an error if nextQC claims a retained QC that is missing from the map
+// (invariant break) — not the same as an empty tip.
+func (s *State) CommitTipCut() (types.RoadIndex, error) {
 	for inner := range s.inner.Lock() {
 		if inner.nextQC == 0 || inner.nextQC <= inner.first {
-			return 0
+			return 0, nil
 		}
-		qc := inner.qcs[inner.nextQC-1]
+		n := inner.nextQC - 1
+		qc := inner.qcs[n]
 		if qc == nil {
-			return 0
+			return 0, fmt.Errorf("CommitTipCut: missing QC at global %d (first=%d nextQC=%d)", n, inner.first, inner.nextQC)
 		}
-		return qc.QC().Proposal().Index() + 1
+		return qc.QC().Proposal().Index() + 1, nil
 	}
 	panic("unreachable")
 }

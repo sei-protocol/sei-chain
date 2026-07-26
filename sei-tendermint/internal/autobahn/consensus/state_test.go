@@ -421,7 +421,8 @@ func TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1(t *testing.T) {
 	ds := utils.OrPanic1(data.NewState(&data.Config{
 		Registry: registry,
 	}, db2))
-	dataTip := ds.CommitTipCut()
+	dataTip, err := ds.CommitTipCut()
+	require.NoError(t, err)
 	require.Equal(t, n, epoch.IndexForRoad(dataTip), "data tipcut must stay in epoch N")
 	_, err = registry.EpochAt(leadTip)
 	require.NoError(t, err, "executed in data-tip epoch must seed N+1")
