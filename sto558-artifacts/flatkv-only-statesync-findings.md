@@ -222,14 +222,14 @@ directly into faster restores.
 
 Operational findings from this run:
 
-1. **Create requires a quiesced node.** The first archive was created on a
+1. **Create requires a quiesced node.** *(Resolved 2026-07-26 — see the
+   live-donor section below.)* The first archive was created on a
    live validator and uploaded fine, but restore failed checksum verification
    (`sha256 mismatch for state_store/.../037313.log`): the flatkv checkpoint
    is immutable, but `state_store` is a live Pebble instance whose files
    mutate between manifest hashing and tar write. A second live attempt
    failed harder (file deleted mid-archive). Freezing the donor first made
-   create deterministic. Follow-up: take a Pebble checkpoint of state_store
-   inside `create` so live donors work, or document the quiesce requirement.
+   create deterministic. Resolved by online state-store checkpoints.
 2. **Restore must not stage the archive in container ephemeral storage.**
    The default `os.CreateTemp("")` staged the 81GiB download in the
    container's ephemeral layer and the kubelet evicted the pod
@@ -263,3 +263,36 @@ next lever: projected under 8 minutes on this hardware.
 Confirms the headline claim: the key-stream state sync baseline was CPU-bound
 (55m-1h19m even on 750MiB/s volumes), while archive restore converts
 provisioned IO directly into wall-clock speedup.
+
+## Live-donor create via online state-store checkpoints (2026-07-26)
+
+The quiesce requirement from the 07-22 run (finding 1 above) is resolved.
+`state_store` now takes interval-based online checkpoints, mirroring the
+FlatKV snapshot mechanism: every `ss-checkpoint-interval` versions the
+composite state store drains its async apply queues and takes a hardlink
+Pebble checkpoint of each backend into
+`data/state_store/snapshots/snapshot-<version>`, keeping
+`ss-checkpoint-keep-recent` of them. Checkpoint creation is hardlink-based and
+does not block writes, so the donor keeps producing blocks.
+
+`flatkv-archive create` now prefers the newest state-store checkpoint and
+pairs it with the newest FlatKV snapshot at height <= the checkpoint version,
+so every archived file is immutable; the live-directory path remains only as
+a fallback for stopped donors.
+
+End-to-end validation on the same `pacific-fork-1` cluster, donor fork-3
+**live in consensus throughout** (`ss-checkpoint-interval = 10000`,
+`keep-recent = 1`):
+
+- **Create + S3 upload: 19m35s.** Paired state-store checkpoint
+  `snapshot-...219953060` with FlatKV snapshot 219950000; archive labeled
+  height 219950000, 23,425 files, 81.4GiB. No hash mismatches. fork-3
+  advanced ~2,500 blocks during the create with no consensus interruption.
+- **Restore + bootstrap: 12m47s** on the gp3-10k-1000 victim (fresh PVC),
+  matching the round-2 quiesced-archive number (12m02s).
+- **Catch-up: ~4m** to block-sync the ~6,000-block gap; victim reported
+  `catching_up=false` at chain head.
+
+This closes the last functional gap: archives can now be produced from any
+running FlatKVOnly node without operator intervention beyond enabling the
+checkpoint interval.

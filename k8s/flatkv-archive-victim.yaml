@@ -39,7 +39,7 @@ spec:
     fsGroup: 65532
   containers:
   - name: seid
-    image: 189176372795.dkr.ecr.us-east-2.amazonaws.com/sei/sei-chain:flatkv-fork-81dd4f446
+    image: 189176372795.dkr.ecr.us-east-2.amazonaws.com/sei/sei-chain:flatkv-fork-df6e639c4
     command:
     - sh
     - -c

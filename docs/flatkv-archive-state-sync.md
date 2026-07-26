@@ -132,10 +132,11 @@ wasm/
 
 The archive includes:
 
-- `flatkv/snapshot-<height>/`: the immutable FlatKV checkpoint selected by the
-  donor's `current` symlink. This is the consensus-critical state.
-- `state_store/`: query-state Pebble data needed by RPC nodes. Its live
-  `changelog/` directories are excluded from the archive.
+- `flatkv/snapshot-<height>/`: an immutable FlatKV checkpoint from the donor.
+  This is the consensus-critical state.
+- `state_store/`: query-state Pebble data needed by RPC nodes, sourced from an
+  online state-store checkpoint (see below). WAL `changelog/` directories are
+  excluded from the archive.
 - `wasm/`: CosmWasm code blobs, if the directory exists.
 - `manifest.json`: archive metadata and one file entry per archived file.
 
@@ -147,6 +148,7 @@ The manifest records:
 - archived application hash
 - creation timestamp
 - FlatKV snapshot name
+- state-store checkpoint name (empty when packed from the live directory)
 - for each file: archive path, size, mode, and SHA-256
 
 Tendermint databases, blockstore databases, tx indexes, config, and private
@@ -154,19 +156,51 @@ keys are not archived. Restore creates the minimal Tendermint state needed to
 resume from the archived height, and node identity remains local to the target
 node.
 
+### Online State-Store Checkpoints
+
+The FlatKV checkpoint is immutable by construction, but `state_store` is a
+live Pebble database. Packing it directly races WAL rotation and compaction,
+which is why the first prototype required a quiesced donor. The donor node now
+solves this itself: every `state-store.ss-checkpoint-interval` blocks, the
+state store takes a Pebble hardlink checkpoint of each backend into
+
+```text
+data/state_store/snapshots/
+  current -> snapshot-<version>
+  snapshot-<version>/
+    cosmos/<backend>/
+    evm/<backend>/          (only when evm-ss-split is enabled)
+```
+
+Checkpoints are hardlink trees plus a flushed WAL, so they complete in
+milliseconds regardless of database size and never block the commit path.
+Retention is `ss-checkpoint-keep-recent` older checkpoints besides the newest.
+
+The checkpoint label carries a completeness guarantee. The manager reads the
+applied version `V` first, then drains the async apply queues (a barrier), and
+only then checkpoints. Because the commit pipeline enqueues changesets in
+block order, every version `<= V` is inside the checkpoint. Content past `V`
+may be mid-flight, which is safe: restore always block-syncs from the FlatKV
+height `H` forward, so everything above `H` is rewritten anyway.
+
+That yields the pairing rule `flatkv-archive create` enforces: pick the newest
+state-store checkpoint (label `V`), then the newest FlatKV snapshot with
+`H <= V`. The restored query store then has no holes below the archive height,
+and block replay from `H+1` fills everything above it.
+
 ### Create Flow
 
 ```mermaid
 sequenceDiagram
-    participant Operator
     participant DonorNode
     participant ArchiveCLI
     participant ObjectStore
     participant DonorRPC
 
-    Operator->>DonorNode: quiesce donor or use a consistent state_store snapshot
-    Operator->>ArchiveCLI: seid flatkv-archive create
-    ArchiveCLI->>DonorNode: resolve FlatKV current checkpoint
+    Note over DonorNode: keeps producing blocks throughout
+    DonorNode->>DonorNode: online state-store checkpoint every interval
+    ArchiveCLI->>DonorNode: pick newest state-store checkpoint (label V)
+    ArchiveCLI->>DonorNode: pick newest FlatKV snapshot with H <= V
     ArchiveCLI->>DonorRPC: query block H+1 for chain ID and AppHash at H
     ArchiveCLI->>ArchiveCLI: build manifest and SHA-256 every file
     ArchiveCLI->>ArchiveCLI: write tar.zst archive
@@ -177,10 +211,10 @@ The donor RPC query anchors the archive to a chain ID, height, and AppHash.
 The CLI should fetch the block after the snapshot height when necessary, since
 the AppHash for height `H` is committed in the next block header.
 
-For the first implementation, the donor should be quiesced during archive
-creation unless `state_store` is checkpointed internally. The FlatKV checkpoint
-is immutable, but `state_store` is a live Pebble database and can mutate between
-manifest hashing and tar writing.
+Both archive sources are immutable directories, so hashing and packing cannot
+race the running node. When no online checkpoint exists (checkpointing
+disabled), create falls back to packing the live `state_store` directory and
+prints a warning; that fallback is only safe on a stopped donor.
 
 ### Restore Flow
 
@@ -229,18 +263,16 @@ There are three separate online/offline concerns:
   archive-managed local state directories (`flatkv`, `state_store`, and `wasm`)
   and bootstraps Tendermint state. The target process should start only after
   restore and light-client verification succeed.
-- The **archive donor** currently needs a locally consistent view of both the
-  immutable FlatKV checkpoint and the query `state_store`. The FlatKV
-  checkpoint itself is safe to archive while the chain is live, but
-  `state_store` is a live Pebble database in the current prototype. Until
-  `flatkv-archive create` takes an internal checkpoint of `state_store`, the
-  operator should quiesce the donor process or use a dedicated archive producer.
-  This is a donor-local constraint, not a chain-wide offline requirement.
+- The **archive donor** keeps producing blocks during archive creation. With
+  `ss-checkpoint-interval` enabled, both archive sources — the FlatKV snapshot
+  and the state-store checkpoint — are immutable directories on the donor, so
+  `create` can hash and pack them while the donor validates, signs, and
+  commits new blocks. No quiescing or maintenance window is needed.
 
-In validation, the four-validator forked cluster stayed live while one donor
-was held out of consensus for archive creation. The remaining validators kept
-producing blocks; after the archive was created, the donor rejoined cleanly, and
-the restored victim node block-synced to the live head.
+In validation, the four-validator forked cluster stayed live, and the donor
+validator itself kept signing and committing blocks while `create` hashed,
+packed, and uploaded the full archive from its online checkpoints. The
+restored victim node then block-synced to the live head.
 
 ## Trust Model
 
@@ -289,10 +321,23 @@ and all validators reported `catching_up=false`.
 
 | Scenario | Storage | Result |
 | --- | --- | --- |
-| Archive create + S3 upload | donor on default gp3 | 18m38s |
+| Archive create + S3 upload (quiesced donor) | donor on default gp3 | 18m38s |
+| Archive create + S3 upload (live donor, online SS checkpoint) | donor on default gp3 | 19m35s |
 | Restore + bootstrap, round 1 | default gp3, 3000 IOPS / 125 MiB/s | 32m35s |
 | Restore + bootstrap, round 2 | gp3, 10k IOPS / 1000 MiB/s | 12m02s |
+| Restore + bootstrap (live-donor archive) | gp3, 10k IOPS / 1000 MiB/s | 12m47s |
 | Light-client verify + Tendermint bootstrap | included above | ~10-12s |
+
+The live-donor run is the end-to-end validation of the online state-store
+checkpoint design:
+
+- `create` selected state-store checkpoint version 219,953,060 and paired it
+  with FlatKV snapshot 219,950,000; the archive labels height 219,950,000.
+- The donor produced blocks throughout the 19m35s create, advancing roughly
+  2,500 blocks with no consensus interruption and no file-hash mismatches.
+- The restored node bootstrapped at 219,950,000, block-synced the ~6,000-block
+  gap to the live chain head, and reported `catching_up=false` within about
+  four minutes of starting.
 
 Hardware baseline for the restore comparisons:
 
@@ -322,7 +367,7 @@ linearly with disk throughput:
 
 | Operation | Existing key-stream state sync | Archive path |
 | --- | --- | --- |
-| Snapshot/create | 2.1-2.5h on EVM-migrated FlatKV; 6.3h on memIAVL-only | 18m38s including upload |
+| Snapshot/create | 2.1-2.5h on EVM-migrated FlatKV; 6.3h on memIAVL-only | 18m38s quiesced / 19m35s live donor, including upload |
 | Restore/import | 55m46s-1h19m on constrained hardware; 34m24s-37m53s on 256 GiB / 10k / 750 MiB/s hardware | 32m35s on default gp3; 12m02s on 10k / 1000 MiB/s gp3 |
 | RPC query state | not transferred by the key-stream commit-store snapshot | included via `state_store/` |
 | Bottleneck | per-key decode/import, LSM rebuild, LtHash recomputation | object-store and disk throughput |
@@ -333,19 +378,20 @@ pipeline rather than a state reconstruction pipeline.
 
 ## Known Limitations
 
-### Live donor consistency
+### Live donor consistency (resolved)
 
-The first live-donor archive restored from S3 but failed file hash verification
-for a `state_store` Pebble log file. A second live attempt failed because a
-`state_store` file disappeared while the archive was being created. The FlatKV
-checkpoint itself is immutable; the issue is the live query store.
+The first live-donor archive attempts failed file hash verification because
+`state_store` was packed from the live Pebble directory: WAL segments rotated
+between manifest hashing and tar writing. This forced the initial quiesce rule
+for donors.
 
-Current operational rule: quiesce the donor before creating an archive that
-includes `state_store`.
+Resolved by online state-store checkpoints (`ss-checkpoint-interval`): create
+now packs an immutable checkpoint and the donor keeps producing blocks. The
+live-directory path remains only as an explicit fallback for stopped donors.
 
-Follow-up: create a temporary Pebble checkpoint for `state_store` inside
-`flatkv-archive create`, archive that checkpoint, and remove the quiesce
-requirement.
+Residual constraint: `create` refuses to pair a FlatKV snapshot newer than the
+newest state-store checkpoint label. With matching intervals the two land
+seconds apart, so in the worst case an operator waits one checkpoint interval.
 
 ### Restore staging path
 
@@ -402,8 +448,8 @@ retention, and restore commands.
 ## Open Questions
 
 - Should archive creation be performed only by dedicated archive producers, or
-  can any healthy FlatKV-only full node publish an archive once `state_store`
-  checkpointing exists?
+  can any healthy FlatKV-only full node with `ss-checkpoint-interval` enabled
+  publish an archive?
 - Do validators need `state_store` and `wasm` in the same archive, or should we
   publish a smaller validator archive and a larger RPC archive?
 - Should the archive manifest be signed by archive producers as an operational
@@ -414,8 +460,9 @@ retention, and restore commands.
 
 ## Rollout Plan
 
-1. Land the out-of-band CLI behind a FlatKV-only guard.
-2. Add live-safe `state_store` checkpointing during archive creation.
+1. Land the out-of-band CLI behind a FlatKV-only guard. (done)
+2. Add live-safe `state_store` checkpointing so donors keep producing blocks.
+   (done: `ss-checkpoint-interval`)
 3. Replace local archive staging with streaming upload/download.
 4. Add an operator runbook for archive publication and restore.
 5. Run repeated restore benchmarks on the target production instance and
@@ -425,7 +472,15 @@ retention, and restore commands.
 
 ## Reproduction Commands From Validation
 
-Create from a quiesced donor:
+Enable online state-store checkpoints on the donor (`app.toml`):
+
+```toml
+[state-store]
+ss-checkpoint-interval = 10000   # match state-commit.sc-snapshot-interval
+ss-checkpoint-keep-recent = 1
+```
+
+Create from a live donor (keeps producing blocks):
 
 ```bash
 seid flatkv-archive create \
