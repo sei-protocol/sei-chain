@@ -930,6 +930,45 @@ func TestGeneratedAppTOMLDivergesFromTheWasmInCodeDefault(t *testing.T) {
 	}
 }
 
+// TestGeneratedAppTOMLUsesTheSpellingsTheReadersLookUp pins that the template's section
+// headers and key names match the keys the section readers actually resolve.
+//
+// The template writes headers and key names as literal text and resolves only values through
+// {{ .Field }}, so the spellings are independent of the mapstructure tags on
+// CustomAppConfig. Where the two disagree, the tag is the inert one:
+// CustomAppConfig.ETHBlockTest is tagged eth_block_test while both the template and the
+// reader use eth_blocktest. That divergence is harmless today precisely because generation
+// does not consult the tags, which is the property this row holds. A manager that generated
+// config from the struct tags instead would emit sections the readers ignore, and this is
+// where that shows up.
+func TestGeneratedAppTOMLUsesTheSpellingsTheReadersLookUp(t *testing.T) {
+	configtest.Isolate(t)
+	home := configtest.NewHome(t)
+
+	got := applyLegacy(t, home, nil)
+	if got.err != nil {
+		t.Fatalf("Apply: %v", got.err)
+	}
+
+	// Keys a reader looks up that must be present in the resolved view of a generated file,
+	// alongside the tag spelling that must not be.
+	for _, key := range []string{
+		"eth_blocktest.eth_blocktest_enabled",
+		"eth_blocktest.eth_blocktest_test_data_path",
+	} {
+		if got.ctx.Viper.Get(key) == nil {
+			t.Fatalf("a generated app.toml does not carry %q, which the section reader looks up. "+
+				"If the template's spelling changed, every generated node now resolves this key's "+
+				"default instead of the file's value", key)
+		}
+	}
+	if v := got.ctx.Viper.Get("eth_block_test.eth_blocktest_enabled"); v != nil {
+		t.Fatalf("a generated app.toml now carries the mapstructure spelling eth_block_test (%#v). "+
+			"Generation has started following the struct tags, and the reader looks up "+
+			"eth_blocktest, so the section it writes is ignored", v)
+	}
+}
+
 // TestApplyLeavesBothChannelsPopulated states the seam's minimum contract, the one
 // the ConfigManager interface documents: whichever manager runs, both channels
 // come back populated. It is the assertion a new manager fails first.

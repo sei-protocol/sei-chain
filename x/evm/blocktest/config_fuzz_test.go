@@ -11,18 +11,23 @@ import (
 // ethBlockTestKeys is the [eth_blocktest] section's read-site manifest. Both keys
 // are guarded and checked.
 //
-// The section name is worth stating plainly because it exists twice under two
-// spellings. The runtime reads eth_blocktest.*, while CustomAppConfig tags the
-// struct eth_block_test, so at first-boot generation the generated section header
-// is [eth_block_test] and no eth_blocktest.* environment variable or flag seeds
-// it. Runtime reads are unaffected — they go through the keys below — but the two
-// spellings are why a generated app.toml and a hand-written one behave
-// differently.
+// This section's name exists twice under two spellings, and the harmless one is the
+// generated file. The app.toml template hardcodes the header [eth_blocktest] and both
+// eth_blocktest_* key names as literal text, resolving only the values through
+// {{ .ETHBlockTest.Field }}, which text/template walks by Go field name. So a generated
+// app.toml carries exactly the spellings the reader below looks up and round-trips
+// correctly.
+//
+// The divergent spelling is the mapstructure tag on CustomAppConfig.ETHBlockTest,
+// eth_block_test, which names a section the template never writes and the reader never
+// reads. It is inert rather than dangerous, and it is worth recording because it is the
+// spelling a manager that drove generation from the struct tags — the obvious way to
+// build one — would emit, producing a file this reader ignores entirely.
 var ethBlockTestKeys = []configtest.KeySpec{
 	{
 		Key: "eth_blocktest.eth_blocktest_enabled", Path: "Enabled", Cast: configtest.CastBool,
 		Checked: true,
-		Why:     "default false; the runtime spelling, distinct from the generated [eth_block_test] section",
+		Why:     "default false; the spelling both the template and the reader use",
 	},
 	{
 		Key: "eth_blocktest.eth_blocktest_test_data_path", Path: "TestDataPath", Cast: configtest.CastString,
@@ -51,10 +56,14 @@ func TestReadConfigAbsentKeysKeepDefaults(t *testing.T) {
 	configtest.CheckAbsent(t, "eth_blocktest", readETHBlockTest, blocktest.DefaultConfig)
 }
 
-// TestGeneratedSectionSpellingIsInert records that the section name
-// CustomAppConfig generates ([eth_block_test]) is not the one the runtime reads
-// ([eth_blocktest]). A value under the generated spelling resolves to nothing.
-func TestGeneratedSectionSpellingIsInert(t *testing.T) {
+// TestStructTagSpellingIsInert records that the mapstructure spelling on
+// CustomAppConfig.ETHBlockTest (eth_block_test) is not the one the reader looks up
+// (eth_blocktest), so a value written under it resolves to nothing.
+//
+// The generated app.toml is not affected: the template writes the reader's spelling. What
+// this pins is that the struct tag cannot be treated as the section name, which is the
+// mistake a manager generating config from the tags would make.
+func TestStructTagSpellingIsInert(t *testing.T) {
 	cfg, err := blocktest.ReadConfig(configtest.AppOpts{
 		"eth_block_test.eth_blocktest_enabled": true,
 	})
@@ -62,7 +71,7 @@ func TestGeneratedSectionSpellingIsInert(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if cfg.Enabled {
-		t.Fatal("the generated [eth_block_test] spelling resolved a value; " +
-			"if the two spellings were unified on purpose, update this test and ship a migration")
+		t.Fatal("the eth_block_test spelling resolved a value; if the tag and the read prefix " +
+			"were unified on purpose, update this test and ship a migration")
 	}
 }

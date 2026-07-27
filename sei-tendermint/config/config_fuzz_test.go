@@ -211,28 +211,67 @@ func TestConsensusWalFileLayoutFollowsFilesystemState(t *testing.T) {
 	})
 }
 
-// TestMempoolConfigCarriesUntunableDefaults records that a slice of the mempool's
-// behavior is not operator-reachable.
+// TestToMempoolConfigIsALossyProjection records that the [mempool] section reaches the node
+// by two routes, and that ToMempoolConfig is only one of them.
 //
-// ToMempoolConfig projects the [mempool] section onto the mempool's own config, and
-// several fields it sets come from DefaultMempoolConfig rather than from any config.toml
-// key — the check-tx error blacklist and its threshold, and the pending TTL. So they are
-// configuration in the sense that they have values and defaults, but no key an operator
-// can write, which is what a key registry would have to either expose or deliberately
-// keep internal.
-func TestMempoolConfigCarriesUntunableDefaults(t *testing.T) {
-	// An absent [mempool] section and the declared defaults must agree, since there is
-	// no key to distinguish them.
-	fromFile, err := unmarshalConfigTOML(t, "mode = \"full\"\n")
+// The projection does not carry every field, and the fields it drops are not therefore
+// unreachable. check-tx-error-blacklist-enabled and check-tx-error-threshold carry
+// mapstructure tags, are rendered into every generated config.toml, and are read straight off
+// the outer *config.MempoolConfig by the mempool reactor. An operator who sets them gets the
+// behavior; they simply never pass through ToMempoolConfig on the way.
+//
+// That is the trap for a replacement manager. Reproducing ToMempoolConfig's output looks like
+// reproducing the mempool's configuration, and it would silently drop two live knobs. So this
+// row asserts both routes: the values arrive on the outer struct, and they are invisible in
+// the projection.
+//
+// pending-ttl-duration and pending-ttl-num-blocks are the opposite case, writable and
+// rendered into the generated file but documented in the struct as having no effect. They
+// belong to the inert-key class this suite records rather than fixes.
+func TestToMempoolConfigIsALossyProjection(t *testing.T) {
+	// Every value here differs from its default, so a field that fails to arrive is
+	// distinguishable from one that arrived carrying the default.
+	const doc = `mode = "full"
+
+[mempool]
+check-tx-error-blacklist-enabled = false
+check-tx-error-threshold = 7
+pending-ttl-num-blocks = 9
+`
+	fromFile, err := unmarshalConfigTOML(t, doc)
 	if err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	declared := DefaultMempoolConfig()
+	if !declared.CheckTxErrorBlacklistEnabled || declared.CheckTxErrorThreshold == 7 ||
+		declared.PendingTTLNumBlocks == 9 {
+		t.Fatalf("the fixture no longer differs from the declared defaults (%v, %d, %d), so this "+
+			"row cannot tell an arriving value from a default", declared.CheckTxErrorBlacklistEnabled,
+			declared.CheckTxErrorThreshold, declared.PendingTTLNumBlocks)
+	}
 
-	got := fromFile.Mempool.ToMempoolConfig()
-	want := declared.ToMempoolConfig()
-	if a, b := configtest.Dump(got), configtest.Dump(want); a != b {
-		t.Fatalf("an absent [mempool] section must project to the declared defaults\n--- got\n%s\n--- want\n%s", a, b)
+	// Route one: the outer struct, which is where the reactor reads them.
+	if fromFile.Mempool.CheckTxErrorBlacklistEnabled {
+		t.Fatal("check-tx-error-blacklist-enabled = false did not reach the outer MempoolConfig. " +
+			"The reactor reads the field there, so an operator-set value has to arrive or peer " +
+			"blacklisting stays on when it was turned off")
+	}
+	if got := fromFile.Mempool.CheckTxErrorThreshold; got != 7 {
+		t.Fatalf("check-tx-error-threshold reached the outer MempoolConfig as %d, want 7", got)
+	}
+	if got := fromFile.Mempool.PendingTTLNumBlocks; got != 9 {
+		t.Fatalf("pending-ttl-num-blocks reached the outer MempoolConfig as %d, want 9", got)
+	}
+
+	// Route two: the projection, which is blind to all three. Setting them must leave
+	// ToMempoolConfig's output identical to the default projection, or the loss has changed
+	// shape and a manager built against this manifest needs to know.
+	got := configtest.Dump(fromFile.Mempool.ToMempoolConfig())
+	want := configtest.Dump(declared.ToMempoolConfig())
+	if got != want {
+		t.Fatalf("ToMempoolConfig now carries a field it used to drop. That is an improvement, and "+
+			"it changes which keys a manager has to reproduce through the projection rather than "+
+			"off the outer struct, so it gets recorded here\n--- got\n%s\n--- want\n%s", got, want)
 	}
 }
 
