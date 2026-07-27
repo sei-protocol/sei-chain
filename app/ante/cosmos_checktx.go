@@ -211,15 +211,22 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 	if err != nil {
 		return oracleVote, err
 	}
-	signers := sigTx.GetSigners()
-
-	for i, pk := range pubkeys {
+	// Validate all provided public keys before deriving addresses from them below.
+	for _, pk := range pubkeys {
 		// PublicKey was omitted from slice since it has already been set in context
 		if pk == nil {
 			continue
 		}
 		if err := validatePubKey(pk); err != nil {
 			return oracleVote, err
+		}
+	}
+
+	signers := sigTx.GetSigners()
+	for i, pk := range pubkeys {
+		// PublicKey was omitted from slice since it has already been set in context
+		if pk == nil {
+			continue
 		}
 		if !bytes.Equal(pk.Address(), signers[i]) {
 			return oracleVote, sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey,
