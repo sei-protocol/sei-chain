@@ -1275,6 +1275,27 @@ func TestImport_LegacyKeyMimickingEVMShapeStaysLegacy(t *testing.T) {
 	}
 }
 
+// TestImport_FlatKVEmptyModuleKeyRejected pins the empty-module guard shared
+// with classifyAndPrefix and routePhysicalKey: a physical key of the form
+// "/<key>" must fail the import instead of producing a StoreKey "" node that
+// the SS importer would silently drop.
+func TestImport_FlatKVEmptyModuleKeyRejected(t *testing.T) {
+	store, cleanup := setupImportTestStore(t, false)
+	defer cleanup()
+
+	ch := make(chan types.SnapshotNode, 10)
+	go feedNodes(ch, []types.SnapshotNode{
+		{
+			StoreKey: commonevm.FlatKVStoreKey,
+			Key:      []byte("/orphan"),
+			Value:    vtype.NewMiscData().SetValue([]byte("x")).Serialize(),
+		},
+	})
+
+	err := store.Import(1, ch)
+	require.ErrorContains(t, err, "empty module name")
+}
+
 func TestImport_NonEvmModulesUnaffected(t *testing.T) {
 	store, cleanup := setupImportTestStore(t, true)
 	defer cleanup()
