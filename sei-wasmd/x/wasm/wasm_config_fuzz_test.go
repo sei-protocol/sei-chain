@@ -70,36 +70,37 @@ func TestReadWasmConfigAbsentKeysKeepDefaults(t *testing.T) {
 	configtest.CheckAbsent(t, "wasm", readWasm, types.DefaultWasmConfig())
 }
 
-// TestQueryGasLimitTemplateLiteralDivergesFromTheInCodeDefault pins the ten-fold
-// divergence between the two ways a node can end up with a query gas limit.
+// TestQueryGasLimitInCodeDefaultStaysAboveTheGeneratedLimit pins this package's half of
+// the ten-fold query-gas divergence: what a node with no [wasm] section resolves.
 //
-// The literal in the seid template is not derived from DefaultWasmConfig, so the two
-// drift independently. This asserts they are still different, so unifying them is a
-// deliberate act with a migration attached rather than a tidy-up: raising a
-// generated node's limit to 3,000,000 changes what contract queries succeed.
-func TestQueryGasLimitTemplateLiteralDivergesFromTheInCodeDefault(t *testing.T) {
-	const generatedTemplateLiteral = 300000
+// The other half is the literal in seid's app.toml template, and it is deliberately not
+// asserted here. The template lives in cmd/seid/cmd, and the only thing this package can
+// do with its number is hand it to ReadWasmConfig and watch the same number come back,
+// which pins the reader rather than the template and would stay green if the template
+// changed. That half is pinned end to end against a materialized app.toml by
+// TestGeneratedAppTOMLDivergesFromTheWasmInCodeDefault in cmd/seid/cmd. The constant below
+// is a cross-reference for the comparison, not a stand-in for reading the template.
+//
+// What is asserted here is still load-bearing: the in-code default is what every node
+// whose app.toml predates or omits [wasm] runs with, and it must stay above the generated
+// limit, since the two are not derived from each other and drift independently.
+func TestQueryGasLimitInCodeDefaultStaysAboveTheGeneratedLimit(t *testing.T) {
+	// Cross-reference only. cmd/seid/cmd asserts this against the real generated file.
+	const generatedLimitSeeElsewhere = 300000
 
 	inCode := types.DefaultWasmConfig().SmartQueryGasLimit
-	if inCode == generatedTemplateLiteral {
-		t.Fatalf("the in-code default is now %d, matching the template literal. Closing that "+
+	if inCode == generatedLimitSeeElsewhere {
+		t.Fatalf("the in-code default is now %d, matching the generated limit. Closing that "+
 			"divergence changes the gas allowance on every node whose app.toml lacks [wasm], so it "+
 			"gets recorded here rather than skipped past", inCode)
 	}
-
-	// A generated app.toml resolves the template literal.
-	fromTemplate, err := wasm.ReadWasmConfig(configtest.AppOpts{
-		"wasm.query_gas_limit": generatedTemplateLiteral,
-	})
-	if err != nil {
-		t.Fatalf("ReadWasmConfig: %v", err)
-	}
-	if fromTemplate.SmartQueryGasLimit != generatedTemplateLiteral {
-		t.Fatalf("templated query_gas_limit resolved to %d, want %d",
-			fromTemplate.SmartQueryGasLimit, generatedTemplateLiteral)
+	if inCode <= generatedLimitSeeElsewhere {
+		t.Fatalf("the in-code default (%d) is no longer above the generated limit (%d); the "+
+			"direction of the divergence changed", inCode, generatedLimitSeeElsewhere)
 	}
 
-	// An app.toml without the section resolves the in-code default instead.
+	// An app.toml without the section resolves the in-code default, which is the property
+	// this package owns.
 	fromDefault, err := wasm.ReadWasmConfig(configtest.AppOpts{})
 	if err != nil {
 		t.Fatalf("ReadWasmConfig: %v", err)
@@ -107,10 +108,6 @@ func TestQueryGasLimitTemplateLiteralDivergesFromTheInCodeDefault(t *testing.T) 
 	if fromDefault.SmartQueryGasLimit != inCode {
 		t.Fatalf("absent query_gas_limit resolved to %d, want the in-code %d",
 			fromDefault.SmartQueryGasLimit, inCode)
-	}
-	if fromTemplate.SmartQueryGasLimit >= fromDefault.SmartQueryGasLimit {
-		t.Fatalf("a generated app.toml (%d) is no longer tighter than an absent section (%d); "+
-			"the direction of the divergence changed", fromTemplate.SmartQueryGasLimit, fromDefault.SmartQueryGasLimit)
 	}
 }
 

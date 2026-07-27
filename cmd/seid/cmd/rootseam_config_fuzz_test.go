@@ -215,15 +215,22 @@ func FuzzPreRunManagerSelection(f *testing.F) {
 	})
 }
 
-// TestPreRunReadsTheManagerGateOncePerInvocation pins the read-once discipline the
-// design calls out as load-bearing.
+// TestPreRunReadsTheManagerGatePerInvocation pins the gate's read discipline: exactly
+// one read per Select, and a fresh read on every invocation.
 //
-// One process must not be able to select two managers. The gate is read a single time
-// inside PersistentPreRunE and the chosen manager is used for that whole invocation,
-// so changing the variable afterwards cannot switch managers mid-command. A future
-// `seid config` subtree that skips PersistentPreRunE has to re-own this, which is why
-// the property is written down rather than assumed.
-func TestPreRunReadsTheManagerGateOncePerInvocation(t *testing.T) {
+// The design calls this out as load-bearing because both halves can fail in opposite
+// directions. Reading twice within one invocation would let a variable that changed
+// mid-command select two managers for one boot. Reading once per *process* — a memoized
+// or sync.Once'd gate — would pin the whole process to whatever the first command saw,
+// so a later command could not change managers at all. A future `seid config` subtree
+// that skips PersistentPreRunE has to re-own both.
+//
+// The second half is what makes this falsifiable. Setting the variable after
+// PersistentPreRunE has returned and observing that the resolved channels did not
+// change asserts nothing: no implementation could fail it, since nothing reads the gate
+// after the call completes. Two invocations with different values in one process can
+// fail, and they fail exactly when the gate has been cached.
+func TestPreRunReadsTheManagerGatePerInvocation(t *testing.T) {
 	configtest.Isolate(t)
 
 	var reads []string
@@ -240,31 +247,34 @@ func TestPreRunReadsTheManagerGateOncePerInvocation(t *testing.T) {
 		t.Fatalf("Select consulted the environment %d times, want exactly 1", len(reads))
 	}
 
-	// And the manager chosen for an invocation is fixed. Flipping the variable after
-	// PersistentPreRunE has returned must leave the resolved channels alone, which means
-	// comparing the viper's identity across the change rather than re-checking that it is
-	// non-nil: a nil check would hold whatever the gate did.
-	home := configtest.NewHome(t)
-	serverCtx, err := runRootPreRun(t, home, "start")
+	// First invocation: the gate is unset, so the legacy manager runs and populates.
+	first, err := runRootPreRun(t, configtest.NewHome(t), "start")
 	if err != nil {
-		t.Fatalf("PersistentPreRunE: %v", err)
+		t.Fatalf("with %s unset the first invocation must boot legacy, got %v",
+			configmanager.EnvVar, err)
 	}
-	if serverCtx.Viper == nil {
-		t.Fatal("the legacy manager must have populated the boot channels")
+	if first.Viper == nil {
+		t.Fatal("the legacy manager must populate the boot channels")
 	}
 
-	before := serverCtx.Viper
-	beforeDump := configtest.DumpViper(serverCtx.Viper)
+	// Second invocation in the same process, gate now set. It must reach the v2 manager,
+	// which this tree ships as a stub and therefore fails. Booting instead means the gate
+	// was answered from the first invocation rather than re-read.
 	if err := os.Setenv(configmanager.EnvVar, "v2"); err != nil {
 		t.Fatalf("set %s: %v", configmanager.EnvVar, err)
 	}
-	if serverCtx.Viper != before {
-		t.Fatal("the resolved viper was replaced after PersistentPreRunE returned; one invocation " +
-			"must not be able to switch managers partway through")
+	second, secondErr := runRootPreRun(t, configtest.NewHome(t), "start")
+	if secondErr == nil {
+		t.Fatalf("the second invocation has %s=v2 and must select the v2 manager, whose body is a "+
+			"stub and fails. It booted cleanly instead, so the gate is being cached across "+
+			"invocations and one process can no longer change managers between commands",
+			configmanager.EnvVar)
 	}
-	if after := configtest.DumpViper(serverCtx.Viper); after != beforeDump {
-		t.Fatalf("the resolved view changed after the gate was flipped\n--- before\n%s\n--- after\n%s",
-			beforeDump, after)
+	if !strings.Contains(secondErr.Error(), configmanager.EnvVar) {
+		t.Fatalf("the v2 failure must name the gate, got %v", secondErr)
+	}
+	if second.Viper != nil {
+		t.Fatal("a rejected invocation must leave the boot channels unpopulated")
 	}
 }
 

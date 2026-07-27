@@ -16,7 +16,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
+	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 )
 
@@ -864,6 +866,63 @@ func TestServerEnvPrefixFollowsExecutableBasename(t *testing.T) {
 			"prefix is the literal seid rather than the executable basename %q, which would mean "+
 			"a renamed binary keeps responding to SEID_* after all",
 			seidName, fresh.ctx.Config.RPC.ListenAddress, unset, prefix)
+	}
+}
+
+// TestGeneratedAppTOMLDivergesFromTheWasmInCodeDefault pins the [wasm] gas divergence
+// against the template seid actually renders.
+//
+// query_gas_limit is one of the few keys the template writes as a bare literal rather than
+// a {{ .Field }} substitution, so the number lives in this package's template string and
+// nothing derives it from wasmd's defaults. The consequence is the finding: a node whose
+// app.toml seid generated runs smart queries at a tenth of the allowance of a node whose
+// app.toml has no [wasm] section, and neither node looks misconfigured by its own file.
+//
+// The row belongs here rather than beside the reader. A test in the wasm package can only
+// hand the reader a number and watch it come back, which proves the reader echoes its
+// input and would stay green if the template changed. This reads what a fresh home
+// materializes, so editing the literal in the template moves this assertion.
+func TestGeneratedAppTOMLDivergesFromTheWasmInCodeDefault(t *testing.T) {
+	configtest.Isolate(t)
+	home := configtest.NewHome(t)
+
+	// The expected value is stated here and compared against a real generated file, so it is
+	// an expectation rather than the echo it would be if it were fed to the reader.
+	const generatedLiteral = uint64(300000)
+
+	got := applyLegacy(t, home, nil)
+	if got.err != nil {
+		t.Fatalf("Apply: %v", got.err)
+	}
+	if !home.Exists("app.toml") {
+		t.Fatal("Apply did not materialize app.toml, so this row is not reading a generated file")
+	}
+	raw := got.ctx.Viper.Get("wasm.query_gas_limit")
+	if raw == nil {
+		t.Fatal("a generated app.toml no longer carries wasm.query_gas_limit. If the key left the " +
+			"template, every generated node now runs smart queries at wasmd's in-code default " +
+			"instead, which raises the allowance tenfold")
+	}
+	fromTemplate, castErr := cast.ToUint64E(raw)
+	if castErr != nil {
+		t.Fatalf("wasm.query_gas_limit = %#v does not convert to uint64: %v", raw, castErr)
+	}
+	if fromTemplate != generatedLiteral {
+		t.Fatalf("a generated app.toml resolves wasm.query_gas_limit to %d, and this row expects "+
+			"%d. The template literal moved: that changes the gas allowance on every node generated "+
+			"from it, so update this row deliberately rather than to make it pass",
+			fromTemplate, generatedLiteral)
+	}
+
+	inCode := wasmtypes.DefaultWasmConfig().SmartQueryGasLimit
+	if fromTemplate == inCode {
+		t.Fatalf("the template literal and wasmd's in-code default are both %d. Closing that "+
+			"divergence changes what contract queries succeed on every node whose app.toml lacks "+
+			"[wasm], so it is recorded here rather than skipped past", inCode)
+	}
+	if fromTemplate >= inCode {
+		t.Fatalf("a generated app.toml (%d) is no longer tighter than the in-code default (%d); the "+
+			"direction of the divergence changed", fromTemplate, inCode)
 	}
 }
 
