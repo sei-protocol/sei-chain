@@ -58,13 +58,11 @@ func TestAvailClientServer(t *testing.T) {
 		a2 := nodes[2].consensus.Avail()
 		lane0 := activeKeys[0].Public()
 		corruptRng := rng.Split()
-		// Spawn (not SpawnBg) so scope waits for at least one full corrupt PushBlock
-		// pass; bound is BlocksPerLane because corrupt is never Run, so its lane
-		// capacity never advances past the initial window.
-		s.Spawn(func() error {
+		s.SpawnBg(func() error {
 			if _, err := a2.Block(ctx, lane0, 0); err != nil && !errors.Is(err, types.ErrPruned) {
 				return utils.IgnoreCancel(err)
 			}
+			// Corrupt is never Run, so lane capacity stays at the initial window.
 			for range avail.BlocksPerLane {
 				n := corruptAvail.NextBlock(lane0)
 				if err := corruptAvail.WaitForLocalCapacity(ctx, n); err != nil {
