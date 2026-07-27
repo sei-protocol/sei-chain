@@ -155,6 +155,18 @@ type KeySpec struct {
 	// value, so a malformed app.toml entry is silently inert.
 	Checked bool
 
+	// AlsoWrites lists any further Dump paths the reader touches when this key is
+	// present, beyond Path.
+	//
+	// The row assertion compares the whole resolved document, not just the line at
+	// Path, so a reader that lands the nominated key correctly and also perturbs a
+	// field it never declared fails. A reader that legitimately writes more than one
+	// field from one key declares the rest here, which keeps the fan-out recorded in
+	// the manifest rather than absorbed by a weaker assertion. The listed paths are
+	// exempted from the comparison, so this is a statement that a field is expected
+	// to move, not a prediction of its value.
+	AlsoWrites []string
+
 	// Why records what the row is protecting, for the failure message. Rows whose
 	// behavior is unremarkable can leave it empty.
 	Why string
@@ -210,7 +222,7 @@ func CheckKey(t testing.TB, name string, read func(AppOpts) (any, error), spec K
 		}
 		want := spec.Path + " = " + leafOf(spec.Path, spec.Cast.zero())
 		if spec.Unguarded {
-			assertLeaf(t, name, spec, cfg, want)
+			assertResolvedView(t, name, spec, baseline, cfg, want)
 			return
 		}
 		if gotDump, wantDump := Dump(cfg), Dump(baseline); gotDump != wantDump {
@@ -230,15 +242,35 @@ func CheckKey(t testing.TB, name string, read func(AppOpts) (any, error), spec K
 		return
 	}
 	if err != nil {
+		// The wording branches on castErr because this line is also reached when the
+		// conversion failed on an unchecked row: the checked branch above returns early only
+		// for spec.Checked, so saying "converts cleanly" there would point a future reader at
+		// the wrong half of the row.
+		if castErr != nil {
+			t.Fatalf("%s: %s = %#v does not convert to %s (%v), and the read is unchecked, so it "+
+				"must swallow the failure and keep the zero value rather than error, got %v",
+				name, spec.Key, value, spec.Cast, castErr, err)
+		}
 		t.Fatalf("%s: %s = %#v converts to %s cleanly, so the read must succeed, got %v",
 			name, spec.Key, value, spec.Cast, err)
 	}
-	assertLeaf(t, name, spec, cfg, DumpAt(spec.Path, converted))
+	assertResolvedView(t, name, spec, baseline, cfg, DumpAt(spec.Path, converted))
 }
 
-// assertLeaf compares the one dump line at spec.Path against want.
-func assertLeaf(t testing.TB, name string, spec KeySpec, cfg any, want string) {
+// assertResolvedView compares the whole resolved document against the baseline with the
+// expected leaf spliced in.
+//
+// Asserting only the line at spec.Path would pass a reader that resolves the nominated key
+// correctly and also perturbs an unrelated field, and that is the failure mode a
+// characterization oracle exists to catch: the manifest's claim is that one key moves one
+// field, so the assertion has to cover the fields it says do not move. Splicing rather than
+// predicting the whole document keeps the row's prediction to the one leaf it owns.
+//
+// Paths in spec.AlsoWrites are dropped from both sides, so a reader with declared fan-out
+// still gets every undeclared field checked.
+func assertResolvedView(t testing.TB, name string, spec KeySpec, baseline, cfg any, want string) {
 	t.Helper()
+
 	got, ok := leafAt(Dump(cfg), spec.Path)
 	if !ok {
 		t.Fatalf("%s: %s claims to resolve into field %q, which is not present in the resolved view:\n%s",
@@ -247,6 +279,54 @@ func assertLeaf(t testing.TB, name string, spec KeySpec, cfg any, want string) {
 	if got != want {
 		t.Fatalf("%s: %s resolved into the wrong value\n got: %s\nwant: %s", name, spec.Key, got, want)
 	}
+
+	expected, spliced := spliceLeaf(Dump(baseline), spec.Path, want)
+	if !spliced {
+		t.Fatalf("%s: field %q is absent from the baseline view, so the row cannot say which "+
+			"fields are supposed to stay put:\n%s", name, spec.Path, Dump(baseline))
+	}
+	actual := Dump(cfg)
+	for _, path := range spec.AlsoWrites {
+		expected = dropLeaf(expected, path)
+		actual = dropLeaf(actual, path)
+	}
+	if actual != expected {
+		t.Fatalf("%s: %s resolved its own field correctly but also moved a field it does not "+
+			"declare. One key writes one field unless the row says otherwise, so either the "+
+			"reader changed or the row needs the extra path in AlsoWrites.\n--- got\n%s\n--- want\n%s",
+			name, spec.Key, actual, expected)
+	}
+}
+
+// spliceLeaf replaces the lines describing path in dump with replacement, reporting
+// whether the path was found. A composite field spans several lines, so the whole run is
+// replaced at the position of its first line.
+func spliceLeaf(dump, path, replacement string) (string, bool) {
+	var out []string
+	found := false
+	for _, line := range strings.Split(dump, "\n") {
+		if !isLeafLine(line, path) {
+			out = append(out, line)
+			continue
+		}
+		if !found {
+			out = append(out, strings.Split(replacement, "\n")...)
+			found = true
+		}
+	}
+	return strings.Join(out, "\n"), found
+}
+
+// dropLeaf removes the lines describing path, for fields a row declares as expected to
+// move without predicting their value.
+func dropLeaf(dump, path string) string {
+	var out []string
+	for _, line := range strings.Split(dump, "\n") {
+		if !isLeafLine(line, path) {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 // LeafAt pulls the lines describing one field out of a rendered view, so a test
@@ -260,8 +340,7 @@ func LeafAt(dump, path string) (string, bool) { return leafAt(dump, path) }
 func leafAt(dump, path string) (string, bool) {
 	var matched []string
 	for _, line := range strings.Split(dump, "\n") {
-		if line == path+" = <nil>" || strings.HasPrefix(line, path+" = ") ||
-			strings.HasPrefix(line, path+"[") {
+		if isLeafLine(line, path) {
 			matched = append(matched, line)
 		}
 	}
@@ -269,6 +348,14 @@ func leafAt(dump, path string) (string, bool) {
 		return "", false
 	}
 	return strings.Join(matched, "\n"), true
+}
+
+// isLeafLine reports whether a rendered line describes path. It is shared by every
+// path-scoped operation so that reading, splicing and dropping a field cannot disagree
+// about which lines belong to it.
+func isLeafLine(line, path string) bool {
+	return line == path+" = <nil>" || strings.HasPrefix(line, path+" = ") ||
+		strings.HasPrefix(line, path+"[")
 }
 
 // leafOf renders a bare value the way Dump renders it at path, minus the path.

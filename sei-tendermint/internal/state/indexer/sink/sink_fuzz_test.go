@@ -203,6 +203,12 @@ func TestNullMixedWithAnUnsupportedSinkIsUnspecified(t *testing.T) {
 // and the row skips naming that. If it does vary, the runtime still supplies the
 // randomization and a consistent sink result is sei's own change, so the caller's failure
 // stands.
+//
+// The probe detects total loss of randomization, not skew. A split pushed from the observed
+// ~16% down to a fraction of a percent would still show both keys here, so the row would
+// start failing intermittently rather than skipping. The probe's own split is reported for
+// exactly that case: a probe near even alongside a sink result that is nearly one-sided says
+// the skew is in sink selection, not in the runtime.
 func requireSmallMapRandomization(t *testing.T, runs, booted, failed int) {
 	t.Helper()
 
@@ -215,6 +221,10 @@ func requireSmallMapRandomization(t *testing.T, runs, booted, failed int) {
 		}
 	}
 	if len(starts) > 1 {
+		t.Logf("map-order probe over %d runs: %v (sink outcomes: %d booted, %d failed). The "+
+			"observed sink split when this row was written was roughly 168 booted to 32 failed "+
+			"per 200. A probe near even here means the runtime still randomizes and the skew, if "+
+			"any, is in sink selection", runs, starts, booted, failed)
 		return
 	}
 	t.Skipf("this runtime started a two-element map range at the same key in all %d probes, so "+

@@ -111,6 +111,23 @@ func TestUpgradeVersionListOverrideAcceptsAnyName(t *testing.T) {
 // This is the one row where the config surface touches consensus safety directly,
 // which is why it is asserted through a real app construction rather than inferred.
 func TestGigaExecutorEnabledDrivesLastResultsHashValidation(t *testing.T) {
+	// This row builds real apps, and app.New calls RegisterUpgradeHandlers, which calls
+	// overrideList, which replaces the package-level upgradesList from UPGRADE_VERSION_LIST
+	// with no restore. Isolate takes the variable out of the environment for the row's own
+	// app constructions, and the list is saved and restored so the row leaves it exactly as
+	// found, which is the discipline the two rows above already keep.
+	//
+	// This does not make the binary hermetic with respect to that list, and it is worth
+	// being exact about why rather than implying otherwise. testutil/keeper's package init
+	// calls app.SetupWithDefaultHome, so an app is constructed, and overrideList runs,
+	// before any test body in this binary executes. An ambient UPGRADE_VERSION_LIST is
+	// therefore already applied by the time any row here could pin the environment, and no
+	// change inside this file can prevent it. Closing that needs testutil/keeper to stop
+	// building an app at init, which is a much wider change than this suite.
+	configtest.Isolate(t)
+	embedded := upgradesList
+	t.Cleanup(func() { upgradesList = embedded })
+
 	// The atomic is process-global and other tests in this package write it, so it
 	// is restored regardless of outcome.
 	original := tmtypes.SkipLastResultsHashValidation.Load()

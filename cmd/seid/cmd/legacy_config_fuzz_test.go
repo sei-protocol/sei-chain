@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -63,11 +65,7 @@ type applyResult struct {
 func applyLegacy(t *testing.T, home *configtest.Home, flagValues map[string]string) applyResult {
 	t.Helper()
 	cmd, serverCtx := newApplyCommand(t, home)
-	for name, value := range flagValues {
-		if err := cmd.Flags().Set(name, value); err != nil {
-			t.Fatalf("set --%s=%q: %v", name, value, err)
-		}
-	}
+	setFlags(t, cmd, flagValues)
 	return applyResult{ctx: serverCtx, err: applyThrough(cmd, serverCtx)}
 }
 
@@ -88,6 +86,23 @@ func newApplyCommand(t *testing.T, home *configtest.Home) (*cobra.Command, *serv
 	serverCtx := &server.Context{}
 	cmd.SetContext(context.WithValue(context.Background(), server.ServerContextKey, serverCtx))
 	return cmd, serverCtx
+}
+
+// setFlags applies flag values in sorted key order.
+//
+// Ranging a map directly would apply them in a different order per run. Every caller here
+// sets flags that do not interact, so nothing depends on the order today, but a fuzz
+// corpus is only useful if a failing entry reproduces: the first row whose flags interact,
+// through cobra validation or one flag's Set reading another, would otherwise fail
+// intermittently against the seed that found it. Sorting costs nothing and removes the
+// class.
+func setFlags(t *testing.T, cmd *cobra.Command, flagValues map[string]string) {
+	t.Helper()
+	for _, name := range slices.Sorted(maps.Keys(flagValues)) {
+		if err := cmd.Flags().Set(name, flagValues[name]); err != nil {
+			t.Fatalf("set --%s=%q: %v", name, flagValues[name], err)
+		}
+	}
 }
 
 // applyThrough runs the legacy manager against a command from newApplyCommand, using

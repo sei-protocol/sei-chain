@@ -58,11 +58,7 @@ func newStartCmd(t *testing.T, home *configtest.Home, flagValues map[string]stri
 	if err := cmd.Flags().Set("home", home.Root); err != nil {
 		t.Fatalf("set --home: %v", err)
 	}
-	for name, value := range flagValues {
-		if err := cmd.Flags().Set(name, value); err != nil {
-			t.Fatalf("set --%s=%q: %v", name, value, err)
-		}
-	}
+	setFlags(t, cmd, flagValues)
 
 	serverCtx := &server.Context{}
 	base, cancel := context.WithCancel(context.Background())
@@ -290,16 +286,25 @@ func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (rec
 		return r.recovered, r.err
 	case <-time.After(5 * time.Second):
 		stop()
-		stopped := "it did not stop, and is still running in the background of this test binary"
+		const diagnosis = "RunE neither returned nor panicked within 5s, so it got past the guard " +
+			"that normally stops it and into startInProcess. That guard was presumably fixed and " +
+			"this row needs rewriting"
 		select {
 		case <-outcome:
-			stopped = "it stopped when the context was cancelled"
+			// The node stopped, so the binary is clean and an ordinary failure is right.
+			t.Fatalf("%s. It stopped when the command context was cancelled", diagnosis)
+			return nil, nil
 		case <-time.After(5 * time.Second):
 		}
-		t.Fatalf("RunE neither returned nor panicked within 5s, so it got past the guard that "+
-			"normally stops it and into startInProcess. That guard was presumably fixed and this "+
-			"row needs rewriting. After cancelling the command context: %s", stopped)
-		return nil, nil
+		// The node ignored the cancel, so it still holds its listeners and state databases and
+		// t.Fatal would only unwind this goroutine. Every later test in the binary would then run
+		// alongside a live node, including through configtest.Isolate's cleanup, which clears the
+		// environment and restores it while that node reads it. Panicking is the terminal action:
+		// it fails the binary here rather than leaving a corrupted one to produce results nobody
+		// should trust, and the goroutine dump shows what the node is doing.
+		panic(diagnosis + ", and it did not stop when the command context was cancelled. Failing " +
+			"the whole binary deliberately: a live node with bound listeners must not outlive this " +
+			"test and be inherited by the ones after it")
 	}
 }
 
