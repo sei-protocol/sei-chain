@@ -35,7 +35,7 @@ func writeSyntheticBatches(t *testing.T, db types.BlockDB, rng utils.Rng, numBat
 		first := types.GlobalBlockNumber(i * perQC) //nolint:gosec // small test indices
 		next := first + types.GlobalBlockNumber(perQC)
 		qc := types.GenFullCommitQCRange(rng, first, next)
-		require.NoError(t, db.WriteQC(first, next, qc))
+		require.NoError(t, db.WriteQC(qc))
 		for j := 0; j < perQC; j++ {
 			require.NoError(t, db.WriteBlock(first+types.GlobalBlockNumber(j), types.GenBlock(rng))) //nolint:gosec
 		}
@@ -126,16 +126,14 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = it.Close() }()
 	for {
-		ok, err := it.Next()
+		pos, ok, err := it.Next()
 		require.NoError(t, err)
 		if !ok {
 			break
 		}
-		n := it.Number()
+		n := pos.Number
 		require.GreaterOrEqual(t, uint64(n), uint64(5), "ledger must not yield stranded position %d", n)
-		qc, err := it.QC()
-		require.NoError(t, err)
-		require.NotNil(t, qc, "position %d must have a covering QC", n)
+		require.NotNil(t, pos.QC, "position %d must have a covering QC", n)
 		blkOpt, err := it.Block()
 		require.NoError(t, err)
 		require.True(t, blkOpt.IsPresent(), "position %d must have a block", n)

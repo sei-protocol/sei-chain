@@ -12,7 +12,7 @@ import (
 var _ types.BlockDB = (*blockDB)(nil)
 
 // qcEntry pairs a QC with the half-open range [lower, upper) it covers, as
-// supplied by the caller to WriteQC.
+// derived from the QC itself by coveredRange.
 type qcEntry struct {
 	qc    *types.FullCommitQC
 	lower types.GlobalBlockNumber
@@ -83,23 +83,29 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 	return nil
 }
 
-func (s *blockDB) WriteQC(
-	lowerBound types.GlobalBlockNumber,
-	upperBound types.GlobalBlockNumber,
-	qc *types.FullCommitQC,
-) error {
-	if lowerBound >= upperBound {
-		return fmt.Errorf("QC lowerBound %d >= upperBound %d", lowerBound, upperBound)
+// coveredRange returns the half-open global block number range the QC covers,
+// as specified by types.BlockDB.WriteQC: [First, First+len(Headers())). Derived
+// identically in littblock — see the comment there for why the bound comes from
+// the header count rather than from GlobalRange().Next.
+func coveredRange(qc *types.FullCommitQC) (types.GlobalBlockNumber, types.GlobalBlockNumber) {
+	first := qc.QC().GlobalRange().First
+	return first, first + types.GlobalBlockNumber(len(qc.Headers()))
+}
+
+func (s *blockDB) WriteQC(qc *types.FullCommitQC) error {
+	first, next := coveredRange(qc)
+	if first >= next {
+		return fmt.Errorf("QC at %d covers no blocks: %w", first, types.ErrQCNonContiguous)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.hasQC && lowerBound != s.lastQCNext {
-		return fmt.Errorf("QC lowerBound %d != expected %d: %w",
-			lowerBound, s.lastQCNext, types.ErrQCNonContiguous)
+	if s.hasQC && first != s.lastQCNext {
+		return fmt.Errorf("QC starts at %d, expected %d: %w",
+			first, s.lastQCNext, types.ErrQCNonContiguous)
 	}
-	s.qcsByLower[lowerBound] = qcEntry{qc: qc, lower: lowerBound, upper: upperBound}
-	s.latestQCStartBlock = lowerBound
-	s.lastQCNext = upperBound
+	s.qcsByLower[first] = qcEntry{qc: qc, lower: first, upper: next}
+	s.latestQCStartBlock = first
+	s.lastQCNext = next
 	s.hasQC = true
 	return nil
 }
@@ -211,27 +217,47 @@ type memBlockDBIterator struct {
 	// blocks holds the block per position; nil where no block is persisted.
 	blocks []*types.Block
 
-	// idx is the current position; -1 before the first Next.
+	// idx is the current position; -1 before the first Next and len(nums) once exhausted.
 	idx int
+
+	// closed is true once Close has been called. Block rejects calls made afterward.
+	closed bool
 }
 
-func (it *memBlockDBIterator) Next() (bool, error) {
-	it.idx++
-	return it.idx < len(it.nums), nil
+func (it *memBlockDBIterator) Next() (types.Position, bool, error) {
+	if it.idx < len(it.nums) {
+		it.idx++
+	}
+	if !it.positioned() {
+		return types.Position{}, false, nil
+	}
+	return types.Position{
+		Number:   it.nums[it.idx],
+		QC:       it.qcs[it.idx],
+		HasBlock: it.blocks[it.idx] != nil,
+	}, true, nil
 }
-
-func (it *memBlockDBIterator) Number() types.GlobalBlockNumber { return it.nums[it.idx] }
-
-func (it *memBlockDBIterator) QC() (*types.FullCommitQC, error) { return it.qcs[it.idx], nil }
 
 func (it *memBlockDBIterator) Block() (utils.Option[*types.Block], error) {
+	if !it.positioned() {
+		return utils.None[*types.Block](), fmt.Errorf("iterator is not positioned on a block number")
+	}
 	if it.blocks[it.idx] == nil {
 		return utils.None[*types.Block](), nil
 	}
 	return utils.Some(it.blocks[it.idx]), nil
 }
 
-func (it *memBlockDBIterator) Close() error { return nil }
+func (it *memBlockDBIterator) Close() error {
+	// Mirrors littblock: a closed iterator holds no position, so Block reports misuse.
+	it.closed = true
+	return nil
+}
+
+// positioned reports whether the iterator sits on a number Next yielded.
+func (it *memBlockDBIterator) positioned() bool {
+	return !it.closed && it.idx >= 0 && it.idx < len(it.nums)
+}
 
 func (s *blockDB) ReadBlockByNumber(
 	n types.GlobalBlockNumber,

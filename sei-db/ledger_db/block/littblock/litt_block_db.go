@@ -50,6 +50,16 @@ type blockDB struct {
 
 	// latestQCStartBlock is the most recently written QC's starting block number.
 	latestQCStartBlock types.GlobalBlockNumber
+
+	// oldestQCStart is where the oldest QC this handle has seen begins. Iterator clamps its
+	// start up to it, which is what lets the positioned lookup always land on a retained QC
+	// record: a start below every QC's range has no key to position at. Set when the first QC
+	// is written and re-derived on open (see recoverReadWatermark).
+	//
+	// It is a floor, not an exact value — GC may later reclaim that QC — but by then
+	// PruneBefore has advanced watermark past it, and Iterator clamps to both. Meaningful
+	// only while hasQC.
+	oldestQCStart types.GlobalBlockNumber
 }
 
 // NewBlockDB opens (or creates) a LittDB-backed types.BlockDB from config. The
@@ -117,7 +127,10 @@ func (s *blockDB) recoverCursors() error {
 		if !ok {
 			break
 		}
-		key, isPrimary := it.GetKey()
+		key, isPrimary, err := it.GetKey()
+		if err != nil {
+			return fmt.Errorf("failed to read recovery key: %w", err)
+		}
 		if !isPrimary {
 			continue
 		}
@@ -129,7 +142,6 @@ func (s *blockDB) recoverCursors() error {
 			}
 		case kindQC:
 			if !s.hasQC {
-				lowerBound := decodeNumberKey(key)
 				value, err := it.GetValue()
 				if err != nil {
 					return fmt.Errorf("failed to read newest qc value: %w", err)
@@ -138,8 +150,7 @@ func (s *blockDB) recoverCursors() error {
 				if err != nil {
 					return fmt.Errorf("failed to unmarshal newest qc: %w", err)
 				}
-				s.latestQCStartBlock = lowerBound
-				s.lastQCNext = lowerBound + types.GlobalBlockNumber(len(qc.Headers()))
+				s.latestQCStartBlock, s.lastQCNext = coveredRange(qc)
 				s.hasQC = true
 			}
 		}
@@ -166,11 +177,16 @@ func (s *blockDB) recoverReadWatermark() error {
 		if !ok {
 			break
 		}
-		key, isPrimary := it.GetKey()
+		key, isPrimary, err := it.GetKey()
+		if err != nil {
+			return fmt.Errorf("failed to read watermark recovery key: %w", err)
+		}
 		if !isPrimary || keyKind(key) != kindQC {
 			continue
 		}
-		s.watermark.Store(uint64(decodeNumberKey(key)))
+		oldest := decodeNumberKey(key)
+		s.watermark.Store(uint64(oldest))
+		s.oldestQCStart = oldest
 		return nil
 	}
 
@@ -217,37 +233,39 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 	return nil
 }
 
-func (s *blockDB) WriteQC(
-	lowerBound types.GlobalBlockNumber,
-	upperBound types.GlobalBlockNumber,
-	qc *types.FullCommitQC,
-) error {
-	if lowerBound >= upperBound {
-		return fmt.Errorf("QC lowerBound %d >= upperBound %d: %w",
-			lowerBound, upperBound, types.ErrQCNonContiguous)
+func (s *blockDB) WriteQC(qc *types.FullCommitQC) error {
+	first, next := coveredRange(qc)
+	if first >= next {
+		return fmt.Errorf("QC at %d covers no blocks: %w", first, types.ErrQCNonContiguous)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.hasQC && lowerBound != s.lastQCNext {
-		return fmt.Errorf("QC lowerBound %d != expected %d: %w",
-			lowerBound, s.lastQCNext, types.ErrQCNonContiguous)
+	if s.hasQC && first != s.lastQCNext {
+		return fmt.Errorf("QC starts at %d, expected %d: %w",
+			first, s.lastQCNext, types.ErrQCNonContiguous)
 	}
 
 	value := encodeQC(qc)
 	var aliases []*litttypes.SecondaryKey
-	for m := lowerBound + 1; m < upperBound; m++ {
+	for m := first + 1; m < next; m++ {
 		aliases = append(aliases, &litttypes.SecondaryKey{
 			Key:    qcKey(m),
 			Offset: 0,
 			Length: uint32(len(value)), //nolint:gosec // value length fits u32 (litt value cap is 2^32)
 		})
 	}
-	if err := s.table.Put(qcKey(lowerBound), value, aliases...); err != nil {
-		return fmt.Errorf("failed to put QC [%d,%d): %w", lowerBound, upperBound, err)
+	if err := s.table.Put(qcKey(first), value, aliases...); err != nil {
+		return fmt.Errorf("failed to put QC [%d,%d): %w", first, next, err)
 	}
 
-	s.latestQCStartBlock = lowerBound
-	s.lastQCNext = upperBound
+	if !s.hasQC {
+		// The first QC may start anywhere its caller allows, and nothing below it will ever
+		// be written. Record where coverage begins so Iterator can clamp to it without
+		// discovering it by scanning; a reopen re-derives the same value.
+		s.oldestQCStart = first
+	}
+	s.latestQCStartBlock = first
+	s.lastQCNext = next
 	s.hasQC = true
 	return nil
 }
@@ -343,12 +361,20 @@ func (s *blockDB) Status() types.DBStatus {
 
 func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
 	watermark := s.watermark.Load()
+	nextQC, oldestQCStart := s.qcCoverage()
+
+	// Clamp up to the lowest number a retained QC covers. Both floors are needed: watermark is
+	// the retention gate, oldestQCStart is where coverage begins on a store that never had data
+	// below it (bootstrapped mid-chain), and either may be the higher of the two.
 	start := n
 	if uint64(start) < watermark {
 		start = types.GlobalBlockNumber(watermark)
 	}
+	if start < oldestQCStart {
+		start = oldestQCStart
+	}
 
-	if start >= s.Status().NextQC {
+	if start >= nextQC {
 		// Nothing is covered at or above start. NextQC is zero on an empty store, which this
 		// comparison also classifies as past-coverage.
 		return &blockDBIterator{}, nil
@@ -361,27 +387,32 @@ func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to open iterator at %d: %w", start, err)
 	}
-	if found {
-		return &blockDBIterator{
-			it:            it,
-			watermark:     watermark,
-			startN:        start,
-			expectStartQC: true,
-		}, nil
-	}
-
-	// start is below coverage (< NextQC yet no record at qcKey(start)): every persisted record
-	// in [watermark, NextQC) has its key, so this happens only on an unpruned store whose first
-	// QC begins above start. Fall back to a plain scan, which starts at the first covered number.
-	full, err := s.table.Iterator(false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open iterator: %w", err)
+	if !found {
+		// start has been clamped into [oldestQCStart, NextQC), and retained QCs cover that
+		// interval contiguously, so some QC's primary or covered-number alias is stored under
+		// qcKey(start). A miss means a record that must exist does not — a truncated key file,
+		// or a segment missing from the readable snapshot. Refuse rather than fall back to a
+		// full scan: the caller asked to start at a height precisely to avoid reading what lies
+		// below it, and a scan would silently do the opposite.
+		return nil, fmt.Errorf("corrupt store: no QC record at %d despite coverage to %d", start, nextQC)
 	}
 	return &blockDBIterator{
-		it:        full,
-		watermark: watermark,
-		startN:    start,
+		it:            it,
+		watermark:     watermark,
+		startN:        start,
+		expectStartQC: true,
 	}, nil
+}
+
+// qcCoverage returns the exclusive upper bound of QC coverage and the lowest number a retained
+// QC covers. Both are zero when no QC has been written.
+func (s *blockDB) qcCoverage() (nextQC types.GlobalBlockNumber, oldestQCStart types.GlobalBlockNumber) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasQC {
+		return 0, 0
+	}
+	return s.lastQCNext, s.oldestQCStart
 }
 
 func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {

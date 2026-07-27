@@ -72,7 +72,7 @@ func writeToBlockDB(t *testing.T, db types.BlockDB, qcs []*types.FullCommitQC, b
 	t.Helper()
 	for i, qc := range qcs {
 		gr := qc.QC().GlobalRange()
-		utils.OrPanic(db.WriteQC(gr.First, gr.Next, qc))
+		utils.OrPanic(db.WriteQC(qc))
 		for j, n := 0, gr.First; n < gr.Next; n++ {
 			utils.OrPanic(db.WriteBlock(n, blockss[i][j]))
 			j++
@@ -637,7 +637,7 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 	survivor := gr1.Next - 1
 	dirBad := t.TempDir()
 	dbBad := newTestBlockDB(t, dirBad)
-	require.NoError(t, dbBad.WriteQC(gr1.First, gr1.Next, qc1))
+	require.NoError(t, dbBad.WriteQC(qc1))
 	require.NoError(t, dbBad.WriteBlock(survivor, blocks1[survivor-gr1.First]))
 	require.NoError(t, dbBad.Flush())
 	require.NoError(t, dbBad.Close())
@@ -723,7 +723,7 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	survivor := gr2.Next - 1
 	dirBad := t.TempDir()
 	dbBad := newTestBlockDB(t, dirBad)
-	require.NoError(t, dbBad.WriteQC(gr2.First, gr2.Next, qc2))
+	require.NoError(t, dbBad.WriteQC(qc2))
 	require.NoError(t, dbBad.WriteBlock(survivor, blocks2[survivor-gr2.First]))
 	require.NoError(t, dbBad.Flush())
 	require.NoError(t, dbBad.Close())

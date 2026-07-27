@@ -75,6 +75,12 @@ func TestBlockDB(t *testing.T) {
 				testWriteOrderRejectedAfterRestart(t, impl.build)
 			})
 			t.Run("WriteBlockGapRejected", func(t *testing.T) { testWriteBlockGapRejected(t, impl.build) })
+			t.Run("WriteQCCoversNoBlocksRejected", func(t *testing.T) {
+				testWriteQCCoversNoBlocksRejected(t, impl.build)
+			})
+			t.Run("IteratorBlockRequiresPosition", func(t *testing.T) {
+				testIteratorBlockRequiresPosition(t, impl.build)
+			})
 			t.Run("WriteBlockRequiresQC", func(t *testing.T) { testWriteBlockRequiresQC(t, impl.build) })
 			t.Run("ResumeAfterRestart", func(t *testing.T) { testResumeAfterRestart(t, impl.build) })
 			t.Run("IteratorPositioning", func(t *testing.T) { testIteratorPositioning(t, impl.build) })
@@ -159,21 +165,20 @@ func drainIterator(t *testing.T, it types.BlockDBIterator) []iterEntry {
 	defer func() { require.NoError(t, it.Close()) }()
 	var entries []iterEntry
 	for {
-		ok, err := it.Next()
+		pos, ok, err := it.Next()
 		require.NoError(t, err)
 		if !ok {
 			break
 		}
-		n := it.Number()
-		qc, err := it.QC()
-		require.NoError(t, err)
+		n, qc := pos.Number, pos.QC
 		require.NotNil(t, qc, "QC must be present at every position")
 		first := qc.QC().GlobalRange().First
 		next := first + gbn(len(qc.Headers()))
 		require.True(t, first <= n && n < next, "QC [%d,%d) must cover position %d", first, next, n)
 		blkOpt, err := it.Block()
 		require.NoError(t, err)
-		blk, _ := blkOpt.Get()
+		blk, present := blkOpt.Get()
+		require.Equal(t, pos.HasBlock, present, "HasBlock must agree with Block at position %d", n)
 		entries = append(entries, iterEntry{n: n, qc: qc, blk: blk})
 	}
 	return entries
@@ -211,7 +216,7 @@ func testStatus(t *testing.T, build builder) {
 	db, o := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 
-	require.NoError(t, db.WriteQC(batches[0].first, batches[0].next, batches[0].qc))
+	require.NoError(t, db.WriteQC(batches[0].qc))
 	tips := db.Status()
 	require.Equal(t, batches[0].next, tips.NextQC)
 	require.Zero(t, tips.NextBlock, "QC-only store has no block tip")
@@ -636,12 +641,12 @@ func testPruneQCAheadOfBlocks(t *testing.T, build builder) {
 	// its range. Now latestQCStartBlock (b1.first) exceeds lastBlockNumber (the
 	// last block of b0), since QCs are contiguous (b1.first == b0.next).
 	b0 := batches[0]
-	require.NoError(t, db.WriteQC(b0.first, b0.next, b0.qc))
+	require.NoError(t, db.WriteQC(b0.qc))
 	for i, blk := range b0.blocks {
 		require.NoError(t, db.WriteBlock(b0.first+gbn(i), blk))
 	}
 	b1 := batches[1]
-	require.NoError(t, db.WriteQC(b1.first, b1.next, b1.qc))
+	require.NoError(t, db.WriteQC(b1.qc))
 	require.Equal(t, b0.next, b1.first, "QCs must be contiguous for this setup")
 
 	newest := b0.next - 1 // newest actual block; b1.first == b0.next > newest
@@ -673,7 +678,7 @@ func testPruneQCOnlyThenWriteBlock(t *testing.T, build builder) {
 
 	// Write only the QC of the first cohort — no blocks yet (hasQC, !hasBlocks).
 	b0 := batches[0]
-	require.NoError(t, db.WriteQC(b0.first, b0.next, b0.qc))
+	require.NoError(t, db.WriteQC(b0.qc))
 
 	// Prune far past the QC. With no blocks, this must be a no-op; the QC cannot
 	// be deleted or a later covered WriteBlock would be orphaned.
@@ -700,7 +705,7 @@ func testIteratorSnapshot(t *testing.T, build builder) {
 
 	// Write only the first batch, then snapshot an iterator over it.
 	first := batches[0]
-	require.NoError(t, db.WriteQC(first.first, first.next, first.qc))
+	require.NoError(t, db.WriteQC(first.qc))
 	for i, blk := range first.blocks {
 		require.NoError(t, db.WriteBlock(first.first+gbn(i), blk))
 	}
@@ -725,7 +730,7 @@ func testWriteOrderRejected(t *testing.T, build builder) {
 
 	// Write the first batch normally (QC before its blocks).
 	b0 := batches[0]
-	require.NoError(t, db.WriteQC(b0.first, b0.next, b0.qc))
+	require.NoError(t, db.WriteQC(b0.qc))
 	for i, blk := range b0.blocks {
 		require.NoError(t, db.WriteBlock(b0.first+gbn(i), blk))
 	}
@@ -734,8 +739,8 @@ func testWriteOrderRejected(t *testing.T, build builder) {
 	err := db.WriteBlock(b0.first, b0.blocks[0])
 	require.ErrorIs(t, err, types.ErrBlockOutOfOrder)
 
-	// Re-writing the same QC (non-contiguous lowerBound) is rejected.
-	err = db.WriteQC(b0.first, b0.next, b0.qc)
+	// Re-writing the same QC (its range no longer starts at NextQC) is rejected.
+	err = db.WriteQC(b0.qc)
 	require.ErrorIs(t, err, types.ErrQCNonContiguous)
 
 	// The original records are intact after the rejected writes.
@@ -775,13 +780,13 @@ func testWriteOrderRejectedAfterRestart(t *testing.T, build builder) {
 
 	// Re-writing an already-persisted QC is still a contiguity violation: only
 	// true if lastQCNext/hasQC were recovered from disk.
-	err = db.WriteQC(last.first, last.next, last.qc)
+	err = db.WriteQC(last.qc)
 	require.ErrorIs(t, err, types.ErrQCNonContiguous,
 		"reopened DB must reject a non-contiguous QC (lastQCNext not recovered)")
 
 	// The contiguous continuation is accepted — this succeeds only if the cursors
 	// were recovered to their exact pre-restart values.
-	require.NoError(t, db.WriteQC(tail.first, tail.next, tail.qc))
+	require.NoError(t, db.WriteQC(tail.qc))
 	for i, blk := range tail.blocks {
 		require.NoError(t, db.WriteBlock(tail.first+gbn(i), blk))
 	}
@@ -833,7 +838,7 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 
 	// The recovered QC's upper bound is exactly where the continuation begins;
 	// writing the next contiguous batch must be accepted.
-	require.NoError(t, db.WriteQC(tail.first, tail.next, tail.qc))
+	require.NoError(t, db.WriteQC(tail.qc))
 	for i, blk := range tail.blocks {
 		require.NoError(t, db.WriteBlock(tail.first+gbn(i), blk))
 	}
@@ -949,17 +954,17 @@ func testIteratorTail(t *testing.T, build builder) {
 	b0 := batches[0]
 	b1 := batches[1]
 	b2 := batches[2]
-	require.NoError(t, db.WriteQC(b0.first, b0.next, b0.qc))
+	require.NoError(t, db.WriteQC(b0.qc))
 	for i, blk := range b0.blocks {
 		require.NoError(t, db.WriteBlock(b0.first+gbn(i), blk))
 	}
-	require.NoError(t, db.WriteQC(b1.first, b1.next, b1.qc))
+	require.NoError(t, db.WriteQC(b1.qc))
 	partial := len(b1.blocks) / 2
 	require.Greater(t, partial, 0, "need at least one block in the partially-filled cohort")
 	for i := 0; i < partial; i++ {
 		require.NoError(t, db.WriteBlock(b1.first+gbn(i), b1.blocks[i]))
 	}
-	require.NoError(t, db.WriteQC(b2.first, b2.next, b2.qc))
+	require.NoError(t, db.WriteQC(b2.qc))
 
 	lastBlock := b1.first + gbn(partial-1)
 
@@ -999,7 +1004,7 @@ func testIteratorClampsUpToCoverage(t *testing.T, build builder) {
 	rng := utils.TestRngFromSeed(testSeed + 99)
 	first := types.GlobalBlockNumber(100)
 	next := types.GlobalBlockNumber(105)
-	require.NoError(t, db.WriteQC(first, next, types.GenFullCommitQCRange(rng, first, next)))
+	require.NoError(t, db.WriteQC(types.GenFullCommitQCRange(rng, first, next)))
 	for n := first; n < next; n++ {
 		require.NoError(t, db.WriteBlock(n, types.GenBlock(rng)))
 	}
@@ -1041,7 +1046,7 @@ func testWriteBlockRequiresQC(t *testing.T, build builder) {
 	require.ErrorIs(t, err, types.ErrBlockMissingQC, "block before any QC must be rejected")
 
 	// After the covering QC, every block in its range is accepted.
-	require.NoError(t, db.WriteQC(b.first, b.next, b.qc))
+	require.NoError(t, db.WriteQC(b.qc))
 	for i, blk := range b.blocks {
 		require.NoError(t, db.WriteBlock(b.first+gbn(i), blk))
 	}
@@ -1049,6 +1054,85 @@ func testWriteBlockRequiresQC(t *testing.T, build builder) {
 	// A block at next (just past the covered range) has no covering QC yet.
 	err = db.WriteBlock(b.next, batches[1].blocks[0])
 	require.ErrorIs(t, err, types.ErrBlockMissingQC, "block past the covered range must be rejected")
+}
+
+// testWriteQCCoversNoBlocksRejected asserts that a QC covering an empty range is
+// rejected identically by every backend. WriteQC derives the covered range from
+// the QC alone, so a zero-header QC is the only way to ask a backend to store a
+// QC that serves no block number — and storing one would put a record in the
+// table that no iterator position can ever reach.
+func testWriteQCCoversNoBlocksRejected(t *testing.T, build builder) {
+	rng := utils.TestRngFromSeed(testSeed)
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+
+	err := db.WriteQC(types.GenFullCommitQCRange(rng, 0, 0))
+	require.ErrorIs(t, err, types.ErrQCNonContiguous, "QC covering no blocks must be rejected")
+
+	// The rejection persisted nothing: the store is still empty, so a QC that
+	// does cover blocks is still accepted at 0.
+	require.Zero(t, db.Status().NextQC)
+	require.NoError(t, db.WriteQC(types.GenFullCommitQCRange(rng, 0, 3)))
+	require.Equal(t, gbn(3), db.Status().NextQC)
+}
+
+// testIteratorBlockRequiresPosition asserts the one precondition the iterator API
+// still carries, identically on every backend. Number, QC and presence come out of
+// Next by value, so they cannot be read out of window at all; Block is the only
+// accessor left with a positioned precondition (it is the only one that performs
+// IO, which is why it is not a Position field). Every window in which it can be
+// called without a position must report misuse rather than answer for a stale one.
+func testIteratorBlockRequiresPosition(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+	writeAll(t, db, batches[:1])
+
+	t.Run("BeforeFirstNext", func(t *testing.T) {
+		it := openIterator(t, db)
+		defer func() { _ = it.Close() }()
+		_, err := it.Block()
+		require.Error(t, err, "Block before the first Next must report misuse")
+	})
+
+	t.Run("AfterExhaustion", func(t *testing.T) {
+		it := openIterator(t, db)
+		defer func() { _ = it.Close() }()
+		for {
+			_, ok, err := it.Next()
+			require.NoError(t, err)
+			if !ok {
+				break
+			}
+		}
+		_, err := it.Block()
+		require.Error(t, err, "Block after exhaustion must report misuse, not repeat the last position")
+	})
+
+	t.Run("AfterClose", func(t *testing.T) {
+		it := openIterator(t, db)
+		pos, ok, err := it.Next()
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.True(t, pos.HasBlock, "the first position must hold a block for this case to bite")
+		require.NoError(t, it.Close())
+		_, err = it.Block()
+		require.Error(t, err, "Block after Close must report misuse, not read a released snapshot")
+	})
+
+	t.Run("EmptyIterator", func(t *testing.T) {
+		empty, _ := openFresh(t, build)
+		defer func() { _ = empty.Close() }()
+		it := openIterator(t, empty)
+		defer func() { _ = it.Close() }()
+		pos, ok, err := it.Next()
+		require.NoError(t, err, "an empty store exhausts cleanly")
+		require.False(t, ok)
+		require.Equal(t, types.Position{}, pos, "an unyielded position must be the zero value")
+		_, err = it.Block()
+		require.Error(t, err, "Block on an empty iterator must report misuse")
+	})
 }
 
 // testWriteBlockGapRejected asserts that blocks must be written densely: a
@@ -1063,7 +1147,7 @@ func testWriteBlockGapRejected(t *testing.T, build builder) {
 	defer func() { _ = db.Close() }()
 
 	b := batches[0]
-	require.NoError(t, db.WriteQC(b.first, b.next, b.qc))
+	require.NoError(t, db.WriteQC(b.qc))
 	require.GreaterOrEqual(t, len(b.blocks), 3, "need at least 3 covered numbers to attempt a gap")
 	require.NoError(t, db.WriteBlock(b.first, b.blocks[0]))
 
@@ -1270,7 +1354,7 @@ func gbn(i int) types.GlobalBlockNumber {
 // is written first because WriteBlock rejects a block with no covering QC.
 func writeAll(t *testing.T, db types.BlockDB, batches []batch) {
 	for _, b := range batches {
-		require.NoError(t, db.WriteQC(b.first, b.next, b.qc))
+		require.NoError(t, db.WriteQC(b.qc))
 		for i, blk := range b.blocks {
 			require.NoError(t, db.WriteBlock(b.first+gbn(i), blk))
 		}

@@ -76,20 +76,20 @@ func TestLittblockNoBlockWithoutQCAfterTornTail(t *testing.T) {
 	defer func() { _ = it.Close() }()
 	present := 0
 	for {
-		ok, err := it.Next()
+		pos, ok, err := it.Next()
 		require.NoError(t, err)
 		if !ok {
 			break
 		}
-		// QC() being non-nil at every position (checked by the iterator contract)
-		// is the covering-QC invariant; cross-check via the point-read path too.
-		n := it.Number()
+		// pos.QC being non-nil at every position (guaranteed by the iterator
+		// contract) is the covering-QC invariant; cross-check via the point-read
+		// path too.
+		n := pos.Number
+		require.NotNil(t, pos.QC, "position %d has no covering QC", n)
 		qc, err := db2.ReadQCByBlockNumber(n)
 		require.NoError(t, err)
 		require.True(t, qc.IsPresent(), "position %d survived but its covering QC was lost", n)
-		blk, err := it.Block()
-		require.NoError(t, err)
-		if blk.IsPresent() {
+		if pos.HasBlock {
 			present++
 		}
 	}
@@ -230,18 +230,17 @@ func TestLittblockFlushSurvivesHardKill(t *testing.T) {
 	defer func() { _ = it.Close() }()
 	present := 0
 	for {
-		ok, err := it.Next()
+		pos, ok, err := it.Next()
 		require.NoError(t, err)
 		if !ok {
 			break
 		}
-		n := it.Number()
+		n := pos.Number
+		require.NotNil(t, pos.QC, "position %d has no covering QC", n)
 		qc, err := db.ReadQCByBlockNumber(n)
 		require.NoError(t, err)
 		require.True(t, qc.IsPresent(), "position %d lost its covering QC after hard kill", n)
-		blk, err := it.Block()
-		require.NoError(t, err)
-		if blk.IsPresent() {
+		if pos.HasBlock {
 			present++
 		}
 	}

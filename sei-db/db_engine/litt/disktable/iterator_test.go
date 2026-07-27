@@ -102,7 +102,8 @@ func drainIterator(t *testing.T, it litt.Iterator) []iterEntry {
 		if !ok {
 			break
 		}
-		key, isPrimary := it.GetKey()
+		key, isPrimary, err := it.GetKey()
+		require.NoError(t, err)
 		value, err := it.GetValue()
 		require.NoError(t, err)
 		entries = append(entries, iterEntry{
@@ -563,7 +564,8 @@ func TestIteratorSkipValues(t *testing.T) {
 				if !ok {
 					break
 				}
-				key, _ := it.GetKey()
+				key, _, err := it.GetKey()
+				require.NoError(t, err)
 				// Read the value for only every third key, forcing the reader to skip the others.
 				if seen%3 == 0 {
 					value, err := it.GetValue()
@@ -727,7 +729,8 @@ func TestIteratorLargeValues(t *testing.T) {
 				if !ok {
 					break
 				}
-				key, _ := it.GetKey()
+				key, _, err := it.GetKey()
+				require.NoError(t, err)
 				value, err := it.GetValue()
 				require.NoError(t, err)
 				require.Equal(t, expected[string(key)], value)
@@ -815,6 +818,74 @@ func TestIteratorLifecycle(t *testing.T) {
 	// Close is idempotent.
 	require.NoError(t, it.Close())
 	require.NoError(t, it.Close())
+}
+
+// TestIteratorAccessorsRejectMisuse pins the lifecycle enforcement on GetKey and GetValue. The accessors
+// are valid only while the iterator is positioned — after Next has returned (true, nil) and before Close.
+// Outside that window they must report an error: before the fix they returned the stale key, or (after
+// Close) read segments whose reservations had already been released. Both directions are covered because
+// each iterator carries its own copy of the guards, and the reverse iterator's post-Close GetValue reads
+// the released segment directly rather than through a buffered reader.
+func TestIteratorAccessorsRejectMisuse(t *testing.T) {
+	t.Parallel()
+
+	for _, reverse := range []bool{false, true} {
+		name := "forward"
+		if reverse {
+			name = "reverse"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			directory := t.TempDir()
+			table := buildIterTable(t, time.Now, "misuse-"+name, directory, 2, 1)
+			defer func() { require.NoError(t, table.Close()) }()
+
+			for _, k := range []string{"k0", "k1", "k2"} {
+				require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+			}
+
+			// Not positioned: Next has not been called yet.
+			it, err := table.Iterator(reverse)
+			require.NoError(t, err)
+			_, _, err = it.GetKey()
+			require.ErrorContains(t, err, "not positioned")
+			_, err = it.GetValue()
+			require.ErrorContains(t, err, "not positioned")
+
+			ok, err := it.Next()
+			require.NoError(t, err)
+			require.True(t, ok)
+			key, _, err := it.GetKey()
+			require.NoError(t, err, "accessors must work while positioned")
+			require.NotEmpty(t, key)
+
+			// Not positioned: the scan has been drained.
+			for ok {
+				ok, err = it.Next()
+				require.NoError(t, err)
+			}
+			_, _, err = it.GetKey()
+			require.ErrorContains(t, err, "not positioned", "exhaustion must clear the position")
+			_, err = it.GetValue()
+			require.ErrorContains(t, err, "not positioned")
+
+			// Closed. Re-position first, so the guard being tested is `closed` and not exhaustion.
+			it, err = table.Iterator(reverse)
+			require.NoError(t, err)
+			ok, err = it.Next()
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.NoError(t, it.Close())
+
+			_, _, err = it.GetKey()
+			require.ErrorContains(t, err, "closed")
+			_, err = it.GetValue()
+			require.ErrorContains(t, err, "closed")
+			_, err = it.Next()
+			require.ErrorContains(t, err, "closed")
+		})
+	}
 }
 
 // TestReadsAndWritesDuringOpenIterator verifies that ordinary reads and writes work while an iterator is

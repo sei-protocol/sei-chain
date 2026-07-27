@@ -45,13 +45,18 @@ type blockDBIterator struct {
 	// start that lands mid-cohort follows the whole cohort's blocks in the scan) are skipped.
 	startN types.GlobalBlockNumber
 
-	// expectStartQC is true when the scan was positioned at qcKey(startN), whose first record is the
-	// covering QC's primary or covered-number alias rather than a record the normal dispatch
-	// handles.
+	// expectStartQC is one-shot state, not a mode: every non-empty iterator is positioned at
+	// qcKey(startN), so the scan's very first record is the covering QC's primary or
+	// covered-number alias rather than a record the normal dispatch handles. Cleared once that
+	// record is consumed.
 	expectStartQC bool
 
 	// started is false until the first Next call establishes the start position.
 	started bool
+
+	// positioned is true only while the iterator sits on a number Next yielded. Block
+	// rejects calls made when it is false.
+	positioned bool
 
 	// n is the current number; valid while positioned (after Next has returned true).
 	n types.GlobalBlockNumber
@@ -75,9 +80,13 @@ type blockDBIterator struct {
 	exhausted bool
 }
 
-func (l *blockDBIterator) Next() (bool, error) {
+func (l *blockDBIterator) Next() (types.Position, bool, error) {
+	// Any exit other than a yielded position leaves the iterator unpositioned, so a
+	// subsequent Block() reports misuse rather than answering for a stale position.
+	l.positioned = false
+
 	if l.it == nil {
-		return false, nil
+		return types.Position{}, false, nil
 	}
 
 	var next types.GlobalBlockNumber
@@ -91,11 +100,18 @@ func (l *blockDBIterator) Next() (bool, error) {
 	} else {
 		// The start position needs the first covering QC in hand before a number can be yielded.
 		if err := l.fill(); err != nil {
-			return false, err
+			return types.Position{}, false, err
 		}
 		if l.current == nil {
-			// No retained QC at all: no number is covered.
-			return false, nil
+			if l.heldBlock {
+				// A block record precedes every retained QC. The write path guarantees a
+				// covering QC precedes every block, so this is corruption — the same
+				// condition as the mid-scan check below, reached before any QC is in hand.
+				return types.Position{}, false,
+					fmt.Errorf("corrupt store: block %d has no QC coverage", l.heldNumber)
+			}
+			// No retained QC and no block record: no number is covered.
+			return types.Position{}, false, nil
 		}
 		next = l.startN
 		if next < l.current.first {
@@ -113,13 +129,14 @@ func (l *blockDBIterator) Next() (bool, error) {
 		if l.heldBlock {
 			// A block record at heldNumber >= next is waiting, but no QC covers next. The write
 			// path guarantees a covering QC precedes every block, so this is corruption.
-			return false, fmt.Errorf("corrupt store: block %d has no QC coverage", l.heldNumber)
+			return types.Position{}, false,
+				fmt.Errorf("corrupt store: block %d has no QC coverage", l.heldNumber)
 		}
 		if l.exhausted {
-			return false, nil
+			return types.Position{}, false, nil
 		}
 		if err := l.fill(); err != nil {
-			return false, err
+			return types.Position{}, false, err
 		}
 	}
 
@@ -127,19 +144,21 @@ func (l *blockDBIterator) Next() (bool, error) {
 	// remains) so presence is decidable.
 	if !l.heldBlock && !l.exhausted {
 		if err := l.fill(); err != nil {
-			return false, err
+			return types.Position{}, false, err
 		}
 	}
 	if l.heldBlock && l.heldNumber != next {
 		// Blocks are written densely, so a missing number below the highest persisted block can
 		// only be corruption.
-		return false, fmt.Errorf("%w: corrupt store: block gap at %d (next persisted block is %d)",
-			types.ErrBlockGap, next, l.heldNumber)
+		return types.Position{}, false,
+			fmt.Errorf("%w: corrupt store: block gap at %d (next persisted block is %d)",
+				types.ErrBlockGap, next, l.heldNumber)
 	}
 
 	l.n = next
 	l.started = true
-	return true, nil
+	l.positioned = true
+	return types.Position{Number: next, QC: l.current.qc, HasBlock: l.heldBlock}, true, nil
 }
 
 // fill advances the underlying scan until it holds an unconsumed block record or exhausts,
@@ -154,7 +173,10 @@ func (l *blockDBIterator) fill() error {
 			l.exhausted = true
 			return nil
 		}
-		key, isPrimary := l.it.GetKey()
+		key, isPrimary, err := l.it.GetKey()
+		if err != nil {
+			return fmt.Errorf("failed to read ledger key: %w", err)
+		}
 		switch {
 		case l.expectStartQC:
 			// The scan was positioned at qcKey(start): the first record is the covering
@@ -202,11 +224,8 @@ func (l *blockDBIterator) collectQC() error {
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal QC: %w", err)
 	}
-	// The covered range is First plus one header per covered block. GlobalRange().Next is not
-	// used because it is recomputed from lane ranges on decode rather than round-tripped; the
-	// header count is the range-size source the rest of littblock trusts (see recoverCursors).
-	first := qc.QC().GlobalRange().First
-	entry := &coveredQC{qc: qc, first: first, next: first + types.GlobalBlockNumber(len(qc.Headers()))}
+	first, next := coveredRange(qc)
+	entry := &coveredQC{qc: qc, first: first, next: next}
 	if uint64(entry.next) <= l.watermark {
 		// The whole range is below the retention floor: none of its numbers are served.
 		return nil
@@ -228,15 +247,10 @@ func (l *blockDBIterator) collectQC() error {
 	return nil
 }
 
-func (l *blockDBIterator) Number() types.GlobalBlockNumber {
-	return l.n
-}
-
-func (l *blockDBIterator) QC() (*types.FullCommitQC, error) {
-	return l.current.qc, nil
-}
-
 func (l *blockDBIterator) Block() (utils.Option[*types.Block], error) {
+	if !l.positioned {
+		return utils.None[*types.Block](), fmt.Errorf("iterator is not positioned on a block number")
+	}
 	if !l.heldBlock {
 		// The tail of the ledger: the covering QC is persisted but this block is not.
 		return utils.None[*types.Block](), nil
@@ -253,6 +267,9 @@ func (l *blockDBIterator) Block() (utils.Option[*types.Block], error) {
 }
 
 func (l *blockDBIterator) Close() error {
+	// A closed iterator holds no position, so Block() reports misuse rather than
+	// reading through a released snapshot.
+	l.positioned = false
 	if l.it == nil {
 		return nil
 	}

@@ -223,15 +223,14 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 			}
 			defer func() { _ = it.Close() }()
 			for {
-				ok, err := it.Next()
-				if err != nil || !ok {
-					return err
-				}
-				n := it.Number()
-				qc, err := it.QC()
+				pos, ok, err := it.Next()
 				if err != nil {
-					return err
+					return fmt.Errorf("advance block db iterator: %w", err)
 				}
+				if !ok {
+					return nil
+				}
+				n, qc := pos.Number, pos.QC
 				gr := qc.QC().GlobalRange()
 				if len(in.qcs) == 0 {
 					// First QC: skipTo its First to advance past any pruned prefix.
@@ -251,16 +250,16 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 						return fmt.Errorf("load QC from BlockDB: %w", err)
 					}
 				}
-				blkOpt, err := it.Block()
-				if err != nil {
-					return err
-				}
-				blk, present := blkOpt.Get()
-				if !present {
+				if !pos.HasBlock {
 					// The iteration tail: the covering QC is persisted but this block is
 					// not (lost in a crash, or written ahead of its blocks).
 					continue
 				}
+				blkOpt, err := it.Block()
+				if err != nil {
+					return fmt.Errorf("read block %d from BlockDB: %w", n, err)
+				}
+				blk := blkOpt.OrPanic(fmt.Sprintf("block %d absent at a HasBlock position", n))
 				e, ok := s.cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
 				if !ok {
 					return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
@@ -757,7 +756,7 @@ func (s *State) runPersist(ctx context.Context) error {
 		// Write QCs first (BlockDB contract: QC must precede covered blocks).
 		for _, qc := range b.qcs {
 			gr := qc.QC().GlobalRange()
-			if err := s.blockDB.WriteQC(gr.First, gr.Next, qc); err != nil {
+			if err := s.blockDB.WriteQC(qc); err != nil {
 				return fmt.Errorf("write QC [%d,%d): %w", gr.First, gr.Next, err)
 			}
 			if gr.Next > nextToPersistQC {

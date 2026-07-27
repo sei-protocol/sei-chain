@@ -184,26 +184,19 @@ func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
 	}
 	defer func() { _ = it.Close() }()
 	for {
-		ok, err := it.Next()
+		pos, ok, err := it.Next()
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to advance ledger iterator: %w", err)
 		}
 		if !ok {
 			break
 		}
-		qc, err := it.QC()
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to read QC: %w", err)
-		}
-		if qc.QC().GlobalRange().First == it.Number() {
+		if pos.QC.QC().GlobalRange().First == pos.Number {
 			// The scan entered a new QC's range.
 			qcs++
 		}
-		blk, err := it.Block()
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to read block: %w", err)
-		}
-		if blk.IsPresent() {
+		// Presence comes off the position, so counting never reads a block value.
+		if pos.HasBlock {
 			blocks++
 		}
 	}
@@ -334,7 +327,7 @@ func (b *BlockSim) maybeThrottle() {
 // partial batch.
 func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 	b.metrics.SetMainThreadPhase("write_qc")
-	if err := b.db.WriteQC(batch.first, batch.next, batch.qc); err != nil {
+	if err := b.db.WriteQC(batch.qc); err != nil {
 		fmt.Printf("failed to write QC: %v\n", err)
 		b.cancel()
 		return

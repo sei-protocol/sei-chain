@@ -114,6 +114,20 @@ func encodeQC(qc *types.FullCommitQC) []byte {
 	return value
 }
 
+// coveredRange returns the half-open global block number range the QC covers,
+// as specified by types.BlockDB.WriteQC: [First, First+len(Headers())).
+//
+// The upper bound is derived from the header count rather than read from
+// GlobalRange().Next — the two are equal by FullCommitQC's own invariant, but
+// First and Headers are the only two fields the wire format carries explicitly.
+// GlobalRange().Next is recomputed from the proposal's lane ranges on decode,
+// so deriving from the encoded fields is what makes a QC's range identical
+// before and after a round trip through the table.
+func coveredRange(qc *types.FullCommitQC) (types.GlobalBlockNumber, types.GlobalBlockNumber) {
+	first := qc.QC().GlobalRange().First
+	return first, first + types.GlobalBlockNumber(len(qc.Headers()))
+}
+
 // decodeQC unmarshals a FullCommitQC from the value produced by encodeQC.
 func decodeQC(value []byte) (*types.FullCommitQC, error) {
 	if len(value) < 1 {

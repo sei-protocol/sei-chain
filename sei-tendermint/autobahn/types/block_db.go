@@ -42,8 +42,8 @@ import (
 //     one greater than the previously written block's (the first block may
 //     start anywhere its covering QC allows). WriteBlock returns
 //     ErrBlockOutOfOrder otherwise.
-//   - QCs must be written contiguously — each WriteQC's lowerBound
-//     must equal the previous WriteQC's upperBound. WriteQC returns
+//   - QCs must be written contiguously — each QC's GlobalRange().First
+//     must equal the previous QC's GlobalRange().Next. WriteQC returns
 //     ErrQCNonContiguous otherwise.
 //   - QCs must be written before blocks. A QC covering a block must
 //     be written before that block is written.
@@ -83,16 +83,21 @@ type BlockDB interface {
 	// so loss of non-durable data after a crash never leaves gaps.
 	WriteBlock(n GlobalBlockNumber, block *Block) error
 
-	// WriteQC persists a FullCommitQC covering the half-open global block
-	// number range [lowerBound, upperBound) — lowerBound inclusive,
-	// upperBound exclusive (i.e. the QC finalizes lowerBound, lowerBound+1,
-	// ..., upperBound-1).
+	// WriteQC persists a FullCommitQC. The QC carries the range it covers,
+	// so no range is passed alongside it: the covered range is the half-open
+	// interval [First, First+len(Headers())), where First is
+	// qc.QC().GlobalRange().First. FullCommitQC's own invariant makes that
+	// identical to qc.QC().GlobalRange().Next; implementations derive the
+	// bound from the header count because First and Headers are the fields
+	// the wire format carries explicitly, so the persisted range is stable
+	// across an encode/decode round trip. A QC covering no blocks
+	// (len(Headers()) == 0) is rejected.
 	//
-	// Successive WriteQC calls must form a contiguous sequence: each
-	// call's lowerBound must equal the previous call's upperBound (the
-	// first QC may start anywhere). A gap or overlap returns
-	// ErrQCNonContiguous and persists nothing. Writes are NOT idempotent —
-	// re-writing a QC is rejected rather than treated as a no-op.
+	// Successive WriteQC calls must form a contiguous sequence: each QC's
+	// First must equal the previous QC's covered bound (the first QC may
+	// start anywhere). A gap or overlap returns ErrQCNonContiguous and
+	// persists nothing. Writes are NOT idempotent — re-writing a QC is
+	// rejected rather than treated as a no-op.
 	//
 	// May return before the QC is on disk. See the BlockDB type doc for
 	// the two-phase write/flush contract and WriteBlock for the
@@ -100,11 +105,7 @@ type BlockDB interface {
 	//
 	// Writes are made crash durable in write order (both blocks and QCs),
 	// so loss of non-durable data after a crash never leaves gaps.
-	WriteQC(
-		lowerBound GlobalBlockNumber,
-		upperBound GlobalBlockNumber,
-		qc *FullCommitQC,
-	) error
+	WriteQC(qc *FullCommitQC) error
 
 	// PruneBefore advances the retention watermark toward n and removes
 	// everything below it:
@@ -241,8 +242,9 @@ type DBStatus struct {
 	// NextBlock is one past the highest GlobalBlockNumber accepted by WriteBlock
 	// (the next block number that may be written). Zero if no block has been written.
 	NextBlock GlobalBlockNumber
-	// NextQC is the exclusive upper bound of the last WriteQC (the next QC
-	// range must start here). Zero if no QC has been written.
+	// NextQC is one past the highest GlobalBlockNumber covered by the last QC
+	// accepted by WriteQC (the next QC's range must start here). Zero if no QC
+	// has been written.
 	NextQC GlobalBlockNumber
 }
 
@@ -258,41 +260,50 @@ type DBStatus struct {
 //
 // A BlockDBIterator is NOT safe for concurrent use by multiple goroutines.
 type BlockDBIterator interface {
-	// Next advances the iterator to the next block number. It returns false
-	// when the iteration is complete (no number covered by a retained QC
-	// remains), and returns an error if advancing failed or the store is
-	// corrupt (a block missing below the highest persisted block — writes
-	// are dense, so a gap can only be corruption). After Next returns
-	// (false, nil) iteration is complete; after it returns an error the
-	// iterator must not be used further (other than Close).
-	Next() (bool, error)
+	// Next advances the iterator and returns the position it advanced to. ok
+	// is false when the iteration is complete (no number covered by a
+	// retained QC remains), and Position is then the zero value. It returns
+	// an error if advancing failed or the store is corrupt (a block missing
+	// below the highest persisted block — writes are dense, so a gap can
+	// only be corruption). After Next returns ok == false iteration is
+	// complete; after it returns an error the iterator must not be used
+	// further (other than Close).
+	Next() (pos Position, ok bool, err error)
 
-	// Number returns the current GlobalBlockNumber. It is only valid to
-	// call after Next has returned (true, nil). This is cheap and does not
-	// perform IO — a caller can scan numbers and choose which blocks to
-	// materialize via Block.
-	Number() GlobalBlockNumber
-
-	// QC returns the FullCommitQC covering the current number: its
-	// GlobalRange contains Number(). It never returns None-like results —
-	// every yielded number is covered by construction — and the same QC is
-	// returned for every number in its range. It is only valid to call
-	// after Next has returned (true, nil). The value is decoded once per
-	// QC, not once per number.
-	QC() (*FullCommitQC, error)
-
-	// Block reads and returns the block at the current number, or None if
-	// no block is persisted there. Because QCs are written before the
-	// blocks they cover and blocks are written densely, None occurs only
-	// in the trailing positions of the iteration: numbers whose covering
-	// QC was persisted but whose block was not (e.g. lost in a crash, or
-	// not yet written). It is only valid to call after Next has returned
-	// (true, nil), and may perform IO (and so return an error). The Block
-	// type does not carry its GlobalBlockNumber; pair it with Number.
+	// Block reads and returns the block at the position most recently
+	// returned by Next, or None if no block is persisted there —
+	// equivalently, None exactly when that Position's HasBlock is false.
+	//
+	// This is the one call that may perform IO, which is why it is not a
+	// Position field: a caller that only needs numbers, QCs or presence
+	// never pays for it. Calling it without a preceding Next that returned
+	// ok == true, or after Close, returns an error.
 	Block() (utils.Option[*Block], error)
 
 	// Close releases the resources held by the iterator. MUST be called when
 	// done; failure to close may leak resources in disk-backed
 	// implementations.
 	Close() error
+}
+
+// Position is the record at one BlockDBIterator position. Every field is cheap
+// — populating a Position performs no IO — so a caller can scan positions and
+// materialize only the blocks it wants via BlockDBIterator.Block.
+type Position struct {
+	// Number is the GlobalBlockNumber this position covers.
+	Number GlobalBlockNumber
+
+	// QC is the FullCommitQC covering Number: its GlobalRange contains
+	// Number. Never nil — every yielded number is covered by construction —
+	// and the same pointer is returned for every position in its range. The
+	// value is decoded once per QC, not once per number.
+	QC *FullCommitQC
+
+	// HasBlock reports whether a block is persisted at Number, and so
+	// whether BlockDBIterator.Block will return Some. Because QCs are
+	// written before the blocks they cover and blocks are written densely,
+	// it is false only in the trailing positions of the iteration: numbers
+	// whose covering QC was persisted but whose block was not (e.g. lost in
+	// a crash, or not yet written).
+	HasBlock bool
 }

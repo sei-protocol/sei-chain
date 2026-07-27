@@ -199,12 +199,15 @@ type Iterator interface {
 	Next() (bool, error)
 
 	// GetKey returns the current key and whether it is a primary key (as opposed to a secondary key).
-	// It is only valid to call GetKey after Next has returned (true, nil). The returned key must not be
+	// It returns an error if the iterator is closed, or is not positioned on a key because Next has
+	// not yet returned (true, nil) or has since returned (false, nil). The returned key must not be
 	// modified.
-	GetKey() (key []byte, isPrimary bool)
+	GetKey() (key []byte, isPrimary bool, err error)
 
-	// GetValue reads and returns the value associated with the current key. It is only valid to call
-	// GetValue after Next has returned (true, nil). The returned value must not be modified.
+	// GetValue reads and returns the value associated with the current key. It returns an error if
+	// the read failed, if the iterator is closed, or if it is not positioned on a key because Next
+	// has not yet returned (true, nil) or has since returned (false, nil). The returned value must
+	// not be modified.
 	GetValue() (value []byte, err error)
 
 	// Close releases the resources held by the iterator.

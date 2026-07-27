@@ -196,8 +196,8 @@ func TestRecoveryBlocksBehind(t *testing.T) {
 
 	// Write both QCs but only qc1's blocks (simulate crash before qc2 blocks).
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
-	require.NoError(t, db1.WriteQC(gr2.First, gr2.Next, qc2))
+	require.NoError(t, db1.WriteQC(qc1))
+	require.NoError(t, db1.WriteQC(qc2))
 	for i, n := 0, gr1.First; n < gr1.Next; n++ {
 		require.NoError(t, db1.WriteBlock(n, blocks1[i]))
 		i++
@@ -244,7 +244,7 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 	// Write the QC for the full range, but write blocks only from mid onwards.
 	mid := gr1.First + (gr1.Next-gr1.First)/2
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
+	require.NoError(t, db1.WriteQC(qc1))
 	for i, n := 0, gr1.First; n < gr1.Next; n++ {
 		if n >= mid {
 			require.NoError(t, db1.WriteBlock(n, blocks1[i]))
@@ -316,7 +316,7 @@ func TestRecoveryQCsNoBlocks(t *testing.T) {
 	gr1 := qc1.QC().GlobalRange()
 
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
+	require.NoError(t, db1.WriteQC(qc1))
 	require.NoError(t, db1.Flush())
 	require.NoError(t, db1.Close())
 
@@ -351,7 +351,7 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 
 	// First WriteQC on an empty DB may start past genesis (crash / partial retain).
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr2.First, gr2.Next, qc2))
+	require.NoError(t, db1.WriteQC(qc2))
 	require.NoError(t, db1.Flush())
 	require.NoError(t, db1.Close())
 
@@ -405,7 +405,7 @@ func TestRecoveryBlockGap(t *testing.T) {
 
 	db1 := newTestBlockDB(t, dir)
 	defer func() { _ = db1.Close() }()
-	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
+	require.NoError(t, db1.WriteQC(qc1))
 
 	// Blocks up to the skip point write normally.
 	i := 0
