@@ -431,6 +431,9 @@ func CheckPubKeys(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKe
 			signerAcounts[i] = acc
 			continue
 		}
+		// Normal CheckTx/DeliverTx callers already validate provided pubkeys in
+		// CosmosStatelessChecks. Revalidate here as a defensive guard because the
+		// next step persists this pubkey to account state.
 		if err := validatePubKey(pk); err != nil {
 			return nil, err
 		}
