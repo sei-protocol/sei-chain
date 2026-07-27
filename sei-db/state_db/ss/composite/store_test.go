@@ -1208,6 +1208,42 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 	}
 }
 
+// TestImport_LegacyKeyMimickingEVMShapeStaysLegacy is a regression test for a
+// production-scale import failure: a non-EVM module key that coincidentally
+// starts with an EVM prefix byte and matches that kind's length check must
+// still be treated as legacy MiscData, not deserialized as an EVM vtype.
+// EVM kind parsing is only valid under the "evm" module, mirroring the write
+// side (classifyAndPrefix) and read routing (routePhysicalKey).
+func TestImport_LegacyKeyMimickingEVMShapeStaysLegacy(t *testing.T) {
+	addr := make([]byte, 20)
+	addr[0] = 0x11
+	slot := make([]byte, 32)
+	slot[31] = 0x22
+
+	// Inner key with the exact shape of an EVM storage key (prefix + addr +
+	// slot), but under a legacy module. The value is MiscData whose payload
+	// length differs from the fixed StorageData length, so a misclassified
+	// conversion would fail (or worse, silently corrupt).
+	mimicInnerKey := commonevm.BuildEVMKey(commonevm.EVMKeyStorage, append(addr, slot...))
+	mimicPhysKey := ktype.ModulePhysicalKey("staking", mimicInnerKey)
+	payload := []byte("legacy-value-that-is-not-32-bytes-long-at-all-....")
+	mimicVal := vtype.NewMiscData().SetValue(payload).Serialize()
+
+	store, cleanup := setupImportTestStore(t, true)
+	defer cleanup()
+
+	ch := make(chan types.SnapshotNode, 10)
+	go feedNodes(ch, []types.SnapshotNode{
+		{StoreKey: commonevm.FlatKVStoreKey, Key: mimicPhysKey, Value: mimicVal},
+	})
+
+	require.NoError(t, store.Import(1, ch))
+
+	got, err := store.cosmosStore.Get("staking", 1, mimicInnerKey)
+	require.NoError(t, err)
+	require.Equal(t, payload, got, "legacy key mimicking EVM storage shape must round-trip as MiscData under its module")
+}
+
 func TestImport_NonEvmModulesUnaffected(t *testing.T) {
 	store, cleanup := setupImportTestStore(t, true)
 	defer cleanup()
