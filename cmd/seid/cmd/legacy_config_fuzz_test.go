@@ -68,7 +68,7 @@ func applyLegacy(t *testing.T, home *configtest.Home, flagValues map[string]stri
 	t.Helper()
 	cmd, serverCtx := newApplyCommand(t, home)
 	setFlags(t, cmd, flagValues)
-	return applyResult{ctx: serverCtx, err: applyThrough(cmd, serverCtx)}
+	return applyResult{ctx: serverCtx, err: applyThrough(cmd)}
 }
 
 // newApplyCommand builds the command and server context Apply runs against, with
@@ -109,7 +109,11 @@ func setFlags(t *testing.T, cmd *cobra.Command, flagValues map[string]string) {
 
 // applyThrough runs the legacy manager against a command from newApplyCommand, using
 // the node's real template and config struct.
-func applyThrough(cmd *cobra.Command, _ *server.Context) error {
+//
+// It takes no server.Context: Apply reaches the one it populates through the command's own
+// context, set in newApplyCommand, so a parameter here would only imply the context is
+// threaded through this call.
+func applyThrough(cmd *cobra.Command) error {
 	template, appConfig := initAppConfig()
 	return configmanager.LegacyConfigManager{}.Apply(cmd, template, appConfig)
 }

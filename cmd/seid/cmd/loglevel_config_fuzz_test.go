@@ -51,7 +51,7 @@ func applyWithLogFlags(t *testing.T, home *configtest.Home, logLevel, logFormat 
 		}
 	}
 
-	return applyResult{ctx: serverCtx, err: applyThrough(cmd, serverCtx)}
+	return applyResult{ctx: serverCtx, err: applyThrough(cmd)}
 }
 
 // slogAcceptsLevel reports whether the resolved level parses, using the same parser

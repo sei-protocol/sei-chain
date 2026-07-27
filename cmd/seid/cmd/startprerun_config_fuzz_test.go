@@ -277,6 +277,34 @@ const (
 	cancelGrace = 10 * time.Second
 )
 
+// runEWaits returns the two bounds, shortened to fit the test binary's remaining deadline
+// when it has one.
+//
+// Waiting past the deadline would hand the run to go test's own timeout, whose message says
+// only that the binary ran too long. That is strictly worse than this row's diagnosis, and
+// it also means the terminal branch never executes to report whether the node stopped. So
+// when the remaining budget is smaller than the generous bounds, they scale down to fit and
+// keep a quarter of it back for the failure to be written.
+func runEWaits(t *testing.T) (bound, grace time.Duration) {
+	t.Helper()
+	bound, grace = runEBound, cancelGrace
+
+	deadline, ok := t.Deadline()
+	if !ok {
+		return bound, grace
+	}
+	budget := time.Until(deadline) * 3 / 4
+	if budget >= bound+grace {
+		return bound, grace
+	}
+	// A floor, so a nearly-expired deadline still gives RunE a moment rather than declaring
+	// an escape the instant the row starts.
+	if budget < 2*time.Second {
+		budget = 2 * time.Second
+	}
+	return budget * 3 / 4, budget / 4
+}
+
 func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (recovered any, err error) {
 	t.Helper()
 
@@ -284,6 +312,7 @@ func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (rec
 		recovered any
 		err       error
 	}
+	bound, grace := runEWaits(t)
 	outcome := make(chan result, 1)
 	go func() {
 		var res result
@@ -297,17 +326,17 @@ func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (rec
 	select {
 	case r := <-outcome:
 		return r.recovered, r.err
-	case <-time.After(runEBound):
+	case <-time.After(bound):
 		stop()
 		diagnosis := fmt.Sprintf("RunE neither returned nor panicked within %s, so it got past the "+
 			"guard that normally stops it and into startInProcess. That guard was presumably fixed "+
-			"and this row needs rewriting", runEBound)
+			"and this row needs rewriting", bound)
 		select {
 		case <-outcome:
 			// The node stopped, so the binary is clean and an ordinary failure is right.
 			t.Fatalf("%s. It stopped when the command context was cancelled", diagnosis)
 			return nil, nil
-		case <-time.After(cancelGrace):
+		case <-time.After(grace):
 		}
 		// A last non-blocking receive before the terminal branch. RunE may have completed in the
 		// window between the grace period expiring and this line, and in that case the goroutine
@@ -324,7 +353,7 @@ func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (rec
 		// environment and restores it while that node reads it. Panicking is the terminal action:
 		// it fails the binary here rather than leaving a corrupted one to produce results nobody
 		// should trust, and the goroutine dump shows what the node is doing.
-		panic(diagnosis + ", and it did not stop within " + cancelGrace.String() + " of the command " +
+		panic(diagnosis + ", and it did not stop within " + grace.String() + " of the command " +
 			"context being cancelled. Failing the whole binary deliberately: a live node with bound " +
 			"listeners must not outlive this test and be inherited by the ones after it")
 	}

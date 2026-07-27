@@ -253,7 +253,8 @@ func requireSmallMapRandomization(t *testing.T, runs, booted, failed int) {
 // distinction between the two rejection reasons without pinning either one's wording, for
 // the same reason as the mode rows in sei-tendermint/config: the guide asks for
 // errors.Is/As, the production site builds bare errors with no identity to match on, and
-// giving it one means editing production code this PR does not touch.
+// giving it one means editing production code this PR does not touch. Tracked as PLT-855, so
+// the exemption is a recorded decision rather than a precedent set in a comment.
 //
 // The distinction matters because the two mistakes have different fixes. A duplicate means
 // remove a line; an unsupported name means correct a spelling.

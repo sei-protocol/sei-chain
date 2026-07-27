@@ -128,8 +128,8 @@ func TestWriteBackMakesFileValuesLookLikeFlags(t *testing.T) {
 	home := configtest.NewHome(t)
 	home.WriteAppTOML(t, []byte("minimum-gas-prices = \"0.42usei\"\n"))
 
-	cmd, serverCtx := newApplyCommand(t, home)
-	if err := applyThrough(cmd, serverCtx); err != nil {
+	cmd, _ := newApplyCommand(t, home)
+	if err := applyThrough(cmd); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 

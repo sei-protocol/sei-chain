@@ -85,8 +85,9 @@ func FuzzValidateBasicMode(f *testing.F) {
 // It is expressed this way because there is nothing better available. The repo's guide asks
 // for errors.Is/As rather than message matching, and both sites build their errors with a
 // bare errors.New or fmt.Errorf, so there is no identity to match on. Giving them sentinels
-// means editing production code, which this PR deliberately does not do, so that is the
-// follow-up rather than something done here.
+// means editing production code, which this PR deliberately does not do. That follow-up is
+// tracked as PLT-855, so the exemption is a recorded decision rather than a precedent set
+// in a comment.
 func TestValidateBasicDistinguishesAnAbsentModeFromAnUnknownOne(t *testing.T) {
 	absent := DefaultConfig()
 	absent.Mode = ""

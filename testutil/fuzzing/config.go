@@ -2,8 +2,11 @@ package fuzzing
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Go's native fuzzer only generates scalars: []byte, string, the sized numeric
@@ -93,6 +96,28 @@ func ConfigValueKindName(kind uint8) string {
 	return names[kind%ConfigValueKinds]
 }
 
+// tomlBasicStringSafe reports whether %q's rendering of s is also legal TOML.
+//
+// The safe set is deliberately narrow: valid UTF-8, and every rune either printable or one
+// of the five whitespace escapes TOML and Go spell identically. That excludes exactly the
+// cases where the two escape vocabularies diverge, which is what makes %q usable for
+// everything it admits.
+func tomlBasicStringSafe(s string) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
+	for _, r := range s {
+		switch r {
+		case '\b', '\t', '\n', '\f', '\r':
+			continue
+		}
+		if !unicode.IsPrint(r) {
+			return false
+		}
+	}
+	return true
+}
+
 // TOMLScalar renders a value as the TOML text that would produce it, so a fuzz
 // target can drive the same value through the file layer and the appOpts layer
 // and compare. It returns ok=false for shapes with no single-line TOML spelling.
@@ -101,6 +126,20 @@ func TOMLScalar(v any) (string, bool) {
 	case nil:
 		return "", false
 	case string:
+		// %q renders Go escapes, and Go's set is wider than TOML's. TOML basic strings
+		// accept only \b \t \n \f \r \" \\ \uXXXX and \UXXXXXXXX, so a control byte
+		// rendered as \x01, a \v, or invalid UTF-8 rendered as \xNN all produce a
+		// document the parser rejects. Returning it with ok=true would make the caller
+		// attribute that parse failure to the layer under test, which for a differential
+		// means a spurious divergence rather than a finding.
+		//
+		// Such a value is declined rather than escaped by hand. The point of this helper is
+		// to put an identical value through two layers, so a value with no faithful TOML
+		// spelling has nothing to contribute, and hand-rolling the escape set would add a
+		// second encoder to keep correct.
+		if !tomlBasicStringSafe(t) {
+			return "", false
+		}
 		return fmt.Sprintf("%q", t), true
 	case bool:
 		return fmt.Sprintf("%t", t), true
@@ -109,6 +148,12 @@ func TOMLScalar(v any) (string, bool) {
 	case int64:
 		return fmt.Sprintf("%d", t), true
 	case uint64:
+		// TOML integers are signed 64-bit, so anything above MaxInt64 renders text the
+		// parser rejects. ConfigValue's uint64 kind produces exactly that shape on purpose,
+		// so a fuzzer reaches it as soon as this helper is wired to a target.
+		if t > math.MaxInt64 {
+			return "", false
+		}
 		return fmt.Sprintf("%d", t), true
 	case float64:
 		// TOML requires a fractional part or exponent on a float, and rejects the
