@@ -191,3 +191,27 @@ func TestDynamicGasPrecompileGasGate(t *testing.T) {
 	require.Nil(t, err)
 	require.NotEmpty(t, stateDB.Ctx().EventManager().Events())
 }
+
+// TestDynamicGasPrecompileExecutorOutOfGasPropagates verifies that an executor
+// exhausting its gas mid-execution (after the decode charges) propagates the
+// sdk.ErrorOutOfGas panic — so baseapp's out-of-gas middleware fails the whole
+// tx — rather than having it converted into a reverted sub-call. Only the decode
+// gas charges recover out-of-gas; executor out-of-gas keeps its prior semantics.
+func TestDynamicGasPrecompileExecutorOutOfGasPropagates(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	abiBz, err := os.ReadFile("erc20_abi.json")
+	require.Nil(t, err)
+	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
+	require.Nil(t, err)
+	input, err := newAbi.Pack("decimals")
+	require.Nil(t, err)
+
+	oog := sdk.ErrorOutOfGas{Descriptor: "executor"}
+	precompile := common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{panicWith: oog, evmKeeper: k}, ethcommon.Address{}, "test")
+	stateDB := state.NewDBImpl(ctx.WithEventManager(sdk.NewEventManager()), k, false)
+	// Ample gas so the decode charges pass and the executor (which OOGs) runs.
+	require.PanicsWithValue(t, oog, func() {
+		_, _, _ = precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 100000, big.NewInt(0), nil, false, false)
+	})
+}

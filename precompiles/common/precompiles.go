@@ -156,19 +156,6 @@ func NewDynamicGasPrecompile(a abi.ABI, executor DynamicGasPrecompileExecutor, a
 func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, hooks *tracing.Hooks, readOnly bool, isFromDelegateCall bool) (ret []byte, remainingGas uint64, err error) {
 	operation := fmt.Sprintf("%s_unknown", d.name)
 	defer func() {
-		// The calldata-decode gas charges below can panic with a gas-meter
-		// out-of-gas / overflow; turn only those into a reverted precompile call
-		// (a call that could not afford the decode), keeping the failure from
-		// aborting the enclosing EVM frame. Re-panic anything else so genuine
-		// bugs are not masked as reverts.
-		if r := recover(); r != nil {
-			switch r.(type) {
-			case sdk.ErrorOutOfGas, sdk.ErrorGasOverflow:
-				err = fmt.Errorf("%v", r)
-			default:
-				panic(r)
-			}
-		}
 		HandlePrecompileError(err, evm, operation)
 		if err != nil {
 			fmt.Printf("precompile %s encountered error: %v\n", d.name, err)
@@ -200,25 +187,14 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	// Install the gas meter derived from the supplied EVM gas, then charge for
 	// decoding the calldata BEFORE decoding it. A call that cannot afford the
 	// decode is rejected here, before the parse/allocation work is performed.
-	// ConsumeGas panics on out-of-gas; the deferred recover above turns that into
-	// a normal reverted precompile call.
+	// chargeDecodeGas scopes the out-of-gas recovery to just these charges, so an
+	// executor that later exhausts its gas keeps its normal (propagating)
+	// out-of-gas semantics.
 	gasLimit := d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), suppliedGas)
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
-
-	// Charge a length-proportional amount up front, before the structural scan
-	// inside DecodeGasCost runs, so the scan itself is bounded by the supplied gas
-	// and can never be performed for free even if it later becomes costlier.
-	scanCost := DefaultGasCost(input, false)
-	ctx.GasMeter().ConsumeGas(scanCost, fmt.Sprintf("%s precompile calldata scan", d.name))
-	decodeCost, ok := DecodeGasCost(method.Inputs, input)
-	if !ok {
-		// Calldata is structurally invalid (Unpack would reject it too); reject
-		// now, without attempting the decode.
-		return nil, 0, fmt.Errorf("invalid calldata encoding for %s", d.name)
+	if err = d.chargeDecodeGas(ctx, method, input); err != nil {
+		return nil, 0, err
 	}
-	// DecodeGasCost already includes scanCost; charge only the remaining
-	// (string-copy) portion so the decode is priced exactly once.
-	ctx.GasMeter().ConsumeGas(decodeCost-scanCost, fmt.Sprintf("%s precompile calldata decode", d.name))
 
 	args, err := method.Inputs.Unpack(input[4:])
 	if err != nil {
@@ -236,6 +212,38 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 		em.EmitEvents(ctx.EventManager().Events())
 	}
 	return ret, remainingGas, err
+}
+
+// chargeDecodeGas charges the (already-installed) gas meter for decoding the
+// calldata, before it is decoded: a length-proportional scan cost that also
+// bounds the DecodeGasCost scan, then the string-copy surcharge from
+// DecodeGasCost. Its out-of-gas / overflow recovery is deliberately scoped to
+// just these charges — a call that cannot afford the decode reverts here, while
+// an executor that later exhausts its gas keeps its normal propagating
+// out-of-gas semantics. Anything other than a gas-meter panic is re-raised.
+func (d DynamicGasPrecompile) chargeDecodeGas(ctx sdk.Context, method *abi.Method, input []byte) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			switch r.(type) {
+			case sdk.ErrorOutOfGas, sdk.ErrorGasOverflow:
+				err = fmt.Errorf("%v", r)
+			default:
+				panic(r)
+			}
+		}
+	}()
+	scanCost := DefaultGasCost(input, false)
+	ctx.GasMeter().ConsumeGas(scanCost, fmt.Sprintf("%s precompile calldata scan", d.name))
+	decodeCost, ok := DecodeGasCost(method.Inputs, input)
+	if !ok {
+		// Calldata is structurally invalid (Unpack would reject it too); reject
+		// now, without attempting the decode.
+		return fmt.Errorf("invalid calldata encoding for %s", d.name)
+	}
+	// DecodeGasCost already includes scanCost; charge only the remaining
+	// (string-copy) portion so the decode is priced exactly once.
+	ctx.GasMeter().ConsumeGas(decodeCost-scanCost, fmt.Sprintf("%s precompile calldata decode", d.name))
+	return nil
 }
 
 func (d DynamicGasPrecompile) GetExecutor() DynamicGasPrecompileExecutor {
