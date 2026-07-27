@@ -385,9 +385,12 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 	}))
 }
 
-// TestRecoveryBlockGap verifies that NewState returns an error when blocks in
-// BlockDB are not contiguous. WriteBlock only enforces strictly-ascending and
-// QC coverage, not continuity, so a gap can arise from corruption.
+// TestRecoveryBlockGap verifies that a block gap can never enter BlockDB in the
+// first place: WriteBlock enforces contiguity, so skipping a covered number is
+// rejected at write time. (A gap on disk can therefore only be corruption, which
+// the ledger iterator reports as ErrBlockGap during replay — pinned by
+// littblock's TestLittblockIteratorGapIsCorruption — and loadFromBlockDB
+// propagates.)
 func TestRecoveryBlockGap(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -401,17 +404,27 @@ func TestRecoveryBlockGap(t *testing.T) {
 	mid := gr1.First + (gr1.Next-gr1.First)/2
 
 	db1 := newTestBlockDB(t, dir)
+	defer func() { _ = db1.Close() }()
 	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
-	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		if n != mid {
-			require.NoError(t, db1.WriteBlock(n, blocks1[i]))
-		}
+
+	// Blocks up to the skip point write normally.
+	i := 0
+	for n := gr1.First; n < mid; n++ {
+		require.NoError(t, db1.WriteBlock(n, blocks1[i]))
 		i++
 	}
-	require.NoError(t, db1.Flush())
-	require.NoError(t, db1.Close())
+	// Skipping mid: every subsequent (non-contiguous) write is rejected.
+	i++
+	for n := mid + 1; n < gr1.Next; n++ {
+		err := db1.WriteBlock(n, blocks1[i])
+		require.ErrorIs(t, err, types.ErrBlockOutOfOrder,
+			"write at %d after skipping %d must be rejected", n, mid)
+		i++
+	}
 
-	db2 := newTestBlockDB(t, dir)
-	_, err := NewState(&Config{Registry: registry}, db2)
-	require.ErrorIs(t, err, types.ErrBlockGap)
+	// The store recovers cleanly: the surviving prefix is contiguous, so replay
+	// sees blocks up to the skip point and QC-only positions after it.
+	state, err := NewState(&Config{Registry: registry}, db1)
+	require.NoError(t, err)
+	require.Equal(t, mid, state.NextBlock(), "replay must resume at the first unfilled number")
 }

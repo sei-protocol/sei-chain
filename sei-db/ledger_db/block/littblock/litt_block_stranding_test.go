@@ -120,9 +120,9 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 		require.True(t, qc.IsPresent(), "covering QC for served block %d must be readable", n)
 	}
 
-	// The block iterator never yields a stranded block, and each yielded block
+	// The ledger never yields a stranded position, and every yielded position
 	// has a covering QC.
-	it, err := db3.Blocks(false)
+	it, err := db3.Iterator()
 	require.NoError(t, err)
 	defer func() { _ = it.Close() }()
 	for {
@@ -132,10 +132,13 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 			break
 		}
 		n := it.Number()
-		require.GreaterOrEqual(t, uint64(n), uint64(5), "iterator must not yield stranded block %d", n)
-		qc, err := db3.ReadQCByBlockNumber(n)
+		require.GreaterOrEqual(t, uint64(n), uint64(5), "ledger must not yield stranded position %d", n)
+		qc, err := it.QC()
 		require.NoError(t, err)
-		require.True(t, qc.IsPresent(), "iterated block %d must have a covering QC", n)
+		require.NotNil(t, qc, "position %d must have a covering QC", n)
+		blkOpt, err := it.Block()
+		require.NoError(t, err)
+		require.True(t, blkOpt.IsPresent(), "position %d must have a block", n)
 	}
 }
 

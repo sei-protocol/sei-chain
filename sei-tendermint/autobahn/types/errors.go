@@ -8,14 +8,14 @@ import "errors"
 // means the height is below the retention / eviction floor.
 var ErrNotFound = errors.New("not found")
 
-// ErrBlockGap is returned when BlockDB blocks are not contiguous (e.g. during
-// data.State recovery). That indicates store corruption or an incomplete write
-// that left a hole.
+// ErrBlockGap is returned when the persisted blocks are not contiguous,
+// surfaced by BlockDBIterator.Next during a scan. WriteBlock rejects gapped
+// writes, so a gap on disk indicates store corruption.
 var ErrBlockGap = errors.New("block gap in BlockDB")
 
 // ErrBlockOutOfOrder is returned by WriteBlock when the supplied
-// GlobalBlockNumber is not strictly greater than every previously written
-// block number. Blocks must be written in strictly ascending order.
+// GlobalBlockNumber is not exactly one greater than the previously written
+// block number. Blocks must be written densely ascending.
 var ErrBlockOutOfOrder = errors.New("block: WriteBlock out of order")
 
 // ErrQCNonContiguous is returned by WriteQC when the QC's GlobalRange().First

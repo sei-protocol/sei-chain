@@ -66,8 +66,8 @@ func NewBlockDB() types.BlockDB {
 func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.hasBlocks && n <= s.lastBlockNumber {
-		return fmt.Errorf("block number %d not greater than last written %d: %w",
+	if s.hasBlocks && n != s.lastBlockNumber+1 {
+		return fmt.Errorf("block number %d not contiguous with last written %d: %w",
 			n, s.lastBlockNumber, types.ErrBlockOutOfOrder)
 	}
 	// A covering QC must already be written. QCs are contiguous and blocks
@@ -160,148 +160,95 @@ func (s *blockDB) Status() types.DBStatus {
 	return tips
 }
 
-func (s *blockDB) Blocks(reverse bool) (types.BlockIterator, error) {
+func (s *blockDB) Iterator() (types.BlockDBIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	nums := make([]types.GlobalBlockNumber, 0, len(s.byNumber))
-	for n := range s.byNumber {
-		nums = append(nums, n)
+	entries := s.sortedQCsLocked()
+	if len(entries) == 0 {
+		return &memBlockDBIterator{idx: -1}, nil
 	}
-	sort.Slice(nums, func(i, j int) bool {
-		if reverse {
-			return nums[i] > nums[j]
-		}
-		return nums[i] < nums[j]
-	})
-	blocks := make([]*types.Block, len(nums))
-	for i, n := range nums {
-		blocks[i] = s.byNumber[n]
-	}
-	return &memBlockIterator{nums: nums, blocks: blocks, idx: -1}, nil
+	return s.iteratorLocked(entries, max(s.watermark, entries[0].lower)), nil
 }
 
-func (s *blockDB) QCs(reverse bool) (types.QCIterator, error) {
+func (s *blockDB) IteratorAt(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	lowers := make([]types.GlobalBlockNumber, 0, len(s.qcsByLower))
-	for l := range s.qcsByLower {
-		lowers = append(lowers, l)
-	}
-	sort.Slice(lowers, func(i, j int) bool {
-		if reverse {
-			return lowers[i] > lowers[j]
+	start := max(n, s.watermark)
+	// The (clamped) start must be covered by a persisted QC; otherwise the iterator is empty.
+	entries := s.sortedQCsLocked()
+	covered := false
+	for _, e := range entries {
+		if e.lower <= start && start < e.upper {
+			covered = true
+			break
 		}
-		return lowers[i] < lowers[j]
-	})
-	qcs := make([]*types.FullCommitQC, len(lowers))
-	for i, l := range lowers {
-		qcs[i] = s.qcsByLower[l].qc
 	}
-	return &memQCIterator{qcs: qcs, idx: -1}, nil
+	if !covered {
+		return &memBlockDBIterator{idx: -1}, nil
+	}
+	return s.iteratorLocked(entries, start), nil
 }
 
-func (s *blockDB) BlocksAt(n types.GlobalBlockNumber, reverse bool) (types.BlockIterator, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	start := n
-	if start < s.watermark {
-		start = s.watermark
+// sortedQCsLocked returns the retained QC entries ascending by lower bound. Caller holds mu.
+func (s *blockDB) sortedQCsLocked() []qcEntry {
+	entries := make([]qcEntry, 0, len(s.qcsByLower))
+	for _, e := range s.qcsByLower {
+		entries = append(entries, e)
 	}
-	// Forward yields the start block and every higher one; reverse yields the start block and every
-	// lower retained one. Pruned blocks are already absent from byNumber, so no watermark filter here.
-	nums := make([]types.GlobalBlockNumber, 0, len(s.byNumber))
-	for num := range s.byNumber {
-		if !reverse && num < start {
-			continue
-		}
-		if reverse && num > start {
-			continue
-		}
-		nums = append(nums, num)
-	}
-	sort.Slice(nums, func(i, j int) bool {
-		if reverse {
-			return nums[i] > nums[j]
-		}
-		return nums[i] < nums[j]
-	})
-	blocks := make([]*types.Block, len(nums))
-	for i, num := range nums {
-		blocks[i] = s.byNumber[num]
-	}
-	return &memBlockIterator{nums: nums, blocks: blocks, idx: -1}, nil
+	sort.Slice(entries, func(i, j int) bool { return entries[i].lower < entries[j].lower })
+	return entries
 }
 
-func (s *blockDB) QCsAt(n types.GlobalBlockNumber, reverse bool) (types.QCIterator, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	start := n
-	if start < s.watermark {
-		start = s.watermark
-	}
-	// Forward yields the QC covering start (upper > start) and every later QC; reverse yields the
-	// covering QC (lower <= start) and every earlier one. Pruned QCs are already absent from qcsByLower.
-	lowers := make([]types.GlobalBlockNumber, 0, len(s.qcsByLower))
-	for l, e := range s.qcsByLower {
-		if !reverse && e.upper <= start {
-			continue
+// iteratorLocked snapshots every covered number from start upward, pairing each with its covering
+// QC and (possibly absent) block. Caller holds mu and guarantees start is covered by entries.
+func (s *blockDB) iteratorLocked(entries []qcEntry, start types.GlobalBlockNumber) *memBlockDBIterator {
+	it := &memBlockDBIterator{idx: -1}
+	for _, e := range entries {
+		for num := max(e.lower, start); num < e.upper; num++ {
+			it.nums = append(it.nums, num)
+			it.qcs = append(it.qcs, e.qc)
+			it.blocks = append(it.blocks, s.byNumber[num])
 		}
-		if reverse && e.lower > start {
-			continue
-		}
-		lowers = append(lowers, l)
 	}
-	sort.Slice(lowers, func(i, j int) bool {
-		if reverse {
-			return lowers[i] > lowers[j]
-		}
-		return lowers[i] < lowers[j]
-	})
-	qcs := make([]*types.FullCommitQC, len(lowers))
-	for i, l := range lowers {
-		qcs[i] = s.qcsByLower[l].qc
-	}
-	return &memQCIterator{qcs: qcs, idx: -1}, nil
+	return it
 }
 
-var (
-	_ types.BlockIterator = (*memBlockIterator)(nil)
-	_ types.QCIterator    = (*memQCIterator)(nil)
-)
+var _ types.BlockDBIterator = (*memBlockDBIterator)(nil)
 
-// memBlockIterator iterates over a snapshot of blocks captured at creation.
-type memBlockIterator struct {
-	nums   []types.GlobalBlockNumber
+// memBlockDBIterator steps through a snapshot of covered numbers captured at creation.
+type memBlockDBIterator struct {
+	// nums holds every covered number, ascending.
+	nums []types.GlobalBlockNumber
+
+	// qcs holds the covering QC per position.
+	qcs []*types.FullCommitQC
+
+	// blocks holds the block per position; nil where no block is persisted.
 	blocks []*types.Block
-	idx    int
+
+	// idx is the current position; -1 before the first Next.
+	idx int
 }
 
-func (it *memBlockIterator) Next() (bool, error) {
+func (it *memBlockDBIterator) Next() (bool, error) {
 	it.idx++
 	return it.idx < len(it.nums), nil
 }
 
-func (it *memBlockIterator) Number() types.GlobalBlockNumber { return it.nums[it.idx] }
-func (it *memBlockIterator) Block() (*types.Block, error)    { return it.blocks[it.idx], nil }
-func (it *memBlockIterator) Close() error                    { return nil }
+func (it *memBlockDBIterator) Number() types.GlobalBlockNumber { return it.nums[it.idx] }
 
-// memQCIterator iterates over a snapshot of QCs captured at creation.
-type memQCIterator struct {
-	qcs []*types.FullCommitQC
-	idx int
+func (it *memBlockDBIterator) QC() (*types.FullCommitQC, error) { return it.qcs[it.idx], nil }
+
+func (it *memBlockDBIterator) Block() (utils.Option[*types.Block], error) {
+	if it.blocks[it.idx] == nil {
+		return utils.None[*types.Block](), nil
+	}
+	return utils.Some(it.blocks[it.idx]), nil
 }
 
-func (it *memQCIterator) Next() (bool, error) {
-	it.idx++
-	return it.idx < len(it.qcs), nil
-}
-
-func (it *memQCIterator) QC() (*types.FullCommitQC, error) { return it.qcs[it.idx], nil }
-func (it *memQCIterator) Close() error                     { return nil }
+func (it *memBlockDBIterator) Close() error { return nil }
 
 func (s *blockDB) ReadBlockByNumber(
 	n types.GlobalBlockNumber,
