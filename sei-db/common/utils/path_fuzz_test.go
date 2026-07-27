@@ -34,6 +34,7 @@ func FuzzResolveAndCreateDirTildeExpansion(f *testing.F) {
 	f.Add("~/sei/data")
 	f.Add("~alice/data") // not a home reference
 	f.Add("sei/data")    // plain relative
+	f.Add("a/../b")      // interior parent reference that does not escape
 	f.Add("/sei")        // absolute, remapped under the fixture
 	f.Add("")            // empty: resolved, not created
 	f.Add("./sei")
@@ -41,20 +42,20 @@ func FuzzResolveAndCreateDirTildeExpansion(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, dir string) {
 		// The resolver MkdirAll's whatever it resolves, so an input that escapes the
-		// fixture provisions real directories wherever it lands. Two shapes escape and
-		// both are filtered: an absolute path, which is remapped under the scratch tree
-		// so the absolute branch stays covered, and a parent reference, which walks out
-		// of the fixture just as effectively and cannot be remapped because Join cleans
-		// it back out again. A tilde form escapes the same way, since ~/../.. resolves
-		// above the pinned $HOME.
+		// fixture provisions real directories wherever it lands. filepath.IsLocal is the
+		// check for that on a relative path: it rejects one that climbs out through ..,
+		// including a tilde form like ~/../.. that resolves above the pinned $HOME, while
+		// still permitting a non-escaping interior .. such as a/../b, which is worth
+		// covering. The empty string is exempt because it is a seeded case asserted below
+		// and IsLocal reports false for it. This mirrors the guard in
+		// sei-tendermint/privval/file_config_fuzz_test.go.
 		if strings.ContainsRune(dir, 0) || len(dir) > 128 {
 			return
 		}
-		for _, part := range strings.Split(filepath.ToSlash(dir), "/") {
-			if part == ".." {
-				return
-			}
+		if dir != "" && !filepath.IsAbs(dir) && !filepath.IsLocal(dir) {
+			return
 		}
+
 		home := configtest.Isolate(t)
 		scratch := t.TempDir()
 		// t.Chdir rather than os.Chdir: it restores the working directory on cleanup.
@@ -64,7 +65,14 @@ func FuzzResolveAndCreateDirTildeExpansion(f *testing.F) {
 		t.Chdir(scratch)
 
 		if filepath.IsAbs(dir) {
+			// Remapped under the scratch tree so the absolute branch stays covered
+			// without provisioning real directories. Containment is re-checked after
+			// the join, because an absolute path can carry .. segments that Join cleans
+			// straight back out: Join(scratch, "/a/../../..") is "/".
 			dir = filepath.Join(scratch, dir)
+			if dir != scratch && !strings.HasPrefix(dir, scratch+string(filepath.Separator)) {
+				return
+			}
 		}
 
 		got, err := utils.ResolveAndCreateDir(dir)
