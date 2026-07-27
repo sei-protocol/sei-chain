@@ -344,19 +344,13 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 	// keys are opaque bytes: a staking/bank/... key can coincidentally start
 	// with an EVM prefix byte and satisfy its length check, and would then be
 	// deserialized as the wrong vtype (observed on production-scale data).
-	// This mirrors the write side (classifyAndPrefix) and the read routing
+	// Default them to the misc kind — their values are always MiscData. This
+	// mirrors the write side (classifyAndPrefix) and the read routing
 	// (routePhysicalKey), which both gate EVM parsing on the module name.
-	if moduleName != evm.EVMStoreKey {
-		ld, err := vtype.DeserializeMiscData(node.Value)
-		if err != nil {
-			return nil, fmt.Errorf("failed to DeserializeMiscData for module %s: %w", moduleName, err)
-		}
-		return []types.SnapshotNode{
-			{StoreKey: moduleName, Key: innerKey, Value: ld.GetValue()},
-		}, nil
+	kind, strippedKey := keys.EVMKeyMisc, innerKey
+	if moduleName == evm.EVMStoreKey {
+		kind, strippedKey = keys.ParseEVMKey(innerKey)
 	}
-
-	kind, strippedKey := keys.ParseEVMKey(innerKey)
 
 	switch kind {
 	case keys.EVMKeyNonce:
