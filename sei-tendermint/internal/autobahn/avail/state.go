@@ -10,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -313,6 +312,13 @@ func (s *State) admitRoadOrDrop(
 
 // waitPruneLeash blocks until latest AppQC is from epochIdx or later.
 // incoming, if present, counts before latestAppQC is updated.
+//
+// Called only when sealing epoch N (last road). Epoch 0 is not special-cased:
+// seal is {∅,0}→{0,1} (no Prev drop), but the leash still runs so leaving 0
+// always writes an AppQC anchor for newInner (Current>0 requires one). Do not
+// reintroduce an epochIdx==0 skip: BlocksPerLane only caps local production;
+// peers can PushCommitQC LastRoad(0) (then mid-epoch-1 QCs) with no local
+// AppQC, which would otherwise restart without an anchor.
 func (s *State) waitPruneLeash(ctx context.Context, epochIdx types.EpochIndex, incoming utils.Option[*types.AppQC]) error {
 	for inner, ctrl := range s.inner.Lock() {
 		ready := func() bool {
@@ -339,33 +345,6 @@ func (s *State) waitPruneLeash(ctx context.Context, epochIdx types.EpochIndex, i
 		return ctrl.WaitUntil(ctx, ready)
 	}
 	panic("unreachable")
-}
-
-// waitCommitEpochLeashes gates seal of epoch N (last road only). Mid-epoch
-// admits are exempt — see Registry invariants.
-//
-// Epoch 0 is not special-cased. Seal is {∅,0}→{0,1} (no Prev drop), but the
-// prune leash still runs so leaving 0 always writes an AppQC anchor for
-// newInner (Current>0 requires one). Do not reintroduce an epochIdx==0 skip:
-// BlocksPerLane only caps local production; peers can PushCommitQC LastRoad(0)
-// (then mid-epoch-1 QCs) with no local AppQC, which would otherwise restart
-// without an anchor.
-//
-// incoming: AppQC on PushAppQC (None for PushCommitQC).
-func (s *State) waitCommitEpochLeashes(
-	ctx context.Context,
-	epochIdx types.EpochIndex,
-	closingEpoch bool,
-	incoming utils.Option[*types.AppQC],
-) error {
-	if !closingEpoch {
-		return nil
-	}
-	if err := s.waitPruneLeash(ctx, epochIdx, incoming); err != nil {
-		return err
-	}
-	_, err := s.data.Registry().WaitForDuo(ctx, epoch.FirstRoad(epochIdx+1))
-	return err
 }
 
 // LastAppQC returns the latest observed AppQC.
@@ -425,7 +404,7 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 }
 
 // PushCommitQC admits qc for Current only (too early waits; stale drops),
-// then tip-interlock leashes when sealing (waitCommitEpochLeashes).
+// then tip-interlock leashes when sealing (last road of Current).
 //
 // Admit-then-verify is intentional backpressure for ahead-of-window QCs.
 // Do not add EpochAt-before-wait — that is PushAppVote's path only.
@@ -448,15 +427,13 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	if err := qc.Verify(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
-	closing := ep.RoadRange().IsLastRoad(idx)
-	if err := s.waitCommitEpochLeashes(ctx, ep.EpochIndex(), closing, utils.None[*types.AppQC]()); err != nil {
-		return err
-	}
 
 	// Boundary: switch to the next epoch on Current's last CommitQC.
-	// Resolve next duo off-lock (WaitForDuo).
 	nextDuo := utils.None[types.EpochDuo]()
-	if closing {
+	if ep.RoadRange().IsLastRoad(idx) {
+		if err := s.waitPruneLeash(ctx, ep.EpochIndex(), utils.None[*types.AppQC]()); err != nil {
+			return err
+		}
 		nt, err := s.data.Registry().WaitForDuo(ctx, idx+1)
 		if err != nil {
 			return err
@@ -585,15 +562,13 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 	if err := commitQC.Verify(ep); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
 	}
-	// Same leashes as PushCommitQC: tipcut pushBack is a CommitQC insert path.
+	// Same seal leashes as PushCommitQC when this tipcut is Current's last road.
 	// Pass this AppQC as incoming so a tipcut that first enters epoch N can close N.
-	closing := ep.RoadRange().IsLastRoad(idx)
-	if err := s.waitCommitEpochLeashes(ctx, ep.EpochIndex(), closing, utils.Some(appQC)); err != nil {
-		return err
-	}
-	// Tipcut insert of a boundary CommitQC must slide Current like PushCommitQC.
 	nextDuo := utils.None[types.EpochDuo]()
-	if closing {
+	if ep.RoadRange().IsLastRoad(idx) {
+		if err := s.waitPruneLeash(ctx, ep.EpochIndex(), utils.Some(appQC)); err != nil {
+			return err
+		}
 		nt, err := s.data.Registry().WaitForDuo(ctx, idx+1)
 		if err != nil {
 			return err
