@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -260,10 +261,22 @@ func TestStartAfterChainIDAgreementHitsTheGenesisNilDeref(t *testing.T) {
 // a request rather than a guarantee, which is why the second wait is bounded too and the
 // message distinguishes a node that stopped from one that ignored the cancel.
 //
-// Both bounds are 5s. Each row is stopped by a panic that fires in well under a second, so
-// the bound only has to outlast a loaded -race shard, not a node doing real work. Waiting
-// longer just delays the report of a guard that has already stopped guarding, and holds the
-// listeners open while it waits.
+// The bounds are deliberately generous, because the terminal branch inverted the cost of
+// being wrong. A bound that is too short no longer just files an early report: it aborts the
+// whole package on a loaded -race shard, destroying results for every other test on nothing
+// more than wall-clock evidence. A bound that is too long costs only a delayed report on a
+// path where something is already broken, since the happy path returns as soon as the panic
+// fires, in well under a second, and never waits at all. So the timeout is sized to outlast
+// any plausible shard rather than to fail fast, and the terminal branch is reached only after
+// a cancel, a grace period, and a final non-blocking check that RunE did not just finish.
+// runEBound is how long RunE gets before it is treated as having escaped its guard, and
+// cancelGrace is how long the cancel gets to take effect after that. Both are generous by
+// design; see the note above runEBounded.
+const (
+	runEBound   = 30 * time.Second
+	cancelGrace = 10 * time.Second
+)
+
 func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (recovered any, err error) {
 	t.Helper()
 
@@ -284,27 +297,36 @@ func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (rec
 	select {
 	case r := <-outcome:
 		return r.recovered, r.err
-	case <-time.After(5 * time.Second):
+	case <-time.After(runEBound):
 		stop()
-		const diagnosis = "RunE neither returned nor panicked within 5s, so it got past the guard " +
-			"that normally stops it and into startInProcess. That guard was presumably fixed and " +
-			"this row needs rewriting"
+		diagnosis := fmt.Sprintf("RunE neither returned nor panicked within %s, so it got past the "+
+			"guard that normally stops it and into startInProcess. That guard was presumably fixed "+
+			"and this row needs rewriting", runEBound)
 		select {
 		case <-outcome:
 			// The node stopped, so the binary is clean and an ordinary failure is right.
 			t.Fatalf("%s. It stopped when the command context was cancelled", diagnosis)
 			return nil, nil
-		case <-time.After(5 * time.Second):
+		case <-time.After(cancelGrace):
 		}
-		// The node ignored the cancel, so it still holds its listeners and state databases and
+		// A last non-blocking receive before the terminal branch. RunE may have completed in the
+		// window between the grace period expiring and this line, and in that case the goroutine
+		// is gone and there is no node to strand, so the ordinary failure is still correct.
+		select {
+		case <-outcome:
+			t.Fatalf("%s. It finished while the cancel was being waited on", diagnosis)
+			return nil, nil
+		default:
+		}
+		// Nothing came back, so a node is still holding its listeners and state databases, and
 		// t.Fatal would only unwind this goroutine. Every later test in the binary would then run
 		// alongside a live node, including through configtest.Isolate's cleanup, which clears the
 		// environment and restores it while that node reads it. Panicking is the terminal action:
 		// it fails the binary here rather than leaving a corrupted one to produce results nobody
 		// should trust, and the goroutine dump shows what the node is doing.
-		panic(diagnosis + ", and it did not stop when the command context was cancelled. Failing " +
-			"the whole binary deliberately: a live node with bound listeners must not outlive this " +
-			"test and be inherited by the ones after it")
+		panic(diagnosis + ", and it did not stop within " + cancelGrace.String() + " of the command " +
+			"context being cancelled. Failing the whole binary deliberately: a live node with bound " +
+			"listeners must not outlive this test and be inherited by the ones after it")
 	}
 }
 

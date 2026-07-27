@@ -179,11 +179,12 @@ func TestNullMixedWithAnUnsupportedSinkIsUnspecified(t *testing.T) {
 	}
 	if booted == 0 || failed == 0 {
 		requireSmallMapRandomization(t, runs, booted, failed)
-		t.Fatalf("over %d runs the mixed list resolved consistently (%d booted, %d failed). "+
-			"Map iteration order no longer decides the outcome, which is far more likely a "+
-			"deliberate fix than a break: checking for null before kv opens a store is exactly "+
-			"what the sibling row argues for. If you landed that, update this row and "+
-			"TestNullSinkCanOpenAnIndexStoreItThenDiscards to assert the deterministic outcome",
+		t.Fatalf("over %d runs the mixed list resolved consistently (%d booted, %d failed), so map "+
+			"iteration order no longer decides the outcome. If that was a deliberate fix, checking "+
+			"for null before kv opens a store is exactly what the sibling row argues for, and this "+
+			"row plus TestNullSinkCanOpenAnIndexStoreItThenDiscards should be updated to assert "+
+			"the deterministic outcome. See the diagnosis above before assuming that, since a "+
+			"collapsed split reaches this line too",
 			runs, booted, failed)
 	}
 }
@@ -221,10 +222,25 @@ func requireSmallMapRandomization(t *testing.T, runs, booted, failed int) {
 		}
 	}
 	if len(starts) > 1 {
-		t.Logf("map-order probe over %d runs: %v (sink outcomes: %d booted, %d failed). The "+
-			"observed sink split when this row was written was roughly 168 booted to 32 failed "+
-			"per 200. A probe near even here means the runtime still randomizes and the skew, if "+
-			"any, is in sink selection", runs, starts, booted, failed)
+		// The probe still yields both keys, so the runtime supplies the mechanism and the
+		// one-sided sink result is sei's own. Two changes produce that and they are
+		// indistinguishable at this run count: selection became deterministic, or its minority
+		// branch collapsed to a probability 250 runs cannot see. Naming both is the diagnosis,
+		// because asserting a deliberate fix would send someone looking for a change that may
+		// not exist.
+		//
+		// The probe's own split is reported rather than characterized. It is not close to even
+		// in practice: a two-element map typically lands around 90/10 here, which is enough to
+		// answer "does the order vary" and not enough to be a yardstick for the sink's split.
+		minority := min(starts["a"], starts["b"])
+		t.Errorf("the map-order probe still yields both keys (%v over %d runs, minority %d), so "+
+			"the runtime is not the cause and this is a change in sink selection. Two readings "+
+			"fit equally at this run count, and they have different fixes: selection became "+
+			"deterministic, or its minority branch collapsed to a probability %d runs cannot "+
+			"see. The sink split when this row was written was roughly 168 booted to 32 failed "+
+			"per 200, against %d booted and %d failed now. Raising the run count separates the "+
+			"two: a collapsed-but-nonzero split eventually shows the minority branch, a "+
+			"deterministic one never does", starts, runs, minority, runs, booted, failed)
 		return
 	}
 	t.Skipf("this runtime started a two-element map range at the same key in all %d probes, so "+

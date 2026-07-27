@@ -15,6 +15,16 @@ import (
 // bound key a config source (TRACE, HOME, OUTPUT, CHAIN_ID all land). The
 // allowlist is therefore restricted to what the Go toolchain and the OS need to
 // run a test binary at all.
+//
+// Kept out on purpose, and named here because the resulting failure would not look
+// like an environment problem: SSL_CERT_FILE and SSL_CERT_DIR, the XDG_* group, and
+// USER with LOGNAME. Nothing pinned today needs any of them, since no row makes an
+// outbound TLS call and the one row that touches a keyring pins
+// keyring-backend = "test". A row that does need one will fail somewhere far from
+// this file, so the fix is to add the variable here with a line saying which row
+// requires it rather than to widen the list pre-emptively. Every entry added is a
+// name the empty-prefix viper can then resolve as a config value, which is the cost
+// that keeps this list short.
 var envAllowlist = map[string]bool{
 	"PATH":              true,
 	"TMPDIR":            true,
