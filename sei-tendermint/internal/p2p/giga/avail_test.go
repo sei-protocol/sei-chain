@@ -2,9 +2,9 @@ package giga
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
@@ -58,13 +58,14 @@ func TestAvailClientServer(t *testing.T) {
 		a2 := nodes[2].consensus.Avail()
 		lane0 := activeKeys[0].Public()
 		corruptRng := rng.Split()
-		s.SpawnBg(func() error {
-			for a2.NextBlock(lane0) == 0 {
-				if err := utils.Sleep(ctx, time.Millisecond); err != nil {
-					return utils.IgnoreCancel(err)
-				}
+		// Spawn (not SpawnBg) so scope waits for at least one full corrupt PushBlock
+		// pass; bound is BlocksPerLane because corrupt is never Run, so its lane
+		// capacity never advances past the initial window.
+		s.Spawn(func() error {
+			if _, err := a2.Block(ctx, lane0, 0); err != nil && !errors.Is(err, types.ErrPruned) {
+				return utils.IgnoreCancel(err)
 			}
-			for range totalBlocks {
+			for range avail.BlocksPerLane {
 				n := corruptAvail.NextBlock(lane0)
 				if err := corruptAvail.WaitForLocalCapacity(ctx, n); err != nil {
 					return utils.IgnoreCancel(err)
