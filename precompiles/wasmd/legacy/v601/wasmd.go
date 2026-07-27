@@ -14,7 +14,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
-	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v66"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
