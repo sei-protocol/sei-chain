@@ -3,10 +3,12 @@
 ## Summary
 
 This document proposes a FlatKV-only state sync path based on out-of-band
-checkpoint distribution. Instead of restoring application state by replaying a
-logical key/value stream into a fresh database, a node restores an immutable
-FlatKV checkpoint archive, verifies that checkpoint against Tendermint light
-client trust, and then resumes normal block sync from the archived height.
+checkpoint distribution. A running node automatically takes immutable
+checkpoints of its state at a configured block interval and publishes them as
+archives to object storage, without leaving consensus. A bootstrapping node
+restores such an archive, verifies it against Tendermint light client trust,
+and then resumes normal block sync from the archived height — instead of
+replaying a logical key/value stream into a fresh database.
 
 The design relies on a FlatKV-only invariant: once all modules have migrated to
 FlatKV, the FlatKV checkpoint is the complete consensus commit-store state for
@@ -30,6 +32,9 @@ trust model, validation methodology, measured performance, and rollout risks.
 
 ## Goals
 
+- Archive production is automatic and online: a running node snapshots its
+  state every configured interval and publishes the archive, while continuing
+  to produce blocks. No operator action and no downtime on the producer.
 - Provide a fast bootstrap path for nodes after the chain is fully migrated to
   FlatKV.
 - Avoid per-key state reconstruction during restore.
@@ -84,7 +89,35 @@ it key by key.
 
 ## Design Overview
 
-The proposed CLI surface is:
+The primary design surface is an automatic, interval-driven pipeline inside
+the running node. Every configured block interval, the node:
+
+1. takes an immutable FlatKV snapshot (existing `sc-snapshot-interval`
+   behavior — a Pebble hardlink checkpoint of the commit store);
+2. takes an online state-store checkpoint (`ss-checkpoint-interval`, described
+   below) — also a hardlink checkpoint, so neither step blocks the commit
+   path;
+3. packages the paired snapshot + checkpoint + `wasm` into a manifest-carrying
+   archive and uploads it to the configured object-store target.
+
+All three steps run while the node keeps validating, signing, and committing
+blocks. Snapshot creation is hardlink-based and completes in milliseconds;
+packaging and upload read only immutable directories, so they cannot race the
+live database. The producer needs no operator intervention and no maintenance
+window: enabling the intervals and an upload target makes any healthy
+FlatKV-only node an archive publisher.
+
+Steps 1-2 and the packaging/upload stage are implemented and validated today.
+The in-node scheduler that triggers step 3 automatically after each interval
+is the remaining increment; in the validation runs, step 3 was invoked through
+the auxiliary CLI against the node's automatically produced checkpoints.
+
+### Auxiliary CLI Surface
+
+The same packaging/upload logic and the restore path are exposed as operator
+commands. `create` exists for ad-hoc archive production (for example,
+publishing outside the regular cadence, or from a stopped node); `restore` is
+how a bootstrapping node consumes an archive:
 
 ```bash
 seid flatkv-archive create \
@@ -105,11 +138,11 @@ seid flatkv-archive restore \
   --force
 ```
 
-The command must refuse to run unless the target app configuration is
-FlatKV-only. That guard matters because the archive only contains FlatKV
-commit-store state. A partially migrated store would still require memIAVL
-state and migration routing metadata that are outside this archive's safety
-model.
+Both the automatic pipeline and the CLI must refuse to run unless the app
+configuration is FlatKV-only. That guard matters because the archive only
+contains FlatKV commit-store state. A partially migrated store would still
+require memIAVL state and migration routing metadata that are outside this
+archive's safety model.
 
 ### Archive Format
 
@@ -190,21 +223,24 @@ and block replay from `H+1` fills everything above it.
 
 ### Create Flow
 
+The packaging stage is the same whether it is triggered by the in-node
+publisher after an interval boundary or invoked manually through the CLI:
+
 ```mermaid
 sequenceDiagram
     participant DonorNode
-    participant ArchiveCLI
+    participant Packager as Packager (in-node publisher or CLI)
     participant ObjectStore
     participant DonorRPC
 
     Note over DonorNode: keeps producing blocks throughout
-    DonorNode->>DonorNode: online state-store checkpoint every interval
-    ArchiveCLI->>DonorNode: pick newest state-store checkpoint (label V)
-    ArchiveCLI->>DonorNode: pick newest FlatKV snapshot with H <= V
-    ArchiveCLI->>DonorRPC: query block H+1 for chain ID and AppHash at H
-    ArchiveCLI->>ArchiveCLI: build manifest and SHA-256 every file
-    ArchiveCLI->>ArchiveCLI: write tar.zst archive
-    ArchiveCLI->>ObjectStore: upload archive
+    DonorNode->>DonorNode: FlatKV snapshot + state-store checkpoint every interval
+    Packager->>DonorNode: pick newest state-store checkpoint (label V)
+    Packager->>DonorNode: pick newest FlatKV snapshot with H <= V
+    Packager->>DonorRPC: query block H+1 for chain ID and AppHash at H
+    Packager->>Packager: build manifest and SHA-256 every file
+    Packager->>Packager: write tar.zst archive
+    Packager->>ObjectStore: upload archive
 ```
 
 The donor RPC query anchors the archive to a chain ID, height, and AppHash.
@@ -447,9 +483,12 @@ retention, and restore commands.
 
 ## Open Questions
 
-- Should archive creation be performed only by dedicated archive producers, or
-  can any healthy FlatKV-only full node with `ss-checkpoint-interval` enabled
-  publish an archive?
+- Which nodes should enable automatic publication in production: every full
+  node, a designated subset, or dedicated archive-producer nodes? Any healthy
+  FlatKV-only node can publish by design; the question is operational (upload
+  cost, object-store write contention, redundancy).
+- What is the publication cadence relative to the checkpoint interval — upload
+  every checkpoint, or every Nth?
 - Do validators need `state_store` and `wasm` in the same archive, or should we
   publish a smaller validator archive and a larger RPC archive?
 - Should the archive manifest be signed by archive producers as an operational
@@ -460,15 +499,19 @@ retention, and restore commands.
 
 ## Rollout Plan
 
-1. Land the out-of-band CLI behind a FlatKV-only guard. (done)
-2. Add live-safe `state_store` checkpointing so donors keep producing blocks.
-   (done: `ss-checkpoint-interval`)
-3. Replace local archive staging with streaming upload/download.
-4. Add an operator runbook for archive publication and restore.
-5. Run repeated restore benchmarks on the target production instance and
+1. Land the packaging/restore logic as an out-of-band CLI behind a FlatKV-only
+   guard. (done)
+2. Add live-safe `state_store` checkpointing so producers keep producing
+   blocks. (done: `ss-checkpoint-interval`)
+3. Add the in-node publisher: automatically package and upload after each
+   checkpoint interval, driven by node configuration (upload target, cadence,
+   remote retention). This completes the primary design surface.
+4. Replace local archive staging with streaming upload/download.
+5. Add an operator runbook for archive publication and restore.
+6. Run repeated restore benchmarks on the target production instance and
    storage classes.
-6. Decide whether to keep the mechanism as an operator tool or integrate it
-   with node startup workflows.
+7. Decide whether restore should be integrated into node startup workflows or
+   remain a separate operator-controlled command.
 
 ## Reproduction Commands From Validation
 
