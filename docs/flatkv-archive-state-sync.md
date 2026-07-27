@@ -362,7 +362,18 @@ and all validators reported `catching_up=false`.
 | Restore + bootstrap, round 1 | default gp3, 3000 IOPS / 125 MiB/s | 32m35s |
 | Restore + bootstrap, round 2 | gp3, 10k IOPS / 1000 MiB/s | 12m02s |
 | Restore + bootstrap (live-donor archive) | gp3, 10k IOPS / 1000 MiB/s | 12m47s |
+| SC-only create + upload (live donor, no `state_store`/`wasm`) | donor on default gp3 | 4m08s |
+| SC-only restore + bootstrap | gp3, 10k IOPS / 1000 MiB/s | 4m10s |
 | Light-client verify + Tendermint bootstrap | included above | ~10-12s |
+
+The SC-only run packs just the FlatKV checkpoint (37.6 GiB archive, 10,113
+files vs 81.4 GiB / 23,425 files for the full archive) — the shape a
+validator-focused archive would take. It is faster than its byte share
+predicts because `state_store` and `wasm` contribute most of the archive's
+file count, and per-file overhead (hashing setup, tar headers) is significant.
+The restored node block-synced ~9,700 blocks and reached the chain head about
+2.5 minutes after starting; a node restored this way serves consensus and
+latest-state queries but has no historical query layer.
 
 The live-donor run is the end-to-end validation of the online state-store
 checkpoint design:

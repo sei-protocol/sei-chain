@@ -296,3 +296,22 @@ End-to-end validation on the same `pacific-fork-1` cluster, donor fork-3
 This closes the last functional gap: archives can now be produced from any
 running FlatKVOnly node without operator intervention beyond enabling the
 checkpoint interval.
+
+## SC-only archive benchmark (2026-07-27)
+
+Measured the validator-archive shape: FlatKV checkpoint only, skipping
+`state_store` and `wasm` (via `--state-store-dir`/`--wasm-dir` pointed at
+nonexistent paths). Same live donor (fork-3, producing blocks throughout) and
+the same gp3-10k-1000 victim:
+
+- Archive: height 220090000, **37.6 GiB**, 10,113 files (vs 81.4 GiB /
+  23,425 files full).
+- **Create + upload: 4m08s** (vs 19m35s full).
+- **Restore + bootstrap: 4m10s** (vs 12m47s full).
+- Catch-up: ~2.5m to block-sync ~9,700 blocks; `catching_up=false` at head.
+
+Both phases beat the linear byte-share estimate (39/89 of the full-archive
+times would be ~8.5m create / ~5.6m restore): state_store and wasm carry most
+of the archive's file count, so per-file overhead (SHA-256 stream setup, tar
+headers, small-file IO) drops disproportionately. Node-bootstrap-to-consensus
+in under 10 minutes total is achievable today for validator-shaped restores.
