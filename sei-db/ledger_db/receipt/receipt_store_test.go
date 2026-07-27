@@ -170,7 +170,7 @@ func TestReceiptStorePebbleBackendBasic(t *testing.T) {
 	logs, err := store.FilterLogs(ctx, 1, 1, filters.FilterCriteria{
 		Addresses: []common.Address{addr},
 		Topics:    [][]common.Hash{{topic}},
-	})
+	}, nil)
 	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
 	require.Empty(t, logs)
 }
@@ -178,7 +178,7 @@ func TestReceiptStorePebbleBackendBasic(t *testing.T) {
 func TestFilterLogsRangeQueryNotSupported(t *testing.T) {
 	store, ctx, _ := setupReceiptStore(t)
 	// Pebble backend does not support range queries, so FilterLogs returns ErrRangeQueryNotSupported.
-	_, err := store.FilterLogs(ctx, 1, 10, filters.FilterCriteria{})
+	_, err := store.FilterLogs(ctx, 1, 10, filters.FilterCriteria{}, nil)
 	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/rpc"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/spf13/cast"
 )
 
@@ -135,8 +136,15 @@ type Config struct {
 	// Deny list defines list of methods that EVM RPC should fail fast
 	DenyList []string `mapstructure:"deny_list"`
 
-	// max number of logs returned if block range is open-ended
+	// max number of logs a single eth_getLogs query may match before it errors,
+	// for both bounded and open-ended block ranges (a non-positive value falls
+	// back to DefaultMaxLogLimit)
 	MaxLogNoBlock int64 `mapstructure:"max_log_no_block"`
+
+	// max estimated heap bytes of matched logs a single eth_getLogs query may
+	// materialize before it errors (a non-positive value falls back to the
+	// receipt store default)
+	MaxLogBytes int64 `mapstructure:"max_log_bytes"`
 
 	// max number of blocks to query logs for
 	MaxBlocksForLog int64 `mapstructure:"max_blocks_for_log"`
@@ -281,6 +289,7 @@ var DefaultConfig = Config{
 	Slow:                         false,
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
+	MaxLogBytes:                  receipt.DefaultMaxLogBytes,
 	MaxBlocksForLog:              2000,
 	MaxEstimateGasCalls:          100,
 	MaxStateOverrideAccounts:     100,
@@ -339,6 +348,7 @@ const (
 	flagSlow                         = "evm.slow"
 	flagDenyList                     = "evm.deny_list"
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
+	flagMaxLogBytes                  = "evm.max_log_bytes"
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
 	flagMaxEstimateGasCalls          = "evm.max_estimate_gas_calls"
 	flagMaxStateOverrideAccounts     = "evm.max_state_override_accounts"
@@ -464,6 +474,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxLogNoBlock); v != nil {
 		if cfg.MaxLogNoBlock, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxLogBytes); v != nil {
+		if cfg.MaxLogBytes, err = cast.ToInt64E(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -785,8 +800,12 @@ enabled_legacy_sei_apis = [
   # "sei2_getBlockTransactionCountByNumber",
 ]
 
-# max number of logs returned if block range is open-ended
+# max number of logs a single eth_getLogs query may match before it errors,
+# for both bounded and open-ended block ranges
 max_log_no_block = {{ .EVM.MaxLogNoBlock }}
+
+# max estimated heap bytes of matched logs a single eth_getLogs query may return
+max_log_bytes = {{ .EVM.MaxLogBytes }}
 
 # max number of blocks to query logs for
 max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}

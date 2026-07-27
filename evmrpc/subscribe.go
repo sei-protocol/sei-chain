@@ -239,6 +239,10 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	}
 
 	rpcSub := notifier.CreateSubscription()
+	// The RPC framework cancels the per-call ctx as soon as eth_subscribe
+	// returns. Bind a subscription-scoped context that keeps any request
+	// values but outlives that cancel.
+	subCtx, cancel := bindSubscriptionContext(ctx, rpcSub.Err())
 
 	// Track subscription metrics
 	wpMetrics := GetGlobalMetrics()
@@ -250,8 +254,12 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			defer recoverAndLog()
 			defer a.releaseLogSub()
 			defer wpMetrics.RecordSubscriptionEnd()
-			logs, _, err := a.logFetcher.GetLogsByFilters(ctx, *filter, 0)
+			defer cancel()
+			logs, _, err := a.logFetcher.GetLogsByFilters(subCtx, *filter, 0)
 			if err != nil {
+				if subCtx.Err() != nil {
+					return
+				}
 				wpMetrics.RecordSubscriptionError()
 				_ = notifier.Notify(rpcSub.ID, err)
 				return
@@ -270,12 +278,16 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 		defer recoverAndLog()
 		defer a.releaseLogSub()
 		defer wpMetrics.RecordSubscriptionEnd()
+		defer cancel()
 		begin := int64(0)
 		for {
 			var logs []*ethtypes.Log
 			var lastToHeight int64
-			logs, lastToHeight, err = a.logFetcher.GetLogsByFilters(ctx, *filter, begin)
+			logs, lastToHeight, err = a.logFetcher.getLogsByFiltersWithBackoff(subCtx, *filter, begin)
 			if err != nil {
+				if subCtx.Err() != nil {
+					return
+				}
 				wpMetrics.RecordSubscriptionError()
 				_ = notifier.Notify(rpcSub.ID, err)
 				return
@@ -290,13 +302,10 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			}
 			begin = lastToHeight
 			filter.FromBlock = big.NewInt(lastToHeight + 1)
-			// Wait before the next poll, but stop promptly if the client
-			// disconnects or unsubscribes (rpcSub.Err()). Note: ctx here is the
-			// per-call context, which the RPC framework cancels as soon as the
-			// eth_subscribe call returns, so it must NOT be used to tear down the
-			// long-lived subscription loop.
+			// Wait before the next poll, but stop promptly when the
+			// subscription ends (subCtx is cancelled on rpcSub.Err()).
 			select {
-			case <-rpcSub.Err():
+			case <-subCtx.Done():
 				return
 			case <-time.After(SleepInterval):
 			}
@@ -304,6 +313,19 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	}()
 
 	return rpcSub, nil
+}
+
+// bindSubscriptionContext returns a context for long-lived eth_subscribe work.
+func bindSubscriptionContext(ctx context.Context, subErr <-chan error) (context.Context, context.CancelFunc) {
+	subCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	go func() {
+		select {
+		case <-subErr:
+			cancel()
+		case <-subCtx.Done():
+		}
+	}()
+	return subCtx, cancel
 }
 
 // acquireLogSub reserves a logs-subscription slot
