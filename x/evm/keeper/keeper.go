@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/tests"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -66,6 +67,10 @@ type Keeper struct {
 
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
+
+	// blockHashCache is a bounded process-local cache of BLOCKHASH results for
+	// DeliverTx. RPC/trace and CheckTx may read it but do not insert.
+	blockHashCache *lru.Cache[uint64, common.Hash]
 
 	QueryConfig *querier.Config
 
@@ -144,6 +149,7 @@ func NewKeeper(
 		wasmViewKeeper:               wasmViewKeeper,
 		upgradeKeeper:                upgradeKeeper,
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
+		blockHashCache:               newBlockHashCache(),
 		receiptStore:                 receiptStore,
 	}
 	return k
@@ -332,6 +338,15 @@ func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 }
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
+	height := uint64(h) //nolint:gosec
+	// Peek keeps LRU order driven by DeliverTx inserts only.
+	if cached, ok := k.blockHashCache.Peek(height); ok {
+		return cached
+	}
+	if hash, found := k.GetBlockHash(ctx, h); found {
+		k.cacheBlockHash(ctx, height, hash)
+		return hash
+	}
 	histInfo, found := k.stakingKeeper.GetHistoricalInfo(ctx, h)
 	if !found {
 		// too old, already pruned
@@ -339,7 +354,9 @@ func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
 	}
 	header, _ := tmtypes.HeaderFromProto(&histInfo.Header)
 
-	return common.BytesToHash(header.Hash())
+	hash := common.BytesToHash(header.Hash())
+	k.cacheBlockHash(ctx, height, hash)
+	return hash
 }
 
 func (k *Keeper) SetTxResults(txResults []*abci.ExecTxResult) {
