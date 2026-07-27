@@ -81,18 +81,35 @@ func TestDecodeReceiptDataErrors(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("unknown version", func(t *testing.T) {
-		buf := make([]byte, receiptDataV1HeaderLen)
-		buf[0] = 0xFF
-		_, err := decodeReceiptData(buf)
-		require.Error(t, err)
-	})
-
 	t.Run("header only, empty body decodes", func(t *testing.T) {
 		buf := make([]byte, receiptDataV1HeaderLen)
 		buf[0] = receiptDataV1
 		got, err := decodeReceiptData(buf)
 		require.NoError(t, err)
 		require.Empty(t, got.Body)
+	})
+}
+
+// TestDecodeReceiptDataLegacyFallback documents that a value whose leading
+// byte isn't receiptDataV1 is treated as a legacy, pre-prefix receipt (a bare
+// marshaled Receipt with no metadata header) rather than an error, so values
+// written before this codec existed keep decoding after an upgrade.
+func TestDecodeReceiptDataLegacyFallback(t *testing.T) {
+	t.Run("leading byte is a real protobuf tag", func(t *testing.T) {
+		// 0x08 is the wire-format tag for field 1 (varint) — the smallest tag byte a real
+		// marshaled Receipt can start with, and the case closest to colliding with receiptDataV1.
+		raw := []byte{0x08, 0x01, 0x99}
+		got, err := decodeReceiptData(raw)
+		require.NoError(t, err)
+		require.Equal(t, TxHeader{}, got.Header)
+		require.Equal(t, raw, got.Body)
+	})
+
+	t.Run("arbitrary unknown leading byte", func(t *testing.T) {
+		raw := []byte{0xFF, 0x00, 0x01}
+		got, err := decodeReceiptData(raw)
+		require.NoError(t, err)
+		require.Equal(t, TxHeader{}, got.Header)
+		require.Equal(t, raw, got.Body)
 	})
 }

@@ -16,8 +16,17 @@ import (
 // compression is off — zero otherwise). The leading version byte lets the
 // encoding evolve: decodeReceiptData dispatches on it, so a future layout can
 // be introduced without breaking readers of older values.
+//
+// decodeReceiptData also tolerates legacy values written before this prefix
+// existed (a raw marshaled Receipt, with no header at all): see the invariant
+// documented on receiptDataV1 and on decodeReceiptData.
 const (
-	// receiptDataV1 is the current receipt value encoding version.
+	// receiptDataV1 is the current receipt value encoding version. Deliberately 1: a legacy,
+	// pre-prefix value is a raw marshaled protobuf Receipt, whose leading byte is always a real
+	// wire-format tag, (field_number<<3)|wire_type. Protobuf field numbers start at 1, so the
+	// smallest possible tag byte is (1<<3)|0 = 8 (field 1, varint) — no valid tag byte can equal 1.
+	// That makes the version byte unambiguous: 1 always means "v1 metadata prefix present", and
+	// decodeReceiptData treats every other value as a legacy body rather than an error.
 	receiptDataV1 byte = 1
 
 	// Field widths of the v1 metadata prefix.
@@ -60,6 +69,13 @@ func encodeReceiptData(d receiptData) []byte {
 // decodeReceiptData parses a stored receipt value, dispatching on the leading
 // version byte. Body aliases the input slice (no copy); a caller that retains
 // it past the lifetime of the backing buffer must copy it first.
+//
+// A leading byte other than receiptDataV1 is treated as a legacy, pre-prefix
+// value rather than an error: raw is a bare marshaled Receipt, written before
+// this metadata prefix existed, so it is returned as-is as Body with a zero
+// TxHeader (location unknown). This dispatch is unambiguous, and safe against
+// ever misreading a legacy value as v1 or vice versa: see the invariant on
+// receiptDataV1 above (no real protobuf tag byte can equal 1).
 func decodeReceiptData(raw []byte) (receiptData, error) {
 	if len(raw) == 0 {
 		return receiptData{}, fmt.Errorf("empty receipt value")
@@ -78,6 +94,6 @@ func decodeReceiptData(raw []byte) (receiptData, error) {
 			Body: raw[receiptDataV1HeaderLen:],
 		}, nil
 	default:
-		return receiptData{}, fmt.Errorf("unknown receipt value version %d", version)
+		return receiptData{Body: raw}, nil
 	}
 }
