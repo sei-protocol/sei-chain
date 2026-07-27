@@ -263,6 +263,11 @@ func TestStartAfterChainIDAgreementHitsTheGenesisNilDeref(t *testing.T) {
 // the environment while configtest.Isolate's cleanup clears and restores it. Cancelling is
 // a request rather than a guarantee, which is why the second wait is bounded too and the
 // message distinguishes a node that stopped from one that ignored the cancel.
+//
+// Both bounds are 5s. Each row is stopped by a panic that fires in well under a second, so
+// the bound only has to outlast a loaded -race shard, not a node doing real work. Waiting
+// longer just delays the report of a guard that has already stopped guarding, and holds the
+// listeners open while it waits.
 func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (recovered any, err error) {
 	t.Helper()
 
@@ -283,15 +288,15 @@ func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (rec
 	select {
 	case r := <-outcome:
 		return r.recovered, r.err
-	case <-time.After(20 * time.Second):
+	case <-time.After(5 * time.Second):
 		stop()
 		stopped := "it did not stop, and is still running in the background of this test binary"
 		select {
 		case <-outcome:
 			stopped = "it stopped when the context was cancelled"
-		case <-time.After(10 * time.Second):
+		case <-time.After(5 * time.Second):
 		}
-		t.Fatalf("RunE neither returned nor panicked within 20s, so it got past the guard that "+
+		t.Fatalf("RunE neither returned nor panicked within 5s, so it got past the guard that "+
 			"normally stops it and into startInProcess. That guard was presumably fixed and this "+
 			"row needs rewriting. After cancelling the command context: %s", stopped)
 		return nil, nil

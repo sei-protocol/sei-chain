@@ -162,11 +162,6 @@ func FuzzEventSinksFromConfig(f *testing.F) {
 // direction without a decision — and if it is resolved deliberately, this row is where
 // that gets recorded.
 //
-// The randomization this depends on is unspecified: Go randomizes map iteration by
-// design, but nothing promises it for a two-element map. If the runtime ever makes small
-// maps iterate deterministically, this row fails for a reason that has nothing to do with
-// sei, so the failure message covers that reading too.
-//
 // The run count is sized from the observed split of roughly 168 boots to 32 failures per
 // 200 runs, which puts the odds of never seeing the minority branch below 1e-18 and makes
 // further runs pure race-shard time.
@@ -183,6 +178,7 @@ func TestNullMixedWithAnUnsupportedSinkIsUnspecified(t *testing.T) {
 		}
 	}
 	if booted == 0 || failed == 0 {
+		requireSmallMapRandomization(t, runs, booted, failed)
 		t.Fatalf("over %d runs the mixed list resolved consistently (%d booted, %d failed). "+
 			"Map iteration order no longer decides the outcome, which is far more likely a "+
 			"deliberate fix than a break: checking for null before kv opens a store is exactly "+
@@ -190,6 +186,41 @@ func TestNullMixedWithAnUnsupportedSinkIsUnspecified(t *testing.T) {
 			"TestNullSinkCanOpenAnIndexStoreItThenDiscards to assert the deterministic outcome",
 			runs, booted, failed)
 	}
+}
+
+// requireSmallMapRandomization separates the two reasons a null-ordering row can stop
+// seeing both outcomes, and skips only for the one that is not about sei.
+//
+// Both rows characterize nondeterminism, so both rest on a runtime property Go does not
+// promise: map iteration is randomized by design, but nothing guarantees it for a
+// two-element map. That leaves two very different causes for a consistent result. Either
+// sink selection was made deterministic, which is the finding these rows exist to force
+// into the open, or the runtime stopped randomizing, which says nothing about this
+// repository and should not turn a shard red.
+//
+// So the premise is measured rather than assumed. A probe map of the same shape is ranged
+// the same number of times; if its starting key never varies, the mechanism is gone here
+// and the row skips naming that. If it does vary, the runtime still supplies the
+// randomization and a consistent sink result is sei's own change, so the caller's failure
+// stands.
+func requireSmallMapRandomization(t *testing.T, runs, booted, failed int) {
+	t.Helper()
+
+	probe := map[string]struct{}{"a": {}, "b": {}}
+	starts := map[string]int{}
+	for range runs {
+		for k := range probe {
+			starts[k]++
+			break // only which key comes first matters
+		}
+	}
+	if len(starts) > 1 {
+		return
+	}
+	t.Skipf("this runtime started a two-element map range at the same key in all %d probes, so "+
+		"it no longer randomizes maps this small and the mechanism this row characterizes does "+
+		"not exist here (%d booted, %d failed). Sink selection itself is unchanged: rewrite the "+
+		"row against whatever ordering the runtime now guarantees", runs, booted, failed)
 }
 
 // TestEventSinksDistinguishesADuplicateFromAnUnsupportedName pins the diagnostic
@@ -285,6 +316,9 @@ func TestNullSinkCanOpenAnIndexStoreItThenDiscards(t *testing.T) {
 		}
 	}
 
+	if opens == 0 || opens == runs {
+		requireSmallMapRandomization(t, runs, runs-opens, opens)
+	}
 	if opens == 0 {
 		t.Fatalf("over %d runs the kv branch never ran before null returned. If the loop now "+
 			"checks for null before opening anything, that removes an orphaned store and is "+

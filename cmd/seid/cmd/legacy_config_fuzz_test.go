@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 	"github.com/spf13/cobra"
 )
@@ -465,7 +466,16 @@ func FuzzApplyEnvReachesTheStructOnlyForStructurallyKnownKeys(f *testing.F) {
 		if !ok {
 			t.Fatalf("%q is not present in the resolved Tendermint config", path)
 		}
-		if firstLeaf == fromEnv && envValue != "simple-priority" {
+		// A fuzzer that happens to generate the key's own default makes firstLeaf equal
+		// fromEnv without the environment having reached anything, so that case is exempt.
+		// The default is read from tmcfg rather than written as a literal: hardcoding it
+		// couples this row to one spelling, and the row would start failing for real the
+		// first time the default moved and the fuzzer reached the new value.
+		defaultLeaf, ok := configtest.LeafAt(configtest.Dump(*tmcfg.DefaultConfig()), path)
+		if !ok {
+			t.Fatalf("%q is not present in the default Tendermint config", path)
+		}
+		if firstLeaf == fromEnv && firstLeaf != defaultLeaf {
 			t.Fatalf("on a fresh home the environment reached serverCtx.Config for a flag-less key (%s). "+
 				"If the creation branch now reads back the config.toml it wrote, that changes which "+
 				"SEID_* variables take effect on a node's first start", firstLeaf)
