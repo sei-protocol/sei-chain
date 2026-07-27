@@ -1229,19 +1229,35 @@ func TestImport_LegacyKeyMimickingEVMShapeStaysLegacy(t *testing.T) {
 	payload := []byte("legacy-value-that-is-not-32-bytes-long-at-all-....")
 	mimicVal := vtype.NewMiscData().SetValue(payload).Serialize()
 
-	store, cleanup := setupImportTestStore(t, true)
-	defer cleanup()
+	// The misroute's failure shape differs per mode: with EVMSplit a
+	// misclassified node would land in the EVM store; without it, in the
+	// cosmos store under "evm". Pin both.
+	for _, mode := range []bool{true, false} {
+		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {
+			store, cleanup := setupImportTestStore(t, mode)
+			defer cleanup()
 
-	ch := make(chan types.SnapshotNode, 10)
-	go feedNodes(ch, []types.SnapshotNode{
-		{StoreKey: commonevm.FlatKVStoreKey, Key: mimicPhysKey, Value: mimicVal},
-	})
+			ch := make(chan types.SnapshotNode, 10)
+			go feedNodes(ch, []types.SnapshotNode{
+				{StoreKey: commonevm.FlatKVStoreKey, Key: mimicPhysKey, Value: mimicVal},
+			})
 
-	require.NoError(t, store.Import(1, ch))
+			require.NoError(t, store.Import(1, ch))
 
-	got, err := store.cosmosStore.Get("staking", 1, mimicInnerKey)
-	require.NoError(t, err)
-	require.Equal(t, payload, got, "legacy key mimicking EVM storage shape must round-trip as MiscData under its module")
+			got, err := store.cosmosStore.Get("staking", 1, mimicInnerKey)
+			require.NoError(t, err)
+			require.Equal(t, payload, got, "legacy key mimicking EVM storage shape must round-trip as MiscData under its module")
+
+			misrouted, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, mimicInnerKey)
+			require.NoError(t, err)
+			require.Nil(t, misrouted, "mimic key must not land under the evm module in the cosmos store")
+			if store.evmStore != nil {
+				misrouted, err = store.evmStore.Get(evm.EVMStoreKey, 1, mimicInnerKey)
+				require.NoError(t, err)
+				require.Nil(t, misrouted, "mimic key must not land in the EVM store")
+			}
+		})
+	}
 }
 
 func TestImport_NonEvmModulesUnaffected(t *testing.T) {
