@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -53,13 +54,17 @@ func applyWithLogFlags(t *testing.T, home *configtest.Home, logLevel, logFormat 
 	return applyResult{ctx: serverCtx, err: applyThrough(cmd, serverCtx)}
 }
 
-// validLogLevels are the spellings slog.Level.UnmarshalText accepts, which is what
-// Apply parses the resolved level with.
-var validLogLevels = map[string]bool{
-	"debug": true, "DEBUG": true,
-	"info": true, "INFO": true,
-	"warn": true, "WARN": true,
-	"error": true, "ERROR": true,
+// slogAcceptsLevel reports whether the resolved level parses, using the same parser
+// Apply uses.
+//
+// slog is the oracle rather than a hand-written list of spellings, and it has to be:
+// UnmarshalText is case-insensitive and also accepts an offset form, so "Info",
+// "iNfO" and "INFO+2" are all valid levels. A hand-list misses those and would assert
+// that a perfectly good level must fail the boot. slog is not the code under test here,
+// Apply's error handling is, so deferring to it is not circular.
+func slogAcceptsLevel(level string) bool {
+	var lvl slog.Level
+	return lvl.UnmarshalText([]byte(level)) == nil
 }
 
 // FuzzLogLevelFlagMustParse pins the flag tier: a resolved log_level that slog
@@ -75,9 +80,13 @@ func FuzzLogLevelFlagMustParse(f *testing.F) {
 	f.Add("error")
 	f.Add("INFO")
 	f.Add("bogus")
-	f.Add("trace") // documented in the flag help, but slog does not accept it
-	f.Add("fatal") // likewise
-	f.Add("info ") // not trimmed
+	f.Add("trace")  // documented in the flag help, but slog does not accept it
+	f.Add("fatal")  // likewise
+	f.Add("info ")  // not trimmed, so slog rejects it
+	f.Add("Info")   // slog is case-insensitive
+	f.Add("INFO+2") // slog accepts a name with an offset
+	f.Add("warn+3")
+	f.Add("DEBUG-1")
 
 	f.Fuzz(func(t *testing.T, level string) {
 		if level == "" {
@@ -88,7 +97,7 @@ func FuzzLogLevelFlagMustParse(f *testing.F) {
 
 		got := applyWithLogFlags(t, home, level, "")
 
-		if validLogLevels[level] {
+		if slogAcceptsLevel(level) {
 			if got.err != nil {
 				t.Fatalf("--log_level=%q is a level slog accepts and must be applied, got %v", level, got.err)
 			}
