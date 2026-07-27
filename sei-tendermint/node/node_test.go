@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"net"
+	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -614,6 +617,133 @@ func TestNodeNewSeedNode(t *testing.T) {
 
 		assert.False(t, n.pexReactor.IsRunning())
 	})
+}
+
+// A seed node starts no RPC listener, so Prometheus is the only way to observe
+// it — reachability and peer headroom both come from the p2p metrics. Assert the
+// listener actually comes up and serves them.
+func TestNodeNewSeedNode_ServesPrometheusMetrics(t *testing.T) {
+	cfg, err := config.ResetTestRoot(t.TempDir(), "node_new_seed_node_prometheus_test")
+	require.NoError(t, err)
+	cfg.Mode = config.ModeSeed
+	defer os.RemoveAll(cfg.RootDir)
+
+	// Not tcp.TestReserveAddr(): that holds the reserved fd bound with
+	// SO_REUSEPORT for tcp.Listen to adopt, and startPrometheusServer binds with
+	// net.Listen, which cannot share it. Take a port the OS has handed back
+	// instead. The window between release and rebind is a real race with sibling
+	// test binaries, but it now surfaces as a bind error from Start rather than a
+	// listener that never answers.
+	cfg.Instrumentation.Prometheus = true
+	cfg.Instrumentation.PrometheusListenAddr = freeLoopbackAddr(t)
+
+	ctx := t.Context()
+
+	nodeKey, err := types.LoadOrGenNodeKey(cfg.NodeKeyFile())
+	require.NoError(t, err)
+
+	ns, err := makeSeedNode(cfg, config.DefaultDBProvider, nodeKey, defaultGenesisDocProviderFunc(cfg))
+	require.NoError(t, err)
+	t.Cleanup(ns.Wait)
+	t.Cleanup(leaktest.CheckTimeout(t, time.Second))
+
+	n, ok := ns.(*seedNodeImpl)
+	require.True(t, ok)
+	require.NoError(t, n.Start(ctx))
+
+	require.True(t, n.prometheusSrv.IsPresent(), "seed node should have started a Prometheus server")
+
+	// No polling: startPrometheusServer binds before returning, so the listener is
+	// accepting once Start returns, and NewRouter seeds tendermint_p2p_peers at
+	// construction, so the series exists before Start is even called. Both are
+	// ordered ahead of the scrape, which is what makes a single one sufficient.
+	url := fmt.Sprintf("http://%s/metrics", cfg.Instrumentation.PrometheusListenAddr)
+	body := fetchMetrics(t, url)
+
+	// Pin the series rather than the "tendermint_p2p_" prefix, which would also
+	// match anything else on the registry.
+	//
+	// This does not isolate *this* seed's router: the default registry is
+	// process-global, so any earlier test in the binary that started a router has
+	// already seeded tendermint_p2p_peers, and it would still be present here if
+	// this seed published nothing. Full isolation is not reachable through a scrape
+	// — the gauge carries no per-node label and its value is 0 either way. What the
+	// assertion does establish is that a seed serves the p2p series at all, which is
+	// the property the census alert depends on.
+	//
+	// It also cannot attribute the series to NewRouter's seeding specifically:
+	// metricsRoutine refreshes at the top of its loop, so router.Start publishes it
+	// almost immediately either way. The seeding earns its place in the window this
+	// test does not enter — between the metrics listener binding and router.Start,
+	// which for a seed spans the genesis-time wait.
+	assert.Contains(t, body, "tendermint_p2p_peers")
+	assert.Contains(t, body, `chain_id="tendermint_test"`)
+}
+
+// A seed's OnStop used to Wait on the pex reactor and router without stopping
+// them first. Both are started with the outer context, which BaseService.Stop does
+// not cancel, so Wait never returned and shutdown hung — taking the listener
+// teardown below it with it. Repeat the cycle so a regression shows up as a hang
+// under `go test -timeout` rather than a slow pass.
+func TestNodeSeedNodeStopCompletes(t *testing.T) {
+	// t.Context() is not canceled until the test body returns, which is after every
+	// Stop/Wait cycle below — so it still gives the outlives-Stop property this test
+	// pins, and AGENTS.md asks for it over context.Background().
+	ctx := t.Context()
+
+	for range 3 {
+		cfg, err := config.ResetTestRoot(t.TempDir(), "node_seed_stop_test")
+		require.NoError(t, err)
+		cfg.Mode = config.ModeSeed
+		cfg.Instrumentation.Prometheus = true
+		cfg.Instrumentation.PrometheusListenAddr = freeLoopbackAddr(t)
+
+		nodeKey, err := types.LoadOrGenNodeKey(cfg.NodeKeyFile())
+		require.NoError(t, err)
+
+		ns, err := makeSeedNode(cfg, config.DefaultDBProvider, nodeKey, defaultGenesisDocProviderFunc(cfg))
+		require.NoError(t, err)
+		n, ok := ns.(*seedNodeImpl)
+		require.True(t, ok)
+
+		require.NoError(t, n.Start(ctx))
+		n.Stop()
+		n.Wait()
+		require.False(t, n.IsRunning(), "seed must shut down")
+	}
+}
+
+// fetchMetrics returns the body of a 200 from url, failing the test on anything
+// else. The caller scrapes once, so swallowing a transport error or a non-200
+// would surface as an assertion against an empty body — no status, no error, and
+// nothing in CI output to debug from.
+func fetchMetrics(t *testing.T, url string) string {
+	t.Helper()
+	// No client timeout: AGENTS.md rules those out in tests as a flakiness source,
+	// and a hang caught by `go test -timeout` yields a goroutine dump, which beats a
+	// bare client deadline for diagnosing a wedged listener. The request rides
+	// t.Context, so it still unblocks at teardown.
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err, "GET %s", url)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "GET %s", url)
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return string(raw)
+}
+
+// freeLoopbackAddr returns a loopback host:port the OS has just released, for
+// servers that bind through net.Listen and so cannot adopt a tcp.TestReserveAddr
+// reservation.
+func freeLoopbackAddr(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := l.Addr().String()
+	require.NoError(t, l.Close())
+	return addr
 }
 
 func TestNodeSetEventSink(t *testing.T) {
