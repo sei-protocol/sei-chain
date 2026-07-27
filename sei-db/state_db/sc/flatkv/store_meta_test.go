@@ -136,7 +136,7 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 	// Reopening must reject the tampered store loudly rather than corrupt it.
 	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
-	s2, err := NewCommitStore(context.Background(), cfg2)
+	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
 	require.NoError(t, err)
 	defer s2.Close()
 	_, err = s2.LoadVersion(0, false)
@@ -317,7 +317,7 @@ func TestSetInitialVersion_GenesisSkipsSeededSnapshot(t *testing.T) {
 
 func TestSetInitialVersion_PersistsEarliestVersion(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -328,7 +328,7 @@ func TestSetInitialVersion_PersistsEarliestVersion(t *testing.T) {
 	require.Equal(t, int64(99), s.EarliestVersion())
 	require.NoError(t, s.Close())
 
-	reopened, err := NewCommitStore(t.Context(), cfg)
+	reopened, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = reopened.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -388,7 +388,7 @@ func TestSetInitialVersion_SurvivesReopen(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -398,7 +398,7 @@ func TestSetInitialVersion_SurvivesReopen(t *testing.T) {
 
 	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
-	s2, err := NewCommitStore(context.Background(), cfg2)
+	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -446,7 +446,7 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -467,7 +467,7 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 
 	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
-	s2, err := NewCommitStore(context.Background(), cfg2)
+	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -496,7 +496,7 @@ func TestGetLatestVersionAfterCommitsReadsWorkingMeta(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -519,7 +519,7 @@ func TestGetLatestVersionMissingKeyReturnsZero(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -554,7 +554,7 @@ func TestCommitStoreGetLatestVersionFallsBackToDiskWhenUnloaded(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -564,7 +564,7 @@ func TestCommitStoreGetLatestVersionFallsBackToDiskWhenUnloaded(t *testing.T) {
 
 	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
-	s2, err := NewCommitStore(context.Background(), cfg2)
+	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
 	require.NoError(t, err)
 	defer s2.Close()
 

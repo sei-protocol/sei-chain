@@ -161,8 +161,13 @@ func NewCompositeCommitStore(
 
 	var flatKV flatkv.Store
 	if openFlatKV {
-		fkv, err := flatkv.NewCommitStore(ctx, &cfg.FlatKVConfig)
+		stateWAL, err := flatkv.OpenStateWAL(&cfg.FlatKVConfig)
 		if err != nil {
+			return nil, fmt.Errorf("failed to open FlatKV state WAL: %w", err)
+		}
+		fkv, err := flatkv.NewCommitStore(ctx, &cfg.FlatKVConfig, stateWAL)
+		if err != nil {
+			_ = stateWAL.Close()
 			return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
 		}
 		flatKV = fkv
@@ -676,8 +681,13 @@ func (cs *CompositeCommitStore) SetWriteMode(targetWriteMode types.WriteMode) er
 func (cs *CompositeCommitStore) newFlatKVInstance() (flatkv.Store, error) {
 	flatKVConfig := cs.config.FlatKVConfig
 	flatKVConfig.DataDir = utils.GetFlatKVPath(cs.homeDir)
-	created, err := flatkv.NewCommitStore(cs.ctx, &flatKVConfig)
+	stateWAL, err := flatkv.OpenStateWAL(&flatKVConfig)
 	if err != nil {
+		return nil, fmt.Errorf("failed to open FlatKV state WAL: %w", err)
+	}
+	created, err := flatkv.NewCommitStore(cs.ctx, &flatKVConfig, stateWAL)
+	if err != nil {
+		_ = stateWAL.Close()
 		return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
 	}
 	return created, nil

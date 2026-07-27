@@ -502,7 +502,7 @@ func TestStoreMiscEmptyCommitLocalMeta(t *testing.T) {
 func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("DefaultConfig", func(t *testing.T) {
 		cfg := config.DefaultTestConfig(t)
-		store, err := NewCommitStore(t.Context(), cfg)
+		store, err := newCommitStoreWithWAL(t.Context(), cfg)
 		require.NoError(t, err)
 		_, err = store.LoadVersion(0, false)
 		require.NoError(t, err)
@@ -516,7 +516,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("FsyncDisabled", func(t *testing.T) {
 		cfg := config.DefaultTestConfig(t)
 		cfg.Fsync = false
-		store, err := NewCommitStore(t.Context(), cfg)
+		store, err := newCommitStoreWithWAL(t.Context(), cfg)
 		require.NoError(t, err)
 		_, err = store.LoadVersion(0, false)
 		require.NoError(t, err)
@@ -549,7 +549,7 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 5
 	cfg.SnapshotKeepRecent = 2
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -572,7 +572,7 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 10
 	cfg.SnapshotKeepRecent = 2
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -600,7 +600,7 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 0
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -693,7 +693,7 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 func TestLtHashDeterministicAcrossReopen(t *testing.T) {
 	writeAndGetHash := func() []byte {
 		cfg := config.DefaultTestConfig(t)
-		s, err := NewCommitStore(t.Context(), cfg)
+		s, err := newCommitStoreWithWAL(t.Context(), cfg)
 		require.NoError(t, err)
 		_, err = s.LoadVersion(0, false)
 		require.NoError(t, err)
@@ -818,7 +818,7 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 func TestStoreFsyncEnabled(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.Fsync = true
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -840,7 +840,7 @@ func TestStoreFsyncEnabled(t *testing.T) {
 
 func TestLastSnapshotTimeUpdated(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -861,7 +861,7 @@ func TestLastSnapshotTimeUpdated(t *testing.T) {
 
 func TestWALRecordsChangesets(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -870,17 +870,7 @@ func TestWALRecordsChangesets(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
 	commitStorageEntry(t, s, ktype.Address{0x03}, ktype.Slot{0x03}, []byte{0xCC})
 
-	first, _ := s.changelog.FirstOffset()
-	last, _ := s.changelog.LastOffset()
-	require.Greater(t, last, uint64(0))
-
-	var versions []int64
-	err = s.changelog.Replay(first, last, func(_ uint64, entry proto.ChangelogEntry) error {
-		versions = append(versions, entry.Version)
-		return nil
-	})
-	require.NoError(t, err)
-	require.Equal(t, []int64{1, 2, 3}, versions)
+	require.Equal(t, []uint64{1, 2, 3}, walBlockNumbers(t, s))
 
 	require.NoError(t, s.Close())
 }
@@ -1007,26 +997,11 @@ func TestEmptyCommitWALPayloadsDiffer(t *testing.T) {
 	require.NoError(t, sEmpty.ApplyChangeSets(sEmpty.Version()+1, []*proto.NamedChangeSet{emptyCS}))
 	commitAndCheck(t, sEmpty)
 
-	nilFirst, _ := sNil.changelog.FirstOffset()
-	nilLast, _ := sNil.changelog.LastOffset()
-	var nilEntry proto.ChangelogEntry
-	err := sNil.changelog.Replay(nilFirst, nilLast, func(_ uint64, e proto.ChangelogEntry) error {
-		nilEntry = e
-		return nil
-	})
-	require.NoError(t, err)
+	nilChangesets := singleWALBlockChangesets(t, sNil)
+	emptyChangesets := singleWALBlockChangesets(t, sEmpty)
 
-	emptyFirst, _ := sEmpty.changelog.FirstOffset()
-	emptyLast, _ := sEmpty.changelog.LastOffset()
-	var emptyEntry proto.ChangelogEntry
-	err = sEmpty.changelog.Replay(emptyFirst, emptyLast, func(_ uint64, e proto.ChangelogEntry) error {
-		emptyEntry = e
-		return nil
-	})
-	require.NoError(t, err)
-
-	require.Len(t, nilEntry.Changesets, 0, "nil ApplyChangeSets produces 0 WAL changesets")
-	require.Len(t, emptyEntry.Changesets, 1, "[empty NamedChangeSet] produces 1 WAL changeset")
+	require.Len(t, nilChangesets, 0, "nil ApplyChangeSets produces 0 WAL changesets")
+	require.Len(t, emptyChangesets, 1, "[empty NamedChangeSet] produces 1 WAL changeset")
 }
 
 // =============================================================================

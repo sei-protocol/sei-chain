@@ -316,7 +316,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbPath
 
-	s1, err := NewCommitStore(t.Context(), cfg)
+	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s1.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -334,7 +334,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	cfg2 := config.DefaultTestConfig(t)
 	cfg2.DataDir = dbPath
 
-	s2, err := NewCommitStore(t.Context(), cfg2)
+	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(1, false)
 	require.NoError(t, err)
@@ -365,7 +365,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbPath
 
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -444,7 +444,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	// --- Phase 3: import snapshot into the existing store ---
 	require.NoError(t, s.Close())
 
-	s, err = NewCommitStore(t.Context(), cfg)
+	s, err = newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -484,7 +484,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	// Verify the store survives a reopen.
 	require.NoError(t, s.Close())
-	s, err = NewCommitStore(t.Context(), cfg)
+	s, err = newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(1, false)
 	require.NoError(t, err)
@@ -505,7 +505,7 @@ func TestImporterFailsWhenResetCannotRemoveCurrentLink(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbPath
 
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -555,7 +555,7 @@ func TestImporterHeightNonZeroSkipped(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -584,7 +584,7 @@ func TestImporterNilKeySkipped(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -609,7 +609,7 @@ func TestImporterEmptyStore(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -629,7 +629,7 @@ func TestImporterCorruptKeyDataPropagatesError(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -655,7 +655,7 @@ func TestImporterDoubleImport(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -807,7 +807,7 @@ func TestExportImportLargerDataset(t *testing.T) {
 	dir2 := t.TempDir()
 	cfg2 := config.DefaultTestConfig(t)
 	cfg2.DataDir = filepath.Join(dir2, flatkvRootDir)
-	s2, err := NewCommitStore(t.Context(), cfg2)
+	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)

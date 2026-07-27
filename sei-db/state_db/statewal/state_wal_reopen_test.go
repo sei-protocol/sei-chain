@@ -1,0 +1,110 @@
+package statewal
+
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// TestConfigGetterReturnsOpenedConfig verifies Config() hands back the exact config the WAL was opened
+// with, so FlatKV can close and reopen the instance with its original tuning during rollback / restore.
+func TestConfigGetterReturnsOpenedConfig(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+
+	require.Same(t, cfg, w.Config())
+}
+
+// TestConfigGetterValidAfterClose verifies Config() still returns the config after Close — the caller needs
+// it precisely to reopen after closing.
+func TestConfigGetterValidAfterClose(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	w := openWAL(t, cfg)
+	require.NoError(t, w.Close())
+
+	require.Same(t, cfg, w.Config())
+}
+
+// TestDeleteRemovesWALFiles verifies Delete empties the WAL directory so a subsequent New yields a fresh,
+// empty WAL.
+func TestDeleteRemovesWALFiles(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	w := openWAL(t, cfg)
+	for block := uint64(1); block <= 3; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+	require.NoError(t, w.Close())
+
+	require.NoError(t, Delete(cfg))
+
+	w2 := openWAL(t, cfg)
+	defer func() { require.NoError(t, w2.Close()) }()
+	ok, _, _, err := w2.GetStoredRange()
+	require.NoError(t, err)
+	require.False(t, ok, "WAL should be empty after Delete")
+}
+
+// TestDeleteMissingDirIsNoop verifies Delete on a directory that was never created is a clean no-op.
+func TestDeleteMissingDirIsNoop(t *testing.T) {
+	cfg := testConfig(filepath.Join(t.TempDir(), "never-created"))
+	require.NoError(t, Delete(cfg))
+}
+
+// TestCloseDeleteReopenAcceptsFarAheadBlock models the state-sync restore case (D7): after wiping a WAL that
+// held an old chain's blocks, the reopened WAL accepts a first write at a far-ahead height with no
+// contiguity error — this is why restore must wipe rather than splice.
+func TestCloseDeleteReopenAcceptsFarAheadBlock(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	w := openWAL(t, cfg)
+	for block := uint64(1); block <= 5; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+	require.NoError(t, w.Close())
+
+	require.NoError(t, Delete(cfg))
+
+	w2 := openWAL(t, cfg)
+	defer func() { require.NoError(t, w2.Close()) }()
+
+	const restoredHeight = uint64(1000)
+	writeBlock(t, w2, restoredHeight) // fresh WAL accepts any first block
+	require.NoError(t, w2.Flush())
+
+	ok, start, end, err := w2.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, restoredHeight, start)
+	require.Equal(t, restoredHeight, end)
+}
+
+// TestClosePruneAfterReopenResetsHead models the rollback case (D3): close, offline PruneAfter to the
+// target, reopen — the stored range is truncated to the target and the write head resets, so the next write
+// is contiguous at target+1.
+func TestClosePruneAfterReopenResetsHead(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	w := openWAL(t, cfg)
+	for block := uint64(1); block <= 5; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+	require.NoError(t, w.Close())
+
+	require.NoError(t, PruneAfter(cfg, 3))
+
+	w2 := openWAL(t, cfg)
+	defer func() { require.NoError(t, w2.Close()) }()
+
+	ok, start, end, err := w2.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), start)
+	require.Equal(t, uint64(3), end)
+
+	writeBlock(t, w2, 4) // contiguous with the rolled-back head
+	require.NoError(t, w2.Flush())
+	require.Equal(t, []uint64{1, 2, 3, 4}, collectBlocks(t, w2, 1, 4))
+}

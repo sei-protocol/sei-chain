@@ -325,7 +325,9 @@ func rollbackFlatKV(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig,
 	t.Helper()
 	flatkvCfg := cfg.FlatKVConfig
 	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
-	evmStore, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg)
+	stateWAL, err := flatkv.OpenStateWAL(&flatkvCfg)
+	require.NoError(t, err)
+	evmStore, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg, stateWAL)
 	require.NoError(t, err)
 	_, err = evmStore.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -351,7 +353,9 @@ func openFlatKVReadOnly(t *testing.T, dir string, cfg seidbconfig.StateCommitCon
 	t.Helper()
 	flatkvCfg := cfg.FlatKVConfig
 	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
-	store, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg)
+	stateWAL, err := flatkv.OpenStateWAL(&flatkvCfg)
+	require.NoError(t, err)
+	store, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg, stateWAL)
 	require.NoError(t, err)
 	ro, err := store.LoadVersion(version, true)
 	require.NoError(t, err)
@@ -414,7 +418,9 @@ func collectFlatKVEVM(t *testing.T, dir string, cfg seidbconfig.StateCommitConfi
 	flatkvCfg := cfg.FlatKVConfig
 	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
 
-	s, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg)
+	stateWAL, err := flatkv.OpenStateWAL(&flatkvCfg)
+	require.NoError(t, err)
+	s, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg, stateWAL)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, s.Close()) }()
 

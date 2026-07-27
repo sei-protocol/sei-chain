@@ -13,7 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
-	"github.com/sei-protocol/sei-chain/sei-db/wal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -201,24 +201,24 @@ func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
 	}
 	require.NoError(t, store.Close())
 
+	// Simulate tryTruncateWAL having dropped v1..v3 from the WAL after a newer snapshot rolled — i.e. the
+	// WAL now starts at v4 while the selected snapshot is still v1. Rebuild the source changelog as a fresh
+	// state WAL that starts at v4 (the state WAL permits any first block number), which is the exact shape a
+	// front-truncation past the snapshot leaves behind.
 	walDir := filepath.Join(dbDir, "changelog")
-	walLog, err := wal.NewChangelogWAL(walDir, wal.Config{})
+	walCfg := statewal.DefaultConfig(walDir, "flatkv")
+	require.NoError(t, statewal.Delete(walCfg))
+	w, err := statewal.New(walCfg)
 	require.NoError(t, err)
-	first, err := walLog.FirstOffset()
-	require.NoError(t, err)
-	last, err := walLog.LastOffset()
-	require.NoError(t, err)
-
-	var v4Off uint64
-	require.NoError(t, walLog.Replay(first, last, func(off uint64, entry proto.ChangelogEntry) error {
-		if entry.Version == 4 && v4Off == 0 {
-			v4Off = off
-		}
-		return nil
-	}))
-	require.Greater(t, v4Off, uint64(0), "WAL should contain a v4 entry")
-	require.NoError(t, walLog.TruncateBefore(v4Off))
-	require.NoError(t, walLog.Close())
+	for v := uint64(4); v <= 5; v++ {
+		require.NoError(t, w.Write(v, []*proto.NamedChangeSet{{
+			Name:      keys.EVMStoreKey,
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(byte(v)), v)}},
+		}}))
+		require.NoError(t, w.SignalEndOfBlock())
+	}
+	require.NoError(t, w.Flush())
+	require.NoError(t, w.Close())
 
 	_, err = prepareFlatKVToolingClone(dbDir, 0)
 	require.Error(t, err)
@@ -297,7 +297,9 @@ func newDiskBackedFlatKVStore(t *testing.T) (*flatkv.CommitStore, string) {
 	t.Helper()
 
 	cfg := flatkvconfig.DefaultTestConfig(t)
-	store, err := flatkv.NewCommitStore(context.Background(), cfg)
+	stateWAL, err := flatkv.OpenStateWAL(cfg)
+	require.NoError(t, err)
+	store, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)
 	require.NoError(t, err)
 	_, err = store.LoadVersion(0, false)
 	require.NoError(t, err)

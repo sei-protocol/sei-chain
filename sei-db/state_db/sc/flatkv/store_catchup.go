@@ -6,227 +6,120 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// walOffsetForVersion returns the WAL offset whose entry has the given version.
-// Returns 0 if the WAL is empty or the version predates all WAL entries.
-//
-// Strategy: try the arithmetic shortcut (O(1) reads) first -- it works when
-// each version maps 1:1 to a sequential offset. On mismatch, fall back to
-// binary search (O(log N) reads) which handles gaps and batched versions.
-func (s *CommitStore) walOffsetForVersion(version int64) (uint64, error) {
-	if s.changelog == nil {
-		return 0, fmt.Errorf("changelog not open")
+// applyAndCommit replays a single block into the store: it applies the changesets, commits the per-DB
+// batches, advances the committed version, clones the working LtHash to committed, and clears the pending
+// buffers. It is the shared per-block step used both by catchup (replaying this store's own WAL) and by
+// read-only export replay (replaying the primary's WAL into a clone, see replayInto). It never touches the
+// WAL — the data being applied was itself read from a WAL, so re-writing it would double-append.
+func (s *CommitStore) applyAndCommit(version int64, changesets []*proto.NamedChangeSet) error {
+	if err := s.ApplyChangeSets(version, changesets); err != nil {
+		return fmt.Errorf("apply v%d: %w", version, err)
 	}
-	firstOff, err := s.changelog.FirstOffset()
-	if err != nil {
-		return 0, fmt.Errorf("WAL first offset: %w", err)
+	if err := s.commitBatches(version); err != nil {
+		return fmt.Errorf("commit v%d: %w", version, err)
 	}
-	if firstOff == 0 {
-		return 0, nil
-	}
-	lastOff, err := s.changelog.LastOffset()
-	if err != nil {
-		return 0, fmt.Errorf("WAL last offset: %w", err)
-	}
-	if lastOff == 0 || firstOff > lastOff {
-		return 0, nil
-	}
-
-	firstVer, err := s.walVersionAtOffset(firstOff)
-	if err != nil {
-		return 0, fmt.Errorf("read first WAL entry: %w", err)
-	}
-	if firstVer <= 0 || version < firstVer {
-		return 0, nil
-	}
-
-	// Fast path: O(1) arithmetic guess.
-	guess := firstOff + uint64(version-firstVer) //nolint:gosec // version >= firstVer checked above
-	if guess >= firstOff && guess <= lastOff {
-		if v, err := s.walVersionAtOffset(guess); err == nil && v == version {
-			return guess, nil
-		}
-	}
-
-	// Slow path: binary search over [firstOff, lastOff].
-	lo, hi := firstOff, lastOff
-	for lo <= hi {
-		mid := lo + (hi-lo)/2
-		v, err := s.walVersionAtOffset(mid)
-		if err != nil {
-			return 0, fmt.Errorf("WAL binary search at offset %d: %w", mid, err)
-		}
-		switch {
-		case v == version:
-			return mid, nil
-		case v < version:
-			lo = mid + 1
-		default:
-			if mid == 0 {
-				break
-			}
-			hi = mid - 1
-		}
-	}
-	return 0, fmt.Errorf("WAL version %d not found (range %d-%d)", version, firstOff, lastOff)
+	s.committedVersion = version
+	s.committedLtHash = s.workingLtHash.Clone()
+	s.clearPendingWrites()
+	recordPendingWrites(s.ctx, accountDBDir, 0)
+	recordPendingWrites(s.ctx, codeDBDir, 0)
+	recordPendingWrites(s.ctx, storageDBDir, 0)
+	recordPendingWrites(s.ctx, miscDBDir, 0)
+	return nil
 }
 
-// walVersionAtOffset reads a single WAL entry and returns its version.
-func (s *CommitStore) walVersionAtOffset(off uint64) (int64, error) {
-	var ver int64
-	err := s.changelog.Replay(off, off, func(_ uint64, entry proto.ChangelogEntry) error {
-		ver = entry.Version
-		return nil
-	})
-	return ver, err
-}
-
-// catchup replays WAL entries from the current committedVersion up to (and
-// including) targetVersion. If targetVersion <= 0, replay continues to the
-// end of the WAL.
+// catchup replays this store's WAL from the current committedVersion up to (and including) targetVersion.
+// If targetVersion <= 0, replay continues to the end of the WAL. Each block runs through applyAndCommit; a
+// single global-metadata commit follows.
 //
-// Each replayed entry runs through ApplyChangeSets(entry.Version, ...) (so
-// row last-modified heights match the WAL commit version) and commitBatches.
-// After all entries are replayed, global metadata is flushed once.
+// catchup runs at startup (open/openTo) and during Rollback — never concurrently with live commits — so it
+// reads s.wal without additional locking. (Concurrent read for state-sync export goes through replayInto,
+// which locks around iterator construction.)
 //
-// Version gaps are allowed: Commit/CommitBlock may persist non-sequential
-// heights (batch last-block height, empty commits that jump ahead), so the
-// next WAL entry may be strictly greater than committedVersion+1. Replay
-// still rejects versions that do not advance past the last applied entry.
+// With a nil WAL there is no replay: the store can only be at a version that is already committed or that
+// exactly matches the snapshot it opened at. A load that would need to advance past the committed version
+// is rejected — the nil-WAL contract, where the outer context owns the WAL pipeline.
 func (s *CommitStore) catchup(targetVersion int64) (err error) {
 	var replayed int
-	var startOff, endOff uint64
-	obs := s.observeOp("catchup", otelMetrics.CatchupLatency,
-		"targetVersion", targetVersion)
-	// Replayed blocks are reported regardless of catchup outcome: even on a
-	// later error, the blocks that did replay are real progress that moved
-	// committedVersion forward.
-	//
-	// CurrentVersion is intentionally NOT recorded here: the write-mode
-	// callers (LoadVersion, Rollback) record it on success themselves, and
-	// recording it from catchup would pollute the gauge when openReadOnly
-	// invokes catchup during a read-only historical load.
+	var startBlock, endBlock uint64
+	obs := s.observeOp("catchup", otelMetrics.CatchupLatency, "targetVersion", targetVersion)
+	// Replayed blocks are reported regardless of outcome: even on a later error, blocks that did replay are
+	// real progress. CurrentVersion is intentionally NOT recorded here — write-mode callers record it on
+	// success themselves.
 	defer func() {
 		if replayed > 0 {
 			otelMetrics.CatchupReplayNumBlocks.Add(s.ctx, int64(replayed))
 		}
-		obs.done(&err, nil,
-			"startOffset", startOff,
-			"endOffset", endOff,
-			"replayed", replayed)
+		obs.done(&err, nil, "startBlock", startBlock, "endBlock", endBlock, "replayed", replayed)
 	}()
 
-	if s.changelog == nil {
-		return fmt.Errorf("catchup: changelog not open")
-	}
-
-	firstOff, err := s.changelog.FirstOffset()
-	if err != nil {
-		return fmt.Errorf("catchup: first offset: %w", err)
-	}
-	lastOff, err := s.changelog.LastOffset()
-	if err != nil {
-		return fmt.Errorf("catchup: last offset: %w", err)
-	}
-
-	if lastOff == 0 || firstOff > lastOff {
+	if s.wal == nil {
+		if targetVersion > 0 && s.committedVersion != targetVersion {
+			return fmt.Errorf("catchup: nil WAL cannot replay to version %d (committed %d)",
+				targetVersion, s.committedVersion)
+		}
 		return nil
 	}
 
-	// Resolve the WAL boundary versions once so we can pick the right start
-	// offset below.
-	walFirstVer, err := s.walVersionAtOffset(firstOff)
+	ok, first, last, err := s.wal.GetStoredRange()
 	if err != nil {
-		return fmt.Errorf("catchup: read first WAL entry: %w", err)
+		return fmt.Errorf("catchup: WAL range: %w", err)
 	}
-	walLastVer, err := s.walVersionAtOffset(lastOff)
-	if err != nil {
-		return fmt.Errorf("catchup: read last WAL entry: %w", err)
+	if !ok || last <= uint64(s.committedVersion) {
+		// Empty WAL, or nothing past committedVersion: clean no-op.
+		return nil
 	}
 
-	startOff = firstOff
+	// Replay from the block after committedVersion. On a fresh load committedVersion is the snapshot version
+	// (>= first); when there is no committed state yet (0) start at the WAL's first block.
+	startBlock = first
 	if s.committedVersion > 0 {
-		// Nothing past committedVersion in the WAL: clean no-op.
-		if walLastVer <= s.committedVersion {
-			return nil
-		}
-		if walFirstVer <= s.committedVersion {
-			// The WAL is guaranteed to still hold the entry for
-			// committedVersion: Commit always writes an entry's WAL record
-			// before it advances committedVersion, and truncation never
-			// removes entries at or after committedVersion. Locate it
-			// directly; the replay loop below skips it
-			// (entry.Version <= s.committedVersion) and applies from there.
-			off, err := s.walOffsetForVersion(s.committedVersion)
-			if err != nil {
-				return fmt.Errorf("catchup: resolve WAL offset for committed version %d: %w", s.committedVersion, err)
-			}
-			startOff = off
-		}
+		startBlock = uint64(s.committedVersion) + 1 //nolint:gosec // committedVersion > 0 checked above
 	}
-
-	// Bound end offset to avoid deserializing entries past the target:
-	// O(target - snapshot) instead of O(WAL_size).
-	endOff = lastOff
-	if targetVersion > 0 {
-		off, err := s.walOffsetForVersion(targetVersion)
-		if err != nil {
-			return fmt.Errorf("catchup: resolve WAL offset for target version %d: %w", targetVersion, err)
-		}
-		if off > 0 && off < endOff {
-			endOff = off
-		}
+	endBlock = last
+	if targetVersion > 0 && uint64(targetVersion) < endBlock {
+		endBlock = uint64(targetVersion)
+	}
+	if endBlock < startBlock {
+		return nil
 	}
 
 	logger.Info("FlatKV catchup start",
-		"targetVersion", targetVersion,
-		"committedVersion", s.committedVersion,
-		"startOffset", startOff,
-		"endOffset", endOff)
-	lastApplied := s.committedVersion
-	err = s.changelog.Replay(startOff, endOff, func(_ uint64, entry proto.ChangelogEntry) error {
-		if entry.Version <= s.committedVersion {
-			return nil
-		}
-		if targetVersion > 0 && entry.Version > targetVersion {
-			return nil
-		}
-		// WAL versions must advance. Forward jumps are OK (gapped/batch
-		// commits); going backwards indicates corruption.
-		if entry.Version <= lastApplied {
-			return fmt.Errorf("catchup: WAL version not advancing: lastApplied=%d, got %d", lastApplied, entry.Version)
-		}
+		"targetVersion", targetVersion, "committedVersion", s.committedVersion,
+		"startBlock", startBlock, "endBlock", endBlock)
 
-		if err := s.ApplyChangeSets(entry.Version, entry.Changesets); err != nil {
-			return fmt.Errorf("catchup apply v%d: %w", entry.Version, err)
+	it, err := s.wal.Iterator(startBlock, endBlock)
+	if err != nil {
+		return fmt.Errorf("catchup: WAL iterator [%d,%d]: %w", startBlock, endBlock, err)
+	}
+	defer func() {
+		if cerr := it.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("catchup: close WAL iterator: %w", cerr)
 		}
-		if err := s.commitBatches(entry.Version); err != nil {
-			return fmt.Errorf("catchup commit v%d: %w", entry.Version, err)
+	}()
+
+	for {
+		hasNext, nErr := it.Next()
+		if nErr != nil {
+			return fmt.Errorf("catchup: WAL iterate: %w", nErr)
 		}
-
-		s.committedVersion = entry.Version
-		s.committedLtHash = s.workingLtHash.Clone()
-		s.clearPendingWrites()
-		recordPendingWrites(s.ctx, accountDBDir, 0)
-		recordPendingWrites(s.ctx, codeDBDir, 0)
-		recordPendingWrites(s.ctx, storageDBDir, 0)
-		recordPendingWrites(s.ctx, miscDBDir, 0)
-		lastApplied = entry.Version
-
+		if !hasNext {
+			break
+		}
+		block, changesets := it.Entry()
+		if err := s.applyAndCommit(int64(block), changesets); err != nil { //nolint:gosec // block <= endBlock
+			return fmt.Errorf("catchup: replay block %d: %w", block, err)
+		}
 		replayed++
 		if replayed%1000 == 0 {
-			logger.Info("FlatKV catchup progress", "replayed", replayed, "version", entry.Version)
+			logger.Info("FlatKV catchup progress", "replayed", replayed, "version", block)
 		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("catchup replay: %w", err)
 	}
 
 	if replayed > 0 {
 		if !s.config.Fsync {
-			// During catchup with Sync=false, per-entry batch commits can leave
-			// data only in OS/page cache. Flush once before advancing global
-			// metadata so global watermark won't get ahead of data durability.
+			// With Fsync=false, per-block batch commits may leave data only in OS/page cache. Flush once
+			// before advancing global metadata so the global watermark never gets ahead of data durability.
 			if err := s.flushAllDBs(); err != nil {
 				return fmt.Errorf("catchup flush: %w", err)
 			}
@@ -235,10 +128,7 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 			return fmt.Errorf("catchup global meta: %w", err)
 		}
 		logger.Info("FlatKV catchup complete",
-			"replayed", replayed,
-			"version", s.committedVersion,
-			"elapsed", obs.elapsed())
+			"replayed", replayed, "version", s.committedVersion, "elapsed", obs.elapsed())
 	}
-
 	return nil
 }

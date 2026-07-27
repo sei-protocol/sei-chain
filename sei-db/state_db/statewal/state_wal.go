@@ -89,6 +89,14 @@ type StateWAL interface {
 	// The returned changesets, and every byte slice reachable through them, must be treated as read-only.
 	Iterator(startingBlockNumber uint64, endingBlockNumber uint64) (seiwal.Iterator[[]*proto.NamedChangeSet], error)
 
+	// Config returns the configuration this WAL was opened with.
+	//
+	// TEMPORARY: exposed so FlatKV can close, offline-prune/delete, and reopen the WAL during rollback and
+	// state-sync restore — operations that must reconstruct the instance with its original config. This is a
+	// hack for the intermediate step where FlatKV still manages the WAL internally; remove it once the WAL is
+	// managed outside FlatKV and FlatKV no longer reconstructs it.
+	Config() *Config
+
 	// Close the WAL, flushing complete blocks (those ended with SignalEndOfBlock) to disk and releasing
 	// resources. Changes for a block that was not ended with SignalEndOfBlock are discarded.
 	Close() error

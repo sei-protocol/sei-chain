@@ -220,7 +220,10 @@ func TestFlatKVStateSizeAnalysisShape(t *testing.T) {
 
 func newTestFlatKVStore(t *testing.T) *flatkv.CommitStore {
 	t.Helper()
-	s, err := flatkv.NewCommitStore(context.Background(), flatkvconfig.DefaultTestConfig(t))
+	cfg := flatkvconfig.DefaultTestConfig(t)
+	stateWAL, err := flatkv.OpenStateWAL(cfg)
+	require.NoError(t, err)
+	s, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)

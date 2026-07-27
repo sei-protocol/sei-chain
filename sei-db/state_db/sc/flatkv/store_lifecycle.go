@@ -17,17 +17,12 @@ func (s *CommitStore) isClosed() bool {
 		s.codeDB == nil && s.storageDB == nil && s.miscDB == nil
 }
 
-// closeDBsOnly closes all database handles and the WAL but retains the
-// file lock, preventing a race window during Rollback or LoadVersion.
+// closeDBsOnly closes all database handles but retains the file lock, preventing a race window during
+// Rollback or LoadVersion. It deliberately does NOT close the WAL: the injected WAL's lifecycle is decoupled
+// from the DB open/close cycle and must survive the reopen that Rollback/LoadVersion perform. The WAL is
+// closed only by top-level Close (or replaced in place by Rollback/restore).
 func (s *CommitStore) closeDBsOnly() error {
 	var errs []error
-
-	if s.changelog != nil {
-		if err := s.changelog.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("changelog close: %w", err))
-		}
-	}
-	s.changelog = nil
 
 	if s.metadataDB != nil {
 		if err := s.metadataDB.Close(); err != nil {
@@ -91,6 +86,16 @@ func (s *CommitStore) Close() error {
 	s.ltCalc = nil
 
 	err := s.closeDBsOnly()
+
+	// FlatKV owns Close of whatever WAL instance it currently holds (the injected one, or a replacement made
+	// by rollback/restore). A nil WAL means the outer context owns the pipeline — nothing to close.
+	if s.wal != nil {
+		if walErr := s.wal.Close(); walErr != nil {
+			err = errors.Join(err, fmt.Errorf("WAL close: %w", walErr))
+		}
+		s.wal = nil
+	}
+
 	s.cancel()
 
 	if s.fileLock != nil {

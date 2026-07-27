@@ -27,7 +27,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	"github.com/sei-protocol/sei-chain/sei-db/wal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/sei-protocol/seilog"
 )
 
@@ -172,7 +172,16 @@ type CommitStore struct {
 	storageWrites map[string]*vtype.StorageData
 	miscWrites    map[string]*vtype.MiscData
 
-	changelog wal.ChangelogWAL
+	// The state WAL. Injected at construction: non-nil ⇒ FlatKV writes/replays/prunes it; nil ⇒ the outer
+	// context owns the whole WAL pipeline and FlatKV no-ops every WAL operation. FlatKV owns Close of whatever
+	// instance it currently holds (rollback/restore may replace it via close→prune/delete→reopen); its
+	// lifecycle is decoupled from the DB open/close cycle, so closeDBsOnly does not touch it.
+	wal statewal.StateWAL
+
+	// Whether FlatKV manages a WAL (a non-nil instance was injected at construction). It records the intent
+	// even across a Close that nil-es the live instance, so import reset can reconstruct the WAL rather than
+	// mistaking a closed-but-owned WAL for the nil "outer context owns it" case.
+	manageWAL bool
 
 	// Changes to feed into the WAL at the next commit.
 	pendingChangeSets []*proto.NamedChangeSet
@@ -276,6 +285,7 @@ func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueD
 func NewCommitStore(
 	ctx context.Context,
 	cfg *config.Config,
+	stateWAL statewal.StateWAL,
 ) (*CommitStore, error) {
 
 	InitializeDataDirectories(cfg)
@@ -318,6 +328,8 @@ func NewCommitStore(
 		miscPool:                 miscPool,
 		ltHashPool:               ltHashPool,
 		ltCalc:                   ltCalc,
+		wal:                      stateWAL,
+		manageWAL:                stateWAL != nil,
 	}, nil
 }
 
@@ -448,15 +460,8 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 			return nil, fmt.Errorf("loadVersionReadOnly: pre-init cleanup: %w", err)
 		}
 	}
-	// Give the clone an independent context rather than deriving it from the
-	// parent (s.ctx). The read-only store owns its own resources (thread pools,
-	// pebble handles) and is torn down by its own Close, which cancels the
-	// context NewCommitStore derives here. Rooting it at s.ctx instead would
-	// cancel the clone's context — and abort in-flight reads with "context
-	// canceled" — the moment the parent is closed, even though the caller may
-	// still be using the returned view. The clone's lifecycle is therefore
-	// decoupled from the parent's.
-	ro, err := NewCommitStore(context.Background(), &s.config)
+
+	ro, err := NewCommitStore(context.Background(), &s.config, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create readonly store: %w", err)
 	}
@@ -492,12 +497,97 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 		return nil, fmt.Errorf("readonly open: %w", err)
 	}
 
+	// The clone is open at a snapshot boundary with a nil WAL. Replay this (primary) store's WAL into it up
+	// to targetVersion so it reflects the exact requested height. The clone is not yet marked read-only, so
+	// the replay's ApplyChangeSets calls are permitted; mark it read-only only once replay succeeds.
+	if err := s.replayInto(ro, targetVersion); err != nil {
+		return nil, err
+	}
+
+	if targetVersion > 0 && ro.committedVersion != targetVersion {
+		return nil, fmt.Errorf("readonly version mismatch: requested %d, reached %d",
+			targetVersion, ro.committedVersion)
+	}
+
+	ro.readOnly = true
+
+	logger.Info("FlatKV readonly store opened", "version", ro.committedVersion, "dir", ro.readOnlyWorkDir)
 	return ro, nil
 }
 
-// openReadOnly opens PebbleDBs in readOnlyWorkDir, replays the WAL to
-// targetVersion, then closes the WAL and marks the store as read-only.
-// It never modifies the global "current" symlink.
+// replayInto replays this store's WAL into a read-only clone, advancing the clone from the snapshot
+// boundary it opened at up to targetVersion (or this store's latest WAL block when targetVersion <= 0). It
+// exists because the clone has a nil WAL: the primary owns the WAL, so the primary reads it and feeds each
+// block into the clone via applyAndCommit (which never touches a WAL).
+//
+// Concurrency: export runs in a background goroutine while this (primary) store may still be committing.
+// The iterator is constructed under s.mu, serializing against a concurrent Commit's WAL-wrapper access;
+// iteration then proceeds lock-free, because a seiwal iterator reads a consistent point-in-time (hard-link)
+// snapshot that concurrent appends/prunes cannot disturb.
+func (s *CommitStore) replayInto(clone *CommitStore, targetVersion int64) (retErr error) {
+	if s.wal == nil {
+		// nil WAL: the outer context owns the pipeline, so no between-snapshot replay is available here. The
+		// clone can only serve the snapshot boundary it opened at.
+		if targetVersion > 0 && clone.committedVersion != targetVersion {
+			return fmt.Errorf("readonly: nil WAL cannot replay to version %d (opened at %d)",
+				targetVersion, clone.committedVersion)
+		}
+		return nil
+	}
+
+	start := uint64(clone.committedVersion) + 1 //nolint:gosec // committedVersion >= 0
+
+	s.mu.Lock()
+	ok, _, last, err := s.wal.GetStoredRange()
+	if err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("readonly: WAL range: %w", err)
+	}
+	if !ok {
+		s.mu.Unlock()
+		return nil // empty WAL: nothing to replay
+	}
+	end := last
+	if targetVersion > 0 && uint64(targetVersion) < end {
+		end = uint64(targetVersion)
+	}
+	if end < start {
+		s.mu.Unlock()
+		return nil // clone already at or beyond target
+	}
+	it, err := s.wal.Iterator(start, end)
+	s.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("readonly: WAL iterator [%d,%d]: %w", start, end, err)
+	}
+	defer func() {
+		if cerr := it.Close(); cerr != nil && retErr == nil {
+			retErr = fmt.Errorf("readonly: close WAL iterator: %w", cerr)
+		}
+	}()
+
+	for {
+		hasNext, nErr := it.Next()
+		if nErr != nil {
+			return fmt.Errorf("readonly: WAL iterate: %w", nErr)
+		}
+		if !hasNext {
+			break
+		}
+		block, changesets := it.Entry()
+		if err := clone.applyAndCommit(int64(block), changesets); err != nil { //nolint:gosec // block <= end
+			return fmt.Errorf("readonly: replay block %d: %w", block, err)
+		}
+	}
+	return nil
+}
+
+// openReadOnly opens PebbleDBs in readOnlyWorkDir at the snapshot boundary at or below targetVersion,
+// leaving committedVersion at that snapshot version. It never modifies the global "current" symlink.
+//
+// This clone has a nil WAL of its own, so it does NOT replay: advancing from the snapshot boundary up to
+// targetVersion — and marking the store read-only — is driven by the primary via loadVersionReadOnly /
+// replayInto, which feeds the primary's WAL into this clone.
 func (s *CommitStore) openReadOnly(targetVersion int64) error {
 	s.clearPendingWrites()
 
@@ -522,7 +612,7 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 		return fmt.Errorf("create readonly working dir: %w", err)
 	}
 
-	if err := s.openDBs(s.readOnlyWorkDir, dir); err != nil {
+	if err := s.openDBs(s.readOnlyWorkDir); err != nil {
 		return err
 	}
 
@@ -530,26 +620,7 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 		return err
 	}
 
-	if err := s.catchup(targetVersion); err != nil {
-		return fmt.Errorf("readonly catchup: %w", err)
-	}
-
-	if targetVersion > 0 && s.committedVersion != targetVersion {
-		return fmt.Errorf("readonly version mismatch: requested %d, reached %d",
-			targetVersion, s.committedVersion)
-	}
-
-	if s.changelog != nil {
-		closeErr := s.changelog.Close()
-		s.changelog = nil
-		if closeErr != nil {
-			return fmt.Errorf("close readonly changelog: %w", closeErr)
-		}
-	}
-
-	s.readOnly = true
-
-	logger.Info("FlatKV readonly store opened", "version", s.committedVersion,
+	logger.Info("FlatKV readonly base opened", "version", s.committedVersion,
 		"dir", s.readOnlyWorkDir)
 	return nil
 }
@@ -619,7 +690,7 @@ func (s *CommitStore) open() (retErr error) {
 		return fmt.Errorf("create working dir: %w", err)
 	}
 
-	if err := s.openDBs(workDir, dir); err != nil {
+	if err := s.openDBs(workDir); err != nil {
 		return err
 	}
 
@@ -666,9 +737,12 @@ func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig, cacheCfg *dbcac
 	return db, nil
 }
 
-// openDBs opens all PebbleDBs from dbDir and optionally the changelog WAL
-// from changelogRoot. On failure all already-opened handles are closed.
-func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
+// openDBs opens all PebbleDBs from dbDir. On failure all already-opened handles are closed.
+//
+// It does not touch the WAL: the WAL is injected at construction and its lifecycle is decoupled from the
+// DB open/close cycle (it must survive LoadVersion/Rollback DB reopens), so it is neither opened nor
+// cleared here.
+func (s *CommitStore) openDBs(dbDir string) (retErr error) {
 
 	var toClose []io.Closer
 	defer func() {
@@ -681,7 +755,6 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 			s.codeDB = nil
 			s.storageDB = nil
 			s.miscDB = nil
-			s.changelog = nil
 			s.localMeta = make(map[string]*ktype.LocalMeta)
 		}
 	}()
@@ -716,19 +789,6 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 		return fmt.Errorf("failed to open metadata DB: %w", err)
 	}
 	toClose = append(toClose, s.metadataDB)
-
-	if changelogRoot != "" {
-		changelogPath := filepath.Join(changelogRoot, changelogDir)
-		s.changelog, err = wal.NewChangelogWAL(changelogPath, wal.Config{
-			WriteBufferSize: 0,
-			KeepRecent:      0,
-			PruneInterval:   0,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to open changelog: %w", err)
-		}
-		toClose = append(toClose, s.changelog)
-	}
 
 	for _, ndb := range s.namedDataDBs() {
 		meta, err := loadLocalMeta(ndb.db)
@@ -795,29 +855,6 @@ func (s *CommitStore) loadGlobalMetadata() error {
 		}
 	}
 
-	return nil
-}
-
-// clearChangelog closes the WAL, removes its directory, and reopens an empty
-// WAL. Used by Rollback when the target version predates all WAL entries and
-// the entire log must be discarded to prevent re-application on restart.
-func (s *CommitStore) clearChangelog() error {
-	if s.changelog == nil {
-		return nil
-	}
-	dir := filepath.Join(s.flatkvDir(), changelogDir)
-	if err := s.changelog.Close(); err != nil {
-		return fmt.Errorf("close changelog: %w", err)
-	}
-	s.changelog = nil
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("remove changelog dir: %w", err)
-	}
-	var err error
-	s.changelog, err = wal.NewChangelogWAL(dir, wal.Config{})
-	if err != nil {
-		return fmt.Errorf("reopen changelog: %w", err)
-	}
 	return nil
 }
 
@@ -911,8 +948,11 @@ func (s *CommitStore) resetForImport() error {
 		return fmt.Errorf("resetForImport: remove %s: %w", currentLink, err)
 	}
 
-	if err := atomicRemoveDir(filepath.Join(dir, changelogDir)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("resetForImport: remove %s: %w", changelogDir, err)
+	// Reset the WAL through the injected instance rather than removing its directory directly: the instance
+	// is still open here, so a raw removal would strand it (and break its Close). resetWAL wipes it to a
+	// clean empty log aligned with the import; it is a no-op when the outer context owns the WAL (nil).
+	if err := s.resetWAL(); err != nil {
+		return fmt.Errorf("resetForImport: reset WAL: %w", err)
 	}
 
 	// Reopen from a pristine empty state. open() will load metadata
@@ -928,6 +968,41 @@ func (s *CommitStore) resetForImport() error {
 	s.perDBModuleWorkingLtHash = newPerDBModuleLtHashMap()
 	s.perDBModuleWorkingStats = newPerDBModuleStatsMap()
 
+	return nil
+}
+
+// resetWAL discards this store's WAL and reopens an empty one, so a restore starts from a clean WAL aligned
+// with the imported snapshot (called by resetForImport). Import bypasses the WAL, so any pre-existing WAL is
+// stale relative to the imported version; under statewal's contiguity a stale non-empty WAL (a re-syncing
+// node's old-chain entries) would reject the next commit. Wiping is a no-op on a fresh node and the fix on
+// a re-sync.
+//
+// When the store does not manage a WAL (constructed with nil — the outer context owns the pipeline) this is
+// a no-op. The live instance may already be nil here: rootmulti.Restore closes the store before importing,
+// and Close releases the WAL. So the config comes from the live instance when present, and is otherwise
+// reconstructed from the store config (identical to how the instance was originally opened).
+func (s *CommitStore) resetWAL() error {
+	if !s.manageWAL {
+		return nil
+	}
+	var cfg *statewal.Config
+	if s.wal != nil {
+		cfg = s.wal.Config()
+		if err := s.wal.Close(); err != nil {
+			return fmt.Errorf("close WAL for reset: %w", err)
+		}
+		s.wal = nil
+	} else {
+		cfg = stateWALConfig(&s.config)
+	}
+	if err := statewal.Delete(cfg); err != nil {
+		return fmt.Errorf("delete WAL for reset: %w", err)
+	}
+	w, err := statewal.New(cfg)
+	if err != nil {
+		return fmt.Errorf("reopen WAL after reset: %w", err)
+	}
+	s.wal = w
 	return nil
 }
 

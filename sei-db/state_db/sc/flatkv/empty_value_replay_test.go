@@ -29,7 +29,7 @@ func reopenCommittedRoot(t *testing.T, dir string, readOnly bool) []byte {
 	t.Helper()
 	cfg := config.DefaultConfig()
 	cfg.DataDir = dir
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	ro, err := s.LoadVersion(0, readOnly)
 	require.NoError(t, err)

@@ -1608,7 +1608,9 @@ func rollbackFlatKVIndependently(t *testing.T, dir string, cfg config.StateCommi
 	t.Helper()
 	flatkvCfg := cfg.FlatKVConfig
 	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
-	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg)
+	flatkvWAL, err := flatkv.OpenStateWAL(&flatkvCfg)
+	require.NoError(t, err)
+	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg, flatkvWAL)
 	require.NoError(t, err)
 	_, err = evmStore.LoadVersion(0, false)
 	require.NoError(t, err)

@@ -69,7 +69,7 @@ func setupTestDB(t *testing.T) types.KeyValueDB {
 // setupTestStore creates a minimal test store
 func setupTestStore(t *testing.T) *CommitStore {
 	t.Helper()
-	s, err := NewCommitStore(t.Context(), config.DefaultTestConfig(t))
+	s, err := newCommitStoreWithWAL(t.Context(), config.DefaultTestConfig(t))
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func setupTestStoreWithConfig(t *testing.T, cfg *config.Config) *CommitStore {
 	t.Helper()
 	dir := t.TempDir()
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)

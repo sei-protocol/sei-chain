@@ -3,6 +3,8 @@ package statewal
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
@@ -16,6 +18,10 @@ var _ StateWAL = (*stateWALImpl)(nil)
 type stateWALImpl struct {
 	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
 	wal seiwal.WAL[[]*proto.NamedChangeSet]
+
+	// The configuration this WAL was opened with. Retained only so Config() can hand it back for
+	// close/reopen (see Config on the StateWAL interface). Never mutated after construction.
+	config *Config
 
 	// Set by Close() so subsequent calls fail fast. A plain field: like the write-ordering state below, it
 	// is only ever touched by the single caller, which must not invoke methods concurrently.
@@ -49,7 +55,7 @@ func New(config *Config) (StateWAL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open state WAL: %w", err)
 	}
-	return newStateWAL(wal)
+	return newStateWAL(wal, config)
 }
 
 // GetRange reports the range of block numbers stored in the state WAL directory configured by config,
@@ -100,8 +106,31 @@ func VerifyIntegrity(config *Config) error {
 	return nil
 }
 
-func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
-	w := &stateWALImpl{wal: wal}
+// Delete removes all state WAL files under the configured directory, leaving the directory itself in place
+// so it can be reopened with New. It does not construct a live StateWAL.
+//
+// NOT SAFE FOR CONCURRENT USE with a live StateWAL, or with GetRange/PruneAfter/VerifyIntegrity, on the same
+// directory. Call it only while no StateWAL is open there — e.g. FlatKV closes the WAL before deleting and
+// reopening it on a state-sync restore, so the receiving node rebuilds a clean WAL aligned with the imported
+// snapshot rather than splicing onto stale entries.
+func Delete(config *Config) error {
+	entries, err := os.ReadDir(config.Path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read state WAL directory %s: %w", config.Path, err)
+	}
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(config.Path, entry.Name())); err != nil {
+			return fmt.Errorf("failed to delete state WAL entry %s: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet], config *Config) (StateWAL, error) {
+	w := &stateWALImpl{wal: wal, config: config}
 
 	// Recover the write-ordering position from the highest block already on disk.
 	ok, _, last, err := wal.Bounds()
@@ -260,6 +289,13 @@ func (w *stateWALImpl) Iterator(
 		return nil, w.fail(fmt.Errorf("failed to create WAL iterator: %w", err))
 	}
 	return it, nil
+}
+
+// Config returns the configuration this WAL was opened with. See the Config method on the StateWAL
+// interface — it is a pure getter of an immutable field, so it stays valid (and returns the config) even
+// after the WAL is closed or bricked, which is exactly when the caller needs it to reopen.
+func (w *stateWALImpl) Config() *Config {
+	return w.config
 }
 
 // Close flushes pending writes, closes the underlying WAL, and releases resources.

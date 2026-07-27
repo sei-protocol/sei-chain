@@ -198,8 +198,13 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 
 	cfg := flatkvconfig.DefaultConfig()
 	cfg.DataDir = utils.GetFlatKVPath(homeDir)
-	store, err := flatkv.NewCommitStore(ctx, cfg)
+	stateWAL, err := flatkv.OpenStateWAL(cfg)
 	if err != nil {
+		return fmt.Errorf("failed to open FlatKV state WAL: %w", err)
+	}
+	store, err := flatkv.NewCommitStore(ctx, cfg, stateWAL)
+	if err != nil {
+		_ = stateWAL.Close()
 		return fmt.Errorf("failed to create FlatKV store: %w", err)
 	}
 	defer func() { _ = store.Close() }()

@@ -12,15 +12,18 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
-	"github.com/sei-protocol/sei-chain/sei-db/wal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
 const (
 	flatkvSnapshotPrefix = "snapshot-"
 	flatkvSnapshotDirLen = len(flatkvSnapshotPrefix) + 20
+
+	// flatkvStateWALName matches the WAL instance name FlatKV opens its state WAL with; it only labels
+	// metrics, and the offline GetRange used here does not emit any, but keep it consistent.
+	flatkvStateWALName = "flatkv"
 
 	// maxCloneRetries bounds the number of retries when the source snapshot
 	// is pruned mid-clone by a live writer (atomicRemoveDir race) or when the
@@ -89,8 +92,14 @@ func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
 	cfg := config.DefaultConfig()
 	cfg.DataDir = tempDir
 
-	store, err := flatkv.NewCommitStore(context.Background(), cfg)
+	stateWAL, err := flatkv.OpenStateWAL(cfg)
 	if err != nil {
+		_ = os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("failed to open FlatKV state WAL: %w", err)
+	}
+	store, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)
+	if err != nil {
+		_ = stateWAL.Close()
 		_ = os.RemoveAll(tempDir)
 		return nil, fmt.Errorf("failed to create FlatKV store: %w", err)
 	}
@@ -198,54 +207,27 @@ func tryPrepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
 	return tempDir, nil
 }
 
-// verifyClonedWALCovers opens the cloned WAL just long enough to ensure it
+// verifyClonedWALCovers inspects the cloned WAL just long enough to ensure it
 // either is empty, ends at or before snapshotVersion (no replay needed), or
-// starts at or before snapshotVersion+1 (catchup can resume cleanly).
+// starts at or before snapshotVersion+1 (catchup can resume cleanly). The state
+// WAL is keyed by block number, so its stored range is directly the version
+// range; GetRange reads it offline without a live WAL instance.
 func verifyClonedWALCovers(dstChangelogDir string, snapshotVersion int64) error {
-	walLog, err := wal.NewChangelogWAL(dstChangelogDir, wal.Config{})
+	ok, firstVer, lastVer, err := statewal.GetRange(statewal.DefaultConfig(dstChangelogDir, flatkvStateWALName))
 	if err != nil {
-		return fmt.Errorf("open cloned changelog for validation: %w", err)
+		return fmt.Errorf("read cloned changelog range: %w", err)
 	}
-	defer func() { _ = walLog.Close() }()
-
-	firstOff, err := walLog.FirstOffset()
-	if err != nil {
-		return fmt.Errorf("cloned changelog first offset: %w", err)
-	}
-	lastOff, err := walLog.LastOffset()
-	if err != nil {
-		return fmt.Errorf("cloned changelog last offset: %w", err)
-	}
-	if firstOff == 0 || lastOff == 0 || firstOff > lastOff {
+	if !ok {
 		return nil
 	}
-
-	firstVer, err := readWALEntryVersion(walLog, firstOff)
-	if err != nil {
-		return fmt.Errorf("read first cloned changelog entry: %w", err)
-	}
-	lastVer, err := readWALEntryVersion(walLog, lastOff)
-	if err != nil {
-		return fmt.Errorf("read last cloned changelog entry: %w", err)
-	}
-
-	if lastVer <= snapshotVersion {
+	if int64(lastVer) <= snapshotVersion { //nolint:gosec // version fits int64
 		return nil
 	}
-	if firstVer <= snapshotVersion+1 {
+	if int64(firstVer) <= snapshotVersion+1 { //nolint:gosec // version fits int64
 		return nil
 	}
 	return fmt.Errorf("%w: cloned WAL starts at version %d but snapshot is %d (truncated past snapshot mid-clone)",
 		errSourceChurning, firstVer, snapshotVersion)
-}
-
-func readWALEntryVersion(walLog wal.ChangelogWAL, off uint64) (int64, error) {
-	var ver int64
-	err := walLog.Replay(off, off, func(_ uint64, entry proto.ChangelogEntry) error {
-		ver = entry.Version
-		return nil
-	})
-	return ver, err
 }
 
 func selectFlatKVSnapshot(dbDir string, height int64) (string, error) {

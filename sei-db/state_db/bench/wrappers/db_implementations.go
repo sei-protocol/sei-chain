@@ -77,8 +77,13 @@ func newFlatKVCommitStore(ctx context.Context, dbDir string, config *flatkvConfi
 	config.DataDir = dbDir
 
 	fmt.Printf("Opening flatKV from directory %s\n", dbDir)
-	cs, err := flatkv.NewCommitStore(ctx, config)
+	stateWAL, err := flatkv.OpenStateWAL(config)
 	if err != nil {
+		return nil, fmt.Errorf("failed to open FlatKV state WAL: %w", err)
+	}
+	cs, err := flatkv.NewCommitStore(ctx, config, stateWAL)
+	if err != nil {
+		_ = stateWAL.Close()
 		return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
 	}
 	_, err = cs.LoadVersion(0, false)

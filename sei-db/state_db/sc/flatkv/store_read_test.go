@@ -591,7 +591,7 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 	// Phase 1: write everything and close
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dir
-	s1, err := NewCommitStore(t.Context(), cfg)
+	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	defer s1.Close()
 	_, err = s1.LoadVersion(0, false)
@@ -613,7 +613,7 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 	// Phase 2: reopen and verify all reads
 	cfg2 := config.DefaultTestConfig(t)
 	cfg2.DataDir = dir
-	s2, err := NewCommitStore(t.Context(), cfg2)
+	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)

@@ -14,8 +14,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -607,30 +607,24 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 		return fmt.Errorf("open for rollback: %w", err)
 	}
 
-	// Truncate WAL beyond targetVersion BEFORE catchup (crash safety).
-	if s.changelog != nil {
-		off, err := s.walOffsetForVersion(targetVersion)
+	// Reset the WAL to targetVersion BEFORE catchup: drop every block after it so a later open-to-latest
+	// can't replay past target and the write head resumes at targetVersion+1. Rollback is a startup/offline
+	// operation (no concurrent commits), so rather than mutating a live instance we close the injected WAL,
+	// prune it offline (PruneAfter subsumes the old truncate-to-empty case uniformly), and reopen it with its
+	// original config. Skipped when the WAL is nil — the outer context owns it.
+	if s.wal != nil {
+		cfg := s.wal.Config()
+		if err := s.wal.Close(); err != nil {
+			return fmt.Errorf("close WAL for rollback: %w", err)
+		}
+		if err := statewal.PruneAfter(cfg, uint64(targetVersion)); err != nil { //nolint:gosec // targetVersion >= 0
+			return fmt.Errorf("prune WAL after version %d: %w", targetVersion, err)
+		}
+		w, err := statewal.New(cfg)
 		if err != nil {
-			return fmt.Errorf("compute WAL offset for version %d: %w", targetVersion, err)
+			return fmt.Errorf("reopen WAL after rollback prune: %w", err)
 		}
-		if off > 0 {
-			if err := s.changelog.TruncateAfter(off); err != nil {
-				return fmt.Errorf("truncate WAL after version %d (offset %d): %w", targetVersion, off, err)
-			}
-			if err := s.verifyWALTail(targetVersion); err != nil {
-				return err
-			}
-		} else {
-			// Target predates all WAL entries; clear the entire WAL to
-			// prevent re-application. tidwall/wal cannot truncate to empty,
-			// so we close, delete, and reopen.
-			lastOff, lErr := s.changelog.LastOffset()
-			if lErr == nil && lastOff > 0 {
-				if err := s.clearChangelog(); err != nil {
-					return fmt.Errorf("clear WAL (target %d predates first entry): %w", targetVersion, err)
-				}
-			}
-		}
+		s.wal = w
 	}
 
 	if err := s.catchup(targetVersion); err != nil {
@@ -657,37 +651,18 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	return nil
 }
 
-// verifyWALTail checks that the last WAL entry has the expected version.
-func (s *CommitStore) verifyWALTail(expectedVersion int64) error {
-	lastOff, err := s.changelog.LastOffset()
-	if err != nil {
-		return fmt.Errorf("verify WAL last offset: %w", err)
-	}
-	var lastVer int64
-	if err := s.changelog.Replay(lastOff, lastOff, func(_ uint64, entry proto.ChangelogEntry) error {
-		lastVer = entry.Version
-		return nil
-	}); err != nil {
-		return fmt.Errorf("verify WAL last entry: %w", err)
-	}
-	if lastVer != expectedVersion {
-		return fmt.Errorf("WAL integrity check failed: last entry is version %d, expected %d", lastVer, expectedVersion)
-	}
-	return nil
-}
-
 // tryTruncateWAL is a best-effort truncation of WAL entries that are older
 // than the earliest snapshot. This prevents unbounded WAL growth while
 // keeping enough entries for rollback to any retained snapshot.
 func (s *CommitStore) tryTruncateWAL() {
-	if s.changelog == nil {
+	if s.wal == nil {
 		return
 	}
 
 	dir := s.flatkvDir()
 
-	// Find the earliest (lowest-version) snapshot — we must keep WAL entries
-	// from that point onward so rollback to it is possible.
+	// Find the earliest (lowest-version) snapshot — we must keep WAL blocks from that point onward so
+	// rollback to it is possible.
 	var earliestSnapVersion int64
 	_ = traverseSnapshots(dir, true, func(v int64) (bool, error) {
 		earliestSnapVersion = v
@@ -697,17 +672,8 @@ func (s *CommitStore) tryTruncateWAL() {
 		return
 	}
 
-	off, err := s.walOffsetForVersion(earliestSnapVersion)
-	if err != nil || off == 0 {
-		return
-	}
-
-	firstOff, err := s.changelog.FirstOffset()
-	if err != nil || off <= firstOff {
-		return
-	}
-
-	if err := s.changelog.TruncateBefore(off); err != nil {
-		logger.Error("failed to truncate WAL", "err", err, "truncateOffset", off)
+	// Index == version, so prune below the earliest snapshot directly — no offset mapping.
+	if err := s.wal.Prune(uint64(earliestSnapVersion)); err != nil { //nolint:gosec // earliestSnapVersion > 0
+		logger.Error("failed to prune WAL", "err", err, "lowestBlockToKeep", earliestSnapVersion)
 	}
 }
