@@ -60,21 +60,19 @@ func TestAvailClientServer(t *testing.T) {
 		corruptRng := rng.Split()
 		s.SpawnBg(func() error {
 			if _, err := a2.Block(ctx, lane0, 0); err != nil && !errors.Is(err, types.ErrPruned) {
-				return utils.IgnoreCancel(err)
+				return utils.IgnoreCancel(fmt.Errorf("a2.Block(lane0, 0): %w", err))
 			}
-			// Corrupt is never Run, so lane capacity stays at the initial window.
+			// Corrupt is never Run, so lane capacity stays at the initial window —
+			// ProduceLocalBlock will fail loudly if this bound is raised past it.
 			for range avail.BlocksPerLane {
 				n := corruptAvail.NextBlock(lane0)
-				if err := corruptAvail.WaitForLocalCapacity(ctx, n); err != nil {
-					return utils.IgnoreCancel(err)
-				}
 				b, err := corruptAvail.ProduceLocalBlock(n, types.GenPayload(corruptRng))
 				if err != nil {
-					return utils.IgnoreCancel(err)
+					return utils.IgnoreCancel(fmt.Errorf("corrupt.ProduceLocalBlock(%d): %w", n, err))
 				}
 				// PushBlock may drop (stale / parent-hash mismatch); that is fine.
 				if err := a2.PushBlock(ctx, b); err != nil {
-					return utils.IgnoreCancel(err)
+					return utils.IgnoreCancel(fmt.Errorf("a2.PushBlock(%d): %w", n, err))
 				}
 			}
 			return nil
