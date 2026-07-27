@@ -122,7 +122,7 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 
 	// The ledger never yields a stranded position, and every yielded position
 	// has a covering QC.
-	it, err := db3.Iterator()
+	it, err := db3.Iterator(0)
 	require.NoError(t, err)
 	defer func() { _ = it.Close() }()
 	for {

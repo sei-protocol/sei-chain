@@ -217,7 +217,7 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 	for in := range s.inner.Lock() {
 		err := func() error {
-			it, err := blockDB.Iterator()
+			it, err := blockDB.Iterator(0)
 			if err != nil {
 				return fmt.Errorf("open block db iterator: %w", err)
 			}

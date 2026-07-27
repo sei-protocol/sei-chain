@@ -71,7 +71,7 @@ func TestLittblockNoBlockWithoutQCAfterTornTail(t *testing.T) {
 		totalBlocks += len(b.blocks)
 	}
 
-	it, err := db2.Iterator()
+	it, err := db2.Iterator(0)
 	require.NoError(t, err)
 	defer func() { _ = it.Close() }()
 	present := 0
@@ -225,7 +225,7 @@ func TestLittblockFlushSurvivesHardKill(t *testing.T) {
 		totalBlocks += len(b.blocks)
 	}
 
-	it, err := db.Iterator()
+	it, err := db.Iterator(0)
 	require.NoError(t, err)
 	defer func() { _ = it.Close() }()
 	present := 0

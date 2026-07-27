@@ -341,43 +341,46 @@ func (s *blockDB) Status() types.DBStatus {
 	return tips
 }
 
-func (s *blockDB) Iterator() (types.BlockDBIterator, error) {
-	watermark := s.watermark.Load()
-	it, err := s.table.Iterator(false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open ledger iterator: %w", err)
-	}
-	return &blockDBIterator{
-		it:        it,
-		watermark: watermark,
-		startN:    types.GlobalBlockNumber(watermark),
-	}, nil
-}
-
-func (s *blockDB) IteratorAt(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
+func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
 	watermark := s.watermark.Load()
 	start := n
 	if uint64(start) < watermark {
 		start = types.GlobalBlockNumber(watermark)
 	}
 
-	// A QC is stored under its First as the primary key with a covered-number alias for every
-	// other number in its range, and an alias carries the full QC value. Positioning the scan at
-	// qcKey(start) therefore lands on the covering QC no matter where start falls in its range —
-	// or reports not-found when no persisted QC covers start, which is exactly the empty-iterator
-	// case.
-	it, found, err := s.table.IteratorAt(qcKey(start), false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open ledger iterator at %d: %w", start, err)
-	}
-	if !found {
+	if start >= s.Status().NextQC {
+		// Nothing is covered at or above start. NextQC is zero on an empty store, which this
+		// comparison also classifies as past-coverage.
 		return &blockDBIterator{}, nil
 	}
+
+	// A QC is stored under its First as the primary key with a covered-number alias for every
+	// other number in its range, and an alias carries the full QC value. Positioning the scan at
+	// qcKey(start) therefore lands on the covering QC no matter where start falls in its range.
+	it, found, err := s.table.IteratorAt(qcKey(start), false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open iterator at %d: %w", start, err)
+	}
+	if found {
+		return &blockDBIterator{
+			it:            it,
+			watermark:     watermark,
+			startN:        start,
+			expectStartQC: true,
+		}, nil
+	}
+
+	// start is below coverage (< NextQC yet no record at qcKey(start)): every persisted record
+	// in [watermark, NextQC) has its key, so this happens only on an unpruned store whose first
+	// QC begins above start. Fall back to a plain scan, which starts at the first covered number.
+	full, err := s.table.Iterator(false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open iterator: %w", err)
+	}
 	return &blockDBIterator{
-		it:            it,
-		watermark:     watermark,
-		startN:        start,
-		expectStartQC: true,
+		it:        full,
+		watermark: watermark,
+		startN:    start,
 	}, nil
 }
 

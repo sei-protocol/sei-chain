@@ -158,12 +158,18 @@ type BlockDB interface {
 	// Status returns a consistent snapshot of the in-memory write tips (no I/O).
 	Status() DBStatus
 
-	// Iterator returns an iterator over every retained block number, for
-	// startup replay. Iteration is forward-only: it begins at the lowest
-	// retained number (the retention watermark, or the first persisted
-	// QC's GlobalRange().First on an unpruned store) and steps through
-	// consecutive numbers up to the last persisted QC's GlobalRange().Next,
-	// exclusive. See BlockDBIterator for what each position exposes.
+	// Iterator returns an iterator positioned at block number n. Iteration
+	// is forward-only: it steps through consecutive numbers up to the last
+	// persisted QC's coverage, exclusive. The start is clamped up to the
+	// lowest retained number — the retention watermark, or the first
+	// persisted QC's range when n falls below it — so Iterator(0) scans
+	// everything retained (startup replay) while a mid-history n resumes
+	// from that height without scanning what lies below it. See
+	// BlockDBIterator for what each position exposes.
+	//
+	// If the (clamped) start is past the last persisted QC's coverage —
+	// including on an empty store — the iterator is empty (Next
+	// immediately returns false).
 	//
 	// Unlike a bulk read, the iterator materializes one record at a time,
 	// so a caller can scan an arbitrarily large retention window without
@@ -173,20 +179,8 @@ type BlockDB interface {
 	// The iterator captures a snapshot of the records present when it is
 	// created; records written afterward are not observed. It is NOT safe
 	// for concurrent use and MUST be closed when no longer needed (see
-	// BlockDBIterator.Close). An empty store yields an empty iterator
-	// (Next immediately returns false).
-	Iterator() (BlockDBIterator, error)
-
-	// IteratorAt behaves like Iterator but begins at block number n rather
-	// than at the lowest retained number, so a caller can resume from a
-	// known height without scanning everything below it. The start is
-	// clamped up to the retention watermark (numbers below it are never
-	// served).
-	//
-	// If the (clamped) start is not covered by any persisted QC — e.g. n
-	// is past the last written QC — the iterator is empty. Same snapshot,
-	// single-goroutine, and must-close semantics as Iterator.
-	IteratorAt(n GlobalBlockNumber) (BlockDBIterator, error)
+	// BlockDBIterator.Close).
+	Iterator(n GlobalBlockNumber) (BlockDBIterator, error)
 
 	// ReadBlockByNumber returns the block at GlobalBlockNumber n.
 	//
@@ -255,8 +249,7 @@ type DBStatus struct {
 // BlockDBIterator steps through consecutive GlobalBlockNumbers in ascending
 // order, exposing at each position the covering QC (always present) and the
 // block (present unless it did not survive). It is created via BlockDB.Iterator
-// or BlockDB.IteratorAt and captures a snapshot of the records present at
-// creation time.
+// and captures a snapshot of the records present at creation time.
 //
 // The numbers yielded are exactly those covered by a retained QC, so a single
 // pass observes every retained QC (via QC, which changes when the scan crosses

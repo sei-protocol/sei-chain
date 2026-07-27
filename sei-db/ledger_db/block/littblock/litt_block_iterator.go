@@ -30,8 +30,8 @@ type coveredQC struct {
 // already: the underlying cursor is advanced lazily, collecting QC records into a small pending
 // queue and holding position on each block record until the number cursor consumes it.
 //
-// A nil it represents an empty iterator (produced by IteratorAt when the requested start is not
-// covered by any persisted QC): Next reports exhaustion immediately and Close is a no-op.
+// A nil it represents an empty iterator (produced by Iterator when the requested start is past
+// the persisted coverage): Next reports exhaustion immediately and Close is a no-op.
 type blockDBIterator struct {
 	// it is the underlying litt scan; nil for an empty iterator.
 	it littdb.Iterator
@@ -41,11 +41,11 @@ type blockDBIterator struct {
 	// below the floor serves no number (see blockDB.watermark).
 	watermark uint64
 
-	// startN is the first number the iterator may yield. Block records below it (a IteratorAt
+	// startN is the first number the iterator may yield. Block records below it (a
 	// start that lands mid-cohort follows the whole cohort's blocks in the scan) are skipped.
 	startN types.GlobalBlockNumber
 
-	// expectStartQC is true when the scan was positioned by IteratorAt, whose first record is the
+	// expectStartQC is true when the scan was positioned at qcKey(startN), whose first record is the
 	// covering QC's primary or covered-number alias rather than a record the normal dispatch
 	// handles.
 	expectStartQC bool
@@ -157,7 +157,7 @@ func (l *blockDBIterator) fill() error {
 		key, isPrimary := l.it.GetKey()
 		switch {
 		case l.expectStartQC:
-			// IteratorAt positioned the scan at qcKey(start): the first record is the covering
+			// The scan was positioned at qcKey(start): the first record is the covering
 			// QC — its primary when start is a range's First, otherwise a covered-number
 			// alias, whose value is the same full QC either way.
 			l.expectStartQC = false
@@ -174,7 +174,7 @@ func (l *blockDBIterator) fill() error {
 			number := decodeNumberKey(key)
 			if uint64(number) < l.watermark || number < l.startN {
 				// Below the retention floor (possibly stranded from its covering QC), or below
-				// a IteratorAt start that lands mid-cohort.
+				// a start that lands mid-cohort.
 				continue
 			}
 			l.heldBlock = true

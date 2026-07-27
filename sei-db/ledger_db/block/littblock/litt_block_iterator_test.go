@@ -31,7 +31,7 @@ func TestLittblockIteratorGapIsCorruption(t *testing.T) {
 	blk := types.GenBlock(rng)
 	require.NoError(t, impl.table.Put(blockKey(3), encodeBlock(3, blk)))
 
-	it, err := db.Iterator()
+	it, err := db.Iterator(0)
 	require.NoError(t, err)
 	defer func() { _ = it.Close() }()
 
@@ -68,7 +68,7 @@ func TestLittblockIteratorUncoveredBlockIsCorruption(t *testing.T) {
 	blk := types.GenBlock(rng)
 	require.NoError(t, impl.table.Put(blockKey(2), encodeBlock(2, blk)))
 
-	it, err := db.Iterator()
+	it, err := db.Iterator(0)
 	require.NoError(t, err)
 	defer func() { _ = it.Close() }()
 

@@ -178,7 +178,7 @@ func NewBlockSim(
 // countExistingState scans the ledger to count the persisted blocks and QCs,
 // exercising the replay path at startup.
 func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
-	it, err := db.Iterator()
+	it, err := db.Iterator(0)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to open ledger iterator: %w", err)
 	}

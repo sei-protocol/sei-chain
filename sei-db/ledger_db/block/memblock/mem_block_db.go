@@ -160,32 +160,14 @@ func (s *blockDB) Status() types.DBStatus {
 	return tips
 }
 
-func (s *blockDB) Iterator() (types.BlockDBIterator, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	entries := s.sortedQCsLocked()
-	if len(entries) == 0 {
-		return &memBlockDBIterator{idx: -1}, nil
-	}
-	return s.iteratorLocked(entries, max(s.watermark, entries[0].lower)), nil
-}
-
-func (s *blockDB) IteratorAt(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
+func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	start := max(n, s.watermark)
-	// The (clamped) start must be covered by a persisted QC; otherwise the iterator is empty.
 	entries := s.sortedQCsLocked()
-	covered := false
-	for _, e := range entries {
-		if e.lower <= start && start < e.upper {
-			covered = true
-			break
-		}
-	}
-	if !covered {
+	if len(entries) == 0 || start >= entries[len(entries)-1].upper {
+		// Nothing is covered at or above the (clamped) start.
 		return &memBlockDBIterator{idx: -1}, nil
 	}
 	return s.iteratorLocked(entries, start), nil
@@ -201,8 +183,9 @@ func (s *blockDB) sortedQCsLocked() []qcEntry {
 	return entries
 }
 
-// iteratorLocked snapshots every covered number from start upward, pairing each with its covering
-// QC and (possibly absent) block. Caller holds mu and guarantees start is covered by entries.
+// iteratorLocked snapshots every covered number from start upward (clamping up to the first
+// covered number when start falls below all coverage), pairing each with its covering QC and
+// (possibly absent) block. Caller holds mu and guarantees some entry's range ends above start.
 func (s *blockDB) iteratorLocked(entries []qcEntry, start types.GlobalBlockNumber) *memBlockDBIterator {
 	it := &memBlockDBIterator{idx: -1}
 	for _, e := range entries {
