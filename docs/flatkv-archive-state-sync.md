@@ -10,6 +10,12 @@ restores such an archive, verifies it against Tendermint light client trust,
 and then resumes normal block sync from the archived height — instead of
 replaying a logical key/value stream into a fresh database.
 
+The archive carries exactly one payload: the FlatKV checkpoint. It is the
+single source of truth. The target node rebuilds its query layer
+(`state_store`) locally by iterating the verified checkpoint, so the archive
+never has to keep two databases consistent with each other, and every byte a
+node trusts traces back to one light-client-verified AppHash.
+
 The design relies on a FlatKV-only invariant: once all modules have migrated to
 FlatKV, the FlatKV checkpoint is the complete consensus commit-store state for
 one application version. That lets state sync move the already-built Pebble
@@ -35,9 +41,12 @@ trust model, validation methodology, measured performance, and rollout risks.
 - Archive production is automatic and online: a running node snapshots its
   state every configured interval and publishes the archive, while continuing
   to produce blocks. No operator action and no downtime on the producer.
+- Single source of truth: the archive contains only the FlatKV checkpoint —
+  the consensus commit-store state. Everything else a node needs
+  (`state_store`) is derived from it locally on the target.
 - Provide a fast bootstrap path for nodes after the chain is fully migrated to
   FlatKV.
-- Avoid per-key state reconstruction during restore.
+- Avoid per-key state reconstruction of the consensus store during restore.
 - Preserve the existing state sync trust model: object storage is an untrusted
   transport, while the restored application hash is verified against trusted
   Tendermint headers.
@@ -93,24 +102,27 @@ The primary design surface is an automatic, interval-driven pipeline inside
 the running node. Every configured block interval, the node:
 
 1. takes an immutable FlatKV snapshot (existing `sc-snapshot-interval`
-   behavior — a Pebble hardlink checkpoint of the commit store);
-2. takes an online state-store checkpoint (`ss-checkpoint-interval`, described
-   below) — also a hardlink checkpoint, so neither step blocks the commit
-   path;
-3. packages the paired snapshot + checkpoint + `wasm` into a manifest-carrying
-   archive and uploads it to the configured object-store target.
+   behavior — a Pebble hardlink checkpoint of the commit store, completing in
+   milliseconds without blocking the commit path);
+2. packages that snapshot into a manifest-carrying archive and uploads it to
+   the configured object-store target.
 
-All three steps run while the node keeps validating, signing, and committing
-blocks. Snapshot creation is hardlink-based and completes in milliseconds;
-packaging and upload read only immutable directories, so they cannot race the
-live database. The producer needs no operator intervention and no maintenance
-window: enabling the intervals and an upload target makes any healthy
-FlatKV-only node an archive publisher.
+Both steps run while the node keeps validating, signing, and committing
+blocks. Packaging and upload read only the immutable snapshot directory, so
+they cannot race the live database. The producer needs no operator
+intervention and no maintenance window: any healthy FlatKV-only node with an
+upload target is an archive publisher.
 
-Steps 1-2 and the packaging/upload stage are implemented and validated today.
-The in-node scheduler that triggers step 3 automatically after each interval
-is the remaining increment; in the validation runs, step 3 was invoked through
-the auxiliary CLI against the node's automatically produced checkpoints.
+The restore side derives everything else. After installing and light-client
+verifying the checkpoint, the target node rebuilds its `state_store` at the
+archive height by iterating the checkpoint (see Restore-Side State-Store
+Rebuild below). The producer's own `state_store` is never packaged, so the
+archive cannot carry a consensus/query-store inconsistency by construction.
+
+Step 1 and the packaging/upload stage are implemented and validated today.
+The in-node scheduler that triggers step 2 automatically after each interval
+is the remaining increment; in the validation runs, step 2 was invoked through
+the auxiliary CLI against the node's automatically produced snapshots.
 
 ### Auxiliary CLI Surface
 
@@ -147,7 +159,7 @@ archive's safety model.
 ### Archive Format
 
 The archive is a zstd-compressed tar stream. It starts with `manifest.json`,
-followed by state files.
+followed by the FlatKV checkpoint:
 
 ```text
 manifest.json
@@ -157,21 +169,18 @@ flatkv/snapshot-<height>/
   storage/
   misc/
   metadata/
-state_store/
-  ...
-wasm/
-  ...
 ```
 
-The archive includes:
+That is the whole default payload. The checkpoint is the complete consensus
+commit-store state at the archive height; the target derives its query store
+from it. CosmWasm is fully deprecated before FlatKV-only rollout (EVM only),
+so there is no `wasm/` payload in the target world.
 
-- `flatkv/snapshot-<height>/`: an immutable FlatKV checkpoint from the donor.
-  This is the consensus-critical state.
-- `state_store/`: query-state Pebble data needed by RPC nodes, sourced from an
-  online state-store checkpoint (see below). WAL `changelog/` directories are
-  excluded from the archive.
-- `wasm/`: CosmWasm code blobs, if the directory exists.
-- `manifest.json`: archive metadata and one file entry per archived file.
+For completeness, `create` retains two opt-in payloads for the legacy copy
+shape: `--include-state-store` packs an online state-store checkpoint
+(pairing rule described under Online State-Store Checkpoints), and
+`--include-wasm` packs the wasm directory on chains that still run CosmWasm.
+Neither is part of the primary design.
 
 The manifest records:
 
@@ -181,7 +190,7 @@ The manifest records:
 - archived application hash
 - creation timestamp
 - FlatKV snapshot name
-- state-store checkpoint name (empty when packed from the live directory)
+- state-store checkpoint name (legacy copy shape only)
 - for each file: archive path, size, mode, and SHA-256
 
 Tendermint databases, blockstore databases, tx indexes, config, and private
@@ -189,13 +198,49 @@ keys are not archived. Restore creates the minimal Tendermint state needed to
 resume from the archived height, and node identity remains local to the target
 node.
 
-### Online State-Store Checkpoints
+### Restore-Side State-Store Rebuild
 
-The FlatKV checkpoint is immutable by construction, but `state_store` is a
-live Pebble database. Packing it directly races WAL rotation and compaction,
-which is why the first prototype required a quiesced donor. The donor node now
-solves this itself: every `state-store.ss-checkpoint-interval` blocks, the
-state store takes a Pebble hardlink checkpoint of each backend into
+`state_store` (SS) is the historical query layer: a versioned MVCC store that
+serves height-parameterized RPC queries. It is derived data — at any height H
+its logical content is exactly the key/value set committed in the FlatKV
+store at H. The design exploits that: instead of shipping the donor's SS,
+restore regenerates it.
+
+After the FlatKV checkpoint is installed and its AppHash passes light-client
+verification, restore iterates every committed physical row of the checkpoint
+and feeds it through the same FlatKV-node conversion path the state sync SS
+importer uses (`convertFlatKVNodes`): module-prefixed rows route back to
+their Cosmos store keys, merged EVM account rows split into nonce and
+code-hash entries, and storage/code rows deserialize to their logical values.
+The stream imports into a fresh SS at version H, and the earliest/latest
+version watermarks are stamped exactly as the state sync restore path does.
+
+Properties:
+
+- **Single source of truth.** The SS content is derived from bytes that were
+  just verified against a trusted header. There is no second database in the
+  archive whose consistency with the first must be trusted or checked.
+- **One version at H.** The rebuilt SS has no history below the archive
+  height; history accumulates from H forward as the node block-syncs. A node
+  that needs deep historical query coverage must bootstrap from an archive
+  old enough, replay forward, or (legacy) copy a donor's SS with
+  `--include-state-store`.
+- **Ordering.** Rebuild runs after light-client verification so a bad archive
+  fails in seconds, before the rebuild cost is paid. It is skipped when the
+  node runs without SS (validators) or when the archive carries a legacy SS
+  payload.
+- **Tuning.** The import parallelism follows `state-store.ss-import-num-workers`.
+
+### Online State-Store Checkpoints (legacy copy shape)
+
+The copy shape (`--include-state-store`) predates the rebuild design and
+remains available for operators who want to transplant a donor's full SS
+history instead of rebuilding at H. It exists because `state_store` is a
+live Pebble database: packing it directly races WAL rotation and compaction,
+which is why the first prototype required a quiesced donor. With
+checkpointing enabled, the donor solves this itself: every
+`state-store.ss-checkpoint-interval` blocks, the state store takes a Pebble
+hardlink checkpoint of each backend into
 
 ```text
 data/state_store/snapshots/
@@ -234,9 +279,8 @@ sequenceDiagram
     participant DonorRPC
 
     Note over DonorNode: keeps producing blocks throughout
-    DonorNode->>DonorNode: FlatKV snapshot + state-store checkpoint every interval
-    Packager->>DonorNode: pick newest state-store checkpoint (label V)
-    Packager->>DonorNode: pick newest FlatKV snapshot with H <= V
+    DonorNode->>DonorNode: FlatKV snapshot every sc-snapshot-interval
+    Packager->>DonorNode: pick newest FlatKV snapshot (height H)
     Packager->>DonorRPC: query block H+1 for chain ID and AppHash at H
     Packager->>Packager: build manifest and SHA-256 every file
     Packager->>Packager: write tar.zst archive
@@ -247,10 +291,10 @@ The donor RPC query anchors the archive to a chain ID, height, and AppHash.
 The CLI should fetch the block after the snapshot height when necessary, since
 the AppHash for height `H` is committed in the next block header.
 
-Both archive sources are immutable directories, so hashing and packing cannot
-race the running node. When no online checkpoint exists (checkpointing
-disabled), create falls back to packing the live `state_store` directory and
-prints a warning; that fallback is only safe on a stopped donor.
+The archive source is an immutable snapshot directory, so hashing and packing
+cannot race the running node. With `--include-state-store`, the packager
+additionally pairs the newest state-store checkpoint (label `V`) with the
+newest FlatKV snapshot `H <= V` as described in the legacy section above.
 
 ### Restore Flow
 
@@ -266,22 +310,24 @@ sequenceDiagram
     Operator->>ArchiveCLI: seid flatkv-archive restore
     ArchiveCLI->>ObjectStore: download archive
     ArchiveCLI->>ArchiveCLI: extract and verify SHA-256 for every file
-    ArchiveCLI->>TargetNode: install FlatKV checkpoint, state_store, wasm
+    ArchiveCLI->>TargetNode: install FlatKV checkpoint
     ArchiveCLI->>TrustedRPC: verify archived AppHash via light client
     ArchiveCLI->>TargetNode: bootstrap Tendermint state at archived height
+    ArchiveCLI->>TargetNode: rebuild state_store at H from the checkpoint
     TargetNode->>BlockPeers: start normally and block-sync remaining blocks
 ```
 
 Restore must install the checkpoint under the target FlatKV root and atomically
-activate the `current` symlink. It must install `state_store` and `wasm` only
-after file verification succeeds. With `--force`, restore replaces existing
+activate the `current` symlink. With `--force`, restore replaces existing
 archive-managed state directories.
 
 After installing files, restore performs light-client verification using at
 least two RPC endpoints plus a trusted height/hash. If the verified header's
 AppHash does not match the archive manifest, restore fails. If verification
 succeeds, restore bootstraps Tendermint state, block metadata, and finalize
-block response data sufficient for the node to start from the archived height.
+block response data sufficient for the node to start from the archived
+height, then rebuilds `state_store` from the verified checkpoint (skipped for
+SS-disabled nodes and legacy archives that carry an SS payload).
 
 ### Online Chain Compatibility
 
@@ -299,11 +345,12 @@ There are three separate online/offline concerns:
   archive-managed local state directories (`flatkv`, `state_store`, and `wasm`)
   and bootstraps Tendermint state. The target process should start only after
   restore and light-client verification succeed.
-- The **archive donor** keeps producing blocks during archive creation. With
-  `ss-checkpoint-interval` enabled, both archive sources — the FlatKV snapshot
-  and the state-store checkpoint — are immutable directories on the donor, so
-  `create` can hash and pack them while the donor validates, signs, and
-  commits new blocks. No quiescing or maintenance window is needed.
+- The **archive donor** keeps producing blocks during archive creation. The
+  archive source — the FlatKV snapshot — is an immutable directory on the
+  donor, so `create` can hash and pack it while the donor validates, signs,
+  and commits new blocks. No quiescing or maintenance window is needed, and
+  in the default SC-only shape the donor does not even need state-store
+  checkpointing enabled.
 
 In validation, the four-validator forked cluster stayed live, and the donor
 validator itself kept signing and committing blocks while `create` hashed,
@@ -325,6 +372,12 @@ The SHA-256 manifest alone is not a consensus proof. A malicious archive
 producer can produce a self-consistent manifest for bad state. The restored
 state is trusted only after the FlatKV checkpoint's AppHash is verified against
 the trusted chain.
+
+The single-source-of-truth shape strengthens this model: because `state_store`
+is rebuilt locally from the verified checkpoint rather than shipped alongside
+it, the query layer inherits the checkpoint's verification. A legacy archive
+that carries an SS payload cannot make that claim — its SS bytes are only
+integrity-checked (SHA-256), not consensus-verified.
 
 ## Operational Validation
 
@@ -432,13 +485,21 @@ The first live-donor archive attempts failed file hash verification because
 between manifest hashing and tar writing. This forced the initial quiesce rule
 for donors.
 
-Resolved by online state-store checkpoints (`ss-checkpoint-interval`): create
-now packs an immutable checkpoint and the donor keeps producing blocks. The
-live-directory path remains only as an explicit fallback for stopped donors.
+Resolved twice over. The SC-only default removes `state_store` from the
+archive entirely — the only packed source is the immutable FlatKV snapshot.
+For the legacy copy shape, online state-store checkpoints
+(`ss-checkpoint-interval`) let `--include-state-store` pack an immutable
+checkpoint; the live-directory path remains only as an explicit fallback for
+stopped donors.
 
-Residual constraint: `create` refuses to pair a FlatKV snapshot newer than the
-newest state-store checkpoint label. With matching intervals the two land
-seconds apart, so in the worst case an operator waits one checkpoint interval.
+### Rebuilt state_store has no history below the archive height
+
+The rebuild produces a query store with exactly one version: the archive
+height H. Height-parameterized queries below H return nothing on a freshly
+restored node; coverage grows from H forward with block sync. Operators of
+deep-history RPC/archive nodes must either restore from an old enough
+archive and replay forward, or use the legacy `--include-state-store` shape
+to transplant a donor's history.
 
 ### Restore staging path
 
@@ -498,10 +559,8 @@ retention, and restore commands.
   node, a designated subset, or dedicated archive-producer nodes? Any healthy
   FlatKV-only node can publish by design; the question is operational (upload
   cost, object-store write contention, redundancy).
-- What is the publication cadence relative to the checkpoint interval — upload
-  every checkpoint, or every Nth?
-- Do validators need `state_store` and `wasm` in the same archive, or should we
-  publish a smaller validator archive and a larger RPC archive?
+- What is the publication cadence relative to the snapshot interval — upload
+  every snapshot, or every Nth?
 - Should the archive manifest be signed by archive producers as an operational
   convenience, even though consensus authenticity still comes from light-client
   verification?
@@ -513,28 +572,23 @@ retention, and restore commands.
 1. Land the packaging/restore logic as an out-of-band CLI behind a FlatKV-only
    guard. (done)
 2. Add live-safe `state_store` checkpointing so producers keep producing
-   blocks. (done: `ss-checkpoint-interval`)
-3. Add the in-node publisher: automatically package and upload after each
-   checkpoint interval, driven by node configuration (upload target, cadence,
+   blocks. (done: `ss-checkpoint-interval`; now only needed by the legacy
+   `--include-state-store` copy shape)
+3. Make the FlatKV checkpoint the single source of truth: SC-only archives by
+   default, restore-side `state_store` rebuild. (done)
+4. Add the in-node publisher: automatically package and upload after each
+   snapshot interval, driven by node configuration (upload target, cadence,
    remote retention). This completes the primary design surface.
-4. Replace local archive staging with streaming upload/download.
-5. Add an operator runbook for archive publication and restore.
-6. Run repeated restore benchmarks on the target production instance and
+5. Replace local archive staging with streaming upload/download.
+6. Add an operator runbook for archive publication and restore.
+7. Run repeated restore benchmarks on the target production instance and
    storage classes.
-7. Decide whether restore should be integrated into node startup workflows or
+8. Decide whether restore should be integrated into node startup workflows or
    remain a separate operator-controlled command.
 
 ## Reproduction Commands From Validation
 
-Enable online state-store checkpoints on the donor (`app.toml`):
-
-```toml
-[state-store]
-ss-checkpoint-interval = 10000   # match state-commit.sc-snapshot-interval
-ss-checkpoint-keep-recent = 1
-```
-
-Create from a live donor (keeps producing blocks):
+Create from a live donor (keeps producing blocks; SC-only by default):
 
 ```bash
 seid flatkv-archive create \
@@ -545,7 +599,8 @@ seid flatkv-archive create \
   --upload s3://harbor-validation-results/eng-yiren/flatkv-archive-prod/pacific-fork-1.tar.zst
 ```
 
-Restore into a fresh target home:
+Restore into a fresh target home (rebuilds `state_store` at the archive
+height when the node has state-store enabled):
 
 ```bash
 TMPDIR=/home/nonroot/.sei/tmp \
@@ -559,4 +614,8 @@ seid flatkv-archive restore \
   --trust-hash <trusted-hash> \
   --force
 ```
+
+Legacy copy shape (transplants the donor's full SS history instead of
+rebuilding at H): enable `ss-checkpoint-interval` on the donor and pass
+`--include-state-store` to `create`.
 
