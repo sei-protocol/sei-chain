@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 	"github.com/spf13/viper"
@@ -100,7 +98,7 @@ func FuzzRootScopeKeysRequireRootScope(f *testing.F) {
 		// requires valid UTF-8. Restricting to what an operator can actually type
 		// keeps a rejected *document* from being reported as a placement failure;
 		// malformed-file behavior is pinned through Apply instead.
-		if !isTOMLWritablePath(path) {
+		if !configtest.IsTOMLWritable(path) {
 			return
 		}
 
@@ -204,25 +202,6 @@ func TestMempoolConfigCarriesUntunableDefaults(t *testing.T) {
 	if a, b := configtest.Dump(got), configtest.Dump(want); a != b {
 		t.Fatalf("an absent [mempool] section must project to the declared defaults\n--- got\n%s\n--- want\n%s", a, b)
 	}
-}
-
-// isTOMLWritablePath reports whether a path can appear verbatim inside a TOML basic
-// string: valid UTF-8, printable runes only, and no quote or backslash that would
-// need escaping.
-//
-// The UTF-8 check is not redundant with the printable loop. Ranging over a string
-// holding invalid bytes yields utf8.RuneError for each of them, and RuneError is
-// itself printable — so the loop alone would admit exactly the bytes TOML rejects.
-func isTOMLWritablePath(path string) bool {
-	if !utf8.ValidString(path) || strings.ContainsAny(path, "\"\\") {
-		return false
-	}
-	for _, r := range path {
-		if !unicode.IsPrint(r) {
-			return false
-		}
-	}
-	return true
 }
 
 // TestAutobahnPointerAbsenceDisablesTheSubsystem pins the gate itself: an empty

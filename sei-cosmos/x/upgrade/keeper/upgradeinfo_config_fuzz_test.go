@@ -1,10 +1,12 @@
 package keeper_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
+	store "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 )
 
@@ -57,18 +59,54 @@ func FuzzReadUpgradeInfoFromDisk(f *testing.F) {
 		}
 
 		info, err := k.ReadUpgradeInfoFromDisk()
+
+		// The reader decodes and does nothing else, so the contract is exactly
+		// json.Unmarshal's: whatever the decoder accepts, the reader accepts, and
+		// whatever it rejects keeps the node down. Asserting a coherence rule here (a
+		// named plan needs a height, say) would pin validation the reader does not
+		// perform, which is the one thing a characterization suite must not do.
+		var want store.UpgradeInfo
+		wantErr := json.Unmarshal([]byte(contents), &want)
+
+		if (err == nil) != (wantErr == nil) {
+			t.Fatalf("contents %q: the reader said %v while json.Unmarshal said %v; the reader "+
+				"adds no validation of its own", contents, err, wantErr)
+		}
 		if err != nil {
-			// A file the reader rejects keeps the node down, which is the pinned
-			// direction; nothing else to assert.
 			return
 		}
-		// Success must mean a coherent plan: a named upgrade needs a height.
-		if info.Name != "" && info.Height == 0 {
-			t.Fatalf("contents %q parsed to a named upgrade (%q) with height 0; a plan that "+
-				"schedules an upgrade at block zero must not be reported as valid",
-				contents, info.Name)
+		if info != want {
+			t.Fatalf("contents %q decoded to %+v, want %+v", contents, info, want)
 		}
 	})
+}
+
+// TestReadUpgradeInfoFromDiskAcceptsAPlanWithNoHeight records the absence of
+// validation as its own row.
+//
+// A plan naming an upgrade with no height decodes cleanly to height 0, so the reader
+// hands app construction an upgrade scheduled at block zero without complaint. Nothing
+// downstream of this read treats that as malformed either, which is why the fuzz target
+// above deliberately asserts json.Unmarshal's contract rather than a coherence rule.
+func TestReadUpgradeInfoFromDiskAcceptsAPlanWithNoHeight(t *testing.T) {
+	home := t.TempDir()
+	k := newDiskKeeper(home)
+
+	path, err := k.GetUpgradeInfoPath()
+	if err != nil {
+		t.Fatalf("resolve upgrade info path: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(`{"name":"v6.6"}`), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	info, err := k.ReadUpgradeInfoFromDisk()
+	if err != nil {
+		t.Fatalf("a named plan with no height must decode, got %v", err)
+	}
+	if info.Name != "v6.6" || info.Height != 0 {
+		t.Fatalf("decoded to %+v, want name v6.6 at height 0", info)
+	}
 }
 
 // TestReadUpgradeInfoFromDiskAbsentFileMeansNoUpgrade pins the boot-friendly half: no

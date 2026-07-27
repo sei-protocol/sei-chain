@@ -5,6 +5,8 @@ import (
 	"path"
 	"strings"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 )
 
 // envAllowlist names the variables Isolate preserves. Everything outside it is
@@ -140,4 +142,27 @@ func ClientEnvKey(key string) string {
 // whose name collides with a bound key becomes a config source.
 func GlobalEnvKey(key string) string {
 	return envKeyReplacer.Replace(strings.ToUpper(key))
+}
+
+// IsTOMLWritable reports whether s can appear verbatim inside a TOML basic string:
+// valid UTF-8, printable runes only, and no quote or backslash needing an escape.
+//
+// Fuzz targets that build a config file from a generated string need this. Without it
+// the generated document is itself rejected by the TOML parser, and the target reports
+// a parse failure as though it were a finding about resolution. Malformed-file behavior
+// belongs to the targets that feed arbitrary bytes to Apply on purpose.
+//
+// The UTF-8 check is not redundant with the printable loop: ranging over a string
+// holding invalid bytes yields utf8.RuneError for each one, and RuneError is itself
+// printable, so the loop alone would admit exactly the bytes TOML rejects.
+func IsTOMLWritable(s string) bool {
+	if !utf8.ValidString(s) || strings.ContainsAny(s, "\"\\") {
+		return false
+	}
+	for _, r := range s {
+		if !unicode.IsPrint(r) {
+			return false
+		}
+	}
+	return true
 }

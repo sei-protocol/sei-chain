@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -41,9 +40,7 @@ func FuzzClientConfigChainIDRoundTrip(f *testing.F) {
 	f.Add("123")
 
 	f.Fuzz(func(t *testing.T, chainID string) {
-		// A quote, backslash or newline would need TOML escaping; the file here is a
-		// fixture, so keep to values a plain literal expresses.
-		if strings.ContainsAny(chainID, "\"\\\n\r") {
+		if !configtest.IsTOMLWritable(chainID) {
 			return
 		}
 		configtest.Isolate(t)
@@ -174,7 +171,7 @@ func FuzzChainIDSetOverridesEveryOtherLayer(f *testing.F) {
 			return // start would resolve an empty chain-id, covered above
 		}
 		for _, v := range []string{fromClient, fromAppTOML, fromEnv} {
-			if strings.ContainsAny(v, "\"\\\n\r") || !configtest.EnvValueIsSettable(v) {
+			if !configtest.IsTOMLWritable(v) || !configtest.EnvValueIsSettable(v) {
 				return
 			}
 		}

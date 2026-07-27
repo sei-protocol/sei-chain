@@ -34,15 +34,21 @@ func FuzzResolveAndCreateDirTildeExpansion(f *testing.F) {
 	f.Add("~/sei/data")
 	f.Add("~alice/data") // not a home reference
 	f.Add("sei/data")    // plain relative
-	f.Add("/tmp/sei")    // absolute
 	f.Add("")            // empty: resolved, not created
 	f.Add("./sei")
 	f.Add("~~")
 
 	f.Fuzz(func(t *testing.T, dir string) {
-		// The resolver creates directories, so keep it inside a scratch tree and
-		// out of the real home.
+		// The resolver creates directories as a side effect, so the input has to be one
+		// that cannot escape the fixture. An absolute path would be MkdirAll'd on the
+		// real filesystem wherever it points, so absolute inputs are out of scope here
+		// and TestResolveAndCreateDirCreatesATypo covers that case against a path built
+		// under t.TempDir(). A tilde reference is safe because Isolate has repointed
+		// $HOME at a scratch directory.
 		if strings.ContainsRune(dir, 0) || len(dir) > 128 {
+			return
+		}
+		if filepath.IsAbs(dir) {
 			return
 		}
 		home := configtest.Isolate(t)
