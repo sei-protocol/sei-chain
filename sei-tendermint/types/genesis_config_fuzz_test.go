@@ -54,12 +54,14 @@ func FuzzGenesisDocFromJSONTimeCompletion(f *testing.F) {
 
 		before := time.Now()
 		got, err := types.GenesisDocFromJSON(raw)
-		if err != nil {
-			// A document this reader rejects is a legitimate outcome; the completion
-			// rule is what is under test.
-			return
-		}
 		after := time.Now()
+		// Every document this target builds is well-formed for the reader: a valid
+		// chain_id, a time already clamped to the representable range, empty validators
+		// and app_hash. So a rejection is a regression rather than a legitimate outcome,
+		// and returning early on one would let a reader that rejected everything pass.
+		if err != nil {
+			t.Fatalf("the fixture is a well-formed genesis document and must be accepted, got %v", err)
+		}
 
 		if genesisTime.IsZero() {
 			if got.GenesisTime.Before(before) || got.GenesisTime.After(after) {

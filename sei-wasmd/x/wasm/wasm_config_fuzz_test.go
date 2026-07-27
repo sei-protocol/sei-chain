@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
+	"github.com/spf13/cast"
 )
 
 // The [wasm] section is where the app.toml template and the in-code defaults
@@ -157,13 +158,26 @@ func FuzzWasmSimulationGasLimit(f *testing.F) {
 			return
 		}
 
-		// A non-empty string is converted, and an unconvertible one is an error
-		// rather than a silently absent limit.
-		if err != nil {
+		// A non-empty string is converted, and an unconvertible one is an error rather
+		// than a silently absent limit. The expectation is restated against cast rather
+		// than accepting any error, because accepting any error would let a reader that
+		// rejected every string value pass while the limit check below never ran.
+		want, castErr := cast.ToUint64E(raw)
+		if castErr != nil {
+			if err == nil {
+				t.Fatalf("simulation_gas_limit = %q does not convert to a uint64 (%v), so the read "+
+					"must error rather than leaving the limit unset", raw, castErr)
+			}
 			return
+		}
+		if err != nil {
+			t.Fatalf("simulation_gas_limit = %q converts cleanly and must be accepted, got %v", raw, err)
 		}
 		if cfg.SimulationGasLimit == nil {
 			t.Fatalf("simulation_gas_limit = %q converted cleanly but left the limit unset", raw)
+		}
+		if *cfg.SimulationGasLimit != want {
+			t.Fatalf("simulation_gas_limit = %q resolved to %d, want %d", raw, *cfg.SimulationGasLimit, want)
 		}
 	})
 }

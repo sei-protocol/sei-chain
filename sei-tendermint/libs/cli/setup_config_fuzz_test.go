@@ -63,6 +63,10 @@ func newBaseCmd(t *testing.T, defaultHome string, args ...string) *cobra.Command
 // on the command line, HOME wins over the declared default.
 func TestGlobalViperHomeIsOverriddenByTheHomeEnvVar(t *testing.T) {
 	withGlobalViper(t)
+	// Isolate as well as reset: these tests read the empty-prefix global viper, where a
+	// bare TRACE or HOME on the CI runner is a config source, and InitEnv re-exports the
+	// environment without restoring it.
+	configtest.Isolate(t)
 
 	declaredDefault := filepath.Join(t.TempDir(), "declared-default")
 	loginHome := filepath.Join(t.TempDir(), "login-home")
@@ -94,6 +98,10 @@ func TestGlobalViperHomeIsOverriddenByTheHomeEnvVar(t *testing.T) {
 // the flag.
 func TestGlobalViperExplicitHomeFlagBeatsTheEnvVar(t *testing.T) {
 	withGlobalViper(t)
+	// Isolate as well as reset: these tests read the empty-prefix global viper, where a
+	// bare TRACE or HOME on the CI runner is a config source, and InitEnv re-exports the
+	// environment without restoring it.
+	configtest.Isolate(t)
 
 	declaredDefault := filepath.Join(t.TempDir(), "declared-default")
 	loginHome := filepath.Join(t.TempDir(), "login-home")

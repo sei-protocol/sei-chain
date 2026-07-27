@@ -40,13 +40,20 @@ func FuzzResolveAndCreateDirTildeExpansion(f *testing.F) {
 	f.Add("~~")
 
 	f.Fuzz(func(t *testing.T, dir string) {
-		// The resolver creates directories as a side effect, so an input that escapes the
-		// fixture would provision real directories wherever it points. Absolutes are
-		// remapped under the scratch tree rather than dropped, so the absolute branch
-		// stays covered. Relative paths are contained by t.Chdir below, and tilde
-		// references by Isolate having repointed $HOME.
+		// The resolver MkdirAll's whatever it resolves, so an input that escapes the
+		// fixture provisions real directories wherever it lands. Two shapes escape and
+		// both are filtered: an absolute path, which is remapped under the scratch tree
+		// so the absolute branch stays covered, and a parent reference, which walks out
+		// of the fixture just as effectively and cannot be remapped because Join cleans
+		// it back out again. A tilde form escapes the same way, since ~/../.. resolves
+		// above the pinned $HOME.
 		if strings.ContainsRune(dir, 0) || len(dir) > 128 {
 			return
+		}
+		for _, part := range strings.Split(filepath.ToSlash(dir), "/") {
+			if part == ".." {
+				return
+			}
 		}
 		home := configtest.Isolate(t)
 		scratch := t.TempDir()
