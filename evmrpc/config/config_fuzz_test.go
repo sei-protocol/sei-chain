@@ -176,8 +176,27 @@ func FuzzTracerAllowlists(f *testing.F) {
 			t.Fatalf("%s = %q is all-native and must be accepted, got %v", key, names, err)
 		}
 
+		// The resolved list has to equal the normalized input, not merely satisfy the
+		// same invariants the defaults already satisfy. Checking only native, trimmed
+		// and de-duplicated would pass for a reader that ignored the key entirely and
+		// kept DefaultTraceAllowedTracers, which is the one outcome this target exists
+		// to rule out.
+		want := make([]string, 0, len(names))
+		seen := make(map[string]bool, len(names))
+		for _, n := range names {
+			trimmed := strings.TrimSpace(n)
+			if !seen[trimmed] {
+				seen[trimmed] = true
+				want = append(want, trimmed)
+			}
+		}
+
 		got := resolvedTracers(t, cfg, path)
-		seen := map[string]bool{}
+		if a, b := configtest.Dump(got), configtest.Dump(want); a != b {
+			t.Fatalf("%s = %q resolved to the wrong list\n got: %s\nwant: %s\n"+
+				"the reader must adopt the operator's names, trimmed and de-duplicated in "+
+				"first-occurrence order", key, names, a, b)
+		}
 		for _, n := range got {
 			if !config.IsNativeTraceTracer(n) {
 				t.Fatalf("%s resolved to %q, which is not a native tracer", key, n)
@@ -185,10 +204,6 @@ func FuzzTracerAllowlists(f *testing.F) {
 			if n != strings.TrimSpace(n) {
 				t.Fatalf("%s resolved to un-trimmed name %q", key, n)
 			}
-			if seen[n] {
-				t.Fatalf("%s resolved to a list with duplicate %q: %q", key, n, got)
-			}
-			seen[n] = true
 		}
 	})
 }

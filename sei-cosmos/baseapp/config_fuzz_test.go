@@ -6,6 +6,8 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/spf13/cast"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
@@ -72,7 +74,14 @@ func FuzzBaseAppChainID(f *testing.F) {
 			return
 		}
 
+		// Asserting only non-empty would pass for a build that ignored chain-id and
+		// stamped some constant, so the resolved value is compared against the cast the
+		// reader applies.
 		app := newTestBaseApp(t, opts)
+		if want := cast.ToString(value); app.ChainID != want {
+			t.Fatalf("chain-id = %#v resolved to %q, want the cast value %q; the key is adopted "+
+				"verbatim with no format check", value, app.ChainID, want)
+		}
 		if app.ChainID == "" {
 			t.Fatalf("chain-id = %#v resolved to the empty string without panicking", value)
 		}
