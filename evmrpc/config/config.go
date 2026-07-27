@@ -250,17 +250,18 @@ type Config struct {
 	// batched JSON-RPC call (HTTP and WebSocket). Set to 0 to disable the limit.
 	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
 
-	// MaxRequestBodyBytes is the maximum size, in bytes, of a single HTTP
-	// JSON-RPC request body. Requests larger than this are rejected (HTTP 413)
-	// before the body is buffered or JSON-decoded. 0 uses the go-ethereum
-	// default (5 MiB).
+	// MaxRequestBodyBytes is the maximum size, in bytes, of a single HTTP (:8545)
+	// or WebSocket (:8546) JSON-RPC request/frame. HTTP requests larger than this
+	// are rejected (HTTP 413) before the body is buffered or JSON-decoded.
+	// WebSocket frames exceeding this limit are rejected by the read loop.
+	// 0 uses the go-ethereum default (5 MiB).
 	MaxRequestBodyBytes int64 `mapstructure:"max_request_body_bytes"`
 
-	// MaxConcurrentRequestBytes bounds the total size, in bytes, of HTTP
-	// JSON-RPC request bodies admitted for processing concurrently, weighted by
-	// each request's Content-Length. Requests that would exceed the budget are
-	// rejected fast (HTTP 429) before decode, capping peak memory under load.
-	// Set to 0 to disable the limit.
+	// MaxConcurrentRequestBytes bounds the total size, in bytes, of HTTP and
+	// WebSocket JSON-RPC request bodies admitted for processing concurrently
+	// (independent budgets per plane). HTTP uses Content-Length weighting and
+	// rejects over-budget requests fast (HTTP 429). WebSocket blocks until
+	// budget frees or times out. Set to 0 to disable the limit on either plane.
 	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
 
 	// MaxOpenConnections caps the number of simultaneously accepted connections
@@ -916,15 +917,16 @@ batch_request_limit = {{ .EVM.BatchRequestLimit }}
 # batched JSON-RPC call (HTTP and WebSocket). Set to 0 to disable the limit.
 batch_response_max_size = {{ .EVM.BatchResponseMaxSize }}
 
-# max_request_body_bytes is the maximum size, in bytes, of a single HTTP
-# JSON-RPC request body. Larger requests are rejected (HTTP 413) before the body
-# is buffered or JSON-decoded. Set to 0 to use the default (5 MiB).
+# max_request_body_bytes is the maximum size, in bytes, of a single HTTP (:8545)
+# or WebSocket (:8546) JSON-RPC request/frame. HTTP larger requests are rejected
+# (HTTP 413) before decode; WS frames exceeding this limit are rejected by the
+# read loop. Set to 0 to use the default (5 MiB).
 max_request_body_bytes = {{ .EVM.MaxRequestBodyBytes }}
 
-# max_concurrent_request_bytes bounds the total size, in bytes, of HTTP JSON-RPC
-# request bodies admitted for processing concurrently (weighted by each request's
-# Content-Length). Requests that would exceed the budget are rejected fast
-# (HTTP 429) before decode, capping peak memory under load. Set to 0 to disable.
+# max_concurrent_request_bytes bounds total request bytes admitted concurrently
+# on HTTP (:8545) and WebSocket (:8546) (independent budgets per plane). HTTP
+# rejects over-budget requests fast (HTTP 429); WS blocks until budget frees or
+# times out. Set to 0 to disable on either plane.
 max_concurrent_request_bytes = {{ .EVM.MaxConcurrentRequestBytes }}
 
 # max_open_connections caps the number of simultaneously accepted connections on

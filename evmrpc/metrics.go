@@ -18,6 +18,9 @@ const (
 	errorClassKey   = "error_class"
 	jsonrpcCodeKey  = "jsonrpc_code"
 	rejectReasonKey = "reason"
+	planeKey        = "plane"
+	planeHTTP       = "http"
+	planeWS         = "ws"
 	// reject reason values for requestRejectedCount.
 	rejectReasonOversize = "oversize" // body exceeded max_request_body_bytes
 	rejectReasonBusy     = "busy"     // max_concurrent_request_bytes budget exhausted
@@ -76,7 +79,7 @@ var (
 		)),
 		requestRejectedCount: must(rpcTelemetryMeter.Int64Counter(
 			"evmrpc_requests_rejected_total",
-			metric.WithDescription("Number of HTTP JSON-RPC requests rejected by pre-decode admission control (labeled by reason)"),
+			metric.WithDescription("Number of JSON-RPC requests rejected by admission control (labeled by plane and reason)"),
 			metric.WithUnit("{count}"),
 		)),
 	}
@@ -166,13 +169,19 @@ func recordHistoricalDebugTraceAttempt(ctx context.Context, endpoint, connection
 	)
 }
 
-// recordRequestRejected counts an HTTP JSON-RPC request dropped by pre-decode
-// admission control. reason is one of rejectReasonOversize / rejectReasonBusy.
-// No endpoint dimension is recorded: the rejection happens before the JSON-RPC
-// method is decoded, so it is not yet known.
 func recordRequestRejected(ctx context.Context, reason string) {
 	metrics.requestRejectedCount.Add(ctx, 1,
 		metric.WithAttributes(
+			attribute.String(planeKey, planeHTTP),
+			attribute.String(rejectReasonKey, reason),
+		),
+	)
+}
+
+func recordWSAdmissionRejected(ctx context.Context, reason string) {
+	metrics.requestRejectedCount.Add(ctx, 1,
+		metric.WithAttributes(
+			attribute.String(planeKey, planeWS),
 			attribute.String(rejectReasonKey, reason),
 		),
 	)

@@ -381,7 +381,15 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
-	srv.SetReadLimits(config.readLimit)
+	readLimit := effectiveMaxRequestBodyBytes(config.readLimit)
+	if readLimit > math.MaxInt {
+		readLimit = math.MaxInt
+	}
+	srv.SetReadLimits(readLimit)
+	srv.SetWSConcurrentRequestBytes(config.maxConcurrentRequestBytes)
+	srv.SetWSAdmissionEventHook(func(reason string) {
+		recordWSAdmissionRejected(context.Background(), reason)
+	})
 	logger.Info("Registering apis for evm websocket")
 	if err := RegisterApis(apis, config.Modules, srv); err != nil {
 		return err
