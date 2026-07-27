@@ -107,8 +107,8 @@ func TestBaseAppChainIDPanicNamesTheDefaultHome(t *testing.T) {
 			t.Fatalf("expected a string panic, got %T", r)
 		}
 		if !strings.Contains(msg, "~/.sei/config/client.toml") {
-			t.Skipf("the panic no longer hardcodes the default home (%q); if the path is now "+
-				"derived from --home that is a fix and this row can go", msg)
+			t.Fatalf("the panic no longer hardcodes the default home (%q). Deriving the path from "+
+				"--home is a fix, and this row is where that gets recorded rather than skipped past", msg)
 		}
 	}()
 	_ = newTestBaseApp(t, configtest.AppOpts{FlagChainID: ""})

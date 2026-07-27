@@ -81,8 +81,9 @@ func TestQueryGasLimitTemplateLiteralDivergesFromTheInCodeDefault(t *testing.T) 
 
 	inCode := types.DefaultWasmConfig().SmartQueryGasLimit
 	if inCode == generatedTemplateLiteral {
-		t.Skipf("the in-code default is now %d, matching the template literal; the divergence "+
-			"is closed and this row can go", inCode)
+		t.Fatalf("the in-code default is now %d, matching the template literal. Closing that "+
+			"divergence changes the gas allowance on every node whose app.toml lacks [wasm], so it "+
+			"gets recorded here rather than skipped past", inCode)
 	}
 
 	// A generated app.toml resolves the template literal.

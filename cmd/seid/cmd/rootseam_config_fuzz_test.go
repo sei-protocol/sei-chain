@@ -240,8 +240,10 @@ func TestPreRunReadsTheManagerGateOncePerInvocation(t *testing.T) {
 		t.Fatalf("Select consulted the environment %d times, want exactly 1", len(reads))
 	}
 
-	// And the manager chosen for an invocation is fixed: flipping the variable after
-	// PersistentPreRunE has run cannot retroactively change what it did.
+	// And the manager chosen for an invocation is fixed. Flipping the variable after
+	// PersistentPreRunE has returned must leave the resolved channels alone, which means
+	// comparing the viper's identity across the change rather than re-checking that it is
+	// non-nil: a nil check would hold whatever the gate did.
 	home := configtest.NewHome(t)
 	serverCtx, err := runRootPreRun(t, home, "start")
 	if err != nil {
@@ -250,11 +252,19 @@ func TestPreRunReadsTheManagerGateOncePerInvocation(t *testing.T) {
 	if serverCtx.Viper == nil {
 		t.Fatal("the legacy manager must have populated the boot channels")
 	}
+
+	before := serverCtx.Viper
+	beforeDump := configtest.DumpViper(serverCtx.Viper)
 	if err := os.Setenv(configmanager.EnvVar, "v2"); err != nil {
 		t.Fatalf("set %s: %v", configmanager.EnvVar, err)
 	}
-	if serverCtx.Viper == nil {
-		t.Fatal("changing the gate after the fact must not affect a completed invocation")
+	if serverCtx.Viper != before {
+		t.Fatal("the resolved viper was replaced after PersistentPreRunE returned; one invocation " +
+			"must not be able to switch managers partway through")
+	}
+	if after := configtest.DumpViper(serverCtx.Viper); after != beforeDump {
+		t.Fatalf("the resolved view changed after the gate was flipped\n--- before\n%s\n--- after\n%s",
+			beforeDump, after)
 	}
 }
 

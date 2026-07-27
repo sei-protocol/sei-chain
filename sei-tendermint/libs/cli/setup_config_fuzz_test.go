@@ -75,9 +75,10 @@ func TestGlobalViperHomeIsOverriddenByTheHomeEnvVar(t *testing.T) {
 
 	got := viper.GetString(cli.HomeFlag)
 	if got == declaredDefault {
-		t.Skipf("the global viper resolved the declared default (%q); if the empty env prefix "+
-			"was narrowed so HOME no longer matches the home key, that is a fix and it changes "+
-			"which directory the tendermint subcommands operate on", got)
+		t.Fatalf("the global viper resolved the declared default (%q). Narrowing the empty env "+
+			"prefix so HOME no longer matches the home key changes which directory the tendermint "+
+			"subcommands operate on, which is sharp edge #1, so it gets recorded here rather than "+
+			"skipped past", got)
 	}
 	if got != loginHome {
 		t.Fatalf("global viper home = %q, want the HOME value %q; a bare HOME matches the home "+
@@ -175,8 +176,9 @@ func TestInitEnvDuplicatesTheEnvironmentUnderAnEmptyPrefix(t *testing.T) {
 	cli.InitEnv("")
 
 	if os.Getenv("_SEI_CONFIGTEST_MARKER") != "present" {
-		t.Skip("InitEnv no longer duplicates variables under an empty prefix; the copy loop was " +
-			"presumably guarded, which is an improvement worth recording")
+		t.Fatal("InitEnv no longer duplicates variables under an empty prefix. Guarding the copy " +
+			"loop is an improvement, and it shrinks the global viper's key space, so it gets " +
+			"recorded here rather than skipped past")
 	}
 	// Both spellings resolve, because an empty prefix makes every variable a key.
 	if got := viper.GetString("sei_configtest_marker"); got != "present" {

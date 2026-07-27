@@ -25,8 +25,12 @@ import (
 // so a caller that reads genesis to inspect it also silently stamps it, and nothing in
 // the returned document says the time was invented.
 func FuzzGenesisDocFromJSONTimeCompletion(f *testing.F) {
-	f.Add(int64(0)) // zero: completed with the current time
-	f.Add(int64(1)) // one second past the epoch: preserved
+	// The completion branch needs a time that is actually zero, which is year 1 Jan 1 UTC
+	// rather than the Unix epoch. Without this seed the target only ever exercised the
+	// preservation half.
+	f.Add(int64(-62135596800)) // the zero time: completed with the current time
+	f.Add(int64(0))            // the Unix epoch, which is not the zero time: preserved
+	f.Add(int64(1))
 	f.Add(int64(1700000000))
 	f.Add(int64(-1))
 
@@ -91,8 +95,9 @@ func TestGenesisDocWithoutTimeIsNotReproducible(t *testing.T) {
 	}
 
 	if first.GenesisTime.Equal(second.GenesisTime) {
-		t.Skipf("two reads produced the same genesis_time (%v); if the completion became "+
-			"deterministic that is a real improvement worth recording", first.GenesisTime)
+		t.Fatalf("two reads produced the same genesis_time (%v). A deterministic completion is a "+
+			"real improvement, and it changes whether generated genesis bytes are comparable "+
+			"between nodes, so it gets recorded here rather than skipped past", first.GenesisTime)
 	}
 	if first.GenesisTime.IsZero() {
 		t.Fatal("an absent genesis_time must be completed, not left zero")

@@ -176,18 +176,28 @@ func TestStartChainIDMismatchPanics(t *testing.T) {
 			t.Fatalf("the panic must quote both values so an operator can see which is which, got %q", msg)
 		}
 		if !strings.Contains(msg, "~/.sei/config/client.toml") {
-			t.Skipf("the message no longer hardcodes the default home (%q); deriving it from "+
-				"--home is a fix worth recording", msg)
+			t.Fatalf("the message no longer hardcodes the default home (%q). Deriving it from --home "+
+				"is a fix, and this row is where that gets recorded rather than skipped past", msg)
 		}
 	}()
 	_ = cmd.RunE(cmd, nil)
 }
 
-// TestStartChainIDAgreementDoesNotPanic isolates the cause: the panic is about
-// disagreement, not about passing --chain-id at all. With matching values RunE gets
-// past the comparison — it then goes on to build a node, which is why the assertion is
-// only that the mismatch panic did not fire.
-func TestStartChainIDAgreementDoesNotPanic(t *testing.T) {
+// TestStartAfterChainIDAgreementHitsTheGenesisNilDeref pins what happens immediately
+// past the chain-id comparison, and is the reason the agreement case cannot be asserted
+// the obvious way.
+//
+// With matching values RunE continues to the genesis cross-check, which discards
+// GenesisDocFromFile's error and then dereferences the returned document. On a home with
+// no genesis.json that is a nil-pointer dereference, so a missing or corrupt genesis file
+// reports itself as a runtime fault with nothing naming the file.
+//
+// Pinning that keeps this test bounded, which matters more than it looks. Asserting
+// "agreement does not panic" would mean letting RunE continue into startInProcess, which
+// opens the state databases and binds the RPC, P2P and gRPC listeners: the call would
+// block instead of returning, and a node would keep running while later tests clear the
+// environment underneath it.
+func TestStartAfterChainIDAgreementHitsTheGenesisNilDeref(t *testing.T) {
 	configtest.Isolate(t)
 	home := configtest.NewHome(t)
 	home.WriteClientTOML(t, []byte("chain-id = \"agreed-chain\"\nkeyring-backend = \"test\"\n"))
@@ -196,20 +206,30 @@ func TestStartChainIDAgreementDoesNotPanic(t *testing.T) {
 		server.FlagPruning: "nothing",
 		server.FlagChainID: "agreed-chain",
 	})
-
-	done := make(chan any, 1)
-	go func() {
-		defer func() { done <- recover() }()
-		// This proceeds into node construction, which will fail for unrelated reasons;
-		// only the mismatch panic is under test.
-		_ = cmd.RunE(cmd, nil)
-	}()
-
-	if r := <-done; r != nil {
-		if msg, ok := r.(string); ok && strings.Contains(msg, "chain-id mismatch") {
-			t.Fatalf("matching chain-ids must not trip the mismatch panic, got %q", msg)
-		}
+	if home.Exists("genesis.json") {
+		t.Fatal("the fixture must carry no genesis.json for this row to reach the discarded error")
 	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("with no genesis.json the discarded GenesisDocFromFile error must surface as a " +
+				"nil-pointer dereference; if the error is returned now, that is a fix and this row " +
+				"becomes an assertion about a legible failure instead")
+		}
+		if msg, ok := r.(string); ok {
+			if strings.Contains(msg, "chain-id mismatch") {
+				t.Fatalf("matching chain-ids must not trip the mismatch panic, got %q", msg)
+			}
+			t.Fatalf("expected a nil-pointer dereference past the chain-id comparison, got %q", msg)
+		}
+		if err, ok := r.(error); ok &&
+			!strings.Contains(err.Error(), "nil pointer") &&
+			!strings.Contains(err.Error(), "invalid memory") {
+			t.Fatalf("expected a nil-pointer dereference past the chain-id comparison, got %v", err)
+		}
+	}()
+	_ = cmd.RunE(cmd, nil)
 }
 
 func itoa(v uint64) string {

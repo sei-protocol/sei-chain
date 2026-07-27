@@ -132,9 +132,6 @@ type grpcClamp struct {
 	Key     string
 	Path    string
 	Default time.Duration
-	// ZeroIsInfinity marks the two keys where 0 is a meaningful gRPC value
-	// ("never"), so only a negative needs clamping and an absent key is not guarded.
-	ZeroIsInfinity bool
 }
 
 var grpcClamps = []grpcClamp{
@@ -142,24 +139,21 @@ var grpcClamps = []grpcClamp{
 	{Key: "grpc.keepalive-time", Path: "GRPC.KeepaliveTime", Default: DefaultGRPCKeepaliveTime},
 	{Key: "grpc.keepalive-timeout", Path: "GRPC.KeepaliveTimeout", Default: DefaultGRPCKeepaliveTimeout},
 	{Key: "grpc.keepalive-min-time", Path: "GRPC.KeepaliveMinTime", Default: DefaultGRPCKeepaliveMinTime},
-	{
-		Key: "grpc.max-connection-age", Path: "GRPC.MaxConnectionAge",
-		Default: DefaultGRPCMaxConnectionAge, ZeroIsInfinity: true,
-	},
+	{Key: "grpc.max-connection-age", Path: "GRPC.MaxConnectionAge", Default: DefaultGRPCMaxConnectionAge},
 	{
 		Key: "grpc.max-connection-age-grace", Path: "GRPC.MaxConnectionAgeGrace",
-		Default: DefaultGRPCMaxConnectionAgeGrace, ZeroIsInfinity: true,
+		Default: DefaultGRPCMaxConnectionAgeGrace,
 	},
 }
 
 // FuzzGetConfigGRPCDurationClamps pins the negative-duration clamp on the gRPC
 // keepalive keys.
 //
-// gRPC accepts a negative keepalive verbatim and behaves pathologically, so
-// GetConfig substitutes the in-code default instead of passing it through. Zero is
-// left alone for the two age keys, where gRPC reads it as "no limit" — so the clamp
-// has to distinguish negative from zero rather than treating both as unset, and
-// that distinction is what this target holds in place.
+// gRPC accepts a negative keepalive verbatim and behaves pathologically, so GetConfig
+// substitutes the in-code default instead of passing it through. Only a negative is
+// clamped, uniformly across all six keys: zero passes through everywhere, which matters
+// most on the two age keys where gRPC reads zero as "no limit". Distinguishing negative
+// from zero rather than treating both as unset is what this target holds in place.
 func FuzzGetConfigGRPCDurationClamps(f *testing.F) {
 	f.Add(uint(0), int64(0))
 	f.Add(uint(0), int64(-1))
