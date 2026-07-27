@@ -48,33 +48,39 @@ func TestGetTxByOffset(t *testing.T) {
 	verify := func(stage string) {
 		t.Helper()
 
-		// The full range round-trips the whole stored value.
-		res, err := impl.GetTxByOffset(0, 0, storedLen)
+		// The whole payload following the fixed prefix round-trips.
+		res, err := impl.GetTxByOffset(0, blockValuePrefixLen, storedLen-blockValuePrefixLen)
 		require.NoError(t, err, stage)
 		got, ok := res.Get()
 		require.True(t, ok, stage)
-		require.Equal(t, stored, got, stage)
+		require.Equal(t, stored[blockValuePrefixLen:], got, stage)
 
-		// A real transaction's raw bytes appear verbatim as a contiguous run in the value (each tx is a
+		// A real transaction's raw bytes appear verbatim as a contiguous run in the payload (each tx is a
 		// length-delimited `repeated bytes` element), so locating one gives a valid (offset, length) —
-		// exactly what a writer would record. Extracting that range must return the transaction.
+		// exactly what a writer would record. Extracting that range must return the transaction. The
+		// search is scoped to the payload because that is the only place a tx can legitimately live.
 		for _, tx := range blk.Payload().Txs() {
-			idx := bytes.Index(stored, tx)
+			idx := bytes.Index(stored[blockValuePrefixLen:], tx)
 			require.GreaterOrEqual(t, idx, 0, stage)
 			//nolint:gosec // small test offsets/lengths fit u32
-			res, err := impl.GetTxByOffset(0, uint32(idx), uint32(len(tx)))
+			res, err := impl.GetTxByOffset(0, uint32(blockValuePrefixLen+idx), uint32(len(tx)))
 			require.NoError(t, err, stage)
 			got, ok := res.Get()
 			require.True(t, ok, stage)
 			require.Equal(t, tx, got, stage)
 		}
 
+		// An offset inside the fixed prefix is rejected: no transaction can start there, so the caller
+		// must have measured against the proto body rather than the whole stored value.
+		_, err = impl.GetTxByOffset(0, blockValuePrefixLen-1, 1)
+		require.Error(t, err, stage)
+
 		// A range past the end of the value is an error.
 		_, err = impl.GetTxByOffset(0, storedLen-1, 5)
 		require.Error(t, err, stage)
 
 		// A block that was never written is simply absent (not an error).
-		res, err = impl.GetTxByOffset(1, 0, 1)
+		res, err = impl.GetTxByOffset(1, blockValuePrefixLen, 1)
 		require.NoError(t, err, stage)
 		require.False(t, res.IsPresent(), stage)
 	}
@@ -98,12 +104,12 @@ func TestGetTxByOffsetPruned(t *testing.T) {
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19; QCs [0,5),[5,10),[10,15),[15,20)
 	require.NoError(t, db.PruneBefore(5))   // watermark to 5: blocks 0..4 are below it
 
-	res, err := impl.GetTxByOffset(2, 0, 1)
+	res, err := impl.GetTxByOffset(2, blockValuePrefixLen, 1)
 	require.ErrorIs(t, err, types.ErrPruned)
 	require.False(t, res.IsPresent())
 
 	// A block at/above the watermark is still served.
-	res, err = impl.GetTxByOffset(5, 0, 1)
+	res, err = impl.GetTxByOffset(5, blockValuePrefixLen, 1)
 	require.NoError(t, err)
 	require.True(t, res.IsPresent())
 }

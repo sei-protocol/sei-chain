@@ -431,14 +431,24 @@ func (s *blockDB) Close() error {
 // GetTxByOffset reads a single transaction's raw bytes out of the block stored at GlobalBlockNumber n,
 // without decoding the block. offset and length identify a byte range within the block's stored value —
 // the exact bytes encodeBlock produced: [version:1][GlobalBlockNumber:8][proto(Block)] — typically the
-// (offset, length) of one transaction recorded at write time (see the tx-location-index design under
-// sei-db/ledger_db/receipt/docs). offset is measured from the start of that stored value (i.e. it includes
+// (offset, length) of one transaction recorded at write time. Offset is measured from the start of that stored value (i.e. it includes
 // the fixed prefix), matching the coordinates a writer computes against the bytes it persists.
 //
 // It reads only the requested bytes via LittDB's GetSubrange, skipping both the full-block disk read and
 // the protobuf unmarshal that ReadBlockByNumber performs. The I/O savings apply while the ledger table is
 // uncompressed (the default); on a compressed table GetSubrange still returns the correct bytes but must
-// read and decompress the whole block value first (see the compression note in the design doc).
+// read and decompress the whole block value first.
+//
+// The returned bytes are NOT safe to mutate. Unlike ReadBlockByNumber, which hands back a freshly decoded
+// block, this returns a slice aliasing LittDB's internal memory: before a flush it is a sub-slice of the
+// live unflushed entry holding the whole block value, and on a cache hit a sub-slice of the cached copy.
+// Writing through it would corrupt the block for every later reader. Copy the bytes first if they must be
+// modified or must outlive the read.
+//
+// A recorded (offset, length) is only meaningful against the block value it was computed from. The pair
+// and the value are written together and neither moves afterward, so a later bump to
+// blockSerializationVersion cannot retroactively shift an already-recorded pair; what it would break is
+// anything that rewrites stored block values in place, which must re-record the offsets pointing into them.
 //
 // This lives outside the types.BlockDB interface because the offset space is defined by this
 // implementation's serialization. The result is one of:
@@ -447,12 +457,23 @@ func (s *blockDB) Close() error {
 //   - types.ErrPruned: n is strictly below the retention watermark (matches ReadBlockByNumber). A block
 //     below the watermark may be stranded from its covering QC and is never served.
 //   - None with a nil error: no block is present at n (never written, or not yet written).
-//   - a non-nil error: the range is out of bounds for the block value, or the read failed.
+//   - a non-nil error: offset lands inside the fixed prefix, the range is out of bounds for the block
+//     value, or the read failed.
 func (s *blockDB) GetTxByOffset(
 	n types.GlobalBlockNumber,
 	offset uint32,
 	length uint32,
 ) (utils.Option[[]byte], error) {
+	// A transaction lives in the proto body, never in the fixed prefix, so an offset inside the prefix
+	// means the caller measured against the wrong frame — most likely the body instead of the whole stored
+	// value. Reject it rather than return plausible-looking but shifted bytes. A change to the value
+	// layout has to revisit this bound along with encodeBlock/decodeBlock.
+	if offset < blockValuePrefixLen {
+		return utils.None[[]byte](), fmt.Errorf(
+			"tx offset %d is inside the %d-byte block value prefix: offsets are measured from the start of "+
+				"the stored value, not of the proto body", offset, blockValuePrefixLen)
+	}
+
 	// Refuse below-watermark blocks: they may be stranded (covering QC reclaimed). Mirrors ReadBlockByNumber.
 	if uint64(n) < s.watermark.Load() {
 		return utils.None[[]byte](), types.ErrPruned
