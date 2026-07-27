@@ -361,8 +361,12 @@ func (s *littReceiptStore) candidateBlockLogs(ctx context.Context, candidates ma
 		if !exists {
 			continue
 		}
+		data, err := decodeReceiptData(bz)
+		if err != nil {
+			return nil, err
+		}
 		receipt := &types.Receipt{}
-		if err := receipt.Unmarshal(bz); err != nil {
+		if err := receipt.Unmarshal(data.Body); err != nil {
 			return nil, err
 		}
 		for _, rawLog := range receipt.Logs {

@@ -8,6 +8,51 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 )
 
+// ValidateSignatureDataStructure checks SignatureData tree shape only (no crypto).
+// For MultiSignatureData, len(Signatures) must equal the number of true bits in
+// BitArray at every nesting level (the same invariant AddSignature maintains).
+func ValidateSignatureDataStructure(data signing.SignatureData) error {
+	switch data := data.(type) {
+	case nil:
+		return fmt.Errorf("signature data is required")
+	case *signing.SingleSignatureData:
+		if data == nil {
+			return fmt.Errorf("single signature data is required")
+		}
+		return nil
+	case *signing.MultiSignatureData:
+		return validateMultiSignatureDataStructure(data)
+	default:
+		return fmt.Errorf("unexpected signature data type %T", data)
+	}
+}
+
+func validateMultiSignatureDataStructure(sig *signing.MultiSignatureData) error {
+	if sig == nil {
+		return fmt.Errorf("multi signature data is required")
+	}
+	if sig.BitArray == nil {
+		return fmt.Errorf("bit array is required")
+	}
+	if err := sig.BitArray.ValidateBasic(); err != nil {
+		return err
+	}
+	size := sig.BitArray.Count()
+	if size == 0 {
+		return fmt.Errorf("bit array size is incorrect %d", size)
+	}
+	nTrue := sig.BitArray.NumTrueBitsBefore(size)
+	if len(sig.Signatures) != nTrue {
+		return fmt.Errorf("signature size is incorrect: have %d, expected %d", len(sig.Signatures), nTrue)
+	}
+	for i, child := range sig.Signatures {
+		if err := ValidateSignatureDataStructure(child); err != nil {
+			return fmt.Errorf("signature data at index %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
 // AminoMultisignature is used to represent amino multi-signatures for StdTx's.
 // It is assumed that all signatures were made with SIGN_MODE_LEGACY_AMINO_JSON.
 // Sigs is a list of signatures, sorted by corresponding index.
