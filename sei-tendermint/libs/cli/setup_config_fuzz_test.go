@@ -29,13 +29,20 @@ import (
 //
 // These tests mutate the global viper, so each resets it and none may run in parallel.
 
-// withGlobalViper gives a test a clean global viper and restores nothing afterwards
-// beyond resetting it — the singleton has no save/restore, which is itself part of why
-// it is hard to reason about.
+// withGlobalViper gives a test a clean global viper and a pinned environment.
+//
+// Both halves are necessary and they are bundled here rather than left to each caller,
+// because a caller that forgets one is not obviously wrong. The viper reset is needed
+// because the singleton has no save or restore of its own. The environment pin is needed
+// in both directions: inbound, an empty env prefix makes a bare TRACE or HOME on the
+// runner a config source for these very tests, and outbound, cli.InitEnv re-exports the
+// whole environment through os.Setenv and restores nothing, so the duplicates would leak
+// into every later test in this binary.
 func withGlobalViper(t *testing.T) {
 	t.Helper()
 	viper.Reset()
 	t.Cleanup(viper.Reset)
+	configtest.Isolate(t)
 }
 
 // newBaseCmd wires a command the way seid's entry point does — an empty env prefix and a
@@ -63,10 +70,6 @@ func newBaseCmd(t *testing.T, defaultHome string, args ...string) *cobra.Command
 // on the command line, HOME wins over the declared default.
 func TestGlobalViperHomeIsOverriddenByTheHomeEnvVar(t *testing.T) {
 	withGlobalViper(t)
-	// Isolate as well as reset: these tests read the empty-prefix global viper, where a
-	// bare TRACE or HOME on the CI runner is a config source, and InitEnv re-exports the
-	// environment without restoring it.
-	configtest.Isolate(t)
 
 	declaredDefault := filepath.Join(t.TempDir(), "declared-default")
 	loginHome := filepath.Join(t.TempDir(), "login-home")
@@ -98,10 +101,6 @@ func TestGlobalViperHomeIsOverriddenByTheHomeEnvVar(t *testing.T) {
 // the flag.
 func TestGlobalViperExplicitHomeFlagBeatsTheEnvVar(t *testing.T) {
 	withGlobalViper(t)
-	// Isolate as well as reset: these tests read the empty-prefix global viper, where a
-	// bare TRACE or HOME on the CI runner is a config source, and InitEnv re-exports the
-	// environment without restoring it.
-	configtest.Isolate(t)
 
 	declaredDefault := filepath.Join(t.TempDir(), "declared-default")
 	loginHome := filepath.Join(t.TempDir(), "login-home")
@@ -180,11 +179,6 @@ func FuzzGlobalViperBareEnvVarsBecomeConfigSources(f *testing.F) {
 // viper answer for" an unanswerable question.
 func TestInitEnvDuplicatesTheEnvironmentUnderAnEmptyPrefix(t *testing.T) {
 	withGlobalViper(t)
-	// InitEnv re-exports the whole environment through os.Setenv and restores nothing.
-	// Isolate snapshots and restores it, which keeps the duplicates out of every later
-	// test in this binary and stops the assertion below going vacuous under -count=2,
-	// where a surviving marker would pass even if the duplication had stopped.
-	configtest.Isolate(t)
 	t.Setenv("SEI_CONFIGTEST_MARKER", "present")
 
 	cli.InitEnv("")

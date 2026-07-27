@@ -52,12 +52,6 @@ func FuzzValidateBasicMode(f *testing.F) {
 	f.Add("archive")   // not a tendermint mode
 	f.Add(" full")     // not trimmed
 
-	// The assertions below match on error text, which this repo's guide asks tests to avoid
-	// in favour of errors.Is/As. There is nothing to match on: all three production sites
-	// build their errors with a bare errors.New or fmt.Errorf, and giving them sentinel
-	// identities means editing production code, which this PR deliberately does not do. So
-	// these rows pin the diagnostic wording alongside the behavior, and a follow-up adding
-	// sentinels for the mode vocabulary would let them stop.
 	f.Fuzz(func(t *testing.T, mode string) {
 		conf := DefaultConfig()
 		conf.Mode = mode
@@ -69,15 +63,46 @@ func FuzzValidateBasicMode(f *testing.F) {
 				t.Fatalf("mode = %q is a known mode and must validate, got %v", mode, err)
 			}
 		case "":
-			if err == nil || !strings.Contains(err.Error(), "no mode has been set") {
-				t.Fatalf("an empty mode must fail with its own message, got %v", err)
+			if err == nil {
+				t.Fatal("an empty mode must be rejected rather than defaulting to full")
 			}
 		default:
-			if err == nil || !strings.Contains(err.Error(), "unknown mode") {
-				t.Fatalf("mode = %q must be rejected as unknown, got %v", mode, err)
+			if err == nil {
+				t.Fatalf("mode = %q must be rejected as unknown", mode)
 			}
 		}
 	})
+}
+
+// TestValidateBasicDistinguishesAnAbsentModeFromAnUnknownOne pins the property the two
+// mode diagnostics exist for, without pinning either one's wording.
+//
+// The distinction is operator-facing and worth holding: "no mode has been set" says the key
+// is missing, "unknown mode" says it is misspelled, and collapsing them into one message
+// would leave an operator unable to tell which mistake they made. Asserting that the two
+// errors differ keeps that property while surviving any rewording.
+//
+// It is expressed this way because there is nothing better available. The repo's guide asks
+// for errors.Is/As rather than message matching, and both sites build their errors with a
+// bare errors.New or fmt.Errorf, so there is no identity to match on. Giving them sentinels
+// means editing production code, which this PR deliberately does not do, so that is the
+// follow-up rather than something done here.
+func TestValidateBasicDistinguishesAnAbsentModeFromAnUnknownOne(t *testing.T) {
+	absent := DefaultConfig()
+	absent.Mode = ""
+	unknown := DefaultConfig()
+	unknown.Mode = "archive"
+
+	absentErr := absent.ValidateBasic()
+	unknownErr := unknown.ValidateBasic()
+	if absentErr == nil || unknownErr == nil {
+		t.Fatalf("both an absent and an unknown mode must be rejected, got %v and %v",
+			absentErr, unknownErr)
+	}
+	if absentErr.Error() == unknownErr.Error() {
+		t.Fatalf("an absent mode and a misspelled one now report the same failure (%v), so an "+
+			"operator cannot tell whether the key is missing or wrong", absentErr)
+	}
 }
 
 // FuzzRootScopeKeysRequireRootScope pins the placement trap on the two root-scope

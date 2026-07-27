@@ -95,9 +95,6 @@ func FuzzEventSinksFromConfig(f *testing.F) {
 			if err == nil {
 				t.Fatalf("indexer = %v repeats a sink and must be rejected", indexer)
 			}
-			if !strings.Contains(err.Error(), "duplicated sinks") {
-				t.Fatalf("the failure must name the duplication, got %v", err)
-			}
 			return
 
 		case slices.Contains(lowered, "null"):
@@ -183,6 +180,32 @@ func TestNullMixedWithAnUnsupportedSinkIsUnspecified(t *testing.T) {
 			"what the sibling row argues for. If you landed that, update this row and "+
 			"TestNullSinkCanOpenAnIndexStoreItThenDiscards to assert the deterministic outcome",
 			runs, booted, failed)
+	}
+}
+
+// TestEventSinksDistinguishesADuplicateFromAnUnsupportedName pins the diagnostic
+// distinction between the two rejection reasons without pinning either one's wording, for
+// the same reason as the mode rows in sei-tendermint/config: the guide asks for
+// errors.Is/As, the production site builds bare errors with no identity to match on, and
+// giving it one means editing production code this PR does not touch.
+//
+// The distinction matters because the two mistakes have different fixes. A duplicate means
+// remove a line; an unsupported name means correct a spelling.
+func TestEventSinksDistinguishesADuplicateFromAnUnsupportedName(t *testing.T) {
+	duplicate := config.DefaultConfig()
+	duplicate.TxIndex.Indexer = []string{"kv", "kv"}
+	unsupported := config.DefaultConfig()
+	unsupported.TxIndex.Indexer = []string{"definitely-not-a-sink"}
+
+	_, duplicateErr := sink.EventSinksFromConfig(duplicate, memDBProvider, "sei-test")
+	_, unsupportedErr := sink.EventSinksFromConfig(unsupported, memDBProvider, "sei-test")
+	if duplicateErr == nil || unsupportedErr == nil {
+		t.Fatalf("both a duplicate and an unsupported name must be rejected, got %v and %v",
+			duplicateErr, unsupportedErr)
+	}
+	if duplicateErr.Error() == unsupportedErr.Error() {
+		t.Fatalf("a repeated sink and an unrecognized one now report the same failure (%v), so an "+
+			"operator cannot tell whether to remove a line or fix a spelling", duplicateErr)
 	}
 }
 
