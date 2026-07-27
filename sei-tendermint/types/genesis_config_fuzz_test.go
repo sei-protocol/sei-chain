@@ -87,12 +87,8 @@ func TestGenesisDocWithoutTimeIsNotReproducible(t *testing.T) {
 	raw := []byte(`{"chain_id":"sei-test","validators":[],"app_hash":""}`)
 
 	// Bracketing each read rather than sleeping between them, because the repo's conventions
-	// ask tests not to sleep. The two halves differ in robustness and it is worth being
-	// precise: the interval checks below are resolution-independent and prove the time was
-	// invented at read time rather than parsed, while the inequality that follows is the
-	// recorded finding itself and does need the clock to advance between two calls. That
-	// holds on a nanosecond-resolution clock and is the assertion to revisit first on a
-	// coarser platform.
+	// ask tests not to sleep. The interval checks are resolution-independent and prove the
+	// time was invented at read time rather than parsed.
 	beforeFirst := time.Now()
 	first, err := types.GenesisDocFromJSON(raw)
 	if err != nil {
@@ -110,15 +106,35 @@ func TestGenesisDocWithoutTimeIsNotReproducible(t *testing.T) {
 		t.Fatalf("the first read's completed time %v falls outside the interval it ran in",
 			first.GenesisTime)
 	}
-	if second.GenesisTime.Before(beforeFirst) || second.GenesisTime.After(afterSecond) {
+	// Lower-bounded by afterFirst rather than beforeFirst: the second read starts after the
+	// first one finished, so its completion must not predate that, and pinning it this way
+	// orders the two reads without requiring the clock to have advanced.
+	if second.GenesisTime.Before(afterFirst) || second.GenesisTime.After(afterSecond) {
 		t.Fatalf("the second read's completed time %v falls outside the interval it ran in",
 			second.GenesisTime)
 	}
 
-	if first.GenesisTime.Equal(second.GenesisTime) {
-		t.Fatalf("two reads produced the same genesis_time (%v). A deterministic completion is a "+
-			"real improvement, and it changes whether generated genesis bytes are comparable "+
-			"between nodes, so it gets recorded here rather than skipped past", first.GenesisTime)
+	// Distinctness is the recorded finding, and it is the one assertion here that needs the
+	// clock to actually advance. Two parses can legitimately land in a single tick on a
+	// coarse-resolution platform, so this retries across ticks instead of judging one pair:
+	// what is pinned is that the value is invented per read, not that any two given reads
+	// differ. A completion that is genuinely deterministic never separates, however many
+	// attempts it gets.
+	const attempts = 1000
+	distinct := !first.GenesisTime.Equal(second.GenesisTime)
+	for i := 0; i < attempts && !distinct; i++ {
+		a, aErr := types.GenesisDocFromJSON(raw)
+		b, bErr := types.GenesisDocFromJSON(raw)
+		if aErr != nil || bErr != nil {
+			t.Fatalf("retry %d: %v / %v", i, aErr, bErr)
+		}
+		distinct = !a.GenesisTime.Equal(b.GenesisTime)
+	}
+	if !distinct {
+		t.Fatalf("%d attempts produced the same genesis_time (%v) for both reads. A deterministic "+
+			"completion is a real improvement, and it changes whether generated genesis bytes are "+
+			"comparable between nodes, so it gets recorded here rather than skipped past",
+			attempts, first.GenesisTime)
 	}
 	if first.GenesisTime.IsZero() {
 		t.Fatal("an absent genesis_time must be completed, not left zero")

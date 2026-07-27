@@ -790,23 +790,55 @@ func TestServerEnvPrefixFollowsExecutableBasename(t *testing.T) {
 
 	const key = "rpc.laddr"
 	const want = "tcp://127.0.0.1:26699"
+	const ignored = "tcp://127.0.0.1:26698"
+
+	derivedName := configtest.ServerEnvKey(prefix, key)
+	seidName := configtest.ServerEnvKey("seid", key)
+	if seidName == derivedName {
+		t.Fatalf("derived prefix %q collides with seid; cannot distinguish the two spellings", prefix)
+	}
+
+	// The baseline is resolved with neither variable set, so the negative half below can
+	// assert an actual fallback rather than merely "not the value I set".
+	baseline := applyLegacy(t, configtest.NewHome(t), nil)
+	if baseline.err != nil {
+		t.Fatalf("Apply: %v", baseline.err)
+	}
+	unset := baseline.ctx.Config.RPC.ListenAddress
+	if unset == want || unset == ignored {
+		t.Fatalf("fixture default %q collides with a probe value; pick different probes", unset)
+	}
 
 	// The derived name is honored...
-	home := configtest.NewHome(t)
 	setServerEnv(t, key, want)
-	got := applyLegacy(t, home, nil)
+	got := applyLegacy(t, configtest.NewHome(t), nil)
 	if got.err != nil {
 		t.Fatalf("Apply: %v", got.err)
 	}
 	if got.ctx.Config.RPC.ListenAddress != want {
 		t.Fatalf("%s did not take effect; resolved %q, want %q",
-			configtest.ServerEnvKey(prefix, key), got.ctx.Config.RPC.ListenAddress, want)
+			derivedName, got.ctx.Config.RPC.ListenAddress, want)
 	}
 
-	// ...and the "seid" spelling is not, because this binary is not named seid.
-	seidName := configtest.ServerEnvKey("seid", key)
-	if seidName == configtest.ServerEnvKey(prefix, key) {
-		t.Fatalf("derived prefix %q collides with seid; cannot distinguish the two spellings", prefix)
+	// ...and the "seid" spelling is not, because this binary is not named seid. Asserted by
+	// resolving it rather than by comparing the two names: that the spellings differ says
+	// nothing about which one Apply reads, so the derived variable is cleared and the seid
+	// one set alone.
+	if err := os.Unsetenv(derivedName); err != nil {
+		t.Fatalf("unset %s: %v", derivedName, err)
+	}
+	if err := os.Setenv(seidName, ignored); err != nil {
+		t.Fatalf("set %s: %v", seidName, err)
+	}
+	fresh := applyLegacy(t, configtest.NewHome(t), nil)
+	if fresh.err != nil {
+		t.Fatalf("Apply: %v", fresh.err)
+	}
+	if fresh.ctx.Config.RPC.ListenAddress != unset {
+		t.Fatalf("with only %s set the address resolved to %q, want the unset baseline %q. The "+
+			"prefix is the literal seid rather than the executable basename %q, which would mean "+
+			"a renamed binary keeps responding to SEID_* after all",
+			seidName, fresh.ctx.Config.RPC.ListenAddress, unset, prefix)
 	}
 }
 

@@ -40,7 +40,11 @@ import (
 // Building the client context by hand does not work here — RunE reaches
 // ReadFromClientConfig, which constructs a keyring from the context's codec, so a bare
 // client.Context nil-derefs before the chain-id comparison this file is about.
-func newStartCmd(t *testing.T, home *configtest.Home, flagValues map[string]string) (*cobra.Command, *server.Context) {
+//
+// The returned cancel belongs to the command's own context. runEBounded uses it to ask a
+// node to stop on the path where RunE got further than the row expects; other callers
+// never reach that path and just let cleanup fire it.
+func newStartCmd(t *testing.T, home *configtest.Home, flagValues map[string]string) (*cobra.Command, *server.Context, context.CancelFunc) {
 	t.Helper()
 
 	root, _ := NewRootCmd()
@@ -61,14 +65,16 @@ func newStartCmd(t *testing.T, home *configtest.Home, flagValues map[string]stri
 	}
 
 	serverCtx := &server.Context{}
-	ctx := context.WithValue(context.Background(), server.ServerContextKey, serverCtx)
+	base, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	ctx := context.WithValue(base, server.ServerContextKey, serverCtx)
 	ctx = context.WithValue(ctx, client.ClientContextKey, &client.Context{})
 	cmd.SetContext(ctx)
 
 	if err := root.PersistentPreRunE(cmd, nil); err != nil {
 		t.Fatalf("PersistentPreRunE: %v", err)
 	}
-	return cmd, serverCtx
+	return cmd, serverCtx, cancel
 }
 
 // FuzzStartPreRunPruningFailsFast pins the fail-fast: an unresolvable pruning
@@ -102,7 +108,7 @@ func FuzzStartPreRunPruningFailsFast(f *testing.F) {
 			flagValues[server.FlagPruningInterval] = strconv.FormatUint(interval, 10)
 		}
 
-		cmd, serverCtx := newStartCmd(t, home, flagValues)
+		cmd, serverCtx, _ := newStartCmd(t, home, flagValues)
 		preRunErr := cmd.PreRunE(cmd, nil)
 
 		// PreRunE's only job beyond re-binding is this resolution, so its verdict must
@@ -127,7 +133,7 @@ func TestStartPreRunRebindsFlagsIntoTheApplyViper(t *testing.T) {
 	configtest.Isolate(t)
 	home := configtest.NewHome(t)
 
-	cmd, serverCtx := newStartCmd(t, home, map[string]string{
+	cmd, serverCtx, _ := newStartCmd(t, home, map[string]string{
 		server.FlagPruning: "nothing",
 		"grpc-only":        "true",
 	})
@@ -158,12 +164,12 @@ func TestStartChainIDMismatchPanics(t *testing.T) {
 	home.WriteClientTOML(t, []byte("chain-id = \"from-client-toml\"\nkeyring-backend = \"test\"\n"))
 	home.WriteAppTOML(t, []byte(fixtureAppTOML))
 
-	cmd, _ := newStartCmd(t, home, map[string]string{
+	cmd, _, stop := newStartCmd(t, home, map[string]string{
 		server.FlagPruning: "nothing",
 		server.FlagChainID: "a-different-chain",
 	})
 
-	r, runErr := runEBounded(t, cmd)
+	r, runErr := runEBounded(t, cmd, stop)
 	func() {
 		if r == nil {
 			t.Fatalf("a --chain-id that disagrees with client.toml must panic before the app is "+
@@ -206,7 +212,7 @@ func TestStartAfterChainIDAgreementHitsTheGenesisNilDeref(t *testing.T) {
 	home.WriteClientTOML(t, []byte("chain-id = \"agreed-chain\"\nkeyring-backend = \"test\"\n"))
 	home.WriteAppTOML(t, []byte(fixtureAppTOML))
 
-	cmd, _ := newStartCmd(t, home, map[string]string{
+	cmd, _, stop := newStartCmd(t, home, map[string]string{
 		server.FlagPruning: "nothing",
 		server.FlagChainID: "agreed-chain",
 	})
@@ -214,7 +220,7 @@ func TestStartAfterChainIDAgreementHitsTheGenesisNilDeref(t *testing.T) {
 		t.Fatal("the fixture must carry no genesis.json for this row to reach the discarded error")
 	}
 
-	r, runErr := runEBounded(t, cmd)
+	r, runErr := runEBounded(t, cmd, stop)
 	if r == nil {
 		t.Fatalf("with no genesis.json the discarded GenesisDocFromFile error must surface as a "+
 			"nil-pointer dereference. RunE returned %v instead: a nil error means the read is now "+
@@ -250,7 +256,14 @@ func TestStartAfterChainIDAgreementHitsTheGenesisNilDeref(t *testing.T) {
 // The returned error is reported alongside the panic rather than discarded. Without it a
 // caller cannot tell "RunE reached the row under test and returned" from "RunE failed
 // somewhere earlier", and those two want very different failure messages.
-func runEBounded(t *testing.T, cmd *cobra.Command) (recovered any, err error) {
+//
+// On the timeout path the node is asked to stop before the failure is reported. t.Fatal
+// runs runtime.Goexit on this goroutine only, so without the cancel a live node would keep
+// its state databases open and its listeners bound for the rest of the test binary, reading
+// the environment while configtest.Isolate's cleanup clears and restores it. Cancelling is
+// a request rather than a guarantee, which is why the second wait is bounded too and the
+// message distinguishes a node that stopped from one that ignored the cancel.
+func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (recovered any, err error) {
 	t.Helper()
 
 	type result struct {
@@ -271,9 +284,16 @@ func runEBounded(t *testing.T, cmd *cobra.Command) (recovered any, err error) {
 	case r := <-outcome:
 		return r.recovered, r.err
 	case <-time.After(20 * time.Second):
-		t.Fatal("RunE neither returned nor panicked within 20s, so it got past the guard that " +
-			"normally stops it and into startInProcess. That guard was presumably fixed; this row " +
-			"needs rewriting, and a node is now running in the background of this test binary")
+		stop()
+		stopped := "it did not stop, and is still running in the background of this test binary"
+		select {
+		case <-outcome:
+			stopped = "it stopped when the context was cancelled"
+		case <-time.After(10 * time.Second):
+		}
+		t.Fatalf("RunE neither returned nor panicked within 20s, so it got past the guard that "+
+			"normally stops it and into startInProcess. That guard was presumably fixed and this "+
+			"row needs rewriting. After cancelling the command context: %s", stopped)
 		return nil, nil
 	}
 }
