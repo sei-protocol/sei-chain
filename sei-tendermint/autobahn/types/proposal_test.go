@@ -740,7 +740,7 @@ func TestProposalFallsBackWhenAppQCFromFuture(t *testing.T) {
 	require.NoError(t, fp.Verify(vs))
 }
 
-func TestProposalClearsAppQCRoadNotBeforeView(t *testing.T) {
+func TestProposalVerifyRejectsAppQCRoadNotBeforeView(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	vs := viewSpecContiguousDuo(keys, committee)
@@ -748,34 +748,28 @@ func TestProposalClearsAppQCRoadNotBeforeView(t *testing.T) {
 	view := vs.View().Index
 	lanes := oneLaneQCMap(rng, committee, keys, vs)
 
-	// buildProposal clears AppQC at road == view (and ahead) so the tipcut stays valid.
-	fpSame := utils.OrPanic1(NewProposal(leader, vs, time.Now(), lanes, utils.Some(makeAppQCFor(keys, 0, view, GenAppHash(rng), 1))))
-	require.False(t, fpSame.appQC.IsPresent())
-	require.NoError(t, fpSame.Verify(vs))
-
-	fpAhead := utils.OrPanic1(NewProposal(leader, vs, time.Now(), lanes, utils.Some(makeAppQCFor(keys, 0, view+1, GenAppHash(rng), 1))))
-	require.False(t, fpAhead.appQC.IsPresent())
-	require.NoError(t, fpAhead.Verify(vs))
-
 	// AppQC for the justifying CommitQC road (view-1) — kept and accepted.
 	fpOk := utils.OrPanic1(NewProposal(leader, vs, time.Now(), lanes, utils.Some(makeAppQCFor(keys, 0, view-1, GenAppHash(rng), 1))))
 	require.True(t, fpOk.appQC.IsPresent())
 	require.NoError(t, fpOk.Verify(vs))
 
-	// Verify still rejects a tipcut that bypasses buildProposal with same-road AppQC.
-	bad := makeAppQCFor(keys, 0, view, GenAppHash(rng), 1)
-	base := utils.OrPanic1(NewProposal(leader, vs, time.Now(), lanes, utils.None[*AppQC]()))
-	baseMsg := base.proposal.Msg()
-	ranges := make([]*LaneRange, 0, len(baseMsg.laneRanges))
-	for _, r := range baseMsg.laneRanges {
-		ranges = append(ranges, r)
+	// Malformed same-road / ahead AppQC (global still in the past) is not
+	// sanitized by buildProposal; Verify rejects.
+	for _, road := range []RoadIndex{view, view + 1} {
+		bad := makeAppQCFor(keys, 0, road, GenAppHash(rng), 1)
+		base := utils.OrPanic1(NewProposal(leader, vs, time.Now(), lanes, utils.None[*AppQC]()))
+		baseMsg := base.proposal.Msg()
+		ranges := make([]*LaneRange, 0, len(baseMsg.laneRanges))
+		for _, r := range baseMsg.laneRanges {
+			ranges = append(ranges, r)
+		}
+		tampered := &FullProposal{
+			proposal: Sign(leader, newProposal(vs.View(), baseMsg.Timestamp(), ranges, utils.Some(bad.Proposal()), vs.NextGlobalBlock())),
+			laneQCs:  base.laneQCs,
+			appQC:    utils.Some(bad),
+		}
+		require.Error(t, tampered.Verify(vs), "road %d", road)
 	}
-	tampered := &FullProposal{
-		proposal: Sign(leader, newProposal(vs.View(), baseMsg.Timestamp(), ranges, utils.Some(bad.Proposal()), vs.NextGlobalBlock())),
-		laneQCs:  base.laneQCs,
-		appQC:    utils.Some(bad),
-	}
-	require.Error(t, tampered.Verify(vs))
 }
 
 func TestProposalVerifyRejectsInvalidAppQCSignature(t *testing.T) {

@@ -358,14 +358,9 @@ func buildProposal(
 	}
 	// If the new appProposal is from the future (which may happen if this node is
 	// behind), drop it and fall back to the previous CommitQC's app so Verify
-	// never sees App < previous CommitQC.
+	// never sees App < previous CommitQC. Well-formed AppQCs with road ≥ view
+	// have GlobalNumber ≥ NextGlobalBlock, so this also covers that case.
 	if a, ok := app.Get(); ok && a.GlobalNumber() >= viewSpec.NextGlobalBlock() {
-		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
-		appQC = utils.None[*AppQC]()
-	}
-	// AppQC must be for a prior tipcut (road < view). Same-road or ahead can show up
-	// on restart/gossip races; drop it so the tipcut stays valid.
-	if a, ok := app.Get(); ok && a.RoadIndex() >= viewSpec.View().Index {
 		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
 		appQC = utils.None[*AppQC]()
 	}
