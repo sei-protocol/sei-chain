@@ -2,6 +2,7 @@ package fuzzing
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -115,7 +116,15 @@ func TOMLScalar(v any) (string, bool) {
 		if t != t || t > 1e308 || t < -1e308 {
 			return "", false
 		}
-		return fmt.Sprintf("%g", t), true
+		// An integral float keeps a fractional part, or TOML decodes the result as an
+		// integer and the round trip changes the type: %g renders float64(3) as "3", which
+		// parses back as int64(3). That matters for a differential comparing resolved types
+		// across the file and appOpts layers.
+		rendered := strconv.FormatFloat(t, 'g', -1, 64)
+		if !strings.ContainsAny(rendered, ".eE") {
+			rendered += ".0"
+		}
+		return rendered, true
 	default:
 		return "", false
 	}

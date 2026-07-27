@@ -281,6 +281,11 @@ func leafOf(path string, v any) string {
 // table length keeps every generated index on a real row instead of collapsing
 // out-of-range values onto row zero.
 func Pick(specs []KeySpec, idx uint) KeySpec {
+	// An empty table makes the modulo a divide-by-zero, and that panic would point at the
+	// harness rather than at the manifest that lost its rows.
+	if len(specs) == 0 {
+		panic("configtest.Pick: empty KeySpec table, the section's manifest has no rows")
+	}
 	return specs[idx%uint(len(specs))]
 }
 

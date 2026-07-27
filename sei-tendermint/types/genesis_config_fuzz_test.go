@@ -86,9 +86,13 @@ func FuzzGenesisDocFromJSONTimeCompletion(f *testing.F) {
 func TestGenesisDocWithoutTimeIsNotReproducible(t *testing.T) {
 	raw := []byte(`{"chain_id":"sei-test","validators":[],"app_hash":""}`)
 
-	// Bracketing each read rather than sleeping between them: the repo's conventions ask
-	// tests not to sleep, and the interval assertion is stronger anyway because it does
-	// not lean on clock resolution to make the two values differ.
+	// Bracketing each read rather than sleeping between them, because the repo's conventions
+	// ask tests not to sleep. The two halves differ in robustness and it is worth being
+	// precise: the interval checks below are resolution-independent and prove the time was
+	// invented at read time rather than parsed, while the inequality that follows is the
+	// recorded finding itself and does need the clock to advance between two calls. That
+	// holds on a nanosecond-resolution clock and is the assertion to revisit first on a
+	// coarser platform.
 	beforeFirst := time.Now()
 	first, err := types.GenesisDocFromJSON(raw)
 	if err != nil {

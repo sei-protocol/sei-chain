@@ -156,16 +156,18 @@ func TestStartChainIDMismatchPanics(t *testing.T) {
 	configtest.Isolate(t)
 	home := configtest.NewHome(t)
 	home.WriteClientTOML(t, []byte("chain-id = \"from-client-toml\"\nkeyring-backend = \"test\"\n"))
+	home.WriteAppTOML(t, []byte(fixtureAppTOML))
 
 	cmd, _ := newStartCmd(t, home, map[string]string{
 		server.FlagPruning: "nothing",
 		server.FlagChainID: "a-different-chain",
 	})
 
-	defer func() {
-		r := recover()
+	r, runErr := runEBounded(t, cmd)
+	func() {
 		if r == nil {
-			t.Fatal("a --chain-id that disagrees with client.toml must panic before the app is built")
+			t.Fatalf("a --chain-id that disagrees with client.toml must panic before the app is "+
+				"built; RunE returned %v instead", runErr)
 		}
 		msg, ok := r.(string)
 		if !ok {
@@ -182,7 +184,6 @@ func TestStartChainIDMismatchPanics(t *testing.T) {
 				"is a fix, and this row is where that gets recorded rather than skipped past", msg)
 		}
 	}()
-	_ = cmd.RunE(cmd, nil)
 }
 
 // TestStartAfterChainIDAgreementHitsTheGenesisNilDeref pins what happens immediately
@@ -203,6 +204,7 @@ func TestStartAfterChainIDAgreementHitsTheGenesisNilDeref(t *testing.T) {
 	configtest.Isolate(t)
 	home := configtest.NewHome(t)
 	home.WriteClientTOML(t, []byte("chain-id = \"agreed-chain\"\nkeyring-backend = \"test\"\n"))
+	home.WriteAppTOML(t, []byte(fixtureAppTOML))
 
 	cmd, _ := newStartCmd(t, home, map[string]string{
 		server.FlagPruning: "nothing",
@@ -212,40 +214,78 @@ func TestStartAfterChainIDAgreementHitsTheGenesisNilDeref(t *testing.T) {
 		t.Fatal("the fixture must carry no genesis.json for this row to reach the discarded error")
 	}
 
-	// RunE is called on a goroutine with a bounded wait rather than inline. Reaching the
-	// nil-deref is what stops it today, and this test must not depend on that: if the
-	// discarded error is ever handled, RunE continues into startInProcess, opens the state
-	// databases, binds the listeners and never returns. The timeout turns that into a
-	// legible failure instead of a hang to the 10-minute panic.
-	outcome := make(chan any, 1)
+	r, runErr := runEBounded(t, cmd)
+	if r == nil {
+		t.Fatalf("with no genesis.json the discarded GenesisDocFromFile error must surface as a "+
+			"nil-pointer dereference. RunE returned %v instead: a nil error means the read is now "+
+			"handled and this row becomes an assertion about a legible failure, while a non-nil "+
+			"error means RunE failed before reaching the genesis cross-check at all", runErr)
+	}
+	if msg, ok := r.(string); ok {
+		if strings.Contains(msg, "chain-id mismatch") {
+			t.Fatalf("matching chain-ids must not trip the mismatch panic, got %q", msg)
+		}
+		t.Fatalf("expected a nil-pointer dereference past the chain-id comparison, got %q", msg)
+	}
+	if err, ok := r.(error); ok &&
+		!strings.Contains(err.Error(), "nil pointer") &&
+		!strings.Contains(err.Error(), "invalid memory") {
+		t.Fatalf("expected a nil-pointer dereference past the chain-id comparison, got %v", err)
+	}
+}
+
+// runEBounded runs a command's RunE on a goroutine and returns what it panicked with, or
+// nil if it returned cleanly.
+//
+// Both RunE rows need this. Each is stopped today by a panic firing before control
+// reaches startInProcess, and neither may depend on that: if either panic stops firing,
+// RunE continues on to open the state databases and bind the RPC, P2P and gRPC
+// listeners, so the call never returns. The bound converts that into a failure naming
+// what happened.
+//
+// The result is delivered only by the deferred send. recover() is nil on a clean return,
+// which is exactly the value callers check for, so an explicit second send would fill the
+// one-slot buffer and leave the deferred send blocked for the life of the test binary.
+//
+// The returned error is reported alongside the panic rather than discarded. Without it a
+// caller cannot tell "RunE reached the row under test and returned" from "RunE failed
+// somewhere earlier", and those two want very different failure messages.
+func runEBounded(t *testing.T, cmd *cobra.Command) (recovered any, err error) {
+	t.Helper()
+
+	type result struct {
+		recovered any
+		err       error
+	}
+	outcome := make(chan result, 1)
 	go func() {
-		defer func() { outcome <- recover() }()
-		_ = cmd.RunE(cmd, nil)
-		outcome <- nil
+		var res result
+		defer func() {
+			res.recovered = recover()
+			outcome <- res
+		}()
+		res.err = cmd.RunE(cmd, nil)
 	}()
 
 	select {
 	case r := <-outcome:
-		if r == nil {
-			t.Fatal("with no genesis.json the discarded GenesisDocFromFile error must surface as a " +
-				"nil-pointer dereference; if the error is returned now, that is a fix and this row " +
-				"becomes an assertion about a legible failure instead")
-		}
-		if msg, ok := r.(string); ok {
-			if strings.Contains(msg, "chain-id mismatch") {
-				t.Fatalf("matching chain-ids must not trip the mismatch panic, got %q", msg)
-			}
-			t.Fatalf("expected a nil-pointer dereference past the chain-id comparison, got %q", msg)
-		}
-		if err, ok := r.(error); ok &&
-			!strings.Contains(err.Error(), "nil pointer") &&
-			!strings.Contains(err.Error(), "invalid memory") {
-			t.Fatalf("expected a nil-pointer dereference past the chain-id comparison, got %v", err)
-		}
+		return r.recovered, r.err
 	case <-time.After(20 * time.Second):
-		t.Fatal("RunE neither returned nor panicked within 20s, which means it got past the " +
-			"genesis cross-check and into startInProcess. The discarded GenesisDocFromFile error " +
-			"was presumably fixed; this row needs rewriting, and a node is now running in the " +
-			"background of this test binary")
+		t.Fatal("RunE neither returned nor panicked within 20s, so it got past the guard that " +
+			"normally stops it and into startInProcess. That guard was presumably fixed; this row " +
+			"needs rewriting, and a node is now running in the background of this test binary")
+		return nil, nil
 	}
 }
+
+// fixtureAppTOML is the app.toml both RunE rows write before booting.
+//
+// telemetry is disabled deliberately. start's RunE registers prometheus collectors on a
+// process-global registry, so a second invocation in the same binary fails with a
+// duplicate-registration error before reaching either row's subject, and the rows would
+// only work once per process. global-labels is present because GetConfig reads it with a
+// bare type assertion and fails outright when it is absent.
+const fixtureAppTOML = `[telemetry]
+enabled = false
+global-labels = []
+`

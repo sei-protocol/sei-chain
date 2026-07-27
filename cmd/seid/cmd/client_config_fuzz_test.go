@@ -73,17 +73,42 @@ func FuzzClientViperDashedKeyHasNoUsableEnvSpelling(f *testing.F) {
 	})
 }
 
-// TestClientViperEnvNameIsTheUnreplacedSpelling states the mechanism the fuzz
-// target above observes: the only env name that can reach a dashed client key is
-// the unreplaced one. Asserting the name keeps the diagnosis in the suite, so a
-// failure there points at the replacer rather than at chain-id resolution.
+// TestClientViperEnvNameIsTheUnreplacedSpelling states the mechanism the fuzz target
+// above observes: the only env name that can reach a dashed client key is the unreplaced
+// one, hyphen and all.
+//
+// It asserts that against a real client viper rather than against configtest.ClientEnvKey.
+// Comparing the helper to a literal would only prove the helper agrees with itself: if
+// viper changed how it builds names, or the client viper gained a key replacer, the helper
+// would keep returning the same string and the row would keep passing. Setting the name
+// and observing it resolve pins the behavior instead of the restatement.
 func TestClientViperEnvNameIsTheUnreplacedSpelling(t *testing.T) {
+	configtest.Isolate(t)
+
+	const want = "resolved-through-the-hyphenated-name"
 	name := configtest.ClientEnvKey("chain-id")
-	if name != "SEI_CHAIN-ID" {
-		t.Fatalf("client env name for chain-id = %q, want SEI_CHAIN-ID", name)
+	if err := os.Setenv(name, want); err != nil {
+		t.Fatalf("set %s: %v", name, err)
+	}
+
+	ctx := client.Context{}.WithViper("SEI")
+	if got := ctx.Viper.GetString("chain-id"); got != want {
+		t.Fatalf("%s did not reach the client viper (chain-id = %q); if the helper and viper have "+
+			"diverged on how the name is built, the helper is what needs updating", name, got)
 	}
 	if !strings.Contains(name, "-") {
-		t.Fatal("the client env name has lost its hyphen, which means a replacer is now installed")
+		t.Fatalf("the name that resolves (%q) has no hyphen, so a key replacer is now installed on "+
+			"the client viper. That activates SEI_CHAIN_ID on every node already setting it and "+
+			"needs a migration", name)
+	}
+
+	// And the spelling an operator reaches for still does nothing, even alongside the one
+	// that works.
+	if err := os.Setenv("SEI_CHAIN_ID", "resolved-through-the-underscored-name"); err != nil {
+		t.Fatalf("set SEI_CHAIN_ID: %v", err)
+	}
+	if got := ctx.Viper.GetString("chain-id"); got != want {
+		t.Fatalf("SEI_CHAIN_ID took effect (chain-id = %q); only %q is read", got, name)
 	}
 }
 
@@ -120,4 +145,10 @@ func TestGlobalViperEnvNameHasNoPrefix(t *testing.T) {
 		t.Fatalf("server name %q does not end in the global name %q; the two universes' "+
 			"key transforms have diverged", serverName, configtest.GlobalEnvKey("chain-id"))
 	}
+
+	// The names above are the helper's own output, so they are checked against a real
+	// global viper too. FuzzGlobalViperBareEnvVarsBecomeConfigSources in
+	// sei-tendermint/libs/cli covers home and trace end to end against the singleton
+	// PrepareBaseCmd wires, which is the pairing that keeps this row from only proving the
+	// helper agrees with itself.
 }

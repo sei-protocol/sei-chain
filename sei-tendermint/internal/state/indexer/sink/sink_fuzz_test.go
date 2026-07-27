@@ -104,7 +104,7 @@ func FuzzEventSinksFromConfig(f *testing.F) {
 			// null discards the other sinks, but only reliably when every other
 			// entry is a name the switch recognizes. A list mixing null with an
 			// unsupported name resolves nondeterministically — see
-			// TestNullMixedWithAnUnsupportedSinkIsNondeterministic — so it is out of
+			// TestNullMixedWithAnUnsupportedSinkIsUnspecified — so it is out of
 			// scope here rather than asserted either way.
 			for _, s := range lowered {
 				if s != "null" && s != "kv" && s != "psql" {
@@ -150,7 +150,7 @@ func FuzzEventSinksFromConfig(f *testing.F) {
 	})
 }
 
-// TestNullMixedWithAnUnsupportedSinkIsNondeterministic pins the one place in the
+// TestNullMixedWithAnUnsupportedSinkIsUnspecified pins the one place in the
 // configuration surface where a static file does not determine the outcome.
 //
 // EventSinksFromConfig loops over a map, and Go randomizes map iteration order. When
@@ -164,7 +164,7 @@ func FuzzEventSinksFromConfig(f *testing.F) {
 // asserts both outcomes occur so the nondeterminism cannot be quietly resolved in one
 // direction without a decision — and if it is resolved deliberately, this row is where
 // that gets recorded.
-func TestNullMixedWithAnUnsupportedSinkIsNondeterministic(t *testing.T) {
+func TestNullMixedWithAnUnsupportedSinkIsUnspecified(t *testing.T) {
 	const runs = 1000
 	booted, failed := 0, 0
 	for range runs {
@@ -178,8 +178,11 @@ func TestNullMixedWithAnUnsupportedSinkIsNondeterministic(t *testing.T) {
 	}
 	if booted == 0 || failed == 0 {
 		t.Fatalf("over %d runs the mixed list resolved consistently (%d booted, %d failed). "+
-			"Map iteration order no longer decides the outcome — if the loop was made "+
-			"deterministic on purpose, record which way it now resolves", runs, booted, failed)
+			"Map iteration order no longer decides the outcome, which is far more likely a "+
+			"deliberate fix than a break: checking for null before kv opens a store is exactly "+
+			"what the sibling row argues for. If you landed that, update this row and "+
+			"TestNullSinkCanOpenAnIndexStoreItThenDiscards to assert the deterministic outcome",
+			runs, booted, failed)
 	}
 }
 

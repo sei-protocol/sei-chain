@@ -52,6 +52,12 @@ func FuzzValidateBasicMode(f *testing.F) {
 	f.Add("archive")   // not a tendermint mode
 	f.Add(" full")     // not trimmed
 
+	// The assertions below match on error text, which this repo's guide asks tests to avoid
+	// in favour of errors.Is/As. There is nothing to match on: all three production sites
+	// build their errors with a bare errors.New or fmt.Errorf, and giving them sentinel
+	// identities means editing production code, which this PR deliberately does not do. So
+	// these rows pin the diagnostic wording alongside the behavior, and a follow-up adding
+	// sentinels for the mode vocabulary would let them stop.
 	f.Fuzz(func(t *testing.T, mode string) {
 		conf := DefaultConfig()
 		conf.Mode = mode
