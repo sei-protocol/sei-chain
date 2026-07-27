@@ -515,6 +515,7 @@ docker-cluster-start-giga-mixed: docker-cluster-stop build-docker-node
 # CI variant: reuse the prebuilt image loaded from GHCR instead of rebuilding.
 docker-cluster-start-giga-mixed-ci: docker-cluster-stop ensure-integration-ci-images
 	@rm -rf $(PROJECT_HOME)/build/generated
+	@test -f $(PROJECT_HOME)/build/seid || (echo "build/seid missing; download integration-build.tar.gz from prepare-cluster" && exit 1)
 	@mkdir -p $(shell go env GOMODCACHE)
 	@mkdir -p $(shell go env GOCACHE)
 	@cd docker && \
@@ -523,8 +524,7 @@ docker-cluster-start-giga-mixed-ci: docker-cluster-stop ensure-integration-ci-im
 		else \
 			DETACH_FLAG=""; \
 		fi; \
-		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} GIGA_EXECUTOR=${GIGA_EXECUTOR} GIGA_OCC=${GIGA_OCC} RECEIPT_BACKEND=${RECEIPT_BACKEND} AUTOBAHN=${AUTOBAHN} GIGA_STORAGE=${GIGA_STORAGE} \
-		SKIP_BUILD=true docker compose -f docker-compose.yml -f docker-compose.giga-mixed.yml up $$DETACH_FLAG
+		$(CLUSTER_ENV_VARS) SKIP_BUILD=true docker compose -f docker-compose.yml -f docker-compose.giga-mixed.yml up $$DETACH_FLAG
 .PHONY: docker-cluster-start-giga-mixed-ci
 
 # Run the giga mixed-mode integration test.
