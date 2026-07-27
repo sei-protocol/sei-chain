@@ -1918,58 +1918,33 @@ func TestValidateSTMConflictSourcePrefix(t *testing.T) {
 	}
 }
 
-func TestBlockSTMSchedulerFallsBackAtMaxIncarnation(t *testing.T) {
+func TestExecutorOCCFallsBackAtMaxIncarnation(t *testing.T) {
+	chainID := big.NewInt(713715)
 	txCount := occMaxTxIncarnations + 1
-	req := PreparedBlock{Txs: make([]PreparedTx, txCount)}
-	scheduler := newOCCBlockSTMScheduler(
-		NewMemoryState(),
-		occSpeculativeRunner{req: req, blockGasLimit: 1_000_000},
-		newOCCWorkerPool(1),
-		newOCCWorkerPool(1),
-	)
-	lastTxIndex := txCount - 1
-	readSet := make(map[stateAccessKey]struct{}, occMaxTxIncarnations)
-	for txIndex := range occMaxTxIncarnations {
-		readSet[stateAccessKey{kind: stateAccessBalance, address: testAddress(byte(0xce + txIndex))}] = struct{}{}
+	recipient := testAddress(0xce)
+	rawTxs := make([][]byte, 0, txCount)
+	state := NewMemoryState()
+
+	for i := 0; i < txCount; i++ {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+		state.SetBalance(sender, big.NewInt(1_000_000))
+		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(0)))
 	}
-	reader := occValidationTask{
-		execution: occExecutionTask{txIndex: lastTxIndex, txIndexUint: uint(lastTxIndex), sourcePrefix: 0},
-		result: occTxExecution{
-			readSet:  readSet,
-			writeSet: map[stateAccessKey]struct{}{},
-			gasLimit: 1,
-			gasUsed:  1,
-		},
-	}
-	action, err := scheduler.handleValidation(reader)
+
+	result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     rawTxs,
+	})
 	require.NoError(t, err)
-	require.Empty(t, action.executionTasks)
+	require.True(t, result.OCCStats.Attempted)
+	require.True(t, result.OCCStats.Fallback)
+	require.Equal(t, occFallbackReasonMaxIncarnation, result.OCCStats.FallbackReason)
+	require.Greater(t, result.OCCStats.RerunCount, uint64(0))
 
-	for txIndex := 0; txIndex < occMaxTxIncarnations; txIndex++ {
-		action, err = scheduler.handleValidation(occValidationTask{
-			execution: occExecutionTask{txIndex: txIndex, txIndexUint: uint(txIndex), sourcePrefix: 0},
-			result: occTxExecution{
-				writeSet: map[stateAccessKey]struct{}{{kind: stateAccessBalance, address: testAddress(byte(0xce + txIndex))}: {}},
-				gasLimit: 1,
-				gasUsed:  1,
-			},
-		})
-		if errors.Is(err, errOCCMaxIncarnation) {
-			break
-		}
-		require.NoError(t, err)
-		require.Len(t, action.executionTasks, 1)
-		rerun := action.executionTasks[0]
-		require.Equal(t, lastTxIndex, rerun.txIndex)
-		reader.execution = rerun
-		action, err = scheduler.handleValidation(reader)
-		require.NoError(t, err)
-		require.Empty(t, action.executionTasks)
-	}
-
-	require.ErrorIs(t, err, errOCCMaxIncarnation)
-	require.Equal(t, occFallbackReasonMaxIncarnation, scheduler.validation.fallbackReason)
-	require.Equal(t, uint64(occMaxTxIncarnations-1), scheduler.validation.rerunCount)
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, big.NewInt(int64(txCount)), state.GetBalance(recipient))
 }
 
 func TestFinaliseClearsRefund(t *testing.T) {

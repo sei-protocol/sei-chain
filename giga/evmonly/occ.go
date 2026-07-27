@@ -8,7 +8,6 @@ import (
 	"math"
 	"math/big"
 	"sort"
-	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -27,6 +26,12 @@ type occTxExecution struct {
 	gasLimit                 uint64
 	commutativeBalanceDeltas map[common.Address]*big.Int
 	err                      error
+}
+
+type occTxRange struct {
+	start     int
+	end       int
+	startUint uint
 }
 
 type occSpeculativeRunner struct {
@@ -64,10 +69,15 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 		executionPool = newOCCWorkerPool(workers)
 		defer executionPool.Close()
 	}
-	validationPool := newOCCWorkerPool(workers)
-	defer validationPool.Close()
 
-	results, changeSet, validation, err := e.validateBlockSTM(ctx, runner, executionPool, validationPool)
+	results := make([]occTxExecution, len(req.Txs))
+	chunkSize := occChunkSize(len(req.Txs), workers)
+	speculativeSource := parallelSafeStateReader(e.state)
+	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), speculativeSource, runner.blockGasLimit, results); err != nil {
+		return nil, err
+	}
+
+	results, changeSet, validation, err := e.validateBlockSTMRounds(ctx, runner, executionPool, results)
 	if errors.Is(err, errOCCMaxIncarnation) {
 		result, seqErr := e.executeBlockSequential(ctx, req)
 		if seqErr != nil {
@@ -105,6 +115,111 @@ func (r occSpeculativeRunner) executeTx(
 		r.baseFee,
 		gasLimit,
 	)
+}
+
+func (r occSpeculativeRunner) runRanges(
+	ctx context.Context,
+	pool *occWorkerPool,
+	ranges []occTxRange,
+	source StateReader,
+	gasLimit uint64,
+	results []occTxExecution,
+) error {
+	if len(ranges) == 0 {
+		return ctx.Err()
+	}
+	return pool.Run(ctx, func(workerCtx context.Context, workerID int) error {
+		for rangeIndex := workerID; rangeIndex < len(ranges); rangeIndex += pool.workers {
+			txRange := ranges[rangeIndex]
+			for idx, idxUint := txRange.start, txRange.startUint; idx < txRange.end; idx, idxUint = idx+1, idxUint+1 {
+				if err := workerCtx.Err(); err != nil {
+					return err
+				}
+				task := occExecutionTask{
+					txIndex:      idx,
+					txIndexUint:  idxUint,
+					incarnation:  0,
+					sourcePrefix: 0,
+					source:       source,
+					gasLimit:     gasLimit,
+				}
+				if err := r.executeTaskInto(workerCtx, task, results); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func (r occSpeculativeRunner) runTasks(
+	ctx context.Context,
+	pool *occWorkerPool,
+	tasks []occExecutionTask,
+	results []occTxExecution,
+) error {
+	if len(tasks) == 0 {
+		return ctx.Err()
+	}
+	return pool.Run(ctx, func(workerCtx context.Context, workerID int) error {
+		for taskIndex := workerID; taskIndex < len(tasks); taskIndex += pool.workers {
+			if err := workerCtx.Err(); err != nil {
+				return err
+			}
+			if err := r.executeTaskInto(workerCtx, tasks[taskIndex], results); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, task occExecutionTask, results []occTxExecution) error {
+	result, err := r.executeTx(ctx, task.source, task.txIndex, task.txIndexUint, task.gasLimit)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		result.err = err
+		result.gasLimit = r.req.Txs[task.txIndex].Tx.Gas()
+	}
+	results[task.txIndex] = result
+	return nil
+}
+
+func occRanges(txCount int, chunkSize int) []occTxRange {
+	if chunkSize <= 0 {
+		chunkSize = 1
+	}
+	ranges := make([]occTxRange, 0, (txCount+chunkSize-1)/chunkSize)
+	startUint := uint(0)
+	for start := 0; start < txCount; {
+		end := start + chunkSize
+		if end > txCount {
+			end = txCount
+		}
+		ranges = append(ranges, occTxRange{start: start, end: end, startUint: startUint})
+		for start < end {
+			start++
+			startUint++
+		}
+	}
+	return ranges
+}
+
+func occChunkSize(txCount int, workers int) int {
+	if txCount <= 0 || workers <= 0 {
+		return 1
+	}
+	targetChunks := workers * 8
+	chunkSize := (txCount + targetChunks - 1) / targetChunks
+	if chunkSize < 16 {
+		return 16
+	}
+	if chunkSize > 256 {
+		return 256
+	}
+	return chunkSize
 }
 
 func (e *Executor) executeTxSpeculative(
@@ -156,6 +271,156 @@ func (e *Executor) executeTxSpeculative(
 	}, nil
 }
 
+func (e *Executor) validateBlockSTMRounds(
+	ctx context.Context,
+	runner occSpeculativeRunner,
+	pool *occWorkerPool,
+	results []occTxExecution,
+) ([]occTxExecution, StateChangeSet, occValidationResult, error) {
+	incarnations := make([]int, len(results))
+	sourcePrefixes := make([]int, len(results))
+	validation := occValidationResult{valid: true}
+	for {
+		changeSet, reruns, err := e.validateBlockSTMRound(ctx, runner, results, incarnations, sourcePrefixes, &validation)
+		if err != nil {
+			return nil, StateChangeSet{}, validation, err
+		}
+		if len(reruns) == 0 {
+			return results, changeSet, validation, nil
+		}
+		if err := runner.runTasks(ctx, pool, reruns, results); err != nil {
+			return nil, StateChangeSet{}, validation, err
+		}
+	}
+}
+
+func (e *Executor) validateBlockSTMRound(
+	ctx context.Context,
+	runner occSpeculativeRunner,
+	results []occTxExecution,
+	incarnations []int,
+	sourcePrefixes []int,
+	validation *occValidationResult,
+) (StateChangeSet, []occExecutionTask, error) {
+	prefix := newBlockSTMState(e.state)
+	writes := newStateAccessIndex()
+	reruns := make([]occExecutionTask, 0)
+	var cumulativeGasUsed uint64
+	blockedPrefix := -1
+	var blockedSource *blockSTMState
+	var blockedGasLimit uint64
+	for txIndex, txIndexUint := 0, uint(0); txIndex < len(results); txIndex, txIndexUint = txIndex+1, txIndexUint+1 {
+		if err := ctx.Err(); err != nil {
+			return StateChangeSet{}, nil, err
+		}
+		result := results[txIndex]
+		sourcePrefix := sourcePrefixes[txIndex]
+		nextToValidate := txIndex
+		if blockedPrefix >= 0 {
+			nextToValidate = blockedPrefix
+		}
+		needsRerun, err := needsSTMRerun(validation, writes, result, cumulativeGasUsed, runner.blockGasLimit, sourcePrefix, txIndex, nextToValidate)
+		if err != nil {
+			return StateChangeSet{}, nil, err
+		}
+		if needsRerun {
+			if blockedPrefix < 0 {
+				blockedPrefix = txIndex
+				blockedSource = prefix.clone()
+				blockedGasLimit = availableGas(runner.blockGasLimit, cumulativeGasUsed)
+			}
+			rerun, err := newSTMRerunTask(
+				runner,
+				validation,
+				incarnations,
+				sourcePrefixes,
+				txIndex,
+				txIndexUint,
+				blockedPrefix,
+				blockedSource,
+				blockedGasLimit,
+			)
+			if err != nil {
+				return StateChangeSet{}, nil, err
+			}
+			reruns = append(reruns, rerun)
+			continue
+		}
+		if blockedPrefix >= 0 {
+			continue
+		}
+		if result.gasUsed > math.MaxUint64-cumulativeGasUsed {
+			validation.valid = false
+			validation.fallbackReason = occFallbackReasonGasOverflow
+			return StateChangeSet{}, nil, errors.New(occFallbackReasonGasOverflow)
+		}
+		cumulativeGasUsed += result.gasUsed
+		prefix.apply(result)
+		writes.addAllAt(txIndex, result.writeSet)
+		writes.addCommutativeBalanceDeltasAt(txIndex, result.commutativeBalanceDeltas)
+	}
+	if len(reruns) != 0 {
+		return StateChangeSet{}, reruns, nil
+	}
+	return prefix.ChangeSet(), nil, nil
+}
+
+func needsSTMRerun(
+	validation *occValidationResult,
+	writes *stateAccessIndex,
+	result occTxExecution,
+	cumulativeGasUsed uint64,
+	gasLimit uint64,
+	sourcePrefix int,
+	txIndex int,
+	nextToValidate int,
+) (bool, error) {
+	if result.err != nil {
+		if txIndex == nextToValidate && sourcePrefix >= txIndex {
+			return false, result.err
+		}
+		return nextToValidate > sourcePrefix, nil
+	}
+	return !validateSTMResultAgainstPrefix(validation, writes, result, cumulativeGasUsed, gasLimit, sourcePrefix), nil
+}
+
+func newSTMRerunTask(
+	runner occSpeculativeRunner,
+	validation *occValidationResult,
+	incarnations []int,
+	sourcePrefixes []int,
+	txIndex int,
+	txIndexUint uint,
+	sourcePrefix int,
+	source StateReader,
+	gasLimit uint64,
+) (occExecutionTask, error) {
+	nextIncarnation := incarnations[txIndex] + 1
+	if nextIncarnation >= occMaxTxIncarnations {
+		validation.valid = false
+		validation.fallbackReason = occFallbackReasonMaxIncarnation
+		return occExecutionTask{}, errOCCMaxIncarnation
+	}
+	incarnations[txIndex] = nextIncarnation
+	sourcePrefixes[txIndex] = sourcePrefix
+	validation.rerunCount++
+	return occExecutionTask{
+		txIndex:      txIndex,
+		txIndexUint:  txIndexUint,
+		incarnation:  nextIncarnation,
+		sourcePrefix: sourcePrefix,
+		source:       source,
+		gasLimit:     gasLimit,
+	}, nil
+}
+
+func availableGas(gasLimit uint64, cumulativeGasUsed uint64) uint64 {
+	if cumulativeGasUsed >= gasLimit {
+		return 0
+	}
+	return gasLimit - cumulativeGasUsed
+}
+
 const occMaxTxIncarnations = 10
 
 var errOCCMaxIncarnation = errors.New("occ max incarnation reached")
@@ -167,392 +432,6 @@ type occExecutionTask struct {
 	sourcePrefix int
 	source       StateReader
 	gasLimit     uint64
-}
-
-type occValidationTask struct {
-	execution occExecutionTask
-	result    occTxExecution
-}
-
-type occValidationAction struct {
-	executionTasks []occExecutionTask
-	complete       bool
-}
-
-// occBlockSTMScheduler coordinates execution and validation workers. Execution
-// tasks carry the accepted-prefix version they read from; validation only
-// compares them against writes accepted after that prefix.
-type occBlockSTMScheduler struct {
-	runner         occSpeculativeRunner
-	executionPool  *occWorkerPool
-	validationPool *occWorkerPool
-
-	executionQueue  chan occExecutionTask
-	validationQueue chan occValidationTask
-	done            chan struct{}
-	cancel          context.CancelFunc
-	finishOnce      sync.Once
-	finishErr       error
-
-	mu                sync.Mutex
-	prefix            *blockSTMState
-	writes            *stateAccessIndex
-	results           []occTxExecution
-	ready             []occValidationTask
-	readySet          []bool
-	latestScheduled   []int
-	nextToValidate    int
-	cumulativeGasUsed uint64
-	validation        occValidationResult
-}
-
-func (e *Executor) validateBlockSTM(
-	ctx context.Context,
-	runner occSpeculativeRunner,
-	executionPool *occWorkerPool,
-	validationPool *occWorkerPool,
-) ([]occTxExecution, StateChangeSet, occValidationResult, error) {
-	scheduler := newOCCBlockSTMScheduler(e.state, runner, executionPool, validationPool)
-	return scheduler.run(ctx)
-}
-
-func newOCCBlockSTMScheduler(
-	source StateReader,
-	runner occSpeculativeRunner,
-	executionPool *occWorkerPool,
-	validationPool *occWorkerPool,
-) *occBlockSTMScheduler {
-	txCount := len(runner.req.Txs)
-	baseSource := parallelSafeStateReader(source)
-	return &occBlockSTMScheduler{
-		runner:          runner,
-		executionPool:   executionPool,
-		validationPool:  validationPool,
-		executionQueue:  make(chan occExecutionTask, txCount),
-		validationQueue: make(chan occValidationTask, txCount),
-		done:            make(chan struct{}),
-		prefix:          newBlockSTMState(baseSource),
-		writes:          newStateAccessIndex(),
-		results:         make([]occTxExecution, txCount),
-		ready:           make([]occValidationTask, txCount),
-		readySet:        make([]bool, txCount),
-		latestScheduled: make([]int, txCount),
-		validation:      occValidationResult{valid: true},
-	}
-}
-
-func (s *occBlockSTMScheduler) run(ctx context.Context) ([]occTxExecution, StateChangeSet, occValidationResult, error) {
-	runCtx, cancel := context.WithCancel(ctx)
-	s.cancel = cancel
-	defer cancel()
-
-	waitCh := make(chan error, 2)
-	go func() {
-		waitCh <- s.executionPool.Run(runCtx, func(workerCtx context.Context, _ int) error {
-			return s.executionWorker(workerCtx)
-		})
-	}()
-	go func() {
-		waitCh <- s.validationPool.Run(runCtx, func(workerCtx context.Context, _ int) error {
-			return s.validationWorker(workerCtx)
-		})
-	}()
-
-	for txIndex, txIndexUint := 0, uint(0); txIndex < len(s.results); txIndex, txIndexUint = txIndex+1, txIndexUint+1 {
-		if err := s.enqueueExecution(runCtx, occExecutionTask{
-			txIndex:      txIndex,
-			txIndexUint:  txIndexUint,
-			incarnation:  0,
-			sourcePrefix: 0,
-			source:       s.prefix.source,
-			gasLimit:     s.runner.blockGasLimit,
-		}); err != nil {
-			s.finish(err)
-			break
-		}
-	}
-
-	completedPools := 0
-	var poolErr error
-	for {
-		select {
-		case <-s.done:
-			cancel()
-			for completedPools < 2 {
-				if err := <-waitCh; err != nil && poolErr == nil && !errors.Is(err, context.Canceled) {
-					poolErr = err
-				}
-				completedPools++
-			}
-			results, changeSet, validation, finishErr := s.result()
-			if finishErr != nil {
-				return nil, StateChangeSet{}, validation, finishErr
-			}
-			if poolErr != nil {
-				return nil, StateChangeSet{}, validation, poolErr
-			}
-			return results, changeSet, validation, nil
-		case err := <-waitCh:
-			completedPools++
-			if err != nil && poolErr == nil && !errors.Is(err, context.Canceled) {
-				poolErr = err
-				s.finish(err)
-			}
-			if completedPools == 2 {
-				results, changeSet, validation, finishErr := s.result()
-				if finishErr != nil {
-					return nil, StateChangeSet{}, validation, finishErr
-				}
-				if poolErr != nil {
-					return nil, StateChangeSet{}, validation, poolErr
-				}
-				return results, changeSet, validation, nil
-			}
-		case <-ctx.Done():
-			s.finish(ctx.Err())
-		}
-	}
-}
-
-func (s *occBlockSTMScheduler) executionWorker(ctx context.Context) error {
-	for {
-		select {
-		case <-s.done:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		case task := <-s.executionQueue:
-			result, err := s.runner.executeTx(ctx, task.source, task.txIndex, task.txIndexUint, task.gasLimit)
-			if err != nil {
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return ctxErr
-				}
-				result.err = err
-				result.gasLimit = s.runner.req.Txs[task.txIndex].Tx.Gas()
-			}
-			if err := s.enqueueValidation(ctx, occValidationTask{execution: task, result: result}); err != nil {
-				return err
-			}
-		}
-	}
-}
-
-func (s *occBlockSTMScheduler) validationWorker(ctx context.Context) error {
-	for {
-		select {
-		case <-s.done:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		case task := <-s.validationQueue:
-			action, err := s.handleValidation(task)
-			if err != nil {
-				s.finish(err)
-				return nil
-			}
-			if action.complete {
-				s.finish(nil)
-				return nil
-			}
-			for _, executionTask := range action.executionTasks {
-				if err := s.enqueueExecution(ctx, executionTask); err != nil {
-					return err
-				}
-			}
-		}
-	}
-}
-
-func (s *occBlockSTMScheduler) enqueueExecution(ctx context.Context, task occExecutionTask) error {
-	select {
-	case <-s.done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	case s.executionQueue <- task:
-		return nil
-	}
-}
-
-func (s *occBlockSTMScheduler) enqueueValidation(ctx context.Context, task occValidationTask) error {
-	select {
-	case <-s.done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	case s.validationQueue <- task:
-		return nil
-	}
-}
-
-func (s *occBlockSTMScheduler) handleValidation(task occValidationTask) (occValidationAction, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	txIndex := task.execution.txIndex
-	if txIndex < s.nextToValidate || task.execution.incarnation < s.latestScheduled[txIndex] {
-		return occValidationAction{}, nil
-	}
-	s.ready[txIndex] = task
-	s.readySet[txIndex] = true
-	return s.drainReadyLocked()
-}
-
-func (s *occBlockSTMScheduler) drainReadyLocked() (occValidationAction, error) {
-	var action occValidationAction
-	for {
-		accepted := false
-		for s.nextToValidate < len(s.results) && s.readySet[s.nextToValidate] {
-			txIndex := s.nextToValidate
-			task := s.ready[txIndex]
-			if task.execution.incarnation < s.latestScheduled[txIndex] {
-				s.readySet[txIndex] = false
-				continue
-			}
-			needsRerun, err := s.needsRerunLocked(task)
-			if err != nil {
-				return action, err
-			}
-			if needsRerun {
-				rerun, err := s.newRerunTaskLocked(task)
-				if err != nil {
-					return action, err
-				}
-				action.executionTasks = append(action.executionTasks, rerun)
-				break
-			}
-			if err := s.acceptReadyLocked(txIndex, task.result); err != nil {
-				return action, err
-			}
-			accepted = true
-		}
-		futureScheduled, err := s.scheduleFutureRerunsLocked(&action)
-		if err != nil {
-			return action, err
-		}
-		if !accepted && !futureScheduled {
-			break
-		}
-	}
-	action.complete = s.nextToValidate == len(s.results)
-	return action, nil
-}
-
-func (s *occBlockSTMScheduler) scheduleFutureRerunsLocked(action *occValidationAction) (bool, error) {
-	scheduled := false
-	for txIndex := s.nextToValidate + 1; txIndex < len(s.results); txIndex++ {
-		if !s.readySet[txIndex] {
-			continue
-		}
-		task := s.ready[txIndex]
-		if task.execution.incarnation < s.latestScheduled[txIndex] {
-			s.readySet[txIndex] = false
-			continue
-		}
-		needsRerun, err := s.needsRerunLocked(task)
-		if err != nil {
-			return scheduled, err
-		}
-		if !needsRerun {
-			continue
-		}
-		rerun, err := s.newRerunTaskLocked(task)
-		if err != nil {
-			return scheduled, err
-		}
-		action.executionTasks = append(action.executionTasks, rerun)
-		scheduled = true
-	}
-	return scheduled, nil
-}
-
-func (s *occBlockSTMScheduler) needsRerunLocked(task occValidationTask) (bool, error) {
-	txIndex := task.execution.txIndex
-	if task.result.err != nil {
-		if txIndex == s.nextToValidate && task.execution.sourcePrefix >= txIndex {
-			return false, task.result.err
-		}
-		return s.nextToValidate > task.execution.sourcePrefix, nil
-	}
-	accepted := validateSTMResultAgainstPrefix(
-		&s.validation,
-		s.writes,
-		task.result,
-		s.cumulativeGasUsed,
-		s.runner.blockGasLimit,
-		task.execution.sourcePrefix,
-	)
-	if accepted {
-		return false, nil
-	}
-	if txIndex == s.nextToValidate || s.nextToValidate > task.execution.sourcePrefix {
-		return true, nil
-	}
-	return false, nil
-}
-
-func (s *occBlockSTMScheduler) newRerunTaskLocked(task occValidationTask) (occExecutionTask, error) {
-	nextIncarnation := task.execution.incarnation + 1
-	if nextIncarnation >= occMaxTxIncarnations {
-		s.validation.valid = false
-		s.validation.fallbackReason = occFallbackReasonMaxIncarnation
-		return occExecutionTask{}, errOCCMaxIncarnation
-	}
-	s.validation.rerunCount++
-	txIndex := task.execution.txIndex
-	sourcePrefix := s.nextToValidate
-	availableGas := uint64(0)
-	if s.cumulativeGasUsed < s.runner.blockGasLimit {
-		availableGas = s.runner.blockGasLimit - s.cumulativeGasUsed
-	}
-	s.readySet[txIndex] = false
-	s.latestScheduled[txIndex] = nextIncarnation
-	return occExecutionTask{
-		txIndex:      txIndex,
-		txIndexUint:  task.execution.txIndexUint,
-		incarnation:  nextIncarnation,
-		sourcePrefix: sourcePrefix,
-		source:       s.prefix.clone(),
-		gasLimit:     availableGas,
-	}, nil
-}
-
-func (s *occBlockSTMScheduler) acceptReadyLocked(txIndex int, result occTxExecution) error {
-	if result.gasUsed > math.MaxUint64-s.cumulativeGasUsed {
-		s.validation.valid = false
-		s.validation.fallbackReason = occFallbackReasonGasOverflow
-		return errors.New(occFallbackReasonGasOverflow)
-	}
-	s.cumulativeGasUsed += result.gasUsed
-	s.results[txIndex] = result
-	s.prefix.apply(result)
-	s.writes.addAllAt(txIndex, result.writeSet)
-	s.writes.addCommutativeBalanceDeltasAt(txIndex, result.commutativeBalanceDeltas)
-	s.readySet[txIndex] = false
-	s.nextToValidate++
-	return nil
-}
-
-func (s *occBlockSTMScheduler) finish(err error) {
-	s.finishOnce.Do(func() {
-		s.finishErr = err
-		close(s.done)
-		if s.cancel != nil {
-			s.cancel()
-		}
-	})
-}
-
-func (s *occBlockSTMScheduler) result() ([]occTxExecution, StateChangeSet, occValidationResult, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	validation := s.validation
-	if s.finishErr != nil {
-		return nil, StateChangeSet{}, validation, s.finishErr
-	}
-	results := append([]occTxExecution(nil), s.results...)
-	return results, s.prefix.ChangeSet(), validation, nil
 }
 
 type occValidationResult struct {
