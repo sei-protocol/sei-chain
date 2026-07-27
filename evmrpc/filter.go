@@ -53,7 +53,7 @@ const (
 	// rangeQueryWindowBlocks bounds how many blocks tryFilterLogsRange asks the
 	// litt store to materialize per call, so raw candidates are discarded
 	// between windows instead of accumulating over the whole query range.
-	rangeQueryWindowBlocks = 4
+	rangeQueryWindowBlocks = 8
 )
 
 // BlockCacheEntry for sotring block, bloom, and receipts cache

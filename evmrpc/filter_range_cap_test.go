@@ -448,8 +448,8 @@ func TestTryFilterLogsRangeByteCapAtNormalize(t *testing.T) {
 }
 
 // TestTryFilterLogsRangeWindowsMultiBlockRange verifies tryFilterLogsRange
-// walks a range wider than rangeQueryWindowBlocks (4) in successive
-// 4-block windows.
+// walks a range wider than rangeQueryWindowBlocks in successive
+// rangeQueryWindowBlocks-sized windows.
 func TestTryFilterLogsRangeWindowsMultiBlockRange(t *testing.T) {
 	t.Parallel()
 
