@@ -113,6 +113,39 @@ func (c *cachedTable) Get(key []byte) (value []byte, exists bool, err error) {
 	return value, exists, nil
 }
 
+// GetSubrange reads only the [offset, offset+length) byte range of the value stored under key.
+//
+// Cache policy — subrange reads intentionally bypass BOTH caches:
+//
+//   - The read and write caches are keyed by the full key and store the full value. A subrange read cannot
+//     safely populate them (it would store a partial value under a key that Get is entitled to treat as the
+//     whole value), and it does not consult them either: even on a cache hit the whole point of a subrange
+//     read is to avoid materializing the full value, and slicing a cached full value would defeat the I/O
+//     savings the base implementation provides.
+//   - A more elaborate scheme could cache sub-ranges under specially structured keys, but that adds
+//     complexity we do not yet know we need. We start simple by skipping the cache and documenting it here,
+//     with the intent to revisit if profiling shows subrange reads are hot enough that the missing cache
+//     hurts. Until then, every GetSubrange goes straight to the base table.
+//
+// This still reports the read to metrics (as a cold read), for parity with Get.
+func (c *cachedTable) GetSubrange(key []byte, offset uint32, length uint32) (value []byte, exists bool, err error) {
+	if c.metrics != nil {
+		start := time.Now()
+		defer func() {
+			if exists && value != nil {
+				// hot is always false: subrange reads never come from a cache (see the cache policy above).
+				c.metrics.ReportReadOperation(c.Name(), time.Since(start), uint64(len(value)), false)
+			}
+		}()
+	}
+
+	value, exists, err = c.base.GetSubrange(key, offset, length)
+	if err != nil {
+		return value, exists, fmt.Errorf("failed to get subrange from base table: %w", err)
+	}
+	return value, exists, nil
+}
+
 func (c *cachedTable) Exists(key []byte) (exists bool, err error) {
 	_, exists = c.writeCache.Get(util.UnsafeBytesToString(key))
 	if exists {

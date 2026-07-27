@@ -981,6 +981,50 @@ func (d *DiskTable) Get(key []byte) (value []byte, exists bool, err error) {
 	return data, true, nil
 }
 
+// GetSubrange reads only the [offset, offset+length) byte range of the value stored under key. See the
+// litt.Table.GetSubrange contract; this is the base implementation that reaches keymap + disk.
+func (d *DiskTable) GetSubrange(key []byte, offset uint32, length uint32) (value []byte, exists bool, err error) {
+	if ok, err := d.errorMonitor.IsOk(); !ok {
+		return nil, false, fmt.Errorf(
+			"cannot process GetSubrange() request, DB is in panicked state due to error: %w", err)
+	}
+
+	// Data not yet flushed lives in memory as the full value; slice the requested range out of it.
+	if v, ok := d.unflushedDataCache.Load(util.UnsafeBytesToString(key)); ok {
+		full := v.([]byte)
+		end := uint64(offset) + uint64(length)
+		if end > uint64(len(full)) {
+			return nil, false, fmt.Errorf(
+				"subrange [%d, %d) is out of bounds for value of length %d", offset, end, len(full))
+		}
+		return full[offset:end], true, nil
+	}
+
+	// Look up the address of the data.
+	address, ok, err := d.keymap.Get(key)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get address: %w", err)
+	}
+	if !ok {
+		return nil, false, nil
+	}
+
+	// Reserve the segment that contains the data.
+	seg, ok := d.controlLoop.getReservedSegment(address.Index())
+	if !ok {
+		return nil, false, nil
+	}
+	defer seg.Release()
+
+	// Read only the requested byte range from disk.
+	data, err := seg.ReadSubrange(key, address, offset, length)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to read data subrange: %w", err)
+	}
+
+	return data, true, nil
+}
+
 func (d *DiskTable) Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error {
 	return d.PutBatch([]*types.PutRequest{{Key: key, Value: value, SecondaryKeys: secondaryKeys}})
 }

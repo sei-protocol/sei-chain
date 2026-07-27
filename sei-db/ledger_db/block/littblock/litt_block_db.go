@@ -428,6 +428,47 @@ func (s *blockDB) Close() error {
 	return nil
 }
 
+// GetTxByOffset reads a single transaction's raw bytes out of the block stored at GlobalBlockNumber n,
+// without decoding the block. offset and length identify a byte range within the block's stored value —
+// the exact bytes encodeBlock produced: [version:1][GlobalBlockNumber:8][proto(Block)] — typically the
+// (offset, length) of one transaction recorded at write time (see the tx-location-index design under
+// sei-db/ledger_db/receipt/docs). offset is measured from the start of that stored value (i.e. it includes
+// the fixed prefix), matching the coordinates a writer computes against the bytes it persists.
+//
+// It reads only the requested bytes via LittDB's GetSubrange, skipping both the full-block disk read and
+// the protobuf unmarshal that ReadBlockByNumber performs. The I/O savings apply while the ledger table is
+// uncompressed (the default); on a compressed table GetSubrange still returns the correct bytes but must
+// read and decompress the whole block value first (see the compression note in the design doc).
+//
+// This lives outside the types.BlockDB interface because the offset space is defined by this
+// implementation's serialization. The result is one of:
+//
+//   - Some(txBytes) with a nil error: the byte range was read.
+//   - types.ErrPruned: n is strictly below the retention watermark (matches ReadBlockByNumber). A block
+//     below the watermark may be stranded from its covering QC and is never served.
+//   - None with a nil error: no block is present at n (never written, or not yet written).
+//   - a non-nil error: the range is out of bounds for the block value, or the read failed.
+func (s *blockDB) GetTxByOffset(
+	n types.GlobalBlockNumber,
+	offset uint32,
+	length uint32,
+) (utils.Option[[]byte], error) {
+	// Refuse below-watermark blocks: they may be stranded (covering QC reclaimed). Mirrors ReadBlockByNumber.
+	if uint64(n) < s.watermark.Load() {
+		return utils.None[[]byte](), types.ErrPruned
+	}
+
+	value, exists, err := s.table.GetSubrange(blockKey(n), offset, length)
+	if err != nil {
+		return utils.None[[]byte](), fmt.Errorf(
+			"failed to read tx range [%d, %d) in block %d: %w", offset, uint64(offset)+uint64(length), n, err)
+	}
+	if !exists {
+		return utils.None[[]byte](), nil
+	}
+	return utils.Some(value), nil
+}
+
 // ForceGC runs a synchronous garbage-collection pass over the table backing db,
 // so any pending prune takes effect immediately rather than on the periodic GC
 // schedule. db must be a *blockDB returned by NewBlockDB. Intended for tests and

@@ -714,6 +714,56 @@ func (s *Segment) Read(key []byte, dataAddress types.Address) ([]byte, error) {
 	return s.maybeDecompress(value)
 }
 
+// ReadSubrange fetches only the [offset, offset+length) byte range of the value identified by dataAddress,
+// avoiding a read of the full value.
+//
+// For an uncompressed segment this issues a bounded read of exactly length bytes, seeking to the value's
+// on-disk offset plus the requested sub-offset — so the I/O cost scales with length, not the full value.
+// For a compressed segment the on-disk blob is a single compressed unit that cannot be sliced, so this
+// falls back to reading and decompressing the whole value (via Read) and then slicing out the requested
+// range. Either way the returned bytes are the plaintext value[offset:offset+length].
+//
+// The requested range must lie within the value; otherwise an error is returned.
+//
+// It is only thread safe to read from a segment if the key being read has previously been flushed to disk.
+func (s *Segment) ReadSubrange(key []byte, dataAddress types.Address, offset uint32, length uint32) ([]byte, error) {
+	// A compressed value cannot be partially read from disk: decompress the whole thing, then slice. The
+	// bounds check is against the decompressed length, since dataAddress.ValueSize() is the compressed size.
+	if s.IsCompressed() {
+		value, err := s.Read(key, dataAddress)
+		if err != nil {
+			return nil, err
+		}
+		end := uint64(offset) + uint64(length)
+		if end > uint64(len(value)) {
+			return nil, fmt.Errorf("subrange [%d, %d) is out of bounds for value of length %d",
+				offset, end, len(value))
+		}
+		return value[offset:end], nil
+	}
+
+	// For an uncompressed value, dataAddress.ValueSize() is the exact value length, so we can bound the
+	// range and read only the requested bytes directly from disk.
+	end := uint64(offset) + uint64(length)
+	if end > uint64(dataAddress.ValueSize()) {
+		return nil, fmt.Errorf("subrange [%d, %d) is out of bounds for value of length %d",
+			offset, end, dataAddress.ValueSize())
+	}
+
+	values, err := s.shardForAddress(dataAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve shard for read: %w", err)
+	}
+
+	// The value starts at dataAddress.Offset(); the sub-range starts offset bytes further in. Both operands
+	// and their sum are bounded by the value file size (< 2^32), so the uint32 addition cannot overflow.
+	value, err := values.read(dataAddress.Offset()+offset, length)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read value subrange: %w", err)
+	}
+	return value, nil
+}
+
 // maybeDecompress decodes an on-disk value from a compressed segment (stripping the per-value algorithm
 // tag and decompressing the body; see types.EncodeValue), or returns it unchanged if the segment is not
 // compressed. All value reads (Segment.Read and SegmentReader.Read) pass through here so the on-disk
