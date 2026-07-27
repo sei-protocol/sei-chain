@@ -194,9 +194,10 @@ deltas are restored by undo entries.
 
 `OCCStats` reports whether optimistic execution was attempted, how many reruns
 were needed, and aggregated conflict samples. `Fallback` is reserved for cases
-where the executor gives up on the optimistic path, currently because the
-incarnation cap was reached; ordinary conflicts should be resolved by
-per-transaction reruns instead.
+where the executor gives up on the optimistic path, such as max-incarnation
+exhaustion or a concurrent `Close()` closing the shared OCC worker pool after
+OCC was selected; ordinary conflicts should be resolved by per-transaction
+reruns instead.
 
 ## Current limitations
 

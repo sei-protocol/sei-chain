@@ -191,6 +191,44 @@ func TestExecutorCloseDisablesOCC(t *testing.T) {
 	require.False(t, result.OCCStats.Attempted)
 }
 
+func TestExecutorOCCFallsBackWhenSharedWorkerPoolClosesAfterOCCSelection(t *testing.T) {
+	chainID := big.NewInt(713715)
+	rawTxs := make([][]byte, 0, 2)
+	recipients := make([]common.Address, 0, 2)
+	seqState := NewMemoryState()
+	occState := NewMemoryState()
+	for i := range 2 {
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+		recipient := testAddress(byte(0xd4 + i))
+		recipients = append(recipients, recipient)
+		seqState.SetBalance(sender, big.NewInt(1_000_000_000))
+		occState.SetBalance(sender, big.NewInt(1_000_000_000))
+		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(3), nil, 100_000, big.NewInt(0)))
+	}
+
+	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState))
+	require.NotNil(t, executor.occPool)
+	executor.occPool.Close()
+	occResult, err := executor.ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	require.True(t, occResult.OCCStats.Attempted)
+	require.True(t, occResult.OCCStats.Fallback)
+	require.Equal(t, occFallbackReasonWorkerPoolClosed, occResult.OCCStats.FallbackReason)
+	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
+
+	seqState.ApplyChangeSet(seqResult.ChangeSet)
+	occState.ApplyChangeSet(occResult.ChangeSet)
+	for _, recipient := range recipients {
+		require.Equal(t, seqState.GetBalance(recipient), occState.GetBalance(recipient))
+	}
+}
+
 type overlapDetectingStateReader struct {
 	mu        sync.Mutex
 	active    int

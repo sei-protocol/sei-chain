@@ -74,17 +74,22 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 	chunkSize := occChunkSize(len(req.Txs), workers)
 	speculativeSource := parallelSafeStateReader(e.state)
 	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), speculativeSource, runner.blockGasLimit, results); err != nil {
+		if errors.Is(err, errOCCWorkerPoolClosed) {
+			return e.executeBlockOCCSequentialFallback(ctx, req, occValidationResult{valid: false}, occFallbackReasonWorkerPoolClosed)
+		}
 		return nil, err
 	}
 
 	results, changeSet, validation, err := e.validateBlockSTMRounds(ctx, runner, executionPool, results)
-	if errors.Is(err, errOCCMaxIncarnation) {
-		result, seqErr := e.executeBlockSequential(ctx, req)
-		if seqErr != nil {
-			return nil, seqErr
+	if errors.Is(err, errOCCMaxIncarnation) || errors.Is(err, errOCCWorkerPoolClosed) {
+		reason := validation.fallbackReason
+		switch {
+		case errors.Is(err, errOCCWorkerPoolClosed):
+			reason = occFallbackReasonWorkerPoolClosed
+		case errors.Is(err, errOCCMaxIncarnation) && reason == "":
+			reason = occFallbackReasonMaxIncarnation
 		}
-		result.OCCStats = validation.stats(true)
-		return result, nil
+		return e.executeBlockOCCSequentialFallback(ctx, req, validation, reason)
 	}
 	if err != nil {
 		return nil, err
@@ -94,6 +99,18 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 		return nil, err
 	}
 	result.OCCStats = validation.stats(false)
+	return result, nil
+}
+
+func (e *Executor) executeBlockOCCSequentialFallback(ctx context.Context, req PreparedBlock, validation occValidationResult, reason string) (*BlockResult, error) {
+	if reason != "" {
+		validation.fallbackReason = reason
+	}
+	result, err := e.executeBlockSequential(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	result.OCCStats = validation.stats(true)
 	return result, nil
 }
 
@@ -450,10 +467,11 @@ type occConflictAggregationKey struct {
 }
 
 const (
-	occFallbackReasonConflict       = "conflict"
-	occFallbackReasonGasLimit       = "gas_limit"
-	occFallbackReasonGasOverflow    = "gas_overflow"
-	occFallbackReasonMaxIncarnation = "max_incarnation"
+	occFallbackReasonConflict         = "conflict"
+	occFallbackReasonGasLimit         = "gas_limit"
+	occFallbackReasonGasOverflow      = "gas_overflow"
+	occFallbackReasonMaxIncarnation   = "max_incarnation"
+	occFallbackReasonWorkerPoolClosed = "worker_pool_closed"
 )
 
 func validateSTMResultAgainstPrefix(
