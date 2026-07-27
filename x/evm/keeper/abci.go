@@ -29,6 +29,7 @@ func (k *Keeper) BeginBlock(ctx sdk.Context) {
 	if !ctx.IsTracing() {
 		k.SetMsgs([]*types.MsgEVMTransaction{})
 		k.SetTxResults([]*abci.ExecTxResult{})
+		k.TrackBlockHash(ctx)
 	}
 	// mock beacon root if replaying
 	if k.EthReplayConfig.Enabled {
