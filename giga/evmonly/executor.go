@@ -177,7 +177,8 @@ func (e *Executor) releaseStateDB(stateDB *nativeStateDB) {
 func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	chainConfig := e.chainConfig(req.Context)
 
-	stateDB := newNativeStateDB(e.state)
+	stateDB := e.acquireStateDB(e.state)
+	defer e.releaseStateDB(stateDB)
 	blockCtx := buildBlockContext(req.Context)
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
 	stateDB.SetEVM(evm)
@@ -255,6 +256,9 @@ func (e *Executor) executeTx(
 	logStart := len(stateDB.logs)
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 	execResult, err := core.ApplyMessage(evm, msg, gasPool)
+	if stateErr := stateDB.Error(); stateErr != nil {
+		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
+	}
 	if err != nil {
 		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
 	}

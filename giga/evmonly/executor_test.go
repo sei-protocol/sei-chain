@@ -281,6 +281,14 @@ func (s *overlapDetectingStateReader) maxActiveReads() int {
 	return s.maxActive
 }
 
+type overflowingBalanceState struct {
+	*MemoryState
+}
+
+func (s *overflowingBalanceState) GetBalance(common.Address) *big.Int {
+	return new(big.Int).Lsh(big.NewInt(1), 256)
+}
+
 func TestWithStateSerializesNonConcurrentReader(t *testing.T) {
 	reader := &overlapDetectingStateReader{delay: 2 * time.Millisecond}
 	executor := NewExecutor(Config{}, WithState(reader))
@@ -314,7 +322,7 @@ func TestOCCWorkerPoolCloseWaitsForInFlightRun(t *testing.T) {
 	runDone := make(chan error, 1)
 
 	go func() {
-		runDone <- pool.Run(context.Background(), func(context.Context, int) error {
+		runDone <- pool.Run(context.Background(), 2, func(context.Context, int, int) error {
 			startedOnce.Do(func() {
 				close(started)
 			})
@@ -343,9 +351,68 @@ func TestOCCWorkerPoolCloseWaitsForInFlightRun(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Close did not return after Run completed")
 	}
-	require.ErrorIs(t, pool.Run(context.Background(), func(context.Context, int) error {
+	require.ErrorIs(t, pool.Run(context.Background(), 1, func(context.Context, int, int) error {
 		return nil
 	}), errOCCWorkerPoolClosed)
+}
+
+func TestOCCWorkerPoolAllowsConcurrentRunsAndClampsFanOut(t *testing.T) {
+	t.Run("concurrent runs", func(t *testing.T) {
+		pool := newOCCWorkerPool(1)
+		firstStarted := make(chan struct{})
+		secondStarted := make(chan struct{})
+		release := make(chan struct{})
+		firstDone := make(chan error, 1)
+		secondDone := make(chan error, 1)
+
+		go func() {
+			firstDone <- pool.Run(context.Background(), 1, func(context.Context, int, int) error {
+				close(firstStarted)
+				<-release
+				return nil
+			})
+		}()
+		<-firstStarted
+
+		go func() {
+			secondDone <- pool.Run(context.Background(), 1, func(context.Context, int, int) error {
+				close(secondStarted)
+				<-release
+				return nil
+			})
+		}()
+
+		select {
+		case <-secondStarted:
+		case <-time.After(time.Second):
+			t.Fatal("second Run was serialized behind the first Run")
+		}
+
+		close(release)
+		require.NoError(t, <-firstDone)
+		require.NoError(t, <-secondDone)
+	})
+
+	t.Run("fanout", func(t *testing.T) {
+		pool := newOCCWorkerPool(64)
+		workerIDs := make(chan int, 64)
+		err := pool.Run(context.Background(), 2, func(_ context.Context, workerID int, workers int) error {
+			if workers != 2 {
+				return errors.New("worker fanout was not clamped")
+			}
+			workerIDs <- workerID
+			return nil
+		})
+
+		require.NoError(t, err)
+		require.Len(t, workerIDs, 2)
+	})
+}
+
+func TestOCCChunkSizeSplitsSmallBlocks(t *testing.T) {
+	require.Equal(t, 1, occChunkSize(2, 64))
+	require.Equal(t, 1, occChunkSize(16, 4))
+	require.Equal(t, 256, occChunkSize(10_000, 1))
 }
 
 func TestPrepareBlockParallelParsePreservesOrderAndFirstError(t *testing.T) {
@@ -587,7 +654,7 @@ func TestExecutorOCCConflictingTransfersMatchSequential(t *testing.T) {
 	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
 	require.True(t, occResult.OCCStats.Attempted)
 	require.False(t, occResult.OCCStats.Fallback)
-	require.Equal(t, "conflict", occResult.OCCStats.FallbackReason)
+	require.Empty(t, occResult.OCCStats.FallbackReason)
 	require.Greater(t, occResult.OCCStats.RerunCount, uint64(0))
 	require.Greater(t, occResult.OCCStats.ConflictCount, uint64(0))
 	require.NotEmpty(t, occResult.OCCStats.ConflictSamples)
@@ -674,7 +741,7 @@ func TestExecutorOCCRerunsWhenLaterTxReadsFeeCreditedCoinbase(t *testing.T) {
 
 	require.True(t, occResult.OCCStats.Attempted)
 	require.False(t, occResult.OCCStats.Fallback)
-	require.Equal(t, occFallbackReasonConflict, occResult.OCCStats.FallbackReason)
+	require.Empty(t, occResult.OCCStats.FallbackReason)
 	require.Equal(t, uint64(1), occResult.OCCStats.RerunCount)
 	foundCoinbaseBalanceRead := false
 	for _, conflict := range occResult.OCCStats.ConflictSamples {
@@ -857,6 +924,51 @@ func TestExecutorOCCMergesCoinbaseSenderFeeWithoutDoubleCount(t *testing.T) {
 	require.Equal(t, new(big.Int).Add(initialCoinbaseBalance, big.NewInt(21_000)), occState.GetBalance(coinbase))
 }
 
+func TestExecutorOCCSelfDestructedCoinbaseFeeDoesNotResurrectBalance(t *testing.T) {
+	chainID := big.NewInt(713715)
+	selfDestructKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	otherKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	selfDestructSender := crypto.PubkeyToAddress(selfDestructKey.PublicKey)
+	otherSender := crypto.PubkeyToAddress(otherKey.PublicKey)
+	coinbase := testAddress(0xbc)
+	beneficiary := testAddress(0xbd)
+	otherRecipient := testAddress(0xbf)
+	initialCoinbaseBalance := big.NewInt(1_000_000)
+
+	seqState := NewMemoryState()
+	occState := NewMemoryState()
+	for _, state := range []*MemoryState{seqState, occState} {
+		state.SetBalance(selfDestructSender, big.NewInt(1_000_000_000))
+		state.SetBalance(otherSender, big.NewInt(1_000_000_000))
+		state.SetBalance(coinbase, initialCoinbaseBalance)
+		state.SetCode(coinbase, selfDestructCode(beneficiary))
+	}
+
+	selfDestructTx := signLegacyTxWithGasPrice(t, selfDestructKey, chainID, 0, &coinbase, big.NewInt(0), nil, 100_000, big.NewInt(1))
+	otherTx := signLegacyTxWithGasPrice(t, otherKey, chainID, 0, &otherRecipient, big.NewInt(1), nil, 100_000, big.NewInt(0))
+	ctx := blockContext(chainID)
+	ctx.Coinbase = coinbase
+	req := BlockRequest{Context: ctx, Txs: [][]byte{selfDestructTx, otherTx}}
+	cfg := Config{MinGasPrice: big.NewInt(0), ChainConfig: legacySelfDestructChainConfig(chainID)}
+
+	seqResult, err := NewExecutor(cfg, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), ChainConfig: cfg.ChainConfig, OCCWorkers: 2}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	require.True(t, occResult.OCCStats.Attempted)
+	require.False(t, occResult.OCCStats.Fallback)
+	require.Empty(t, occResult.OCCStats.FallbackReason)
+
+	seqState.ApplyChangeSet(seqResult.ChangeSet)
+	occState.ApplyChangeSet(occResult.ChangeSet)
+	require.Equal(t, seqState.GetBalance(coinbase), occState.GetBalance(coinbase))
+	require.Equal(t, seqState.GetBalance(beneficiary), occState.GetBalance(beneficiary))
+	require.Equal(t, new(big.Int).SetUint64(seqResult.Txs[0].GasUsed), occState.GetBalance(coinbase))
+	require.Equal(t, initialCoinbaseBalance, occState.GetBalance(beneficiary))
+}
+
 func TestExecutorOCCRerunsSameSenderNonceChain(t *testing.T) {
 	chainID := big.NewInt(713715)
 	key, err := crypto.GenerateKey()
@@ -887,7 +999,7 @@ func TestExecutorOCCRerunsSameSenderNonceChain(t *testing.T) {
 	require.Equal(t, big.NewInt(1), state.GetBalance(secondRecipient))
 }
 
-func TestExecutorOCCFallsBackWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
+func TestExecutorOCCRejectsWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
 	chainID := big.NewInt(713715)
 	rawTxs := make([][]byte, 0, 2)
 	state := NewMemoryState()
@@ -1469,6 +1581,18 @@ func TestStateDBSelfDestructEmitsStorageClear(t *testing.T) {
 	require.Equal(t, common.Hash{}, state.GetState(contract, unreadKey))
 }
 
+func TestStateDBSelfDestructMarksBalanceWrite(t *testing.T) {
+	contract := testAddress(0xc3)
+	stateDB := newNativeStateDB(NewMemoryState())
+	stateDB.enableAccessTracking()
+
+	stateDB.SelfDestruct(contract)
+
+	_, writes := stateDB.accessSets()
+	require.Contains(t, writes, stateAccessKey{kind: stateAccessAccount, address: contract})
+	require.Contains(t, writes, stateAccessKey{kind: stateAccessBalance, address: contract})
+}
+
 func TestStateDBCreateAccountPreservesStorageClear(t *testing.T) {
 	contract := testAddress(0xc6)
 	unreadKey := testHash(0x02)
@@ -1564,6 +1688,89 @@ func TestPrepareClearsTransientStorage(t *testing.T) {
 	stateDB.Prepare(params.Rules{}, addr, common.Address{}, nil, nil, nil)
 
 	require.Equal(t, common.Hash{}, stateDB.GetTransientState(addr, key))
+}
+
+func TestPrepareHonorsForkRulesForAccessLists(t *testing.T) {
+	sender := testAddress(0xa3)
+	coinbase := testAddress(0xa4)
+	dest := testAddress(0xa5)
+	precompile := testAddress(0xa6)
+	accessAddr := testAddress(0xa7)
+	slot := testHash(0x08)
+	accesses := ethtypes.AccessList{{
+		Address:     accessAddr,
+		StorageKeys: []common.Hash{slot},
+	}}
+
+	t.Run("pre Berlin leaves access list empty", func(t *testing.T) {
+		stateDB := newNativeStateDB(NewMemoryState())
+		stateDB.Prepare(params.Rules{}, sender, coinbase, &dest, []common.Address{precompile}, accesses)
+
+		require.False(t, stateDB.AddressInAccessList(sender))
+		require.False(t, stateDB.AddressInAccessList(coinbase))
+		require.False(t, stateDB.AddressInAccessList(dest))
+		require.False(t, stateDB.AddressInAccessList(precompile))
+		addressPresent, slotPresent := stateDB.SlotInAccessList(accessAddr, slot)
+		require.False(t, addressPresent)
+		require.False(t, slotPresent)
+	})
+
+	t.Run("Berlin warms transaction access list but not coinbase", func(t *testing.T) {
+		stateDB := newNativeStateDB(NewMemoryState())
+		stateDB.Prepare(params.Rules{IsBerlin: true}, sender, coinbase, &dest, []common.Address{precompile}, accesses)
+
+		require.True(t, stateDB.AddressInAccessList(sender))
+		require.False(t, stateDB.AddressInAccessList(coinbase))
+		require.True(t, stateDB.AddressInAccessList(dest))
+		require.True(t, stateDB.AddressInAccessList(precompile))
+		addressPresent, slotPresent := stateDB.SlotInAccessList(accessAddr, slot)
+		require.True(t, addressPresent)
+		require.True(t, slotPresent)
+	})
+
+	t.Run("Shanghai warms coinbase", func(t *testing.T) {
+		stateDB := newNativeStateDB(NewMemoryState())
+		stateDB.Prepare(params.Rules{IsBerlin: true, IsShanghai: true}, sender, coinbase, nil, nil, nil)
+
+		require.True(t, stateDB.AddressInAccessList(sender))
+		require.True(t, stateDB.AddressInAccessList(coinbase))
+	})
+}
+
+func TestStateDBBalanceErrorsAreSurfaced(t *testing.T) {
+	t.Run("insufficient sub balance", func(t *testing.T) {
+		addr := testAddress(0xc0)
+		stateDB := newNativeStateDB(NewMemoryState())
+
+		stateDB.SubBalance(addr, uint256.NewInt(1), 0)
+
+		require.ErrorIs(t, stateDB.Error(), errInsufficientBalance)
+	})
+
+	t.Run("source overflow", func(t *testing.T) {
+		addr := testAddress(0xc1)
+		stateDB := newNativeStateDB(&overflowingBalanceState{MemoryState: NewMemoryState()})
+
+		require.True(t, stateDB.GetBalance(addr).IsZero())
+		require.ErrorIs(t, stateDB.Error(), errStateBalanceOverflow)
+	})
+}
+
+func TestExecutorSurfacesStateDBBalanceOverflow(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	recipient := testAddress(0xc2)
+	rawTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(0), nil, 100_000, big.NewInt(1))
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(&overflowingBalanceState{MemoryState: NewMemoryState()}))
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{rawTx},
+	})
+
+	require.ErrorIs(t, err, errStateBalanceOverflow)
+	require.Nil(t, result)
 }
 
 func TestSnapshotRevertRestoresBaseState(t *testing.T) {
@@ -1741,10 +1948,9 @@ func TestStateDBGetCodeHashTracksCodelessAccountExistenceReads(t *testing.T) {
 	writes.addAll(map[stateAccessKey]struct{}{
 		{kind: stateAccessBalance, address: eoa}: {},
 	})
-	validation := occValidationResult{valid: true}
+	validation := occValidationResult{}
 	accepted := validateSTMResultAgainstPrefix(&validation, writes, occTxExecution{gasLimit: 1, readSet: readSet}, 0, 10, 0)
 	require.False(t, accepted)
-	require.False(t, validation.valid)
 	require.Equal(t, occFallbackReasonConflict, validation.fallbackReason)
 }
 
@@ -1854,7 +2060,7 @@ func TestValidateSTMConflictMatrix(t *testing.T) {
 		default:
 			t.Fatalf("unknown access mode %q", access)
 		}
-		validation := occValidationResult{valid: true}
+		validation := occValidationResult{}
 		accepted := validateSTMResultAgainstPrefix(&validation, writes, result, 0, 10, 0)
 		return accepted, validation
 	}
@@ -1866,13 +2072,11 @@ func TestValidateSTMConflictMatrix(t *testing.T) {
 					accepted, validation := validate(t, prior.add, access, current.key)
 					if !prior.wantConflicts(current.key) {
 						require.True(t, accepted)
-						require.True(t, validation.valid)
 						require.Empty(t, validation.fallbackReason)
 						require.Zero(t, validation.conflictCount)
 						return
 					}
 					require.False(t, accepted)
-					require.False(t, validation.valid)
 					require.Equal(t, occFallbackReasonConflict, validation.fallbackReason)
 					require.Equal(t, uint64(1), validation.conflictCount)
 					require.Equal(t, uint64(1), validation.conflicts[occConflictAggregationKey{
@@ -1894,7 +2098,7 @@ func TestValidateSTMConflictSourcePrefix(t *testing.T) {
 		t.Helper()
 		writes := newStateAccessIndex()
 		add(writes)
-		validation := occValidationResult{valid: true}
+		validation := occValidationResult{}
 		accepted := validateSTMResultAgainstPrefix(&validation, writes, occTxExecution{
 			readSet:  map[stateAccessKey]struct{}{key: {}},
 			gasLimit: 1,
@@ -1944,16 +2148,36 @@ func TestValidateSTMConflictSourcePrefix(t *testing.T) {
 			accepted, validation := validate(t, tc.add, tc.sourcePrefix)
 			if !tc.wantConflict {
 				require.True(t, accepted)
-				require.True(t, validation.valid)
 				require.Zero(t, validation.conflictCount)
 				return
 			}
 			require.False(t, accepted)
-			require.False(t, validation.valid)
 			require.Equal(t, occFallbackReasonConflict, validation.fallbackReason)
 			require.Equal(t, uint64(1), validation.conflictCount)
 		})
 	}
+}
+
+func TestNeedsSTMRerunReturnsGasLimitErrorAfterValidatedPrefix(t *testing.T) {
+	result := occTxExecution{gasLimit: 90_000, gasUsed: 21_000}
+	validation := occValidationResult{}
+
+	rerun, err := needsSTMRerun(&validation, newStateAccessIndex(), result, 21_000, 100_000, 1, 1, 1)
+
+	require.False(t, rerun)
+	require.ErrorIs(t, err, core.ErrGasLimitReached)
+	require.Equal(t, occFallbackReasonGasLimit, validation.fallbackReason)
+}
+
+func TestNeedsSTMRerunQueuesGasLimitRerunBeforeValidatedPrefix(t *testing.T) {
+	result := occTxExecution{gasLimit: 90_000, gasUsed: 21_000}
+	validation := occValidationResult{}
+
+	rerun, err := needsSTMRerun(&validation, newStateAccessIndex(), result, 21_000, 100_000, 0, 1, 1)
+
+	require.NoError(t, err)
+	require.True(t, rerun)
+	require.Equal(t, occFallbackReasonGasLimit, validation.fallbackReason)
 }
 
 func TestExecutorOCCFallsBackAtMaxIncarnation(t *testing.T) {

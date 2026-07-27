@@ -40,7 +40,9 @@ func (p *blockResultPool) acquire(ctx context.Context, txCapacity int) (*BlockRe
 		result.prepareForBlock(txCapacity)
 		lease := &blockResultLease{pool: p, result: result}
 		lease.refs.Store(1)
+		result.releaseMu.Lock()
 		result.lease = lease
+		result.releaseMu.Unlock()
 		return result, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()

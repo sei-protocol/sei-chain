@@ -65,17 +65,13 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 		workers = len(req.Txs)
 	}
 	executionPool := e.occPool
-	if executionPool == nil {
-		executionPool = newOCCWorkerPool(workers)
-		defer executionPool.Close()
-	}
 
 	results := make([]occTxExecution, len(req.Txs))
 	chunkSize := occChunkSize(len(req.Txs), workers)
 	speculativeSource := parallelSafeStateReader(e.state)
 	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), speculativeSource, runner.blockGasLimit, results); err != nil {
 		if errors.Is(err, errOCCWorkerPoolClosed) {
-			return e.executeBlockOCCSequentialFallback(ctx, req, occValidationResult{valid: false}, occFallbackReasonWorkerPoolClosed)
+			return e.executeBlockOCCSequentialFallback(ctx, req, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
 		}
 		return nil, err
 	}
@@ -145,8 +141,8 @@ func (r occSpeculativeRunner) runRanges(
 	if len(ranges) == 0 {
 		return ctx.Err()
 	}
-	return pool.Run(ctx, func(workerCtx context.Context, workerID int) error {
-		for rangeIndex := workerID; rangeIndex < len(ranges); rangeIndex += pool.workers {
+	return pool.Run(ctx, len(ranges), func(workerCtx context.Context, workerID int, workers int) error {
+		for rangeIndex := workerID; rangeIndex < len(ranges); rangeIndex += workers {
 			txRange := ranges[rangeIndex]
 			for idx, idxUint := txRange.start, txRange.startUint; idx < txRange.end; idx, idxUint = idx+1, idxUint+1 {
 				if err := workerCtx.Err(); err != nil {
@@ -178,8 +174,8 @@ func (r occSpeculativeRunner) runTasks(
 	if len(tasks) == 0 {
 		return ctx.Err()
 	}
-	return pool.Run(ctx, func(workerCtx context.Context, workerID int) error {
-		for taskIndex := workerID; taskIndex < len(tasks); taskIndex += pool.workers {
+	return pool.Run(ctx, len(tasks), func(workerCtx context.Context, workerID int, workers int) error {
+		for taskIndex := workerID; taskIndex < len(tasks); taskIndex += workers {
 			if err := workerCtx.Err(); err != nil {
 				return err
 			}
@@ -216,10 +212,9 @@ func occRanges(txCount int, chunkSize int) []occTxRange {
 			end = txCount
 		}
 		ranges = append(ranges, occTxRange{start: start, end: end, startUint: startUint})
-		for start < end {
-			start++
-			startUint++
-		}
+		width := end - start
+		start = end
+		startUint += uint(width) //nolint:gosec // width is non-negative and bounded by txCount.
 	}
 	return ranges
 }
@@ -230,8 +225,8 @@ func occChunkSize(txCount int, workers int) int {
 	}
 	targetChunks := workers * 8
 	chunkSize := (txCount + targetChunks - 1) / targetChunks
-	if chunkSize < 16 {
-		return 16
+	if chunkSize < 1 {
+		return 1
 	}
 	if chunkSize > 256 {
 		return 256
@@ -296,7 +291,7 @@ func (e *Executor) validateBlockSTMRounds(
 ) ([]occTxExecution, StateChangeSet, occValidationResult, error) {
 	incarnations := make([]int, len(results))
 	sourcePrefixes := make([]int, len(results))
-	validation := occValidationResult{valid: true}
+	validation := occValidationResult{}
 	for {
 		changeSet, reruns, err := e.validateBlockSTMRound(ctx, runner, results, incarnations, sourcePrefixes, &validation)
 		if err != nil {
@@ -367,7 +362,6 @@ func (e *Executor) validateBlockSTMRound(
 			continue
 		}
 		if result.gasUsed > math.MaxUint64-cumulativeGasUsed {
-			validation.valid = false
 			validation.fallbackReason = occFallbackReasonGasOverflow
 			return StateChangeSet{}, nil, errors.New(occFallbackReasonGasOverflow)
 		}
@@ -398,6 +392,12 @@ func needsSTMRerun(
 		}
 		return nextToValidate > sourcePrefix, nil
 	}
+	if err := stmGasValidationError(validation, result, cumulativeGasUsed, gasLimit); err != nil {
+		if txIndex == nextToValidate && sourcePrefix >= txIndex {
+			return false, err
+		}
+		return nextToValidate > sourcePrefix, nil
+	}
 	return !validateSTMResultAgainstPrefix(validation, writes, result, cumulativeGasUsed, gasLimit, sourcePrefix), nil
 }
 
@@ -414,7 +414,6 @@ func newSTMRerunTask(
 ) (occExecutionTask, error) {
 	nextIncarnation := incarnations[txIndex] + 1
 	if nextIncarnation >= occMaxTxIncarnations {
-		validation.valid = false
 		validation.fallbackReason = occFallbackReasonMaxIncarnation
 		return occExecutionTask{}, errOCCMaxIncarnation
 	}
@@ -452,7 +451,6 @@ type occExecutionTask struct {
 }
 
 type occValidationResult struct {
-	valid          bool
 	fallbackReason string
 	rerunCount     uint64
 	conflictCount  uint64
@@ -482,14 +480,7 @@ func validateSTMResultAgainstPrefix(
 	gasLimit uint64,
 	sourcePrefix int,
 ) bool {
-	if result.gasUsed > math.MaxUint64-cumulativeGasUsed {
-		validation.valid = false
-		validation.fallbackReason = occFallbackReasonGasOverflow
-		return false
-	}
-	if cumulativeGasUsed > gasLimit || result.gasLimit > gasLimit-cumulativeGasUsed {
-		validation.valid = false
-		validation.fallbackReason = occFallbackReasonGasLimit
+	if err := stmGasValidationError(validation, result, cumulativeGasUsed, gasLimit); err != nil {
 		return false
 	}
 	conflictsBefore := validation.conflictCount
@@ -498,9 +489,20 @@ func validateSTMResultAgainstPrefix(
 	if validation.conflictCount == conflictsBefore {
 		return true
 	}
-	validation.valid = false
 	validation.fallbackReason = occFallbackReasonConflict
 	return false
+}
+
+func stmGasValidationError(validation *occValidationResult, result occTxExecution, cumulativeGasUsed uint64, gasLimit uint64) error {
+	if result.gasUsed > math.MaxUint64-cumulativeGasUsed {
+		validation.fallbackReason = occFallbackReasonGasOverflow
+		return errors.New(occFallbackReasonGasOverflow)
+	}
+	if cumulativeGasUsed > gasLimit || result.gasLimit > gasLimit-cumulativeGasUsed {
+		validation.fallbackReason = occFallbackReasonGasLimit
+		return core.ErrGasLimitReached
+	}
+	return nil
 }
 
 func (r *occValidationResult) addConflicts(access string, writes *stateAccessIndex, set map[stateAccessKey]struct{}, sourcePrefix int) {
@@ -523,11 +525,13 @@ func (r *occValidationResult) addConflicts(access string, writes *stateAccessInd
 
 func (r occValidationResult) stats(fallback bool) OCCStats {
 	stats := OCCStats{
-		Attempted:      true,
-		Fallback:       fallback,
-		FallbackReason: r.fallbackReason,
-		RerunCount:     r.rerunCount,
-		ConflictCount:  r.conflictCount,
+		Attempted:     true,
+		Fallback:      fallback,
+		RerunCount:    r.rerunCount,
+		ConflictCount: r.conflictCount,
+	}
+	if fallback {
+		stats.FallbackReason = r.fallbackReason
 	}
 	if len(r.conflicts) == 0 {
 		return stats
@@ -789,10 +793,6 @@ func newStateAccessIndex() *stateAccessIndex {
 	}
 }
 
-func (i *stateAccessIndex) conflictsWith(key stateAccessKey) bool {
-	return i.conflictsWithAfter(key, 0)
-}
-
 func (i *stateAccessIndex) conflictsWithAfter(key stateAccessKey, sourcePrefix int) bool {
 	if i.hasWriteAtOrAfter(i.exact, key, sourcePrefix) {
 		return true
@@ -829,10 +829,6 @@ func (i *stateAccessIndex) addAllAt(txIndex int, set map[stateAccessKey]struct{}
 			i.recordAddressWrite(i.account, key.address, txIndex)
 		}
 	}
-}
-
-func (i *stateAccessIndex) addCommutativeBalanceDeltas(deltas map[common.Address]*big.Int) {
-	i.addCommutativeBalanceDeltasAt(math.MaxInt, deltas)
 }
 
 func (i *stateAccessIndex) addCommutativeBalanceDeltasAt(txIndex int, deltas map[common.Address]*big.Int) {

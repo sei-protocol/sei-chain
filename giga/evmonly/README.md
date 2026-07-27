@@ -155,21 +155,21 @@ custom precompile addresses return `ErrCustomPrecompilesOpen`.
 ## Block-STM execution
 
 When `OCCWorkers > 1`, there is more than one transaction, and custom precompiles
-are not enabled, the executor attempts optimistic parallel execution. The
-Block-STM scheduler runs two pools: an execution pool and a validation pool.
-Initial incarnations for all transactions are queued into the execution pool
-against the base state. Every completed incarnation is queued into the validation
-pool, where validation compares its recorded balance, nonce, code, account, and
+are not enabled, the executor attempts optimistic parallel execution. Initial
+incarnations are split into execution ranges and run through the shared OCC
+worker pool against the base state. Worker fan-out is clamped to the amount of
+available work, so small blocks do not spawn idle workers and can still split
+down to one transaction per range. Validation then walks transaction order,
+comparing each incarnation's recorded balance, nonce, code, account, and
 `(address, slot)` storage reads/writes against writes accepted after that
 incarnation's source prefix.
 
 - transactions with no dependency on newly accepted prior writes are retained
   until they can be accepted in block order
 - transactions whose reads, writes, gas-pool availability, or execution errors
-  are invalidated by the accepted prefix are queued back into the execution pool
-  as a new incarnation against an immutable snapshot of that prefix
-- reruns can execute while earlier transaction validations are still progressing,
-  but final acceptance still happens in block order
+  are invalidated by the accepted prefix are batched into a rerun round against
+  an immutable snapshot of the first blocked prefix
+- rerun rounds execute concurrently through the shared OCC worker pool
 - rerun outputs replace only that transaction's prior incarnation
 - the final changeset is generated from the accepted prefix state, not by
   blindly merging mixed-base speculative writes
@@ -208,6 +208,8 @@ reruns instead.
   by `(address, slot)` and does not require or expose range iteration.
 - The map-backed `MemoryState` is for tests and early integration; production
   should provide a durable native state backend.
-- Historical `BLOCKHASH` lookups beyond the parent block are not wired yet.
+- Historical `BLOCKHASH` lookups beyond the parent block are not wired yet; this
+  needs an explicit runtime hash-source integration before consensus wiring.
 - Block-level blob gas accounting and `MaxBlobGasPerBlock` enforcement are not
-  wired yet, so blob transactions are rejected fail-closed.
+  wired yet; this needs explicit consensus integration before blob transactions
+  can be enabled. Blob transactions are rejected fail-closed until then.

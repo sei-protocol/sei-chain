@@ -17,7 +17,11 @@ import (
 	"github.com/holiman/uint256"
 )
 
-var errInsufficientBalance = errors.New("insufficient balance")
+var (
+	errInsufficientBalance   = errors.New("insufficient balance")
+	errStateBalanceOverflow  = errors.New("state balance exceeds uint256")
+	errStateBalanceUnderflow = errors.New("state balance is negative")
+)
 
 type nativeStateDB struct {
 	source StateReader
@@ -470,6 +474,7 @@ func (s *nativeStateDB) SelfDestruct(addr common.Address) uint256.Int {
 	prev := *acct.Balance.Clone()
 	s.recordAccount(addr)
 	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
+	s.markWrite(stateAccessKey{kind: stateAccessBalance, address: addr})
 	acct.Balance.Clear()
 	acct.SelfDestructed = true
 	s.markForFinalise(addr)
@@ -540,22 +545,26 @@ func (s *nativeStateDB) AddSlotToAccessList(addr common.Address, slot common.Has
 	slots[slot] = struct{}{}
 }
 
-func (s *nativeStateDB) Prepare(_ params.Rules, sender, coinbase common.Address, dest *common.Address, precompiles []common.Address, txAccesses ethtypes.AccessList) {
+func (s *nativeStateDB) Prepare(rules params.Rules, sender, coinbase common.Address, dest *common.Address, precompiles []common.Address, txAccesses ethtypes.AccessList) {
 	s.accessList.reset()
 	clearNestedHashMaps(s.transientStates)
-	s.AddAddressToAccessList(sender)
-	s.AddAddressToAccessList(coinbase)
-	if dest != nil {
-		s.AddAddressToAccessList(*dest)
-	}
-	for _, addr := range precompiles {
-		s.AddAddressToAccessList(addr)
-	}
-	for _, tuple := range txAccesses {
-		s.AddAddressToAccessList(tuple.Address)
-		for _, key := range tuple.StorageKeys {
-			s.AddSlotToAccessList(tuple.Address, key)
+	if rules.IsBerlin {
+		s.AddAddressToAccessList(sender)
+		if dest != nil {
+			s.AddAddressToAccessList(*dest)
 		}
+		for _, addr := range precompiles {
+			s.AddAddressToAccessList(addr)
+		}
+		for _, tuple := range txAccesses {
+			s.AddAddressToAccessList(tuple.Address)
+			for _, key := range tuple.StorageKeys {
+				s.AddSlotToAccessList(tuple.Address, key)
+			}
+		}
+	}
+	if rules.IsShanghai {
+		s.AddAddressToAccessList(coinbase)
 	}
 }
 
@@ -1046,8 +1055,12 @@ func (s *nativeStateDB) finaliseTxStorage() {
 }
 
 func (s *nativeStateDB) loadAccount(addr common.Address) *nativeAccount {
+	balance, err := uint256FromBig(s.source.GetBalance(addr))
+	if err != nil && s.err == nil {
+		s.err = err
+	}
 	acct := &nativeAccount{
-		Balance: uint256FromBig(s.source.GetBalance(addr)),
+		Balance: balance,
 		Nonce:   s.source.GetNonce(addr),
 		Code:    cloneBytes(s.source.GetCode(addr)),
 		Storage: map[common.Hash]storageValue{},
@@ -1299,16 +1312,19 @@ func storageKeyUnion(a, b map[common.Hash]storageValue) []common.Hash {
 	return keys
 }
 
-func uint256FromBig(v *big.Int) *uint256.Int {
+func uint256FromBig(v *big.Int) (*uint256.Int, error) {
 	if v == nil {
-		return uint256.NewInt(0)
+		return uint256.NewInt(0), nil
+	}
+	if v.Sign() < 0 {
+		return uint256.NewInt(0), errStateBalanceUnderflow
 	}
 	u, overflow := uint256.FromBig(v)
 	if overflow {
-		panic("state balance exceeds uint256")
+		return uint256.NewInt(0), errStateBalanceOverflow
 	}
 	if u == nil {
-		return uint256.NewInt(0)
+		return uint256.NewInt(0), nil
 	}
-	return u
+	return u, nil
 }

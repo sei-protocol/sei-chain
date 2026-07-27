@@ -83,7 +83,8 @@ type BlockResult struct {
 
 // Release returns a pooled BlockResult to its executor-owned pool. It is a
 // no-op for results that were not allocated from a pool. Release is idempotent
-// and safe for concurrent callers.
+// and safe for concurrent callers until the result is reacquired; callers must
+// not retain the pointer after releasing it.
 func (r *BlockResult) Release() {
 	if r == nil {
 		return
