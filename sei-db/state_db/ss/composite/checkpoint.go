@@ -231,7 +231,7 @@ func (m *checkpointManager) createCheckpoint(version int64) error {
 	}
 
 	cosmosDest := filepath.Join(tmpDir, "cosmos", m.backend)
-	if err := os.MkdirAll(filepath.Dir(cosmosDest), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(cosmosDest), 0o750); err != nil {
 		return fmt.Errorf("create checkpoint dir: %w", err)
 	}
 	if err := m.store.cosmosStore.(types.Checkpointable).Checkpoint(cosmosDest); err != nil {
@@ -240,7 +240,7 @@ func (m *checkpointManager) createCheckpoint(version int64) error {
 	}
 	if m.store.evmStore != nil {
 		evmDest := filepath.Join(tmpDir, "evm", m.backend)
-		if err := os.MkdirAll(filepath.Dir(evmDest), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(evmDest), 0o750); err != nil {
 			_ = os.RemoveAll(tmpDir)
 			return fmt.Errorf("create EVM checkpoint dir: %w", err)
 		}

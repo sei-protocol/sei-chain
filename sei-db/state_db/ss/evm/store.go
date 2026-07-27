@@ -392,7 +392,7 @@ func (s *EVMStateStore) Checkpoint(destDir string) error {
 		return checkpointDB(db, destDir)
 	}
 
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+	if err := os.MkdirAll(destDir, 0o750); err != nil {
 		return fmt.Errorf("create EVM checkpoint dir %q: %w", destDir, err)
 	}
 	for _, storeType := range AllEVMStoreTypes() {
