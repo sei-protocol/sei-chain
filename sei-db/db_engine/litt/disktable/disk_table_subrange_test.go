@@ -59,6 +59,9 @@ func TestGetSubrange(t *testing.T) {
 					require.True(t, ok, stage)
 					require.NotNil(t, got, stage)
 					require.Equal(t, value[r.off:r.off+r.length], got, stage)
+					// The sub-range may alias the whole value in memory, so its capacity must stop at its
+					// length: otherwise an append by the caller would overwrite the bytes that follow.
+					require.Equal(t, len(got), cap(got), stage)
 				}
 
 				// A sub-range read of a secondary key stays within the secondary's aliased region.

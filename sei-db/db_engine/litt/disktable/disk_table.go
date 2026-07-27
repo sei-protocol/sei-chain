@@ -997,7 +997,10 @@ func (d *DiskTable) GetSubrange(key []byte, offset uint32, length uint32) (value
 			return nil, false, fmt.Errorf(
 				"subrange [%d, %d) is out of bounds for value of length %d", offset, end, len(full))
 		}
-		return full[offset:end], true, nil
+		// Capped (three-index) slice: without it the sub-range would carry spare capacity reaching into
+		// the rest of the live unflushed value, and an append by the caller would silently overwrite the
+		// bytes that follow. Capping forces such an append to allocate instead.
+		return full[offset:end:end], true, nil
 	}
 
 	// Look up the address of the data.

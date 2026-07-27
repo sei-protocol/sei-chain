@@ -594,11 +594,15 @@ func getSubrangeParityTest(t *testing.T, tb *tableBuilder) {
 		require.NoError(t, err, stage)
 		require.True(t, ok, stage)
 		require.Equal(t, []byte("quick"), got, stage)
+		// A hit slices a buffer holding the whole value (an unflushed write, or a cache entry), so the
+		// capacity must stop at the length or an append by the caller would corrupt the rest of it.
+		require.Equal(t, len(got), cap(got), stage)
 
 		got, ok, err = table.GetSubrange(sk.Key, 6, 3)
 		require.NoError(t, err, stage)
 		require.True(t, ok, stage)
 		require.Equal(t, []byte("fox"), got, stage)
+		require.Equal(t, len(got), cap(got), stage)
 
 		// A zero-length range is valid and yields an empty, non-nil slice.
 		got, ok, err = table.GetSubrange(primary, uint32(len(value)), 0)
@@ -679,6 +683,12 @@ func TestGetSubrangeServedFromCache(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, ok, "a cache-resident key must be served from the cache")
 			require.Equal(t, []byte("quick"), got)
+
+			// The slice aliases the cache entry, so its capacity must stop at its length: an append by
+			// the caller must not be able to write into the cached value every later reader shares.
+			require.Equal(t, len(got), cap(got))
+			got = append(got, "-appended"...) //nolint:gocritic // the point is that this must not alias
+			require.Equal(t, []byte("the quick brown fox"), value, "append must not touch the cached value")
 
 			// Bounds are checked against the cached value's length, matching the base table's behavior.
 			_, _, err = table.GetSubrange([]byte(key), uint32(len(value)), 1)

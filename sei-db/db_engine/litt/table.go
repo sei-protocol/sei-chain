@@ -100,7 +100,10 @@ type Table interface {
 	// cachedTable implementation for the full rationale).
 	//
 	// As with Get, the returned data is NOT safe to mutate, and the key byte slice must not be modified
-	// after it is passed to this method.
+	// after it is passed to this method. The returned slice may alias internal memory holding the whole
+	// value (an unflushed write or a cache entry), but its capacity is always capped to its length, so an
+	// append allocates a new array rather than overwriting whatever follows the range in that shared
+	// buffer.
 	GetSubrange(key []byte, offset uint32, length uint32) (value []byte, exists bool, err error)
 
 	// Exists returns true if the key exists in the database, and false otherwise. This is faster than calling Get.

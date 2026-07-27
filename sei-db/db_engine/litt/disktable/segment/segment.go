@@ -739,7 +739,11 @@ func (s *Segment) ReadSubrange(key []byte, dataAddress types.Address, offset uin
 			return nil, fmt.Errorf("subrange [%d, %d) is out of bounds for value of length %d",
 				offset, end, len(value))
 		}
-		return value[offset:end], nil
+		// Capped (three-index) slice, so that every GetSubrange path returns a sub-range whose capacity
+		// stops at its length. The decompression buffer sliced here is not shared with another reader
+		// today, but keeping the guarantee uniform means callers never have to know which path served
+		// them before deciding whether an append is safe.
+		return value[offset:end:end], nil
 	}
 
 	// For an uncompressed value, dataAddress.ValueSize() is the exact value length, so we can bound the
