@@ -98,6 +98,21 @@ func TestComputeBlockBounds(t *testing.T) {
 			wantBegin:    80,
 			wantEnd:      100,
 		},
+		{
+			name:      "nil from with to collapses to single block",
+			latest:    42,
+			toBlock:   big.NewInt(21),
+			wantBegin: 21,
+			wantEnd:   21,
+		},
+		{
+			name:      "pinned from preserves narrowed window start",
+			latest:    42,
+			fromBlock: big.NewInt(1),
+			toBlock:   big.NewInt(21),
+			wantBegin: 1,
+			wantEnd:   21,
+		},
 	}
 
 	for _, tc := range tests {

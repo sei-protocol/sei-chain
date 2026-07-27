@@ -224,6 +224,11 @@ func (k *Keeper) ReceiptStore() receipt.ReceiptStore {
 	return k.receiptStore
 }
 
+// SetReceiptStoreForTesting replaces the keeper's receipt store. Tests only.
+func (k *Keeper) SetReceiptStoreForTesting(store receipt.ReceiptStore) {
+	k.receiptStore = store
+}
+
 func (k *Keeper) WasmKeeper() *wasmkeeper.PermissionedKeeper {
 	return k.wasmKeeper
 }
